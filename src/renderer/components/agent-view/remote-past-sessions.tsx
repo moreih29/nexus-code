@@ -16,6 +16,7 @@ import { ipcCallResult } from "../../ipc/client";
 import type { ListedSession } from "../../services/chat/sessions";
 import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { SessionPicker } from "../chat/session-list";
+import { BannerDismissButton } from "../ui/banner";
 import { showToast } from "../ui/toast";
 
 /** Most sessions asked of that computer: a chat here lists about as many. */
@@ -166,8 +167,11 @@ export function RemoteSessionList({
   return (
     <>
       {failed && !onClose && (
-        <div className="text-app-ui-sm text-[var(--state-error-fg)]">
-          {t("chat.sessions.resume_failed", { message: failed })}
+        <div className="flex items-center gap-2 text-app-ui-sm text-[var(--state-error-fg)]">
+          <span className="flex-1">{t("chat.sessions.resume_failed", { message: failed })}</span>
+          <BannerDismissButton
+            dismiss={{ label: t("action.dismiss"), onDismiss: () => setFailed(null) }}
+          />
         </div>
       )}
       <SessionPicker

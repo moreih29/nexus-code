@@ -240,6 +240,7 @@ export function ContentHost({
             />
           ) : mediaKind ? (
             <MediaEditorView
+              tabId={tab.id}
               key={tab.props.filePath}
               filePath={tab.props.filePath}
               workspaceId={workspaceId}

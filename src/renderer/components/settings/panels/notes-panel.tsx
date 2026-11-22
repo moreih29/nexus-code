@@ -3,17 +3,20 @@
  * folder), with the ones no workspace in the app is at marked "Not linked".
  * A location's notes can be shown in Finder or moved to the Trash.
  */
+
 import { FolderOpen, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { ipcErrorToAppError } from "../../../../shared/ipc/result";
 import type { NoteStorageEntry } from "../../../../shared/notes/types";
+import { bannerEventId, useBannerDismissal } from "../../../hooks/use-banner-dismissal";
 import { useIpcAction } from "../../../hooks/use-ipc-action";
 import { ipcCallResult } from "../../../ipc/client";
 import { surfaceError } from "../../../services/error-surface/surface-error";
 import { notesApi } from "../../../services/notes/api";
 import { formatBytes } from "../../../utils/format-bytes";
+import { BannerDismissButton } from "../../ui/banner";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
 import { SettingsGroup, SettingsPage } from "../section";
@@ -57,6 +60,10 @@ export function NotesPanel() {
   }, [cancelLoad, load]);
 
   const loadError = loadState.status === "error" ? loadState.error : null;
+  const loadNotice = useBannerDismissal(
+    ["settings-notes-storage"],
+    loadError ? [bannerEventId(loadError)] : undefined,
+  );
   const [loadMessage, setLoadMessage] = useState<string | null>(null);
   useEffect(() => {
     if (!loadError) {
@@ -103,7 +110,7 @@ export function NotesPanel() {
   return (
     <SettingsPage>
       <SettingsGroup title={t("storage.heading")} description={t("storage.description")}>
-        {loadError && (
+        {loadError && !loadNotice.dismissed && (
           <div className="flex items-center justify-between gap-2">
             {loadMessage && (
               <p role="alert" className="text-app-ui-sm text-muted-foreground">
@@ -113,6 +120,7 @@ export function NotesPanel() {
             <Button size="sm" variant="outline" onClick={load}>
               {t("common:action.retry")}
             </Button>
+            <BannerDismissButton dismiss={loadNotice.dismiss} />
           </div>
         )}
         {entries === null ? null : entries.length === 0 ? (

@@ -239,6 +239,7 @@ export function chatStatusOf({ agent, title, chat }: ChatSource): ChatStatus {
     ...(model.interrupting ? { interrupting: true } : {}),
     process: model.process,
     phase: chat.phase,
+    ...(chat.phaseRevision !== undefined ? { phaseRevision: chat.phaseRevision } : {}),
     ...(chat.error ? { error: chat.error.slice(0, MAX_STATUS_TEXT) } : {}),
     ...(version ? { version } : {}),
     ...((model as Partial<CodexModel>).signedOut ? { signedOut: true } : {}),

@@ -8,6 +8,8 @@ import { canResumeInTerminal, resumeInTerminal } from "@/services/agent-view/res
 import { getTerminalController } from "@/services/terminal/terminal-registry";
 import type { TerminalInputCheckpoint } from "@/services/terminal/types";
 import { createLogger } from "../../../shared/log/renderer";
+import { bannerEventId, useBannerDismissal } from "../../hooks/use-banner-dismissal";
+import { BannerDismissButton } from "../ui/banner";
 import { Button } from "../ui/button";
 
 const log = createLogger("agent-view");
@@ -32,6 +34,11 @@ export function EndedBar({
   );
   const available = () => canResumeInTerminal(tabId, checkpoint);
   const canResume = useSyncExternalStore(subscribe, available, available);
+  const notice = useBannerDismissal(
+    ["terminal-agent-ended", terminal.workspaceId, tabId],
+    [bannerEventId(ended)],
+  );
+  if (notice.dismissed) return null;
 
   const resume = (): void => {
     if (!line) return;
@@ -69,6 +76,7 @@ export function EndedBar({
             {line}
           </code>
         ))}
+      <BannerDismissButton dismiss={notice.dismiss} className="ml-auto" />
     </div>
   );
 }

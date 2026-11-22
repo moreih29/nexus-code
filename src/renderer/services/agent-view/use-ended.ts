@@ -57,10 +57,12 @@ export function useEndedAgents(
   const stored = useAgentViewStore((s) => s.ended);
 
   const seen = useRef<SeenAgents>(NONE);
+  const kept = useRef(NONE);
   seen.current = noteSeen(
     withKept(seen.current, stored),
     [...agents.byKey.values()].map((entry) => entry.session),
     (key) => activity.get(key)?.sessionId,
+    kept.current,
   );
   const next = endedAgents(
     held,
@@ -68,7 +70,6 @@ export function useEndedAgents(
     (key) => agents.byKey.has(key),
     (key) => liveTerminals.includes(key),
   );
-  const kept = useRef(NONE);
   if (!sameEnded(kept.current, next)) kept.current = next;
   const ended = kept.current;
 

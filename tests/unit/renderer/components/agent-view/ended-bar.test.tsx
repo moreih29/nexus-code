@@ -63,7 +63,7 @@ test("after typing, the resume command is selectable and a stale click does not 
       <EndedBar ended={ended} terminal={terminal} checkpoint={checkpoint} />,
     );
     expect(html).toMatch(/<code[^>]+select-text[^>]*>claude --resume resume-id<\/code>/);
-    expect(html).not.toContain("<button");
+    expect(html).toContain('aria-label="Dismiss"');
 
     await resumeInTerminal(terminal, line, checkpoint);
     expect(submitted).toEqual([]);
@@ -89,13 +89,13 @@ test("a restored banner with no checkpoint offers a selectable command", () => {
   try {
     const html = renderToStaticMarkup(<EndedBar ended={ended} terminal={terminal} />);
     expect(html).toContain("<code");
-    expect(html).not.toContain("<button");
+    expect(html).toContain('aria-label="Dismiss"');
   } finally {
     unregister();
   }
 });
 
-test("a finished agent without a supported command shows only its status", () => {
+test("a finished agent without a supported command still has a dismiss button", () => {
   const html = renderToStaticMarkup(
     <EndedBar
       ended={{ agent: undefined, sessionId: undefined, prompted: false }}
@@ -104,5 +104,5 @@ test("a finished agent without a supported command shows only its status", () =>
   );
   expect(html).toContain('role="status"');
   expect(html).not.toContain("<code");
-  expect(html).not.toContain("<button");
+  expect(html).toContain('aria-label="Dismiss"');
 });

@@ -24,6 +24,7 @@ import type {
   GitStatusEntry,
 } from "../../../../../shared/git/types";
 import type { ViewMode } from "../../../../../shared/types/panel";
+import type { useBannerDismissal } from "../../../../hooks/use-banner-dismissal";
 import type { GitStoreError } from "../../../../state/stores/git";
 import type { GitActionButtonState } from "../../../../state/stores/git/action-button";
 import { EmptyState } from "../../../ui/empty-state";
@@ -56,6 +57,7 @@ export interface GitPanelBodyProps {
 
   // Operation banner / commit input (shown when panelSegment === "changes")
   activeOperation: ActiveGitOperationState | null;
+  operationNotice: ReturnType<typeof useBannerDismissal>;
   lastError: GitStoreError | null | undefined;
   inFlightKind: string | null | undefined;
   onContinueOp: () => void;
@@ -102,6 +104,7 @@ export function GitPanelBody({
   historyRef,
   onHistoryRefChange,
   activeOperation,
+  operationNotice,
   lastError,
   inFlightKind,
   onContinueOp,
@@ -165,6 +168,7 @@ export function GitPanelBody({
           {activeOperation ? (
             <OperationBanner
               state={activeOperation}
+              notice={operationNotice}
               error={lastError}
               inFlightKind={inFlightKind}
               onContinue={onContinueOp}

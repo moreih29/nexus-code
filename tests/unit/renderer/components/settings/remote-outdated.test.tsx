@@ -37,9 +37,12 @@ describe("the update a server that no longer takes this version asks for", () =>
   });
 
   test("the Other computers list: one line, and a button to the update", () => {
-    const html = renderToStaticMarkup(<OutdatedLine />);
+    const html = renderToStaticMarkup(
+      <OutdatedLine dismiss={{ label: "Dismiss", onDismiss: () => {} }} />,
+    );
     expect(html).toContain('data-testid="remote-outdated"');
     expect(html).toContain("This version can&#x27;t connect");
     expect(html).toContain(">Update<");
+    expect(html).toContain('aria-label="Dismiss"');
   });
 });

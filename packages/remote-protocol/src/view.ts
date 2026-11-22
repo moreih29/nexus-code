@@ -261,6 +261,8 @@ export const ChatStatusSchema = z.object({
    * before it opens. Since 0.13.0.
    */
   phase: z.string().optional(),
+  /** Revision of the process phase, including successive failures with the same details. */
+  phaseRevision: NumberSchema.optional(),
   /** Why it failed, or what was not found. Since 0.13.0. */
   error: z.string().optional(),
   /** Its program's version, as it told it. Since 0.13.0. */
@@ -451,6 +453,8 @@ export const ChatPanelSchema = z.object({
   limitResume: z
     .object({
       state: z.string().max(32),
+      /** Time of the turn result that hit the limit, in Unix milliseconds. */
+      stopAt: NumberSchema.optional(),
       at: NumberSchema.optional(),
       resetsAt: NumberSchema.optional(),
       tries: NonnegativeIntegerSchema.optional(),

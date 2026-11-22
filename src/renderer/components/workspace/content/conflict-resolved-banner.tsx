@@ -14,7 +14,7 @@
  * state is passed in by the caller (EditorView) as props.
  */
 import { useTranslation } from "react-i18next";
-import { Banner } from "../../ui/banner";
+import { Banner, type BannerDismiss } from "../../ui/banner";
 
 // ---------------------------------------------------------------------------
 // Visibility predicate — pure, testable
@@ -43,6 +43,7 @@ export function shouldShowConflictResolvedBanner(
 // ---------------------------------------------------------------------------
 
 interface ConflictResolvedBannerProps {
+  dismiss?: BannerDismiss;
   /** True when git still lists this file as conflicted (conflictType !== null). */
   isConflicted: boolean;
   /** True when the editor buffer contains `<<<<<<<` conflict markers. */
@@ -58,6 +59,7 @@ interface ConflictResolvedBannerProps {
  * providing up-to-date `isConflicted` and `hasMarkers` values.
  */
 export function ConflictResolvedBanner({
+  dismiss,
   isConflicted,
   hasMarkers,
   onMarkResolved,
@@ -68,6 +70,7 @@ export function ConflictResolvedBanner({
   return (
     <Banner
       display="bar"
+      dismiss={dismiss}
       variant="success"
       message={t("editor.conflicts_resolved")}
       actions={[{ label: t("action.mark_resolved"), onAction: onMarkResolved }]}

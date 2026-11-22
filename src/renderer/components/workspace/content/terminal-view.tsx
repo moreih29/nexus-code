@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import "@xterm/xterm/css/xterm.css";
 import { ipcListen } from "@/ipc/client";
-import { registerTabFocusTarget } from "@/services/tab-focus";
+import { registerTabFocusTarget, requestTabFocus } from "@/services/tab-focus";
 import { createTerminalController } from "@/services/terminal";
 import { subscribeTerminalReopenRequest } from "@/services/terminal/reopen-requests";
 import { registerTerminalController } from "@/services/terminal/terminal-registry";
@@ -12,7 +12,9 @@ import type { TerminalController } from "@/services/terminal/types";
 import { useTabsStore } from "@/state/stores/tabs";
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
-import { Banner } from "../../ui/banner";
+import type { TerminalTabProps } from "../../../../shared/types/layout";
+import { bannerEventId, useBannerDismissal } from "../../../hooks/use-banner-dismissal";
+import { Banner, type BannerDismiss } from "../../ui/banner";
 
 interface TerminalViewProps {
   workspaceId: string;
@@ -48,6 +50,8 @@ interface TerminalViewProps {
 
 type ReopenState = "idle" | "reopening" | "failed";
 
+const reopenFailures = new WeakMap<TerminalTabProps, number>();
+
 /**
  * Grace window for daemon reattach after disconnect (300 s, matches daemon constant).
  * Only used for countdown display — the exact sync with daemon is not required.
@@ -55,6 +59,7 @@ type ReopenState = "idle" | "reopening" | "failed";
 const REATTACH_GRACE_SECONDS = 300;
 
 export interface DeadTerminalBannerProps {
+  dismiss?: BannerDismiss | undefined;
   message: string;
   actionLabel: string;
   actionDisabled?: boolean;
@@ -92,6 +97,7 @@ export function terminalEndedMessage(reopenState: ReopenState): string {
  * label makes the in-progress state self-evident without an interactive control.
  */
 export function DeadTerminalBanner({
+  dismiss,
   message,
   actionLabel,
   actionDisabled = false,
@@ -102,6 +108,7 @@ export function DeadTerminalBanner({
       display="bar"
       variant="info"
       message={message}
+      dismiss={dismiss}
       actions={actionDisabled ? [] : [{ label: actionLabel, onAction: onReopen }]}
       role="status"
     />
@@ -167,7 +174,8 @@ export function TerminalView({
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<TerminalController | null>(null);
-  const [reopenState, setReopenState] = useState<ReopenState>("idle");
+  const reopenPending = useRef(false);
+  const [reopen, setReopen] = useState({ pending: false });
 
   // ---------------------------------------------------------------------------
   // PTY hold/restore/expire state — driven by pty.held / pty.restored / pty.expired
@@ -245,12 +253,21 @@ export function TerminalView({
     return () => clearInterval(interval);
   }, [heldAt]);
 
-  const terminalEnded = useTabsStore((s) => {
+  const endedTerminal = useTabsStore((s) => {
     const tab = s.byWorkspace[workspaceId]?.[tabId];
-    return tab?.type === "terminal" ? Boolean(tab.props.dead) : false;
+    return tab?.type === "terminal" && tab.props.dead ? tab.props : undefined;
   });
+  const terminalEnded = endedTerminal !== undefined;
+  const failures = endedTerminal ? (reopenFailures.get(endedTerminal) ?? 0) : 0;
+  const reopenState: ReopenState = reopen.pending ? "reopening" : failures > 0 ? "failed" : "idle";
   const workspaceOnline = useWorkspacesStore((s) => selectIsWorkspaceOnline(s, workspaceId));
-  const showEndedBanner = shouldShowTerminalEndedBanner(terminalEnded, workspaceOnline);
+  const endedNotice = useBannerDismissal(
+    ["terminal-ended", workspaceId, tabId],
+    endedTerminal ? [bannerEventId(endedTerminal), failures] : undefined,
+  );
+  const showEndedBanner =
+    shouldShowTerminalEndedBanner(terminalEnded, workspaceOnline) &&
+    (reopenState === "reopening" || !endedNotice.dismissed);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -274,7 +291,6 @@ export function TerminalView({
         setShowInputHint(false);
         setShowRestoredFlash(false);
         useTabsStore.getState().setTerminalDead(workspaceId, tabId, true);
-        setReopenState("idle");
       },
     });
     controllerRef.current = controller;
@@ -308,34 +324,30 @@ export function TerminalView({
   }, [isHeld]);
 
   const handleReopen = useCallback(async (): Promise<void> => {
-    if (reopenState === "reopening") return;
-    setReopenState("reopening");
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (reopenPending.current || tab?.type !== "terminal" || !tab.props.dead) return;
+    const ended = tab.props;
+    reopenPending.current = true;
+    setReopen({ pending: true });
     try {
       const controller = controllerRef.current;
       if (!controller) throw new Error("terminal unavailable");
       await controller.reopen();
       useTabsStore.getState().setTerminalDead(workspaceId, tabId, false);
-      setReopenState("idle");
     } catch {
-      setReopenState("failed");
+      reopenFailures.set(ended, (reopenFailures.get(ended) ?? 0) + 1);
+    } finally {
+      reopenPending.current = false;
+      setReopen({ pending: false });
     }
-  }, [reopenState, workspaceId, tabId]);
-
-  // Keep a stable ref to the latest handler so the subscription below does not
-  // need to re-subscribe every time reopenState changes. Without this, a state
-  // transition (idle → reopening) would momentarily leave no subscriber, and
-  // any external "Reopen all" that arrives during that gap would be silently
-  // dropped.
-  const handleReopenRef = useRef(handleReopen);
-  useEffect(() => {
-    handleReopenRef.current = handleReopen;
-  });
-
-  useEffect(() => {
-    return subscribeTerminalReopenRequest(workspaceId, tabId, () => {
-      void handleReopenRef.current();
-    });
   }, [workspaceId, tabId]);
+
+  useEffect(() => {
+    // Enter in xterm and the workspace's Reopen All both use this path.
+    return subscribeTerminalReopenRequest(workspaceId, tabId, () => {
+      void handleReopen();
+    });
+  }, [workspaceId, tabId, handleReopen]);
 
   // Refresh xterm whenever the DOM was reparented or visibility flipped
   // back to true. `ownerLeafId` is read by the effect indirectly: when the
@@ -362,6 +374,17 @@ export function TerminalView({
     activeBanner = (
       <DeadTerminalBanner
         message={terminalEndedMessage(reopenState)}
+        dismiss={
+          reopenState === "reopening"
+            ? undefined
+            : {
+                label: endedNotice.dismiss.label,
+                onDismiss: () => {
+                  endedNotice.dismiss.onDismiss();
+                  requestTabFocus(tabId);
+                },
+              }
+        }
         actionLabel={
           reopenState === "failed"
             ? t("action.retry")
@@ -371,6 +394,7 @@ export function TerminalView({
         }
         actionDisabled={reopenState === "reopening"}
         onReopen={() => {
+          requestTabFocus(tabId);
           void handleReopen();
         }}
       />

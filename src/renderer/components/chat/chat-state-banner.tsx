@@ -1,60 +1,82 @@
-/**
- * Where another computer's chat stands with its program, in the banners a
- * chat here shows over its messages: starting, held, ended (with what it
- * wrote to stderr, and starting it again), its session not found, or
- * failed (and trying again). A computer before protocol 0.13.0 tells only
- * that its program exited: that ends it, with nothing to do from here.
- *
- * A Codex chat whose program is not signed in shows the banner a Codex
- * tab here does, with signing in there and asking it again.
- */
-
 import { useTranslation } from "react-i18next";
 import type { ChatStatus } from "../../../../packages/remote-protocol/src/view";
+import { type BannerScope, useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/claude/versions";
 import { MIN_CODEX_VERSION } from "../../services/chat/codex/controller";
 import { Banner } from "../ui/banner";
 
-export function RemotePhaseBanner({
+type ChatNoticeStatus = Pick<ChatStatus, "agent" | "process"> & {
+  phase?: string | undefined;
+  error?: string | undefined;
+  version?: string | null | undefined;
+  exit?: ChatStatus["exit"];
+  phaseRevision?: number | undefined;
+  signedOut?: boolean | undefined;
+};
+
+export function ChatPhaseBanner({
+  scope,
   status,
   onRestart,
+  onRetry = onRestart,
+  className,
 }: {
-  status: ChatStatus;
-  /** Starts it again, or opens it again where it failed: where this device may. */
+  scope: BannerScope;
+  status: ChatNoticeStatus;
   onRestart?: () => void;
+  onRetry?: () => void;
+  className?: string;
 }) {
   const { t } = useTranslation();
   const claude = status.agent === "claude";
   const words = (name: string) => t(claude ? `chat.phase.${name}` : `chat.codex.${name}`);
-  const retry = onRestart ? [{ label: t("chat.phase.retry"), onAction: onRestart }] : undefined;
+  const retry = onRetry ? [{ label: t("chat.phase.retry"), onAction: onRetry }] : undefined;
   const phase = status.phase ?? (status.process === "exited" ? "ended" : undefined);
+  const { dismiss, dismissed } = useBannerDismissal(
+    [...scope, "phase"],
+    [
+      phase,
+      status.phaseRevision,
+      status.error,
+      status.version,
+      status.exit?.code,
+      status.exit?.signal,
+      status.exit?.stderrTail,
+    ],
+    true,
+  );
+  if (dismissed) return null;
+  const wrap = (banner: React.ReactNode) =>
+    className ? <div className={className}>{banner}</div> : banner;
   switch (phase) {
     case "starting":
-      return <Banner variant="info" message={words("starting")} />;
+      return wrap(<Banner variant="info" message={words("starting")} />);
     case "held":
-      return <Banner variant="warning" message={words("held")} />;
+      return wrap(<Banner variant="warning" message={words("held")} />);
     case "ended":
-      return (
+      return wrap(
         <Banner
           variant="info"
           message={words("ended")}
+          dismiss={dismiss}
           details={status.exit?.stderrTail || undefined}
           {...(onRestart
             ? { actions: [{ label: t("chat.phase.restart"), onAction: onRestart }] }
             : {})}
-        />
+        />,
       );
     case "not-found":
-      return (
+      return wrap(
         <Banner
           variant="error"
           message={words("not_found")}
+          dismiss={dismiss}
           details={status.error}
           {...(retry ? { actions: retry } : {})}
-        />
+        />,
       );
     case "failed":
-      return (
+      return wrap(
         <Banner
           variant="error"
           message={
@@ -65,29 +87,37 @@ export function RemotePhaseBanner({
                 })
               : words("failed")
           }
+          dismiss={dismiss}
           details={status.error === "old-version" ? undefined : status.error}
           {...(retry ? { actions: retry } : {})}
-        />
+        />,
       );
     default:
       return null;
   }
 }
 
-export function RemoteSignedOutBanner({
+export function ChatSignedOutBanner({
+  scope,
   status,
   onSignIn,
   onCheck,
 }: {
-  status: ChatStatus;
+  scope: BannerScope;
+  status: ChatNoticeStatus;
   /** Opens a terminal there that signs in, shown here: where this device may. */
   onSignIn?: () => void;
   /** Asks its program again whether it is signed in: where this device may. */
   onCheck?: () => void;
 }) {
   const { t } = useTranslation();
-  // As a Codex tab here: only while its program runs.
-  if (!status.signedOut || status.process !== "running") return null;
+  const signedOut = status.signedOut && status.process === "running";
+  const { dismiss, dismissed } = useBannerDismissal(
+    [...scope, "signed-out"],
+    signedOut ? [true] : undefined,
+    true,
+  );
+  if (!signedOut || dismissed) return null;
   const actions = [
     ...(onSignIn ? [{ label: t("chat.codex.sign_in"), onAction: onSignIn }] : []),
     ...(onCheck ? [{ label: t("chat.codex.sign_in_check"), onAction: onCheck }] : []),
@@ -97,6 +127,7 @@ export function RemoteSignedOutBanner({
       <Banner
         variant="warning"
         message={t("chat.codex.signed_out")}
+        dismiss={dismiss}
         {...(actions.length > 0 ? { actions } : {})}
       />
     </div>

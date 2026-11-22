@@ -5,6 +5,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import type { DiffTabPayload } from "../../../shared/types/tab";
+import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import { useMonacoThemeName } from "../../hooks/use-monaco-theme-name";
 import {
   type DiffStaging,
@@ -15,6 +16,7 @@ import { useDiffWorkingFile } from "../../services/editor/tabs";
 import type { EditorInput } from "../../services/editor/types";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { formatBytes } from "../../utils/format-bytes";
+import { type BannerDismiss, BannerDismissButton } from "../ui/banner";
 import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
 import {
@@ -156,6 +158,16 @@ function DiffView({
   const rightContent = readyContentFor(right);
   const blocking = blockingPlaceholder(left, right, leftContent, rightContent);
   const { workspaceId, relPath, oldRelPath, leftRef, rightRef } = payload;
+  const leftNotice = useBannerDismissal(
+    ["diff-missing", workspaceId, tabId, "left", oldRelPath ?? relPath, leftRef],
+    leftContent?.placeholder === "missing" ? [true] : undefined,
+    true,
+  );
+  const rightNotice = useBannerDismissal(
+    ["diff-missing", workspaceId, tabId, "right", relPath, rightRef],
+    rightContent?.placeholder === "missing" ? [true] : undefined,
+    true,
+  );
   // A side git does not have shows as an empty file; staging lines of it
   // would write an empty file rather than add or remove one.
   const placeholderSide = !!leftContent?.placeholder || !!rightContent?.placeholder;
@@ -196,8 +208,12 @@ function DiffView({
 
   return (
     <DiffShell left={left} right={right} showRefreshing={showRefreshing} onReload={reload}>
-      <MissingContentNotice side="left" content={leftContent} />
-      {!working && <MissingContentNotice side="right" content={rightContent} />}
+      {leftContent.placeholder === "missing" && !leftNotice.dismissed && (
+        <MissingContentNotice side="left" dismiss={leftNotice.dismiss} />
+      )}
+      {!working && rightContent.placeholder === "missing" && !rightNotice.dismissed && (
+        <MissingContentNotice side="right" dismiss={rightNotice.dismiss} />
+      )}
       <div className="min-h-0 flex-1">
         <DiffEditorHost
           tabId={tabId}
@@ -464,16 +480,18 @@ function SideLabel({ label, state }: { label: string; state: DiffSideState }) {
  */
 function MissingContentNotice({
   side,
-  content,
+  dismiss,
 }: {
   side: "left" | "right";
-  content: DiffSideReadyState;
+  dismiss: BannerDismiss;
 }) {
   const { t } = useTranslation();
-  if (content.placeholder !== "missing") return null;
   return (
-    <div className="shrink-0 border-b border-border bg-muted px-3 py-1 text-app-ui-sm text-muted-foreground">
-      {side === "left" ? t("editor.left_missing") : t("editor.right_missing")}
+    <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted px-3 py-1 text-app-ui-sm text-muted-foreground">
+      <span className="flex-1">
+        {side === "left" ? t("editor.left_missing") : t("editor.right_missing")}
+      </span>
+      <BannerDismissButton dismiss={dismiss} className="-my-0.5" />
     </div>
   );
 }

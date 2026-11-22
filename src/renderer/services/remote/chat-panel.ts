@@ -255,6 +255,7 @@ function limitResumeOf({ limitResume: record }: ChatSource): Pick<ChatPanel, "li
   return {
     limitResume: {
       state: record.state,
+      stopAt: record.stopAt,
       ...(record.at !== undefined ? { at: record.at } : {}),
       ...(record.resetsAt !== undefined ? { resetsAt: record.resetsAt } : {}),
       ...(record.tries > 0 ? { tries: record.tries } : {}),

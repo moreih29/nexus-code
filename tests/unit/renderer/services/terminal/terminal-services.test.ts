@@ -148,6 +148,9 @@ const {
 const { createPtyClient, STARTUP_INPUT_QUIET_MS } = await import(
   "../../../../../src/renderer/services/terminal/pty-client"
 );
+const { subscribeTerminalReopenRequest } = await import(
+  "../../../../../src/renderer/services/terminal/reopen-requests"
+);
 const { closeGroup } = await import("../../../../../src/renderer/state/operations");
 const { startTerminalExitListener } = await import(
   "../../../../../src/renderer/state/terminal-exit"
@@ -1288,12 +1291,12 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     resetIpc();
   });
 
-  async function setupHandler() {
+  async function setupHandler(tabId = "tab-keymap") {
     const harness = makeTerminalControllerDeps();
     const controller = createTerminalController(
       {
         workspaceId: WS,
-        tabId: "tab-keymap",
+        tabId,
         cwd: "/workspace",
         container: {} as HTMLElement,
         autoSpawn: false,
@@ -1315,6 +1318,7 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     metaKey?: boolean;
     ctrlKey?: boolean;
     altKey?: boolean;
+    repeat?: boolean;
     isComposing?: boolean;
     keyCode?: number;
     defaultPrevented: boolean;
@@ -1328,6 +1332,7 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     metaKey?: boolean;
     ctrlKey?: boolean;
     altKey?: boolean;
+    repeat?: boolean;
     isComposing?: boolean;
     keyCode?: number;
   }): FakeKeyEvent {
@@ -1338,6 +1343,7 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
       metaKey: opts.metaKey,
       ctrlKey: opts.ctrlKey,
       altKey: opts.altKey,
+      repeat: opts.repeat,
       isComposing: opts.isComposing,
       keyCode: opts.keyCode,
       defaultPrevented: false,
@@ -1348,6 +1354,44 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     };
     return event;
   }
+
+  it("reopens an ended terminal on Enter and consumes held repeats through reopening", async () => {
+    const tab = useTabsStore.getState().createTab(WS, {
+      type: "terminal",
+      props: { cwd: "/workspace" },
+    });
+    const { controller, handler } = await setupHandler(tab.id);
+    const requested = mock(() => {});
+    const unsubscribe = subscribeTerminalReopenRequest(WS, tab.id, requested);
+    const press = (opts: Partial<Parameters<typeof fakeKeyEvent>[0]> = {}) => {
+      const event = fakeKeyEvent({ key: "Enter", ...opts });
+      return { passed: handler(event as unknown as KeyboardEvent), event };
+    };
+    try {
+      expect(press().passed).toBe(true);
+      expect(requested).not.toHaveBeenCalled();
+
+      useTabsStore.getState().setTerminalDead(WS, tab.id, true);
+      expect(press({ isComposing: true }).passed).toBe(true);
+      expect(press({ ctrlKey: true }).passed).toBe(true);
+      expect(requested).not.toHaveBeenCalled();
+      const { passed, event } = press();
+      expect(passed).toBe(false);
+      expect(event.defaultPrevented).toBe(true);
+      expect(requested).toHaveBeenCalledTimes(1);
+      expect(press({ repeat: true }).passed).toBe(false);
+      expect(requested).toHaveBeenCalledTimes(1);
+
+      useTabsStore.getState().setTerminalDead(WS, tab.id, false);
+      expect(press({ repeat: true }).passed).toBe(false);
+      expect(press().passed).toBe(true);
+      expect(press({ repeat: true }).passed).toBe(true);
+      expect(requested).toHaveBeenCalledTimes(1);
+    } finally {
+      unsubscribe();
+      controller.dispose();
+    }
+  });
 
   it("조합 중 bare Cmd(Meta) keydown → return false (xterm 조기 finalize 차단, preventDefault 안 함)", async () => {
     // Regression guard for the Mac Cmd+←/→ duplicate-syllable bug: while an IME

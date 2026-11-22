@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { openTerminal } from "@/services/terminal";
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { bannerEventId, useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import { retryWorkspaceConnection } from "../../state/operations/workspace-selection";
 import { useLayoutStore } from "../../state/stores/layout";
 import { type Tab, useTabsStore } from "../../state/stores/tabs";
@@ -67,6 +68,11 @@ export const WorkspacePanel = memo(function WorkspacePanel({
     deadTerminalCount,
     workspaceOnline,
   });
+
+  const terminalNotice = useBannerDismissal(
+    ["workspace-terminal-status", workspace.id],
+    aggregate ? [bannerEventId(aggregate), deadTerminalCount] : undefined,
+  );
 
   // Whether this workspace needs an offline placeholder instead of the normal panel.
   // Only SSH workspaces that have not yet connected show the placeholder.
@@ -186,9 +192,10 @@ export const WorkspacePanel = memo(function WorkspacePanel({
           other mounted workspace panels (including any active one) survive.
           The logSource includes the workspace id for tracing in the log file. */}
       <ErrorBoundary logSource={`workspace-panel:${workspace.id}`}>
-        {showTerminalStatusBanner && (
+        {showTerminalStatusBanner && !terminalNotice.dismissed && (
           <WorkspaceTerminalStatusBanner
             deadTerminalCount={deadTerminalCount}
+            dismiss={terminalNotice.dismiss}
             onReopenAll={() => {
               requestReopenForDeadTerminalTabs(
                 workspace.id,

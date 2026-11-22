@@ -41,6 +41,7 @@ export function noteSeen(
   seen: SeenAgents,
   sessions: Iterable<AgentSession>,
   sessionIdOf: (key: string) => string | undefined,
+  wasEnded?: ReadonlyMap<string, EndedAgent>,
 ): SeenAgents {
   let next: Map<string, EndedAgent> | null = null;
   for (const session of sessions) {
@@ -53,6 +54,7 @@ export function noteSeen(
       (before?.sessionId === sessionId && before?.prompted === true);
     if (
       before &&
+      !wasEnded?.has(session.key) &&
       before.agent === agent &&
       before.sessionId === sessionId &&
       before.prompted === prompted

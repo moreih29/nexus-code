@@ -8,6 +8,7 @@
  *   GitPanelBody    — segment toggle + commit input + file list
  *   GitDialogHost   — all modal dialogs
  */
+
 import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/shallow";
@@ -19,6 +20,7 @@ import {
   type GitStatusEntry,
   type RepoCapabilities,
 } from "../../../../../shared/git/types";
+import { bannerEventId, useBannerDismissal } from "../../../../hooks/use-banner-dismissal";
 import { useStableHandlers } from "../../../../hooks/use-stable-handlers";
 import { gitErrorPlacement } from "../../../../services/error-surface/git-error-placement";
 import { useGitSession, useGitStore } from "../../../../state/stores/git";
@@ -428,6 +430,34 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     inFlightKind: session?.inFlightOp?.kind ?? null,
   });
 
+  const gitNoticeScope = ["git", workspaceId, repoPath];
+  const pushNotice = useBannerDismissal(
+    [...gitNoticeScope, "push-guard"],
+    pushGuardBanner
+      ? [bannerEventId(session?.lastError), session?.pendingNonFFRetry?.attemptedAt]
+      : undefined,
+  );
+  const errorNotice = useBannerDismissal(
+    [...gitNoticeScope, "error"],
+    panelError ? [bannerEventId(panelError)] : undefined,
+  );
+  const autofetchNotice = useBannerDismissal(
+    [...gitNoticeScope, "autofetch-paused"],
+    session?.autofetchPausedBannerVisible ? [session.autofetchLastError?.message] : undefined,
+    true,
+  );
+  const contextNotice = useBannerDismissal(
+    [...gitNoticeScope, "context"],
+    contextBanner ? [bannerEventId(contextBanner)] : undefined,
+  );
+  const operationNotice = useBannerDismissal(
+    [...gitNoticeScope, "operation"],
+    activeOperation
+      ? [JSON.stringify(activeOperation), bannerEventId(session?.lastError)]
+      : undefined,
+    true,
+  );
+
   // ---------------------------------------------------------------------------
   // Hotkey
   // ---------------------------------------------------------------------------
@@ -575,18 +605,25 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
       />
 
       <GitBannerStack
+        dismissals={{
+          "push-guard": pushNotice.dismiss,
+          error: errorNotice.dismiss,
+          "autofetch-paused": autofetchNotice.dismiss,
+          context: contextNotice.dismiss,
+        }}
         model={buildGitBannerModel({
-          pushGuardBanner,
+          pushGuardBanner: pushNotice.dismissed ? null : pushGuardBanner,
           onPushGuardAction: runPushGuardAction,
-          lastError: panelError,
+          lastError: pushGuardBanner || errorNotice.dismissed ? null : panelError,
           errorAction,
-          autofetchPaused: session?.autofetchPausedBannerVisible ?? false,
+          autofetchPaused:
+            !autofetchNotice.dismissed && (session?.autofetchPausedBannerVisible ?? false),
           autofetchLastErrorMessage: session?.autofetchLastError?.message,
           onResumeAutofetch: () => {
             void panelUiOps.resumeAutofetch(workspaceId);
           },
           helperPromptOccupancyMessage: helperPromptOccupancyMessage ?? null,
-          contextBanner,
+          contextBanner: contextNotice.dismissed ? null : contextBanner,
         })}
       />
 
@@ -630,6 +667,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           historyRef={historyRef}
           onHistoryRefChange={(nextRef) => panelUiOps.setHistoryRef(workspaceId, nextRef)}
           activeOperation={activeOperation}
+          operationNotice={operationNotice}
           lastError={session?.lastError}
           inFlightKind={session?.inFlightOp?.kind}
           onContinueOp={() => {

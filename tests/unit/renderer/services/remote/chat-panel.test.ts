@@ -358,6 +358,7 @@ describe("a chat's side panel", () => {
     };
     expect(chatPanelOf({ ...source({}), limitResume: record }).limitResume).toEqual({
       state: "waiting",
+      stopAt: 1,
       at: 60_002,
       resetsAt: 2,
       tries: 1,

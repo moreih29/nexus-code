@@ -11,6 +11,7 @@
 
 import { type SyntheticEvent, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useBannerDismissal } from "../../../hooks/use-banner-dismissal";
 import {
   changePending,
   isPlaying,
@@ -34,13 +35,14 @@ export interface MediaInfo {
 
 interface MediaPreviewProps {
   workspaceId: string;
+  tabId?: string | undefined;
   /** Absolute path on the workspace filesystem. */
   filePath: string;
   kind: MediaKind;
   onInfo?: (info: MediaInfo) => void;
 }
 
-export function MediaPreview({ workspaceId, filePath, kind, onInfo }: MediaPreviewProps) {
+export function MediaPreview({ workspaceId, tabId, filePath, kind, onInfo }: MediaPreviewProps) {
   const { t } = useTranslation();
   const file = useWorkspaceFile(workspaceId, filePath);
   if (file.kind !== "inside") {
@@ -60,6 +62,7 @@ export function MediaPreview({ workspaceId, filePath, kind, onInfo }: MediaPrevi
     <MediaPlayer
       url={file.url}
       workspaceId={workspaceId}
+      tabId={tabId}
       relPath={file.relPath}
       kind={kind}
       onInfo={onInfo}
@@ -70,12 +73,13 @@ export function MediaPreview({ workspaceId, filePath, kind, onInfo }: MediaPrevi
 interface MediaPlayerProps {
   url: string;
   workspaceId: string;
+  tabId?: string | undefined;
   relPath: string;
   kind: MediaKind;
   onInfo?: (info: MediaInfo) => void;
 }
 
-function MediaPlayer({ url, workspaceId, relPath, kind, onInfo }: MediaPlayerProps) {
+function MediaPlayer({ url, workspaceId, tabId, relPath, kind, onInfo }: MediaPlayerProps) {
   const { t } = useTranslation();
   const latest = useFileVersion(workspaceId, relPath);
   const [playing, setPlaying] = useState(false);
@@ -86,6 +90,7 @@ function MediaPlayer({ url, workspaceId, relPath, kind, onInfo }: MediaPlayerPro
   const next = nextShownVersion(shown, latest, playing);
   if (next !== shown) setShown(next);
   const pending = changePending(shown, latest);
+  const notice = useBannerDismissal(["media-changed", workspaceId, tabId, relPath], [latest]);
   const src = versionedUrl(url, shown);
   const [failed, setFailed] = useState(false);
   // A failure (a format it cannot play, the file missing mid-write) is
@@ -149,12 +154,13 @@ function MediaPlayer({ url, workspaceId, relPath, kind, onInfo }: MediaPlayerPro
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      {pending && (
+      {pending && !notice.dismissed && (
         <Banner
           display="bar"
           variant="info"
           role="status"
           message={t("mediaPreview.file_changed")}
+          dismiss={notice.dismiss}
           actions={[
             {
               label: t("mediaPreview.reload"),

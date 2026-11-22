@@ -11,10 +11,11 @@ import { EditorBreadcrumbs } from "./editor-breadcrumbs";
 interface MediaEditorViewProps {
   filePath: string;
   workspaceId: string;
+  tabId?: string | undefined;
   kind: MediaKind;
 }
 
-export function MediaEditorView({ filePath, workspaceId, kind }: MediaEditorViewProps) {
+export function MediaEditorView({ filePath, workspaceId, tabId, kind }: MediaEditorViewProps) {
   const workspaceRootAbsPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
   );
@@ -32,7 +33,13 @@ export function MediaEditorView({ filePath, workspaceId, kind }: MediaEditorView
         )}
       </div>
       <div className="flex-1 min-h-0 flex">
-        <MediaPreview workspaceId={workspaceId} filePath={filePath} kind={kind} onInfo={setInfo} />
+        <MediaPreview
+          workspaceId={workspaceId}
+          tabId={tabId}
+          filePath={filePath}
+          kind={kind}
+          onInfo={setInfo}
+        />
       </div>
     </div>
   );

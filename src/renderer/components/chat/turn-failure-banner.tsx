@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { type BannerScope, useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import { retryReasonOf } from "../../services/chat/api-errors";
 import type { ChatModel } from "../../services/chat/model";
 import { Banner } from "../ui/banner";
@@ -28,21 +29,23 @@ function reasonText(status: number | undefined, t: Translate): string {
 }
 
 export function TurnFailureBanner({
+  scope,
   model,
   onRetry,
 }: {
+  scope: BannerScope;
   model: ChatModel;
   /** Sends the agent a message to go on, as the user would. */
   onRetry: (text: string) => Promise<void>;
 }) {
   const { t } = useTranslation();
-  // Closed for the turn it was shown for; the next failure shows again.
-  const [closedAt, setClosedAt] = useState<number | undefined>(undefined);
   const [sending, setSending] = useState(false);
   const failure = shownFailure(model);
-  const at = model.lastResult?.at;
-  if (!failure || (at !== undefined && closedAt === at)) return null;
-  const dismiss = { label: t("chat.failure.dismiss"), onDismiss: () => setClosedAt(at) };
+  const { dismiss, dismissed } = useBannerDismissal(
+    [...scope, "turn-failure"],
+    failure && [model.lastResult?.at, failure.kind, failure.status],
+  );
+  if (!failure || dismissed) return null;
   if (failure.kind === "transient") {
     return (
       <div className="shrink-0" data-testid="chat-turn-failure">

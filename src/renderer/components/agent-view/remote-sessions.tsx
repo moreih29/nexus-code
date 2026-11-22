@@ -42,6 +42,7 @@ import type {
 } from "../../../../packages/remote-protocol/src/rpc";
 import type { AgentRun } from "../../../shared/claude/activity";
 import type { RoomPeer } from "../../../shared/remote/room";
+import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import { ipcCallResult } from "../../ipc/client";
 import type { RowGroup } from "../../services/agent-sessions/rows";
 import { leafHolding, remoteSessionKey } from "../../services/agent-view/layout";
@@ -67,6 +68,7 @@ import { StateGlyph } from "../agent-list/session-status";
 import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { OutdatedLine } from "../settings/panels/remote-outdated";
+import { BannerDismissButton } from "../ui/banner";
 import { Button } from "../ui/button";
 import {
   ContextMenuContent,
@@ -204,6 +206,16 @@ export function RemoteSessions({ query, shown = true }: { query: string; shown?:
   const signedOut = useRemoteAccount()?.status === "signed-out";
   const room = useRemoteRoom();
   const outdated = room?.status === "outdated";
+  const signInNotice = useBannerDismissal(
+    ["remote-sessions-sign-in"],
+    signedOut ? [true] : undefined,
+    true,
+  );
+  const outdatedNotice = useBannerDismissal(
+    ["remote-sessions-outdated"],
+    outdated ? [true] : undefined,
+    true,
+  );
   // Shown with a drop shorter than DROP_SHOWN_AFTER_MS left out; watched as it is.
   const seen = useShownRoom(room);
   const peers = servingPeers(seen);
@@ -214,7 +226,8 @@ export function RemoteSessions({ query, shown = true }: { query: string; shown?:
     servingPeers(room).map((p) => p.id),
     shown,
   );
-  if (signedOut && searching) return null;
+  if (signedOut && (searching || signInNotice.dismissed)) return null;
+  if (!signedOut && outdated && outdatedNotice.dismissed) return null;
   if (!signedOut && !outdated && peers.length === 0 && away.length === 0) return null;
   return (
     // A line apart from this computer's, and between the computers: a space
@@ -227,7 +240,7 @@ export function RemoteSessions({ query, shown = true }: { query: string; shown?:
         {t("agentView.remote.title")}
       </h3>
       {signedOut ? (
-        <div className="flex items-baseline gap-1.5 px-2 py-1">
+        <div className="flex items-center gap-1.5 px-2 py-1">
           <span className="min-w-0 flex-1 break-keep text-app-ui-sm text-muted-foreground">
             {t("agentView.remote.needsSignIn")}
           </span>
@@ -240,9 +253,10 @@ export function RemoteSessions({ query, shown = true }: { query: string; shown?:
           >
             {t("voice.signIn")}
           </Button>
+          <BannerDismissButton dismiss={signInNotice.dismiss} />
         </div>
       ) : outdated ? (
-        <OutdatedLine />
+        <OutdatedLine dismiss={outdatedNotice.dismiss} />
       ) : (
         <div className="flex flex-col divide-y divide-border [&>*]:py-1.5 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
           {peers.map((peer) => (
