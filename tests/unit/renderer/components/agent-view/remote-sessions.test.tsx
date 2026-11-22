@@ -4,6 +4,7 @@ import type { ComponentProps, DragEvent, MouseEvent, ReactElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
 import type { RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
+import { StatusGroups } from "../../../../../src/renderer/components/agent-view/agent-sidebar";
 import {
   type PeerReorder,
   peerOrderMenu,
@@ -13,6 +14,10 @@ import * as sessionActions from "../../../../../src/renderer/components/agent-vi
 import * as sessionDrop from "../../../../../src/renderer/components/agent-view/session-drop";
 import * as banner from "../../../../../src/renderer/components/ui/banner";
 import * as button from "../../../../../src/renderer/components/ui/button";
+import type { AgentSession } from "../../../../../src/renderer/services/agent-sessions/model";
+import { NO_FACTS } from "../../../../../src/renderer/services/agent-sessions/rows";
+import * as rowFacts from "../../../../../src/renderer/services/agent-sessions/use-row-facts";
+import { RemoteResults } from "../../../../../src/renderer/services/agent-view/remote-results";
 import * as account from "../../../../../src/renderer/services/remote/account";
 import * as room from "../../../../../src/renderer/services/remote/room";
 import * as agentView from "../../../../../src/renderer/state/stores/agent-view";
@@ -31,6 +36,7 @@ const {
   listedByDefault,
   listedSessions,
   remoteSessionMenu,
+  statusGroups,
   workspaceGroups,
 } = await import("../../../../../src/renderer/components/agent-view/remote-sessions");
 const { offlinePeers, peerServes, servingPeers } = room;
@@ -58,6 +64,25 @@ describe("Other computers connection guidance", () => {
     readAccount.mockRestore();
     readRoom.mockRestore();
     useSettingsUIStore.getState().closeSettings();
+  });
+
+  test("status grouping keeps connection guidance during search and omits computer headings online", () => {
+    const renderStatus = (sources: readonly unknown[]) => <div>Sources {sources.length}</div>;
+    const render = () =>
+      renderToStaticMarkup(<RemoteSessions query="review" renderStatus={renderStatus} />);
+    expect(render()).toContain("Sign in to see your other computers here");
+    readAccount.mockReturnValue(signedIn);
+    readRoom.mockReturnValue({ status: "waiting", peers: [] });
+    expect(render()).toContain("Reconnecting");
+    readRoom.mockReturnValue({ status: "online", peers: [peer] });
+    const readLists = spyOn(room, "usePeerSessions").mockReturnValue({
+      [peer.id]: { status: "ready", list: list([session({ title: "Review" })]) },
+    });
+    try {
+      expect(render()).toBe("<div>Sources 1</div>");
+    } finally {
+      readLists.mockRestore();
+    }
   });
 
   test("shows a signed-out account where to sign in", () => {
@@ -221,6 +246,120 @@ const list = (sessions: RemoteSession[]) => ({
     { id: "w2", name: "web", path: "/src/web" },
   ],
   sessions,
+});
+
+const localSession = (over: Partial<AgentSession>): AgentSession => ({
+  key: "local:t1",
+  workspaceId: "local",
+  tabId: "t1",
+  kind: "codex",
+  agent: "codex",
+  title: "Local review",
+  state: "permissionPending",
+  phase: "attention",
+  estimated: false,
+  since: 20,
+  message: undefined,
+  prompt: undefined,
+  ...over,
+});
+
+describe("status grouping across computers", () => {
+  const sources = [
+    {
+      peer,
+      list: {
+        ...list([
+          session({ title: "Remote earlier review", state: "needs-you", since: 10 }),
+          session({ title: "Remote later review", state: "needs-you", since: 30 }),
+          session({ title: "Remote recent result", state: "new-result", since: 50 }),
+          session({ title: "Remote shell", kind: "terminal" }),
+          session({ title: "Remote ended", kind: "terminal", agent: "codex", state: "ended" }),
+        ]),
+        consents: [
+          {
+            id: "c1",
+            at: 0,
+            expiresAt: 60_000,
+            expiresInMs: 30_000,
+            from: { device: { id: "d3", name: "Laptop" }, workspaceId: "x", tabId: "y" },
+            workspaceId: "w1",
+            change: { kind: "chatInput", body: "Ship it" },
+            eachTime: false,
+            answerable: true,
+          },
+        ],
+      },
+    },
+    {
+      peer: { ...peer, id: "d4", name: "Studio" },
+      list: list([session({ title: "Another result", state: "new-result", since: 35 })]),
+    },
+  ];
+  const local = [
+    localSession({}),
+    localSession({
+      key: "local:t2",
+      title: "Local result",
+      state: "completed",
+      phase: "done",
+      since: 40,
+    }),
+  ];
+
+  test("mixes eligible rows by time and filters them across computers", () => {
+    const { groups, consents } = statusGroups(local, sources, "", () => true);
+    const titles = (group: string) =>
+      groups.find((entry) => entry.group === group)?.rows.map((row) => row.session.title);
+    expect(titles("attention")).toEqual([
+      "Remote earlier review",
+      "Local review",
+      "Remote later review",
+    ]);
+    expect(titles("done")).toEqual(["Remote recent result", "Local result", "Another result"]);
+    expect(titles("idle")).toEqual([]);
+    expect(consents.map(({ consent }) => consent.id)).toEqual(["c1"]);
+    const found = statusGroups(local, sources, " later REVIEW ", () => false);
+    expect(found.consents).toEqual([]);
+    expect(found.groups.flatMap(({ rows }) => rows.map((row) => row.session.title))).toEqual([
+      "Remote later review",
+    ]);
+    expect(
+      statusGroups(local, sources, "shell", () => true).groups.every(
+        ({ rows }) => rows.length === 0,
+      ),
+    ).toBe(true);
+  });
+
+  test("renders cards first and counts them with local and remote rows", () => {
+    const workspace = { id: "local", name: "Local project", rootPath: "/local" };
+    const localRow = local[0]!;
+    const facts = spyOn(rowFacts, "useRowFacts").mockReturnValue(NO_FACTS);
+    try {
+      const html = renderToStaticMarkup(
+        <StatusGroups
+          agents={{
+            families: [],
+            byKey: new Map([[localRow.key, { workspace, root: workspace, session: localRow }]]),
+          }}
+          activity={new Map()}
+          query=""
+          remote={sources}
+          results={new RemoteResults()}
+        />,
+      );
+      expect(html).toContain('class="tabular-nums">4</span>');
+      expect(html.indexOf('data-testid="remote-consent"')).toBeLessThan(
+        html.indexOf("Remote earlier review"),
+      );
+      expect(html).toContain(">Work PC<");
+      expect(html).toContain(">api<");
+      expect(html).toContain('data-agent-row=""');
+      expect(html).toContain('data-testid="agent-sidebar-mark-read"');
+    } finally {
+      facts.mockRestore();
+    }
+  });
 });
 
 const worktreeList = {

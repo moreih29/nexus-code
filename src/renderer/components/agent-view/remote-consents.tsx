@@ -52,8 +52,13 @@ export function usePeerConsents(
   deviceId: string,
   consents: readonly RemoteConsent[] | undefined,
 ): RemoteConsent[] {
+  const pending = useConsentIsPending();
+  return (consents ?? []).filter((consent) => pending(deviceId, consent.id));
+}
+
+export function useConsentIsPending() {
   const settled = useSyncExternalStore(consentChanges.subscribe, settledSnapshot, settledSnapshot);
-  return (consents ?? []).filter((consent) => !settled.has(consentKey(deviceId, consent.id)));
+  return (deviceId: string, id: string) => !settled.has(consentKey(deviceId, id));
 }
 
 /** Matches the agent that asked on the serving device, using its workspace and tab. */

@@ -49,12 +49,20 @@ export function sessionsIn(
   group: RowGroup,
   query: string,
 ): AgentSession[] {
-  const order = group === "attention" ? 1 : -1;
   return sessions
     .filter(
       (session) => listed(session) && groupOf(session) === group && matchesQuery(session, query),
     )
-    .sort((a, b) => order * ((a.since ?? 0) - (b.since ?? 0)));
+    .sort((a, b) => compareStatusTime(group, a.since, b.since));
+}
+
+/** Oldest first while waiting on the user, newest first otherwise. */
+export function compareStatusTime(
+  group: RowGroup,
+  a: number | undefined,
+  b: number | undefined,
+): number {
+  return (group === "attention" ? 1 : -1) * ((a ?? 0) - (b ?? 0));
 }
 
 /** The sessions that match `query`, group by group in the list's order. */

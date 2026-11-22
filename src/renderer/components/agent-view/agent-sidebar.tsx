@@ -15,20 +15,14 @@ import { useTranslation } from "react-i18next";
 import type { ActivityByKey } from "@/services/agent-sessions/agents";
 import type { InboxItem } from "@/services/agent-sessions/inbox";
 import type { AgentSession, SessionFamily, WorktreeEntry } from "@/services/agent-sessions/model";
-import {
-  groupOf,
-  listed,
-  matchesQuery,
-  ROW_GROUPS,
-  type RowGroup,
-  sessionsIn,
-} from "@/services/agent-sessions/rows";
+import { groupOf, listed, matchesQuery, type RowGroup } from "@/services/agent-sessions/rows";
 import { useSessionActivity } from "@/services/agent-sessions/use-family";
 import { markRead } from "@/services/agent-sessions/use-inbox";
 import { useRowFacts } from "@/services/agent-sessions/use-row-facts";
 import { type Agents, workspaceColor } from "@/services/agent-view/agents";
-import { parseSessionKey } from "@/services/agent-view/layout";
+import { parseSessionKey, remoteSessionKey } from "@/services/agent-view/layout";
 import { moveKey, orderSessions } from "@/services/agent-view/order";
+import type { RemoteResults } from "@/services/agent-view/remote-results";
 import { showInAgentView } from "@/services/agent-view/show";
 import { useAgents } from "@/services/agent-view/use-agents";
 import { openClaudeTab, openCodexTab } from "@/state/operations/tabs";
@@ -60,7 +54,14 @@ import { WorkspaceMenuContent } from "../workbench/workspace-menu";
 import { WorkspaceNameInput } from "../workbench/workspace-name-input";
 import { useWorkspaceRename, useWorkspaceUpdate } from "../workbench/workspace-rename";
 import { PANEL_SHOWN_BG, PanelMark, panelPlaceOf } from "./panel-mark";
-import { RemoteSessions } from "./remote-sessions";
+import { PeerConsentCard, useConsentIsPending } from "./remote-consents";
+import {
+  agentRunsOf,
+  OpenRemoteSessionRow,
+  RemoteSessions,
+  type RemoteStatusSource,
+  statusGroups,
+} from "./remote-sessions";
 import {
   endSessionDrag,
   type SessionReorder,
@@ -143,16 +144,30 @@ export const AgentSidebar = memo(function AgentSidebar() {
           className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-1.5 pb-3"
           onKeyDown={(event) => stepRows(event, searchRef.current)}
         >
-          {agents.families.length === 0 ? (
-            <p className="px-2 py-4 text-center text-app-ui-sm text-muted-foreground whitespace-pre-line">
-              {t("sidebar.no_workspaces")}
-            </p>
-          ) : grouping === "status" ? (
-            <StatusGroups agents={agents} activity={activity} query={query} />
-          ) : (
-            <WorkspaceGroups agents={agents} activity={activity} query={query} />
-          )}
-          <RemoteSessions query={query} />
+          {grouping === "workspace" &&
+            (agents.families.length === 0 ? (
+              <p className="px-2 py-4 text-center text-app-ui-sm text-muted-foreground whitespace-pre-line">
+                {t("sidebar.no_workspaces")}
+              </p>
+            ) : (
+              <WorkspaceGroups agents={agents} activity={activity} query={query} />
+            ))}
+          <RemoteSessions
+            query={query}
+            renderStatus={
+              grouping === "status"
+                ? (remote, results) => (
+                    <StatusGroups
+                      agents={agents}
+                      activity={activity}
+                      query={query}
+                      remote={remote}
+                      results={results}
+                    />
+                  )
+                : undefined
+            }
+          />
         </div>
         <SystemStatsFooter />
       </div>
@@ -222,21 +237,31 @@ function NoMatch() {
  * tells the workspace it runs in; one with none shows as a dim line, so the
  * groups keep their places.
  */
-function StatusGroups({ agents, activity, query }: GroupsProps) {
+export function StatusGroups({
+  agents,
+  activity,
+  query,
+  remote,
+  results,
+}: GroupsProps & { remote: readonly RemoteStatusSource[]; results: RemoteResults }) {
   const { t } = useTranslation();
   const folded = useAgentViewStore((s) => s.folded);
+  const pending = useConsentIsPending();
   const sessions = useMemo(
     () => [...agents.byKey.values()].map((entry) => entry.session),
     [agents],
   );
   const searching = query.trim() !== "";
-  const groups = ROW_GROUPS.map((group) => ({ group, rows: sessionsIn(sessions, group, query) }));
-  if (searching && groups.every(({ rows }) => rows.length === 0)) return <NoMatch />;
+  const { groups, consents } = statusGroups(sessions, remote, query, pending);
+  if (searching && !consents.length && groups.every(({ rows }) => rows.length === 0))
+    return <NoMatch />;
   return (
     <div className="flex flex-col gap-1" data-testid="agent-sidebar-status">
       {groups.map(({ group, rows }) => {
         const label = t(`agentList.group.${group}`);
-        if (rows.length === 0) {
+        const cards = group === "attention" ? consents : [];
+        const count = rows.length + cards.length;
+        if (count === 0) {
           // A search tells only what it found.
           if (searching) return null;
           return (
@@ -271,7 +296,7 @@ function StatusGroups({ agents, activity, query }: GroupsProps) {
               >
                 <StateGlyph state={GROUP_STATE[group]} />
                 <span>{label}</span>
-                <span className="tabular-nums">{rows.length}</span>
+                <span className="tabular-nums">{count}</span>
                 {isFolded ? (
                   <ChevronRight aria-hidden className="size-3.5" />
                 ) : (
@@ -280,22 +305,66 @@ function StatusGroups({ agents, activity, query }: GroupsProps) {
               </button>
               {group === "done" && (
                 <MarkAllRead
-                  items={rows.flatMap((session) => {
-                    const entry = agents.byKey.get(session.key);
-                    return entry ? [{ workspace: entry.workspace, session }] : [];
-                  })}
+                  onMark={() => {
+                    const local: InboxItem[] = [];
+                    const remote: Parameters<RemoteResults["markSeen"]>[0][number][] = [];
+                    for (const row of rows) {
+                      if (row.kind === "remote") {
+                        remote.push({ deviceId: row.peer.id, session: row.session });
+                      } else {
+                        const entry = agents.byKey.get(row.session.key);
+                        if (entry) local.push({ workspace: entry.workspace, session: row.session });
+                      }
+                    }
+                    markRead(local);
+                    results.markSeen(remote);
+                  }}
                 />
               )}
             </div>
+            {!isFolded && cards.length > 0 && (
+              <div className="flex flex-col gap-1.5 px-1 py-1" data-testid="remote-consents">
+                {cards.map(({ consent, source: { peer, list }, workspace }) => (
+                  <PeerConsentCard
+                    key={JSON.stringify([peer.id, consent.id])}
+                    consent={consent}
+                    deviceId={peer.id}
+                    device={peer.name}
+                    workspaceName={workspace?.name ?? consent.workspaceId.slice(0, 8)}
+                    sessions={list.sessions}
+                  />
+                ))}
+              </div>
+            )}
             {!isFolded &&
-              rows.map((session) => (
-                <AgentItem
-                  key={session.key}
-                  session={session}
-                  run={activity.get(session.key)}
-                  where={agents.byKey.get(session.key)}
-                />
-              ))}
+              rows.map((row) => {
+                return row.kind === "local" ? (
+                  <AgentItem
+                    key={row.session.key}
+                    session={row.session}
+                    run={activity.get(row.session.key)}
+                    where={agents.byKey.get(row.session.key)}
+                  />
+                ) : (
+                  <div
+                    key={remoteSessionKey({ deviceId: row.peer.id, ...row.session })}
+                    className="flex flex-col"
+                  >
+                    <OpenRemoteSessionRow
+                      session={row.session}
+                      peer={row.peer}
+                      workspace={row.workspace}
+                      resultFeed={results}
+                      showContext
+                    />
+                    <AgentRows
+                      agents={agentRunsOf(row.session.agents)}
+                      selectedId={undefined}
+                      className="pl-4"
+                    />
+                  </div>
+                );
+              })}
           </section>
         );
       })}
@@ -304,14 +373,10 @@ function StatusGroups({ agents, activity, query }: GroupsProps) {
 }
 
 /** Marks every new result of the group read, as the inbox's "Mark new results read" does. */
-function MarkAllRead({ items }: { items: readonly InboxItem[] }) {
+function MarkAllRead({ onMark }: { onMark: () => void }) {
   const { t } = useTranslation();
   return (
-    <IconButton
-      label={t("inbox.mark_read")}
-      onClick={() => markRead(items)}
-      data-testid="agent-sidebar-mark-read"
-    >
+    <IconButton label={t("inbox.mark_read")} onClick={onMark} data-testid="agent-sidebar-mark-read">
       <CheckCheck aria-hidden className="size-3.5" />
     </IconButton>
   );
