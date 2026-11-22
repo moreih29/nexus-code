@@ -256,7 +256,7 @@
     "claude": "Claude conversation",
     "codex": "Codex conversation",
     "running": "Working",
-    "attention": "Needs response",
+    "attention": "Needs you",
     "failed": "Failed",
     "completed": "Done",
     "seen": "Done",

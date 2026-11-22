@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import type { ListedSession } from "../../../../../src/renderer/services/chat/sessions";
 import {
   conversationStatus,
+  conversationTitle,
   resolveConversation,
 } from "../../../../../src/renderer/services/notes/conversation";
 import type { Tab } from "../../../../../src/renderer/state/stores/tabs";
@@ -122,6 +123,23 @@ test("resumes a closed conversation in the worktree and the profile that has it"
     workspace: task,
     session: history[0],
   });
+});
+
+test("keeps the saved title for a closed conversation and falls back to history when it is empty", () => {
+  const promptTitle = "Read this note and start the task. Open it with nexus note read n1234567.";
+  const closed = resolveConversation(link, {
+    ...stores,
+    history: [{ ...history[1], title: promptTitle }],
+  });
+  expect(closed.kind).toBe("resume");
+  expect(conversationTitle(link.title, closed)).toBe(link.title);
+  expect(conversationTitle("", closed)).toBe(promptTitle);
+  const tab = claude("original", "current");
+  const open = resolveConversation(link, {
+    ...stores,
+    tabsByWorkspace: { [root.id]: { original: tab } },
+  });
+  expect(conversationTitle(link.title, open)).toBe(tab.title);
 });
 
 test("returns missing for a deleted session or a removed worktree", () => {

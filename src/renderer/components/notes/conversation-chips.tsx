@@ -15,6 +15,7 @@ import {
   type ConversationResolution,
   type ConversationStatus,
   conversationStatus,
+  conversationTitle,
   historyWorkspace,
   noteLocation,
   resolveConversation,
@@ -189,13 +190,7 @@ function ConversationChip({
   const { t, i18n } = useTranslation("notes");
   const [opening, setOpening] = useState(false);
   const status = conversationStatus(target, session, link.result, checking);
-  const open = target.kind === "open" || target.kind === "moved";
-  const openTitle = open
-    ? target.tab.title
-    : target.kind === "resume"
-      ? target.session.title
-      : undefined;
-  const title = openTitle || link.title || t(`conversations.${link.agent}`);
+  const title = conversationTitle(link.title, target) || t(`conversations.${link.agent}`);
   const branch =
     (target.kind === "missing" ? undefined : target.workspace.task?.branch) ?? link.task?.branch;
   const pr = link.result?.pr;
@@ -210,6 +205,13 @@ function ConversationChip({
     status === "reported"
       ? t("conversations.completed") + (pr ? ` · PR #${pr.number}` : "")
       : t(`conversations.${status}`, { time });
+  const dotColor = DOT_COLORS[status];
+  const statusIcon =
+    status === "running" ? (
+      <Loader className="size-3 text-sky-500 motion-safe:animate-spin" aria-hidden="true" />
+    ) : dotColor ? (
+      <span className={cn("size-1.5 rounded-full", dotColor)} aria-hidden="true" />
+    ) : null;
   const failed = () => showToast({ kind: "error", message: t("conversations.actionError") });
 
   const openConversation = async () => {
@@ -228,7 +230,7 @@ function ConversationChip({
     <button
       type="button"
       className={cn(
-        "inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border border-border px-2 py-0.5 text-app-micro hover:bg-[var(--state-hover-bg)]",
+        "inline-flex min-w-0 max-w-[min(100%,20rem)] items-center rounded-full border border-border px-2 py-0.5 text-app-micro hover:bg-[var(--state-hover-bg)]",
         target.kind === "missing" ? "text-muted-foreground" : "text-foreground",
       )}
       title={branch ? `${title} · ${t("conversations.task", { branch })}` : title}
@@ -236,17 +238,16 @@ function ConversationChip({
       disabled={opening || (checking && !link.result)}
       data-testid="note-conversation-chip"
     >
-      <Icon className="size-3 shrink-0" aria-hidden="true" />
-      <span className="truncate">{title}</span>
-      <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
-        {status === "running" ? (
-          <Loader className="size-3 text-sky-500 motion-safe:animate-spin" aria-hidden="true" />
-        ) : DOT_COLORS[status] ? (
-          <span className={cn("size-1.5 rounded-full", DOT_COLORS[status])} aria-hidden="true" />
-        ) : (
-          "·"
+      <Icon className="mr-1 size-3 shrink-0" aria-hidden="true" />
+      <span className="min-w-0 truncate">{title}</span>
+      <span
+        className={cn(
+          "shrink-0 text-muted-foreground",
+          statusIcon ? "ml-1 flex items-center gap-1" : "whitespace-pre",
         )}
-        {label}
+      >
+        {statusIcon}
+        {statusIcon ? label : ` · ${label}`}
       </span>
     </button>
   );
@@ -307,7 +308,9 @@ async function showConversation(
         ? openClaudeTab(workspaceId, { ...props, sessionId: target.session.sessionId })
         : openCodexTab(workspaceId, { ...props, threadId: target.session.sessionId });
     tabId = opened.id;
-    useTabsStore.getState().setProcessTitle(workspaceId, tabId, target.session.title);
+    useTabsStore
+      .getState()
+      .setProcessTitle(workspaceId, tabId, conversationTitle(link.title, target));
   } else {
     tabId = target.tab.id;
     if (noteGroup && groupOf(workspaceId, tabId) === noteGroup) {

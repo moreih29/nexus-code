@@ -18,6 +18,12 @@ export type ConversationResolution =
   | { kind: "resume"; workspace: WorkspaceMeta; session: ListedSession }
   | { kind: "missing" };
 
+export function conversationTitle(savedTitle: string, target: ConversationResolution): string {
+  if (target.kind === "open" || target.kind === "moved") return target.tab.title || savedTitle;
+  if (target.kind === "resume") return savedTitle || target.session.title;
+  return savedTitle;
+}
+
 /** Tasks use the location of the workspace that owns their notes. */
 export function noteLocation(
   workspace: WorkspaceMeta,
