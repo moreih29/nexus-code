@@ -55,6 +55,7 @@ import { useUIStore } from "./state/stores/ui";
 import { useUpdatesStore } from "./state/stores/updates";
 import { useVoiceStore } from "./state/stores/voice";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
+import { useWorkspaceSidebarFolds } from "./state/stores/workspace-sidebar-folds";
 import { restoredWorkspace, useWorkspacesStore } from "./state/stores/workspaces";
 import { startTerminalExitListener } from "./state/terminal-exit";
 import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
@@ -153,6 +154,7 @@ async function bootstrapAppState(): Promise<void> {
   initLspStatusSync();
   initPortsSync();
 
+  useWorkspaceSidebarFolds.getState().hydrate(state.workspaceSidebarFoldedPeers ?? []);
   useUIStore.getState().hydrate({
     sidebarWidth: state.sidebarWidth,
     filesPanelWidth: state.filesPanelWidth,

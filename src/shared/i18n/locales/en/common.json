@@ -2058,5 +2058,11 @@
   },
   "remoteNotice": {
     "workspaceAdded": "Workspace added from {{device}}"
+  },
+  "peerWorkspace": {
+    "online": "Online",
+    "listUnavailable": "Workspaces unavailable",
+    "changes_one": "{{count}} change",
+    "changes_other": "{{count}} changes"
   }
 }

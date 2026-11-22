@@ -324,9 +324,12 @@ export function observePeerSessions(
   if (watch.latest) take(watch.latest);
   return () => {
     off();
-    if (watch.listeners.size !== 0 || sessionWatches.get(key) !== watch) return;
-    sessionWatches.delete(key);
-    watch.stop();
+    // A view switch can release the old sidebar before the new one subscribes.
+    queueMicrotask(() => {
+      if (watch.listeners.size !== 0 || sessionWatches.get(key) !== watch) return;
+      sessionWatches.delete(key);
+      watch.stop();
+    });
   };
 }
 

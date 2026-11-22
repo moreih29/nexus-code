@@ -2058,5 +2058,10 @@
   },
   "remoteNotice": {
     "workspaceAdded": "{{device}}에서 워크스페이스 추가"
+  },
+  "peerWorkspace": {
+    "online": "온라인",
+    "listUnavailable": "워크스페이스 목록 없음",
+    "changes_other": "변경 {{count}}"
   }
 }

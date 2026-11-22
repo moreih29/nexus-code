@@ -8,6 +8,8 @@ import { AgentSidebar } from "./components/agent-view/agent-sidebar";
 import { AgentView } from "./components/agent-view/agent-view";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
+import { usePeerWorkbench } from "./components/peer-workspace/room";
+import { PeerWorkspaceSection } from "./components/peer-workspace/sidebar";
 import { AboutPanel } from "./components/settings/panels/about-panel";
 import { AgentInstructionsPanel } from "./components/settings/panels/agent-instructions-panel";
 import { AgentPanel } from "./components/settings/panels/agent-panel";
@@ -49,6 +51,7 @@ import { useAgentViewStore } from "./state/stores/agent-view";
 import { useMountedWorkspacesStore } from "./state/stores/mounted-workspaces";
 import { useSettingsUIStore } from "./state/stores/settings-ui";
 import { useUIStore } from "./state/stores/ui";
+import { useWorkspaceSidebarFolds } from "./state/stores/workspace-sidebar-folds";
 import {
   rootWorkspaceId,
   tasksOf,
@@ -77,6 +80,9 @@ export function App() {
   // The agent view takes the place of the workspaces: its list for the
   // sidebar and the files, its panels for the workspace's.
   const agentView = useAgentViewStore((s) => s.mode === "agents");
+  const peers = usePeerWorkbench(!sidebarHidden && !agentView, !agentView);
+  const foldedPeers = useWorkspaceSidebarFolds((s) => s.foldedPeers);
+  const togglePeerFold = useWorkspaceSidebarFolds((s) => s.togglePeer);
 
   // Workspaces that have been activated at least once in this session, and
   // tasks nexus started behind the user's view. Their <WorkspacePanel> stays
@@ -275,6 +281,19 @@ export function App() {
           <KeptMounted shown={!sidebarHidden && !agentView}>
             <Sidebar
               workspaces={workspaces}
+              peerSection={
+                peers.accountKey && (peers.online.length > 0 || peers.offline.length > 0) ? (
+                  <PeerWorkspaceSection
+                    accountKey={peers.accountKey}
+                    online={peers.online}
+                    offline={peers.offline}
+                    lists={peers.lists}
+                    active={peers.missing ? null : peers.active}
+                    folded={foldedPeers}
+                    toggleFold={togglePeerFold}
+                  />
+                ) : undefined
+              }
               activeWorkspaceId={activeWorkspaceId}
               onSelectWorkspace={handleSelectWorkspace}
               onAddWorkspace={handleAddWorkspace}
