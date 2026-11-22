@@ -582,30 +582,36 @@ describe("serving the sessions", () => {
     ]);
   });
 
-  test("reports dead terminals as ended, even with a waiting hook or an agent title", async () => {
+  test("reports only dead agent terminals as ended and drops dead terminals' activity", async () => {
     const base = services();
     const ui = (async (op, args) => {
       if (op === "tabs.list" && args.workspaceId === "w1") {
         const { tabs } = await base.ui("tabs.list", { workspaceId: "w1" });
         return {
-          tabs: tabs.map((tab) =>
-            tab.id === "t2"
-              ? { ...tab, dead: true }
-              : tab.id === "t5"
-                ? { ...tab, dead: true, title: "Codex" }
-                : tab,
-          ),
+          tabs: [
+            ...tabs.map((tab) => (tab.type === "terminal" ? { ...tab, dead: true } : tab)),
+            { id: "t7", type: "terminal", title: "Codex", groupId: "g1", shown: false, dead: true },
+          ],
         };
       }
       return base.ui(op, args);
     }) as CliServices["ui"];
-    const { sessions } = await listSessions({ ...base, ui });
+    const { sessions } = await listSessions({
+      ...base,
+      ui,
+      claudeAgents: { ...base.claudeAgents, list: () => [agentRun({})] },
+    });
     const terminals = sessions.filter((session) => session.kind === "terminal");
     expect(terminals).toMatchObject([
       { tabId: "t2", state: "ended", agent: "claude" },
-      { tabId: "t5", state: "ended", agent: "codex" },
+      { tabId: "t5", state: "idle", title: "bash" },
+      { tabId: "t7", state: "ended", agent: "codex" },
     ]);
-    for (const terminal of terminals) expect(terminal).not.toHaveProperty("waiting");
+    expect(terminals[1]).not.toHaveProperty("agent");
+    for (const terminal of terminals) {
+      expect(terminal).not.toHaveProperty("waiting");
+      expect(terminal).not.toHaveProperty("agents");
+    }
   });
 
   test("with the consent prompts waiting on the user, as the device asking may answer them", async () => {

@@ -156,7 +156,7 @@ function terminalSession(
   const claude = services.claudeStatus(workspaceId, tab.id);
   const state = describeTerminal(claude, services.activity(workspaceId, tab.id), tab.title, now);
   const agent = isAgentSession(state) ? (state.agent ?? "agent") : undefined;
-  const status = tab.dead ? "ended" : agent ? terminalSessionState(state.state) : "idle";
+  const status = agent ? (tab.dead ? "ended" : terminalSessionState(state.state)) : "idle";
   const ask = tab.dead ? undefined : terminalAsk(services, workspaceId, tab.id, claude?.status);
   return {
     workspaceId,
@@ -178,7 +178,7 @@ function terminalSession(
           },
         }
       : {}),
-    ...agentsField(services, workspaceId, tab.id),
+    ...(tab.dead ? {} : agentsField(services, workspaceId, tab.id)),
   };
 }
 
