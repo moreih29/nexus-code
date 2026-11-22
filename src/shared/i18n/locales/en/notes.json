@@ -79,11 +79,11 @@
     "codex": "New Codex conversation",
     "message": "Message",
     "defaultMessage": "Read this note and start the work.",
-    "hint": "The agent reads the note with nexus note read. No files are copied.",
+    "hint": "Read with nexus note read · no files copied",
     "send": "Send",
     "prompt": "{{message}}\n\nThe note “{{title}}”: read it with `nexus note read {{id}}`.",
     "existing": "Existing conversation",
-    "linked": "Started from this note",
+    "linked": "Linked to this note",
     "other": "Other conversations in this workspace",
     "noConversations": "No open conversations",
     "existingHint": "Send to a conversation · keep the note linked",
@@ -265,7 +265,7 @@
     }
   },
   "conversations": {
-    "title": "Conversations started from this note",
+    "title": "Linked conversations",
     "claude": "Claude conversation",
     "codex": "Codex conversation",
     "running": "Working",
@@ -284,6 +284,6 @@
     "saveError": "Link save failed",
     "actionError": "Conversation link action failed",
     "noteSaveError": "Note save failed",
-    "fromNote": "Started from note “{{title}}”"
+    "fromNote": "Note “{{title}}”"
   }
 }
