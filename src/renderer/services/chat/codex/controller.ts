@@ -923,21 +923,17 @@ export class CodexController {
     const controller = new CodexController({ ...target, tabId: crypto.randomUUID() });
     try {
       if (!(await controller.start({}, true))) return [];
-      const paged = codexHistoryAvailable(
-        codexServerVersion(controller.model, controller.state.version),
-      );
+      if (!codexHistoryAvailable(codexServerVersion(controller.model, controller.state.version)))
+        return [];
       const found: string[] = [];
       for (const threadId of threadIds) {
         try {
-          const reply = paged
-            ? await controller.request("thread/turns/list", {
-                threadId,
-                itemsView: "notLoaded",
-                limit: 1,
-              })
-            : await controller.request("thread/read", { threadId, includeTurns: true });
-          const turns = paged ? reply.data : (reply.thread as { turns?: unknown })?.turns;
-          if (Array.isArray(turns) && turns.length > 0) found.push(threadId);
+          const reply = await controller.request("thread/turns/list", {
+            threadId,
+            itemsView: "notLoaded",
+            limit: 1,
+          });
+          if (Array.isArray(reply.data) && reply.data.length > 0) found.push(threadId);
         } catch {
           // An empty thread may have no rollout yet. Keep checking the other threads.
         }

@@ -49,8 +49,7 @@ async function claudeHasStoredTurns([, workspaceId, , profile, sessionId]: Store
   }
 }
 
-/** Checks saved transcripts while leaving the actual conversation tabs cold. */
-export async function readStoredTurns(targets: readonly StoredTurnTarget[]): Promise<Set<string>> {
+async function probeStoredTurns(targets: readonly StoredTurnTarget[]): Promise<Set<string>> {
   const found = new Set<string>();
   const codex = new Map<string, StoredTurnTarget[]>();
   const reads: Promise<void>[] = [];
@@ -84,6 +83,46 @@ export async function readStoredTurns(targets: readonly StoredTurnTarget[]): Pro
     );
   }
   await Promise.allSettled(reads);
+  return found;
+}
+
+const MISSING_TURNS_TTL = 30_000;
+const storedTurns = new Map<string, { result: Promise<boolean>; expiresAt: number }>();
+
+function sessionKey([agent, , , profileId, sessionId]: StoredTurnTarget) {
+  return JSON.stringify([agent, sessionId, profileId]);
+}
+
+/** Checks saved transcripts while leaving the actual conversation tabs cold. */
+export async function readStoredTurns(targets: readonly StoredTurnTarget[]): Promise<Set<string>> {
+  const now = Date.now();
+  const missing = new Map<string, StoredTurnTarget>();
+  for (const target of targets) {
+    const key = sessionKey(target);
+    const cached = storedTurns.get(key);
+    if (!cached || cached.expiresAt <= now) missing.set(key, target);
+  }
+  if (missing.size) {
+    const probe = probeStoredTurns([...missing.values()]);
+    for (const [key, target] of missing) {
+      const entry = {
+        expiresAt: Infinity,
+        result: probe.then((found) => {
+          const hasTurns = found.has(JSON.stringify(target));
+          if (!hasTurns) entry.expiresAt = Date.now() + MISSING_TURNS_TTL;
+          return hasTurns;
+        }),
+      };
+      storedTurns.set(key, entry);
+    }
+  }
+
+  const found = new Set<string>();
+  await Promise.all(
+    targets.map(async (target) => {
+      if (await storedTurns.get(sessionKey(target))?.result) found.add(JSON.stringify(target));
+    }),
+  );
   return found;
 }
 

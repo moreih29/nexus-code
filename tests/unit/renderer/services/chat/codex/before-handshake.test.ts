@@ -834,9 +834,10 @@ test("a failed Codex /new keeps the source history, queue, and saved thread", as
 });
 
 test.each([
-  ["0.170.0", "thread/turns/list"],
-  ["0.166.0", "thread/read"],
-] as const)("Codex %s checks saved turns without starting or resuming a thread", async (version, method) => {
+  ["0.170.0", true],
+  ["0.166.0", false],
+  [null, false],
+] as const)("Codex %s checks saved turns only when paged history is available", async (version, supported) => {
   installedVersion = version;
   const prototype = CodexController.prototype as unknown as {
     write(this: Controller, message: Message): Promise<void>;
@@ -853,12 +854,7 @@ test.each([
     const reply =
       threadId === "missing"
         ? { error: { code: -32600, message: "no rollout found" } }
-        : {
-            result:
-              method === "thread/turns/list"
-                ? { data: turns }
-                : { thread: { id: threadId, turns } },
-          };
+        : { result: { data: turns } };
     this.receive({ seq: ++lineSeq, dir: "out", message: { id: message.id, ...reply } });
   });
   try {
@@ -867,7 +863,7 @@ test.each([
         { workspaceId: catalogWorkspace, cwd: "/p", profileId: "isolation" },
         ["missing", "saved", "empty"],
       ),
-    ).toEqual(["saved"]);
+    ).toEqual(supported ? ["saved"] : []);
     expect(catalogCalls.filter(({ method }) => method === "codexStart")).toHaveLength(1);
     expect(catalogCalls.at(-1)?.method).toBe("close");
     const requests = catalogCalls
@@ -876,15 +872,15 @@ test.each([
     expect(requests.map(({ method }) => method)).toEqual([
       "initialize",
       "initialized",
-      method,
-      method,
-      method,
+      ...(supported ? Array(3).fill("thread/turns/list") : []),
     ]);
-    expect(requests.at(-2)?.params).toEqual(
-      method === "thread/turns/list"
-        ? { threadId: "saved", itemsView: "notLoaded", limit: 1 }
-        : { threadId: "saved", includeTurns: true },
-    );
+    if (supported) {
+      expect(requests.at(-2)?.params).toEqual({
+        threadId: "saved",
+        itemsView: "notLoaded",
+        limit: 1,
+      });
+    }
   } finally {
     wire.mockRestore();
   }

@@ -1,12 +1,15 @@
 import { expect, spyOn, test } from "bun:test";
+import { act, createElement } from "react";
 import * as ipc from "../../../../../src/renderer/ipc/client";
 import { CodexController } from "../../../../../src/renderer/services/chat/codex/controller";
 import type { ConversationResolution } from "../../../../../src/renderer/services/notes/conversation";
 import {
   readStoredTurns,
   storedTurnTarget,
+  useStoredTurns,
 } from "../../../../../src/renderer/services/notes/stored-turns";
 import type { WorkspaceMeta } from "../../../../../src/shared/types/workspace";
+import { withTestDom } from "../../../../helpers/test-dom";
 
 test("checks the restored tab's current session without treating an ID alone as a turn", () => {
   const workspace = { id: "workspace" } as WorkspaceMeta;
@@ -72,8 +75,20 @@ test("reads saved Claude pages and exact Codex threads without counting metadata
     ["codex", "workspace", "/repo", null, "unwritten"],
   ] as const;
   try {
-    const result = await readStoredTurns(targets);
+    const [result, concurrent] = await Promise.all([
+      readStoredTurns(targets),
+      readStoredTurns(targets),
+    ]);
     expect(result).toEqual(new Set([JSON.stringify(targets[0]), JSON.stringify(targets[2])]));
+    expect(concurrent).toEqual(result);
+    // A restored workspace or folder may have moved while keeping the same session.
+    const moved = targets.map(
+      ([agent, , , profile, id]) => [agent, "moved-workspace", "/moved", profile, id] as const,
+    );
+    expect(await readStoredTurns(moved)).toEqual(
+      new Set([JSON.stringify(moved[0]), JSON.stringify(moved[2])]),
+    );
+    expect(transcript).toHaveBeenCalledTimes(3);
     expect(transcript).toHaveBeenCalledWith("chat", "transcriptPage", {
       workspaceId: "workspace",
       sessionId: "old-session",
@@ -87,6 +102,59 @@ test("reads saved Claude pages and exact Codex threads without counting metadata
     );
   } finally {
     transcript.mockRestore();
+    codex.mockRestore();
+  }
+});
+
+test("hiding, showing and reopening a note reuses its saved turns", async () => {
+  const targets = [["codex", "workspace", "/repo", null, "reopened-thread"]] as const;
+  function Panel({ visible }: { visible: boolean }) {
+    return createElement("span", {}, useStoredTurns(targets, visible)?.size);
+  }
+  const codex = spyOn(CodexController, "savedThreadsWithTurns").mockResolvedValue([
+    "reopened-thread",
+  ]);
+  try {
+    await withTestDom(async (host, root) => {
+      await act(async () => root.render(createElement(Panel, { visible: false })));
+      expect(codex).not.toHaveBeenCalled();
+      await act(async () => root.render(createElement(Panel, { visible: true })));
+      expect(host.textContent).toBe("1");
+      await act(async () => root.render(createElement(Panel, { visible: false })));
+      await act(async () => root.render(createElement(Panel, { visible: true })));
+      await act(async () => root.render(null));
+      await act(async () => root.render(createElement(Panel, { visible: true })));
+      expect(host.textContent).toBe("1");
+      expect(codex).toHaveBeenCalledTimes(1);
+    });
+  } finally {
+    codex.mockRestore();
+  }
+});
+
+test("only absent turns expire, and profiles keep independent cache entries", async () => {
+  const now = spyOn(Date, "now").mockReturnValue(1_000);
+  const codex = spyOn(CodexController, "savedThreadsWithTurns").mockResolvedValue(["history"]);
+  const targets = [
+    ["codex", "workspace", "/repo", "original", "history"],
+    ["codex", "workspace", "/repo", "original", "later"],
+  ] as const;
+  const otherProfile = ["codex", "workspace", "/repo", "other", "later"] as const;
+  try {
+    expect(await readStoredTurns(targets)).toEqual(new Set([JSON.stringify(targets[0])]));
+    now.mockReturnValue(30_999);
+    expect(await readStoredTurns(targets)).toEqual(new Set([JSON.stringify(targets[0])]));
+    expect(codex).toHaveBeenCalledTimes(1);
+    codex.mockResolvedValue(["later"]);
+    expect(await readStoredTurns([otherProfile])).toEqual(new Set([JSON.stringify(otherProfile)]));
+    now.mockReturnValue(31_000);
+    expect(await readStoredTurns(targets)).toEqual(
+      new Set(targets.map((target) => JSON.stringify(target))),
+    );
+    expect(codex).toHaveBeenCalledTimes(3);
+    expect(codex.mock.calls[2][1]).toEqual(["later"]);
+  } finally {
+    now.mockRestore();
     codex.mockRestore();
   }
 });
