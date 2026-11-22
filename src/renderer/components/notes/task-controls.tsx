@@ -289,7 +289,7 @@ function TaskBatchDialog({
         if (!open) onClose();
       }}
     >
-      <DialogHeader title={t("tasks.assignAll")} description={description} close />
+      <DialogHeader title={t("tasks.assignAll")} description={description} />
       <div className="mt-3 flex flex-col gap-3">
         {count > limit && (
           <p className="text-app-ui-sm text-muted-foreground">
@@ -308,14 +308,14 @@ function TaskBatchDialog({
             <SelectItem value="codex">{t("common:task.agents.codex")}</SelectItem>
           </SelectContent>
         </Select>
-        <Button
-          className="self-end"
-          size="sm"
-          disabled={probe}
-          onClick={() => onConfirm(agent, worktree)}
-        >
-          {t("tasks.createAll")}
-        </Button>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            {t("common:action.cancel")}
+          </Button>
+          <Button size="sm" disabled={probe} onClick={() => onConfirm(agent, worktree)}>
+            {t("tasks.createAll")}
+          </Button>
+        </div>
       </div>
     </Dialog>
   );

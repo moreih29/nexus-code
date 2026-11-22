@@ -112,6 +112,17 @@ test("the checklist confirms at most ten rows in order and marks only the failed
         expect(host.textContent).toContain("12 to-dos · Create 10 tasks");
         expect(host.textContent).toContain("First 10 only");
         expect(choice.mock.calls[0][0].value).toBe("codex");
+        expect(
+          Array.from(host.querySelectorAll("button"), ({ textContent }) => textContent),
+        ).toEqual(["Cancel", "Create"]);
+        await act(async () => {
+          host.querySelector<HTMLButtonElement>("button")?.click();
+        });
+        expect(host.textContent).not.toContain("Create 10 tasks");
+        expect(assign).not.toHaveBeenCalled();
+        await act(async () => {
+          button?.click();
+        });
         const confirm = Array.from(host.querySelectorAll("button")).find(
           ({ textContent }) => textContent === "Create",
         );
