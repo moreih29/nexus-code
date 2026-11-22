@@ -34,7 +34,7 @@ const allowedImports: readonly [file: string, module: string, ...names: string[]
   ["session-tab.tsx", `${agentView}/remote-pane`, "RemoteSessionPane"],
   ["session-tab.tsx", `${agentView}/remote-session-host`, "RemoteSessionHost"],
   ["sessions-panel.tsx", `${agentView}/remote-sessions`, "OpenRemoteSessionRow"],
-  ["diff-model.ts", `${remote}/file-comparison`, "beforeOfHunks"],
+  ["diff-model.ts", `${remote}/file-comparison`, "beforeOfWorkingText"],
   ["diff-model.ts", `${remote}/peer-git-status`, "isPeerGitConflict", "PeerGitFile", "PeerGitSide"],
   ["diff-model.ts", `${remote}/peer-workspace`, "PeerText", "readPeerWorkspaceText"],
   ["diff-model.ts", `${remote}/peer-git-paths`, "peerGitPaths"],

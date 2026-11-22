@@ -1,6 +1,9 @@
 import { expect, spyOn, test } from "bun:test";
 import * as ipc from "../../../../../src/renderer/ipc/client";
-import { readRemoteFileBefore } from "../../../../../src/renderer/services/remote/file-comparison";
+import {
+  beforeOfWorkingText,
+  readRemoteFileBefore,
+} from "../../../../../src/renderer/services/remote/file-comparison";
 import { ipcErr, ipcOk } from "../../../../../src/shared/ipc/result";
 
 const peer = { deviceId: "other", workspaceId: "repo" };
@@ -93,4 +96,40 @@ test("does not use a partial Git patch as a full chat original", async () => {
   } finally {
     call.mockRestore();
   }
+});
+
+test.each([
+  // Git tells LF lines of a file checked out with CRLF (core.autocrlf=true).
+  { now: "one\r\nTWO\r\nthree\r\nfour\r\n", before: "one\r\ntwo\r\nthree\r\n" },
+  // CRLF kept in Git as well: the lines match as they are.
+  { now: "one\r\nTWO\r\nthree\r\nfour\r\n", before: "one\r\ntwo\r\nthree\r\n", gitCr: true },
+  // Mixed line endings are not guessed at.
+  { now: "one\r\nTWO\nthree\r\nfour\r\n", before: undefined },
+])("a chat comparison of a CRLF working file from a Git diff ($now)", async ({
+  now,
+  before,
+  gitCr,
+}) => {
+  const path = "apps/demo/src/task.ts";
+  const cr = gitCr ? "\r" : "";
+  const lines = [" one", "-two", "+TWO", " three", "+four"].map((line) => line + cr);
+  const crlfHunks = [{ oldStart: 1, oldLines: 3, newStart: 1, newLines: 4, lines }];
+  const call = spyOn(ipc, "ipcCallResult")
+    .mockResolvedValueOnce(absent)
+    .mockResolvedValueOnce(ipcOk({ ...status, topLevel: "/repo", files: [{ path }] }))
+    .mockResolvedValueOnce(ipcOk({ path, hunks: crlfHunks }))
+    .mockResolvedValueOnce(ipcOk({ kind: "text", text: now }));
+  try {
+    expect(await readRemoteFileBefore(file, tabId, worktree)).toBe(before);
+  } finally {
+    call.mockRestore();
+  }
+});
+
+test("beforeOfWorkingText takes Git's LF lines back over a CRLF file only", () => {
+  const hunks = [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-old", "+new"] }];
+  expect(beforeOfWorkingText(hunks, "new\r\nrest\r\n")).toBe("old\r\nrest\r\n");
+  expect(beforeOfWorkingText(hunks, "new\nrest\n")).toBe("old\nrest\n");
+  expect(beforeOfWorkingText(hunks, "new\r\nrest\n")).toBeNull();
+  expect(beforeOfWorkingText(hunks, "other\r\n")).toBeNull();
 });

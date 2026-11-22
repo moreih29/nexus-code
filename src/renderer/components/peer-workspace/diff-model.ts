@@ -1,6 +1,6 @@
-import type { DiffHunk, RpcResult } from "../../../../packages/remote-protocol/src/rpc";
+import type { RpcResult } from "../../../../packages/remote-protocol/src/rpc";
 import { ipcCallResult } from "../../ipc/client";
-import { beforeOfHunks } from "../../services/remote/file-comparison";
+import { beforeOfWorkingText } from "../../services/remote/file-comparison";
 import { peerGitPaths } from "../../services/remote/peer-git-paths";
 import {
   isPeerGitConflict,
@@ -18,14 +18,6 @@ export type PeerDiffView =
   | { kind: "error"; error: string };
 
 const hasFullPatch = (patch: GitPatch) => !patch.truncated && !patch.binary;
-
-function beforeText(hunks: readonly DiffHunk[], now: string) {
-  const exact = beforeOfHunks(hunks, now);
-  if (exact !== null || !now.includes("\r\n") || /(?<!\r)\n/.test(now)) return exact;
-  // Git may report LF while the working tree is checked out as CRLF.
-  const before = beforeOfHunks(hunks, now.replaceAll("\r\n", "\n"));
-  return before?.replace(/(?<!\r)\n/g, "\r\n") ?? null;
-}
 
 export function reconstructPeerDiff(
   change: PeerGitFile,
@@ -47,14 +39,14 @@ export function reconstructPeerDiff(
     if (change.staged === "D") after = "";
     else if (unstaged || (unstaged === undefined && change.unstaged)) {
       if (!unstaged || !hasFullPatch(unstaged)) return partial;
-      const index = beforeText(unstaged.hunks, after);
+      const index = beforeOfWorkingText(unstaged.hunks, after);
       if (index === null) return partial;
       after = index;
     }
   }
 
   const code = change[side];
-  const before = beforeText(patch.hunks, after);
+  const before = beforeOfWorkingText(patch.hunks, after);
   if (before === null || (code === "?" && before !== "")) return partial;
   const oldPath = code === "R" || code === "C" ? (patch.oldPath ?? change.oldPath) : undefined;
   return { kind: "text", before: code === "A" ? "" : before, after, oldPath };
