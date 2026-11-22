@@ -307,26 +307,36 @@ test("remote sessions follow the sidebar across chat and terminal tabs and prese
   }
 });
 
-test("a terminal an agent opens keeps who opened it, listed and across a restart", async () => {
-  const ws = "ws-opened";
+test.each([
+  "terminal",
+  "claude",
+  "codex",
+] as const)("a %s tab an agent opens keeps who opened it, listed and across a restart", async (type) => {
+  const ws = `ws-opened-${type}`;
   const openedBy = { kind: "tab", agent: "codex", name: "Plan", workspaceId: ws, tabId: "t-plan" };
   startCliUiListener(Promise.resolve());
   try {
     const open = (requestId: string, by?: object) =>
-      answerTo(requestId, "terminal.open", {
+      answerTo(requestId, type === "terminal" ? "terminal.open" : "chat.open", {
         workspaceId: ws,
         cwd: "/",
         placement: { background: true },
+        ...(type === "terminal" ? {} : { agent: type, prompt: "" }),
         ...(by ? { openedBy: by } : {}),
       }) as Promise<{ ok: boolean; value: { tabId: string } }>;
-    const agents = await open("r-opened-agent", openedBy);
-    const users = await open("r-opened-user");
+    const agents = await open(`r-${type}-agent`, openedBy);
+    const users = await open(`r-${type}-user`);
     expect([agents.ok, users.ok]).toEqual([true, true]);
-    const listed = Object.fromEntries(listTabs(ws).map((tab) => [tab.id, tab.openedBy]));
+    const reply = (await answerTo(`r-${type}-list`, "tabs.list", { workspaceId: ws })) as {
+      ok: boolean;
+      value: { tabs: ReturnType<typeof listTabs> };
+    };
+    expect(reply.ok).toBe(true);
+    const listed = Object.fromEntries(reply.value.tabs.map((tab) => [tab.id, tab.openedBy]));
     expect(listed).toEqual({ [agents.value.tabId]: openedBy, [users.value.tabId]: undefined });
     const saved = useTabsStore.getState().byWorkspace[ws]?.[agents.value.tabId];
     const restored = SerializedTabSchema.parse(JSON.parse(JSON.stringify(saved)));
-    expect(restored).toMatchObject({ type: "terminal", props: { openedBy } });
+    expect(restored).toMatchObject({ type, props: { openedBy } });
     expect(
       SerializedTabSchema.safeParse({ ...restored, props: { cwd: "/", openedBy: { kind: "app" } } })
         .success,

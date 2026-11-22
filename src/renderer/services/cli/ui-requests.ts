@@ -55,6 +55,9 @@ function tabInfo(workspaceId: string, tab: Tab, groupId: string, shown: boolean)
         ...(getTerminalController(tab.id) ? {} : { unstarted: true }),
         ...(tab.props.openedBy ? { openedBy: tab.props.openedBy } : {}),
       };
+    case "claude":
+    case "codex":
+      return { ...base, ...(tab.props.openedBy ? { openedBy: tab.props.openedBy } : {}) };
     case "editor":
       return { ...base, filePath: tab.props.filePath };
     case "browser": {

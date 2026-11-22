@@ -14,7 +14,7 @@ import {
   mergeAgentInstructions,
   workspaceInstructionTarget,
 } from "../../../shared/chat/instructions";
-import type { RelaySender } from "../../../shared/chat/relay";
+import type { RelaySender, TerminalOpener } from "../../../shared/chat/relay";
 import { createLogger } from "../../../shared/log/renderer";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
@@ -221,8 +221,9 @@ export function openAgentTab(
   message: string,
   profileId?: string,
   from?: RelaySender,
+  openedBy?: TerminalOpener,
 ): string {
-  const props = { cwd, ...(profileId ? { profileId } : {}) };
+  const props = { cwd, ...(profileId ? { profileId } : {}), ...(openedBy ? { openedBy } : {}) };
   const { id: tabId } =
     agent === "claude" ? openClaudeTab(workspaceId, props) : openCodexTab(workspaceId, props);
   startAgentTab(workspaceId, tabId, message, from);

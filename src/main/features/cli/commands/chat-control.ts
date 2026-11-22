@@ -30,7 +30,7 @@ import {
   resolveDevice,
 } from "../remote";
 import { mayExecute } from "../sandbox";
-import { senderOf } from "../sender";
+import { openerOf, senderOf } from "../sender";
 import { chatAgentFlag, resolveChat, SEND_TIMEOUT_MS } from "./chat";
 import { chatProfilesAdd, chatUsage, profileTable } from "./chat-profiles";
 import { peerCliChat } from "./chat-remote";
@@ -512,9 +512,11 @@ const chatFork: CliCommand = {
         ? undefined
         : (await ctx.services.ui("chat.entryItem", { ...target.ref, i: placeArg(message) }))
             .itemKey;
+    const openedBy = openerOf(await senderOf(ctx));
+    ctx.signal?.throwIfAborted();
     const { tabId, draft } = await ctx.services.ui(
       "chat.fork",
-      { ...target.ref, ...(itemKey ? { itemKey } : {}) },
+      { ...target.ref, ...(itemKey ? { itemKey } : {}), ...(openedBy ? { openedBy } : {}) },
       SEND_TIMEOUT_MS,
     );
     const reach =
@@ -911,6 +913,8 @@ const chatResume: CliCommand = {
       typeof flags.tab === "string" ? await resolveChat(ctx, workspace, flags.tab) : undefined;
     if (into?.id === ctx.caller.tabId) throw new CliError("that is this tab");
     await mayExecute(ctx, workspace, { kind: "chatNew", detail: AGENT_NAMES[agent] });
+    const openedBy = openerOf(await senderOf(ctx));
+    ctx.signal?.throwIfAborted();
     const { tabId } = await ctx.services.ui(
       "chat.resume",
       {
@@ -918,6 +922,7 @@ const chatResume: CliCommand = {
         agent,
         sessionId: session.sessionId,
         ...(into ? { tabId: into.id, emptyOnly: true } : {}),
+        ...(openedBy ? { openedBy } : {}),
       },
       SEND_TIMEOUT_MS,
     );

@@ -732,12 +732,31 @@ describe("who sends a message", () => {
       from: { kind: "terminal", agent: "claude", tabId: CLAUDE_TAB },
     });
     await nexus(app, ["chat", "new", "--prompt", "look at the docs"], claude);
-    expect(uiArgs(app, "chat.open")).toMatchObject({ from: { kind: "terminal" } });
+    expect(uiArgs(app, "chat.open")).toMatchObject({
+      from: { kind: "terminal", agent: "claude", tabId: CLAUDE_TAB },
+      openedBy: { kind: "terminal", agent: "claude", workspaceId: APP, tabId: CLAUDE_TAB },
+    });
     // Whether it waits to read the answer is told only where it is known.
     expect((uiArgs(app, "chat.open") as { from: object }).from).not.toHaveProperty("waits");
     const user = withChat();
     await nexus(user, ["chat", "send", "eeee", "run the tests"]);
     expect(uiArgs(user, "chat.send")).not.toHaveProperty("from");
+  });
+
+  test("chat new records its opener even with no first prompt", async () => {
+    const app = withChat();
+    const caller = { workspaceId: APP, tabId: CHAT_TAB };
+    expect((await nexus(app, ["chat", "new", "--agent", "codex"], caller)).exitCode).toBe(0);
+    const asked = uiArgs(app, "chat.open");
+    expect(asked).toMatchObject({
+      prompt: "",
+      openedBy: { kind: "tab", agent: "claude", name: "Fix the login", ...caller },
+    });
+    expect(asked).not.toHaveProperty("from");
+
+    const user = withChat();
+    expect((await nexus(user, ["chat", "new", "--prompt", "Review the docs"])).exitCode).toBe(0);
+    expect(uiArgs(user, "chat.open")).not.toHaveProperty("openedBy");
   });
 
   test("a terminal an agent opened is that agent's, whatever runs in it; the user's own is theirs", async () => {
@@ -870,6 +889,23 @@ describe("a tab's profile and goal", () => {
     expect(row).toContain("claude-tab (Work)");
     expect(row).toContain("idle · goal met");
   });
+});
+
+test("session list JSON includes the opener of local chat and terminal sessions", async () => {
+  const app = withChat();
+  const openedBy = {
+    kind: "tab" as const,
+    agent: "codex" as const,
+    workspaceId: APP,
+    tabId: CALLER_TAB,
+  };
+  app.tabs[APP] = (app.tabs[APP] ?? []).map((tab) =>
+    tab.id === CHAT_TAB || tab.id === CLAUDE_TAB ? { ...tab, openedBy } : tab,
+  );
+  const result = await nexus(app, ["session", "list", "--json"]);
+  const sessions = JSON.parse(result.stdout) as { id: string }[];
+  expect(sessions.find((row) => row.id === CHAT_TAB)).toHaveProperty("openedBy", openedBy);
+  expect(sessions.find((row) => row.id === CLAUDE_TAB)).toHaveProperty("openedBy", openedBy);
 });
 
 describe("chat instructions", () => {

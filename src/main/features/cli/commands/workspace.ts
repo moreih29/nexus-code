@@ -349,12 +349,10 @@ const worktreeNew: CliCommand = {
       ...(body !== "" ? { body } : {}),
     });
     // An agent's prompt shows as its in the task's tab, and the agent there is told.
-    const sender =
-      prompt.trim() !== "" || (start && "command" in start && start.command.trim())
-        ? await senderOf(ctx)
-        : undefined;
+    const sender = await senderOf(ctx);
     const from = prompt.trim() !== "" ? sender : undefined;
-    const openedBy = start && "command" in start ? openerOf(sender) : undefined;
+    const openedBy = openerOf(sender);
+    ctx.signal?.throwIfAborted();
     const created = await ctx.services.ui(
       "task.create",
       {

@@ -36,6 +36,7 @@ export const RelaySenderSchema = z.object({
 });
 export type RelaySender = z.infer<typeof RelaySenderSchema>;
 
+/** Who opened a terminal or chat tab. `manager` is the agent from older versions. */
 export const TerminalOpenerSchema = RelaySenderSchema.extend({
   kind: RelaySenderSchema.shape.kind.exclude(["app"]),
 }).omit({ waits: true });

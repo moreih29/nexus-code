@@ -7,6 +7,7 @@ import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import {
   APP,
+  CLAUDE_TAB,
   contextFor,
   type FakeApp,
   FIX,
@@ -32,6 +33,30 @@ function uiArgs(app: FakeApp, op: string): unknown {
 }
 
 describe("worktree new", () => {
+  test.each([
+    ["the default agent", []],
+    ["a chat agent", ["--agent", "codex"]],
+    ["a terminal command", ["--command", "codex"]],
+  ] as const)("records who opened the first tab for %s", async (_name, flags) => {
+    const argv = ["worktree", "new", "pay", ...flags];
+    const app = fakeApp();
+    const caller = { workspaceId: APP, tabId: CLAUDE_TAB };
+    expect((await nexus(app, argv, caller)).exitCode).toBe(0);
+    const asked = uiArgs(app, "task.create");
+    expect(asked).toMatchObject({
+      createdBy: caller,
+      openedBy: { kind: "terminal", agent: "claude", ...caller },
+    });
+    expect(asked).not.toHaveProperty("from");
+
+    const user = fakeApp();
+    expect((await nexus(user, argv)).exitCode).toBe(0);
+    expect(uiArgs(user, "task.create")).toMatchObject({
+      createdBy: { workspaceId: APP, tabId: SHELL_TAB },
+    });
+    expect(uiArgs(user, "task.create")).not.toHaveProperty("openedBy");
+  });
+
   test("from a worktree, branches off the workspace it belongs to", async () => {
     const app = fakeApp();
     app.tabs[FIX] = [

@@ -310,6 +310,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       };
     }
     const controls = watches.controls?.() ?? { chat: false, terminal: false };
+    const openedBy = openerOf(relay);
     switch (request.method) {
       case "sessions.list":
         return serveSessionsList(s, git, watches.notes, from, controls);
@@ -430,6 +431,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
               show,
               ...(start ? { start } : {}),
               ...(relay && prompt.trim() ? { from: relay } : {}),
+              ...(openedBy ? { openedBy } : {}),
             },
             5 * 60_000,
           )
@@ -648,7 +650,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "chat.rewind":
         return rewindChat(s, request.params as RpcParams<"chat.rewind">);
       case "chat.fork":
-        return forkChat(s, request.params as RpcParams<"chat.fork">);
+        return forkChat(s, request.params as RpcParams<"chat.fork">, openedBy);
       case "chat.background":
         return backgroundChatTool(s, request.params as RpcParams<"chat.background">);
       case "chat.unqueue":
@@ -679,7 +681,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "history.list":
         return listHistory(s, request.params as RpcParams<"history.list">);
       case "chat.resume":
-        return resumeChat(s, request.params as RpcParams<"chat.resume">);
+        return resumeChat(s, request.params as RpcParams<"chat.resume">, openedBy);
       case "chat.close":
         return closeChat(s, request.params as RpcParams<"chat.close">);
       case "terminal.input":
@@ -691,7 +693,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
           s,
           request.params as RpcParams<"terminal.open">,
           watches.files?.fs,
-          openerOf(relay),
+          openedBy,
         );
       case "terminal.rename":
         return renameTerminal(s, request.params as RpcParams<"terminal.rename">);
