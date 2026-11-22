@@ -52,7 +52,8 @@ export function usePeerWorkbench(sidebarShown: boolean, workspaceShown: boolean)
   const reach: PeerReach =
     shownRoom?.status !== "online" ? "disconnected" : shownPeer?.online ? "online" : "offline";
   const watched = sidebarShown ? online.map(({ id }) => id) : selection ? [selection.deviceId] : [];
-  const lists = usePeerSessions(watched, workspaceShown);
+  // Both visible sidebars use the same watch, including the first switch to Agents.
+  const lists = usePeerSessions(watched, sidebarShown || (workspaceShown && selection !== null));
   const sessions = selection ? lists[selection.deviceId] : undefined;
   const workspaces = sessions?.status === "ready" ? sessions.list.workspaces : undefined;
   const current = workspaces?.find(({ id }) => id === selection?.workspaceId);
@@ -68,7 +69,9 @@ export function usePeerWorkbench(sidebarShown: boolean, workspaceShown: boolean)
     const store = usePeerWorkspaceStore.getState();
     if (!current) store.markMissing(peerTargetId(selection));
     else if (
-      current !== selection.workspace ||
+      current.name !== selection.workspace.name ||
+      current.path !== selection.workspace.path ||
+      current.parentId !== selection.workspace.parentId ||
       peer.name !== selection.deviceName ||
       peer.platform !== selection.platform
     ) {

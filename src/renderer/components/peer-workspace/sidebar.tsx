@@ -26,6 +26,7 @@ interface PeerWorkspaceSectionProps {
   offline: readonly RoomPeer[];
   lists: Readonly<Record<string, PeerSessions>>;
   active: PeerWorkspaceTarget | null;
+  missing?: boolean;
   folded: readonly string[];
   toggleFold: (id: string) => void;
 }
@@ -36,6 +37,7 @@ export function PeerWorkspaceSection({
   offline,
   lists,
   active,
+  missing,
   folded,
   toggleFold,
 }: PeerWorkspaceSectionProps) {
@@ -48,7 +50,13 @@ export function PeerWorkspaceSection({
       {online.map((peer) => {
         const list = lists[peer.id];
         const workspaces =
-          list?.status === "ready" ? list.list.workspaces.filter(({ parentId }) => !parentId) : [];
+          list?.status === "ready"
+            ? list.list.workspaces.filter(
+                ({ id, parentId }) =>
+                  !parentId &&
+                  !(missing && active?.deviceId === peer.id && active.workspaceId === id),
+              )
+            : [];
         const expanded = !folded.includes(peer.id);
         const Chevron = expanded ? ChevronDown : ChevronRight;
         return (

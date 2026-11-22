@@ -1,13 +1,6 @@
 import { ChevronRight } from "lucide-react";
-import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useDragSource } from "@/components/ui/use-drag-source";
-import { distinctParents } from "@/services/fs-mutations/distinct-parents";
-import { useFilesStore } from "@/state/stores/files";
-import { MIME_FILE } from "@/types/workbench-dnd";
 import { cn } from "@/utils/cn";
-import { basename } from "@/utils/path";
-import { buildFileDragPayload } from "@/utils/workbench-dnd-payload";
 import type { TreeNode } from "../../../state/stores/files";
 import { FileIcon } from "./file-icon";
 import { type GitDecorationKind, kindToColorVar, kindToLetter } from "./git-decoration";
@@ -17,16 +10,15 @@ import { indentPaddingLeft, ROW_HEIGHT_PX } from "./metrics";
 // Props
 // ---------------------------------------------------------------------------
 
-interface FileTreeRowProps {
+export interface FileTreeRowProps {
   /**
    * HTML `id` for ARIA aria-activedescendant (Phase F).
    * Set by the parent via `encodeRowId(absPath)` so the tree container can
    * point `aria-activedescendant` at the focused row's id.
    */
   id?: string;
-  workspaceId: string;
   absPath: string;
-  node: TreeNode;
+  node: Pick<TreeNode, "type" | "name">;
   depth: number;
   isExpanded: boolean;
   isSelected: boolean;
@@ -37,12 +29,11 @@ interface FileTreeRowProps {
    */
   isFocused?: boolean;
   isLoading?: boolean;
-  /**
-   * True when this row represents the workspace root. The root is never
-   * draggable — drag-source semantics for the workspace itself have no
-   * destination. Directories OTHER than the root are draggable like files.
-   */
-  isRoot?: boolean;
+  isDragging?: boolean;
+  dragProps?: Pick<
+    React.ButtonHTMLAttributes<HTMLButtonElement>,
+    "draggable" | "onDragStart" | "onDragEnd"
+  >;
   /**
    * Git decoration kind for this row, if any. Files surface a colored
    * letter chip; directories surface only the propagated chip (no name
@@ -85,7 +76,6 @@ interface FileTreeRowProps {
 
 export function FileTreeRow({
   id,
-  workspaceId,
   absPath,
   node,
   depth,
@@ -93,7 +83,8 @@ export function FileTreeRow({
   isSelected,
   isFocused = false,
   isLoading = false,
-  isRoot = false,
+  isDragging = false,
+  dragProps,
   decoration,
   isIgnored = false,
   isCut = false,
@@ -102,67 +93,6 @@ export function FileTreeRow({
   onContextMenu,
 }: FileTreeRowProps) {
   const isDir = node.type === "dir";
-
-  // Drag source — everything except the workspace root. Directories are
-  // draggable (move/copy a folder into another folder); the root is the
-  // only exception because it has no meaningful destination.
-  //
-  // Phase E: payload and drag-image label are resolved at dragstart time so
-  // they reflect the current multi-selection state:
-  //   - absPath is in selection.paths → drag the whole selection (distinctParents).
-  //   - absPath is NOT in selection.paths → drag only this row (single path).
-  // This is a read-once snapshot; selection changes during drag do not affect
-  // the in-flight payload.
-  //
-  // `payload` is a stable identity value (always the single-path shape) that
-  // keeps the useCallback dep array stable.  `getPayload` is called at dragstart
-  // time to produce the real multi-path payload.
-  const stablePayload = useMemo(
-    () => buildFileDragPayload(workspaceId, [absPath]),
-    [workspaceId, absPath],
-  );
-
-  const getPayload = useMemo(
-    () => () => {
-      const sel = useFilesStore.getState().selection.get(workspaceId);
-      if (sel && sel.paths.size > 0 && sel.paths.has(absPath)) {
-        const filePaths = distinctParents([...sel.paths]);
-        return buildFileDragPayload(workspaceId, filePaths);
-      }
-      return buildFileDragPayload(workspaceId, [absPath]);
-    },
-    [workspaceId, absPath],
-  );
-
-  const getDragImage = useMemo(
-    () => () => {
-      const sel = useFilesStore.getState().selection.get(workspaceId);
-      const isMulti = sel && sel.paths.size > 0 && sel.paths.has(absPath);
-      if (isMulti) {
-        const count = distinctParents([...sel.paths]).length;
-        if (count > 1) {
-          return { kind: "label" as const, text: String(count) };
-        }
-      }
-      return { kind: "label" as const, text: basename(absPath) };
-    },
-    [workspaceId, absPath],
-  );
-
-  const { onDragStart } = useDragSource({
-    mime: MIME_FILE,
-    payload: stablePayload,
-    getPayload,
-    dragImage: getDragImage,
-    effectAllowed: "copyMove",
-  });
-  // Dim the source row while it is being dragged (VSCode parity — the dragged
-  // entry fades so the floating drag label / drop target stand out).
-  const [isDragging, setIsDragging] = useState(false);
-  const handleDragStart = (e: React.DragEvent<HTMLButtonElement>): void => {
-    setIsDragging(true);
-    onDragStart(e);
-  };
 
   return (
     <button
@@ -188,9 +118,7 @@ export function FileTreeRow({
       // directory drop target and which path to drop into.
       data-file-tree-row-type={node.type}
       data-file-tree-row-path={absPath}
-      draggable={!isRoot}
-      onDragStart={isRoot ? undefined : handleDragStart}
-      onDragEnd={isRoot ? undefined : () => setIsDragging(false)}
+      {...dragProps}
       style={{ paddingLeft: indentPaddingLeft(depth), height: ROW_HEIGHT_PX }}
       className={cn(
         "flex items-center w-full text-left cursor-pointer select-none",

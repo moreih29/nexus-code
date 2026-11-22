@@ -4,6 +4,7 @@ import { goToNextWaiting } from "../../services/agent-sessions/use-inbox";
 import { activateWorkspace } from "../../state/operations/workspace-selection";
 import { useActiveStore } from "../../state/stores/active";
 import { useAddWorkspaceUIStore } from "../../state/stores/add-workspace-ui";
+import { isAgentViewShown } from "../../state/stores/agent-view";
 import { usePeerWorkspaceStore } from "../../state/stores/peer-workspace";
 import { useTaskUIStore } from "../../state/stores/task-ui";
 import {
@@ -55,6 +56,8 @@ export function registerWorkspaceCommands(): Array<() => void> {
       const parentId = rootWorkspaceId(useWorkspacesStore.getState().workspaces, activeId);
       useTaskUIStore.getState().openNewTask(parentId);
     }),
-    registerCommand(COMMANDS.sessionNextWaiting, goToNextWaiting),
+    registerCommand(COMMANDS.sessionNextWaiting, () => {
+      if (!usePeerWorkspaceStore.getState().active || isAgentViewShown()) goToNextWaiting();
+    }),
   ];
 }

@@ -324,8 +324,67 @@ export interface TabItemProps {
   onTabContextMenu?: (tabId: string, event: React.MouseEvent) => void;
 }
 
+const TAB_TRIGGER_CLASS = cn(
+  // chip layout — h-7 inset within the h-9 bar; rounded so the active /
+  // hover surface reads as a raised chip (JetBrains Islands tab).
+  // pr-7 reserves space for the absolute close button.
+  // relative: positioning context for the active-state ::after underline.
+  "relative flex items-center gap-2 pl-3 pr-7 h-7 rounded-(--radius-raised)",
+  // text
+  "text-app-ui-sm whitespace-nowrap select-none cursor-pointer",
+  // reset button defaults
+  "bg-transparent",
+  // rest (inactive): flat, muted text — no surface
+  "text-muted-foreground",
+  // hover: chip-shaped surface highlight (light-theme safe, design.md §8)
+  "hover:bg-[var(--tab-hover-bg)] hover:text-foreground",
+  // active (selected): filled raised chip + foreground text. Surface +
+  // colour change satisfy §8 redundant encoding. The fill is a
+  // within-island raised surface (not a canvas/island swap), so no
+  // depth reversal — design.md §2 is about canvas↔island, not this.
+  "data-[state=active]:bg-[var(--tab-active-bg)] data-[state=active]:text-foreground",
+  // active accent underline — JetBrains Islands canon (EditorTabs.underline*):
+  // 2px tall bottom-edge line, inset 8px on each side, fully rounded ends.
+  // Shares the --state-selected-indicator token with the sidebar, keeping the color
+  // vocabulary "this blue means active" while only the position varies (vertical list =
+  // left 2px, horizontal tabs = bottom 2px). The position cue survives in grayscale.
+  "data-[state=active]:after:content-['']",
+  "data-[state=active]:after:absolute data-[state=active]:after:left-2 data-[state=active]:after:right-2",
+  "data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5",
+  "data-[state=active]:after:rounded-full",
+  "data-[state=active]:after:bg-[var(--state-selected-indicator)]",
+  // focus
+  "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50",
+);
+
+interface ReadonlyTabItemProps {
+  readOnly: true;
+  value: string;
+  label: string;
+  icon: React.ReactNode;
+  onClose: () => void;
+}
+
+export function TabItem(props: TabItemProps | ReadonlyTabItemProps) {
+  return "readOnly" in props ? <ReadonlyTabItem {...props} /> : <LocalTabItem {...props} />;
+}
+
+function ReadonlyTabItem({ value, label, icon, onClose }: ReadonlyTabItemProps) {
+  return (
+    <div className="group relative flex h-full items-center" data-tab-id={value}>
+      <RadixTabs.Trigger value={value} className={TAB_TRIGGER_CLASS}>
+        {icon}
+        <span className="min-w-0 max-w-64 truncate" title={label}>
+          {label}
+        </span>
+      </RadixTabs.Trigger>
+      <TabCloseButton onClose={onClose} />
+    </div>
+  );
+}
+
 // Memo: the bar renders as which tabs fit changes, which changes no tab.
-export const TabItem = memo(function TabItem({
+const LocalTabItem = memo(function LocalTabItem({
   workspaceId,
   leafId,
   tab,
@@ -472,34 +531,7 @@ export const TabItem = memo(function TabItem({
         }}
         aria-label={terminalEnded ? `${displayTitle}${t("tabBar.terminal_ended_aria")}` : undefined}
         className={cn(
-          // chip layout — h-7 inset within the h-9 bar; rounded so the active /
-          // hover surface reads as a raised chip (JetBrains Islands tab).
-          // pr-7 reserves space for the absolute close button.
-          // relative: positioning context for the active-state ::after underline.
-          "relative flex items-center gap-2 pl-3 pr-7 h-7 rounded-(--radius-raised)",
-          // text
-          "text-app-ui-sm whitespace-nowrap select-none cursor-pointer",
-          // reset button defaults
-          "bg-transparent",
-          // rest (inactive): flat, muted text — no surface
-          "text-muted-foreground",
-          // hover: chip-shaped surface highlight (light-theme safe, design.md §8)
-          "hover:bg-[var(--tab-hover-bg)] hover:text-foreground",
-          // active (selected): filled raised chip + foreground text. Surface +
-          // colour change satisfy §8 redundant encoding. The fill is a
-          // within-island raised surface (not a canvas/island swap), so no
-          // depth reversal — design.md §2 is about canvas↔island, not this.
-          "data-[state=active]:bg-[var(--tab-active-bg)] data-[state=active]:text-foreground",
-          // active accent underline — JetBrains Islands canon (EditorTabs.underline*):
-          // 2px tall bottom-edge line, inset 8px on each side, fully rounded ends.
-          // Shares the --state-selected-indicator token with the sidebar, keeping the color
-          // vocabulary "this blue means active" while only the position varies (vertical list =
-          // left 2px, horizontal tabs = bottom 2px). The position cue survives in grayscale.
-          "data-[state=active]:after:content-['']",
-          "data-[state=active]:after:absolute data-[state=active]:after:left-2 data-[state=active]:after:right-2",
-          "data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5",
-          "data-[state=active]:after:rounded-full",
-          "data-[state=active]:after:bg-[var(--state-selected-indicator)]",
+          TAB_TRIGGER_CLASS,
           // preview tab + active: the italic label already signals "temporarily active", so the
           // underline alpha is lowered to 60% as a secondary cue for "selection not settled".
           // When it turns dirty and promoteFromPreview runs, isPreview=false restores it.
@@ -511,8 +543,6 @@ export const TabItem = memo(function TabItem({
           "data-[state=inactive]:[&_[data-tab-icon]]:opacity-65",
           // permissionPending tab background warning tint — 6% opacity, a secondary redundant encoding.
           isPermissionPending && "bg-(--state-warning-bg)/[0.06]",
-          // focus
-          "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50",
         )}
       >
         {tab.isPinned && (
@@ -636,19 +666,30 @@ export const TabItem = memo(function TabItem({
       {/* Close button — sibling of trigger (never nested inside trigger).
           Always positioned separately from the dirty dot (no replacement).
           Hit target is min-w-6 min-h-6 (24px) per design requirement. */}
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className="absolute right-1 top-1/2 -translate-y-1/2 hover:bg-[var(--state-hover-bg)] shrink-0 opacity-50 hover:opacity-100"
-        onClick={(e) => {
-          e.stopPropagation();
-          onCloseTab(tab.id);
-        }}
-        aria-label={t("tabBar.close_tab")}
-        {...tooltipProps(t("tabBar.close_tab"), shortcutFor(COMMANDS.tabClose))}
-      >
-        <X aria-hidden width={12} height={12} strokeWidth={2} />
-      </Button>
+      <TabCloseButton
+        onClose={() => onCloseTab(tab.id)}
+        shortcut={shortcutFor(COMMANDS.tabClose)}
+      />
     </div>
   );
 });
+
+function TabCloseButton({ onClose, shortcut }: { onClose: () => void; shortcut?: string }) {
+  const { t } = useTranslation();
+  const label = t("tabBar.close_tab");
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className="absolute right-1 top-1/2 -translate-y-1/2 hover:bg-[var(--state-hover-bg)] shrink-0 opacity-50 hover:opacity-100"
+      onClick={(event) => {
+        event.stopPropagation();
+        onClose();
+      }}
+      aria-label={label}
+      {...tooltipProps(label, shortcut)}
+    >
+      <X aria-hidden width={12} height={12} strokeWidth={2} />
+    </Button>
+  );
+}

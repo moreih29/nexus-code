@@ -1,5 +1,12 @@
 import { Menu, Settings } from "lucide-react";
-import { type MouseEvent, type RefObject, useLayoutEffect, useRef, useState } from "react";
+import {
+  type MouseEvent,
+  type ReactNode,
+  type RefObject,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { COMMANDS } from "../../../shared/keybindings/commands";
@@ -42,7 +49,11 @@ const WIN_OVERLAY_INSET = 140; // px — clears the Electron-rendered control ov
 const OWN_CONTROLS_INSET = 4; // px — right of the renderer-drawn window controls
 const CENTER_GAP = 8; // px — between the centered title and what is beside it
 
-export function TitleBar() {
+export function TitleBar({
+  peerTitle,
+}: {
+  peerTitle?: (maxWidth: number | undefined) => ReactNode;
+}) {
   const { t } = useTranslation();
   const ownControls = window.host.transparentWindow === true;
 
@@ -105,9 +116,11 @@ export function TitleBar() {
           menu of its tasks. SSH workspaces append "(ssh: <host>)" so the
           remote target is visible alongside the user-chosen workspace name.
           The agent view shows every workspace, so none is named. */}
-      {activeWorkspace && !agentView && (
-        <TaskSwitcher active={activeWorkspace} label={titleLabel} maxWidth={room} />
-      )}
+      {!agentView &&
+        (peerTitle?.(room) ??
+          (activeWorkspace && (
+            <TaskSwitcher active={activeWorkspace} label={titleLabel} maxWidth={room} />
+          )))}
 
       {/* What follows is right-aligned. */}
       <div ref={endRef} className="ml-auto flex shrink-0 items-center">

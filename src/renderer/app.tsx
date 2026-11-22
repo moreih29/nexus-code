@@ -8,8 +8,11 @@ import { AgentSidebar } from "./components/agent-view/agent-sidebar";
 import { AgentView } from "./components/agent-view/agent-view";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
+import { PeerFilesPanel } from "./components/peer-workspace/files-panel";
+import { PeerWorkspacePanel } from "./components/peer-workspace/panel";
 import { usePeerWorkbench } from "./components/peer-workspace/room";
 import { PeerWorkspaceSection } from "./components/peer-workspace/sidebar";
+import { PeerWorkspaceTitle } from "./components/peer-workspace/title";
 import { AboutPanel } from "./components/settings/panels/about-panel";
 import { AgentInstructionsPanel } from "./components/settings/panels/agent-instructions-panel";
 import { AgentPanel } from "./components/settings/panels/agent-panel";
@@ -49,6 +52,7 @@ import { useActiveStore } from "./state/stores/active";
 import { useAddWorkspaceUIStore } from "./state/stores/add-workspace-ui";
 import { useAgentViewStore } from "./state/stores/agent-view";
 import { useMountedWorkspacesStore } from "./state/stores/mounted-workspaces";
+import { peerTargetId } from "./state/stores/peer-workspace";
 import { useSettingsUIStore } from "./state/stores/settings-ui";
 import { useUIStore } from "./state/stores/ui";
 import { useWorkspaceSidebarFolds } from "./state/stores/workspace-sidebar-folds";
@@ -80,7 +84,9 @@ export function App() {
   // The agent view takes the place of the workspaces: its list for the
   // sidebar and the files, its panels for the workspace's.
   const agentView = useAgentViewStore((s) => s.mode === "agents");
-  const peers = usePeerWorkbench(!sidebarHidden && !agentView, !agentView);
+  const peers = usePeerWorkbench(!sidebarHidden, !agentView);
+  const activePeer = peers.active;
+  const peerNeedsUpdate = peers.reachable && !peers.filesSupported;
   const foldedPeers = useWorkspaceSidebarFolds((s) => s.foldedPeers);
   const togglePeerFold = useWorkspaceSidebarFolds((s) => s.togglePeer);
 
@@ -238,7 +244,20 @@ export function App() {
   return (
     <ErrorBoundary logSource="renderer">
       <div className="flex flex-col h-full overflow-hidden backdrop-surface">
-        <TitleBar />
+        <TitleBar
+          peerTitle={
+            activePeer
+              ? (maxWidth) => (
+                  <PeerWorkspaceTitle
+                    target={activePeer}
+                    workspaces={peers.workspaces}
+                    canSelectTask={peers.reachable && !peers.missing}
+                    maxWidth={maxWidth}
+                  />
+                )
+              : undefined
+          }
+        />
         <GlobalRoots />
         <AddWorkspaceDialog
           open={addWorkspaceOpen}
@@ -288,7 +307,8 @@ export function App() {
                     online={peers.online}
                     offline={peers.offline}
                     lists={peers.lists}
-                    active={peers.missing ? null : peers.active}
+                    active={peers.active}
+                    missing={peers.missing}
                     folded={foldedPeers}
                     toggleFold={togglePeerFold}
                   />
@@ -301,7 +321,21 @@ export function App() {
             />
           </KeptMounted>
           <KeptMounted shown={!filesPanelHidden && !agentView}>
-            <FilesPanel />
+            <FilesPanel
+              peerPanel={
+                activePeer ? (
+                  <PeerFilesPanel
+                    target={activePeer}
+                    missing={peers.missing}
+                    canRead={
+                      !agentView && !filesPanelHidden && peers.reachable && peers.filesSupported
+                    }
+                    updateNeeded={peerNeedsUpdate}
+                    rejoin={peers.rejoin}
+                  />
+                ) : undefined
+              }
+            />
           </KeptMounted>
           {/* The panels, where quick look and the release notes show over them. */}
           <div
@@ -310,12 +344,24 @@ export function App() {
           >
             {/* In the one cell, as the panels are: the agent view, kept
                 mounted there, would push it into a row of its own below. */}
-            {!restoringWorkbench && activeWorkspaceId === null && !agentView && (
+            {!restoringWorkbench && activeWorkspaceId === null && !activePeer && !agentView && (
               <div className="col-start-1 row-start-1 flex flex-col island-surface rounded-(--radius-island) overflow-hidden">
                 <WelcomeScreen
                   onAddWorkspace={workspaces.length === 0 ? handleAddWorkspace : undefined}
                 />
               </div>
+            )}
+            {activePeer && (
+              <PeerWorkspacePanel
+                key={peerTargetId(activePeer)}
+                target={activePeer}
+                shown={!agentView}
+                reach={peers.reach}
+                reachable={peers.reachable}
+                missing={peers.missing}
+                updateNeeded={peerNeedsUpdate}
+                rejoin={peers.rejoin}
+              />
             )}
             {mountedWorkspaces.map((ws) => (
               <WorkspacePanel

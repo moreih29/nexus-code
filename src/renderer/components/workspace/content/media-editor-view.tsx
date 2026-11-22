@@ -2,7 +2,7 @@
 // other editors have, its right slot showing the file's length (and a
 // video's frame size), and the player below. Media files are not editable.
 
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { type MediaKind, mediaDuration } from "../../../services/editor/preview/media";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { type MediaInfo, MediaPreview } from "../../editor/preview/media-preview";
@@ -11,11 +11,18 @@ import { EditorBreadcrumbs } from "./editor-breadcrumbs";
 interface MediaEditorViewProps {
   filePath: string;
   workspaceId: string;
+  breadcrumbs?: ReactNode;
   tabId?: string | undefined;
   kind: MediaKind;
 }
 
-export function MediaEditorView({ filePath, workspaceId, tabId, kind }: MediaEditorViewProps) {
+export function MediaEditorView({
+  filePath,
+  workspaceId,
+  tabId,
+  kind,
+  breadcrumbs,
+}: MediaEditorViewProps) {
   const workspaceRootAbsPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
   );
@@ -25,7 +32,9 @@ export function MediaEditorView({ filePath, workspaceId, tabId, kind }: MediaEdi
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between gap-2 overflow-hidden px-2 py-1 border-b border-[var(--surface-island-border)]">
-        <EditorBreadcrumbs filePath={filePath} workspaceRootAbsPath={workspaceRootAbsPath} />
+        {breadcrumbs ?? (
+          <EditorBreadcrumbs filePath={filePath} workspaceRootAbsPath={workspaceRootAbsPath} />
+        )}
         {label && (
           <span className="shrink-0 whitespace-nowrap text-app-ui-sm tabular-nums text-muted-foreground px-1 select-none">
             {label}

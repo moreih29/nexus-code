@@ -4,9 +4,10 @@
  * at a time, and the folder it is at there, which its chat's pane tells.
  */
 
-import { MAX_BYTES_CHUNK } from "../../../../packages/remote-protocol/src/rpc";
+import { MAX_BYTES_CHUNK, MAX_READ_BYTES } from "../../../../packages/remote-protocol/src/rpc";
 import { MAX_READABLE_FILE_SIZE, READ_RANGE_MAX_BYTES } from "../../../shared/fs/defaults";
 import type { PeerWorkspace } from "../../../shared/fs/peer-url";
+import { type IpcResult, ipcOk } from "../../../shared/ipc/result";
 import { ipcCallResult } from "../../ipc/client";
 import { bytesFromBase64 } from "../editor/encoding/text-encoding";
 
@@ -35,7 +36,7 @@ export interface PeerPiece {
   readonly version?: string;
 }
 
-async function readSpan(
+async function readSpanResult(
   peer: PeerWorkspace,
   path: string,
   offset: number,
@@ -43,18 +44,23 @@ async function readSpan(
   requireVersion?: string,
   signal?: AbortSignal,
   whole?: true,
-): Promise<PeerPiece | null> {
+): Promise<IpcResult<PeerPiece>> {
   const read = await ipcCallResult(
     "remote",
     "peerFilesReadBytes",
     { ...peer, path, offset, length, requireVersion, whole },
     { signal },
   );
-  if (!read.ok) return null;
+  if (!read.ok) return read;
   const { parts, size, version } = read.value;
   const decoded = parts.map(bytesFromBase64);
   const bytes = decoded.length === 1 ? decoded[0] : joinBytes(decoded);
-  return bytes ? { bytes, size, version } : null;
+  return ipcOk({ bytes, size, version });
+}
+
+async function readSpan(...args: Parameters<typeof readSpanResult>): Promise<PeerPiece | null> {
+  const read = await readSpanResult(...args);
+  return read.ok ? read.value : null;
 }
 
 function joinBytes(parts: Uint8Array[]): Uint8Array {
@@ -119,6 +125,15 @@ export async function readPeerBinary(
   const head = await readSpan(peer, path, 0, MAX_BYTES_CHUNK, undefined, signal, true);
   if (!head) return { kind: "failed" };
   if (head.size > MAX_READABLE_FILE_SIZE) return { kind: "too_large" };
+  return assemblePeerBinary(peer, path, head, signal);
+}
+
+async function assemblePeerBinary(
+  peer: PeerWorkspace,
+  path: string,
+  head: PeerPiece,
+  signal?: AbortSignal,
+): Promise<PeerBinary> {
   if (head.bytes.length >= head.size)
     return { kind: "ok", bytes: head.bytes, ...(head.version ? { version: head.version } : {}) };
   const bytes = new Uint8Array(head.size);
@@ -143,7 +158,12 @@ export async function readPeerBinary(
     for (const [j, piece] of batch.entries()) {
       const at = offsets[i + j] ?? 0;
       // A file that changed size while it was read is not shown as either.
-      if (!piece || piece.size !== head.size || (head.version && piece.version !== head.version))
+      if (
+        !piece ||
+        piece.size !== head.size ||
+        piece.bytes.length !== Math.min(MAX_BYTES_CHUNK, head.size - at) ||
+        (head.version && piece.version !== head.version)
+      )
         return { kind: "failed" };
       bytes.set(piece.bytes.subarray(0, head.size - at), at);
     }
@@ -169,11 +189,18 @@ export async function probePeerVersion(
 /** How far into a file a NUL makes it binary, as the editor tells. */
 const SNIFF_BYTES = 8000;
 
+export const PEER_WORKSPACE_TEXT_LIMIT = 8 * 1024 * 1024;
+
 export type PeerText =
-  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "text"; readonly text: string; readonly truncated?: boolean }
   | { readonly kind: "binary" }
   | { readonly kind: "too_large" }
-  | { readonly kind: "failed" };
+  | { readonly kind: "failed"; readonly reason?: string };
+
+interface PeerTextRead {
+  text: PeerText;
+  version?: string;
+}
 
 /** A text file of another computer's, as UTF-8, its byte-order mark left out. */
 export async function readPeerText(
@@ -189,14 +216,60 @@ export async function readPeerTextVersioned(
   peer: PeerWorkspace,
   path: string,
   signal?: AbortSignal,
-): Promise<{ text: PeerText; version?: string }> {
+): Promise<PeerTextRead> {
   const read = await readPeerBinary(peer, path, signal);
+  return decodePeerText(read);
+}
+
+function decodePeerText(read: PeerBinary): PeerTextRead {
   if (read.kind !== "ok") return { text: read };
-  if (read.bytes.subarray(0, SNIFF_BYTES).includes(0)) return { text: { kind: "binary" } };
+  if (read.bytes.subarray(0, SNIFF_BYTES).includes(0)) {
+    return { text: { kind: "binary" }, version: read.version };
+  }
   const text = new TextDecoder("utf-8").decode(read.bytes);
   return {
     text: { kind: "text", text: text.startsWith("\uFEFF") ? text.slice(1) : text },
     ...(read.version ? { version: read.version } : {}),
+  };
+}
+
+/** Full text up to the desktop cache's limit, otherwise the host's UTF-8 prefix. */
+export async function readPeerWorkspaceText(
+  peer: PeerWorkspace,
+  path: string,
+  signal?: AbortSignal,
+): Promise<PeerTextRead> {
+  const size = await readSpanResult(peer, path, 0, 1, undefined, signal);
+  if (!size.ok) return { text: { kind: "failed", reason: size.kind } };
+  if (size.value.size <= PEER_WORKSPACE_TEXT_LIMIT) {
+    const head = await readSpanResult(
+      peer,
+      path,
+      0,
+      MAX_BYTES_CHUNK,
+      size.value.version,
+      signal,
+      true,
+    );
+    if (!head.ok) return { text: { kind: "failed", reason: head.kind } };
+    if (head.value.size <= PEER_WORKSPACE_TEXT_LIMIT) {
+      return decodePeerText(await assemblePeerBinary(peer, path, head.value, signal));
+    }
+  }
+
+  const prefix = await ipcCallResult(
+    "remote",
+    "peerFilesRead",
+    { ...peer, path, maxBytes: MAX_READ_BYTES },
+    { signal },
+  );
+  if (!prefix.ok) return { text: { kind: "failed", reason: prefix.kind } };
+  const value = prefix.value;
+  if (value.kind === "binary") return { text: { kind: "binary" }, version: value.version };
+  if (value.kind !== "text") return { text: { kind: "failed" } };
+  return {
+    text: { kind: "text", text: value.text, truncated: value.truncated },
+    version: value.version,
   };
 }
 

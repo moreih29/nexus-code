@@ -10,11 +10,16 @@
  * and changes only when the content did.
  */
 
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { type PeerWorkspace, peerOf } from "../../../shared/fs/peer-url";
 import type { ToolCall } from "../chat/model";
 import { changedFilesOf } from "../chat/panel";
-import { type PeerText, probePeerVersion, readPeerTextVersioned } from "./peer-workspace";
+import {
+  type PeerText,
+  probePeerVersion,
+  readPeerTextVersioned,
+  readPeerWorkspaceText,
+} from "./peer-workspace";
 
 /**
  * How often a shown file's generation is asked. It is one conditional
@@ -29,6 +34,7 @@ export interface PeerFileSnapshot {
   readonly text: PeerText | null;
   /** Counts the file's changes seen, for a view that shows it by URL (an image). */
   readonly revision: number;
+  readonly version?: string;
 }
 
 interface Entry {
@@ -36,7 +42,7 @@ interface Entry {
   readonly workspaceId: string;
   readonly path: string;
   /** "version": only its generation is followed, for a view that loads the bytes itself. */
-  readonly mode: "text" | "version";
+  readonly mode: "text" | "workspace-text" | "version";
   readonly peer: PeerWorkspace;
   readonly listeners: Set<() => void>;
   snapshot: PeerFileSnapshot | null;
@@ -52,11 +58,16 @@ const entries = new Map<string, Entry>();
 let timer: ReturnType<typeof setInterval> | null = null;
 let removeWindowListeners: (() => void) | null = null;
 
-const keyOf = (workspaceId: string, path: string, mode: Entry["mode"]) =>
-  JSON.stringify([workspaceId, path, mode]);
+const keyOf = (workspaceId: string, path: string, mode: Entry["mode"], connection = 0) =>
+  JSON.stringify([workspaceId, path, mode, connection]);
 
 function sameText(a: PeerText | null, b: PeerText): boolean {
-  return a !== null && a.kind === b.kind && (a.kind !== "text" || a.text === (b as typeof a).text);
+  if (!a || a.kind !== b.kind) return false;
+  if (a.kind === "text" && b.kind === "text") {
+    return a.text === b.text && a.truncated === b.truncated;
+  }
+  if (a.kind === "failed" && b.kind === "failed") return a.reason === b.reason;
+  return true;
 }
 
 function publish(entry: Entry, text: PeerText, version: string | undefined): void {
@@ -77,8 +88,8 @@ async function loadVersion(entry: Entry, again: boolean): Promise<void> {
   const moved = again && (now === undefined || now !== was);
   const revision = (entry.snapshot?.revision ?? 0) + (moved ? 1 : 0);
   if (entry.snapshot && !moved) return;
-  entry.snapshot = { text: null, revision };
-  if (moved) for (const listener of [...entry.listeners]) listener();
+  entry.snapshot = { text: null, revision, version: now };
+  for (const listener of [...entry.listeners]) listener();
 }
 
 async function load(entry: Entry, probe: boolean): Promise<void> {
@@ -88,10 +99,15 @@ async function load(entry: Entry, probe: boolean): Promise<void> {
     const now = await probePeerVersion(entry.peer, entry.path, signal).catch(() => null);
     if (signal.aborted || (now !== null && now === entry.version)) return;
   }
-  const read = await readPeerTextVersioned(entry.peer, entry.path, signal).catch(
+  const readText = entry.mode === "workspace-text" ? readPeerWorkspaceText : readPeerTextVersioned;
+  const read = await readText(entry.peer, entry.path, signal).catch(
     (): { text: PeerText; version?: string } => ({ text: { kind: "failed" } }),
   );
-  if (!signal.aborted) publish(entry, read.text, read.version);
+  const retain =
+    entry.mode === "workspace-text" &&
+    entry.snapshot?.text?.kind === "text" &&
+    isTransientPeerRead(read.text);
+  if (!signal.aborted && !retain) publish(entry, read.text, read.version);
 }
 
 /** Reads the file now, or after the read on its way; asks made meanwhile make one more read. */
@@ -127,8 +143,10 @@ function start(): void {
   if (timer) return;
   timer = setInterval(poll, PEER_FILE_POLL_MS);
   if (
-    typeof window?.addEventListener === "function" &&
-    typeof document?.addEventListener === "function"
+    typeof window !== "undefined" &&
+    typeof window.addEventListener === "function" &&
+    typeof document !== "undefined" &&
+    typeof document.addEventListener === "function"
   ) {
     window.addEventListener("focus", onWindowBack);
     document.addEventListener("visibilitychange", onWindowBack);
@@ -152,10 +170,11 @@ export function watchPeerFile(
   path: string,
   listener: () => void,
   mode: Entry["mode"] = "text",
+  connection = 0,
 ): () => void {
   const peer = peerOf(workspaceId);
   if (!peer) return () => {};
-  const key = keyOf(workspaceId, path, mode);
+  const key = keyOf(workspaceId, path, mode, connection);
   let entry = entries.get(key);
   if (!entry) {
     entry = {
@@ -211,8 +230,9 @@ export function peerFileSnapshot(
   workspaceId: string,
   path: string,
   mode: Entry["mode"] = "text",
+  connection = 0,
 ): PeerFileSnapshot | null {
-  return entries.get(keyOf(workspaceId, path, mode))?.snapshot ?? null;
+  return entries.get(keyOf(workspaceId, path, mode, connection))?.snapshot ?? null;
 }
 
 /** How many files are kept current now. */
@@ -229,14 +249,17 @@ function useSnapshot(
   workspaceId: string,
   path: string,
   mode: Entry["mode"],
+  enabled = true,
+  connection = 0,
 ): PeerFileSnapshot | null {
   const subscribe = useCallback(
-    (listener: () => void) => watchPeerFile(workspaceId, path, listener, mode),
-    [workspaceId, path, mode],
+    (listener: () => void) =>
+      enabled ? watchPeerFile(workspaceId, path, listener, mode, connection) : () => {},
+    [workspaceId, path, mode, enabled, connection],
   );
   const get = useCallback(
-    () => peerFileSnapshot(workspaceId, path, mode),
-    [workspaceId, path, mode],
+    () => (enabled ? peerFileSnapshot(workspaceId, path, mode, connection) : null),
+    [workspaceId, path, mode, enabled, connection],
   );
   return useSyncExternalStore(subscribe, get, get);
 }
@@ -249,13 +272,58 @@ export function usePeerText(workspaceId: string, path: string): PeerText | null 
   return useSnapshot(workspaceId, path, "text")?.text ?? null;
 }
 
+function isTransientPeerRead(text: PeerText): boolean {
+  return text.kind === "failed" && (!text.reason || text.reason === "unavailable");
+}
+
+/** A workspace tab retains its last read while inactive or disconnected. */
+export function usePeerWorkspaceText(
+  workspaceId: string,
+  path: string,
+  enabled: boolean,
+  connection: number,
+): PeerText | null {
+  const text = useSnapshot(workspaceId, path, "workspace-text", enabled, connection)?.text ?? null;
+  const [last, setLast] = useState<PeerText | null>(null);
+  if (!text) return last;
+  // A dropped request can arrive a render before the room reports the loss.
+  if (last?.kind === "text" && isTransientPeerRead(text)) return last;
+  if (text !== last) setLast(text);
+  return text;
+}
+
+/** Keeps a URL revision stable while the tab is hidden or the peer is away. */
+export function usePeerWorkspaceRevision(
+  workspaceId: string,
+  path: string,
+  enabled: boolean,
+  connection: number,
+): number {
+  const snapshot = useSnapshot(workspaceId, path, "version", enabled, connection);
+  const [last, setLast] = useState(() => ({ connection, snapshot, revision: 0 }));
+  if (snapshot && (snapshot !== last.snapshot || connection !== last.connection)) {
+    const moved =
+      last.snapshot !== null &&
+      (connection !== last.connection ||
+        snapshot.version !== last.snapshot.version ||
+        (snapshot.version === undefined && snapshot.revision !== last.snapshot.revision));
+    setLast({ connection, snapshot, revision: last.revision + Number(moved) });
+  }
+  return last.revision;
+}
+
 /**
  * How many times the file changed since it was first looked at (0 before),
  * to key a view that loads the bytes itself, as an image does by its URL.
  * Only the generation is followed, never the content.
  */
-export function usePeerFileRevision(workspaceId: string, path: string): number {
-  return useSnapshot(workspaceId, path, "version")?.revision ?? 0;
+export function usePeerFileRevision(
+  workspaceId: string,
+  path: string,
+  enabled = true,
+  connection = 0,
+): number {
+  return useSnapshot(workspaceId, path, "version", enabled, connection)?.revision ?? 0;
 }
 
 /** What a chat's changed files and finished edit calls say of each file, by path. */

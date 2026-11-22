@@ -39,11 +39,37 @@ test("the sidebar and panes share a device's sessions watch and refresh", async 
     expect(call).toHaveBeenCalledTimes(2);
   } finally {
     closePane();
+    await Promise.resolve();
     expect(call.mock.calls[2]).toEqual([
       "remote",
       "peerSessionsUnwatch",
       { deviceId: "d2", watchId: "watch" },
     ]);
+    call.mockRestore();
+    listen.mockRestore();
+  }
+});
+
+test("switching between workspace and agent sidebars keeps one sessions watch", async () => {
+  const list = { sessions: [], workspaces: [] };
+  const call = spyOn(ipc, "ipcCallResult").mockImplementation(async () =>
+    ipcOk({ ...list, watchId: "watch" }),
+  );
+  const listen = spyOn(ipc, "ipcListen").mockReturnValue(() => {});
+  const workspace = observePeerSessions("d2", 0, () => {});
+  let agent: (() => void) | undefined;
+  try {
+    await Promise.resolve();
+    workspace();
+    const receive = mock((_sessions: PeerSessions) => {});
+    agent = observePeerSessions("d2", 0, receive);
+    await Promise.resolve();
+    expect(call.mock.calls).toEqual([["remote", "peerSessionsWatch", { deviceId: "d2" }]]);
+    expect(receive).toHaveBeenCalledWith({ status: "ready", list });
+  } finally {
+    workspace();
+    agent?.();
+    await Promise.resolve();
     call.mockRestore();
     listen.mockRestore();
   }
@@ -62,6 +88,7 @@ test("releasing a watch twice leaves its replacement shared by new observers", a
   try {
     await Promise.resolve();
     release();
+    await Promise.resolve();
     releaseReplacement = observePeerSessions("d2", 0, () => {});
     await Promise.resolve();
 
@@ -78,6 +105,7 @@ test("releasing a watch twice leaves its replacement shared by new observers", a
     releaseAdditional?.();
     releaseReplacement?.();
     release();
+    await Promise.resolve();
     call.mockRestore();
     listen.mockRestore();
   }
@@ -121,6 +149,7 @@ test("a watched list marks an already open terminal as ended without a sidebar r
     expect(updated).not.toHaveProperty("ask");
   } finally {
     stop();
+    await Promise.resolve();
     call.mockRestore();
     listen.mockRestore();
     useRemoteViewStore.setState({ targets });

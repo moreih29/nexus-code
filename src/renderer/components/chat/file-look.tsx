@@ -1,10 +1,12 @@
 import Editor from "@monaco-editor/react";
 import { GitCompareArrows } from "lucide-react";
 import type * as Monaco from "monaco-editor";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { MAX_READ_BYTES } from "../../../../packages/remote-protocol/src/rpc";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../shared/fs/defaults";
+import { toSlashPath } from "../../../shared/fs/drive-path";
 import { FS_ERROR } from "../../../shared/fs/errors";
 import { useMonacoThemeName } from "../../hooks/use-monaco-theme-name";
 import { useChatFiles } from "../../services/chat/chat-files";
@@ -23,13 +25,18 @@ import {
   type ViewMode,
 } from "../../services/editor/preview/previewable";
 import { isSpreadsheetFile } from "../../services/editor/preview/spreadsheet";
-import { peerOf, usePeerText } from "../../services/remote/peer-workspace";
+import {
+  usePeerWorkspaceRevision,
+  usePeerWorkspaceText,
+} from "../../services/remote/peer-file-live";
+import { type PeerText, peerOf, usePeerText } from "../../services/remote/peer-workspace";
 import { usePreviewDefaultsStore } from "../../state/stores/preview-defaults";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
 import { fileErrorMessage } from "../../utils/file-error";
 import { ImagePreview } from "../editor/preview/image-preview";
 import { PreviewFindScope } from "../editor/preview/preview-find";
+import { PeerPreviewVersion } from "../editor/preview/use-file-version";
 import { ViewModeToggle } from "../editor/preview/view-mode-toggle";
 import { EmptyState } from "../ui/empty-state";
 import { IconButton } from "../ui/icon-button";
@@ -114,6 +121,12 @@ export function FileLookControls({
   );
 }
 
+interface PeerFileLookOptions {
+  watch: boolean;
+  connection: number;
+  toolbar: ReactNode;
+}
+
 /** A file's read-only body, shared by quick look and peer file tabs. */
 export function FileLookBody({
   workspaceId,
@@ -123,6 +136,7 @@ export function FileLookBody({
   before,
   view,
   onImageSize,
+  peerFile,
 }: {
   workspaceId: string;
   path: string;
@@ -131,11 +145,12 @@ export function FileLookBody({
   before?: string | null;
   view: ReturnType<typeof useFileLookView>;
   onImageSize?: (size: Size) => void;
+  peerFile?: PeerFileLookOptions;
 }) {
   const { t } = useTranslation();
   const peer = peerOf(workspaceId) !== null;
   const chatFiles = useChatFiles();
-  if (peer && chatFiles?.epoch === null) {
+  if (peer && !peerFile && chatFiles?.epoch === null) {
     return (
       <EmptyState
         title={
@@ -155,6 +170,19 @@ export function FileLookBody({
       <PeerLookDiff key={key} workspaceId={workspaceId} path={path} before={before ?? null} />
     ) : (
       <LookDiff key={key} workspaceId={workspaceId} path={path} before={before ?? null} />
+    );
+  }
+  if (peer && peerFile) {
+    return (
+      <PeerWorkspaceLook
+        key={JSON.stringify([workspaceId, path])}
+        workspaceId={workspaceId}
+        path={path}
+        root={root}
+        preview={isPreviewable(path) === "supported" && view.mode === "preview"}
+        at={at}
+        peerFile={peerFile}
+      />
     );
   }
   return (
@@ -184,17 +212,78 @@ function isText(path: string): boolean {
   );
 }
 
+function PeerWorkspaceLook({
+  workspaceId,
+  path,
+  root,
+  preview,
+  at,
+  peerFile,
+}: {
+  workspaceId: string;
+  path: string;
+  root: string;
+  preview: boolean;
+  at?: LineAt;
+  peerFile: PeerFileLookOptions;
+}) {
+  const { watch, connection, toolbar } = peerFile;
+  const text = isText(path);
+  const revision = usePeerWorkspaceRevision(workspaceId, path, watch && !text, connection);
+
+  if (!text) {
+    const image = isImageFile(path);
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        {image && <div className={FILE_LOOK_TOOLBAR_CLASS}>{toolbar}</div>}
+        <div className="min-h-0 flex-1">
+          <PeerPreviewVersion.Provider value={revision}>
+            <LookBody
+              workspaceId={workspaceId}
+              path={path}
+              root={root}
+              preview={false}
+              toolbar={toolbar}
+            />
+          </PeerPreviewVersion.Provider>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className={FILE_LOOK_TOOLBAR_CLASS}>{toolbar}</div>
+      <div className="min-h-0 flex-1">
+        <PeerWorkspaceLookText
+          workspaceId={workspaceId}
+          path={path}
+          root={root}
+          preview={preview}
+          at={at}
+          watch={watch}
+          connection={connection}
+        />
+      </div>
+    </div>
+  );
+}
+
+const FILE_LOOK_TOOLBAR_CLASS =
+  "flex shrink-0 items-center justify-between gap-2 border-b border-[var(--surface-island-border)] px-2 py-1";
+
 function LookBody({
   workspaceId,
   path,
   preview,
   at,
   onImageSize,
+  toolbar,
   imageRevision,
   root,
 }: {
   workspaceId: string;
   imageRevision?: number;
+  toolbar?: ReactNode;
   path: string;
   preview: boolean;
   root: string;
@@ -216,14 +305,28 @@ function LookBody({
     );
   }
   const media = mediaKindFor(path);
-  if (media) return <MediaEditorView filePath={path} workspaceId={workspaceId} kind={media} />;
-  if (isFontFile(path)) return <FontEditorView filePath={path} workspaceId={workspaceId} />;
-  if (isPdfFile(path)) return <PdfEditorView filePath={path} workspaceId={workspaceId} />;
+  if (media)
+    return (
+      <MediaEditorView
+        breadcrumbs={toolbar}
+        filePath={path}
+        workspaceId={workspaceId}
+        kind={media}
+      />
+    );
+  if (isFontFile(path))
+    return <FontEditorView breadcrumbs={toolbar} filePath={path} workspaceId={workspaceId} />;
+  if (isPdfFile(path))
+    return <PdfEditorView breadcrumbs={toolbar} filePath={path} workspaceId={workspaceId} />;
   if (isSpreadsheetFile(path)) {
-    return <SpreadsheetEditorView filePath={path} workspaceId={workspaceId} />;
+    return (
+      <SpreadsheetEditorView breadcrumbs={toolbar} filePath={path} workspaceId={workspaceId} />
+    );
   }
-  if (isDocxFile(path)) return <DocxEditorView filePath={path} workspaceId={workspaceId} />;
-  if (isPresentationFile(path)) return <PptxEditorView filePath={path} workspaceId={workspaceId} />;
+  if (isDocxFile(path))
+    return <DocxEditorView breadcrumbs={toolbar} filePath={path} workspaceId={workspaceId} />;
+  if (isPresentationFile(path))
+    return <PptxEditorView breadcrumbs={toolbar} filePath={path} workspaceId={workspaceId} />;
   if (peerOf(workspaceId)) {
     return (
       <PeerLookText workspaceId={workspaceId} path={path} preview={preview} root={root} at={at} />
@@ -249,32 +352,69 @@ function PeerLookText({
   root: string;
   at?: LineAt;
 }) {
-  const { t } = useTranslation();
   const read = usePeerText(workspaceId, path);
+  return <PeerTextBody {...{ workspaceId, path, preview, root, at, read }} />;
+}
+
+function PeerWorkspaceLookText({
+  watch,
+  connection,
+  ...file
+}: Pick<PeerFileLookOptions, "watch" | "connection"> & Parameters<typeof PeerLookText>[0]) {
+  const read = usePeerWorkspaceText(file.workspaceId, file.path, watch, connection);
+  return <PeerTextBody {...file} read={read} />;
+}
+
+function PeerTextBody({
+  workspaceId,
+  path,
+  preview,
+  root,
+  at,
+  read,
+}: Parameters<typeof PeerLookText>[0] & { read: PeerText | null }) {
+  const { t } = useTranslation();
   if (read === null)
     return <EmptyState title={t("editor.loading")} tone="status" className="h-full" />;
   if (read.kind === "binary") {
     return <EmptyState title={t("editor.binary_file")} tone="status" className="h-full" />;
   }
   if (read.kind !== "text") {
+    const message =
+      read.kind === "failed" && read.reason === "not-found"
+        ? t("peerWorkspace.missingFile")
+        : read.kind === "failed" && read.reason === "unsupported"
+          ? t("peerWorkspace.updateNeeded")
+          : read.kind === "failed" && read.reason === "unavailable"
+            ? t("peerWorkspace.connectionUnavailable")
+            : fileErrorMessage(
+                read.kind === "too_large" ? FS_ERROR.TOO_LARGE : "OTHER",
+                MAX_READABLE_FILE_SIZE / (1024 * 1024),
+              );
+    return <EmptyState title={message} tone="status" className="h-full" />;
+  }
+  if (read.truncated) {
     return (
-      <EmptyState
-        title={fileErrorMessage(
-          read.kind === "too_large" ? FS_ERROR.TOO_LARGE : "OTHER",
-          MAX_READABLE_FILE_SIZE / (1024 * 1024),
-        )}
-        tone="status"
-        className="h-full"
-      />
+      <div className="flex h-full min-h-0 flex-col">
+        <div
+          role="status"
+          className="shrink-0 border-b border-border px-2 py-1 text-app-ui-sm text-[var(--state-warning-fg)]"
+        >
+          {t("peerWorkspace.textPrefix", { size: MAX_READ_BYTES / 1024 })}
+        </div>
+        <div className="min-h-0 flex-1">
+          <PeerSource path={path} text={read.text} at={at} />
+        </div>
+      </div>
     );
   }
   if (preview) {
     return (
       <PreviewFindScope className="h-full">
         <PreviewPane
-          filePath={path}
+          filePath={toSlashPath(path)}
           workspaceId={workspaceId}
-          workspaceRootAbsPath={root}
+          workspaceRootAbsPath={toSlashPath(root)}
           source={read.text}
         />
       </PreviewFindScope>
@@ -304,7 +444,8 @@ function PeerSource({ path, text, at }: { path: string; text: string; at?: LineA
   return (
     <Editor
       height="100%"
-      path={`nexus-peer-look:///${id}/${path.replace(/\\/g, "/")}`}
+      path={`nexus-peer-look:///${id}/${toSlashPath(path).split("/").map(encodeURIComponent).join("/")}`}
+      saveViewState={false}
       value={text}
       theme={theme}
       options={sourceOptions}
