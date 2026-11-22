@@ -8,6 +8,7 @@ import { remoteSessionKey } from "./layout";
 
 type EventPage = RpcResult<"events.read">;
 type ResultState = { at: number; outcome?: "completed" | "error" };
+type PendingResult = { at: number; seen?: true };
 
 const PAGE_SIZE = 200;
 const MAX_PAGES = 5;
@@ -20,6 +21,8 @@ export class RemoteResults {
   private readonly cursors = new Map<string, number>();
   private readonly seen = new Map<string, number>();
   private readonly undated = new Map<string, Map<string, number>>();
+  private readonly running = new Map<string, Set<string>>();
+  private readonly pending = new Map<string, Map<string, PendingResult>>();
   private revision = 0;
 
   subscribe = this.changes.subscribe;
@@ -34,19 +37,71 @@ export class RemoteResults {
     return this.cursors.get(deviceId) ?? 0;
   }
 
-  observe(deviceId: string, sessions: readonly RemoteSession[], at: number) {
+  observe(
+    deviceId: string,
+    sessions: readonly RemoteSession[],
+    at: number,
+    supportsEvents = true,
+  ): boolean {
     const before = this.undated.get(deviceId);
     const next = new Map<string, number>();
+    const wasRunning = this.running.get(deviceId);
+    const running = new Set<string>();
+    const previous = this.pending.get(deviceId);
+    const pending = new Map<string, PendingResult>();
+    let urgent = false;
+    let changed = false;
     for (const session of sessions) {
-      if (session.since !== undefined || (session.state !== "new-result" && !session.failed))
-        continue;
       const key = remoteSessionKey({ deviceId, ...session });
-      next.set(key, before?.get(key) ?? at);
+      if (session.since === undefined && (session.state === "new-result" || session.failed))
+        next.set(key, before?.get(key) ?? at);
+      if (session.kind === "terminal") continue;
+      if (session.state === "running") {
+        running.add(key);
+        if (!wasRunning?.has(key))
+          changed = (this.history.get(deviceId)?.delete(key) ?? false) || changed;
+        continue;
+      }
+      const finishedWorking = wasRunning?.has(key) === true;
+      urgent ||= supportsEvents && finishedWorking;
+      if (!supportsEvents || session.state !== "idle" || session.limitWait || session.failed)
+        continue;
+      if (finishedWorking) {
+        pending.set(key, { at: session.since ?? at });
+      } else {
+        const waiting = previous?.get(key);
+        if (waiting) pending.set(key, waiting);
+      }
     }
-    if (next.size === (before?.size ?? 0) && [...next.keys()].every((key) => before?.has(key)))
-      return;
+    this.running.set(deviceId, running);
+    this.pending.set(deviceId, pending);
     this.undated.set(deviceId, next);
-    this.changed();
+    if (
+      changed ||
+      urgent ||
+      pending.size !== (previous?.size ?? 0) ||
+      next.size !== (before?.size ?? 0) ||
+      [...next.keys()].some((key) => !before?.has(key))
+    )
+      this.changed();
+    return urgent;
+  }
+
+  /** Only a read that started after a listing change can settle its provisional result. */
+  settleAfterRead(deviceId: string): () => void {
+    const pending = [...(this.pending.get(deviceId) ?? [])];
+    return () => {
+      const current = this.pending.get(deviceId);
+      let changed = false;
+      for (const [key, item] of pending) {
+        if (current?.get(key) !== item) continue;
+        const event = this.history.get(deviceId)?.get(key);
+        if (item.seen && event?.outcome === "completed") this.keepSeen(key, event.at);
+        current.delete(key);
+        changed = true;
+      }
+      if (changed) this.changed();
+    };
   }
 
   applyPage(deviceId: string, { events }: EventPage, reset = false) {
@@ -92,16 +147,16 @@ export class RemoteResults {
     )
       return row;
     const key = remoteSessionKey({ deviceId, ...row });
-    const event = this.history.get(deviceId)?.get(key);
-    const latestEvent = event && event.at >= (row.since ?? 0) ? event : undefined;
+    const latestEvent = this.history.get(deviceId)?.get(key);
+    const pending = this.pending.get(deviceId)?.get(key);
     const failed = row.failed || latestEvent?.outcome === "error";
     const at =
       row.state === "new-result" || row.failed
         ? (row.since ?? this.undated.get(deviceId)?.get(key) ?? 0)
         : latestEvent?.outcome
           ? latestEvent.at
-          : undefined;
-    const unread = at !== undefined && at > (this.seen.get(key) ?? -Infinity);
+          : pending?.at;
+    const unread = at !== undefined && !pending?.seen && at > (this.seen.get(key) ?? -Infinity);
     const state = unread ? "new-result" : "idle";
     if (state === row.state && failed === !!row.failed && (!unread || at === row.since)) return row;
     return {
@@ -112,15 +167,24 @@ export class RemoteResults {
     };
   }
 
+  private keepSeen(key: string, at: number): boolean {
+    if (at <= (this.seen.get(key) ?? -Infinity)) return false;
+    this.seen.set(key, at);
+    return true;
+  }
+
   markSeen(rows: readonly { deviceId: string; session: RemoteSession }[]) {
     let changed = false;
     for (const { deviceId, session } of rows) {
       if (session.state !== "new-result") continue;
       const key = remoteSessionKey({ deviceId, ...session });
-      const at = session.since ?? 0;
-      if (at <= (this.seen.get(key) ?? -Infinity)) continue;
-      this.seen.set(key, at);
-      changed = true;
+      const waiting = this.pending.get(deviceId)?.get(key);
+      if (waiting && !this.history.get(deviceId)?.get(key)?.outcome) {
+        waiting.seen = true;
+        changed = true;
+      } else {
+        changed = this.keepSeen(key, session.since ?? 0) || changed;
+      }
     }
     if (changed) this.changed();
   }
@@ -130,6 +194,7 @@ export function watchResults(results: RemoteResults, deviceId: string, rejoin: n
   let live = true;
   let supported = true;
   let pending = false;
+  let urgent = false;
   let reading = false;
   let nextRead = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -138,8 +203,10 @@ export function watchResults(results: RemoteResults, deviceId: string, rejoin: n
     timer = undefined;
     if (!live || !supported || reading || !pending) return;
     pending = false;
+    urgent = false;
     reading = true;
     nextRead = Date.now() + READ_INTERVAL_MS;
+    const settle = results.settleAfterRead(deviceId);
     try {
       for (let page = 0; page < MAX_PAGES && live; page++) {
         const result = await ipcCallResult("remote", "peerSessionEvents", {
@@ -150,10 +217,17 @@ export function watchResults(results: RemoteResults, deviceId: string, rejoin: n
         if (!live) return;
         if (!result.ok) {
           supported = result.kind !== "unsupported";
+          if (supported) pending = true;
+          else results.settleAfterRead(deviceId)();
           return;
         }
-        if (!results.acceptPage(deviceId, result.value)) return;
+        if (!results.acceptPage(deviceId, result.value)) {
+          settle();
+          return;
+        }
       }
+      pending = true;
+    } catch {
       pending = true;
     } finally {
       reading = false;
@@ -162,11 +236,15 @@ export function watchResults(results: RemoteResults, deviceId: string, rejoin: n
   };
   const schedule = () => {
     if (!live || !supported || !pending || reading || timer !== undefined) return;
-    timer = setTimeout(() => void read().catch(() => {}), Math.max(0, nextRead - Date.now()));
+    timer = setTimeout(() => void read(), urgent ? 0 : Math.max(0, nextRead - Date.now()));
   };
   const stop = observePeerSessions(deviceId, rejoin, (listing) => {
     if (listing.status !== "ready") return;
-    results.observe(deviceId, listing.list.sessions, Date.now());
+    if (results.observe(deviceId, listing.list.sessions, Date.now(), supported)) {
+      urgent = true;
+      clearTimeout(timer);
+      timer = undefined;
+    }
     pending = true;
     schedule();
   });

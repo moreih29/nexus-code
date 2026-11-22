@@ -10,7 +10,7 @@ import {
   watchResults,
 } from "../../../../../src/renderer/services/agent-view/remote-results";
 import * as room from "../../../../../src/renderer/services/remote/room";
-import { ipcOk } from "../../../../../src/shared/ipc/result";
+import { ipcErr, ipcOk } from "../../../../../src/shared/ipc/result";
 
 const chat: RemoteSession = {
   kind: "codex",
@@ -69,6 +69,87 @@ test("the watch resumes at the last cursor and replaces history after a host res
       0, 15, 15, 1,
     ]);
     expect(results.cursor("mac")).toBe(2);
+  } finally {
+    stop();
+    jest.useRealTimers();
+    call.mockRestore();
+    observe.mockRestore();
+  }
+});
+
+test("a working chat is provisionally done and its outcome is read without waiting", async () => {
+  const results = new RemoteResults();
+  const running = { ...chat, state: "running" as const };
+  const quiet = { ...chat, since: 30 };
+  let take: ((listing: room.PeerSessions) => void) | undefined;
+  const list = (session: RemoteSession) =>
+    take?.({ status: "ready", list: { sessions: [session], workspaces: [] } });
+  const observe = spyOn(room, "observePeerSessions").mockImplementation((_, __, listener) => {
+    take = listener;
+    return () => {};
+  });
+  let page: RpcResult<"events.read"> = { events: [], cursor: 0, more: false };
+  const call = spyOn(ipc, "ipcCallResult").mockImplementation(async () => ipcOk(page));
+  jest.useFakeTimers();
+  const stop = watchResults(results, "mac", 0);
+  const flush = async () => {
+    jest.advanceTimersByTime(0);
+    await Promise.resolve();
+  };
+  try {
+    list(running);
+    await flush();
+    list(quiet);
+    expect(results.session("mac", quiet).state).toBe("new-result");
+    expect(call).toHaveBeenCalledTimes(1);
+    await flush();
+    expect(call).toHaveBeenCalledTimes(2);
+    expect(results.session("mac", quiet)).toBe(quiet);
+
+    list(running);
+    list(quiet);
+    expect(results.session("mac", quiet).state).toBe("new-result");
+    page = { events: [complete], cursor: 1, more: false };
+    await flush();
+    expect(call).toHaveBeenCalledTimes(3);
+    expect(results.session("mac", quiet)).toMatchObject({ state: "new-result", since: 10 });
+    list(running);
+    list(quiet);
+    page = { events: [], cursor: 1, more: false };
+    await flush();
+    expect(results.session("mac", quiet)).toBe(quiet);
+  } finally {
+    stop();
+    jest.useRealTimers();
+    call.mockRestore();
+    observe.mockRestore();
+  }
+});
+
+test("an unsupported event log is left alone and its provisional result rolls back", async () => {
+  const results = new RemoteResults();
+  let take: ((listing: room.PeerSessions) => void) | undefined;
+  const list = (session: RemoteSession) =>
+    take?.({ status: "ready", list: { sessions: [session], workspaces: [] } });
+  const observe = spyOn(room, "observePeerSessions").mockImplementation((_, __, listener) => {
+    take = listener;
+    return () => {};
+  });
+  const call = spyOn(ipc, "ipcCallResult").mockResolvedValue(ipcErr("unsupported", "No event log"));
+  jest.useFakeTimers();
+  const stop = watchResults(results, "mac", 0);
+  try {
+    list({ ...chat, state: "running" });
+    list(chat);
+    expect(results.session("mac", chat).state).toBe("new-result");
+    jest.advanceTimersByTime(0);
+    await Promise.resolve();
+    expect(results.session("mac", chat)).toBe(chat);
+    list({ ...chat, state: "running" });
+    list(chat);
+    jest.advanceTimersByTime(10_000);
+    expect(call).toHaveBeenCalledTimes(1);
+    expect(results.session("mac", chat)).toBe(chat);
   } finally {
     stop();
     jest.useRealTimers();
