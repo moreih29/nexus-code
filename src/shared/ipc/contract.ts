@@ -2939,6 +2939,11 @@ const remoteContracts = {
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.find"].params),
         RPC_METHODS["files.find"].result,
       ),
+      /** Text matches in another device's workspace. */
+      peerFilesSearch: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.search"].params),
+        RPC_METHODS["files.search"].result,
+      ),
       /** A file of another device's workspace, as its chats name it. */
       peerFilesRead: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.read"].params),
