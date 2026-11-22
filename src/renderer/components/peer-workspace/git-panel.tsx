@@ -1,5 +1,7 @@
 import { GitBranch, RefreshCw } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { GitPanelSegment } from "../../../shared/git/types";
 import { isPeerGitConflict, type PeerGitSide } from "../../services/remote/peer-git-status";
 import {
   EMPTY_PEER_VIEW,
@@ -9,22 +11,52 @@ import {
 } from "../../state/stores/peer-workspace";
 import { FileIcon } from "../files/file-tree/file-icon";
 import { GitStatusBadge } from "../files/git/file-row/status-badge";
+import { HistorySegmentToggle } from "../files/git/history/segment-toggle";
 import { EmptyState } from "../ui/empty-state";
 import { IconButton } from "../ui/icon-button";
+import { KeptMounted } from "../ui/kept-mounted";
+import { PeerGitHistory } from "./git-history";
 import { peerGitDisplayPath } from "./git-path-label";
 import { PeerReadOnlyBadge } from "./labels";
 
-export function PeerGitPanel({
-  target,
-  canRead,
-  updateNeeded,
-  refresh,
-}: {
+interface PeerGitPanelProps {
   target: PeerWorkspaceTarget;
   canRead: boolean;
   updateNeeded: boolean;
   refresh: () => void;
-}) {
+  rejoin: number;
+}
+
+export function PeerGitPanel({ rejoin, ...props }: PeerGitPanelProps) {
+  const { t } = useTranslation();
+  const [segment, setSegment] = useState<GitPanelSegment>("changes");
+  return (
+    <section
+      className="flex min-h-0 flex-1 flex-col"
+      aria-label={t("files:git.panel.header.title")}
+    >
+      <HistorySegmentToggle segment={segment} onChange={setSegment} />
+      <KeptMounted shown={segment === "changes"}>
+        <PeerGitChanges {...props} />
+      </KeptMounted>
+      <KeptMounted shown={segment === "history"}>
+        <PeerGitHistory
+          target={props.target}
+          canRead={props.canRead && segment === "history"}
+          updateNeeded={props.updateNeeded}
+          rejoin={rejoin}
+        />
+      </KeptMounted>
+    </section>
+  );
+}
+
+function PeerGitChanges({
+  target,
+  canRead,
+  updateNeeded,
+  refresh,
+}: Omit<PeerGitPanelProps, "rejoin">) {
   const { t } = useTranslation();
   const id = peerTargetId(target);
   const { gitStatus, gitError, tabs } = usePeerWorkspaceStore(
@@ -46,10 +78,7 @@ export function PeerGitPanel({
     { side: "unstaged", label: t("peerWorkspace.gitUnstaged") },
   ];
   return (
-    <section
-      className="flex min-h-0 flex-1 flex-col"
-      aria-label={t("files:git.panel.header.title")}
-    >
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center gap-1.5 border-b border-border/50 px-2 py-1">
         <PeerReadOnlyBadge />
         <span className="min-w-0 flex-1 text-app-micro text-muted-foreground">
@@ -162,6 +191,6 @@ export function PeerGitPanel({
           })}
         </div>
       )}
-    </section>
+    </div>
   );
 }

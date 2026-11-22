@@ -337,7 +337,11 @@ export function App() {
               peerPanel={
                 activePeer ? (
                   <PeerFilesPanel
-                    key={JSON.stringify([peerTargetId(activePeer), activePeer.workspace.path])}
+                    key={JSON.stringify([
+                      activePeer.accountKey,
+                      peerTargetId(activePeer),
+                      activePeer.workspace.path,
+                    ])}
                     target={activePeer}
                     missing={peers.missing}
                     canRead={
@@ -372,7 +376,7 @@ export function App() {
             )}
             {activePeer && (
               <PeerWorkspacePanel
-                key={peerTargetId(activePeer)}
+                key={JSON.stringify([activePeer.accountKey, peerTargetId(activePeer)])}
                 target={activePeer}
                 shown={!agentView}
                 reach={peers.reach}

@@ -61,7 +61,7 @@ test("the working diff tab shows when the server cut the patch", () => {
 
 test("the peer Git panel uses the source control refresh label", () => {
   const markup = renderToStaticMarkup(
-    <PeerGitPanel target={target} canRead updateNeeded={false} refresh={() => {}} />,
+    <PeerGitPanel target={target} canRead updateNeeded={false} refresh={() => {}} rejoin={0} />,
   );
   expect(markup).toContain('aria-label="Refresh source control"');
   expect(markup).not.toContain("Refresh Explorer");

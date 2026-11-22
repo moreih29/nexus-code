@@ -66,6 +66,44 @@ test("peerGitStatus sends only the workspace ID to git.status", async () => {
   expect(request).toHaveBeenCalledTimes(1);
 });
 
+test.each([
+  {
+    call: "peerGitLog",
+    method: "git.log",
+    params: { workspaceId: "w1", limit: 50, skip: 50 },
+    invalid: { workspaceId: "w1", limit: 201, skip: -1 },
+    result: { commits: [] },
+  },
+  {
+    call: "peerGitShow",
+    method: "git.show",
+    params: { workspaceId: "w1", hash: "1234abcd" },
+    invalid: { workspaceId: "w1", hash: "HEAD" },
+    result: { hash: "1234abcd", parents: [], subject: "First", author: "Ada", at: 1, files: [] },
+  },
+] as const)("$call validates and forwards $method with cancellation", async ({
+  call,
+  method,
+  params,
+  invalid,
+  result,
+}) => {
+  const contract = ipcContract.remote.call[call];
+  const payload = { deviceId: "d2", ...params, unexpected: true };
+  expect(contract.args.parse(payload)).toEqual({ deviceId: "d2", ...params });
+  expect(contract.args.safeParse({ deviceId: "d2", ...invalid }).success).toBe(false);
+  expect(contract.result).toBe(RPC_METHODS[method].result);
+  const request = mock(async () => result);
+  const calls = peerReadCalls(
+    () => ({ request: request as never }),
+    async (run) => ipcOk(await run()),
+  );
+  const signal = new AbortController().signal;
+  expect(await calls[call](payload, { signal } as never)).toEqual(ipcOk(result));
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(request).toHaveBeenCalledWith("d2", method, params, undefined, signal);
+});
+
 test("the peer File and Git IPCs map only to read RPCs", () => {
   expect(PEER_READ_METHODS).toEqual({
     peerFilesList: "files.list",
@@ -74,6 +112,8 @@ test("the peer File and Git IPCs map only to read RPCs", () => {
     peerFilesRead: "files.read",
     peerGitStatus: "git.status",
     peerGitDiff: "git.diff",
+    peerGitLog: "git.log",
+    peerGitShow: "git.show",
   });
   const reads = new Set([
     "files.list",

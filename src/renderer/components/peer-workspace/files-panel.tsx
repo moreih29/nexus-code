@@ -92,6 +92,7 @@ export function PeerFilesPanel({
               canRead={canReadGit && mode === "git"}
               updateNeeded={gitUpdateNeeded}
               refresh={refreshGit}
+              rejoin={rejoin}
             />
           </KeptMounted>
         </>

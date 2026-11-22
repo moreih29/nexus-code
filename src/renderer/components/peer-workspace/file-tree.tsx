@@ -7,6 +7,7 @@ import { ipcCallResult } from "../../ipc/client";
 import { refreshPeerSessions } from "../../services/remote/room";
 import {
   EMPTY_PEER_VIEW,
+  type PeerFileTab,
   type PeerWorkspaceTarget,
   peerTargetId,
   usePeerWorkspaceStore,
@@ -222,7 +223,7 @@ export function PeerFileTree({
     if (row.node.type === "dir") toggle(row);
     if (row.node.type === "file") {
       const alreadyOpen = view.tabs.find(
-        (tab) => tab.type === "peer.file" && peerPathKey(tab.path) === row.key,
+        (tab): tab is PeerFileTab => tab.type === "peer.file" && peerPathKey(tab.path) === row.key,
       );
       if (canRead || alreadyOpen) {
         usePeerWorkspaceStore.getState().openFile(id, alreadyOpen?.path ?? row.path);

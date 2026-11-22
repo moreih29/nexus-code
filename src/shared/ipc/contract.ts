@@ -2985,6 +2985,16 @@ const remoteContracts = {
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["git.diff"].params),
         RPC_METHODS["git.diff"].result,
       ),
+      /** The commits on another device's workspace branch. */
+      peerGitLog: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["git.log"].params),
+        RPC_METHODS["git.log"].result,
+      ),
+      /** A commit's message and changed files on another device. */
+      peerGitShow: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["git.show"].params),
+        RPC_METHODS["git.show"].result,
+      ),
       /** The past conversations another device's workspace can resume. */
       peerHistory: call(
         z

@@ -32,11 +32,13 @@ export function PeerPatchView({
   binary,
   permissionDenied,
   truncated,
+  embedded = false,
 }: {
   hunks: readonly DiffHunk[];
   binary?: boolean;
   permissionDenied?: boolean;
   truncated?: boolean;
+  embedded?: boolean;
 }) {
   const { t } = useTranslation();
   const scroll = useRef<HTMLDivElement>(null);
@@ -48,20 +50,25 @@ export function PeerPatchView({
     overscan: 12,
   });
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div
-        role="status"
-        className="shrink-0 border-b border-border px-2 py-1 text-app-ui-sm text-[var(--state-warning-fg)]"
-      >
-        {t("peerWorkspace.gitPatchOnly")}
-        {truncated && <div>{t("peerWorkspace.gitPatchTruncated")}</div>}
-      </div>
+    <div className={cn("flex min-h-0 min-w-0 flex-col", !embedded && "flex-1")}>
+      {(!embedded || truncated) && (
+        <div
+          role="status"
+          className="shrink-0 border-b border-border px-2 py-1 text-app-ui-sm text-[var(--state-warning-fg)]"
+        >
+          {!embedded && t("peerWorkspace.gitPatchOnly")}
+          {truncated && <div>{t("peerWorkspace.gitPatchTruncated")}</div>}
+        </div>
+      )}
       {(binary || permissionDenied) && (
         <div className="shrink-0 px-2 py-1 text-app-ui-sm text-muted-foreground">
           {t(binary ? "editor.binary_file" : "peerWorkspace.accessDenied")}
         </div>
       )}
-      <div ref={scroll} className="app-scrollbar min-h-0 flex-1 overflow-auto">
+      <div
+        ref={scroll}
+        className={cn("app-scrollbar min-h-0 overflow-auto", embedded ? "max-h-64" : "flex-1")}
+      >
         <div className="relative min-w-full" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map(({ index, key, start, size }) => {
             const row = rows[index];

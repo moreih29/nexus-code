@@ -168,3 +168,26 @@ test("shared Git status retains the last data on disconnect and clears it for a 
     gitError: "not-found",
   });
 });
+
+test("a commit is one in-memory tab per hash in the selected peer workspace", () => {
+  const store = usePeerWorkspaceStore.getState();
+  store.select(target, null);
+  const commit = { hash: "0123456789abcdef", subject: "Add notes" };
+  store.openFile(id, "/w/a.txt");
+  store.openCommit(id, commit);
+  store.openCommit(id, commit);
+  const view = usePeerWorkspaceStore.getState().views[id];
+  const tab = { type: "peer.commit", ...commit } as const;
+  const tabId = peerTabId(tab);
+  expect(view.tabs).toEqual([{ type: "peer.file", path: "/w/a.txt" }, tab]);
+  expect(view.activePath).toBe(tabId);
+
+  const other = { ...target, deviceId: "other" };
+  store.select(other, null);
+  store.openCommit(id, { hash: "fedcba9876543210", subject: "Late action" });
+  expect(usePeerWorkspaceStore.getState().views[peerTargetId(other)]).toBeUndefined();
+  store.select(target, null);
+  expect(usePeerWorkspaceStore.getState().views[id].tabs).toHaveLength(2);
+  store.closeTab(id, tabId);
+  expect(usePeerWorkspaceStore.getState().views[id].activePath).toBe("/w/a.txt");
+});

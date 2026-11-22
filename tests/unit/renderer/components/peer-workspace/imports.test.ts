@@ -22,6 +22,8 @@ const peerReads = new Set([
   "peerFilesRead",
   "peerFilesReadBytes",
   "peerGitDiff",
+  "peerGitLog",
+  "peerGitShow",
   "peerGitStatus",
 ]);
 

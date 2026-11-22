@@ -1,4 +1,4 @@
-import { FileDiff, GitBranch, Lock } from "lucide-react";
+import { FileDiff, GitBranch, GitCommitHorizontal, Lock } from "lucide-react";
 import { Tabs } from "radix-ui";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -18,6 +18,7 @@ import { FileLookBody, FileLookControls, useFileLookView } from "../chat/file-lo
 import { FileIcon } from "../files/file-tree/file-icon";
 import { EmptyState } from "../ui/empty-state";
 import { TabItem } from "../workspace/tabs/tab-item";
+import { PeerCommitTabBody } from "./commit-tab";
 import { PeerDiffTabBody } from "./diff-tab";
 import { peerGitDisplayPath } from "./git-path-label";
 import { PeerReadOnlyBadge } from "./labels";
@@ -54,12 +55,14 @@ export function PeerWorkspacePanel({
         ? t("peerWorkspace.disconnectedLast")
         : null;
   const root = target.workspace.path;
-  const names = view.tabs.map((tab) =>
-    tab.type === "peer.diff"
+  const names = view.tabs.map((tab) => {
+    if (tab.type === "peer.commit") return null;
+    return tab.type === "peer.diff"
       ? peerGitDisplayPath(root, tab.path)
-      : { ...workspacePathParts(tab.path, root), outsideWorkspace: false },
-  );
+      : { ...workspacePathParts(tab.path, root), outsideWorkspace: false };
+  });
   const status = gitUpdateNeeded ? undefined : view.gitStatus;
+  const canReadGit = shown && reachable && !gitUpdateNeeded;
 
   return (
     <div
@@ -105,14 +108,31 @@ export function PeerWorkspacePanel({
                     className="flex h-full w-max items-center"
                   >
                     {view.tabs.map((tab, index) => {
-                      const { fileName: name, directory, outsideWorkspace } = names[index];
+                      const key = peerTabId(tab);
+                      if (tab.type === "peer.commit") {
+                        return (
+                          <TabItem
+                            key={key}
+                            readOnly
+                            value={encodeURIComponent(key)}
+                            label={
+                              tab.subject || t("editor.commit_title", { sha: tab.hash.slice(0, 7) })
+                            }
+                            icon={<GitCommitHorizontal className="size-3.5" aria-hidden="true" />}
+                            onClose={() => close(id, key)}
+                          />
+                        );
+                      }
+                      const displayPath = names[index];
+                      if (!displayPath) return null;
+                      const { fileName: name, directory, outsideWorkspace } = displayPath;
                       const isDiff = tab.type === "peer.diff";
                       const duplicate = view.tabs.some(
                         (other, at) =>
                           index !== at &&
                           other.type === tab.type &&
-                          names[at].fileName === name &&
-                          names[at].outsideWorkspace === outsideWorkspace,
+                          names[at]?.fileName === name &&
+                          names[at]?.outsideWorkspace === outsideWorkspace,
                       );
                       const display = [
                         name,
@@ -126,7 +146,6 @@ export function PeerWorkspacePanel({
                           ? "HEAD → INDEX"
                           : "INDEX → WORKING"
                         : null;
-                      const key = peerTabId(tab);
                       return (
                         <TabItem
                           key={key}
@@ -149,6 +168,19 @@ export function PeerWorkspacePanel({
                 {view.tabs.map((tab) => {
                   const key = peerTabId(tab);
                   const selected = key === view.activePath;
+                  if (tab.type === "peer.commit") {
+                    return (
+                      <PeerCommitTabBody
+                        key={key}
+                        target={target}
+                        tab={tab}
+                        selected={selected}
+                        canRead={canReadGit}
+                        updateNeeded={gitUpdateNeeded}
+                        rejoin={rejoin}
+                      />
+                    );
+                  }
                   return tab.type === "peer.diff" ? (
                     <PeerDiffTabBody
                       key={key}
@@ -156,7 +188,7 @@ export function PeerWorkspacePanel({
                       tab={tab}
                       latest={status?.files.find((file) => file.path === tab.path)}
                       selected={selected}
-                      canRead={shown && reachable && !gitUpdateNeeded}
+                      canRead={canReadGit}
                       updateNeeded={gitUpdateNeeded}
                       rejoin={rejoin}
                     />
