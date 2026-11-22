@@ -1,32 +1,15 @@
-// ---------------------------------------------------------------------------
-// Internal store types for the binary-tree layout system.
-// These are plain TS interfaces — serialization shapes live in
-// src/shared/types/layout.ts (SerializedNode / WorkspaceLayoutSnapshot).
-// ---------------------------------------------------------------------------
+import type { SerializedNode, SplitBranch, SplitNode } from "@/engine";
 
-export type SplitOrientation = "horizontal" | "vertical";
+export type {
+  SplitBranch as LayoutSplit,
+  SplitLeaf as LayoutLeaf,
+  SplitNode as LayoutNode,
+} from "@/engine";
 
-export interface LayoutLeaf {
-  kind: "leaf";
-  id: string;
-  tabIds: string[];
-  activeTabId: string | null;
-}
-
-export interface LayoutSplit {
-  kind: "split";
-  id: string;
-  orientation: SplitOrientation;
-  /** Fraction of space occupied by `first`. Clamped to [0.05, 0.95]. */
-  ratio: number;
-  first: LayoutNode;
-  second: LayoutNode;
-}
-
-export type LayoutNode = LayoutLeaf | LayoutSplit;
+export type SplitOrientation = SplitBranch["orientation"];
 
 export interface WorkspaceLayout {
-  root: LayoutNode;
+  root: SplitNode;
   activeGroupId: string;
 }
 
@@ -81,7 +64,7 @@ export interface LayoutState {
   closeAllForWorkspace(workspaceId: string): void;
   hydrate(
     workspaceId: string,
-    snapshot: { root: LayoutNode; activeGroupId: string },
+    snapshot: { root: SerializedNode; activeGroupId: string },
     knownTabIds: Set<string>,
   ): void;
 }

@@ -26,7 +26,7 @@ export function stripDanglingTabs(tree: SplitNode, knownTabIds: Set<string>): Sp
     if (activeTabId !== null && !tabIds.includes(activeTabId)) {
       activeTabId = tabIds[0] ?? null;
     }
-    return { ...tree, tabIds, activeTabId };
+    return { kind: "leaf", id: tree.id, tabIds, activeTabId };
   }
   return {
     ...tree,

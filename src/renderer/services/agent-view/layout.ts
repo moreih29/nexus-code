@@ -6,6 +6,7 @@
  */
 
 import { type Direction, Grid, type SplitLeaf, type SplitNode } from "@/engine";
+import { activateTab, removeTab } from "@/engine/tabs";
 import { isRemoteFileKey, parseRemoteFileKey } from "../../../shared/fs/remote-file-key";
 
 export interface AgentLayout {
@@ -98,10 +99,6 @@ function activeLeaf(layout: AgentLayout): SplitLeaf {
   return Grid.findLeaf(layout.root, layout.activeLeafId) ?? Grid.leftmostLeaf(layout.root);
 }
 
-function withLeaf(root: SplitNode, leafId: string, update: (leaf: SplitLeaf) => SplitLeaf) {
-  return Grid.replaceLeaf(root, leafId, update);
-}
-
 /**
  * Shows `key`: in front of the panel already holding it, else added to
  * `leafId` (the active panel by default). Either way that panel becomes the
@@ -113,11 +110,11 @@ export function openKey(layout: AgentLayout, key: string, leafId?: string): Agen
   const target =
     (leafId !== undefined ? Grid.findLeaf(layout.root, leafId) : null) ?? activeLeaf(layout);
   return {
-    root: withLeaf(layout.root, target.id, (leaf) => ({
-      ...leaf,
-      tabIds: [...leaf.tabIds, key],
-      activeTabId: key,
-    })),
+    root: Grid.replaceNode(
+      layout.root,
+      target.id,
+      activateTab(target, key, [...target.tabIds, key]),
+    ),
     activeLeafId: target.id,
   };
 }
@@ -131,7 +128,7 @@ export function selectKey(layout: AgentLayout, leafId: string, key: string): Age
     root:
       leaf.activeTabId === key
         ? layout.root
-        : Grid.replaceLeaf(layout.root, leafId, (l) => ({ ...l, activeTabId: key })),
+        : Grid.replaceNode(layout.root, leafId, activateTab(leaf, key)),
     activeLeafId: leafId,
   };
 }
@@ -148,16 +145,11 @@ export function setActiveLeaf(layout: AgentLayout, leafId: string): AgentLayout 
 export function removeKey(layout: AgentLayout, key: string): AgentLayout {
   const holder = leafHolding(layout.root, key);
   if (!holder) return layout;
-  const index = holder.tabIds.indexOf(key);
-  const tabIds = holder.tabIds.filter((id) => id !== key);
-  if (tabIds.length === 0) return closeLeaf(layout, holder.id);
-  const activeTabId =
-    holder.activeTabId === key
-      ? (tabIds[Math.min(index, tabIds.length - 1)] ?? null)
-      : holder.activeTabId;
+  const nextLeaf = removeTab(holder, key, "right");
+  if (nextLeaf.tabIds.length === 0) return closeLeaf(layout, holder.id);
   return {
     ...layout,
-    root: withLeaf(layout.root, holder.id, (leaf) => ({ ...leaf, tabIds, activeTabId })),
+    root: Grid.replaceNode(layout.root, holder.id, nextLeaf),
   };
 }
 
@@ -169,7 +161,7 @@ export function closeLeaf(layout: AgentLayout, leafId: string): AgentLayout {
   if (!Grid.findLeaf(layout.root, leafId)) return layout;
   if (layout.root.kind === "leaf") {
     return {
-      root: { ...layout.root, tabIds: [], activeTabId: null },
+      root: emptyLeaf(leafId),
       activeLeafId: layout.root.id,
     };
   }
@@ -199,7 +191,7 @@ export function moveKey(
     const at = clampIndex(index ?? without.length, without.length);
     const tabIds = [...without.slice(0, at), key, ...without.slice(at)];
     return {
-      root: withLeaf(layout.root, toLeafId, (leaf) => ({ ...leaf, tabIds, activeTabId: key })),
+      root: Grid.replaceNode(layout.root, toLeafId, activateTab(target, key, tabIds)),
       activeLeafId: toLeafId,
     };
   }
@@ -211,7 +203,7 @@ export function moveKey(
   const at = clampIndex(index ?? landing.tabIds.length, landing.tabIds.length);
   const tabIds = [...landing.tabIds.slice(0, at), key, ...landing.tabIds.slice(at)];
   return {
-    root: withLeaf(lifted.root, toLeafId, (leaf) => ({ ...leaf, tabIds, activeTabId: key })),
+    root: Grid.replaceNode(lifted.root, toLeafId, activateTab(landing, key, tabIds)),
     activeLeafId: toLeafId,
   };
 }
@@ -347,7 +339,7 @@ export function sanitizeLayout(root: SplitNode, activeLeafId: string): AgentLayo
       node.activeTabId !== null && tabIds.includes(node.activeTabId)
         ? node.activeTabId
         : (tabIds[0] ?? null);
-    return { ...node, tabIds, activeTabId };
+    return { kind: "leaf", id: node.id, tabIds, activeTabId };
   };
   const cleaned = clean(root);
   return {

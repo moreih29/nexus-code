@@ -101,11 +101,13 @@ describe("agent view store", () => {
     useAgentViewStore.getState().hydrate(undefined, () => true);
     useAgentViewStore.getState().setMode("agents");
     useAgentViewStore.getState().update((layout) => openKey(layout, A));
+    useAgentViewStore.getState().update((layout) => openKey(layout, B));
     await settle();
     expect(stored).toHaveLength(1);
     const { agentView } = stored[0] as { agentView: { mode: string; root: { tabIds: string[] } } };
     expect(agentView.mode).toBe("agents");
-    expect(agentView.root.tabIds).toEqual([A]);
+    expect(agentView.root.tabIds).toEqual([A, B]);
+    expect(agentView.root).not.toHaveProperty("previousTabIds");
   });
 
   it("flushes a peer file before closing, restores it without the session, and prunes its details", async () => {

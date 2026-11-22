@@ -23,7 +23,8 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
-import { allLeaves } from "../../../../../../src/renderer/state/stores/layout/helpers";
+import { serialize } from "../../../../../../src/renderer/engine";
+import { allLeaves, findLeaf } from "../../../../../../src/renderer/state/stores/layout/helpers";
 import { useLayoutStore } from "../../../../../../src/renderer/state/stores/layout/store";
 import type { LayoutLeaf } from "../../../../../../src/renderer/state/stores/layout/types";
 
@@ -83,5 +84,102 @@ describe("useLayoutStore — group structure", () => {
     useLayoutStore.getState().closeGroup(WS, newId);
 
     expect(getLayout().activeGroupId).toBe(origId);
+  });
+});
+
+describe("useLayoutStore — tab activation history", () => {
+  beforeEach(resetStore);
+
+  function openTabs(...tabIds: string[]) {
+    const store = useLayoutStore.getState();
+    store.ensureLayout(WS);
+    const groupId = getLayout().activeGroupId;
+    for (const tabId of tabIds) store.attachTab(WS, groupId, tabId);
+    return {
+      store,
+      groupId,
+      select: (tabId: string) => store.setActiveTabInGroup({ workspaceId: WS, groupId, tabId }),
+      active: () => findLeaf(getRoot(), groupId)?.activeTabId,
+    };
+  }
+
+  it("returns from C to B to A as the active tabs close", () => {
+    const { store, active } = openTabs("a", "b", "c");
+    store.detachTab(WS, "c");
+    expect(active()).toBe("b");
+    store.detachTab(WS, "b");
+    expect(active()).toBe("a");
+  });
+
+  it("uses activation order even when the previous tab is on the far right", () => {
+    const { store, select, active } = openTabs("a", "b", "c", "d");
+    select("b");
+    expect(active()).toBe("b");
+    store.detachTab(WS, "b");
+    expect(active()).toBe("d");
+  });
+
+  it("forgets a background tab without changing the active tab", () => {
+    const { store, active } = openTabs("a", "b", "c");
+    store.detachTab(WS, "b");
+    expect(active()).toBe("c");
+    store.detachTab(WS, "c");
+    expect(active()).toBe("a");
+  });
+
+  it("restores the source tab and activates the moved tab in the destination", () => {
+    const { store, groupId, select, active } = openTabs("a", "b", "c");
+    select("b");
+    const destination = store.splitGroup(WS, groupId, "horizontal", "after");
+    store.attachTab(WS, destination, "d");
+    store.moveTab(WS, "b", destination);
+    expect(active()).toBe("c");
+    expect(findLeaf(getRoot(), destination)?.activeTabId).toBe("b");
+
+    store.detachTab(WS, "c");
+    expect(active()).toBe("a");
+    store.detachTab(WS, "b");
+    expect(findLeaf(getRoot(), destination)?.activeTabId).toBe("d");
+    expect(getLayout().activeGroupId).toBe(destination);
+  });
+
+  it("ends a sequence of closes on the most recently active survivor", () => {
+    const { store, select, active } = openTabs("a", "b", "c", "d");
+    select("a");
+    select("b");
+    select("d");
+    for (const tabId of ["d", "b"]) store.detachTab(WS, tabId);
+    expect(active()).toBe("a");
+  });
+
+  it("uses the left neighbor until the restored group has new activation history", () => {
+    const { store, groupId, select, active } = openTabs("a", "b", "c", "d");
+    select("b");
+    const root = serialize(getRoot());
+    expect(root).toEqual({
+      kind: "leaf",
+      id: groupId,
+      tabIds: ["a", "b", "c", "d"],
+      activeTabId: "b",
+    });
+    store.hydrate(WS, { root, activeGroupId: groupId }, new Set(["a", "b", "c", "d"]));
+    store.detachTab(WS, "b");
+    expect(active()).toBe("a");
+    select("d");
+    store.detachTab(WS, "d");
+    expect(active()).toBe("a");
+  });
+
+  it("reorders the active tab without recording a temporary selection", () => {
+    const { store, groupId, select, active } = openTabs("a", "b", "c");
+    select("b");
+    store.hydrate(
+      WS,
+      { root: serialize(getRoot()), activeGroupId: groupId },
+      new Set(["a", "b", "c"]),
+    );
+    store.moveTab(WS, "b", groupId, 3);
+    store.detachTab(WS, "b");
+    expect(active()).toBe("c");
   });
 });

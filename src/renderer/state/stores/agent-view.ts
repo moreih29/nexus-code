@@ -17,6 +17,7 @@ import {
   type RemoteFileSnapshot,
   type RemoteSeenResult,
 } from "../../../shared/types/agent-view";
+import { serialize } from "../../engine";
 import { ipcCallResult } from "../../ipc/client";
 import {
   type EndedAgent,
@@ -138,7 +139,7 @@ async function writeAgentView(): Promise<boolean> {
     } = useAgentViewStore.getState();
     const agentView = {
       mode,
-      root,
+      root: serialize(root),
       activeLeafId,
       ...(ended.size > 0 ? { ended: endedToStore(ended) } : {}),
       ...(remoteFiles.size > 0
