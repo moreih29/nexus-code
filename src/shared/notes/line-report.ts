@@ -1,3 +1,4 @@
+import { resources } from "../i18n";
 import type { NoteLinkResult } from "./links";
 import type { DocNode } from "./markdown";
 
@@ -92,37 +93,100 @@ export function taskText(node: DocNode | undefined): string {
   return first ? text(first) : "";
 }
 
-/**
- * Quotes user-authored labels in startup instructions and note task prompts.
- * What the agent reads: a JSON string with the characters of tags and
- * templates escaped. People see it through shownNoteText.
- */
-export function noteLabel(value: string, fallback = "", max = 120): string {
-  const clean = value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ").trim();
-  return JSON.stringify(Array.from(clean).slice(0, max).join("") || fallback)
+/** What noteLabel turns into spaces: control and format characters, line and paragraph separators. */
+const UNPRINTED = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu;
+
+/** A JSON string with the characters of tags and templates escaped. */
+function quoteLabel(value: string): string {
+  return JSON.stringify(value)
     .replaceAll("<", "\\u003c")
     .replaceAll(">", "\\u003e")
     .replaceAll("{", "\\u007b")
     .replaceAll("}", "\\u007d");
 }
 
+/**
+ * Quotes user-authored labels in startup instructions and note task prompts.
+ * What the agent reads: a JSON string with the characters of tags and
+ * templates escaped. People see it through shownNoteText.
+ */
+export function noteLabel(value: string, fallback = "", max = 120): string {
+  const clean = value.replace(UNPRINTED, " ").trim();
+  return quoteLabel(Array.from(clean).slice(0, max).join("") || fallback);
+}
+
 /** A prompt the app wrote from a note: it names the note to read. */
 const NOTE_PROMPT = /`nexus note read [^`\s]+`/;
-const QUOTED = /"(?:[^"\\\n]|\\.)*"/g;
+const LABEL = String.raw`"(?:[^"\\\n]|\\.)*"`;
+
+interface PromptLine {
+  /** One whole line. Each piece of the template is a group, in order. */
+  pattern: RegExp;
+  /** For each group: whether it is a label noteLabel quoted. */
+  labels: boolean[];
+}
+
+/**
+ * The lines of a to-do prompt (noteTaskPrompt) in every language, so a
+ * prompt reads the same after the app's language changes.
+ */
+const PROMPT_LINES: PromptLine[] = Object.values(resources).flatMap(({ notes: { tasks } }) => [
+  promptLine(tasks.promptItem),
+  promptLine(tasks.promptNote, tasks.promptSection),
+]);
+
+function promptLine(template: string, section = ""): PromptLine {
+  const labels: boolean[] = [];
+  const source = (text: string): string =>
+    text
+      .split(/(\{\{\w+\}\})/)
+      .map((part) => {
+        const name = /^\{\{(\w+)\}\}$/.exec(part)?.[1];
+        if (name === "section") return `(?:${source(section)})?`;
+        if (!part) return "";
+        const label = name === "text" || name === "title" || name === "heading";
+        labels.push(label);
+        if (label) return `(${LABEL})`;
+        if (name === "id") return "([^`\\s]+)";
+        return `(${part.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")})`;
+      })
+      .join("");
+  return { pattern: new RegExp(`^${source(template)}$`), labels };
+}
+
+/** A label as noteLabel wrote it, with its own characters; any other quoted text as is. */
+function shownLabel(quoted: string): string {
+  try {
+    const value: unknown = JSON.parse(quoted);
+    // noteLabel leaves no control characters and escapes only as quoteLabel does.
+    return typeof value === "string" && value.search(UNPRINTED) < 0 && quoteLabel(value) === quoted
+      ? `"${value}"`
+      : quoted;
+  } catch {
+    return quoted;
+  }
+}
+
+function shownLine(line: string): string {
+  for (const { pattern, labels } of PROMPT_LINES) {
+    const match = pattern.exec(line);
+    if (match) {
+      return match
+        .slice(1)
+        .map((part = "", index) => (labels[index] ? shownLabel(part) : part))
+        .join("");
+    }
+  }
+  return line;
+}
 
 /**
  * A note prompt as people see it (a message bubble, a tab's title): the
- * labels noteLabel quoted, with their own characters in place of escapes.
- * The agent is still sent the prompt as written. Other text is left as is.
+ * labels noteLabel quoted in a to-do prompt's lines, with their own
+ * characters in place of escapes. The agent is still sent the prompt as
+ * written. Other text, quoted or not, is left as the person wrote it.
  */
 export function shownNoteText(text: string): string {
   if (!NOTE_PROMPT.test(text)) return text;
-  return text.replace(QUOTED, (quoted) => {
-    try {
-      const value: unknown = JSON.parse(quoted);
-      return typeof value === "string" ? `"${value}"` : quoted;
-    } catch {
-      return quoted;
-    }
-  });
+  return text.split("\n").map(shownLine).join("\n");
 }
