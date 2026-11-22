@@ -150,6 +150,7 @@ test("status counts families, shows differing glyphs and discloses idle children
   expect(attention).toContain(">4 under it<");
   expect(attention).toContain("1 idle");
   expect(attention).toContain("↳ Test report");
+  expect(attention).toContain('title="Parent · Test report"');
   expect(attention?.match(/data-testid="agent-sidebar-tree-line"/g)).toHaveLength(3);
   expect(attention?.match(/data-testid="agent-sidebar-state"/g)).toHaveLength(3);
   expect(rows(running ?? "")).toEqual([]);

@@ -1934,7 +1934,7 @@
       "toggle_children": "Fold or unfold its conversations",
       "idle_children": "{{count}} idle",
       "parent": "↳ {{name}}",
-      "parent_hint": "Made by {{name}}",
+      "parent_hint": "Parent · {{name}}",
       "closed_parent": "↳ {{name}} · closed",
       "remote_parent": "↳ {{device}} · {{name}}",
       "moved_family": "↳ {{count}} under {{name}}"

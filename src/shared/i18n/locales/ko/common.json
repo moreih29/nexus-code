@@ -1934,7 +1934,7 @@
       "toggle_children": "하위 대화 접기 · 펼치기",
       "idle_children": "대기 {{count}}",
       "parent": "↳ {{name}}",
-      "parent_hint": "‘{{name}}’가 만든 대화",
+      "parent_hint": "상위 대화 · {{name}}",
       "closed_parent": "↳ {{name}} · 닫힘",
       "remote_parent": "↳ {{device}} · {{name}}",
       "moved_family": "↳ ‘{{name}}’ 아래 {{count}}"
