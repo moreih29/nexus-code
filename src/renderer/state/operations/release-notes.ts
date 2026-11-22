@@ -24,6 +24,11 @@ export function closeReleaseNotes(): void {
   useReleaseNotesStore.getState().close();
 }
 
+/** Opens the release page in the browser. Main also checks for HTTPS. */
+export function openReleasePage(url: string): void {
+  if (url.startsWith("https://")) void ipcCallResult("updates", "openReleasePage", { url });
+}
+
 /** Reads the notes, unless a read is under way. */
 export async function loadReleaseNotes(): Promise<void> {
   const store = useReleaseNotesStore.getState();

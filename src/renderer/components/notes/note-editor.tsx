@@ -8,7 +8,15 @@
 import { type Editor, EditorContent, useEditor } from "@tiptap/react";
 import i18next from "i18next";
 import { Bot, FolderOpen, MoreHorizontal, ScrollText, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { hasBlocksAt, insertionIndex, isEmptyDoc } from "../../../shared/notes/insert";
 import type { DocNode } from "../../../shared/notes/markdown";
@@ -70,11 +78,13 @@ export function NoteEditor({
   tabId,
   noteId,
   isVisible,
+  loading,
 }: {
   workspaceId: string;
   tabId: string;
   noteId: string;
   isVisible: boolean;
+  loading: ReactNode;
 }) {
   const { t } = useTranslation("notes");
   const [note, setNote] = useState<NoteContent | null>(null);
@@ -123,12 +133,7 @@ export function NoteEditor({
         </Button>
       </div>
     );
-  if (!note)
-    return (
-      <div className="flex h-full items-center justify-center p-6 text-app-ui-sm text-muted-foreground">
-        {t("editor.loading")}
-      </div>
-    );
+  if (!note) return loading;
   return (
     <NoteConversationLinks note={{ workspaceId, noteId, tabId }} isVisible={isVisible}>
       <LoadedNote

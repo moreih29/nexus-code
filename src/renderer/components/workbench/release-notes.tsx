@@ -11,21 +11,25 @@
 
 import { ExternalLink, LoaderCircle, ScrollText, X } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import ReactMarkdown from "react-markdown";
-import rehypeRaw from "rehype-raw";
-import rehypeSanitize from "rehype-sanitize";
 import type { ReleaseNote } from "../../../shared/updates/release-notes";
-import { ipcCallResult } from "../../ipc/client";
 import { releaseDate, releaseMark, shownNote } from "../../services/updates/release-notes";
-import { closeReleaseNotes, loadReleaseNotes } from "../../state/operations/release-notes";
+import {
+  closeReleaseNotes,
+  loadReleaseNotes,
+  openReleasePage,
+} from "../../state/operations/release-notes";
 import { useReleaseNotesStore } from "../../state/stores/release-notes";
 import { useUpdatesStore } from "../../state/stores/updates";
 import { cn } from "../../utils/cn";
 import { UpdateSection } from "../settings/panels/about-panel";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
+
+const ReleaseNotesHtml = lazy(() =>
+  import("./release-notes-html").then(({ ReleaseNotesHtml }) => ({ default: ReleaseNotesHtml })),
+);
 
 /** Overlays that open from the view, as a tooltip, and keep it open. */
 const FROM_VIEW =
@@ -184,7 +188,7 @@ function ReleaseNotesDialog() {
           )}
           <div className="flex-1" />
           {shown && (
-            <Button variant="ghost" size="sm" onClick={() => openExternal(shown.url)}>
+            <Button variant="ghost" size="sm" onClick={() => openReleasePage(shown.url)}>
               <ExternalLink className="size-3.5" aria-hidden="true" />
               {t("releaseNotes.openOnGitHub")}
             </Button>
@@ -276,7 +280,7 @@ function ReleaseList({
       </ul>
       <button
         type="button"
-        onClick={() => openExternal(allReleasesUrl(notes[0]?.url))}
+        onClick={() => openReleasePage(allReleasesUrl(notes[0]?.url))}
         className="flex shrink-0 items-center gap-1.5 border-t border-border px-4 py-2.5 text-app-ui-sm text-muted-foreground hover:text-foreground"
       >
         <ExternalLink className="size-3.5" aria-hidden="true" />
@@ -302,44 +306,10 @@ function ReleaseMarkBadge({ mark }: { mark: "current" | "newer" | "prerelease" }
   );
 }
 
-/** Opens an outside link in the browser; main checks it is https. */
-function openExternal(url: string): void {
-  if (url.startsWith("https://")) void ipcCallResult("updates", "openReleasePage", { url });
-}
-
 /** The releases page, from a release's: ".../releases/tag/v1.0.0" is ".../releases". */
 function allReleasesUrl(releaseUrl: string | undefined): string {
   return releaseUrl?.replace(/\/tag\/[^/]+$/, "") ?? "";
 }
-
-/**
- * Hands the notes, which are HTML, to the HTML step whole: a Markdown read
- * of them would end an HTML block at a blank line, as one in a code
- * sample, and read what follows as Markdown.
- */
-function remarkWholeHtml() {
-  return (tree: unknown, file: { value: unknown }) => {
-    (tree as { children: unknown[] }).children = [{ type: "html", value: String(file.value) }];
-  };
-}
-
-const MARKDOWN_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = {
-  a({ href, children, node: _node, ...rest }) {
-    const target = typeof href === "string" ? href : "";
-    return (
-      <a
-        {...rest}
-        href={target}
-        onClick={(event) => {
-          event.preventDefault();
-          openExternal(target);
-        }}
-      >
-        {children}
-      </a>
-    );
-  },
-};
 
 /** No margin, padding or rule from the preview's styles. */
 const FLAT = { margin: 0, padding: 0, border: 0 } as const;
@@ -381,13 +351,9 @@ function ReleaseBody({ note, locale }: { note: ReleaseNote; locale: string }) {
             {releaseDate(note.date, locale)}
           </p>
         </header>
-        <ReactMarkdown
-          remarkPlugins={[remarkWholeHtml]}
-          rehypePlugins={[rehypeRaw, rehypeSanitize]}
-          components={MARKDOWN_COMPONENTS}
-        >
-          {note.html}
-        </ReactMarkdown>
+        <Suspense fallback={null}>
+          <ReleaseNotesHtml html={note.html} />
+        </Suspense>
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToReadableStream, renderToStaticMarkup } from "react-dom/server";
 import {
   MAX_BYTES_CHUNK,
   MAX_READ_BYTES,
@@ -322,7 +322,9 @@ test("a Windows peer markdown preview resolves its relative images without a cha
         peerFile: { watch: true, connection: 0, toolbar: null },
       });
     }
-    expect(renderToStaticMarkup(createElement(Preview))).toContain(
+    const markup = await renderToReadableStream(createElement(Preview));
+    await markup.allReady;
+    expect(await new Response(markup).text()).toContain(
       "nexus-workspace://peer/d1/w1/C%3A/Project/Docs/preview.png",
     );
   } finally {

@@ -19,7 +19,7 @@ import { useAgentViewStore } from "@/state/stores/agent-view";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
 import { relPath } from "@/utils/path";
-import { NoteEditor } from "../../notes/note-editor";
+import { NoteTab } from "../../notes/note-tab";
 import { BrowserTabView } from "./browser-view";
 import { DocxEditorView } from "./docx-editor-view";
 import { EditorView, ImageEditorView } from "./editor-view";
@@ -330,7 +330,7 @@ export const ContentHost = memo(function ContentHost({
             isVisible={isVisible}
           />
         ) : tab.type === "note" ? (
-          <NoteEditor
+          <NoteTab
             workspaceId={workspaceId}
             tabId={tab.id}
             noteId={tab.props.noteId}
