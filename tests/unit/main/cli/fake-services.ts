@@ -58,6 +58,7 @@ import type { ListeningPort, PortForward } from "../../../../src/shared/pty/port
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../src/shared/types/workspace";
 import type { WorkspaceColor } from "../../../../src/shared/types/workspace-color";
 import { compareWorkspaceOrder } from "../../../../src/shared/workspace-order";
+import { withSessionsSnapshot } from "../../../helpers/sessions-snapshot";
 
 export const APP = "11111111-1111-4111-8111-111111111111";
 export const API = "22222222-2222-4222-8222-222222222222";
@@ -538,11 +539,16 @@ export function fakeApp(now = Date.now()): FakeApp {
   const uiAnswers: FakeApp["uiAnswers"] = new Map();
   const terminalAsks: FakeApp["terminalAsks"] = new Map();
   const terminalAnswered: FakeApp["terminalAnswered"] = [];
+  // The renderer's one read for the sessions' list, made of the requests below.
+  const sessionsSnapshot = withSessionsSnapshot((op: CliUiOp, args: never) => ui(op, args));
   const ui = async <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"]) => {
     uiCalls.push({ op, args });
     if (uiAnswers.has(op)) {
       const answer = uiAnswers.get(op);
       return (typeof answer === "function" ? answer(args) : answer) as CliUiOps[K]["result"];
+    }
+    if (op === "sessions.snapshot") {
+      return (await sessionsSnapshot(op, args)) as CliUiOps[K]["result"];
     }
     // Each entry is an item of its own, keyed k<i>.
     if (op === "chat.entryItem") {

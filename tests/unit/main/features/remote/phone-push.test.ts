@@ -8,6 +8,7 @@ import { PhonePush } from "../../../../../src/main/features/remote/phone-push";
 import { servesWith } from "../../../../../src/main/features/remote/serving/common";
 import type { CliChange, CliChatWaiting } from "../../../../../src/shared/cli/ui";
 import type { PhonePushPolicy } from "../../../../../src/shared/types/app-state";
+import { withSessionsSnapshot } from "../../../../helpers/sessions-snapshot";
 
 const info = { signIn: ["google"], relay: null, voice: null };
 const phone = { id: "iphone", name: "iPhone", platform: "ios" };
@@ -82,7 +83,7 @@ function setup(
   });
   const services = {
     listWorkspaces: () => [{ id: "w", name: "Private workspace", rootPath: "/private/project" }],
-    ui,
+    ui: withSessionsSnapshot(ui),
     consents: { list: () => consents },
     activity: () => null,
     claudeStatus: () => (terminalWait ? { status: "permissionPending", since: 0 } : null),

@@ -109,6 +109,37 @@ export interface CliPlacement {
   readonly besideTabId?: string;
 }
 
+/**
+ * A tab as the remote sessions' list reads it (sessions.snapshot): what
+ * tabs.list tells of it that the list uses, and a Claude or Codex tab's
+ * state with it.
+ */
+export interface CliSessionTab {
+  readonly id: string;
+  readonly type: string;
+  readonly title: string;
+  readonly dead?: boolean;
+  readonly unstarted?: boolean;
+  /** A Claude or Codex tab's state; none when it could not be read. */
+  readonly chat?: CliSessionChat;
+}
+
+/**
+ * A chat's state as chat.state tells it with `peek` and `includeWaitingId`,
+ * only what the remote sessions' list uses, its texts already on one line
+ * (oneLine) so a long answer does not cross to main every second.
+ */
+export interface CliSessionChat {
+  readonly state: CliChatState;
+  readonly since?: number;
+  readonly message?: string;
+  readonly profile?: string;
+  readonly cwd?: string;
+  readonly waiting?: CliChatWaiting;
+  readonly limitResume?: CliLimitResume;
+  readonly waitingId?: string;
+}
+
 /** What an editor tab shows of a file with a preview (Markdown, HTML, ...). */
 export type CliEditorView = "source" | "preview";
 
@@ -1234,6 +1265,19 @@ export interface CliUiOps {
   "sessions.results": {
     args: Record<string, never>;
     result: { unread: Record<string, Record<string, number>> };
+  };
+  /**
+   * What the remote sessions' list reads of the renderer, in one request:
+   * each of `workspaceIds`' tabs as tabs.list lists them with `agentOrder`
+   * (none for a workspace that could not be read), each chat's state with
+   * its tab, and sessions.results' map (none when it could not be read).
+   */
+  "sessions.snapshot": {
+    args: { workspaceIds: string[] };
+    result: {
+      workspaces: { tabs?: CliSessionTab[] }[];
+      unread?: Record<string, Record<string, number>>;
+    };
   };
   "sessions.markSeen": {
     args: RpcParams<"sessions.markSeen">;

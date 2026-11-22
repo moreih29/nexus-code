@@ -146,6 +146,7 @@ export const actionHandlers: {
     | "terminal.unwatch"
     | "events.read"
     | "sessions.results"
+    | "sessions.snapshot"
     | "sessions.markSeen"
     | "settings.instructions"
     | "settings.instructions.set"

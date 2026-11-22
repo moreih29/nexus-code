@@ -11,7 +11,14 @@ import { allLeaves } from "@/state/stores/layout/helpers";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import type { Tab } from "@/state/stores/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
-import type { CliTabInfo, CliUiOp } from "../../../shared/cli/ui";
+import type {
+  CliChatInfo,
+  CliSessionChat,
+  CliSessionTab,
+  CliTabInfo,
+  CliUiOp,
+} from "../../../shared/cli/ui";
+import { oneLine } from "../../../shared/remote/one-line";
 import { acknowledgedResults, unreadResults } from "../agent-sessions/inbox";
 import { listed } from "../agent-sessions/rows";
 import { readSessionEvents, recordSessionEvents } from "../agent-sessions/session-events";
@@ -30,7 +37,7 @@ import {
   UiRequestError,
 } from "./actions";
 import { appHandlers } from "./app-actions";
-import { chatHandlers } from "./chat-actions";
+import { chatHandlers, peekChatInfo } from "./chat-actions";
 import { layoutHandlers } from "./layout-actions";
 import { noteHandlers } from "./note-actions";
 import { settingsHandlers } from "./settings";
@@ -110,6 +117,52 @@ export function listTabs(
   return [...ordered, ...remaining.values()];
 }
 
+/** The finished turns the user has not looked at, by workspace and tab (sessions.results). */
+function unreadResultsMap(): Record<string, Record<string, number>> {
+  const unread: Record<string, Record<string, number>> = Object.create(null);
+  for (const { session, since } of unreadResults(inboxNow())) {
+    unread[session.workspaceId] ??= Object.create(null);
+    const tabs = unread[session.workspaceId];
+    tabs[session.tabId] = since;
+  }
+  return unread;
+}
+
+/** A chat's state as the remote sessions' list uses it, its texts on one line. */
+function sessionChat(info: CliChatInfo & { waitingId?: string }): CliSessionChat {
+  return {
+    state: info.state,
+    ...(info.since !== undefined ? { since: info.since } : {}),
+    // Kept when it is only white space: the list tells it as an empty line.
+    ...(info.message ? { message: oneLine(info.message) } : {}),
+    ...(info.profile ? { profile: info.profile } : {}),
+    ...(info.cwd ? { cwd: info.cwd } : {}),
+    ...(info.waiting
+      ? { waiting: { kind: info.waiting.kind, text: oneLine(info.waiting.text) } }
+      : {}),
+    ...(info.limitResume ? { limitResume: info.limitResume } : {}),
+    ...(info.waitingId ? { waitingId: info.waitingId } : {}),
+  };
+}
+
+/** A tab as the remote sessions' list reads it, with a chat's state as chat.state peeks it. */
+function sessionTab(workspaceId: string, tab: CliTabInfo): CliSessionTab {
+  const listed: CliSessionTab = {
+    id: tab.id,
+    type: tab.type,
+    title: tab.title,
+    ...(tab.dead ? { dead: true } : {}),
+    ...(tab.unstarted ? { unstarted: true } : {}),
+  };
+  if (tab.type !== "claude" && tab.type !== "codex") return listed;
+  try {
+    return { ...listed, chat: sessionChat(peekChatInfo(workspaceId, tab.id, true)) };
+  } catch {
+    // The list leaves the chat out, and its workspace incomplete, until it reads.
+    return listed;
+  }
+}
+
 const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   "tabs.list": async ({ workspaceId, agentOrder, includeSession }) => ({
     tabs: listTabs(workspaceId, agentOrder, includeSession),
@@ -147,14 +200,22 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
     return {};
   },
   "events.read": async ({ since, limit }) => readSessionEvents(since, limit),
-  "sessions.results": async () => {
-    const unread: Record<string, Record<string, number>> = Object.create(null);
-    for (const { session, since } of unreadResults(inboxNow())) {
-      unread[session.workspaceId] ??= Object.create(null);
-      const tabs = unread[session.workspaceId];
-      tabs[session.tabId] = since;
+  "sessions.results": async () => ({ unread: unreadResultsMap() }),
+  "sessions.snapshot": async ({ workspaceIds }) => {
+    const workspaces = workspaceIds.map((workspaceId) => {
+      try {
+        return { tabs: listTabs(workspaceId, true).map((tab) => sessionTab(workspaceId, tab)) };
+      } catch {
+        return {};
+      }
+    });
+    let unread: Record<string, Record<string, number>> | undefined;
+    try {
+      unread = unreadResultsMap();
+    } catch {
+      // Main keeps the last map it read for a while.
     }
-    return { unread };
+    return { workspaces, ...(unread ? { unread } : {}) };
   },
   "sessions.markSeen": async ({ seen }) => {
     const results = acknowledgedResults(inboxNow(), seen);
@@ -186,6 +247,7 @@ const READ_ONLY_OPS: ReadonlySet<string> = new Set<CliUiOp>([
   "tab.sandboxSession",
   "events.read",
   "sessions.results",
+  "sessions.snapshot",
   "chat.state",
   "chat.read",
   "chat.page",

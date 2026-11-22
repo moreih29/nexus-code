@@ -183,6 +183,24 @@ function infoOf(
 }
 
 /**
+ * Where a Claude or Codex tab stands without opening its program, as
+ * chat.state with `peek` tells it: a tab not opened since the app started
+ * reads idle.
+ */
+export function peekChatInfo(
+  workspaceId: string,
+  tabId: string,
+  includeWaitingId?: boolean,
+): CliChatInfo & { waitingId?: string } {
+  const target = agentTabController(workspaceId, tabId);
+  if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
+  if (!opened(workspaceId, tabId)) {
+    return withProfile(workspaceId, tabId, chatInfoOf(target.agent, undefined, false));
+  }
+  return infoOf(workspaceId, tabId, target, includeWaitingId);
+}
+
+/**
  * A Claude tab's MCP servers, asked once of a program that runs when it has
  * none yet: the tab asks as its panel opens them, and another computer's
  * panel shows them as the answer comes.
@@ -592,11 +610,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         trackedSubmission: true,
       };
     }
-    if (peek && !opened(workspaceId, tabId)) {
-      const target = agentTabController(workspaceId, tabId);
-      if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
-      return withProfile(workspaceId, tabId, chatInfoOf(target.agent, undefined, false));
-    }
+    if (peek) return peekChatInfo(workspaceId, tabId, includeWaitingId);
     return infoOf(workspaceId, tabId, await openedTab(workspaceId, tabId), includeWaitingId);
   },
 

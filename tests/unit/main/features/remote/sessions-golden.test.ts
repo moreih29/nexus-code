@@ -9,6 +9,7 @@ import type { CliServices, PendingConsent } from "../../../../../src/main/featur
 import { snapshotSessions } from "../../../../../src/main/features/remote/serving/sessions";
 import { SessionWatches } from "../../../../../src/main/features/remote/session-watches";
 import type { AgentRun } from "../../../../../src/shared/claude/activity";
+import { withSessionsSnapshot } from "../../../../helpers/sessions-snapshot";
 
 const LONG = `First line of a long answer\n\n${"word ".repeat(80)}\tend`;
 
@@ -222,7 +223,7 @@ function services(ui = rendererUi): CliServices {
         : [],
     claudeAgents: { list: (_w: string, tab: string) => AGENTS[tab] ?? [], stop: async () => false },
     consents: { list: () => CONSENTS, answer: async () => false },
-    ui,
+    ui: withSessionsSnapshot(ui),
   } as unknown as CliServices;
 }
 
@@ -258,7 +259,10 @@ test("the sessions' list, its consents and its waiting requests stay as they wer
 
 test("a watch is sent what it was before", async () => {
   let ui = rendererUi;
-  const s = { ...services(), ui: (op: string, args: Record<string, unknown>) => ui(op, args) };
+  const s = {
+    ...services(),
+    ui: withSessionsSnapshot((op: string, args: Record<string, unknown>) => ui(op, args)),
+  };
   const sent: SessionsUpdate[] = [];
   watches = new SessionWatches({
     snapshot: async (from) => {

@@ -456,3 +456,120 @@ test("a request that only reads schedules no focus checks; one that may move tab
     (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = raf;
   }
 });
+
+test("the sessions' snapshot is tabs.list, chat.state and sessions.results in one answer, its texts on a line", async () => {
+  const { oneLine } = await import("../../../../../src/shared/remote/one-line");
+  const workspace = WorkspaceMetaSchema.parse({
+    id: "31111111-1111-4111-8111-111111111111",
+    name: "Project",
+    rootPath: "/project",
+    pinned: false,
+    tabs: [],
+  });
+  const ws = workspace.id;
+  const tabs = useTabsStore.getState();
+  const workspaces = useWorkspacesStore.getState().workspaces;
+  const layout = useLayoutStore.getState().byWorkspace;
+  const make = (type: "claude" | "codex" | "terminal" | "editor") =>
+    tabs.createTab(
+      ws,
+      type === "editor"
+        ? { type, props: { workspaceId: ws, filePath: "/project/a.ts" } }
+        : { type, props: { cwd: type === "codex" ? "/project/sub" : workspace.rootPath } },
+    ).id;
+  const stop = startCliUiListener(Promise.resolve());
+  const answer = `First line\n\n${"word ".repeat(80)}\tend`;
+  const claude = make("claude");
+  const codex = make("codex");
+  const terminal = make("terminal");
+  const editor = make("editor");
+  const key = chatKey(ws, claude);
+  try {
+    useWorkspacesStore.setState({ workspaces: [workspace] });
+    useLayoutStore.setState({
+      byWorkspace: {
+        [ws]: {
+          root: {
+            kind: "leaf",
+            id: "leaf",
+            tabIds: [terminal, claude, editor, codex],
+            activeTabId: claude,
+          },
+          activeGroupId: "leaf",
+        },
+      },
+    });
+    useChatStore.getState().update(key, (chat) => ({
+      ...chat,
+      model: {
+        ...chat.model,
+        items: [
+          {
+            kind: "assistant",
+            key: "a1",
+            messageId: "m1",
+            blocks: [{ type: "text", text: answer }],
+            at: 5,
+          },
+        ],
+        lastResult: { subtype: "success", isError: false, at: 6, outcome: "success" as const },
+      },
+    }));
+    const value = async (requestId: string, op: string, args: unknown) =>
+      ((await answerTo(requestId, op, args)) as { value: never }).value;
+    const snapshot = (await value("r-snapshot", "sessions.snapshot", {
+      workspaceIds: [ws, "ws-not-there"],
+    })) as { workspaces: { tabs: { id: string; chat?: { message?: string } }[] }[] };
+    const listed = (await value("r-snap-tabs", "tabs.list", {
+      workspaceId: ws,
+      agentOrder: true,
+    })) as { tabs: { id: string; type: string; title: string; unstarted?: true }[] };
+    const peeks: Record<string, Record<string, unknown>> = {};
+    for (const id of [claude, codex]) {
+      peeks[id] = await value(`r-snap-peek-${id}`, "chat.state", {
+        workspaceId: ws,
+        tabId: id,
+        peek: true,
+        includeWaitingId: true,
+      });
+    }
+    const { unread } = (await value("r-snap-results", "sessions.results", {})) as {
+      unread: unknown;
+    };
+    expect(snapshot).toEqual({
+      workspaces: [
+        {
+          tabs: listed.tabs.map(({ id, type, title, unstarted }) => {
+            const peek = peeks[id];
+            if (!peek) return { id, type, title, ...(unstarted ? { unstarted } : {}) };
+            const { agent: _, message, ...rest } = peek;
+            return {
+              id,
+              type,
+              title,
+              chat: { ...rest, ...(message ? { message: oneLine(message as string) } : {}) },
+            };
+          }),
+        },
+        { tabs: [] },
+      ],
+      unread,
+    });
+    expect(snapshot.workspaces[0]?.tabs.map(({ id }) => id)).toEqual([
+      claude,
+      codex,
+      terminal,
+      editor,
+    ]);
+    const chat = snapshot.workspaces[0]?.tabs[0]?.chat;
+    expect(chat?.message).toBe(oneLine(answer));
+    expect(chat?.message?.length).toBe(200);
+    expect(peeks[claude]?.message).toBe(answer.trim());
+  } finally {
+    stop();
+    useWorkspacesStore.setState({ workspaces });
+    useTabsStore.setState({ byWorkspace: tabs.byWorkspace });
+    useLayoutStore.setState({ byWorkspace: layout });
+    useChatStore.getState().remove(key);
+  }
+});

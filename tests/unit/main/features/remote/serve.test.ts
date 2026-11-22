@@ -34,6 +34,7 @@ import {
 import { snapshotSessions } from "../../../../../src/main/features/remote/serving/sessions";
 import { SessionWatches } from "../../../../../src/main/features/remote/session-watches";
 import type { AgentRun } from "../../../../../src/shared/claude/activity";
+import { withSessionsSnapshot } from "../../../../helpers/sessions-snapshot";
 
 function services(pending: PendingConsent[] = []): CliServices {
   const workspaces = [
@@ -70,7 +71,7 @@ function services(pending: PendingConsent[] = []): CliServices {
         return at >= 0;
       },
     },
-    ui: async (op: string, args: { workspaceId: string; tabId?: string }) => {
+    ui: withSessionsSnapshot(async (op: string, args: { workspaceId: string; tabId?: string }) => {
       if (op === "sessions.results") return { unread: {} };
       if (op === "tabs.list") {
         const list = tabs[args.workspaceId];
@@ -89,7 +90,7 @@ function services(pending: PendingConsent[] = []): CliServices {
         };
       }
       return { agent: "codex", state: "working", since: 20 };
-    },
+    }),
   } as unknown as CliServices;
 }
 
@@ -172,7 +173,7 @@ test("profile usage follows the receiving device's agent read policy", async () 
 });
 
 describe("the sessions list's renderer deadline", () => {
-  test("a stuck tab list or chat leaves the other rows and the consent prompt usable", async () => {
+  test("a renderer that does not answer leaves every workspace incomplete at the deadline, the consent prompt usable", async () => {
     const pending: PendingConsent[] = [
       {
         id: "consent",
@@ -189,123 +190,88 @@ describe("the sessions list's renderer deadline", () => {
       },
     ];
     const base = services(pending);
-    const tabLists: string[] = [];
+    const reads: { op: string; timeoutMs: number }[] = [];
     const s = {
       ...base,
-      ui: async (op: string, args: { workspaceId: string; tabId?: string }) => {
-        if (op === "tabs.list") {
-          tabLists.push(args.workspaceId);
-          if (args.workspaceId === "w3") return new Promise(() => {});
-          return base.ui("tabs.list", args);
-        }
-        if (args.tabId === "t1") return new Promise(() => {});
-        return base.ui("chat.state", { workspaceId: args.workspaceId, tabId: args.tabId! });
+      ui: async (op: string, _args: unknown, timeoutMs: number) => {
+        reads.push({ op, timeoutMs });
+        return new Promise(() => {});
       },
-    } as CliServices;
+    } as unknown as CliServices;
     jest.useFakeTimers();
     try {
+      let answered = false;
       const response = serveWith(() => s)({ method: "sessions.list", params: {}, from: "phone" });
+      void response.then(() => {
+        answered = true;
+      });
       await flush();
-      expect(tabLists).toEqual(["w1", "w2", "w3"]);
-      jest.advanceTimersByTime(2_000);
+      expect(reads).toEqual([{ op: "sessions.snapshot", timeoutMs: 8_000 }]);
+      jest.advanceTimersByTime(7_999);
       await flush();
-      jest.advanceTimersByTime(2_000);
+      expect(answered).toBe(false);
+      jest.advanceTimersByTime(1);
       await flush();
       expect(await response).toMatchObject({
         workspaces: [{ id: "w1" }, { id: "w2" }, { id: "w3" }],
-        sessions: [{ tabId: "t2" }, { tabId: "t5" }, { tabId: "t4" }],
+        sessions: [],
+        incompleteWorkspaces: ["w1", "w2", "w3"],
         consents: [{ id: "consent", from: { workspaceName: "closed", tabId: "gone" } }],
       });
-      expect(tabLists).toEqual(["w1", "w2", "w3"]);
+      expect(reads).toHaveLength(1);
     } finally {
       jest.useRealTimers();
     }
   });
 
-  test("many chats use bounded concurrency and stop at the overall deadline", async () => {
+  test("one request reads every workspace and chat, however many", async () => {
     const base = services();
     const tabs = Array.from({ length: 96 }, (_, i) => ({
       id: `chat-${i}`,
       type: "codex",
       title: "Chat",
+      ...(i < 2 ? { chat: { state: "idle" } } : {}),
     }));
-    const calls: { tabId: string; timeoutMs: number }[] = [];
+    const reads: unknown[] = [];
     const s = {
       ...base,
-      ui: async (op: string, args: { workspaceId: string; tabId?: string }, timeoutMs: number) => {
-        if (op === "sessions.results") return { unread: {} };
-        if (op === "tabs.list") return { tabs: args.workspaceId === "w1" ? tabs : [] };
-        calls.push({ tabId: args.tabId!, timeoutMs });
-        if (args.tabId === "chat-1" || args.tabId === "chat-2") return { state: "idle" };
-        return new Promise(() => {});
+      ui: async (op: string, args: unknown) => {
+        reads.push([op, args]);
+        return { workspaces: [{ tabs }, { tabs: [] }, { tabs: [] }], unread: {} };
       },
     } as unknown as CliServices;
-    jest.useFakeTimers();
-    try {
-      let ids: string[] | undefined;
-      const list = listSessions(s).then((value) => {
-        ids = value.sessions.map((row) => row.tabId);
-      });
-      await flush();
-      expect(calls).toHaveLength(10);
-      expect(ids).toBeUndefined();
-      for (let i = 0; i < 4; i++) {
-        jest.advanceTimersByTime(2_000);
-        await flush();
-      }
-      expect(ids).toEqual(["chat-1", "chat-2"]);
-      await list;
-      expect(calls).toHaveLength(34);
-      expect(calls.every(({ timeoutMs }) => timeoutMs <= 2_000)).toBe(true);
-    } finally {
-      jest.useRealTimers();
-    }
+    const { list, incompleteWorkspaces } = await snapshotSessions(s, undefined);
+    expect(reads).toEqual([["sessions.snapshot", { workspaceIds: ["w1", "w2", "w3"] }]]);
+    expect(list.sessions.map((row) => row.tabId)).toEqual(["chat-0", "chat-1"]);
+    // The chats it could not read leave their workspace incomplete.
+    expect(incompleteWorkspaces).toEqual(new Set(["w1"]));
   });
 
-  test("marks failed and skipped tab reads and skipped chat reads as incomplete", async () => {
-    const workspaces = Array.from({ length: 40 }, (_, i) => ({
+  test("marks a workspace not read, then one with a chat not read, as incomplete", async () => {
+    const workspaces = Array.from({ length: 4 }, (_, i) => ({
       id: `w${i + 1}`,
       name: "app",
       rootPath: "/app",
     }));
-    const tabReads: string[] = [];
-    const chatReads: string[] = [];
     const s = {
       ...services(),
       listWorkspaces: () => workspaces,
-      ui: async (op: string, { workspaceId }: { workspaceId: string }) => {
-        if (op === "chat.state") {
-          chatReads.push(workspaceId);
-          return { state: "idle" };
-        }
-        tabReads.push(workspaceId);
-        if (workspaceId === "w1") return { tabs: [{ id: "chat", type: "codex", title: "Chat" }] };
-        if (workspaceId === "w2") throw new Error("window unavailable");
-        if (workspaceId === "w3") return { tabs: [] };
-        return new Promise(() => {});
-      },
+      ui: async () => ({
+        workspaces: [
+          { tabs: [{ id: "chat", type: "codex", title: "Chat" }] },
+          {},
+          { tabs: [] },
+          { tabs: [{ id: "read", type: "codex", title: "Read", chat: { state: "working" } }] },
+        ],
+      }),
     } as unknown as CliServices;
-    jest.useFakeTimers();
-    try {
-      const snapshot = snapshotSessions(s, undefined);
-      await flush();
-      for (let i = 0; i < 4; i++) {
-        jest.advanceTimersByTime(2_000);
-        await flush();
-      }
-      const { list, incompleteWorkspaces } = await snapshot;
-      expect(tabReads).toContain("w2");
-      expect(tabReads).not.toContain("w40");
-      expect(chatReads).toEqual([]);
-      expect(incompleteWorkspaces).toEqual(
-        new Set(workspaces.filter(({ id }) => id !== "w3").map(({ id }) => id)),
-      );
-      expect(
-        SessionsUpdateSchema.parse({ ...list, watchId: "watch" }).incompleteWorkspaces,
-      ).toEqual([...incompleteWorkspaces]);
-    } finally {
-      jest.useRealTimers();
-    }
+    const { list, incompleteWorkspaces } = await snapshotSessions(s, undefined);
+    expect([...incompleteWorkspaces]).toEqual(["w2", "w1"]);
+    expect(list.sessions).toMatchObject([{ workspaceId: "w4", tabId: "read", state: "running" }]);
+    expect(SessionsUpdateSchema.parse({ ...list, watchId: "watch" }).incompleteWorkspaces).toEqual([
+      "w2",
+      "w1",
+    ]);
   });
 });
 
@@ -456,14 +422,14 @@ describe("serving the sessions", () => {
   test("reuses a recent unread map across list and watch failures, then falls back after it expires", async () => {
     const base = services();
     let unread: Record<string, Record<string, number>> | undefined;
-    const ui = (async (op, args) => {
+    const ui = withSessionsSnapshot((async (op, args) => {
       if (op === "sessions.results") {
         if (!unread) throw new Error("renderer unavailable");
         return { unread };
       }
       if (op === "chat.state") return { state: "idle" };
       return base.ui(op, args);
-    }) as CliServices["ui"];
+    }) as CliServices["ui"]);
     const host = {
       ...base,
       ui,
@@ -506,11 +472,11 @@ describe("serving the sessions", () => {
     ],
   ])("an unread timestamp leaves a blocked chat in its listed state (%j)", async (info, expected) => {
     const base = services();
-    const ui = (async (op, args) => {
+    const ui = withSessionsSnapshot((async (op, args) => {
       if (op === "sessions.results") return { unread: { w1: { t1: 123 } } };
       if (op === "chat.state" && args.tabId === "t1") return info;
       return base.ui(op, args);
-    }) as CliServices["ui"];
+    }) as CliServices["ui"]);
     const list = await listSessions({ ...base, ui });
     expect(list.sessions.find(({ tabId }) => tabId === "t1")).toMatchObject(expected);
   });
@@ -523,14 +489,14 @@ describe("serving the sessions", () => {
     ["failed result lookup", "idle", undefined, "t2", { state: "new-result", since: 55 }],
   ] as const)("maps %s", async (_label, state, unread, tabId, expected) => {
     const base = services();
-    const ui = (async (op, args) => {
+    const ui = withSessionsSnapshot((async (op, args) => {
       if (op === "sessions.results") {
         if (!unread) throw new Error("renderer unavailable");
         return { unread };
       }
       if (op === "chat.state" && args.tabId === "t1") return { state, since: 100 };
       return base.ui(op, args);
-    }) as CliServices["ui"];
+    }) as CliServices["ui"]);
     const { sessions } = await listSessions({
       ...base,
       ui,
@@ -558,12 +524,12 @@ describe("serving the sessions", () => {
 
   test("flags a failed chat and terminal hook without changing their session state", async () => {
     const base = services();
-    const ui = (async (op, args) => {
+    const ui = withSessionsSnapshot((async (op, args) => {
       if (op === "chat.state" && args.tabId === "t1") {
         return { agent: "claude", state: "error", message: "Turn failed", since: 15 };
       }
       return base.ui(op, args);
-    }) as CliServices["ui"];
+    }) as CliServices["ui"]);
     const { sessions } = await listSessions({
       ...base,
       ui,
@@ -582,7 +548,7 @@ describe("serving the sessions", () => {
     const { tabs } = await base.ui("tabs.list", { workspaceId: "w1" });
     const orderReads: unknown[] = [];
     let sidebarOrder = ["t2", "t1", "t5"];
-    const ui = (async (op, args) => {
+    const ui = withSessionsSnapshot((async (op, args) => {
       if (op === "agentView.reorderSessions") {
         sidebarOrder = (args as { tabIds: string[] }).tabIds;
         return { found: true };
@@ -593,7 +559,7 @@ describe("serving the sessions", () => {
       }
       if (op === "tabs.list" && args.workspaceId === "w3") return { tabs: [] };
       return base.ui(op, args);
-    }) as CliServices["ui"];
+    }) as CliServices["ui"]);
     const s = { ...base, ui };
     const notified: unknown[] = [];
     const watches = new SessionWatches({
@@ -714,7 +680,7 @@ describe("serving the sessions", () => {
 
   test("reports only dead agent terminals as ended and drops dead terminals' activity", async () => {
     const base = services();
-    const ui = (async (op, args) => {
+    const ui = withSessionsSnapshot((async (op, args) => {
       if (op === "tabs.list" && args.workspaceId === "w1") {
         const { tabs } = await base.ui("tabs.list", { workspaceId: "w1" });
         return {
@@ -725,7 +691,7 @@ describe("serving the sessions", () => {
         };
       }
       return base.ui(op, args);
-    }) as CliServices["ui"];
+    }) as CliServices["ui"]);
     const { sessions } = await listSessions({
       ...base,
       ui,
