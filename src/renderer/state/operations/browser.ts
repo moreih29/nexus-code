@@ -168,7 +168,7 @@ export function initBrowserRuntimeSubscriptions(): void {
   );
 
   // focus: the WebContentsView is a native view outside the DOM event chain,
-  // so a click on the page never reaches GroupView's focusin/mousedown
+  // so a click on the page bypasses GroupView's DOM activation
   // listeners. Main broadcasts this when the page gains focus; we activate the
   // group that owns the tab so clicking a browser panel behaves like clicking
   // any other panel.
