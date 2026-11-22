@@ -34,6 +34,20 @@ export function findProfile(state: StateService, id: string): AgentProfile | nul
   return null;
 }
 
+export function pruneProfileKeys(
+  keys: ConnectionKeys,
+  state: Pick<StateService, "getState" | "flushNow">,
+): Promise<void> {
+  return keys.prune(() => {
+    // A restart can still load a removed profile until its removal is durable.
+    state.flushNow();
+    const config = state.getState().agentProfiles ?? EMPTY_AGENT_PROFILES;
+    return new Set(
+      PROFILE_AGENTS.flatMap((agent) => profilesOf(config, agent).map(({ id }) => id)),
+    );
+  });
+}
+
 function normalizedProfile(profile: AgentProfile): AgentProfile {
   const { id, agent, connection } = profile;
   if (isDefaultProfileId(id) && id !== defaultProfileId(agent)) {

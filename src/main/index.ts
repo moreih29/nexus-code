@@ -16,13 +16,12 @@ import { ListeningPortsResultSchema } from "../shared/pty/ports";
 import { asTaskAgent, chatAgentOf, DEFAULT_TASK_AGENT } from "../shared/sessions/task-agent";
 import type { WorkspaceConnectionEventStatus } from "../shared/types/workspace";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
-import {
-  findProfile,
-  profileKeyIds,
-  registerAgentProfilesChannel,
-} from "./features/agent-profiles";
+import { findProfile, registerAgentProfilesChannel } from "./features/agent-profiles";
 import { type ConnectionKeys, openConnectionKeys } from "./features/agent-profiles/connection-keys";
-import { createProfileConnections } from "./features/agent-profiles/connection-save";
+import {
+  createProfileConnections,
+  pruneProfileKeys,
+} from "./features/agent-profiles/connection-save";
 import { registerAppStateChannel } from "./features/app-state";
 import {
   getBrowserRegistry,
@@ -464,17 +463,15 @@ function agentProfilesChanged(connectionChangedProfileId?: string): void {
     config: stateService.getState().agentProfiles ?? EMPTY_AGENT_PROFILES,
     ...(connectionChangedProfileId ? { connectionChangedProfileId } : {}),
   });
-  pruneProfileKeys();
+  pruneDeletedProfileKeys();
 }
 
-function pruneProfileKeys(): void {
-  void profileConnectionKeys
-    ?.prune(() => {
-      // A restart can still load a removed profile until its removal is durable.
-      stateService.flushNow();
-      return profileKeyIds(stateService);
-    })
-    .catch((error) => logger.warn(`Could not remove deleted profile keys: ${String(error)}`));
+function pruneDeletedProfileKeys(): void {
+  if (profileConnectionKeys) {
+    void pruneProfileKeys(profileConnectionKeys, stateService).catch((error) =>
+      logger.warn(`Could not remove deleted profile keys: ${String(error)}`),
+    );
+  }
 }
 
 // Seed the browser-view key interceptor with persisted overrides so the
@@ -742,7 +739,7 @@ app.whenReady().then(async () => {
     profileConnectionKeys,
     profileConnections,
   );
-  pruneProfileKeys();
+  pruneDeletedProfileKeys();
 
   const awayAfterSeconds = 30;
   let screenLocked = false;
