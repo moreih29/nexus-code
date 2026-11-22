@@ -37,7 +37,6 @@ import type {
   RemoteSession,
   RemoteSessionAgent,
   RemoteWorkspace,
-  SessionState,
 } from "../../../../packages/remote-protocol/src/rpc";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { type RemoteAccountState, SIGNUP_FAILURES } from "../../../shared/remote/account";
@@ -52,11 +51,19 @@ import {
   ROW_GROUPS,
   type RowGroup,
 } from "../../services/agent-sessions/rows";
+import { type SessionTreeNode, treeSessions } from "../../services/agent-sessions/session-tree";
 import { leafHolding, remoteSessionKey } from "../../services/agent-view/layout";
-import { moveKey, movePeer, orderPeers, reorderSubset } from "../../services/agent-view/order";
+import { movePeer, orderPeers, reorderSubset } from "../../services/agent-view/order";
 import { type RemoteResults, useRemoteResults } from "../../services/agent-view/remote-results";
+import {
+  GROUP_OF,
+  remoteGroupOf,
+  remoteSessionTree,
+} from "../../services/agent-view/remote-session-tree";
+import { moveSessionRoot } from "../../services/agent-view/sidebar-tree";
 import { resumeTimeText } from "../../services/chat/limit-resume";
 import { remoteAccountKey, useRemoteAccount } from "../../services/remote/account";
+import { remoteDisplayName } from "../../services/remote/display-name";
 import {
   offlinePeers,
   type PeerSessions,
@@ -108,6 +115,7 @@ import {
   renamePeerSession,
   reorderPeerSessions,
 } from "./remote-session-actions";
+import { RemoteSessionBranch, type RemoteTreeNavigation } from "./remote-session-branch";
 import {
   endSessionDrag,
   hoverWorkspaceReorder,
@@ -128,19 +136,7 @@ function canReorderSession(session: RemoteSession): boolean {
   return session.state !== "ended" && (session.kind !== "terminal" || session.agent !== undefined);
 }
 
-/** A remote session's state as this list's groups tell it. */
-export const GROUP_OF: Record<SessionState, RowGroup> = {
-  "needs-you": "attention",
-  running: "running",
-  "new-result": "done",
-  idle: "idle",
-  // Left out of the list unasked, as an agent here whose terminal ended is.
-  ended: "idle",
-};
-
-function remoteGroupOf(session: RemoteSession): RowGroup {
-  return session.failed && session.state !== "ended" ? "attention" : GROUP_OF[session.state];
-}
+export { GROUP_OF } from "../../services/agent-view/remote-session-tree";
 
 const FAILURE_SCHEMA = "0.22.0";
 
@@ -191,14 +187,29 @@ function matches(session: RemoteSession, query: string): boolean {
   if (isEndedTerminal(session)) return false;
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  return session.title.toLowerCase().includes(q) || (session.last ?? "").toLowerCase().includes(q);
+  return (
+    remoteDisplayName(session.title).toLowerCase().includes(q) ||
+    (session.last ?? "").toLowerCase().includes(q)
+  );
 }
 
-export type RemoteStatusSource = { peer: RoomPeer; list: SessionsList };
+export type RemoteStatusSource = {
+  peer: RoomPeer;
+  list: SessionsList;
+  navigation?: RemoteTreeNavigation;
+};
 
 export type StatusRow =
   | { kind: "local"; session: AgentSession }
-  | { kind: "remote"; session: RemoteSession; peer: RoomPeer; workspace?: RemoteWorkspace };
+  | {
+      kind: "remote";
+      session: RemoteSession;
+      peer: RoomPeer;
+      node: SessionTreeNode;
+      byKey: ReadonlyMap<string, RemoteSession>;
+      workspaces: ReadonlyMap<string, RemoteWorkspace>;
+      navigation?: RemoteTreeNavigation;
+    };
 
 export function statusGroups(
   local: readonly AgentSession[],
@@ -221,26 +232,36 @@ export function statusGroups(
   for (const source of remote) {
     const { peer, list } = source;
     const workspaces = new Map(list.workspaces.map((workspace) => [workspace.id, workspace]));
-    const found = list.sessions.filter(
-      (session) => listedByDefault(session) && matches(session, query),
-    );
-    for (const session of found) {
-      byGroup.get(remoteGroupOf(session))?.push({
+    const visible = list.sessions.filter(listedByDefault);
+    const { roots, byKey } = remoteSessionTree(peer.id, visible, query);
+    for (const node of roots) {
+      const session = byKey.get(node.session.key);
+      if (!session) continue;
+      byGroup.get(node.group)?.push({
         kind: "remote",
         session,
         peer,
-        workspace: workspaces.get(session.workspaceId),
+        node,
+        byKey,
+        workspaces,
+        navigation: source.navigation,
       });
     }
     for (const consent of list.consents ?? []) {
       if (!pending(peer.id, consent.id)) continue;
-      if (searching && !found.some((session) => session.workspaceId === consent.workspaceId))
+      if (
+        searching &&
+        !visible.some(
+          (session) => session.workspaceId === consent.workspaceId && matches(session, query),
+        )
+      )
         continue;
       consents.push({ consent, source, workspace: workspaces.get(consent.workspaceId) });
     }
   }
+  const since = (row: StatusRow) => (row.kind === "remote" ? row.node.since : row.session.since);
   for (const { group, rows } of groups)
-    rows.sort((a, b) => compareStatusTime(group, a.session.since, b.session.since));
+    rows.sort((a, b) => compareStatusTime(group, since(a), since(b)));
   return { groups, consents };
 }
 
@@ -249,6 +270,7 @@ export function workspaceGroups(
   list: SessionsList | null,
   {
     query,
+    deviceId = "",
     opens,
     inPanel,
     worktreesIn,
@@ -257,6 +279,7 @@ export function workspaceGroups(
     reordering,
   }: {
     query: string;
+    deviceId?: string;
     opens: boolean;
     inPanel: (session: RemoteSession) => boolean;
     worktreesIn: ReadonlySet<string>;
@@ -266,25 +289,55 @@ export function workspaceGroups(
   },
 ) {
   const searching = query.trim().length > 0;
-  const { listed, plain } = listedSessions(list?.sessions ?? [], query, inPanel);
+  const sessions = list?.sessions ?? [];
+  const { listed, plain } = listedSessions(sessions, "", inPanel);
+  const { roots, byKey } = remoteSessionTree(deviceId, listed.filter(listedByDefault), query);
+  const keyOf = (session: RemoteSession) => remoteSessionKey({ deviceId, ...session });
+  const branches = new Map(roots.map((node) => [node.session.key, node]));
   const workspaces = new Map(list?.workspaces.map((w) => [w.id, w]) ?? []);
-  const byWorkspace = new Map<string, RemoteSession[]>();
-  for (const id of workspaces.keys()) byWorkspace.set(id, []);
-  for (const s of list?.sessions ?? []) {
-    if (!byWorkspace.has(s.workspaceId)) byWorkspace.set(s.workspaceId, []);
+  const byWorkspace = new Map<string, RemoteSession[]>(
+    [...workspaces.keys()].map((id) => [id, []]),
+  );
+  const moved = new Map<string, { key: string; title: string; count: number }[]>();
+  for (const root of roots) {
+    const counts = new Map<string, number>();
+    for (const child of treeSessions(root.children)) {
+      if (
+        child.workspaceId === root.session.workspaceId ||
+        !workspaces.get(child.workspaceId)?.parentId
+      )
+        continue;
+      counts.set(child.workspaceId, (counts.get(child.workspaceId) ?? 0) + 1);
+    }
+    for (const [workspaceId, count] of counts) {
+      const notes = moved.get(workspaceId) ?? [];
+      notes.push({ key: root.session.key, title: root.session.title, count });
+      moved.set(workspaceId, notes);
+    }
   }
-  for (const s of listed) byWorkspace.get(s.workspaceId)?.push(s);
-
+  // Keep the host's root order. A search can still find a terminal with only its shell.
+  const shownRoots = new Set(branches.keys());
+  const panelShells = new Set(listed.filter((session) => !listedByDefault(session)).map(keyOf));
+  for (const session of sessions) {
+    const rows = byWorkspace.get(session.workspaceId) ?? [];
+    byWorkspace.set(session.workspaceId, rows);
+    const key = keyOf(session);
+    const showFlat =
+      !byKey.has(key) && (searching ? matches(session, query) : panelShells.has(key));
+    if (shownRoots.delete(key) || showFlat) rows.push(session);
+  }
+  const groupOfRoot = (session: RemoteSession) =>
+    branches.get(keyOf(session))?.group ?? remoteGroupOf(session);
   const eligible = new Set<string>();
   const worktreeCounts = new Map<string, number>();
   const hidden = new Set<string>();
   const hiddenCounts = new Map<string, number>();
-  const plainShown = new Map(plain);
+  const plainShown = searching ? new Map<string, RemoteSession[]>() : new Map(plain);
   const foldedWorkspaces = new Set(
     [...byWorkspace.keys()].filter((id) => !searching && !reordering?.has(id) && folds?.has(id)),
   );
   const keepsWorktreeVisible = (s: RemoteSession) =>
-    remoteGroupOf(s) !== "idle" ||
+    groupOfRoot(s) !== "idle" ||
     s.limitWait !== undefined ||
     s.waiting !== undefined ||
     s.agents?.some((a) => a.state === "running" || a.state === "permissionPending") ||
@@ -296,8 +349,9 @@ export function workspaceGroups(
     const rootParent = parent?.parentId === undefined ? parent : undefined;
     const canStart =
       opens && !searching && workspace && (workspace.parentId === undefined || rootParent);
-    const terminals = plain.get(id);
-    if (rows.length === 0 && !terminals && !canStart) continue;
+    const terminals = plainShown.get(id);
+    const hasMoved = moved.has(id);
+    if (rows.length === 0 && !terminals && !canStart && !hasMoved) continue;
     eligible.add(id);
     if (rootParent && !searching) eligible.add(rootParent.id);
 
@@ -305,24 +359,39 @@ export function workspaceGroups(
       rootParent && !searching && !reordering?.has(id) && folds?.has(rootParent.id);
     const ownFolded = foldedWorkspaces.has(id);
     if (parentFolded || ownFolded) {
-      const visible = rows.filter((session) => remoteGroupOf(session) !== "idle");
+      const visible = rows.filter((session) => groupOfRoot(session) !== "idle");
       byWorkspace.set(id, visible);
       plainShown.delete(id);
       const owner = parentFolded ? rootParent.id : id;
       const disclosedTerminals = terminalsIn?.has(id) ? (terminals?.length ?? 0) : 0;
-      const count = rows.length - visible.length + disclosedTerminals;
+      const count = rows.reduce(
+        (total, row) =>
+          groupOfRoot(row) === "idle" ? total + 1 + (branches.get(keyOf(row))?.count ?? 0) : total,
+        disclosedTerminals,
+      );
       hiddenCounts.set(owner, (hiddenCounts.get(owner) ?? 0) + count);
-      if (parentFolded && visible.length === 0) hidden.add(id);
+      if (parentFolded && visible.length === 0 && !hasMoved) hidden.add(id);
     }
 
     if (searching || !rootParent || parentFolded || reordering?.has(id)) continue;
-    if (rows.some(keepsWorktreeVisible) || terminals?.some(keepsWorktreeVisible)) continue;
+    if (hasMoved || rows.some(keepsWorktreeVisible) || terminals?.some(keepsWorktreeVisible))
+      continue;
     worktreeCounts.set(rootParent.id, (worktreeCounts.get(rootParent.id) ?? 0) + 1);
     if (!worktreesIn.has(rootParent.id)) hidden.add(id);
   }
 
   const groups = [...byWorkspace].filter(([id]) => eligible.has(id) && !hidden.has(id));
-  return { groups, workspaces, plain: plainShown, worktreeCounts, foldedWorkspaces, hiddenCounts };
+  return {
+    groups,
+    workspaces,
+    branches,
+    byKey,
+    moved,
+    plain: plainShown,
+    worktreeCounts,
+    foldedWorkspaces,
+    hiddenCounts,
+  };
 }
 
 function toggleWorkspace(current: ReadonlySet<string>, id: string): ReadonlySet<string> {
@@ -348,6 +417,7 @@ export function RemoteSessions({
     <AccountRemoteSessions
       key={accountKey}
       accountKey={accountKey}
+      selfId={account?.status === "signed-in" ? account.device.id : undefined}
       signedOut={account?.status === "signed-out" ? account : undefined}
       query={query}
       shown={shown}
@@ -358,12 +428,14 @@ export function RemoteSessions({
 
 function AccountRemoteSessions({
   accountKey,
+  selfId,
   signedOut,
   query,
   shown,
   renderStatus,
 }: {
   accountKey: string | null;
+  selfId?: string;
   signedOut: Extract<RemoteAccountState, { status: "signed-out" }> | undefined;
   query: string;
   shown: boolean;
@@ -398,6 +470,14 @@ function AccountRemoteSessions({
   useEffect(() => {
     if (roomOnline) lastOnline.current = seen;
   }, [roomOnline, seen]);
+  const navigation = useMemo<RemoteTreeNavigation>(
+    () => ({
+      selfId,
+      peers: new Map(room?.peers.map((peer) => [peer.id, peer])),
+      connected: room?.status === "online",
+    }),
+    [room, selfId],
+  );
   const displayedRoom =
     connected && (roomOnline || (seen?.peers.length ?? 0) > 0)
       ? seen
@@ -430,7 +510,7 @@ function AccountRemoteSessions({
       ? listedPeers.flatMap((peer) => {
           const listing = lists[peer.id];
           return listing?.status === "ready"
-            ? [{ peer, list: displayList(peer, listing.list) }]
+            ? [{ peer, list: displayList(peer, listing.list), navigation }]
             : [];
         })
       : [],
@@ -535,7 +615,7 @@ function AccountRemoteSessions({
                 role="status"
                 className="px-2 py-1 text-app-ui-sm text-muted-foreground"
               >
-                {peer.name} · {t("agentView.remote.unavailable")}
+                {remoteDisplayName(peer.name)} · {t("agentView.remote.unavailable")}
               </p>
             ))}
             {!renderStatus && (
@@ -552,6 +632,7 @@ function AccountRemoteSessions({
                     peer={peer}
                     sessions={lists[peer.id]}
                     results={results}
+                    navigation={navigation}
                     query={query}
                     reorder={reorder?.ids.includes(peer.id) ? reorder : undefined}
                   />
@@ -578,7 +659,7 @@ export function OfflinePeer({ peer }: { peer: RoomPeer }) {
     >
       <ChevronRight aria-hidden className="size-3 shrink-0 opacity-40" />
       <Monitor aria-hidden className="size-3.5 shrink-0" />
-      <span className="min-w-0 truncate text-app-ui-sm">{peer.name}</span>
+      <span className="min-w-0 truncate text-app-ui-sm">{remoteDisplayName(peer.name)}</span>
       <span className="min-w-0 truncate text-app-micro">
         {PLATFORMS[peer.platform] ?? peer.platform}
       </span>
@@ -595,12 +676,14 @@ export function PeerGroup({
   query,
   reorder,
   results,
+  navigation,
 }: {
   peer: RoomPeer;
   sessions: PeerSessions | undefined;
   query: string;
   reorder?: PeerReorder;
   results?: RemoteResults;
+  navigation?: RemoteTreeNavigation;
 }) {
   const { t } = useTranslation();
   const folds = useAgentViewStore((s) => s.folded);
@@ -645,16 +728,26 @@ export function PeerGroup({
   ]);
   const workspaceFolds = new Set([...ids].filter((id) => folds.has(workspaceFoldKey(id))));
   const reordering = reorderingRow ? new Set([reorderingRow.workspaceId]) : undefined;
-  const { groups, workspaces, plain, worktreeCounts, foldedWorkspaces, hiddenCounts } =
-    workspaceGroups(list, {
-      query,
-      opens,
-      inPanel: (s) => leafHolding(root, remoteSessionKey({ deviceId: peer.id, ...s })) !== null,
-      worktreesIn,
-      terminalsIn,
-      folds: workspaceFolds,
-      reordering,
-    });
+  const {
+    groups,
+    workspaces,
+    branches,
+    byKey,
+    moved,
+    plain,
+    worktreeCounts,
+    foldedWorkspaces,
+    hiddenCounts,
+  } = workspaceGroups(list, {
+    query,
+    deviceId: peer.id,
+    opens,
+    inPanel: (s) => leafHolding(root, remoteSessionKey({ deviceId: peer.id, ...s })) !== null,
+    worktreesIn,
+    terminalsIn,
+    folds: workspaceFolds,
+    reordering,
+  });
   const consents = usePeerConsents(peer.id, list?.consents);
   const counts = [
     [
@@ -678,11 +771,16 @@ export function PeerGroup({
     });
   }, [rawList]);
 
+  const isDraggableRoot = (session: RemoteSession) =>
+    canReorderSession(session) && branches.has(remoteSessionKey({ deviceId: peer.id, ...session }));
   const reorderIn =
     (workspaceId: string, rows: readonly RemoteSession[]): SessionReorder =>
     (moved, target, edge) => {
       const keys = rows.filter(canReorderSession).map(tabIdOf);
-      const tabIds = moveKey(keys, moved, target, edge).filter((id, i) => id !== keys[i]);
+      const roots = rows.filter(isDraggableRoot).map(tabIdOf);
+      const tabIds = moveSessionRoot(keys, roots, moved, target, edge).filter(
+        (id, i) => id !== keys[i],
+      );
       if (tabIds.length === 0) return;
       const preview = (order: readonly string[] | undefined) =>
         setPendingOrders((pending) => {
@@ -719,11 +817,11 @@ export function PeerGroup({
     );
     const ref: PeerSessionRef = {
       deviceId: peer.id,
-      deviceName: peer.name,
+      deviceName: remoteDisplayName(peer.name),
       workspaceId,
       tabId: session.tabId,
       kind: session.kind,
-      title: session.title,
+      title: remoteDisplayName(session.title),
     };
     // Renamed and closed as it is controlled: a chat with the chats, a terminal with the terminals.
     const controls = peerServes(
@@ -755,7 +853,9 @@ export function PeerGroup({
       >
         <Chevron aria-hidden className="size-3 shrink-0 text-muted-foreground" />
         <Monitor aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 truncate text-app-ui-sm text-foreground">{peer.name}</span>
+        <span className="min-w-0 truncate text-app-ui-sm text-foreground">
+          {remoteDisplayName(peer.name)}
+        </span>
         <span className="min-w-0 truncate text-app-micro text-muted-foreground">
           {PLATFORMS[peer.platform] ?? peer.platform}
         </span>
@@ -799,7 +899,7 @@ export function PeerGroup({
                       key={consent.id}
                       consent={consent}
                       deviceId={peer.id}
-                      device={peer.name}
+                      device={remoteDisplayName(peer.name)}
                       sessions={sessions.list.sessions}
                       workspaceName={
                         names.get(consent.workspaceId) ?? consent.workspaceId.slice(0, 8)
@@ -820,7 +920,7 @@ export function PeerGroup({
                     rawList?.sessions.filter((session) => session.workspaceId === workspaceId) ??
                     rows;
                   const reorder =
-                    canReorder && !pending && orderRows.filter(canReorderSession).length > 1
+                    canReorder && !pending && orderRows.filter(isDraggableRoot).length > 1
                       ? reorderIn(workspaceId, orderRows)
                       : undefined;
                   const terminals = plain.get(workspaceId) ?? [];
@@ -899,13 +999,49 @@ export function PeerGroup({
                           }))}
                         />
                       )}
-                      {ordered.map((session) =>
-                        rowOf(
-                          workspaceId,
-                          session,
-                          canReorderSession(session) ? reorder : undefined,
-                        ),
-                      )}
+                      {moved.get(workspaceId)?.map(({ key, title, count }) => (
+                        <span
+                          key={key}
+                          className="min-w-0 truncate px-2 py-1 pl-6 text-app-micro text-muted-foreground"
+                          title={t("agentView.list.moved_family", { name: title, count })}
+                          data-testid="remote-session-moved"
+                        >
+                          {t("agentView.list.moved_family", { name: title, count })}
+                        </span>
+                      ))}
+                      {ordered.map((session) => {
+                        const key = remoteSessionKey({ deviceId: peer.id, ...session });
+                        const node = branches.get(key);
+                        return node ? (
+                          <RemoteSessionBranch
+                            key={key}
+                            root={node}
+                            folded={folds}
+                            searching={searching}
+                            navigation={navigation}
+                            workspaceLabel={(id) => {
+                              const worktree = workspaces.get(id);
+                              const name = worktree?.git?.branch ?? worktree?.name;
+                              return name;
+                            }}
+                            renderRow={(branch) => {
+                              const row = byKey.get(branch.session.key);
+                              return (
+                                row &&
+                                rowOf(
+                                  row.workspaceId,
+                                  row,
+                                  branch.depth === 0 && canReorderSession(row)
+                                    ? reorder
+                                    : undefined,
+                                )
+                              );
+                            }}
+                          />
+                        ) : (
+                          rowOf(workspaceId, session)
+                        );
+                      })}
                     </div>
                   );
                 })
@@ -938,6 +1074,7 @@ export function OpenRemoteSessionRow({
   reorder,
   resultFeed,
   showContext,
+  sectionGroup,
   onOpenSession,
   ...buttonProps
 }: {
@@ -947,6 +1084,7 @@ export function OpenRemoteSessionRow({
   reorder?: SessionReorder;
   resultFeed?: RemoteResults;
   showContext?: boolean;
+  sectionGroup?: RowGroup;
   onOpenSession?: OpenRemoteSession;
 } & Omit<ComponentProps<"button">, "type" | "onClick" | "children" | "title">) {
   const where = useAgentViewStore((s) =>
@@ -956,14 +1094,19 @@ export function OpenRemoteSessionRow({
   );
   return (
     <RemoteSessionRow
+      data-agent-row=""
       {...buttonProps}
       session={session}
+      sectionGroup={sectionGroup}
       deviceId={peer.id}
       onReorder={reorder}
       where={where}
       context={
         showContext
-          ? { device: peer.name, workspace: workspace?.name ?? session.workspaceId }
+          ? {
+              device: remoteDisplayName(peer.name),
+              workspace: workspace?.name ?? session.workspaceId,
+            }
           : undefined
       }
       onOpen={() => {
@@ -1217,6 +1360,7 @@ export function RemoteSessionRow({
   onReorder,
   onOpen,
   context,
+  sectionGroup,
   className,
   ...rest
 }: {
@@ -1227,10 +1371,12 @@ export function RemoteSessionRow({
   onReorder?: SessionReorder;
   onOpen?: () => void;
   context?: { device: string; workspace: string };
+  sectionGroup?: RowGroup;
 } & Omit<ComponentProps<"button">, "type" | "onClick" | "children" | "title">) {
   const { t, i18n } = useTranslation();
   const group = remoteGroupOf(session);
   const duration = useDurationLabel(session.since);
+  const title = remoteDisplayName(session.title);
   const Icon =
     session.kind === "claude" ? ClaudeIcon : session.kind === "codex" ? CodexIcon : SquareTerminal;
   const selected = where === "shown" || rest["aria-current"] === true;
@@ -1263,7 +1409,7 @@ export function RemoteSessionRow({
         "data-[state=open]:bg-[var(--state-hover-bg)]",
         className,
       )}
-      title={session.last ? `${session.title}\n${session.last}` : session.title}
+      title={session.last ? `${title}\n${session.last}` : title}
       data-testid="remote-session-row"
     >
       <SidebarDropIndicator edge={edge} testId="remote-session-drop" />
@@ -1271,12 +1417,12 @@ export function RemoteSessionRow({
         <PanelMark where={where} className="top-1 bottom-1" testId="remote-session-panel" />
       )}
       <span className="flex min-w-0 items-center gap-1.5">
-        {!context && !session.failed && (
+        {(!context || (sectionGroup && sectionGroup !== group)) && !session.failed && (
           <StateGlyph state={GROUP_STATE[group]} className={GROUP_TINT[group]} />
         )}
         {!session.failed && <span className="sr-only">{state}</span>}
         <Icon aria-hidden className="size-3 shrink-0" />
-        <span className="min-w-0 truncate text-app-ui-sm text-foreground">{session.title}</span>
+        <span className="min-w-0 truncate text-app-ui-sm text-foreground">{title}</span>
         {(session.failed || duration) && (
           <span className="ml-auto flex shrink-0 items-center gap-1">
             {session.failed && <FailureLabel />}
@@ -1293,8 +1439,11 @@ export function RemoteSessionRow({
           {context && (
             <>
               <DeviceChip name={context.device} className="shrink-0" />
-              <span className="max-w-[40%] shrink-0 truncate" title={context.workspace}>
-                {context.workspace}
+              <span
+                className="max-w-[40%] shrink-0 truncate"
+                title={remoteDisplayName(context.workspace)}
+              >
+                {remoteDisplayName(context.workspace)}
               </span>
             </>
           )}
@@ -1326,7 +1475,7 @@ export function DeviceChip({ name, className }: { name: string; className?: stri
       )}
     >
       <Monitor aria-hidden className="size-2.5 shrink-0" />
-      <span className="truncate">{name}</span>
+      <span className="truncate">{remoteDisplayName(name)}</span>
     </span>
   );
 }
@@ -1353,7 +1502,7 @@ export function RemoteTabLabel({
     <>
       {showDevice && <DeviceChip name={target.deviceName} />}
       <Icon aria-hidden className="size-3 shrink-0" />
-      <span className="min-w-0 truncate">{target.title}</span>
+      <span className="min-w-0 truncate">{remoteDisplayName(target.title)}</span>
       {state && (ended || group !== "idle") && (
         <span
           role="img"

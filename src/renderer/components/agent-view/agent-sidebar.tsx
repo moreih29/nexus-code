@@ -28,7 +28,7 @@ import { useSessionActivity } from "@/services/agent-sessions/use-family";
 import { markRead } from "@/services/agent-sessions/use-inbox";
 import { useRowFacts } from "@/services/agent-sessions/use-row-facts";
 import { type Agents, workspaceColor } from "@/services/agent-view/agents";
-import { parseSessionKey, remoteSessionKey } from "@/services/agent-view/layout";
+import { parseSessionKey } from "@/services/agent-view/layout";
 import { orderSessions, reorderSubset } from "@/services/agent-view/order";
 import type { RemoteResults } from "@/services/agent-view/remote-results";
 import { showInAgentView } from "@/services/agent-view/show";
@@ -39,6 +39,7 @@ import {
   workspaceTrees,
 } from "@/services/agent-view/sidebar-tree";
 import { useAgents } from "@/services/agent-view/use-agents";
+import { remoteDisplayName } from "@/services/remote/display-name";
 import { peerServes } from "@/services/remote/room";
 import { openClaudeTab, openCodexTab } from "@/state/operations/tabs";
 import { type AgentListGrouping, useAgentViewStore } from "@/state/stores/agent-view";
@@ -79,6 +80,7 @@ import { WorkspaceNameInput } from "../workbench/workspace-name-input";
 import { useWorkspaceRename, useWorkspaceUpdate } from "../workbench/workspace-rename";
 import { PANEL_SHOWN_BG, PanelMark, panelPlaceOf } from "./panel-mark";
 import { PeerConsentCard, useConsentIsPending } from "./remote-consents";
+import { RemoteSessionBranch } from "./remote-session-branch";
 import {
   agentRunsOf,
   listedByDefault,
@@ -297,8 +299,7 @@ export function StatusGroups({
       ),
       ...remoteRows.filter((row) => row.kind === "remote"),
     ];
-    const since = (row: (typeof rows)[number]) =>
-      row.kind === "local" ? row.node.since : row.session.since;
+    const since = (row: (typeof rows)[number]) => row.node.since;
     rows.sort((a, b) => compareStatusTime(group, since(a), since(b)));
     const localRows = rows.filter((row) => row.kind === "local");
     const ordered = orderSessions(localRows, order[key]);
@@ -311,10 +312,7 @@ export function StatusGroups({
           : reorderSubset(
               rows,
               ordered.map((row) => row.key),
-              (row) =>
-                row.kind === "local"
-                  ? row.key
-                  : remoteSessionKey({ deviceId: row.peer.id, ...row.session }),
+              (row) => row.node.session.key,
             ),
     };
   });
@@ -393,11 +391,15 @@ export function StatusGroups({
                     const remote: Parameters<RemoteResults["markSeen"]>[0][number][] = [];
                     for (const row of rows) {
                       if (row.kind === "remote") {
-                        remote.push({
-                          deviceId: row.peer.id,
-                          session: row.session,
-                          hostReceipts: peerServes(row.peer, "sessions.markSeen"),
-                        });
+                        for (const member of treeSessions([row.node])) {
+                          const session = row.byKey.get(member.key);
+                          if (session)
+                            remote.push({
+                              deviceId: row.peer.id,
+                              session,
+                              hostReceipts: peerServes(row.peer, "sessions.markSeen"),
+                            });
+                        }
                       } else {
                         for (const session of treeSessions([row.node])) {
                           const entry = agents.byKey.get(session.key);
@@ -418,7 +420,7 @@ export function StatusGroups({
                     key={JSON.stringify([peer.id, consent.id])}
                     consent={consent}
                     deviceId={peer.id}
-                    device={peer.name}
+                    device={remoteDisplayName(peer.name)}
                     workspaceName={workspace?.name ?? consent.workspaceId.slice(0, 8)}
                     sessions={list.sessions}
                   />
@@ -441,23 +443,38 @@ export function StatusGroups({
                     onReorder={!searching && local[group].length > 1 ? reorder : undefined}
                   />
                 ) : (
-                  <div
-                    key={remoteSessionKey({ deviceId: row.peer.id, ...row.session })}
-                    className="flex flex-col"
-                  >
-                    <OpenRemoteSessionRow
-                      session={row.session}
-                      peer={row.peer}
-                      workspace={row.workspace}
-                      resultFeed={results}
-                      showContext
-                    />
-                    <AgentRows
-                      agents={agentRunsOf(row.session.agents)}
-                      selectedId={undefined}
-                      className="pl-4"
-                    />
-                  </div>
+                  <RemoteSessionBranch
+                    key={row.node.session.key}
+                    root={row.node}
+                    folded={folded}
+                    searching={searching}
+                    groupIdle
+                    navigation={row.navigation}
+                    workspaceLabel={(id) =>
+                      row.workspaces.get(id)?.git?.branch ?? row.workspaces.get(id)?.name
+                    }
+                    renderRow={(node) => {
+                      const session = row.byKey.get(node.session.key);
+                      if (!session) return null;
+                      return (
+                        <>
+                          <OpenRemoteSessionRow
+                            session={session}
+                            peer={row.peer}
+                            workspace={row.workspaces.get(session.workspaceId)}
+                            resultFeed={results}
+                            sectionGroup={group}
+                            showContext
+                          />
+                          <AgentRows
+                            agents={agentRunsOf(session.agents)}
+                            selectedId={undefined}
+                            className="pl-4"
+                          />
+                        </>
+                      );
+                    }}
+                  />
                 );
               })}
           </section>

@@ -328,11 +328,32 @@ describe("status grouping across computers", () => {
       peer,
       list: {
         ...list([
-          session({ title: "Remote earlier review", state: "needs-you", since: 10 }),
-          session({ title: "Remote later review", state: "needs-you", since: 30 }),
-          session({ title: "Remote recent result", state: "new-result", since: 50 }),
-          session({ title: "Remote shell", kind: "terminal" }),
-          session({ title: "Remote ended", kind: "terminal", agent: "codex", state: "ended" }),
+          session({
+            tabId: "ask-earlier",
+            title: "Remote earlier review",
+            state: "needs-you",
+            since: 10,
+          }),
+          session({
+            tabId: "ask-later",
+            title: "Remote later review",
+            state: "needs-you",
+            since: 30,
+          }),
+          session({
+            tabId: "result",
+            title: "Remote recent result",
+            state: "new-result",
+            since: 50,
+          }),
+          session({ tabId: "shell", title: "Remote shell", kind: "terminal" }),
+          session({
+            tabId: "ended",
+            title: "Remote ended",
+            kind: "terminal",
+            agent: "codex",
+            state: "ended",
+          }),
         ]),
         consents: [
           {
