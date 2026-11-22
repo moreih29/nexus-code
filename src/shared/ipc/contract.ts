@@ -124,7 +124,11 @@ import { LspPresetLanguageIdSchema } from "../lsp/config";
 import { LspLanguageSettingsSchema, LspSettingsSchema } from "../lsp/settings";
 import { LspLogEntrySchema, LspServerMemorySchema, LspServerStatusSchema } from "../lsp/status";
 import { NoteLinkEntrySchema } from "../notes/links";
-import { RecordingSummariesSchema, RecordingSummarySchema } from "../notes/summary";
+import {
+  RecordingSummariesSchema,
+  RecordingSummarySchema,
+  RecordingSummarySettingsSchema,
+} from "../notes/summary";
 import { TranscriptFileSchema } from "../notes/transcript";
 import {
   VoiceNameLearnArgsSchema,
@@ -193,6 +197,7 @@ import {
   NotePhotoAddedSchema,
   NoteStorageEntrySchema,
   NoteSummaryChangedSchema,
+  NoteSummaryCompletedSchema,
   NoteSummarySchema,
   NotesArgs,
 } from "../types/notes";
@@ -663,6 +668,7 @@ const notesContracts = {
       links: call(NotesArgs.links, z.array(NoteLinkEntrySchema)),
       linksOfConversation: call(NotesArgs.linksOfConversation, z.array(LinkedNoteSchema)),
       summaries: call(NotesArgs.summaries, RecordingSummariesSchema),
+      summaryVisibility: call(NotesArgs.summaryVisibility, z.void()),
       summarize: call(NotesArgs.summarize, RecordingSummarySchema.nullable()),
       cancel: call(NotesArgs.cancel, z.boolean()),
       undo: call(NotesArgs.undo, z.number().int().nonnegative()),
@@ -713,6 +719,7 @@ const notesContracts = {
       changed: listen(NoteChangedSchema),
       linksChanged: listen(NoteLinksChangedSchema),
       summaryChanged: listen(NoteSummaryChangedSchema),
+      summaryCompleted: listen(NoteSummaryCompletedSchema),
       /** Another device put a photo at the end of a note: an editor open on it does too. */
       photoAdded: listen(NotePhotoAddedSchema),
       /** An agent put blocks into a note: an editor open on it does too. */
@@ -1471,6 +1478,7 @@ const coreIpcContract = {
        * no per-workspace or per-tab scope for a global UI language setting.
        */
       languageChanged: listen(z.object({ language: z.enum(["en", "ko"]) })),
+      noteSummaryChanged: listen(RecordingSummarySettingsSchema),
       /**
        * Broadcast emitted by main when the user keybinding overrides
        * change via `appState.set({ keybindingOverrides })`.  Sent to all

@@ -4,13 +4,13 @@ import { createLogger } from "../../../shared/log/main";
 import type { DocNode } from "../../../shared/notes/markdown";
 import {
   failedSummary,
+  isLongEnoughToSummarize,
   type RecordingSummary,
   type RecordingSummarySettings,
   type RunningSummary,
   type SummaryMode,
   summaryOrigin,
 } from "../../../shared/notes/summary";
-import { recordingMs } from "../../../shared/notes/transcript";
 import type { NoteLocation } from "../../../shared/notes/types";
 import { NoteError, type NotesStore } from "./store";
 import { summaryBlocks } from "./summary-blocks";
@@ -90,10 +90,7 @@ export class NotesSummary {
         )
           return;
         const recording = await this.recording(target);
-        if (
-          recordingMs(recording) < 30_000 ||
-          recording.lines.filter((line) => line.text.trim()).length < 3
-        ) {
+        if (!isLongEnoughToSummarize(recording)) {
           return { next: { ...run, state: "skipped", endedAt: Date.now() } };
         }
         return {

@@ -285,5 +285,43 @@
     "actionError": "Conversation link action failed",
     "noteSaveError": "Note save failed",
     "fromNote": "Note “{{title}}”"
+  },
+  "summary": {
+    "settings": {
+      "heading": "Recording summaries",
+      "enabled": "Summarize recordings automatically",
+      "profile": "Claude profile",
+      "model": "Model",
+      "defaultModel": "Profile default",
+      "missingProfile": "Profile unavailable",
+      "privacy": "Transcript sent to Claude for summaries · Not through NexusCode servers",
+      "excluded": "Bedrock, Vertex and apiKeyHelper profiles not supported",
+      "saveFailed": "Summary settings not saved"
+    },
+    "running": "Summarizing recording · Claude",
+    "complete_zero": "Recording summary ready",
+    "complete_one": "Recording summary · {{count}} to-do added",
+    "complete_other": "Recording summary · {{count}} to-dos added",
+    "failure": {
+      "signed-out": "Summary failed · Claude sign-in needed",
+      "missing": "Summary failed · Claude unavailable",
+      "limit": "Summary failed · Usage limit",
+      "timeout": "Summary failed · Time limit reached",
+      "interrupted": "Summary interrupted",
+      "too-long": "Summary skipped · Transcript too long",
+      "failed": "Summary failed"
+    },
+    "limitReset": "Summary failed · Usage limit · After {{time}}",
+    "undo": "Undo",
+    "openSettings": "Open settings",
+    "details": "Details",
+    "noDetails": "No diagnostic details",
+    "nothingToUndo": "Nothing to undo",
+    "actionFailed": "Summary action failed",
+    "toast": "“{{title}}” · {{summary}}",
+    "open": "Open",
+    "task": "To-do",
+    "rerun": "Summarize again",
+    "rerunConfirm": "Replace existing summary · Send transcript to the selected Claude profile"
   }
 }

@@ -26,6 +26,7 @@ import {
   transcriptKey,
   useTranscriptsStore,
 } from "../../services/notes/transcripts";
+import { useNoteSummaries } from "../../services/notes/use-summaries";
 import { closeNoteTabs, closeTab, openEditorTab } from "../../state/operations";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
@@ -45,6 +46,8 @@ import { noteExtensions } from "./editor/extensions";
 import type { NoteHost } from "./editor/host";
 import { RecordControls } from "./record-controls";
 import { SendToAgent } from "./send-to-agent";
+import { NoteSummaryBanners } from "./summary-banner";
+import { sameSummaryTaskTimes, summaryTaskTimes } from "./summary-task-times";
 import { TranscriptPanel, type TranscriptQuote } from "./transcript-panel";
 
 /** How long after the last key typed in the title the tab takes its name. */
@@ -115,6 +118,8 @@ function LoadedNote({
   const title = useRef(note.title);
   const [saveState, setSaveState] = useState<NoteSaveState>("saved");
   const [agentOpen, setAgentOpen] = useState(false);
+  const summaries = useNoteSummaries(workspaceId, note.id, tabId, isVisible);
+  const [taskTimes, setTaskTimes] = useState(() => summaryTaskTimes(note.doc));
   const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
 
   // The transcript shows beside the text once the note has recordings, or records.
@@ -291,7 +296,12 @@ function LoadedNote({
       }),
       content: note.doc as never,
       immediatelyRender: true,
-      onUpdate: ({ editor: e }) => schedule({ doc: e.getJSON() as DocNode }),
+      onUpdate: ({ editor: e }) => {
+        const doc = e.getJSON() as DocNode;
+        schedule({ doc });
+        const next = summaryTaskTimes(doc);
+        setTaskTimes((previous) => (sameSummaryTaskTimes(previous, next) ? previous : next));
+      },
       editorProps: {
         attributes: { class: "note-body", "data-testid": "note-body" },
         handlePaste: (_view, event) => {
@@ -551,6 +561,12 @@ function LoadedNote({
         tabId={tabId}
         isVisible={isVisible}
       />
+      <NoteSummaryBanners
+        workspaceId={workspaceId}
+        noteId={note.id}
+        summaries={summaries}
+        flush={flush}
+      />
       {/* The transcript beside the text where the tab is wide, under it where it is narrow. */}
       <div className="flex min-h-0 flex-1 flex-col @min-[720px]/note:flex-row">
         {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target only; the editor in it takes the keyboard */}
@@ -573,6 +589,9 @@ function LoadedNote({
           <TranscriptPanel
             workspaceId={workspaceId}
             noteId={note.id}
+            summaries={summaries}
+            taskTimes={taskTimes}
+            flushNote={flush}
             onQuote={quote}
             onClose={hideTranscript}
           />

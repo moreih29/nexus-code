@@ -20,6 +20,7 @@ import { BannerDismissButton } from "../../ui/banner";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
 import { SettingsGroup, SettingsPage } from "../section";
+import { NoteSummaryGroup } from "./note-summary-group";
 import { RememberedVoicesGroup } from "./remembered-voices-group";
 
 type Entry = NoteStorageEntry & { workspaceIds: string[] };
@@ -109,6 +110,7 @@ export function NotesPanel() {
 
   return (
     <SettingsPage>
+      <NoteSummaryGroup />
       <SettingsGroup title={t("storage.heading")} description={t("storage.description")}>
         {loadError && !loadNotice.dismissed && (
           <div className="flex items-center justify-between gap-2">

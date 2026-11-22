@@ -46,6 +46,7 @@ import { useInactivePanelDimStore } from "./state/stores/inactive-panel-dim";
 import { useKeybindingsStore } from "./state/stores/keybindings";
 import { useLanguageStore } from "./state/stores/language";
 import { useLspSettingsStore } from "./state/stores/lsp-settings";
+import { useNoteSummarySettings } from "./state/stores/note-summary";
 import { useNotificationsStore } from "./state/stores/notifications";
 import { usePeerWorkspaceStore } from "./state/stores/peer-workspace";
 import { usePreviewDefaultsStore } from "./state/stores/preview-defaults";
@@ -242,6 +243,10 @@ async function bootstrapAppState(): Promise<void> {
 
   // The Claude and Codex profiles, and their rules; another window's edits too.
   useAgentProfilesStore.getState().hydrate(state.agentProfiles);
+  useNoteSummarySettings.setState(state.noteSummary, true);
+  ipcListen("appState", "noteSummaryChanged", (settings) =>
+    useNoteSummarySettings.setState(settings, true),
+  );
   void loadProfilesHome();
   ipcListen("appState", "agentProfilesChanged", ({ config, connectionChangedProfileId }) => {
     useAgentProfilesStore.getState().hydrate(config);

@@ -285,5 +285,43 @@
     "actionError": "대화 연결 작업 실패",
     "noteSaveError": "노트 저장 실패",
     "fromNote": "노트 ‘{{title}}’"
+  },
+  "summary": {
+    "settings": {
+      "heading": "녹음 요약",
+      "enabled": "녹음 자동 요약",
+      "profile": "Claude 프로필",
+      "model": "모델",
+      "defaultModel": "프로필 기본값",
+      "missingProfile": "선택한 프로필 없음",
+      "privacy": "요약 시 녹취를 Claude로 전송 · NexusCode 서버 미경유",
+      "excluded": "Bedrock · Vertex · apiKeyHelper 프로필 제외",
+      "saveFailed": "요약 설정 저장 실패"
+    },
+    "running": "녹음 요약 중 · Claude",
+    "complete_zero": "녹음 요약 완료",
+    "complete_one": "녹음 요약 · 할 일 {{count}}개 추가",
+    "complete_other": "녹음 요약 · 할 일 {{count}}개 추가",
+    "failure": {
+      "signed-out": "요약 실패 · Claude 로그인 필요",
+      "missing": "요약 실패 · Claude 사용 불가",
+      "limit": "요약 실패 · 사용 한도",
+      "timeout": "요약 실패 · 시간 초과",
+      "interrupted": "요약 중단",
+      "too-long": "요약 건너뜀 · 녹취 길이 초과",
+      "failed": "요약 실패"
+    },
+    "limitReset": "요약 실패 · 사용 한도 · {{time}} 이후",
+    "undo": "되돌리기",
+    "openSettings": "설정 열기",
+    "details": "자세히",
+    "noDetails": "세부 정보 없음",
+    "nothingToUndo": "되돌릴 내용 없음",
+    "actionFailed": "요약 작업 실패",
+    "toast": "‘{{title}}’ · {{summary}}",
+    "open": "열기",
+    "task": "할 일",
+    "rerun": "다시 요약",
+    "rerunConfirm": "기존 요약 교체 · 선택한 Claude 프로필로 녹취 전송"
   }
 }

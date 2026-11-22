@@ -3,7 +3,9 @@ import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { BrowserWindow } from "electron";
 import { NoteError } from "../../../../../src/main/features/notes/store";
+import { trackAppWindow } from "../../../../../src/main/features/window/app-windows";
 import type { NoteContent } from "../../../../../src/shared/notes/types";
 import {
   createIpcPair,
@@ -185,11 +187,16 @@ test("a task's linked chat updates the parent's note and broadcasts link changes
   }
 });
 
-test("an SSH note summarizes and undoes locally while its conversation index stays current", async () => {
+test("two windows share one automatic summary and one completion toast for an SSH note", async () => {
   const userData = await mkdtemp(path.join(tmpdir(), "note-summary-ipc-"));
   const router = await setupInMemoryRouter();
   const broadcast = spyOn(router, "broadcast");
   const releaseSummary = Promise.withResolvers<void>();
+  const runClaude = mock(async ({ stdin }: { stdin: string }) => {
+    expect(stdin).toContain("[0:20 | 20000] S1: Confirmed");
+    await releaseSummary.promise;
+    return { output: { summary: ["Confirmed"], todos: [] } };
+  });
   const notes = registerNotesChannel({
     userData,
     workspaces: () =>
@@ -200,12 +207,21 @@ test("an SSH note summarizes and undoes locally while its conversation index sta
       settings: () => ({ enabled: true, agent: "claude" }),
       language: () => "en",
       profile: (id) => ({ id, agent: "claude", dir: "", name: "", color: "" }),
-      runClaude: async ({ stdin }) => {
-        expect(stdin).toContain("[0:20 | 20000] S1: Confirmed");
-        await releaseSummary.promise;
-        return { output: { summary: ["Confirmed"], todos: [] } };
-      },
+      runClaude,
     },
+  });
+  const first = createIpcPair();
+  const second = createIpcPair();
+  const windows = [first, second].map(({ sender }, index) => {
+    const win = Object.assign(new EventEmitter(), {
+      webContents: sender,
+      isVisible: () => true,
+      isMinimized: () => false,
+      isDestroyed: () => sender.isDestroyed(),
+      isFocused: () => index === 0,
+    });
+    trackAppWindow(win as unknown as BrowserWindow);
+    return win;
   });
   try {
     const location = notes.locationOf(id);
@@ -238,21 +254,42 @@ test("an SSH note summarizes and undoes locally while its conversation index sta
       ],
     });
     const args = { workspaceId: id, noteId: note.id, recordingId };
-    const ipc = createIpcPair().window.ipc;
+    const ipc = first.window.ipc;
+    const other = second.window.ipc;
+    const completion = Promise.withResolvers<unknown>();
+    const firstCompletion = mock(completion.resolve);
+    ipc.listen("notes", "summaryCompleted", firstCompletion);
+    const otherCompletion = mock(() => {});
+    other.listen("notes", "summaryCompleted", otherCompletion);
     const linked = { ok: true, value: [{ noteId: note.id, title: "Review" }] };
     expect(await ipc.call("notes", "linksOfConversation", tab)).toMatchObject(linked);
-    expect(await ipc.call("notes", "summarize", args)).toMatchObject({
-      ok: true,
-      value: { state: "running" },
-    });
+    const requests = await Promise.all([
+      ipc.call("notes", "summarize", { ...args, mode: "auto" }),
+      other.call("notes", "summarize", { ...args, mode: "auto" }),
+    ]);
+    expect(requests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ok: true, value: null }),
+        expect.objectContaining({ ok: true, value: expect.objectContaining({ state: "running" }) }),
+      ]),
+    );
     const session = "summary-linked-session";
     expect(await ipc.call("notes", "updateLink", { tab: { ...tab, session } })).toMatchObject({
       ok: true,
     });
     releaseSummary.resolve();
     await notes.waitForWrites();
+    expect(await completion.promise).toMatchObject({
+      workspaceId: id,
+      noteId: note.id,
+      title: "Review",
+      todos: 0,
+    });
+    expect(runClaude).toHaveBeenCalledTimes(1);
+    expect(firstCompletion).toHaveBeenCalledTimes(1);
+    expect(otherCompletion).not.toHaveBeenCalled();
     expect(
-      await ipc.call("notes", "summaries", { workspaceId: id, noteId: note.id }),
+      await other.call("notes", "summaries", { workspaceId: id, noteId: note.id }),
     ).toMatchObject({
       ok: true,
       value: { [recordingId]: { state: "done" } },
@@ -271,8 +308,30 @@ test("an SSH note summarizes and undoes locally while its conversation index sta
       "blocksRemoved",
       "changed",
     ]);
+    await other.call("notes", "summaryVisibility", {
+      workspaceId: id,
+      noteId: note.id,
+      tabId: "note-tab",
+      visible: true,
+    });
+    const unexpected = mock(() => {});
+    ipc.listen("notes", "summaryCompleted", unexpected);
+    expect(await ipc.call("notes", "summarize", { ...args, mode: "rerun" })).toMatchObject({
+      ok: true,
+      value: { state: "running" },
+    });
+    await notes.waitForWrites();
+    expect(unexpected).not.toHaveBeenCalled();
+    expect(otherCompletion).not.toHaveBeenCalled();
+    expect(await ipc.call("notes", "dismiss", args)).toMatchObject({ ok: true });
+    expect(await other.call("notes", "summaries", args)).toMatchObject({
+      ok: true,
+      value: { [recordingId]: { state: "done", seen: true } },
+    });
   } finally {
     releaseSummary.resolve();
+    await notes.waitForWrites();
+    for (const win of windows) win.emit("closed");
     broadcast.mockRestore();
     notes.dispose();
     await rm(userData, { recursive: true, force: true });
