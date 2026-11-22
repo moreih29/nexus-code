@@ -190,3 +190,10 @@ test("peer search shows a bounded regexp diagnostic and localizes other failures
     call.mockRestore();
   }
 });
+
+test("peer search filters and the submit action have separate rows", () => {
+  const markup = mountPanel().markup();
+  expect(markup).toMatch(
+    /<div class="flex flex-col [^"]*"><details[^>]*><summary[^>]*whitespace-nowrap[^>]*>Search filters<\/summary>.*?<\/details><button[^>]*type="submit"/,
+  );
+});

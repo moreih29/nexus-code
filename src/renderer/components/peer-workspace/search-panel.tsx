@@ -163,9 +163,11 @@ export function PeerSearchPanel({
           onViewModeChange={setViewMode}
           viewModeDisabled={!hasResults}
         />
-        <div className="flex items-start justify-between gap-2 px-2 pb-1">
-          <details className="min-w-0 flex-1 text-app-ui-sm text-muted-foreground">
-            <summary className="cursor-pointer py-1">{t("peerWorkspace.searchFilters")}</summary>
+        <div className="flex flex-col gap-1 px-2 pb-1">
+          <details className="min-w-0 text-app-ui-sm text-muted-foreground">
+            <summary className="cursor-pointer py-1 whitespace-nowrap">
+              {t("peerWorkspace.searchFilters")}
+            </summary>
             <label className="mt-1 flex flex-col gap-0.5">
               <span>{t("peerWorkspace.searchInclude")}</span>
               <input
@@ -191,7 +193,13 @@ export function PeerSearchPanel({
               />
             </label>
           </details>
-          <Button type="submit" variant="ghost" size="sm" disabled={!canSearch}>
+          <Button
+            type="submit"
+            variant="ghost"
+            size="sm"
+            className="self-end"
+            disabled={!canSearch}
+          >
             <Search aria-hidden="true" />
             {t("files:panel.tab.search")}
           </Button>
