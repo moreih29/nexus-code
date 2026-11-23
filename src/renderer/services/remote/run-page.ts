@@ -12,7 +12,7 @@ import {
   type RunReaderMiss,
 } from "../chat/print-run-transcript";
 import { emptyTabState } from "../chat/store";
-import { chatPageOf } from "./chat-page";
+import { type ChatSource, chatPageOf } from "./chat-page";
 
 export const RUN_PAGE_KEPT_MS = 30_000;
 
@@ -45,6 +45,15 @@ export async function runPageOf(
   runId: string,
   window: { before?: number; limit?: number } = {},
 ): Promise<ChatPage | null> {
+  const source = await runSourceOf(workspaceId, tabId, runId);
+  return source ? chatPageOf(source, window) : null;
+}
+
+export async function runSourceOf(
+  workspaceId: string,
+  tabId: string,
+  runId: string,
+): Promise<ChatSource | null> {
   const key = `${workspaceId}:${tabId}:${runId}`;
   const entry = kept.get(key) ?? { lines: NO_RUN_LINES };
   kept.set(key, entry);
@@ -96,5 +105,5 @@ export async function runPageOf(
     }
   }
   if (!model || model.items.length === 0) return null;
-  return chatPageOf({ agent, title: "", chat: { ...emptyTabState(), model } }, window);
+  return { agent, title: "", chat: { ...emptyTabState(), model } };
 }

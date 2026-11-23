@@ -51,6 +51,8 @@ Schema 0.28.0 adds `chat.runRead`: a page of one of a chat's `claude -p` or `cod
 
 Schema 0.29.0 takes the time limit off the consent prompts an agent's request (`from`) waits on. A host asks its user until they answer, the requester sends the `request.cancel` notification (`REQUEST_CANCEL`, `{ id }` of the request as last sent), or the requester leaves the room or comes back with a new connection; then it closes the prompt and does nothing. A requester waits for the answer without a limit and sends `request.cancel` when it stops waiting. Both do so only with a device whose hello says 0.29.0 or later (`UNTIMED_CONSENT_SCHEMA`); with an older one, the host still turns a prompt down after `AGENT_CONSENT_MS` and the requester waits that long. In the sessions' list, a host's untimed prompt has `expiresAt` a day past `at`, for older readers; a reader should not count prompts down nor drop them by time, as the next list leaves out a prompt that no longer waits. Such a prompt also carries `untimed: true`, so a reader can tell it from a prompt of an older requester, which a 0.29.0 host still turns down at `expiresAt` (90 seconds); the field is absent otherwise, and readers before 0.29.0 drop it as an unknown key. Older devices drop `request.cancel`.
 
+Schema 0.30.0 lets `chat.tool` and `chat.image` take an optional `runId`, the id `chat.runs` gives one of the chat's `claude -p` or `codex exec` runs. With it, the host looks for the tool call or image in that run's own session, as `chat.runRead` reads it, instead of in the conversation: a `toolUseId`, or a ref's `itemKey` and `toolUseId`, are then the ones a `chat.runRead` page gives. Both still need the `chat.read` capability. The host finds the run only among the runs of the chat it names and answers NotFound for any other run, a subagent, and a tool call or image the run does not hold; for a run that keeps no session to read it answers as `chat.runRead` does (Unavailable while a running run's session may still come, NotFound otherwise). A `held` ref with `runId` is never found. A host before 0.30.0 drops `runId` as an unknown key and looks in the conversation, so a reader sends `runId` only to a device whose hello says 0.30.0 or later (`RUN_ITEMS_SCHEMA`). No capability is added. The same version raises `PUSH_TTL_SECONDS.consent.max` from 120 to 86400 seconds: a computer sends the push for a consent prompt with no time limit for what is left of a day from the prompt's `at`, and for a prompt with a limit until that limit as before. A server before 0.30.0 clamps the TTL to 120 seconds; a computer that sees a consent push with a TTL over 120 refused with HTTP 400 sends it once more, with the same id and a TTL of 120.
+
 A consent prompt in the sessions' list (`RemoteConsent`) is a change waiting on the user of the serving device. An agent of another device of the account may have asked for it, or a nexus command changing another workspace there, or that device's agent manager. The user answers it there, or from the device that lists it when `answerable` (`consent.answer`). An agent's request (`from`, `AgentSender`) to a control method takes the `agents` capability instead of the method's own. The serving device may ask its user first or turn the request down. `at` and `expiresAt` use the serving device's clock. `expiresInMs` is `expiresAt` minus the time the list was sent, so a reader needs no shared clock. A serving device before 0.29.0 turns a prompt down at `expiresAt` and drops it from the list. `AGENT_CONSENT_MS` (90 seconds) is how long a host asks a requester before 0.29.0 before turning the request down. Such a requester waits that long, plus a little more.
 
 In schema 0.16.0, `chat.instructions` can also return `session`, the tab's editable session text, and `layers`, its ordered persistent layers, including empty layers. The workspace layer comes from the parent for a worktree task. Hosts through desktop 0.36.1 only return the combined `instructions` text. Treat a response without `session` as read-only. With `chat.control`, a person can replace the session layer using `chat.instructions.set`. Send an empty string to clear it. The 5,000-character limit applies to both people and agents. An edit with `from` follows the receiving device's agent approval policy.
@@ -779,6 +781,11 @@ with it, so it goes only to one of 0.12.0 or later.
 
 The keys terminal.input presses by name, as `nexus terminal key` names them.
 
+**`RUN_ITEMS_SCHEMA`**
+
+The first schema version whose hosts take `runId` in chat.tool and
+chat.image (0.30.0). A reader compares a device's hello `schema` with it.
+
 **`MAX_AGENT_REQUESTS_PER_MINUTE`**
 
 Most requests with `from` one agent (a device's tab) may make a minute; more are Unavailable.
@@ -1348,6 +1355,15 @@ Its side panel now; a watch sends it again in chat.update as it changes.
 
 One tool call with as much of its result as a frame takes.
 
+**`RPC_METHODS."chat.tool".params.runId`**
+
+One of the chat's runs (chat.runs): the call is looked for in that run's
+own session, as chat.runRead reads it, not in the conversation. NotFound
+for a run that is not one of that chat's; for a run with no session to
+read, as chat.runRead. Since 0.30.0; send it only to a device whose hello
+says RUN_ITEMS_SCHEMA or later, as an older one drops it and looks in the
+conversation.
+
 **`RPC_METHODS."chat.original"`**
 
 A file the chat changed as it was before its first change, for its
@@ -1374,6 +1390,12 @@ An image of the chat, made small enough for a frame: a user message's
 0.13.0) a message's held for after the turn (panel.held, by its id). With
 `maxEdge`, drawn smaller (as a JPEG) till its longer side is at most
 that many pixels, for a thumbnail; one already that small goes as it is.
+
+**`RPC_METHODS."chat.image".params.runId`**
+
+One of the chat's runs (chat.runs): the image is looked for in that run's
+own session, by the item keys and tool call ids a chat.runRead page gives.
+A `held` ref is never found there. Since 0.30.0, as chat.tool's `runId`.
 
 **`RPC_METHODS."chat.image".params.maxEdge`**
 
@@ -2745,6 +2767,8 @@ A computer makes 22 base64url characters from 16 random bytes and keeps the same
 **`PUSH_TTL_SECONDS`**
 
 The server clamps each notification's TTL to its kind's range, in seconds.
+A consent's longest is a day since 0.30.0 (120 seconds before), for a
+prompt that waits until its user answers.
 
 **`PushRegistrationSchema`**
 

@@ -14,7 +14,15 @@ import type { AgentRun } from "../../../../shared/claude/activity";
 import type { CliServices } from "../../cli/context";
 import { MAX_MESSAGE_BYTES, RpcFailure } from "../room";
 import { chatFailure } from "./chat";
-import { fitsAsResult, oneLine, tabOf, unavailable, workspaceOf } from "./common";
+import {
+  chatRunOf,
+  fitsAsResult,
+  NO_RUN_SESSION,
+  oneLine,
+  tabOf,
+  unavailable,
+  workspaceOf,
+} from "./common";
 import { ReadBudget } from "./read-budget";
 
 export const DEFAULT_READ_ITEMS = 200;
@@ -164,13 +172,21 @@ const MAX_TOOL_TEXT = MAX_MESSAGE_BYTES;
 
 export async function chatTool(
   services: CliServices,
-  { workspaceId, tabId, toolUseId, cli }: RpcParams<"chat.tool">,
+  { workspaceId, tabId, toolUseId, runId, cli }: RpcParams<"chat.tool">,
 ): Promise<RpcResult<"chat.tool">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const run = runId !== undefined ? chatRunOf(services, workspaceId, tabId, runId) : undefined;
+  const inRun = runId !== undefined ? { runId } : {};
+  const failed = (error: unknown): never => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (run && NO_RUN_SESSION.test(message)) throw run.noSession();
+    if (/^no tool call /.test(message)) throw new RpcFailure(RpcErrorCode.NotFound, message);
+    return unavailable(error);
+  };
   if (cli) {
     const found = await services
-      .ui("chat.tool", { workspaceId, tabId, ref: toolUseId })
-      .catch(unavailable);
+      .ui("chat.tool", { workspaceId, tabId, ref: toolUseId, ...inRun })
+      .catch(failed);
     const result = found.result
       ? { ...found.result, text: found.result.text.slice(0, MAX_TOOL_TEXT / 4), images: [] }
       : undefined;
@@ -196,12 +212,8 @@ export async function chatTool(
   }
   const ask = (maxText: number) =>
     services
-      .ui("chat.toolCall", { workspaceId, tabId, toolUseId, maxText })
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        if (/^no tool call /.test(message)) throw new RpcFailure(RpcErrorCode.NotFound, message);
-        return unavailable(error);
-      });
+      .ui("chat.toolCall", { workspaceId, tabId, toolUseId, maxText, ...inRun })
+      .catch(failed);
   let tool = await ask(MAX_TOOL_TEXT);
   for (let maxText = MAX_TOOL_TEXT / 2; !fitsAsResult(tool); maxText = Math.floor(maxText / 2)) {
     if (maxText < 1024)
@@ -345,13 +357,7 @@ export async function readChatRun(
   const budget = new ReadBudget(services, "chat.runRead", from, 12_000);
   try {
     await tabOf(services, workspaceId, tabId, ["claude", "codex"], budget);
-    const run = services.claudeAgents
-      .list(workspaceId, tabId)
-      .find((agent) => agent.kind === "print" && agent.id === runId);
-    if (!run) throw new RpcFailure(RpcErrorCode.NotFound, `no run ${runId}: it is not kept`);
-    const mayCome =
-      run.end === undefined &&
-      (services.claudeAgents.keepsSession?.(workspaceId, tabId, runId) ?? false);
+    const run = chatRunOf(services, workspaceId, tabId, runId);
     let count = limit ?? DEFAULT_READ_ITEMS;
     for (;;) {
       const page = await budget
@@ -361,12 +367,7 @@ export async function readChatRun(
           budget.remaining(),
         )
         .catch(unavailable);
-      if (!page) {
-        if (mayCome) {
-          throw new RpcFailure(RpcErrorCode.Unavailable, `run ${runId} has no session to read yet`);
-        }
-        throw new RpcFailure(RpcErrorCode.NotFound, `run ${runId} keeps no session to read`);
-      }
+      if (!page) throw run.noSession();
       if (fitsAsResult(page)) return page;
       if (page.items.length <= 1) {
         const fitted = fitPage(page);

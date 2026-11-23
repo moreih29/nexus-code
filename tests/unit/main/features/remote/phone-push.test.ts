@@ -235,12 +235,76 @@ describe("consent notifications", () => {
     });
   });
 
-  test("one that waits until answered is told for the longest a consent push may last", async () => {
+  test("one that waits until answered is told for up to a day", async () => {
     const app = setup({ devices: [phone, android, computer] });
     await tick();
     app.setAway(true);
     app.consent(null);
-    expect(app.send.mock.calls[0]?.[0]).toMatchObject({ kind: "consent", ttl: 120 });
+    expect(app.send.mock.calls[0]?.[0]).toMatchObject({ kind: "consent", ttl: 86_400 });
+  });
+
+  test("one that waits until answered is told for what is left of its day", async () => {
+    const app = setup({ mode: "away" });
+    await tick();
+    app.consent(null);
+    await tick(2 * 3_600_000);
+    expect(app.send).not.toHaveBeenCalled();
+    app.setAway(true);
+    await tick(3_000);
+    expect(app.send).toHaveBeenCalledTimes(1);
+    const ttl = app.send.mock.calls[0]?.[0].ttl ?? 0;
+    expect(ttl).toBeLessThanOrEqual(86_400 - 2 * 3_600);
+    expect(ttl).toBeGreaterThan(86_400 - 2 * 3_600 - 5);
+  });
+
+  test("one that waits past its day is not told", async () => {
+    const app = setup({ mode: "away" });
+    await tick();
+    app.consent(null);
+    now += 86_400_000;
+    app.setAway(true);
+    app.sender.consentsChanged();
+    await tick(3_000);
+    expect(app.send).not.toHaveBeenCalled();
+  });
+
+  test("a server that refuses a day's TTL is asked once more for 120 seconds", async () => {
+    const app = setup();
+    await tick();
+    app.setAway(true);
+    app.send.mockRejectedValueOnce(new ServerError(400, "bad_request", "POST /push/send?v=1"));
+    app.consent(null);
+    await tick();
+    const [first, again] = app.send.mock.calls.map(([body]) => body);
+    expect(first).toMatchObject({ kind: "consent", ttl: 86_400 });
+    expect(again).toEqual({ ...first, ttl: 120 });
+    await tick(10_000);
+    expect(app.send).toHaveBeenCalledTimes(2);
+  });
+
+  test("a second refusal ends the push and does not hold back the next", async () => {
+    const app = setup();
+    await tick();
+    app.setAway(true);
+    const refusal = new ServerError(400, "bad_request", "POST /push/send?v=1");
+    app.send.mockRejectedValueOnce(refusal).mockRejectedValueOnce(refusal);
+    app.consent(null);
+    await tick(10_000);
+    expect(app.send).toHaveBeenCalledTimes(2);
+    app.consent(null);
+    await tick();
+    expect(app.send).toHaveBeenCalledTimes(3);
+    expect(app.send.mock.calls[2]?.[0]).toMatchObject({ kind: "consent", ttl: 86_400 });
+  });
+
+  test("a timed consent refused is not asked again", async () => {
+    const app = setup();
+    await tick();
+    app.setAway(true);
+    app.send.mockRejectedValueOnce(new ServerError(400, "bad_request", "POST /push/send?v=1"));
+    app.consent();
+    await tick(10_000);
+    expect(app.send).toHaveBeenCalledTimes(1);
   });
 
   test("always waits ten seconds for a present user, and cancels a resolved consent", async () => {

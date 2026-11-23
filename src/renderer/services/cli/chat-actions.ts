@@ -86,7 +86,7 @@ import {
   tabWithSession,
 } from "../remote/history";
 import { cliProfileName } from "../remote/profile-name";
-import { runPageOf } from "../remote/run-page";
+import { runPageOf, runSourceOf } from "../remote/run-page";
 import { type ChatSettingsPlan, chatChoicesOf, planChatSettings } from "./chat-settings";
 import {
   type ChatTabExtras,
@@ -322,6 +322,27 @@ function sourceOf(workspaceId: string, tabId: string, agent: ChatAgent): ChatSou
   const source = tabSource(workspaceId, tabId, agent);
   if (!source) throw new UiRequestError("that tab is gone");
   return source;
+}
+
+async function readSourceOf(
+  workspaceId: string,
+  tabId: string,
+  runId: string | undefined,
+): Promise<ChatSource> {
+  if (runId === undefined) {
+    const { agent } = await readableTab(workspaceId, tabId);
+    return sourceOf(workspaceId, tabId, agent);
+  }
+  if (!agentTabController(workspaceId, tabId)) {
+    throw new UiRequestError("that tab is not a Claude or Codex tab");
+  }
+  const source = await runSourceOf(workspaceId, tabId, runId);
+  if (!source) throw new UiRequestError(`no session of run ${runId} to read`);
+  return source;
+}
+
+function placeOf(runId: string | undefined): string {
+  return runId === undefined ? "tab" : "run";
 }
 
 const READY_TIMEOUT_MS = 30_000;
@@ -691,7 +712,12 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return before === undefined ? { found: false, before: null } : { found: true, before };
   },
 
-  "chat.tool": async ({ workspaceId, tabId, ref }) => {
+  "chat.tool": async ({ workspaceId, tabId, ref, runId }) => {
+    if (runId !== undefined) {
+      const tool = chatToolOf((await readSourceOf(workspaceId, tabId, runId)).chat, ref);
+      if (!tool) throw new UiRequestError(`no tool call "${ref}" in that run`);
+      return tool;
+    }
     const { agent } = await openedTab(workspaceId, tabId);
     const tool = chatToolOf(
       useChatStore.getState().tabs[chatKey(workspaceId, tabId)],
@@ -936,10 +962,10 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { title: tab.title };
   },
 
-  "chat.toolCall": async ({ workspaceId, tabId, toolUseId, maxText }) => {
-    const { agent } = await readableTab(workspaceId, tabId);
-    const tool = conversationOf(sourceOf(workspaceId, tabId, agent)).tools[toolUseId];
-    if (!tool) throw new UiRequestError(`no tool call ${toolUseId} in that tab`);
+  "chat.toolCall": async ({ workspaceId, tabId, toolUseId, maxText, runId }) => {
+    const source = await readSourceOf(workspaceId, tabId, runId);
+    const tool = conversationOf(source).tools[toolUseId];
+    if (!tool) throw new UiRequestError(`no tool call ${toolUseId} in that ${placeOf(runId)}`);
     return viewToolOf(tool, maxText);
   },
 
@@ -1242,10 +1268,18 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { tabId: openTab(workspaceId, tab, { background: true }) };
   },
 
-  "chat.image": async ({ workspaceId, tabId, ref, maxChars, maxEdge, versioned, ifVersion }) => {
-    const { agent } = await readableTab(workspaceId, tabId);
-    const image = imageOf(sourceOf(workspaceId, tabId, agent), ref);
-    if (!image) throw new UiRequestError("no such image in that tab");
+  "chat.image": async ({
+    workspaceId,
+    tabId,
+    runId,
+    ref,
+    maxChars,
+    maxEdge,
+    versioned,
+    ifVersion,
+  }) => {
+    const image = imageOf(await readSourceOf(workspaceId, tabId, runId), ref);
+    if (!image) throw new UiRequestError(`no such image in that ${placeOf(runId)}`);
     return readChatImage(image, { maxChars, maxEdge, versioned, ifVersion });
   },
 
