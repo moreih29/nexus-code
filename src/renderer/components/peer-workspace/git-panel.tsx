@@ -1,8 +1,8 @@
-import { ChevronRight, GitBranch, RefreshCw } from "lucide-react";
+import { GitBranch } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { GitPanelSegment } from "../../../shared/git/types";
-import { isPeerGitConflict, type PeerGitSide } from "../../services/remote/peer-git-status";
+import { isPeerGitConflict } from "../../services/remote/peer-git-status";
 import {
   EMPTY_PEER_VIEW,
   type PeerWorkspaceTarget,
@@ -10,11 +10,13 @@ import {
   usePeerWorkspaceStore,
 } from "../../state/stores/peer-workspace";
 import { FileIcon } from "../files/file-tree/file-icon";
+import { GitGroupHeader } from "../files/git/file-row/group-header";
 import { GitStatusBadge } from "../files/git/file-row/status-badge";
 import { HistorySegmentToggle } from "../files/git/history/segment-toggle";
+import { GitHeaderBar } from "../files/git/panel/header-bar";
 import { EmptyState } from "../ui/empty-state";
-import { IconButton } from "../ui/icon-button";
 import { KeptMounted } from "../ui/kept-mounted";
+import { PEER_GIT_GROUPS, type PeerGitGroupKey, peerGitGroups } from "./git-groups";
 import { PeerGitHistory } from "./git-history";
 import { peerGitDisplayPath } from "./git-path-label";
 import { PeerReadOnlyBadge } from "./labels";
@@ -30,14 +32,27 @@ interface PeerGitPanelProps {
 export function PeerGitPanel({ rejoin, ...props }: PeerGitPanelProps) {
   const { t } = useTranslation();
   const [segment, setSegment] = useState<GitPanelSegment>("changes");
+  const id = peerTargetId(props.target);
+  const gitError = usePeerWorkspaceStore((state) => (state.views[id] ?? EMPTY_PEER_VIEW).gitError);
+  const upgrade = props.updateNeeded || gitError === "unsupported";
   return (
     <section
       className="flex min-h-0 flex-1 flex-col"
       aria-label={t("files:git.panel.header.title")}
     >
+      {/* The local panel's title row; nothing is staged or committed from here. */}
+      <GitHeaderBar disabled={!props.canRead || upgrade} onRefresh={props.refresh}>
+        <span title={t("peerWorkspace.gitNoStageCommit")} className="ml-1 inline-flex">
+          <PeerReadOnlyBadge />
+        </span>
+      </GitHeaderBar>
       <HistorySegmentToggle segment={segment} onChange={setSegment} />
       <KeptMounted shown={segment === "changes"}>
-        <PeerGitChanges {...props} />
+        <PeerGitChanges
+          target={props.target}
+          canRead={props.canRead}
+          updateNeeded={props.updateNeeded}
+        />
       </KeptMounted>
       <KeptMounted shown={segment === "history"}>
         <PeerGitHistory
@@ -55,8 +70,7 @@ function PeerGitChanges({
   target,
   canRead,
   updateNeeded,
-  refresh,
-}: Omit<PeerGitPanelProps, "rejoin">) {
+}: Omit<PeerGitPanelProps, "rejoin" | "refresh">) {
   const { t } = useTranslation();
   const id = peerTargetId(target);
   const { gitStatus, gitError, tabs } = usePeerWorkspaceStore(
@@ -75,27 +89,12 @@ function PeerGitChanges({
         : gitError
           ? t("peerWorkspace.connectionUnavailable")
           : null;
-  const groups: readonly { side: PeerGitSide; label: string }[] = [
-    { side: "staged", label: t("files:git.statusGroups.staged") },
-    { side: "unstaged", label: t("peerWorkspace.gitUnstaged") },
-  ];
+  // The local panel's groups, folded as the user folds them while the workspace is shown.
+  const [folded, setFolded] = useState<ReadonlySet<PeerGitGroupKey>>(() => new Set());
+  const grouped = gitStatus ? peerGitGroups(gitStatus.files) : null;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-border/50 px-2 py-1">
-        <PeerReadOnlyBadge />
-        <span className="min-w-0 flex-1 text-app-micro text-muted-foreground">
-          · {t("peerWorkspace.gitNoStageCommit")}
-        </span>
-        <IconButton
-          label={t("files:git.panel.header.refresh")}
-          size="sm"
-          disabled={!canRead || upgrade}
-          onClick={refresh}
-        >
-          <RefreshCw className="size-3.5" aria-hidden="true" />
-        </IconButton>
-      </div>
-      {!gitStatus || upgrade ? (
+      {!gitStatus || !grouped || upgrade ? (
         <EmptyState
           title={error ?? t(canRead ? "editor.loading" : "peerWorkspace.connectionUnavailable")}
           tone="status"
@@ -135,63 +134,78 @@ function PeerGitChanges({
           {gitStatus.files.length === 0 && !gitStatus.truncated && (
             <EmptyState title={t("files:git.panel.noChanges.title")} tone="status" />
           )}
-          {groups.map(({ side, label }) => {
-            const files = gitStatus.files.filter((file) => file[side]);
+          {PEER_GIT_GROUPS.map(({ key, side }) => {
+            const files = grouped[key];
             if (files.length === 0) return null;
+            const label = t(`files:git.statusGroups.${key}`);
+            const open = !folded.has(key);
             return (
-              <details key={side} open className="group">
-                <summary className="flex cursor-pointer list-none items-center gap-1 px-2 py-1 text-app-ui-sm text-muted-foreground hover:bg-[var(--state-hover-bg)] [&::-webkit-details-marker]:hidden">
-                  <ChevronRight
-                    aria-hidden="true"
-                    className="size-3.5 shrink-0 transition-transform group-open:rotate-90"
-                  />
-                  {label} <span className="rounded bg-muted px-1">{files.length}</span>
-                </summary>
-                {files.map((file) => {
-                  const { path, fileName: name, directory, outsideWorkspace } = display(file.path);
-                  const old = file.oldPath ? display(file.oldPath) : null;
-                  const scope = outsideWorkspace ? t("peerWorkspace.gitOutsideWorkspace") : null;
-                  const oldScope = old?.outsideWorkspace
-                    ? t("peerWorkspace.gitOutsideWorkspace")
-                    : null;
-                  const current = scope ? `${path} · ${scope}` : path;
-                  const from = oldScope ? `${old?.path} · ${oldScope}` : old?.path;
-                  const title = from ? `${from} → ${current}` : current;
-                  const existing = tabs.some(
-                    (tab) =>
-                      tab.type === "peer.diff" && tab.path === file.path && tab.side === side,
-                  );
-                  return (
-                    <button
-                      key={file.path}
-                      type="button"
-                      title={title}
-                      aria-label={title}
-                      disabled={!canRead && !existing}
-                      className="flex h-7 w-full items-center gap-1.5 px-2 pl-4 text-left text-app-body enabled:hover:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-                      onClick={() => openDiff(id, file, side)}
-                    >
-                      <FileIcon
-                        size="sm"
-                        kind="file"
-                        name={name}
-                        tone="sidebar"
-                        aria-hidden="true"
-                      />
-                      <span className="min-w-0 flex-1 truncate">
-                        {old || outsideWorkspace ? (
-                          title
-                        ) : (
-                          <>
-                            {name} <span className="text-muted-foreground">{directory}</span>
-                          </>
-                        )}
-                      </span>
-                      <GitStatusBadge code={isPeerGitConflict(file) ? "!" : (file[side] ?? "")} />
-                    </button>
-                  );
-                })}
-              </details>
+              <section key={key} aria-label={label}>
+                <GitGroupHeader
+                  groupKey={key}
+                  label={label}
+                  count={files.length}
+                  expanded={open}
+                  readOnly
+                  onToggle={() =>
+                    setFolded((before) => {
+                      const next = new Set(before);
+                      if (!next.delete(key)) next.add(key);
+                      return next;
+                    })
+                  }
+                />
+                {open &&
+                  files.map((file) => {
+                    const {
+                      path,
+                      fileName: name,
+                      directory,
+                      outsideWorkspace,
+                    } = display(file.path);
+                    const old = file.oldPath ? display(file.oldPath) : null;
+                    const scope = outsideWorkspace ? t("peerWorkspace.gitOutsideWorkspace") : null;
+                    const oldScope = old?.outsideWorkspace
+                      ? t("peerWorkspace.gitOutsideWorkspace")
+                      : null;
+                    const current = scope ? `${path} · ${scope}` : path;
+                    const from = oldScope ? `${old?.path} · ${oldScope}` : old?.path;
+                    const title = from ? `${from} → ${current}` : current;
+                    const existing = tabs.some(
+                      (tab) =>
+                        tab.type === "peer.diff" && tab.path === file.path && tab.side === side,
+                    );
+                    return (
+                      <button
+                        key={file.path}
+                        type="button"
+                        title={title}
+                        aria-label={title}
+                        disabled={!canRead && !existing}
+                        className="flex h-7 w-full items-center gap-1.5 px-2 pl-4 text-left text-app-body enabled:hover:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                        onClick={() => openDiff(id, file, side)}
+                      >
+                        <FileIcon
+                          size="sm"
+                          kind="file"
+                          name={name}
+                          tone="sidebar"
+                          aria-hidden="true"
+                        />
+                        <span className="min-w-0 flex-1 truncate">
+                          {old || outsideWorkspace ? (
+                            title
+                          ) : (
+                            <>
+                              {name} <span className="text-muted-foreground">{directory}</span>
+                            </>
+                          )}
+                        </span>
+                        <GitStatusBadge code={isPeerGitConflict(file) ? "!" : (file[side] ?? "")} />
+                      </button>
+                    );
+                  })}
+              </section>
             );
           })}
         </div>

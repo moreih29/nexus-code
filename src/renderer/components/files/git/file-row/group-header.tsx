@@ -1,5 +1,7 @@
 /**
  * GitGroupHeader renders an expandable Source Control section heading.
+ * Read-only (a workspace on another computer's), it only folds: no actions,
+ * no menu.
  */
 import { ChevronRight, Minus, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -28,6 +30,8 @@ interface GitGroupHeaderProps {
   onDiscardAll?: () => void;
   onAddToGitignore?: () => void;
   onStashGroup?: () => void;
+  /** Only folds: no group actions or menu. */
+  readOnly?: boolean;
 }
 
 export function GitGroupHeader({
@@ -44,6 +48,7 @@ export function GitGroupHeader({
   onDiscardAll,
   onAddToGitignore,
   onStashGroup,
+  readOnly = false,
 }: GitGroupHeaderProps) {
   const { t } = useTranslation("files");
   const [contextMenuPoint, setContextMenuPoint] = useState<GitContextMenuPoint | null>(null);
@@ -55,10 +60,14 @@ export function GitGroupHeader({
         className="flex min-w-0 flex-1 items-center gap-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
         aria-expanded={expanded}
         onClick={onToggle}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          setContextMenuPoint(pointFromMouseEvent(event));
-        }}
+        onContextMenu={
+          readOnly
+            ? undefined
+            : (event) => {
+                event.preventDefault();
+                setContextMenuPoint(pointFromMouseEvent(event));
+              }
+        }
       >
         <ChevronRight
           className={cn(
@@ -70,75 +79,79 @@ export function GitGroupHeader({
         <span className="truncate text-app-label uppercase">{label}</span>
         <span className="shrink-0 rounded bg-muted px-1 text-app-ui-sm">{count}</span>
       </button>
-      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-        {onStageAll && stageActionLabel ? (
+      {!readOnly && (
+        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          {onStageAll && stageActionLabel ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="size-6"
+              aria-label={stageActionLabel}
+              title={stageActionLabel}
+              onClick={onStageAll}
+            >
+              <Plus className="size-3.5" aria-hidden="true" />
+            </Button>
+          ) : null}
+          {onUnstageAll && unstageActionLabel ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="size-6"
+              aria-label={unstageActionLabel}
+              title={unstageActionLabel}
+              onClick={onUnstageAll}
+            >
+              <Minus className="size-3.5" aria-hidden="true" />
+            </Button>
+          ) : null}
+          {onDiscardAll && discardActionLabel ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="size-6 opacity-50 transition-opacity hover:opacity-100 git-destructive-text"
+              aria-label={discardActionLabel}
+              title={discardActionLabel}
+              onClick={onDiscardAll}
+            >
+              <Trash2 className="size-3.5" aria-hidden="true" />
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
             className="size-6"
-            aria-label={stageActionLabel}
-            title={stageActionLabel}
-            onClick={onStageAll}
+            aria-label={t("git.groups.groupActions", { label })}
+            title={t("git.groups.groupActions", { label })}
+            aria-haspopup="menu"
+            aria-expanded={contextMenuPoint !== null}
+            onClick={(event) => {
+              event.stopPropagation();
+              setContextMenuPoint(pointFromButtonRect(event.currentTarget.getBoundingClientRect()));
+            }}
           >
-            <Plus className="size-3.5" aria-hidden="true" />
+            <MoreHorizontal className="size-3.5" aria-hidden="true" />
           </Button>
-        ) : null}
-        {onUnstageAll && unstageActionLabel ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="size-6"
-            aria-label={unstageActionLabel}
-            title={unstageActionLabel}
-            onClick={onUnstageAll}
-          >
-            <Minus className="size-3.5" aria-hidden="true" />
-          </Button>
-        ) : null}
-        {onDiscardAll && discardActionLabel ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="size-6 opacity-50 transition-opacity hover:opacity-100 git-destructive-text"
-            aria-label={discardActionLabel}
-            title={discardActionLabel}
-            onClick={onDiscardAll}
-          >
-            <Trash2 className="size-3.5" aria-hidden="true" />
-          </Button>
-        ) : null}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="size-6"
-          aria-label={t("git.groups.groupActions", { label })}
-          title={t("git.groups.groupActions", { label })}
-          aria-haspopup="menu"
-          aria-expanded={contextMenuPoint !== null}
-          onClick={(event) => {
-            event.stopPropagation();
-            setContextMenuPoint(pointFromButtonRect(event.currentTarget.getBoundingClientRect()));
+        </div>
+      )}
+      {!readOnly && (
+        <GitGroupContextMenu
+          point={contextMenuPoint}
+          groupKey={groupKey}
+          actions={{
+            stageAll: onStageAll,
+            unstageAll: onUnstageAll,
+            discardAll: onDiscardAll,
+            addToGitignore: onAddToGitignore,
+            stashGroup: onStashGroup,
           }}
-        >
-          <MoreHorizontal className="size-3.5" aria-hidden="true" />
-        </Button>
-      </div>
-      <GitGroupContextMenu
-        point={contextMenuPoint}
-        groupKey={groupKey}
-        actions={{
-          stageAll: onStageAll,
-          unstageAll: onUnstageAll,
-          discardAll: onDiscardAll,
-          addToGitignore: onAddToGitignore,
-          stashGroup: onStashGroup,
-        }}
-        onClose={() => setContextMenuPoint(null)}
-      />
+          onClose={() => setContextMenuPoint(null)}
+        />
+      )}
     </div>
   );
 }

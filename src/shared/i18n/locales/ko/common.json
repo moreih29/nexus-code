@@ -2131,7 +2131,6 @@
     "quickOpenPrompt": "그 컴퓨터의 파일 이름 또는 경로",
     "quickOpenEmpty": "일치하는 파일 없음",
     "gitNoStageCommit": "스테이징 · 커밋 없음",
-    "gitUnstaged": "스테이징 안 된 변경 사항",
     "gitDetached": "분리된 HEAD",
     "gitDivergence": "앞섬 {{ahead}} · 뒤처짐 {{behind}}",
     "gitTruncated": "파일 목록 일부만",
