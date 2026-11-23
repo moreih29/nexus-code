@@ -218,7 +218,7 @@
     "remove_description": "터미널과 에이전트 탭을 닫고 워크트리 폴더를 삭제합니다.",
     "remove_agents_one": "에이전트 탭 {{count}}개",
     "remove_agents_other": "에이전트 탭 {{count}}개",
-    "remove_agents_under": "‘{{name}}’ 아래 {{count}} 포함",
+    "remove_agents_under": "‘{{name}}’ 아래 {{count}}개 포함",
     "remove_agents_more": "외 {{count}}개",
     "remove_branch": "브랜치 {{branch}}도 삭제",
     "remove_dirty": "작업을 삭제하면 커밋하지 않은 변경 사항도 사라집니다.",

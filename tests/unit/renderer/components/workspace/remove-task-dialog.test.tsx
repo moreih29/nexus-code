@@ -76,7 +76,7 @@ describe("the conversations a task's removal closes", () => {
   });
 
   test.each([
-    ["ko", "에이전트 탭 3개 · ‘장애 상태 집계’ 아래 2 포함", "↳ 장애 상태 집계"],
+    ["ko", "에이전트 탭 3개 · ‘장애 상태 집계’ 아래 2개 포함", "↳ 장애 상태 집계"],
     ["en", "3 agent tabs · including 2 under “장애 상태 집계”", "↳ 장애 상태 집계"],
   ])("say how many, how many under a parent elsewhere, and their names in %s", async (lng, summary, parent) => {
     const i18n = i18next.cloneInstance({ lng });
