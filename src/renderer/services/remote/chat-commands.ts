@@ -1,12 +1,3 @@
-/**
- * A chat's slash commands as another device runs them (chat.commands,
- * chat.command): the agent's own, which go to it as a message; the
- * model and effort, which chat.configure sets; and those of the app's own
- * that change the conversation rather than open a view here, run as the
- * composer runs them. What one says (its card, its toast) is its answer;
- * a tab it opens, its tab id.
- */
-
 import i18next from "i18next";
 import type { ChatCommand } from "../../../../packages/remote-protocol/src";
 import { toolSummary } from "../../components/chat/tool-row";
@@ -24,12 +15,6 @@ import { relayedOf, withRelayed } from "../chat/relayed";
 import { type CommandCard, chatKey, useChatStore } from "../chat/store";
 import { UiRequestError } from "../cli/handler";
 
-/**
- * The app's commands for a Claude tab that another device may run: those
- * that change the chat, and those that tell what only this computer knows
- * of it (its memory files, rules, hooks, skills, tasks and plugins), their
- * card's text for an answer.
- */
 export const CLAUDE_REMOTE_COMMANDS: ReadonlySet<string> = new Set([
   "btw",
   "plan",
@@ -50,12 +35,10 @@ export const CLAUDE_REMOTE_COMMANDS: ReadonlySet<string> = new Set([
   "remote-control",
 ]);
 
-/** The commands chat.configure sets instead. */
 const SETTINGS: Readonly<Record<string, "model" | "effort">> = { model: "model", effort: "effort" };
 
 const t = (key: string) => i18next.t(key);
 
-/** A tab's commands for a "/" picker on another device. */
 export function chatCommandsOf(
   agent: "claude" | "codex",
   model: ChatModel,
@@ -77,7 +60,6 @@ export function chatCommandsOf(
     }));
   }
   const cli = listedCommands(model.init?.commands ?? model.slashCommands ?? []);
-  // The composer's order: built-in commands, the app's own, then skills.
   const own: ChatCommand[] = [
     ...cli.filter((c) => c.builtin),
     ...cli.filter((c) => !c.builtin),
@@ -102,7 +84,6 @@ export function chatCommandsOf(
   return [...own.slice(0, builtin), ...app, ...own.slice(builtin)];
 }
 
-/** The app's command a name or alias calls, of those another device may run. */
 function remoteCommandNamed(agent: "claude" | "codex", typed: string): string | null {
   const lower = typed.replace(/^\//, "").toLowerCase();
   const table = agent === "claude" ? APP_COMMANDS : CODEX_COMMANDS;
@@ -111,10 +92,6 @@ function remoteCommandNamed(agent: "claude" | "codex", typed: string): string | 
   return found && allowed.has(found.name) ? found.name : null;
 }
 
-/**
- * Runs one of the app's commands for another device, as the composer runs
- * it typed; what it said, and the tab it opened, when it opened one.
- */
 export async function runRemoteCommand(
   workspaceId: string,
   tabId: string,
@@ -156,7 +133,6 @@ export async function runRemoteCommand(
       items,
       tools,
       summarize: (tool: ToolCall) => toolSummary(tool, props.cwd),
-      // Nothing opens here for a command run from another device.
       openFileTab: () => {},
     };
     if (target.agent === "claude") {
@@ -191,14 +167,8 @@ export async function runRemoteCommand(
   };
 }
 
-/** Text for a link's label: its brackets would end it. */
 const labelOf = (text: string) => text.replace(/[[\]]/g, "\\$&");
 
-/**
- * A command's card as another device is told it: its error, or its text,
- * its files as links to their paths here and its lists, without the
- * buttons only this computer can press.
- */
 export function cardText(card: CommandCard): string | undefined {
   if (card.error) return card.error;
   const parts: string[] = [];

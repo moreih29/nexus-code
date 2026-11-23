@@ -10,9 +10,6 @@ import {
 } from "../../../../../src/renderer/services/chat/codex/model";
 import { type ChatLine, emptyModel } from "../../../../../src/renderer/services/chat/model";
 
-// Lines as claude 2.1.325 and codex 0.170.0 wrote them, run against a fake
-// API on loopback: the API's error after the program's own retries.
-
 const user: ChatLine = {
   seq: 1,
   at: 1_000,
@@ -20,7 +17,6 @@ const user: ChatLine = {
   message: { type: "user", message: { role: "user", content: [{ type: "text", text: "hi" }] } },
 };
 
-/** The API error Claude Code writes in the turn's place, then its result. */
 function claudeFailure(fields: Record<string, unknown>, text: string): ChatLine[] {
   return [
     user,
@@ -99,7 +95,6 @@ describe("a Claude turn that failed on the API", () => {
       rateLimitType: "five_hour",
     });
 
-    // The session's transcript keeps the error, in its own names; no result.
     const replayed = applyTranscriptLines(
       transcriptLines([
         {

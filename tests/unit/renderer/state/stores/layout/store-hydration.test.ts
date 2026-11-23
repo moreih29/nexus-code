@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 
-// ---------------------------------------------------------------------------
-// Shim window.ipc so ipc/client loads without DOM
-// ---------------------------------------------------------------------------
-
 const mockIpcListen = mock((_ch: string, _ev: string, _cb: unknown) => () => {});
 
 (globalThis as Record<string, unknown>).window = {
@@ -19,20 +15,12 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ipcListen: mockIpcListen,
 }));
 
-// ---------------------------------------------------------------------------
-// Imports after mocks
-// ---------------------------------------------------------------------------
-
 import { allLeaves } from "../../../../../../src/renderer/state/stores/layout/helpers";
 import { useLayoutStore } from "../../../../../../src/renderer/state/stores/layout/store";
 import type {
   LayoutLeaf,
   LayoutSplit,
 } from "../../../../../../src/renderer/state/stores/layout/types";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 const WS = "00000000-0000-0000-0000-000000000001";
 
@@ -51,14 +39,9 @@ function getRoot() {
   return getLayout().root;
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe("useLayoutStore — hydration", () => {
   beforeEach(resetStore);
 
-  // 18
   it("18. hydrate with dangling tabId silently removes it", () => {
     const knownTabId = crypto.randomUUID();
     const danglingTabId = crypto.randomUUID();
@@ -78,7 +61,6 @@ describe("useLayoutStore — hydration", () => {
     expect(leaf.activeTabId).toBe(knownTabId);
   });
 
-  // 19
   it("19. hydrate with all leaves dangling/empty → root becomes empty leaf, activeGroupId routes to it", () => {
     const leafA: LayoutLeaf = {
       kind: "leaf",
@@ -112,7 +94,6 @@ describe("useLayoutStore — hydration", () => {
     expect(leafIds.has(layout.activeGroupId)).toBe(true);
   });
 
-  // 19b
   it("19b. hydrate with one all-dangling leaf and one valid leaf collapses the dangling leaf", () => {
     const validTab = crypto.randomUUID();
 
@@ -151,7 +132,6 @@ describe("useLayoutStore — hydration", () => {
     expect(layout.activeGroupId).toBe(goodLeaf.id);
   });
 
-  // 19c
   it("19c. hydrate with mixed valid/dangling tabs in one leaf strips just the dangling ones", () => {
     const valid1 = crypto.randomUUID();
     const valid2 = crypto.randomUUID();
@@ -174,7 +154,6 @@ describe("useLayoutStore — hydration", () => {
     expect(root.activeTabId === valid1 || root.activeTabId === valid2).toBe(true);
   });
 
-  // 29
   it("29. hydrate keeps valid activeGroupId from snapshot", () => {
     const tabIdA = crypto.randomUUID();
     const tabIdB = crypto.randomUUID();

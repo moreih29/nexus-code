@@ -251,7 +251,6 @@ describe("applyWorkspaceEdit", () => {
   });
 
   test("applies a server's file:// edit to the workspace-keyed model", () => {
-    // Open editors key models by workspace URI; servers only know file://.
     const workspaceId = "00000000-0000-0000-0000-0000000000ab";
     const fileUri = "file:///workspace/src/main.ts";
     const cacheUri = workspaceUriFor(workspaceId, "/workspace/src/main.ts");
@@ -267,7 +266,6 @@ describe("applyWorkspaceEdit", () => {
           ],
         },
       },
-      // The server knows the didChange version, not Monaco's version id.
       { workspaceId, lspVersionOf: () => 3 },
     );
 

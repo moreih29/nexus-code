@@ -14,8 +14,6 @@ import (
 
 const execTreeFixtureEnv = "NEXUS_TEST_CHAT_EXEC_TREE"
 
-// runExecTreeFixture leaves a helper holding both output pipes. The test
-// keeps a connection to it and can detect whether it survived the launcher.
 func runExecTreeFixture(address string) int {
 	if len(os.Args) > 1 && os.Args[1] == "--tree-helper" {
 		conn, err := net.Dial("tcp", address)
@@ -36,8 +34,6 @@ func runExecTreeFixture(address string) int {
 	return 0
 }
 
-// TestExecCancelsOnlyOwnedProcessTrees checks explicit cleanup while leaving
-// the background task available after its launcher has gone.
 func TestExecCancelsOnlyOwnedProcessTrees(t *testing.T) {
 	for _, tc := range []struct {
 		name, flag string
@@ -95,8 +91,6 @@ func TestExecCancelsOnlyOwnedProcessTrees(t *testing.T) {
 				}
 			} else {
 				n, err := helper.Read(make([]byte, 1))
-				// Terminating the Windows job can reset the connection.
-				// A read deadline instead means the helper is still connected.
 				var networkErr net.Error
 				if n != 0 || err == nil || (errors.As(err, &networkErr) && networkErr.Timeout()) {
 					t.Fatalf("owned child's connection did not close: read %d bytes, error %v", n, err)

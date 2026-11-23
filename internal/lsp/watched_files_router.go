@@ -43,8 +43,6 @@ type watchedFileGlob struct {
 	patterns [][]string
 }
 
-// HandleFSChanged routes one already-debounced fs.changed payload to active LSP
-// servers that successfully registered workspace/didChangeWatchedFiles.
 func (s *Service) HandleFSChanged(payload filewatch.FsChangedPayload) error {
 	if len(payload.Changes) == 0 {
 		return nil

@@ -10,14 +10,12 @@ import { relativeLinkPath } from "../../../../../src/renderer/services/chat/link
 
 const ROOT = "/Users/me/work";
 
-/** Tool calls in the order they ran. */
 function tools(
   ...inputs: Array<[name: string, input: unknown]>
 ): Record<string, { input: unknown }> {
   return Object.fromEntries(inputs.map(([name, input], i) => [`toolu_${i}`, { name, input }]));
 }
 
-/** The paths of the places `target` may name, from ROOT after `calls`. */
 function places(target: string, calls = tools(), cwd = ROOT): string[] {
   return linkPlaces(target, linkPlaceIndex(calls, cwd)).map((place) => place.path);
 }

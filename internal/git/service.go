@@ -23,8 +23,7 @@ import (
 const maxGitFileContentBytes = 5 * 1024 * 1024
 
 type Service struct {
-	root string
-	// commandWaitDelay bounds draining output inherited by Git's helpers.
+	root             string
 	commandWaitDelay time.Duration
 
 	mu       sync.Mutex
@@ -45,7 +44,6 @@ type FileContentParams struct {
 	RelPath string `json:"relPath"`
 }
 
-// EventSink is the callback git uses to push agent events back to Electron.
 type EventSink func(event string, payload any) error
 
 func New(root string) *Service {
@@ -74,8 +72,6 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("git.diff", service.Diff)
 	d.Register("git.commitDetail", service.CommitDetail)
 	d.Register("git.changeStats", service.ChangeStats)
-	// Git directory resolution can run Git itself. Keep that work out of
-	// the dispatch scanner and order watch changes on their own lane.
 	watchQueue := func(json.RawMessage) string { return "git.watch" }
 	d.RegisterOrderedBy("git.watch", service.Watch, watchQueue)
 	d.RegisterOrderedBy("git.unwatch", service.Unwatch, watchQueue)
@@ -171,10 +167,6 @@ func (s *Service) GetFileContent(ctx context.Context, raw json.RawMessage) (any,
 			return map[string]any{"kind": "missing", "reason": missingReasonForRef(ref)}, nil
 		}
 		if ref == "INDEX" && isUnmergedIndexEntry(stderr) {
-			// The file is in the index at stages 1/2/3 (merge conflict) but
-			// stage 0 does not exist. Return a typed "missing" result with
-			// reason "index" so the renderer shows an empty placeholder without
-			// propagating a raw fatal error that spams the IPC console.
 			return map[string]any{"kind": "missing", "reason": "index"}, nil
 		}
 		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: strings.TrimSpace(stderr)}
@@ -185,9 +177,6 @@ func (s *Service) GetFileContent(ctx context.Context, raw json.RawMessage) (any,
 	return buildFileReadResult(stdout), nil
 }
 
-// runGitShow returns the output of `git show objectSpec`, reading at most
-// limit+1 bytes of it: when the blob is larger than limit, git is killed and
-// tooLarge is reported instead of buffering the whole blob only to reject it.
 func runGitShow(ctx context.Context, root string, objectSpec string, limit int) (stdout []byte, stderr string, tooLarge bool, err error) {
 	cmdCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -210,7 +199,6 @@ func runGitShow(ctx context.Context, root string, objectSpec string, limit int) 
 	}
 	stdout, readErr := io.ReadAll(io.LimitReader(pipe, int64(limit)+1))
 	if len(stdout) > limit || readErr != nil {
-		// Stop git before waiting; it would block on a full stdout pipe.
 		cancel()
 	}
 	waitErr := finish()
@@ -235,8 +223,6 @@ func buildFileReadResult(buf []byte) map[string]any {
 		probe = probe[:content.BinaryProbeBytes]
 	}
 	mtime := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
-	// Text in UTF-16 (by its byte-order mark) or in an encoding other than
-	// UTF-8 goes to the reader as bytes, to decode as fs.readFile's does.
 	textBytes := map[string]any{
 		"kind":      "ok",
 		"content":   "",
@@ -293,8 +279,6 @@ func normalizeRef(ref string) (string, error) {
 	return trimmed, nil
 }
 
-// optionLike reports whether git, given value where it takes a revision,
-// would read it as one of its options instead: `--output=FILE` writes a file.
 func optionLike(value string) bool {
 	return strings.HasPrefix(value, "-")
 }
@@ -338,9 +322,6 @@ func isMissing(stderr string) bool {
 		strings.Contains(lower, "pathspec") && strings.Contains(lower, "did not match")
 }
 
-// isUnmergedIndexEntry reports whether a git-show failure is caused by a
-// merge-conflict (unmerged) file whose stage-0 entry is absent. Git emits
-// "is in the index, but not at stage 0" for such paths.
 func isUnmergedIndexEntry(stderr string) bool {
 	return strings.Contains(stderr, "is in the index, but not at stage 0")
 }

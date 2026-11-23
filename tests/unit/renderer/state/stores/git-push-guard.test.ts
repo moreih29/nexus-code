@@ -1,9 +1,3 @@
-/**
- * Git store push guardrail scenario tests.
- *
- * The git store imports ipcCallResult/ipcListen at module load. Stub the leaf IPC
- * module before importing the store, per the repo's Bun mock convention.
- */
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 
 type IpcCall = (channel: string, method: string, args: Record<string, unknown>) => Promise<unknown>;
@@ -27,8 +21,6 @@ if (
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: mock(async (channel: string, method: string, args: Record<string, unknown>) => {
     ipcCalls.push({ channel, method, args });
-    // ipcImpl may throw (simulating a git error); propagate so the store's catch
-    // path (gitStoreErrorFromUnknown) handles it as before.
     const value = await ipcImpl(channel, method, args);
     return { ok: true, value };
   }),
@@ -119,7 +111,6 @@ describe("git store — push guardrails", () => {
   });
 });
 
-/** Seeds one repository session with a tracking branch. */
 function seedSession(): void {
   useGitStore.setState((state) => {
     const next = new Map(state.sessions);
@@ -128,7 +119,6 @@ function seedSession(): void {
   });
 }
 
-/** Minimal default session matching createDefaultSession in the store. */
 function makeSession(): GitSession {
   return {
     repoInfo: { kind: "repo", gitDir: "/repo/.git", topLevel: "/repo" },
@@ -153,7 +143,6 @@ function makeSession(): GitSession {
   };
 }
 
-/** Minimal GitStatus with one tracking branch and one remote. */
 function makeStatus(): GitStatus {
   return {
     merge: [],
@@ -177,7 +166,6 @@ function makeStatus(): GitStatus {
   };
 }
 
-/** Creates an Error shaped like the renderer IPC rehydrated GitError. */
 function gitError(kind: string, message: string, stderr = message, hint?: GitActionHint): Error {
   const error = new Error(message) as Error & {
     kind: string;

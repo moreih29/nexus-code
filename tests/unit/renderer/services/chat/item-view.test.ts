@@ -1,8 +1,3 @@
-/**
- * A message of the list renders again only when its part of the list's
- * sources changes: a call of another message's changing leaves it as it
- * was, one of its own, or one under its subagent's call, does not.
- */
 import { describe, expect, test } from "bun:test";
 import {
   callsUnder,
@@ -58,7 +53,6 @@ function sources(
   };
 }
 
-/** Whether `item` renders again going from `before` to `after`. */
 function rendersAgain(item: ChatItem, before: ListSources, after: ListSources): boolean {
   return !sameView(itemView(item, before), itemView(item, after));
 }
@@ -114,7 +108,6 @@ describe("itemView", () => {
   });
 
   test("calls folded into a run render with the message the run is in", () => {
-    // Text, then calls in a row across three messages: the run is in the first.
     const first: AssistantItem = {
       kind: "assistant",
       key: "r1",

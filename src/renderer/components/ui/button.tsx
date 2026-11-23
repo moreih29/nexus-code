@@ -6,15 +6,10 @@ import type * as React from "react";
 import { cn } from "@/utils/cn";
 
 const buttonVariants = cva(
-  // Base: inline-flex, no shadow, focus ring uses --ring (ashGray), no colored ring offset
-  // Radius: control tier = 4px (design.md §4 — --radius-control, invariant for buttons)
   "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-(--radius-control) font-medium font-sans transition-all outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        // ── shadcn standard variants (semantic token hover/active — no opacity hacks) ──
-        // hover: state.hover.bg overlay atop primary bg (redundant encoding: surface level change)
-        // active: state.active.bg overlay (stronger than hover)
         default:
           "bg-primary text-primary-foreground hover:bg-[var(--state-hover-bg)] active:bg-[var(--state-active-bg)]",
         destructive:
@@ -24,7 +19,6 @@ const buttonVariants = cva(
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-[var(--state-hover-bg)] active:bg-[var(--state-active-bg)]",
         link: "text-primary underline-offset-4 hover:underline",
-        // ── ghost: state.hover.bg overlay, no background at rest ──
         ghost:
           "hover:bg-[var(--state-hover-bg)] hover:text-foreground active:bg-[var(--state-active-bg)]",
       },
@@ -56,9 +50,6 @@ function Button({
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean;
-    /** Loading state — shows inline spinner alongside label text (redundant encoding:
-     *  indicator shape + disabled interaction, design.md §7 loading state).
-     *  Automatically sets disabled when true so pointer-events:none applies. */
     loading?: boolean;
   }) {
   const Comp = asChild ? Slot.Root : "button";
@@ -74,13 +65,11 @@ function Button({
     >
       {loading ? (
         <>
-          {/* Spinner: state.loading.indicator color (design.md §7) */}
           <Loader2
             className="animate-spin"
             style={{ color: "var(--state-loading-indicator)" }}
             aria-hidden="true"
           />
-          {/* Retain label text — redundant encoding: text + spinner simultaneously */}
           {children}
         </>
       ) : (

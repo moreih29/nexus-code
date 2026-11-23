@@ -1,12 +1,5 @@
 package chat
 
-// The sessions a folder has, for a Claude tab to go on with one: Claude Code
-// keeps each session's transcript in its project's directory, which the
-// folder's path names. Each is read as Claude Code's own session list reads
-// it: the start of the file for what is set once (its first prompt, when it
-// began), the end for what the session says last (its title, its last
-// prompt, its branch).
-
 import (
 	"bytes"
 	"context"
@@ -22,22 +15,15 @@ import (
 )
 
 const (
-	// sessionsDefaultLimit is how many sessions a list has, newest first,
-	// unless asked for fewer.
 	sessionsDefaultLimit = 50
 	sessionsMaxLimit     = 200
-	// sessionReadBytes is how much of each end of a transcript is read.
-	sessionReadBytes = 64 << 10
-	// sessionTextMax caps a title or prompt, in characters.
-	sessionTextMax = 200
-	// projectNameMax is how long a project directory's name is before
-	// Claude Code cuts it and adds a hash of the path.
-	projectNameMax = 200
+	sessionReadBytes     = 64 << 10
+	sessionTextMax       = 200
+	projectNameMax       = 200
 )
 
 var notAlphanumeric = regexp.MustCompile(`[^a-zA-Z0-9]`)
 
-// Sessions lists the sessions of a folder, newest first.
 func (s *Service) Sessions(_ context.Context, raw json.RawMessage) (any, error) {
 	var p SessionsParams
 	if err := decodeParams(raw, &p, "chat.sessions params must include cwd"); err != nil {
@@ -58,7 +44,6 @@ func (s *Service) Sessions(_ context.Context, raw json.RawMessage) (any, error) 
 	return SessionsResult{Sessions: listSessions(filepath.Join(dir, "projects"), p.Cwd, limit)}, nil
 }
 
-// listSessions reads the sessions of the folder `cwd` from `projects`.
 func listSessions(projects, cwd string, limit int) []ClaudeSession {
 	type file struct {
 		id, path string
@@ -108,9 +93,6 @@ func listSessions(projects, cwd string, limit int) []ClaudeSession {
 	return sessions
 }
 
-// projectDirs are the directories that may hold the sessions of `cwd`:
-// its path as Claude Code spells a project's name, as given and with its
-// links resolved. A name too long is cut, and ends in a hash of the path.
 func projectDirs(projects, cwd string) []string {
 	paths := []string{filepath.Clean(cwd)}
 	if real, err := filepath.EvalSymlinks(cwd); err == nil && real != paths[0] {
@@ -133,8 +115,6 @@ func globEscape(s string) string {
 	return strings.NewReplacer(`\`, `\\`, "*", `\*`, "?", `\?`, "[", `\[`).Replace(s)
 }
 
-// readClaudeSession reads a transcript's title, prompts and branch; false for
-// one that is a subagent's, or has nothing to show.
 func readClaudeSession(path string) (ClaudeSession, bool) {
 	head, tail, err := readEnds(path, sessionReadBytes)
 	if err != nil {
@@ -169,7 +149,6 @@ func readClaudeSession(path string) (ClaudeSession, bool) {
 		}
 	}
 	info.CustomTitle = lastField(tail, head, "customTitle")
-	// Outside a repository, or detached, the branch is told as HEAD: none.
 	if branch := lastField(tail, nil, "gitBranch"); branch != "HEAD" {
 		info.GitBranch = branch
 	}
@@ -193,7 +172,6 @@ func firstOf(values ...string) string {
 	return ""
 }
 
-// transcriptEntry is what a transcript's line tells of the session.
 type transcriptEntry struct {
 	Type             string `json:"type"`
 	Timestamp        string `json:"timestamp"`
@@ -207,9 +185,6 @@ type transcriptEntry struct {
 
 var commandName = regexp.MustCompile(`<command-name>\s*([^<]*?)\s*</command-name>`)
 
-// promptOf is a user message's prompt: its text, unless it is one Claude Code
-// writes itself (a tool's result, a command's output, a reminder), which
-// starts with a tag. For a command, its name is told instead.
 func promptOf(content json.RawMessage) (prompt, command string) {
 	var text string
 	if json.Unmarshal(content, &text) != nil {
@@ -239,8 +214,6 @@ func promptOf(content json.RawMessage) (prompt, command string) {
 	return oneLine(text), ""
 }
 
-// lastField is the last string `key` has in `text`, else in `fallback`: a
-// title or prompt a session tells again as it goes, the last one standing.
 func lastField(text, fallback []byte, key string) string {
 	for _, part := range [][]byte{text, fallback} {
 		marker := []byte(`"` + key + `":"`)
@@ -258,7 +231,6 @@ func lastField(text, fallback []byte, key string) string {
 	return ""
 }
 
-// jsonStringAt decodes the JSON string `b` starts with.
 func jsonStringAt(b []byte) (string, bool) {
 	for i := 1; i < len(b); i++ {
 		switch b[i] {
@@ -275,8 +247,6 @@ func jsonStringAt(b []byte) (string, bool) {
 	return "", false
 }
 
-// readEnds reads up to `n` bytes from each end of a file; all of it, as its
-// head, when it is no bigger than both.
 func readEnds(path string, n int64) (head, tail []byte, err error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -302,7 +272,6 @@ func readEnds(path string, n int64) (head, tail []byte, err error) {
 	return head, tail, nil
 }
 
-// oneLine is text on one line, cut to sessionTextMax characters.
 func oneLine(text string) string {
 	text = strings.Join(strings.Fields(text), " ")
 	if utf8.RuneCountInString(text) <= sessionTextMax {

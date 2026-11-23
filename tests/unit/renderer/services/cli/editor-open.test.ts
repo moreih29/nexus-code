@@ -1,4 +1,3 @@
-/** nexus open --source and --preview: the tab shows that view, as its switch does, this once. */
 import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 
 const globals = globalThis as { window?: unknown; document?: unknown };
@@ -52,11 +51,9 @@ afterEach(() => {
 test("shows the view asked for in its tab, the format's default as it was", async () => {
   const { tabId } = await open("/w/README.md", "source");
   expect(viewOf(tabId)).toBe("raw");
-  // The same file again: its tab, switched.
   expect((await open("/w/README.md", "preview")).tabId).toBe(tabId);
   expect(viewOf(tabId)).toBe("preview");
   expect(usePreviewDefaultsStore.getState().byFormat).toEqual({});
-  // Without a view, the tab is left as it is.
   await open("/w/README.md");
   expect(viewOf(tabId)).toBe("preview");
 });

@@ -76,7 +76,6 @@ test("this TipTap version falls back to an empty document for an unknown node", 
   const original = globalThis.window;
   const warning = spyOn(console, "warn").mockImplementation(() => {});
   try {
-    // The invalid JSON falls back through the HTML parser only for the empty string.
     globalThis.window = Object.assign({}, original, {
       DOMParser: class {
         parseFromString() {
@@ -148,7 +147,6 @@ function taskEditor(content: DocNode) {
 test("the checked and hover CSS selectors match the editable TaskItem NodeView", () => {
   const page = createWindow('<div class="note-doc"><ul data-type="taskList"></ul></div>');
   const previous = Object.getOwnPropertyDescriptor(globalThis, "document");
-  // Domino implements the DOM selectors. Bridge the NodeView's dataset write to its attribute.
   Object.defineProperty(page.HTMLElement.prototype, "dataset", {
     get(this: HTMLElement) {
       const element = this;
@@ -199,7 +197,6 @@ test("the checked and hover CSS selectors match the editable TaskItem NodeView",
       .find((selector) => selector?.includes(".note-task-action"));
     expect(checked).toBeDefined();
     expect(hover).toContain(":hover");
-    // DOM query engines expose structural matching without a mouse pointer.
     const hoverTarget = hover!.replace(/:not\(:has\([^)]*\)\)|:hover/g, "").replace(/\s+/g, " ");
     expect(page.document.querySelector(checked!)).toBe(content.firstElementChild);
     expect(page.document.querySelector(hoverTarget)).toBe(content.querySelector("button"));

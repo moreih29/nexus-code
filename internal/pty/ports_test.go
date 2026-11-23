@@ -17,9 +17,6 @@ import (
 
 const listenerHelperEnv = "NEXUS_PTY_TEST_LISTENER"
 
-// TestPtyListenerHelper is the program TestListeningPortsSeesATerminalsServer
-// runs in its terminal: it listens on a port below the dynamic range, prints
-// it, and holds it until its stdin closes.
 func TestPtyListenerHelper(t *testing.T) {
 	if os.Getenv(listenerHelperEnv) != "1" {
 		t.Skip("run by TestListeningPortsSeesATerminalsServer")

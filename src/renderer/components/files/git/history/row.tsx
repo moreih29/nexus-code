@@ -1,7 +1,3 @@
-/**
- * Single-line commit row for the History list.
- */
-
 import { MoreHorizontal } from "lucide-react";
 import type React from "react";
 import { useTranslation } from "react-i18next";
@@ -11,10 +7,6 @@ import { IconButton } from "../../../ui/icon-button";
 import { relativeTime } from "../utils/relative-time";
 import type { HistoryListBreakpoint } from "./list";
 
-/**
- * The SHA's track is a character wider than its seven: `ch` is the row's
- * font, and a monospace character can be wider than that font's `0`.
- */
 const HISTORY_ROW_GRID_CLASS_BY_BREAKPOINT: Record<HistoryListBreakpoint, string> = {
   compact: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,1fr)_24px] items-center gap-2",
   narrow: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,1fr)_8ch_24px] items-center gap-2",
@@ -22,7 +14,6 @@ const HISTORY_ROW_GRID_CLASS_BY_BREAKPOINT: Record<HistoryListBreakpoint, string
     "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_8ch_8ch_24px] items-center gap-2",
   wide: "grid h-6 grid-cols-[var(--graph-w)_minmax(0,auto)_minmax(0,1fr)_12ch_8ch_8ch_24px] items-center gap-2",
 };
-/** The selected row's left bar: `border-l-2` below. */
 export const HISTORY_ROW_SELECTION_BAR_PX = 2;
 const HISTORY_ROW_INTERACTION_CLASS =
   "group border-l-2 pl-1 pr-1 text-app-ui-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
@@ -48,7 +39,6 @@ interface HistoryRowProps {
   onOpenMenu: (request: HistoryRowMenuRequest) => void;
 }
 
-/** Renders one focusable commit row with hover, selected, and focus states. */
 export function HistoryRow({
   entry,
   selected,
@@ -73,7 +63,6 @@ export function HistoryRow({
   const showSha = breakpoint === "medium" || breakpoint === "wide";
   const rowTitle = `${subject}\nAuthor: ${entry.authorName}\nSHA: ${entry.sha}`;
 
-  /** Opens the commit action menu under the row, lined up with its right. */
   function openMenuFromElement(element: HTMLElement): void {
     const rect = element.getBoundingClientRect();
     onOpenMenu({

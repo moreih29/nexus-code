@@ -1,16 +1,3 @@
-/**
- * Adversarial test exposing the missing clearDiagnosticsTimers call in
- * disposeChannelServers (triggered by channel lifecycle "disposed" event).
- *
- * Risk 2 (URI churn / leakage): when a channel is disposed while a
- * trailing-edge timer is pending, the timer must not fire and push stale
- * diagnostics to the renderer. Currently disposeChannelServers does NOT
- * clear diagnostics timers, unlike handleServerExited.
- *
- * This test is expected to FAIL on the current implementation — confirming
- * the defect for Tester's report.
- */
-
 import { afterEach, describe, expect, jest, test } from "bun:test";
 import { startAgentLspHost } from "../../../../../src/main/features/lsp/agent-host";
 import type {
@@ -118,26 +105,17 @@ describe("channel disposed lifecycle: stale diagnostics timer must be cleared", 
       text: "x = 1\n",
     });
 
-    // Leading-edge emit.
     channel.emitDiagnostics(URI, 1);
     expect(emitted).toHaveLength(1);
 
-    // Schedule a trailing-edge timer within idle window.
     jest.setSystemTime(new Date(90_000_000 + 50));
     channel.emitDiagnostics(URI, 2);
-    expect(emitted).toHaveLength(1); // timer pending
+    expect(emitted).toHaveLength(1);
 
-    // Fire the channel disposed lifecycle event.
-    // This triggers disposeChannelServers which cleans up servers and uriIndex.
     channel.fireDisposed();
 
-    // Advance past the debounce window.
-    // If the bug is present, the timer fires and emits stale v2 diagnostics.
-    // If fixed, the timer is cancelled and emitted count stays at 1.
     jest.advanceTimersByTime(200);
 
-    // EXPECTED (correct behaviour): still 1 — stale timer was cleared.
-    // ACTUAL (bug): 2 — stale timer fires after channel was disposed.
     expect(emitted).toHaveLength(1);
 
     host.dispose();

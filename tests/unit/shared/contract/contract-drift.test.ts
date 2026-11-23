@@ -1,22 +1,7 @@
-/**
- * IPC contract drift guards
- *
- * fs mutation calls must name a workspace and a path relative to it: an
- * absolute, drive-letter or UNC path is refused at the IPC boundary.
- */
-
 import { describe, expect, it } from "bun:test";
 import { ipcContract } from "../../../../src/shared/ipc/contract";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const VALID_UUID = "123e4567-e89b-12d3-a456-426614174000";
-
-// ---------------------------------------------------------------------------
-// fs channel — mutation args
-// ---------------------------------------------------------------------------
 
 describe("ipcContract drift — fs mutation args", () => {
   it("requires workspace-scoped relative path args for unlink/rmdir/rename", () => {

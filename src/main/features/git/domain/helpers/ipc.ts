@@ -1,11 +1,3 @@
-/**
- * Unified IPC/socket manager for Git askpass and editor helpers.
- *
- * Git cannot call Electron IPC directly, so child helper scripts connect to a
- * local socket/named pipe with a boot token. The manager validates the token,
- * broadcasts renderer prompts, and resolves the helper only when a matching
- * active prompt id responds.
- */
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import net from "node:net";
@@ -69,7 +61,6 @@ export interface AgentAskpassPromptPayload {
   readonly workspaceId?: string;
 }
 
-/** Receives the secret the user entered, or null when they cancelled. */
 export type AgentAskpassResponder = (secret: string | null) => Promise<void>;
 
 type PendingPrompt =
@@ -85,17 +76,12 @@ type PendingPrompt =
       readonly resolve: (response: HelperWireResponse) => void;
     };
 
-/**
- * Owns the helper server lifecycle, prompt nonce table, and renderer response
- * handlers for both askpass and commit-message editor requests.
- */
 export class GitHelpersIpcManager {
   private readonly userDataDir: string;
   private readonly broadcast: BroadcastFn;
   private readonly platform: NodeJS.Platform;
   private readonly pid: number;
   private readonly token: string;
-  /** Connected helpers that have not yet submitted the request they came for. */
   private readonly awaitingRequests = new Map<net.Socket, AbortController>();
   private readonly pending = new Map<string, PendingPrompt>();
   private server: net.Server | null = null;
@@ -109,10 +95,6 @@ export class GitHelpersIpcManager {
     this.token = options.token ?? crypto.randomBytes(32).toString("hex");
   }
 
-  /**
-   * Starts the socket/named-pipe server and publishes its connection values to
-   * the helper launcher singleton used by GitRepository operations.
-   */
   async start(): Promise<GitHelperConnection> {
     if (this.server && this.endpoint) return this.connection();
 
@@ -139,10 +121,6 @@ export class GitHelpersIpcManager {
     return this.connection();
   }
 
-  /**
-   * Stops the helper server and rejects all outstanding helper requests so Git
-   * subprocesses do not hang during app shutdown.
-   */
   async dispose(): Promise<void> {
     for (const pending of Array.from(this.pending.values())) {
       pending.resolve({ ok: false, error: "Git helper manager stopped." });
@@ -157,8 +135,6 @@ export class GitHelpersIpcManager {
 
     if (server) {
       const closed = new Promise<void>((resolve) => server.close(() => resolve()));
-      // Clients with a prompt receive its shutdown reply. An idle socket
-      // has no pending prompt to resolve and can keep server.close waiting.
       for (const [socket, lifetime] of this.awaitingRequests) {
         lifetime.abort();
         socket.destroy();
@@ -172,10 +148,6 @@ export class GitHelpersIpcManager {
     }
   }
 
-  /**
-   * Returns the current socket path and token. Call `start()` first so the
-   * endpoint exists.
-   */
   connection(): GitHelperConnection {
     if (!this.endpoint) {
       throw new Error("Git helper manager has not started.");
@@ -183,10 +155,6 @@ export class GitHelpersIpcManager {
     return { socketPath: this.endpoint.path, token: this.token };
   }
 
-  /**
-   * Processes one decoded helper payload. Tests call this directly to exercise
-   * token and active-prompt validation without opening an OS socket.
-   */
   async handleHelperRequest(
     payload: HelperRequestPayload,
     lifetime?: HelperRequestLifetime,
@@ -201,9 +169,6 @@ export class GitHelpersIpcManager {
     }
   }
 
-  /**
-   * Resolves the active askpass prompt with the renderer-provided value.
-   */
   respondAskpass(args: unknown): void {
     const parsed = validateArgs(AskpassRespondArgsSchema, args);
     const pending = this.requirePending(parsed.promptId, "askpass");
@@ -211,10 +176,6 @@ export class GitHelpersIpcManager {
     pending.resolve({ ok: true, value: parsed.value });
   }
 
-  /**
-   * Cancels the active askpass prompt; the helper exits non-zero and Git
-   * reports an authentication failure.
-   */
   cancelAskpass(args: unknown): void {
     const parsed = validateArgs(GitHelperPromptIdArgsSchema, args);
     const pending = this.requirePending(parsed.promptId, "askpass");
@@ -222,10 +183,6 @@ export class GitHelpersIpcManager {
     pending.resolve({ ok: false, error: "Credential prompt cancelled." });
   }
 
-  /**
-   * Reuses the renderer askpass UI for prompts that originate from the Go
-   * agent-host helper instead of the legacy Electron-host helper socket.
-   */
   openAgentAskpassPrompt(payload: AgentAskpassPromptPayload, respond: AgentAskpassResponder): void {
     if (this.pending.has(payload.requestId)) {
       throw new Error(`Inactive Git helper prompt id: ${payload.requestId}`);
@@ -243,8 +200,6 @@ export class GitHelpersIpcManager {
       kind: "askpass",
       promptId: payload.requestId,
       resolve: (response) => {
-        // A cancel must reach Git as a failed prompt; an empty answer would
-        // be tried as the password.
         const secret = response.ok ? (response.value ?? "") : null;
         void respond(secret).catch(() => {});
       },
@@ -252,19 +207,12 @@ export class GitHelpersIpcManager {
     this.broadcast("askpass", "prompt", event);
   }
 
-  /**
-   * Withdraws an agent prompt whose Git command ended before it was
-   * answered, so the renderer closes the dialog. No-op once answered.
-   */
   closeAgentAskpassPrompt(requestId: string): void {
     if (this.pending.get(requestId)?.kind !== "askpass") return;
     this.pending.delete(requestId);
     this.broadcast("askpass", "closed", { promptId: requestId });
   }
 
-  /**
-   * Writes the edited commit message file and lets Git continue.
-   */
   async saveEditor(args: unknown): Promise<void> {
     const parsed = validateArgs(GitEditorSaveArgsSchema, args);
     const pending = this.requirePending(parsed.promptId, "editor");
@@ -279,9 +227,6 @@ export class GitHelpersIpcManager {
     }
   }
 
-  /**
-   * Truncates the commit message file and aborts Git's editor flow.
-   */
   async cancelEditor(args: unknown): Promise<void> {
     const parsed = validateArgs(GitHelperPromptIdArgsSchema, args);
     const pending = this.requirePending(parsed.promptId, "editor");
@@ -293,10 +238,6 @@ export class GitHelpersIpcManager {
     }
   }
 
-  /**
-   * Reads a single JSON-line request from a helper process and writes a
-   * JSON-line response. Each helper invocation uses one short-lived socket.
-   */
   private handleSocket(socket: net.Socket): void {
     let chunks: Buffer[] = [];
     let bytes = 0;
@@ -309,7 +250,6 @@ export class GitHelpersIpcManager {
       disconnected.abort();
     });
 
-    /** Writes a single compatible JSON reply while the connection can still receive it. */
     const reply = (response: HelperWireResponse): void => {
       this.awaitingRequests.delete(socket);
       if (!socket.destroyed && !disconnected.signal.aborted) {
@@ -317,7 +257,6 @@ export class GitHelpersIpcManager {
       }
     };
 
-    /** Dispatches one complete line and drops the receive buffer immediately. */
     const finish = async (line: string): Promise<void> => {
       handled = true;
       chunks = [];
@@ -363,10 +302,6 @@ export class GitHelpersIpcManager {
     socket.on("error", () => {});
   }
 
-  /**
-   * Checks the boot token and, when a prompt id is supplied, verifies the id is
-   * currently active before any route-specific work runs.
-   */
   private assertAuthorizedPayload(payload: HelperRequestPayload): void {
     if (payload.token !== this.token) {
       throw new Error("Git helper request rejected: invalid token.");
@@ -376,10 +311,6 @@ export class GitHelpersIpcManager {
     }
   }
 
-  /**
-   * Broadcasts a commit-message editor prompt after reading Git's temporary
-   * message file. The renderer's save/cancel handler owns the final write.
-   */
   private async openEditorPrompt(
     payload: HelperRequestPayload,
     lifetime?: HelperRequestLifetime,
@@ -419,10 +350,6 @@ export class GitHelpersIpcManager {
     });
   }
 
-  /**
-   * Returns the active prompt after verifying it belongs to the expected
-   * helper family.
-   */
   private requirePending<K extends PendingPrompt["kind"]>(
     promptId: string,
     kind: K,
@@ -435,7 +362,6 @@ export class GitHelpersIpcManager {
   }
 }
 
-/** Reads only the bounded prefix needed to distinguish a complete file from an oversized one. */
 async function readEditorFile(filePath: string, signal?: AbortSignal): Promise<string> {
   const file = await fs.open(filePath, "r").catch(() => null);
   if (!file) return "";
@@ -457,9 +383,6 @@ async function readEditorFile(filePath: string, signal?: AbortSignal): Promise<s
   }
 }
 
-/**
- * Registers renderer-response IPC methods for askpass and editor prompts.
- */
 export function registerGitHelperIpcChannels(manager: GitHelpersIpcManager): void {
   register("askpass", {
     call: {
@@ -479,9 +402,6 @@ export function registerGitHelperIpcChannels(manager: GitHelpersIpcManager): voi
   });
 }
 
-/**
- * Builds the OS-specific helper endpoint without touching the filesystem.
- */
 export function buildGitHelpersEndpoint(
   userDataDir: string,
   platform: NodeJS.Platform = process.platform,
@@ -498,11 +418,6 @@ export function buildGitHelpersEndpoint(
   };
 }
 
-/**
- * Creates a private Unix socket directory or returns a Windows named pipe
- * endpoint. Unix socket files are unlinked before listening to clear stale
- * process exits.
- */
 export async function prepareGitHelpersEndpoint(options: {
   readonly userDataDir: string;
   readonly platform?: NodeJS.Platform;
@@ -525,9 +440,6 @@ export async function prepareGitHelpersEndpoint(options: {
   return endpoint;
 }
 
-/**
- * Categorizes a Git/SSH prompt so the renderer can mask secrets.
- */
 export function classifyAskpassField(prompt: string): AskpassPrompt["field"] {
   if (/passphrase/i.test(prompt)) return "passphrase";
   if (/password/i.test(prompt)) return "password";
@@ -535,17 +447,11 @@ export function classifyAskpassField(prompt: string): AskpassPrompt["field"] {
   return "text";
 }
 
-/**
- * Extracts a compact service label from common Git HTTPS prompts.
- */
 function extractPromptService(prompt: string): string | undefined {
   const match = prompt.match(/for ['"]?([^'":]+:\/\/[^'"]+)['"]?/i);
   return match?.[1];
 }
 
-/**
- * Converts unknown failures into short helper protocol error text.
- */
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

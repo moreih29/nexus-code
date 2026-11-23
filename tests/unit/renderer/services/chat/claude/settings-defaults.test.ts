@@ -1,10 +1,3 @@
-/**
- * A Claude tab's program runs as the user's settings say: the model they
- * set shows before the first turn names it, by its own name even where the
- * default runs the same one, and the effort they set, which `claude -p`
- * leaves out, is given to it. Answers as claude 2.1.319 gave them.
- */
-
 import { describe, expect, test } from "bun:test";
 import {
   appliedEffort,
@@ -64,7 +57,6 @@ describe("effortToApply", () => {
       ...SET,
       effective: { ...SET.effective, modelSettings: { "claude-opus-5-5": { effortLevel: "low" } } },
     };
-    // A headless run takes the model's own already: nothing to set.
     expect(
       effortToApply({ ...perModel, applied: { ...SET.applied, effort: "low" } }),
     ).toBeUndefined();
@@ -101,7 +93,6 @@ describe("currentModelInfo", () => {
   });
 });
 
-// As claude 2.1.32x lists them: the default runs Opus 5.5, as "opus" does.
 const SAME: ModelInfo[] = [
   { value: "default", resolvedModel: "claude-opus-5-5", displayName: "Default (recommended)" },
   { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5" },

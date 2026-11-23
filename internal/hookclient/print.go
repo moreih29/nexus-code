@@ -1,29 +1,5 @@
 package hookclient
 
-// `agent print-run <claude> [args...]` runs a `claude -p` that a tab's
-// Claude session starts, as from its Bash tool or a script it runs, and
-// tells the app of it: its start, its end, and between them the tools it
-// runs and what it writes, as its stream-json output or else its
-// transcript tells them (print_transcript.go). Such a run gets none of the tab's hooks
-// (claude-wrapper.sh), and a `--bare` one would run none.
-//
-// The run is claude's own: its stdin and stderr are claude's, its output
-// is passed on as it comes, and its exit is claude's. Telling the app never
-// holds the output back: the frames are queued and sent beside it, and
-// dropped when the app does not take them.
-//
-// Once the app knows of the run, the run holds a watch open on the agent's
-// socket until its end: a run killed before it can tell its end, as by
-// SIGKILL, ends with its process, and the agent tells the app of it then.
-// The app answers the watch to stop the run (`nexus agent stop`): claude
-// gets the interrupt the session's own ^C would give it.
-//
-// A run is told with its Claude session id, given it up front when it
-// starts a session of its own, so the session that started it can go on
-// with it (`claude -p --resume <id>`). A run that goes on a session by its
-// id is told as that session's run going on, and its transcript is followed
-// from where it was.
-
 import (
 	"bytes"
 	"crypto/rand"
@@ -45,23 +21,14 @@ import (
 )
 
 const (
-	// printFramesQueued is how many frames wait to be sent at most; more are dropped.
 	printFramesQueued = 256
-	// printFrameTimeout is how long one frame may take to be sent and answered.
 	printFrameTimeout = 5 * time.Second
-	// printEndWait is how long the run's end waits on the frames before it to be sent.
-	printEndWait = 3 * time.Second
-	// printLineMax is the longest output line read for what it tells; a longer one is passed on unread.
-	printLineMax = 8 << 20
-	// printTextMax is how long a string of a tool's input, a prompt or an answer may be.
-	printTextMax = 2_000
-	// printErrorMax is how long a failed tool's error may be.
-	printErrorMax = 500
+	printEndWait      = 3 * time.Second
+	printLineMax      = 8 << 20
+	printTextMax      = 2_000
+	printErrorMax     = 500
 )
 
-// RunPrint is the `agent print-run` entrypoint: args are claude's path and
-// its arguments. It returns claude's exit code, and dies of the signal
-// claude died of.
 func RunPrint(args []string) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: agent print-run <claude> [args...]")
@@ -81,23 +48,15 @@ func RunPrint(args []string) int {
 	return code
 }
 
-// printRun is what a `claude -p` run's arguments tell of it.
 type printRun struct {
-	prompt string
-	model  string
-	// format is its --output-format: "text", "json" or "stream-json".
-	format string
-	// sessionID is its session's id, which names its transcript: the one it
-	// was given, or the one it goes on.
-	sessionID string
-	// resumed: it goes on the session sessionID, whose transcript it adds to.
-	resumed bool
-	// noTranscript: its session is not known, or keeps no transcript here.
+	prompt       string
+	model        string
+	format       string
+	sessionID    string
+	resumed      bool
 	noTranscript bool
 }
 
-// sessionFlags are claude's options after which a run keeps no transcript
-// of a session here: it runs elsewhere, or keeps none.
 var sessionFlags = map[string]bool{
 	"--from-pr":                true,
 	"--teleport":               true,
@@ -107,14 +66,6 @@ var sessionFlags = map[string]bool{
 	"--no-session-persistence": true,
 }
 
-// describePrintRun reads a run's arguments. Its prompt is the argument after
-// -p, or the first one when it is not an option: claude takes options that
-// take more than one value, so a prompt elsewhere is not told apart.
-//
-// A run that goes on a session goes on its transcript, by `--resume <id>`;
-// with `--fork-session` it starts one of its own, as a new run does. One
-// that goes on the latest session (`-c`), or one found by a search term,
-// goes on a session not known up front.
 func describePrintRun(args []string) printRun {
 	run := printRun{format: "text", model: os.Getenv("ANTHROPIC_MODEL")}
 	var resume string
@@ -177,8 +128,6 @@ func describePrintRun(args []string) printRun {
 	return run
 }
 
-// isSessionID is whether s is a session id, as a UUID: `--resume` takes a
-// search term as well.
 func isSessionID(s string) bool {
 	if len(s) != 36 {
 		return false
@@ -198,8 +147,6 @@ func isSessionID(s string) bool {
 	return true
 }
 
-// runPrint runs claude and tells `teller` of the run. It returns claude's
-// exit code, or the signal it died of.
 func runPrint(
 	claude string,
 	args []string,
@@ -208,15 +155,11 @@ func runPrint(
 	teller *printTeller,
 ) (code int, sig int) {
 	run := describePrintRun(args)
-	// A run that starts a session of its own is given its id, unless it has
-	// one: the run is told by it, and its transcript named.
 	if teller != nil && !run.noTranscript && run.sessionID == "" {
 		if run.sessionID = newSessionID(); run.sessionID != "" {
 			args = append([]string{"--session-id", run.sessionID}, args...)
 		}
 	}
-	// A run whose output does not tell its tools tells them in its
-	// transcript; one that goes on a session, from where the session was.
 	var transcript *printTranscript
 	if teller != nil && run.format != "stream-json" && !run.noTranscript && run.sessionID != "" {
 		transcript = newPrintTranscript(run.sessionID)
@@ -233,9 +176,6 @@ func runPrint(
 	defer releaseChild()
 	cmd.Stdin = stdin
 	cmd.Stderr = stderr
-	// A json or stream-json run's output tells of the run, and a text run's
-	// is its answer. A terminal stays claude's own: claude prints to it as a
-	// terminal, and its answer is then its transcript's.
 	text := run.format != "stream-json" && run.format != "json"
 	var out *printOutput
 	if teller != nil && (!text || !isTerminal(stdout)) {
@@ -269,7 +209,6 @@ func runPrint(
 	if run.resumed {
 		start["resumed"] = true
 	}
-	// Where its transcript is kept, for the app to read it whole.
 	if !run.noTranscript && run.sessionID != "" {
 		if home := absoluteDir(claudeConfigDir()); home != "" {
 			start["home"] = home
@@ -304,31 +243,18 @@ func runPrint(
 	return code, sig
 }
 
-// supervised is a run's process, started with the signals the run gets
-// passed on to it and the app's stop wired to it.
 type supervised struct {
-	cmd *exec.Cmd
-	// stopped is the first signal the run got: the program may end by it
-	// with an exit code of its own.
+	cmd     *exec.Cmd
 	stopped chan os.Signal
 	release func()
 }
 
-// startSupervised starts cmd: the signals the run gets reach it, and the
-// app stops it as the session's ^C would. False when it could not start,
-// which is told on stderr. release, deferred, stops taking the signals.
 func startSupervised(cmd *exec.Cmd, teller *printTeller, stderr io.Writer) (*supervised, bool) {
-	// A signal the run was started with ignored stays ignored, for the run
-	// and for the program it starts: taking it would bring it back. `nohup
-	// claude -p …` must outlive the terminal's hangup, and a run in the
-	// background of a script its ^C.
-	// (Notify with no signals would take them all.)
 	var signals chan os.Signal
 	if taken := notIgnored(forwardedSignals); len(taken) > 0 {
 		signals = make(chan os.Signal, 4)
 		signal.Notify(signals, taken...)
 	}
-	// A write to output no one reads fails rather than kill the run's end.
 	var quiet chan os.Signal
 	if taken := notIgnored(swallowedSignals); len(taken) > 0 {
 		quiet = make(chan os.Signal, 1)
@@ -375,7 +301,6 @@ func startSupervised(cmd *exec.Cmd, teller *printTeller, stderr io.Writer) (*sup
 	}}, true
 }
 
-// notIgnored is those of sigs the process was not started with ignored.
 func notIgnored(sigs []os.Signal) []os.Signal {
 	var taken []os.Signal
 	for _, sig := range sigs {
@@ -386,8 +311,6 @@ func notIgnored(sigs []os.Signal) []os.Signal {
 	return taken
 }
 
-// ending is how the run's process ended, once waited for: its exit code,
-// or the signal it died of, and the end frame's payload telling it.
 func (p *supervised) ending() (code int, sig int, end map[string]any) {
 	code = p.cmd.ProcessState.ExitCode()
 	end = map[string]any{}
@@ -397,8 +320,6 @@ func (p *supervised) ending() (code int, sig int, end map[string]any) {
 		return code, sig, end
 	}
 	end["exit_code"] = code
-	// Stopped by the app: the program may exit 0 on an interrupt, as claude
-	// does printing "Execution error" as its answer.
 	select {
 	case s := <-p.stopped:
 		end["signal"] = s.String()
@@ -414,8 +335,6 @@ type printOutput struct {
 	writer *os.File
 }
 
-// Use an owned pipe so waiting for the main process cannot close the reader
-// before its final output has been delivered.
 func capturePrintOutput(output *io.Writer) (*printOutput, error) {
 	reader, writer, err := os.Pipe()
 	if err != nil {
@@ -445,8 +364,6 @@ func (p *printOutput) close() {
 	}
 }
 
-// A worker left by the main process can keep a writer open indefinitely.
-// Let available output drain, then close the capture pipes and report exit.
 func waitPrint(cmd *exec.Cmd, readers *sync.WaitGroup, outputs ...*printOutput) {
 	_ = cmd.Wait()
 	drained := make(chan struct{})
@@ -466,9 +383,6 @@ func waitPrint(cmd *exec.Cmd, readers *sync.WaitGroup, outputs ...*printOutput) 
 	}
 }
 
-// passOutput copies r to w as it comes, and hands each line to `line`
-// (without its newline, to be read before it returns). A failed write ends
-// it.
 func passOutput(r io.Reader, w io.Writer, line func([]byte)) {
 	buf := make([]byte, 64<<10)
 	lines := lineSplitter{line: line}
@@ -487,9 +401,6 @@ func passOutput(r io.Reader, w io.Writer, line func([]byte)) {
 	}
 }
 
-// lineSplitter hands each line of what it is fed to `line`, without its
-// newline, to be read before it returns; a line longer than printLineMax is
-// skipped.
 type lineSplitter struct {
 	line     func([]byte)
 	pending  []byte
@@ -517,7 +428,6 @@ func (s *lineSplitter) feed(chunk []byte) {
 	}
 }
 
-// flush hands on the last line, which no newline ended.
 func (s *lineSplitter) flush() {
 	if len(s.pending) > 0 && !s.skipping {
 		s.line(s.pending)
@@ -525,25 +435,14 @@ func (s *lineSplitter) flush() {
 	s.pending, s.skipping = s.pending[:0], false
 }
 
-// printWatch reads a run's output, or its transcript, for what it tells:
-// claude's start (its model), the tools it runs and how they end, what it
-// writes between them, and its answer.
 type printWatch struct {
-	tell func(subcommand string, payload map[string]any)
-	// text: the output is the answer itself, as claude prints it in text.
-	text   bool
-	answer string
-	// reply is what claude wrote since its last tool's result: its answer,
-	// once the run is over, as a transcript tells it.
-	reply     string
-	modelTold bool
-	// promptTold: the run's prompt is known, from its arguments or the
-	// user's message claude first answers; one given on stdin, or after
-	// other options than -p, is told from there.
+	tell       func(subcommand string, payload map[string]any)
+	text       bool
+	answer     string
+	reply      string
+	modelTold  bool
 	promptTold bool
-	// answering: claude has begun to answer, so a user's message is no
-	// longer the prompt.
-	answering bool
+	answering  bool
 }
 
 type printEvent struct {
@@ -598,8 +497,6 @@ func (w *printWatch) line(b []byte) {
 		}
 	case "assistant":
 		w.answering = true
-		// A transcript tells no init: its model is its first message's
-		// (not one Claude Code makes up, as "<synthetic>").
 		if model := event.Message.Model; !w.modelTold && model != "" && !strings.HasPrefix(model, "<") {
 			w.modelTold = true
 			init := map[string]any{"model": model}
@@ -621,7 +518,6 @@ func (w *printWatch) line(b []byte) {
 				if said == "" {
 					continue
 				}
-				// Not a message Claude Code makes up (its model "<synthetic>").
 				if !strings.HasPrefix(event.Message.Model, "<") {
 					w.tell("print-text", map[string]any{"text": cut(said, printTextMax)})
 				}
@@ -656,7 +552,6 @@ func (w *printWatch) line(b []byte) {
 	}
 }
 
-// blocksOf is a message's content blocks; none for a content that is text.
 func blocksOf(content json.RawMessage) []printBlock {
 	var blocks []printBlock
 	if json.Unmarshal(content, &blocks) != nil {
@@ -665,7 +560,6 @@ func blocksOf(content json.RawMessage) []printBlock {
 	return blocks
 }
 
-// textOf is a tool result's text: the content itself, or its text blocks.
 func textOf(content json.RawMessage) string {
 	var s string
 	if json.Unmarshal(content, &s) == nil {
@@ -687,8 +581,6 @@ func textOf(content json.RawMessage) string {
 	return strings.Join(texts, "\n")
 }
 
-// trimInput is a tool's input with its long strings cut, as a file's
-// content to write: the app shows what a tool works on, not all it carries.
 func trimInput(input json.RawMessage) any {
 	var fields map[string]any
 	if json.Unmarshal(input, &fields) != nil {
@@ -702,9 +594,6 @@ func trimInput(input json.RawMessage) any {
 	return fields
 }
 
-// endpointHost is the host a base URL names, as "gw.example.com:8443",
-// when it is not `home`, the program's own API: a run whose model is served
-// elsewhere tells where. Nothing else of the URL is told, as a key in it.
 func endpointHost(base, home string) string {
 	base = strings.TrimSpace(base)
 	if base == "" {
@@ -720,7 +609,6 @@ func endpointHost(base, home string) string {
 	return u.Host
 }
 
-// isTerminal is whether w is a terminal.
 func isTerminal(w io.Writer) bool {
 	f, ok := w.(*os.File)
 	if !ok {
@@ -730,7 +618,6 @@ func isTerminal(w io.Writer) bool {
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
-// cut is s to at most max characters.
 func cut(s string, max int) string {
 	if utf8.RuneCountInString(s) <= max {
 		return s
@@ -738,23 +625,17 @@ func cut(s string, max int) string {
 	return string([]rune(s)[:max]) + "…"
 }
 
-// printTeller sends a run's frames to the agent's hook socket, in order and
-// beside the run. A nil teller tells nothing: the run is outside the app.
 type printTeller struct {
 	socket, token, workspaceID, tabID string
 	runID                             string
 	frames                            chan printFrame
 	done                              chan struct{}
 
-	mu sync.Mutex
-	// watch is the run's watch, open from its start until its end.
+	mu    sync.Mutex
 	watch net.Conn
 	ended bool
-	// stop stops the run, when the app answers its watch so.
-	stop func()
+	stop  func()
 
-	// queue guards frames: a transcript followed beside the run may tell
-	// of it after its end.
 	queue  sync.Mutex
 	queued bool
 }
@@ -764,8 +645,6 @@ type printFrame struct {
 	payload    map[string]any
 }
 
-// newPrintTeller is a teller for the app's agent at `socket`; nil when the
-// run has no app to tell.
 func newPrintTeller(socket, token, workspaceID, tabID string) *printTeller {
 	if socket == "" || token == "" || workspaceID == "" || tabID == "" {
 		return nil
@@ -787,8 +666,6 @@ func newPrintTeller(socket, token, workspaceID, tabID string) *printTeller {
 	return t
 }
 
-// tell queues a frame, or drops it when too many wait or the run's end is
-// told.
 func (t *printTeller) tell(subcommand string, payload map[string]any) {
 	if t == nil {
 		return
@@ -805,8 +682,6 @@ func (t *printTeller) tell(subcommand string, payload map[string]any) {
 	}
 }
 
-// finish queues the run's last frame and waits up to `wait` for the frames
-// to be sent, then closes the run's watch.
 func (t *printTeller) finish(subcommand string, payload map[string]any, wait time.Duration) {
 	if t == nil {
 		return
@@ -835,7 +710,6 @@ func (t *printTeller) send() {
 	defer close(t.done)
 	broken := false
 	for frame := range t.frames {
-		// An agent that is not there will not be the next time either.
 		if broken {
 			continue
 		}
@@ -846,10 +720,6 @@ func (t *printTeller) send() {
 	}
 }
 
-// openWatch opens the run's watch, once the app knows of the run: a hook
-// the agent holds open with no answer until its connection closes, which it
-// then tells the app of. The run closes it at its end, after telling it;
-// a run killed first closes it as its process ends.
 func (t *printTeller) openWatch() {
 	conn, err := net.DialTimeout("unix", t.socket, printFrameTimeout)
 	if err != nil {
@@ -876,11 +746,8 @@ func (t *printTeller) openWatch() {
 	go t.awaitStop(conn)
 }
 
-// printStopAnswer is how the app answers a run's watch to stop the run; any
-// other answer, as the agent's when the app goes, leaves it be.
 const printStopAnswer = "stop"
 
-// onStop sets what stops the run when the app asks.
 func (t *printTeller) onStop(stop func()) {
 	if t == nil {
 		return
@@ -890,8 +757,6 @@ func (t *printTeller) onStop(stop func()) {
 	t.stop = stop
 }
 
-// awaitStop reads the app's answer to the run's watch, which it gives only
-// to stop the run.
 func (t *printTeller) awaitStop(conn net.Conn) {
 	resp, err := readNDJSON(conn)
 	if err != nil || resp.Stdout != printStopAnswer {
@@ -906,7 +771,6 @@ func (t *printTeller) awaitStop(conn net.Conn) {
 	}
 }
 
-// closeWatch closes the run's watch, and keeps one from opening after.
 func (t *printTeller) closeWatch() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -917,8 +781,6 @@ func (t *printTeller) closeWatch() {
 	}
 }
 
-// deliver sends one frame as a hook and waits on its answer; false when the
-// agent could not be reached.
 func (t *printTeller) deliver(frame printFrame) bool {
 	payload, err := json.Marshal(frame.payload)
 	if err != nil {

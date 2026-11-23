@@ -7,16 +7,11 @@ import (
 	hostproc "github.com/nexus-code/nexus-code/internal/process"
 )
 
-// processEntry is one row of the system's process table.
 type processEntry struct {
 	ppid int
-	// rss is the resident memory in bytes, zero when it could not be read.
-	rss uint64
+	rss  uint64
 }
 
-// treeRSS sums the resident memory of each root and all its descendants.
-// A language server runs much of its work in children: tsserver under
-// typescript-language-server, for one.
 func treeRSS(table map[int]processEntry, roots []int) map[int]uint64 {
 	children := make(map[int][]int, len(table))
 	for pid, entry := range table {
@@ -47,11 +42,6 @@ func treeRSS(table map[int]processEntry, roots []int) map[int]uint64 {
 	return totals
 }
 
-// parseProcStat reads the parent and the resident pages from the contents
-// of /proc/<pid>/stat. The command name, field 2, is in parentheses and may
-// hold spaces and parentheses itself, so fields are counted from the last
-// ")": field 3 (state) comes first, then field 4 (ppid), and field 24 (rss)
-// is the 22nd.
 func parseProcStat(data []byte, pageSize uint64) (processEntry, bool) {
 	_, suffix := hostproc.SplitPIDStat(data)
 	fields := strings.Fields(string(suffix))
@@ -69,7 +59,6 @@ func parseProcStat(data []byte, pageSize uint64) (processEntry, bool) {
 	return processEntry{ppid: ppid, rss: pages * pageSize}, true
 }
 
-// parsePSOutput reads `ps -A -o pid=,ppid=,rss=`, whose rss is in KiB.
 func parsePSOutput(out []byte) map[int]processEntry {
 	table := map[int]processEntry{}
 	for _, line := range strings.Split(string(out), "\n") {

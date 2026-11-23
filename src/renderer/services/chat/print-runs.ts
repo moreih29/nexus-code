@@ -1,9 +1,3 @@
-// The `claude -p` and `codex exec` runs a Claude or Codex tab's session
-// starts from its commands, as the app records them (main's session
-// activity, by the tab's id): shown in the tab beside its subagents, with
-// their state, tools and answer; and the agent the agent list asks the tab
-// to show.
-
 import { useEffect, useMemo } from "react";
 import type { AgentRun, AgentRunState } from "../../../shared/claude/activity";
 import { ipcCallResult } from "../../ipc/client";
@@ -12,12 +6,10 @@ import { sessionKey } from "../agent-sessions/model";
 import { useSessionActivity } from "../agent-sessions/use-family";
 import type { AgentRow, AgentStatus } from "./panel";
 
-/** What a run's row is keyed by among the tab's agents, apart from Agent calls. */
 const RUN_KEY_PREFIX = "print:";
 
 const NO_RUNS: readonly AgentRun[] = [];
 
-/** The tab's runs, latest first, polled while `enabled`. */
 export function usePrintRuns(
   workspaceId: string,
   tabId: string,
@@ -33,7 +25,6 @@ function statusOf(state: AgentRunState): AgentStatus {
   return state === "permissionPending" ? "running" : state;
 }
 
-/** The tab's runs as rows of its agents, oldest first, as its subagents are. */
 export function printRunRows(runs: readonly AgentRun[]): AgentRow[] {
   return [...runs]
     .sort((a, b) => a.start - b.start)
@@ -51,7 +42,6 @@ export function printRunRows(runs: readonly AgentRun[]): AgentRow[] {
         endedAt: run.end,
         toolCount: run.toolCount,
         currentTool: tool ? (tool.target ? `${tool.name} ${tool.target}` : tool.name) : undefined,
-        // While it runs, what it wrote last.
         lastText: run.answer ?? run.messages?.[run.messages.length - 1]?.text,
         prompt: run.prompt,
         teammate: false,
@@ -60,19 +50,11 @@ export function printRunRows(runs: readonly AgentRun[]): AgentRow[] {
     });
 }
 
-/**
- * The key of an agent the app's hooks tell among the tab's agents: a run by
- * its id, a subagent by its task, whose id is the hooks' agent id.
- */
 export function agentRowKey(rows: readonly AgentRow[], agent: AgentRef): string | undefined {
   const key = agent.kind === "print" ? `${RUN_KEY_PREFIX}${agent.id}` : undefined;
   return rows.find((row) => (key ? row.toolUseId === key : row.taskId === agent.id))?.toolUseId;
 }
 
-/**
- * Shows the agent the agent list asked the tab to show, once it is among
- * the tab's agents (askToShowAgent).
- */
 export function useAgentAsk(
   tabId: string,
   rows: readonly AgentRow[],
@@ -92,7 +74,6 @@ function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-/** Stops a running run, as an interrupt would; false when it no longer can be. */
 export async function stopPrintRun(
   workspaceId: string,
   tabId: string,

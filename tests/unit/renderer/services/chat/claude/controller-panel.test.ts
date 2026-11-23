@@ -1,9 +1,3 @@
-/**
- * What the side panel asks Claude for: its MCP servers only once the
- * program's initialize ended, as asked before it they are not up yet and
- * come back as none. The real ipc client is spread under a spy, so later
- * files keep its other exports.
- */
 import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 
 const sent: Record<string, unknown>[] = [];
@@ -31,7 +25,6 @@ type Controller = InstanceType<typeof ChatController>;
 let seq = 0;
 const live: Controller[] = [];
 
-/** A tab whose program runs, its initialize still going until `ended` is called. */
 function starting(): { c: Controller; ended: () => void } {
   const c = new ChatController({ workspaceId: "ws-panel", tabId: `t${++seq}`, cwd: "/p" }, {});
   useChatStore.getState().update(c.key, (prev) => ({
@@ -60,7 +53,6 @@ const settle = async () => {
 
 let lineSeq = 0;
 
-/** Answers the last mcp_status asked, as the program does, with `servers`. */
 function answerMcp(c: Controller, servers: unknown[]): void {
   const request = sent
     .filter((m) => m.type === "control_request")
@@ -114,7 +106,6 @@ describe("the side panel's MCP servers", () => {
     await settle();
     const count = () => asked().filter((s) => s === "mcp_status").length;
     expect(count()).toBe(1);
-    // Still coming up: none, again and again, till the asks run out.
     for (let i = 2; i <= 5; i++) {
       answerMcp(c, []);
       await settle();
@@ -152,7 +143,6 @@ describe("the side panel's plan usage", () => {
     c.refreshPanel(["usage"]);
     await settle();
     expect(asked()).not.toContain("get_usage");
-    // As the initialize's end does: no longer pending, then done.
     init.initPending = false;
     ended();
     await settle();

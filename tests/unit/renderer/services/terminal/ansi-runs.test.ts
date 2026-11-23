@@ -1,6 +1,3 @@
-/**
- * Another computer's terminal text read into styled runs, as the phone reads it.
- */
 import { describe, expect, test } from "bun:test";
 import {
   paletteColor,

@@ -1,10 +1,3 @@
-/**
- * BrowserEmptyState — shown when the browser tab has no active URL.
- *
- * Displayed when `lastUrl` is empty (freshly created tab before any navigation).
- * Renders a centered Globe icon with instructional copy. The URL bar above
- * receives auto-focus so the user can type immediately.
- */
 import { Globe } from "lucide-react";
 import { useTranslation } from "react-i18next";
 

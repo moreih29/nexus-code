@@ -1,25 +1,5 @@
-/**
- * Shared relative-time formatter for git picker rows and history lists.
- *
- * Accepts either an ISO 8601 date string or a Unix millisecond timestamp.
- * The optional `now` parameter defaults to `Date.now()` and exists for
- * deterministic unit testing. Labels come from `files:git.relativeTime`.
- */
-
 import i18next from "i18next";
 
-/**
- * Returns a compact human-readable relative time label.
- *
- * Examples (English):
- *   "just now"  — less than 60 seconds
- *   "5m ago"    — minutes
- *   "3h ago"    — hours
- *   "2d ago"    — days (up to 30)
- *   "4mo ago"   — months
- *   "1y ago"    — years
- *   "unknown time" — unparseable input
- */
 export function relativeTime(
   isoDateOrTimestampMs: string | number,
   now: number = Date.now(),

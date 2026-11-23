@@ -9,7 +9,6 @@ export function isPeerWindowsPath(path: string): boolean {
   return isDrivePath(path) || isUncPath(path);
 }
 
-/** A slash-separated suffix within an absolute peer folder, or null outside it. */
 export function peerPathRelativeTo(path: string, folder: string): string | null {
   const windows = isPeerWindowsPath(folder);
   if (isPeerWindowsPath(path) !== windows) return null;
@@ -31,7 +30,6 @@ export function peerPathRelativeTo(path: string, folder: string): string | null 
   return matches ? file.slice(parent.length).join("/") : null;
 }
 
-/** Key for tab and tree identity on the serving filesystem. */
 export function peerPathKey(path: string): string {
   return isPeerWindowsPath(path)
     ? path.replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase()
@@ -48,7 +46,6 @@ export function peerRelativePath(path: string, root: string): string {
   return directory + fileName;
 }
 
-/** Search results use slash-separated relative paths, including from Windows peers. */
 export function joinPeerPath(folder: string, relative: string): string {
   const unc = isUncPath(folder);
   const root = unc ? folder.replaceAll("\\", "/") : toSlashPath(folder);
@@ -56,7 +53,6 @@ export function joinPeerPath(folder: string, relative: string): string {
   return unc ? path.replaceAll("/", "\\") : toNativeDrivePath(path);
 }
 
-/** An RPC result names a file under the given workspace. */
 export function peerSearchResultPath(root: string, relative: string): string | null {
   if (
     !relative ||

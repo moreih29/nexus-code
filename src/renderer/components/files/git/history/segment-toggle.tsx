@@ -1,6 +1,3 @@
-/**
- * Segment toggle for the Source Control panel's Changes and History siblings.
- */
 import { useTranslation } from "react-i18next";
 import type { GitPanelSegment } from "../../../../../shared/git/types";
 
@@ -10,7 +7,6 @@ interface HistorySegmentToggleProps {
   onChange: (segment: GitPanelSegment) => void;
 }
 
-/** Renders the `[Changes][History]` segment control. */
 export function HistorySegmentToggle({
   segment,
   disabled = false,
@@ -41,7 +37,6 @@ export function HistorySegmentToggle({
   );
 }
 
-/** Renders one tab-style segment button. */
 function SegmentButton({
   label,
   selected,

@@ -1,45 +1,3 @@
-// status-bar.tsx — Per-workspace status bar.
-//
-// Mounted at the bottom of each WorkspacePanel (not as a global app-wide bar).
-// Height h-6 (24px). Receives the workspaceId of the panel it lives in.
-//
-// Segment layout — unified across local and SSH workspaces:
-//   LEFT:  git branch · changes · error count · warning count
-//   RIGHT: git in-flight operation indicator · how busy the workspace's
-//          host is (system-stats.tsx) · the ports the terminals'
-//          programs listen on (ports-segment.tsx) · the active editor's
-//          encoding (encoding-segment.tsx) and language server
-//          (lsp-status-segment.tsx)
-//
-// The changes segment renders inline with the branch button (separate click
-// target) and shows only the non-zero tokens; the whole segment disappears in
-// a clean tree. Clicking it switches the files panel to Source Control —
-// consistent with how diagnostic counts open their popover.
-//
-// SSH connection state is conveyed by the sidebar's ConnectionStatusDot, so
-// the status bar intentionally omits the account@host segment to keep a
-// single layout for both local and SSH workspaces.
-//
-// Data sources (all reactive, never stale):
-//   - workspaceId             → prop (required)
-//   - git session             → useGitSession(workspaceId)
-//   - Monaco diagnostics      → useDiagnosticsStore (per-workspace via selector)
-//
-// Git session is loaded eagerly here (loadInitial is idempotent) so the
-// branch segment populates without requiring the user to open the Git panel.
-// statusChanged / repoInfoChanged broadcasts keep branchInfo live afterward.
-//
-// Diagnostic segments:
-//   - VSCode-style glyph + count, no background fill. Color (red/amber) is
-//     applied to icon + count text only; zero-count segments are dimmed.
-//   - Clicking a non-zero segment opens a popover listing each diagnostic
-//     grouped by file. Clicking a row opens the file at that line.
-//
-// Design:
-//   - status.bar.* tokens via CSS custom properties (design.md §9)
-//   - redundant encoding for errors/warnings: color + glyph (design.md §7)
-//   - neutral / dimmed render when repo absent
-
 import { AlertTriangle, GitBranch, Loader2, XCircle } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -58,53 +16,33 @@ import { PortsSegment } from "./ports-segment";
 import { branchLabel, ChangeCountsSegment, NoGitSegment, StatusBarItem } from "./status-bar-items";
 import { STATS_MIN_WIDTH, SystemStatsSegment, useWiderThan } from "./system-stats";
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
-/** The bar's width from which it lists the ports the terminals listen on. */
 const PORTS_MIN_WIDTH = 440;
-/** The bar's width from which it shows the encoding and language server. */
 const EDITOR_SEGMENTS_MIN_WIDTH = 300;
 
 interface StatusBarProps {
   workspaceId: string;
 }
 
-// ---------------------------------------------------------------------------
-// StatusBar root
-// ---------------------------------------------------------------------------
-
-// Memo: its panel renders as the view switches, which changes nothing here.
 export const StatusBar = memo(function StatusBar({
   workspaceId,
 }: StatusBarProps): React.JSX.Element {
   const { t } = useTranslation();
   const loadInitial = useGitStore((s) => s.loadInitial);
 
-  // Git session for this workspace — undefined until loadInitial completes.
   const gitSession = useGitSession(workspaceId);
 
   const { errorCount, warningCount } = useDiagnosticsStore((s) =>
     selectWorkspaceDiagnostics(s, workspaceId),
   );
 
-  // Eagerly load the git session so the branch segment fills in without the
-  // user opening the Git panel. loadInitial short-circuits when the session
-  // already exists, so re-running on workspaceId changes is safe.
   useEffect(() => {
     void loadInitial(workspaceId);
   }, [loadInitial, workspaceId]);
 
   const isRepo = gitSession?.repoInfo.kind === "repo";
   const branchInfo = isRepo ? (gitSession?.branchInfo ?? null) : null;
-  // Status groups feed the changes segment. Null when the workspace is
-  // not a repo or the first status fetch hasn't landed yet — the segment
-  // gracefully renders nothing in that case.
   const status = isRepo ? (gitSession?.status ?? null) : null;
   const inFlightOp = gitSession?.inFlightOp ?? null;
-  // A narrow bar leaves the host's numbers out, before they push the
-  // branch and the diagnostics out of sight.
   const barRef = useRef<HTMLDivElement>(null);
   const roomForStats = useWiderThan(barRef, STATS_MIN_WIDTH);
   const roomForPorts = useWiderThan(barRef, PORTS_MIN_WIDTH);
@@ -113,43 +51,27 @@ export const StatusBar = memo(function StatusBar({
   return (
     <div
       ref={barRef}
-      // No overflow-hidden — diagnostic popovers anchor at `bottom-full` and
-      // extend upward into the editor area. The WorkspacePanel root keeps
-      // overflow-hidden to bound visual leaks within the panel, so removing
-      // it here just unclips the popover without losing layout containment.
-      // Each segment already truncates its own text, so the row stays sized.
       className="relative flex shrink-0 h-6 items-center select-none"
       style={{
-        // No backgroundColor — the status bar is transparent so the window
-        // vibrancy shows through (whole-window translucency). It is the
-        // editor island's footer; the island surface shows behind it.
         color: "var(--status-bar-fg)",
       }}
       role="status"
       aria-label={t("statusBar.aria")}
     >
-      {/* LEFT segments */}
       <div className="flex items-center flex-1 min-w-0">
-        {/* Git branch — clickable when a repo is present (opens the switch
-            branch picker); dimmed "no git" placeholder otherwise. */}
         <BranchSegment
           workspaceId={workspaceId}
           branchInfo={branchInfo}
           gitMissing={gitSession?.repoInfo.kind === "git-missing"}
         />
 
-        {/* Branch changes (+ staged · ~ modified · ? untracked · ! conflict).
-            Renders nothing when the tree is clean or status hasn't loaded. */}
         <ChangesSegment workspaceId={workspaceId} status={status} />
 
-        {/* Error count — clickable when count > 0, opens a popover list */}
         <DiagnosticSegment kind="error" count={errorCount} workspaceId={workspaceId} />
 
-        {/* Warning count — same treatment as errors */}
         <DiagnosticSegment kind="warning" count={warningCount} workspaceId={workspaceId} />
       </div>
 
-      {/* RIGHT segments */}
       <div className="flex items-center shrink-0 whitespace-nowrap">
         {inFlightOp && <InFlightOpSegment op={inFlightOp} />}
         {roomForStats && <SystemStatsSegment workspaceId={workspaceId} />}
@@ -160,16 +82,6 @@ export const StatusBar = memo(function StatusBar({
     </div>
   );
 });
-
-// ---------------------------------------------------------------------------
-// Branch segment
-//
-// When the workspace is a git repo with a known branch the segment is a
-// button that opens the existing BranchPicker (switch mode = checkout).
-// When the workspace has no repo (or repo is still detecting), the segment
-// renders as a dimmed, non-interactive "no git" placeholder, or "git not
-// installed" when the workspace's host has no Git.
-// ---------------------------------------------------------------------------
 
 export function BranchSegment({
   workspaceId,
@@ -203,9 +115,6 @@ export function BranchSegment({
         <GitBranch className="size-3 shrink-0" aria-hidden="true" />
         <span className="truncate max-w-40">{label}</span>
       </button>
-      {/* BranchPicker is controlled; mounting it always while keeping `open`
-          off lets the picker's internal source/state initialise lazily on
-          first open without re-creating dialogs each toggle. */}
       <BranchPicker
         workspaceId={workspaceId}
         open={pickerOpen}
@@ -214,29 +123,6 @@ export function BranchSegment({
     </>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Changes segment
-//
-// Renders the branch's working state as colored count tokens next to the
-// branch button, each an icon and a count like the error / warning segments
-// beside it (a bare "?3" read as a question, not as three new files):
-//
-//   FileCheck   staged    — index has N changes ready to commit       (success hue)
-//   FileDiff    modified  — working tree has N unstaged modify/delete (warning hue)
-//   FilePlus    untracked — N new files git does not yet know about   (info hue)
-//   FileWarning conflict  — N files in merge conflict (rendered FIRST) (error hue)
-//
-// Empty tokens are omitted (0 count → no chip), and a fully clean tree
-// hides the whole segment so the status bar stays quiet during steady
-// state. Conflict tokens lead so position itself signals priority
-// (design.md §7 redundant encoding: color + position + icon).
-//
-// Click target: opens the Source Control panel via setFilesPanelMode. This
-// matches diagnostic segment semantics — counts are summaries; the panel
-// is where action happens. The whole segment is a single button so the
-// click area is comfortable even on a 24px-tall bar.
-// ---------------------------------------------------------------------------
 
 function ChangesSegment({
   workspaceId,
@@ -260,19 +146,6 @@ function ChangesSegment({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Diagnostic (error / warning) segment
-//
-// Visual: glyph + count, color (red/amber) applied to the icon and number
-// only — no background fill. Zero-count segments are dimmed and not
-// interactive (no popover to show). Color tokens reuse
-// --status-bar-{kind}-bg as the glyph foreground; the "bg" name predates
-// the glyph-only style and refers to the saturated hue, not a fill role.
-//
-// Interaction: clicking a non-zero segment opens a popover listing the
-// diagnostics grouped by file.
-// ---------------------------------------------------------------------------
-
 function DiagnosticSegment({
   kind,
   count,
@@ -293,9 +166,6 @@ function DiagnosticSegment({
   const [open, setOpen] = useState(false);
   const disabled = count === 0;
 
-  // If the count drops to zero while the popover is open, close it. The
-  // popover itself also self-closes when its list goes empty, but driving
-  // the trigger state here keeps aria-expanded honest.
   useEffect(() => {
     if (disabled && open) setOpen(false);
   }, [disabled, open]);
@@ -306,8 +176,6 @@ function DiagnosticSegment({
       onOpenChange={setOpen}
       label={isError ? t("diagnostics.errors_dialog") : t("diagnostics.warnings_dialog")}
       align="start"
-      // Wide enough for messages, capped so long workspaces still leave
-      // breathing room on the right.
       className="w-[480px] max-w-[min(480px,calc(100vw-2rem))] max-h-[min(360px,60vh)]"
       trigger={
         <button
@@ -318,19 +186,13 @@ function DiagnosticSegment({
           className={cn(
             "inline-flex shrink-0 items-center gap-1 whitespace-nowrap h-full px-2",
             "text-app-ui-sm font-sans leading-none",
-            // Hover/focus affordance only when interactive.
             !disabled &&
               "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
-            // Dim the entire segment to muted-foreground when there's nothing
-            // to look at; keep the segment visible so the user can read "0".
             disabled && "text-muted-foreground/70 cursor-default",
           )}
         >
           <Icon
             className="size-3 shrink-0"
-            // Glyph color: keep the severity hue even at count=0 so the icon
-            // reads as "error slot" / "warning slot"; dim via opacity rather
-            // than swapping color so the meaning stays consistent.
             style={{ color: glyphColor, opacity: disabled ? 0.45 : 1 }}
             aria-hidden="true"
           />
@@ -342,10 +204,6 @@ function DiagnosticSegment({
     </Popover>
   );
 }
-
-// ---------------------------------------------------------------------------
-// In-flight git operation segment (right side)
-// ---------------------------------------------------------------------------
 
 function InFlightOpSegment({ op }: { op: GitInFlightOp }): React.JSX.Element {
   const { t } = useTranslation();

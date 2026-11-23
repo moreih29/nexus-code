@@ -1,9 +1,3 @@
-/**
- * The card an agent's request shows in: a command shown whole, what "always
- * allow" would add, the questions going on to the next, and where the
- * keyboard goes while a request waits.
- */
-
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import i18next from "i18next";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -49,7 +43,6 @@ describe("a tool's request", () => {
     expect(text).toContain("echo hi\ntouch made.txt");
     expect(html).toContain('title="echo hi\ntouch made.txt"');
     expect(html).toContain("whitespace-pre-wrap");
-    // One line still fits its row.
     expect(render({ input: { command: "ls" } })).not.toContain("whitespace-pre-wrap");
   });
 });
@@ -111,7 +104,6 @@ describe("scopesOf", () => {
 });
 
 describe("focusChatTab", () => {
-  /** A key as the page sends it; Bun has no KeyboardEvent of its own. */
   class Key extends Event {
     readonly key: string;
     readonly isComposing: boolean;
@@ -132,10 +124,6 @@ describe("focusChatTab", () => {
     if (!had) delete g.KeyboardEvent;
   });
 
-  /**
-   * A chat tab with its message box, and a request waiting when `waiting`,
-   * whose card takes Enter; what took the focus and the keys the card got.
-   */
   function chatTab(waiting: boolean) {
     const focused: string[] = [];
     const got: string[] = [];
@@ -167,7 +155,6 @@ describe("focusChatTab", () => {
   it("keeps the keyboard in the message box and gives a waiting request its keys", () => {
     const { tab, box, focused, got, press } = chatTab(true);
     focusChatTab(tab);
-    // A text field, where an IME stays on.
     expect(focused).toEqual(["box"]);
     expect(box.dataset.cardKeys).toBeDefined();
     expect(press("Enter")).toBe(true);
@@ -178,7 +165,6 @@ describe("focusChatTab", () => {
   it("gives the box back its keys once the user types in it", () => {
     const { tab, box, got, press } = chatTab(true);
     focusChatTab(tab);
-    // An IME's keys are its own, and what it types is the user's.
     press("Process", 229);
     box.dispatchEvent(new Event("input"));
     expect(box.dataset.cardKeys).toBeUndefined();

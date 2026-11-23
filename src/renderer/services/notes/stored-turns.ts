@@ -26,8 +26,6 @@ export function storedTurnTarget(
 ): StoredTurnTarget | undefined {
   if (target.kind !== "open" && target.kind !== "moved") return;
   if (session && (session.hasTurns || session.state !== "idle")) return;
-  // Use the restored tab's current ID and profile. A link may remember a session
-  // from before the user cleared or switched the tab.
   const {
     workspaceId,
     cwd,
@@ -111,7 +109,6 @@ function sessionKey([agent, , , profileId, sessionId]: StoredTurnTarget) {
   return JSON.stringify([agent, sessionId, profileId]);
 }
 
-/** Checks saved transcripts while leaving the actual conversation tabs cold. */
 export async function readStoredTurns(targets: readonly StoredTurnTarget[]): Promise<Set<string>> {
   const now = Date.now();
   const missing = new Map<string, StoredTurnTarget>();
@@ -144,7 +141,6 @@ export async function readStoredTurns(targets: readonly StoredTurnTarget[]): Pro
   return found;
 }
 
-/** Loads enough history to seed the answer and its turn's file count. */
 export async function readStoredAnswer(
   target: StoredTurnTarget,
 ): Promise<NoteLastAnswer | undefined> {

@@ -43,7 +43,6 @@ export interface NotesSummaryOptions {
   onRemoved: (target: SummaryTarget, origin: string) => void;
 }
 
-/** Owns the queue across all note locations and renderer windows in this main process. */
 export class NotesSummary {
   private readonly ready: Promise<void>;
   private tail = Promise.resolve();
@@ -217,7 +216,6 @@ export class NotesSummary {
       const origin = summaryOrigin(recordingId);
       const applied = note.doc.content?.filter((block) => block.attrs?.nexusOrigin === origin);
       if (applied?.length) {
-        // A prior run may have written the document just before the process quit.
         const todos = applied.find((block) => block.type === "taskList")?.content?.length ?? 0;
         await finish(done(Math.min(todos, 15)));
         return;

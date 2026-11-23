@@ -1,10 +1,3 @@
-// New Task dialog — a name, the agent the task opens with (a Claude or Codex
-// tab, or "Terminal only": a shell with no agent), and the first prompt for
-// that agent.
-//
-// Mounted once in GlobalRoots; `useTaskUIStore.openNewTask(parentId)` opens
-// it. Failures stay in the dialog so the name can be fixed and sent again.
-
 import i18next from "i18next";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -27,7 +20,6 @@ import { taskAgentOptions } from "./task-agent-options";
 
 const EMPTY_VALUES: FormDialogValues = { name: "", prompt: "" };
 
-/** The dialog's fields; no prompt for a terminal, which runs no agent. */
 export function newTaskFields(agent: TaskAgent): readonly FormDialogField[] {
   const t = i18next.t.bind(i18next);
   const name: FormDialogField = {
@@ -51,7 +43,6 @@ export function newTaskFields(agent: TaskAgent): readonly FormDialogField[] {
   ];
 }
 
-/** The message for a failed create; the raw one for errors without copy. */
 export function taskFailureMessage(failure: TaskFailure, workspaceName: string): string {
   const t = i18next.t.bind(i18next);
   switch (failure.kind) {
@@ -145,8 +136,6 @@ export function NewTaskDialogRoot(): React.JSX.Element {
               label={i18next.t("task.agent_label")}
               disabled={busy}
             />
-            {/* What the pick opens — and, for Terminal only, why the prompt
-                field went away. */}
             <p className="text-app-ui-sm text-muted-foreground">
               {i18next.t(`task.agent_hints.${agent}`)}
             </p>

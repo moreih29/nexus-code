@@ -1,6 +1,3 @@
-// LSP provider registration + diagnostics dispatch.
-// Extracted from EditorView so providers are registered once per workspace, not per editor instance.
-
 import type * as Monaco from "monaco-editor";
 import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
 import { WORKSPACE_URI_SCHEME, workspaceUriFor } from "../../../../shared/fs/workspace-uri";
@@ -73,12 +70,6 @@ function registerDiagnosticsListener(monaco: typeof Monaco): void {
   if (diagnosticsUnlisten) return;
 
   diagnosticsUnlisten = ipcListen("lsp", "diagnostics", (args) => {
-    // args.uri arrives in `file://` form (what the LSP server emitted).
-    // Monaco models are keyed by the workspace-scoped cacheUri
-    // (`nexus-ws://${workspaceId}/…`) so we have to reconstruct that
-    // identifier from the (workspaceId, uri) pair before looking the
-    // model up. Two workspaces holding the same physical file each have
-    // their own model — this is exactly the disambiguation step.
     const absolutePath = fileUriToAbsolutePath(args.uri);
     if (absolutePath === null) return;
     const cacheUri = workspaceUriFor(args.workspaceId, absolutePath);
@@ -95,10 +86,6 @@ function registerDiagnosticsListener(monaco: typeof Monaco): void {
   });
 }
 
-/**
- * Drops the diagnostics a workspace's `languageId` server published: once
- * it is turned off or failed for good, no server will replace them.
- */
 export function clearLspDiagnostics(workspaceId: string, languageId: string): void {
   const monaco = getMonacoRef();
   if (!monaco) return;
@@ -109,11 +96,6 @@ export function clearLspDiagnostics(workspaceId: string, languageId: string): vo
   }
 }
 
-/**
- * Drops a closing file's diagnostics. Monaco keeps markers by URI past the
- * model, and the file reopened would show them until its server published
- * again, or for good when it does not (a file outside the project).
- */
 function registerModelDisposeListener(monaco: typeof Monaco): void {
   if (modelDisposeListener) return;
 
@@ -125,14 +107,6 @@ function registerModelDisposeListener(monaco: typeof Monaco): void {
 function registerWorkspaceResetListener(): void {
   if (workspaceResetUnlisten) return;
 
-  // The main-side LSP host emits `workspaceReset` when it stops a
-  // workspace's servers (LRU cap, crash, a setting). We mirror that into
-  // the renderer's model cache so every entry's `lspOpened` is cleared;
-  // the user's next interaction (typing, or workspace activation)
-  // triggers a fresh didOpen and respawns the LSP. Without this, the
-  // entries would think the file is still open server-side and silently
-  // land didChange notifications in the void. A restart (`reopen`)
-  // reopens the active workspace's documents at once.
   workspaceResetUnlisten = ipcListen("lsp", "workspaceReset", (args) => {
     resetLspStateForWorkspace(args.workspaceId, args.languageId);
     if (args.reopen && useActiveStore.getState().activeWorkspaceId === args.workspaceId) {
@@ -156,16 +130,10 @@ function registerApplyEditListener(monaco: typeof Monaco): void {
       }
     })();
 
-    // Fire-and-forget: applyEditResult is a one-shot ack; LSP server handles timeouts.
     void ipcCallResult("lsp", "applyEditResult", { requestId: args.requestId, result });
   });
 }
 
-/**
- * Inject the pre-acquire closure produced by the installation seam
- * (monaco-compensations.ts / index.ts). Must be called before any
- * `ensureProvidersFor` invocation that should trigger pre-acquisition.
- */
 export function setPreAcquireFn(fn: Parameters<typeof setPreAcquireFnInRegistry>[0]): void {
   setPreAcquireFnInRegistry(fn);
 }
@@ -178,8 +146,6 @@ export function initializeLspBridge(monaco: typeof Monaco): void {
   registerWorkspaceResetListener();
 }
 
-// Re-exported from leaf modules so existing callers that import these from
-// bridge continue to work without changes.
 export {
   ensureProvidersFor,
   fetchDocumentSymbols,

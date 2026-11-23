@@ -70,7 +70,6 @@ describe("a message's images in the draft a rewind or fork leaves here", () => {
       { mediaType: "image/png", data: "png0" },
       { mediaType: "image/jpeg", data: "here" },
     ]);
-    // As large as it sends one: no thumbnail's edge.
     expect(calls[0]?.args).toEqual({ ...chat, ref: ref(0) });
   });
 

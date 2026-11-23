@@ -10,8 +10,6 @@ import (
 	"testing"
 )
 
-// agentSockDir returns a directory short enough for socket paths; t.TempDir
-// on macOS can exceed sun_path (see shortSockDir in agentrun_test.go).
 func agentSockDir(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "nxa-")
@@ -22,7 +20,6 @@ func agentSockDir(t *testing.T) string {
 	return dir
 }
 
-// listenAgent stands in for a forwarded ssh-agent socket.
 func listenAgent(t *testing.T, path string) {
 	t.Helper()
 	ln, err := net.Listen("unix", path)
@@ -42,7 +39,6 @@ func listenAgent(t *testing.T, path string) {
 	}()
 }
 
-// dialAgent reports which agent answered at path.
 func dialAgent(t *testing.T, path string) string {
 	t.Helper()
 	conn, err := net.Dial("unix", path)
@@ -55,8 +51,6 @@ func dialAgent(t *testing.T, path string) string {
 	return string(buf[:n])
 }
 
-// A reconnect brings a new forwarded socket; processes that kept the link
-// path must reach the new agent, not the dead one.
 func TestPointAuthSockFollowsTheLatestConnection(t *testing.T) {
 	dir := agentSockDir(t)
 	first, second := filepath.Join(dir, "a1"), filepath.Join(dir, "a2")

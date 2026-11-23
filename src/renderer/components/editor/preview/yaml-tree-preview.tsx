@@ -1,6 +1,3 @@
-// YamlTreePreview — a YAML file as the tree a JSON file shows. Its reader
-// (the `yaml` library) loads the first time one is shown.
-
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { JsonTreePreview, type TreeFormat } from "./json-tree-preview";
@@ -29,7 +26,6 @@ export function YamlTreePreview({ source }: { source: string }) {
         if (live) setFormat(next);
       },
       () => {
-        // A later preview tries again.
         loading = null;
         if (live) setFailed(true);
       },

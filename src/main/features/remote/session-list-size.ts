@@ -29,7 +29,6 @@ function withOpenerDetail<T extends SessionsList>(list: T, detail: OpenerDetail)
   };
 }
 
-/** Choose the richest listing for the actual outbound message, up to the watch's current detail. */
 function fitListing<T extends SessionsList>(
   list: T,
   fits: (candidate: T) => boolean,

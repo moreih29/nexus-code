@@ -105,7 +105,6 @@ test("reads saved Claude pages and exact Codex threads without counting metadata
     ]);
     expect(result).toEqual(new Set([JSON.stringify(targets[0]), JSON.stringify(targets[2])]));
     expect(concurrent).toEqual(result);
-    // A restored workspace or folder may have moved while keeping the same session.
     const moved = targets.map(
       ([agent, , , profile, id]) => [agent, "moved-workspace", "/moved", profile, id] as const,
     );

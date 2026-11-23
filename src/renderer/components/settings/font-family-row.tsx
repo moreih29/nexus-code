@@ -1,14 +1,3 @@
-// src/renderer/components/settings/font-family-row.tsx — Font family setting.
-//
-// The editor, the terminal and the chat tabs pick their font the same way: a
-// Select of the presets (the bundled faces), the default, and "Other…", which
-// adds a field that finds an installed font as its name is typed
-// (FontCombobox). A font picked so is installed; one that is not (removed
-// since, or set by name where the fonts cannot be listed) gets a line saying
-// so, as the browser silently falls back.
-//
-// Each keeps its own font in its own store; `scope` names its strings.
-
 import { useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { checkFontAvailable } from "../../services/editor/runtime/font-availability";
@@ -16,10 +5,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { FontCombobox } from "./font-combobox";
 import { SettingsRow } from "./section";
 
-// Sentinel for "use the platform fallback (no override)". Stored as the
-// explicit "__system__" string in the Select UI because Radix Select reserves
-// the empty string for "no value selected". Mapped back to undefined at the
-// boundary.
 const FAMILY_SYSTEM_VALUE = "__system__";
 const FAMILY_CUSTOM_VALUE = "__custom__";
 
@@ -28,7 +13,6 @@ export interface FontPreset {
   readonly label: string;
 }
 
-/** The bundled monospace faces, the code's presets. */
 const MONO_PRESETS: readonly FontPreset[] = [
   { value: "JetBrains Mono Nerd Font", label: "JetBrains Mono" },
   { value: "D2CodingLigature Nerd Font", label: "D2Coding" },
@@ -37,10 +21,8 @@ const MONO_PRESETS: readonly FontPreset[] = [
 
 interface FontFamilyRowProps {
   scope: "editor" | "terminal" | "chat";
-  /** The family chosen; undefined for the default. */
   family: string | undefined;
   setFamily: (family: string | undefined) => void;
-  /** The fonts offered by name; the bundled monospace faces unless given. */
   presets?: readonly FontPreset[];
 }
 
@@ -67,12 +49,8 @@ export function FontFamilyRow({
   const [selected, setSelected] = useState<string>(
     isCustom ? FAMILY_CUSTOM_VALUE : family && family !== "" ? family : FAMILY_SYSTEM_VALUE,
   );
-  // Picking "Other…" puts the keyboard in its field, not back on the Select.
   const toCustom = useRef(false);
 
-  // Whether the font picked by name is installed: false when the browser
-  // falls back, said in strong words so the fallback is not taken for the
-  // font. Checked as it is picked, not per key.
   const available = useMemo(
     () => (selected === FAMILY_CUSTOM_VALUE && isCustom ? checkFontAvailable(family ?? "") : null),
     [selected, isCustom, family],

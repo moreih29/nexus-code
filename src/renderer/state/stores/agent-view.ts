@@ -1,11 +1,3 @@
-/**
- * The agent view: whether the window shows it rather than the workspaces,
- * its panels, the ended agents they show, the order of its agents and other
- * computers, and how its list groups agents and which groups are folded.
- * All persist in AppState, the panels a moment after they settle, so
- * dragging a divider writes once.
- */
-
 import { create } from "zustand";
 import { isRemoteFileKey, parseRemoteFileKey } from "../../../shared/fs/remote-file-key";
 import { createLogger } from "../../../shared/log/renderer";
@@ -46,7 +38,6 @@ import { observeRemoteAccount, remoteAccountKey } from "../../services/remote/ac
 
 const log = createLogger("agent-view");
 
-/** How the list groups its agents: by their state, or by the workspace they run in. */
 export type AgentListGrouping = "status" | "workspace";
 
 export const AGENT_LIST_GROUPING_DEFAULT: AgentListGrouping = "status";
@@ -66,40 +57,29 @@ const NO_REMOTE_FILES: ReadonlyMap<string, RemoteFile> = new Map();
 
 interface AgentViewState extends AgentLayout {
   mode: AgentViewMode;
-  /** The agent the pointer is over in the list, whose panel lights up. */
   hoveredKey: string | null;
-  /** The terminal agents the panels show ended (services/agent-view/ended), by session key. */
   ended: ReadonlyMap<string, EndedAgent>;
   remoteFiles: ReadonlyMap<string, RemoteFile>;
-  /** The order the list's agents were dragged into (services/agent-view/order). */
   order: AgentOrder;
-  /** The order shared by online and offline computers in the list. */
   peerOrder: PeerOrder | undefined;
-  /** The current remote account, once known. */
   peerOrderAccount: string | null;
-  /** How the list groups its agents. */
   grouping: AgentListGrouping;
-  /** The list's folded groups, keyed by status, workspace, family, peer or peer-ws. */
   folded: ReadonlySet<string>;
   remoteSeen: RemoteSeen | undefined;
   updateRemoteSeen(accountKey: string, changes: ReadonlyMap<string, RemoteSeenResult | null>): void;
-  /** Restores what was stored, keeping only the agents `alive` knows. */
   hydrate(snapshot: AgentViewSnapshot | undefined, alive: (key: string) => boolean): void;
   setMode(mode: AgentViewMode): void;
   toggleMode(): void;
-  /** Applies a change to the panels (see services/agent-view/layout). */
   update(change: (layout: AgentLayout) => AgentLayout): void;
   placeRemoteFile(key: string, fromKey: string, file: RemoteFile): void;
   updateRemoteFile(key: string, file: Partial<RemoteFile>): void;
   setHovered(key: string | null): void;
   setEnded(ended: ReadonlyMap<string, EndedAgent>): void;
-  /** The order of a workspace's (or task's) agents in the list, every one of them. */
   setOrder(workspaceId: string, keys: readonly string[]): void;
   pruneOrder(alive: (key: string) => boolean): void;
   setPeerOrderAccount(accountKey: string | null): void;
   setPeerOrder(accountKey: string, ids: readonly string[]): void;
   setGrouping(grouping: AgentListGrouping): void;
-  /** Folds one of the list's groups, or opens it again. */
   toggleFolded(group: string): void;
 }
 
@@ -169,7 +149,6 @@ async function writeAgentView(): Promise<boolean> {
   return false;
 }
 
-/** Flushes the panel layout before the window closes. */
 export async function flushAgentViewPersistence(): Promise<boolean> {
   cancelPersistTimer();
   while (inFlight || pending) {
@@ -361,19 +340,16 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
   },
 }));
 
-/** Whether the window shows the agent view. */
 export function isAgentViewShown(): boolean {
   return useAgentViewStore.getState().mode === "agents";
 }
 
-/** Clears another account's order even while the agent view is closed. */
 export function startAgentViewPeerOrderSync(): () => void {
   return observeRemoteAccount((account) => {
     useAgentViewStore.getState().setPeerOrderAccount(remoteAccountKey(account));
   });
 }
 
-/** Test-only: forget the hydration, so a test starts from a fresh store. */
 export function __resetAgentViewForTests(): void {
   cancelPersistTimer();
   hydrated = false;

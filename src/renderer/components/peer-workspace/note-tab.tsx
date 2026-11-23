@@ -1,9 +1,3 @@
-/**
- * A note of a workspace on another computer, to read. notes.read tells it
- * as Markdown, so it is drawn as Markdown under the local note's title row,
- * not in the local editor. Its images and files stay on that computer: an
- * image shows as its name. What its recording heard follows the note.
- */
 import { Tabs } from "radix-ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -22,7 +16,6 @@ import { peerSearchErrorKey } from "./search-model";
 
 const WEB_LINK = /^https?:\/\//i;
 
-/** Markdown from another computer: web links open in the browser, nothing else is followed or loaded. */
 const COMPONENTS: NonNullable<React.ComponentProps<typeof ReactMarkdown>["components"]> = {
   a({ href, children }) {
     const url = typeof href === "string" ? href : "";
@@ -50,7 +43,6 @@ const COMPONENTS: NonNullable<React.ComponentProps<typeof ReactMarkdown>["compon
   },
 };
 
-/** Without the heading notes.read puts first: the tab's own title row says it. */
 export function withoutHeading(markdown: string): string {
   return markdown.replace(/^# [^\n]*\n*/, "");
 }
@@ -80,7 +72,6 @@ export function PeerNoteTabBody({
   target: PeerWorkspace;
   tab: PeerNoteTab;
   selected: boolean;
-  /** Shown, in reach, and that computer serves its notes. */
   canRead: boolean;
   updateNeeded: boolean;
   rejoin: number;
@@ -91,7 +82,6 @@ export function PeerNoteTabBody({
   const [result, setResult] = useState<IpcResult<PeerNote> | null>(null);
   const [note, setNote] = useState<PeerNote | null>(null);
 
-  // A note changes: it is read again each time its tab is shown, and on reconnect.
   // biome-ignore lint/correctness/useExhaustiveDependencies: read again on reconnect
   useEffect(() => {
     if (!show) return;

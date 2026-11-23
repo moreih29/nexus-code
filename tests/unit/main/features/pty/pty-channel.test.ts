@@ -44,9 +44,6 @@ type IpcHandler = (
   requestId?: unknown,
 ) => Promise<unknown>;
 
-/**
- * FakeAgentChannel models the workspace-scoped Go agent channel.
- */
 class FakeAgentChannel implements AgentChannel {
   readonly ready = Promise.resolve();
   readonly calls: Array<{ method: string; params: unknown }> = [];
@@ -91,9 +88,6 @@ class FakeAgentChannel implements AgentChannel {
   dispose(): void {}
 }
 
-/**
- * FakeRecorder captures main-side recorder calls for assertion.
- */
 class FakeRecorder implements PtyRecorderSink {
   readonly starts: Array<{ workspaceId: string; tabId: string; cols: number; rows: number }> = [];
   readonly data: Array<{ workspaceId: string; tabId: string; chunk: string }> = [];
@@ -117,9 +111,6 @@ class FakeRecorder implements PtyRecorderSink {
   }
 }
 
-/**
- * Returns the ipc:call handler captured by the mocked Electron router.
- */
 function getIpcCallHandler(): IpcHandler {
   const calls = mockHandle.mock.calls as [string, IpcHandler][];
   const entry = calls.filter(([channel]) => channel === "ipc:call").at(-1);
@@ -127,9 +118,6 @@ function getIpcCallHandler(): IpcHandler {
   return entry[1];
 }
 
-/**
- * Creates a registered PTY channel backed by the agent host.
- */
 function makeFixture(more: Partial<PtyChannelOptions> = {}): {
   handler: IpcHandler;
   agentChannel: FakeAgentChannel;
@@ -139,7 +127,6 @@ function makeFixture(more: Partial<PtyChannelOptions> = {}): {
   const recorder = new FakeRecorder();
   const agentHost = startAgentPtyHost({
     getAgentChannel: async () => agentChannel,
-    // tryGetAgentChannel mirrors getAgentChannel in normal (non-removed) tests.
     tryGetAgentChannel: async () => agentChannel,
   });
   const options: PtyChannelOptions = { agentHost, recorder, ...more };
@@ -147,9 +134,6 @@ function makeFixture(more: Partial<PtyChannelOptions> = {}): {
   return { handler: getIpcCallHandler(), agentChannel, recorder };
 }
 
-/**
- * Builds a valid pty.spawn request.
- */
 function spawnArgs(workspaceId: string, tabId = TAB_ID): unknown {
   return { workspaceId, tabId, cwd: "/repo", cols: 80, rows: 24 };
 }
@@ -268,8 +252,6 @@ describe("registerPtyChannel attach to a running session", () => {
       replay: true,
     });
 
-    // The OSC 9 notification is not dispatched again: the data event is the
-    // only thing sent.
     expect(mockSend.mock.calls).toEqual([
       [
         "ipc:event",

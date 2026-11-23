@@ -1,64 +1,27 @@
-// theme-sources.ts — Raw color data for all registered themes.
-//
-// This file is the SINGLE SOURCE OF TRUTH for theme colors. Both:
-//   - themes/index.ts (SemanticTokenSet for app chrome)
-//   - shared/editor/palette.ts (EditorPalette for Monaco)
-// derive their data from THEME_SOURCES via theme-adapter.ts.
-//
-// Adding a new theme = adding one ThemeSource record below.
-// (And exporting the new id in themes/index.ts ThemeId union.)
-//
-// Values are taken from each theme's published source (VSCode marketplace
-// theme files, official theme repos). Colors stay in their original
-// representation — the adapter handles surface/state derivation.
-
-// ---------------------------------------------------------------------------
-// ThemeSource — minimal authoring contract per theme.
-// ---------------------------------------------------------------------------
-
 export interface ThemeSource {
-  /** Kebab-case theme id (used as data-theme attribute value and registry key). */
   id: string;
-  /** Display name shown in the Settings dialog. */
   name: string;
-  /** Theme luminance base — controls Monaco vs/vs-dark inheritance. */
   base: "dark" | "light";
 
-  // --- Core surface colors ---
   bg: {
-    /** Primary editor canvas background (editor.background). */
     primary: string;
-    /** Sidebar / panel / tab bar background — typically slightly darker/lighter than primary. */
     secondary: string;
-    /** Dropdown / floating panel background (dialogs, command palette). */
     floating: string;
   };
   fg: {
-    /** Primary text / icon color. */
     primary: string;
-    /** Muted text — secondary labels, paths, inactive tab labels. */
     muted: string;
   };
 
-  // --- Editor decorations ---
-  /** Selection background — typically semi-transparent. */
   selection: string;
-  /** Solid hex approximation of selection for xterm (which rejects alpha). */
   selectionSolid: string;
-  /** Current line highlight. */
   lineHighlight: string;
-  /** Caret color. */
   cursor: string;
-  /** Subtle separator / border color. */
   border: string;
-  /** Focus ring / primary accent. */
   accent: string;
-  /** Find/match highlight (semi-transparent recommended). */
   findHighlight: string;
-  /** Indent guide stroke. */
   indentGuide: string;
 
-  // --- Syntax (15 roles per design.md §15.1 + LSP-specific parameter/method) ---
   syntax: {
     keyword: string;
     string: string;
@@ -79,7 +42,6 @@ export interface ThemeSource {
     method: string;
   };
 
-  // --- Terminal ANSI 16 (from each theme's published terminal.ansi* keys) ---
   ansi: {
     black: string;
     red: string;
@@ -99,34 +61,15 @@ export interface ThemeSource {
     brightWhite: string;
   };
 
-  // --- Feedback / status semantics ---
-  /** Success state foreground (git added, success toast, info badge). */
   success: string;
-  /** Warning state foreground. */
   warning: string;
-  /** Error state foreground (git conflict, diagnostic, destructive). */
   error: string;
-  /** Info state foreground (git untracked, info badge). */
   info: string;
 
-  // --- Claude indicator overrides (optional, issue #5) ---
-  /**
-   * Foreground color for the Claude attention glyph (tab.claude.attention.fg).
-   * Required to satisfy WCAG 4.5:1 against the theme's island background.
-   * Falls back to `source.info` in the adapter when not specified.
-   * Use only when `source.info` fails the contrast gate against `bg.primary`.
-   */
   claudeAttentionFg?: string;
 }
 
-// ---------------------------------------------------------------------------
-// THEME_SOURCES — 10 popular themes imported from upstream definitions.
-// ---------------------------------------------------------------------------
-
 export const THEME_SOURCES = [
-  // ===========================================================================
-  // GitHub Dark — github/primer (default-dark)
-  // ===========================================================================
   {
     id: "github-dark",
     name: "GitHub Dark",
@@ -184,9 +127,6 @@ export const THEME_SOURCES = [
     info: "#58a6ff",
   },
 
-  // ===========================================================================
-  // GitHub Light — github/primer (light_default)
-  // ===========================================================================
   {
     id: "github-light",
     name: "GitHub Light",
@@ -244,9 +184,6 @@ export const THEME_SOURCES = [
     info: "#0969da",
   },
 
-  // ===========================================================================
-  // Dracula — dracula-theme.com
-  // ===========================================================================
   {
     id: "dracula",
     name: "Dracula",
@@ -304,9 +241,6 @@ export const THEME_SOURCES = [
     info: "#8be9fd",
   },
 
-  // ===========================================================================
-  // One Dark Pro — zhuangtongfa
-  // ===========================================================================
   {
     id: "one-dark-pro",
     name: "One Dark Pro",
@@ -364,9 +298,6 @@ export const THEME_SOURCES = [
     info: "#61afef",
   },
 
-  // ===========================================================================
-  // Monokai — Sublime Text classic (VSCode bundled)
-  // ===========================================================================
   {
     id: "monokai",
     name: "Monokai",
@@ -424,9 +355,6 @@ export const THEME_SOURCES = [
     info: "#66d9ef",
   },
 
-  // ===========================================================================
-  // Tokyo Night — enkia (storm variant blended for richer panel contrast)
-  // ===========================================================================
   {
     id: "tokyo-night",
     name: "Tokyo Night",
@@ -484,9 +412,6 @@ export const THEME_SOURCES = [
     info: "#7dcfff",
   },
 
-  // ===========================================================================
-  // Solarized Dark — Ethan Schoonover (CIE-uniform palette)
-  // ===========================================================================
   {
     id: "solarized-dark",
     name: "Solarized Dark",
@@ -542,14 +467,9 @@ export const THEME_SOURCES = [
     warning: "#b58900",
     error: "#dc322f",
     info: "#268bd2",
-    // #268bd2 (source.info) contrasts at 4.08:1 against #002b36 (bg.primary) — fails WCAG 4.5:1.
-    // Brightened Solarized blue (#2397e8) reaches 4.76:1 while preserving the CIE-uniform hue.
     claudeAttentionFg: "#2397e8",
   },
 
-  // ===========================================================================
-  // Nord — Arctic, north-bluish (16-color subset)
-  // ===========================================================================
   {
     id: "nord",
     name: "Nord",
@@ -607,9 +527,6 @@ export const THEME_SOURCES = [
     info: "#88c0d0",
   },
 
-  // ===========================================================================
-  // Catppuccin Mocha — soothing pastel theme (mocha = darkest flavor)
-  // ===========================================================================
   {
     id: "catppuccin-mocha",
     name: "Catppuccin Mocha",
@@ -667,9 +584,6 @@ export const THEME_SOURCES = [
     info: "#89dceb",
   },
 
-  // ===========================================================================
-  // Gruvbox Dark — morhetz (retro-groove warm palette)
-  // ===========================================================================
   {
     id: "gruvbox-dark",
     name: "Gruvbox Dark",
@@ -728,17 +642,10 @@ export const THEME_SOURCES = [
   },
 ] as const satisfies readonly ThemeSource[];
 
-// ---------------------------------------------------------------------------
-// ThemeId — string union derived from THEME_SOURCES.
-// Adding a new theme to THEME_SOURCES automatically widens this type.
-// ---------------------------------------------------------------------------
-
 export type ThemeId = (typeof THEME_SOURCES)[number]["id"];
 
-/** Default theme applied on first boot and as the :root fallback. */
 export const DEFAULT_THEME: ThemeId = "github-dark";
 
-/** Map of id → source for O(1) lookup by adapter/UI code. */
 export const THEME_SOURCE_BY_ID: Record<ThemeId, ThemeSource> = Object.fromEntries(
   THEME_SOURCES.map((s) => [s.id, s]),
 ) as Record<ThemeId, ThemeSource>;

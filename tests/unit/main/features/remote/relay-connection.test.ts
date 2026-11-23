@@ -1,4 +1,3 @@
-/** The relay's socket: a socket that never opened says what it went to was not reached. */
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import {
   OutdatedError,
@@ -318,7 +317,6 @@ test("a ticket that says the app is too old gives up: no socket, no retry, not s
   expect(statuses).toEqual(["connecting", "outdated"]);
   expect(asked).toBe(1);
   expect(signedOut).toBe(false);
-  // Asked to go another way, it stays out: only an update brings it back.
   relay.reconnect();
   for (let i = 0; i < 5; i++) await Bun.sleep(1);
   expect(asked).toBe(1);
@@ -360,7 +358,6 @@ test("lost from the room, it comes back at once; lost again within 30 s, it wait
       sockets.push(socket);
       return socket as never;
     },
-    // Any wait would outlast the test: only a try at once opens another socket.
     backoff: () => 60_000,
     now: () => now,
   });
@@ -375,7 +372,6 @@ test("lost from the room, it comes back at once; lost again within 30 s, it wait
   const second = await next(2);
   expect(second).toBeDefined();
   expect(statuses).not.toContain("waiting");
-  // Lost again 10 s later: it waits its backoff.
   now += 10_000;
   second?.emit("open");
   second?.emit("close", { code: 1006 });
@@ -412,7 +408,6 @@ describe("relay ticket ownership", () => {
   const firstUrl = "wss://nexus.example/relay?ticket=old";
   const nextUrl = "wss://proxy.example/relay?ticket=new";
 
-  /** Controls which ticket completes first and records every allocated socket. */
   function harness() {
     const first = Promise.withResolvers<string>();
     const next = Promise.withResolvers<string>();
@@ -637,7 +632,6 @@ describe("the heartbeat", () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
 
-  /** Opens the connection before advancing the heartbeat clock. */
   async function open(timing = heartbeat) {
     const sockets: FakeSocket[] = [];
     const frames: unknown[] = [];
@@ -699,7 +693,6 @@ describe("the heartbeat", () => {
       expect(sockets).toHaveLength(2);
       expect(statuses).not.toContain("waiting");
 
-      // Its close may arrive after the next socket starts connecting.
       socket.emit("close", { code: 1006 });
       jest.advanceTimersByTime(60_000);
       await Promise.resolve();

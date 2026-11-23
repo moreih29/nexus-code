@@ -9,8 +9,6 @@ import (
 	"unicode/utf8"
 )
 
-// Codex 0.170 caps each turn/start additionalContext value at 1,000
-// approximate tokens, calculated at four UTF-8 bytes per token.
 const codexContextValueLimit = 4000
 const codexInstructionPartPrefix = codexInstructions + "-part-"
 
@@ -22,7 +20,6 @@ func addCodexInstructionParts(fragments map[string]json.RawMessage, value string
 			for !utf8.RuneStart(rest[end]) {
 				end--
 			}
-			// Prefer keeping lines together when the boundary is close.
 			if line := strings.LastIndexByte(rest[:end], '\n') + 1; line > end*3/4 {
 				end = line
 			}
@@ -30,8 +27,6 @@ func addCodexInstructionParts(fragments map[string]json.RawMessage, value string
 		parts = append(parts, rest[:end])
 		rest = rest[end:]
 	}
-	// Codex orders the opaque keys lexically. Including the full update's
-	// digest also makes Codex emit every part when an update changes.
 	digest := sha256.Sum256([]byte(value))
 	for i, part := range parts {
 		key := fmt.Sprintf("%s%04d-%04d-%x", codexInstructionPartPrefix, i+1, len(parts), digest)
@@ -55,8 +50,6 @@ func (r *codexInstructionRollout) readPart(latest map[string]string, key, value 
 	if r.digest != digest {
 		r.digest = digest
 		r.parts = make(map[int]string)
-		// A partial update counts as earlier instructions for replacement,
-		// but only a complete update can suppress injection.
 		latest[codexInstructions] = "\x00"
 	}
 	r.parts[i] = value

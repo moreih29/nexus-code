@@ -1,9 +1,3 @@
-/**
- * Tasks: workspaces on git worktrees of another workspace's repository. Main
- * makes and removes the worktree; this side switches to the task and starts
- * its coding agent, in a Claude or Codex tab or a terminal.
- */
-
 import type { RelaySender, TerminalOpener } from "../../../shared/chat/relay";
 import type { ChatAgent, TaskAgent } from "../../../shared/sessions/task-agent";
 import type { WorkspaceMeta, WorkspaceTask } from "../../../shared/types/workspace";
@@ -15,16 +9,11 @@ import { openTerminal } from "../terminal/open-terminal";
 import { queueStartupInput } from "../terminal/pty-client";
 import { quoteShellArgument } from "../terminal/shell-quote";
 
-/** Why a task operation failed: the IPC error kind and its message. */
 export interface TaskFailure {
   readonly kind: string;
   readonly message: string;
 }
 
-/**
- * The line a terminal types to start an agent: the command, then the prompt
- * as one argument when there is one. Null when the command is empty.
- */
 export function agentCommandLine(
   command: string,
   prompt: string,
@@ -35,42 +24,19 @@ export function agentCommandLine(
   return text === "" ? `${command}\r` : `${command} ${quoteShellArgument(text, shellPath)}\r`;
 }
 
-/**
- * What a new task starts with: a Claude or Codex tab that takes the prompt
- * as its first message, or a terminal that runs a command with the prompt
- * as its last argument ("" for a plain shell).
- */
 export type TaskStart = { readonly agent: ChatAgent } | { readonly command: string };
 
-/** What a task agent choice starts: its tab, or a plain shell for "terminal". */
 export function taskStartOf(agent: TaskAgent): TaskStart {
   return agent === "terminal" ? { command: "" } : { agent };
 }
 
-/**
- * A task just made: its first tab, and what runs there: the agent of a
- * Claude or Codex tab, or the command of a terminal. A plain shell ("")
- * has no tab yet: the task's panel opens one when it is first shown, as
- * for any workspace without tabs.
- */
 export interface StartedTask {
   readonly task: WorkspaceMeta;
   readonly tabId: string | null;
   readonly start: TaskStart;
-  /** The agent started with its fallback prompt after preparation failed. */
   readonly preparationFailed?: true;
 }
 
-/**
- * Creates a task of `parentId` without switching to it, with one tab: an
- * agent's tab whose program starts now and is sent `prompt`, or a terminal
- * that runs the command with `prompt` once it starts, which is when the
- * task's panel is mounted. A plain shell gets no tab here: the panel opens
- * one when the task is first shown, so a task made behind the user's view
- * runs nothing until then. `createdBy` is the tab that ran the local
- * command. `from` is the agent that sent the prompt, and `openedBy` is
- * the agent that opened the first tab.
- */
 export async function startTask(
   parentId: string,
   name: string,
@@ -95,8 +61,6 @@ export async function startTask(
   const task =
     useWorkspacesStore.getState().workspaces.find((w) => w.id === result.value.id) ?? result.value;
 
-  // A workspace that has a tab gets no terminal from its panel, so this tab
-  // is the task's only one.
   if ("agent" in start) {
     const tabId = openAgentTab(
       task.id,
@@ -129,10 +93,6 @@ export async function startTask(
   return { task, tabId, start: { command } };
 }
 
-/**
- * Creates a task of `parentId` and switches to it, with `agent`'s tab sent
- * `prompt`, or a plain terminal, which its panel opens as it is shown.
- */
 export async function createTask(
   parentId: string,
   name: string,
@@ -145,11 +105,6 @@ export async function createTask(
   return null;
 }
 
-/**
- * Removes a task: its terminals, its worktree and, when asked, its branch
- * ("merged": only if git finds it merged). Without `force` it fails with
- * "worktree-dirty" when the worktree has changes, which `force` throws away.
- */
 export async function removeTask(
   id: string,
   options: { force: boolean; deleteBranch: boolean | "merged" },

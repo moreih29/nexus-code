@@ -1,9 +1,3 @@
-/**
- * LSP completion items as Monaco shows them: the server's text, range,
- * snippet, sort order and documentation carry over, and a range Monaco
- * cannot use falls back to the word before the cursor.
- */
-
 import { expect, test } from "bun:test";
 import type * as Monaco from "monaco-editor";
 import {
@@ -19,7 +13,6 @@ const monaco = {
   },
 } as unknown as typeof Monaco;
 
-// Cursor after "app." on line 3 (Monaco counts from 1).
 const POSITION = { lineNumber: 3, column: 5 };
 const WORD = { startLineNumber: 3, endLineNumber: 3, startColumn: 5, endColumn: 5 };
 const lspRange = (start: number, end: number, line = 2) => ({

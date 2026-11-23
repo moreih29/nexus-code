@@ -6,10 +6,6 @@ import { GlobalStorage } from "../../../../../src/main/infra/storage/global-stor
 import { applyMigrations, MIGRATIONS } from "../../../../../src/main/infra/storage/migrations";
 import type { WorkspaceMeta } from "../../../../../src/shared/types/workspace";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const LATEST_SCHEMA_VERSION = String(MIGRATIONS[MIGRATIONS.length - 1]?.version);
 
 function makeDb(): Database {
@@ -30,10 +26,6 @@ function makeMeta(overrides: Partial<WorkspaceMeta> = {}): WorkspaceMeta {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Migration tests
-// ---------------------------------------------------------------------------
-
 describe("applyMigrations", () => {
   it("advances schemaVersion to the latest migration", () => {
     const db = makeDb();
@@ -49,7 +41,7 @@ describe("applyMigrations", () => {
   it("is idempotent — calling applyMigrations twice yields the same state", () => {
     const db = makeDb();
     applyMigrations(db);
-    applyMigrations(db); // second call must not throw or change schemaVersion
+    applyMigrations(db);
 
     const row = db.prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'").get() as
       | { value: string }
@@ -124,7 +116,6 @@ describe("applyMigrations", () => {
     db.close();
   });
 
-  // v10 adds the color: whatever the old tone was, "auto". The tone column stays for older builds.
   it.each([
     "subdued",
     "default",
@@ -171,10 +162,6 @@ describe("applyMigrations", () => {
     db.close();
   });
 });
-
-// ---------------------------------------------------------------------------
-// GlobalStorage: addWorkspace / listWorkspaces / updateWorkspace / removeWorkspace
-// ---------------------------------------------------------------------------
 
 describe("GlobalStorage.addWorkspace / listWorkspaces", () => {
   let db: Database;
@@ -333,15 +320,6 @@ describe("GlobalStorage.updateWorkspace", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Migration v6: sort_order / pinned_sort_order backfill
-// ---------------------------------------------------------------------------
-
-/**
- * Build a DB at v5 by running production migrations v1–v5, then insert
- * workspace rows directly so we can control last_opened_at and pinned values
- * to verify the backfill logic precisely.
- */
 function buildPreV6Db(
   workspaces: Array<{
     id: string;
@@ -388,13 +366,12 @@ function uuid(n: number): string {
 
 describe("migration v6: sort_order and pinned_sort_order backfill", () => {
   it("backfills pinned and unpinned groups with step-1024 positions after v5→v6", () => {
-    // 2 pinned (most-recently opened first) + 3 unpinned
     const db = buildPreV6Db([
-      { id: uuid(1), pinned: 1, last_opened_at: 5000 }, // pinned, newest
-      { id: uuid(2), pinned: 1, last_opened_at: 4000 }, // pinned, older
-      { id: uuid(3), pinned: 0, last_opened_at: 3000 }, // unpinned, newest
+      { id: uuid(1), pinned: 1, last_opened_at: 5000 },
+      { id: uuid(2), pinned: 1, last_opened_at: 4000 },
+      { id: uuid(3), pinned: 0, last_opened_at: 3000 },
       { id: uuid(4), pinned: 0, last_opened_at: 2000 },
-      { id: uuid(5), pinned: 0, last_opened_at: 1000 }, // unpinned, oldest
+      { id: uuid(5), pinned: 0, last_opened_at: 1000 },
     ]);
 
     applyMigrations(db);
@@ -406,19 +383,17 @@ describe("migration v6: sort_order and pinned_sort_order backfill", () => {
       )
       .all() as SortRow[];
 
-    // Pinned group: uuid(1) gets 1024, uuid(2) gets 2048
     const pinned = rows.filter((r) => r.pinned === 1);
     expect(pinned[0].id).toBe(uuid(1));
     expect(pinned[0].pinned_sort_order).toBe(1024);
-    expect(pinned[0].sort_order).toBe(0); // unpinned column untouched
+    expect(pinned[0].sort_order).toBe(0);
     expect(pinned[1].id).toBe(uuid(2));
     expect(pinned[1].pinned_sort_order).toBe(2048);
 
-    // Unpinned group: uuid(3) gets 1024, uuid(4) gets 2048, uuid(5) gets 3072
     const unpinned = rows.filter((r) => r.pinned === 0);
     expect(unpinned[0].id).toBe(uuid(3));
     expect(unpinned[0].sort_order).toBe(1024);
-    expect(unpinned[0].pinned_sort_order).toBe(0); // pinned column untouched
+    expect(unpinned[0].pinned_sort_order).toBe(0);
     expect(unpinned[1].sort_order).toBe(2048);
     expect(unpinned[2].sort_order).toBe(3072);
 
@@ -431,7 +406,7 @@ describe("migration v6: sort_order and pinned_sort_order backfill", () => {
       { id: uuid(2), pinned: 0, last_opened_at: 1000 },
     ]);
 
-    applyMigrations(db); // first run: assigns positions
+    applyMigrations(db);
 
     const afterFirst = db
       .prepare("SELECT id, sort_order FROM workspaces ORDER BY last_opened_at DESC")
@@ -439,7 +414,7 @@ describe("migration v6: sort_order and pinned_sort_order backfill", () => {
     expect(afterFirst[0].sort_order).toBe(1024);
     expect(afterFirst[1].sort_order).toBe(2048);
 
-    applyMigrations(db); // second run: must not change positions
+    applyMigrations(db);
 
     const afterSecond = db
       .prepare("SELECT id, sort_order FROM workspaces ORDER BY last_opened_at DESC")
@@ -450,10 +425,6 @@ describe("migration v6: sort_order and pinned_sort_order backfill", () => {
     db.close();
   });
 });
-
-// ---------------------------------------------------------------------------
-// listWorkspaces sort order
-// ---------------------------------------------------------------------------
 
 describe("GlobalStorage.listWorkspaces sort order", () => {
   let db: Database;
@@ -469,19 +440,18 @@ describe("GlobalStorage.listWorkspaces sort order", () => {
   });
 
   it("pinned workspaces appear before unpinned workspaces", () => {
-    // Insert via DB directly so we can set sort positions precisely.
     db.prepare(
       `INSERT INTO workspaces (id, name, root_path, location, color, pinned, last_opened_at, sort_order, pinned_sort_order)
        VALUES (?, 'ws', '/root', '{"kind":"local","rootPath":"/root"}', 'default', ?, ?, ?, ?)`,
-    ).run(uuid(10), 0, 1000, 1024, 0); // unpinned
+    ).run(uuid(10), 0, 1000, 1024, 0);
     db.prepare(
       `INSERT INTO workspaces (id, name, root_path, location, color, pinned, last_opened_at, sort_order, pinned_sort_order)
        VALUES (?, 'ws', '/root', '{"kind":"local","rootPath":"/root"}', 'default', ?, ?, ?, ?)`,
-    ).run(uuid(20), 1, 2000, 0, 1024); // pinned
+    ).run(uuid(20), 1, 2000, 0, 1024);
 
     const list = storage.listWorkspaces();
-    expect(list[0].id).toBe(uuid(20)); // pinned first
-    expect(list[1].id).toBe(uuid(10)); // unpinned second
+    expect(list[0].id).toBe(uuid(20));
+    expect(list[1].id).toBe(uuid(10));
   });
 
   it("within the same group, workspaces are ordered by sort position ascending", () => {
@@ -499,7 +469,6 @@ describe("GlobalStorage.listWorkspaces sort order", () => {
     ).run(uuid(3), 3000, 2048);
 
     const list = storage.listWorkspaces();
-    // sort_order ASC: 1024 < 2048 < 3072
     expect(list[0].id).toBe(uuid(2));
     expect(list[1].id).toBe(uuid(3));
     expect(list[2].id).toBe(uuid(1));
@@ -516,15 +485,10 @@ describe("GlobalStorage.listWorkspaces sort order", () => {
     ).run(uuid(2), 2000, 1024);
 
     const list = storage.listWorkspaces();
-    // pinned_sort_order ASC: 1024 < 3072
     expect(list[0].id).toBe(uuid(2));
     expect(list[1].id).toBe(uuid(1));
   });
 });
-
-// ---------------------------------------------------------------------------
-// computeInsertPosition
-// ---------------------------------------------------------------------------
 
 describe("GlobalStorage.computeInsertPosition", () => {
   let db: Database;
@@ -539,11 +503,6 @@ describe("GlobalStorage.computeInsertPosition", () => {
     db.close();
   });
 
-  /**
-   * Insert a workspace row with explicit sort positions via the raw DB handle
-   * so tests can set up precise ordering scenarios without going through the
-   * higher-level addWorkspace API.
-   */
   function insertWs(id: string, pinned: 0 | 1, sortOrder: number, pinnedSortOrder: number): void {
     db.prepare(
       `INSERT INTO workspaces (id, name, root_path, location, color, pinned, last_opened_at, sort_order, pinned_sort_order)
@@ -565,7 +524,6 @@ describe("GlobalStorage.computeInsertPosition", () => {
   it("beforeId: midpoint between the row's predecessor and itself", () => {
     insertWs(uuid(1), 0, 1024, 0);
     insertWs(uuid(2), 0, 3072, 0);
-    // Insert BEFORE uuid(2): midpoint of uuid(1)=1024 and uuid(2)=3072 = 2048
     const result = storage.computeInsertPosition({ groupKind: "unpinned", beforeId: uuid(2) });
     expect(result).toEqual({ position: 2048 });
   });
@@ -573,7 +531,6 @@ describe("GlobalStorage.computeInsertPosition", () => {
   it("afterId: midpoint between the row and its successor", () => {
     insertWs(uuid(1), 0, 1024, 0);
     insertWs(uuid(2), 0, 3072, 0);
-    // Insert AFTER uuid(1): midpoint of uuid(1)=1024 and uuid(2)=3072 = 2048
     const result = storage.computeInsertPosition({ groupKind: "unpinned", afterId: uuid(1) });
     expect(result).toEqual({ position: 2048 });
   });
@@ -581,14 +538,12 @@ describe("GlobalStorage.computeInsertPosition", () => {
   it("beforeId on the first row of the group: floor(pos/2)", () => {
     insertWs(uuid(1), 0, 2048, 0);
     insertWs(uuid(2), 0, 3072, 0);
-    // Insert BEFORE uuid(1): no predecessor → floor(2048/2) = 1024
     const result = storage.computeInsertPosition({ groupKind: "unpinned", beforeId: uuid(1) });
     expect(result).toEqual({ position: 1024 });
   });
 
   it("beforeId on the first row with default step preserves room above", () => {
     insertWs(uuid(1), 0, 1024, 0);
-    // floor(1024/2) = 512 — fits between implicit 0 and the existing first row.
     const result = storage.computeInsertPosition({ groupKind: "unpinned", beforeId: uuid(1) });
     expect(result).toEqual({ position: 512 });
   });
@@ -596,35 +551,30 @@ describe("GlobalStorage.computeInsertPosition", () => {
   it("afterId on the last row of the group: pos + 1024", () => {
     insertWs(uuid(1), 0, 1024, 0);
     insertWs(uuid(2), 0, 2048, 0);
-    // Insert AFTER uuid(2): no successor → 2048 + 1024 = 3072
     const result = storage.computeInsertPosition({ groupKind: "unpinned", afterId: uuid(2) });
     expect(result).toEqual({ position: 3072 });
   });
 
   it("signals rebalance when neighbours collapse to gap < 2 (beforeId path)", () => {
     insertWs(uuid(1), 0, 1024, 0);
-    insertWs(uuid(2), 0, 1025, 0); // gap between predecessor and uuid(2) = 1
+    insertWs(uuid(2), 0, 1025, 0);
     const result = storage.computeInsertPosition({ groupKind: "unpinned", beforeId: uuid(2) });
     expect(result).toEqual({ rebalance: true });
   });
 
   it("signals rebalance when neighbours collapse to gap < 2 (afterId path)", () => {
     insertWs(uuid(1), 0, 1024, 0);
-    insertWs(uuid(2), 0, 1025, 0); // gap between uuid(1) and successor = 1
+    insertWs(uuid(2), 0, 1025, 0);
     const result = storage.computeInsertPosition({ groupKind: "unpinned", afterId: uuid(1) });
     expect(result).toEqual({ rebalance: true });
   });
 
   it("signals rebalance when beforeId is first row and pos − 1024 would underflow", () => {
-    insertWs(uuid(1), 0, 1, 0); // first row at the bottom of the range
+    insertWs(uuid(1), 0, 1, 0);
     const result = storage.computeInsertPosition({ groupKind: "unpinned", beforeId: uuid(1) });
     expect(result).toEqual({ rebalance: true });
   });
 });
-
-// ---------------------------------------------------------------------------
-// rebalanceGroup
-// ---------------------------------------------------------------------------
 
 describe("GlobalStorage.rebalanceGroup", () => {
   let db: Database;
@@ -640,7 +590,6 @@ describe("GlobalStorage.rebalanceGroup", () => {
   });
 
   it("reassigns step-1024 positions and returns new values for all rows in the group", () => {
-    // Insert rows with collapsed positions to simulate a rebalance scenario.
     db.prepare(
       `INSERT INTO workspaces (id, name, root_path, location, color, pinned, last_opened_at, sort_order, pinned_sort_order)
        VALUES (?, 'ws', '/root', '{"kind":"local","rootPath":"/root"}', 'default', 0, 1000, ?, 0)`,
@@ -656,14 +605,12 @@ describe("GlobalStorage.rebalanceGroup", () => {
 
     const results = storage.rebalanceGroup("unpinned");
 
-    // Return value: three rows with new step-1024 positions.
     expect(results.length).toBe(3);
     const byId = Object.fromEntries(results.map((r) => [r.id, r]));
     expect(byId[uuid(1)].sortOrder).toBe(1024);
     expect(byId[uuid(2)].sortOrder).toBe(2048);
     expect(byId[uuid(3)].sortOrder).toBe(3072);
 
-    // Persisted values match the return value.
     const dbRows = db
       .prepare("SELECT id, sort_order FROM workspaces ORDER BY sort_order ASC")
       .all() as { id: string; sort_order: number }[];

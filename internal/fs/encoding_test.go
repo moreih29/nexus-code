@@ -10,8 +10,6 @@ import (
 	"testing"
 )
 
-// Text not in UTF-8 goes to the reader as its bytes, and comes back as
-// bytes to write, so a save keeps the file's own encoding.
 func TestTextNotInUTF8ReadsAsBytes(t *testing.T) {
 	root := t.TempDir()
 	files := map[string][]byte{
@@ -38,7 +36,6 @@ func TestTextNotInUTF8ReadsAsBytes(t *testing.T) {
 		}
 	}
 
-	// UTF-8 keeps its text, and no bytes go with it.
 	must(t, os.WriteFile(filepath.Join(root, "utf8.txt"), []byte("한글\n"), 0o644))
 	readAny, err := fsys.ReadFile(context.Background(), mustJSON(t, map[string]any{"relPath": "utf8.txt"}))
 	must(t, err)

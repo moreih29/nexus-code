@@ -6,7 +6,6 @@ import {
   reportParagraph,
 } from "../../../../shared/notes/line-report";
 
-/** Applies the same report as main, leaving the editor's other edits and selection in place. */
 export function applyLineReport(editor: Editor, report: LineReport): boolean {
   const { state, view } = editor;
   let task: { node: ProseMirrorNode; pos: number } | undefined;

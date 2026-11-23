@@ -1,19 +1,3 @@
-// src/renderer/components/settings/panels/browser-permissions-panel.tsx
-//
-// Browser Permissions settings panel.
-//
-// (a) Global toggle section — lets the user pre-approve permission kinds for
-//     all workspaces, a line each (what one lets a site do shows on hover).
-//     Tier A items are always visible; Tier B items are collapsed under an
-//     "Advanced" disclosure.
-//
-// (b) Site memory section — lists previously remembered per-origin permission
-//     decisions with a segmented-control filter (current workspace / all)
-//     beside its label.
-//     Each row shows the origin, permission badges, and a revoke button.
-//
-// Design: semantic tokens only (no hex/rgba/oklch literals, no box-shadow).
-
 import i18next from "i18next";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -52,7 +36,6 @@ import { SegmentedControl } from "../segmented-control";
 
 const log = createLogger("browser-permissions");
 
-// Map from PERMISSION_TOGGLES key → settings i18n key (without "browserPermissions.permission." prefix)
 const TOGGLE_I18N_KEY: Record<string, string> = {
   media: "media",
   geolocation: "geolocation",
@@ -70,7 +53,6 @@ const TOGGLE_I18N_KEY: Record<string, string> = {
   mediaKeySystem: "drm",
 };
 
-// Map from BrowserPermissionKind → settings i18n permissionLabel key
 const PERMISSION_LABEL_I18N_KEY: Record<string, string> = {
   "clipboard-read": "clipboardRead",
   "clipboard-sanitized-write": "clipboardSanitizedWrite",
@@ -94,10 +76,6 @@ const PERMISSION_LABEL_I18N_KEY: Record<string, string> = {
   fileSystem: "fileSystem",
 };
 
-// ---------------------------------------------------------------------------
-// Icon map — keyed by the Lucide name string from PERMISSION_TOGGLES
-// ---------------------------------------------------------------------------
-
 const ICON_MAP: Record<string, LucideIcon> = {
   Video,
   MapPin,
@@ -116,10 +94,6 @@ const ICON_MAP: Record<string, LucideIcon> = {
   ShieldCheck,
 };
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 interface RememberedEntry {
   workspaceId: string;
   origin: string;
@@ -128,10 +102,6 @@ interface RememberedEntry {
 }
 
 type ScopeTab = "current" | "all";
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export function BrowserPermissionsPanel() {
   const { t } = useTranslation("settings");
@@ -146,15 +116,6 @@ export function BrowserPermissionsPanel() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const fetchRef = useRef(0);
 
-  // Load remembered entries whenever the scope tab or active workspace changes.
-  //
-  // We intentionally do NOT reset `entries` to null here. Switching the scope
-  // segmented control (current ↔ all) re-runs this loader; clearing to null
-  // would unmount the list and render the loading skeleton for a frame, which
-  // collapses the panel height and makes the surrounding settings modal visibly
-  // jump/flicker. Keeping the previous list mounted until the (near-instant
-  // local IPC) result arrives keeps the height stable. The skeleton still shows
-  // on the very first load, when `entries` is null before any fetch resolves.
   const loadEntries = useCallback(async () => {
     const token = ++fetchRef.current;
     setLoadError(null);
@@ -165,10 +126,9 @@ export function BrowserPermissionsPanel() {
       workspaceId,
     });
 
-    if (token !== fetchRef.current) return; // stale
+    if (token !== fetchRef.current) return;
 
     if (!result.ok) {
-      // The IPC message is internal (e.g. an args validation error).
       setLoadError(t("browserPermissions.loadFailed"));
       setEntries([]);
       return;
@@ -205,12 +165,9 @@ export function BrowserPermissionsPanel() {
     [loadEntries, t],
   );
 
-  // Tier A toggles — always visible.
   const tierAToggles = PERMISSION_TOGGLES.filter((t) => t.tier === "A");
-  // Tier B toggles — inside a disclosure.
   const tierBToggles = PERMISSION_TOGGLES.filter((t) => t.tier === "B");
 
-  // Group entries by workspaceId when showing all workspaces.
   const groupedEntries = (() => {
     if (!entries) return null;
     if (scopeTab === "current") {
@@ -231,9 +188,6 @@ export function BrowserPermissionsPanel() {
 
   return (
     <SettingsPage>
-      {/* ------------------------------------------------------------------ */}
-      {/* (a) Global toggle section                                            */}
-      {/* ------------------------------------------------------------------ */}
       <SettingsGroup
         title={t("browserPermissions.globalHeading")}
         description={t("browserPermissions.globalDescription")}
@@ -249,14 +203,13 @@ export function BrowserPermissionsPanel() {
           ))}
         </div>
 
-        {/* Tier B — collapsible */}
         <details className="group">
           <summary
             className={cn(
               "flex w-fit items-center gap-1.5 cursor-pointer select-none",
               "text-app-ui-sm text-muted-foreground",
               "hover:text-foreground",
-              "list-none", // remove native triangle
+              "list-none",
             )}
           >
             <ChevronRight
@@ -278,9 +231,6 @@ export function BrowserPermissionsPanel() {
         </details>
       </SettingsGroup>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* (b) Site memory section                                              */}
-      {/* ------------------------------------------------------------------ */}
       <SettingsGroup
         title={t("browserPermissions.siteMemoryHeading")}
         description={t("browserPermissions.siteMemoryDescription")}
@@ -298,7 +248,6 @@ export function BrowserPermissionsPanel() {
           />
         }
       >
-        {/* Loading skeleton */}
         {entries === null && !loadError && (
           <Skeleton label={t("browserPermissions.loadingPermissions")}>
             <SkeletonLine className="h-9" />
@@ -307,17 +256,14 @@ export function BrowserPermissionsPanel() {
           </Skeleton>
         )}
 
-        {/* Error state */}
         {loadError && <p className="text-app-ui-sm text-muted-foreground">{loadError}</p>}
 
-        {/* Empty state — a line, not a block: nothing to act on here */}
         {entries !== null && !loadError && entries.length === 0 && (
           <p className="text-app-ui-sm text-muted-foreground">
             {t("browserPermissions.noPermissionsTitle")}
           </p>
         )}
 
-        {/* Entry list */}
         {groupedEntries && entries && entries.length > 0 && (
           <div className="flex flex-col gap-4">
             {groupedEntries.map((group) => {
@@ -328,7 +274,6 @@ export function BrowserPermissionsPanel() {
 
               return (
                 <div key={group.workspaceId ?? "__current__"}>
-                  {/* Group header shown only in "all" scope */}
                   {scopeTab === "all" && wsName && (
                     <div className="px-1 pb-1.5">
                       <span className="text-app-label font-medium text-muted-foreground">
@@ -356,10 +301,6 @@ export function BrowserPermissionsPanel() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// PermissionToggleRow
-// ---------------------------------------------------------------------------
-
 interface PermissionToggleRowProps {
   toggle: (typeof PERMISSION_TOGGLES)[number];
   enabled: boolean;
@@ -372,7 +313,6 @@ function PermissionToggleRow({ toggle, enabled, onToggle }: PermissionToggleRowP
   const IconComponent = ICON_MAP[toggle.icon];
   const i18nKey = TOGGLE_I18N_KEY[toggle.key];
   const label = i18nKey ? t(`browserPermissions.permission.${i18nKey}.label`) : toggle.label;
-  // What the permission lets a site do: on hover, the name says enough at a glance.
   const description = i18nKey
     ? t(`browserPermissions.permission.${i18nKey}.description`)
     : toggle.description;
@@ -394,10 +334,6 @@ function PermissionToggleRow({ toggle, enabled, onToggle }: PermissionToggleRowP
   );
 }
 
-// ---------------------------------------------------------------------------
-// SiteEntryRow
-// ---------------------------------------------------------------------------
-
 interface SiteEntryRowProps {
   entry: RememberedEntry;
   grants: Record<string, boolean>;
@@ -417,7 +353,6 @@ function SiteEntryRow({ entry, grants, onRevoke }: SiteEntryRowProps) {
       )}
     >
       <div className="flex flex-col gap-1 min-w-0">
-        {/* Origin */}
         <span
           className={cn(
             "text-app-body text-foreground truncate",
@@ -427,7 +362,6 @@ function SiteEntryRow({ entry, grants, onRevoke }: SiteEntryRowProps) {
           {entry.origin}
         </span>
 
-        {/* Permission badges + global-on indicator */}
         <div className="flex flex-wrap items-center gap-1">
           <span
             className={cn(
@@ -448,8 +382,6 @@ function SiteEntryRow({ entry, grants, onRevoke }: SiteEntryRowProps) {
         </div>
       </div>
 
-      {/* Revoke button — always in layout, visible on hover/focus */}
-      {/* Revoke button — layout slot always reserved; shown on group hover or focus-within */}
       <button
         type="button"
         aria-label={t("browserPermissions.deleteAriaLabel", { origin: entry.origin })}
@@ -461,7 +393,6 @@ function SiteEntryRow({ entry, grants, onRevoke }: SiteEntryRowProps) {
           "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
           "focus-visible:ring-1 focus-visible:ring-ring",
           "transition-colors",
-          // Reserve slot but hide until row is hovered or button receives focus.
           "opacity-0 pointer-events-none",
           "group-hover:opacity-100 group-hover:pointer-events-auto",
           "group-focus-within:opacity-100 group-focus-within:pointer-events-auto",

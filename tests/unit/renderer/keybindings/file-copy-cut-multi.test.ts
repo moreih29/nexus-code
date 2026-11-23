@@ -1,13 +1,4 @@
-/**
- * fileCopy / fileCut act on selectOperablePaths: a parent and its child
- * selected together collapse to the parent.
- */
-
 import { beforeEach, describe, expect, it, mock } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Shims
-// ---------------------------------------------------------------------------
 
 (globalThis as Record<string, unknown>).window = {
   ipc: {
@@ -25,16 +16,8 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
   canUseIpcBridge: () => false,
 }));
 
-// ---------------------------------------------------------------------------
-// Imports
-// ---------------------------------------------------------------------------
-
 import { useActiveStore } from "../../../../src/renderer/state/stores/active";
 import { selectOperablePaths, useFilesStore } from "../../../../src/renderer/state/stores/files";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 const WS = "ws-copy-cut-global";
 const ROOT = "/repo";
@@ -55,10 +38,7 @@ beforeEach(() => {
 
 describe("selectOperablePaths — drives fileCopy/fileCut entries", () => {
   it("collapses parent+child via distinctParents when both are in paths", () => {
-    // Use extendSelectionTo to get both ROOT/a.ts and ROOT in paths.
-    // Note: paths set semantics — use selectAllVisible to fill paths.
     useFilesStore.getState().selectAllVisible(WS, [ROOT, `${ROOT}/a.ts`]);
-    // ROOT is the parent of ROOT/a.ts → distinctParents([ROOT, ROOT/a.ts]) = [ROOT]
     const paths = selectOperablePaths(useFilesStore.getState(), WS);
     expect(paths).toEqual([ROOT]);
   });

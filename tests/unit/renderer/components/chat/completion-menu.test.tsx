@@ -1,8 +1,3 @@
-/**
- * The composer's completion menu with nothing to offer: a command query
- * that matches none says so, unless the program has not listed its
- * commands yet; a file query says nothing.
- */
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CompletionMenu } from "../../../../../src/renderer/components/chat/completion-menu";

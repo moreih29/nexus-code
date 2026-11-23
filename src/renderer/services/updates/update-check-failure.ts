@@ -1,8 +1,3 @@
-/**
- * User-facing text for a failed update check, worded from the failure reason
- * main reports (the raw detail stays in the main-process log).
- */
-
 import i18next from "i18next";
 
 export interface UpdateCheckFailure {

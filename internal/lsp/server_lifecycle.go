@@ -27,8 +27,6 @@ func (p *serverProcess) doShutdown(ctx context.Context) error {
 	_, requestErr := p.request(requestCtx, "shutdown", nil)
 	cancel()
 
-	// A server may ignore shutdown yet still honor exit. Give the exit frame
-	// and process a shared grace period, including any wait for its writer.
 	if ctx.Err() == nil {
 		exitCtx, cancelExit := context.WithTimeout(ctx, shutdownExitGrace)
 		if err := p.notify(exitCtx, "exit", nil); err == nil {
@@ -56,8 +54,6 @@ func (p *serverProcess) forceClose() {
 	p.waitForExit(shutdownExitGrace)
 }
 
-// abortInput rejects future writes immediately and unblocks the current one.
-// Kill the reader before closing the pipe, which can wait for OS I/O.
 func (p *serverProcess) abortInput() {
 	p.abortOnce.Do(func() {
 		close(p.inputDone)
@@ -68,7 +64,6 @@ func (p *serverProcess) abortInput() {
 	})
 }
 
-// markShuttingDown has serverExited say the agent stopped the server.
 func (p *serverProcess) markShuttingDown() {
 	p.mu.Lock()
 	p.shuttingDown = true
@@ -102,10 +97,6 @@ func (p *serverProcess) stopIdleTimer() {
 	}
 }
 
-// waitLoop reports the server's exit once its last output has been read.
-// Wait on the process directly so cmd.Wait cannot close the output pipes
-// early. On Unix, observing the exit before reaping keeps the group leader's
-// PID reserved while we drain its pipes and stop any remaining workers.
 func (p *serverProcess) waitLoop(drained <-chan struct{}) {
 	exitObserved := observeServerExit(p.cmd.Process)
 	var state *os.ProcessState
@@ -159,9 +150,6 @@ func (p *serverProcess) markExited(err error) {
 		close(p.done)
 		p.service.removeServer(p.id, p)
 
-		// Always notify the client so it can drop its mirror of the
-		// server (uri index, pending applyEdit promises). emit() is a
-		// no-op when no sink is wired (e.g. unit tests without one).
 		reason := ""
 		if err != nil {
 			reason = err.Error()

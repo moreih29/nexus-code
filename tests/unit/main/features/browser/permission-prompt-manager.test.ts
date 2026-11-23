@@ -1,23 +1,5 @@
-/**
- * Unit tests for BrowserPermissionPromptManager.
- *
- * All tests use the DI seam — no Electron import or mock.module required.
- * broadcast and setRemembered are injected as plain mock functions.
- *
- * Coverage:
- *   1. allow/block decisions resolved immediately (no broadcast).
- *   2. ask → broadcast once, coalesce subsequent calls.
- *   3. respond: resolves all waiters, calls setRemembered when remember=true.
- *   4. cancel: denies all waiters, no setRemembered.
- *   5. disposeByWebContents: removes only matching waiters, denies them.
- */
-
 import { describe, expect, test } from "bun:test";
 import { BrowserPermissionPromptManager } from "../../../../../src/main/features/browser/permission-prompt-manager";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 let broadcastCalls: Array<{ channelName: string; event: string; args: unknown }> = [];
 let setRememberedCalls: Array<{
@@ -44,10 +26,6 @@ function makeManager() {
   });
 }
 
-// ---------------------------------------------------------------------------
-// 1. allow decision — immediate callback(true), no broadcast
-// ---------------------------------------------------------------------------
-
 describe("handlePermissionRequest — allow", () => {
   test("calls callback(true) immediately without broadcasting", () => {
     const manager = makeManager();
@@ -70,10 +48,6 @@ describe("handlePermissionRequest — allow", () => {
     expect(broadcastCalls).toHaveLength(0);
   });
 });
-
-// ---------------------------------------------------------------------------
-// 2. block decision — immediate callback(false), no broadcast
-// ---------------------------------------------------------------------------
 
 describe("handlePermissionRequest — block", () => {
   test("calls callback(false) immediately without broadcasting", () => {
@@ -98,10 +72,6 @@ describe("handlePermissionRequest — block", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 3. ask decision — broadcast once
-// ---------------------------------------------------------------------------
-
 describe("handlePermissionRequest — ask (first request)", () => {
   test("broadcasts a prompt and registers the waiter", () => {
     const manager = makeManager();
@@ -120,9 +90,7 @@ describe("handlePermissionRequest — ask (first request)", () => {
       },
     );
 
-    // callback not called yet
     expect(result).toBeNull();
-    // broadcast fired exactly once
     expect(broadcastCalls).toHaveLength(1);
     expect(broadcastCalls[0].channelName).toBe("browserPermission");
     expect(broadcastCalls[0].event).toBe("prompt");
@@ -132,10 +100,6 @@ describe("handlePermissionRequest — ask (first request)", () => {
     ]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// 4. coalesce — same key, no second broadcast
-// ---------------------------------------------------------------------------
 
 describe("handlePermissionRequest — coalesce", () => {
   test("adds waiter to existing group, no second broadcast", () => {
@@ -163,9 +127,7 @@ describe("handlePermissionRequest — coalesce", () => {
       (ok) => results.push(ok),
     );
 
-    // Still only one broadcast
     expect(broadcastCalls).toHaveLength(1);
-    // No callbacks fired yet
     expect(results).toHaveLength(0);
   });
 
@@ -196,10 +158,6 @@ describe("handlePermissionRequest — coalesce", () => {
     expect(broadcastCalls).toHaveLength(2);
   });
 });
-
-// ---------------------------------------------------------------------------
-// 5. respond — resolves waiters, calls setRemembered when remember=true
-// ---------------------------------------------------------------------------
 
 describe("respond", () => {
   test("resolves all waiters with allow=true", () => {
@@ -297,10 +255,6 @@ describe("respond", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 6. cancel — denies all waiters, no setRemembered
-// ---------------------------------------------------------------------------
-
 describe("cancel", () => {
   test("denies all waiters", () => {
     const manager = makeManager();
@@ -351,10 +305,6 @@ describe("cancel", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 7. disposeByWebContents — removes matching waiters, denies them
-// ---------------------------------------------------------------------------
-
 describe("disposeByWebContents", () => {
   test("denies callbacks for matching webContentsId", () => {
     const manager = makeManager();
@@ -383,7 +333,6 @@ describe("disposeByWebContents", () => {
 
     manager.disposeByWebContents(10);
 
-    // Only the watcher for webContentsId=10 should have been denied
     expect(results).toHaveLength(1);
     expect(results[0]).toEqual({ id: 10, ok: false });
   });
@@ -415,16 +364,12 @@ describe("disposeByWebContents", () => {
 
     manager.disposeByWebContents(10);
 
-    // waiter 20 is still pending — not yet resolved
     expect(results).toHaveLength(1);
 
-    // Now respond — the remaining waiter (id=20) should resolve
     manager.respond("prompt-1", "allow", false);
     expect(results).toEqual([false, true]);
   });
 
-  // Regression: the renderer was never told, so the modal for a closed tab
-  // stayed up, did nothing when answered, and blocked later prompts.
   test("tells the renderer to drop a prompt nothing waits on any more", () => {
     const manager = makeManager();
     manager.handlePermissionRequest(

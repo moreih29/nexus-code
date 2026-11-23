@@ -1,6 +1,3 @@
-// The agent view's panels: the splits of its layout, each leaf a panel of
-// agents from any workspace, laid out and resized as a workspace's groups.
-
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Grid, type SplitBranch, type SplitNode } from "@/engine";
@@ -15,13 +12,10 @@ import type { EndedAgent } from "../../services/agent-view/ended";
 import { ResizeHandleRatio } from "../ui/resize-handle-ratio";
 import { AgentPane } from "./agent-pane";
 
-/** The panels, hidden while the workspaces are `shown` instead. */
 export function AgentView({ shown }: { shown: boolean }) {
   const root = useAgentViewStore((s) => s.root);
   const agents = useAgents(shown);
   const ended = useEndedAgents(agents, root, shown);
-  // An agent of a workspace not opened since launch runs once it is in a
-  // panel shown.
   useEffect(() => {
     if (shown) mountHeldWorkspaces(root);
   }, [shown, root]);
@@ -40,7 +34,6 @@ export function AgentView({ shown }: { shown: boolean }) {
   );
 }
 
-/** What the panels show of the agents. */
 interface PanelsProps {
   agents: Agents;
   ended: ReadonlyMap<string, EndedAgent>;

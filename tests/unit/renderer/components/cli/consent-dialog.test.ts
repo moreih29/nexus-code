@@ -1,4 +1,3 @@
-/** A consent prompt answered on another device of the user's comes down here, saying so. */
 import { describe, expect, mock, test } from "bun:test";
 import i18next from "i18next";
 import { Dialog as RadixDialog } from "radix-ui";
@@ -16,7 +15,6 @@ import type { DialogProps } from "../../../../../src/renderer/components/ui/dial
 import { type ToastInput, watchToasts } from "../../../../../src/renderer/components/ui/toast";
 import { consentDetailsOf } from "../../../../../src/shared/cli/consent-copy";
 
-// Static rendering omits the portal. Keep the Radix context for the dialog header.
 mock.module("../../../../../src/renderer/components/ui/dialog", () => ({
   Dialog: ({ open, children }: DialogProps) =>
     open ? createElement(RadixDialog.Root, { open }, children) : null,
@@ -83,7 +81,6 @@ describe("settling a consent prompt from another device", () => {
     try {
       const first = askCliConsent(prompt("c1"));
       const second = askCliConsent(prompt("c2"));
-      // One waiting its turn is settled too.
       expect(settleCliConsent("c2", "deny", "iPhone")).toBe(true);
       expect(await second).toBe("deny");
       expect(settleCliConsent("c1", "session", "iPhone")).toBe(true);
@@ -125,7 +122,6 @@ describe("settling a consent prompt from another device", () => {
       expect(await asked).toBe("once");
       expect(settleCliConsent("c3", "deny", "iPhone")).toBe(false);
       expect(settleCliConsent("gone", "once", "iPhone")).toBe(false);
-      // Settled without a device's name: no toast.
       expect(toasts).toEqual([]);
     } finally {
       stop();

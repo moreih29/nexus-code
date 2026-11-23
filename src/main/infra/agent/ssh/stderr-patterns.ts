@@ -1,9 +1,6 @@
 import type { SshErrorCode } from "../../../../shared/ssh/errors";
 
 const AUTH_FAILED_PATTERNS = [
-  // OpenSSH's own forms only: "user@host: Permission denied (publickey)." and
-  // the password retry line. A bare "Permission denied" is usually a login
-  // profile touching an unreadable file, not an authentication failure.
   /permission denied \(/i,
   /permission denied, please try again/i,
   /authentication failed/i,
@@ -35,20 +32,11 @@ const SERVER_SPAWN_FAILED_PATTERNS = [
   /\bexec: .*: not found\b/i,
   /\bexec: .*: no such file or directory\b/i,
   /cannot execute: required file not found/i,
-  // Dynamic-loader failures when the agent binary cannot run on the remote:
-  // a glibc too old for the binary's required symbol version (the exact case
-  // that surfaced as an empty-cause ssh.unknown before this classifier
-  // existed), a missing shared library, or an architecture mismatch.
   /version `?GLIBC_[\d.]+'? not found/i,
   /error while loading shared libraries/i,
   /cannot execute binary file/i,
 ];
 
-/**
- * Maps one OpenSSH stderr line to the stable SSH transport error code it
- * implies. Unknown lines return null so callers can ignore warnings and fall
- * back to `ssh.unknown` only if the process exits unsuccessfully.
- */
 export function classifyStderrLine(line: string): SshErrorCode | null {
   if (AUTH_FAILED_PATTERNS.some((pattern) => pattern.test(line))) {
     return "ssh.auth-failed";

@@ -1,11 +1,3 @@
-/**
- * Settings › Claude and Settings › Codex: the agent's profiles, each a
- * config folder with its own sign-in. The default-folder profile comes
- * first and stays; the others are added, edited and deleted here. Each row
- * says who the profile is signed in as on this machine, and offers a sign-in
- * when it is not, or a fresh one (another account or organization) when it is.
- */
-
 import { ChevronRight, LogIn, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -169,7 +161,6 @@ export function ProfileRow({
   onEdit: () => void;
   onRemove: (() => void) | undefined;
   onLogin: () => void;
-  /** Signs a signed-in profile in anew, to another account or organization. */
   onLoginAgain: () => void;
 }) {
   const { t } = useTranslation("settings");
@@ -223,7 +214,6 @@ export function ProfileRow({
             aria-hidden="true"
           />
         </button>
-        {/* A signed-out profile has its sign-in button beside its status. */}
         <button
           type="button"
           aria-label={t("profiles.loginAgain", { name })}
@@ -258,13 +248,11 @@ export function ProfileRow({
   );
 }
 
-/** What asks an agent who is signed in, as a row names it when it gives no answer. */
 const STATUS_COMMAND: Record<ChatAgent, string> = {
   claude: "claude auth status",
   codex: "codex login status",
 };
 
-/** Who the profile is signed in as, or a sign-in button. */
 export function ProfileStatusText({
   agent,
   profile,
@@ -349,10 +337,6 @@ export function ProfileStatusText({
   );
 }
 
-/**
- * An earlier profile signed in to the same Claude organization, or the same
- * ChatGPT account: two profiles that only split the history, not the usage.
- */
 export function twinOf(
   agent: ChatAgent,
   profile: AgentProfile,

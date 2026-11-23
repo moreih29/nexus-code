@@ -1,14 +1,3 @@
-/**
- * DialogHeader — the top of a dialog: its title, what it is for under it,
- * and on the right whatever acts on the whole dialog, then the × for a
- * dialog that has no Cancel button. One look for every dialog.
- *
- * The title and description are Radix's, so they also name and describe the
- * dialog to a screen reader: a dialog shows this one header rather than a
- * hidden title beside a visible copy. An AlertDialog's are its own
- * primitives (`alert`).
- */
-
 import { AlertDialog as RadixAlertDialog, Dialog as RadixDialog } from "radix-ui";
 import type { ReactNode } from "react";
 import { cn } from "@/utils/cn";
@@ -27,13 +16,9 @@ export function DialogHeader({
   title: ReactNode;
   description?: ReactNode;
   descriptionClassName?: string;
-  /** Before the title: the back button of a dialog with views. */
   leading?: ReactNode;
-  /** After the title, before the ×: buttons that act on the whole dialog. */
   actions?: ReactNode;
-  /** The × at the right, for a dialog with no Cancel button. */
   close?: boolean;
-  /** For an AlertDialog. */
   alert?: boolean;
   className?: string;
 }) {

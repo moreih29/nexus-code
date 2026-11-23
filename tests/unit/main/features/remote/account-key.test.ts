@@ -1,4 +1,3 @@
-/** The account key, locked with the account password and opened again. */
 import { describe, expect, test } from "bun:test";
 import { hkdfSync } from "node:crypto";
 import {
@@ -16,7 +15,6 @@ import {
   WrongPasswordError,
 } from "../../../../../src/main/features/remote/account-key";
 
-// Argon2id's floor, so the tests run fast; the app locks with DEFAULT_KDF.
 const kdf = { ops: 1, mem: 16 * 1024 * 1024 };
 
 describe("the account key", () => {
@@ -83,7 +81,6 @@ describe("the account key", () => {
 
   test("takes a password typed in another normalization form", async () => {
     const key = await newAccountKey();
-    // "한글" typed as composed syllables, then as their decomposed jamo.
     const composed = "비밀번호는한글로열두자요";
     const bundle = (await lockAccountKey({ key, kid: 1, password: composed, userId: "u1", kdf }))
       .bundle;

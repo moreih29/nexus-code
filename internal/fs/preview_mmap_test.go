@@ -50,7 +50,6 @@ func TestPreviewDetectsAnAlreadyDirtyMappedWrite(t *testing.T) {
 	if _, err := previewRequest(t, s, params); proto.ErrorCode(err) != CodeStale {
 		t.Fatalf("pin missed a changed block in a writable mapping: %v", err)
 	}
-	// Pinning the current version can read a different block of the same source.
 	params.Offset = previewProofBlockBytes
 	params.RequireVersion = edited.Version
 	pin, err := previewRequest(t, s, params)

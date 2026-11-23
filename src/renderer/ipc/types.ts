@@ -1,6 +1,3 @@
-// Shared IPC type derivations from the contract.
-// Consumed by both ipc/client.ts and the ambient window.ipc declaration in global.d.ts.
-
 import type {
   InferArgs,
   InferComplete,

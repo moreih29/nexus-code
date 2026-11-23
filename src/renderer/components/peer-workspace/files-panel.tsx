@@ -19,9 +19,7 @@ import { PeerNotesPanel } from "./notes-panel";
 import { PeerSearchPanel } from "./search-panel";
 import { PeerSessionsPanel } from "./sessions-panel";
 
-/** What a workspace on another computer shows of the local panel's views. */
 const PEER_FILES_MODES: readonly PeerFilesMode[] = ["tree", "search", "git", "agents", "notes"];
-/** The same, for a computer that does not serve its notes. */
 const PEER_FILES_MODES_NO_NOTES = PEER_FILES_MODES.filter((mode) => mode !== "notes");
 
 export function PeerFilesPanel({
@@ -48,16 +46,12 @@ export function PeerFilesPanel({
   gitUpdateNeeded: boolean;
   refreshGit: () => void;
   sessionHint: number;
-  /** What that computer lists of its sessions, for the agent list. */
   listing?: PeerSessions;
-  /** Shown, in reach, and that computer serves its notes. */
   canReadNotes: boolean;
 }) {
   const { t } = useTranslation();
   const id = peerTargetId(target);
-  // Kept per workspace while the app runs, as a local workspace's is.
   const picked = usePeerWorkspaceStore((s) => (s.views[id] ?? EMPTY_PEER_VIEW).filesMode ?? "tree");
-  // Out of reach, its capabilities are not known: the notes view stays as it was.
   const notes = peer ? (peer.serves?.includes("notes") ?? false) : picked === "notes";
   const mode = picked === "notes" && !notes ? "tree" : picked;
   const [searchFocusRequest, setSearchFocusRequest] = useState(0);
@@ -81,7 +75,6 @@ export function PeerFilesPanel({
             )
           ) : (
             <>
-              {/* ErrorBoundary: a crash in one view leaves the others working, as locally. */}
               <KeptMounted shown={mode === "tree"}>
                 <ErrorBoundary logSource="peer-file-tree-panel">
                   <PeerFileTree

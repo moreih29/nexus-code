@@ -1,11 +1,3 @@
-// The line under a chat tab's composer: how full the context is and how
-// much of the plan's usage limits is spent, in the colours of the context
-// ring, turning to the warning colour from 80%. A tab too narrow for all of
-// it says less, a step at a time and no more than it has to (usageViews):
-// what is near its limit holds out longest, and what is left out is counted
-// ("+2"). Hovering a part tells it whole. The agent list's detail shows the
-// plan's part of it as a chip (UsageChip).
-
 import { RotateCcw } from "lucide-react";
 import { type ReactNode, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -50,10 +42,6 @@ function Bar({ percent }: { percent: number }) {
   );
 }
 
-/**
- * A meter's name: the week's is "every model" where the line also has a
- * model's own week (`scoped`).
- */
 export function usageMeterLabel(
   t: (key: string, options?: Record<string, unknown>) => string,
   meter: UsageMeter,
@@ -75,14 +63,12 @@ export function usageMeterLabel(
   }
 }
 
-/** The words for a line's meters: their names, short and long, when they start over, and what hovering tells. */
 function useUsageWords(line: UsageLine) {
   const { t, i18n } = useTranslation();
   const now = Date.now();
 
   const label = (meter: UsageMeter, long = false): string =>
     usageMeterLabel(t, meter, long && line.more.length > 0);
-  /** The word for a meter in a narrow line. */
   const short = (meter: UsageMeter): string =>
     meter.kind === "session"
       ? t("chat.usage.short.session")
@@ -101,7 +87,6 @@ function useUsageWords(line: UsageLine) {
           time: parts.time,
         });
   };
-  /** When a meter starts over, in a narrow line: "15:29", or "목 09:59" past a day. */
   const resetShort = (meter: UsageMeter): string | null => {
     if (meter.resetsAt === undefined) return null;
     const parts = resetParts(meter.resetsAt, now, i18n.language);
@@ -117,7 +102,6 @@ function useUsageWords(line: UsageLine) {
     });
     return when ? `${head} · ${when}` : head;
   };
-  /** What hovering a meter tells: the week's for every model with each model's own. */
   const told = (meter: UsageMeter): string =>
     meter.kind === "weekly" && line.more.length > 0
       ? [tip(meter), ...line.more.map(tip)].join("\n")
@@ -130,7 +114,6 @@ export function UsageLineView({
   trailing,
 }: {
   line: UsageLine | null;
-  /** What ends the line on its right: the tab's profile, its dot alone when `compact`. */
   trailing?: ((compact: boolean) => ReactNode) | undefined;
 }) {
   if (!line) {
@@ -149,18 +132,10 @@ export function UsageLineView({
 interface TabUsageLineProps {
   workspaceId: string;
   profileId: string | undefined;
-  /** Whether the tab is shown: the minute's clock runs only then. */
   visible: boolean;
-  /** What ends the line on its right, as UsageLineView's. */
   trailing?: ((compact: boolean) => ReactNode) | undefined;
 }
 
-/**
- * The line under a Claude tab's composer. It reads the profile's plan usage
- * (the tab's own answer until the profile has one) and keeps the minute's
- * clock itself, so the asks every minute draw this line again, and only
- * when the numbers change: not the tab.
- */
 export function ClaudeUsageLine({
   workspaceId,
   profileId,
@@ -171,7 +146,6 @@ export function ClaudeUsageLine({
 }: TabUsageLineProps & Pick<ChatModel, "contextUsage" | "usage">) {
   const plan = usePlanClaudeUsage(workspaceId, profileId);
   const told = plan ?? usage;
-  // A minute's clock, so a window that resets leaves the line while it shows.
   const now = useNow(visible, 60_000);
   const line = useMemo(
     () => claudeUsageLine({ contextUsage, usage: told }, now),
@@ -180,7 +154,6 @@ export function ClaudeUsageLine({
   return <UsageLineView line={line} trailing={trailing} />;
 }
 
-/** The line under a Codex tab's composer, as ClaudeUsageLine. */
 export function CodexUsageLine({
   workspaceId,
   profileId,
@@ -281,12 +254,6 @@ function Line({ line, trailing }: { line: UsageLine; trailing?: (compact: boolea
   );
 }
 
-/**
- * The plan's usage as a chip, in the agent list's detail: each meter's bar,
- * short name and percent, after the dot of the account it is (`dot`);
- * hovering tells the account (`head`), each meter whole and when it starts
- * over.
- */
 export function UsageChip({
   line,
   head,

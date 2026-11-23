@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-// blockedInput models a pipe whose child stopped reading.
 type blockedInput struct {
 	started chan struct{}
 	closed  chan struct{}
@@ -17,21 +16,17 @@ type blockedInput struct {
 	start   sync.Once
 }
 
-// Write blocks until the input is force-closed.
 func (p *blockedInput) Write([]byte) (int, error) {
 	p.start.Do(func() { close(p.started) })
 	<-p.closed
 	return 0, io.ErrClosedPipe
 }
 
-// Close releases the blocked writer.
 func (p *blockedInput) Close() error {
 	p.once.Do(func() { close(p.closed) })
 	return nil
 }
 
-// TestShutdownClosesBlockedInput verifies that a canceled shutdown can tear
-// down a server even when an earlier LSP frame still owns its stdin writer.
 func TestShutdownClosesBlockedInput(t *testing.T) {
 	svc := New()
 	server := newServerProcess(svc, "stalled", SpawnParams{}, 0)

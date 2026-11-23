@@ -1,12 +1,3 @@
-/**
- * trashPath — renderer service tests.
- *
- * Covers the happy path (IPC dispatch + parent refresh), out-of-workspace
- * guard, and the error toast path. The workspace-kind branching is owned
- * by confirmAndDeletePath; this layer assumes the caller already decided
- * trash is the right path.
- */
-
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 
 const toastCalls: Array<{ kind: string; message: string }> = [];
@@ -83,7 +74,6 @@ describe("trashPath", () => {
       method: "trash",
       args: { workspaceId: WS, relPath: "a.ts" },
     });
-    // Parent (root) is reloaded after success.
     expect(ipcCalls.some((c) => c.method === "readdir")).toBe(true);
     expect(toastCalls).toHaveLength(0);
   });

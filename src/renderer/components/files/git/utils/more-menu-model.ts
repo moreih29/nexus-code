@@ -1,13 +1,3 @@
-/**
- * Pure data models for the More menu — submenu shells, action discriminators,
- * and the small format/run helpers that drive them.
- *
- * Splitting these out of `GitMoreMenu.tsx` lets the renderer component focus
- * on portal placement, focus management, and event wiring while leaving the
- * "what does each menu entry look like, and when is it disabled?" logic in
- * one inspectable, test-only file. Every function here is side-effect free.
- */
-
 import i18next from "i18next";
 import type { BranchInfo, GitAutofetchIntervalMin } from "../../../../../shared/git/types";
 
@@ -79,9 +69,6 @@ export type GitMoreMenuLayoutEntry =
   | { kind: "submenu"; label: string }
   | GitSubmenuSeparator;
 
-/**
- * Builds the Remote submenu model used by the menu renderer and tests.
- */
 export function buildGitRemotesMenuModel(remotes: readonly string[]): GitRemotesMenuSpec[] {
   const t = i18next.t.bind(i18next);
   const currentRemotes: GitRemotesMenuSpec[] =
@@ -100,10 +87,6 @@ export function buildGitRemotesMenuModel(remotes: readonly string[]): GitRemotes
   ];
 }
 
-/**
- * Returns the exact warning shown before removing the remote that backs the
- * current branch upstream, or null when removal does not affect tracking.
- */
 export function buildRemoteUpstreamWarning(
   branch: BranchInfo | null | undefined,
   remote: string,
@@ -113,7 +96,6 @@ export function buildRemoteUpstreamWarning(
   return t("files:git.removeRemote.upstreamWarning", { branch: branch.current, remote });
 }
 
-/** Builds the fixed Autofetch submenu options, marking the selected interval. */
 export function buildAutofetchMenuModel(
   selected: GitAutofetchIntervalMin,
 ): GitAutofetchMenuOption[] {
@@ -133,7 +115,6 @@ export function buildAutofetchMenuModel(
   ];
 }
 
-/** Dispatches the selected Branch submenu entry to its owning panel handler. */
 export function runGitBranchMenuAction(
   id: GitBranchMenuItemId,
   handlers: GitBranchMenuActionHandlers,
@@ -163,7 +144,6 @@ export function runGitBranchMenuAction(
   }
 }
 
-/** Dispatches Tag picker entries to their mode-specific picker state. */
 export function runGitTagMenuAction(
   id: Exclude<GitTagMenuItemId, "push-tags">,
   handlers: GitTagMenuActionHandlers,
@@ -182,10 +162,6 @@ export function runGitTagMenuAction(
   }
 }
 
-/**
- * Builds the fixed top-level More menu shell. Tests assert this separately
- * from the click handlers so new git actions land in the decided groups.
- */
 export function buildGitMoreMenuLayoutModel(canInit = false): GitMoreMenuLayoutEntry[] {
   const t = i18next.t.bind(i18next);
   return [
@@ -208,10 +184,6 @@ export function buildGitMoreMenuLayoutModel(canInit = false): GitMoreMenuLayoutE
   ];
 }
 
-/**
- * Builds the Branch submenu shell with all branch workflows routed through
- * the panel-owned picker/dialog callbacks.
- */
 export function buildGitBranchMenuModel({
   disabled = false,
   hasHead = false,
@@ -275,7 +247,6 @@ export function buildGitBranchMenuModel({
   ];
 }
 
-/** Builds the Stash submenu around the existing stash actions. */
 export function buildGitStashMenuModel({
   disabled = false,
   hasHead = false,
@@ -332,7 +303,6 @@ export function buildGitStashMenuModel({
   ];
 }
 
-/** Resolves Push Tags into disabled, immediate-push, or remote-picker flow. */
 export function resolveGitPushTagsAction({
   disabled = false,
   hasHead = false,
@@ -352,7 +322,6 @@ export function resolveGitPushTagsAction({
   return { kind: "choose-remote", remotes };
 }
 
-/** Resolves Delete Remote Tag into disabled, direct, or remote-picker flow. */
 export function resolveGitDeleteRemoteTagAction({
   disabled = false,
   hasHead = false,
@@ -372,10 +341,6 @@ export function resolveGitDeleteRemoteTagAction({
   return { kind: "choose-remote", remotes };
 }
 
-/**
- * Builds the Tag submenu shell with mode-specific picker entries plus the
- * Push Tags bulk action.
- */
 export function buildGitTagMenuModel({
   disabled = false,
   hasHead = false,
@@ -423,7 +388,6 @@ export function buildGitTagMenuModel({
   ];
 }
 
-/** Formats the menu caption from FETCH_HEAD mtime. */
 export function formatLastFetchedCaption(lastFetchedAt: number | null, now = Date.now()): string {
   const t = i18next.t.bind(i18next);
   if (lastFetchedAt === null) return t("files:git.moreMenu.autofetch.lastFetchedNever");

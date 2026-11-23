@@ -8,7 +8,6 @@ import (
 	hostproc "github.com/nexus-code/nexus-code/internal/process"
 )
 
-// baseName strips a program's folder: ps names some programs by their path.
 func baseName(name string) string {
 	if i := strings.LastIndexAny(name, `/\`); i >= 0 {
 		return name[i+1:]
@@ -16,8 +15,6 @@ func baseName(name string) string {
 	return name
 }
 
-// parsePS reads `ps -A -o pid=,ppid=,comm=`. The name is the rest of the
-// line, as a program's path may hold spaces.
 func parsePS(out []byte) map[int]Process {
 	table := map[int]Process{}
 	for _, line := range strings.Split(string(out), "\n") {
@@ -35,8 +32,6 @@ func parsePS(out []byte) map[int]Process {
 	return table
 }
 
-// parseLsof reads `lsof -Fpn` for TCP sockets: a "p<pid>" line starts each
-// process, and an "n<address>:<port>" line follows for each of its sockets.
 func parseLsof(out []byte) []Listener {
 	var listeners []Listener
 	pid := 0
@@ -60,10 +55,6 @@ func parseLsof(out []byte) []Listener {
 	return listeners
 }
 
-// parseProcStat reads the parent and the program's name from the contents
-// of /proc/<pid>/stat. The name, field 2, is in parentheses and may hold
-// spaces and parentheses itself, so the fields after it are counted from the
-// last ")": field 3 (state) comes first, then field 4 (ppid).
 func parseProcStat(data []byte) (Process, bool) {
 	name, suffix := hostproc.SplitPIDStat(data)
 	if name == nil {
@@ -80,12 +71,8 @@ func parseProcStat(data []byte) (Process, bool) {
 	return Process{PPID: ppid, Name: string(name)}, true
 }
 
-// tcpListen is the state /proc/net/tcp gives a listening socket.
 const tcpListen = "0A"
 
-// parseProcNetTCP reads /proc/net/tcp or /proc/net/tcp6 and maps the inode
-// of each listening socket to its port. A row's local address is hex
-// "<address>:<port>", its state is the fourth field and its inode the tenth.
 func parseProcNetTCP(data []byte) map[uint64]int {
 	ports := map[uint64]int{}
 	for _, line := range strings.Split(string(data), "\n") {
@@ -110,8 +97,6 @@ func parseProcNetTCP(data []byte) map[uint64]int {
 	return ports
 }
 
-// socketInode reads the inode from a /proc/<pid>/fd link to a socket,
-// "socket:[12345]".
 func socketInode(link string) (uint64, bool) {
 	rest, ok := strings.CutPrefix(link, "socket:[")
 	if !ok || !strings.HasSuffix(rest, "]") {
@@ -121,21 +106,13 @@ func socketInode(link string) (uint64, bool) {
 	return inode, err == nil
 }
 
-// mibTCPStateListen is MIB_TCP_STATE_LISTEN.
 const mibTCPStateListen = 2
 
-// parseTCPTable reads a MIB_TCPTABLE_OWNER_PID: a count, then rows of six
-// little-endian DWORDs: state, local address, local port, remote address,
-// remote port and owning process id. A port is in network byte order in the
-// first two bytes of its DWORD.
 func parseTCPTable(buf []byte) []Listener {
 	const rowSize = 24
 	return parseTable(buf, rowSize, 0, 8, 20)
 }
 
-// parseTCP6Table reads a MIB_TCP6TABLE_OWNER_PID, whose rows hold the local
-// address (16 bytes), its scope, the local port, the remote address, its
-// scope, the remote port, the state and the owning process id.
 func parseTCP6Table(buf []byte) []Listener {
 	const rowSize = 56
 	return parseTable(buf, rowSize, 48, 20, 52)

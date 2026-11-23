@@ -44,7 +44,6 @@ function makeFixture() {
       return () => providerReadyListeners.delete(listener);
     },
   };
-  /** Simulates the manager booting a replacement agent after the channel died. */
   const reboot = () => {
     const next = makeProvider();
     current = next.provider;
@@ -119,9 +118,6 @@ describe("AgentGitWatcher", () => {
     ]);
   });
 
-  // Regression: a respawned agent process starts without the .git watcher, so
-  // the registration must be replayed when the channel reports a successful
-  // reconnect handshake (`ready` lifecycle event).
   it("replays git.watch on the channel ready lifecycle event", async () => {
     const { watcher, provider, emitLifecycle } = makeFixture();
 
@@ -151,9 +147,6 @@ describe("AgentGitWatcher", () => {
     expect(provider.callAgentMethod).not.toHaveBeenCalled();
   });
 
-  // Regression: repo detection does not run again after the agent is
-  // replaced, so the .git watch stayed on the dead provider and status went
-  // stale until the app restarted.
   it("re-registers the .git watch on a rebooted agent and refreshes status", async () => {
     const fixture = makeFixture();
     await fixture.watcher.watch(WORKSPACE_ID, "/repo/.git");

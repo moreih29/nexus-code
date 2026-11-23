@@ -29,7 +29,6 @@ export async function callerSandboxLevel(ctx: CliContext): Promise<SandboxLevel>
   const caller = await senderOf(ctx);
   if (!caller || caller.kind === "app") return SANDBOX_LEVEL.fullAccess;
   if (caller.agent === "codex") {
-    // The terminal's foreground program identifies Codex, but provides no sandbox config.
     if (caller.kind === "tab" && !caller.device && caller.workspaceId && caller.tabId) {
       const sandbox = await chatSandbox(ctx, {
         workspaceId: caller.workspaceId,
@@ -61,11 +60,6 @@ export async function callerSandboxLevel(ctx: CliContext): Promise<SandboxLevel>
     : SANDBOX_LEVEL.fullAccess;
 }
 
-/**
- * Call only on local CLI paths, before dispatching the operation. A protected
- * change uses a sandbox grant scoped to its caller and destination. The
- * existing consent path presents the payload and handles cancellation.
- */
 export async function mayExecute(
   ctx: CliContext,
   workspace: WorkspaceMeta,

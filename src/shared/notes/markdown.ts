@@ -1,13 +1,5 @@
-/**
- * A note's body as Markdown: what `note.md` holds next to `note.json`, and
- * what `nexus note read` prints. The editor's document (ProseMirror JSON, as
- * TipTap gives it) is the note; this is written from it on every save, for
- * agents and anything else that reads text. Assets stay relative to the
- * note's folder (sketches/, materials/, screens/).
- */
 import { clockOf } from "./transcript";
 
-/** A node of the editor's document, as TipTap's getJSON() gives it. */
 export interface DocNode {
   type: string;
   attrs?: Record<string, unknown>;
@@ -16,7 +8,6 @@ export interface DocNode {
   marks?: { type: string; attrs?: Record<string, unknown> }[];
 }
 
-/** The document as Markdown, ending in one newline (or empty). */
 export function docToMarkdown(doc: DocNode | null | undefined): string {
   if (!doc?.content?.length) return "";
   const out = blocks(doc.content, "")
@@ -25,7 +16,6 @@ export function docToMarkdown(doc: DocNode | null | undefined): string {
   return out ? `${out}\n` : "";
 }
 
-/** A link's destination, in angle brackets when it has spaces or brackets. */
 export function linkTarget(href: string): string {
   return /[\s()<>]/.test(href) ? `<${href.replace(/[<>]/g, encodeURIComponent)}>` : href;
 }
@@ -133,7 +123,6 @@ function inline(nodes: DocNode[] | undefined): string {
     }
     const link = marks.find((m) => m.type === "link");
     if (link) {
-      // A literal exclamation mark before a link must stay text, even across nodes.
       if (out.endsWith("!")) out = `${out.slice(0, -1)}\\!`;
       t = `[${t}](${linkTarget(str(link.attrs?.href))})`;
     }
@@ -148,16 +137,11 @@ function codeSpan(t: string): string {
   return ticks ? `${fence} ${t} ${fence}` : `${fence}${t}${fence}`;
 }
 
-/** Text with what Markdown would read as markup escaped. */
 export function escapeText(t: string): string {
-  return (
-    t
-      // A backslash is markup only before ASCII punctuation (or at a line's
-      // end): "C:\Users" stays as it is.
-      .replace(/\\(?=[!-/:-@[-`{-~]|\n|$)|[`*_[\]<>]/g, (c) => `\\${c}`)
-      .replace(/^(\s*)([#+-])(\s)/gm, "$1\\$2$3")
-      .replace(/^(\s*\d+)([.)])(\s)/gm, "$1\\$2$3")
-  );
+  return t
+    .replace(/\\(?=[!-/:-@[-`{-~]|\n|$)|[`*_[\]<>]/g, (c) => `\\${c}`)
+    .replace(/^(\s*)([#+-])(\s)/gm, "$1\\$2$3")
+    .replace(/^(\s*\d+)([.)])(\s)/gm, "$1\\$2$3");
 }
 
 function prefixLines(text: string, prefix: string): string {

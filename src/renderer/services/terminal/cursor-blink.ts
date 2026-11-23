@@ -1,7 +1,6 @@
 const BLINK_MS = 500;
 const HIDDEN_CLASS = "nexus-cursor-blink-off";
 
-// Only the terminal with keyboard focus can blink.
 let blinking: HTMLElement | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -12,7 +11,6 @@ function stopBlinking(): void {
   blinking = null;
 }
 
-/** Read xterm's effective colors, which a PTY can change through OSC 12. */
 function observeBlockCursorColors(element: HTMLElement): MutationObserver | undefined {
   const themeStyle = [...element.querySelectorAll<HTMLStyleElement>(".xterm-screen > style")].find(
     (style) => style.textContent?.includes(".xterm-cursor-block:not(.xterm-cursor-blink)"),
@@ -37,7 +35,6 @@ function observeBlockCursorColors(element: HTMLElement): MutationObserver | unde
   return observer;
 }
 
-/** Restart the visible phase on focus and input, and stop when focus leaves. */
 export function installCursorBlink(element: HTMLElement, textarea: HTMLTextAreaElement) {
   const colorObserver = observeBlockCursorColors(element);
   const doc = textarea.ownerDocument;

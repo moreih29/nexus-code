@@ -10,7 +10,6 @@ import (
 	"testing"
 )
 
-// TestAddToGitignorePreservesMode guards replacements of private ignore files.
 func TestAddToGitignorePreservesMode(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows only represents the owner write bit through chmod")

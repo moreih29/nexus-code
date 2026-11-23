@@ -1,8 +1,3 @@
-/**
- * fs channel — registers the per-handler implementations defined in the
- * sibling files. This module only wires them into the router so the
- * channel itself stays a thin map without growing.
- */
 import { register } from "../../../infra/ipc-router";
 import type { WorkspaceStorage } from "../../../infra/storage/workspace-storage";
 import { searchTextStream } from "../../search";
@@ -31,8 +26,6 @@ import {
   unlinkHandler,
   writeFileHandler,
 } from "./write-handlers";
-
-// NOTE: production code only needs `registerFsChannel` from this barrel.
 
 export function registerFsChannel(
   manager: WorkspaceManager,

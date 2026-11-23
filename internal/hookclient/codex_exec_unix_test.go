@@ -10,8 +10,6 @@ import (
 	"testing"
 )
 
-// fakeCodex writes a script that stands for codex, in a codex home of the
-// test's own.
 func fakeCodex(t *testing.T, body string) string {
 	t.Helper()
 	t.Setenv("CODEX_HOME", t.TempDir())
@@ -38,7 +36,6 @@ func TestRunCodexExec_PassesTheRunOnAndTellsItsEvents(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "out.jsonl"), []byte(stream), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// It reads its prompt from stdin, as codex does, and exits as it would.
 	codex := fakeCodex(t, `cat > "`+dir+`/prompt.txt"; cat "`+dir+`/out.jsonl"; echo "args: $*" >&2; exit 1`)
 	teller := newPrintTeller(socket, "tok", "ws", "t1")
 	var stdout, stderr bytes.Buffer
@@ -123,7 +120,6 @@ func TestRunCodexExec_TextRunTellsItsRollout(t *testing.T) {
 	const id = "01a1b1e2-7511-7531-92ee-5984efc1790d"
 	header := "OpenAI Codex v0.166.0\n--------\nmodel: gpt-6-luna\nsession id: " + id + "\n--------\n"
 	lines := strings.Join(rolloutLines, "\n") + "\n"
-	// codex writes its rollout as it goes, after its header.
 	codex := fakeCodex(t, `printf '%s' '`+header+`' >&2
 day="$CODEX_HOME/sessions/2026/11/06"; mkdir -p "$day"
 cat > "$day/rollout-2026-11-06T17-22-50-`+id+`.jsonl" <<'LINES'

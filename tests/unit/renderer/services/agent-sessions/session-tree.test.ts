@@ -58,12 +58,10 @@ test("links by tab ID across workspaces and counts relocated descendants under t
     },
   ];
   const groups = workspaceTrees(families, [family!], {}, false);
-  // The task holds only children, listed under their parent: it has no group.
   const [inHome, ...others] = groups[0]?.worktrees ?? [];
   expect([...treeSessions(inHome?.roots ?? [])]).toEqual([root, child, grandchild]);
   expect(inHome?.hosted).toBe(0);
   expect(others).toEqual([]);
-  // Kept where empty worktrees are, it counts the children it holds.
   const [, inTask] = workspaceTrees(families, [family!], {}, false, () => true)[0]?.worktrees ?? [];
   expect(inTask?.roots).toEqual([]);
   expect(inTask?.hosted).toBe(2);

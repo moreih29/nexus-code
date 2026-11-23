@@ -1,4 +1,3 @@
-/** How requests reach the server: through the proxy, straight for a while when it fails. */
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   PROXY_DOWN_MS,
@@ -49,7 +48,6 @@ describe("the route to the server", () => {
     expect(route.base()).toBe(FALLBACK);
     expect(route.unreachable(`${FALLBACK}/devices`)).toBe(false);
     expect(route.base()).toBe(FALLBACK);
-    // Each way is tried again once its own while is over.
     now = PROXY_DOWN_MS;
     expect(route.base()).toBe(PROXY);
     expect(route.unreachable(PROXY)).toBe(true);
@@ -81,7 +79,6 @@ describe("a socket that went straight", () => {
     for (const probe of probes.splice(0)) probe.stop();
   });
 
-  /** Controls the socket and the route independently of the probe response. */
   function setup(answer: () => Response | Error) {
     let now = 0;
     const route = new ServerRoute(SERVER, PROXY, () => now);
@@ -123,7 +120,6 @@ describe("a socket that went straight", () => {
   test("goes back through the proxy once requests do and the proxy answers", async () => {
     const t = setup(() => new Response("{}"));
     t.route.unreachable(PROXY);
-    // Still passing the proxy by: nothing asked.
     await t.back.check();
     expect(t.asked).toEqual([]);
     t.at(PROXY_DOWN_MS);
@@ -239,10 +235,8 @@ describe("a socket that went straight", () => {
     probes.push(back);
     route.unreachable(PROXY);
     route.unreachable(SERVER);
-    // Both passed by: nothing asked.
     await back.check();
     expect(asked).toEqual([]);
-    // Both tried again: the proxy does not answer, so straight it is.
     now = PROXY_DOWN_MS;
     await back.check();
     expect(asked).toEqual([`${PROXY}/info`]);

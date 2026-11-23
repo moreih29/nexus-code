@@ -1,8 +1,3 @@
-/**
- * docs/CLI.md, the CLI's reference, names every command nexus has, as
- * "nexus tab pin" or, beside its sibling, as "tab unpin": a command added
- * without a word there fails here.
- */
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -17,7 +12,6 @@ test("docs/CLI.md names every nexus command", () => {
     new RegExp(`(^|[\\s\`(])${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[\\s\`)])`, "m").test(
       doc,
     );
-  // Hidden commands are for hooks and wrappers, not people or agents.
   const missing = CLI_COMMANDS.filter((command) => !command.hidden)
     .map((command) => command.path.join(" "))
     .filter((path) => !named(path));

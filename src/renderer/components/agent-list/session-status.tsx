@@ -1,11 +1,3 @@
-import type { RowGroup } from "../../services/agent-sessions/rows";
-// Agent list — a session's state as a glyph and words, its agent as a
-// badge, and how long it has been in that state.
-//
-// The glyphs and colors are the sidebar's (workspace-status-glyph.tsx), so
-// a state reads the same everywhere. States told from output rather than
-// reported by hooks (Codex and other agents) say so: "(estimated)".
-
 import i18next from "i18next";
 import {
   Circle,
@@ -24,7 +16,7 @@ import { cn } from "@/utils/cn";
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import { sharedClock, useSharedClock } from "../../hooks/use-now";
 import type { AgentSession } from "../../services/agent-sessions/model";
-import type { RowFacts } from "../../services/agent-sessions/rows";
+import type { RowFacts, RowGroup } from "../../services/agent-sessions/rows";
 
 interface StateLook {
   Icon: LucideIcon;
@@ -52,12 +44,10 @@ function lookOf(state: string): StateLook {
   }
 }
 
-/** The color a state's glyph has, for words told beside it. */
 export function stateColor(state: string): string {
   return lookOf(state).colorClass;
 }
 
-/** The state in words, e.g. "Waiting for permission" or "Running (estimated)". */
 export function stateLabel(session: Pick<AgentSession, "state" | "estimated">): string {
   const label = i18next.t(`common:agentList.state.${session.state}`, {
     defaultValue: session.state,
@@ -67,15 +57,10 @@ export function stateLabel(session: Pick<AgentSession, "state" | "estimated">): 
     : label;
 }
 
-/**
- * The words for a tab or sidebar glyph told from output rather than reported
- * by hooks, e.g. "Running (estimated)".
- */
 export function estimatedLabel(status: string): string {
   return stateLabel({ state: status === "running" ? "busy" : status, estimated: true });
 }
 
-/** A Codex tab's state in words, as the tab bar and the sidebar name it. */
 export function codexStatusLabel(status: ClaudeStatus): string {
   switch (status) {
     case "running":
@@ -93,7 +78,6 @@ export function codexStatusLabel(status: ClaudeStatus): string {
   }
 }
 
-/** How long ago `since` was: "just now", "12m", "3h", "2d". */
 export function durationLabel(since: number | undefined, now: number): string | null {
   if (since === undefined) return null;
   const minutes = Math.floor(Math.max(0, now - since) / 60_000);
@@ -110,7 +94,6 @@ export function StateGlyph({
   className,
 }: {
   state: string;
-  /** Holds the glyph still where it names the state rather than shows one in progress. */
   still?: boolean;
   className?: string;
 }) {
@@ -127,20 +110,13 @@ export function StateGlyph({
   );
 }
 
-/** The clock the durations read, often enough for the minutes they count. */
 const durationClock = sharedClock(10_000);
 
-/**
- * How long ago `since` was, kept current by the shared clock, so a duration
- * re-renders itself rather than the view it is in.
- */
 export function useDurationLabel(since: number | undefined): string | null {
   const now = useSharedClock(durationClock);
-  // A state that began after the last tick has lasted no time yet.
   return durationLabel(since, Math.max(now, since ?? 0));
 }
 
-/** A turn that ended with an error, shown beside its time. */
 export function FailureLabel() {
   const { t } = useTranslation();
   return (
@@ -150,7 +126,6 @@ export function FailureLabel() {
   );
 }
 
-/** What a conversation waits on the user for: a permission, an answer, or a plan's approval. */
 export type WaitKind = "permission" | "question" | "plan";
 
 const WAIT_ICONS: Record<WaitKind, LucideIcon> = {
@@ -159,7 +134,6 @@ const WAIT_ICONS: Record<WaitKind, LucideIcon> = {
   plan: ListTodo,
 };
 
-/** What a conversation of this computer waits on the user for, by its request or its state. */
 export function waitKindOf(
   session: Pick<AgentSession, "state">,
   facts: Pick<RowFacts, "wait">,
@@ -171,11 +145,6 @@ export function waitKindOf(
   return undefined;
 }
 
-/**
- * What a conversation waits on the user for, as an icon: a shield for a
- * permission, a question's bubble, a plan's list; the attention glyph where
- * the kind is not told (an older computer's session).
- */
 export function WaitSign({
   kind,
   label,
@@ -206,10 +175,6 @@ export function WaitSign({
   );
 }
 
-/**
- * A conversation's own state beside its time: its glyph, the words for a
- * failed turn, or, waiting on the user, what for.
- */
 export function SessionSign({
   session,
   facts,
@@ -242,7 +207,6 @@ export function HiddenSessionCount({ count }: { count: number }) {
   );
 }
 
-/** The agent's name in a small monospace badge. */
 export function AgentBadge({ agent }: { agent: string | undefined }) {
   return (
     <span className="shrink-0 rounded-(--radius-control) bg-muted px-1.5 font-mono text-app-micro text-muted-foreground">
@@ -251,7 +215,6 @@ export function AgentBadge({ agent }: { agent: string | undefined }) {
   );
 }
 
-/** The state whose glyph stands for a group. */
 export const GROUP_STATE: Record<RowGroup, string> = {
   attention: "permissionPending",
   running: "running",

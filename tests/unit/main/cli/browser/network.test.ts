@@ -1,7 +1,3 @@
-/**
- * The requests a browser tab's pages made: how the Network events make
- * entries.
- */
 import { describe, expect, test } from "bun:test";
 import {
   NETWORK_LIMIT,

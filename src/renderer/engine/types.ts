@@ -7,7 +7,6 @@ export interface SplitLeaf {
   id: string;
   tabIds: string[];
   activeTabId: string | null;
-  /** Earlier active tabs, most recent first. Kept only in memory. */
   previousTabIds?: readonly string[];
 }
 

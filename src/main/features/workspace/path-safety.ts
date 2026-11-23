@@ -1,11 +1,3 @@
-/**
- * Path-resolution + workspace-membership guards used by local-only main
- * process handlers.
- *
- * Go agent methods own workspace path safety for file operations. This helper
- * remains for Electron-owned local integrations such as reveal-in-Finder and
- * the temporary TypeScript watcher.
- */
 import path from "node:path";
 import { requireLocalWorkspace, requireWorkspace } from "./guards";
 import type { WorkspaceManager } from "./manager";
@@ -25,7 +17,6 @@ export function resolveLocalWorkspacePath(
   if (rel === "" || rel === ".") {
     return abs;
   }
-  // Only a whole ".." segment escapes; "..cache" is an ordinary name.
   if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
     throw new Error("path escapes workspace root");
   }

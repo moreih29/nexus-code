@@ -1,6 +1,3 @@
-/**
- * Scenario tests for History IPC handlers.
- */
 import { describe, expect, test } from "bun:test";
 import type { GitRegistry } from "../../../../../../src/main/features/git/domain/registry";
 import {
@@ -41,7 +38,6 @@ describe("git history IPC handlers", () => {
   });
 });
 
-/** Builds a minimal GitRegistry double that records refresh ordering. */
 function makeRegistry(repo: unknown, events: string[]): GitRegistry {
   return {
     getOrDetect: async () => {

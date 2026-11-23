@@ -21,7 +21,6 @@ const RUN_DIR_PREFIX = "summary-";
 const windows = process.platform === "win32";
 const hostEnvKeys = new Set([
   "HOME",
-  // Claude uses the host account name to look up its saved credentials.
   "USER",
   "LOGNAME",
   ...(windows ? ["USERNAME"] : []),
@@ -49,7 +48,6 @@ const profileEnvKeys = new Set([
   "SSL_CERT_DIR",
 ]);
 
-/** Only runtime necessities and the selected profile's connection are passed to Claude. */
 function summaryEnv(
   profile: AgentProfile,
   cleanPath: string,
@@ -67,7 +65,6 @@ function summaryEnv(
   );
   const dir = profileDirectory(profile, windows);
   return mergeAgentEnv(windows, host, auth, claudeConnectionEnv(profile.connection, key), {
-    // Setting even the implicit ~/.claude path changes Claude's Keychain entry.
     CLAUDE_CONFIG_DIR: dir
       ? path.resolve(expandHome(dir))
       : agentEnvValue(process.env, "CLAUDE_CONFIG_DIR", windows),
@@ -98,7 +95,6 @@ export function localClaudeSummary(options: {
     options.openChannel ??
     ((rootPath) => createLocalChannel({ ...resolveLocalAgentCommand(), rootPath }));
   const tempRoot = prepareTempRoot(options.userData);
-  // Startup cleanup runs even when summaries are off. A later run can report a setup failure.
   void tempRoot.catch(() => {});
   return async ({ runId, profile, model, language, stdin, signal }) => {
     signal.throwIfAborted();
@@ -199,8 +195,6 @@ function run(
     timeoutMs: params.timeoutMs + 5000,
   });
   const abort = () => {
-    // A false reply can mean the cancel reached the agent before registration.
-    // The agent remembers the ID, and closing the private channel also cancels its context.
     void channel.call<boolean>("chat.cancelRun", { runId: params.runId }, { timeoutMs: 2000 }).then(
       (found) => {
         if (!found) channel.dispose();

@@ -1,10 +1,3 @@
-/**
- * WorkspaceStorage — origin_permissions accessor round-trip tests.
- *
- * Covers: getOriginPermission, setOriginPermission, listOriginPermissions,
- * deleteOriginPermission, clearOrigin.
- */
-
 import type { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
@@ -20,10 +13,6 @@ function makeTmpDir(): string {
 function bunSqliteFactory(dbPath: string): Database {
   return openTestDatabase(dbPath);
 }
-
-// ---------------------------------------------------------------------------
-// getOriginPermission / setOriginPermission round-trip
-// ---------------------------------------------------------------------------
 
 describe("WorkspaceStorage.getOriginPermission / setOriginPermission — round-trip", () => {
   let tmpDir: string;
@@ -64,10 +53,6 @@ describe("WorkspaceStorage.getOriginPermission / setOriginPermission — round-t
   });
 });
 
-// ---------------------------------------------------------------------------
-// clearOrigin
-// ---------------------------------------------------------------------------
-
 describe("WorkspaceStorage.clearOrigin", () => {
   let tmpDir: string;
   let storage: WorkspaceStorage;
@@ -94,7 +79,6 @@ describe("WorkspaceStorage.clearOrigin", () => {
 
     expect(storage.getOriginPermission(id, "https://example.com", "geolocation")).toBeNull();
     expect(storage.getOriginPermission(id, "https://example.com", "notifications")).toBeNull();
-    // other origin unaffected
     expect(storage.getOriginPermission(id, "https://other.com", "media")).toBe("allow");
   });
 });

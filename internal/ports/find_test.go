@@ -17,9 +17,6 @@ import (
 
 const listenerHelperEnv = "NEXUS_PORTS_TEST_LISTENER"
 
-// TestListenerHelper is the child startListener starts: it listens on a
-// port below the dynamic range, prints it, and holds it until its stdin
-// closes.
 func TestListenerHelper(t *testing.T) {
 	if os.Getenv(listenerHelperEnv) != "1" {
 		t.Skip("run by startListener")
@@ -38,8 +35,6 @@ func TestListenerHelper(t *testing.T) {
 	t.Fatal("no free port")
 }
 
-// startListener starts a child of the test that listens on a port, as a
-// dev server under a terminal's shell does, and gives its port and pid.
 func startListener(tb testing.TB) (port, pid int) {
 	tb.Helper()
 	child := exec.Command(os.Args[0], "-test.run=^TestListenerHelper$")
@@ -76,7 +71,6 @@ func TestFindSeesAChildsListener(t *testing.T) {
 	}
 	port, pid := startListener(t)
 
-	// The test is the helper's root, as a terminal's shell is its programs'.
 	root := os.Getpid()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -99,10 +93,6 @@ func TestFindSeesAChildsListener(t *testing.T) {
 	}
 }
 
-// A root with nothing under it is a shell at its prompt, whose sockets are
-// not read: the helper, as a root, holds its port unseen. (The test itself
-// is no lone root: Find's ps runs under it.) Not on Windows, where a
-// console program can have a conhost child of its own.
 func TestFindSkipsALoneRootsListener(t *testing.T) {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		t.Skip("a lone root is not certain here")
@@ -114,9 +104,6 @@ func TestFindSkipsALoneRootsListener(t *testing.T) {
 	}
 }
 
-// BenchmarkFind measures one look at a small process tree with a server in
-// it, the test's own: the cost is mostly listing every process on the
-// machine.
 func BenchmarkFind(b *testing.B) {
 	startListener(b)
 	roots := []int{os.Getpid()}
@@ -128,8 +115,6 @@ func BenchmarkFind(b *testing.B) {
 	}
 }
 
-// BenchmarkFindAtThePrompt measures a look at a terminal with nothing
-// running in it, the helper as its shell: the process listing alone.
 func BenchmarkFindAtThePrompt(b *testing.B) {
 	_, pid := startListener(b)
 	roots := []int{pid}

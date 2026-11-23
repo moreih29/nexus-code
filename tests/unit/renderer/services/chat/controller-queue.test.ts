@@ -1,9 +1,3 @@
-/**
- * The messages a tab holds for after its turn (⌘⇧↩, or chat.send `after`
- * from another device): each held has its id, its text can change with its
- * images kept, and an agent's keeps who sent it. The real ipc client is
- * spread under a spy.
- */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";

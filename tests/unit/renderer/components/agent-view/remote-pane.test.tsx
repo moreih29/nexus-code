@@ -55,7 +55,6 @@ describe("controlling another computer's chat", () => {
       decision: "allow",
       planMode: "default",
     });
-    // No other mode, and no other request's.
     expect(remoteAnswerOf(setMode("bypassPermissions"), plan, true)).toEqual({ decision: "allow" });
     expect(remoteAnswerOf(setMode("acceptEdits"), { ...plan, toolName: "Bash" }, true)).toEqual({
       decision: "allow",
@@ -84,7 +83,6 @@ describe("controlling another computer's chat", () => {
         false,
       ),
     ).toEqual({ decision: "allow", always: [1] });
-    // A request with none to keep is allowed once.
     expect(
       remoteAnswerOf({ kind: "allow-always" }, { ...request, suggestions: [] }, false),
     ).toEqual({
@@ -132,7 +130,6 @@ describe("controlling another computer's chat", () => {
       ],
       more: [{ kind: "weekly_scoped", scope: "Fable", percent: 0, resetsAt: 9_000 }],
     });
-    // The session's window started over: its old percent is no longer so.
     expect(usageLineOf(panel, 3_000)?.meters.map((m) => m.kind)).toEqual(["weekly"]);
     expect(
       usageLineOf({ ...panel, planLimits: [{ kind: "session", percent: 9, resetsAt: 1 }] }, 3_000),

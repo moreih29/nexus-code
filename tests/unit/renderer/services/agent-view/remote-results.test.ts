@@ -192,7 +192,6 @@ describe("host read receipts", () => {
     const stop = watchResults(results, "mac", 0, true);
     try {
       jest.advanceTimersByTime(0);
-      // The receipt-capable watch reads listings without asking for legacy events.
       expect(call).not.toHaveBeenCalled();
       results.markSeen([{ deviceId: "mac", session: unread, hostReceipts: true }]);
       await Promise.resolve();
@@ -398,7 +397,6 @@ test("the watch resumes at the last cursor and replaces history after a host res
     await flush();
     expect(results.session("mac", chat).state).toBe("new-result");
     stop();
-    // The server returns its first page for a cursor from before its restart.
     page = { events: [{ ...complete, tabId: "other", seq: 1 }], cursor: 2, more: true };
     call.mockImplementation(async (_, __, params) =>
       ipcOk(

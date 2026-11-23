@@ -1,6 +1,3 @@
-/**
- * known_hosts checks for the ssh2 client, read as OpenSSH reads the file.
- */
 import { afterEach, describe, expect, it } from "bun:test";
 import { createHmac } from "node:crypto";
 import fs from "node:fs";
@@ -15,7 +12,6 @@ import {
   matchesHost,
 } from "../../../../src/main/infra/agent/ssh/ssh2/known-hosts";
 
-/** A wire-format public key: its type, then stand-in key bytes. */
 function wireKey(type: string, fill: number): Buffer {
   const name = Buffer.from(type, "ascii");
   const length = Buffer.alloc(4);

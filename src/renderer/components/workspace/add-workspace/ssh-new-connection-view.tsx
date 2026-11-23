@@ -29,10 +29,6 @@ import {
 import type { SshNewConnectionViewProps } from "./types";
 import { useBrowseProgress } from "./use-browse-progress";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 const NEW_CONN_HOST_OPTIONS_ID = "add-workspace-new-conn-host-options";
 const NEW_CONN_HOST_INPUT_ID = "add-workspace-new-conn-host";
 const NEW_CONN_NAME_ID = "add-workspace-new-conn-name";
@@ -41,21 +37,6 @@ const NEW_CONN_IDENTITY_FILE_ID = "add-workspace-new-conn-identity-file";
 const NEW_CONN_PORT_ERROR_ID = "add-workspace-new-conn-port-error";
 const NEW_CONN_ADVANCED_ID = "add-workspace-new-conn-advanced";
 
-// ---------------------------------------------------------------------------
-// Module-level helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Show a non-blocking warning toast for a failed connection-profile save.
- *
- * The connection succeeded (primary effect) so the workspace flow continues
- * uninterrupted. This toast informs the user that the profile was not saved
- * for next time and offers a "Retry save" button that replays only the
- * secondary save step — never re-connects or re-authenticates.
- *
- * Action toasts use role="alert" and never auto-dismiss (per toast.tsx contract),
- * so the user can act on "Retry save" at their convenience without time pressure.
- */
 function showSaveFailedToast(onRetrySave: () => void): void {
   showToast({
     kind: "error",
@@ -63,23 +44,6 @@ function showSaveFailedToast(onRetrySave: () => void): void {
     actions: [{ label: i18next.t("action.retry_save"), onAction: onRetrySave }],
   });
 }
-
-// ---------------------------------------------------------------------------
-// SshNewConnectionView — T10 implementation
-//   - Host combobox (with ssh/config candidates)
-//   - Name (optional)
-//   - Advanced collapsible (Port + Identity file)
-//   - authMode always "interactive"
-//   - Connect → ssh.openBrowseSession (primary) → connectionProfile.save (secondary)
-//     Partial-failure policy (plan issue-8):
-//       • Primary success + secondary failure → complete the workspace flow and
-//         show a non-blocking toast with "Retry save" (secondary-only retry).
-//       • Primary failure → inline error, form stays open for retry.
-//       • Cancellation (IPC "cancelled") → silent, no banner.
-//   - useIpcAction manages the loading lifecycle; "Connecting…" freeze is
-//     structurally impossible because the hook's try/catch/finally guarantees
-//     state always exits 'loading' on any branch.
-// ---------------------------------------------------------------------------
 
 export function SshNewConnectionView({
   onConnected,
@@ -90,7 +54,6 @@ export function SshNewConnectionView({
   prefillProfile,
 }: SshNewConnectionViewProps): React.JSX.Element {
   const { t } = useTranslation();
-  // Local form state — seeded from prefillProfile when present
   const [hostInput, setHostInput] = useState(() => {
     if (!prefillProfile) return "";
     return prefillProfile.user
@@ -105,24 +68,13 @@ export function SshNewConnectionView({
   });
   const [identityFile, setIdentityFile] = useState(prefillProfile?.identityFile ?? "");
   const [advancedOpen, setAdvancedOpen] = useState(
-    () =>
-      // Open advanced if prefilled with non-default port or identity file
-      !!(prefillProfile && (prefillProfile.port !== 22 || prefillProfile.identityFile)),
+    () => !!(prefillProfile && (prefillProfile.port !== 22 || prefillProfile.identityFile)),
   );
   const [hostListOpen, setHostListOpen] = useState(false);
   const [activeHostIndex, setActiveHostIndex] = useState(-1);
 
-  // Ref for the host combobox wrapper (input + toggle button + listbox).
-  // Used to detect clicks outside the dropdown and close it.
   const hostComboboxRef = useRef<HTMLDivElement>(null);
 
-  // ---------------------------------------------------------------------------
-  // useIpcAction — unified loading lifecycle for the two-stage connect flow.
-  //
-  // The hook's try/catch/finally guarantees that 'loading' always resolves to
-  // 'success', 'error', or 'idle' (cancel), so "Connecting…" can never freeze
-  // regardless of which await fails or when the component unmounts.
-  // ---------------------------------------------------------------------------
   const { state: connectState, run: runConnect, cancel, isPending } = useIpcAction<void>();
   useEffect(() => {
     if (!cancelConnectRef) return;
@@ -132,17 +84,12 @@ export function SshNewConnectionView({
     };
   }, [cancelConnectRef, cancel]);
 
-  // Bootstrap progress for the in-flight connect (agent upload/verify happens
-  // inside openSshBrowseSession, before any sessionId exists — keyed by a
-  // client-minted progressId).
   const {
     progress: browseProgress,
     begin: beginProgress,
     clear: clearProgress,
   } = useBrowseProgress();
 
-  // Map useIpcAction discriminated-union state to the parent's connectPhase API.
-  // The parent footer uses these to drive button label and disabled state.
   const connectPhase =
     connectState.status === "loading"
       ? "connecting"
@@ -169,16 +116,12 @@ export function SshNewConnectionView({
 
   const hostEmpty = hostInput.trim().length === 0;
 
-  // connectDisabled: block submit while pending, when host is empty, or when port is invalid.
   const connectDisabled = isPending || hostEmpty || portError !== null;
 
-  // Sync footer primary button state to parent on every relevant change.
   useEffect(() => {
     onConnectPhaseChange(connectPhase, connectDisabled);
   }, [connectPhase, connectDisabled, onConnectPhaseChange]);
 
-  // Clear the progress bar whenever a connect attempt ends (success → the view
-  // changes; error/cancel → the form returns and we drop the stale bar).
   useEffect(() => {
     if (connectPhase !== "connecting") clearProgress();
   }, [connectPhase, clearProgress]);
@@ -188,8 +131,6 @@ export function SshNewConnectionView({
     setActiveHostIndex((cur) => clampHostIndex(cur, filteredHosts.length));
   }, [hostListOpen, filteredHosts.length]);
 
-  // Close the host dropdown when the user clicks outside the combobox wrapper.
-  // Listener is only active while the dropdown is open to minimise overhead.
   useEffect(() => {
     if (!hostListOpen) return;
 
@@ -252,35 +193,12 @@ export function SshNewConnectionView({
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // handleConnect — two-stage action routed through useIpcAction.run()
-  //
-  // Stage 1 (primary): openSshBrowseSession — establishes the SSH session.
-  //   • Failure (including auth cancellation) → the hook branches automatically:
-  //     - "cancelled" kind → hook state returns to 'idle', no UI surface.
-  //     - Other errors    → hook state = 'error', inline banner rendered below.
-  //
-  // Stage 2 (secondary): saveConnectionProfileResult — persists the profile.
-  //   • Partial-failure policy (plan issue-8): the connection already succeeded,
-  //     so we MUST call onConnected regardless of whether the save succeeds.
-  //     A failed save triggers a non-blocking warning toast + "Retry save" action.
-  //     The "Retry save" callback re-runs the save only — never re-connects.
-  //   • The run() callback always returns void; the hook reaches 'success' in
-  //     both the save-ok and save-fail paths, ensuring loading clears in all cases.
-  // ---------------------------------------------------------------------------
   function handleConnect(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     if (connectDisabled) return;
 
     const dest = parsedDest;
     if (!dest) {
-      // Form-level validation: host field is required and already non-empty
-      // (connectDisabled blocks the submit when hostEmpty is true).  This guard
-      // defends against the edge where parseSshDestination returns null despite
-      // a non-empty hostInput (e.g. "user@" with no host part).
-      //
-      // We throw an AppError so the hook normalises it into state:'error' and
-      // the inline banner below renders the user message.
       runConnect(async () => {
         throw appErrorInvalidInput("Invalid SSH destination", {
           domain: "ssh",
@@ -292,13 +210,9 @@ export function SshNewConnectionView({
 
     const parsedPort = parseSshPort(port);
     if (parsedPort === null) {
-      // Port field already shows an inline error via portError — connectDisabled
-      // prevents reaching this branch.  Guard kept for defensive completeness.
       return;
     }
 
-    // Capture form values at the moment of submission so closures below are
-    // not affected by subsequent re-renders that change the controlled inputs.
     const capturedDest = dest;
     const capturedPort = parsedPort;
     const capturedIdentityFile = identityFile.trim() || undefined;
@@ -306,9 +220,6 @@ export function SshNewConnectionView({
     const profileId = crypto.randomUUID();
 
     runConnect(async (signal) => {
-      // --- Stage 1: primary effect — establish SSH browse session ---
-      // Keep receiving the result after cancellation so a session created
-      // by main can be closed even when the view has already gone away.
       const result = await openSshBrowseSession({
         host: capturedDest.host,
         user: capturedDest.user,
@@ -320,15 +231,11 @@ export function SshNewConnectionView({
 
       if (!result.ok) throw ipcErrorToAppError(result);
 
-      // `result.value.user` is the user actually connected as — when the form
-      // had only a host, the main process resolved it to the local account name,
-      // so the saved profile is always complete.
       const connectedUser = result.value.user;
       const sessionId = result.value.sessionId;
       const initialPath = result.value.initialPath;
 
       let owned = true;
-      /** Release the browse session until the directory picker takes ownership. */
       const release = (): void => {
         if (!owned) return;
         owned = false;
@@ -340,10 +247,6 @@ export function SshNewConnectionView({
       }
       signal.addEventListener("abort", release, { once: true });
       try {
-        // --- Stage 2: secondary effect — persist the connection profile ---
-        // Partial-failure policy: a failed save must NOT block the workspace flow.
-        // We run the save and inspect the result, but onConnected is called
-        // unconditionally as long as stage 1 succeeded.
         const saveResult = await saveConnectionProfileResult({
           id: profileId,
           host: capturedDest.host,
@@ -356,13 +259,6 @@ export function SshNewConnectionView({
 
         if (signal.aborted) return;
         if (!saveResult.ok) {
-          // Save failed — build a retry callback that replays only the save step.
-          // The signal from this run() is no longer active after the function
-          // returns (the hook clears it in finally), so the retry is a fresh
-          // independent call not tied to any AbortController.
-          //
-          // "Retry save" re-runs only the secondary effect; it never re-connects
-          // or re-authenticates. The already-established session is untouched.
           const retrySave = (): void => {
             void saveConnectionProfileResult({
               id: profileId,
@@ -374,20 +270,14 @@ export function SshNewConnectionView({
               label: capturedName,
             }).then((retryResult) => {
               if (!retryResult.ok) {
-                // Second attempt also failed — offer another retry via a fresh toast.
                 showSaveFailedToast(retrySave);
               }
             });
           };
 
-          // Non-blocking warning toast: the workspace flow proceeds immediately.
-          // The toast uses role="alert" (action toast) so it never auto-dismisses
-          // and the user can act on the "Retry save" button at their convenience.
           showSaveFailedToast(retrySave);
         }
 
-        // Complete the workspace flow regardless of save outcome.
-        // onConnected transitions the parent to the directory picker view.
         onConnected({
           sessionId,
           initialPath,
@@ -405,10 +295,6 @@ export function SshNewConnectionView({
       }
     });
   }
-
-  // ---------------------------------------------------------------------------
-  // Derived UI values
-  // ---------------------------------------------------------------------------
 
   const activeDescendant =
     hostListOpen && activeHostIndex >= 0
@@ -433,12 +319,8 @@ export function SshNewConnectionView({
       className="flex flex-col gap-4"
       onSubmit={(e) => handleConnect(e)}
     >
-      {/* Connection error banner — shown for primary (connect) failures only.
-          Cancelled auth and save failures are surfaced elsewhere (silent / toast). */}
       {inlineError ? <ErrorNotice message={inlineError} className="px-2 py-2" /> : null}
 
-      {/* Bootstrap progress — shown once the agent upload/verify begins so the
-          user sees concrete activity instead of an opaque "연결 중" spinner. */}
       {connecting && browseProgress ? (
         <BootstrapProgressBar
           phase={browseProgress.phase}
@@ -449,7 +331,6 @@ export function SshNewConnectionView({
         />
       ) : null}
 
-      {/* Host combobox — ref is used to detect outside clicks and close the dropdown */}
       <div className="flex flex-col gap-2">
         <label htmlFor={NEW_CONN_HOST_INPUT_ID} className="text-app-ui-sm text-foreground">
           {t("ssh.label_host")}
@@ -527,7 +408,6 @@ export function SshNewConnectionView({
         ) : null}
       </div>
 
-      {/* Name (optional) */}
       <div className="flex flex-col gap-2">
         <label htmlFor={NEW_CONN_NAME_ID} className="text-app-ui-sm text-foreground">
           {t("ssh.label_name")}
@@ -545,7 +425,6 @@ export function SshNewConnectionView({
         />
       </div>
 
-      {/* Advanced collapsible */}
       <div className="rounded-(--radius-control) border border-border px-3 py-2">
         <button
           type="button"
@@ -609,7 +488,6 @@ export function SshNewConnectionView({
         ) : null}
       </div>
 
-      {/* Hidden submit trigger for footer primary button */}
       <button type="submit" aria-hidden="true" tabIndex={-1} className="sr-only">
         Connect
       </button>

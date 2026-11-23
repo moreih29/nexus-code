@@ -1,4 +1,3 @@
-/** A thinking block in a Claude tab: folded, and unfoldable only when it has text. */
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 

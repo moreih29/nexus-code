@@ -10,8 +10,6 @@ import (
 	"testing"
 )
 
-// Git installed with "Use Git from Git Bash only" is off PATH: the agent
-// still finds it in its install location and runs it.
 func TestServiceRunsGitOffPath(t *testing.T) {
 	installed := ""
 	for _, p := range gitInstallPaths("windows", os.Getenv) {

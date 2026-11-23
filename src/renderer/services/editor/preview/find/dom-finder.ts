@@ -1,22 +1,5 @@
-// Find in the text a preview draws: the Markdown, notebook, DOCX and PPTX
-// previews, and, run inside its own document, the HTML preview's.
-//
-// The text nodes under the root, those in open shadow roots too, are read
-// in order into one string, a NUL between blocks so that no match runs
-// from one paragraph or cell into the next. The matches are painted with
-// the CSS Custom Highlight API, which leaves the DOM as it is: nothing the
-// preview drew, or its scripts hold, changes. The current one is scrolled
-// to the middle of every box it scrolls in. A change to the DOM finds
-// again, keeping to the same match as near as it can.
-//
-// createDomFinder is self-contained, its helpers inside it, so the HTML
-// preview can run it in its sandboxed document from its source; the
-// matching it is handed (find-matches.ts) is too.
-
-/** How many matches a find goes up to. */
 export const MAX_FIND_MATCHES = 10000;
 
-/** The background of every match, and of the current one. */
 export const FIND_COLORS = {
   match: "rgba(255, 210, 0, 0.4)",
   current: "rgba(255, 140, 0, 0.85)",
@@ -28,11 +11,6 @@ export interface DomFinder {
   clear(): void;
 }
 
-/**
- * A finder for the text under `getRoot()`. Its matches are painted as the
- * highlights `name` and `name`-current, in `colors`; `report` is told how
- * many there are, and which is current (from 1, or 0 for none).
- */
 export function createDomFinder(
   getRoot: () => Node | null,
   findMatches: (text: string, query: string, caseSensitive: boolean, limit: number) => number[],
@@ -64,7 +42,6 @@ export function createDomFinder(
     scope.adoptedStyleSheets = [...scope.adoptedStyleSheets, sheet];
   }
 
-  /** The text under the root, and where each of its nodes starts in it. */
   function read(root: Node): { text: string; nodes: Text[]; starts: number[]; scopes: Node[] } {
     const nodes: Text[] = [];
     const starts: number[] = [];
@@ -115,7 +92,6 @@ export function createDomFinder(
     return { text, nodes, starts, scopes };
   }
 
-  /** The node holding offset `at` of the text, and the offset in it. */
   function locate(nodes: Text[], starts: number[], at: number, end: boolean): [Text, number] {
     let low = 0;
     let high = starts.length - 1;
@@ -147,7 +123,6 @@ export function createDomFinder(
     }
   }
 
-  /** Scrolls `range` to the middle of each box it scrolls in, inner first. */
   function reveal(range: Range): void {
     let el: Element | null = range.startContainer.parentElement;
     while (el) {
@@ -195,7 +170,6 @@ export function createDomFinder(
     }
   }
 
-  /** Finds again; a new query starts at the first match in view. */
   function run(fresh: boolean): void {
     const root = getRoot();
     const before = ranges[current];
@@ -228,7 +202,6 @@ export function createDomFinder(
         current = ranges.findIndex((range) => range.getBoundingClientRect().bottom > top);
         if (current === -1) current = 0;
       } else {
-        // The match that was current, or the one now where it was.
         const at = before ? before.getBoundingClientRect() : null;
         current = at
           ? Math.max(

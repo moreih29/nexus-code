@@ -1,13 +1,3 @@
-/**
- * Virtualized row body for the file tree.
- *
- * Owns nothing — every interactive callback is forwarded from the
- * parent. Extracted so `file-tree.tsx` can stay focused on store
- * subscriptions, ensure-root effects, and the right-click menu wiring;
- * everything below this component is pure rendering of the precomputed
- * `displayFlat` against the virtualizer's window.
- */
-
 import type { Virtualizer } from "@tanstack/react-virtual";
 import { useMemo } from "react";
 import { isDrivePath } from "../../../../shared/fs/drive-path";
@@ -18,12 +8,6 @@ import { FileTreeEditRow } from "./edit-row";
 import type { GitDecorationKind } from "./git-decoration";
 import { FileTreeVirtualBody } from "./virtual-body";
 
-/**
- * Lookups passed from the parent so the body stays a pure renderer. The
- * file-tree owns the git store subscription + ignored-cache enqueuing and
- * exposes the per-row answers as two synchronous functions; this body
- * forwards them to each row without re-reading the stores itself.
- */
 export interface FileTreeDecorationLookup {
   decoration: (absPath: string, isDir: boolean) => GitDecorationKind | undefined;
   isIgnored: (absPath: string, isDir: boolean) => boolean;
@@ -34,26 +18,9 @@ interface FileTreeVirtualBodyProps {
   tree: WorkspaceTree | undefined;
   displayFlat: DisplayItem[];
   flat: FlatItem[];
-  /**
-   * The keyboard-focus path (store `focus` field).  A row with this path
-   * receives `isFocused=true` for the dotted-outline indicator (design.md §10).
-   */
   activeAbsPath: string | undefined;
-  /**
-   * Returns true when the given absPath is in the explicit selection set
-   * (store `paths` Set).  Passed as a stable callback per render so the
-   * virtual-body avoids subscribing to the store directly.
-   */
   isPathSelected: (absPath: string) => boolean;
-  /**
-   * Returns true when the given absPath is in the cut clipboard.
-   * Drives the `isCut` dim overlay on rows (Phase F).
-   */
   isPathCut: (absPath: string) => boolean;
-  /**
-   * Encodes an absPath into a stable HTML id for ARIA aria-activedescendant
-   * (Phase F). Same encoder as the parent uses for the container attribute.
-   */
   encodeRowId: (absPath: string) => string;
   virtualizer: Virtualizer<HTMLDivElement, Element>;
   decorationLookup: FileTreeDecorationLookup;
@@ -85,9 +52,6 @@ export function LocalFileTreeVirtualBody({
   onPendingRenameCommit,
   onPendingRenameCancel,
 }: FileTreeVirtualBodyProps): React.JSX.Element {
-  // Row → index in `flat` (the list the click handlers index into). Built
-  // once per tree change; a per-row search cost O(N) for each visible row
-  // on every render.
   const flatIndexByPath = useMemo(() => {
     return new Map(flat.map((f, i) => [f.absPath, i]));
   }, [flat]);

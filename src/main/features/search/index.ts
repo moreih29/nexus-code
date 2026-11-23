@@ -46,8 +46,6 @@ export function searchTextStream(manager: WorkspaceManager): SearchTextStreamHan
       throw createAbortError();
     }
 
-    // Await the provider like the fs handlers do: while the agent boots or
-    // an SSH connect is in flight the context holds an inert placeholder.
     const provider = await manager.getFs(workspaceId);
     if (ctx.signal.aborted) {
       throw createAbortError();

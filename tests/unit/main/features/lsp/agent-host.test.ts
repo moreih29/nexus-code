@@ -14,15 +14,6 @@ import type {
 } from "../../../../../src/main/infra/agent/channel";
 import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
 
-// ---------------------------------------------------------------------------
-// Manifest neutralization
-// ---------------------------------------------------------------------------
-// resolveLspCommandFromManifest() in agent-host.ts reads
-// path.join(process.cwd(), "dist", "agent", "manifest.json").  If a built
-// manifest exists on disk the production path wins and the dev-fallback
-// pyright assertion below fails.  We rename the file for the duration of
-// this test file and restore it in afterAll, keeping the approach
-// non-polluting (no process-global mock.module).
 const MANIFEST_PATH = path.join(process.cwd(), "dist", "agent", "manifest.json");
 const MANIFEST_BAK_PATH = `${MANIFEST_PATH}.test-bak`;
 
@@ -46,7 +37,6 @@ class FakeAgentChannel implements AgentChannel {
   readonly calls: Array<{ method: string; params: unknown }> = [];
   readonly eventListeners = new Map<string, Set<ChannelEventCallback>>();
   readonly lifecycleListeners = new Set<ChannelLifecycleCallback>();
-  // The id the next lsp.spawn assigns.
   serverId = "srv-1";
   emitConfigurationRequest = false;
   shutdownReply?: Promise<void>;
@@ -67,9 +57,6 @@ class FakeAgentChannel implements AgentChannel {
     if (method === "lsp.shutdown") await this.shutdownReply;
 
     if (method === "lsp.spawn") {
-      // Mirror the real agent: serverAssigned is emitted before any
-      // server-pushed request so the host can resolve serverId context
-      // while initialize is still in flight.
       const correlationId = (params as { correlationId?: string } | undefined)?.correlationId;
       this.emit("lsp.serverAssigned", {
         serverId: this.serverId,
@@ -89,9 +76,6 @@ class FakeAgentChannel implements AgentChannel {
       } as TResult;
     }
 
-    // lsp.send carries requests (hover/definition/completion) that need a response.
-    // lsp.notify carries fire-and-forget notifications (didOpen/didChange/…) but
-    // the fake still needs to handle them to emit server-push events in tests.
     if (method === "lsp.send" || method === "lsp.notify") {
       const message = (params as { message?: { id?: unknown; method?: string } }).message;
       if (message?.method === "textDocument/didOpen") {
@@ -165,9 +149,6 @@ class FakeAgentChannel implements AgentChannel {
   }
 
   fire(method: string, params?: unknown): void {
-    // Delegate to call() so recorded calls and event emissions remain testable.
-    // The real channel ignores the returned promise; tests can inspect
-    // this.calls to verify fire() was used for notification methods.
     void this.call(method, params);
   }
 
@@ -195,21 +176,11 @@ class FakeAgentChannel implements AgentChannel {
   dispose(): void {}
 }
 
-// SharedAgentChannel models a single workspace channel that hosts multiple
-// LSP servers concurrently — the case where the original
-// pendingSpawnsByChannel heuristic mis-attributed pre-spawn-resolution
-// events. Each lsp.spawn assigns a fresh serverId, emits lsp.serverAssigned
-// with the caller's correlationId, then pushes a window/logMessage event
-// that the test asserts gets attributed to the matching languageId.
 class SharedAgentChannel implements AgentChannel {
   readonly ready = Promise.resolve();
   readonly eventListeners = new Map<string, Set<ChannelEventCallback>>();
   readonly lifecycleListeners = new Set<ChannelLifecycleCallback>();
   private nextServerSeq = 0;
-  // Hold spawn responses until both calls have arrived so the assignment
-  // race is realistic — both serverId emissions fire before either spawn
-  // promise resolves, so any heuristic that picks "first pending" cannot
-  // hide the bug.
   private pendingResolvers: Array<() => void> = [];
 
   async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
@@ -248,9 +219,7 @@ class SharedAgentChannel implements AgentChannel {
     return {} as TResult;
   }
 
-  fire(_method: string, _params?: unknown): void {
-    // No-op for the shared-channel fake: notifications don't need simulation here.
-  }
+  fire(_method: string, _params?: unknown): void {}
 
   on(event: string, callback: ChannelEventCallback): () => void {
     let listeners = this.eventListeners.get(event);
@@ -349,8 +318,6 @@ describe("AgentLspHostHandle", () => {
       ],
     });
 
-    // textDocument/didOpen is an LSP notification — sent via lsp.notify
-    // (fire-and-forget) rather than lsp.send (awaited RPC).
     expect(
       channel.calls.some(
         (call) =>
@@ -382,14 +349,10 @@ describe("AgentLspHostHandle", () => {
     const host = startAgentLspHost({ getAgentChannel: async () => channel });
     host.dispose();
 
-    // Fire-and-forget notifications can arrive after dispose() during app
-    // shutdown (the renderer is still emitting didClose as editor models
-    // close) — they must resolve quietly rather than surfacing a handler error.
     await expect(
       host.call("didClose", { workspaceId: WORKSPACE_ID, uri: URI }),
     ).resolves.toBeNull();
 
-    // Request-style methods still surface the disposed error to their callers.
     await expect(
       host.call("hover", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 0 }),
     ).rejects.toThrow("LSP host disposed");
@@ -602,10 +565,6 @@ describe("AgentLspHostHandle", () => {
   });
 
   test("routes concurrent spawn server requests to the originating language", async () => {
-    // Without correlation, two same-channel spawns of different languages
-    // could attribute pre-spawn-resolution server requests to whichever
-    // spawn registered first. With lsp.serverAssigned each request is
-    // tagged with its spawn's serverId before initialize finishes.
     const channel = new SharedAgentChannel();
     const host = startAgentLspHost({
       getAgentChannel: async () => channel,
@@ -674,8 +633,6 @@ describe("AgentLspHostHandle", () => {
   });
 
   test("tells apart servers that two workspaces' agents number alike", async () => {
-    // Each local workspace has its own agent, and each agent numbers its
-    // servers from one: both of these call theirs srv-1.
     const channels = new Map([
       ["11111111-1111-4111-8111-11111111111a", new FakeAgentChannel()],
       ["11111111-1111-4111-8111-11111111111b", new FakeAgentChannel()],
@@ -756,7 +713,6 @@ describe("AgentLspHostHandle", () => {
     channel.emit("lsp.serverExited", { serverId: "srv-4", reason: "idle timeout", shutdown: true });
     await open(5);
 
-    // Only workspace 4's own reset: nothing was evicted to make room.
     expect(resets).toEqual([
       {
         workspaceId: "11111111-1111-4111-8111-111111111114",

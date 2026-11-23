@@ -2,7 +2,6 @@ import { ipcListen } from "../../../ipc/client";
 import type { ChatLine } from "../model";
 import { chatKey } from "../store";
 
-/** A tab that receives its program's log and reconnect events. */
 export interface LineReceiver {
   readonly key: string;
   receive(line: ChatLine): void;
@@ -14,7 +13,6 @@ const primaryReceivers = new Map<string, LineReceiver>();
 const otherReceivers = new Map<string, LineReceiver>();
 let listening = false;
 
-/** Registers a receiver until the returned cleanup is called. */
 export function addLineReceiver(receiver: LineReceiver, primary = false): () => void {
   ensureListeners();
   const registry = primary ? primaryReceivers : otherReceivers;
@@ -24,7 +22,6 @@ export function addLineReceiver(receiver: LineReceiver, primary = false): () => 
   };
 }
 
-/** Selects the tabs to notify for a workspace-level agent event. */
 function receiversOf(workspaceId: string): LineReceiver[] {
   const prefix = chatKey(workspaceId, "");
   return [...primaryReceivers.values(), ...otherReceivers.values()].filter((receiver) =>
@@ -32,7 +29,6 @@ function receiversOf(workspaceId: string): LineReceiver[] {
   );
 }
 
-/** Installs the window's shared IPC listeners once. */
 function ensureListeners(): void {
   if (listening) return;
   listening = true;

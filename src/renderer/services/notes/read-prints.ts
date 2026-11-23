@@ -4,7 +4,6 @@ import { MAX_VOICE_PRINT_SAMPLES } from "../../../shared/types/notes";
 import { notesApi } from "./api";
 import { MIN_PRINT_MS, VOICE_PRINT_RATE } from "./voice-print";
 
-/** A mono window at the model's sample rate, with the same limits as the live tracker. */
 function audioWindow(
   audio: AudioBuffer,
   startMs: number,
@@ -29,7 +28,6 @@ function audioWindow(
   return mono;
 }
 
-/** Reads only the requested lines of a recording. The decoded take is released before the next one. */
 export async function readPrints(
   workspaceId: string,
   noteId: string,
@@ -44,7 +42,6 @@ export async function readPrints(
     onLine?: () => void;
   } = {},
 ): Promise<VoiceSample[]> {
-  // Decoding resamples to the context rate. Only one take is kept decoded at a time.
   if (recording.audioRemoved || !recording.takes.length) return [];
   const eligible = onLine ? lines : lines.filter((line) => line.endMs - line.startMs >= minimumMs);
   if (!eligible.length) return [];

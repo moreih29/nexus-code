@@ -1,9 +1,3 @@
-/**
- * The downloads the user starts in a browser tab are saved in the Downloads
- * folder without asking and told once done; the ones a nexus command claimed
- * are neither.
- */
-
 import { afterEach, describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
@@ -58,7 +52,6 @@ function setup() {
 }
 
 describe("freePath", () => {
-  // In the platform's own separators, as the download folder's paths are.
   const inD = (name: string) => path.join("/d", name);
 
   test("numbers the name before its extension until it is free", () => {
@@ -91,7 +84,6 @@ describe("noticeDownloads", () => {
   test("leaves a download a nexus command claimed first where the command saved it", () => {
     const { told, session } = setup();
     const item = makeItem("a.md");
-    // The command's listener, added before this one.
     session.prependListener("will-download", (_event, claimedItem) => {
       claimedItem.setSavePath("/tmp/nexus-downloads/a.md");
       claimDownload(claimedItem);

@@ -23,8 +23,6 @@ func TestFakeLSPServerHelper(t *testing.T) {
 		}
 	}
 	if mode == "late-stderr" {
-		// The crash mode's child: one stderr line shortly after the server
-		// that started it has exited.
 		time.Sleep(100 * time.Millisecond)
 		fmt.Fprintln(os.Stderr, "last stderr line")
 		os.Exit(0)
@@ -109,11 +107,6 @@ func runFakeLSPServer(mode string, in io.Reader, out io.Writer) error {
 				return err
 			}
 		case method == "initialized" && mode == "crash":
-			// Crash with a parting message on stdout and a stack-trace-sized
-			// burst on stderr, likely still in the pipes when the process
-			// exits. The last stderr line comes from a child that inherited
-			// stderr and writes shortly after the server is gone, which makes
-			// losing it deterministic.
 			if err := transport.write(map[string]any{
 				"jsonrpc": "2.0",
 				"method":  "window/logMessage",
@@ -124,9 +117,6 @@ func runFakeLSPServer(mode string, in io.Reader, out io.Writer) error {
 			for i := 0; i < 2000; i++ {
 				fmt.Fprintf(os.Stderr, "goroutine %04d [running]: fake stack frame padding padding padding\n", i)
 			}
-			// The child is this test binary again, not "sh -c": Windows may
-			// have no sh on PATH, and Git Bash's sh starts too slowly to
-			// write within the drain grace on a busy machine.
 			child := exec.Command(os.Args[0], "-test.run=TestFakeLSPServerHelper", "--", "late-stderr")
 			child.Stderr = os.Stderr
 			if err := child.Start(); err != nil {

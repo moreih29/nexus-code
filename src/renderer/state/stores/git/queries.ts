@@ -1,16 +1,3 @@
-/**
- * git-queries.ts — slice creator.
- *
- * INVARIANT: These queries intentionally skip the operation lifecycle
- * (beginOperation/finishOperation/runOperation). They are read-only,
- * abortable, and do NOT set inFlightOp or lastError on the session.
- * Failures are surfaced only as thrown errors (which callers can catch)
- * or as undefined returns when the signal is aborted.
- *
- * Slice: listBranches, listTags, listRemoteTags, listStashes,
- * listRecentCommits.
- */
-
 import type {
   BranchList,
   LogEntry,
@@ -38,8 +25,6 @@ export interface QueriesSlice {
   ) => Promise<LogEntry[] | undefined>;
 }
 
-// ctx is accepted for API consistency with other slice creators even though
-// these queries do not need ctx helpers.
 export function createQueriesSlice(_ctx: GitStoreContext): QueriesSlice {
   return {
     async listBranches(workspaceId, signal) {

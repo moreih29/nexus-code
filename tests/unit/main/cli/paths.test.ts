@@ -1,7 +1,3 @@
-/**
- * Paths on the nexus command line: read from the caller's directory, kept
- * inside the workspace, and spelled as the workspace's host spells them.
- */
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -37,7 +33,6 @@ function windowsApp(
 
 test("a Windows path is read from the caller's directory, case aside", () => {
   const { ctx, workspace } = windowsApp("c:\\W\\App\\src");
-  // The editor names the file as the renderer does, from a root spelled C:/w/app.
   expect(workspaceFile(ctx, workspace, "login.ts")).toEqual({
     relPath: "src/login.ts",
     filePath: "C:/w/app/src/login.ts",
@@ -122,7 +117,6 @@ test.skipIf(process.platform === "win32")(
         rootPath: linked,
         location: { kind: "local", rootPath: linked },
       } as WorkspaceMeta;
-      // The terminal is in the folder's real path, as macOS gives /tmp's.
       const caller = { workspaceId: APP, tabId: SHELL_TAB };
       const ctx = contextFor(fakeApp(), [], caller, { cwd: path.join(real, "src") });
       expect(workspaceFile(ctx, workspace, "a.ts")).toEqual({

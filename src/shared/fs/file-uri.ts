@@ -14,8 +14,6 @@ function decodePath(path: string): string {
   }
 }
 
-// A Windows drive path `C:/x` becomes `file:///c%3A/x`, and decodes back to
-// `C:/x`.
 export function absolutePathToFileUri(path: string): string {
   return `${FILE_URI_PREFIX}${encodePath(toUriPath(path))}`;
 }

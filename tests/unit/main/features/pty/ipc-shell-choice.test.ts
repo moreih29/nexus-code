@@ -1,9 +1,3 @@
-/**
- * ipc-shell-choice.test.ts — the shell a local terminal starts with
- * (Settings › Terminal › Default shell, or the tab's own shell), its
- * fallback when that shell is gone, and that SSH workspaces never get one.
- */
-
 import { describe, expect, mock, test } from "bun:test";
 import type { PtyChannelOptions } from "../../../../../src/main/features/pty/ipc";
 import type { ShellHost } from "../../../../../src/main/features/pty/shells";
@@ -47,7 +41,6 @@ interface SpawnCall {
 class FakeAgentChannel implements AgentChannel {
   readonly ready = Promise.resolve();
   readonly spawnCalls: SpawnCall[] = [];
-  /** Answers the next spawns as the agent does for a session already running. */
   attach = false;
 
   async call<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
@@ -67,7 +60,6 @@ class FakeAgentChannel implements AgentChannel {
   dispose(): void {}
 }
 
-// A Windows machine with Windows PowerShell and Git Bash.
 const POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
 const GIT_BASH = "C:\\Program Files\\Git\\bin\\bash.exe";
 const windowsHost: ShellHost = {
@@ -129,7 +121,6 @@ function setup(opts: {
   const handler = calls.filter(([channel]) => channel === "ipc:call").at(-1)?.[1];
   if (!handler) throw new Error("ipc:call was not registered");
   return {
-    // Unwrap success values while keeping error envelopes available to assertions.
     call: async (method, args) => {
       const result = (await handler({}, "pty", method, args)) as { ok?: boolean; value?: unknown };
       return result.ok === true ? result.value : result;
@@ -182,7 +173,6 @@ describe("pty.spawn — the shell of a local terminal", () => {
     });
     await call("spawn", spawnArgs({ shell: { kind: "detected", id: "git-bash" } }));
 
-    // Git Bash is still running; the default meanwhile became one that's gone.
     settings.defaultShell = { kind: "custom", id: "removed" };
     agent.attach = true;
     const result = await call("spawn", spawnArgs({ shell: { kind: "detected", id: "pwsh" } }));
@@ -219,7 +209,6 @@ describe("pty.spawn — the shell of a local terminal", () => {
 
     const sent = agent.spawnCalls[0];
     expect(sent?.shell).toBe("/bin/bash");
-    // bash takes the shim through --rcfile; zsh's ZDOTDIR is not set.
     expect(sent?.args).toEqual(["--rcfile", "/w/shim/bashrc", "-i"]);
     expect(sent?.env?.ZDOTDIR).toBeUndefined();
   });
@@ -253,7 +242,6 @@ describe("pty.spawn — claude's hooks and codex's --no-daemon in a local Window
     expect(sent?.env?.NEXUS_IN_APP).toBe("1");
     expect(sent?.env?.NEXUS_TAB_ID).toBe(TAB_ID);
     expect(sent?.env?.NEXUS_WRAPPER_SELF_DIR).toBe(LAUNCHERS);
-    // No zsh or bash shim on Windows.
     expect(sent?.env?.ZDOTDIR).toBeUndefined();
   });
 
@@ -326,7 +314,6 @@ describe("pty.spawn — a terminal opened for an agent profile", () => {
       WORK: "1",
       TERM_PROGRAM: "nexus",
     });
-    // The default folder's profile sets no folder: the shell's own is the chat's.
     await call("spawn", spawnArgs({ profile: "codex-default" }));
     expect(agent.spawnCalls[1]?.env?.CODEX_HOME).toBeUndefined();
   });

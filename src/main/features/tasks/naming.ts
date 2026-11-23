@@ -1,14 +1,8 @@
 import { createHash } from "node:crypto";
 import { type WorkspaceMeta, workspaceLocationKey } from "../../../shared/types/workspace";
 
-/** Longest slug a task name turns into; keeps branch names and paths short. */
 const MAX_SLUG_LENGTH = 40;
 
-/**
- * The branch-and-folder name for a task called `name`: letters and digits
- * (any script) kept, everything else collapsed to "-". Empty when nothing
- * usable is left.
- */
 export function taskSlug(name: string): string {
   return name
     .normalize("NFC")
@@ -21,7 +15,6 @@ export function taskSlug(name: string): string {
     .replace(/\.lock$/, "");
 }
 
-/** `slug`, or `slug-2`, `slug-3`… — the first that is not taken. */
 export function uniqueName(slug: string, isTaken: (name: string) => boolean): string {
   if (!isTaken(slug)) return slug;
   for (let n = 2; ; n += 1) {
@@ -30,11 +23,6 @@ export function uniqueName(slug: string, isTaken: (name: string) => boolean): st
   }
 }
 
-/**
- * The folder under the worktrees root that holds one repository's tasks:
- * its name plus a hash of its location, so two repositories with the same
- * folder name never share one.
- */
 export function repoFolderName(parent: WorkspaceMeta): string {
   const hash = createHash("sha256")
     .update(workspaceLocationKey(parent.location))
@@ -44,12 +32,6 @@ export function repoFolderName(parent: WorkspaceMeta): string {
   return `${base}-${hash}`;
 }
 
-/**
- * Where the parent workspace sits inside its repository, as a relative
- * path with forward slashes: "" at the top level, "packages/app" for a
- * workspace opened on a subfolder. A task opens the same subfolder of its
- * worktree.
- */
 export function subPathInRepo(rootPath: string, topLevel: string): string {
   const root = rootPath.replace(/\\/g, "/").replace(/\/+$/, "");
   const top = topLevel.replace(/\\/g, "/").replace(/\/+$/, "");

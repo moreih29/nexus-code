@@ -1,10 +1,3 @@
-// src/renderer/components/settings/panels/remote-panel.tsx
-//
-// The NexusCode account the remote runs on: signing in through the
-// system browser with a provider the server offers, who the app is signed in as,
-// the account password (remote-key-group), what other devices may do here,
-// and the account's devices, each of which can be renamed or removed.
-
 import { Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -60,7 +53,6 @@ const PLATFORMS: Record<string, string> = {
   web: "Web",
 };
 
-/** The sign-ins the server advertises while signed out, and whether to ask again. */
 function useSignIns(ask: boolean): {
   providers: readonly string[];
   unreachable: boolean;
@@ -93,9 +85,7 @@ export function RemotePanel() {
   const { t } = useTranslation("settings");
   const state = useRemoteAccount();
   const key = useAccountKey();
-  // Who is in the room, with a drop shorter than DROP_SHOWN_AFTER_MS left out.
   const room = useShownRoom(useRemoteRoom());
-  // The sign-in kept in a keychain not open yet: the remote is off until it opens.
   const locked = useKeychainLocked("remote");
   const signIns = useSignIns(state?.status === "signed-out" && !locked);
   if (!state) return null;
@@ -132,14 +122,11 @@ export function AccountGroup({
   onRetry,
 }: {
   state: RemoteAccountState;
-  /** The sign-ins advertised by the server, including providers this app may not know. */
   signIns?: readonly string[];
-  /** The server did not answer when asked what it offers. */
   unreachable?: boolean;
   onRetry?: () => void;
 }) {
   const { t, i18n } = useTranslation("settings");
-  // Signing in answers once the browser is back; the state says so meanwhile.
   const signIn = (provider?: SignInProvider) =>
     void ipcCallResult("remote", "signIn", provider ? { provider } : undefined);
   const cancel = () => void ipcCallResult("remote", "cancelSignIn", undefined);
@@ -152,7 +139,6 @@ export function AccountGroup({
       : unreachable
         ? "unreachable"
         : undefined;
-  // Support's section on signing in and signup approval, in the app's language.
   const signInHelp = siteUrl("signIn", i18n.language);
   const noticeActions = [
     failure === "pending_approval" && (
@@ -199,9 +185,6 @@ export function AccountGroup({
           </Button>
         </SettingsRow>
       ) : (
-        // Signed out, the group's description and its sign-in buttons say so,
-        // with no label of their own: why the last sign-in failed, when it did,
-        // then a button for each provider.
         <>
           {failure && (
             <SignInNotice
@@ -223,7 +206,6 @@ export function AccountGroup({
           </div>
         </>
       )}
-      {/* The released app's own server goes without saying. */}
       {state.server !== SERVER && (
         <p className="text-app-micro text-muted-foreground">
           {t("remote.account.server", { server: state.server })}
@@ -238,10 +220,6 @@ type DevicesView =
   | { status: "ready"; devices: RemoteDeviceInfo[] }
   | { status: "unavailable" };
 
-/**
- * Whether the account's other devices may control this computer's chats:
- * off, they only look.
- */
 export function RemoteControlSwitch() {
   const { t } = useTranslation("settings");
   const [allowed, setAllowed] = useState<boolean | null>(null);
@@ -268,10 +246,6 @@ export function RemoteControlSwitch() {
   );
 }
 
-/**
- * Whether the account's other devices may control this computer's
- * terminals: type into them, open and close them. Off, they only read them.
- */
 export function RemoteTerminalSwitch() {
   const { t } = useTranslation("settings");
   const [allowed, setAllowed] = useState<boolean | null>(null);
@@ -298,7 +272,6 @@ export function RemoteTerminalSwitch() {
   );
 }
 
-/** What agents on the user's other computers may do here through their nexus command. */
 export function RemoteAgentsPolicyRow() {
   const { t } = useTranslation("settings");
   const [policy, setPolicy] = useState<RemoteAgentsPolicy | null>(null);
@@ -380,7 +353,6 @@ function PhonePushPolicyRow() {
   );
 }
 
-/** What the account's other devices may do here: chats, terminals, and their agents. */
 export function RemoteControlGroup() {
   const { t } = useTranslation("settings");
   return (
@@ -393,7 +365,6 @@ export function RemoteControlGroup() {
   );
 }
 
-/** Whether the server asks for the account password before removing a device or deleting the account: once the account has a key. */
 function asksPassword(key: AccountKeyState | null): boolean {
   return key?.status === "unlocked" || key?.status === "locked";
 }
@@ -413,7 +384,6 @@ function DevicesGroup({
   const [busy, setBusy] = useState(false);
   const [naming, setNaming] = useState<RemoteDeviceInfo | null>(null);
   const [aliasBusy, setAliasBusy] = useState(false);
-  /** Who is in the room now; this device while it is. */
   const online = (id: string) =>
     id === thisDevice
       ? room?.status === "online"
@@ -423,7 +393,6 @@ function DevicesGroup({
     setBusy(true);
     const result = await ipcCallResult("remote", "devices", undefined);
     setBusy(false);
-    // Signed out meanwhile: the account's state says so, and this group goes.
     if (result.ok) setView({ status: "ready", devices: result.value });
     else if (result.kind !== "session-expired") setView({ status: "unavailable" });
   }, []);
@@ -432,7 +401,6 @@ function DevicesGroup({
     void load();
   }, [load]);
 
-  // A device signed in since the list came: in the room before it is in the list.
   const known = view.status === "ready" ? view.devices : null;
   const newcomer = room?.peers.some((p) => !known?.some((d) => d.id === p.id)) ?? false;
   useEffect(() => {
@@ -441,7 +409,6 @@ function DevicesGroup({
 
   const remove = async (device: RemoteDeviceInfo) => {
     const self = device.id === thisDevice;
-    // Another device: the account key is rotated, with the password.
     if (!self && asksPassword(keyState)) {
       setPasswordRequest({
         title: t("remote.devices.removeConfirm.title", { name: deviceLabel(device) }),
@@ -557,9 +524,7 @@ export function DeviceRow({
 }: {
   device: RemoteDeviceInfo;
   current: boolean;
-  /** In the account's room now. */
   online?: boolean;
-  /** Gives it an alias, or takes it away. */
   onAlias?: () => void;
   onRemove: () => void;
 }) {
@@ -622,7 +587,6 @@ export function DeviceRow({
   );
 }
 
-/** Deleting the account on the server, after asking: every device is signed out. */
 export function DeleteAccountGroup({ keyState }: { keyState: AccountKeyState | null }) {
   const { t } = useTranslation("settings");
   const [error, setError] = useState(false);
@@ -656,7 +620,6 @@ export function DeleteAccountGroup({ keyState }: { keyState: AccountKeyState | n
     setError(false);
     const result = await ipcCallResult("remote", "deleteAccount", undefined);
     setBusy(false);
-    // Deleted: the account's state goes to signed out, and this group with it.
     if (!result.ok && result.kind !== "session-expired") setError(true);
   };
   return (

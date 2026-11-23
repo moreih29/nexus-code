@@ -1,18 +1,3 @@
-/**
- * Per-editor orchestration for the dirty-diff feature.
- *
- * Responsibilities:
- *   - load the baseline for the current file (via an injected source),
- *   - recompute line changes against the live buffer, debounced, on every edit,
- *   - paint / clear the gutter decorations,
- *   - open the inline peek when a gutter glyph is clicked,
- *   - stage or revert a change from the peek.
- *
- * The controller is UI-framework-agnostic and depends only on a Monaco editor
- * instance plus a {@link DirtyDiffSource}. Baseline loading (git/IPC) is wired
- * by the install layer so this stays unit-testable.
- */
-
 import type * as Monaco from "monaco-editor";
 import type { TimerScheduler } from "../../../../../shared/util/timer-scheduler";
 import { defaultTimerScheduler } from "../../../../../shared/util/timer-scheduler";
@@ -26,20 +11,10 @@ import { DirtyDiffPeek } from "./peek";
 import { revertChangeEdit } from "./revert";
 import type { DirtyChange } from "./types";
 
-/** Coalesces bursts of keystrokes into a single recompute (matches VSCode). */
 const RECOMPUTE_DEBOUNCE_MS = 300;
 
 export interface DirtyDiffSource {
-  /**
-   * Returns the baseline text for the editor's current file, or `null` when
-   * there is no baseline (untracked file, not a repo). A `null` result clears
-   * all dirty-diff decorations.
-   */
   loadBaseline(signal: AbortSignal): Promise<string | null>;
-  /**
-   * Stages `change` of the buffer whose text is `working`. Without it the
-   * peek offers no staging.
-   */
   stageChange?(change: DirtyChange, working: string, eol: string): Promise<void>;
 }
 
@@ -71,12 +46,10 @@ export class DirtyDiffController {
     );
   }
 
-  /** Whether the buffer differs from the baseline, as the gutter last showed. */
   get hasChanges(): boolean {
     return this.changes.length > 0;
   }
 
-  /** Loads the baseline and wires listeners. Call once after construction. */
   start(): void {
     injectDirtyDiffStyles();
 
@@ -88,10 +61,6 @@ export class DirtyDiffController {
     void this.refreshBaseline();
   }
 
-  /**
-   * Reloads the baseline (e.g. after a stage, commit or checkout moves it) and
-   * recomputes. Cancels any in-flight load first.
-   */
   async refreshBaseline(): Promise<void> {
     if (this.disposed) return;
     this.abortController?.abort();
@@ -102,8 +71,6 @@ export class DirtyDiffController {
     try {
       baseline = await this.source.loadBaseline(controller.signal);
     } catch {
-      // Baseline unavailable (aborted / IPC failure) — treat as no diff rather
-      // than surfacing an error in the editor surface.
       baseline = null;
     }
     if (this.disposed || controller.signal.aborted) return;
@@ -126,8 +93,6 @@ export class DirtyDiffController {
     this.decorations.clear();
   }
 
-  // -------------------------------------------------------------------------
-
   private scheduleRecompute(): void {
     if (this.debounceTimer !== null) this.scheduler.clearTimeout(this.debounceTimer);
     this.debounceTimer = this.scheduler.setTimeout(() => {
@@ -149,17 +114,10 @@ export class DirtyDiffController {
     this.decorations.set(buildDirtyDiffDecorations(this.monaco, model, this.changes));
   }
 
-  /**
-   * Puts the baseline's lines back in place of `change` as one undoable
-   * edit, then moves the peek to the change now at its position, or closes
-   * it when none is left.
-   */
   private revertChange(change: DirtyChange): void {
     const model = this.editor.getModel();
     if (!model || this.baseline === null) return;
 
-    // The peek is a snapshot; recompute so a change the buffer has since
-    // moved past is not reverted at stale line numbers.
     this.flushRecompute();
     const index = this.changes.findIndex((c) => sameChange(c, change));
     if (index === -1) {
@@ -191,10 +149,6 @@ export class DirtyDiffController {
     }
   }
 
-  /**
-   * Stages `change`, then moves the peek on as reverting does once the new
-   * baseline has dropped it.
-   */
   private async stageChange(change: DirtyChange): Promise<void> {
     const model = this.editor.getModel();
     if (!model || !this.source.stageChange) return;
@@ -216,7 +170,6 @@ export class DirtyDiffController {
     }
   }
 
-  /** Runs a pending debounced recompute now. */
   private flushRecompute(): void {
     if (this.debounceTimer !== null) {
       this.scheduler.clearTimeout(this.debounceTimer);
@@ -241,11 +194,9 @@ export class DirtyDiffController {
     this.peek.open(this.changes, index, this.baseline);
   }
 
-  /** Finds the change whose buffer footprint covers `line`. */
   private findChangeIndexForLine(line: number): number {
     return this.changes.findIndex((change) => {
       if (change.type === "delete") {
-        // Deletions anchor to the line above the gap.
         return Math.max(1, change.modifiedStartLineNumber - 1) === line;
       }
       const end = change.modifiedEndLineNumber || change.modifiedStartLineNumber;

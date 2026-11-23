@@ -6,41 +6,9 @@ import { defaultViewMode } from "../preview/previewable";
 import type { EditorInput } from "../types";
 import { revealRange } from "./reveal";
 
-/**
- * Pending-reveal coordination between callers (search match clicks,
- * workspace-symbol palette, etc.) and live editor instances.
- *
- * Why a registry, not a broadcast bus:
- *   ContentHost keeps every EditorView mounted for the lifetime of its tab —
- *   inactive tabs' DOM is parked off-screen via portal, but the React subtree
- *   is preserved so xterm/Monaco state survives tab moves. With a broadcast
- *   `subscribe / notify` bus, that means every previously-opened file has
- *   a live subscriber. When a new request fires, *any* of those subscribers
- *   can claim the pending entry first — and if the claimer's editor is
- *   parked (visibility:hidden), `editor.focus()` silently no-ops and the
- *   visible editor never sees the reveal. That's exactly the regression
- *   the user reported.
- *
- * Registry semantics:
- *   - Each EditorView mount registers its `IStandaloneCodeEditor` under
- *     `(workspaceId, filePath)` together with its tab id. The same file
- *     open in two splits has one registration per tab.
- *   - `requestEditorReveal` with a tab id (what `revealEditorAt` passes —
- *     the tab it just opened or activated) reveals in that tab's editor.
- *     Without one it uses the most recently mounted editor for the file.
- *     No broadcast, no race.
- *   - When the target editor is not registered yet (the request arrives
- *     before mount), the range is queued under the file's key. The next
- *     mount of that tab (or of any tab, when no tab was named) drains it.
- *   - Unmount removes only its own registration, so closing one split
- *     leaves the other split's editor registered.
- */
-
 export interface PendingEditorReveal extends EditorInput {
   range: MonacoRange;
-  /** Tab whose editor should reveal the range; omitted for "any editor of this file". */
   tabId?: string;
-  /** Leaves keyboard focus where it is instead of moving it into the editor. */
   preserveFocus?: boolean;
 }
 
@@ -49,7 +17,6 @@ interface RevealTarget {
   editor: Monaco.editor.IStandaloneCodeEditor;
 }
 
-/** Registered editors per file, oldest mount first. */
 const targetsByKey = new Map<string, RevealTarget[]>();
 const pendingByKey = new Map<string, PendingEditorReveal>();
 
@@ -64,15 +31,6 @@ function findTarget(key: string, tabId: string | undefined): RevealTarget | unde
   return targets.find((target) => target.tabId === tabId);
 }
 
-/**
- * Register an editor instance as a reveal target for `(workspaceId,
- * filePath)` in tab `tabId`. Returns an unregister function the caller must
- * invoke on unmount.
- *
- * If a pending range is queued for this file and this tab (e.g. the click
- * happened before Monaco finished mounting), it is flushed immediately.
- * Callers do not need a separate "apply pending on mount" call.
- */
 export function registerRevealTarget(
   input: EditorInput,
   editor: Monaco.editor.IStandaloneCodeEditor,
@@ -112,18 +70,9 @@ export function requestEditorReveal(input: PendingEditorReveal): void {
     );
     return;
   }
-  // Target editor not live yet — queue the range. The next matching
-  // `registerRevealTarget` for this key flushes it. We intentionally
-  // overwrite any previous queued entry: only the latest user click matters.
   pendingByKey.set(key, input);
 }
 
-/**
- * A place in a file is a place in its source: a tab showing the file's
- * preview switches to its source first. Its editor was hidden behind the
- * preview, where it takes no focus and has no size to scroll by, so the
- * reveal waits for it to be shown and laid out.
- */
 function revealInSource(
   workspaceId: string,
   tabId: string | undefined,

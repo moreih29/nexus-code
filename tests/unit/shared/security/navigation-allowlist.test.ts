@@ -1,11 +1,3 @@
-/**
- * Unit tests for the in-frame navigation scheme allowlist guard.
- *
- * Covers allowed schemes, blocked schemes, and edge-case inputs that exercise
- * URL parsing robustness.  Each case documents the security intent alongside
- * the assertion so the expected behaviour is unambiguous.
- */
-
 import { describe, expect, test } from "bun:test";
 import {
   CHROMIUM_PDF_VIEWER_EXTENSION_ID,
@@ -17,10 +9,6 @@ import {
 } from "../../../../src/shared/security/navigation-allowlist";
 
 describe("isNavigationSchemeAllowed", () => {
-  // -------------------------------------------------------------------------
-  // Allowed schemes — must return true
-  // -------------------------------------------------------------------------
-
   test("permits http:// URLs", () => {
     expect(isNavigationSchemeAllowed("http://example.com")).toBe(true);
   });
@@ -30,14 +18,8 @@ describe("isNavigationSchemeAllowed", () => {
   });
 
   test("permits file:// URIs (local HTML / documents)", () => {
-    // User-opt-in scheme.  webSecurity + sandbox still constrain
-    // cross-origin reads even though the scheme passes the allowlist.
     expect(isNavigationSchemeAllowed("file:///Users/x/notes.html")).toBe(true);
   });
-
-  // -------------------------------------------------------------------------
-  // Blocked schemes — must return false
-  // -------------------------------------------------------------------------
 
   test("blocks mailto: URIs (OS mail handler, not in-frame content)", () => {
     expect(isNavigationSchemeAllowed("mailto:foo@bar.com")).toBe(false);
@@ -55,10 +37,6 @@ describe("isNavigationSchemeAllowed", () => {
     expect(isNavigationSchemeAllowed("about:blank")).toBe(false);
   });
 
-  // -------------------------------------------------------------------------
-  // Edge cases — malformed / empty inputs
-  // -------------------------------------------------------------------------
-
   test("returns false for empty string", () => {
     expect(isNavigationSchemeAllowed("")).toBe(false);
   });
@@ -68,13 +46,10 @@ describe("isNavigationSchemeAllowed", () => {
   });
 
   test("returns false for broken authority string", () => {
-    // '://broken' has no scheme — URL constructor throws
     expect(isNavigationSchemeAllowed("://broken")).toBe(false);
   });
 
   test("permits HTTP:// with uppercase scheme (URL.protocol normalises to lowercase)", () => {
-    // The URL constructor lowercases the protocol, so 'HTTP:' → 'http:'
-    // and it correctly matches the allowlist without extra case handling.
     expect(isNavigationSchemeAllowed("HTTP://example.com")).toBe(true);
   });
 
@@ -83,8 +58,6 @@ describe("isNavigationSchemeAllowed", () => {
   });
 
   test("does NOT permit the built-in PDF viewer extension via the scheme allowlist", () => {
-    // chrome-extension: is not in the scheme allowlist; the PDF viewer frame is
-    // permitted by the dedicated isBuiltinPdfViewerUrl() exemption instead.
     expect(
       isNavigationSchemeAllowed(`chrome-extension://${CHROMIUM_PDF_VIEWER_EXTENSION_ID}/abc`),
     ).toBe(false);
@@ -93,8 +66,6 @@ describe("isNavigationSchemeAllowed", () => {
 
 describe("isBuiltinPdfViewerUrl", () => {
   test("matches Chromium's built-in PDF viewer sub-frame URL", () => {
-    // Electron 41 renders inline PDFs in a sub-frame at this origin; the
-    // navigation guard must let it through or the page area renders blank.
     expect(
       isBuiltinPdfViewerUrl(
         `chrome-extension://${CHROMIUM_PDF_VIEWER_EXTENSION_ID}/b0f3c59b-1673-4ef0-a69d-008a3a328639`,

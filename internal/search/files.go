@@ -14,19 +14,14 @@ import (
 const (
 	defaultFilesLimit = 50
 	maxFilesLimit     = 1000
-	// maxFilesWalked bounds one search.files walk: a home folder opened as
-	// a workspace must not keep the agent busy for minutes.
-	maxFilesWalked = 200_000
+	maxFilesWalked    = 200_000
 )
 
-// FilesParams asks for the files whose paths hold Query's characters in order.
 type FilesParams struct {
 	Query string `json:"query"`
 	Limit int    `json:"limit"`
 }
 
-// FilesResult lists the best matches first, relative to the root with "/"
-// between parts. Truncated: the walk stopped before every file was seen.
 type FilesResult struct {
 	Files     []string `json:"files"`
 	Truncated bool     `json:"truncated"`
@@ -37,9 +32,6 @@ type scoredFile struct {
 	score int
 }
 
-// Files finds files by name as quick open does: the folders text search
-// leaves out (hiddenNames, and the build folders of defaultExcludes) are left
-// out here too, but any regular file is a candidate, binary or empty.
 func (s *Service) Files(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p FilesParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -112,7 +104,6 @@ func (s *Service) Files(ctx context.Context, raw json.RawMessage) (any, error) {
 	return FilesResult{Files: files, Truncated: truncated}, nil
 }
 
-// foldQuery lowercases the query and drops its spaces; a "\" is taken as "/".
 func foldQuery(q string) []rune {
 	out := make([]rune, 0, len(q))
 	for _, r := range q {
@@ -127,8 +118,6 @@ func foldQuery(q string) []rune {
 	return out
 }
 
-// before reports whether a ranks ahead of b: a higher score, then a shorter
-// path, then by name.
 func before(a, b scoredFile) bool {
 	if a.score != b.score {
 		return a.score > b.score
@@ -139,7 +128,6 @@ func before(a, b scoredFile) bool {
 	return a.path < b.path
 }
 
-// keepBest inserts f into best, which stays sorted and at most limit long.
 func keepBest(best []scoredFile, f scoredFile, limit int) []scoredFile {
 	if len(best) == limit && !before(f, best[len(best)-1]) {
 		return best
@@ -154,25 +142,17 @@ func keepBest(best []scoredFile, f scoredFile, limit int) []scoredFile {
 }
 
 const (
-	scoreMatch       = 1
-	scoreConsecutive = 6
-	scoreWordStart   = 8
-	scorePartStart   = 10
-	// A gap between two matched characters costs gapStart, and gapExtend
-	// more for each character it skips.
-	gapStart  = 3
-	gapExtend = 1
-	// scoreInName puts every file whose name holds the query ahead of those
-	// that hold it only across their folders, as quick open does.
+	scoreMatch        = 1
+	scoreConsecutive  = 6
+	scoreWordStart    = 8
+	scorePartStart    = 10
+	gapStart          = 3
+	gapExtend         = 1
 	scoreInName       = 1 << 20
 	scoreUnmatched    = -1 << 30
 	maxScoredPathRune = 512
 )
 
-// fuzzyScore scores path against query (folded by foldQuery): its
-// characters in order, in the file name if they are all there, best placed
-// together and at the start of words. ok is false when they are not all in
-// path.
 func fuzzyScore(path string, query []rune) (int, bool) {
 	target := []rune(path)
 	if len(target) > maxScoredPathRune || len(query) > len(target) {
@@ -190,8 +170,6 @@ func fuzzyScore(path string, query []rune) (int, bool) {
 	return subsequenceScore(target, query)
 }
 
-// subsequenceScore is the best score of query's characters in order in
-// target, or ok false when they are not all in it.
 func subsequenceScore(target []rune, query []rune) (int, bool) {
 	if len(query) > len(target) {
 		return 0, false
@@ -200,7 +178,6 @@ func subsequenceScore(target []rune, query []rune) (int, bool) {
 	for i, r := range target {
 		lower[i] = unicode.ToLower(r)
 	}
-	// Cheap check first: most paths do not hold the query at all.
 	next := 0
 	for _, r := range lower {
 		if next < len(query) && r == query[next] {
@@ -223,7 +200,6 @@ func subsequenceScore(target []rune, query []rune) (int, bool) {
 		return scoreMatch
 	}
 
-	// prev[j]: the best score of the query so far with its last character at j.
 	prev := make([]int, len(target))
 	cur := make([]int, len(target))
 	for j := range prev {
@@ -233,7 +209,6 @@ func subsequenceScore(target []rune, query []rune) (int, bool) {
 		}
 	}
 	for i := 1; i < len(query); i++ {
-		// jump: the best score of the query so far ending before j-1, its gap to j paid.
 		jump := scoreUnmatched
 		for j := range target {
 			cur[j] = scoreUnmatched

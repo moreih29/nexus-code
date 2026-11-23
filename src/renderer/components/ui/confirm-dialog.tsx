@@ -1,19 +1,3 @@
-/**
- * ConfirmDialog — lightweight confirmation modal.
- *
- * Imperative API (like toast / save-confirm-dialog): callers invoke
- * `showConfirmDialog({ title, description, ... })` and await a boolean.
- * The component is rendered once at App level via ConfirmDialogRoot;
- * there is no per-callsite Dialog.
- *
- * Concurrency: callers may queue prompts back-to-back. A second
- * showConfirmDialog() while one is open queues, and is shown after the
- * first resolves.
- *
- * A prompt whose question no longer stands (its `signal` aborted) leaves the
- * queue, or closes if shown, resolving false.
- */
-
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -21,24 +5,6 @@ import { Dialog } from "@/components/ui/dialog";
 import { DialogHeader } from "@/components/ui/dialog-header";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 
-/**
- * Grace window (ms) that suppresses keyboard-synthesized clicks on the dialog
- * buttons immediately after mount. macOS Cmd+Backspace (the file-delete
- * shortcut) emits a residual NSAction in the same event-loop tick that
- * Chromium translates into a `detail: 0` (keyboard-synthesized) click on the
- * first focusable button — which happens to be Cancel — and the dialog
- * dismisses itself before the user ever sees it.
- *
- * Diagnosed by ruling out Radix's `onOpenChange` (never fired) and confirming
- * the call site is the Cancel `onClick` via a React-event stack trace. The
- * fix swallows clicks that (a) arrive within the grace window AND (b) carry
- * `detail === 0` — true mouse clicks (`detail >= 1`) are always honoured.
- *
- * 120 ms is well below human reaction time (~250 ms minimum for a planned
- * key press) so keyboard users who confirm-on-mount only feel one harmless
- * retry; well above the residual NSAction window so the spurious click is
- * reliably absorbed.
- */
 export const MOUNT_CLICK_GRACE_MS = 120;
 
 export interface ConfirmDialogRequest {
@@ -48,7 +14,6 @@ export interface ConfirmDialogRequest {
   cancelLabel?: string;
   confirmLabel?: string;
   variant?: "default" | "destructive";
-  /** Aborted when the question is settled elsewhere: the prompt closes, resolving false. */
   signal?: AbortSignal;
 }
 
@@ -63,10 +28,6 @@ function getActive(): PendingPrompt | null {
   return queue[0] ?? null;
 }
 
-/**
- * Imperative entry point. Resolves to true when the user clicks the
- * confirm button, false on cancel / Esc / backdrop click.
- */
 export function showConfirmDialog(request: ConfirmDialogRequest): Promise<boolean> {
   return new Promise((resolve) => {
     const { signal } = request;
@@ -81,7 +42,6 @@ export function showConfirmDialog(request: ConfirmDialogRequest): Promise<boolea
   });
 }
 
-/** Takes a prompt out, shown or waiting, as if cancelled. */
 function withdraw(prompt: PendingPrompt): void {
   if (!queue.includes(prompt)) return;
   queue = queue.filter((queued) => queued !== prompt);
@@ -97,31 +57,17 @@ function resolveActive(confirmed: boolean): void {
   bus.notify();
 }
 
-/**
- * Korean breaks between words, not inside one; an overlong word still wraps.
- * `wrap-break-word`, not `break-words`: tailwind-merge (in DialogHeader's
- * `cn()`) counts `break-words` as the same group as `break-keep` and drops it.
- */
 export const CONFIRM_TEXT_CLASS = "break-keep wrap-break-word";
 
-/**
- * Mount once at App level. Reads the head of the prompt queue and
- * renders the active confirmation dialog.
- */
 export function ConfirmDialogRoot(): React.JSX.Element {
   const { t } = useTranslation();
   const [active, setActive] = useState<PendingPrompt | null>(getActive());
-  // Timestamp captured every time a new prompt becomes active — read by
-  // the click handlers below to absorb residual keyboard-synthesized
-  // clicks. See MOUNT_CLICK_GRACE_MS for the rationale.
   const mountAtRef = useRef<number>(0);
 
   useEffect(() => {
     return bus.subscribe(() => setActive(getActive()));
   }, []);
 
-  // Re-arm the grace window on every new prompt, not just the very first
-  // open — sequential destructive confirms each need protection.
   useEffect(() => {
     if (active !== null) mountAtRef.current = performance.now();
   }, [active]);
@@ -131,9 +77,6 @@ export function ConfirmDialogRoot(): React.JSX.Element {
   const confirmLabel = active?.confirmLabel ?? t("action.confirm");
   const variant = active?.variant ?? "default";
 
-  // Esc / backdrop click → cancel. RadixDialog's onOpenChange fires
-  // with `false` for both, plus when our buttons trigger a close after
-  // a resolve. The guard avoids double-resolving.
   const handleOpenChange = (next: boolean): void => {
     if (next) return;
     if (queue[0] === active && active !== null) {
@@ -141,10 +84,6 @@ export function ConfirmDialogRoot(): React.JSX.Element {
     }
   };
 
-  // Drop keyboard-synthesized clicks that fire within the grace window
-  // (see MOUNT_CLICK_GRACE_MS doc). `detail === 0` is the standard
-  // browser flag for "this click came from a keyboard activation, not a
-  // pointer," so true mouse interactions always pass through unaffected.
   const isResidualKeyboardClick = (e: React.MouseEvent): boolean => {
     if (e.detail !== 0) return false;
     return performance.now() - mountAtRef.current < MOUNT_CLICK_GRACE_MS;
@@ -173,7 +112,6 @@ export function ConfirmDialogRoot(): React.JSX.Element {
       size="sm"
       {...(active?.description ? {} : { "aria-describedby": undefined })}
     >
-      {/* Korean breaks between words, not inside one; an overlong word still wraps. */}
       <DialogHeader
         title={active?.title}
         description={active?.description}
@@ -184,8 +122,6 @@ export function ConfirmDialogRoot(): React.JSX.Element {
           {active.hint}
         </p>
       )}
-      {/* Enter takes the focused button: Cancel when confirming would
-          delete or discard something, so a stray Enter loses nothing. */}
       <div className="mt-5 flex justify-end gap-2">
         <Button
           variant="ghost"

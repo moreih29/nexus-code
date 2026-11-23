@@ -1,14 +1,3 @@
-// Where a preview's find query is in its text.
-//
-// Self-contained: the HTML preview runs it inside its document too, from
-// its source (see dom-finder.ts), so it uses nothing from outside itself.
-
-/**
- * Where `query` is in `text`, as [start, end] offsets one after another,
- * at most `limit` of them. A space in the query stands for any run of
- * white space, as the page shows one, and letters match either case
- * unless `caseSensitive`.
- */
 export function findMatches(
   text: string,
   query: string,

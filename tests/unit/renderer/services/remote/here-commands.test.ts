@@ -1,4 +1,3 @@
-/** The app's commands another computer's chat runs on this one. */
 import { describe, expect, test } from "bun:test";
 import type { ChatCommand } from "../../../../../packages/remote-protocol/src";
 import {
@@ -64,9 +63,7 @@ describe("Claude's commands that run in a terminal, from another computer", () =
       name: "ultraplan",
       args: "fix it",
     });
-    // Claude Code runs /ultrareview in the conversation itself.
     expect(hereCommandOf("claude", [], "/ultrareview 12", true)).toBeNull();
-    // A Codex chat has none.
     expect(hereCommandsOf("codex", [], true).some((c) => c.name === "login")).toBe(false);
   });
 
@@ -74,14 +71,11 @@ describe("Claude's commands that run in a terminal, from another computer", () =
     expect(inTerminalLineOf("login", "")).toBe("claude auth login");
     expect(inTerminalLineOf("ultraplan", "")).toBe("claude /ultraplan");
     expect(inTerminalLineOf("ultraplan", "fix it")).toBe('claude "/ultraplan fix it"');
-    // What a shell there would expand does not go.
     expect(inTerminalLineOf("ultraplan", "fix $HOME")).toBeNull();
     expect(inTerminalLineOf("ultraplan", 'say "hi"')).toBeNull();
     expect(inTerminalLineOf("ultraplan", "a & b")).toBeNull();
-    // PowerShell ends a double-quoted string at a typographic double quote too.
     expect(inTerminalLineOf("ultraplan", "a” ; echo hi; “b")).toBeNull();
     expect(inTerminalLineOf("ultraplan", "say „hi")).toBeNull();
-    // Its typographic single quotes, like ', are as they are in double quotes.
     expect(inTerminalLineOf("ultraplan", "it’s ‘fine’")).toBe('claude "/ultraplan it’s ‘fine’"');
     expect(inTerminalLineOf("copy", "")).toBeNull();
   });

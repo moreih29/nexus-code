@@ -39,11 +39,6 @@ export const FsChangedEventSchema = z.object({
 });
 export type FsChangedEvent = z.infer<typeof FsChangedEventSchema>;
 
-/**
- * How a file's text came: UTF-8 (with or without its byte-order mark) as
- * `content`, or, for text in any other encoding, as `bytes` (base64) for
- * the reader to decode.
- */
 export const FileEncodingSchema = z.enum(["utf8", "utf8-bom", "bytes"]);
 
 export const FileContentSchema = z.object({
@@ -56,9 +51,6 @@ export const FileContentSchema = z.object({
 });
 export type FileContent = z.infer<typeof FileContentSchema>;
 
-// Writer-side state used by atomic write to detect external modifications
-// since the renderer last observed the file. `exists:false` is the
-// "first save of a new file" case.
 export const ExpectedFileStateSchema = z.discriminatedUnion("exists", [
   z.object({ exists: z.literal(false) }),
   z.object({ exists: z.literal(true), mtime: z.string(), size: NonnegativeIntegerSchema }),
@@ -78,10 +70,6 @@ export const WriteFileResultSchema = z.discriminatedUnion("kind", [
 ]);
 export type WriteFileResult = z.infer<typeof WriteFileResultSchema>;
 
-// Discriminated-union result for all read IPC calls (git.getFileContent,
-// fs.readFile, fs.readExternal). The "missing" variant lets handlers resolve
-// instead of throw for domain-normal "not found" cases, eliminating the
-// Electron ipcMain stderr noise that results from throw paths.
 export const FileReadResultSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("ok"),
@@ -99,11 +87,6 @@ export const FileReadResultSchema = z.discriminatedUnion("kind", [
 ]);
 export type FileReadResult = z.infer<typeof FileReadResultSchema>;
 
-// Result for fs.readBinary. Companion to FileReadResultSchema for the
-// binary-bytes path: where FileReadResult ships text content as a UTF-8
-// string, this one ships an arbitrary byte sequence as base64 so JSON
-// transport is lossless. Used by the nexus-workspace:// custom protocol
-// to serve images from SSH workspaces.
 export const FileReadBinaryResultSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("ok"),

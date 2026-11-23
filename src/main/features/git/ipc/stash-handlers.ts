@@ -1,7 +1,3 @@
-/**
- * Stash handlers — save, list, inspect, and restore dirty worktree state.
- */
-
 import type { InferArgs, InferComplete, InferProgress } from "../../../../shared/ipc/contract";
 import { ipcContract } from "../../../../shared/ipc/contract";
 import type { CallContext, StreamContext } from "../../../infra/ipc-router";
@@ -12,14 +8,6 @@ import { handleGitHandlerError, withRepo } from "./git-result";
 
 const c = ipcContract.git.call;
 
-/**
- * Builds the stash handler; a successful stash changes worktree status, so the
- * refreshed status broadcast is awaited before call resolution.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object so the router stays log-silent. The renderer's ipcCallResult path
- * receives this as an IpcErrResult and unwrapGitResult converts it to a thrown Error.
- */
 export function stashHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -28,15 +16,6 @@ export function stashHandler(
   });
 }
 
-/**
- * Builds the stashPop handler; popped changes are visible to the renderer only
- * after the post-pop statusChanged event has been broadcast.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see stashHandler for rationale.
- *
- * Left manual: inner try/catch refreshes status on stash-conflict failure.
- */
 export function stashPopHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -59,26 +38,12 @@ export function stashPopHandler(
   };
 }
 
-/**
- * Builds the stash-list handler used by the stash picker.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see stashHandler for rationale.
- */
 export function stashListHandler(registry: GitRegistry) {
   return withRepo(registry, c.stashList.args, (repo, _args, ctx) => repo.listStashes(ctx.signal), {
     refreshStatus: false,
   });
 }
 
-/**
- * Builds the indexed stash apply handler.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see stashHandler for rationale.
- *
- * Left manual: inner try/catch refreshes status on stash-conflict failure.
- */
 export function stashApplyHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -101,12 +66,6 @@ export function stashApplyHandler(
   };
 }
 
-/**
- * Builds the indexed stash drop handler.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see stashHandler for rationale.
- */
 export function stashDropHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -115,12 +74,6 @@ export function stashDropHandler(
   });
 }
 
-/**
- * Builds the selected-path stash handler used by group context menus.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see stashHandler for rationale.
- */
 export function stashGroupHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -138,11 +91,6 @@ type StashShowHandler = (
   ctx: StreamContext,
 ) => AsyncGenerator<StashShowProgress, StashShowComplete, unknown>;
 
-/**
- * Builds the stash patch stream handler.
- * Stream handlers propagate GitError through the stream error path — the router
- * serialises them via `serializeError` which already handles GitError.
- */
 export function stashShowStream(registry: GitRegistry): StashShowHandler {
   return async function* (
     { workspaceId, index }: StashShowArgs,
@@ -155,10 +103,6 @@ export function stashShowStream(registry: GitRegistry): StashShowHandler {
   };
 }
 
-/**
- * Refreshes status after stash conflicts because Git may have written
- * conflicted index/worktree state before exiting non-zero.
- */
 async function refreshAfterStashConflict(
   registry: GitRegistry,
   workspaceId: string,

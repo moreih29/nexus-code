@@ -1,26 +1,10 @@
-// src/renderer/components/ui/select.tsx — Floating-layer Select primitive.
-//
-// Wraps Radix Select so dropdown popups inherit the Islands Floating token
-// set instead of the OS-native chrome the bare <select> element would draw
-// (shadowed popup, system-blue accent — both violate design.md §1·§5). Used
-// inside Settings dialog and any other surface that needs a single-choice
-// dropdown.
-//
-// Design seal: --surface-floating-bg + --surface-floating-border + radius-island
-// for the popup; control-radius + state.hover.bg for trigger/items; no shadows.
-
 import { Check, ChevronDown } from "lucide-react";
 import { Select as RadixSelect } from "radix-ui";
 import type * as React from "react";
 import { cn } from "@/utils/cn";
 
-// ---------------------------------------------------------------------------
-// Trigger — sized to match other form controls (h-7, control radius)
-// ---------------------------------------------------------------------------
-
 interface SelectTriggerProps extends React.ComponentProps<typeof RadixSelect.Trigger> {
   placeholder?: string;
-  /** Accessible name for assistive tech (forwarded as aria-label). */
   ariaLabel?: string;
 }
 
@@ -48,10 +32,6 @@ function SelectTrigger({ className, children, ariaLabel, ...props }: SelectTrigg
   );
 }
 
-// ---------------------------------------------------------------------------
-// Content — Floating layer (bg-popover + radius-island + scrim-free border)
-// ---------------------------------------------------------------------------
-
 function SelectContent({
   className,
   children,
@@ -63,11 +43,9 @@ function SelectContent({
       <RadixSelect.Content
         position={position}
         className={cn(
-          // Floating-layer surface (design.md §2): popover bg + island radius + outlined
           "z-(--layer-floating) max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)]",
           "overflow-hidden rounded-(--radius-island)",
           "border border-[var(--surface-floating-border)] bg-popover text-popover-foreground",
-          // Slight offset so the popup doesn't crowd the trigger
           position === "popper" &&
             "data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1",
           className,
@@ -80,17 +58,12 @@ function SelectContent({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Item — control-radius rows; selected gets state.selected.* tokens
-// ---------------------------------------------------------------------------
-
 function SelectItem({
   className,
   children,
   description,
   ...props
 }: React.ComponentProps<typeof RadixSelect.Item> & {
-  /** A second, muted line in the list (e.g. a path); the trigger shows only `children`. */
   description?: React.ReactNode;
 }) {
   return (
@@ -121,10 +94,6 @@ function SelectItem({
     </RadixSelect.Item>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Re-exports — Root / Value passthrough so callers compose like Radix
-// ---------------------------------------------------------------------------
 
 const Select = RadixSelect.Root;
 const SelectValue = RadixSelect.Value;

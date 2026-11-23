@@ -137,24 +137,19 @@ describe("a note's transcript", () => {
     const live = [line("1", 0, 5000, "a"), line("2", 5000, 9000, "b"), line("1", 9000, 12000, "c")];
     const next = [line("A", 0, 4800, "a"), line("B", 4800, 9100, "b"), line("A", 9100, 12000, "c")];
     expect(carryNames(live, { "1": "지현", "2": "민수" }, next)).toEqual({ A: "지현", B: "민수" });
-    // An unnamed live voice gives no name.
     expect(carryNames(live, { "1": "지현" }, next)).toEqual({ A: "지현" });
   });
 
   test("a live voice's name goes to the one new voice that shares the most with it", () => {
-    // Heard live as one voice; the pass tells two people apart.
     const live = [line("1", 0, 9000, "a"), line("2", 9000, 12000, "b")];
     const next = [line("A", 0, 6000, "a"), line("C", 6000, 9000, "x"), line("B", 9000, 12000, "b")];
     expect(carryNames(live, { "1": "지현", "2": "민수" }, next)).toEqual({ A: "지현", B: "민수" });
   });
 
   test("live voices the user named alike are one person, whose name goes to one new voice", () => {
-    // Heard live as two voices the user named as one person; the pass tells two people apart.
     const twice = [line("1", 0, 5000, "a"), line("2", 5000, 9000, "b")];
     const split = [line("A", 0, 5000, "a"), line("B", 5000, 9000, "b")];
     expect(carryNames(twice, { "1": "지현", "2": "지현" }, split)).toEqual({ A: "지현" });
-    // The live session mixed people up, and the user named its voices as they went: the pass's
-    // two voices do not go back to one name; the one sharing the most with 지현 takes it.
     const mixed = [
       line("1", 0, 4000, "a"),
       line("2", 4000, 6000, "b"),
@@ -163,7 +158,6 @@ describe("a note's transcript", () => {
     const heard = [line("A", 0, 4000, "a"), line("B", 4000, 12000, "b")];
     const names = { "1": "지현", "2": "민수", "3": "지현" };
     expect(carryNames(mixed, names, heard)).toEqual({ B: "지현" });
-    // Heard again as one voice, it shares the most with 지현, across their live voices.
     expect(carryNames(mixed, names, [line("A", 0, 12000, "a")])).toEqual({ A: "지현" });
   });
 
@@ -210,7 +204,6 @@ describe("a note's transcript", () => {
         line("1", 11_000, 13_000, "다음"),
       ],
     });
-    // The pass hears one voice where there were three, under labels of its own.
     const next = withSecondPass(r, 0, [
       { speaker: "1", startMs: 0, endMs: 3100, text: "안녕하세요" },
       { speaker: "1", startMs: 3100, endMs: 6100, text: "반가워요" },
@@ -223,7 +216,6 @@ describe("a note's transcript", () => {
       line("1", 11_000, 13_000, "다음"),
     ]);
     expect(next.speakers).toEqual({ "1": "지현", "2": "민수" });
-    // The second take's lines are the ones after its start, whatever their keys.
     const second = withSecondPass(next, 1, [
       { speaker: "2", startMs: 900, endMs: 3100, text: "다음에" },
     ]);

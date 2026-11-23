@@ -1,6 +1,3 @@
-// How full a conversation's context is, as a ring that fills clockwise:
-// the loading colour, turning to the warning colour from 80%.
-
 import { cn } from "@/utils/cn";
 
 export function ContextRing({ percent, className }: { percent: number; className?: string }) {

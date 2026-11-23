@@ -1,7 +1,3 @@
-/**
- * Workflow handlers — merge/rebase/cherry-pick and conflict resolution calls.
- */
-
 import type {
   GitCherryPickResult,
   GitContinueOpResult,
@@ -18,13 +14,6 @@ import { handleGitHandlerError, withRepo } from "./git-result";
 
 const c = ipcContract.git.call;
 
-/**
- * Builds the merge handler; conflicts are returned as success envelopes.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object so the router stays log-silent. The renderer's ipcCallResult path
- * receives this as an IpcErrResult and unwrapGitResult converts it to a thrown Error.
- */
 export function mergeHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -35,12 +24,6 @@ export function mergeHandler(
   });
 }
 
-/**
- * Builds the non-interactive rebase handler.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see mergeHandler for rationale.
- */
 export function rebaseHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -51,14 +34,6 @@ export function rebaseHandler(
   });
 }
 
-/**
- * Builds the cherry-pick handler; conflicts are returned as success envelopes.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see mergeHandler for rationale.
- *
- * Left manual: inner try/catch refreshes status on empty-commit failure.
- */
 export function cherryPickHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -82,12 +57,6 @@ export function cherryPickHandler(
   };
 }
 
-/**
- * Builds the abort handler; the active operation is detected from disk.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see mergeHandler for rationale.
- */
 export function abortOpHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -97,12 +66,6 @@ export function abortOpHandler(
   });
 }
 
-/**
- * Builds the continue handler; the active operation is detected from disk.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see mergeHandler for rationale.
- */
 export function continueOpHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -113,13 +76,6 @@ export function continueOpHandler(
   });
 }
 
-/**
- * Builds the mark-resolved handler. This is semantic conflict resolution, not
- * a generic staging call.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see mergeHandler for rationale.
- */
 export function markResolvedHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -130,10 +86,6 @@ export function markResolvedHandler(
   });
 }
 
-/**
- * Bumps generation before the post-mutation status read so workflow marker
- * changes never depend only on coalesced watcher events.
- */
 async function refreshAfterWorkflowMutation(
   registry: GitRegistry,
   workspaceId: string,
@@ -143,9 +95,6 @@ async function refreshAfterWorkflowMutation(
   await registry.refreshStatus(workspaceId, signal);
 }
 
-/**
- * Refreshes for workflow failures that still leave Git marker state behind.
- */
 async function refreshAfterThrownWorkflowMutation(
   registry: GitRegistry,
   workspaceId: string,

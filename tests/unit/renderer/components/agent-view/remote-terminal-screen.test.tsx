@@ -1,7 +1,3 @@
-/**
- * Another computer's terminal drawn as this one's: its runs' colors from the
- * theme's terminal palette, and the end kept in sight.
- */
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import {

@@ -1,19 +1,3 @@
-/**
- * Drives the app's browser tabs for nexus browser snapshot, inspect, click,
- * fill, type, press, screenshot, eval, console and wait, through each tab's own
- * DevTools protocol connection (webContents.debugger). It works on tabs
- * that are not shown, too: Chromium takes input and paints screenshots for
- * a hidden page. A tab never shown has no size, though, so it is given one
- * first (see HIDDEN_SIZE), and a hidden page draws nothing by itself, while
- * Chromium sends a click only to a page that has drawn, so one is drawn
- * before each click on it (see paint). Off macOS a page out of the window
- * cannot draw at all, so it is put in a hidden window for a screenshot or a
- * click (see parked).
- *
- * Elements are named by a ref from the last snapshot ("e12") or a CSS
- * selector that matches one element. Input is real input events, so pages
- * see clicks and typing as a person's.
- */
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { BaseWindow, type Input, screen, type View, type WebContents } from "electron";
@@ -39,17 +23,11 @@ import { type AxNode, buildSnapshot, roleAndName, type SnapshotRef } from "./sna
 export interface PageInfo {
   readonly url: string;
   readonly title: string;
-  /**
-   * The file the tab's last navigation downloads instead of showing, as one
-   * served as application/octet-stream. The tab keeps the page it had, or
-   * none.
-   */
   readonly download?: PageDownload;
 }
 
 export interface PageDownload {
   readonly url: string;
-  /** Where it is saved, a command's download being kept out of the user's Downloads. */
   readonly file: string;
   readonly type: string;
 }
@@ -59,13 +37,10 @@ export interface PageSnapshot extends PageInfo {
   readonly omitted: number;
 }
 
-/** What an action did, said for people, and where the page is after it. */
 export type { PageDialog } from "./dialog";
 
-/** A request, with what was sent and what came back as far as the page still has them. */
 export interface RequestDetails {
   readonly entry: NetworkEntry;
-  /** What was sent with it, when there was something; undefined when it is not known. */
   readonly postData?: string;
   readonly body: ResponseBody;
 }
@@ -80,18 +55,15 @@ export interface ActionResult extends PageInfo {
   readonly navigated: boolean;
 }
 
-/** Where a page was before an action: its URL and how many navigations it had started. */
 interface PageMark {
   readonly url: string;
   readonly navigations: number;
 }
 
-/** Where browser scroll goes: a way and how far, an end, or to an element. */
 export type BrowserScroll =
   | {
       readonly kind: "by";
       readonly way: "up" | "down" | "left" | "right";
-      /** In CSS pixels; most of a view's worth when absent. */
       readonly amount?: number;
     }
   | { readonly kind: "end"; readonly end: "top" | "bottom" }
@@ -103,11 +75,9 @@ export type BrowserWaitCondition =
   | { readonly kind: "selector"; readonly selector: string; readonly gone: boolean }
   | { readonly kind: "url"; readonly pattern: RegExp };
 
-/** A browser tab's page and the view that holds it, as the browser registry has them. */
 export interface BrowserPage {
   readonly contents: WebContents;
   readonly view: View;
-  /** Whether the view is in the window; a tab not shown is not. */
   readonly active: boolean;
   readonly loadFailure?: { url: string; description: string } | null;
 }
@@ -119,72 +89,38 @@ export interface BrowserDriver {
     target: string,
     options: { double: boolean; force: boolean },
   ): Promise<ActionResult>;
-  /** Moves the mouse over an element, as hovering it does. */
   hover(tabId: string, target: string, options: { force: boolean }): Promise<ActionResult>;
-  /** Drags one element onto another with the mouse, HTML drag and drop included. */
   drag(tabId: string, from: string, to: string): Promise<ActionResult>;
-  /** Scrolls the page, or the element `within` names. */
   scroll(tabId: string, scroll: BrowserScroll, within?: string): Promise<ActionResult>;
   fill(tabId: string, target: string, text: string): Promise<ActionResult>;
   type(tabId: string, text: string, target?: string): Promise<ActionResult>;
   press(tabId: string, keys: readonly string[]): Promise<ActionResult>;
-  /** Gives a file input files of this computer, as choosing them does. */
   upload(tabId: string, target: string, files: readonly string[]): Promise<ActionResult>;
-  /** The dialog the page shows, if any. */
   dialog(tabId: string): Promise<PageDialog | null>;
-  /** Answers the dialog the page shows: OK, or Cancel. */
   answerDialog(tabId: string, accept: boolean): Promise<ActionResult>;
-  /** A PNG, base64: of what the tab shows, the whole page, or one element. */
   screenshot(tabId: string, options: { full: boolean; element?: string }): Promise<string>;
-  /** What an element is, as pick tells it, with a picture of it, scrolled into view. */
   inspect(tabId: string, target: string): Promise<PickedElement>;
   evaluate(tabId: string, expression: string): Promise<unknown>;
   console(tabId: string, clear: boolean): readonly ConsoleEntry[];
-  /** The requests the tab's pages made since it opened; with `clear`, forgets them. */
   network(tabId: string, clear: boolean): readonly NetworkEntry[];
-  /** The request numbered `id`, with up to `maxBody` characters of its response. */
   request(tabId: string, id: number, maxBody: number): Promise<RequestDetails>;
-  /** Resolves true once `condition` holds, false if it did not in time. */
   waitFor(tabId: string, condition: BrowserWaitCondition, timeoutMs: number): Promise<boolean>;
-  /**
-   * Waits for a load the last command may have started, then says where the
-   * tab is; null when the tab has no page yet, as a tab not shown since it
-   * was opened behind.
-   */
   settle(tabId: string): Promise<PageInfo | null>;
-  /**
-   * Highlights what is under the mouse in a shown tab until the user clicks
-   * an element, which picks it instead of clicking it, or the pick ends
-   * without one: Esc, the timeout, `signal`, or the tab hidden, closed or
-   * gone to another page.
-   */
   pick(tabId: string, options: { timeoutMs: number; signal?: AbortSignal }): Promise<PickResult>;
 }
 
-/** Objects a command takes from the page, released when it is done. */
 const OBJECT_GROUP = "nexus-cli";
-/** How long an action gives the page to start loading a new one. */
 const NAVIGATION_START_MS = 300;
 const LOAD_MS = 15_000;
 const EVALUATE_MS = 60_000;
-/** How long a screenshot, or a click on a page not shown, waits for the page to draw. */
 const DRAW_MS = 30_000;
 const WAIT_POLL_MS = 250;
-/** How long settle waits for a tab just opened to get its page. */
 const PAGE_START_MS = 3_000;
-/** How long settle waits, after a load that showed no page, for its download. */
 const DOWNLOAD_START_MS = 1_000;
 const DOWNLOAD_POLL_MS = 50;
-/**
- * The size a tab never shown gets, so its page lays out and takes clicks.
- * The app gives it its real size once it is shown.
- */
 const HIDDEN_SIZE = { width: 1280, height: 800 };
-/** The tallest a --full screenshot is taken, in CSS pixels. */
 const MAX_FULL_HEIGHT = 16_384;
-/** How long a pick waits for its tab, just asked to be shown, to show. */
 const SHOW_MS = 3_000;
-/** How a pick highlights the element under the mouse: as DevTools' element picker does. */
 const PICK_HIGHLIGHT = {
   showInfo: true,
   showAccessibilityInfo: true,
@@ -196,7 +132,6 @@ const PICK_HIGHLIGHT = {
 
 interface TabState {
   refs: ReadonlyMap<string, SnapshotRef>;
-  /** Page loads so far, and how many there had been at the last snapshot. */
   loads: number;
   snapshotLoads: number;
 }
@@ -204,7 +139,6 @@ interface TabState {
 interface Located {
   readonly objectId: string;
   readonly backendNodeId: number;
-  /** As output names it: `button "Sign in" (e4)`. */
   readonly label: string;
 }
 
@@ -222,7 +156,6 @@ interface EvaluateResult {
   readonly exceptionDetails?: { readonly text: string; readonly exception?: RemoteObject };
 }
 
-/** Runs in the page on the element: readies it for fill, or says why it cannot be. */
 const PREPARE_FILL = `function (text) {
   const el = this;
   if (el instanceof HTMLSelectElement) {
@@ -270,13 +203,11 @@ const PREPARE_FILL = `function (text) {
   return { error: "it is not a text field, a select or an editable element" };
 }`;
 
-/** Runs in the page on the element: whether `hit` is it or inside it, shadow roots included. */
 const CONTAINS = `function (hit) {
   for (let node = hit; node; node = node.parentNode || node.host) if (node === this) return true;
   return false;
 }`;
 
-/** Runs in the page on a node: a short CSS-like name for messages. */
 const DESCRIBE = `function () {
   if (this.nodeType !== 1) return this.nodeName.toLowerCase();
   const id = this.id ? "#" + this.id : "";
@@ -286,12 +217,10 @@ const DESCRIBE = `function () {
   return "<" + this.localName + id + cls + ">";
 }`;
 
-/** Whether the element is a file input, and one that takes several files. */
 const FILE_INPUT = `function () {
   return { file: this instanceof HTMLInputElement && this.type === "file", multiple: !!this.multiple };
 }`;
 
-/** Empties a file input, as a user's cancelled choice does; Chromium gives no files no other way. */
 const CLEAR_FILES = `function () {
   if (this.files.length === 0) return;
   this.value = "";
@@ -299,18 +228,12 @@ const CLEAR_FILES = `function () {
   this.dispatchEvent(new Event("change", { bubbles: true }));
 }`;
 
-/** Where an element is on the page, for a picture of it alone; null when it has no size. */
 const ELEMENT_CLIP = `function () {
   const r = this.getBoundingClientRect();
   if (r.width < 1 || r.height < 1) return null;
   return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height };
 }`;
 
-/**
- * Scrolls the element, or the page when it is the document, and says where
- * it is after; `how` is a way and how far, or an end. Instant, whatever the
- * page's scroll-behavior.
- */
 const SCROLL = `function (how) {
   const page = this.nodeType === 9;
   const box = page ? document.scrollingElement || document.documentElement : this;
@@ -331,36 +254,24 @@ const SCROLL = `function (how) {
   };
 }`;
 
-/** Where a scroll left the page or the element. */
 interface Scrolled {
   readonly moved: { readonly x: number; readonly y: number };
   readonly at: { readonly x: number; readonly y: number };
   readonly max: { readonly x: number; readonly y: number };
 }
 
-/** How much of the responses the Network domain keeps, for nexus browser network's bodies. */
 const NETWORK_BUFFERS = { maxTotalBufferSize: 20_000_000, maxResourceBufferSize: 5_000_000 };
 
-/** Whether bytes read as UTF-8 text: no NUL, and no bad sequence, in the start. */
 function looksLikeText(bytes: Buffer): boolean {
-  // Cut short, the head may end inside a character.
   const head = bytes.length > 4096 ? bytes.subarray(0, 4093) : bytes;
   if (head.includes(0)) return false;
   return !head.toString("utf8").includes("\uFFFD");
 }
 
-/**
- * How long a page just attached to has to answer. One that does not is held
- * up, as by a dialog it showed before it was driven: no command reaches it
- * until the dialog is answered, which only the app's own dialog can do.
- */
 const ATTACH_ANSWER_MS = 2_000;
 
-/** How far a drag goes before the page sees it as a drag, as a hand's would. */
 const DRAG_START_PX = 8;
-/** How long a page has to start an HTML drag once the mouse moves. */
 const DRAG_INTERCEPT_MS = 250;
-/** Moves between the two points of a drag, for pages that follow the mouse. */
 const DRAG_STEPS = 5;
 
 function label(ref: SnapshotRef, name: string): string {
@@ -390,7 +301,6 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** A command that a dialog of the page held up, or that came while it showed one. */
 class DialogShown extends CliError {
   constructor(dialog: PageDialog) {
     super(dialogText(dialog));
@@ -400,31 +310,18 @@ class DialogShown extends CliError {
 export class CdpBrowserDriver implements BrowserDriver {
   private readonly states = new WeakMap<WebContents, TabState>();
   private readonly consoles = new Map<string, { contents: WebContents; log: ConsoleLog }>();
-  /** The pick going on in a tab. */
   private readonly picking = new Map<string, PickControl>();
-  /** What each tab's last navigation downloaded instead of showing. */
   private readonly downloads = new WeakMap<WebContents, PageDownload>();
-  /** Tabs whose last navigation has not shown a page, or did not. */
   private readonly uncommitted = new WeakSet<WebContents>();
-  /** Tabs a command drives, whose downloads are the command's. */
   private readonly driven = new DrivenTabs<WebContents>();
-  /** How many navigations each tab has started, to tell an action's own. */
   private readonly navigations = new WeakMap<WebContents, number>();
-  /** The dialog each tab's page shows, which holds up the page until answered. */
   private readonly dialogs = new WeakMap<WebContents, PageDialog>();
-  /** What to wake when a tab's page opens a dialog. */
   private readonly opened = new WeakMap<WebContents, Set<() => void>>();
-  /** The pages attached to that have not answered yet. */
   private readonly unanswered = new WeakSet<WebContents>();
-  /** The Page domain's enabling, which a page held up by a dialog does not answer. */
   private readonly enabling = new WeakMap<WebContents, Promise<unknown>>();
-  /** The requests each tab's page made. */
   private readonly networks = new WeakMap<WebContents, NetworkLog>();
-  /** The file inputs whose chooser a command's click opened, by tab. */
   private readonly choosers = new WeakMap<WebContents, number>();
-  /** The tabs watched, whose downloads are noted. */
   private readonly watched = new WeakSet<WebContents>();
-  /** The sessions listened to for downloads, each once for all its tabs. */
   private readonly downloadSessions = new WeakSet<Electron.Session>();
 
   constructor(
@@ -432,18 +329,12 @@ export class CdpBrowserDriver implements BrowserDriver {
     private readonly mac = process.platform === "darwin",
   ) {}
 
-  /**
-   * Starts keeping `tabId`'s console, and what its navigations download;
-   * called as each browser tab is created.
-   */
   watch(tabId: string, contents: WebContents): void {
     this.consoles.set(tabId, { contents, log: watchConsole(contents) });
     this.networks.set(contents, new NetworkLog());
     try {
       this.attachNow(contents);
-    } catch {
-      // A command attaches when it can; requests are known from then.
-    }
+    } catch {}
     contents.on("did-start-navigation", (details) => {
       if (!details.isMainFrame || details.isSameDocument) return;
       this.downloads.delete(contents);
@@ -452,9 +343,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     });
     contents.on("did-navigate", () => this.uncommitted.delete(contents));
     this.watched.add(contents);
-    // Tabs share a session, which tells every tab's downloads: one
-    // listener serves them all, where one each would pass the emitter's
-    // limit of ten once that many tabs are open.
     const session = contents.session;
     if (!this.downloadSessions.has(session)) {
       this.downloadSessions.add(session);
@@ -466,7 +354,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     });
   }
 
-  /** Notes what a watched tab's navigation downloaded; a command's goes to its folder. */
   private noteDownload(item: Electron.DownloadItem, from: WebContents | undefined): void {
     if (!from || !this.watched.has(from)) return;
     const file = this.driven.drives(from) ? saveCommandDownload(item) : item.getFilename();
@@ -501,11 +388,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     return state;
   }
 
-  /**
-   * Sends `method` to the page. While the page shows a dialog only the
-   * dialog's answer reaches it: a command sent then, or one the dialog
-   * holds up, fails with what the dialog says.
-   */
   private async send<T>(contents: WebContents, method: string, params: object = {}): Promise<T> {
     await this.attach(contents);
     if (method !== "Page.handleJavaScriptDialog") this.noDialog(contents);
@@ -513,12 +395,10 @@ export class CdpBrowserDriver implements BrowserDriver {
     const settled = await this.unlessOpened(contents, work);
     if ("done" in settled) return settled.done as T;
     const dialog = this.dialogs.get(contents);
-    // Answered in the app before this was told of it.
     if (!dialog) return (await work) as T;
     throw new DialogShown(dialog);
   }
 
-  /** Attaches to the page, if nothing has yet, to keep up with its dialogs. */
   private async attach(contents: WebContents): Promise<void> {
     this.attachNow(contents);
     const enabling = this.enabling.get(contents);
@@ -532,11 +412,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     }
   }
 
-  /**
-   * Attaches to the page, if nothing has yet, with the domains that tell of
-   * its dialogs and its requests on. A tab is attached to as it opens, so
-   * its requests are known from the first.
-   */
   private attachNow(contents: WebContents): void {
     const debug = contents.debugger;
     if (debug.isAttached()) return;
@@ -556,7 +431,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     debug.sendCommand("Network.enable", NETWORK_BUFFERS).catch(() => {});
   }
 
-  /** Keeps up with the dialogs, file choosers and requests of a page just attached to. */
   private listen(contents: WebContents): void {
     const debug = contents.debugger;
     const onMessage = (_event: unknown, method: string, params: Record<string, unknown>) => {
@@ -583,7 +457,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     });
   }
 
-  /** Waits for `work`, unless the page opens a dialog first, which holds it up. */
   private async unlessOpened<T>(
     contents: WebContents,
     work: Promise<T>,
@@ -607,10 +480,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     }
   }
 
-  /**
-   * An action's input, sent while a file chooser it opens is held back from
-   * the user; then what it did, as `after` says, or the dialog it opened.
-   */
   private async act(
     contents: WebContents,
     text: string,
@@ -630,7 +499,6 @@ export class CdpBrowserDriver implements BrowserDriver {
         navigated: false,
       };
     } finally {
-      // Answering the dialog turns it off.
       if (!this.dialogs.has(contents)) {
         await this.send(contents, "Page.setInterceptFileChooserDialog", { enabled: false }).catch(
           () => {},
@@ -645,7 +513,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     };
   }
 
-  /** Refuses a command while the page shows a dialog, which would hold it up. */
   private noDialog(contents: WebContents): void {
     const dialog = this.dialogs.get(contents);
     if (dialog) throw new DialogShown(dialog);
@@ -673,7 +540,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     return res.result.value as T;
   }
 
-  /** Runs `body` with the tab's page, releasing what it took from the page after. */
   private async with<T>(
     tabId: string,
     body: (contents: WebContents, state: TabState) => Promise<T>,
@@ -694,7 +560,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     }
   }
 
-  /** `with` for a command that has the page draw: a screenshot or a click. */
   private withDrawn<T>(
     tabId: string,
     body: (contents: WebContents, state: TabState) => Promise<T>,
@@ -702,14 +567,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     return this.with(tabId, (contents, state) => this.parked(tabId, () => body(contents, state)));
   }
 
-  /**
-   * Runs `body` with a page that is not shown in a hidden window of its own.
-   * On macOS such a page draws when it is captured. On Windows a page out of
-   * the window has nothing to draw with, so a screenshot of it never came and
-   * a click never landed; Linux shares Windows' window code, so it is done
-   * there too. Should the tab be shown meanwhile, the app's window takes the
-   * page back.
-   */
   private async parked<T>(tabId: string, body: () => Promise<T>): Promise<T> {
     const page = this.pageOf(tabId);
     if (this.mac || !page || page.active) return body();
@@ -735,12 +592,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     }
   }
 
-  /**
-   * Page.captureScreenshot, which waits for the page to draw. A hidden page
-   * draws only while it is captured, so off macOS one that is not shown is
-   * captured meanwhile as Electron has a hidden page draw. Gives up after
-   * DRAW_MS rather than wait on a page that never draws.
-   */
   private async capture(tabId: string, contents: WebContents, params: object): Promise<string> {
     let drawing = !this.mac && this.pageOf(tabId)?.active === false;
     const keepDrawing = async () => {
@@ -829,7 +680,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     return { objectId, backendNodeId: node.backendNodeId, label: name };
   }
 
-  /** The middle of the element on screen, scrolled into view. */
   private async point(contents: WebContents, el: Located): Promise<{ x: number; y: number }> {
     await this.send(contents, "DOM.scrollIntoViewIfNeeded", {
       backendNodeId: el.backendNodeId,
@@ -841,9 +691,7 @@ export class CdpBrowserDriver implements BrowserDriver {
           backendNodeId: el.backendNodeId,
         })
       ).quads;
-    } catch {
-      // No layout box: hidden, or not rendered at all.
-    }
+    } catch {}
     const quad = quads.find((q) => {
       const xs = [q[0], q[2], q[4], q[6]] as number[];
       const ys = [q[1], q[3], q[5], q[7]] as number[];
@@ -857,7 +705,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     return { x, y };
   }
 
-  /** Throws when something else, such as a dialog over it, would take a click there. */
   private async checkHit(
     contents: WebContents,
     el: Located,
@@ -887,8 +734,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     throw new CliError(`${el.label} is covered by ${cover}; close what covers it, or pass --force`);
   }
 
-  /** After an action: waits for a page it started, and says where the tab is. */
-  /** Where the page is before an action, for `after` to tell what the action did. */
   private mark(contents: WebContents): PageMark {
     return { url: contents.getURL(), navigations: this.navigations.get(contents) ?? 0 };
   }
@@ -899,7 +744,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     before: PageMark,
   ): Promise<ActionResult> {
     await this.settleOn(contents);
-    // A navigation the action started may download a file instead of loading a page.
     const started = (this.navigations.get(contents) ?? 0) !== before.navigations;
     if (started) await this.awaitDownload(contents);
     const url = contents.getURL();
@@ -919,10 +763,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     };
   }
 
-  /**
-   * Waits a moment for the download a navigation that showed no page may
-   * start, which Chromium does only after the load has stopped.
-   */
   private async awaitDownload(contents: WebContents): Promise<void> {
     const until = Date.now() + DOWNLOAD_START_MS;
     while (
@@ -1003,11 +843,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     });
   }
 
-  /**
-   * Has a hidden page draw once. Chromium routes a mouse event by what the
-   * page last drew, so a page that never drew, or drew before its last load,
-   * would not get it.
-   */
   private async paint(tabId: string, contents: WebContents): Promise<void> {
     if (this.pageOf(tabId)?.active) return;
     await this.capture(tabId, contents, {
@@ -1029,8 +864,6 @@ export class CdpBrowserDriver implements BrowserDriver {
       const before = this.mark(contents);
       const what = `${options.double ? "Double-clicked" : "Clicked"} ${el.label}.`;
       return this.act(contents, what, before, async () => {
-        // Where it is once the mouse is there: moving it off a menu that
-        // hovering opened can close the menu and move what was under it.
         const at = await this.pointerOn(contents, el);
         if (!options.force) await this.checkHit(contents, el, at);
         for (let count = 1; count <= (options.double ? 2 : 1); count++) {
@@ -1078,8 +911,6 @@ export class CdpBrowserDriver implements BrowserDriver {
           clickCount: type === "mouseMoved" ? 0 : 1,
         });
       await mouse("mousePressed", start);
-      // An HTML drag would go to the system, which no input here reaches:
-      // Chromium hands it back instead, to be dropped with drag events.
       await this.send(contents, "Input.setInterceptDrags", { enabled: true });
       let data: unknown;
       try {
@@ -1089,7 +920,6 @@ export class CdpBrowserDriver implements BrowserDriver {
       } finally {
         await this.send(contents, "Input.setInterceptDrags", { enabled: false }).catch(() => {});
       }
-      // The target is looked for once the drag has begun, as a page may move things then.
       const target = await this.locate(contents, state, to);
       const end = await this.point(contents, target);
       if (data !== undefined) {
@@ -1136,11 +966,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     });
   }
 
-  /**
-   * Moves the mouse onto the element and says where it is then. Moving may
-   * change the page, as a menu the mouse leaves closes, so the element is
-   * looked for again once the mouse is there.
-   */
   private async pointerOn(contents: WebContents, el: Located): Promise<{ x: number; y: number }> {
     let at = await this.point(contents, el);
     for (let tries = 0; tries < 3; tries++) {
@@ -1156,7 +981,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     return at;
   }
 
-  /** The page's document, as an object to call a function on. */
   private async documentObject(contents: WebContents): Promise<string> {
     const res = await this.send<EvaluateResult>(contents, "Runtime.evaluate", {
       expression: "document",
@@ -1167,7 +991,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     return objectId;
   }
 
-  /** The next event `method` of the tab's protocol connection; null if none comes in `ms`. */
   private next(contents: WebContents, method: string, ms: number): Promise<unknown> {
     const debug = contents.debugger;
     return new Promise((resolve) => {
@@ -1227,7 +1050,6 @@ export class CdpBrowserDriver implements BrowserDriver {
   }
 
   press(tabId: string, keys: readonly string[]): Promise<ActionResult> {
-    // Read every key before pressing any, so a typo presses nothing.
     const presses = keys.map((k) => parseBrowserKey(k, this.mac));
     this.notPicking(tabId);
     return this.with(tabId, async (contents) => {
@@ -1338,9 +1160,6 @@ export class CdpBrowserDriver implements BrowserDriver {
         const before = this.mark(contents);
         await this.send(contents, "Page.handleJavaScriptDialog", { accept });
         this.dialogs.delete(contents);
-        // The app shows the dialog too, in a message box of its own that an
-        // answer here leaves open, and that would answer again when clicked.
-        // Electron closes its boxes on this event of its own (as of 45).
         contents.emit("-cancel-dialogs");
         await this.send(contents, "Page.setInterceptFileChooserDialog", { enabled: false }).catch(
           () => {},
@@ -1484,7 +1303,6 @@ export class CdpBrowserDriver implements BrowserDriver {
       case "load":
         return !contents.isLoading();
       case "url":
-        // A pattern the agent gave: PatternTooSlowError ends the wait if it backtracks without end.
         return firstMatch(condition.pattern, [contents.getURL()]) !== undefined;
       case "text":
       case "selector": {
@@ -1506,7 +1324,6 @@ export class CdpBrowserDriver implements BrowserDriver {
           found = res.result.value === true;
         } catch (error) {
           if (error instanceof CliError) throw error;
-          // The page is between loads.
           return false;
         }
         return found !== condition.gone;
@@ -1514,15 +1331,11 @@ export class CdpBrowserDriver implements BrowserDriver {
     }
   }
 
-  /** Ends the pick going on in a tab, if there is one. */
   cancelPick(tabId: string): void {
     this.picking.get(tabId)?.end("aborted");
   }
 
   pick(tabId: string, options: { timeoutMs: number; signal?: AbortSignal }): Promise<PickResult> {
-    // The tab is taken before anything is awaited, so another pick, the
-    // signal or the timeout reach this one from its start, and an earlier
-    // pick, ended here, leaves the page's inspect mode to this one.
     const control = new PickControl();
     this.picking.get(tabId)?.end("replaced");
     this.picking.set(tabId, control);
@@ -1548,14 +1361,11 @@ export class CdpBrowserDriver implements BrowserDriver {
       options.signal?.removeEventListener("abort", onAbort);
       if (this.picking.get(tabId) !== control) return;
       this.picking.delete(tabId);
-      // In case the pick ended before inspect: an earlier pick it replaced
-      // left the page in inspect mode to it.
       const page = this.pageOf(tabId);
       if (page) endInspect(page.contents);
     });
   }
 
-  /** Refuses page input to a tab whose page waits for the user's pick. */
   private notPicking(tabId: string): void {
     if (this.picking.has(tabId)) {
       throw new CliError(
@@ -1564,7 +1374,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     }
   }
 
-  /** Waits until the tab is shown and its page has loaded, as a pick needs. */
   private async pickable(
     tabId: string,
     contents: WebContents,
@@ -1581,10 +1390,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     if (contents.isLoading()) await once(contents, "did-stop-loading", LOAD_MS);
   }
 
-  /**
-   * Ends the pick on Esc, which is kept from the page, and when the page
-   * goes to another or the tab closes. Returns what stops watching.
-   */
   private watchPick(contents: WebContents, control: PickControl): () => void {
     const debug = contents.debugger;
     const onInput = (event: { preventDefault(): void }, input: Input) => {
@@ -1612,24 +1417,17 @@ export class CdpBrowserDriver implements BrowserDriver {
     };
   }
 
-  /**
-   * Puts the page in DevTools' inspect mode until the user clicks an element
-   * or the pick ends, then takes the page out of it, unless a later pick has
-   * the tab by then.
-   */
   private async inspectMode(
     tabId: string,
     contents: WebContents,
     control: PickControl,
   ): Promise<{ backendNodeId: number } | { cancelled: PickCancel }> {
-    // The Overlay domain works only with the DOM domain on; both stay on.
     await this.send(contents, "DOM.enable");
     await this.send(contents, "Overlay.enable");
     if (control.reason !== null) return { cancelled: control.reason };
     const debug = contents.debugger;
     return new Promise((resolve, reject) => {
       let done = false;
-      /** Undoes what inspect set up; false when that is done already. */
       const stop = (): boolean => {
         if (done) return false;
         done = true;
@@ -1666,10 +1464,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     });
   }
 
-  /**
-   * Tells inspect mode where the mouse already is. It picks what the mouse
-   * last moved over, so a click before any move would reach the page.
-   */
   private hoverAtCursor(tabId: string, contents: WebContents): void {
     const page = this.pageOf(tabId);
     if (!page) return;
@@ -1684,7 +1478,6 @@ export class CdpBrowserDriver implements BrowserDriver {
     this.send(contents, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y }).catch(() => {});
   }
 
-  /** What the picked element is, with a ref to it and a picture of it. */
   private async describePicked(
     tabId: string,
     contents: WebContents,
@@ -1712,9 +1505,7 @@ export class CdpBrowserDriver implements BrowserDriver {
       );
       const node = nodes.find((n) => n.backendDOMNodeId === backendNodeId) ?? nodes[0];
       if (node) ({ role, name } = roleAndName(node));
-    } catch {
-      // No accessibility node; its tag names it.
-    }
+    } catch {}
     const ref = remember(state, { backendNodeId, role, name });
     const png =
       details.clip === null
@@ -1723,7 +1514,6 @@ export class CdpBrowserDriver implements BrowserDriver {
             format: "png",
             clip: { ...details.clip, scale: 1 },
           }).catch(() => undefined);
-    // Whatever the page wrote may reach a terminal.
     return cleanPicked({
       url: contents.getURL(),
       title: contents.getTitle(),
@@ -1737,7 +1527,6 @@ export class CdpBrowserDriver implements BrowserDriver {
   }
 }
 
-/** One pick: what ended it, and a promise that settles when something does. */
 class PickControl {
   reason: PickCancel | null = null;
   readonly ended: Promise<PickCancel>;
@@ -1756,11 +1545,6 @@ class PickControl {
   };
 }
 
-/**
- * Takes the page out of inspect mode. Chromium refuses "none" without a
- * highlight config, leaving the page in inspect mode, where this session's
- * own clicks go nowhere.
- */
 function endInspect(contents: WebContents): void {
   const debug = contents.debugger;
   if (contents.isDestroyed() || !debug.isAttached()) return;
@@ -1770,11 +1554,6 @@ function endInspect(contents: WebContents): void {
   debug.sendCommand("Overlay.hideHighlight").catch(() => {});
 }
 
-/**
- * A ref for `element`, so browser click and the like take it: the one the
- * last snapshot gave it, or the next number. A snapshot of an earlier page
- * is dropped first, as its refs no longer work.
- */
 function remember(state: TabState, element: SnapshotRef): string {
   if (state.loads !== state.snapshotLoads) {
     state.refs = new Map();
@@ -1788,7 +1567,6 @@ function remember(state: TabState, element: SnapshotRef): string {
   return ref;
 }
 
-/** What a scroll did, said for people: how far it went and where it is now. */
 function scrolledText(
   what: string,
   scroll: Exclude<BrowserScroll, { kind: "to" }>,
@@ -1796,7 +1574,6 @@ function scrolledText(
 ): string {
   const across = scroll.kind === "by" && (scroll.way === "left" || scroll.way === "right");
   const max = Math.max(0, Math.round(across ? done.max.x : done.max.y));
-  // A page zoomed or scaled scrolls by fractions, which may round past the end.
   const at = Math.min(max, Math.round(across ? done.at.x : done.at.y));
   const moved = Math.abs(across ? done.moved.x : done.moved.y);
   const where = `${what} is at ${at} of ${max}px`;

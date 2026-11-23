@@ -11,7 +11,6 @@ import {
 
 const TARGET = { host: "devbox", user: "dev", port: 2222, identityFile: "/k/id" };
 
-/** An ssh child the test drives: what it prints and when it exits. */
 class FakeSsh extends EventEmitter {
   readonly stdin = new PassThrough();
   readonly stdout = new PassThrough();
@@ -30,7 +29,6 @@ class FakeSsh extends EventEmitter {
 
   exit(code: number | null, stderr = ""): void {
     if (stderr) this.stderr.write(stderr);
-    // Let the stderr data land first, as a real process's would.
     setTimeout(() => this.emit("close", code), 0);
   }
 }
@@ -114,7 +112,6 @@ describe("openSshTunnel over OpenSSH", () => {
     expect(tunnel).toMatchObject({ localPort: 3001, remotePort: 3000, controlPath: undefined });
     expect(tunnel.alive()).toBe(true);
 
-    // It ends on its own when its connection drops.
     spawned[0].exit(255);
     await tunnel.closed;
     expect(tunnel.alive()).toBe(false);
@@ -141,7 +138,6 @@ describe("openSshTunnel over OpenSSH", () => {
   });
 });
 
-/** A free port here, found by listening on port 0. */
 function freePort(): Promise<number> {
   return new Promise((resolve) => {
     const server = net.createServer();
@@ -152,7 +148,6 @@ function freePort(): Promise<number> {
   });
 }
 
-/** One end of a channel whose far end echoes what it is sent, upper-cased. */
 function echoChannel(): Duplex {
   const channel: Duplex = new Duplex({
     read() {},
@@ -205,7 +200,6 @@ describe("openSshTunnel over ssh2", () => {
     await tunnel.closed;
     expect(disposed).toBe(true);
     expect(tunnel.alive()).toBe(false);
-    // The port is free again.
     await new Promise<void>((resolve, reject) => {
       const server = net.createServer();
       server.once("error", reject);

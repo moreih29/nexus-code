@@ -1,10 +1,3 @@
-/**
- * Regression: the `ready` lifecycle event was only emitted on the epoch-match
- * reattach path, so local agents (epoch 0) reconnected silently — stateful
- * consumers (fs.watch / git.watch replay) had no signal that a replacement
- * agent process was now serving the channel.
- */
-
 import { describe, expect, it, jest } from "bun:test";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
@@ -79,7 +72,6 @@ describe("no-epoch reconnect emits the ready lifecycle event", () => {
 
       children[0]?.stdout.emitData(`${JSON.stringify({ type: "ready" })}\n`);
       await expect(channel.ready).resolves.toBeUndefined();
-      // First connect must NOT emit a lifecycle ready (nothing to replay yet).
       expect(events.filter((e) => e.type === "ready")).toHaveLength(0);
 
       children[0]?.emit("close", 137, "SIGKILL");

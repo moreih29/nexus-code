@@ -1,7 +1,3 @@
-/**
- * Find in a preview: where a query is in the text, and the finder the HTML
- * preview runs in its own document from its source.
- */
 import { describe, expect, test } from "bun:test";
 import { createDomFinder } from "../../../../../../src/renderer/services/editor/preview/find/dom-finder";
 import { findMatches } from "../../../../../../src/renderer/services/editor/preview/find/find-matches";

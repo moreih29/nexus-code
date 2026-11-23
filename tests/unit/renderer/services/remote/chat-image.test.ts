@@ -1,4 +1,3 @@
-/** An image of a chat for another device: found by its ref, sent as it is when it fits, else drawn smaller. */
 import { describe, expect, test } from "bun:test";
 import type { ChatItem, ToolCall } from "../../../../../src/renderer/services/chat/model";
 import { emptyModel } from "../../../../../src/renderer/services/chat/model";
@@ -13,7 +12,6 @@ import type { ChatSource } from "../../../../../src/renderer/services/remote/cha
 
 const pic = (data: string, mediaType = "image/png") => ({ mediaType, data });
 
-/** A PNG's base64 whose header says `width` by `height`, padded to about `chars`. */
 function pngData(width: number, height: number, chars = 40): string {
   const b = Buffer.alloc(Math.max(24, Math.ceil((chars * 3) / 4)), 1);
   b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13], 0);
@@ -23,7 +21,6 @@ function pngData(width: number, height: number, chars = 40): string {
   return b.toString("base64");
 }
 
-/** A BMP's base64 whose header says `width` by `height`. */
 function bmpData(width: number, height: number): string {
   const b = Buffer.alloc(54);
   b.write("BM", 0, "ascii");
@@ -185,7 +182,6 @@ describe("an image of a chat", () => {
       scales.push(scale);
       return { mediaType: "image/jpeg", data: "jpg", width: Math.round(400 * scale), height: 1 };
     };
-    // Tall: its height is the side asked for.
     const fitted = await fitImage(pic(pngData(400, 1600)), { maxChars: 100, maxEdge: 320 }, shrink);
     expect(scales).toEqual([0.2]);
     expect(fitted).toEqual({ mediaType: "image/jpeg", data: "jpg", width: 80, height: 1 });
@@ -209,7 +205,6 @@ describe("an image of a chat", () => {
 
   test("is drawn smaller till it fits, or given up on", async () => {
     const scales: number[] = [];
-    // Each draw comes out a little over what its scale predicts, at first.
     const shrink: Shrink = async (image, scale) => {
       scales.push(scale);
       const chars = Math.round(image.data.length * scale * scale * (scales.length === 1 ? 2 : 1));

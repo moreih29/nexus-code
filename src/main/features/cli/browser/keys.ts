@@ -1,19 +1,11 @@
-/**
- * Keys for nexus browser press, as CDP Input.dispatchKeyEvent takes them:
- * "Enter", "Tab", "ctrl-a", "shift-Tab", "a", "meta-z".
- */
 import { CliError } from "../context";
 
-/** One key press, ready for Input.dispatchKeyEvent. */
 export interface KeyPress {
   readonly key: string;
   readonly code: string;
   readonly keyCode: number;
-  /** What the key types; none for a shortcut. */
   readonly text?: string;
-  /** CDP's bit field: Alt 1, Ctrl 2, Meta 4, Shift 8. */
   readonly modifiers: number;
-  /** Editing commands macOS runs for a shortcut, which synthetic keys do not trigger by themselves. */
   readonly commands?: readonly string[];
 }
 
@@ -60,7 +52,6 @@ const NAMED_KEYS: Record<string, NamedKey> = {
 for (let n = 1; n <= 12; n++)
   NAMED_KEYS[`f${n}`] = { key: `F${n}`, code: `F${n}`, keyCode: 111 + n };
 
-/** The shortcuts macOS turns into editing commands, by key with Meta held. */
 const MAC_COMMANDS: Record<string, string> = {
   a: "selectAll",
   c: "copy",
@@ -87,7 +78,6 @@ function characterKey(char: string): NamedKey {
   return { key: char, code: "", keyCode: 0, text: char };
 }
 
-/** Reads one key as written on the command line; `mac` adds macOS's editing commands. */
 export function parseBrowserKey(spec: string, mac: boolean): KeyPress {
   let rest = spec;
   let modifiers = 0;

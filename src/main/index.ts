@@ -138,23 +138,15 @@ import { GlobalStorage } from "./infra/storage/global-storage";
 import { StateService } from "./infra/storage/state-service";
 import { WorkspaceStorage } from "./infra/storage/workspace-storage";
 
-// Configure logging transports and renderer IPC relay before any window opens.
 initMainLogger();
 
 const logger = createLogger("main");
 const gitWatcherFailures = limitLog(logger);
 
-// One app at a time on a profile. A second one, on the same files, ran its own
-// terminals and agents, resumed the same chats again, and undid the first's
-// settings each time it saved its own. A second launch shows the first's
-// window, or opens one when every window is closed, as macOS keeps the app
-// running then.
 if (!app.requestSingleInstanceLock()) {
   logger.info("NexusCode already runs on this profile: showing it instead");
-  // Before the app is ready this exits at once, before anything below runs.
   app.exit(0);
 }
-/** Opens the app window again after every one was closed; set once the app is ready. */
 let reopenAppWindow: (() => void) | null = null;
 let quitStarted = false;
 app.on("second-instance", () => {
@@ -163,44 +155,23 @@ app.on("second-instance", () => {
   else reopenAppWindow?.();
 });
 
-// Install global error safety net immediately after the logger is ready so
-// every subsequent initialisation step is covered. See error-safety-net.ts
-// for the log-only → exit phase-switch instructions.
 installErrorSafetyNet();
 logChildProcessDeaths(app);
 
 setupRouter();
 
-// Register the nexus-workspace:// and nexus-preview:// custom schemes as
-// privileged standard schemes.  Must be called before app.whenReady().
 registerAppSchemes();
 
-// The HTML preview's documents, served at nexus-preview://<token>/.
 const previewDocuments = new PreviewDocuments();
 
-// Dev runs must execute the agent from Go sources so an out-of-date
-// `dist/agent` cannot silently route requests to an outdated dispatcher.
-// `app.isPackaged === false` is the canonical signal Electron provides for
-// dev mode; we promote it into NEXUS_AGENT_MODE so every resolver call
-// (workspace manager, fs bridge, this entry) sees the same decision without
-// any of them having to import `electron`. `??=` preserves an explicit
-// override the user may have set before launch.
 if (!app.isPackaged) {
   process.env[NEXUS_AGENT_MODE_ENV] ??= "source";
 }
 
-// A launch from the Dock or a desktop entry can leave $SHELL unset. Name the
-// login shell for every child, so the agent's terminals, the shell shim and
-// the PATH sync below all pick the same one.
 if (!isWindows()) {
   process.env.SHELL = loginShell();
 }
 
-// A macOS / Linux GUI app only gets the launchd default PATH (`/usr/bin:/bin:/usr/sbin:/sbin`),
-// so child processes (PTY shell, ssh, sftp) cannot see the user's `~/.local/bin`,
-// `/opt/homebrew/bin`, `~/.cargo/bin`, etc. Only in packaged mode,
-// the user's login+interactive shell `$PATH` is synced once. Dev mode already has
-// the parent shell PATH, so syncing is unnecessary (and it avoids a boot delay).
 if (app.isPackaged) {
   syncUserShellPath();
 }
@@ -213,16 +184,9 @@ const stateService = new StateService(
   path.join(userData, "state.json"),
   path.join(__dirname, "state-writer.js"),
 );
-// Set once the app is ready (after the single-instance lock, so a second launch
-// does not take the first one's marker): notes a run that ended without a quit
-// line, and writes the quit line of this one.
 let currentRun: ReturnType<typeof beginRun> | null = null;
 let stopLoopMonitor: (() => void) | null = null;
 
-// Per-domain disposers wired into the workspace:removed interception below.
-// Each subsystem (fileWatcher, git*, lsp) owns its own per-workspace cleanup
-// without modifying WorkspaceManager, so the hook stays co-located with
-// the wiring that constructed each disposer.
 let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
 let chatHost: ChatHost | null = null;
@@ -242,7 +206,6 @@ function openAppWindow(): BrowserWindow {
 }
 let agentProfiles: { dispose(): void } | null = null;
 let profileConnectionKeys: ConnectionKeys | undefined;
-/** What the sealed files open with; on macOS, read only when the user knows it is coming. */
 let keychain: KeychainControl | undefined;
 let keychainChannel: { dispose(): void } | undefined;
 
@@ -273,16 +236,12 @@ function forwardBroadcast(channelName: string, event: string, args: unknown): vo
 }
 
 const sshAuthPromptHub = new SshAuthPromptHub(forwardBroadcast);
-// Session-scoped credential cache: wraps the hub so successful passwords are
-// reused on automatic reconnects without re-prompting the user. The cache
-// invalidates itself on retry=true prompts (SSH "Permission denied, try again").
 const cachedSshAuthPromptHandler = createCachingAuthPromptHandler((prompt, signal) =>
   sshAuthPromptHub.request(prompt, signal),
 );
 
 function wrappedBroadcast(channelName: string, event: string, args: unknown): void {
   if (channelName === "workspace" && event === "connectionChanged") {
-    // Forwards close with the connection and come back with it.
     const { workspaceId, status } = args as {
       workspaceId: string;
       status: WorkspaceConnectionEventStatus;
@@ -290,9 +249,6 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
     portForwards?.connectionChanged(workspaceId, status);
   }
   if (channelName === "workspace" && event === "removed") {
-    // Run every per-workspace disposer in one place. New subsystems with
-    // workspace-scoped state should add their dispose call here rather
-    // than registering a parallel listener.
     const removedWorkspaceId = (args as { id: string }).id;
     portForwards?.removed(removedWorkspaceId);
     portWatcher?.forgetWorkspace(removedWorkspaceId);
@@ -304,8 +260,6 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
     lspHost?.forgetWorkspace(removedWorkspaceId);
     notesFeature?.forgetWorkspace(removedWorkspaceId);
     remote?.forgetWorkspace(removedWorkspaceId);
-    // Clean up the workspace's turned-off LSP languages so deleted
-    // workspaces don't accumulate in appState indefinitely.
     const currentState = stateService.getState();
     const { agentInstructions, chatInstructionHistory, claudeInstructionDigests } = currentState;
     if (agentInstructions?.workspaces?.[removedWorkspaceId] !== undefined) {
@@ -330,19 +284,16 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
       const { [removedWorkspaceId]: _removed, ...rest } = currentLspMap;
       stateService.setState({ lspDisabledLanguagesByWorkspace: rest });
     }
-    // Likewise the view its agent list was left in.
     const currentViews = currentState.agentListViewByWorkspace ?? {};
     if (currentViews[removedWorkspaceId] !== undefined) {
       const { [removedWorkspaceId]: _removedView, ...restViews } = currentViews;
       stateService.setState({ agentListViewByWorkspace: restViews });
     }
-    // And the view its files panel was left on.
     const currentModes = currentState.filesPanelModeByWorkspace ?? {};
     if (currentModes[removedWorkspaceId] !== undefined) {
       const { [removedWorkspaceId]: _removedMode, ...restModes } = currentModes;
       stateService.setState({ filesPanelModeByWorkspace: restModes });
     }
-    // And whether its task view showed its facts unfolded.
     const unfoldedTasks = currentState.agentListUnfoldedTasks ?? [];
     if (unfoldedTasks.includes(removedWorkspaceId)) {
       stateService.setState({
@@ -387,30 +338,7 @@ registerWorkspaceChannel(workspaceManager, {
 registerDialogChannel();
 registerAppStateChannel(stateService, {
   listWorkspaces: () => workspaceManager.list(),
-  /**
-   * Called synchronously inside the appState.set IPC handler whenever the
-   * renderer persists a new language preference.  By the time any renderer
-   * can send this call, app.whenReady() has resolved and initMainI18n() has
-   * completed, so getMainI18n() / getMainT() are guaranteed to be ready.
-   *
-   * Steps:
-   *   (a) Switch the main-process i18next instance to the new locale so all
-   *       subsequent t() calls (dialogs, menu re-build) resolve correctly.
-   *   (b) Rebuild and reinstall the native application menu with the updated
-   *       labels.  All command items use registerAccelerator:false — the
-   *       renderer owns every keystroke — so there are no pending OS
-   *       accelerators that could be dropped by the replacement.
-   *   (c) Broadcast `appState.languageChanged` to all open renderer windows
-   *       so each window's i18next instance and html[lang] attribute can be
-   *       updated even when it was not the window that triggered the change.
-   *       The `language` value itself is the domain correlation identifier.
-   */
   onLanguageChanged(language) {
-    // changeLanguage() is async even though all locale resources are
-    // pre-bundled.  If it rejects (e.g. an i18next plugin error) we still
-    // want the menu and broadcast to proceed with whatever state i18next
-    // ended up in — a stale but functional menu is better than no rebuild
-    // at all.  The rejection is logged and does not propagate.
     void getMainI18n()
       .changeLanguage(language)
       .catch((err: unknown) => {
@@ -430,13 +358,6 @@ registerAppStateChannel(stateService, {
       });
   },
 
-  /**
-   * Mirror of onLanguageChanged for keybinding overrides: the renderer
-   * persisted a new override list via appState.set — rebuild the native
-   * menu so accelerator labels show the effective bindings, then
-   * broadcast to every window (including the originator; hydration is
-   * idempotent) so all dispatchers recompile.
-   */
   onKeybindingsChanged(overrides) {
     installAppMenu({
       onCheckForUpdates: () => {
@@ -446,20 +367,13 @@ registerAppStateChannel(stateService, {
       keybindingOverrides: overrides,
     });
     broadcast("appState", "keybindingsChanged", { overrides });
-    // Keep the browser-view key interceptor's match list current.
     updateBrowserKeybindings(overrides);
   },
 
-  /**
-   * Editor (Monaco) keybinding overrides changed: pure broadcast so
-   * every window re-reconciles its Monaco keybinding service. No menu
-   * rebuild — editor commands are not application-menu items.
-   */
   onEditorKeybindingsChanged(overrides) {
     broadcast("appState", "editorKeybindingsChanged", { overrides });
   },
 
-  /** The shells changed in one window: every window takes the saved list. */
   onTerminalShellsChanged() {
     const { terminalShell, terminalShells } = stateService.getState();
     broadcast("appState", "terminalShellsChanged", {
@@ -470,15 +384,12 @@ registerAppStateChannel(stateService, {
 
   onAgentProfilesChanged: agentProfilesChanged,
 
-  /** The theme changed: the window controls Electron draws follow it. */
   onThemeChanged(theme) {
     updateTitleBarOverlays(theme);
-    // Another device may follow it.
     remote?.themeChanged();
   },
 });
 
-/** The agent profiles changed in one window: every window takes them. */
 function agentProfilesChanged(connectionChangedProfileId?: string): void {
   broadcast("appState", "agentProfilesChanged", {
     config: stateService.getState().agentProfiles ?? EMPTY_AGENT_PROFILES,
@@ -489,13 +400,9 @@ function agentProfilesChanged(connectionChangedProfileId?: string): void {
 
 function pruneDeletedProfileKeys(): void {
   const keys = profileConnectionKeys;
-  // Once the keychain is open; the gate tells what failed.
   if (keys) void keychain?.whenOpen("profileKeys", () => pruneProfileKeys(keys, stateService));
 }
 
-// Seed the browser-view key interceptor with persisted overrides so the
-// in-page browser shortcuts (⌘R, ⌘[, …) reflect any customization from the
-// first tab onward. Kept in sync by onKeybindingsChanged above.
 updateBrowserKeybindings(stateService.getState().keybindingOverrides);
 registerFsChannel(workspaceManager, agentFsWatcher, workspaceStorage);
 registerPanelChannel(workspaceStorage);
@@ -507,12 +414,10 @@ registerSshBrowseHandlers(
 );
 registerSshAuthPromptIpcChannels(sshAuthPromptHub);
 registerWslChannel(sshBrowseRegistry, forwardBroadcast);
-// How busy a workspace's host is: for the status bar here, and other devices' (system.stats).
 const systemStatsSources: SystemStatsSources = {
   local: new LocalStats(),
   isLocal: (workspaceId) => workspaceManager.isLocal(workspaceId),
   exists: (workspaceId) => workspaceManager.getName(workspaceId) !== null,
-  // Looking never connects a workspace, as the ports' look does not.
   remote: async (workspaceId) => {
     const channel = await workspaceManager.peekAgentChannel(workspaceId);
     return channel ? channel.call("system.stats", {}) : null;
@@ -526,20 +431,15 @@ registerWindowChannel(closePersistence);
 registerClipboardChannel();
 registerPreviewChannel(previewDocuments);
 
-// Install the updates domain. IPC handlers are registered synchronously here;
-// the auto-polls start inside app.whenReady() via startAutoChecks().
 updatesHandle = installUpdatesDomain({
   broadcast: forwardBroadcast,
   stateService,
   currentVersion: app.getVersion(),
-  // A packaged macOS app, Linux AppImage or deb updates itself in place; any
-  // other build leaves the user the release page.
   updateBackend:
     app.isPackaged && canUpdateInPlace()
       ? createElectronUpdateBackend(createLogger("updates"), {
           prepareRestart: () => closePersistence.prepareUpdaterClose(getAppWindows()),
           beforeInstall() {
-            // The native updater can end the process before will-quit.
             stateService.flushNow();
             currentRun?.quit(logger, "restart to install an update");
           },
@@ -563,23 +463,14 @@ app.whenReady().then(async () => {
     }),
   );
   installAppSessionPermissions(session.defaultSession);
-  // The app window's Content-Security-Policy. NEXUS_CSP_REPORT_ONLY=1 makes
-  // an unpackaged run only report what it would block, in the console.
   installAppCsp(
     session.defaultSession,
     appPage(),
     !app.isPackaged && process.env.NEXUS_CSP_REPORT_ONLY === "1",
   );
-  // The session's request guard: the app's schemes, and file:// outside the
-  // renderer's folder, which the policy's 'self' takes in in a build.
   installAppRequestGuard(session.defaultSession, path.dirname(appPage().indexPath));
-  // On Linux, find out whether the notification service answers before the
-  // first notification has to wait on it (infra/platform/desktop-notifications).
   startDesktopNotifications();
 
-  // Sync the macOS About panel with current product metadata.
-  // applicationVersion comes from package.json via app.getVersion();
-  // copyright matches the electron-builder.yml owner slug.
   if (isMac()) {
     app.setAboutPanelOptions({
       applicationName: app.getName(),
@@ -588,22 +479,10 @@ app.whenReady().then(async () => {
     });
   }
 
-  // Determine the active language.  app.getLocale() is only reliable after
-  // app.whenReady() resolves (Electron guarantee), so this must stay here.
-  // When the user has never explicitly chosen a language we follow the OS
-  // locale (ko / everything-else → en) without persisting the derived value —
-  // this preserves the "absent = follow OS" semantic so a future locale change
-  // is picked up automatically on next launch.
   const persistedLang = stateService.getState().language;
   const lang = persistedLang ?? (app.getLocale().startsWith("ko") ? "ko" : "en");
   await initMainI18n(lang);
 
-  // Replace Electron's default menu (which still binds Cmd+W to "Close
-  // Window" and Cmd+R to "Reload") with our command-driven template
-  // before any window opens. Menu accelerators belong to the menu, not
-  // the renderer, so installing late lets the defaults steal keystrokes
-  // during boot.  Pass the now-ready TFunction so the initial menu
-  // renders in the user's active language rather than the English fallback.
   installAppMenu({
     onCheckForUpdates: () => {
       updatesHandle?.checkManual();
@@ -612,30 +491,17 @@ app.whenReady().then(async () => {
     keybindingOverrides: stateService.getState().keybindingOverrides,
   });
 
-  // Start the silent auto update checks now that the app is ready: one now,
-  // then every few hours, and on waking from sleep once that long has passed.
-  // The Microsoft Store updates its own install, and a GitHub release has no
-  // build for it.
   if (!process.windowsStore) {
     updatesHandle?.startAutoChecks();
     powerMonitor.on("resume", () => updatesHandle?.onResume());
   }
-  // Timers in the windows slept with the computer: a tab going on once its
-  // usage limit resets looks at the clock again.
   powerMonitor.on("resume", () => broadcast("system", "woke", { at: Date.now() }));
   powerMonitor.on("unlock-screen", () => broadcast("system", "woke", { at: Date.now() }));
 
-  // Remove nexus-ssh-* control-socket directories orphaned by previous app
-  // instances that died without dispose() (crash, SIGKILL). Live masters —
-  // including ones owned by another running app instance — are detected via
-  // a unix-socket probe and left alone. Fire-and-forget by design.
   void sweepStaleControlDirs();
 
   await workspaceManager.init();
 
-  // Install the nexus-workspace:// protocol handler after the workspace
-  // manager is initialised so workspace lookups resolve correctly.
-  // Quick look over another computer's chat reads that computer's files once the remote is up.
   installNexusWorkspaceProtocol(workspaceManager, () => remote?.peerFiles ?? null);
   installNexusPreviewProtocol(previewDocuments);
 
@@ -678,9 +544,6 @@ app.whenReady().then(async () => {
   });
 
   agentPtyHost = startAgentPtyHost(workspaceManager, {
-    // The terminal tabs the windows restore from: a daemon's session of none
-    // of them (closed while its kill could not reach the daemon) is killed
-    // when the app reaches the daemon again.
     knownTerminalTabs: (workspaceId) =>
       new Set(
         (stateService.getState().layoutByWorkspace?.[workspaceId]?.tabs ?? [])
@@ -688,23 +551,14 @@ app.whenReady().then(async () => {
           .map((tab) => tab.id),
       ),
   });
-  // Wire the PTY session closer into WorkspaceManager so remove() can
-  // terminate PTY sessions on the main side before broadcasting removal.
-  // This breaks the construction-time circular dependency: WorkspaceManager
-  // is created first, PTY host second, then they are linked here.
   workspaceManager.setPtySessionCloser((workspaceId) => {
     agentPtyHost?.closeWorkspaceSessions(workspaceId);
   });
-  // Wire held-session restore / release callbacks so manager can drive PTY
-  // session lifecycle across reauth boundaries (plan issue 4 + 6).
   workspaceManager.setPtyHeldCallbacks(
     (workspaceId) => agentPtyHost?.restoreAfterReauth(workspaceId) ?? Promise.resolve(),
     (workspaceId) => agentPtyHost?.releaseHeld(workspaceId),
   );
 
-  // Initialize the Claude feature — broker / hook-handler wiring.
-  // The notificationsEnabled getter reflects the Settings OS notification toggle live.
-  // It queries stateService just before each fire, so a toggle change takes effect at once.
   const notificationsEnabled = () => stateService.getState().osNotificationsEnabled ?? true;
   const claudeSetup = setupClaudeFeature({
     agentHost: agentPtyHost,
@@ -713,8 +567,6 @@ app.whenReady().then(async () => {
   });
   disposeClaudeFeature = claudeSetup.dispose;
 
-  // The ports the programs in each workspace's terminals listen on. Looking
-  // never connects a workspace: one that is not connected fails the look.
   portWatcher = new PortWatcher(
     agentPtyHost,
     async (workspaceId) => {
@@ -728,8 +580,6 @@ app.whenReady().then(async () => {
     (entry) => forwardBroadcast("pty", "ports", entry),
   );
 
-  // An SSH workspace's ports, forwarded here on demand; a local address its
-  // browser tabs open goes to its forward.
   const forwards = new PortForwards({
     ssh: (workspaceId) => workspaceManager.getSshForwarding(workspaceId),
     broadcast: (entry) => forwardBroadcast("pty", "forwards", entry),
@@ -748,8 +598,6 @@ app.whenReady().then(async () => {
     resolve: (workspaceId, url) => forwards.localUrl(workspaceId, url),
   });
 
-  // The keychain the profiles' API keys, the remote's sign-in and the remembered voices are
-  // sealed with. Nothing reads it here.
   keychain = await createKeychain({
     userData,
     state: stateService,
@@ -757,7 +605,6 @@ app.whenReady().then(async () => {
   });
   keychainChannel = registerKeychainChannel(keychain);
 
-  // Settings' view of the Claude and Codex profiles on this machine.
   profileConnectionKeys = await openConnectionKeys(keychain);
   const profileConnections = createProfileConnections(
     stateService,
@@ -773,8 +620,6 @@ app.whenReady().then(async () => {
 
   const awayAfterSeconds = 30;
   let screenLocked = false;
-  // The NexusCode account the remote runs on. A failure there leaves the
-  // app without the remote, never without its window.
   remote = await registerRemoteChannel({
     keychain,
     services: () => cliFeature?.services ?? null,
@@ -846,7 +691,6 @@ app.whenReady().then(async () => {
     return null;
   });
 
-  // A workspace's notes, kept under the app's data folder by where its folder is.
   notesFeature = registerNotesChannel({
     userData: app.getPath("userData"),
     workspaces: () => workspaceManager.list(),
@@ -863,7 +707,6 @@ app.whenReady().then(async () => {
 
   rememberedVoices = registerRememberedVoices(app.getPath("userData"), stateService, keychain);
 
-  // The nexus command in the app's terminals.
   cliFeature = setupCliFeature({
     agentHost: agentPtyHost,
     workspaceManager,
@@ -958,7 +801,6 @@ app.whenReady().then(async () => {
     },
   });
 
-  // A program's own OS notifications (OSC 9/777/99) follow Claude's rules.
   registerPtyChannel({
     agentHost: agentPtyHost,
     workspaceManager,
@@ -982,7 +824,6 @@ app.whenReady().then(async () => {
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),
   });
 
-  // Claude tabs: their programs run through the same agents as terminals.
   chatHost = registerChatChannel({
     workspaceManager,
     knownChatTabs: (workspaceId) =>
@@ -1018,7 +859,6 @@ app.whenReady().then(async () => {
         const waiting = stateService.getState().attachCleanups ?? [];
         if (waiting.some((entry) => entry.host === host && entry.workspaceId === workspaceId))
           return;
-        // The oldest give way: an agent there may never come up again.
         stateService.setState({
           attachCleanups: [...waiting, { host, workspaceId }].slice(-200),
         });
@@ -1056,8 +896,6 @@ app.whenReady().then(async () => {
     (workspaceId, channel) => chatHost?.closeWorkspace(workspaceId, channel) ?? Promise.resolve(),
   );
 
-  // The host reads the settings at each spawn; the lsp IPC handlers stop
-  // the servers a settings change turns off.
   const lspSettings = () => lspSettingsFromState(stateService.getState());
   lspHost = startConfiguredLspHost({
     workspaceManager,
@@ -1072,16 +910,11 @@ app.whenReady().then(async () => {
   });
   registerLspChannel(lspHost, stateService);
 
-  // Pass persisted appState so titleBarOverlay color matches the user's saved theme.
   openAppWindow();
 
-  // Create the browser permission prompt manager.  The broadcast function and
-  // workspace storage setter are injected so the manager has no Electron import.
   const browserPermissionManager = new BrowserPermissionPromptManager({
     broadcast: forwardBroadcast,
     setRemembered: (ws, origin, permission, decision) => {
-      // Only persist when the workspace DB is open — the manager is called at
-      // respond() time, so the workspace should already be open.
       if (workspaceStorage.isOpen(ws)) {
         workspaceStorage.setOriginPermission(ws, origin, permission, decision);
       }
@@ -1102,14 +935,8 @@ app.whenReady().then(async () => {
     workspaceStorage,
     globalStorage,
   });
-  // Wire the browser closer into WorkspaceManager so remove() destroys all
-  // browser views and clears the workspace's storage partition before the
-  // workspace context is deleted. Must be called after initBrowserFeature so
-  // the registry singleton is available.
   registerBrowserCloser(workspaceManager);
 
-  // With every window closed, as macOS keeps the app running: a click on its
-  // Dock icon, or a second launch, opens one again.
   reopenAppWindow = () => {
     if (quitStarted || hasAppWindow()) return;
     openAppWindow();
@@ -1120,21 +947,15 @@ app.whenReady().then(async () => {
 app.on("before-quit", (event) => {
   closePersistence.interceptQuit(event, getAppWindows(), () => app.quit());
 });
-// Native updates close their windows before before-quit and own the replay.
 autoUpdater?.on("before-quit-for-update", () => closePersistence.allowUpdaterClose());
 
 app.on("window-all-closed", () => {
-  // A reopened window can start new sessions with the same reaper.
   sshBrowseRegistry.closeAll();
   if (!isMac()) {
     app.quit();
   }
 });
 
-// `will-quit`, not `before-quit`: a window can still cancel the quit after
-// before-quit (unsaved buffers), which would leave the app running with its
-// agents, terminals and storage already torn down. will-quit fires only
-// once every window has closed.
 let quitReady = false;
 const flushStateBeforeQuit = createQuitStateFlush({
   flush: () => stateService.flushNow(),
@@ -1159,7 +980,6 @@ app.on("will-quit", (event) => {
     });
 });
 
-/** Stops main services and waits for writes and children within the quit budget. */
 async function shutDownMain(): Promise<void> {
   let lspShutdown: Promise<void> | undefined;
   try {

@@ -1,11 +1,3 @@
-// Drawing a presentation's slides, as pptxtojson reads them, into DOM
-// elements: each slide a box of its own size in points, its elements
-// placed on it as the file places them.
-//
-// Text is drawn from sanitizeRichText's tree, never parsed as HTML, and
-// pictures only from data URLs out of the file, so nothing in it runs or
-// loads from elsewhere. Charts, video and audio are marked, not drawn.
-
 import { LINE_BREAK } from "../../../services/editor/preview/pptx-breaks";
 import { type RichNode, sanitizeRichText } from "../../../services/editor/preview/rich-text";
 import { type EndMark, lineEnds } from "./line-ends";
@@ -18,17 +10,11 @@ type TableElement = Extract<SlideElement, { type: "table" }>;
 type Border = NonNullable<TableElement["borders"]["top"]>;
 
 export interface SlideLabels {
-  /** The slide's number, as its caption reads. */
   slide(number: number, count: number): string;
   chart: string;
   media: string;
 }
 
-/**
- * The pages' styles, for the shadow root they are drawn in. Text more than
- * its box holds runs out of it, as PowerPoint shows it, rather than being
- * cut off: only the slide's edge cuts.
- */
 export const SLIDE_STYLE = `
 :host { display: block; color: #000; }
 .deck { display: flex; flex-direction: column; align-items: safe center; gap: 8px; padding: 16px; }
@@ -47,7 +33,6 @@ export const SLIDE_STYLE = `
 .slide td { overflow: hidden; padding: 2pt 4pt; }
 `;
 
-/** The deck: each slide under its number, with its notes below it. */
 export function drawPresentation(presentation: Presentation, labels: SlideLabels): HTMLElement {
   const deck = element("div", "deck");
   const { width, height } = presentation.size;
@@ -127,7 +112,6 @@ function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: stri
   return node;
 }
 
-/** Puts `box` where the element is, turned and flipped as it is. */
 function place(box: HTMLElement, item: SlideElement): void {
   box.style.left = `${item.left}pt`;
   box.style.top = `${item.top}pt`;
@@ -165,7 +149,6 @@ function textBody(item: Extract<SlideElement, { type: "text" | "shape" }>): HTML
   return body;
 }
 
-/** DOM nodes for the rich text tree, its point font sizes times `fontScale`. */
 export function richNodes(nodes: readonly RichNode[], fontScale = 1): Node[] {
   return nodes.flatMap((node) => {
     if (typeof node === "string") return textNodes(node);
@@ -178,7 +161,6 @@ export function richNodes(nodes: readonly RichNode[], fontScale = 1): Node[] {
   });
 }
 
-/** Text, its line broken where the file breaks it within a paragraph. */
 function textNodes(text: string): Node[] {
   return text.split(LINE_BREAK).flatMap((part, i) => {
     const nodes: Node[] = i > 0 ? [document.createElement("br")] : [];
@@ -193,23 +175,18 @@ function styleValue(property: string, value: string, fontScale: number): string 
     if (pt) return `${Number(pt[1]) * fontScale}pt`;
   }
   if (property === "margin-top" || property === "margin-bottom") {
-    // pptxtojson writes space before or after a paragraph given as a
-    // share of a line (20% as 20000) as that many thousandths of an em,
-    // a hundred times too much: 20em for 0.2em.
     const em = /^([\d.]+)em$/.exec(value);
     if (em) return `${Number(em[1]) / 100}em`;
   }
   return value;
 }
 
-/** CSS pixels in a point. */
 const PX_PER_PT = 4 / 3;
 
 function shapeSvg(item: Extract<SlideElement, { type: "shape" }>): SVGSVGElement {
   const ns = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(ns, "svg");
   const view = item.pathViewBox as NonNullable<typeof item.pathViewBox>;
-  // A straight line has no width or no height, which a viewBox cannot.
   svg.setAttribute(
     "viewBox",
     `${view.x} ${view.y} ${Math.max(view.width, 1)} ${Math.max(view.height, 1)}`,
@@ -220,23 +197,17 @@ function shapeSvg(item: Extract<SlideElement, { type: "shape" }>): SVGSVGElement
   svg.style.overflow = "visible";
   const path = document.createElementNS(ns, "path");
   path.setAttribute("d", item.path ?? "");
-  // A connector or a line is its stroke alone, whatever fill its style has.
   const lineOnly = item.strokeOnly || /connector|^line$/i.test(item.shapType);
   path.setAttribute("fill", lineOnly ? "none" : (fillColor(item.fill) ?? "none"));
   const stroke = safeColor(item.borderColor);
-  // pptxtojson gives a connector its color but not always its width, which
-  // its style sets; it is drawn a hairline rather than not at all.
   const strokeWidth = item.borderWidth > 0 ? item.borderWidth : lineOnly ? 1 : 0;
   if (stroke && strokeWidth > 0) {
     path.setAttribute("stroke", stroke);
-    // A stroke that does not scale is as wide as it says in CSS pixels;
-    // the file gives it in points.
     path.setAttribute("stroke-width", String(strokeWidth * PX_PER_PT));
     path.setAttribute("vector-effect", "non-scaling-stroke");
     if (item.borderType !== "solid" && /^[\d.\s,]+$/.test(item.borderStrokeDasharray)) {
       path.setAttribute("stroke-dasharray", item.borderStrokeDasharray);
     }
-    // The path is in points, as the box is, so its arrowheads are too.
     const ends = lineEnds(item.path ?? "", strokeWidth, item.headEnd, item.tailEnd);
     if (ends) {
       path.setAttribute("d", ends.path);
@@ -248,7 +219,6 @@ function shapeSvg(item: Extract<SlideElement, { type: "shape" }>): SVGSVGElement
   return svg;
 }
 
-/** An arrowhead in the line's color: filled, or an open one stroked as wide as the line. */
 function endMarkSvg(mark: EndMark, color: string, width: number): SVGElement {
   const ns = "http://www.w3.org/2000/svg";
   if (mark.kind === "ellipse") {
@@ -274,7 +244,6 @@ function endMarkSvg(mark: EndMark, color: string, width: number): SVGElement {
   return shape;
 }
 
-/** A picture cropped as the file crops it: `rect` takes percentages off each side. */
 function croppedImage(
   src: string,
   rect: { t?: number; b?: number; l?: number; r?: number } | undefined,
@@ -311,7 +280,6 @@ function table(item: TableElement): HTMLTableElement {
     const rowHeight = item.rowHeights[r];
     if (rowHeight) tr.style.height = `${rowHeight}pt`;
     for (const cell of row) {
-      // A cell another spans over has no cell of its own.
       if (cell.hMerge || cell.vMerge) continue;
       const td = element("td");
       if (cell.rowSpan && cell.rowSpan > 1) td.rowSpan = cell.rowSpan;
@@ -350,7 +318,6 @@ function applyBorder(
   if (css) style.border = css;
 }
 
-/** Paints a box's fill: a color, a gradient, or a picture from the file. */
 export function applyFill(style: CSSStyleDeclaration, fill: Fill | undefined): void {
   if (!fill) return;
   switch (fill.type) {
@@ -378,7 +345,6 @@ export function applyFill(style: CSSStyleDeclaration, fill: Fill | undefined): v
   }
 }
 
-/** One color for a fill an SVG path takes: a gradient's first, a pattern's ground. */
 function fillColor(fill: Fill | undefined): string | null {
   switch (fill?.type) {
     case "color":
@@ -392,7 +358,6 @@ function fillColor(fill: Fill | undefined): string | null {
   }
 }
 
-/** A gradient's stops as CSS, or null when one of them is not a color. */
 export function gradientCss(value: Extract<Fill, { type: "gradient" }>["value"]): string | null {
   const stops: string[] = [];
   for (const { color, pos } of value.colors) {
@@ -407,7 +372,6 @@ export function gradientCss(value: Extract<Fill, { type: "gradient" }>["value"])
     : `radial-gradient(${stops.join(", ")})`;
 }
 
-/** A stop's place as a percentage: "40%", or OOXML's thousandths of one. */
 function stopPosition(pos: string): number | null {
   const m = /^([\d.]+)(%?)$/.exec(pos.trim());
   if (!m) return null;
@@ -415,7 +379,6 @@ function stopPosition(pos: string): number | null {
   return m[2] === "%" || n <= 100 ? n : n / 1000;
 }
 
-/** A CSS color the file gave, or null for anything that is not one. */
 export function safeColor(value: string | undefined): string | null {
   if (!value) return null;
   const v = value.trim();
@@ -426,7 +389,6 @@ export function safeColor(value: string | undefined): string | null {
     : null;
 }
 
-/** Whether `src` is a picture's data URL, which loads nothing from elsewhere. */
 export function isImageData(src: string | undefined): src is string {
   return !!src && /^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]*$/i.test(src);
 }

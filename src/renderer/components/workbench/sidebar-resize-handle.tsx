@@ -7,11 +7,6 @@ import {
 } from "../../state/stores/ui";
 import { ResizeHandle } from "../ui/resize-handle";
 
-// ---------------------------------------------------------------------------
-// Thin adapter — wires the generic ResizeHandle to the sidebarWidth slice.
-// All drag math / event wiring lives in <ResizeHandle/>.
-// ---------------------------------------------------------------------------
-
 export function SidebarResizeHandle() {
   const { t } = useTranslation();
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);

@@ -1,12 +1,3 @@
-/**
- * The profile chip at the end of another computer's chat's usage line, as a
- * chat here has it: the profile it runs with, and the computer's other
- * profiles of its agent to go on in or start a new conversation in
- * (profiles.list, chat.profile). While a turn is under way or a request
- * waits, the choice stops the turn, as a chat's here does; a computer before
- * 0.13.0 refuses then, so the choice waits there.
- */
-
 import type { TFunction } from "i18next";
 import { Square } from "lucide-react";
 import { useContext, useState } from "react";
@@ -20,10 +11,6 @@ import { Popover } from "../ui/popover";
 import { showToast } from "../ui/toast";
 import { RemoteSessionHostContext } from "./remote-session-host";
 
-/**
- * A profile of that computer's as this app names it: its unnamed default
- * profile comes as "default" (profiles.list) and reads as the default here.
- */
 export function peerProfileName(name: string, t: TFunction): string {
   return name === "default" ? t("settings:profiles.default_name") : name;
 }
@@ -44,13 +31,9 @@ export function RemoteProfileChip({
   compact = false,
 }: {
   target: RemoteTarget & { kind: "claude" | "codex" };
-  /** A turn is under way or a request waits. */
   busy: boolean;
-  /** The computer moves the chat then, its turn stopping (panel `can.moveNow`); else it refuses. */
   moveNow: boolean;
-  /** The chat has a conversation to go on with in another profile. */
   conversation: boolean;
-  /** The computer lets this one control its chats. */
   controls: boolean;
   compact?: boolean;
 }) {
@@ -173,7 +156,6 @@ export function RemoteProfileChip({
                 <button
                   type="button"
                   disabled={waits}
-                  // With no conversation yet there is nothing to go on with: a new one, as here.
                   onClick={() => pick(other, !conversation)}
                   className="flex min-w-0 flex-1 items-center gap-1.5 rounded-(--radius-control) px-1 py-0.5 text-left disabled:opacity-40"
                   data-testid="remote-profile-pick"

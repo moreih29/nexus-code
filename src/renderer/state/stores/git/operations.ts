@@ -1,15 +1,3 @@
-/**
- * git-operations.ts — slice creator.
- *
- * Slice: all runOperation/runOperationStrict-wrapped git domain actions
- * + operation lifecycle. This is the bulk of the store.
- *
- * The `push` action is special — it calls beginOperation/finishOperation
- * directly rather than going through runOperation because it needs to capture
- * the pendingNonFFRetry from the error before finishOperation clears the
- * in-flight state.
- */
-
 import type {
   CommitResult,
   GitContinueOpResult,
@@ -44,11 +32,6 @@ const log = createLogger("git");
 export interface OperationsSlice {
   stage: (workspaceId: string, relPaths: string[]) => Promise<void>;
   unstage: (workspaceId: string, relPaths: string[]) => Promise<void>;
-  /**
-   * Stages the text `contentOf` builds as `relPath`'s index version, as staging
-   * or unstaging part of a file does; null stages nothing. `contentOf` runs
-   * inside the operation, so its failures are reported like the write's.
-   */
   stageContent: (
     workspaceId: string,
     relPath: string,
@@ -141,10 +124,6 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
     recordEnvelopeError,
   } = ctx;
 
-  /**
-   * Persist the commit draft immediately after successful commit so a
-   * pending debounce cannot later restore the pre-commit draft.
-   */
   function clearCommitDraftAfterCommit(workspaceId: string): void {
     cancelCommitDraftSave(workspaceId);
     setCommitDraftText(workspaceId, "");
@@ -599,8 +578,6 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
         workspaceId,
         intervalMin: autofetchIntervalMin,
       });
-      // Fire-and-forget: autofetch scheduling errors are non-critical; UI state
-      // was already updated optimistically above.
       if (!result.ok) {
         log.error(`autofetch setSchedule failed: ${result.message}`);
       }
@@ -612,8 +589,6 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
         autofetchManualPaused: true,
       }));
       const result = await ipcCallResult("autofetch", "pause", { workspaceId });
-      // Fire-and-forget: autofetch pause errors are non-critical; UI state
-      // was already updated optimistically above.
       if (!result.ok) {
         log.error(`autofetch pause failed: ${result.message}`);
       }
@@ -628,8 +603,6 @@ export function createOperationsSlice(ctx: GitStoreContext): OperationsSlice {
         autofetchConsecutiveFailures: 0,
       }));
       const result = await ipcCallResult("autofetch", "resume", { workspaceId });
-      // Fire-and-forget: autofetch resume errors are non-critical; UI state
-      // was already updated optimistically above.
       if (!result.ok) {
         log.error(`autofetch resume failed: ${result.message}`);
       }

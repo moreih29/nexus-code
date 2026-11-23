@@ -1,12 +1,3 @@
-// SSH branch of the nexus-workspace:// protocol handler.
-//
-// The local-disk path is covered implicitly by the existing markdown image
-// preview suite; these tests focus on the new agent-relayed path that v1
-// previously rejected with 404. We mock the WorkspaceManager surface that
-// buildNexusWorkspaceHandler actually consumes (`list` + `getFs`), which is
-// narrow enough that the cast keeps the test honest without dragging the
-// whole manager + agent lifecycle into the test.
-
 import { describe, expect, mock, test } from "bun:test";
 import type { FsProvider } from "../../../../src/main/features/fs/bridge/provider";
 import type { WorkspaceManager } from "../../../../src/main/features/workspace/manager";
@@ -14,10 +5,6 @@ import { READ_RANGE_MAX_BYTES } from "../../../../src/shared/fs/defaults";
 import type { FileReadBinaryResult } from "../../../../src/shared/fs/types";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
-// `nexus-workspace.ts` imports Electron at module load time (for the public
-// wiring entry points). In Bun the real electron runtime isn't available —
-// mock the minimal surface so the import resolves. The SSH branch under test
-// never calls into it.
 mock.module("electron", () => ({
   net: { fetch: mock(() => Promise.resolve(new Response(null, { status: 500 }))) },
   protocol: {
@@ -26,7 +13,6 @@ mock.module("electron", () => ({
   },
 }));
 
-// Dynamic import after the mock so the static import isn't hoisted ahead of it.
 const { buildNexusWorkspaceHandler } = await import(
   "../../../../src/main/features/custom-protocols/nexus-workspace"
 );
@@ -66,7 +52,7 @@ describe("nexus-workspace:// SSH branch", () => {
     const base64 = Buffer.from(bytes).toString("base64");
     const handler = buildNexusWorkspaceHandler(
       makeManager(async (rel, offset) => {
-        expect(rel).toBe("docs/logo.png"); // posix-style on the wire
+        expect(rel).toBe("docs/logo.png");
         expect(offset).toBe(0);
         return { kind: "ok", base64, sizeBytes: bytes.length, mtime: "2026-01-01T00:00:00.000Z" };
       }),
@@ -128,7 +114,6 @@ describe("nexus-workspace:// SSH branch, a file larger than one read", () => {
   for (let i = 0; i < SIZE; i++) file[i] = i % 251;
   const MTIME = "2026-01-01T00:00:00.000Z";
 
-  /** A file read as the agent reads it; `mtime` is what each read says of it. */
   function agentFile(mtime: (offset: number) => string = () => MTIME) {
     const reads: Array<[number, number]> = [];
     const readRange: ReadRange = async (_rel, offset, length) => {

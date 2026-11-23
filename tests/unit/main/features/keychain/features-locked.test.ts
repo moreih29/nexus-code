@@ -1,8 +1,3 @@
-/**
- * The profiles' API keys and the remembered voices while the keychain is
- * not open: what the app reads by itself waits, what the user does opens
- * it, and a refusal leaves the sealed files as they are.
- */
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,7 +21,6 @@ afterEach(() => {
 const KeysSchema = z.record(z.string(), z.object({ target: z.string(), key: z.string() }));
 const TIME = 1_900_000_000_000;
 
-/** A folder with sealed files written while the keychain was open, and a new run's gate over it. */
 async function setup(options: { refuse?: boolean } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "keychain-features-"));
   dirs.push(dir);
@@ -52,7 +46,6 @@ async function setup(options: { refuse?: boolean } = {}) {
       recorded: { get: () => "before", set: () => {} },
       onChange: () => {},
     });
-  // The last run, signed as recorded: open.
   const before = newGate("before");
   await before.decided();
   const keysFile = join(dir, "profile-api-keys.bin");
@@ -83,7 +76,6 @@ async function setup(options: { refuse?: boolean } = {}) {
   });
   const voicesFile = join(dir, "remembered-voices.bin");
   expect(existsSync(voicesFile)).toBe(true);
-  // This run: signed otherwise, so it asks.
   const gate = newGate("after");
   await gate.decided();
   calls.length = 0;
@@ -135,7 +127,6 @@ describe("what the app reads by itself waits", () => {
         speakers: [{ key: "1", rejected: [], vector: Array(192).fill(0) }],
       }),
     ).toEqual([]);
-    // A profile saved without a key leaves the keys unread.
     expect(await keys.saveProfile(...profile(undefined))).toBe(false);
     expect(calls).toEqual([]);
   });
@@ -148,7 +139,6 @@ describe("what the app reads by itself waits", () => {
   });
 });
 
-/** An API-key profile, as saved before and as saved again unchanged. */
 const apiKeyProfile = {
   id: "a",
   agent: "claude",
@@ -157,7 +147,6 @@ const apiKeyProfile = {
   connection: { method: "api-key" },
 } as unknown as AgentProfile;
 
-/** Settles, or says it did not within the time. */
 const within = (promise: Promise<unknown>, ms = 1000) =>
   Promise.race([
     promise.then(
@@ -171,11 +160,9 @@ describe("a key a chat needs, which an agent or a resumed chat may start", () =>
   test("asks again once put off, and goes on as answered", async () => {
     const { gate, calls, keys } = await setup();
     const key = keys.get("a", "t");
-    // Asked while the question is up: waits for its answer.
     await new Promise((resolve) => setTimeout(resolve, 0));
     gate.putOff();
     expect(await key).toBeUndefined();
-    // Locked for the run: the user is asked again, macOS not yet.
     const later = keys.get("b", "t");
     expect(gate.status().state).toBe("ask");
     gate.putOff();

@@ -1,7 +1,3 @@
-/**
- * nexus chat new, read, send and wait: the app's Claude and Codex tabs,
- * driven from a terminal as their composer drives them.
- */
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import type { CliCaller } from "../../../../src/main/features/cli/context";
@@ -40,7 +36,6 @@ function uiArgs(app: FakeApp, op: string): unknown {
   return app.uiCalls.find((c) => c.op === op)?.args;
 }
 
-/** An app with a Claude tab "Fix the login" in "app", standing as `info` says. */
 function withChat(info: Partial<CliChatInfo> = {}): FakeApp {
   const app = fakeApp();
   const chat: CliTabInfo = {
@@ -198,7 +193,6 @@ describe("chat wait", () => {
   });
 });
 
-/** What the Claude tab "Fix the login" runs with: Sonnet, in the default mode. */
 function withChoices(info: Partial<CliChatInfo> = {}): FakeApp {
   const app = withChat(info);
   app.chatChoices.set(CHAT_TAB, {
@@ -386,7 +380,6 @@ describe("delegating a chat mode", () => {
     Outcome,
     Outcome,
   ][] = [
-    // Caller, mode, target, requested mode, verified, chat new, chat set.
     ["claude", "auto", "claude", "acceptEdits", true, "grant", "grant"],
     ["claude", "acceptEdits", "claude", "auto", true, "ask", "ask"],
     ["codex", "auto", "claude", "auto", true, "sandbox", "sandbox"],
@@ -692,14 +685,12 @@ describe("who sends a message", () => {
   test("one that could be any process's, or names no terminal or chat tab, is an agent's, not the user's", async () => {
     const app = withChat();
     const unknown = (tabId: string) => ({ kind: "terminal", workspaceId: APP, tabId });
-    // The user's shell, but the request came without that tab's token: any process may say it.
     expect(
       await senderOf(contextFor(app, [], { workspaceId: APP, tabId: SHELL_TAB, verified: false })),
     ).toEqual(unknown(SHELL_TAB));
     expect(
       await senderOf(contextFor(app, [], { workspaceId: APP, tabId: SHELL_TAB, verified: true })),
     ).toBeUndefined();
-    // No such tab.
     const gone = "99999999-0000-4000-8000-000000000099";
     expect(await senderOf(contextFor(app, [], { workspaceId: APP, tabId: gone }))).toEqual(
       unknown(gone),
@@ -709,8 +700,6 @@ describe("who sends a message", () => {
   test("an agent a terminal started that has said nothing yet is found by the terminal's program now", async () => {
     const app = withChat();
     const at = contextFor(app, [], { workspaceId: APP, tabId: SHELL_TAB });
-    // codex exec runs its first command before any output: the terminal's
-    // state still has the shell, the foreground has codex.
     app.foreground.set(SHELL_TAB, "codex");
     expect(await senderOf(at)).toEqual({
       kind: "terminal",
@@ -736,7 +725,6 @@ describe("who sends a message", () => {
       from: { kind: "terminal", agent: "claude", tabId: CLAUDE_TAB },
       openedBy: { kind: "terminal", agent: "claude", workspaceId: APP, tabId: CLAUDE_TAB },
     });
-    // Whether it waits to read the answer is told only where it is known.
     expect((uiArgs(app, "chat.open") as { from: object }).from).not.toHaveProperty("waits");
     const user = withChat();
     await nexus(user, ["chat", "send", "eeee", "run the tests"]);
@@ -772,12 +760,10 @@ describe("who sends a message", () => {
     const opened = await nexus(app, ["terminal", "new", "--command", "make test"], claude);
     expect(opened.exitCode).toBe(0);
     expect(uiArgs(app, "terminal.open")).toMatchObject({ command: "make test", openedBy: opener });
-    // The user opening one: theirs, as the tab keeps no opener.
     const user = withChat();
     await nexus(user, ["terminal", "new"]);
     expect(uiArgs(user, "terminal.open")).not.toHaveProperty("openedBy");
 
-    // The terminal it opened runs a shell, or the command, which runs nexus.
     app.tabs[APP]?.push({
       id: NEW_TAB,
       type: "terminal",
@@ -793,18 +779,15 @@ describe("who sends a message", () => {
     expect(app.uiCalls.findLast((c) => c.op === "chat.send")?.args).toMatchObject({
       from: { ...opener, waits: false },
     });
-    // A terminal opened from it is the same agent's.
     app.uiCalls.length = 0;
     await nexus(app, ["terminal", "new"], inIt);
     expect(uiArgs(app, "terminal.open")).toMatchObject({ openedBy: opener });
-    // An agent started in it is that agent, as in any terminal.
     app.foreground.set(NEW_TAB, "codex");
     expect(await senderOf(contextFor(app, [], inIt))).toMatchObject({
       kind: "terminal",
       agent: "codex",
       tabId: NEW_TAB,
     });
-    // A request without its token could be any process's, as anywhere.
     app.foreground.set(NEW_TAB, "zsh");
     expect(await senderOf(contextFor(app, [], { ...inIt, verified: false }))).toEqual({
       kind: "terminal",

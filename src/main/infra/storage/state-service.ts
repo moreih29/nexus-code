@@ -59,9 +59,6 @@ export class StateService {
   }
 
   private load(): AppState {
-    // Parse an empty object first to materialise all `.default()` values.
-    // This is the fallback used on first run or when the persisted file is
-    // absent / corrupt.
     const empty = AppStateSchema.parse({});
     let raw: unknown;
     try {
@@ -72,9 +69,6 @@ export class StateService {
     }
     const parsed = AppStateSchema.safeParse(raw);
     if (parsed.success) return parsed.data;
-    // One field the schema no longer accepts (a downgrade, a removed enum
-    // value) must not cost the user every other setting: keep what still
-    // validates, and keep the original file since the next flush replaces it.
     this.backUpInvalidFile();
     return salvageAppState(raw, empty);
   }
@@ -82,9 +76,7 @@ export class StateService {
   private backUpInvalidFile(): void {
     try {
       fs.copyFileSync(this.filePath, `${this.filePath}.invalid`);
-    } catch {
-      // Best effort: the file may be unreadable, which is why we got here.
-    }
+    } catch {}
   }
 
   getState(): Readonly<AppState> {
@@ -101,7 +93,6 @@ export class StateService {
     this.setState(partial);
   }
 
-  /** Accept a change only after writing it, for callers that update a second file. */
   commitState(partial: Partial<AppState>): void {
     const next = this.update(partial);
     this.writeNow(next);
@@ -110,8 +101,6 @@ export class StateService {
   }
 
   private update(partial: Partial<AppState>, mergeLayouts?: MergeLayouts): AppState {
-    // Loaded state and earlier updates have already been checked. AppStateSchema
-    // validates each top-level field independently.
     const next = { ...this.state, ...partial };
     const workspaceIds = mergeLayouts?.workspaceIds;
     const mergesLayouts = mergeLayouts && Object.hasOwn(partial, "layoutByWorkspace");
@@ -121,7 +110,6 @@ export class StateService {
     const { shape } = AppStateSchema;
     for (const key of Object.keys(partial) as (keyof AppState)[]) {
       if (Object.hasOwn(shape, key) && !shape[key].safeParse(next[key]).success) {
-        // Preserve the original validation error and field paths on failure.
         AppStateSchema.parse(next);
       }
     }
@@ -132,7 +120,6 @@ export class StateService {
     return next;
   }
 
-  /** Make all accepted changes durable before the app exits or restarts. */
   flushNow(): void {
     if (this.revision === this.writtenRevision) return;
     try {
@@ -147,8 +134,6 @@ export class StateService {
   private writeNow(state: AppState): void {
     const writing = this.writing;
     if (writing) {
-      // Either prevent the old rename, or let it finish before our rename.
-      // The worker signals directly, so it never needs the main event loop.
       const phase = Atomics.compareExchange(writing, 0, PREPARING, CANCELLED);
       if (
         phase === RENAMING &&
@@ -208,12 +193,6 @@ export class StateService {
   }
 }
 
-/**
- * Rebuilds app state from a persisted object that failed validation as a
- * whole. Each top-level field is validated on its own; for record fields
- * (per-workspace layouts, LSP languages, permission grants) only the
- * invalid entries are dropped.
- */
 function salvageAppState(raw: unknown, empty: AppState): AppState {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return empty;
   const source = raw as Record<string, unknown>;

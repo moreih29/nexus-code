@@ -13,13 +13,10 @@ const (
 	maxPreviewProofs       = 64
 )
 
-// It also bounds whole-file buffers for callers over the agent bridge.
 var previewFingerprintSlots = make(chan struct{}, 2)
 
 type previewDigest = [sha256.Size]byte
 
-// At most 256 KiB of block digests per agent process. Proofs contain no
-// file data and eviction only means a subsequent pin must rehash the file.
 var previewProofs = struct {
 	sync.Mutex
 	byVersion map[string][]previewDigest
@@ -46,8 +43,6 @@ func previewProofFor(version string) []previewDigest {
 	return previewProofs.byVersion[version]
 }
 
-// A strong version covers the content and the scoped file metadata. The
-// ordered block proofs let a pin verify the requested bytes independently.
 func provePreview(key [32]byte, metadata string, contents []byte) (string, []previewDigest) {
 	mac := hmac.New(sha256.New, key[:])
 	mac.Write([]byte(metadata))

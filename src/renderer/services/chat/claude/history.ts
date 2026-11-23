@@ -1,8 +1,3 @@
-// A session's transcript as lines the chat model reads, so a tab opened
-// after its agent restarted shows the conversation it resumes. Claude Code
-// writes one JSON entry per line: the messages, and its own bookkeeping
-// (summaries, file snapshots), which is skipped.
-
 import type { ClaudeGoal } from "../goal";
 import {
   type AssistantItem,
@@ -28,19 +23,12 @@ function rec(value: unknown): Rec | null {
     : null;
 }
 
-/**
- * Turns transcript entries into stream-json lines. `liveCompacted`: the tab
- * shows the compaction the entries end with (a cut just before its /compact
- * command or the next message), so its notice is left out here.
- */
 export function transcriptLines(
   entries: readonly unknown[],
   positions?: readonly number[],
   liveCompacted = false,
 ): TranscriptLine[] {
   const lines: TranscriptLine[] = [];
-  // A compaction's notice, held while the /compact command's entries pass,
-  // which the log writes after the boundary but which happened before it.
   let pending: { at: number; line: TranscriptLine; command: boolean } | undefined;
   const settle = () => {
     if (pending) lines.splice(pending.at, 0, pending.line);
@@ -67,7 +55,6 @@ export function transcriptLines(
         settle();
       }
     }
-    // A message that came while a turn ran is kept apart from the others.
     const queued = queuedLine(entry, seq);
     if (queued) {
       lines.push(queued);
@@ -75,14 +62,10 @@ export function transcriptLines(
     }
     const kind = rec(entry.origin)?.kind;
     const origin = typeof kind === "string" ? kind : undefined;
-    // What the CLI tells the model by itself is not shown, but for what
-    // someone sent and a task's end, which the model tells of (notTheUsers).
     const told =
       origin !== undefined && (SENDER_KINDS.has(origin) || origin === "task-notification");
     if (entry.isMeta === true && !told) continue;
     if (entry.type === "user" && entry.promptSource === "system" && !told) continue;
-    // The summary Claude Code writes when it compacts is for the model; the
-    // tab shows the compaction as a notice, as it does live.
     if (entry.type === "user" && entry.isCompactSummary === true) continue;
     if (entry.type === "system" && entry.subtype === "compact_boundary") {
       settle();
@@ -107,10 +90,8 @@ export function transcriptLines(
     if (!message) continue;
     if (entry.type === "user") {
       const text = textOf(message.content);
-      // A command's output, which went to the user and not the model.
       if (isCommandOutput(text)) continue;
       const command = typedCommand(text);
-      // The /clear a session starts with: the tab shows that as it happens.
       if (command === "/clear") continue;
       if (command !== null) message = { ...message, content: command };
     }
@@ -124,7 +105,6 @@ export function transcriptLines(
           message,
           uuid: entry.uuid,
           timestamp: entry.timestamp,
-          // An API error Claude Code wrote in the turn's place, as the stream names it.
           ...(entry.isApiErrorMessage === true
             ? {
                 is_api_error_message: true,
@@ -171,11 +151,6 @@ export function transcriptLines(
   return lines;
 }
 
-/**
- * A message the CLI took while a turn ran, which the transcript keeps as an
- * attachment (queued_command) and not as a message: the user's, another
- * session's, a task's end.
- */
 function queuedLine(entry: Rec, seq: number): TranscriptLine | null {
   if (entry.type !== "attachment") return null;
   const attachment = rec(entry.attachment);
@@ -202,7 +177,6 @@ function queuedLine(entry: Rec, seq: number): TranscriptLine | null {
   };
 }
 
-/** The uuid a message that came during a turn was written with, which a log names it by. */
 function queuedUuid(entry: Rec): unknown {
   const attachment = rec(entry.attachment);
   return attachment?.type === "queued_command" && typeof attachment.source_uuid === "string"
@@ -210,11 +184,6 @@ function queuedUuid(entry: Rec): unknown {
     : entry.uuid;
 }
 
-/**
- * A goal's part of the transcript as a line: /goal's output when it set or
- * cleared one (the stream's own form of it), and each check of it, which
- * only the transcript keeps once one finds the goal met.
- */
 function goalLine(entry: Rec, seq: number): TranscriptLine | null {
   if (entry.type === "attachment") {
     const attachment = rec(entry.attachment);
@@ -247,12 +216,6 @@ function goalLine(entry: Rec, seq: number): TranscriptLine | null {
   };
 }
 
-/**
- * A subagent's file as lines of its Agent call (`toolUseId`): its replies,
- * and its tools' results. Claude Code keeps a subagent's messages apart
- * from its session's transcript (subagents/agent-<id>.jsonl), which tells
- * only the call. Its prompt is left out: the call's input tells it.
- */
 export function subagentLines(entries: readonly unknown[], toolUseId: string): ChatLine[] {
   const lines: ChatLine[] = [];
   for (const raw of entries) {
@@ -283,7 +246,6 @@ export function subagentLines(entries: readonly unknown[], toolUseId: string): C
   return lines;
 }
 
-/** What a subagent's file tells: its messages, and its calls, under its Agent call's id. */
 export interface SubagentLog {
   items: AssistantItem[];
   tools: Record<string, ToolCall>;
@@ -294,10 +256,6 @@ export function subagentLog(entries: readonly unknown[], toolUseId: string): Sub
   return { items: model.agentItems[toolUseId] ?? [], tools: model.tools };
 }
 
-/**
- * The history with a subagent's messages read from its file: a history
- * with nothing else when there was none, so what the tab's log has stays.
- */
 export function withSubagentLog(
   history: ChatModel | null,
   toolUseId: string,
@@ -311,22 +269,16 @@ export function withSubagentLog(
   };
 }
 
-/**
- * The agent id an Agent call's result names, by which Claude Code keeps
- * the subagent's file; a teammate's result names it as agent_id.
- */
 export function subagentIdOf(tool: ToolCall | undefined): string | undefined {
   const structured = rec(tool?.result?.structured);
   const id = structured?.agentId ?? structured?.agent_id;
   return typeof id === "string" && id ? id : undefined;
 }
 
-/** The goal a session's transcript ends with, as far as it goes. */
 export function transcriptGoal(entries: readonly unknown[]): ClaudeGoal | null | undefined {
   return applyTranscriptLines(transcriptLines(entries)).goal;
 }
 
-/** A message's text: the string, or its first block's. */
 function textOf(content: unknown): string {
   const first = Array.isArray(content) ? rec(content[0]) : null;
   return typeof content === "string" ? content : typeof first?.text === "string" ? first.text : "";
@@ -337,13 +289,10 @@ function isInterrupt(content: unknown): boolean {
 }
 
 export interface HistoryCut {
-  /** Keep the entries up to this uuid, it included: a fork's point. */
   upTo?: string;
-  /** Keep the entries before the first of these uuids: the ones a log already shows. */
   before?: ReadonlySet<string>;
 }
 
-/** The entries a cut keeps. */
 export function cutEntries(entries: readonly unknown[], cut: HistoryCut = {}): unknown[] {
   const kept: unknown[] = [];
   for (const raw of entries) {
@@ -356,7 +305,6 @@ export function cutEntries(entries: readonly unknown[], cut: HistoryCut = {}): u
   return kept;
 }
 
-/** The model of a transcript: its items and tools, nothing running. */
 export function historyModel(
   entries: readonly unknown[],
   cut?: HistoryCut,
@@ -371,7 +319,6 @@ export function historyModel(
   return { ...model, running: false, turn: null, streaming: null, permissions: [] };
 }
 
-/** A historical call without a recorded result cannot be treated as still running. */
 export function historyForDisplay(history: ChatModel): ChatModel {
   let tools = history.tools;
   for (const [id, tool] of Object.entries(history.tools)) {
@@ -382,10 +329,6 @@ export function historyForDisplay(history: ChatModel): ChatModel {
   return tools === history.tools ? history : { ...history, tools };
 }
 
-/**
- * The title a session was given (/rename), the last one standing; else the
- * last one Claude made for it.
- */
 export function sessionTitleOf(entries: readonly unknown[]): string | undefined {
   return (
     lastTitleOf(entries, "custom-title", "customTitle") ??
@@ -403,7 +346,6 @@ function lastTitleOf(entries: readonly unknown[], type: string, field: string): 
   return undefined;
 }
 
-/** The uuids of the messages a model shows. */
 export function modelUuids(model: ChatModel): Set<string> {
   const uuids = new Set<string>();
   for (const item of model.items) {
@@ -417,10 +359,6 @@ export function modelUuids(model: ChatModel): Set<string> {
   return uuids;
 }
 
-/**
- * A model's items before its first one with this uuid: what a rewind to that
- * message keeps. Its tools stay whole; the items left only point at their own.
- */
 export function modelBefore(model: ChatModel, uuid: string): ChatModel {
   const index = model.items.findIndex(
     (item) => (item.kind === "user" || item.kind === "assistant") && item.uuid === uuid,
@@ -429,7 +367,6 @@ export function modelBefore(model: ChatModel, uuid: string): ChatModel {
   return { ...emptyModel(), items, tools: model.tools };
 }
 
-/** The uuid of the last message before this one: where a fork that leaves it out stops. */
 export function uuidBefore(model: ChatModel, uuid: string): string | undefined {
   let last: string | undefined;
   for (const item of model.items) {
@@ -440,11 +377,6 @@ export function uuidBefore(model: ChatModel, uuid: string): string | undefined {
   return undefined;
 }
 
-/**
- * One history out of two: what was shown before, then what came after. Each
- * numbers its keys from its own log's lines, so one of after's that before
- * has already is keyed anew (a33~2): a list keys its rows by them.
- */
 export function joinHistory(before: ChatModel | null, after: ChatModel): ChatModel {
   if (!before) return { ...after, running: false, turn: null, streaming: null, permissions: [] };
   const keys = new Set(before.items.map((item) => item.key));

@@ -1,6 +1,3 @@
-/**
- * Pure view model for push guardrail banners.
- */
 import i18next from "i18next";
 
 export interface PushGuardPushOptions {
@@ -41,10 +38,6 @@ interface PushGuardBannerInput {
   readonly inFlightKind: string | null | undefined;
 }
 
-/**
- * Converts typed push failures plus pending retry state into banner copy.
- * The action callbacks stay in GitPanel so this module remains testable.
- */
 export function buildPushGuardBannerView({
   error,
   pendingNonFFRetry,

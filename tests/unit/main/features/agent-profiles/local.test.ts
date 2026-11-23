@@ -27,8 +27,6 @@ describe.if(posix)("a profile folder set up by hand", () => {
     await fs.mkdir(path.join(defaultDir, "skills"), { recursive: true });
     await fs.writeFile(path.join(defaultDir, "settings.json"), "{}");
     await fs.mkdir(folder);
-    // Linked by hand: one to a file the default folder has, one to a folder
-    // it does not have (yet), and a file of the profile's own.
     await fs.symlink(path.join(defaultDir, "settings.json"), path.join(folder, "settings.json"));
     await fs.symlink(path.join(defaultDir, "plugins"), path.join(folder, "plugins"));
     await fs.writeFile(path.join(folder, "CLAUDE.md"), "mine");
@@ -70,8 +68,6 @@ describe.if(posix)("a profile folder set up by hand", () => {
   });
 });
 
-// Without Developer Mode or an administrator, Windows makes no symbolic link:
-// a shared folder is a junction there and a shared file a hard link.
 describe.if(!posix)("a profile folder on Windows", () => {
   let root: string;
   let defaultDir: string;
@@ -107,7 +103,6 @@ describe.if(!posix)("a profile folder on Windows", () => {
     expect(result.failed).toEqual([]);
     expect(result.linked.sort()).toEqual(["config.toml", "skills"]);
     expect(await fs.readFile(path.join(folder, "config.toml"), "utf8")).toBe('model = "x"\n');
-    // Written through the link, the default folder's file changes too.
     await fs.appendFile(path.join(folder, "config.toml"), "effort = 1\n");
     expect(await fs.readFile(path.join(defaultDir, "config.toml"), "utf8")).toContain("effort");
     expect(await inspectLocalFolder("codex", folder)).toEqual({
@@ -203,7 +198,6 @@ describe("the environment a profile's program runs with", () => {
     const env = localProfileEnv({ ...profile, dir: "~/.claude-work" }, base, true);
     expect(env.Path).toBe("C:/fake;C:/Windows");
     expect("PATH" in env).toBe(false);
-    // The profile's folder wins over a variable of its own for it.
     expect(env.CLAUDE_CONFIG_DIR).toBe(path.join(os.homedir(), ".claude-work"));
     expect("claude_config_dir" in env).toBe(false);
     expect("CLAUDECODE" in env).toBe(false);

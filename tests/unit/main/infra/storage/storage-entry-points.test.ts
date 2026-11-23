@@ -1,12 +1,3 @@
-/**
- * Tester-authored integration tests for T1 + T2:
- *   - migration v4 (folder_bookmarks + connection_profiles tables)
- *   - GlobalStorage entry-point methods (upsert, cap eviction, favorites, remove)
- *   - removeWorkspace isolation (no cascade into entry-point tables)
- *   - SSH null user/port normalization (no duplicate rows)
- *   - IPC arg zod schemas
- */
-
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import os from "node:os";
@@ -14,10 +5,6 @@ import path from "node:path";
 import { GlobalStorage } from "../../../../../src/main/infra/storage/global-storage";
 import { applyMigrations } from "../../../../../src/main/infra/storage/migrations";
 import type { WorkspaceMeta } from "../../../../../src/shared/types/workspace";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function makeDb(): Database {
   return new Database(":memory:");
@@ -45,7 +32,6 @@ describe("migration v4 — applied on top of existing v3 DB", () => {
   it("applies v4 without error on a v3 database that already has workspaces", () => {
     const db = makeDb();
 
-    // Simulate a v3-level database (has _meta, workspaces, location column)
     db.exec(`
       CREATE TABLE _meta (
         key   TEXT NOT NULL PRIMARY KEY,
@@ -75,7 +61,6 @@ describe("migration v4 — applied on top of existing v3 DB", () => {
       1700000000000,
     );
 
-    // Apply v4 migration — must not throw
     expect(() => applyMigrations(db)).not.toThrow();
 
     const tables = db
@@ -85,17 +70,12 @@ describe("migration v4 — applied on top of existing v3 DB", () => {
     expect(names).toContain("folder_bookmarks");
     expect(names).toContain("connection_profiles");
 
-    // Existing workspace row unaffected
     const ws = db.prepare("SELECT id FROM workspaces").get() as { id: string };
     expect(ws.id).toBe("00000000-0000-0000-0000-000000000001");
 
     db.close();
   });
 });
-
-// ---------------------------------------------------------------------------
-// AC-2: folder_bookmark upsert — same abs_path updates last_used_at only
-// ---------------------------------------------------------------------------
 
 describe("GlobalStorage.recordFolderBookmark — upsert", () => {
   let db: Database;
@@ -121,12 +101,10 @@ describe("GlobalStorage.recordFolderBookmark — upsert", () => {
     storage.recordFolderBookmark({ id: uuid(1), absPath: "/home/user/project" });
     const before = storage.listFolderBookmarks()[0].lastUsedAt;
 
-    // Force a slightly later timestamp
     const oldAt = db
       .prepare("SELECT last_used_at FROM folder_bookmarks WHERE abs_path = ?")
       .get("/home/user/project") as { last_used_at: number };
 
-    // Manually set last_used_at to an older value to verify it changes
     db.prepare("UPDATE folder_bookmarks SET last_used_at = ? WHERE abs_path = ?").run(
       oldAt.last_used_at - 1000,
       "/home/user/project",
@@ -135,14 +113,9 @@ describe("GlobalStorage.recordFolderBookmark — upsert", () => {
     storage.recordFolderBookmark({ id: uuid(2), absPath: "/home/user/project" });
     const after = storage.listFolderBookmarks()[0].lastUsedAt;
     expect(after).toBeGreaterThan(before - 1000);
-    // Row count is still 1
     expect(storage.listFolderBookmarks().length).toBe(1);
   });
 });
-
-// ---------------------------------------------------------------------------
-// AC-3: folder_bookmark cap eviction — boundary 20/21
-// ---------------------------------------------------------------------------
 
 describe("GlobalStorage.recordFolderBookmark — cap eviction", () => {
   let db: Database;
@@ -158,15 +131,12 @@ describe("GlobalStorage.recordFolderBookmark — cap eviction", () => {
   });
 
   it("21st non-favorite row evicts the oldest", () => {
-    // Pre-seed 20 rows with strictly increasing timestamps so eviction order is deterministic
     for (let i = 1; i <= 20; i++) {
       db.prepare(
         `INSERT INTO folder_bookmarks (id, abs_path, label, favorite, last_used_at, created_at)
          VALUES (?, ?, NULL, 0, ?, ?)`,
       ).run(uuid(i), `/path/${i}`, i * 1000, i * 1000);
     }
-    // path/1 has last_used_at=1000 — the oldest non-favorite row
-    // Calling record for path/21 inserts it and evicts the oldest
     storage.recordFolderBookmark({ id: uuid(21), absPath: "/path/21" });
 
     const list = storage.listFolderBookmarks();
@@ -177,30 +147,22 @@ describe("GlobalStorage.recordFolderBookmark — cap eviction", () => {
   });
 
   it("favorite rows are NOT evicted regardless of cap", () => {
-    // Insert 1 favorite first
     storage.recordFolderBookmark({ id: uuid(1), absPath: "/path/fav" });
     storage.setFolderBookmarkFavorite(uuid(1), true);
 
-    // Fill 20 non-favorite rows
     for (let i = 2; i <= 21; i++) {
       storage.recordFolderBookmark({ id: uuid(i), absPath: `/path/${i}` });
     }
 
-    // Total = 21 non-favorites + 1 favorite = 22 but favorite is preserved
     const list = storage.listFolderBookmarks();
     const fav = list.find((b) => b.absPath === "/path/fav");
     expect(fav).toBeDefined();
     expect(fav?.favorite).toBe(true);
 
-    // Non-favorite count is capped at 20
     const nonFavCount = list.filter((b) => !b.favorite).length;
     expect(nonFavCount).toBe(20);
   });
 });
-
-// ---------------------------------------------------------------------------
-// AC-4: removeWorkspace does NOT affect entry-point tables
-// ---------------------------------------------------------------------------
 
 describe("GlobalStorage.removeWorkspace — entry-point table isolation", () => {
   let db: Database;
@@ -238,10 +200,6 @@ describe("GlobalStorage.removeWorkspace — entry-point table isolation", () => 
   });
 });
 
-// ---------------------------------------------------------------------------
-// AC-5: SSH null user/port normalization — no duplicates
-// ---------------------------------------------------------------------------
-
 describe("GlobalStorage.recordConnectionProfile — SSH normalization", () => {
   let db: Database;
   let storage: GlobalStorage;
@@ -271,7 +229,6 @@ describe("GlobalStorage.recordConnectionProfile — SSH normalization", () => {
     storage.recordConnectionProfile({ id: uuid(1), host: "devbox", user: "alice", port: 22 });
     const before = storage.listConnectionProfiles()[0].lastUsedAt;
 
-    // Force older timestamp
     db.prepare(
       "UPDATE connection_profiles SET last_used_at = ? WHERE host = ? AND user = ? AND port = ?",
     ).run(before - 1000, "devbox", "alice", 22);
@@ -284,7 +241,6 @@ describe("GlobalStorage.recordConnectionProfile — SSH normalization", () => {
   });
 
   it("connection_profiles cap eviction: 21st non-favorite evicts oldest", () => {
-    // Pre-seed 20 rows with strictly increasing timestamps for deterministic eviction
     for (let i = 1; i <= 20; i++) {
       db.prepare(
         `INSERT INTO connection_profiles

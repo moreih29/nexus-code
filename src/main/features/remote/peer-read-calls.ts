@@ -4,10 +4,6 @@ import { type CallContext, validateArgs } from "../../infra/ipc-router";
 import type { RemoteRoom } from "./room";
 import { SEARCH_TIME_MS } from "./search";
 
-/**
- * File, Git, host-load and note RPCs behind the renderer's peer read calls.
- * The byte reader shares files.read.
- */
 export const PEER_READ_METHODS = {
   peerFilesList: "files.list",
   peerFilesFind: "files.find",
@@ -24,7 +20,6 @@ export const PEER_READ_METHODS = {
 
 const c = ipcContract.remote.call;
 
-// The server can spend its full search budget before sending a truncated answer.
 const PEER_SEARCH_TIMEOUT_MS = SEARCH_TIME_MS + 5_000;
 
 export function peerReadCalls(

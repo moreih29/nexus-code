@@ -1,7 +1,3 @@
-/**
- * Group-domain commands: split right / down, close, focus left / right / up / down.
- */
-
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { type Direction, Grid } from "../../engine";
@@ -67,9 +63,6 @@ export function registerGroupCommands(): Array<() => void> {
       const groupId = layout.activeGroupId;
       const leaf = Grid.findLeaf(layout.root, groupId);
       if (!leaf) return;
-      // Buffers go through the dirty-aware close first, like Close All, so
-      // unsaved edits are prompted for instead of dropped; a cancel (or a
-      // failed save) keeps the group and its remaining tabs open.
       const tabs = useTabsStore.getState().byWorkspace[wsId] ?? {};
       for (const id of [...leaf.tabIds]) {
         const type = tabs[id]?.type;

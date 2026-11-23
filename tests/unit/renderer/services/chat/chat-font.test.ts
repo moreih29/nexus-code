@@ -1,9 +1,3 @@
-/**
- * A chat tab's text at the size and in the font Settings › Agent set: the
- * reply's size, the app's text sizes scaled as it is, and the font ahead of
- * the app's.
- */
-
 import { describe, expect, it } from "bun:test";
 import {
   chatFontVars,
@@ -25,7 +19,6 @@ describe("chatFontVars", () => {
   });
 
   it("takes the system's font as each platform names it, Windows' Segoe UI ahead of its locale's", () => {
-    // Korean Windows gives system-ui as Malgun Gothic, Latin letters too.
     expect(chatFontVars(undefined, "system-ui")["--chat-font-family"]).toBe(
       `-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, ${fontFamily.sans}`,
     );

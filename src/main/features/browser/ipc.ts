@@ -1,22 +1,3 @@
-/**
- * Browser tab IPC channel — bridges renderer commands to BrowserTabRegistry
- * and routes WebContents lifecycle events to the renderer that created the view.
- *
- * SECURITY
- * --------
- * All IPC args are validated against the Zod schemas in contract.ts.  The
- * navigation guards (will-navigate, will-frame-navigate, setWindowOpenHandler)
- * are applied by the registry at WebContents-creation time — they are NOT
- * bypassed here.
- *
- * DESIGN NOTE: WHY WE ATTACH LISTENERS IN registerBrowserChannel
- * Attaching WebContents event listeners here (rather than in registry.create)
- * separates concerns:
- *   - registry.ts owns the WebContentsView lifetime and security policy.
- *   - ipc.ts owns the IPC wire-up and broadcast logic.
- * This keeps registry.ts testable without an IPC router mock.
- */
-
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { COMMANDS } from "../../../shared/keybindings/commands";
@@ -29,11 +10,6 @@ import { installBrowserKeyInterceptor } from "./keyboard";
 import type { BrowserPermissionPromptManager } from "./permission-prompt-manager";
 import type { BrowserHostWindow, BrowserTabRegistry } from "./registry";
 
-/**
- * Whether the app renderer may load a page-supplied favicon URL. The tab bar
- * fetches it from the app's own session, not the tab's partition, so a page
- * must not be able to point it at file:// or nexus-workspace://.
- */
 export function isLoadableFaviconUrl(url: string): boolean {
   return /^(https?:|data:image\/)/i.test(url);
 }
@@ -47,20 +23,6 @@ export interface BrowserChannelDeps {
   readonly globalStorage: GlobalStorage;
 }
 
-/**
- * Registers the `browser` IPC channel and wires WebContents lifecycle events
- * to broadcast calls.
- *
- * Must be called after the registry is initialised (i.e. after the main
- * window exists).
- */
-/**
- * Run a command resolved by the key interceptor against `tabId`.
- * Shared by the page-view and docked-DevTools-view interceptors so both
- * surfaces behave identically. Five browser commands act on the registry
- * directly; URL focus needs the renderer, so it is bounced over IPC. App
- * commands (tabs, groups, workspaces…) run in the app window.
- */
 function runBrowserCommand(
   registry: BrowserTabRegistry,
   command: string,
@@ -84,8 +46,6 @@ function runBrowserCommand(
       focusUrl();
       break;
     default: {
-      // As if the key had been pressed in the app window: that window takes
-      // the keyboard focus back from the page and runs the command.
       const win = getActiveAppWindow();
       if (!win || win.isDestroyed()) return;
       win.webContents.focus();
@@ -102,7 +62,6 @@ export function registerBrowserChannel(
   type Owner = { viewId: string; sender: NonNullable<CallContext["sender"]> };
   const owners = new Map<string, Owner>();
 
-  /** Publish current-generation events directly to the view's renderer. */
   function sendViewEvent(
     tabId: string,
     event: string,
@@ -113,7 +72,6 @@ export function registerBrowserChannel(
     owner.sender.send("ipc:event", "browser", event, { ...payload, tabId, viewId: owner.viewId });
   }
 
-  /** Resolve a request from the owning renderer, optionally for a particular generation. */
   function ownsView(tabId: string, ctx: CallContext | undefined, viewId?: string): boolean {
     const owner = owners.get(tabId);
     return (
@@ -145,7 +103,6 @@ export function registerBrowserChannel(
         if (previous && previous.sender.id !== ctx.sender.id && !previous.sender.isDestroyed()) {
           return ipcErr("conflict", "Browser tab is open in another window");
         }
-        // Dispose the old generation before allowing the new one to emit.
         owners.delete(tabId);
         if (registry.get(tabId)) registry.destroy({ tabId });
         const owner = { viewId, sender: ctx.sender };
@@ -157,8 +114,6 @@ export function registerBrowserChannel(
           return ipcErr("browser-create-failed", String(error), { category: "bug" });
         }
 
-        // Wire WebContents lifecycle events for broadcasts.
-        // The entry was just created so it MUST be present.
         const entry = registry.get(tabId);
         if (!entry) {
           owners.delete(tabId);
@@ -204,30 +159,16 @@ export function registerBrowserChannel(
           emit("titleUpdated", { title });
         });
 
-        // page-favicon-updated: fires when Chromium finds favicon URL candidates.
-        // If the page does not declare link rel="icon", the fallback `/favicon.ico` is tried.
-        // The renderer shows the first candidate as the tab icon (the default Globe if none).
         wc.on("page-favicon-updated", (_event, favicons: string[]) => {
           emit("faviconUpdated", {
             favicons: favicons.filter(isLoadableFaviconUrl),
           });
         });
 
-        // focus: the WebContentsView is a native view painted over the renderer
-        // DOM, so a click on the page never bubbles to the renderer's
-        // group-activation listeners. Broadcast a focus event so the renderer
-        // can activate the group that owns this tab (matches the focus
-        // behaviour of every other panel type). Fires only on focus *gain*, so
-        // it does not spam on repeated clicks inside an already-focused view.
         wc.on("focus", () => {
           emit("focused", {});
         });
 
-        // Intercept keystrokes that land while the PAGE has focus — they
-        // never reach the renderer dispatcher (the WebContentsView is
-        // outside the renderer DOM), so match them here and run the
-        // browser command. (The docked DevTools view is covered by the
-        // registry's DevTools key interceptor wired above.)
         installBrowserKeyInterceptor(wc, tabId, (command, t) =>
           runBrowserCommand(registry, command, t, () => emit("focusUrl", {})),
         );
@@ -289,8 +230,6 @@ export function registerBrowserChannel(
         const { tabId } = validateArgs(c.openDevTools.args, args);
         if (!ownsView(tabId, ctx)) return ipcOk(undefined);
         const { open } = registry.openDevTools({ tabId });
-        // Tell the renderer to show/hide the splitter and start/stop
-        // reporting setDevToolsBounds for this tab.
         sendViewEvent(tabId, "devtoolsToggled", { open });
         return ipcOk(undefined);
       },
@@ -305,7 +244,6 @@ export function registerBrowserChannel(
       suspendAll: async (args: unknown, ctx) => {
         const { captureSnapshot } = validateArgs(c.suspendAll.args, args);
         if (!ctx?.sender) return ipcOk(undefined);
-        // Capture before hiding so the renderer can show the last frame under the overlay.
         const capturing = new Map(owners);
         const snapshots = await registry.suspendAll({ captureSnapshot, windowId: ctx.sender.id });
         for (const { tabId, dataUrl } of snapshots) {
@@ -339,8 +277,6 @@ export function registerBrowserChannel(
     },
   });
 
-  // Register the browserPermission channel only when deps are provided.
-  // In tests / legacy paths without deps the channel is not registered.
   if (!channelDeps) return;
 
   const { promptManager, workspaceStorage, globalStorage } = channelDeps;
@@ -362,7 +298,6 @@ export function registerBrowserChannel(
       listRemembered: (args: unknown) => {
         const { workspaceId } = validateArgs(bp.listRemembered.args, args);
         if (workspaceId) {
-          // Single-workspace query: only list rows if the workspace DB is open.
           if (!workspaceStorage.isOpen(workspaceId)) {
             return ipcOk([]);
           }
@@ -378,9 +313,6 @@ export function registerBrowserChannel(
           );
         }
 
-        // Global query: enumerate all known workspaces and collect their rows.
-        // Only open workspaces contribute — closed workspace DBs are skipped
-        // (opening a DB just for a listing call could cause race conditions).
         const workspaces = globalStorage.listWorkspaces();
         const result: {
           workspaceId: string;

@@ -4,11 +4,6 @@ import { useNotificationsStore } from "../state/stores/notifications";
 
 export type BannerScope = readonly (string | number | boolean | null | undefined)[];
 
-/**
- * Keep a banner closed across remounts. Use the underlying event ID or version
- * where available. For states that can recur with identical data, pass
- * resetOnChange and keep observing when the state ends (situation undefined).
- */
 export function useBannerDismissal(
   scope: BannerScope,
   situation: BannerScope | undefined,
@@ -35,7 +30,6 @@ export function useBannerDismissal(
   };
 }
 
-// Some stores hold the original event object until a new occurrence replaces it.
 const eventIds = new WeakMap<object, number>();
 let nextEventId = 0;
 

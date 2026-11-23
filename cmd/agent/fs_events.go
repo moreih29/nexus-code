@@ -7,8 +7,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/stdioserver"
 )
 
-// fsEventSink forwards filesystem events to the client and also tells any
-// language servers that registered for file changes about the same batch.
 func fsEventSink(host *stdioserver.Host, lsp *agentlsp.Service) agentfs.EventSink {
 	return func(event string, payload any) error {
 		err := host.EmitEvent(event, payload)

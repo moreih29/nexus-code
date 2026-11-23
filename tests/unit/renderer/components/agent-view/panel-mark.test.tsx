@@ -1,7 +1,3 @@
-/**
- * The mark of a session the agent view's panels have, the same on this computer's rows
- * and another computer's: shown in front of a panel, or held behind another tab.
- */
 import { describe, expect, test } from "bun:test";
 import type { SplitNode } from "../../../../../src/renderer/engine";
 

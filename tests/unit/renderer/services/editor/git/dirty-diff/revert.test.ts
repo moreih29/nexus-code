@@ -1,7 +1,3 @@
-// Verifies the edit behind the dirty-diff peek's "Revert Change": applying it
-// to the buffer restores the baseline for that change. Changes are written in
-// the shape mapChangesToDirty produces from monaco's diff mappings.
-
 import { describe, expect, test } from "bun:test";
 import {
   type RevertEdit,
@@ -9,7 +5,6 @@ import {
 } from "../../../../../../../src/renderer/services/editor/git/dirty-diff/revert";
 import type { DirtyChange } from "../../../../../../../src/renderer/services/editor/git/dirty-diff/types";
 
-/** A model over `text` whose lines and columns follow monaco's conventions. */
 function modelOf(text: string, eol = "\n") {
   const lines = text.split(eol);
   return {

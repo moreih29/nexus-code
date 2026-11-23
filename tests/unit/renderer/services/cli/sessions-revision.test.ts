@@ -1,4 +1,3 @@
-/** The renderer's count of changes to the sessions, and when main is told of one. */
 import { afterAll, afterEach, beforeEach, expect, jest, test } from "bun:test";
 import { ipcErr } from "../../../../../src/shared/ipc/result";
 
@@ -65,7 +64,6 @@ test("main is told the first change after each read, with the count at the end o
   await settle();
   expect(told).toHaveLength(1);
   expect(sessionsRevision()).toBe(at + 3);
-  // Read: the next change is news again.
   expect(readSessionsRevision()).toBe(at + 3);
   useAgentProfilesStore.setState({});
   await settle();

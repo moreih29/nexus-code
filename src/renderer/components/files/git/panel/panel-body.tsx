@@ -1,20 +1,3 @@
-/**
- * GitPanelBody renders the main content area of the Source Control panel for
- * a detected git repository.
- *
- * Owns: HistorySegmentToggle · HistoryPanel · OperationBanner ·
- *       GitCommitInput · file-group list.
- *
- * Branch identity / sync actions previously lived in a panel footer
- * (GitBranchBar) — that footer was removed so the file panel's island
- * shape (rounded corners on its host) reads cleanly. Branch switching is
- * now reached from the status bar's branch button; fetch/pull/push are
- * available from GitMoreMenu (header) and the commit button menu.
- *
- * Owns one piece of state: which file the rows' shared context menu is
- * open for. Every other value and callback comes from props.
- */
-
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
@@ -46,16 +29,13 @@ import { OperationBanner } from "./operation-banner";
 export interface GitPanelBodyProps {
   workspaceId: string;
 
-  // Segment control
   panelSegment: GitPanelSegment;
   isBusy: boolean;
   onSegmentChange: (segment: GitPanelSegment) => void;
 
-  // History panel (shown when panelSegment === "history")
   historyRef: string;
   onHistoryRefChange: (ref: string) => void;
 
-  // Operation banner / commit input (shown when panelSegment === "changes")
   activeOperation: ActiveGitOperationState | null;
   operationNotice: ReturnType<typeof useBannerDismissal>;
   lastError: GitStoreError | null | undefined;
@@ -63,7 +43,6 @@ export interface GitPanelBodyProps {
   onContinueOp: () => void;
   onAbortOp: () => void;
 
-  // Commit input props: the input reads the draft itself, so typing renders only it.
   actionState: GitActionButtonState;
   commitOptions: GitCommitOptions;
   menuEnablement: GitCommitMenuEnablement;
@@ -83,16 +62,10 @@ export interface GitPanelBodyProps {
   onPushOnly: () => void;
   onPullOnly: () => void;
 
-  // File group list
   groups: GitGroupDescriptor[];
   viewMode: ViewMode;
   expandedGroups: Record<string, boolean>;
   expandedTreeNodes: Record<string, string[]>;
-  /**
-   * What the groups and their rows do, all but opening the file menu, which
-   * the body shares among them. Keeps its identity, so the groups render
-   * only for their own files.
-   */
   fileActions: Omit<GitGroupActions, "openMenu">;
 }
 
@@ -131,8 +104,6 @@ export function GitPanelBody({
   fileActions,
 }: GitPanelBodyProps) {
   const { t } = useTranslation("files");
-  // One context menu for every row, open for one file at a time: a menu for
-  // each row cost a Radix menu per file, and the panel lists every untracked one.
   const [menu, setMenu] = useState<GitFileMenuTarget | null>(null);
   const actions = useMemo<GitGroupActions>(
     () => ({
@@ -141,13 +112,10 @@ export function GitPanelBody({
     }),
     [fileActions],
   );
-  // Closed, it keeps its file: the item picked runs once the menu has closed.
   const closeMenu = useCallback(
     () => setMenu((open) => (open ? { ...open, point: null } : open)),
     [],
   );
-  // The file as its row now shows it. The menu goes with the row, as when
-  // each row had its own: a file that left its group closes its menu.
   const menuEntry = menu ? listedEntry(groups, menu.groupKey, menu.entry) : null;
   const menuPoint = menuEntry ? (menu?.point ?? null) : null;
   useEffect(() => {
@@ -234,14 +202,12 @@ export function GitPanelBody({
   );
 }
 
-/** The file the rows' shared menu is for, and where it opened; no point once closed. */
 interface GitFileMenuTarget {
   entry: GitStatusEntry;
   groupKey: GitExpandedGroupKey;
   point: GitContextMenuPoint | null;
 }
 
-/** The entry a group lists for the row `entry` was in (rows are keyed by both paths). */
 function listedEntry(
   groups: readonly GitGroupDescriptor[],
   groupKey: GitExpandedGroupKey,
@@ -257,7 +223,6 @@ function listedEntry(
 
 function noop(): void {}
 
-/** The menu's actions before any row opened it, while it shows nothing. */
 const CLOSED_MENU: GitFileContextMenuActions = {
   openFile: noop,
   openChanges: noop,

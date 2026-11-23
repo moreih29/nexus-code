@@ -1,7 +1,3 @@
-// A key on a button or a row, telling the key that does the same: ↵ on the
-// button Enter presses, 1 on the option the 1 key picks. Drawn in the colour
-// of the text around it.
-
 import { cn } from "@/utils/cn";
 
 export function Keycap({ children, className }: { children: React.ReactNode; className?: string }) {

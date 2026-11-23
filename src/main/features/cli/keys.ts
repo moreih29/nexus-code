@@ -1,4 +1,3 @@
-/** Key names for `nexus terminal key`, and the bytes a terminal sends for them. */
 import { CliUsageError } from "./args";
 
 const NAMED: Record<string, string> = {
@@ -25,7 +24,6 @@ export const KEY_NAMES_HELP =
   "Keys: enter, tab, shift-tab, esc, space, backspace, delete, up, down, left, right, home,\n" +
   "end, pageup, pagedown, ctrl-<letter> (ctrl-c, ctrl-d, ...), or any single character.";
 
-/** What a terminal sends for the key `name`. */
 export function keySequence(name: string): string {
   const lower = name.toLowerCase();
   const named = NAMED[lower];

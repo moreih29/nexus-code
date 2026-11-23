@@ -1,40 +1,9 @@
-/**
- * Scenario tests for the SshNewConnectionView two-stage connect flow (T10).
- *
- * WHAT IS TESTED
- * --------------
- * The real component's handleConnect: submitting the returned <form> runs the
- * real useIpcAction → openSshBrowseSession → saveConnectionProfileResult chain
- * against a stubbed ipcCallResult. The connect phase is read from
- * onConnectPhaseChange, the prop the parent footer drives its button from.
- *
- * HOW IT RENDERS WITHOUT A DOM
- * ----------------------------
- * Following browser-view.test.tsx: a transparent `react` mock forwards hooks to
- * React's current-dispatcher slot, and mountView() points that slot at a
- * minimal slot-indexed dispatcher while the component body runs. The form is
- * seeded through prefillProfile so no input events are needed.
- *
- * SCENARIOS
- * ---------
- *   1. Partial failure (plan issue-8): connect ok + save fails →
- *        - onConnected is called (primary flow completes)
- *        - phase exits connecting (no freeze)
- *   2. Auth cancellation → phase 'idle', no inline error (silent).
- *   3. Save rejects (throws instead of returning IpcErrResult) → phase exits connecting.
- *   4. Double-submit during in-flight connect → a single openBrowseSession call.
- */
-
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 import type { ReactElement } from "react";
 import type { ToastInput } from "../../../../../src/renderer/components/ui/toast";
 import type { SshBrowseSession } from "../../../../../src/renderer/components/workspace/add-workspace/types";
 import { ipcErr, ipcOk } from "../../../../../src/shared/ipc/result";
 import type { ConnectionProfile } from "../../../../../src/shared/types/entry-points";
-
-// ---------------------------------------------------------------------------
-// React hook dispatcher harness
-// ---------------------------------------------------------------------------
 
 interface HookDispatcher {
   useRef(initial: unknown): { current: unknown };
@@ -53,8 +22,6 @@ const reactInternals = (
   }
 ).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
 
-// Transparent delegating mock — overrides any leaked global react hook mock.
-// useContext / useSyncExternalStore (react-i18next) reach the slot unmocked.
 mock.module("react", () => ({
   ...currentReact,
   useRef: (init: unknown) => reactInternals.H?.useRef(init),
@@ -63,10 +30,6 @@ mock.module("react", () => ({
   useMemo: (f: () => unknown, deps?: readonly unknown[]) => reactInternals.H?.useMemo(f, deps),
   useEffect: (fn: () => void, deps?: readonly unknown[]) => reactInternals.H?.useEffect(fn, deps),
 }));
-
-// ---------------------------------------------------------------------------
-// IPC + toast stubs (real exports spread so later files keep the full surface)
-// ---------------------------------------------------------------------------
 
 type IpcHandler = (args: unknown) => Promise<unknown>;
 
@@ -116,11 +79,6 @@ const { ErrorNotice } = await import(
   "../../../../../src/renderer/components/workspace/add-workspace/error-notice"
 );
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Seeds the host field with "ada@dev.example.com" so Connect is enabled. */
 const PROFILE: ConnectionProfile = {
   id: "00000000-0000-4000-8000-000000000001",
   label: null,
@@ -139,12 +97,6 @@ type FormElement = ReactElement<{
   children: unknown[];
 }>;
 
-/**
- * Mounts SshNewConnectionView under a minimal dispatcher. State setters store
- * the value for the next render(); effects run after every render (deps and
- * cleanups ignored), which is enough to report the phase via
- * onConnectPhaseChange.
- */
 function mountView() {
   const refs: Array<{ current: unknown }> = [];
   const states: unknown[] = [];
@@ -211,11 +163,8 @@ function mountView() {
     },
     onConnected,
     cancel: () => cancelConnectRef.current?.(),
-    /** Submits the form from `form` (default: a fresh render). */
     submit: (form: FormElement = render()) => form.props.onSubmit({ preventDefault: () => {} }),
-    /** Phase reported to the parent by the latest render. */
     phase: () => phases.at(-1),
-    /** Message of the inline connection-error banner, or null when absent. */
     inlineError: (): string | null => {
       const notice = render().props.children.find(
         (child) => (child as ReactElement | null)?.type === ErrorNotice,
@@ -225,7 +174,6 @@ function mountView() {
   };
 }
 
-/** Drains the connect action's awaits before inspecting the view. */
 async function settle(view: ReturnType<typeof mountView>): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
   view.render();
@@ -243,10 +191,6 @@ beforeEach(() => {
   saveProfile = async () => ipcOk(undefined);
 });
 
-// ---------------------------------------------------------------------------
-// Scenario tests
-// ---------------------------------------------------------------------------
-
 describe("SSH connect flow — partial failure: connect ok, save fails", () => {
   beforeEach(() => {
     saveProfile = async () => ipcErr("not-found", "Profile store unavailable");
@@ -258,7 +202,6 @@ describe("SSH connect flow — partial failure: connect ok, save fails", () => {
     view.submit();
     await settle(view);
 
-    // Primary flow must complete even though save failed.
     expect(view.onConnected).toHaveBeenCalledTimes(1);
     expect(view.phase()).toBe("idle");
     expect(view.inlineError()).toBeNull();
@@ -291,7 +234,6 @@ describe("SSH connect flow — stage-2 unexpected throw (freeze prevention)", ()
     view.submit();
     await settle(view);
 
-    // Not a cancellation, so the hook settles on error rather than staying loading.
     expect(view.phase()).toBe("error");
   });
 });
@@ -305,7 +247,6 @@ describe("SSH connect flow — double-submit during in-flight connect", () => {
       });
     const view = mountView();
 
-    // Double click before React re-renders, then once more from the re-rendered form.
     const form = view.render();
     view.submit(form);
     view.submit(form);

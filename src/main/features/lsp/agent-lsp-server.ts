@@ -1,9 +1,3 @@
-// AgentLspServer is the per-LSP-instance handle the host hands out. It
-// owns the request id sequence, the textDocument cache used for
-// Full-sync downgrade, and the channel send envelope. The host class
-// keeps the lifecycle map (workspaceId → languageId → server); this
-// class is intentionally ignorant of how it is registered.
-
 import type { TextDocumentContentChangeEvent } from "../../../shared/lsp";
 import { type ServerCapabilities, TextDocumentSyncKind } from "../../../shared/lsp";
 import type { AgentChannel } from "../../infra/agent/channel";
@@ -91,10 +85,6 @@ export class AgentLspServer {
 
   notify(method: string, params: unknown): void {
     if (this.disposed) return;
-    // LSP notifications carry no id and expect no response — wrapping them in
-    // a request/response round-trip (channel.call) made the agent hold outMu
-    // and occupy a pendingRequests slot for every keystroke.  channel.fire()
-    // writes the frame and absorbs the ack without blocking the caller.
     this.channel.fire("lsp.notify", {
       serverId: this.serverId,
       message: { jsonrpc: "2.0", method, params },
@@ -166,7 +156,6 @@ export class AgentLspServer {
     return capabilityValueIsSupported(value[sub]);
   }
 
-  /** Returns the raw capability value for the given key (or undefined). */
   getCapabilityValue(key: string): unknown {
     return this.capabilities[key];
   }
@@ -192,7 +181,6 @@ export class AgentLspServer {
     return true;
   }
 
-  /** Fails pending editor calls and waits for the server's shutdown reply. */
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
@@ -205,9 +193,6 @@ export class AgentLspServer {
     await this.channel.call("lsp.shutdown", { serverId: this.serverId }).catch(() => {});
   }
 
-  // disposePending mirrors dispose() but does not call lsp.shutdown — the
-  // server already exited, so the agent no longer holds a serverId for it.
-  // Used by the host's serverExited handler to fail in-flight requests.
   disposePending(error: Error): void {
     if (this.disposed) return;
     this.disposed = true;

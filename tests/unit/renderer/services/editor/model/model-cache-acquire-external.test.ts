@@ -1,14 +1,5 @@
-/**
- * Unit tests for acquireModel branching on input.origin.
- *
- * When origin="external", acquireModel must call loadExternalEntry.
- * When origin is absent or "workspace", acquireModel must call createEntry.
- */
-
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Bun mock.module is process-global. Spread real exports so other editor/*
-// test files see the full module surface after this file runs.
 const realLspBridge = await import("../../../../../../src/renderer/services/editor/lsp/bridge");
 const realMonacoSingleton = await import(
   "../../../../../../src/renderer/services/editor/runtime/monaco-singleton"
@@ -41,7 +32,6 @@ mock.module("../../../../../../src/renderer/services/editor/runtime/monaco-singl
   }),
 }));
 
-// Provide a minimal window.ipc stub so ipc/client.ts can be imported.
 (globalThis as Record<string, unknown>).window = {
   ipc: {
     call: () => Promise.resolve(null),
@@ -128,7 +118,6 @@ const EXT_INPUT = {
 };
 
 beforeEach(() => {
-  // Release any cached entries to keep tests independent.
   releaseModel(WS_INPUT);
   releaseModel(EXT_INPUT);
   createEntryMock.mockClear();
@@ -141,7 +130,6 @@ describe("acquireModel — origin branching", () => {
     await Promise.all([acquireModel(EXT_INPUT), acquireModel(EXT_INPUT)]);
     expect(loadExternalEntryMock).toHaveBeenCalledTimes(1);
 
-    // Both references land on the same entry: one release keeps it alive.
     releaseModel(EXT_INPUT);
     expect(getModelSnapshot(EXT_INPUT)).not.toBeNull();
     releaseModel(EXT_INPUT);

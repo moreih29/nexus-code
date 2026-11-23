@@ -1,13 +1,3 @@
-// Claude Code's own settings (/config), as a dialog: what they are now,
-// read from get_settings and the global config file, and the changes sent
-// back as /config messages, which Claude Code saves where its panel would;
-// for a tab here, or (its source) for another computer's chat, whose app
-// reads and saves them so.
-// They are the defaults a new conversation starts with: the model and the
-// effort here too, where the composer's chips set only their tab's (the
-// tab the dialog is opened in takes the new ones, as the CLI's session
-// does).
-
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -38,17 +28,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { showToast } from "../ui/toast";
 import { ToggleChevron } from "../ui/toggle-chevron";
 
-/**
- * Where the dialog's settings come from and go to: a tab's program here,
- * or another computer's chat.
- */
 export interface ConfigSource {
-  /**
-   * Reads them, showing them as they come (again when a newer list of
-   * keys comes); the function it gives stops showing them.
-   */
   load(show: (shown: ConfigShown) => void, fail: (message: string) => void): () => void;
-  /** Saves the changes, and the default effort for the model the session then runs. */
   apply(
     changes: Readonly<Record<string, ConfigValue>>,
     keys: readonly ConfigKey[],
@@ -56,14 +37,10 @@ export interface ConfigSource {
   ): Promise<void>;
 }
 
-/** A tab's own settings, read from its program and its host's config file. */
 export function controllerConfigSource(controller: ChatController): ConfigSource {
   return {
     load(show, fail) {
       let live = true;
-      // The keys are shown as last listed (or as the app knows them) without
-      // waiting for the CLI's list, which takes a second or two and comes
-      // later only when it differs, as after an update of Claude Code.
       let listed = controller.savedConfigKeys();
       let read: Awaited<ReturnType<ChatController["readConfig"]>> | null = null;
       const shown = () => {
@@ -102,12 +79,10 @@ export function controllerConfigSource(controller: ChatController): ConfigSource
 
 type Loaded = "loading" | { failed: string } | ConfigShown;
 
-/** The draft's key for the default effort, which is no /config key. */
 const EFFORT = "effortDefault";
 
 const GROUPS: readonly ConfigGroup[] = ["conversation", "work", "other"];
 
-/** A tab's own settings dialog. */
 export function ConfigDialog({
   controller,
   state,
@@ -118,7 +93,6 @@ export function ConfigDialog({
   controller: ChatController;
   state: ChatTabState;
   open: boolean;
-  /** The key a command opened the dialog at (/output-style, /autocompact). */
   focus?: string;
   onClose: () => void;
 }) {
@@ -142,10 +116,8 @@ export function ConfigDialogView({
   onClose,
 }: {
   source: ConfigSource;
-  /** Whether the chat is in a turn, which the changes wait out. */
   running: boolean;
   open: boolean;
-  /** The key a command opened the dialog at (/output-style, /autocompact). */
   focus?: string;
   onClose: () => void;
 }) {
@@ -167,8 +139,6 @@ export function ConfigDialogView({
 
   const values = typeof loaded === "object" && "values" in loaded ? loaded.values : null;
 
-  // The key the command named, in view and with the keyboard: once, when
-  // the rows first show, and not again when the CLI's list comes.
   const shown = values !== null;
   useEffect(() => {
     if (!focus || !shown) return;
@@ -178,7 +148,6 @@ export function ConfigDialogView({
   }, [focus, shown]);
 
   const { [EFFORT]: draftEffort, ...draftKeys } = draft;
-  // Only the keys shown: one the CLI's list left out after it was set is not sent.
   const changes = values
     ? changesOf(Object.fromEntries(Object.entries(draftKeys).filter(([k]) => k in values)), values)
     : {};
@@ -360,7 +329,6 @@ function ConfigRow({
   onReset,
 }: {
   configKey: ConfigKey;
-  /** In place of the key's own. */
   label?: string;
   current: ConfigValue | undefined;
   value: ConfigValue | undefined;
@@ -373,9 +341,7 @@ function ConfigRow({
   const { t, i18n } = useTranslation();
   const id = useId();
   const { key, kind } = configKey;
-  // A key a newer Claude Code lists that the app has no name for goes by its own.
   const label = givenLabel ?? t(`chat.config.key.${key}`, { defaultValue: key });
-  // Only some have a line saying what they do.
   const descKey = `chat.config.desc.${key}`;
   const description = i18n.exists(descKey) ? t(descKey) : undefined;
 
@@ -413,8 +379,6 @@ function ConfigRow({
       </SettingsRow>
     );
   }
-  // A choice, or an on/off setting whose value is not known: its default
-  // until one is picked.
   const choices =
     kind === "boolean" ? ["true", "false"] : choicesOf(configKey, current, outputStyles);
   return (
@@ -447,14 +411,12 @@ function optionLabel(
   if (choice === "true") return t("chat.config.on");
   if (choice === "false") return t("chat.config.off");
   if (key === "model") {
-    // As initialize names the model, with its 1M context window.
     const { info, long } = modelChoiceOf(choice, models);
     const name = info?.displayName
       ? `${info.displayName}${long ? " · 1M" : ""}`
       : t(`chat.config.option.model.${choice}`, { defaultValue: choice });
     return choice === "default" ? t("chat.config.option.model.default") : name;
   }
-  // The permission modes, as the composer's mode chip calls them.
   const fallback =
     key === "permissionMode" ? t(`chat.mode.${choice}`, { defaultValue: choice }) : choice;
   return t(`chat.config.option.${key}.${choice}`, { defaultValue: fallback });

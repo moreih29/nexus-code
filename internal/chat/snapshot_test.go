@@ -11,16 +11,12 @@ import (
 	"testing"
 )
 
-// plainDiff is a turn diff codex 0.166 wrote on Windows, in a folder that is
-// not a repository: a CRLF file, a deleted file, a Korean one, a file whose
-// last line had no ending (apply_patch gives it one), and a new file.
 const plainDiff = "diff --git a/crlf.txt b/crlf.txt\nindex b4ec4d1f30d56e5f6c7f71191766764535a9b2e2..c6d393ec67e49ae1e8f3c2a8d9431150f7eecd95\n--- a/crlf.txt\n+++ b/crlf.txt\n@@ -1,3 +1,3 @@\n alpha\r\n-beta\r\n+BETA\r\n gamma\r\n" +
 	"diff --git a/gone.txt b/gone.txt\ndeleted file mode 100644\nindex b023018cabc396e7692c70bbf5784a93d3f738ab..0000000000000000000000000000000000000000\n--- a/gone.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-bye\n" +
 	"diff --git a/ko.txt b/ko.txt\nindex e09372cb40acc52a6501c6241d062cda9ab19546..99c17a748700256cdb463ec255ee5a756538353b\n--- a/ko.txt\n+++ b/ko.txt\n@@ -1,2 +1,2 @@\n 한글\n-둘째\n+셋째\n" +
 	"diff --git a/lf.txt b/lf.txt\nindex 54d55bf0bb50b503792f391b6f0158bd6145073e..ddc897f039f57aa91e16efa6dfde386c4255206f\n--- a/lf.txt\n+++ b/lf.txt\n@@ -1,3 +1,3 @@\n one\n-two\n-three\n\\ No newline at end of file\n+TWO\n+three\n" +
 	"diff --git a/new.txt b/new.txt\nnew file mode 100644\nindex 0000000000000000000000000000000000000000..ce013625030ba8dba906f756967f9e9ca394464a\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+hello\n"
 
-// plainAfter is the folder as that turn left it.
 var plainAfter = map[string]string{
 	"crlf.txt": "alpha\r\nBETA\r\ngamma\r\n",
 	"ko.txt":   "한글\n셋째\n",
@@ -53,8 +49,6 @@ func writeFiles(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
-// outsideRepo makes snapshots for a folder taken as no repository's, so a
-// temp folder inside one tests the same.
 func outsideRepo(dir string) *snapshots {
 	s := newSnapshots(dir)
 	s.roots = []string{dir}
@@ -99,14 +93,12 @@ func TestSnapshotsTakeEachFileBeforeTheTurn(t *testing.T) {
 func TestSnapshotsWaitForTheFileTheDiffMade(t *testing.T) {
 	dir := t.TempDir()
 	writeFiles(t, dir, plainAfter)
-	// Patched again before the agent read it.
 	writeFiles(t, dir, map[string]string{"crlf.txt": "alpha\r\nBETA\r\nGAMMA\r\n"})
 	s := outsideRepo(dir)
 
 	if got := originals(s.take(diffLine(t, plainDiff))); got[filepath.Join(dir, "crlf.txt")] != nil {
 		t.Fatalf("taken from a file the diff did not make: %q", got)
 	}
-	// The turn's next diff matches the file again.
 	writeFiles(t, dir, map[string]string{"crlf.txt": plainAfter["crlf.txt"]})
 	got := originals(s.take(diffLine(t, plainDiff)))
 	if got[filepath.Join(dir, "crlf.txt")] != "alpha\r\nbeta\r\ngamma\r\n" || len(got) != 1 {
@@ -120,7 +112,6 @@ func TestSnapshotsGiveUpOnAFileALaterTurnChanged(t *testing.T) {
 	s := outsideRepo(dir)
 	s.take(diffLine(t, plainDiff))
 
-	// The second turn's diff starts from the first turn's file, not the original.
 	second := "diff --git a/crlf.txt b/crlf.txt\nindex c6d393ec67e49ae1e8f3c2a8d9431150f7eecd95..aa6b03c701602a7f29937dd99173906d8a68a8ba\n--- a/crlf.txt\n+++ b/crlf.txt\n@@ -1,3 +1,3 @@\n alpha\r\n BETA\r\n-gamma\r\n+GAMMA\r\n"
 	writeFiles(t, dir, map[string]string{"crlf.txt": "alpha\r\nBETA\r\nGAMMA\r\n"})
 	if got := s.take(diffLine(t, second)); len(got) != 0 {
@@ -148,7 +139,6 @@ func TestSnapshotsReadPathsFromTheRepositoryRoot(t *testing.T) {
 		t.Fatalf("roots = %v", got)
 	}
 
-	// As codex wrote it with its folder in a repository's sub folder.
 	diff := "diff --git a/sub/long.txt b/sub/long.txt\nindex c4352f8b46de5cdb88d0cc96958316db42dd2398..66642de857bd6701d3aa63930159245a5d3e3dd9\n--- a/sub/long.txt\n+++ b/sub/long.txt\n@@ -7,7 +7,7 @@\n line 7\n line 8\n line 9\n-line 10\n+LINE TEN\n line 11\n line 12\n line 13\n" +
 		"diff --git a/sub/old-name.txt b/sub/new-name.txt\nindex d3f59cb83812926b440d3cd7ef80c168183157e1..d3f59cb83812926b440d3cd7ef80c168183157e1\n--- a/sub/old-name.txt\n+++ b/sub/new-name.txt\n"
 	got := originals(s.take(diffLine(t, diff)))
@@ -207,7 +197,6 @@ func TestReverseDiffAtTheFilesEnds(t *testing.T) {
 }
 
 func TestBlobHashIsGits(t *testing.T) {
-	// git hash-object --no-filters of each.
 	for text, want := range map[string]string{
 		"":                           "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
 		"alpha\r\nbeta\r\ngamma\r\n": "b4ec4d1f30d56e5f6c7f71191766764535a9b2e2",

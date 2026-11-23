@@ -23,10 +23,6 @@ export const CompletionItemLabelDetailsSchema = z.object({
 export const CompletionItemTagDeprecated = 1;
 export const InsertTextFormatSnippet = 2;
 
-/**
- * The fields of an LSP completion item the editor uses. `data` is the
- * server's own, kept so `completionItem/resolve` gets it back.
- */
 export const CompletionItemSchema = z.object({
   label: z.string(),
   labelDetails: CompletionItemLabelDetailsSchema.optional(),
@@ -54,15 +50,12 @@ export const CompletionListSchema = z.object({
 });
 export type CompletionList = z.infer<typeof CompletionListSchema>;
 
-/** LSP's CompletionTriggerKind. */
 export const CompletionTriggerKind = {
   Invoked: 1,
   TriggerCharacter: 2,
   TriggerForIncompleteCompletions: 3,
 } as const;
 
-// Renderer → main: what typed the request, so main can skip characters the
-// server does not complete on and pass the context on to it.
 export const CompletionArgsSchema = TextDocumentPositionArgsSchema.extend({
   triggerKind: IntegerSchema.optional(),
   triggerCharacter: z.string().optional(),

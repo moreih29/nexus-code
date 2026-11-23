@@ -155,7 +155,6 @@ test("status counts families, shows differing glyphs and discloses idle children
   expect(attention).toContain("↳ Test report");
   expect(attention).toContain('title="Parent · Test report"');
   expect(attention?.match(/data-testid="agent-sidebar-tree-line"/g)).toHaveLength(3);
-  // Each row tells its own state, the group's too.
   expect(attention?.match(/data-testid="agent-sidebar-state"/g)).toHaveLength(4);
   expect(rows(running ?? "")).toEqual([]);
   expect(rows(done ?? "")).toEqual([billing.title, notes.title]);
@@ -184,7 +183,6 @@ test.each([
     ),
   ].find((match) => match[2] === label);
   expect(caption?.[1]?.split(" ")).toEqual(expect.arrayContaining(["max-w-40", "truncate"]));
-  // What it last said gives way first, and goes with less than 3em left.
   expect(caption?.[3]?.split(" ")).toEqual(expect.arrayContaining(["min-w-[3em]", "flex-1"]));
   expect(caption?.[4]).toContain(preview);
 });
@@ -214,7 +212,6 @@ test("a worktree holding only children has no group and no line naming their par
   expect(html).not.toContain("under Release plan");
   expect(html).not.toContain("under Billing results");
   expect(html).not.toContain('data-testid="agent-sidebar-moved"');
-  // The worktree's conversations still show, each under its parent.
   expect(rows(html)).toEqual(expect.arrayContaining([question.title, notes.title]));
 });
 
@@ -240,7 +237,6 @@ test("a folded family tells inside its chip what of it works and waits, not its 
   expect(chip.match(/data-testid="agent-sidebar-summary"/g)).toHaveLength(2);
   expect(chip).toContain(">4<");
   expect(chip).not.toContain("lucide-circle-check");
-  // Unfolded, the chip tells only how many.
   const open = render(status());
   const openChip =
     open.match(/<button[^>]*data-testid="agent-sidebar-fold-family">.*?<\/button>/)?.[0] ?? "";
@@ -296,7 +292,6 @@ test("rows that need the user tell what for: a permission, a question, a plan, o
     const failed = html.split(`aria-label="${broke.title}"`)[1] ?? "";
     expect(failed).toMatch(/^[\s\S]*?text-\(--state-error-fg\)">Failed<\/span>/);
     expect(sign(working.title)).toBeUndefined();
-    // By workspace too.
     const byWorkspace = renderToStaticMarkup(
       <WorkspaceGroups agents={agents([ask, plans])} activity={new Map()} query="" />,
     );
@@ -328,7 +323,6 @@ test("search exposes matching children and their ancestors through both saved fo
   const folds = ["status:attention", `family:${plan.key}`];
   const folded = render(status(), folds.slice(1));
   expect(rows(sections(folded)[0] ?? "")).toEqual([plan.title]);
-  // The folded chip tells what of the family works and waits on the user, not new results.
   const summary = sections(folded)[0]?.match(/data-testid="agent-sidebar-summary"/g);
   expect(summary).toHaveLength(2);
   const found = render(status(" quiet "), folds);
@@ -460,7 +454,6 @@ test("workspace tasks show moved conversations once under their parent and keep 
   const views = <WorkspaceGroups agents={agents()} activity={new Map()} query="" />;
   const html = render(workspaceList("task"));
   expect(sessionKeys(html)).toEqual(sessionKeys(render(views)));
-  // The task's card stays for its actions; its conversations run under their parents.
   expect(html).toContain('aria-label="feature/test"');
   expect(html).not.toContain("under Release plan");
   expect(html).not.toContain("No conversations");
@@ -494,13 +487,11 @@ test("the workspace view's status rows are two lines, with context, to-dos and s
     expect(row).not.toContain("lucide-list-checks");
     expect(row).not.toContain("lucide-bot");
     expect(row).not.toContain("42%</span>");
-    // A task's branch is its place; the workspace's own is not told.
     const child = html
       .split('data-session-key="task:question"')[1]
       ?.split('data-testid="agent-list-row"')[0];
     expect(child).toContain('data-testid="agent-list-branch"');
     expect(row).not.toContain('data-testid="agent-list-branch"');
-    // A new result's buttons wait under the pointer, in its time's place.
     const done = html
       .split('data-session-key="repo:billing"')[1]
       ?.split('data-testid="agent-list-row"')[0];
@@ -528,11 +519,9 @@ test("a task card's row reads mark, title, branch, children, state and time in o
     child.indexOf('role="img"'),
   );
   expect(child).toContain('data-wait="question"');
-  // No line of its own for the relations under a row.
   expect(html).not.toMatch(/<div class="px-3"><div class="pointer-events-none relative flex/);
 });
 
-/** A state group's fold button, as the html renders it. */
 function groupHeads(html: string): string[] {
   return [...html.matchAll(/<button[^>]*aria-expanded="(?:true|false)"[^>]*>(.*?)<\/button>/g)]
     .map(([, inside]) => inside ?? "")
@@ -548,7 +537,6 @@ test("a state group's chevron leads its line, before its glyph, in the muted col
     expect(head.indexOf("Needs you")).toBeGreaterThan(chevron);
     expect(head).toMatch(/lucide-chevron-down[^"]*text-muted-foreground/);
   }
-  // Folded, it points the other way, still first.
   const [folded = ""] = groupHeads(render(status(), ["status:attention"]));
   expect(folded.indexOf("lucide-chevron-right")).toBeGreaterThanOrEqual(0);
   expect(folded.indexOf("lucide-chevron-right")).toBeLessThan(folded.indexOf("Needs you"));

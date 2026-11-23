@@ -1,22 +1,8 @@
-// electron-builder afterPack 훅.
-//
-// The release workflow's agent artifact can arrive with files set to 0644.
-// Restore the execute bits of the bundled agent binaries and bin/ wrappers
-// before building the macOS and Linux installers. Otherwise the app cannot
-// spawn the agent (EACCES) from a read-only or system-owned install.
-//
-// On Windows it removes the binaries built for the other architecture
-// (dropOtherWindowsArch).
-//
-// On every platform it keeps the ONNX Runtime the platform runs, which the
-// voice print model needs, and checks the model is in the package
-// (keepOwnOnnxRuntime, checkVoicePrintModel).
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { Arch } = require("electron-builder");
 
-/** @param {import("electron-builder").AfterPackContext} context */
 exports.default = async function afterPack(context) {
   const { appOutDir, packager, electronPlatformName } = context;
   const arch = Arch[context.arch];
@@ -40,18 +26,14 @@ exports.default = async function afterPack(context) {
     return;
   }
 
-  /** @type {string[]} */
   const targets = [];
 
-  // 최상위 Go 에이전트 바이너리: agent-<version>-<os>-<arch>
   for (const entry of fs.readdirSync(agentDir, { withFileTypes: true })) {
     if (entry.isFile() && entry.name.startsWith("agent-")) {
       targets.push(path.join(agentDir, entry.name));
     }
   }
 
-  // The bin/ wrappers launch directly. Local LSP entries are read as scripts
-  // by Electron, and the SSH runtime/LSP archives carry their own modes.
   const binDir = path.join(agentDir, "bin");
   if (fs.existsSync(binDir)) {
     for (const entry of fs.readdirSync(binDir, { withFileTypes: true })) {
@@ -65,19 +47,8 @@ exports.default = async function afterPack(context) {
   }
 };
 
-/**
- * Removes the Windows binaries built for the other architecture: the agent
- * and native modules' prebuilds come for both, and the Store
- * takes a package whose files match its architecture (WACK's
- * platform-appropriate files test). The Linux and macOS agents stay, since
- * the app installs them on SSH hosts.
- * @param {string} appOutDir
- * @param {string} arch electron-builder's name for the package's architecture
- */
 function dropOtherWindowsArch(appOutDir, arch) {
   const others = arch === "arm64" ? ["x64", "amd64"] : ["arm64"];
-  // win32-arm64 (prebuild dirs and .node files), win10-arm64 (node-pty's
-  // ConPTY), agent-<version>-windows-arm64.exe.
   const pattern = new RegExp(`^(?:.+-)?(?:win32|win10|windows)-(?:${others.join("|")})(?:\\.node|\\.exe)?$`);
   const resources = path.join(appOutDir, "resources");
   const visit = (dir, recurse) => {
@@ -96,25 +67,11 @@ function dropOtherWindowsArch(appOutDir, arch) {
   visit(path.join(resources, "app.asar.unpacked"), true);
 }
 
-/** @param {string} target @param {string} appDir */
 function remove(target, appDir) {
   fs.rmSync(target, { recursive: true, force: true });
   console.log(`afterPack: removed ${path.relative(appDir, target)}`);
 }
 
-/**
- * Keeps only the platform's own ONNX Runtime of the ones onnxruntime-node
- * comes with (bin/napi-v6/<platform>/<arch>), which are most of its size.
- * Of those it also drops DirectML and its shader compiler on Windows, which
- * ONNX Runtime loads only to run a model on the GPU (DirectML.dll is a
- * delay-loaded import) while the voice print model runs on the CPU, and the
- * versioned copy of the macOS library, as the binding loads
- * libonnxruntime.1.dylib. On Windows it adds the Visual C++ runtime the
- * library links against (addVcRuntime).
- * @param {string} resources
- * @param {string} platform
- * @param {string} arch
- */
 function keepOwnOnnxRuntime(resources, platform, arch) {
   const bin = path.join(resources, "app.asar.unpacked", "node_modules", "onnxruntime-node", "bin", "napi-v6");
   const own = path.join(bin, platform, arch);
@@ -138,7 +95,6 @@ function keepOwnOnnxRuntime(resources, platform, arch) {
   if (platform === "win32") addVcRuntime(own, arch);
 }
 
-/** The Visual C++ runtime's libraries that ONNX Runtime and its binding link against. */
 const VC_RUNTIME = [
   "msvcp140.dll",
   "msvcp140_1.dll",
@@ -147,16 +103,6 @@ const VC_RUNTIME = [
   "vcruntime140_1.dll",
 ];
 
-/**
- * Copies the Visual C++ runtime next to ONNX Runtime, which Windows finds
- * there when the binding loads (Node loads an addon with its own folder
- * searched first): Windows does not come with it, and only some machines
- * have it installed. Taken from Visual Studio's redistributable files
- * (VC\Redist\MSVC, the newest), or from the build machine's System32 when
- * it has no Visual Studio.
- * @param {string} dir
- * @param {string} arch
- */
 function addVcRuntime(dir, arch) {
   const places = [];
   const vswhere = path.join(
@@ -191,11 +137,6 @@ function addVcRuntime(dir, arch) {
   console.log(`afterPack: Visual C++ runtime from ${from}`);
 }
 
-/**
- * Fails the build when the package has no voice print model: on Windows and
- * Linux it is fetched for the build (scripts/voice-print-model.ts).
- * @param {string} resources
- */
 function checkVoicePrintModel(resources) {
   const dir = path.join(resources, "voice-print");
   const models = fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => n.endsWith(".onnx")) : [];

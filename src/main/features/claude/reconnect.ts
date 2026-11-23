@@ -1,37 +1,16 @@
-/**
- * Claude Code's hooks reach the app over the agent's link. While an SSH
- * outage holds a workspace's terminals, the hooks Claude runs are lost, so a
- * turn that ended then leaves its terminal "running" until the next hook.
- * When the terminals come back, each one with a Claude state is looked at
- * again, through what the terminal itself shows once its output is replayed:
- *
- * - Its foreground program is a shell again: Claude Code exited, and the
- *   state goes.
- * - It was running, and the last title in the replayed output has the ✳ mark
- *   Claude shows while it waits on the user: the turn ended, or stopped on a
- *   question, and the state becomes needsInput.
- *
- * Anything else keeps the state. The state changes once, after the replay,
- * and only on such a sign, so it never flickers while the replay comes in.
- */
 import { isLoginShell } from "../../../shared/pty/login-shell";
 import { isClaudeIdleTitle } from "./idle-title";
 import type { ClaudeStatusBroker } from "./status";
 
-/** A terminal title, set with OSC 0 or 2 and ended by BEL or ST. */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: OSC sequences start with ESC
 const TITLE = /\x1b\][02];([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
 
-/** The most of an unended sequence kept for the next chunk. */
 const MAX_CARRY = 1024;
 
 interface Restoring {
-  /** The state when the terminal came back, to see whether a hook changed it since. */
   readonly entry: NonNullable<ReturnType<ClaudeStatusBroker["get"]>>;
   checking?: boolean;
-  /** The last title in the replayed output so far. */
   title: string | undefined;
-  /** A sequence the last chunk ended inside. */
   carry: string;
 }
 
@@ -40,14 +19,12 @@ export class ClaudeReconnectCheck {
 
   constructor(
     private readonly broker: Pick<ClaudeStatusBroker, "get" | "set" | "clear">,
-    /** The terminal's foreground program, or null when it cannot be told. */
     private readonly foregroundProcess: (
       workspaceId: string,
       tabId: string,
     ) => Promise<string | null>,
   ) {}
 
-  /** A held terminal came back; with replay, its output is about to be sent again. */
   noteRestored(workspaceId: string, tabId: string, withReplay: boolean): void {
     const key = `${workspaceId}:${tabId}`;
     const entry = this.broker.get(workspaceId, tabId);
@@ -62,7 +39,6 @@ export class ClaudeReconnectCheck {
     });
   }
 
-  /** Output replayed to a terminal. */
   noteReplay(workspaceId: string, tabId: string, chunk: string): void {
     const restoring = this.restoring.get(`${workspaceId}:${tabId}`);
     if (!restoring || restoring.checking) return;
@@ -77,7 +53,6 @@ export class ClaudeReconnectCheck {
     else restoring.carry = text.endsWith("\x1b") ? "\x1b" : "";
   }
 
-  /** The replay ended: decides the terminal's state from what it showed. */
   async noteReplayed(workspaceId: string, tabId: string): Promise<void> {
     const key = `${workspaceId}:${tabId}`;
     const restoring = this.restoring.get(key);
@@ -90,7 +65,6 @@ export class ClaudeReconnectCheck {
     const program = await this.foregroundProcess(workspaceId, tabId).catch(() => null);
     if (this.restoring.get(key) !== restoring) return;
     this.restoring.delete(key);
-    // A new prompt can replace the entry while keeping both its status and its `since` time.
     if (this.broker.get(workspaceId, tabId) !== restoring.entry) return;
     if (program !== null && isLoginShell(program)) {
       this.broker.clear(workspaceId, tabId);
@@ -101,12 +75,10 @@ export class ClaudeReconnectCheck {
     }
   }
 
-  /** Forgets a terminal that ended. */
   forget(workspaceId: string, tabId: string): void {
     this.restoring.delete(`${workspaceId}:${tabId}`);
   }
 
-  /** Invalidates outstanding terminal replay checks as the feature shuts down. */
   dispose(): void {
     this.restoring.clear();
   }

@@ -1,6 +1,3 @@
-// Monaco language provider registrations for LSP features.
-// No module-level state — all state (registeredProviderLanguages) is managed by the caller.
-
 import i18next from "i18next";
 import type * as Monaco from "monaco-editor";
 import { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
@@ -24,23 +21,11 @@ import {
   tokenToAbortSignal,
 } from "./monaco-converters";
 
-// Every character a preset's server completes on; main drops the ones the
-// file's own server does not list. rust-analyzer adds ":" (paths) and "(".
 const COMPLETION_TRIGGER_CHARACTERS = [".", '"', "'", "/", "@", "<", "[", ":", "("];
 
-// The same for signature help: "(" opens a call, "," moves to the next
-// argument, "<" opens type arguments (TypeScript, Rust). ")" asks again
-// once a signature is shown, closing it when the call ends.
 const SIGNATURE_HELP_TRIGGER_CHARACTERS = ["(", ",", "<"];
 const SIGNATURE_HELP_RETRIGGER_CHARACTERS = [")"];
 
-/**
- * Recover (workspaceId, lspUri) from a Monaco model whose URI is a
- * workspace-scoped cacheUri (`nexus-ws://${workspaceId}${absPath}`).
- * Returns null when the model URI is not workspace-scoped — providers
- * skip the LSP call in that case (Monaco's built-in providers may still
- * fire, but our IPC routing requires the workspace context to exist).
- */
 function modelLspContext(
   model: Monaco.editor.ITextModel,
 ): { workspaceId: string; lspUri: string } | null {
@@ -52,31 +37,11 @@ function modelLspContext(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Semantic tokens legend
-//
-// CANONICAL_TOKEN_TYPES (imported from shared/lsp/semantic-tokens.ts) is the
-// single source of truth for the token-type list. It holds the standard LSP
-// 3.16 token-type names in canonical order. The agent remaps every server
-// response to this order before it reaches the renderer, so getLegend() can
-// return these names directly and Monaco's theme rules just need to match
-// by name. See shared/lsp/semantic-tokens.ts for the full legend→palette
-// mapping documentation.
-// ---------------------------------------------------------------------------
-
-// Monaco's SemanticTokensLegend: the tokenTypes list contains the canonical
-// LSP token-type names. Monaco matches these names against the theme rules
-// in buildSyntaxRules (monaco-theme.ts) to determine foreground colours.
 const SEMANTIC_TOKENS_LEGEND: Monaco.languages.SemanticTokensLegend = {
   tokenTypes: CANONICAL_TOKEN_TYPES as string[],
   tokenModifiers: [],
 };
 
-/**
- * In place of no hover while the server starts or loads the project: says
- * it is not ready, rather than leaving the user to think there is nothing
- * to show. Only over a word, as a real hover would be.
- */
 function preparingHover(
   monaco: typeof Monaco,
   model: Monaco.editor.ITextModel,
@@ -102,7 +67,6 @@ function preparingHover(
   };
 }
 
-/** Curried pre-acquire closure: takes locations + source URI, returns Promise. */
 export type PreAcquireFn = (
   locations: readonly Monaco.languages.Location[],
   sourceUri: string,
@@ -180,8 +144,6 @@ export function registerLanguageProviders(
         const monacoLocations = results.map((location) =>
           lspLocationToMonacoLocation(monaco, location, ctx.workspaceId),
         );
-        // Pre-acquire result models so monaco's peek widget can resolve
-        // them via createModelReference without throwing "Model not found".
         await preAcquire(monacoLocations, model.uri.toString(), token);
         return monacoLocations;
       } catch {
@@ -190,7 +152,6 @@ export function registerLanguageProviders(
     },
   });
 
-  // What an item came from, for resolving it once it is picked.
   const completionOrigins = new WeakMap<
     Monaco.languages.CompletionItem,
     { workspaceId: string; lspUri: string; item: CompletionItem }
@@ -213,7 +174,6 @@ export function registerLanguageProviders(
               uri: ctx.lspUri,
               line: position.lineNumber - 1,
               character: position.column - 1,
-              // Monaco numbers trigger kinds from 0, LSP from 1.
               triggerKind: context.triggerKind + 1,
               triggerCharacter: context.triggerCharacter,
             },
@@ -241,8 +201,6 @@ export function registerLanguageProviders(
         return { suggestions: [] };
       }
     },
-    // Servers leave documentation, detail and the edits an auto-import
-    // makes until an item is picked; Monaco asks for them here.
     async resolveCompletionItem(suggestion, token) {
       const origin = completionOrigins.get(suggestion);
       if (!origin) return suggestion;
@@ -256,7 +214,6 @@ export function registerLanguageProviders(
             { signal },
           ),
         );
-        // Only these may change on resolve; the range and text stay.
         const resolved = lspCompletionItemDetails(item);
         return {
           ...suggestion,
@@ -291,7 +248,6 @@ export function registerLanguageProviders(
               uri: ctx.lspUri,
               line: position.lineNumber - 1,
               character: position.column - 1,
-              // Monaco and LSP number the trigger kinds alike.
               triggerKind: context.triggerKind,
               triggerCharacter: context.triggerCharacter,
               isRetrigger: context.isRetrigger,
@@ -333,10 +289,6 @@ export function registerLanguageProviders(
         const monacoLocations = results.map((location) =>
           lspLocationToMonacoLocation(monaco, location, ctx.workspaceId),
         );
-        // Pre-acquire — same rationale as provideDefinition. Find-references
-        // peek can include many locations; we still pre-acquire all of them
-        // since peek expands on user click and any unresolved URI would
-        // throw at that moment.
         await preAcquire(monacoLocations, model.uri.toString(), token);
         return monacoLocations;
       } catch {
@@ -419,8 +371,6 @@ export function registerLanguageProviders(
       }
     },
 
-    releaseDocumentSemanticTokens(_resultId): void {
-      // Nothing to release for full-document mode.
-    },
+    releaseDocumentSemanticTokens(_resultId): void {},
   });
 }

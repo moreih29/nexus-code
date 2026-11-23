@@ -1,8 +1,3 @@
-/**
- * Tag flyout for GitMoreMenu plus its two nested remote-picker submenus.
- * Tag entries route to either the existing picker dialog or, when multiple
- * remotes are configured, into a second-level remote chooser.
- */
 import { useTranslation } from "react-i18next";
 import {
   DropdownMenuItem,
@@ -91,7 +86,6 @@ export function TagSubmenu({
   );
 }
 
-/** A Tag entry that, with several remotes, asks which one in a submenu. */
 function RemoteChooser({
   label,
   remotes,

@@ -1,8 +1,3 @@
-/**
- * An error response rejects its request with an Error carrying the frame's
- * code and, when present, its structured data (such as the classified kind
- * of a failed git push).
- */
 import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";

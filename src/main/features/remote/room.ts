@@ -1,11 +1,3 @@
-/**
- * This device in its account's room: it says hello as it joins and to each
- * device that does, keeps who is there, serves the requests the others
- * send it, and asks them its own (JSON-RPC, sealed; packages/remote-protocol).
- * It takes only what was sealed for it, now, and each message once: the
- * epochs and seqs of packages/remote-protocol's ./sealed.ts.
- */
-
 import { randomBytes } from "node:crypto";
 import { posix, win32 } from "node:path";
 import {
@@ -63,7 +55,6 @@ import { openMessage, type RoomKey, sealMessage } from "./seal";
 
 const log = createLogger("remote-room");
 
-/** How long an answer may take. */
 export const REQUEST_TIMEOUT_MS = 15_000;
 const HELLO_RETRY_INTERVAL_MS = 5_000;
 const HELLO_WAIT_MS = 3_000;
@@ -81,36 +72,22 @@ type RoomWarning =
   | "queue-drop"
   | "queue-stall";
 
-/** The platforms of phones, as the relay names a device's: no agent runs on one. */
 const PHONE_PLATFORMS = new Set(["ios", "android", "web"]);
 
-/** How often a message sealed with a newer key version may have the key fetched again. */
 export const FOREIGN_KEY_INTERVAL_MS = 60_000;
 
-/**
- * Most epochs of others it keeps as past, to take none of their messages
- * again; past it, it starts an epoch of its own, which no message sealed
- * before names.
- */
 const MAX_PAST_EPOCHS = 4096;
 
 function newEpoch(): string {
   return randomBytes(EPOCH_BYTES).toString("base64url");
 }
 
-/**
- * Most bytes a message may take as JSON before it is sealed: its sealed
- * box goes in the frame as base64url (4 characters for 3 bytes), beside
- * the frame's routing, all under MAX_FRAME_BYTES.
- */
 export const MAX_MESSAGE_BYTES = Math.floor(((MAX_FRAME_BYTES - 1024) * 3) / 4) - 64;
 
-/** Whether a message goes in one frame. */
 export function fitsInFrame(message: unknown): boolean {
   return Buffer.byteLength(JSON.stringify(message), "utf8") <= MAX_MESSAGE_BYTES;
 }
 
-/** Keep whole-image reads from taking all the memory or blocking small previews. */
 class FileReadBudget {
   private active = 0;
   private waiting: Array<{ current: () => boolean; resume: (acquired: boolean) => void }> = [];
@@ -174,7 +151,6 @@ const LARGE_READ_REPLIES = new Set([
 ]);
 const RATE_LIMITED = "the relay is rate limiting this connection";
 
-/** Reads that can be repeated after a connection loss. Watches subscribe and voice suggestions can start analysis. */
 const RETRYABLE_READS: ReadonlySet<RpcMethod> = new Set([
   "sessions.list",
   "events.read",
@@ -230,7 +206,6 @@ function readsWholeImage(params: unknown): boolean {
   );
 }
 
-/** A request that failed, with its JSON-RPC error. */
 export class RpcFailure extends Error {
   constructor(
     readonly code: number,
@@ -241,7 +216,6 @@ export class RpcFailure extends Error {
   }
 }
 
-/** What the room needs of the socket (RelayConnection). */
 export interface RoomConnection {
   start(): void;
   stop(reason?: RelayStopReason): void;
@@ -255,15 +229,11 @@ export interface RemoteRoomDeps {
   readonly self: { id: string; name: string; platform: string };
   readonly room: RoomKey;
   readonly app: { name: string; version: string };
-  /** The app's color theme now, by its id, which its hello says; it may change (see announce). */
   readonly theme?: () => string | undefined;
-  /** What this device serves of its sessions, as its hello says; it may change (see announce). */
   readonly serves: readonly Capability[] | (() => readonly Capability[]);
-  /** Makes the socket, telling it what to call. */
   connect(
     handlers: Pick<RelayConnectionDeps, "onOpen" | "onFrame" | "onStatus" | "onSignedOut">,
   ): RoomConnection;
-  /** Answers another device's request; a RpcFailure for an error it should see. */
   serve(request: {
     from: string;
     id: RpcRequest["id"];
@@ -274,19 +244,11 @@ export interface RemoteRoomDeps {
     waits?: boolean;
   }): Promise<unknown>;
   onChange(state: RoomState): void;
-  /** Drop device-owned work when a peer disconnects, or all work when this device does. */
   onDisconnect?(peer?: string): void;
-  /** The account's other devices, including those whose sockets are offline. */
   onPresence?(peers: readonly RoomPeer[]): void;
   onNotification?(from: string, method: string, params: unknown): void;
-  /**
-   * A message sealed with a newer version of the account key came: it may
-   * have been reset. Told at most once a minute.
-   */
   onForeignKey?(kid: number): void;
-  /** Something the server tells of the account (account keys v2): a rotation, a reset. */
   onAccountEvent?(event: AccountEvent): void;
-  /** A pairing frame (kid PAIR_KID) sent to this device, which the room key does not open. */
   onPairFrame?(frame: Delivered): void;
   onSignedOut(): void;
   readonly requestTimeoutMs?: number;
@@ -334,27 +296,15 @@ export class RemoteRoom {
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
   private readonly serving = new Map<string, Serving>();
-  /** This connection's epoch: a message is taken only when sealed for it. */
   private epoch = newEpoch();
-  /**
-   * Which of this room's connections it is, told in each envelope: a run of
-   * its own, and a number each new epoch raises, so another device takes
-   * nothing of an older one sent on late.
-   */
   private conn: SenderConnection = { boot: newEpoch(), n: 1 };
-  /**
-   * Each other device's epoch now, the seq of the last message taken of it,
-   * and the connection it said it was (none before 0.18.0).
-   */
   private readonly heard = new Map<
     string,
     { epoch: string; seq: number; conn?: SenderConnection }
   >();
-  /** Others' epochs it took a newer one of, as "device|epoch": none of their messages is taken. */
   private readonly past = new Set<string>();
   private outbox = this.makeOutbox();
   private readonly sentReplies = new Map<number, SentReply>();
-  /** Messages are taken one after another, so their seqs are checked in the order they came. */
   private inbox = { tail: Promise.resolve(), pending: 0 };
   private readonly helloRetryAt = new Map<string, number>();
   private broadcastHelloAt = -Infinity;
@@ -368,9 +318,6 @@ export class RemoteRoom {
   constructor(private readonly deps: RemoteRoomDeps) {
     this.connection = deps.connect({
       onOpen: () => {
-        // A new connection: a new epoch, so nothing sealed before it is taken. It counts its
-        // messages from 1, learns the others' epochs again, and says hello again; what it
-        // asked before will not be answered in this epoch.
         this.renew("the connection to the room was lost");
         this.seq = 0;
         this.greeted = false;
@@ -429,7 +376,6 @@ export class RemoteRoom {
     for (const p of this.pending.values()) this.interruptRequest(p, why, reason);
   }
 
-  /** Starts a new epoch. A retained read must wait for a hello in this epoch. */
   private renew(why: string): void {
     this.interruptRequests(why, "local-reconnected");
     this.disconnected();
@@ -447,13 +393,11 @@ export class RemoteRoom {
     return { status: this.status, peers: [...this.peers.values()] };
   }
 
-  /** What this device serves now. */
   private serves(): readonly Capability[] {
     const { serves } = this.deps;
     return typeof serves === "function" ? serves() : serves;
   }
 
-  /** Tells the room again what this device serves, or its theme, after it changed. */
   announce(): void {
     if (this.status !== "online" || !this.greeted) return;
     for (const [id, { epoch }] of this.heard) {
@@ -461,12 +405,10 @@ export class RemoteRoom {
     }
   }
 
-  /** Asks another device of the account; its answer, or a RpcFailure. */
   async request<M extends RpcMethod>(
     to: string,
     method: M,
     params: RpcParams<M>,
-    /** How long to wait for the answer: longer for one the other device's user may be asked about. */
     timeoutMs?: number,
     signal?: AbortSignal,
   ): Promise<RpcResult<M>> {
@@ -655,10 +597,6 @@ export class RemoteRoom {
     }
   }
 
-  /**
-   * Tells another device something it asked to be told (a watched chat's
-   * update); false when it could not go: out of the room, or too large.
-   */
   async notify<M extends RpcNotificationMethod>(
     to: string,
     method: M,
@@ -678,10 +616,6 @@ export class RemoteRoom {
     );
   }
 
-  /**
-   * Sends one device a pairing frame (kid PAIR_KID), which `seal` seals for
-   * its routing; whether it went.
-   */
   async sendPair(
     to: string,
     seal: (routing: { from: string; to: string; seq: number }) => Promise<{
@@ -705,10 +639,6 @@ export class RemoteRoom {
     return sent !== null;
   }
 
-  /**
-   * Seals and sends, for the receiver's epoch (`peer`; null only in a hello
-   * to all); its seq, or null when it could not go.
-   */
   private post(
     to: string,
     peer: string | null,
@@ -783,7 +713,6 @@ export class RemoteRoom {
     this.connection.recover(`${queue}-stalled`);
   }
 
-  /** Pongs prove the socket reaches the relay. A hello round trip checks forwarding. */
   private probePeerPath(to: string): void {
     if (this.probe || this.status !== "online") return;
     const peers = new Set<string>();
@@ -791,7 +720,6 @@ export class RemoteRoom {
       if (this.peers.get(id)?.online) peers.add(id);
       if (peers.size === MAX_PROBE_PEERS) break;
     }
-    // One silent peer can be a fault on its own device.
     if (peers.size < 2) return;
     const started = performance.now();
     this.probe = {
@@ -870,7 +798,6 @@ export class RemoteRoom {
       }
       if (wasOnline) this.resetQueues();
       this.disconnected();
-      // Out of the room: none of the others is reachable until it is back.
       for (const peer of this.peers.values()) peer.online = false;
       this.cancelQueuedReads();
     }
@@ -976,16 +903,9 @@ export class RemoteRoom {
     }
   }
 
-  /**
-   * Opens a message, and hands it on when it was sealed for this device and
-   * this epoch, and not taken before. Messages are taken in the order they
-   * came; what they ask is served apart, so one that waits holds up none.
-   */
   private async take(frame: Delivered, inbox: RemoteRoom["inbox"]): Promise<void> {
     if (inbox !== this.inbox || this.status !== "online") return;
-    // Sent to another device of the account, and passed on here: not for this one.
     if (frame.to !== this.deps.self.id && frame.to !== ALL_DEVICES) return;
-    // Sealed with a pairing code's key: the pairing opens it, if one is under way.
     if (frame.kid === PAIR_KID) {
       if (frame.to === this.deps.self.id) this.deps.onPairFrame?.(frame);
       return;
@@ -1003,11 +923,8 @@ export class RemoteRoom {
     }
     const { message } = envelope;
     const hello = "type" in message ? message : null;
-    // The relay vouches for who sent it; a hello for another device is not taken.
     if (hello && hello.device.id !== frame.from) return;
     if (frame.to === ALL_DEVICES || envelope.peer !== this.epoch) {
-      // Answer hellos as before. A directed request with an old receiver epoch
-      // can also prompt an introduction, but its contents are never served.
       if (hello) void this.post(frame.from, envelope.epoch, this.hello(true));
       else if (frame.to === this.deps.self.id && "method" in message && "id" in message) {
         const method = isRpcMethod(message.method) ? message.method : "unknown";
@@ -1027,26 +944,17 @@ export class RemoteRoom {
     });
   }
 
-  /**
-   * Whether a message of the sender's epoch with this seq is one not taken
-   * yet; it takes note of it. Once a sender's newer epoch is heard, none of
-   * an older one is taken, nor one of an older connection of the same run
-   * (`conn`), heard before or not.
-   */
   private fresh(from: string, epoch: string, seq: number, conn?: SenderConnection): boolean {
     const heard = this.heard.get(from);
     if (heard?.epoch === epoch) {
       if (seq <= heard.seq) return false;
     } else {
       if (this.past.has(`${from}|${epoch}`)) return false;
-      // Held by the relay and sent on after the newer one's: taking it would
-      // leave the sender's messages of now dropped as past.
       if (olderConnection(conn, heard?.conn)) return false;
       if (heard) this.past.add(`${from}|${heard.epoch}`);
     }
     this.heard.set(from, { epoch, seq, ...(conn ? { conn } : {}) });
     if (this.past.size > MAX_PAST_EPOCHS) {
-      // Too many to keep: a new epoch of its own, which nothing sealed before names.
       this.renew("the room started over");
       void this.post(ALL_DEVICES, null, this.hello(true));
       return false;
@@ -1055,12 +963,6 @@ export class RemoteRoom {
     return true;
   }
 
-  /**
-   * Another device heard in a new epoch while this one stayed: it joined the
-   * room again with a new connection, which the room may never have shown
-   * as gone (its old socket held on). Going, it dropped what was watched
-   * there, which is asked for again as its `rejoins` grows.
-   */
   private rejoined(from: string, epoch: string): void {
     for (const p of this.pending.values()) {
       if (p.to === from && p.attempt && p.attempt.peer !== epoch) {
@@ -1082,7 +984,6 @@ export class RemoteRoom {
     this.deps.onForeignKey?.(kid);
   }
 
-  /** A message taken: from `from`, in its epoch `epoch`, which an answer goes in. */
   private async handle(
     from: string,
     epoch: string,
@@ -1118,8 +1019,6 @@ export class RemoteRoom {
         const budget = readsWholeImage(message.params) ? this.imageReadBudget : this.fileReadBudget;
         if (!current()) return;
         if (!(await budget.acquire(current))) {
-          // Every refused request is told, each with its own small reply: left
-          // unanswered it would wait out the whole request timeout.
           if (!current()) return;
           await this.reply(
             from,
@@ -1312,19 +1211,15 @@ export class RemoteRoom {
     }
     const spec = RPC_METHODS[method];
     const parsed = spec.params.safeParse(params ?? {}, validationErrorOptions);
-    // An agent's request (`from`) is taken as the user lets agents act here, not as people may;
-    // `from` is looked for as it came, since a method whose params have none drops it.
     const byAgent =
       typeof params === "object" &&
       params !== null &&
       (params as { from?: unknown }).from !== undefined;
     if (byAgent && parsed.success && (parsed.data as { from?: unknown }).from === undefined) {
-      // Answering the user's consent prompts, say: that is the user's, not an agent's.
       return {
         error: { code: RpcErrorCode.Forbidden, message: `${method} is not taken from agents` },
       };
     }
-    // A phone runs no agents: a request of one from it is not one.
     if (byAgent && PHONE_PLATFORMS.has(this.peers.get(from)?.platform ?? "")) {
       return {
         error: {
@@ -1333,7 +1228,6 @@ export class RemoteRoom {
         },
       };
     }
-    // An agent may do only what people may do from other devices here, and only when agents may.
     const serves = this.serves();
     const anywhere = parsed.success && (parsed.data as { anywhere?: true }).anywhere === true;
     const capability =
@@ -1354,7 +1248,6 @@ export class RemoteRoom {
     }
     if (
       !serves.includes(capability as Capability) ||
-      // A peek reads no more than chat.read does: only where that is served too.
       (method === "chat.peek" && !serves.includes("chat.read"))
     ) {
       return { error: { code: RpcErrorCode.Forbidden, message: `${method} is not served here` } };

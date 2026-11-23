@@ -1,12 +1,3 @@
-/**
- * Pure tests for the Application Menu template.
- *
- * These guard the conflict-resolution we care about — Cmd+W must hit
- * `tab.close` (not Electron's default "Close Window"), Cmd+R must hit
- * `files.refresh` (not "Reload"), and Cmd+Shift+R must not exist.
- * Also pins Mac vs Win/Linux structural differences (App menu present
- * only on mac; Quit migrates into File on Win/Linux).
- */
 import { describe, expect, it } from "bun:test";
 import { buildMenuTemplate, type MenuItemSpec } from "../../../../src/main/features/menu/template";
 import { COMMANDS } from "../../../../src/shared/keybindings/commands";

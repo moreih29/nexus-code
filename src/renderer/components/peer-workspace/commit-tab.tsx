@@ -19,7 +19,6 @@ import { PeerReadOnlyBadge } from "./labels";
 import { PeerPatchView } from "./patch-view";
 import { peerSearchErrorKey } from "./search-model";
 
-/** Commit IDs are immutable, so successful reads survive hiding or reconnecting. */
 function useCommitRead<T>(
   enabled: boolean,
   rejoin: number,
@@ -28,7 +27,6 @@ function useCommitRead<T>(
   const [result, setResult] = useState<IpcResult<T> | null>(null);
   const attempt = useEffectEvent((signal: AbortSignal) => {
     if (result?.ok) return;
-    // The reader wraps transport errors in a result and rejects on cancellation.
     void read(signal).then(
       (next) => {
         if (!signal.aborted) setResult(next);

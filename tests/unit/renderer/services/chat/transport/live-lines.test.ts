@@ -1,9 +1,3 @@
-/**
- * A tab asking for its log again takes the log's lines first: a new line
- * that came before them waits, or the model would skip them as seen and lose
- * the program it started.
- */
-
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import {
   ChatController,
@@ -62,7 +56,6 @@ describe("a Claude tab's replay", () => {
       ipc: {
         call: async (_channel: string, method: string) => {
           if (method !== "replay") throw new Error(`unexpected ${method}`);
-          // The program's next line comes first; the log's follow.
           c.receive(line(14));
           setTimeout(() => {
             c.receive({ ...start, replay: true });
@@ -75,7 +68,6 @@ describe("a Claude tab's replay", () => {
     await c.resync();
     expect(c.state.model.process).toBe("running");
     expect(c.state.model.lastSeq).toBe(14);
-    // Lines that come after go on as ever.
     c.receive(line(15));
     c.flushNow();
     expect(c.state.model.lastSeq).toBe(15);
@@ -87,8 +79,6 @@ const routingCase = "routes both providers with one IPC subscription and unregis
 
 test(routingCase, async () => {
   if (process.env.NEXUS_CHAT_ROUTING_FIXTURE !== "1") {
-    // The app installs its listeners once. Run this case with a fresh module
-    // registry so earlier tests cannot leave the subscription initialized.
     const child = Bun.spawn([process.execPath, "test", import.meta.path, "-t", routingCase], {
       env: { ...process.env, NEXUS_CHAT_ROUTING_FIXTURE: "1" },
       stdout: "pipe",

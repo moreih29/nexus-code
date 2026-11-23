@@ -21,9 +21,7 @@ const (
 	askpassRequestEvent = "git.askpass.request"
 	askpassSocketEnv    = "NEXUS_AGENT_ASKPASS_SOCKET"
 	askpassModeEnv      = "NEXUS_AGENT_ASKPASS_MODE"
-	// askpassRunEnv carries the run id of the request whose git started the
-	// helper, so its prompts can be routed to and failed with that request.
-	askpassRunEnv = "NEXUS_AGENT_ASKPASS_RUN"
+	askpassRunEnv       = "NEXUS_AGENT_ASKPASS_RUN"
 )
 
 type askpassRequestPayload struct {
@@ -35,8 +33,7 @@ type askpassRequestPayload struct {
 type askpassRespondParams struct {
 	RequestID string `json:"requestId"`
 	Secret    string `json:"secret"`
-	// Cancelled fails the helper so Git stops, instead of trying Secret.
-	Cancelled bool `json:"cancelled,omitempty"`
+	Cancelled bool   `json:"cancelled,omitempty"`
 }
 
 type askpassHelperRequest struct {
@@ -56,15 +53,11 @@ type askpassResolution struct {
 	err    string
 }
 
-// askpassPending is one prompt waiting for the host's answer.
 type askpassPending struct {
 	resolution chan askpassResolution
 	runID      string
 }
 
-// RespondAskpass resolves one credential prompt that was emitted by the agent
-// host askpass socket. The secret is delivered only to the waiting helper
-// process and is never logged or included in returned errors.
 func (s *Service) RespondAskpass(ctx context.Context, raw json.RawMessage) (any, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -166,8 +159,6 @@ func (s *Service) handleAskpassConn(conn net.Conn) {
 	}
 	s.mu.Unlock()
 	if !runActive && request.RunID != "" {
-		// The request already ended (or was cancelled) and its prompts were
-		// failed; nobody is left to answer this one.
 		writeAskpassHelperResponse(conn, askpassHelperResponse{OK: false, Error: "git command ended"})
 		return
 	}
@@ -196,9 +187,6 @@ func (s *Service) deleteAskpassPending(requestID string) {
 	s.mu.Unlock()
 }
 
-// failAskpassRun fails the prompts a request left unanswered when it ended.
-// A cancelled git leaves its helper orphaned and blocked on the answer;
-// failing the prompt lets it exit.
 func (s *Service) failAskpassRun(runID string) {
 	s.mu.Lock()
 	var ended []*askpassPending
@@ -242,9 +230,6 @@ func newAskpassRequestID() (string, error) {
 	return hex.EncodeToString(buf[:]), nil
 }
 
-// RunAskpassHelper is the `agent --askpass <socket>` entrypoint. Git appends
-// the prompt text as argv; the helper forwards it to the running agent and
-// writes only the resolved secret to stdout.
 func RunAskpassHelper(socketPath string, promptArgs []string, stdout io.Writer, stderr io.Writer) int {
 	if strings.TrimSpace(socketPath) == "" {
 		fmt.Fprintln(stderr, "Nexus Git askpass helper unavailable.")

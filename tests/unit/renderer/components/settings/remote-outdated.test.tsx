@@ -1,4 +1,3 @@
-/** Out of the room while the server no longer takes this version: the update, and the way to it. */
 import { afterEach, describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -19,8 +18,6 @@ afterEach(() => {
 });
 
 describe("the update a server that no longer takes this version asks for", () => {
-  // The updates store, as a server render sees it, has checked nothing yet;
-  // the section's other states are Settings › About's (about-panel.test).
   test("the Remote page says why, with the update's state and buttons", () => {
     const html = render();
     expect(html).toContain("Update needed");

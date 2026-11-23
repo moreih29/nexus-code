@@ -6,7 +6,6 @@ import { useWorkspacesStore } from "../../../../../src/renderer/state/stores/wor
 import * as workspaceCleanup from "../../../../../src/renderer/state/workspace-cleanup";
 import type { WorkspaceMeta } from "../../../../../src/shared/types/workspace";
 
-/** Restores a workspace and a loaded root that focus can refresh. */
 function restoreWorkspace(id: string): void {
   const rootPath = "/project";
   const workspace: WorkspaceMeta = {
@@ -67,7 +66,6 @@ test("workspace removal forgets focus resyncs even when focus arrives after remo
     restoreWorkspace(ordinary);
     select(ordinary);
     removeWorkspace(ordinary);
-    // Reuse the ID to observe whether the old throttle entry survived removal.
     restoreWorkspace(ordinary);
     select(null);
     select(ordinary);
@@ -77,7 +75,6 @@ test("workspace removal forgets focus resyncs even when focus arrives after remo
     fakeWindow.dispatchEvent(new Event("blur"));
     jest.advanceTimersByTime(2_001);
     removeWorkspace(late);
-    // The active ID can still point at the removed workspace before React updates.
     fakeWindow.dispatchEvent(new Event("focus"));
     restoreWorkspace(late);
     select(null);

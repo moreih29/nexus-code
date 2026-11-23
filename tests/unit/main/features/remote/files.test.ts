@@ -1,4 +1,3 @@
-/** A workspace's files as another device reads them: only its folders, never through a link. */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { promises as nodeFs } from "node:fs";
 import os from "node:os";
@@ -19,7 +18,6 @@ interface Node {
   bytes?: Buffer;
 }
 
-/** A file system of `tree` (workspace-relative paths): the agent's calls, as it answers them. */
 function fakeFs(tree: Record<string, Node>, kind: FsProvider["kind"] = "ssh"): FsProvider {
   const node = (rel: string) => {
     const found = rel === "" ? { type: "dir" as const } : tree[rel];
@@ -70,7 +68,6 @@ function fakeFs(tree: Record<string, Node>, kind: FsProvider["kind"] = "ssh"): F
     },
     readRange: async (rel: string, offset: number, length: number) =>
       range(node(rel).bytes ?? Buffer.alloc(0), length, offset),
-    // A path outside the folder is in the tree by itself.
     readAbsoluteRange: async (abs: string, offset: number, length: number) =>
       range(node(abs).bytes ?? Buffer.alloc(0), length, offset),
     readBinary: async (rel: string) => range(node(rel).bytes ?? Buffer.alloc(0), Infinity),
@@ -231,7 +228,6 @@ describe("listing a folder", () => {
   });
 });
 
-/** A PNG whose header says `width` by `height`, padded to `bytes`. */
 function pngSaying(width: number, height: number, bytes: number): Buffer {
   const b = Buffer.alloc(bytes, 1);
   b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13], 0);
@@ -249,9 +245,7 @@ describe("reading a file", () => {
     "pic.png": { type: "file", bytes: png },
     big: { type: "file", bytes: Buffer.alloc(2_000_000, "x") },
     "huge.png": { type: "file", bytes: pngSaying(4000, 3000, 900_000) },
-    // A small file whose header says 50000 by 50000: decoding it would take 10 GB.
     "bomb.png": { type: "file", bytes: pngSaying(50_000, 50_000, 900_000) },
-    // As small as it says it is huge: it would go as it is, to be decoded there.
     "tiny-bomb.png": { type: "file", bytes: pngSaying(30_000, 30_000, 68) },
     "not-a.png": { type: "file", bytes: Buffer.from("plain text, named a png") },
     src: { type: "dir" },
@@ -272,7 +266,6 @@ describe("reading a file", () => {
       size: 11,
       truncated: false,
     });
-    // 4 bytes: "한" whole, the half of "글" left out.
     expect(await read("a.ts", 4)).toMatchObject({ text: "한", truncated: true });
     expect(await read("big")).toMatchObject({ truncated: true, size: 2_000_000 });
   });
@@ -311,13 +304,11 @@ describe("reading a file", () => {
       offset: 0,
       size: 3,
     });
-    // An image, or text, as it is: not drawn, not decoded.
     expect(await bytes("pic.png", { offset: 4, length: 4 })).toMatchObject({
       data: png.subarray(4, 8).toString("base64"),
       offset: 4,
       size: 40,
     });
-    // At most MAX_BYTES_CHUNK when not said; fewer at the end, none past it.
     const head = await bytes("big");
     expect(head.kind === "bytes" && Buffer.from(head.data, "base64").length).toBe(512 * 1024);
     expect(await bytes("big", { offset: 1_999_999, length: 10 })).toMatchObject({
@@ -328,7 +319,6 @@ describe("reading a file", () => {
     await expect(bytes("src")).rejects.toMatchObject({ code: -32602 });
     await expect(bytes("link")).rejects.toMatchObject({ code: 1002 });
     await expect(bytes("../out")).rejects.toMatchObject({ code: 1002 });
-    // Where to start is taken only with bytes.
     await expect(
       readFile(files(tree), root, { workspaceId: ws, path: "a.ts", offset: 2 }),
     ).rejects.toMatchObject({ code: -32602 });

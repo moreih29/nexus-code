@@ -71,7 +71,6 @@ beforeEach(() => {
         if (method === "voicePrint") return null;
       },
       listen(channel: string, name: string, listener: (payload: VoiceEvent) => void) {
-        // Dictation keeps its first subscription for the life of the renderer.
         if (channel === "remote" && name === "voiceEvent") voiceEvent ??= listener;
         return () => {};
       },

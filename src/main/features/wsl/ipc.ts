@@ -1,8 +1,3 @@
-// WSL IPC: the distributions to offer when adding a workspace, and a browse
-// session that starts the agent in one of them so the add dialog can pick a
-// folder. The session joins the SSH browse sessions' registry, so
-// `ssh.browseSession` and `ssh.closeBrowseSession` serve it unchanged.
-
 import { throwIfAborted } from "../../../shared/abort";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
@@ -37,11 +32,6 @@ export function registerWslChannel(
   });
 }
 
-/**
- * Starts the agent in the distribution, rooted at "/" like an SSH browse
- * agent so every absolute path reads, and registers its channel. The picker
- * opens at the distribution user's home.
- */
 export function openWslBrowseSessionHandler(
   registry: SshBrowseSessionRegistry,
   broadcast?: BrowseProgressBroadcast,
@@ -101,11 +91,6 @@ export function openWslBrowseSessionHandler(
   };
 }
 
-/**
- * Keeps diagnostic detail in the envelope for logging: the generic message hides
- * what wsl.exe said (an unknown distribution, WSL not installed), which it
- * carries as its cause.
- */
 export function wslFailureMessage(error: unknown): string {
   if (!(error instanceof Error)) return String(error);
   const cause = error.cause;

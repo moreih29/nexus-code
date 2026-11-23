@@ -1,4 +1,3 @@
-/** What a terminal program's OSC 52 puts on the clipboard. */
 import { describe, expect, test } from "bun:test";
 import {
   clipboardTextOf,

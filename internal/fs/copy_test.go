@@ -9,7 +9,6 @@ import (
 	"testing"
 )
 
-// cancelCopyAfterWrite cancels after a real write to the copied file.
 type cancelCopyAfterWrite struct {
 	context.Context
 	path   string
@@ -23,8 +22,6 @@ func (c cancelCopyAfterWrite) Err() error {
 	return c.Context.Err()
 }
 
-// TestCopyCancellationRollsBackPartialDirectory covers cancellation after a
-// write both with and without a destination to restore.
 func TestCopyCancellationRollsBackPartialDirectory(t *testing.T) {
 	for _, name := range []string{"new directory", "overwrite"} {
 		t.Run(name, func(t *testing.T) {

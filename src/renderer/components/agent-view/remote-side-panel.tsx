@@ -1,16 +1,3 @@
-/**
- * Another computer's chat's side panel, as a chat here has it and with its
- * parts, in the same order: what it runs on and with, its context, the
- * plan's usage, its goal (while it has one), its to-dos, its tasks and agents
- * (what runs now and what ended), what it made, the files it changed and its
- * MCP servers. They come
- * from the panel its computer tells (chat.watch's `panel`), the subagents'
- * details from the conversation shown. A changed file opens its change,
- * read from that computer. Its MCP servers are shown as they stand there,
- * and worked as a chat's here are where that computer lets this one control
- * its chats (a sign-in in the browser here).
- */
-
 import { ExternalLink, FileText, GitFork, MessageSquare, RefreshCw } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -60,23 +47,19 @@ import { usageLineOf } from "./remote-usage";
 
 const NO_JOBS: ChatPanel["tasks"] = [];
 
-/** The panel's parts a bare command shows: /status, /context, /usage; /diff its changed files. */
 export type RemotePanelPart = "status" | "context" | "usage" | "jobs" | "changes" | "mcp";
 
-/** A part of the panel asked for, each ask its own seq; `id`: the task of the job meant. */
 export interface RemotePanelAsk {
   part: RemotePanelPart;
   seq: number;
   id?: string;
 }
 
-/** The panel section a bare command reveals. */
 export function remotePanelPartOf(text: string): RemotePanelPart | null {
   const match = /^\/(status|context|usage|mcp)$/i.exec(text.trim());
   return (match?.[1]?.toLowerCase() as RemotePanelPart | undefined) ?? null;
 }
 
-/** Jobs, agents, checklist and context shown when the pane gets narrow. */
 export function panelSummaryCounts(panel: ChatPanel | undefined, agents: readonly AgentRow[]) {
   const todos = panel?.todos ?? [];
   const context = panel?.context;
@@ -94,15 +77,8 @@ export function panelSummaryCounts(panel: ChatPanel | undefined, agents: readonl
 
 const AGENT_STATUSES: ReadonlySet<string> = new Set(["running", "completed", "failed", "stopped"]);
 
-/**
- * The chat's subagents: the computer's list, each with what the conversation
- * shown tells of it (its tools, its last words, its task), and those the
- * conversation names that the list does not have yet.
- */
 export function remoteAgentsOf(panel: ChatPanel | undefined, model: ChatModel): AgentRow[] {
   const known = new Map(agentsOf(model).map((row) => [row.toolUseId, row]));
-  // Its list has every subagent its program runs: one only the conversation
-  // names is its history's, and runs no more.
   if (panel) {
     for (const [id, row] of known) {
       if (row.status === "running") known.set(id, { ...row, status: "stopped" });
@@ -201,13 +177,11 @@ interface SessionPanelProps {
   contextUsed?: number;
   branch?: string | null;
   mcp?: React.ReactNode;
-  /** This computer’s conversations opened by the tab, after Agents. */
   conversations?: React.ReactNode;
   className?: string;
   testId?: string;
 }
 
-/** The common panel sections for a peer's chat and a Codex tab here. */
 export function SessionSidePanel({
   scope,
   panel,
@@ -242,7 +216,6 @@ export function SessionSidePanel({
   const jobs = panel?.tasks ?? NO_JOBS;
   const todos = panel?.todos ?? [];
   const changed = panel?.changedFiles ?? [];
-  // A computer before 0.13.0 tells no file it made: the calls read here may.
   const madeHere = useMemo(
     () => new Set(changedFilesOf(model.tools).flatMap((f) => (f.created ? [f.path] : []))),
     [model.tools],
@@ -267,8 +240,6 @@ export function SessionSidePanel({
   const limits = usage ? [...usage.meters, ...usage.more] : [];
   const cost = panel?.costUsd;
   const asked = (part: RemotePanelPart) => (reveal?.part === part ? reveal.seq : undefined);
-  // Its rows' handlers stay the same as the chat changes, so its list of
-  // what ended draws only when that does; each reads what the chat has now.
   const latest = useRef({ model, controls, onShowAgent, onShowCall, onStopTask, onStopRun });
   latest.current = { model, controls, onShowAgent, onShowCall, onStopTask, onStopRun };
   const openRow = useCallback((row: ActivityRow) => {
@@ -281,7 +252,6 @@ export function SessionSidePanel({
     if (!controls || row.status !== "running") return undefined;
     const run = row.agent?.run;
     if (run) return onStopRun && (() => onStopRun(run.id));
-    // The task a subagent runs as, which stops it.
     const taskId =
       row.job?.taskId ??
       row.agent?.taskId ??
@@ -678,11 +648,6 @@ export function CodexPanelMcp({
   );
 }
 
-/**
- * Its MCP servers as they stand there, as a chat here lists its own; worked
- * as a chat here works them (`controls`): signed in to, connected again,
- * turned on or off.
- */
 function RemoteMcp({
   target,
   servers,
@@ -754,13 +719,6 @@ function RemoteMcp({
   );
 }
 
-/**
- * A background run opened, as a chat here shows one: the command it runs,
- * the end of its output (as it comes, while it runs), how it ended, and its
- * call and its output file a click away. The output is read from that
- * computer, which tells where it is from 0.13.0; before, what the run said
- * last stands for it.
- */
 function RemoteJobDetail({
   job,
   tools,

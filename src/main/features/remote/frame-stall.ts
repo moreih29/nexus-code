@@ -1,7 +1,6 @@
 const FRAME_STALL_MS = 5_000;
 const TIMER_SLIP_MS = 1_000;
 
-/** Restarts the wait if the main event loop ran the timer late. */
 export function responsiveTimeout(waitMs: number, expire: (elapsedMs: number) => void): () => void {
   const started = performance.now();
   let due = started + waitMs;

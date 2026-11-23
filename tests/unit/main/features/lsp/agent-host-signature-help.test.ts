@@ -1,10 +1,3 @@
-/**
- * Signature help on the agent path: the server's signature comes back with
- * the null fields servers send left out, the trigger reaches the server as
- * the request's context, and a trigger character the server does not list
- * asks nothing until a signature is shown.
- */
-
 import { expect, test } from "bun:test";
 import { startAgentLspHost } from "../../../../../src/main/features/lsp/agent-host";
 import type {
@@ -16,7 +9,6 @@ import type {
 const WORKSPACE_ID = "66666666-6666-4666-8666-666666666666";
 const URI = "file:///tmp/ws/main.py";
 
-/** Answers each LSP request with `responses[method]` and records what it sent. */
 class SignatureHelpChannel implements AgentChannel {
   readonly ready = Promise.resolve();
   readonly sent: Array<{ method: string; params: unknown }> = [];

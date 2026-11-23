@@ -1,13 +1,3 @@
-/**
- * Tasks: workspaces on git worktrees of another workspace's repository.
- *
- * A task is a hidden child workspace (`WorkspaceMeta.task`), so it gets its
- * own tabs, terminals, file tree, git state and agent channel like any
- * workspace. Its worktree lives under the worktrees root of the host the
- * parent lives on (~/.nexus-code/worktrees/<repo>-<hash>/<branch>), on a new
- * branch started from the parent's HEAD.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import type {
@@ -21,15 +11,10 @@ import type { WorkspaceManager } from "../workspace/manager";
 import { repoFolderName, subPathInRepo, taskSlug, uniqueName } from "./naming";
 
 export type TaskErrorKind =
-  /** No such workspace, or it is a task itself. */
   | "not-found"
-  /** The workspace is not in a git repository. */
   | "not-a-repo"
-  /** An SSH workspace that has not connected yet. */
   | "not-connected"
-  /** The name leaves nothing usable for a branch. */
   | "invalid-name"
-  /** The worktree has changes; removing it needs `force`. */
   | "worktree-dirty";
 
 export class TaskError extends Error {
@@ -44,33 +29,23 @@ export class TaskError extends Error {
 
 export interface TaskServiceDeps {
   readonly manager: Pick<WorkspaceManager, "list" | "create" | "remove" | "getWorktreesRoot">;
-  /** The repository a workspace is in, or null outside one. */
   readonly getRepository: (workspaceId: string) => Promise<GitRepository | null>;
-  /** Whether a local path exists; injectable for tests. */
   readonly localPathExists?: (p: string) => boolean;
-  /** How it waits between tries at removing a worktree; injectable for tests. */
   readonly sleep?: (ms: number) => Promise<void>;
 }
 
 export interface CreateTaskArgs {
   readonly parentId: string;
   readonly name: string;
-  /** The terminal whose agent asks for the task, when one does. */
   readonly createdBy?: WorkspaceTask["createdBy"];
 }
 
 export interface RemoveTaskArgs {
   readonly id: string;
-  /** Remove the worktree even when it has changes. */
   readonly force: boolean;
-  /**
-   * Delete the task's branch too; "merged" only if git finds it merged, so
-   * a branch with commits of its own is kept.
-   */
   readonly deleteBranch: boolean | "merged";
 }
 
-/** Creates the worktree and branch for a new task, and its workspace. */
 export async function createTask(
   deps: TaskServiceDeps,
   { parentId, name, createdBy }: CreateTaskArgs,
@@ -123,10 +98,6 @@ export async function createTask(
   });
 }
 
-/**
- * Removes a task: its workspace (terminals and agent first, so nothing holds
- * the folder open), then its worktree, then its branch if asked.
- */
 export async function removeTask(
   deps: TaskServiceDeps,
   { id, force, deleteBranch }: RemoveTaskArgs,
@@ -143,7 +114,6 @@ export async function removeTask(
   await deps.manager.remove(id);
   if (!repo) return;
 
-  // Read before the worktree goes: the branch may have been renamed there.
   const checkedOut = deleteBranch
     ? await repo.worktreeBranch(task.worktreePath).catch(() => null)
     : null;
@@ -157,12 +127,6 @@ export async function removeTask(
   else await repo.deleteBranch(branch, false).catch(() => {});
 }
 
-/**
- * The task's branch as it is now: the one it was made with, or, renamed
- * since, the one its worktree had checked out, when its reflog says it was
- * renamed from it. Null when it is gone: another branch checked out there
- * is not the task's to delete.
- */
 async function taskBranch(
   repo: GitRepository,
   made: string,
@@ -173,7 +137,6 @@ async function taskBranch(
   return null;
 }
 
-/** False when the folder is already gone, since there is nothing to lose. */
 async function worktreeHasChanges(repo: GitRepository, worktreePath: string): Promise<boolean> {
   try {
     return await repo.worktreeHasChanges(worktreePath);
@@ -183,13 +146,6 @@ async function worktreeHasChanges(repo: GitRepository, worktreePath: string): Pr
   }
 }
 
-/**
- * Removes the worktree, forced since its changes were checked already. A
- * folder deleted by hand leaves only git's record, which prune drops. On
- * Windows the closed terminals and agent can hold files for a moment, so a
- * failure is retried once. A failed attempt can still drop git's record with
- * the files, leaving the folder, so then the retry finds no working tree.
- */
 async function removeWorktree(
   repo: GitRepository,
   worktreePath: string,
@@ -212,18 +168,9 @@ async function removeWorktree(
 }
 
 const EMPTY_FOLDER_ATTEMPTS = 5;
-/** How long, and how often, a folder still held after them is tried. */
 const HELD_FOLDER_MS = 60_000;
 const HELD_FOLDER_INTERVAL_MS = 1000;
 
-/**
- * Deletes the folder a failed removal left, if it is empty. The program
- * holding it is closing, so it is tried for a second or so. One can be
- * waiting on the removal before it closes: Claude Code asks for it from its
- * WorktreeRemove hook, in the worktree, and holds the folder until the hook
- * returns. So a folder still held is tried again after the removal returns,
- * for a minute. One that stays, or has files in it, is left as it is.
- */
 async function removeEmptyFolder(
   folder: string,
   wait: (ms: number) => Promise<void>,
@@ -240,7 +187,6 @@ async function removeEmptyFolder(
   })();
 }
 
-/** Deletes the empty folder; false while something holds it. */
 async function removedOrKept(folder: string): Promise<boolean> {
   try {
     await fs.promises.rmdir(folder);

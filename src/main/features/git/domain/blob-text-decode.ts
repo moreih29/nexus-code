@@ -1,11 +1,3 @@
-/**
- * Reads a bounded HEAD blob through the semantic blob executor and decodes
- * it as text once binary and size guards pass. Lives next to
- * `GitRepository` rather than inside it because the read+decode flow has
- * its own responsibility — binary detection, BOM stripping, UTF-8 decode,
- * and the size envelope — that is independent of repository state.
- */
-
 import { isBinaryProbe } from "../../../../shared/fs/binary-detect";
 import { BINARY_DETECTION_BYTES } from "../../../../shared/fs/defaults";
 import type { GitOpenFileAtHeadResult } from "../../../../shared/git/types";
@@ -23,11 +15,6 @@ export interface ReadHeadBlobOptions {
   readonly signal: AbortSignal;
 }
 
-/**
- * Streams the HEAD blob bytes, throws on binary content or oversized
- * payloads, strips the UTF-8 BOM when present, and returns the decoded
- * text alongside the encoding label and observed byte count.
- */
 export async function readHeadBlobAsText(
   options: ReadHeadBlobOptions,
 ): Promise<GitOpenFileAtHeadResult> {
@@ -84,18 +71,12 @@ export async function readHeadBlobAsText(
   return { content: buffer.toString("utf8"), encoding: "utf8", sizeBytes };
 }
 
-/**
- * Creates the user-facing error for HEAD blob reads that exceed text limits.
- */
 function blobTooLargeError(relPath: string): GitError {
   return new GitError("binary-too-large", `Git blob ${relPath} exceeds text read limit`, {
     argv: ["blob", "HEAD", relPath],
   });
 }
 
-/**
- * Detects a UTF-8 byte-order mark without converting the whole buffer first.
- */
 function hasUtf8Bom(buffer: Buffer): boolean {
   return buffer.byteLength >= 3 && buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf;
 }

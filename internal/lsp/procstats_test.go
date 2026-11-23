@@ -3,7 +3,6 @@ package lsp
 import "testing"
 
 func TestParseProcStatCountsFieldsFromTheLastParenthesis(t *testing.T) {
-	// The command name holds a space and a ")", as a process may name itself.
 	stat := "4242 (node) worker) S 4200 4242 4242 0 -1 4194304 1 0 0 0 3 1 0 0 20 0 11 0 100 1000000 250 18446744073709551615\n"
 
 	entry, ok := parseProcStat([]byte(stat), 4096)
@@ -27,10 +26,10 @@ func TestParsePSOutput(t *testing.T) {
 func TestTreeRSSSumsEachServersDescendants(t *testing.T) {
 	table := map[int]processEntry{
 		1:  {ppid: 0, rss: 1},
-		10: {ppid: 1, rss: 100}, // a server
+		10: {ppid: 1, rss: 100},
 		11: {ppid: 10, rss: 200},
 		12: {ppid: 11, rss: 300},
-		20: {ppid: 1, rss: 400}, // another
+		20: {ppid: 1, rss: 400},
 	}
 
 	totals := treeRSS(table, []int{10, 20, 99})

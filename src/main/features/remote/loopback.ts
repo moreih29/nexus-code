@@ -1,10 +1,3 @@
-/**
- * The address the browser comes back to after the sign-in (RFC 8252's
- * loopback redirect): a server on 127.0.0.1, on a port the system picks,
- * that takes one /callback and closes. Its page waits for the app to say how
- * the sign-in ended (the code still to be traded), for a while.
- */
-
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { z } from "zod";
@@ -21,7 +14,6 @@ import { siteUrl } from "../../../shared/site";
 import { mainLanguage } from "../../i18n";
 import { SignInError } from "./errors";
 
-/** The failures a callback alone can tell. */
 export type CallbackFailure = Extract<
   SignInFailure,
   | "not_invited"
@@ -35,7 +27,6 @@ export type CallbackFailure = Extract<
   | "failed"
 >;
 
-/** A not_invited refusal's `access`: where the account's signup request stands. */
 const SignupAccessSchema = z.enum(["pending", "rejected", "suspended", "closed"]);
 
 const SIGNUP_ACCESS: Record<z.infer<typeof SignupAccessSchema>, CallbackFailure> = {
@@ -45,25 +36,14 @@ const SIGNUP_ACCESS: Record<z.infer<typeof SignupAccessSchema>, CallbackFailure>
   closed: "closed",
 };
 
-/**
- * Why a not_invited refusal turned the account away, by its `access`, from
- * the callback or a refused code: none is not_invited, and one the app does
- * not know (the server may add some) a plain failure.
- */
 export function notInvitedFailure(access: unknown): CallbackFailure {
   if (access === undefined || access === null) return "not_invited";
   const known = SignupAccessSchema.safeParse(access);
   return known.success ? SIGNUP_ACCESS[known.data] : "failed";
 }
 
-/** The errors besides not_invited the server sends the browser back with. */
 const CALLBACK_ERRORS = ["access_denied", "unverified_email", "server_error"] as const;
 
-/**
- * Why the callback says the sign-in failed; undefined when it brought a code.
- * An error or access the app does not know (the server may add some) is a
- * plain failure.
- */
 export function callbackFailure(query: URLSearchParams): CallbackFailure | undefined {
   const error = query.get("error");
   if (error === null) return query.get("code") ? undefined : "failed";
@@ -71,51 +51,24 @@ export function callbackFailure(query: URLSearchParams): CallbackFailure | undef
   return CALLBACK_ERRORS.find((e) => e === error) ?? "failed";
 }
 
-/** What the server sent the browser back with. */
 export interface Callback {
   code?: string;
-  /** Why the sign-in failed, as the callback tells; none when it brought a code. */
   failure?: CallbackFailure;
-  /** The server's error as it came, for the log alone. */
   error?: string;
   state: string | null;
 }
 
 export interface LoopbackListener {
-  /** The redirect_uri to give the server. */
   readonly redirectUri: string;
-  /**
-   * The callback, or a SignInError once the time is up ("timed-out") or the
-   * sign-in is stopped ("cancelled").
-   */
   readonly result: Promise<Callback>;
-  /**
-   * Tells the browser's page how the sign-in ended, which it waits for:
-   * signed in, or why not, as the app now shows it. `provider` is the
-   * sign-in a pending approval is for. Only the first is told.
-   */
   report(outcome: "signed-in" | SignInFailure, provider?: SignInProvider): void;
-  /** Stops waiting; the result rejects as cancelled. */
   close(): void;
 }
 
-/**
- * What the page tells: the sign-in went through, why it did not, or, when
- * the app has not said in time, that the rest is in the app.
- */
 export type PageOutcome = "signed-in" | "in-app" | Exclude<SignInFailure, "cancelled">;
 
-/**
- * How long the page waits for the app to finish the sign-in (the code
- * traded for a token) before it says to look in the app.
- */
 export const PAGE_WAIT_MS = 10_000;
 
-/**
- * The page's headers: nothing kept or passed on, and nothing loaded or run
- * but its own styles. A link still opens: the policy does not govern where
- * the page goes.
- */
 export const PAGE_HEADERS = {
   "content-type": "text/html; charset=utf-8",
   "cache-control": "no-store",
@@ -151,7 +104,6 @@ p{margin:0}
 .foot{margin:16px 0 0;text-align:center;font-size:13px;color:var(--muted)}
 `;
 
-/** The app's mark: two cards on a dark tile. */
 const LOGO =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x=".5" y=".5" width="23" height="23" rx="5" fill="#1c1c1e" stroke="#fff" stroke-opacity=".16"/>' +
   '<rect x="4.5" y="8.5" width="11" height="8.5" rx="2" fill="#77777d" transform="rotate(-14 10 12.75)"/>' +
@@ -191,13 +143,6 @@ function pageWords(
   return { title, body: bodyWithProvider.replace("{{provider}}", name) };
 }
 
-/**
- * The page the browser shows once it is back, in the app's language. Its
- * words are the app's own, picked by the outcome, with the name of a pending
- * approval's sign-in from the app's own list, and a failure support explains
- * links to the app's own address for it: nothing the server or the query
- * sent is put in it.
- */
 export function page(
   outcome: PageOutcome,
   language: SupportedLanguage,
@@ -238,11 +183,6 @@ export function page(
   ].join("");
 }
 
-/**
- * Listens for the browser to come back. The callback is the result at once;
- * its page waits for report(), up to `pageWaitMs`, and says to look in the
- * app past that. `language` is read as the page is sent.
- */
 export async function listenForCallback(
   timeoutMs: number,
   language: () => SupportedLanguage = mainLanguage,
@@ -252,14 +192,11 @@ export async function listenForCallback(
   const result = new Promise<Callback>((resolve, reject) => {
     settle = { resolve, reject };
   });
-  // Nothing waits on it until the sign-in does; a rejection then is not unhandled.
   result.catch(() => {});
   let told: { outcome: PageOutcome; provider?: SignInProvider } | undefined;
-  /** The pages waiting to be told, each sent once it is. */
   const waiting = new Set<() => void>();
   const report = (outcome: "signed-in" | SignInFailure, provider?: SignInProvider) => {
     if (told) return;
-    // The app stopped without an outcome of its own: the page leaves it to the app.
     told = { outcome: outcome === "cancelled" ? "in-app" : outcome, provider };
     const pages = [...waiting];
     waiting.clear();
@@ -283,7 +220,6 @@ export async function listenForCallback(
       send("in-app");
     }, pageWaitMs);
     waiting.add(sendTold);
-    // The browser left before it was told.
     res.once("close", () => {
       clearTimeout(wait);
       waiting.delete(sendTold);

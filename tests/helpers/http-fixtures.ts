@@ -1,4 +1,3 @@
-/** Sends one byte over the limit without Content-Length and records cancellation. */
 export function oversizedResponse(mebibytes: number) {
   const chunk = new Uint8Array(1024 * 1024).fill(0x20);
   let remaining = mebibytes;

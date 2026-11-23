@@ -3,7 +3,6 @@ import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import type { CliServices } from "../../cli/context";
 import { fitsInFrame, RpcFailure } from "../room";
 
-/** What this version serves; a hello says so, and the others ask for nothing more. */
 export const SERVES: readonly Capability[] = [
   "sessions",
   "sessions.reorder",
@@ -26,13 +25,6 @@ export const SERVES: readonly Capability[] = [
   "chat.peek",
 ];
 
-/**
- * What this device serves as the user set it: its chats' controls, and
- * its terminals', each only when the user lets other devices have them
- * (Settings › Remote), else they may only look; agents' requests unless
- * the user turned them down. The workspaces' files (and writing them, and
- * how busy their host is) only where this device can read them.
- */
 export function servesWith(
   allowControl: boolean,
   allowTerminal = false,
@@ -47,17 +39,12 @@ export function servesWith(
       (c !== "terminal.control" || allowTerminal) &&
       (c !== "agents" || allowAgents) &&
       (c !== "push" || allowPush) &&
-      // How busy a host is goes only where its files may be read.
       ((c !== "files" && c !== "files.write" && c !== "system.stats") || servesFiles),
-  ).filter(
-    // A peek at a chat only where the chat may be read.
-    (c, _i, served) => c !== "chat.peek" || served.includes("chat.read"),
-  );
+  ).filter((c, _i, served) => c !== "chat.peek" || served.includes("chat.read"));
 }
 
 export { oneLine } from "../../../../shared/remote/one-line";
 
-/** The tab, when the workspace holds one of that kind; else NotFound. */
 export async function tabOf(
   services: CliServices,
   workspaceId: string,
@@ -79,15 +66,10 @@ export async function tabOf(
   return tab;
 }
 
-/** A workspace the sessions' list shows. */
 export function workspaceOf(services: CliServices, workspaceId: string): WorkspaceMeta | undefined {
   return services.listWorkspaces().find((w) => w.id === workspaceId);
 }
 
-/**
- * The app failing or refusing to do it as the session stands (nothing to
- * stop, a request answered since), as another device is told it.
- */
 export function unavailable(error: unknown): never {
   throw new RpcFailure(
     RpcErrorCode.Unavailable,
@@ -95,7 +77,6 @@ export function unavailable(error: unknown): never {
   );
 }
 
-/** Room left in a frame for the answer's envelope around a result. */
 export const ENVELOPE_BYTES = 1024;
 
 export function fitsAsResult(result: unknown): boolean {

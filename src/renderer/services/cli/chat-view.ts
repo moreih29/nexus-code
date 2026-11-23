@@ -1,9 +1,3 @@
-/**
- * A Claude or Codex tab's conversation as the nexus CLI tells it: where it
- * stands (chat state, chat wait), its messages (chat read) and a tool call
- * whole (chat tool). Pure.
- */
-
 import { type ChatPage, ITEM_KINDS, type ViewItem } from "../../../../packages/remote-protocol/src";
 import { type RelayedMessage, RelaySenderSchema } from "../../../shared/chat/relay";
 import type {
@@ -23,7 +17,6 @@ import { followsMessage } from "../chat/profile-moves";
 import { relaySenderText, withRelayed } from "../chat/relayed";
 import type { ChatTabState } from "../chat/store";
 
-/** What a tab asks the user, in a line: the question, the plan, or the tool to allow. */
 function askedOf(model: ChatModel): string | undefined {
   const wait = chatRowFacts(model).wait;
   if (!wait) return undefined;
@@ -37,7 +30,6 @@ function askedOf(model: ChatModel): string | undefined {
   }
 }
 
-/** What a tab asks the user for, in a line; none while it asks nothing. */
 function waitingOf(model: ChatModel): CliChatWaiting | undefined {
   const wait = chatRowFacts(model).wait;
   if (!wait) return undefined;
@@ -47,13 +39,8 @@ function waitingOf(model: ChatModel): CliChatWaiting | undefined {
   return { kind: wait.kind, text: wait.text };
 }
 
-/** How much of a request's input is told: a command is whole well under it. */
 const REQUEST_CHARS = 8_000;
 
-/**
- * The tool's permission request a tab waits on, whole: what an answer lets
- * run, not the line the tab's row shows. None for a question or a plan.
- */
 function requestOf(model: ChatModel): CliChatRequest | undefined {
   const request = model.permissions[0];
   if (!request || request.toolName === "AskUserQuestion" || request.toolName === "ExitPlanMode") {
@@ -68,7 +55,6 @@ function requestOf(model: ChatModel): CliChatRequest | undefined {
   };
 }
 
-/** The error a tab's last turn ended on, when it did. */
 function turnError(model: ChatModel): string | undefined {
   if (!model.lastResult?.isError) return undefined;
   for (let i = model.items.length - 1; i >= 0; i--) {
@@ -79,7 +65,6 @@ function turnError(model: ChatModel): string | undefined {
   return model.lastResult.subtype;
 }
 
-/** When the conversation last moved: its turn's start while one runs, else its last item. */
 function sinceOf(model: ChatModel): number | undefined {
   if (model.running && model.turn?.startedAt !== undefined) return model.turn.startedAt;
   for (let i = model.items.length - 1; i >= 0; i--) {
@@ -89,7 +74,6 @@ function sinceOf(model: ChatModel): number | undefined {
   return undefined;
 }
 
-/** The goal a tab shows (/goal): none once its bar was closed after it ended. */
 function goalOf(chat: ChatTabState): CliChatGoal | undefined {
   const goal = shownGoalOf(chat);
   if (!goal) return undefined;
@@ -100,10 +84,6 @@ function goalOf(chat: ChatTabState): CliChatGoal | undefined {
   };
 }
 
-/**
- * Where a tab stands. `unseen`: a message was sent that its conversation
- * does not show yet, so it counts as working before any turn begins.
- */
 export function chatInfoOf(
   agent: ChatAgent,
   chat: ChatTabState | undefined,
@@ -151,7 +131,6 @@ export function chatInfoOf(
   return { agent, state: "idle", ...told, ...at };
 }
 
-/** Where one submitted message stands, independent of other pending or newer turns. */
 export function chatSubmissionInfo(
   agent: ChatAgent,
   chat: ChatTabState | undefined,
@@ -201,7 +180,6 @@ export function chatSubmissionInfo(
   return { agent, state: "working" };
 }
 
-/** An entry before its place in the conversation is counted. */
 type Entry = Omit<CliChatEntry, "i">;
 
 function toolEntry(call: ToolCall | undefined): Entry | null {
@@ -223,7 +201,6 @@ function entriesOfItem(item: ChatItem, tools: ChatModel["tools"]): Entry[] {
     case "user": {
       const images = item.images.length;
       const attached = images === 0 ? "" : ` [${images} image${images === 1 ? "" : "s"}]`;
-      // Sent during a turn and not read yet: it can still be taken back (chat unsend).
       const unread = isWaiting(item) ? { status: "unread" } : {};
       return [{ role: "user", text: `${item.text.trim()}${attached}`, ...unread }];
     }
@@ -274,26 +251,17 @@ function entriesOfItem(item: ChatItem, tools: ChatModel["tools"]): Entry[] {
   }
 }
 
-/** What the tab keeps beside its conversation, which a read tells in it. */
 export interface ChatTabExtras {
-  /** The messages other agents sent it through the nexus command: told as theirs. */
   readonly relayed?: readonly RelayedMessage[];
-  /** Where it went on in another profile, by the profile's name: a notice after the message. */
   readonly moves?: readonly { readonly after: string; readonly profile: string }[];
 }
 
-/**
- * Every entry of a tab's conversation, its history before the program's log
- * included, each with its place: what the user and the agent said, the tools
- * the agent and its subagents ran, and what the app noted.
- */
 function allEntries(
   chat: ChatTabState,
   extras: ChatTabExtras = {},
 ): {
   entries: CliChatEntry[];
   tools: ChatModel["tools"];
-  /** Each entry's item, by its index in the conversation's items. */
   itemOf: number[];
 } {
   const { history, model } = chat;
@@ -302,7 +270,6 @@ function allEntries(
     extras.relayed,
   );
   const tools = history ? { ...history.tools, ...model.tools } : model.tools;
-  // Each move after the last item of the message it follows, as the tab shows it.
   const movesAfter = new Map<ChatItem, string[]>();
   for (const move of extras.moves ?? []) {
     const item = items.findLast((i) => followsMessage(i, move.after));
@@ -329,11 +296,6 @@ function allEntries(
   return { entries, tools, itemOf };
 }
 
-/**
- * The index, among the conversation's items, of the item an entry (by its
- * i, as a read with the same `extras` counts it) is part of; null when
- * there is no such entry.
- */
 export function chatItemIndexOf(
   chat: ChatTabState | undefined,
   i: number,
@@ -344,21 +306,11 @@ export function chatItemIndexOf(
 }
 
 export interface ChatEntriesQuery extends ChatTabExtras {
-  /** Only those after the entry with this i. */
   readonly since?: number;
-  /** Only the last this many of them. */
   readonly messages?: number;
-  /** Subagents' tool calls too; left out otherwise. */
   readonly subagents?: boolean;
 }
 
-/**
- * The entries of a tab's conversation a read asks for: those after `since`,
- * the last `messages` of them; all when neither. Subagents' tool calls are
- * left out unless asked for; the others keep their places. A conversation
- * that ends before `since`, cleared or rewound since, is read from its
- * start. `end` is the i of its last entry, -1 when it has none.
- */
 export function chatEntriesOf(
   chat: ChatTabState | undefined,
   query: ChatEntriesQuery = {},
@@ -377,11 +329,6 @@ export function chatEntriesOf(
   return { entries: last, end };
 }
 
-/**
- * A tool call of a tab's conversation whole: `ref` is its entry's i (as a
- * read with the same `extras` counts it), or its id. Null when it names no
- * tool call.
- */
 export function chatToolOf(
   chat: ChatTabState | undefined,
   ref: string,
@@ -405,12 +352,6 @@ export function chatToolOf(
   };
 }
 
-/**
- * A page of another device's chat (the remote's chat.read) as chat read
- * tells it: each item's entries, `i` the item's index there, so that a later
- * read can start after it. Subagents' tool calls are left out unless asked
- * for.
- */
 export function pageEntriesOf(page: ChatPage, subagents = false): CliChatEntry[] {
   return page.items.flatMap((item, k) =>
     viewEntriesOf(item, page.tools)
@@ -419,17 +360,10 @@ export function pageEntriesOf(page: ChatPage, subagents = false): CliChatEntry[]
   );
 }
 
-/**
- * A chat view's item as chat read tells it. The view is the conversation
- * as the serving device's app built it, trimmed for drawing: the fields
- * read here keep their shape and meaning. A kind this version does not
- * know tells nothing.
- */
 function viewEntriesOf(item: ViewItem, tools: ChatPage["tools"]): Entry[] {
   if (!ITEM_KINDS.has(item.kind)) return [];
   const asModel = tools as unknown as ChatModel["tools"];
   if (item.kind !== "received") return entriesOfItem(item as unknown as ChatItem, asModel);
-  // Another agent's message: who sent it, where it takes an answer, on which computer.
   const received = item as Extract<ViewItem, { kind: "received" }>;
   const { replyTo, device } = received.from;
   const from = {

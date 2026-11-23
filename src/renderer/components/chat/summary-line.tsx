@@ -1,10 +1,3 @@
-/**
- * A chat's state in one line, where it is too narrow for the agents' strip
- * and the side panel: its running subagents and background jobs, its to-dos
- * and its context, each an icon and a number as the agent list's rows tell
- * them. It opens the panel. A chat here and another computer's show it alike.
- */
-
 import { Bot, ListChecks, PanelRightClose, PanelRightOpen, SquareTerminal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ChatModel } from "../../services/chat/model";
@@ -12,16 +5,12 @@ import { type AgentRow, agentsOf, contextOf, jobsOf, todosOf } from "../../servi
 import { ContextRing } from "../ui/context-ring";
 
 export interface SummaryCounts {
-  /** Subagents and runs under way. */
   agents: number;
-  /** Background jobs under way. */
   jobs: number;
   todos: { done: number; total: number } | null;
-  /** How full the context is; null before the program said. */
   contextPercent: number | null;
 }
 
-/** What a chat here's line tells: its model's, its `claude -p` runs counted with its agents. */
 export function summaryCountsOf(model: ChatModel, runs: readonly AgentRow[]): SummaryCounts {
   const todos = todosOf(model.tools);
   const context = contextOf(model.contextUsage);

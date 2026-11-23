@@ -1,4 +1,3 @@
-// Package search implements workspace text search inside the agent process.
 package search
 
 import (
@@ -30,10 +29,6 @@ const (
 	earlyCancelLifetime = 30 * time.Second
 	maxEarlyCancels     = 1024
 
-	// previewMaxBytes bounds Match.Preview. Lines up to this length are sent
-	// whole; longer lines (minified bundles, single-line JSON) are cut to a
-	// window that starts previewContextBytes before the match, so a 1 MiB
-	// line with a thousand matches cannot turn into a 1 GB progress frame.
 	previewMaxBytes     = 512
 	previewContextBytes = 64
 )
@@ -79,8 +74,6 @@ type Query struct {
 	MaxFileSize     int64    `json:"maxFileSize"`
 }
 
-// Range columns count UTF-16 code units, the unit Monaco columns and JS
-// strings index by, so a match after Korean or emoji text lands on it.
 type Range struct {
 	Line     int `json:"line"`
 	StartCol int `json:"startCol"`
@@ -88,13 +81,9 @@ type Range struct {
 }
 
 type Match struct {
-	Range   Range  `json:"range"`
-	Preview string `json:"preview"`
-	// PreviewStart is the column within the line where Preview begins; it
-	// is non-zero only when the line was longer than previewMaxBytes. Range
-	// always stays relative to the whole line so it can be revealed in the
-	// editor; the renderer subtracts PreviewStart to highlight inside Preview.
-	PreviewStart int `json:"previewStart,omitempty"`
+	Range        Range  `json:"range"`
+	Preview      string `json:"preview"`
+	PreviewStart int    `json:"previewStart,omitempty"`
 }
 
 type FileMatch struct {
@@ -185,8 +174,6 @@ func (s *Service) Text(ctx context.Context, raw json.RawMessage) (any, error) {
 	return result, nil
 }
 
-// registerSearch consumes a cancellation that overtook this request or
-// publishes its cancel function before compilation or walking begins.
 func (s *Service) registerSearch(ctx context.Context, id string) (context.Context, func(), error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -227,8 +214,6 @@ func (s *Service) Cancel(_ context.Context, raw json.RawMessage) (any, error) {
 	return struct{}{}, nil
 }
 
-// rememberCancel keeps recent unmatched cancellations with a fixed capacity.
-// The caller holds mu so lookup and registration see each cancel exactly once.
 func (s *Service) rememberCancel(id string, now time.Time) {
 	var oldestID string
 	var oldest time.Time
@@ -402,7 +387,6 @@ func (s *Service) emitBatch(searchID string, state *batchState) {
 	}
 }
 
-// readForSearch probes binary files before reading the bounded text content.
 func readForSearch(ctx context.Context, abs string, size int64) ([]byte, error) {
 	file, err := os.Open(abs)
 	if err != nil {
@@ -432,7 +416,6 @@ func readForSearch(ctx context.Context, abs string, size int64) ([]byte, error) 
 	return io.ReadAll(io.LimitReader(searchReader{ctx, file}, size))
 }
 
-// searchReader checks for cancellation between bounded reads.
 type searchReader struct {
 	ctx    context.Context
 	source io.Reader
@@ -475,9 +458,6 @@ func findMatches(buf []byte, re *regexp.Regexp, perFileCap int, remainingGlobal 
 	return out
 }
 
-// matchPreview returns the slice of line to show for a match starting at
-// byte offset start, and the offset that slice begins at. Both window edges
-// are moved onto rune boundaries so a multi-byte character is never split.
 func matchPreview(line string, start int) (string, int) {
 	if len(line) <= previewMaxBytes {
 		return line, 0
@@ -493,8 +473,6 @@ func matchPreview(line string, start int) (string, int) {
 	return line[from:to], from
 }
 
-// utf16Cols converts byte offsets within one line to UTF-16 columns. The
-// offsets must not decrease, so a line with many matches is walked once.
 type utf16Cols struct {
 	line    string
 	byteOff int
@@ -510,7 +488,6 @@ func (c *utf16Cols) at(byteOff int) int {
 func utf16Len(s string) int {
 	n := 0
 	for _, r := range s {
-		// Runes past the BMP take a surrogate pair.
 		if r > 0xFFFF {
 			n += 2
 		} else {

@@ -10,7 +10,6 @@ const log = createLogger("chat");
 export interface PeerSubmission {
   clientNonce: string;
   clientDeviceId: string;
-  /** A Claude stdin write has returned successfully. */
   written?: boolean;
 }
 
@@ -20,7 +19,6 @@ const MAX_RECEIPTS = 4096;
 
 const RECEIPT_TTL_MS = 30 * 60_000;
 
-/** Resolves the existing remote `at` receipt to the exact submission on this tab. */
 export function submissionAt(workspaceId: string, tabId: string, at: number): string | undefined {
   const key = `${chatKey(workspaceId, tabId)}:${at}`;
   const receipt = receiptIds.get(key);
@@ -30,7 +28,6 @@ export function submissionAt(workspaceId: string, tabId: string, at: number): st
   return undefined;
 }
 
-/** Keeps remote receipts for the lifetime of a CLI wait, within a fixed cap. */
 function rememberReceipt(key: string, at: number, id: string): void {
   if (receiptIds.size === MAX_RECEIPTS) {
     const oldest = receiptIds.keys().next().value;
@@ -44,7 +41,6 @@ function userMessages(key: string): number {
   return chat ? chat.model.items.filter((item) => item.kind === "user").length : 0;
 }
 
-/** Whether a message sent to the tab is yet to show in its conversation. */
 export function sendUnseen(workspaceId: string, tabId: string): boolean {
   const key = chatKey(workspaceId, tabId);
   const send = unseenSends.get(key);
@@ -54,11 +50,6 @@ export function sendUnseen(workspaceId: string, tabId: string): boolean {
   return false;
 }
 
-/**
- * Sends `text` to a tab, starting its program if it is not running; the tab
- * counts as working from now, not only once the message shows. `from`: the
- * agent that sent it through the nexus command, when one did.
- */
 export async function sendToAgentTab(
   workspaceId: string,
   tabId: string,
@@ -73,9 +64,6 @@ export async function sendToAgentTab(
 ): Promise<{ heldId?: string; itemKey?: string; submissionId?: string }> {
   const { controller } = target;
   const key = chatKey(workspaceId, tabId);
-  // Working from now, though the program may be starting and a conversation
-  // resumed after a restart still coming in: its messages are counted only
-  // once it is in, or they would pass for the one sent.
   const unseen = { before: Number.POSITIVE_INFINITY };
   unseenSends.set(key, unseen);
   const clear = () => {
@@ -101,7 +89,6 @@ export async function sendToAgentTab(
     }
     if (when === "after" && (!id || controller.state.model.running)) {
       const heldId = controller.enqueue(text, images, from, device, id);
-      // Held, it is not sent yet: the chat is not waiting on it.
       if (heldId) clear();
       return heldId ? { heldId, ...tracked } : tracked;
     }
@@ -132,13 +119,8 @@ export async function sendToAgentTab(
   }
 }
 
-/**
- * When a message sent during a turn goes, as the composer's keys have it:
- * next (↩), now (⌘↩), after the turn (⌘⇧↩).
- */
 export type SendTiming = "next" | "now" | "after";
 
-/** Opens the program and sends the first message while marking the tab as working. */
 export async function sendFirstMessage(
   workspaceId: string,
   tabId: string,
@@ -147,7 +129,6 @@ export async function sendFirstMessage(
   from?: RelaySender,
 ): Promise<void> {
   const key = chatKey(workspaceId, tabId);
-  // Working from now: opening the program comes before the message.
   const opening = { before: Number.POSITIVE_INFINITY };
   unseenSends.set(key, opening);
   try {

@@ -1,11 +1,3 @@
-// Remove Task dialog — deletes a task's worktree and, when asked, its branch.
-//
-// Mounted once in GlobalRoots; `useTaskUIStore.openRemoveTask(taskId)` opens
-// it. A worktree with changes turns the dialog into a second confirmation,
-// since deleting it throws the changes away. It names the conversations the
-// removal closes, and the parent each runs under elsewhere: the agent lists
-// show such a child under its parent, not in the task's group.
-
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -61,8 +53,6 @@ export function RemoveTaskDialogRoot(): React.JSX.Element {
   }
 
   async function remove(event: React.MouseEvent): Promise<void> {
-    // Same guard as ConfirmDialog: a keyboard-synthesized click right after
-    // the dialog opens is the residue of the key that opened it.
     if (event.detail === 0 && performance.now() - mountAtRef.current < MOUNT_CLICK_GRACE_MS) {
       event.preventDefault();
       return;
@@ -129,8 +119,6 @@ export function RemoveTaskDialogRoot(): React.JSX.Element {
         </p>
       )}
       <div className="mt-5 flex justify-end gap-2">
-        {/* Focus starts on Cancel, as in the Remove Workspace dialog: a key
-            repeat must not delete the worktree. */}
         <Button variant="ghost" size="sm" disabled={busy} onClick={cancel} autoFocus>
           {t("action.cancel")}
         </Button>
@@ -147,20 +135,14 @@ export function RemoveTaskDialogRoot(): React.JSX.Element {
   );
 }
 
-/** A conversation the removal closes, with the parent it runs under elsewhere. */
 export interface ClosingConversation {
   readonly key: string;
   readonly title: string;
-  /** The conversation it is listed under, outside the task. */
   readonly parent?: string;
 }
 
 const MAX_STEPS = 8;
 
-/**
- * The conversations that run in the task, in its order, each with the
- * nearest conversation above it that runs elsewhere, if it has one.
- */
 export function closingConversations(
   families: readonly SessionFamily[],
   taskId: string,
@@ -187,10 +169,6 @@ export function closingConversations(
 
 const SHOWN = 4;
 
-/**
- * How many conversations the removal closes, how many of them run under a
- * parent elsewhere, and their names: `2 agent tabs · including 1 under “…”`.
- */
 export function ClosingConversations({
   conversations,
 }: {

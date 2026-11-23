@@ -59,7 +59,6 @@ export function PeerFileTree({
   const rootKey = peerPathKey(root);
   const gitStatus = view.gitStatus;
   const decorations = useMemo(() => peerGitDecorations(root, gitStatus), [root, gitStatus]);
-  // The root starts expanded. Keep an explicit collapse in the same in-memory tree as the folders.
   const collapsedRoot = view.expanded.has(rootKey);
   const [errors, setErrors] = useState<Readonly<Record<string, PeerFolderError>>>({});
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
@@ -67,7 +66,6 @@ export function PeerFileTree({
   const [menu, setMenu] = useState<{ path: string; file: boolean } | null>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const rowIdPrefix = useId();
-  // The root is the header above the tree, as locally; the rows are what it holds.
   const rows = peerTreeRows({ root, title: workspace.name, ...view, collapsedRoot, errors }).slice(
     1,
   );
@@ -396,11 +394,6 @@ export function PeerFileTree({
   );
 }
 
-/**
- * A row's right-click menu, the local tree's that only look: a file's
- * Open, then its path and its path in the workspace, with the local
- * shortcuts' labels.
- */
 export function peerTreeMenu(
   target: { path: string; file: boolean },
   root: string,

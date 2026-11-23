@@ -1,8 +1,3 @@
-/**
- * A made-up app for the nexus CLI's tests: two workspaces, one with a
- * worktree, and terminals running Claude Code, Codex and a plain shell.
- */
-
 import type { TabActivity } from "../../../../src/main/features/cli/activity";
 import type { ConsoleEntry } from "../../../../src/main/features/cli/browser/console-log";
 import type {
@@ -69,9 +64,7 @@ export const CLAUDE_TAB = "aaaaaaaa-0000-4000-8000-000000000002";
 export const CODEX_TAB = "bbbbbbbb-0000-4000-8000-000000000003";
 export const EDITOR_TAB = "aaaaaaaa-0000-4000-8000-000000000004";
 export const BROWSER_TAB = "aaaaaaaa-0000-4000-8000-000000000005";
-/** The id of any tab a command opens. */
 export const NEW_TAB = "cccccccc-0000-4000-8000-000000000006";
-/** The id of a workspace nexus workspace add makes. */
 export const ADDED = "44444444-4444-4444-8444-444444444444";
 
 function workspace(
@@ -138,7 +131,6 @@ const group = (id: string, tabIds: string[], shownTabId: string | null = tabIds[
   shownTabId,
 });
 
-/** The editor areas: "app" split in two columns, the others one group. */
 const LAYOUTS: Record<string, { root: CliLayoutNode; activeGroupId: string }> = {
   [APP]: {
     root: {
@@ -155,8 +147,6 @@ const LAYOUTS: Record<string, { root: CliLayoutNode; activeGroupId: string }> = 
   [FIX]: { root: group("g4", []), activeGroupId: "g4" },
 };
 
-/** What is on disk, by workspace and path from its root. */
-/** The files readFile reads, by absolute path, with their text. */
 export const READABLE: Record<string, string> = {};
 
 const FILES: Record<string, Record<string, "file" | "dir">> = {
@@ -166,15 +156,10 @@ const FILES: Record<string, Record<string, "file" | "dir">> = {
 
 export interface FakeApp {
   services: CliServices;
-  /** The app's workspaces; a test may add or change them. */
   workspaces: WorkspaceMeta[];
-  /** What addWorkspace was asked for. */
   added: Array<{ location: WorkspaceLocation; name: string | undefined; color?: WorkspaceColor }>;
-  /** The edits workspace edit made, in order. */
   edited: Array<{ id: string; edit: { name?: string; color?: WorkspaceColor } }>;
-  /** The sidebar's changes asked for: a pin, or a move. */
   sidebar: Array<{ id: string; patch?: { pinned: boolean }; to?: WorkspaceMove }>;
-  /** This app's tabs, by workspace; a test may add or change them. */
   tabs: Record<string, CliTabInfo[]>;
   uiCalls: Array<{ op: string; args: unknown }>;
   claude: Map<
@@ -182,15 +167,10 @@ export interface FakeApp {
     { status: ClaudeStatus; message?: string; since: number; turnStartedAt?: number }
   >;
   activity: Map<string, TabActivity>;
-  /** The agents of each terminal's Claude session, by "workspace:tab". */
   agents: Map<string, AgentRun[]>;
-  /** The agents stop was asked of, by id. */
   stops: string[];
-  /** The waits on terminals listed while they run. */
   waits: WaitRegistry;
-  /** The foreground program of each terminal, by tab id; unknown when absent. */
   foreground: Map<string, string>;
-  /** The user's other computers: the room, its devices, what was asked of them and how they answer. */
   peers: {
     inRoom: boolean;
     devices: CliDevice[];
@@ -202,87 +182,48 @@ export interface FakeApp {
       signal?: AbortSignal,
     ) => Promise<unknown>;
   };
-  /** Each terminal's screen as terminal.read gives it, by tab id; a test may change one. */
   screens: Map<string, string>;
-  /** The Agent CLI settings. */
   settings: {
     crossWorkspace: CrossWorkspacePolicy;
     agentContext: boolean;
   };
-  /** The answers the user gives to consent prompts, in turn; "deny" when none is left. */
   answers: CliConsentAnswer[];
-  /** The consent prompts shown. */
   asked: ChangeRequest[];
-  /** Virtual time: sleeping advances it and then runs `onTick`. */
   time: { now: number; onTick?: (now: number) => void };
-  /** What was asked of the browser driver, and what it answers. */
   browser: FakeBrowser;
-  /** Each workspace's notes (by workspace id), as the notes service gives them. */
   notes: Record<string, NoteContent[]>;
-  /** The files put into notes: the note, where it keeps each, and its text. */
   noteAssets: Array<{ noteId: string; src: string; text: string }>;
-  /** Notes' transcripts, by "<workspace id>/<note id>". */
   transcripts: Record<string, TranscriptFile>;
-  /** Each workspace's editor area; a test may replace one. */
   layouts: Record<string, { root: CliLayoutNode; activeGroupId: string }>;
-  /** What problems.list gives. */
   problems: CliProblem[];
-  /** The ports each workspace's terminals listen on; an Error fails the look. */
   ports: Record<string, ListeningPort[] | Error>;
-  /**
-   * Each workspace's forwards. A forward set up listens at `to[port]`, or at
-   * the port itself; `error` fails it instead.
-   */
   forwarding: {
     forwards: Record<string, PortForward[]>;
     to: Record<number, number>;
     error?: Error;
   };
-  /**
-   * The Claude and Codex tabs' conversations, by tab id: where each stands
-   * and its messages; a test may change them, as on a tick.
-   */
   chats: Map<string, { info: CliChatInfo; entries: CliChatEntry[]; tools?: CliChatTool[] }>;
-  /** The messages chat.send was given. */
   chatSent: Array<{ tabId: string; text: string }>;
-  /** The sessions' state changes events.read reads; a test may add to them, as on a tick. */
   events: CliSessionEvent[];
-  /** The permission requests chat.answer answered. */
   chatAnswered: Array<CliUiOps["chat.answer"]["args"]>;
-  /** What each Claude or Codex tab runs with, by tab id; chat.settings sets what it is given. */
   chatChoices: Map<string, CliChatChoices>;
   sandboxes: Map<string, NonNullable<CliUiOps["chat.sandbox"]["result"]>>;
-  /** What chat.open answers it could not set; it sets everything when absent. */
   chatOpenError: { message?: string };
-  /**
-   * What a renderer op answers, by its name, ahead of everything else: a
-   * value, or a function of its args (which may throw).
-   */
   uiAnswers: Map<string, unknown | ((args: unknown) => unknown)>;
-  /** The requests each terminal's Claude Code holds, by tab id. */
   terminalAsks: Map<string, PermissionAsk[]>;
-  /** The terminal requests answered: tab id, request id, answer. */
   terminalAnswered: Array<{ tabId: string; askId: string; answer: PermissionAnswer }>;
-  /** Why tab.close leaves a tab open, by tab id; it closes the others. */
   closeRefused: Map<string, string>;
 }
 
 export interface FakeBrowser {
   calls: Array<{ op: string; tabId: string; args: unknown[] }>;
   console: ConsoleEntry[];
-  /** What evaluate gives. */
   value: unknown;
-  /** Whether waitFor finds its condition. */
   met: boolean;
-  /** What pick gives. */
   pick: PickResult;
-  /** What settle finds in place of the Vite page, when set. */
   settled?: PageInfo | null;
-  /** The dialog the page shows, when set. */
   dialog?: PageDialog;
-  /** The requests the page made. */
   network: NetworkEntry[];
-  /** What request gives for each. */
   requests: Record<number, RequestDetails>;
 }
 
@@ -378,7 +319,6 @@ function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
   };
 }
 
-/** The element a pick gives unless a test says otherwise. */
 export const PICKED: PickedElement = {
   url: "http://localhost:5173/login",
   title: "Vite App",
@@ -418,10 +358,6 @@ export function fakeApp(now = Date.now()): FakeApp {
   const added: FakeApp["added"] = [];
   const edited: FakeApp["edited"] = [];
   const sidebar: FakeApp["sidebar"] = [];
-  /**
-   * Puts `meta` into its group at `at` (the end when absent), numbering the
-   * group's places again, as the sidebar keeps them.
-   */
   const place = (meta: WorkspaceMeta, at?: (group: WorkspaceMeta[]) => number) => {
     const group = workspaces
       .filter((w) => !w.task && w.pinned === meta.pinned && w.id !== meta.id)
@@ -473,7 +409,6 @@ export function fakeApp(now = Date.now()): FakeApp {
     list.push(made);
     return made;
   };
-  /** The agent view, shown, in two columns: p1 (app's Claude) | p2 (api's codex), p1 active. */
   const agentView: Omit<CliAgentView, "agents"> = {
     view: "agents",
     grouping: "status",
@@ -539,7 +474,6 @@ export function fakeApp(now = Date.now()): FakeApp {
   const uiAnswers: FakeApp["uiAnswers"] = new Map();
   const terminalAsks: FakeApp["terminalAsks"] = new Map();
   const terminalAnswered: FakeApp["terminalAnswered"] = [];
-  // The renderer's one read for the sessions' list, made of the requests below.
   const sessionsSnapshot = withSessionsSnapshot((op: CliUiOp, args: never) => ui(op, args));
   const ui = async <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"]) => {
     uiCalls.push({ op, args });
@@ -550,7 +484,6 @@ export function fakeApp(now = Date.now()): FakeApp {
     if (op === "sessions.snapshot") {
       return (await sessionsSnapshot(op, args)) as CliUiOps[K]["result"];
     }
-    // Each entry is an item of its own, keyed k<i>.
     if (op === "chat.entryItem") {
       const { tabId, i } = args as CliUiOps["chat.entryItem"]["args"];
       const entry = chats.get(tabId)?.entries.find((e) => e.i === i);
@@ -600,7 +533,6 @@ export function fakeApp(now = Date.now()): FakeApp {
         goal: null,
       } as CliUiOps[K]["result"];
     }
-    // Another device's chat page, its user messages and the agent's text told as chat read tells them.
     if (op === "chat.pageEntries") {
       const { page } = args as CliUiOps["chat.pageEntries"]["args"];
       const entries = page.items.flatMap((item, k) => {
@@ -636,7 +568,6 @@ export function fakeApp(now = Date.now()): FakeApp {
         ],
       } as CliUiOps[K]["result"];
     }
-    // An editor saves or reverts what is unsaved in it; any other tab has no file.
     if (op === "tab.save" || op === "tab.revert") {
       const { workspaceId, tabId } = args as CliUiOps["tab.save"]["args"];
       const found = (tabs[workspaceId] ?? []).find((t) => t.id === tabId);
@@ -658,7 +589,6 @@ export function fakeApp(now = Date.now()): FakeApp {
         subject: "Fix the login redirect",
       } as CliUiOps[K]["result"];
     }
-    // Any worktree made is "fix-login"; the task agent is Claude. A plain shell has no tab yet.
     if (op === "task.create") {
       const { start } = args as CliUiOps["task.create"]["args"];
       const plain = start !== undefined && "command" in start && start.command === "";
@@ -678,7 +608,6 @@ export function fakeApp(now = Date.now()): FakeApp {
       const error = chatOpenError.message;
       return { tabId: NEW_TAB, ...(error ? { error } : {}) } as CliUiOps[K]["result"];
     }
-    // Any profile but "nope" is the agent's; the tab ran with the default one.
     if (op === "chat.profile") {
       const { profile } = args as CliUiOps["chat.profile"]["args"];
       if (profile === "nope") throw new CliError('claude has no profile "nope"; it has default');
@@ -834,7 +763,6 @@ export function fakeApp(now = Date.now()): FakeApp {
       const found = workspaces[i];
       if (!found) throw new Error(`workspace not found: ${id}`);
       const meta = { ...found, ...patch };
-      // A pin or unpin puts it at the end of its new group.
       if (pinned !== found.pinned) return place(meta);
       workspaces[i] = meta;
       return meta;
@@ -1010,7 +938,6 @@ export function fakeApp(now = Date.now()): FakeApp {
   };
 }
 
-/** A command run from the plain shell in "app". */
 export function contextFor(
   app: FakeApp,
   argv: string[],

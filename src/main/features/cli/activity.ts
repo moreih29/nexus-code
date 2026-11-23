@@ -1,10 +1,3 @@
-/**
- * What each terminal has been doing, for agents other than Claude Code: its
- * hooks report Claude's state, but Codex and other CLIs say only what their
- * output shows. A terminal's last output and the last notification it raised
- * (OSC 9/777/99, as Codex sends when a turn ends) stand in for that state,
- * and the program in its foreground tells which agent it is.
- */
 import { isLoginShell } from "../../../shared/pty/login-shell";
 import {
   agentFromProgram,
@@ -21,27 +14,17 @@ export interface ActivitySource {
   on(event: string, cb: (args: unknown) => void): () => void;
 }
 
-/** Names the program in a terminal's foreground, or null when it cannot be told. */
 export type ForegroundLookup = (workspaceId: string, tabId: string) => Promise<string | null>;
 
-/**
- * How long after output starts the foreground is looked at again: a program
- * started then, as a task's agent is right after its shell, has it by now.
- */
 export const PROGRAM_SETTLE_MS = 3_000;
 
-/** Keeps each live terminal's activity, keyed by workspace and tab. */
 export class ActivityTracker {
   private readonly byTab = new Map<string, TabActivity>();
   private readonly disposers: Array<() => void> = [];
   private readonly settleTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  /** Each terminal's timer for its output going quiet. */
   private readonly quietTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  /** When each terminal's foreground program was last asked for. */
   private readonly lookedAt = new Map<string, number>();
-  /** When a key was last typed into each terminal. */
   private readonly typedAt = new Map<string, number>();
-  /** When each terminal last changed size. */
   private readonly resizedAt = new Map<string, number>();
 
   constructor(
@@ -59,7 +42,6 @@ export class ActivityTracker {
           chunk: string;
           replay?: boolean;
         };
-        // Replayed output is old output shown again.
         if (replay) return;
         this.record(workspaceId, tabId, chunk);
       }),
@@ -78,19 +60,10 @@ export class ActivityTracker {
     );
   }
 
-  /**
-   * Notes a key typed into a terminal, by the user or as `nexus terminal
-   * send` types: what the terminal prints back at once is no sign of work.
-   */
   noteInput(workspaceId: string, tabId: string): void {
     this.typedAt.set(`${workspaceId}:${tabId}`, this.now());
   }
 
-  /**
-   * Notes a terminal's new size: a program that draws its screen, as Codex
-   * does, draws it again for it, as when closing a tab or pane lets the
-   * terminal beside it grow. That is no sign of work.
-   */
   noteResize(workspaceId: string, tabId: string): void {
     this.resizedAt.set(`${workspaceId}:${tabId}`, this.now());
   }
@@ -99,7 +72,6 @@ export class ActivityTracker {
     return this.byTab.get(`${workspaceId}:${tabId}`) ?? null;
   }
 
-  /** Every live terminal's activity, for the app's sessions view. */
   snapshot(): TabActivityEntry[] {
     return [...this.byTab].map(([key, activity]) => {
       const colon = key.indexOf(":");
@@ -125,14 +97,8 @@ export class ActivityTracker {
     const previous = this.byTab.get(key);
     const notices = extractOscNotifications(chunk);
     const notice = notices[notices.length - 1];
-    // The echo of a key typed in, as Codex redraws its prompt as each comes:
-    // the program is not at work for it.
     const typed = this.typedAt.get(key);
     const echo = typed !== undefined && at - typed < ECHO_MS;
-    // The screen drawn again for a new size, by a program that was quiet
-    // when it came: output of one at work counts, or dragging a window's
-    // edge would leave it idle. A terminal's first output still tells what
-    // runs there.
     const resized = this.resizedAt.get(key);
     const redraw =
       previous !== undefined &&
@@ -153,11 +119,6 @@ export class ActivityTracker {
     if (this.foreground && !this.quietTimers.has(key)) this.watchQuiet(workspaceId, tabId);
   }
 
-  /**
-   * Looks at the foreground program again once output goes quiet, when the
-   * last look was before output ended: an agent that printed until it exited,
-   * as Codex does, has left the shell in front, which no look has seen.
-   */
   private watchQuiet(workspaceId: string, tabId: string, delay = this.quietMs): void {
     const key = `${workspaceId}:${tabId}`;
     this.quietTimers.set(
@@ -171,7 +132,6 @@ export class ActivityTracker {
           this.watchQuiet(workspaceId, tabId, this.quietMs - quietFor);
           return;
         }
-        // The look once output settles comes after this, and sees it.
         if (this.settleTimers.has(key)) return;
         if ((this.lookedAt.get(key) ?? 0) < current.lastOutputAt) {
           void this.lookProgram(workspaceId, tabId);
@@ -180,10 +140,6 @@ export class ActivityTracker {
     );
   }
 
-  /**
-   * Looks at the terminal's foreground program as output starts after a quiet
-   * spell, and once more when it has settled, for a program it started.
-   */
   private watchProgram(workspaceId: string, tabId: string): void {
     const lookup = this.foreground;
     if (!lookup) return;
@@ -199,10 +155,6 @@ export class ActivityTracker {
     );
   }
 
-  /**
-   * Records the terminal's foreground program. An agent that has given the
-   * shell back is gone, and so is what it last notified: its session ended.
-   */
   private async lookProgram(workspaceId: string, tabId: string): Promise<void> {
     const lookup = this.foreground;
     if (!lookup) return;

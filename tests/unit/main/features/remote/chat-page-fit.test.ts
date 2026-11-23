@@ -1,4 +1,3 @@
-/** A chat's item too large to send as it is goes with less of it, not refused. */
 import { describe, expect, test } from "bun:test";
 import type { ChatPage, ViewToolCall } from "../../../../../packages/remote-protocol/src";
 import type { CliServices } from "../../../../../src/main/features/cli/context";
@@ -18,7 +17,6 @@ function tool(id: string, text: string, parent: string | null = null): ViewToolC
   };
 }
 
-/** One reply calling `calls`, and a subagent's run of `subCalls` under the first. */
 function bigPage(calls: number, resultChars: number, subCalls = 0, replyChars = 10): ChatPage {
   const tools: Record<string, ViewToolCall> = {};
   for (let i = 0; i < calls; i++) tools[`t${i}`] = tool(`t${i}`, "r".repeat(resultChars));

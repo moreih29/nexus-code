@@ -1,7 +1,3 @@
-/**
- * ClaudeReconnectCheck: a held terminal's Claude state, looked at again once
- * its output is replayed after the link comes back.
- */
 import { describe, expect, test } from "bun:test";
 import { ClaudeReconnectCheck } from "../../../../src/main/features/claude/reconnect";
 import { ClaudeStatusBroker } from "../../../../src/main/features/claude/status";
@@ -170,7 +166,6 @@ describe("ClaudeReconnectCheck", () => {
     check.forget(WS, "tab-3");
     await check.noteReplayed(WS, "tab-3");
 
-    // A replay with no restore before it, as a renderer reload asks for.
     broker.set(WS, "tab-4", "running");
     check.noteReplay(WS, "tab-4", title("✳ Fix the build"));
     await check.noteReplayed(WS, "tab-4");

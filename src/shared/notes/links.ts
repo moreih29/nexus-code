@@ -56,9 +56,6 @@ export function liveAnswerPreview(text: string): string {
     .replace(/\p{Cf}/gu, "")
     .replace(/[^\P{Cc}\t\r\n]+/gu, " ")
     .replace(/[\p{Zl}\p{Zp}]/gu, "\n");
-  // Escapes, entities and code can leave text that still looks like Markdown.
-  // Normalize the excerpt too, so rendering a saved snapshot gives the same text.
-  // Each pass usually shrinks the text; the cap keeps a pathological input from looping.
   for (let pass = 0; pass < MAX_PREVIEW_PASSES; pass++) {
     const preview = liveAnswerText(markdownText(source, options).replace(/\s+/gu, " "));
     if (preview === source) return preview;
@@ -77,7 +74,6 @@ export const NoteLastAnswerSchema = z.object({
     )
     .transform(liveAnswerText),
   at: timestamp.max(8.64e15),
-  // Older snapshots used `files` for a conversation-wide total.
   turnFiles: z.number().int().nonnegative().optional().catch(undefined),
 });
 

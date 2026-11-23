@@ -1,7 +1,3 @@
-// Agent profiles on this machine, for Settings: their folders made, who
-// each is signed in as, and their sign-ins run. A chat tab's profile is set
-// up on its workspace's host by the agent instead (chat.profileDir).
-
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { Stats } from "node:fs";
@@ -30,10 +26,8 @@ const STATUS_TIMEOUT_MS = 20_000;
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
 const windows = process.platform === "win32";
 
-/** Variables a parent Claude Code session sets, which a program of its own must not inherit. */
 const INHERITED_ONLY = ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT"];
 
-/** "~" and "~/…" against this machine's home. */
 export function expandHome(dir: string, home = os.homedir()): string {
   const trimmed = dir.trim();
   if (trimmed === "~") return home;
@@ -42,20 +36,17 @@ export function expandHome(dir: string, home = os.homedir()): string {
   return trimmed;
 }
 
-/** The folder the agent uses here with no profile. */
 export function localDefaultDir(agent: AgentProfile["agent"]): string {
   const set = process.env[PROFILE_DIR_ENV[agent]]?.trim();
   if (set) return path.resolve(expandHome(set));
   return path.join(os.homedir(), agent === "claude" ? ".claude" : ".codex");
 }
 
-/** The profile's folder here, absolute; the default folder for the default profile. */
 export function localProfileDir(profile: AgentProfile): string {
   const dir = profileDirectory(profile, windows);
   return dir ? path.resolve(expandHome(dir)) : localDefaultDir(profile.agent);
 }
 
-/** The environment the agent's program runs with here, for the profile. */
 export function localProfileEnv(
   profile: AgentProfile,
   base: NodeJS.ProcessEnv = process.env,
@@ -76,11 +67,6 @@ export function localProfileEnv(
   );
 }
 
-/**
- * Makes the profile's folder, and links what it shares from the default
- * folder (a file the folder has of its own stays); a link no longer shared
- * goes. Nothing to do for the default profile.
- */
 export async function prepareLocalProfile(
   profile: AgentProfile,
 ): Promise<{ dir: string; linked: string[]; failed: string[] }> {
@@ -119,21 +105,12 @@ export async function prepareLocalProfile(
   return { dir, linked, failed };
 }
 
-/**
- * Links `link` to `target`. Windows lets only an administrator, or a PC in
- * Developer Mode, make a symbolic link: there a folder gets a junction, which
- * needs no rights, and a file a hard link when its symbolic link fails.
- */
 async function makeLink(target: string, link: string, dir: boolean): Promise<void> {
   if (!windows) return fs.symlink(target, link);
   if (dir) return fs.symlink(target, link, "junction");
   await fs.symlink(target, link, "file").catch(() => fs.link(target, link));
 }
 
-/**
- * Whether the entry at `link` leads to `target`: a symbolic link or junction
- * to it, dangling or not, or on Windows a hard link of the same file.
- */
 async function linksTo(link: string, current: Stats, target: string): Promise<boolean> {
   if (current.isSymbolicLink()) {
     const got = await fs.readlink(link).catch(() => "");
@@ -147,11 +124,6 @@ async function linksTo(link: string, current: Stats, target: string): Promise<bo
   return shared !== null && own.ino === shared.ino && own.dev === shared.dev;
 }
 
-/**
- * Whether a folder chosen for a new profile is there already, and which of
- * what it may share it links to the default folder now: a folder set up by
- * hand keeps its links unless the user unticks them.
- */
 export async function inspectLocalFolder(
   agent: AgentProfile["agent"],
   dir: string,
@@ -175,11 +147,6 @@ function samePath(a: string, b: string): boolean {
   return windows || process.platform === "darwin" ? x.toLowerCase() === y.toLowerCase() : x === y;
 }
 
-/**
- * Whether the program is not on the profile's PATH. On Windows it runs
- * through the shell (an npm install leaves a .cmd), whose "not recognized"
- * comes in the system's language and code page: the PATH is looked at instead.
- */
 function notOnPath(program: string, env: NodeJS.ProcessEnv): boolean {
   return windows && findOnPath({ ...nodeShellHost(), env }, program) === null;
 }
@@ -204,11 +171,6 @@ function run(
   });
 }
 
-/**
- * Ends a sign-in's program. On Windows the shell runs it, and ending the
- * shell would leave `claude` or `codex` (and the port it waits on) behind:
- * the whole tree ends there.
- */
 function stop(child: ChildProcess): void {
   if (windows && child.pid !== undefined && child.exitCode === null) {
     execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }, () => {});
@@ -217,7 +179,6 @@ function stop(child: ChildProcess): void {
   child.kill();
 }
 
-/** Who the profile is signed in as here. */
 export async function localProfileStatus(profile: AgentProfile): Promise<AgentProfileStatus> {
   const env = localProfileEnv(profile);
   if (profile.agent === "claude") {
@@ -241,7 +202,6 @@ export async function localProfileStatus(profile: AgentProfile): Promise<AgentPr
     .catch(() => null);
   const fromFile = authJson !== null ? codexStatusOf(authJson) : null;
   if (fromFile) return fromFile;
-  // A sign-in kept in the keychain leaves no auth.json.
   if (profile.dir.trim() !== "") await fs.mkdir(localProfileDir(profile), { recursive: true });
   const result = await run("codex", ["login", "status"], env);
   if (result.missing)
@@ -249,10 +209,6 @@ export async function localProfileStatus(profile: AgentProfile): Promise<AgentPr
   return result.code === 0 ? { state: "signed-in" } : { state: "signed-out" };
 }
 
-/**
- * The command that signs a profile in, as the user would type it: in
- * PowerShell on Windows, with the folder in full since it reads no "~".
- */
 export function loginCommand(profile: AgentProfile, onWindows = windows): string {
   const program = profile.agent === "claude" ? "claude auth login" : "codex login";
   if (profile.dir.trim() === "") return program;
@@ -267,7 +223,6 @@ export interface LoginEvents {
   exit(id: string, code: number | null): void;
 }
 
-/** The sign-ins running, by id: each a `claude auth login` or `codex login`. */
 export class LocalLogins {
   private readonly running = new Map<string, ChildProcess>();
 

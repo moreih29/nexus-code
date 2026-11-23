@@ -4,7 +4,6 @@ package sysstat
 
 import "errors"
 
-// The app reads a local machine itself, and SSH hosts are Linux or macOS.
 var errUnsupported = errors.New("system stats are not read on this platform")
 
 func readCPU() (cpuTimes, error) { return cpuTimes{}, errUnsupported }

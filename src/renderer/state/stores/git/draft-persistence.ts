@@ -1,15 +1,3 @@
-/**
- * Per-workspace commit-draft and passive status-hint debouncing for the git
- * store.
- *
- * Two queues live here: pending commit drafts (debounced by
- * `GIT_COMMIT_DRAFT_SAVE_DEBOUNCE_MS` so a typing burst collapses into a
- * single write) and pending status refreshes (debounced by
- * `GIT_STATUS_HINT_DEBOUNCE_MS` so a working-tree edit burst triggers at
- * most one `git status` re-fetch). Keeping both in a dedicated module
- * isolates the timer/Map bookkeeping from the rest of the store body.
- */
-
 import { createLogger } from "../../../../shared/log/renderer";
 import { createKeyedDebouncer } from "../../../../shared/util/keyed-debouncer";
 import {
@@ -26,10 +14,6 @@ const draftSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const pendingDraftSaves = new Map<string, string>();
 const statusHints = createKeyedDebouncer<string>({ delayMs: GIT_STATUS_HINT_DEBOUNCE_MS });
 
-/**
- * Schedule a per-workspace commit-draft write; repeated keystrokes reset
- * the same timer so only the final value reaches storage.
- */
 export function scheduleCommitDraftSave(workspaceId: string, commitDraft: string): void {
   pendingDraftSaves.set(workspaceId, commitDraft);
 
@@ -44,9 +28,6 @@ export function scheduleCommitDraftSave(workspaceId: string, commitDraft: string
   draftSaveTimers.set(workspaceId, handle);
 }
 
-/**
- * Cancel the pending draft persistence for a workspace without writing it.
- */
 export function cancelCommitDraftSave(workspaceId: string): void {
   const existing = draftSaveTimers.get(workspaceId);
   if (existing) {
@@ -56,9 +37,6 @@ export function cancelCommitDraftSave(workspaceId: string): void {
   pendingDraftSaves.delete(workspaceId);
 }
 
-/**
- * Flush one workspace's pending draft write immediately.
- */
 export function flushCommitDraftSave(workspaceId: string): void {
   const existing = draftSaveTimers.get(workspaceId);
   if (existing) {
@@ -73,38 +51,22 @@ export function flushCommitDraftSave(workspaceId: string): void {
   persistPanelState(workspaceId, { commitDraft });
 }
 
-/**
- * Flush all queued draft writes, used by blur/visibilitychange and exposed
- * on the store for explicit input blur handlers.
- */
 export function flushAllCommitDraftSaves(): void {
   for (const workspaceId of Array.from(pendingDraftSaves.keys())) {
     flushCommitDraftSave(workspaceId);
   }
 }
 
-/**
- * Working-tree file changes do not always touch .git metadata. Treat fs.changed
- * as a passive status hint and refresh without claiming the operation spinner.
- */
 export function scheduleStatusHintRefresh(workspaceId: string): void {
   statusHints.schedule(workspaceId, () => {
     void refreshStatusFromHint(workspaceId);
   });
 }
 
-/**
- * Cancel a queued passive status hint when the workspace session disappears.
- */
 export function cancelStatusHintRefresh(workspaceId: string): void {
   statusHints.cancel(workspaceId);
 }
 
-/**
- * Pull one status snapshot in response to an fs.changed hint. This
- * intentionally avoids beginOperation() so it cannot abort a user-initiated
- * git operation.
- */
 async function refreshStatusFromHint(workspaceId: string): Promise<void> {
   const current = useGitStore.getState().sessions.get(workspaceId);
   if (!current || current.repoInfo.kind !== "repo") return;
@@ -128,10 +90,6 @@ async function refreshStatusFromHint(workspaceId: string): Promise<void> {
   }
 }
 
-/**
- * Flush pending draft writes before the renderer loses focus or becomes
- * hidden, covering input blur and app-background paths without UI code.
- */
 export function installCommitDraftFlushListeners(): void {
   if (typeof window === "undefined" || typeof window.addEventListener !== "function") return;
 

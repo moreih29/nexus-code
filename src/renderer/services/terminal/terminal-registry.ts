@@ -1,21 +1,13 @@
-/**
- * The terminal controllers of the mounted terminal tabs, by tab id, for the
- * nexus CLI, which reads and types into terminals the user may not be
- * looking at. A view registers its controller while it is mounted.
- */
 import type { TerminalController } from "./types";
 
 const controllers = new Map<string, TerminalController>();
-/** Who waits for a tab's controller (whenTerminalController), by tab id. */
 const waiting = new Map<string, Set<(controller: TerminalController) => void>>();
-/** Who is told a controller came or went (onTerminalControllersChanged). */
 const listeners = new Set<() => void>();
 
 function changed(): void {
   for (const listener of listeners) listener();
 }
 
-/** Registers a tab's controller. Returns the unregister function for unmount. */
 export function registerTerminalController(
   tabId: string,
   controller: TerminalController,
@@ -32,21 +24,15 @@ export function registerTerminalController(
   };
 }
 
-/** Calls `listener` whenever a terminal's controller registers or goes. Returns the unsubscribe. */
 export function onTerminalControllersChanged(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
 
-/** The controller of a mounted terminal tab. */
 export function getTerminalController(tabId: string): TerminalController | undefined {
   return controllers.get(tabId);
 }
 
-/**
- * The controller of a terminal tab once its view mounts; undefined if it
- * has not after `timeoutMs`.
- */
 export function whenTerminalController(
   tabId: string,
   timeoutMs: number,

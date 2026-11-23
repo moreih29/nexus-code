@@ -1,4 +1,3 @@
-/** Another computer's chat's `claude -p` runs, as a chat here lists its own beside its subagents. */
 import { describe, expect, test } from "bun:test";
 import type { ChatRun } from "../../../../../packages/remote-protocol/src";
 import {
@@ -75,10 +74,8 @@ describe("another computer's chat's runs", () => {
     for (const failure of ["permission-denied", "unsupported"]) {
       expect(runReadAfter(failure, false)).toBeNull();
     }
-    // Read, out of reach, or no session there yet: soon.
     expect(runReadAfter(null, false)).toBe(RUN_READ_LIVE_MS);
     expect(runReadAfter("unavailable", false)).toBe(RUN_READ_LIVE_MS);
-    // "None" from an older app may be "not yet": slowly.
     expect(runReadAfter("not-found", false)).toBe(RUN_READ_SLOW_MS);
     for (const failure of [null, "unavailable", "not-found"]) {
       expect(runReadAfter(failure, true)).toBeNull();

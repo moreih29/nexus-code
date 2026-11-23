@@ -1,15 +1,5 @@
-/**
- * The generic feed NEXUS_UPDATE_FEED_URL names, for trying an update without
- * publishing a release: taken only over https, or over http from this
- * machine (a feed served while testing). Another, as an environment a
- * process of the user's could set would give, is not taken, so that the
- * updater does not fetch a release from anywhere it is pointed at; the
- * release's own feed is used instead.
- */
-
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
-/** The feed's URL when it may be taken; null for none, or one that may not. */
 export function updateFeedUrl(
   value: string | undefined,
   warn: (message: string) => void = () => {},

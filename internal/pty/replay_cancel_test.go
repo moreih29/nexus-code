@@ -11,8 +11,6 @@ import (
 	"time"
 )
 
-// TestReplayCreditAcrossDialers holds ACKs at the high watermark and verifies
-// that cancellation and sink replacement each end the old replay.
 func TestReplayCreditAcrossDialers(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -69,8 +67,6 @@ func TestReplayCreditAcrossDialers(t *testing.T) {
 
 			newReplay := startReplay(ctxB)
 			awaitReplayStep(t, gotB.high)
-			// In the takeover case A's request context is still active. A late
-			// ACK from it must leave B paused until B sends its own ACK.
 			_, _ = svc.Ack(ctxA, ack)
 			svc.mu.Lock()
 			paused, debt := sess.paused, sess.outstanding
@@ -99,7 +95,6 @@ func TestReplayCreditAcrossDialers(t *testing.T) {
 	}
 }
 
-// replayCapture signals when replay output fills a renderer's credit window.
 type replayCapture struct {
 	mu              sync.Mutex
 	replay          bytes.Buffer
@@ -108,7 +103,6 @@ type replayCapture struct {
 	high            chan struct{}
 }
 
-// emit records output in arrival order and signals the watermark once.
 func (c *replayCapture) emit(_ string, payload any) error {
 	data := payload.(DataPayload)
 	chunk, err := base64.StdEncoding.DecodeString(data.Chunk)
@@ -130,7 +124,6 @@ func (c *replayCapture) emit(_ string, payload any) error {
 	return nil
 }
 
-// awaitReplayStep waits for a test barrier with a deadline for regressions.
 func awaitReplayStep[T any](t *testing.T, step <-chan T) T {
 	t.Helper()
 	select {

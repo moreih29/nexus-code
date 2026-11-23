@@ -64,7 +64,6 @@ const target: PeerWorkspaceTarget = {
 };
 const previous = usePeerWorkspaceStore.getState();
 
-// Render the store's current state, not its first, as the running app does.
 function currentStore() {
   const storeView = spyOn(workspaceStore, "usePeerWorkspaceStore");
   storeView.mockImplementation(
@@ -88,7 +87,6 @@ test("the list is the workspace's family: the workspace and its tasks, from eith
     undefined,
   );
   expect(fromTask?.workspaces.map(({ id }) => id)).toEqual(["repo", "task", "quiet"]);
-  // Until that computer lists the workspace, the sessions of the one shown.
   const shown = [sessions[0]] as RemoteSession[];
   expect(peerFamilyListing(target, { status: "loading" }, shown)?.sessions).toBe(shown);
   expect(peerFamilyListing(target, undefined, undefined)).toBeUndefined();
@@ -100,19 +98,15 @@ test("by state, the local list's group headings over the family's conversations"
     <PeerSessionsPanel target={target} peer={peer} listing={listing} />,
   );
   expect(html).toContain('data-testid="peer-agent-list-status-view"');
-  // Every group keeps its place: those with none are one dim line.
   for (const group of ["Needs you", "Working", "New result", "Idle"]) expect(html).toContain(group);
   expect(html).toContain('aria-expanded="true"');
   expect(html).toContain("opacity-60");
   expect(html.indexOf("Asks first")).toBeLessThan(html.indexOf("Works on task"));
   expect(html).toContain("Asks first");
-  // A task's conversation, with its branch.
   expect(html).toContain("Works on task");
   expect(html).toContain("fix-login");
-  // A shell with nothing to tell, and another workspace's conversation, are not in it.
   expect(html).not.toContain("plain shell");
   expect(html).not.toContain("Not ours");
-  // The header: a search, the view switch, and no new conversation without control.
   expect(html).toContain('type="search"');
   expect(html).toContain('aria-pressed="true"');
   expect(html).not.toContain("peer-agent-list-new-chat");
@@ -134,7 +128,6 @@ test("by task, the workspace and each task headed by its name and changes", () =
   expect(html.match(/peer-agent-list-task-header/g)).toHaveLength(3);
   expect(html.indexOf('aria-label="Repo"')).toBeLessThan(html.indexOf('aria-label="fix-login"'));
   expect(html).toContain('title="Uncommitted changes (3)"');
-  // A task with none says so.
   expect(html).toContain("No conversations");
   expect(html).not.toContain("Not ours");
 });
@@ -153,14 +146,11 @@ test("by task, conversations are the local list's one-line rows under headers th
     }
   };
   const html = render(["sessions", "chat.read"]);
-  // An idle terminal is not listed by default.
   expect(html.match(/data-testid="remote-session-task-row"/g)).toHaveLength(2);
   expect(html).not.toContain('data-testid="remote-session-item"');
-  // Folded until opened, as locally: no facts drawn.
   expect(html).toContain('aria-expanded="false"');
   expect(html).not.toContain('aria-expanded="true"');
   expect(html).not.toContain("peer-agent-list-task-info");
-  // Without control only what reads: its changes and its path.
   expect(html).toContain("Show changes");
   expect(html).not.toContain("Open a terminal in this task");
   expect(html).not.toContain('aria-label="New Claude conversation"');
@@ -184,7 +174,6 @@ test("a worktree's facts are its folder, after its branch for the workspace itse
   expect(info({ ...root, git: { branch: "main", ahead: 0, behind: 0, uncommitted: 0 } })).toContain(
     "main · /repo",
   );
-  // Unknown until git.status is read: neither files nor "no changes".
   expect(info(task)).not.toContain("No uncommitted changes");
   expect(peerChangeCode({ path: "a", staged: "A", unstaged: "M" })).toBe("A");
   expect(peerChangeCode({ path: "a", unstaged: "?" })).toBe("?");
@@ -198,7 +187,6 @@ test("a new conversation starts in the workspace its tasks are of, whichever is 
   );
   expect(peerFamilyRoot({ ...target, workspaceId: "task", workspace: task }, family)).toBe(root);
   expect(peerFamilyRoot(target, family)).toBe(root);
-  // Before that computer lists its workspaces: the one shown.
   expect(peerFamilyRoot({ ...target, workspaceId: "task", workspace: task }, undefined)).toBe(task);
 });
 

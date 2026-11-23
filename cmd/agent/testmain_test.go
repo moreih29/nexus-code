@@ -10,8 +10,6 @@ import (
 	"testing"
 )
 
-// buildEnv is the environment the test binary started with. TestMain moves
-// HOME, but go build needs the real one to find its cache.
 var buildEnv = os.Environ()
 
 var agentBuild struct {
@@ -22,11 +20,7 @@ var agentBuild struct {
 	err  error
 }
 
-// TestMain points HOME at a scratch directory, so the hook server that this
-// process and the agents it starts open puts its socket there and not in the
-// developer's ~/.nexus-code.
 func TestMain(m *testing.M) {
-	// A short parent keeps socket paths under the 104-byte sun_path limit.
 	parent := "/tmp"
 	if runtime.GOOS == "windows" {
 		parent = ""
@@ -46,8 +40,6 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// agentBinary builds the agent on first use and returns its path. Every test
-// shares the one binary.
 func agentBinary(t *testing.T) string {
 	t.Helper()
 	agentBuild.once.Do(func() {

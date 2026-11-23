@@ -1,15 +1,3 @@
-// src/renderer/components/chat/dictation.tsx
-//
-// Voice input in a composer: the mic button, and the text as it is heard.
-// While the user speaks, the composer's text holds the finals so far and
-// the partial at the caret where dictation began; the textarea's own text
-// goes clear and an overlay draws the same text with the partial lighter.
-// When the dictation ends its text stays in the box to edit; nothing is
-// sent unless the user sends it, which ends the dictation first.
-//
-// While it runs the mic becomes a pill: the microphone's level, how long
-// it has listened, and the square that finishes it.
-
 import { LoaderCircle, Mic, Square } from "lucide-react";
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -31,32 +19,18 @@ import { IconButton } from "../ui/icon-button";
 import { Keycap } from "../ui/keycap";
 import { tooltipProps } from "../ui/tooltip";
 
-/** How long before the server's limit the pill's clock turns to a warning. */
 export const VOICE_LIMIT_WARNING_MS = 30_000;
 
 export interface ComposerDictation {
-  /** This composer's id in the dictation store. */
   owner: string;
-  /** Dictating (or finishing): the textarea is read-only and its text drawn by the overlay. */
   active: boolean;
   phase: DictationPhase;
-  /** The heard text's place in the composer's text, while active. */
   partial: { start: number; end: number } | null;
-  /** Starts dictating here, or stops. */
   toggle(): void;
-  /**
-   * Ends the dictation and hands `then` the box's whole text once it is
-   * in: what the server still had to say included. At once when none runs.
-   */
   finish(then: (text: string) => void): void;
-  /** For the textarea's onFocus: the shortcut dictates into the composer focused last. */
   onFocus(): void;
 }
 
-/**
- * Ties a composer's text to voice input: puts what is heard at the caret
- * as it comes, and leaves it there when the dictation ends.
- */
 export function useComposerDictation({
   text,
   setText,
@@ -69,7 +43,6 @@ export function useComposerDictation({
   disabled?: boolean;
 }): ComposerDictation {
   const owner = useId();
-  // Each field alone, so the microphone's level (ten times a second) leaves the composer be.
   const phase = useDictationStore((s) => (s.owner === owner ? s.phase : "idle"));
   const finals = useDictationStore((s) => (s.owner === owner ? s.finals : ""));
   const heard = useDictationStore((s) => (s.owner === owner ? s.partial : ""));
@@ -80,7 +53,6 @@ export function useComposerDictation({
   const seen = useRef(0);
   const [partial, setPartial] = useState<{ start: number; end: number } | null>(null);
   const active = phase !== "idle";
-  // What finish was asked to do once the text is in.
   const then = useRef<((text: string) => void) | null>(null);
 
   const toggle = () => {
@@ -98,7 +70,6 @@ export function useComposerDictation({
       next(latest.current.text);
       return;
     }
-    // Still starting: nothing was heard yet, so the box's text is all of it.
     if (phase === "starting") {
       cancelDictation(owner);
       next(latest.current.text);
@@ -111,10 +82,8 @@ export function useComposerDictation({
   toggleRef.current = toggle;
 
   useEffect(() => registerDictationTarget({ owner, toggle: () => toggleRef.current() }), [owner]);
-  // A composer that goes away drops its dictation.
   useEffect(() => () => cancelDictation(owner), [owner]);
 
-  // While heard: the text at the caret, the partial marked for the overlay.
   useEffect(() => {
     if (!active || !place.current) {
       setPartial(null);
@@ -125,7 +94,6 @@ export function useComposerDictation({
     setPartial({ start: next.partialStart, end: next.partialEnd });
   }, [active, finals, heard]);
 
-  // Ended: the text stays, the caret after it.
   useEffect(() => {
     if (!ended || ended.seq === seen.current || !place.current) return;
     seen.current = ended.seq;
@@ -155,11 +123,6 @@ export function useComposerDictation({
   };
 }
 
-/**
- * The composer's text as heard, drawn over its textarea (whose own text
- * is clear meanwhile): the same wrapping, the partial lighter. It follows
- * the textarea's scrolling.
- */
 export function DictationOverlay({
   text,
   partial,
@@ -169,7 +132,6 @@ export function DictationOverlay({
   text: string;
   partial: { start: number; end: number };
   areaRef: RefObject<HTMLTextAreaElement | null>;
-  /** The textarea's padding and type, so the lines fall the same. */
   className: string;
 }) {
   const [scroll, setScroll] = useState(0);
@@ -179,7 +141,6 @@ export function DictationOverlay({
     if (!area) return;
     const sync = () => {
       setScroll(area.scrollTop);
-      // A scrollbar narrows the textarea's lines; the overlay's narrow the same.
       setGutter(area.offsetWidth - area.clientWidth);
     };
     sync();
@@ -194,7 +155,6 @@ export function DictationOverlay({
   useEffect(() => {
     const area = areaRef.current;
     if (!area) return;
-    // New text scrolls the box to the end, as typing would.
     area.scrollTop = area.scrollHeight;
   }, [areaRef]);
   return (
@@ -216,13 +176,8 @@ export function DictationOverlay({
   );
 }
 
-/** How many of the microphone's last levels the pill shows, oldest first. */
 const BARS = 6;
 
-/**
- * The microphone's last levels as bars, the newest at the right: they
- * move as the voice does, ten times a second.
- */
 function LevelBars({ level }: { level: number }) {
   const [heard, setHeard] = useState<number[]>(() => Array(BARS).fill(0));
   useEffect(() => {
@@ -242,13 +197,11 @@ function LevelBars({ level }: { level: number }) {
   );
 }
 
-/** m:ss */
 export function clockOf(ms: number): string {
   const seconds = Math.floor(Math.max(0, ms) / 1000);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-/** How long since `since`, again each second; 0 without one. */
 function useElapsed(since: number | null): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -260,11 +213,6 @@ function useElapsed(since: number | null): number {
   return since === null ? 0 : Math.max(0, now - since);
 }
 
-/**
- * The mic while a dictation runs, in its place: connecting, then the
- * level, the time it has listened and the square that finishes it (on
- * hover, what a click does), then finishing. Narrow, it leaves out the time.
- */
 export function VoicePill({
   phase,
   level,
@@ -277,7 +225,6 @@ export function VoicePill({
   phase: Exclude<DictationPhase, "idle">;
   level: number;
   elapsedMs: number;
-  /** How long the server lets it run; the clock warns near it. */
   limitMs: number | null;
   compact?: boolean;
   shortcut?: string;
@@ -301,7 +248,6 @@ export function VoicePill({
       data-phase={phase}
     >
       {phase === "listening" ? (
-        // Both faces in one cell: the pill keeps its width as the hover changes it.
         <span className="grid">
           <span className="col-start-1 row-start-1 flex items-center gap-2 group-hover:invisible group-focus-visible:invisible">
             <LevelBars level={level} />
@@ -338,17 +284,11 @@ export function VoicePill({
   );
 }
 
-/**
- * The mic: click to dictate, the pill it becomes to finish; the shortcut
- * does the same in the composer focused last. Signed out, it says so and
- * offers sign-in; on a server without voice input it is off.
- */
 export function MicButton({
   dictation,
   compact,
 }: {
   dictation: ComposerDictation;
-  /** The composer is narrow: the pill leaves out its clock. */
   compact?: boolean;
 }) {
   const { t } = useTranslation();
@@ -404,7 +344,6 @@ export function MicButton({
           onClick={dictation.toggle}
         />
       )}
-      {/* Said to a screen reader as it starts listening. */}
       <span className="sr-only" aria-live="polite">
         {phase === "listening" ? t("voice.listening") : ""}
       </span>

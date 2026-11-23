@@ -1,13 +1,3 @@
-// system-stats.tsx — how busy a machine is: the CPU's share in use and the
-// memory, as "23%" and "12.3/32 GB" beside their icons, with whose machine
-// and the details in the tooltip. The status bar shows the workspace's host
-// (an SSH or WSL one's, from its agent); the agent view's sidebar shows this
-// machine. Asked only while shown; nothing renders while the host cannot
-// tell (not connected, or an older agent).
-//
-// The status bar is a live region; the numbers change every few seconds,
-// so they are kept out of what it announces.
-
 import { Cpu, MemoryStick } from "lucide-react";
 import { type RefObject, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -70,10 +60,8 @@ function StatsLine({
   );
 }
 
-/** The status bar's width from which it shows how busy the host is. */
 export const STATS_MIN_WIDTH = 576;
 
-/** Whether the element is at least `min` px wide, as it resizes. */
 export function useWiderThan(ref: RefObject<HTMLElement | null>, min: number): boolean {
   const [wide, setWide] = useState(true);
   useEffect(() => {
@@ -88,11 +76,6 @@ export function useWiderThan(ref: RefObject<HTMLElement | null>, min: number): b
   return wide;
 }
 
-/**
- * The status bar's item: the workspace's host, asked while its panel is the
- * one shown. Read here, not handed down, so the bar around it does not
- * render again as the view switches.
- */
 export function SystemStatsSegment({
   workspaceId,
 }: {
@@ -108,13 +91,11 @@ export function SystemStatsSegment({
   return <SystemStatsItem stats={stats} host={hostLabel(location)} />;
 }
 
-/** The status bar's item for numbers already read: a workspace's on another computer, too. */
 export function SystemStatsItem({
   stats,
   host,
 }: {
   stats: SystemStats;
-  /** Whose numbers, first in the tooltip; this computer's when null. */
   host: string | null;
 }): React.JSX.Element | null {
   const drawn = drawableStats(stats);
@@ -128,7 +109,6 @@ export function SystemStatsItem({
   );
 }
 
-/** The agent view's sidebar foot: this machine. */
 export function SystemStatsFooter(): React.JSX.Element | null {
   const read = useSystemStats(undefined, true);
   const stats = read && drawableStats(read);

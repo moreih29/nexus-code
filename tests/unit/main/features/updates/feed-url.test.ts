@@ -1,4 +1,3 @@
-/** The update feed NEXUS_UPDATE_FEED_URL may point the updater at. */
 import { describe, expect, test } from "bun:test";
 import { updateFeedUrl } from "../../../../../src/main/features/updates/feed-url";
 

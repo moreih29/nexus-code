@@ -39,8 +39,6 @@ func TestFindGitPrefersPath(t *testing.T) {
 	}
 }
 
-// Git installed with "Use Git from Git Bash only" is off PATH but in its
-// install location.
 func TestFindGitFallsBackToInstallLocation(t *testing.T) {
 	offPath := func(string) (string, error) { return "", errors.New("not found") }
 	installed := map[string]bool{`C:\Users\u\AppData\Local\Programs\Git\cmd\git.exe`: true}

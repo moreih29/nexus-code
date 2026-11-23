@@ -9,7 +9,6 @@ import { requestEditorReveal } from "../editor/tabs/pending-reveal";
 import { requestTabFocus } from "../tab-focus";
 import { leafHolding, leafShowing, selectHeldKey, showBeside } from "./layout";
 
-/** Focuses the kept editor for this file, including one behind another tab. */
 export function showHeldLocalFile(workspaceId: string, path: string, at?: LineAt): boolean {
   const view = useAgentViewStore.getState();
   if (view.mode !== "agents") return false;
@@ -42,7 +41,6 @@ export function placeLocalFile(
       { workspaceId, filePath: path, ...(inside ? {} : { origin: "external", readOnly: true }) },
       { preview: false },
     );
-  // A preview slot can be recycled for a different file. Keep this tab permanent.
   useTabsStore.getState().promoteFromPreview(workspaceId, tabId);
   view.update((layout) => showBeside(layout, sessionKey(workspaceId, tabId), fromLeaf));
   revealLocalFile(workspaceId, tabId, at);
@@ -62,7 +60,6 @@ function revealLocalFile(workspaceId: string, tabId: string, at?: LineAt): void 
   requestTabFocus(tabId);
 }
 
-/** Selects an existing peer file without opening a quick look. */
 export function showHeldRemoteFile(file: RemoteFileRef, at?: LineAt): boolean {
   const view = useAgentViewStore.getState();
   const key = remoteFileKey(file);

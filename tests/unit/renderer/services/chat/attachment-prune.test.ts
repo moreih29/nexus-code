@@ -3,12 +3,7 @@ import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 
 const ROOT = "/Users/me/.nexus-code/attach";
 let root: string | null = ROOT;
-/**
- * The slots each conversation's whole history names, as its agent reads
- * them ("none-yet": it has no file of it yet); absent: it cannot.
- */
 let histories: Record<string, string[] | "none-yet"> = {};
-/** Calls answered with a failure, by their order among the calls to `failing`. */
 let failing: { method: string; at: number[] } | undefined;
 const calls: { method: string; args: unknown }[] = [];
 const realIpc = await import("../../../../../src/renderer/ipc/client");
@@ -51,7 +46,6 @@ function sent(key: string, text: string) {
   return { kind: "user" as const, key, text, images: [], state: "taken" as const };
 }
 
-/** The chat a tab shows: its session, and messages naming these files. */
 function shows(tabId: string, sessionId: string, ...files: string[]) {
   const state = emptyTabState();
   useChatStore.getState().update(chatKey(WS, tabId), () => ({
@@ -107,9 +101,7 @@ test("no prune by use before the agent tells its attach root: an open conversati
   root = null;
   const tab = useTabsStore.getState().createTab(WS, { type: "claude", props: { cwd: "/p" } });
   expect(await retention.pruneAttachments(WS)).toBe(false);
-  // Main prunes only where the agent names no root, whose tabs' files went as they closed.
   expect(of("pruneAttachments")).toEqual([{ workspaceId: WS, keepTabIds: [tab.id] }]);
-  // No room is made there: nothing is kept past its tab.
   expect(await retention.pruneAttachments(WS, true)).toBe(false);
   expect(of("pruneAttachments")).toHaveLength(1);
 });
@@ -134,7 +126,6 @@ test("a tab keeps what its conversation names and marks it used once", async () 
   };
   expect(props()).toEqual({ conversation: "s1", slots: ["t0/1", "t0/2"] });
   expect(of("touchAttachments")).toEqual([{ workspaceId: WS, slots: ["t0/1", "t0/2"] }]);
-  // A message sent with another: that one is kept too, and marked used alone.
   shows(
     tab.id,
     "s1",
@@ -145,12 +136,10 @@ test("a tab keeps what its conversation names and marks it used once", async () 
   await retention.followAttachmentsNow();
   expect(props()?.slots).toEqual(["t0/1", "t0/2", "t1/1"]);
   expect(of("touchAttachments").at(-1)).toEqual({ workspaceId: WS, slots: ["t1/1"] });
-  // Another conversation in the tab: what it names is kept with the last one's.
   shows(tab.id, "s2", `${ROOT}/${WS}/t2/1/d.png`);
   await retention.followAttachmentsNow();
   const all = ["t0/1", "t0/2", "t1/1", "t2/1"];
   expect(props()).toEqual({ conversation: "s2", slots: all });
-  // One that names nothing, or is not read yet, leaves what the tab keeps.
   shows(tab.id, "s3");
   await retention.followAttachmentsNow();
   expect(props()).toEqual({ conversation: "s2", slots: all });
@@ -173,7 +162,6 @@ test("a closing tab marks used what its conversation names, though marked before
     workspaceId: WS,
     slots: ["t0/1", "older/3", "t0/2"],
   });
-  // A tab that names nothing marks nothing.
   const touches = of("touchAttachments").length;
   useTabsStore.getState().removeTab(WS, other.id);
   await Bun.sleep(0);
@@ -206,7 +194,6 @@ test("a call of slots that fails stops none after it", async () => {
 });
 
 test("a fork open in a tab keeps what its history names early on, past the pages it loaded", async () => {
-  // C, long, named early/1 early on; tab B is a fork of it, which loaded only its last page.
   histories = { "b-fork": ["early/1", "late/2"] };
   const fork = useTabsStore.getState().createTab(WS, { type: "claude", props: { cwd: "/p" } });
   shows(fork.id, "b-fork", `${ROOT}/${WS}/old-tab/2/late.png`);
@@ -214,7 +201,6 @@ test("a fork open in a tab keeps what its history names early on, past the pages
     sent("a", `first\n\n@${ROOT}/${WS}/early/1/a.png`),
     sent("b", `after the fork\n\n@${ROOT}/${WS}/after/9/b.png`),
   ];
-  // Deleting C: the open tabs' histories are read while it is there.
   expect(await retention.readOpenHistories(WS)).toBe(true);
   expect(of("historySlots")).toEqual([
     { workspaceId: WS, agent: "claude", conversation: "b-fork" },
@@ -254,7 +240,6 @@ test("nothing goes while an open tab's history cannot be read", async () => {
 });
 
 test("a fork that took its own name before its history was written keeps what it copied", async () => {
-  // The tab followed C ("c-long") while a fork of it; now it is "b-new", of which no file is yet.
   histories = { "b-new": "none-yet" };
   const tab = useTabsStore.getState().createTab(WS, {
     type: "claude",
@@ -268,14 +253,12 @@ test("a fork that took its own name before its history was written keeps what it
     conversation: "b-new",
     slots: ["early/1", "new/2"],
   });
-  // Deleting C: early/1 stays, and the history is asked again as none was found.
   const asks = of("historySlots").length;
   expect(await retention.readOpenHistories(WS)).toBe(true);
   expect(of("historySlots")).toHaveLength(asks + 1);
   const items = [sent("a", `@${ROOT}/${WS}/early/1/a.png @${ROOT}/${WS}/solo/3/c.png`)];
   await retention.removeConversationAttachments(WS, items as never, "/p");
   expect(of("removeAttachments")).toEqual([{ workspaceId: WS, slots: ["solo/3"] }]);
-  // Once written, it is asked no more.
   histories = { "b-new": ["early/1", "new/2"] };
   expect(await retention.readOpenHistories(WS)).toBe(true);
   expect(await retention.readOpenHistories(WS)).toBe(true);
@@ -291,13 +274,11 @@ test("past what one call names, no open tab's slot is left out: a deletion compa
   shows(first.id, "h1");
   shows(second.id, "h2");
   expect(await retention.readOpenHistories(WS)).toBe(true);
-  // The first tab's are among the first 1000 of 6000.
   const items = [sent("x", `@${ROOT}/${WS}/a/1/f.png @${ROOT}/${WS}/solo/3/c.png`)];
   await retention.removeConversationAttachments(WS, items as never, "/p");
   expect(of("removeAttachments")).toEqual([{ workspaceId: WS, slots: ["solo/3"] }]);
   await expect(retention.pruneAttachments(WS)).rejects.toThrow(/more attachments/);
   expect(of("pruneAttachments")).toEqual([]);
-  // With one closed, they fit; an open tab's own folder is not named.
   histories.h2 = [`${second.id}/1`, "b/1"];
   retention.resetAttachmentRetention();
   expect(await retention.pruneAttachments(WS)).toBe(true);
@@ -329,16 +310,13 @@ test("a history that cannot be read is asked for again only a while on", async (
   const now = spyOn(Date, "now");
   try {
     const start = Date.now();
-    // Each look at the streaming chat, and each prune, asks nothing more.
     for (let i = 1; i <= 3; i++) {
       shows(tab.id, "unread", `${ROOT}/${WS}/t0/${i}/a.png`);
       await retention.followAttachmentsNow();
       await expect(retention.pruneAttachments(WS)).rejects.toThrow();
     }
     expect(of("historySlots")).toHaveLength(1);
-    // What the tab loaded is still kept and marked used.
     expect(of("touchAttachments")).toHaveLength(3);
-    // Once it can be read, a while on, the prune goes.
     histories = { unread: ["early/1"] };
     now.mockReturnValue(start + retention.HISTORY_RETRY_MS + 1_000);
     expect(await retention.pruneAttachments(WS)).toBe(true);
@@ -352,7 +330,6 @@ test("a history that cannot be read is asked for again only a while on", async (
 });
 
 test("a conversation gone on after days keeps and marks used what it named early on", async () => {
-  // Twenty days idle; its tab loads the last page, which names new/2 alone.
   histories = { "s-20": ["old/1", "new/2"] };
   const tab = useTabsStore.getState().createTab(WS, { type: "claude", props: { cwd: "/p" } });
   retention.pruneAttachmentsOnce(WS);
@@ -364,13 +341,11 @@ test("a conversation gone on after days keeps and marks used what it named early
     slots: ["old/1", "new/2"],
   });
   expect(of("touchAttachments")).toEqual([{ workspaceId: WS, slots: ["old/1", "new/2"] }]);
-  // Ten days on, with the tab still open, a prune keeps it.
   await retention.pruneAttachments(WS);
   expect(of("pruneAttachments").at(-1)).toEqual({
     workspaceId: WS,
     keepTabIds: [tab.id],
     keepSlots: ["old/1", "new/2"],
   });
-  // The history was asked once.
   expect(of("historySlots")).toHaveLength(1);
 });

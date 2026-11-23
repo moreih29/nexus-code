@@ -1,11 +1,3 @@
-/**
- * Public types for the git store.
- *
- * Extracted here so slice files can import types without creating circular
- * dependencies. All types that were exported from `git.ts` are re-exported
- * from the git.ts assembly file so existing consumers need no import changes.
- */
-
 import type {
   BranchInfo,
   BranchList,
@@ -40,7 +32,6 @@ import type {
 } from "../../../../shared/git/types";
 import type { ViewMode } from "../../../../shared/types/panel";
 
-// Re-export shared types that git store consumers use via the git module path.
 export type {
   BranchInfo,
   BranchList,
@@ -73,10 +64,6 @@ export type {
   Tag,
   ViewMode,
 };
-
-// ---------------------------------------------------------------------------
-// Git store-specific types
-// ---------------------------------------------------------------------------
 
 export type GitOperationKind =
   | "stage"
@@ -128,12 +115,6 @@ export interface GitStoreError {
   message: string;
   details?: string;
   operation?: GitOperationKind;
-  /**
-   * Actionable next-step payload populated from `GitError.hint` when the
-   * main process emits a typed preflight failure. The Source Control panel
-   * uses this to render one-click recovery affordances (Publish branch,
-   * Track remote, Make initial commit) instead of a raw error toast.
-   */
   hint?: GitActionHint;
 }
 

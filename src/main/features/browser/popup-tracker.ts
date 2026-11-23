@@ -1,11 +1,5 @@
 import type { BrowserWindow } from "electron";
 
-/**
- * Popup windows opened from each workspace's browser tabs (OAuth/SSO logins
- * and the like), recursively. They are separate windows the tab registry
- * does not otherwise own, and must not outlive the workspace or the main
- * window.
- */
 export class PopupTracker {
   private readonly popupsByWorkspace = new Map<string, Set<BrowserWindow>>();
 
@@ -24,7 +18,6 @@ export class PopupTracker {
     });
   }
 
-  /** Closes every popup opened from `workspaceId`'s tabs. */
   closeWorkspace(workspaceId: string): void {
     const popups = this.popupsByWorkspace.get(workspaceId);
     if (!popups) return;
@@ -34,7 +27,6 @@ export class PopupTracker {
     }
   }
 
-  /** Closes every tracked popup. */
   closeAll(): void {
     for (const workspaceId of [...this.popupsByWorkspace.keys()]) {
       this.closeWorkspace(workspaceId);

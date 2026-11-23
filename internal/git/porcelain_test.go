@@ -13,9 +13,6 @@ import (
 	"testing"
 )
 
-// TestParsePorcelainV2StatusFixtures verifies every manually authored status
-// fixture against the pure parser. Service-owned fields are normalized because
-// they come from separate host-local subcalls, not porcelain stdout.
 func TestParsePorcelainV2StatusFixtures(t *testing.T) {
 	fixtureRoot := fixtureDir("status")
 	entries, err := os.ReadDir(fixtureRoot)
@@ -121,9 +118,6 @@ func normalizeJSON(value any) {
 	}
 }
 
-// A repo-local core.fsmonitor is a command git runs on every status. The
-// agent runs status as soon as a folder opens, so a .git/config that came
-// with the folder must not be able to run code through it.
 func TestStatusIgnoresRepoConfiguredFsmonitorCommand(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -142,14 +136,10 @@ func TestStatusIgnoresRepoConfiguredFsmonitorCommand(t *testing.T) {
 
 const largeStatusFiles = 17_000
 
-// largeStatusPath gives each fixture record a realistic path. The 17,000
-// NUL-delimited records total more than 2 MiB.
 func largeStatusPath(index int) string {
 	return fmt.Sprintf("%s-%05d.txt", strings.Repeat("f", 125), index)
 }
 
-// runLargeStatusFixture serves porcelain data and the auxiliary status
-// commands without creating the untracked files.
 func runLargeStatusFixture() int {
 	if len(os.Args) < 2 {
 		return 1
@@ -172,15 +162,12 @@ func runLargeStatusFixture() int {
 		}
 		_, _ = fmt.Fprintln(os.Stdout, filepath.Join(root, ".git"))
 	case "remote", "stash", "tag":
-		// The repository has no remotes, stashes or tags.
 	default:
 		return 1
 	}
 	return 0
 }
 
-// TestStatusPreservesLargePorcelainOutput checks that the status RPC parses
-// every entry even when its porcelain output exceeds two MiB.
 func TestStatusPreservesLargePorcelainOutput(t *testing.T) {
 	setFakeGitExecutable(t, "large-status")
 	result, err := New(t.TempDir()).Status(context.Background(), nil)

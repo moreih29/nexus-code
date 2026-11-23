@@ -1,13 +1,3 @@
-// A chat of another device as this one watches it (chat.watch): its page
-// when the watch begins, kept up with each chat.update. A missing update
-// (a rev skipped), the device leaving and coming back (seen to go or not:
-// its new connection dropped the watch), the chat hidden and shown again,
-// or a watch that fails starts the watch again, which gives the last items
-// only: those shown before it stay in front. Earlier ones are read a page
-// at a time (chat.read with `before`) when asked for. A slow read now and
-// then tells whether the chat is still there, and whether it moved on
-// there while no update came: a watch lost unseen, started again.
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type ChatPage,
@@ -21,18 +11,11 @@ import { forgetPeerSubmissions, observePeerEchoes } from "./peer-submissions";
 import type { PeerRead } from "./room";
 import { usePeerRejoins, useRemoteRoom } from "./room";
 
-/** How long after a failed watch it is tried again. */
 export const REWATCH_MS = 3000;
-/** How often the chat is checked to still be there: a watch says nothing when it is closed. */
 export const ALIVE_MS = 15_000;
-/**
- * How long the watch should be quiet before its page is checked for missed updates.
- */
 export const QUIET_MS = 5000;
-/** How many items before those shown are read at a time. */
 export const EARLIER_ITEMS = 200;
 
-/** A watched chat: its page, and its side panel as the watch last sent it. */
 export type WatchedChat = ChatPage & { panel?: ChatPanel };
 
 export interface ChatRef {
@@ -41,10 +24,8 @@ export interface ChatRef {
   tabId: string;
 }
 
-/** A watched chat, and the reading of the items before those it shows. */
 export interface PeerChat {
   read: PeerRead<WatchedChat>;
-  /** Reads the items before those shown and puts them in front; again after one that failed. */
   loadEarlier(): void;
   loadingEarlier: boolean;
 }
@@ -53,14 +34,11 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
   const { deviceId, workspaceId, tabId } = ref;
   const room = useRemoteRoom();
   const online = room?.status === "online" && room.peers.some((p) => p.id === deviceId && p.online);
-  // Back in the room with a new connection, seen to go or not: the watch there was dropped.
   const rejoins = usePeerRejoins(deviceId);
   const [read, setRead] = useState<PeerRead<WatchedChat>>({ status: "loading" });
-  // Bumped to start the watch again.
   const [round, setRound] = useState(0);
   const watch = useRef<{ id: string; rev: number; start: number } | null>(null);
   const recoveryLimit = useRef<number | undefined>(undefined);
-  // When the watch last sent something, or began.
   const heardAt = useRef(0);
   const latest = useRef(read);
   latest.current = read;
@@ -94,7 +72,6 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
           return { status: "loading" };
         }
         const value = applyUpdate(now.value, update);
-        // An append with nothing to go on: something was missed.
         if (!value) {
           queueMicrotask(again);
           return now;
@@ -126,7 +103,6 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
           page.items.map((item, i) => ({ index: page.start + i, item })),
           page.panel?.held ?? [],
         );
-        // Watched again, the items shown before stay in front.
         setRead((now) => ({
           status: "ready",
           value: now.status === "ready" ? keepEarlier(now.value, page) : page,
@@ -153,7 +129,6 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
       probing = true;
       void ipcCallResult("remote", "peerChat", { deviceId, workspaceId, tabId, limit })
         .then((result) => {
-          // A probe is a snapshot of this revision. A newer watch update wins.
           if (!live || watch.current !== w || w.rev !== revision) return;
           if (!result.ok) {
             if (result.kind === "not-found") {

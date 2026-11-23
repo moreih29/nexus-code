@@ -1,7 +1,3 @@
-// Going back to before one of the user's messages: what the files would
-// lose (a dry run of rewind_files), then the conversation alone, or with
-// the files.
-
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ChatController, RewindPreview } from "../../services/chat/claude/controller";
@@ -12,7 +8,6 @@ import { Dialog } from "../ui/dialog";
 import { DialogHeader } from "../ui/dialog-header";
 import { showToast } from "../ui/toast";
 
-/** Most files the dialog names; the rest are counted. */
 const MAX_FILES = 8;
 
 export function RewindDialog({
@@ -22,7 +17,6 @@ export function RewindDialog({
   conversationOnly = false,
   onClose,
 }: {
-  /** The tab's own, or what does it for another computer's chat. */
   controller: Pick<ChatController, "previewRewind" | "rewind">;
   item: UserItem | null;
   cwd: string;

@@ -1,8 +1,3 @@
-/**
- * writeImageHandler — puts a quick look's image, a PNG data URL, on the
- * clipboard; anything but a PNG data URL is refused before it gets there.
- */
-
 import { describe, expect, test } from "bun:test";
 import { writeImageHandler } from "../../../../src/main/features/clipboard/ipc";
 

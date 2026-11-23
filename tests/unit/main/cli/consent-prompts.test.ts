@@ -1,4 +1,3 @@
-/** The consent prompts waiting on the user, kept by id for another device to answer. */
 import { describe, expect, test } from "bun:test";
 import { ConsentPrompts } from "../../../../src/main/features/cli/consent-prompts";
 import type { CliConsentAnswer, CliUiOps } from "../../../../src/shared/cli/ui";
@@ -24,7 +23,6 @@ function setup() {
       }),
     settle: async (id, answer, by) => {
       settled.push({ id, answer, by });
-      // The renderer answers the prompt it shows, as the user's answer would.
       const prompt = shown.find((s) => s.args.id === id);
       if (settles) prompt?.answer(answer);
       return settles && prompt !== undefined;
@@ -47,7 +45,6 @@ describe("the consent prompts waiting on the user", () => {
     const asked = prompts.ask(request);
     const [prompt] = prompts.list();
     expect(prompt).toMatchObject({ at: 1000, expiresAt: 61_000, request });
-    // The renderer is told the id, and waited on a little past its own timeout.
     expect(shown[0]?.args.id).toBe(prompt?.id as string);
     expect(shown[0]?.timeoutMs).toBe(70_000);
     shown[0]?.answer("once");
@@ -104,7 +101,6 @@ describe("the consent prompts waiting on the user", () => {
     const { prompts, settled, stopSettling } = setup();
     expect(await prompts.answer("gone", "once", "iPhone")).toBe(false);
     expect(settled).toEqual([]);
-    // Listed still, but the renderer took it down meanwhile.
     void prompts.ask(request);
     stopSettling();
     expect(await prompts.answer(prompts.list()[0]?.id as string, "once", "iPhone")).toBe(false);

@@ -1,15 +1,3 @@
-// src/renderer/components/settings/panels/language-servers-panel.tsx
-//
-// Controls:
-//   - Master switch
-//   - Bundled servers: one checkbox each, two to a line; TypeScript's memory
-//     saver under its own
-//   - Servers the user installs (Go, Rust): checkbox, path, install command
-//   - How many workspaces run servers at once
-//
-// Main applies each change at once — stopping, starting or restarting the
-// servers it affects — and broadcasts the result, which the store mirrors.
-
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -100,11 +88,6 @@ export function LanguageServersPanel() {
   );
 }
 
-/**
- * Languages two to a line: each is a checkbox and a few words at most. One
- * to a line with `wide`, for those that show where their server is: a path
- * needs the width.
- */
 function LanguageGrid({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
   return (
     <div className={cn("grid items-start gap-x-4 gap-y-2.5", wide ? "grid-cols-1" : "grid-cols-2")}>
@@ -124,7 +107,6 @@ function LanguageRow({
   const id = useId();
   const lowMemoryId = useId();
   const preset = resolveLspPreset(languageId);
-  // A server the user installs runs only once turned on.
   const on = preset?.system ? settings.enabled === true : settings.enabled !== false;
 
   function change(next: LspLanguageSettings): void {
@@ -166,11 +148,6 @@ function LanguageRow({
   );
 }
 
-/**
- * Where a server the user installed is. Saved on Enter, leaving the field or
- * closing the page, not per keystroke: each change restarts the language's
- * servers.
- */
 function ServerPathField({
   languageId,
   install,
@@ -184,7 +161,6 @@ function ServerPathField({
 }) {
   const { t } = useTranslation("settings");
   const [draft, setDraft] = useState(path);
-  // What the field last saved or was given, so a draft is saved once.
   const savedRef = useRef(path.trim());
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -203,7 +179,6 @@ function ServerPathField({
     onCommitRef.current(next);
   }
 
-  // Escape closes the dialog without leaving the field: save on the way out.
   // biome-ignore lint/correctness/useExhaustiveDependencies: commit reads refs only
   useEffect(() => commit, []);
 

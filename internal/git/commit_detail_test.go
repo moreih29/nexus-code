@@ -15,7 +15,6 @@ type commitDetailExpected struct {
 	Result CommitDetail       `json:"result"`
 }
 
-// TestParseCommitDetailFixtures verifies every commit-detail parser fixture.
 func TestParseCommitDetailFixtures(t *testing.T) {
 	fixtureRoot := fixtureDir("commit-detail")
 	entries, err := os.ReadDir(fixtureRoot)

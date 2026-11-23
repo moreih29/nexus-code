@@ -1,11 +1,3 @@
-/**
- * Moving a chat tab to another profile: a new conversation with it (the
- * program the old one ran stops, the tab forgets the session or thread it
- * had, and starts one with the new profile), or the same conversation gone
- * on with there, as a copy the new profile's program makes from the old
- * one's file. The real ipc client is spread under a spy, so later files
- * keep its other exports.
- */
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import {
   type ContinuedCodexChoices,
@@ -14,15 +6,12 @@ import {
 import { ipcErr } from "../../../../../src/shared/ipc/result";
 import { ClaudeTabPropsSchema, CodexTabPropsSchema } from "../../../../../src/shared/types/layout";
 
-// The version the app tells Codex it is.
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
 
 const calls: { method: string; args: Record<string, unknown> }[] = [];
-/** What a stopped program does to the tab's lines: none come here unless a test says. */
 let onStop: (() => void) | undefined;
 let onStart: (() => void) | undefined;
 let stopFails = false;
-/** A Codex program that comes up, answering what is sent to it as the test says. */
 let codex: ((message: Record<string, unknown>) => void) | undefined;
 let claudeSeq = 500;
 let initializeRequest: Record<string, unknown> | undefined;
@@ -30,7 +19,6 @@ let initializeRequest: Record<string, unknown> | undefined;
 const realIpc = await import("../../../../../src/renderer/ipc/client");
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ...realIpc,
-  // A Codex tab listens for its lines as it is made; none come here.
   ipcListen: () => () => {},
   ipcCallResult: (_channel: string, method: string, args: Record<string, unknown>) => {
     const input = args.message as
@@ -96,7 +84,6 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
         value: { ok: true, pid: 1, attached: false, version: null },
       });
     }
-    // Codex starts only when the test scripts a destination program.
     if (method === "codexStart") {
       return Promise.resolve({
         ok: true,
@@ -182,7 +169,6 @@ describe("a Claude tab switched to another profile", () => {
     expect(c.profileId).toBe("work");
     expect(c.currentSession()).toBeUndefined();
     expect(seen).toEqual({ profile: "work", title: "" });
-    // What the tab showed is the old conversation's; the log goes on from where it was.
     const state = c.state;
     expect(state.history).toBeNull();
     expect(state.model.items).toEqual([]);
@@ -482,13 +468,11 @@ describe("a Claude tab's conversation gone on with in another profile", () => {
     expect(start.fork).toBe(true);
     expect(start.resetLog).toBe(true);
     expect(c.profileId).toBe("work");
-    // The copy has no id of its own until it starts.
     expect(c.currentSession()).toBeUndefined();
     expect(seen.profile).toBe("work");
     expect(seen.title).toBeUndefined();
     expect(seen.target).toEqual({ fork: { sessionId: "old", profileId: "claude-default" } });
     expect(seen.moves).toEqual([{ profileId: "work", after: "uuid-a1", at: expect.any(Number) }]);
-    // The conversation stays; held messages and the old program's lines go.
     const state = c.state;
     expect(state.history?.items.map((item) => item.key)).toEqual(["u0", "u1", "a1"]);
     expect(state.model.items).toEqual([]);
@@ -515,7 +499,6 @@ describe("a Claude tab's conversation gone on with in another profile", () => {
         },
       }));
     await c.continueInProfile("work");
-    // An exit the conversation had before stays in it.
     expect(c.state.history?.items.map((item) => item.key)).toEqual(["u0", "u1", "a1", "n5"]);
   });
 
@@ -536,7 +519,6 @@ describe("a Claude tab's conversation gone on with in another profile", () => {
     calls.length = 0;
     await c.continueInProfile("claude-default");
     const start = calls.find((call) => call.method === "start")?.args ?? {};
-    // The copy the work profile made has no id yet: the old session is copied, by id.
     expect(calls.map((call) => call.method)).not.toContain("sessionFile");
     expect(start.resume).toBe("old");
     expect(start.profileId).toBeUndefined();
@@ -735,7 +717,6 @@ describe("a Codex tab's thread gone on with in another profile", () => {
           : "stage",
       )
       .filter((step) => !/^(account|model|collaborationMode)\/|^thread\/goal/.test(step));
-    // Introduced first, as ever: what the tab asks meanwhile is not refused.
     expect(order).toEqual(["initialize", "initialized", "stage", "thread/fork", "thread/name/set"]);
     const stage = calls.find((call) => call.method === "stageThread")?.args;
     expect(stage).toMatchObject({

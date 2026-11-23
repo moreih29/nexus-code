@@ -6,7 +6,6 @@ import { hasAnswerCard } from "../../../../shared/notes/answer-card";
 import { isEmptyDoc } from "../../../../shared/notes/insert";
 import type { DocNode } from "../../../../shared/notes/markdown";
 
-/** Matches main's append while preserving unflushed edits and the selection. */
 export function applyAnswerCard(editor: Editor, card: DocNode): boolean {
   const linkId = card.attrs?.nexusLink;
   const { state, view } = editor;
@@ -70,7 +69,6 @@ function inLiveTitle(pos: ResolvedPos, liveLinks: ReadonlySet<string>): boolean 
   return quote.type.name === "blockquote" && liveLinks.has(quote.attrs.nexusLink);
 }
 
-/** Skip the hidden title of each live card crossed by the caret. */
 function selectionOutsideLiveTitle(
   selection: Selection,
   liveLinks: ReadonlySet<string>,

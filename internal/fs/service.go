@@ -1,14 +1,3 @@
-// Package fs implements the workspace-bound filesystem RPC methods exposed by
-// the agent binary.
-//
-// Workspace paths are resolved through Service.Resolve, which is the single
-// trust boundary preventing escapes via `..` or absolute paths. The explicit
-// fs.readAbsolute, fs.readAbsoluteBinary and fs.readAbsoluteRange methods
-// are the read-only exceptions used for LSP/external references and for
-// files a Claude tab links, which are already absolute on the same machine as the agent.
-// Symlinks are inspected with Lstat so a symlink pointing outside the workspace
-// is reported as a symlink, not followed, matching the conservative semantics
-// of the legacy TS handlers.
 package fs
 
 import (
@@ -20,23 +9,12 @@ import (
 	"github.com/nexus-code/nexus-code/internal/filewatch"
 )
 
-// MaxReadableFileSize caps how many bytes one fs.readFile / fs.writeFile call
-// may move. The threshold matches the renderer's editor capacity so we never
-// produce a file that we couldn't reload. Raising this requires raising the
-// inbound scanner cap in stdioserver.Host.Run accordingly — writeFile content
-// travels inbound as one NDJSON line and is rejected by that cap first.
 const MaxReadableFileSize = 50 * 1024 * 1024
 
-// MaxReadRangeLength caps the bytes one fs.readRange call returns. A large
-// file is read in ranges of at most this much, so the channel's other calls
-// get in between them.
 const MaxReadRangeLength = 1024 * 1024
 
-// EventSink is the callback fs uses to push agent events back to Electron.
 type EventSink func(event string, payload any) error
 
-// Service is the workspace-bound filesystem handle. One is created per agent
-// process; root is fixed at startup and Resolve refuses anything escaping it.
 type Service struct {
 	root          string
 	protectedRoot string
@@ -45,11 +23,8 @@ type Service struct {
 	uploads      map[string]*fileUpload
 	uploadClosed bool
 
-	// watchMu serializes fs.watch, fs.unwatch and Close, so fsnotify Add and
-	// Remove run in call order without holding mu, which the event loop
-	// needs before it can take the next event from fsnotify.
 	watchMu sync.Mutex
-	shared  *watchEntry // the one watcher when shareWatcher is set; guarded by watchMu
+	shared  *watchEntry
 
 	mu      sync.Mutex
 	watches map[string]*watchEntry
@@ -58,9 +33,6 @@ type Service struct {
 	sink    EventSink
 }
 
-// New constructs a Service rooted at the given absolute path. The path is
-// cleaned and canonicalized once so later Resolve calls can rely on
-// filepath.Rel checks.
 func New(root string) (*Service, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
@@ -80,14 +52,12 @@ func New(root string) (*Service, error) {
 	}, nil
 }
 
-// SetEventSink wires the service to the stdio host after both are constructed.
 func (s *Service) SetEventSink(sink EventSink) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sink = sink
 }
 
-// Close discards uploads, stops watchers, and clears buffered fs events.
 func (s *Service) Close() {
 	s.DropUploads(nil)
 	s.watchMu.Lock()
@@ -109,7 +79,6 @@ func (s *Service) Close() {
 	clear(s.buffers)
 }
 
-// Register binds every fs.* method this package implements onto the dispatcher.
 func Register(d *dispatch.Dispatcher, fsys *Service) {
 	d.Register("fs.readdir", fsys.Readdir)
 	d.Register("fs.readdirNoLinks", fsys.ReaddirNoLinks)

@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const SRC = "../../../../../src/renderer";
 
-// What the workspace has, by its path from the root.
 let files: Map<string, string>;
 const calls: string[] = [];
 mock.module(`${SRC}/ipc/client`, () => ({
@@ -33,8 +32,6 @@ mock.module(`${SRC}/components/ui/toast`, () => ({
   showToast: (toast: { kind: string; message: string }) => toasts.push(toast),
 }));
 mock.module(`${SRC}/services/editor/model`, () => ({
-  // Every file asked for is gone, as the session deleted it: the load ends
-  // in the error phase rather than throwing.
   acquireModel: () => Promise.resolve({ model: null, phase: "error", errorCode: "NOT_FOUND" }),
   releaseModel: () => {},
 }));

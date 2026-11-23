@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { FILES_PANEL_MODE_DEFAULT, useUIStore } from "../../../../../src/renderer/state/stores/ui";
 
-// The views are stored through appState.set: heard here, not sent.
 const stored: unknown[] = [];
 const g = globalThis as Record<string, unknown>;
 const hadWindow = g.window !== undefined;

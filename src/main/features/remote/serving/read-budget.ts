@@ -10,7 +10,6 @@ const WARNING_INTERVAL_MS = 30_000;
 const warnedAt = new Map<RpcMethod, number>();
 export const RENDERER_READ_MAX_MS = 2_000;
 
-/** Shares a deadline across the renderer reads that make up a remote answer. */
 export class ReadBudget {
   private readonly started = performance.now();
   private readonly slow = new Map<CliUiOp, { count: number; timeouts: number; maxMs: number }>();

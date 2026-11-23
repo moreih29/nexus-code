@@ -18,13 +18,11 @@ interface WatchSubscription {
 }
 
 interface WorkspaceWatches {
-  /** The tree and each renderer's agent panels can watch the same directory. */
   readonly paths: Map<string, Set<WebContents | undefined>>;
   readonly pending: Map<string, Promise<void>>;
   subscription?: WatchSubscription;
 }
 
-/** Owns each workspace's desired paths and forwards changes from its current agent. */
 export class AgentFsWatcher {
   private readonly workspaces = new Map<string, WorkspaceWatches>();
   private readonly panelRenderers = new WeakSet<WebContents>();
@@ -41,7 +39,6 @@ export class AgentFsWatcher {
     });
   }
 
-  /** Tracks a requested path before its RPC completes so teardown and rebind can see it. */
   async watch(workspaceId: string, relPath: string, owner?: WebContents): Promise<void> {
     if (owner?.isDestroyed()) return;
     if (owner && !this.panelRenderers.has(owner)) {
@@ -78,7 +75,6 @@ export class AgentFsWatcher {
     });
   }
 
-  /** Stops a path after any earlier watch or replay of that same path. */
   async unwatch(workspaceId: string, relPath: string, owner?: WebContents): Promise<void> {
     const state = this.state(workspaceId);
     await this.enqueue(workspaceId, state, relPath, async () => {
@@ -106,7 +102,6 @@ export class AgentFsWatcher {
     }
   }
 
-  /** Detaches the listener immediately and clears watches after pending registrations settle. */
   disposeWorkspace(workspaceId: string): void {
     const state = this.workspaces.get(workspaceId);
     if (!state) return;
@@ -121,14 +116,12 @@ export class AgentFsWatcher {
     }
   }
 
-  /** Stops new subscriptions and drops every workspace. */
   dispose(): void {
     this.disposed = true;
     this.disposeProviderReady();
     for (const workspaceId of this.workspaces.keys()) this.disposeWorkspace(workspaceId);
   }
 
-  /** Finds or creates the state before awaiting a provider. */
   private state(workspaceId: string): WorkspaceWatches {
     if (this.disposed) throw new Error("file watcher is disposed");
     const existing = this.workspaces.get(workspaceId);
@@ -138,7 +131,6 @@ export class AgentFsWatcher {
     return state;
   }
 
-  /** Orders RPCs for one path while allowing other directories to progress independently. */
   private enqueue(
     workspaceId: string,
     state: WorkspaceWatches,
@@ -157,7 +149,6 @@ export class AgentFsWatcher {
     });
   }
 
-  /** Moves the listener and desired paths to the new provider. */
   private bind(
     workspaceId: string,
     state: WorkspaceWatches,
@@ -184,7 +175,6 @@ export class AgentFsWatcher {
     return subscription;
   }
 
-  /** Restores still-wanted paths and refreshes directories changed during the outage. */
   private replay(
     workspaceId: string,
     state: WorkspaceWatches,
@@ -215,7 +205,6 @@ export class AgentFsWatcher {
     }
   }
 
-  /** Releases a retired path on the provider that received its watch. */
   private async cleanup(
     workspaceId: string,
     provider: AgentBackedProvider,
@@ -228,7 +217,6 @@ export class AgentFsWatcher {
     }
   }
 
-  /** Waits for the live agent instead of using the inert provider during bootstrap. */
   private async requireReadyAgentProvider(workspaceId: string): Promise<AgentBackedProvider> {
     const provider = await this.manager.getFs(workspaceId);
     if (!isAgentBackedProvider(provider))

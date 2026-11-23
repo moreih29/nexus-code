@@ -1,7 +1,3 @@
-/**
- * nexus device list, session list --device, and how a command names and
- * asks another computer of the user's: its failures and their exit codes.
- */
 import { describe, expect, test } from "bun:test";
 import type { RemoteSession } from "../../../../packages/remote-protocol/src";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
@@ -40,7 +36,6 @@ const SESSIONS: RemoteSession[] = [
   { workspaceId: PEER_WS, tabId: PEER_TERM, kind: "terminal", title: "zsh", state: "idle" },
 ];
 
-/** An app on "MacBook" whose account has "Mac mini" (online, taking agents) and "Office PC" (offline). */
 function withDevices(): FakeApp {
   const app = fakeApp(NOW);
   app.peers.devices = [
@@ -79,7 +74,6 @@ async function nexus(
   return runCli(CLI_COMMANDS, contextFor(app, argv, caller));
 }
 
-/** A failure as the room rejects a request with. */
 function rpcError(code: number, message: string): Error {
   return Object.assign(new Error(message), { code });
 }
@@ -278,7 +272,6 @@ describe("--device", () => {
       message: '"Mac mini" does not take requests from agents (Settings › Remote)',
       exitCode: 1,
     });
-    // A read, too, says who reads: refused there the same.
     await expect(askDevice(ctx(app), deny, "sessions.list", {})).rejects.toMatchObject({
       exitCode: 1,
     });
@@ -301,7 +294,6 @@ describe("--device", () => {
 
   test("the sender a request goes with: its tab, the manager's own, the user's terminal", async () => {
     const app = withDevices();
-    // The user at a shell is not told from an agent there: it goes as one in that terminal.
     expect(await agentSenderOf(ctx(app))).toEqual({
       kind: "terminal",
       workspaceId: APP,
@@ -319,7 +311,6 @@ describe("--device", () => {
     const app = withDevices();
     const shell = app.tabs[APP]?.find((t) => t.id === SHELL_TAB);
     if (!shell) throw new Error("no shell tab");
-    // Its tab and workspace are the other computer's: no tab here to name.
     Object.assign(shell, {
       openedBy: {
         kind: "tab",
@@ -344,7 +335,6 @@ describe("nexus session list", () => {
     expect(result.stdout.trimEnd().split("\n").at(-1)).toBe(
       "+ 1 session on 1 other computer: nexus session list --device all",
     );
-    // The JSON stays this computer's alone.
     const json = await nexus(withDevices(), ["session", "list", "--json"]);
     expect(JSON.parse(json.stdout).some((s: { device?: unknown }) => s.device)).toBe(false);
   });

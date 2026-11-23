@@ -7,7 +7,6 @@ import {
 } from "../../../src/shared/keybindings/keybinding-parse";
 import { evaluateWhen, parseWhen } from "../../../src/shared/keybindings/keybinding-when";
 
-/** Default commands a keystroke runs with the given context keys set, per platform. */
 function commandsFor(
   state: { code: string; meta?: boolean; ctrl?: boolean; shift?: boolean; alt?: boolean },
   isMac: boolean,

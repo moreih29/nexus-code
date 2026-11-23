@@ -1,10 +1,3 @@
-/**
- * The pages Claude publishes to claude.ai with its Artifact tool, as a
- * conversation shows them: from a finished publish of an HTML or Markdown
- * file, with the page's link the result gives, named by the call, the
- * document's title or the file.
- */
-
 import { describe, expect, it } from "bun:test";
 import {
   artifactOf,

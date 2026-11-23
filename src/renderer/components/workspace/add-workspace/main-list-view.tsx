@@ -33,10 +33,6 @@ import { ErrorNotice } from "./error-notice";
 import { folderName, formatSshSecondaryLine, formatSshTooltip } from "./ssh-helpers";
 import type { MainListViewProps } from "./types";
 
-// ---------------------------------------------------------------------------
-// MainListView — unified local + SSH bookmark list
-// ---------------------------------------------------------------------------
-
 const RECENT_MAX_DEFAULT = 5;
 
 export function MainListView({
@@ -52,18 +48,15 @@ export function MainListView({
   const [loading, setLoading] = useState(true);
   const [showAllRecent, setShowAllRecent] = useState(false);
 
-  // Per-bookmark action phase: null = idle, "opening" = folder picker, bookmarkId = reconnecting
   const [activeBookmarkId, setActiveBookmarkId] = useState<string | null>(null);
   const [openingFolder, setOpeningFolder] = useState(false);
 
-  // Inline error state: per-bookmark error
   const [errorBookmarkId, setErrorBookmarkId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorProfileId, setErrorProfileId] = useState<string | null>(null);
 
   const anyBusy = openingFolder || activeBookmarkId !== null;
 
-  // The WSL entry shows on Windows once a distribution is found.
   const [hasWsl, setHasWsl] = useState(false);
   useEffect(() => {
     if (!isWindows()) return;
@@ -104,8 +97,6 @@ export function MainListView({
     return load();
   }, [load]);
 
-  // ── Local bookmark open ───────────────────────────────────────────────────
-
   async function openLocalBookmark(bookmark: FolderBookmark & { kind: "local" }): Promise<void> {
     if (anyBusy) return;
     setActiveBookmarkId(bookmark.id);
@@ -126,14 +117,11 @@ export function MainListView({
     }
   }
 
-  // ── SSH bookmark reconnect ─────────────────────────────────────────────────
-
   async function reconnectSshBookmark(bookmark: FolderBookmark & { kind: "ssh" }): Promise<void> {
     if (anyBusy) return;
     setActiveBookmarkId(bookmark.id);
     clearError();
 
-    // Find the associated connection profile
     const profile = profiles.find((p) => p.id === bookmark.connectionProfileId);
     if (!profile) {
       showError(bookmark.id, t("workspace.profile_not_found"), null);
@@ -142,8 +130,6 @@ export function MainListView({
     }
 
     try {
-      // createAndConnect runs SSH auth *before* persisting the workspace, so a
-      // cancelled or failed auth never creates an orphaned sidebar entry.
       const result = await createSshWorkspace({
         host: profile.host,
         user: profile.user,
@@ -151,7 +137,6 @@ export function MainListView({
         identityFile: profile.identityFile ?? undefined,
         authMode: (profile.authMode as "interactive" | "key-only") ?? "interactive",
         remotePath: bookmark.absPath,
-        // sshBrowseSessionId omitted — main opens a fresh ControlMaster
       });
 
       if (!result.ok) {
@@ -159,7 +144,6 @@ export function MainListView({
         return;
       }
 
-      // Update last_used_at
       await recordSshBookmark({
         id: bookmark.id,
         absPath: bookmark.absPath,
@@ -174,8 +158,6 @@ export function MainListView({
       setActiveBookmarkId(null);
     }
   }
-
-  // ── Folder picker ─────────────────────────────────────────────────────────
 
   async function openFolderPicker(): Promise<void> {
     if (anyBusy) return;
@@ -198,8 +180,6 @@ export function MainListView({
     }
   }
 
-  // ── Favorites / remove ────────────────────────────────────────────────────
-
   async function toggleFavorite(bookmark: FolderBookmark, event: React.MouseEvent): Promise<void> {
     event.stopPropagation();
     try {
@@ -207,9 +187,7 @@ export function MainListView({
       setBookmarks((prev) =>
         prev.map((b) => (b.id === bookmark.id ? { ...b, favorite: !b.favorite } : b)),
       );
-    } catch {
-      // silent — restored on next load
-    }
+    } catch {}
   }
 
   async function removeBookmark(bookmark: FolderBookmark, event: React.MouseEvent): Promise<void> {
@@ -218,12 +196,8 @@ export function MainListView({
       await removeFolderBookmark(bookmark.id);
       setBookmarks((prev) => prev.filter((b) => b.id !== bookmark.id));
       if (errorBookmarkId === bookmark.id) clearError();
-    } catch {
-      // silent
-    }
+    } catch {}
   }
-
-  // ── Error helpers ─────────────────────────────────────────────────────────
 
   function setError(bookmarkId: string | null, error: unknown, profileId: string | null): void {
     const surface = surfaceError(normaliseError(error), { surface: "inline" });
@@ -242,14 +216,10 @@ export function MainListView({
     setErrorProfileId(null);
   }
 
-  // ── Derived lists ─────────────────────────────────────────────────────────
-
   const favorites = bookmarks.filter((b) => b.favorite);
   const recents = bookmarks.filter((b) => !b.favorite);
   const visibleRecents = showAllRecent ? recents : recents.slice(0, RECENT_MAX_DEFAULT);
   const hasContent = bookmarks.length > 0;
-
-  // ── Render helpers ────────────────────────────────────────────────────────
 
   function handleOpen(bookmark: FolderBookmark): void {
     if (bookmark.kind === "local") {
@@ -258,8 +228,6 @@ export function MainListView({
       void reconnectSshBookmark(bookmark);
     }
   }
-
-  // ── Loading skeleton ──────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -271,14 +239,10 @@ export function MainListView({
     );
   }
 
-  // ── Global (non-bookmark) error ───────────────────────────────────────────
-
   const globalErrorBanner =
     errorBookmarkId === null && errorMessage ? (
       <ErrorBanner message={errorMessage} profileId={null} onSettings={null} />
     ) : null;
-
-  // ── Empty state ───────────────────────────────────────────────────────────
 
   if (!hasContent) {
     return (
@@ -300,8 +264,6 @@ export function MainListView({
       </div>
     );
   }
-
-  // ── Main list ─────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col gap-3">
@@ -396,16 +358,11 @@ export function MainListView({
   );
 }
 
-// ---------------------------------------------------------------------------
-// ActionButtons — top row with Open Folder + Connect via SSH (+ WSL)
-// ---------------------------------------------------------------------------
-
 interface ActionButtonsProps {
   readonly busy: boolean;
   readonly openingFolder: boolean;
   readonly onOpenFolder: () => void;
   readonly onSshServerList: () => void;
-  /** Null hides the WSL button (not Windows, or no distribution). */
   readonly onWslDistroList: (() => void) | null;
 }
 
@@ -462,10 +419,6 @@ function ActionButtons({
   );
 }
 
-// ---------------------------------------------------------------------------
-// ErrorBanner — inline error with optional "Open connection settings" CTA
-// ---------------------------------------------------------------------------
-
 interface ErrorBannerProps {
   readonly message: string;
   readonly profileId: string | null;
@@ -489,13 +442,8 @@ function ErrorBanner({ message, profileId, onSettings }: ErrorBannerProps): Reac
   );
 }
 
-// ---------------------------------------------------------------------------
-// BookmarkRow — single unified bookmark row (local or SSH)
-// ---------------------------------------------------------------------------
-
 interface BookmarkRowProps {
   readonly bookmark: FolderBookmark;
-  /** Resolved connection profile for SSH bookmarks; null for local. */
   readonly profile: ConnectionProfile | null;
   readonly disabled: boolean;
   readonly reconnecting: boolean;
@@ -523,15 +471,11 @@ function BookmarkRow({
   const isFavorite = bookmark.favorite;
   const isLocal = bookmark.kind === "local";
 
-  // Primary display line: for SSH, show the remote folder leaf name (last path segment).
-  // For local, use label if set, otherwise derive folder name from the absolute path.
   const displayName = isLocal
     ? (bookmark.label ?? folderName(bookmark.absPath))
     : folderName(bookmark.absPath);
 
-  // Second line: local = full absPath, SSH = user@host (port omitted — full path in tooltip)
   let pathDisplay = bookmark.absPath;
-  // Title tooltip — full details for both local and SSH
   let titleTooltip = bookmark.absPath;
   if (!isLocal && profile) {
     pathDisplay = formatSshSecondaryLine({ user: profile.user, host: profile.host });
@@ -545,9 +489,6 @@ function BookmarkRow({
 
   return (
     <li>
-      {/* Row: primary open-button + sibling action slot. The favorite/remove
-          buttons are siblings (not descendants) of the row button — nesting a
-          <button> inside a <button> is invalid HTML. */}
       <div
         className={`group flex items-center rounded-(--radius-control) hover:bg-[var(--state-hover-bg)]${
           disabled ? " pointer-events-none opacity-50" : ""
@@ -560,7 +501,6 @@ function BookmarkRow({
           title={titleTooltip}
           className="flex min-w-0 flex-1 items-center gap-3 rounded-(--radius-control) px-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         >
-          {/* Leading icon: Folder (local) or Server (ssh) */}
           {reconnecting ? (
             <LoaderCircle
               className="size-4 shrink-0 animate-spin text-muted-foreground"
@@ -572,7 +512,6 @@ function BookmarkRow({
             <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           )}
 
-          {/* Name + path lines */}
           <span className="min-w-0 flex-1">
             <span className="block truncate text-app-ui-sm text-foreground">{displayName}</span>
             <span className="block min-w-0 truncate text-app-micro text-[var(--editor-text-muted)]">
@@ -581,12 +520,7 @@ function BookmarkRow({
           </span>
         </button>
 
-        {/* Trailing action slot — sibling of the row button (see comment above).
-            Always occupies fixed width to prevent layout shift on hover. At rest:
-            only the star indicator icon is visible (opacity-100 on indicator,
-            opacity-0 on buttons). On hover/focus: buttons fade in, indicator fades out. */}
         <span className="flex shrink-0 items-center pr-2">
-          {/* At-rest star indicator — fades out on row hover/focus */}
           <span
             className="flex size-8 shrink-0 items-center justify-center text-muted-foreground transition-opacity group-hover:opacity-0 group-focus-within:opacity-0"
             aria-hidden="true"
@@ -594,7 +528,6 @@ function BookmarkRow({
             {isFavorite ? <Star className="size-4" fill="currentColor" /> : null}
           </span>
 
-          {/* Action buttons — always rendered, opacity-0 at rest to avoid layout shift */}
           <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
             <button
               type="button"
@@ -624,7 +557,6 @@ function BookmarkRow({
         </span>
       </div>
 
-      {/* Per-bookmark inline error */}
       {error ? (
         <div className="px-2 pb-1">
           <ErrorBanner

@@ -1,8 +1,3 @@
-/**
- * The keychain gate: asks before reading when the app's signature changed,
- * keeps the sealed files locked when put off or refused, and says when
- * macOS is asking.
- */
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,11 +26,6 @@ const ENCRYPT_FAILED =
 const DECRYPT_FAILED =
   "Error while decrypting the ciphertext provided to safeStorage.decryptStringAsync.";
 
-/**
- * Electron's safeStorage on a Mac, as far as the gate sees it: "v10" and the
- * text reversed, or what macOS's prompt answered (refused: every call fails as
- * Chromium's encryptor without a key does).
- */
 function fakeSafeStorage(options: { refuse?: boolean; delayMs?: number } = {}) {
   const calls: string[] = [];
   const wait = () => new Promise((resolve) => setTimeout(resolve, options.delayMs ?? 0));
@@ -137,7 +127,6 @@ describe("whether the user is asked before the keychain is read", () => {
     });
     expect(gate.isOpen()).toBe(false);
     expect(ran).toBe(false);
-    // The box is the net: nothing slips through to safeStorage meanwhile.
     await expect(gate.box.decrypt(Buffer.from("v10x"))).rejects.toBeInstanceOf(KeychainLockedError);
     expect(calls).toEqual([]);
   });
@@ -171,7 +160,6 @@ describe("the user's answer", () => {
     });
     await Promise.resolve();
     expect(ran).toEqual([]);
-    // The settings' button opens it.
     expect(await gate.open()).toBe(true);
     await Promise.all([first, second]);
     expect(ran).toEqual(["second"]);
@@ -188,11 +176,9 @@ describe("the user's answer", () => {
     const restoring = gate.whenOpen("remote", async () => {
       restored = true;
     });
-    // Opened at once: what the user does goes ahead, the reads that waited behind it.
     expect(await gate.unlock()).toBe(true);
     await restoring;
     expect(restored).toBe(true);
-    // Open once all that waited has run.
     expect(await gate.open()).toBe(true);
     expect(gate.status().state).toBe("open");
   });
@@ -206,7 +192,6 @@ describe("the user's answer", () => {
     const opening = gate.open();
     expect(await unlocking).toBe(true);
     expect(gate.isOpen()).toBe(true);
-    // The settings' button waits for them, to say how it went.
     let opened: boolean | undefined;
     void opening.then((open) => {
       opened = open;
@@ -233,7 +218,6 @@ describe("the user's answer", () => {
     void gate.open();
     expect(await now).toBe(true);
     expect(gate.isOpen()).toBe(true);
-    // Open: nothing asked.
     expect(await gate.request()).toBe(true);
   });
 
@@ -345,7 +329,6 @@ describe("refused in macOS's prompt", () => {
     expect(readFileSync(path, "utf8")).toBe("v10sealed");
     expect(gate.status()).toMatchObject({ state: "locked", refused: true });
     expect(statuses.at(-1)).toMatchObject({ state: "locked", refused: true });
-    // Chromium will not ask again this run: opening fails at once, reading nothing.
     const read = calls.length;
     expect(await gate.open()).toBe(false);
     expect(await gate.unlock()).toBe(false);

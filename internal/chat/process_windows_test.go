@@ -10,12 +10,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// ownSession leaves a command in the program's job: Windows has no
-// sessions to start it out of the program's reach.
 func ownSession(*exec.Cmd) {}
 
-// ended waits for the process to end, false when it is still running after
-// a few seconds.
 func ended(t *testing.T, pid int) bool {
 	t.Helper()
 	process, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
@@ -30,8 +26,6 @@ func ended(t *testing.T, pid int) bool {
 	return false
 }
 
-// Stopping a tab's program ends the commands it runs, as its process group
-// does on Unix.
 func TestStopEndsTheCommandsTheProgramRuns(t *testing.T) {
 	service := New()
 	rec := newRecorder()
@@ -51,7 +45,6 @@ func TestStopEndsTheCommandsTheProgramRuns(t *testing.T) {
 	})
 }
 
-// What a program leaves running when it exits ends with it.
 func TestExitEndsTheCommandsTheProgramLeft(t *testing.T) {
 	service := New()
 	rec := newRecorder()

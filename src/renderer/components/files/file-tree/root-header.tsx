@@ -1,26 +1,3 @@
-/**
- * Workspace root header — the sticky row at the top of the file-tree that
- * shows the workspace folder name and exposes hover-revealed action icons.
- *
- * Hoisted out of the virtualized tree so:
- *   - the action cluster stays in place as the tree scrolls,
- *   - the chevron is a sibling of (not inside) the tree's `role="tree"`
- *     container — it does not participate in `aria-activedescendant`
- *     navigation, matching VSCode's view-title-bar semantics.
- *
- * Actions (VSCode parity, `explorerView.ts` MenuId.ViewTitle group `navigation`):
- *   10 New File   • startCreate at root, file kind
- *   20 New Folder • startCreate at root, folder kind
- *   30 Refresh    • files operation `refresh(workspaceId)`
- *   40 Collapse   • files operation `collapseAll(workspaceId)` (keeps root expanded)
- *
- * Right-click anywhere on the header surfaces the root context menu through
- * the same ContextMenuRoot the tree uses — index.tsx wires `onContextMenu`
- * to set the root target before the menu opens.
- *
- * A workspace on another computer heads its tree with it too, without New
- * File and New Folder: it only looks at that computer's files.
- */
 import { ChevronRight, ChevronsDownUp, FilePlus, FolderPlus, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -30,16 +7,12 @@ import { IconButton } from "../../ui/icon-button";
 
 interface WorkspaceRootHeaderProps {
   rootAbsPath: string;
-  /** True when the workspace root is expanded (children visible below). */
   isExpanded: boolean;
-  /** Click on chevron / name → toggle root's expanded state. */
   onToggle: () => void;
-  /** Absent where the tree only looks, as a workspace on another computer's. */
   onNewFile?: () => void;
   onNewFolder?: () => void;
   onRefresh: () => void;
   onCollapseAll: () => void;
-  /** Right-click on any part of the header → root context menu. */
   onContextMenu: (e: React.MouseEvent<HTMLDivElement>) => void;
 }
 
@@ -49,14 +22,12 @@ interface ActionButtonProps {
   children: React.ReactNode;
 }
 
-// Sized to the header row (24px): the smallest IconButton.
 function ActionButton({ label, onClick, children }: ActionButtonProps) {
   return (
     <IconButton
       label={label}
       size="xs"
       onClick={(e) => {
-        // Stop propagation so the header's toggle handler doesn't also fire.
         e.stopPropagation();
         onClick();
       }}
@@ -80,14 +51,6 @@ export function WorkspaceRootHeader({
   const { t } = useTranslation("files");
   const name = basename(rootAbsPath) || rootAbsPath;
   return (
-    // <header> is the right semantic for "introduces the section below".
-    // Hover-state propagation for the action cluster is driven by a named
-    // Tailwind group (`group/filetree`) on the FileTree's outer wrapper —
-    // matches VSCode where the title-bar actions stay visible as long as
-    // the explorer view is hovered, not just its title strip. Right-click
-    // anywhere on the header surfaces the root context menu; the inner
-    // toggle button and action buttons handle their own click semantics,
-    // so this listener only matters for the gaps between them.
     // biome-ignore lint/a11y/noStaticElementInteractions: right-click delegation on a header strip — keyboard users access the same context menu via Menu key on the focused button below.
     <header
       className={cn(
@@ -96,11 +59,6 @@ export function WorkspaceRootHeader({
       )}
       onContextMenu={onContextMenu}
     >
-      {/*
-        Chevron + name share a single button so the entire left side toggles
-        the root. Width caps at the available space; the action cluster on
-        the right is laid out separately and gets priority via shrink-0.
-       */}
       <button
         type="button"
         onClick={onToggle}
@@ -122,14 +80,6 @@ export function WorkspaceRootHeader({
         <span className="truncate text-app-ui-sm font-medium">{name}</span>
       </button>
 
-      {/*
-        Action cluster: hidden by default, revealed whenever the user is
-        hovering anywhere over the file-tree (the `group/filetree` ancestor
-        wraps both this header and the virtualized body in index.tsx).
-        focus-within keeps it visible when a keyboard user tabs into one
-        of the buttons. Spacing matches the icon-button density in
-        tab-bar.tsx.
-       */}
       <div
         className={cn(
           "flex shrink-0 items-center gap-0.5",

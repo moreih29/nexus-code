@@ -1,10 +1,3 @@
-/**
- * A message sent to a tab counts the tab as working until the conversation
- * shows it. A tab that was not open since the app restarted brings its
- * conversation back only as its program starts: those messages are not the
- * one sent, and `chat send --wait` must not take the last of their answers
- * for the reply. The real ipc client is spread under a spy.
- */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
@@ -32,7 +25,6 @@ afterEach(() => {
   for (const key of keys.splice(0)) useChatStore.getState().remove(key);
 });
 
-/** Shows `count` messages of the user's in the tab. */
 function showUserMessages(key: string, count: number): void {
   useChatStore.getState().update(key, (prev) => ({
     ...prev,
@@ -49,11 +41,6 @@ function showUserMessages(key: string, count: number): void {
   }));
 }
 
-/**
- * A tab whose program, as it starts (to send, or before), brings back
- * `resumed` messages of a conversation it had; sending writes the message
- * but shows nothing yet.
- */
 function tab(resumed: number, fail?: Error, tabId = `t${++seq}`) {
   const key = chatKey(WS, tabId);
   keys.push(key);
@@ -128,7 +115,6 @@ describe("sendToAgentTab", () => {
       heldId: "q1",
     });
     expect(t.sent).toEqual(["now: a", "now: b", "held: c"]);
-    // Held, it is not sent yet: the tab is not waiting on it.
     expect(sendUnseen(WS, t.tabId)).toBe(false);
   });
 

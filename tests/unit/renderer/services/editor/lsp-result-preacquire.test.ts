@@ -1,17 +1,3 @@
-/**
- * preAcquireLocationModels — unit tests.
- *
- * Verifies that LSP result locations (definition / references) trigger the
- * correct acquireModel calls and that release is scheduled after
- * PEEK_PREACQUIRE_HOLD_MS so monaco's peek widget can resolve URIs without
- * throwing "Model not found".
- *
- * Uses dependency injection (PreAcquireDeps) rather than mock.module on
- * model-cache. Bun's mock.module is process-global; replacing acquireModel
- * or releaseModel would pollute every other test file that touches
- * model-cache afterward (see Plan 20 lessons).
- */
-
 import { afterEach, beforeEach, describe, expect, jest, mock, test } from "bun:test";
 
 (globalThis as Record<string, unknown>).window = {
@@ -63,8 +49,6 @@ beforeEach(() => {
   releaseMock = mock((_input: unknown) => {});
   getEntryMetadataMock = mock((_uri: string) => SOURCE_META as EntryMetadata | null);
   workspaceRootMock = mock((_id: string) => "/workspace" as string | null);
-  // Default: strip the "file://" scheme to derive a file path (mirrors
-  // model-cache.cacheUriToFilePath behaviour for file:// URIs).
   cacheUriToFilePathMock = mock((uri: string) => {
     if (uri.startsWith("file://")) return uri.slice("file://".length);
     return null;
@@ -79,7 +63,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // Ensure no scheduled timers leak between tests.
   jest.useRealTimers();
 });
 

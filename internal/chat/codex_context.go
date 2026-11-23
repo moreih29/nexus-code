@@ -24,8 +24,6 @@ const (
 	cliDisabled          = "NexusCode's CLI guidance is disabled for this tab. Disregard earlier NexusCode CLI guidance for this conversation."
 )
 
-// maxInitializeBytes bounds the lines checked for initialize: it is small, and
-// other lines may carry several MiB of images.
 const maxInitializeBytes = 16 * 1024
 
 type codexContext struct {
@@ -40,9 +38,6 @@ type codexCLIContext struct {
 }
 
 type codexGuidance struct {
-	// Codex deduplicates additionalContext within an app-server process. On
-	// resume or fork we can skip a fragment already carried by the rollout
-	// until its current value changes.
 	inherited       map[string]string
 	hadCLI          bool
 	hadInstructions bool
@@ -50,10 +45,6 @@ type codexGuidance struct {
 	compactions     uint64
 }
 
-// noteCodexInitialize records whether the program's initialize request asked
-// for experimentalApi. Only the first counts: Codex refuses a second one and
-// keeps the first's capabilities. A program this agent never saw initialize,
-// as when its initialize failed, is treated as not having asked.
 func (p *process) noteCodexInitialize(data []byte) {
 	if p.codexInitialized || len(data) > maxInitializeBytes || !bytes.Contains(data, []byte(`"initialize"`)) {
 		return
@@ -73,10 +64,7 @@ func (p *process) noteCodexInitialize(data []byte) {
 	p.codexExperimental = request.Params.Capabilities != nil && request.Params.Capabilities.ExperimentalAPI
 }
 
-// prepareCodexContext stages guidance changes until stdin accepts the frame.
 func (p *process) prepareCodexContext(data []byte, context codexContext) ([]byte, func()) {
-	// Without experimentalApi Codex rejects every turn/start that carries
-	// additionalContext, so a turn goes without the guidance instead.
 	if !p.codexExperimental {
 		return data, nil
 	}
@@ -93,13 +81,10 @@ func (p *process) prepareCodexContext(data []byte, context codexContext) ([]byte
 	state := p.codexGuidance[threadID]
 	compactions := p.codexCompactions.Load()
 	cliEnabled := context.CLI != nil
-	// Omitting the commands while disabled clears Codex's live dedup cache
-	// for them. On re-enable, check which commands remain in history.
 	if state == nil || state.compactions != compactions || (cliEnabled && !state.cliEnabled) {
 		inherited := make(map[string]string)
 		readCodexGuidance(p.codexHome(), threadID, inherited)
 		if state != nil && state.compactions == compactions {
-			// Re-enabling CLI guidance must not resend unchanged independent fragments.
 			for _, key := range []string{codexFileLinks, codexInstructions} {
 				if value := state.inherited[key]; value != "" {
 					inherited[key] = value
@@ -152,12 +137,9 @@ func (p *process) prepareCodexContext(data []byte, context codexContext) ([]byte
 		} else {
 			delete(state.inherited, key)
 		}
-		// The rollout keeps older application fragments as developer messages.
 		if key == codexInstructions && replacingInstructions && context.Instructions != "" {
 			value = instructionsReplaced + value
 		}
-		// If compaction removed the fragment, Codex's live deduplication
-		// can still remember its previous value.
 		if compactions != 0 {
 			value += fmt.Sprint(refreshSuffix, compactions)
 		}
@@ -178,8 +160,6 @@ func (p *process) prepareCodexContext(data []byte, context codexContext) ([]byte
 		return data, commit
 	}
 	params["additionalContext"], _ = json.Marshal(fragments)
-	// Encode the edited request once. In particular, params may contain
-	// several MiB of image data that should not be encoded on its own first.
 	out := make(map[string]any, len(request))
 	for key, value := range request {
 		out[key] = value
@@ -193,8 +173,6 @@ func addCodexFragment(fragments map[string]json.RawMessage, key, value string) {
 	fragments[key], _ = json.Marshal(map[string]string{"kind": "application", "value": value})
 }
 
-// Use the environment of the running app server, after profile resolution on
-// its own host. A login-shell default might differ from the selected profile.
 func (p *process) codexHome() string {
 	homeKey := "HOME"
 	if runtime.GOOS == "windows" {
@@ -245,8 +223,6 @@ type codexGuidanceItem struct {
 	} `json:"content"`
 }
 
-// Bound startup I/O even with large tool output or long fork chains. If the
-// bounded history lacks a marker, send the current guidance.
 const codexGuidanceScanBytes = 2 * 1024 * 1024
 const codexGuidanceScanForks = 4
 
@@ -272,10 +248,6 @@ func readCodexGuidance(home, threadID string, latest map[string]string) {
 	}
 }
 
-// Scan a bounded tail ending at this fork's inherited byte boundary when
-// present. Earlier markers are inactive after compaction or rollback. Only
-// a marker in the replacement history or a subsequent record can suppress
-// injection in that case.
 func codexGuidanceInRollout(path string, end int64) (map[string]string, string, int64) {
 	info, err := os.Stat(path)
 	if err != nil || !info.Mode().IsRegular() {
@@ -293,7 +265,7 @@ func codexGuidanceInRollout(path string, end int64) (map[string]string, string, 
 	lines := bufio.NewScanner(io.NewSectionReader(file, start, end-start))
 	lines.Buffer(make([]byte, 8*1024), codexGuidanceScanBytes+1)
 	if start > 0 {
-		lines.Scan() // partial first line
+		lines.Scan()
 	}
 
 	latest := make(map[string]string)

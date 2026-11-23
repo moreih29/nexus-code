@@ -1,5 +1,3 @@
-// GPT-5.5 model_messages.instructions_template from Codex 0.170.0 (Apache-2.0).
-// https://github.com/openai/codex/blob/rust-v0.170.0/codex-rs/models-manager/models.json
 const instructions: string = `You are Codex, a coding agent based on GPT-5. You and the user share one workspace, and your job is to collaborate with them until their goal is genuinely handled.
 
 # Personality

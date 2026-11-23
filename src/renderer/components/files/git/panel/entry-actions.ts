@@ -1,13 +1,3 @@
-/**
- * Per-entry actions invoked from the Source Control row context menu.
- *
- * These take a `GitStatusEntry` and decide where to send the click — opening
- * a diff view, revealing in the OS shell, copying paths, or appending to
- * `.gitignore`. They were inlined inside `GitPanel.tsx`; extracting them
- * keeps the panel component focused on layout, draft state, and dialog
- * orchestration while these utilities live next to the helper modules
- * they delegate into.
- */
 import i18next from "i18next";
 import { toNativeDrivePath } from "../../../../../shared/fs/drive-path";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
@@ -20,7 +10,6 @@ export type EntryActionBanner = { variant: "info" | "error"; message: string };
 
 export interface EntryActionContext {
   readonly workspaceId: string;
-  /** Repository topLevel when detected, falling back to the workspace root. */
   readonly repoPath: string | undefined;
   readonly workspaceRootPath: string | undefined;
   readonly onOpenDiff: ((input: GitPanelOpenDiffInput) => void) | undefined;
@@ -42,11 +31,6 @@ export interface EntryActions {
   addPathsToGitignore(paths: string[]): Promise<void>;
 }
 
-/**
- * Builds the bound entry-action handlers for one panel render. Recomputing
- * on workspace/repoPath change is cheap — these are plain closures, not
- * memoized React state.
- */
 export function createEntryActions(ctx: EntryActionContext): EntryActions {
   function absolutePathForEntry(entry: GitStatusEntry): string | null {
     const root = ctx.repoPath ?? ctx.workspaceRootPath;
@@ -59,11 +43,6 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
     groupKey: GitExpandedGroupKey,
     opts?: { preview: boolean },
   ): void {
-    // Conflict entries (unmerged) contain conflict markers in the working tree.
-    // Opening them as a diff would hit INDEX stage-0 which does not exist for
-    // unmerged files. Instead, open the working-tree file in the in-app editor
-    // so the user can edit conflict markers directly. Preview semantics for
-    // this branch are owned by openOrRevealEditor's own defaults.
     if (entry.conflictType !== null) {
       const absPath = absolutePathForEntry(entry);
       if (!absPath) {
@@ -92,11 +71,6 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
     });
   }
 
-  /**
-   * Opens the working-tree file in the app's editor. Handing it to the OS
-   * default handler instead would execute `.command`, `.app` and similar
-   * files that a repository can put in the change list.
-   */
   function openWorkingTreeFile(entry: GitStatusEntry): void {
     const absPath = absolutePathForEntry(entry);
     if (!absPath) {
@@ -179,10 +153,6 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
   };
 }
 
-/**
- * Joins a repository/workspace root with Git's slash-separated relPath while
- * preserving the host path separator for copied absolute paths.
- */
 function joinRootAndGitRelPath(rootPath: string, relPath: string): string {
   const separator = rootPath.includes("\\") && !rootPath.includes("/") ? "\\" : "/";
   const normalizedRoot = rootPath.replace(/[\\/]+$/, "");
@@ -190,10 +160,6 @@ function joinRootAndGitRelPath(rootPath: string, relPath: string): string {
   return `${normalizedRoot}${separator}${normalizedRelPath}`;
 }
 
-/**
- * Runs a system path IPC call and maps typed failures into the
- * inline Git banner instead of throwing from a fire-and-forget menu action.
- */
 async function runSystemPathAction(
   method: "revealInOS",
   absPath: string,
@@ -201,8 +167,6 @@ async function runSystemPathAction(
 ): Promise<void> {
   const result = await ipcCallResult("system", method, { absPath });
   if (result.ok) {
-    // result.value carries { ok: boolean; error?: { message: string } } from the
-    // system channel handler — check the inner ok for path-not-found etc.
     const inner = result.value as { ok: boolean; error?: { message: string } };
     if (!inner.ok) {
       setBanner({

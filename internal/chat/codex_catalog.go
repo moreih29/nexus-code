@@ -16,9 +16,6 @@ type codexCatalogParams struct {
 	Catalog json.RawMessage `json:"catalog"`
 }
 
-// WriteCodexCatalog keeps the desktop's launch catalog on the host that runs
-// Codex. Its content determines its path, so editing a profile cannot change
-// the catalog under an existing session.
 func (s *Service) WriteCodexCatalog(_ context.Context, raw json.RawMessage) (any, error) {
 	var p codexCatalogParams
 	if err := decodeParams(raw, &p, "chat.writeCodexCatalog requires a catalog"); err != nil {

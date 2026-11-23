@@ -1,14 +1,3 @@
-/**
- * OperationBanner owns the Source Control continue/abort affordance for
- * in-progress merge, rebase, and cherry-pick workflows.
- *
- * Intentionally not collapsed into the generic Banner primitive: it has a
- * unique two-row layout (message row + continue/abort action row below) and
- * loading-spinner states that Banner's single-row actions[] API cannot express
- * without significant prop proliferation. It does reuse bannerColorClass for
- * color consistency. (T7 consistency review, 2026-05.)
- */
-
 import i18next from "i18next";
 import { CircleAlert, GitMerge, Loader2 } from "lucide-react";
 import type { GitOperationState } from "../../../../../shared/git/types";
@@ -43,7 +32,6 @@ interface OperationBannerProps {
   onAbort: () => void;
 }
 
-/** Builds the banner message/action model for tests and rendering. */
 export function buildOperationBannerView(
   state: ActiveGitOperationState,
   error?: GitStoreError | null,
@@ -135,7 +123,6 @@ export function buildOperationBannerView(
   }
 }
 
-/** Renders the operation banner and its single continue/abort action pair. */
 export function OperationBanner({
   state,
   notice,
@@ -210,10 +197,6 @@ export function OperationBanner({
   );
 }
 
-/**
- * Builds the rebase message without ever inventing `step ?/?` when Git did
- * not provide usable progress counters.
- */
 function rebaseBannerView(
   state: Extract<ActiveGitOperationState, { kind: "rebase" }>,
   base: OperationBannerBaseView,
@@ -246,7 +229,6 @@ function rebaseBannerView(
   };
 }
 
-/** Builds the shared clean workflow ready copy. */
 function readyView(
   message: string,
   readyDetail: string,
@@ -255,7 +237,6 @@ function readyView(
   return { ...base, message, details: readyDetail };
 }
 
-/** Formats rebase progress only when both counters are known. */
 function formatRebaseStep(
   state: Extract<ActiveGitOperationState, { kind: "rebase" }>,
   t: (key: string, opts?: Record<string, unknown>) => string,
@@ -264,12 +245,10 @@ function formatRebaseStep(
   return t("files:git.operations.rebase.step", { done: state.doneCount, total: state.totalCount });
 }
 
-/** Formats an optional ref with a human fallback. */
 function formatRef(ref: string | null, fallback: string): string {
   return ref && ref.trim().length > 0 ? ref : fallback;
 }
 
-/** Formats the full "N conflicts remain" phrase. */
 function formatConflictsRemain(
   count: number,
   t: (key: string, opts?: Record<string, unknown>) => string,
@@ -277,12 +256,10 @@ function formatConflictsRemain(
   return t("files:git.operations.conflictsRemain", { count });
 }
 
-/** Returns a short SHA-like display value with a fallback. */
 function shortSha(sha: string | null): string {
   return sha && sha.length > 0 ? sha.slice(0, 7) : "commit";
 }
 
-/** Limits failed-operation chrome to the workflow calls this banner owns. */
 function isWorkflowError(operation: string | undefined): boolean {
   return (
     operation === "merge" ||

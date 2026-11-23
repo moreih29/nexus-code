@@ -19,7 +19,6 @@ const heardOn = dateTimeFormat("en-US", { month: "2-digit", day: "2-digit" });
 export function RememberedVoicesGroup() {
   const { t } = useTranslation("notes");
   const status = useVoiceMemory((s) => s.status);
-  // Kept in a keychain not open yet: nothing to show or change until it opens.
   const locked = useKeychainLocked("voices");
   const [people, setPeople] = useState<VoiceNamePerson[] | null>(null);
   const [busy, setBusy] = useState(false);

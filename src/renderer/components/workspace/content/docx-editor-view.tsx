@@ -1,6 +1,3 @@
-// The editor surface of a Word document: the breadcrumb toolbar the other
-// editors have, and its pages below. Documents are not editable.
-
 import type { ReactNode } from "react";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { DocxPreview } from "../../editor/preview/docx-preview";

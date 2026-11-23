@@ -5,7 +5,6 @@ import (
 	"sync"
 )
 
-// chatGate orders work like a mutex and lets a waiting RPC abandon its turn.
 type chatGate struct {
 	once sync.Once
 	held chan struct{}

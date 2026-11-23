@@ -1,8 +1,3 @@
-/**
- * The key that goes to the next session waiting on the user: ⌘⇧U and
- * Ctrl+Shift+U, but Ctrl+Shift+J on Linux, where IBus takes Ctrl+Shift+U.
- * It works from the terminal too.
- */
 import { describe, expect, it } from "bun:test";
 import { COMMANDS } from "../../../src/shared/keybindings/commands";
 import {
@@ -19,7 +14,6 @@ import { applyKeybindingOverrides } from "../../../src/shared/keybindings/overri
 
 type Platform = "mac" | "windows" | "linux";
 
-/** Default commands a keystroke runs with the terminal focused, per platform. */
 function commandsFor(
   state: { code: string; meta?: boolean; ctrl?: boolean; shift?: boolean },
   platform: Platform,

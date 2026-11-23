@@ -2,10 +2,6 @@ import { describe, expect, it } from "bun:test";
 import type { SplitBranch, SplitLeaf, SplitNode } from "../../../../src/renderer/engine";
 import { Grid } from "../../../../src/renderer/engine";
 
-// ---------------------------------------------------------------------------
-// Factories
-// ---------------------------------------------------------------------------
-
 function makeLeaf(id: string, tabIds: string[] = [], activeTabId: string | null = null): SplitLeaf {
   return { kind: "leaf", id, tabIds, activeTabId };
 }
@@ -19,10 +15,6 @@ function makeBranch(
 ): SplitBranch {
   return { kind: "split", id, orientation, ratio, first, second };
 }
-
-// ---------------------------------------------------------------------------
-// describe("Grid.removeLeaf")
-// ---------------------------------------------------------------------------
 
 describe("Grid.removeLeaf", () => {
   it("sole leaf: tree unchanged and hoistedSiblingLeafId is null", () => {
@@ -78,10 +70,6 @@ describe("Grid.removeLeaf", () => {
     expect(hoistedSiblingLeafId).toBeNull();
   });
 });
-
-// ---------------------------------------------------------------------------
-// describe("Grid.collapseEmptyLeaves")
-// ---------------------------------------------------------------------------
 
 describe("Grid.collapseEmptyLeaves", () => {
   it("sole empty leaf: preserved as-is (sole leaf protection)", () => {

@@ -1,9 +1,3 @@
-/**
- * The Source Control title row: its title, then Refresh, the list or tree
- * toggle and expand or collapse all, then what the caller adds (the local
- * panel's More menu). It does nothing that writes, so a workspace on
- * another computer heads its Source Control with it too.
- */
 import { ChevronsDownUp, ChevronsUpDown, RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -15,23 +9,12 @@ export interface GitHeaderBarProps {
   disabled?: boolean;
   refreshing?: boolean;
   hasChanges?: boolean;
-  /** When true the repo is detected — the list or tree toggle shows. */
   showViewToggle?: boolean;
   viewMode?: ViewMode;
   onViewModeChange?: (next: ViewMode) => void;
-  /**
-   * True when at least one directory is currently expanded across any group.
-   * Drives the single toolbar toggle: expanded → "collapse all", fully
-   * collapsed → "expand all".
-   */
   hasAnyExpanded?: boolean;
-  /**
-   * Fires when the user clicks the expand/collapse toggle. The caller decides
-   * which underlying store action to invoke based on `hasAnyExpanded`.
-   */
   onToggleAllTrees?: () => void;
   onRefresh: () => void;
-  /** After the row's own buttons. */
   children?: ReactNode;
 }
 
@@ -73,11 +56,6 @@ export function GitHeaderBar({
             disabled={disabled}
           />
         ) : null}
-        {/* Single expand/collapse toggle — icon + tooltip swap based on the
-            current expanded state. Only meaningful when (1) the repo is
-            detected (showViewToggle proxies that), (2) tree mode is active,
-            and (3) at least one group has entries. List mode doesn't render
-            directories at all so there's nothing to expand. */}
         {showViewToggle && viewMode === "tree" && onToggleAllTrees ? (
           <Button
             type="button"

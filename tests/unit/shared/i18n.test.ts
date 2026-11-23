@@ -4,7 +4,6 @@ import { join, relative } from "node:path";
 import { THEME_SOURCES } from "../../../src/shared/design-tokens/theme-sources";
 import { I18N_NAMESPACES, resources } from "../../../src/shared/i18n/index";
 
-/** Dotted path of every leaf in a locale namespace, sorted. */
 function keyPaths(value: unknown, prefix = ""): string[] {
   if (typeof value !== "object" || value === null) return [prefix];
   return Object.entries(value)
@@ -12,13 +11,7 @@ function keyPaths(value: unknown, prefix = ""): string[] {
     .sort();
 }
 
-// ---------------------------------------------------------------------------
-// Resources structure
-// ---------------------------------------------------------------------------
-
 describe("resources", () => {
-  // Only en is type-checked (i18next.d.ts derives the t() keys from it), so a
-  // key missing from or misspelt in a ko JSON file shows up only here.
   test("en and ko define the same key paths in every namespace", () => {
     for (const ns of I18N_NAMESPACES) {
       const en = keyPaths(resources.en[ns]);
@@ -31,8 +24,6 @@ describe("resources", () => {
     }
   });
 
-  // The panels look a server's status up by what Codex reports, which the
-  // /mcp card already has words for: a status without one shows in English.
   test("the MCP panel words every status the /mcp card does, in en and ko", () => {
     for (const locale of ["en", "ko"] as const) {
       const { chat } = resources[locale].common;
@@ -66,13 +57,8 @@ describe("resources", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Keys the code asks for
-// ---------------------------------------------------------------------------
-
 const ROOT = join(import.meta.dir, "../../..");
 
-/** Whether `key` (dotted, maybe with a plural suffix left off) is a string in `tree`. */
 function defines(tree: unknown, key: string): boolean {
   const parts = key.split(".");
   const last = parts.pop() ?? "";
@@ -95,17 +81,11 @@ function sourceFiles(dir: string): string[] {
 }
 
 describe("keys in the code", () => {
-  // The t() key types in i18next.d.ts do not reach the renderer's tsconfig
-  // project, so a key renamed in the code and not in the JSON (or the other
-  // way round) type-checks, and the app shows the raw key. This reads the
-  // literal keys the code passes to t() and looks each up in the en files.
   test("every literal key passed to t() is in an en namespace", () => {
     const en = resources.en as Record<string, unknown>;
     const missing: string[] = [];
     for (const file of sourceFiles(join(ROOT, "src"))) {
       const source = readFileSync(file, "utf8");
-      // A file's own t that puts a prefix before the key, as
-      // `const t = (key: string) => i18next.t(\`notes:recorder.${key}\`)`.
       const helper = source.match(/const t = \([^)]*\)\s*=>\s*i18next\.t\(`([^`$]*)\$\{key\}`/);
       const prefix = helper?.[1] ?? "";
       for (const match of source.matchAll(/\bt\(\s*"([A-Za-z0-9_.:-]+)"/g)) {

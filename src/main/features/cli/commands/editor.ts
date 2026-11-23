@@ -1,4 +1,3 @@
-/** nexus open, diff, show, reveal and problems. */
 import type { CliEditorView, CliProblem } from "../../../../shared/cli/ui";
 import { CliUsageError, exactArgs } from "../args";
 import { CliError, mayChange, placementFor, resolveWorkspace, shortId } from "../context";
@@ -10,7 +9,6 @@ import { resolveAnyTab } from "./terminal";
 const PLACEMENT_DETAILS =
   "It opens beside this terminal rather than over it, and the keyboard stays here.";
 
-/** The view open --preview or --source asks for; none when neither. */
 function viewFlag(flags: Record<string, unknown>): CliEditorView | undefined {
   if (flags.preview === true && flags.source === true) {
     throw new CliUsageError("--preview and --source do not go together");
@@ -125,7 +123,6 @@ const show: CliCommand = {
       throw new CliUsageError(`unexpected argument "${positionals[1]}"`);
     }
     const rev = (positionals[0] ?? "HEAD").trim();
-    // git would read it as one of its options.
     if (rev === "" || rev.startsWith("-")) throw new CliError(`no commit is named "${rev}"`, 2);
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     await mayChange(ctx, workspace, { kind: "commit", detail: rev });

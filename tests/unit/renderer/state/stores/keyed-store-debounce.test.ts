@@ -99,13 +99,11 @@ test("Git passive refresh delays the last hint and drops a cancelled workspace's
 const workspaceId = "workspace-with-view-options";
 const entryKey = `git:${workspaceId}`;
 
-/** Clears the entries and any pending persistence after a panel-options case. */
 function resetPanelViewOptions() {
   usePanelViewOptionsStore.getState().closeForWorkspace(workspaceId);
   usePanelViewOptionsStore.setState({ entries: new Map() });
 }
 
-/** Holds the saved view mode until the test delivers the IPC response. */
 function holdViewOptionsRead() {
   const read = Promise.withResolvers<{ viewMode: "tree" }>();
   Object.assign(globalThis, {
@@ -116,7 +114,6 @@ function holdViewOptionsRead() {
   return async () => {
     read.resolve({ viewMode: "tree" });
     await read.promise;
-    // Drain the IPC envelope and store continuation.
     await Promise.resolve();
     await Promise.resolve();
   };

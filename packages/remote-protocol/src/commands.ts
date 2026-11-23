@@ -1,16 +1,9 @@
-/**
- * The slash commands a Codex client runs itself. Codex's app-server leaves
- * them to the client, so the desktop app and a remote device both need the
- * same list: names, aliases and argument hints, nothing else.
- */
-
 export interface CodexClientCommand {
   name: string;
   aliases?: string[];
   argumentHint?: string;
 }
 
-/** Codex's slash commands the client handles, not the app-server. */
 export const CODEX_COMMANDS: readonly CodexClientCommand[] = [
   { name: "model" },
   { name: "effort" },
@@ -39,7 +32,6 @@ export const CODEX_COMMANDS: readonly CodexClientCommand[] = [
   { name: "exit", aliases: ["quit"] },
 ];
 
-/** Codex's client commands that another device may run, by name. */
 export const CODEX_REMOTE_COMMANDS: ReadonlySet<string> = new Set([
   "new",
   "compact",

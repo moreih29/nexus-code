@@ -1,9 +1,3 @@
-/**
- * A Claude or Codex tab as the agent lists read it without opening it
- * (chat.state with `peek`, and sessions.snapshot for other devices). The
- * real ipc client is spread under a spy: a tab's log, read as it opens,
- * comes in only when the test says.
- */
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
@@ -50,7 +44,6 @@ afterEach(() => {
   restore();
 });
 
-/** A tab restored with the app: not opened since it started. */
 function restoredTab(agent: "claude" | "codex") {
   const tabId = useTabsStore
     .getState()
@@ -69,13 +62,11 @@ test.each([
   const state = () => peekChatInfo(workspace.id, tabId).state;
   expect(state()).toBe("idle");
 
-  // Closing the tab in front shows this one, which opens it: no turn runs.
   void target.controller.open();
   expect(target.controller.isOpening).toBe(true);
   expect(useChatStore.getState().tabs[key]?.phase).toBe("starting");
   expect(peekChatInfo(workspace.id, tabId)).toEqual({ agent, state: "idle" });
 
-  // A message sent as it opens: it works from now.
   void sendFirstMessage(workspace.id, tabId, target, "Go on").catch(() => {});
   expect(state()).toBe("working");
 });
@@ -84,7 +75,6 @@ test("a tab opened to show it reads as it stands once its log is in", () => {
   const { tabId, target, key } = restoredTab("claude");
   void target.controller.open();
   expect(peekChatInfo(workspace.id, tabId).state).toBe("idle");
-  // The log told of a turn that runs, with the tab still loading what came before it.
   useChatStore.getState().update(key, (prev) => ({
     ...prev,
     phase: "ready",

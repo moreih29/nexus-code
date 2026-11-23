@@ -1,8 +1,3 @@
-// A page Claude published as an Artifact, where its call was: a thumbnail
-// drawn from the HTML file it published, its name and what it is, with
-// buttons to preview the file here, open the page on claude.ai, or copy
-// its link. The side panel lists the pages too (ArtifactRow).
-
 import { AppWindow, Check, ExternalLink, Eye, Link } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -21,26 +16,15 @@ import { cn } from "../../utils/cn";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
 import { useChatLinks } from "./chat-links";
 
-/** How much of a page's file is read for its title. */
 const HEAD_BYTES = 8 * 1024;
-/** How many times a title that cannot be read yet is tried: the tab grants the file a moment after it names it. */
 const TITLE_TRIES = 4;
 const TITLE_RETRY_MS = 700;
 
-/**
- * The bytes of a file from its start, as text; null when it cannot be read.
- * Another computer's file is read through the room, by its path there.
- */
 async function readHead(workspaceId: string, relPath: string): Promise<string | null> {
   const part = await readWorkspaceRange(workspaceId, relPath, 0, HEAD_BYTES).catch(() => null);
   return part ? new TextDecoder().decode(part.bytes) : null;
 }
 
-/**
- * A page's name: the one its call gave, or its HTML document's title, read
- * from the file in the workspace at `rootPath` or outside it; its file's
- * name till then.
- */
 export function useArtifactName(page: ArtifactPage, workspaceId: string, rootPath: string): string {
   const [title, setTitle] = useState<string | null>(null);
   const wanted = page.title === undefined && isHtmlPage(page);
@@ -69,7 +53,6 @@ export function useArtifactName(page: ArtifactPage, workspaceId: string, rootPat
   return artifactName(page, title);
 }
 
-/** The page's width the thumbnail draws it at, and how small it shows it. */
 const THUMB_PAGE = { width: 800, height: 500, scale: 0.2 } as const;
 
 function ArtifactThumb({
@@ -91,7 +74,6 @@ function ArtifactThumb({
       }}
     >
       {isHtmlPage(page) && file.kind === "inside" ? (
-        // Drawn, not used: no pointer reaches it, and scripts run in a sandbox of their own.
         <iframe
           src={file.url}
           title={name}
@@ -226,7 +208,6 @@ export function ArtifactCard({
   );
 }
 
-/** A page in the side panel's list of what the session made: it previews; its page on claude.ai is a click away. */
 export function ArtifactRow({
   page,
   workspaceId,

@@ -79,9 +79,6 @@ func (s *transcriptSnapshot) id() string {
 	return base64.RawURLEncoding.EncodeToString(s.key[:16])
 }
 
-// The cursor carries a signed, exclusive file position and the start of a
-// large row if the preceding page stopped inside it. The file identity and
-// profile stay in the agent's bounded snapshot cache.
 func (s *transcriptSnapshot) cursor(pos, fragment int64, anchor [32]byte) string {
 	var token [80]byte
 	copy(token[:16], s.key[:16])
@@ -120,8 +117,6 @@ func (c *transcriptSnapshotCache) decode(encoded string) (*transcriptSnapshot, i
 
 var errStaleTranscriptCursor = proto.NewError("chat.transcript-cursor-stale", "the transcript changed or its snapshot expired")
 
-// TranscriptPage reads a bounded page of the same retained transcript window
-// as Transcript. Append-only changes remain beyond the snapshot's fixed end.
 func (s *Service) TranscriptPage(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p transcriptPageParams
 	if err := decodeParams(raw, &p, "chat.transcriptPage params must include sessionId"); err != nil {
@@ -286,9 +281,6 @@ func cursorAnchor(file *os.File, snapshot *transcriptSnapshot, pos int64) ([32]b
 	return sha256.Sum256(part), err
 }
 
-// A finished page can be resumed across agent lifetimes. Fingerprint bytes
-// on the displayed side of its exclusive boundary so an append leaves it
-// valid. The new agent still verifies that boundary against the session file.
 const transcriptBeforeAnchorSize = 8 + 2 + sha256.Size
 
 func transcriptBeforeAnchor(file *os.File, pos, end int64) (string, error) {
@@ -327,8 +319,6 @@ func transcriptEndBeforeAnchor(file *os.File, snapshot *transcriptSnapshot, anch
 	return pos, block[0] == '\n' && bytes.Equal(hash[:], token[10:]), nil
 }
 
-// A cut uses the first matching UUID in the retained window, as the
-// renderer's full-transcript cut did. It does not transfer the scan.
 func transcriptCutEnd(ctx context.Context, file *os.File, snapshot *transcriptSnapshot, p transcriptPageParams) (int64, bool, error) {
 	reader := bufio.NewReaderSize(io.NewSectionReader(file, snapshot.floor, snapshot.end-snapshot.floor), transcriptReadBlock)
 	before := make(map[string]bool, len(p.Before))
@@ -441,7 +431,6 @@ func (r *transcriptReverseReader) read(start, end int64) ([]byte, error) {
 }
 
 func (p *transcriptPage) readLines(r *transcriptReverseReader, pos int64, budget int) (int64, int64, error) {
-	// Allow space for the RPC envelope, cursor and per-row positions.
 	remaining := budget - transcriptPageOverhead
 	turns, turnRows, turnPos := 0, 0, int64(0)
 	for pos > r.floor {
@@ -502,7 +491,6 @@ func (p *transcriptPage) readLines(r *transcriptReverseReader, pos int64, budget
 }
 
 func (p *transcriptPage) readFragment(r *transcriptReverseReader, end, start int64, budget int, last bool) (int64, int64, error) {
-	// Base64 keeps a cut through a UTF-8 character or JSON escape reversible.
 	pos := max(start, end-int64((budget-transcriptPageOverhead)/4*3))
 	data, err := r.read(pos, end)
 	if err != nil {

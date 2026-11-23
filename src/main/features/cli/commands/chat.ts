@@ -1,8 +1,3 @@
-/**
- * nexus chat ...: the app's Claude and Codex tabs, driven as their composer
- * drives them. A tab's conversation is the renderer's; these ask it, read it
- * whole or a piece at a time, and wait on one or several tabs.
- */
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -72,7 +67,6 @@ import { workspaceTabs } from "./terminal";
 
 const log = createLogger("cli");
 
-/** The agent an --agent flag names: claude or codex. */
 export function chatAgentFlag(value: unknown, fallback: ChatAgent): ChatAgent {
   if (value === undefined) return fallback;
   const name = String(value).trim().toLowerCase();
@@ -80,12 +74,10 @@ export function chatAgentFlag(value: unknown, fallback: ChatAgent): ChatAgent {
   throw new CliUsageError("--agent is claude or codex");
 }
 
-/** Whether a tab is a Claude or Codex tab. */
 export function isChatTab(tab: CliTabInfo): boolean {
   return tab.type === "claude" || tab.type === "codex";
 }
 
-/** The Claude or Codex tab a selector names in a workspace. */
 export async function resolveChat(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -95,7 +87,6 @@ export async function resolveChat(
   return resolveTab(ctx, tabs, selector, `Claude or Codex tab in ${workspace.name}`);
 }
 
-/** What a tab runs with and works toward, a line each: its profile, its goal. */
 export function chatAboutText(info: CliChatInfo): string {
   const lines: string[] = [];
   if (info.profile) lines.push(`Profile: ${info.profile}.`);
@@ -114,16 +105,11 @@ const ROLE_LABELS: Readonly<Record<CliChatEntry["role"], string>> = {
   notice: "note",
 };
 
-/** Cuts a message to `maxChars`, saying how much is left out. */
 function cut(text: string, maxChars: number | undefined): string {
   if (maxChars === undefined || text.length <= maxChars) return text;
   return `${text.slice(0, maxChars)}… [+${text.length - maxChars} chars]`;
 }
 
-/**
- * A conversation as chat read prints it: each message under who said it,
- * with its place, a tool call or a note on a line.
- */
 export function chatTranscript(
   info: CliChatInfo,
   entries: readonly CliChatEntry[],
@@ -133,7 +119,6 @@ export function chatTranscript(
     .map((entry) => {
       const label = entry.role === "agent" ? info.agent : ROLE_LABELS[entry.role];
       const sub = entry.parentToolUseId ? " (subagent)" : "";
-      // A message sent during a turn that the agent has not read: chat unsend takes it back.
       const unread = entry.role === "user" && entry.status === "unread" ? " (unread)" : "";
       return entry.role === "tool" || entry.role === "notice"
         ? `[${label} #${entry.i}]${sub} ${cut(entry.text, maxChars)}`
@@ -164,7 +149,6 @@ function infoJson(
   };
 }
 
-/** A --max-chars flag: a positive whole number, or none. */
 function maxCharsFlag(flags: ParsedArgs["flags"]): number | undefined {
   const value = flags["max-chars"] as number | undefined;
   if (value === undefined) return undefined;
@@ -195,12 +179,6 @@ const TIMEOUT_FLAG = {
   description: "Stop waiting after DURATION, such as 90s or 5m (default 10m, at most 30m)",
 } as const;
 
-/**
- * Waits until one of some Claude or Codex tabs of a workspace is done
- * working: idle after its turn, asking the user, stopped on an error, or
- * closed. Says which, as `tab`. Never throws for a timeout.
- */
-/** A chat wait's result: the tab it ended on, and why its turn failed, when it did. */
 export type ChatWaitResult = WaitResult &
   Pick<CliChatInfo, "failure" | "limitResume"> & { tab?: CliTabInfo };
 
@@ -228,7 +206,6 @@ export async function waitOnChats(
           tabId: tab.id,
           ...(submissionId ? { submissionId } : {}),
         });
-        // A turn the usage limit stopped has ended too: the text says when it goes on.
         if (info.state !== "working") {
           return {
             done: true,
@@ -241,7 +218,6 @@ export async function waitOnChats(
           };
         }
       }
-      // A client that has gone (Ctrl-C) waits no more, nor shows as waiting.
       if (clock.now() - startedAt >= timeoutMs || ctx.signal?.aborted) {
         const which = tabs.length === 1 ? (tabs[0] as CliTabInfo).title : "every tab";
         return {
@@ -257,7 +233,6 @@ export async function waitOnChats(
   }
 }
 
-/** Waits until a Claude or Codex tab is done working; see waitOnChats. */
 export function waitOnChat(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -268,7 +243,6 @@ export function waitOnChat(
   return waitOnChats(ctx, workspace, [tab], timeoutMs, submissionId);
 }
 
-/** A wait's result as the command prints it; exit 124 when the wait ran out. */
 function waitOutput(
   text: string,
   json: Record<string, unknown>,
@@ -287,7 +261,6 @@ function waitOutput(
   );
 }
 
-/** The model, effort and mode flags of chat new and chat set. */
 const SETTING_FLAGS = {
   model: {
     type: "string",
@@ -303,7 +276,6 @@ const SETTING_FLAGS = {
   },
 } as const;
 
-/** What --model, --effort and --mode ask, the mode checked against the agent's. */
 function settingsFlags(
   agent: ChatAgent,
   flags: ParsedArgs["flags"],
@@ -366,11 +338,6 @@ function logDelegation(ctx: CliContext, tabId: string, caller: CallerMode, mode?
   );
 }
 
-/**
- * Authorizes a mode change after the workspace policy. Returns the caller's
- * mode when it delegated the new mode. The unrestricted mode always needs
- * a grant, so its caller can omit the target's current mode.
- */
 async function mayLoosen(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -532,7 +499,6 @@ const chatNew: CliCommand = {
           ? { profile: flags.profile.trim() }
           : {}),
       },
-      // Its program starts before applying settings or submitting the first message.
       setting || prompt !== "" ? SEND_TIMEOUT_MS : undefined,
     );
     const reach =
@@ -687,10 +653,6 @@ const chatSet: CliCommand = {
   },
 };
 
-/**
- * Has a tab run with another profile, the user allowing it: its
- * conversation goes on there, or a new one starts (`fresh`).
- */
 async function setProfile(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -703,7 +665,6 @@ async function setProfile(
   }
   await mayChange(ctx, workspace, { kind: "chatSettings", detail: tab.title });
   const target = { workspaceId: workspace.id, tabId: tab.id };
-  // Named and checked first: the user is asked about what would happen.
   const names = await ctx.services.ui("chat.profile", {
     ...target,
     profile,
@@ -730,7 +691,6 @@ async function setProfile(
   return output(text, { ...target, from, profile: to, fresh });
 }
 
-/** A tab of this computer's as chat read reads it. */
 async function readChat(
   ctx: CliContext,
   flags: ParsedArgs["flags"],
@@ -857,7 +817,6 @@ const chatRead: CliCommand = {
         ? `${AGENT_NAMES[info.agent]} in ${tab.title} is idle.`
         : chatStateText(tab, info)
     }${about ? `\n${about}` : ""}`;
-    // Cleared or rewound since #since: the app read it from its start.
     const restarted = since !== undefined && since > end;
     const last = nextSince ?? entries.at(-1)?.i ?? (restarted ? undefined : since);
     const stands = {
@@ -894,7 +853,6 @@ const chatTool: CliCommand = {
   flags: { "max-chars": MAX_CHARS_FLAG, workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     if (positionals.length === 1) {
-      // `chat tool tab #3`: the shell took "#3" for a comment.
       throw new CliUsageError(
         "missing <call>: the number chat read shows by it, without its # (a shell drops a # and what follows)",
       );
@@ -929,7 +887,6 @@ const chatTool: CliCommand = {
   },
 };
 
-/** The files --file names, read where the caller runs, for a tab to take. */
 async function attachments(
   ctx: CliContext,
   given: readonly string[],
@@ -944,7 +901,6 @@ async function attachments(
   );
 }
 
-/** A --file flag's paths: none, one, or more. */
 function filesFlag(flags: ParsedArgs["flags"]): string[] {
   const given = flags.file;
   if (given === undefined) return [];
@@ -1005,7 +961,6 @@ const chatSend: CliCommand = {
     ).trim();
     const files = filesFlag(flags);
     const imagePath = typeof flags.image === "string" ? flags.image : undefined;
-    // ⌘↩ on an empty composer: the messages sent during the turn are read now.
     const hurry =
       when === "now" && words.length === 0 && files.length === 0 && imagePath === undefined;
     if (text === "" && files.length === 0 && imagePath === undefined && !hurry)
@@ -1061,11 +1016,8 @@ const chatSend: CliCommand = {
       },
       { target: tab },
     );
-    // An agent's message shows as its, and the tab's agent is told who sent
-    // it, and whether it waits to read the answer there or is to be written back to.
     const sender = await senderOf(ctx);
     const from = sender ? { ...sender, waits: timeoutMs !== null } : undefined;
-    // Starting a program that is gone comes before the message.
     const { heldId, submissionId } = await ctx.services.ui(
       "chat.send",
       {
@@ -1095,7 +1047,6 @@ const chatSend: CliCommand = {
   },
 };
 
-/** How long chat send gives a tab to start its program and take the message. */
 export const SEND_TIMEOUT_MS = 60_000;
 
 const chatWait: CliCommand = {
@@ -1133,10 +1084,8 @@ const chatWait: CliCommand = {
   },
 };
 
-/** How chat.state tells a tool's permission request (renderer services/cli/chat-view). */
 const ASKS_TO_RUN = "asks to run ";
 
-/** The tools whose requests are a question or a plan for the user, not a tool to allow. */
 const USERS_TO_ANSWER = new Set(["AskUserQuestion", "ExitPlanMode"]);
 
 async function unrestrictedCaller(ctx: CliContext): Promise<CallerMode | undefined> {
@@ -1144,7 +1093,6 @@ async function unrestrictedCaller(ctx: CliContext): Promise<CallerMode | undefin
   if (caller?.mode && caller.mode === CHAT_MODES[caller.agent].dangerous) return caller;
 }
 
-/** Authorizes one answer to the request as it was asked. */
 async function mayAnswer(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -1153,7 +1101,6 @@ async function mayAnswer(
   let caller = await unrestrictedCaller(ctx);
   if (caller && workspace.id !== ctx.caller.workspaceId) {
     await mayChange(ctx, workspace, change);
-    // The workspace policy can wait for a user decision. Read the mode again.
     caller = await unrestrictedCaller(ctx);
   }
   if (
@@ -1178,10 +1125,6 @@ async function mayAnswer(
   }
 }
 
-/**
- * The tab chat answer answers in: a Claude or Codex tab, or else a
- * terminal whose Claude Code asks (a chat tab is named first).
- */
 async function answeringTab(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -1205,7 +1148,6 @@ async function answeringTab(
   }
 }
 
-/** chat answer for a terminal: the request its Claude Code holds, as the app's card answers it. */
 async function answerTerminal(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -1303,9 +1245,6 @@ const chatAnswer: CliCommand = {
       );
     }
     const tool = asked.slice(ASKS_TO_RUN.length);
-    // What is answered is the request whole: a command's first line, as the
-    // tab's row shows it, can hide what its next lines run.
-    // The CLI only allows this answer once and sends the request's original input.
     const delegated = await mayAnswer(ctx, workspace, {
       kind: decision === "allow" ? "permissionAllow" : "permissionDeny",
       detail: `${info.request.tool} (${tab.title})`,

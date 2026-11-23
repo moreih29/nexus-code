@@ -1,35 +1,19 @@
-/**
- * A remote command on an ssh2 connection, shaped as the `ssh` process that
- * would have run it.
- *
- * Callers spawn `ssh … -- destination command` and read its stdio, exit code
- * and stderr, then classify OpenSSH's stderr lines (stderr-patterns.ts). This
- * process gives them the same: the command's stdio, its exit code, 255 when
- * the connection fails, and that failure written to stderr in OpenSSH's words
- * so it is classified as OpenSSH's would be.
- */
-
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import type { Client, ClientChannel, SFTPWrapper } from "ssh2";
 import type { SshError } from "../../pipe";
 
-/** OpenSSH's exit status for a connection or authentication failure. */
 export const SSH_FAILURE_EXIT = 255;
 
-/** The parts of an `ssh` command line the ssh2 client acts on. */
 export interface SshCommandLine {
   readonly controlPath?: string;
   readonly destination: string;
   readonly port?: number;
   readonly identityFile?: string;
-  /** Absent for `-N` or `-O`, which run no remote command. */
   readonly remoteCommand?: string;
-  /** `-O exit`: stop the shared connection. */
   readonly controlCommand?: string;
 }
 
-/** Reads the `ssh` command lines master.ts and the bootstrap build. */
 export function parseSshCommandLine(args: readonly string[]): SshCommandLine {
   let controlPath: string | undefined;
   let port: number | undefined;
@@ -43,7 +27,6 @@ export function parseSshCommandLine(args: readonly string[]): SshCommandLine {
       break;
     }
     if (arg === "-S") controlPath = args[++index];
-    // sftp takes the port as -P.
     else if (arg === "-p" || arg === "-P") port = Number(args[++index]);
     else if (arg === "-i") identityFile = args[++index];
     else if (arg === "-O") controlCommand = args[++index];
@@ -65,7 +48,6 @@ export function parseSshCommandLine(args: readonly string[]): SshCommandLine {
   };
 }
 
-/** Splits `user@host` into its parts. */
 export function parseDestination(destination: string): { host: string; user?: string } {
   const at = destination.lastIndexOf("@");
   return at >= 0
@@ -75,12 +57,10 @@ export function parseDestination(destination: string): { host: string; user?: st
 
 let pidSequence = 0;
 
-/** The child process callers expect of `ssh` or `sftp`, with nothing run yet. */
 abstract class Ssh2Process extends EventEmitter {
   readonly stdin = new PassThrough();
   readonly stdout = new PassThrough();
   readonly stderr = new PassThrough();
-  /** A label for logs; no local process runs. */
   readonly pid = -++pidSequence;
   killed = false;
   exitCode: number | null = null;
@@ -110,19 +90,13 @@ abstract class Ssh2Process extends EventEmitter {
     this.stdout.end();
     this.stderr.end();
     this.emit("exit", code, signal);
-    // "close" follows the stdio, as a child process's does.
     setImmediate(() => this.emit("close", code, signal));
   }
 }
 
-/** The `ssh` child process callers expect, over an ssh2 exec channel. */
 export class Ssh2CommandProcess extends Ssh2Process {
   private channel: ClientChannel | null = null;
 
-  /**
-   * Runs `command` once `client` resolves; a rejection is reported as ssh
-   * reports a failed connection.
-   */
   constructor(client: Promise<Client>, command: string) {
     super();
     client.then(
@@ -136,7 +110,6 @@ export class Ssh2CommandProcess extends Ssh2Process {
       this.finish(null, signal);
       return;
     }
-    // As the ssh process ending would: the remote session closes.
     this.channel.close();
   }
 
@@ -172,18 +145,11 @@ export class Ssh2CommandProcess extends Ssh2Process {
       signal = exitSignal ? (`SIG${exitSignal}` as NodeJS.Signals) : null;
     });
     channel.on("close", () => {
-      // A channel closed with no exit status went down with its connection.
       this.finish(code === null && signal === null ? SSH_FAILURE_EXIT : code, signal);
     });
   }
 }
 
-/**
- * The `sftp` child process callers expect: it reads the batch the bootstrap
- * writes to stdin (`put "local" "remote"`, `chmod 755 "remote"`) and runs it
- * over the connection's SFTP channel, exiting 1 on the first failure as
- * `sftp -b` does.
- */
 export class Ssh2SftpProcess extends Ssh2Process {
   private sftp: SFTPWrapper | null = null;
 
@@ -242,7 +208,6 @@ export class Ssh2SftpProcess extends Ssh2Process {
   }
 }
 
-/** Splits one batch line into words, each bare or "double-quoted". */
 export function parseSftpLine(line: string): string[] {
   const words: string[] = [];
   for (const match of line.matchAll(/"([^"]*)"|(\S+)/g)) words.push(match[1] ?? match[2]);
@@ -267,7 +232,6 @@ async function runSftpCommands(sftp: SFTPWrapper, commands: readonly string[][])
   }
 }
 
-/** A connection failure in the words OpenSSH would print. */
 export function describeFailure(error: unknown): string {
   const code = error instanceof Error ? (error as SshError).code : undefined;
   const cause = error instanceof Error && error.cause !== undefined ? error.cause : error;

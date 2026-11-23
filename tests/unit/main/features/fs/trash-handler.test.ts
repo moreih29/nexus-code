@@ -1,11 +1,3 @@
-/**
- * trashHandler — main-process handler tests.
- *
- * The handler is local-workspace-only: SSH workspaces must surface
- * UNSUPPORTED_REMOTE rather than reaching `shell.trashItem`. ENOENT on
- * the underlying path is idempotent (stale-row safety).
- */
-
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";

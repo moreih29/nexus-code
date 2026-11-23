@@ -1,9 +1,3 @@
-/**
- * GitCommitInput owns the commit-message editing surface above status groups.
- *
- * It reads the draft itself: a keystroke renders the input and its button,
- * not the panel and the file list under it.
- */
 import { useTranslation } from "react-i18next";
 import type { GitCommitOptions } from "../../../../../shared/git/types";
 import type { GitActionButtonState } from "../../../../state/stores/git/action-button";
@@ -11,7 +5,6 @@ import { useCommitDraft } from "../../../../state/stores/git/commit-drafts";
 import { GitCommitButton, type GitCommitMenuEnablement } from "./commit-button";
 
 interface GitCommitInputProps {
-  /** The workspace whose commit draft the input edits. */
   workspaceId: string;
   disabled?: boolean;
   busy?: boolean;
@@ -36,7 +29,6 @@ interface GitCommitInputProps {
   onPullOnly: () => void;
 }
 
-/** Renders the commit message input with the task-6 split action control. */
 export function GitCommitInput({
   workspaceId,
   disabled = false,

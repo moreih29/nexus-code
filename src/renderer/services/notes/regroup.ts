@@ -27,7 +27,6 @@ export function regroupKey(workspaceId: string, noteId: string, recordingId: str
 const t = (key: string, options?: Record<string, unknown>) =>
   i18next.t(`notes:transcript.regroup.${key}`, options ?? {});
 
-/** Recompute voice prints from the local recording and apply one guarded transcript edit. */
 export async function regroupRecording(
   workspaceId: string,
   noteId: string,

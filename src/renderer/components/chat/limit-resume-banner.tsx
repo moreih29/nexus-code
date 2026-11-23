@@ -1,8 +1,3 @@
-// Over the composer of a tab the plan's usage limit stopped: when the app
-// goes on by itself (with [Cancel] and [Resume now]), or why it does not.
-// In a Claude tab it takes the place of the limit-reached banner. Another
-// device's chat shows the same, without the buttons: they are its app's.
-
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { LimitResume } from "../../../shared/types/layout";
@@ -11,7 +6,6 @@ import { resumeTimeText } from "../../services/chat/limit-resume";
 import { cancelLimitResume, resumeLimitNow } from "../../services/chat/limit-resume-scheduler";
 import { Banner, type BannerAction } from "../ui/banner";
 
-/** Going on after the usage limit as a banner tells it: a tab's own, or another device's. */
 export interface LimitResumeShown {
   state: string;
   stopAt?: number;
@@ -22,12 +16,10 @@ export interface LimitResumeShown {
 
 const SHOWN = new Set(["waiting", "unknown", "cancelled", "gave_up"]);
 
-/** Whether a banner shows for it: not while the app's message runs, nor a state not known here. */
 export function showsLimitResume<T extends LimitResumeShown>(record: T | undefined): record is T {
   return record !== undefined && SHOWN.has(record.state);
 }
 
-/** A tab's own banner, with [Cancel] while it waits and [Resume now]. */
 export function LimitResumeBanner({
   workspaceId,
   tabId,
@@ -68,7 +60,6 @@ export function LimitResumeBanner({
   );
 }
 
-/** The banner itself; with no actions, as another device's chat shows it. */
 export function LimitResumeView({
   scope,
   record,

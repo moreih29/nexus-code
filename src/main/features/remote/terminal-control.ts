@@ -1,10 +1,3 @@
-/**
- * A terminal's controls as another device uses them (terminal.input,
- * terminal.shells, terminal.open, terminal.rename, terminal.close), served
- * only while the user lets other devices control this computer's
- * terminals (Settings › Remote); and the answer to a terminal's Claude
- * Code request (terminal.answer), which is a chat's control.
- */
 import {
   RpcErrorCode,
   type RpcParams,
@@ -18,10 +11,6 @@ import { folderIn } from "./files";
 import { RpcFailure } from "./room";
 import { tabOf, unavailable, workspaceOf } from "./serving/common";
 
-/**
- * Types into the terminal: the text pasted (or as keystrokes, `typed`, a line break as the
- * Return key sends it), then the keys, then Enter; when it was typed.
- */
 export async function inputTerminal(
   services: CliServices,
   { workspaceId, tabId, text, typed, keys, enter, from }: RpcParams<"terminal.input">,
@@ -58,7 +47,6 @@ export async function inputTerminal(
   return { at };
 }
 
-/** The shells a new terminal can run, the default marked. */
 export async function terminalShells(
   services: CliServices,
   { workspaceId }: RpcParams<"terminal.shells">,
@@ -70,12 +58,6 @@ export async function terminalShells(
   return { shells: shells.map(({ id, name, isDefault }) => ({ id, name, isDefault })) };
 }
 
-/**
- * The id of the profile `profile` names: its id, or a name only one profile
- * has (profiles.list's). One this computer has not, or a name two have, is
- * InvalidParams: a terminal is never opened with the default folder in its
- * place.
- */
 async function profileIdOf(services: CliServices, profile: string): Promise<string> {
   const { profiles } = await services.ui("chat.profiles", {}).catch(unavailable);
   const byId = profiles.find((p) => p.id === profile);
@@ -91,11 +73,6 @@ async function profileIdOf(services: CliServices, profile: string): Promise<stri
   );
 }
 
-/**
- * Opens a terminal behind what the window shows: in a folder of the
- * workspace, a shell, a command, with a profile's environment. One an agent
- * opens (`openedBy`) is its: what runs nexus in it here is that agent.
- */
 export async function openTerminal(
   services: CliServices,
   { workspaceId, shell, folder, command, title, profile }: RpcParams<"terminal.open">,
@@ -120,13 +97,11 @@ export async function openTerminal(
       ...(command ? { command } : {}),
       ...(shell ? { shell } : {}),
       ...(profileId !== undefined ? { profile: profileId } : {}),
-      // Behind what the window shows: whoever sits at this computer keeps their place.
       placement: { background: true },
       ...(openedBy ? { openedBy } : {}),
     })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
-      // The profile went between the two asks.
       if (/^no profile /.test(message)) throw new RpcFailure(RpcErrorCode.InvalidParams, message);
       return unavailable(error);
     });
@@ -142,7 +117,6 @@ export async function renameTerminal(
   return services.ui("tab.rename", { workspaceId, tabId, title: title.trim() }).catch(unavailable);
 }
 
-/** Closes the terminal; one running a program only when `force`. */
 export async function closeTerminal(
   services: CliServices,
   { workspaceId, tabId, force }: RpcParams<"terminal.close">,
@@ -152,7 +126,6 @@ export async function closeTerminal(
   return {};
 }
 
-/** Answers the request a terminal's Claude Code holds, as the app's card does. */
 export async function answerTerminal(
   services: CliServices,
   { workspaceId, tabId, requestId, decision, from }: RpcParams<"terminal.answer">,

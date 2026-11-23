@@ -1,11 +1,3 @@
-// encoding-segment.tsx — the status bar's encoding item.
-//
-// Shows the encoding the active editor's file was read in: UTF-8, or the
-// one its bytes were decoded in (text-encoding.ts). Clicking it opens a
-// menu to reopen the file in another encoding, or to save it in one, which
-// it is then in from that save on. A file with edits cannot be reopened:
-// that would throw them away. A file outside the workspace only shows it.
-
 import { Check, ChevronLeft } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -28,7 +20,6 @@ import { useLayoutStore } from "../../state/stores/layout";
 import { useTabsStore } from "../../state/stores/tabs";
 import { Popover } from "../ui/popover";
 
-/** The file of the workspace's active editor, if it has one on disk. */
 function useActiveEditorInput(workspaceId: string): EditorInput | null {
   const layout = useLayoutStore((s) => s.byWorkspace[workspaceId]);
   const tabs = useTabsStore((s) => s.byWorkspace[workspaceId]);
@@ -56,7 +47,6 @@ interface FileEncodingState {
   dirty: boolean;
 }
 
-/** The encoding of `input`'s model, kept current as it is reread and saved. */
 function useFileEncoding(input: EditorInput | null): FileEncodingState | null {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -64,7 +54,6 @@ function useFileEncoding(input: EditorInput | null): FileEncodingState | null {
     const rerender = () => setTick((n) => n + 1);
     let unsubscribe: (() => void) | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    // The editor makes the model as it mounts, which may be after this.
     const attach = (tries: number) => {
       const resolved = getResolvedModel(input);
       if (!resolved) {
@@ -109,7 +98,6 @@ export function EncodingSegment({
   const state = useFileEncoding(input);
   const [open, setOpen] = useState(false);
 
-  // A new file in the editor closes the menu of the last.
   // biome-ignore lint/correctness/useExhaustiveDependencies: closes on a new file
   useEffect(() => setOpen(false), [state?.cacheUri]);
 

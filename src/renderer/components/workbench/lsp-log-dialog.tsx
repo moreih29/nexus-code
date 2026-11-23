@@ -1,7 +1,3 @@
-// lsp-log-dialog.tsx — a language server's log: what it logged and showed,
-// the end of its stderr when it exited, and its starts and stops. Main keeps
-// the entries (lsp.serverLog); the dialog asks for new ones while open.
-
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
@@ -13,9 +9,7 @@ import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { Button } from "../ui/button";
 import { DialogHeader } from "../ui/dialog-header";
 
-/** How often the open dialog asks for entries logged since. */
 const LOG_POLL_MS = 1_000;
-/** Entries kept on screen; main keeps fewer, this bounds a long session. */
 const LOG_VIEW_LIMIT = 2_000;
 
 const LEVEL_CLASS: Partial<Record<LspLogLevel, string>> = {
@@ -25,7 +19,6 @@ const LEVEL_CLASS: Partial<Record<LspLogLevel, string>> = {
   lifecycle: "text-muted-foreground",
 };
 
-/** Mounted once at the App root; shows the log the store points at. */
 export function LspLogDialogRoot(): React.JSX.Element | null {
   const target = useLspLogViewerStore((s) => s.target);
   const close = useLspLogViewerStore((s) => s.close);
@@ -39,7 +32,6 @@ export function LspLogDialogRoot(): React.JSX.Element | null {
   );
 }
 
-/** HH:MM:SS: a locale's own format can spell the units out. */
 function formatTime(time: number): string {
   const date = new Date(time);
   return [date.getHours(), date.getMinutes(), date.getSeconds()]
@@ -61,7 +53,6 @@ function LspLogDialog({
   const { t } = useTranslation();
   const [entries, setEntries] = useState<LspLogEntry[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
-  // Follow new entries unless the user scrolled up to read.
   const followRef = useRef(true);
   const workspace = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === target.workspaceId)?.name ?? "",

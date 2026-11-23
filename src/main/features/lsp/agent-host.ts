@@ -107,10 +107,6 @@ import { asRecord, isObjectLike } from "./utils";
 
 const log = createLogger("lsp-agent");
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
 type EventCallback = (args: unknown) => void;
 
 interface PendingServerRequest {
@@ -158,22 +154,11 @@ export interface AgentLspWorkspaceManager {
   ): Promise<{ readonly binaryPath: string; readonly args: readonly string[] } | null>;
 }
 
-// ---------------------------------------------------------------------------
-// Per-method argument schemas (close to the host class so the call() switch
-// stays self-contained).
-// ---------------------------------------------------------------------------
-
 const DidOpenArgsSchema = TextDocumentItemSchema.extend({
   workspaceId: z.string(),
   workspaceRoot: z.string(),
 });
 
-// Every URI-scoped IPC call from the renderer carries workspaceId so the
-// host can route to the right LSP server even when two workspaces open
-// the same physical file (e.g. parent + nested-child workspace
-// registrations sharing a frontend/src/main.tsx). The renderer derives
-// workspaceId from the model's cacheUri (workspace-uri.ts) — uri itself
-// stays in `file://` form because that is what the LSP server expects.
 const WorkspaceScopedUriArgsSchema = z.object({
   workspaceId: z.string(),
   uri: TextDocumentIdentifierSchema.shape.uri,
@@ -195,7 +180,6 @@ const WorkspaceSymbolArgsSchema = z.object({
   query: z.string(),
 });
 
-/** How a stop reads in workspaceLspReset and in the server's log. */
 const STOP_REASON_TEXT: Record<LspStopReason, string> = {
   idle: "idle timeout",
   evicted: "evicted by LRU cap",
@@ -205,7 +189,6 @@ const STOP_REASON_TEXT: Record<LspStopReason, string> = {
   crashed: "server exited",
 };
 
-/** window/logMessage and window/showMessage types, 5 being 3.18's Debug. */
 const MESSAGE_LOG_LEVELS: Record<number, LspLogLevel> = {
   1: "error",
   2: "warning",
@@ -224,14 +207,6 @@ const SERVER_EVENT_METHODS = new Set<string>([
   "$/progress",
 ]);
 
-// ---------------------------------------------------------------------------
-// Per-method request timeout table
-//
-// All keyed by the public method name used by call(). didOpen / didChange /
-// didSave / didClose are notifications and intentionally absent — their
-// resolution does not block any UI.
-// ---------------------------------------------------------------------------
-
 const REQUEST_TIMEOUT_MS: Record<string, number> = {
   hover: LSP_HOVER_TIMEOUT_MS,
   definition: LSP_DEFINITION_TIMEOUT_MS,
@@ -245,14 +220,6 @@ const REQUEST_TIMEOUT_MS: Record<string, number> = {
   semanticTokens: LSP_SEMANTIC_TOKENS_TIMEOUT_MS,
 };
 
-/**
- * Sentinel error class identifying a request that exceeded its bounded
- * wall-clock window. The IPC layer recognises it and returns the
- * method-appropriate empty value instead of propagating the rejection,
- * so the renderer's hover/completion widget closes cleanly rather than
- * staying in "Loading…" forever.
- */
-/** A server the app does not bundle is not on the workspace's host. */
 export class LspServerNotFoundError extends Error {
   constructor(
     readonly binary: string,
@@ -275,32 +242,10 @@ export class LspRequestTimeoutError extends Error {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Host
-// ---------------------------------------------------------------------------
-
 export interface AgentLspHostOptions {
-  /**
-   * The LRU cap, or a function main reads it from at each spawn so a
-   * settings change applies. Tests bump this to disable eviction.
-   */
   maxActiveWorkspaces?: number | (() => number);
-  /**
-   * The initializationOptions to start a language's server with; defaults
-   * to the preset's. Read at each spawn, like the cap.
-   */
   initializationOptions?: (languageId: string, preset: LspServerSpec) => unknown;
-  /**
-   * Where the user said a server the app does not bundle is; read at each
-   * spawn. Without it the agent searches its host.
-   */
   serverPath?: (languageId: string) => string | undefined;
-  /**
-   * Gate called before spawning a new LSP server for (workspaceId, languageId).
-   * Return false to suppress spawn (language not enabled for this workspace).
-   * Defaults to `() => true` so callers without per-language access control
-   * (tests, existing usages) continue to work unchanged.
-   */
   isLanguageEnabled?: (workspaceId: string, languageId: string) => boolean;
 }
 
@@ -314,83 +259,28 @@ export function startAgentLspHost(
 class AgentLspHostHandleImpl implements LspHostHandle {
   private readonly listeners = new Map<string, Set<EventCallback>>();
   private readonly workspaceServers = new Map<string, Map<string, AgentLspServer>>();
-  // Keyed by serverIdKey: each agent numbers its servers on its own
-  // ("lsp-1", "lsp-2", …) and every local workspace runs its own agent, so
-  // a server id names a server only together with the channel it came on.
   private readonly serversById = new Map<string, AgentLspServer>();
   private readonly channelKeys = new WeakMap<AgentChannel, number>();
   private nextChannelKey = 0;
   private readonly serverStartups = new Map<string, ServerStartup>();
-  // Only requests that reached the transport can still create a child.
   private readonly serverSpawnRequests = new Set<Promise<AgentLspServer | null>>();
-  // uriIndex: workspace → uri → presetLanguageId.
-  //
-  // Two workspaces can both open the same physical `file://` URI (e.g. a
-  // parent workspace and a nested workspace registered separately by the
-  // user). Routing by uri alone collides — whichever workspace registered
-  // the URI last wins, and hover/completion/etc. for the other workspace
-  // hangs because the renderer's request targets a server that no longer
-  // owns the entry. Nesting by workspaceId keeps the two entries
-  // independent so each workspace's LSP server handles its own copy of
-  // the document.
   private readonly uriIndex = new Map<string, Map<string, string>>();
   private readonly configurationStore = new Map<string, Map<string, Map<string, unknown>>>();
   private readonly pendingServerRequests = new Map<string, PendingServerRequest>();
   private readonly channelDisposers = new Map<AgentChannel, Array<() => void>>();
-  // correlationId is assigned client-side before lsp.spawn so the agent can
-  // echo it back via the lsp.serverAssigned event before initialize finishes.
-  // Both maps are populated up front and dropped once the spawn round-trip
-  // completes (or fails).
   private readonly pendingSpawnByCorrelation = new Map<string, PendingSpawn>();
-  private readonly pendingSpawnByServerId = new Map<string, PendingSpawn>(); // by serverIdKey
-  // Per-(workspace, URI) state for textDocument/publishDiagnostics debouncing.
+  private readonly pendingSpawnByServerId = new Map<string, PendingSpawn>();
   private readonly diagnosticsDebouncer = new DiagnosticsDebouncer({
     debounceMs: DIAGNOSTICS_DEBOUNCE_MS,
     leadingIdleMs: DIAGNOSTICS_LEADING_IDLE_MS,
     emit: (payload) => this.emit("diagnostics", payload),
   });
-  /**
-   * Wall-clock timestamp of the last activity (any call/notify that
-   * resolved to a real server) for each workspace. Drives the LRU
-   * eviction policy in `evictLruWorkspaceIfNeeded`. We use `Date.now`
-   * directly rather than a monotonic counter so timestamps survive
-   * across reconnects when callers compare on resume.
-   */
   private readonly workspaceLastActivity = new Map<string, number>();
-  /**
-   * Number of consecutive request timeouts per (workspaceId, languageId)
-   * server. Key = `${workspaceId}\0${languageId}`. Incremented by
-   * `trackTimeout`, cleared by `resetTimeoutCount` on a successful
-   * response, and wiped entirely when the server is disposed. When the
-   * count reaches LSP_CONSECUTIVE_TIMEOUT_LIMIT the server is wedge-
-   * restarted via `disposeWorkspaceServers`.
-   */
   private readonly serverTimeoutCount = new Map<string, number>();
-  /**
-   * Wall-clock timestamp recorded in `rememberServer` for each
-   * (workspaceId, languageId) server. Key = `${workspaceId}\0${languageId}`.
-   * Used by `trackTimeout` to enforce the LSP_SERVER_WEDGE_GRACE_MS
-   * window during which timeout counts are not incremented — some
-   * servers (tsserver, basedpyright) are slow to initialize and would
-   * otherwise be wedge-restarted immediately.
-   */
   private readonly serverSpawnedAt = new Map<string, number>();
-  /**
-   * Soft cap on the number of workspaces with live LSP servers. When the
-   * (N+1)-th workspace's first didOpen would push us over the cap, the
-   * LRU workspace is disposed first. See LSP_MAX_ACTIVE_WORKSPACES for
-   * the rationale and tuning.
-   */
   private readonly maxActiveWorkspaces: () => number;
   private readonly initializationOptionsFor: (languageId: string, preset: LspServerSpec) => unknown;
   private readonly serverPathFor: (languageId: string) => string | undefined;
-  /**
-   * Optional predicate gate injected at construction time. Checked in
-   * `getOrCreateServer` before any spawn is attempted. Returning false
-   * suppresses spawn and returns null — the renderer entry stays dark.
-   * Defaults to always-true so callers without per-language control
-   * (tests, plain `startAgentLspHost()`) are unaffected.
-   */
   private readonly isLanguageEnabled: (workspaceId: string, languageId: string) => boolean;
   private readonly status = new LspServerStatusTracker((status) =>
     this.emit("serverStatus", status),
@@ -398,10 +288,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   private nextServerRequestId = 1;
   private disposed = false;
 
-  /**
-   * Fire-and-forget document notifications — they carry no observable result,
-   * so a disposed host resolves them quietly instead of throwing (see call()).
-   */
   private static readonly NOTIFICATION_METHODS = new Set([
     "didOpen",
     "didChange",
@@ -424,12 +310,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
 
   async call(method: string, args: unknown, opts: LspHostCallOptions = {}): Promise<unknown> {
     if (this.disposed) {
-      // Document notifications can arrive after dispose() during app shutdown:
-      // the LSP host is torn down at quit while a renderer may still be
-      // alive and emitting didClose as its editor models close. The host being
-      // gone is the correct end state, so these resolve quietly — only
-      // request-style methods (whose callers expect a result) still surface
-      // the disposed error.
       if (AgentLspHostHandleImpl.NOTIFICATION_METHODS.has(method)) {
         return null;
       }
@@ -538,7 +418,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   notify(method: string, args: unknown): void {
     if (this.disposed) return;
     if (method === "fsChanged") {
-      // Agent-backed LSP receives fs.changed inside the same workspace agent.
       return;
     }
     void args;
@@ -568,7 +447,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     return !this.disposed;
   }
 
-  /** Drops editor state and waits for the running servers' shutdown replies. */
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
@@ -593,12 +471,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     await Promise.allSettled([...shutdowns, ...this.serverSpawnRequests]);
   }
 
-  /**
-   * Dispose the LSP server for a single (workspaceId, languageId) pair,
-   * then broadcast a workspaceLspReset event for that language. No-op when
-   * the server is not currently live. With `reopen` the renderer opens its
-   * documents again at once, which starts a new server: a restart.
-   */
   disposeLanguage(
     workspaceId: string,
     languageId: string,
@@ -608,11 +480,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     this.disposeServers((w, l) => w === workspaceId && l === languageId, reason, options);
   }
 
-  /**
-   * disposeLanguage for every server `matches` picks. A server that gave
-   * up after crashing has none live, but a setting or a restart lets it
-   * start again.
-   */
   disposeServers(
     matches: (workspaceId: string, languageId: string) => boolean,
     reason: LspStopReason,
@@ -654,11 +521,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     }
   }
 
-  /**
-   * Starts a language's server again: the live one is stopped and the
-   * renderer reopens the documents, which starts the next. A server that
-   * gave up after crashing starts again too.
-   */
   restartLanguage(workspaceId: string, languageId: string): void {
     if (this.disposed) return;
     if (this.workspaceServers.get(workspaceId)?.has(languageId)) {
@@ -674,7 +536,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     });
   }
 
-  /** Stops the least recently used workspaces until the cap holds again. */
   enforceMaxActiveWorkspaces(): void {
     if (this.disposed) return;
     while (this.workspaceServers.size > this.maxActiveWorkspaces()) {
@@ -692,7 +553,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     return this.status.logEntries(workspaceId, languageId, afterSeq);
   }
 
-  /** The memory each of the workspace's live servers takes. */
   async serverMemory(workspaceId: string): Promise<LspServerMemory[]> {
     const byChannel = new Map<AgentChannel, AgentLspServer[]>();
     for (const server of this.workspaceServers.get(workspaceId)?.values() ?? []) {
@@ -707,7 +567,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
             return entry ? [{ languageId: server.languageId, rssBytes: entry.rssBytes }] : [];
           });
         } catch (error) {
-          // An agent from before lsp.stats, or one that cannot read memory.
           log.warn(`lsp.stats failed: ${(error as Error).message}`);
           return [];
         }
@@ -716,7 +575,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     return results.flat();
   }
 
-  /** Drops what is kept on a removed workspace's servers. */
   forgetWorkspace(workspaceId: string): void {
     this.status.forgetWorkspace(workspaceId);
   }
@@ -781,8 +639,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     await routed.server.notifyTextDocumentDidClose({
       textDocument: { uri: parsed.uri },
     });
-    // Flush any pending diagnostics for this URI before it is removed from the
-    // index — the renderer expects a final consistent state on close.
     this.diagnosticsDebouncer.flush(parsed.workspaceId, parsed.uri);
     this.dropUriOwnership(parsed.workspaceId, parsed.uri);
     return null;
@@ -824,9 +680,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
 
   private async completion(args: unknown, opts: LspHostCallOptions): Promise<unknown> {
     const parsed = CompletionArgsSchema.parse(args);
-    // Monaco asks on every trigger character any server of the language
-    // uses; one this server does not complete on (a "<" in a comparison,
-    // say) would get the whole scope back as if completion were invoked.
     if (
       parsed.triggerKind === CompletionTriggerKind.TriggerCharacter &&
       parsed.triggerCharacter !== undefined
@@ -852,11 +705,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     );
   }
 
-  /**
-   * Fills in what a server leaves out of its completion list until an item
-   * is picked: documentation, detail, the import an auto-import adds. The
-   * item comes back as it was when the server does not resolve.
-   */
   private async completionResolve(args: unknown, opts: LspHostCallOptions): Promise<unknown> {
     const parsed = CompletionResolveArgsSchema.parse(args);
     const routed = this.findServer(parsed.workspaceId, parsed.uri);
@@ -882,9 +730,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
 
   private async signatureHelp(args: unknown, opts: LspHostCallOptions): Promise<unknown> {
     const parsed = SignatureHelpArgsSchema.parse(args);
-    // As for completion: a "<" in a comparison should not open a signature
-    // for a server that shows one only on "(" and ",". Once one is shown,
-    // typing on asks again whatever the character.
     if (
       parsed.triggerKind === SignatureHelpTriggerKind.TriggerCharacter &&
       parsed.triggerCharacter !== undefined &&
@@ -921,9 +766,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     if (!routed.server.hasCapability("semanticTokensProvider")) return null;
     this.touchWorkspace(parsed.workspaceId);
 
-    // Extract the server's token-type legend from its initialize-response
-    // capabilities. The server capability is keyed "semanticTokensProvider"
-    // and contains either { legend: { tokenTypes: string[] } } or a boolean.
     const serverLegend = extractServerTokenTypes(
       routed.server.getCapabilityValue("semanticTokensProvider"),
     );
@@ -949,9 +791,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const normalized = normalizeSemanticTokensResult(raw);
     if (!normalized) return SemanticTokensResultSchema.nullable().parse(null);
 
-    // Remap server-legend indices → canonical-legend indices so the renderer
-    // provider's getLegend() (which returns CANONICAL_TOKEN_TYPES) correctly
-    // addresses every token in the data array.
     const remappedData = remapSemanticTokenData(
       normalized.data,
       serverLegend,
@@ -1013,11 +852,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const presetLanguageId = resolveLspPresetLanguageId(languageId);
     if (!preset || !presetLanguageId) return null;
 
-    // Language-enabled gate: checked before looking up an existing server so
-    // a toggle-off that already disposed the server doesn't accidentally
-    // recreate it on the next didOpen from a still-open editor tab.
     if (!this.isLanguageEnabled(workspaceId, presetLanguageId)) return null;
-    // Failed too often: it starts again on a restart or a settings change.
     if (this.status.hasGivenUp(workspaceId, presetLanguageId)) return null;
 
     const existing = this.workspaceServers.get(workspaceId)?.get(presetLanguageId);
@@ -1027,11 +862,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const pending = this.serverStartups.get(key);
     if (pending) return pending.promise;
 
-    // Before allocating a brand-new server for this workspace, make
-    // room: if N other workspaces are already live, evict the LRU one.
-    // Eviction emits a "workspaceLspReset" event so the renderer can
-    // reset its `lspOpened` markers and re-issue didOpen on the next
-    // interaction. See LSP_MAX_ACTIVE_WORKSPACES for the rationale.
     this.evictLruWorkspaceIfNeeded(workspaceId);
 
     const controller = new AbortController();
@@ -1057,15 +887,9 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     return promise;
   }
 
-  /**
-   * A server that failed to start is tried again at once, up to the crash
-   * limit: the reset has the renderer reopen its documents, which it would
-   * otherwise leave closed after the failed didOpen.
-   */
   private handleSpawnFailure(workspaceId: string, languageId: string, error: unknown): void {
     if (this.disposed) return;
     const message = error instanceof Error ? error.message : String(error);
-    // Not installed: trying again finds nothing more.
     const retry = this.status.failed(workspaceId, languageId, `Failed to start: ${message}`, {
       didNotStart: true,
       ...(error instanceof LspServerNotFoundError ? { missingBinary: error.binary } : {}),
@@ -1078,33 +902,12 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     });
   }
 
-  /**
-   * Update the LRU clock for `workspaceId`. Called from every code
-   * path that resolves to a live server — didOpen/didChange/didSave/
-   * didClose, request-style methods (hover, definition, …), and
-   * workspaceSymbol. The "currently used" set is therefore exactly the
-   * set of workspaces with recent activity, and the eviction policy
-   * picks off the oldest first.
-   */
   private touchWorkspace(workspaceId: string): void {
     this.workspaceLastActivity.set(workspaceId, Date.now());
   }
 
-  /**
-   * Find and dispose the least-recently-used workspace's LSP servers
-   * when adding a new workspace would push the live count past the
-   * cap. The workspace currently being spawned is excluded from the
-   * candidate set so we never evict the workspace that just touched
-   * `getOrCreateServer`.
-   *
-   * Emits the `workspaceLspReset` event so the renderer can clear
-   * `lspOpened` on the evicted workspace's entries; the next user
-   * interaction (typing, workspace activation) triggers a fresh
-   * didOpen and respawns the LSP.
-   */
   private evictLruWorkspaceIfNeeded(activeWorkspaceId: string): void {
     if (this.workspaceServers.has(activeWorkspaceId)) return;
-    // A loop, not one eviction: the cap may have been lowered since.
     while (this.workspaceServers.size >= this.maxActiveWorkspaces()) {
       const lru = this.leastRecentlyUsedWorkspace(activeWorkspaceId);
       if (!lru) return;
@@ -1126,22 +929,12 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     return lruWorkspaceId;
   }
 
-  /**
-   * Dispose LSP server(s) for `workspaceId`. When `options.languageId` is
-   * provided only the server for that language is disposed; otherwise every
-   * server for the workspace is disposed (full workspace reset).
-   *
-   * Broadcasts a `workspaceLspReset` event so the renderer-side model cache
-   * resets `lspOpened` on affected entries. Idempotent — a second call for
-   * the same (workspaceId[, languageId]) that is already gone is a no-op.
-   */
   private disposeWorkspaceServers(
     workspaceId: string,
     stop: LspStopReason,
     options?: {
       languageId?: string;
       reopen?: boolean;
-      /** False when the caller has set the status already. */
       updateStatus?: boolean;
     },
   ): void {
@@ -1159,7 +952,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     }
 
     if (targetLanguageId) {
-      // Single-language dispose: only remove the specified server.
       const server = servers.get(targetLanguageId);
       if (!server) return;
       this.diagnosticsDebouncer.clearForServer(server.workspaceId, server.languageId);
@@ -1181,7 +973,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         ...(options?.reopen ? { reopen: true } : {}),
       });
     } else {
-      // Full workspace dispose.
       for (const server of servers.values()) {
         this.diagnosticsDebouncer.clearForServer(server.workspaceId, server.languageId);
         this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
@@ -1275,7 +1066,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     }
   }
 
-  /** A server the user installed, found on the host of the workspace's agent. */
   private async findSystemServer(
     channel: AgentChannel,
     languageId: string,
@@ -1287,7 +1077,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       await channel.call("lsp.findBinary", {
         name: preset.binary,
         ...(userPath ? { path: userPath } : {}),
-        // Where the server will run: a rustup proxy picks its toolchain there.
         dir: workspaceRoot,
       }),
     );
@@ -1331,25 +1120,11 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     }
     workspaceServers.set(server.languageId, server);
     this.serversById.set(this.serverIdKey(server.channel, server.serverId), server);
-    // Record spawn time so trackTimeout can enforce the grace window during
-    // which slow-to-initialize servers are not wedge-restarted.
     const serverKey = `${server.workspaceId}\0${server.languageId}`;
     this.serverSpawnedAt.set(serverKey, Date.now());
-    // Reset any leftover timeout count from a previous server instance for
-    // this (workspace, language) slot (e.g. after a wedge-restart).
     this.serverTimeoutCount.delete(serverKey);
   }
 
-  /**
-   * Resolve the LSP server that owns `(workspaceId, uri)`. Returns null
-   * when the workspace has not opened this URI (yet, or any more — the
-   * common case during workspace switches when a model is mounted but
-   * didOpen hasn't routed). Callers must handle null gracefully.
-   *
-   * Pairs intentionally route by both workspaceId AND uri: two workspaces
-   * holding the same physical file each have their own LSP server
-   * instance, and routing by uri alone would conflate them.
-   */
   private findServer(
     workspaceId: string,
     uri: string,
@@ -1360,7 +1135,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     return server ? { server, context: { workspaceId, languageId: presetLanguageId } } : null;
   }
 
-  /** Record which preset language owns `(workspaceId, uri)` after didOpen. */
   private recordUriOwnership(workspaceId: string, uri: string, presetLanguageId: string): void {
     let workspaceMap = this.uriIndex.get(workspaceId);
     if (!workspaceMap) {
@@ -1370,7 +1144,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     workspaceMap.set(uri, presetLanguageId);
   }
 
-  /** Drop the URI's index entry on didClose, leaving the workspace's other URIs intact. */
   private dropUriOwnership(workspaceId: string, uri: string): void {
     const workspaceMap = this.uriIndex.get(workspaceId);
     if (!workspaceMap) return;
@@ -1394,25 +1167,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       this.handleServerExited(channel, payload);
     });
     const offLifecycle = channel.onLifecycle((event) => {
-      // Dispose server records only when the servers are gone:
-      //   - `exit` / `failure`: terminal transport loss.
-      //   - `disposed`: intentional channel teardown.
-      //   - `held-then-expired`: the SSH daemon was replaced during an
-      //     outage — its LSP server processes died with the old daemon.
-      //   - `reconnecting` without an epoch: a local (or legacy remote)
-      //     agent has no daemon to outlive its process, so its servers died
-      //     with it and the agent that replaces it knows none of them.
-      // Everything else keeps records intact: `reconnecting` with an epoch
-      // may find the daemon alive (queued LSP calls replay after the
-      // handshake), `degraded` / `degraded-recovered` are heartbeat-quality
-      // signals on a live channel, and `ready` is a successful recovery.
-      // Before v0.6.1 those fell through to disposeChannelServers, so one
-      // late heartbeat silently killed every language server on the channel.
-      //
-      // After `exit` / `failure` / `disposed` the channel object is never used
-      // again (a reconnect builds a new one), so its listeners are dropped
-      // too; the other two keep them because the same channel carries on
-      // against the new agent.
       if (event.type === "exit" || event.type === "failure" || event.type === "disposed") {
         this.disposeChannelServers(channel, "agent exited");
         this.unsubscribeChannel(channel);
@@ -1431,7 +1185,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     ]);
   }
 
-  /** Removes this host's listeners from a channel that is gone for good. */
   private unsubscribeChannel(channel: AgentChannel): void {
     const disposers = this.channelDisposers.get(channel);
     if (!disposers) return;
@@ -1439,7 +1192,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     for (const dispose of disposers) dispose();
   }
 
-  /** The key serversById and pendingSpawnByServerId take for a server. */
   private serverIdKey(channel: AgentChannel, serverId: string): string {
     let channelKey = this.channelKeys.get(channel);
     if (channelKey === undefined) {
@@ -1465,19 +1217,10 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     const key = this.serverIdKey(channel, parsed.serverId);
     const server = this.serversById.get(key);
     if (server) {
-      // Clear diagnostics timers for all URIs owned by the dead server before
-      // any further cleanup. Firing stale trailing-edge timers after the server
-      // has exited would push obsolete squiggle data to the renderer.
       this.diagnosticsDebouncer.clearForServer(server.workspaceId, server.languageId);
 
-      // Reject in-flight client requests with a server-exit error so the
-      // renderer's promise chain unwinds rather than waiting on a now-dead
-      // process. Channel listeners are intentionally left in place — the
-      // channel itself is still alive and may carry other servers.
       server.disposePending(serverExitError(parsed));
       this.serversById.delete(key);
-      // A workspace whose last server went, on idle above all, holds no
-      // place under the LRU cap.
       const servers = this.workspaceServers.get(server.workspaceId);
       if (servers?.get(server.languageId) === server) servers.delete(server.languageId);
       if (servers?.size === 0) {
@@ -1486,8 +1229,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       }
       this.dropUriOwnershipForServer(server.workspaceId, server.languageId);
 
-      // Clean up wedge-detection state for the exited server so a respawn
-      // starts with a fresh count and spawn timestamp.
       const serverKey = `${server.workspaceId}\0${server.languageId}`;
       this.serverTimeoutCount.delete(serverKey);
       this.serverSpawnedAt.delete(serverKey);
@@ -1495,8 +1236,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       if (parsed.stderrTail.trim()) {
         this.status.log(server.workspaceId, server.languageId, "stderr", parsed.stderrTail);
       }
-      // An exit the agent did not ask for is a crash: the server starts
-      // again at once, up to the crash limit.
       let reopen = false;
       if (parsed.shutdown) {
         this.status.stopped(server.workspaceId, server.languageId, "idle", STOP_REASON_TEXT.idle);
@@ -1509,8 +1248,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         );
       }
 
-      // The renderer still takes its open documents as opened on this
-      // server; the reset has it send didOpen to the next one.
       this.emit("workspaceLspReset", {
         workspaceId: server.workspaceId,
         languageId: server.languageId,
@@ -1518,18 +1255,12 @@ class AgentLspHostHandleImpl implements LspHostHandle {
         ...(reopen ? { reopen: true } : {}),
       });
     } else {
-      // A server that died starting: lsp.spawn failed with only its exit
-      // status, and what it printed says why.
       const pending = this.pendingSpawnByServerId.get(key);
       if (pending && !pending.signal.aborted && parsed.stderrTail.trim()) {
         this.status.log(pending.workspaceId, pending.languageId, "stderr", parsed.stderrTail);
       }
     }
 
-    // applyEdit-style server requests held in pendingServerRequests are
-    // orphaned when the LSP exits mid-request; the renderer-side promise
-    // would otherwise sit until APPLY_EDIT_RESPONSE_TIMEOUT_MS. Drop them
-    // explicitly here so the timeout path is reserved for actual hangs.
     for (const [id, pending] of this.pendingServerRequests) {
       if (pending.channel === channel && pending.serverId === parsed.serverId) {
         this.pendingServerRequests.delete(id);
@@ -1541,12 +1272,7 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   private disposeChannelServers(channel: AgentChannel, reason: string): void {
     for (const server of Array.from(this.serversById.values())) {
       if (server.channel !== channel) continue;
-      // Clear diagnostics timers before removing the URI index entries so the
-      // predicate in clearDiagnosticsTimersForServer can still resolve the URI
-      // → server mapping. Mirrors the ordering used in handleServerExited.
       this.diagnosticsDebouncer.clearForServer(server.workspaceId, server.languageId);
-      // The agent that ran the server is gone; an lsp.shutdown would only
-      // reach the agent that replaced it.
       server.disposePending(new Error(`LSP server lost: ${reason}`));
       this.serversById.delete(this.serverIdKey(server.channel, server.serverId));
       const servers = this.workspaceServers.get(server.workspaceId);
@@ -1560,15 +1286,12 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       this.serverTimeoutCount.delete(serverKey);
       this.serverSpawnedAt.delete(serverKey);
       this.status.stopped(server.workspaceId, server.languageId, "agent", reason);
-      // The renderer still takes its documents as open on this server.
       this.emit("workspaceLspReset", {
         workspaceId: server.workspaceId,
         languageId: server.languageId,
         reason,
       });
     }
-    // Server requests (applyEdit) waiting on the renderer can no longer be
-    // answered on this channel.
     for (const [id, pending] of this.pendingServerRequests) {
       if (pending.channel === channel) this.pendingServerRequests.delete(id);
     }
@@ -1662,8 +1385,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       serverId: request.serverId,
       agentRequestId: request.agentRequestId,
     });
-    // The renderer keys the workspace's models by workspace URI, which it
-    // rebuilds from the server's `file://` URIs and this workspace id.
     this.emit("serverRequest", {
       id,
       workspaceId: context.workspaceId,
@@ -1711,11 +1432,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     if (msg.method === "textDocument/publishDiagnostics") {
       const parsed = parsePublishDiagnostics(msg.params);
       if (parsed) {
-        // Attach workspace + language context so the debouncer payload
-        // emitted to the renderer carries everything the diagnostics
-        // listener needs to reconstruct the right Monaco model's
-        // cacheUri. Without workspaceId, two workspaces holding the same
-        // physical file would write into the same marker layer.
         this.diagnosticsDebouncer.schedule({
           workspaceId: context.workspaceId,
           languageId: context.languageId,
@@ -1775,11 +1491,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
   }
 
   private serverContextFor(channel: AgentChannel, serverId: string): ServerContext | null {
-    // Resolution path is now deterministic: serversById carries the server
-    // once spawn returns, and pendingSpawnByServerId is populated by the
-    // lsp.serverAssigned event before initialize finishes. No fallback to
-    // "first pending spawn on channel" — that heuristic mis-attributed
-    // pre-spawn-resolution events when two languages spawned concurrently.
     const key = this.serverIdKey(channel, serverId);
     const server = this.serversById.get(key);
     if (server) {
@@ -1791,13 +1502,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
       : null;
   }
 
-  /**
-   * Drop every URI owned by the (workspaceId, presetLanguageId) server,
-   * collapsing the workspace's inner map when it becomes empty. Called
-   * from the server-exited and channel-dispose paths so a torn-down LSP
-   * does not leave stale entries that would mis-route subsequent
-   * requests for the same workspace + URI to a defunct server.
-   */
   private dropUriOwnershipForServer(workspaceId: string, presetLanguageId: string): void {
     const workspaceMap = this.uriIndex.get(workspaceId);
     if (!workspaceMap) return;
@@ -1807,20 +1511,10 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     if (workspaceMap.size === 0) this.uriIndex.delete(workspaceId);
   }
 
-  /**
-   * Record a timeout for the `(workspaceId, languageId)` server. Calls
-   * within LSP_SERVER_WEDGE_GRACE_MS of the server's spawn time are
-   * silently ignored — some language servers (tsserver, basedpyright)
-   * are slow to finish initialisation and would otherwise be cycled
-   * immediately. Once the grace window has elapsed, every call increments
-   * the consecutive counter; reaching LSP_CONSECUTIVE_TIMEOUT_LIMIT
-   * triggers `disposeWorkspaceServers` with the specific `languageId`.
-   */
   private trackTimeout(workspaceId: string, languageId: string): void {
     const serverKey = `${workspaceId}\0${languageId}`;
     const spawnedAt = this.serverSpawnedAt.get(serverKey);
     if (spawnedAt !== undefined && Date.now() - spawnedAt < LSP_SERVER_WEDGE_GRACE_MS) {
-      // Inside grace window — do not count.
       return;
     }
     const count = (this.serverTimeoutCount.get(serverKey) ?? 0) + 1;
@@ -1844,11 +1538,6 @@ class AgentLspHostHandleImpl implements LspHostHandle {
     }
   }
 
-  /**
-   * Reset the consecutive-timeout counter for the `(workspaceId,
-   * languageId)` server. Called whenever a request completes successfully
-   * so a single transient stall followed by a recovery is not penalised.
-   */
   private resetTimeoutCount(workspaceId: string, languageId: string): void {
     const serverKey = `${workspaceId}\0${languageId}`;
     this.serverTimeoutCount.delete(serverKey);
@@ -1871,19 +1560,6 @@ interface RequestSpec<A> {
   transform?: (raw: unknown) => unknown;
 }
 
-/**
- * Run an LSP request under a wall-clock budget. On expiry an internal
- * AbortController fires, cancelling the request at the server boundary
- * (via the signal the agent-lsp-server consumes), and the function
- * rejects with `LspRequestTimeoutError`. The caller (the IPC layer)
- * recognises that error and returns the method-appropriate empty value
- * instead of letting it crash through the renderer's provider.
- *
- * The external signal (renderer-side cancellation) is composed with the
- * internal one so either trigger cancels the request. A cancellation
- * from the renderer is allowed to propagate as a plain abort error —
- * the IPC layer already swallows those.
- */
 async function withRequestTimeout<T>(
   exec: (signal: AbortSignal) => Promise<T>,
   externalSignal: AbortSignal | undefined,
@@ -1891,9 +1567,6 @@ async function withRequestTimeout<T>(
 ): Promise<T> {
   const timeoutMs = REQUEST_TIMEOUT_MS[methodName];
   if (timeoutMs === undefined) {
-    // No bounded budget configured for this method — pass through
-    // unchanged. Used as a defensive default; we intentionally list
-    // every routable method in REQUEST_TIMEOUT_MS.
     return exec(externalSignal ?? new AbortController().signal);
   }
 
@@ -1922,20 +1595,9 @@ async function withRequestTimeout<T>(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Local LSP command resolution
-// ---------------------------------------------------------------------------
-
-// resolveLocalLspCommand returns the binary the local agent should spawn for
-// the requested LSP preset. Production-style runs read the dist/agent
-// manifest emitted by scripts/build-agent.ts and launch the extracted Node
-// entry directly via the user's `node` (matching the SSH launcher script
-// format, but without bundling Node for local). Dev runs without a built
-// dist fall back to node_modules/.bin so `bun run dev` keeps working.
 interface LspServerCommand {
   readonly binaryPath: string;
   readonly args: readonly string[];
-  /** Added to the agent's environment for the server. */
   readonly env?: Readonly<Record<string, string>>;
 }
 
@@ -1945,10 +1607,6 @@ function resolveLocalLspCommand(preset: LspServerSpec): LspServerCommand {
   return { binaryPath: resolveDevBundledBinary(preset.binary), args: preset.args };
 }
 
-/**
- * The bundled server's script, run on the app's own runtime: whatever Node
- * the user has, or lacks, plays no part.
- */
 export function resolveLspCommandFromManifest(
   preset: LspServerSpec,
   distDir = getAgentDistDir(),
@@ -1965,11 +1623,6 @@ export function resolveLspCommandFromManifest(
   };
 }
 
-/**
- * The package and version the app bundles for a server, standing in for the
- * serverInfo some servers (typescript-language-server, bash-language-server,
- * docker-langserver) leave out of their initialize result.
- */
 export function bundledServerInfo(
   preset: LspServerSpec,
   distDir = getAgentDistDir(),
@@ -1994,11 +1647,6 @@ function resolveDevBundledBinary(binary: string): string {
   if (fs.existsSync(bundledPath)) return bundledPath;
   return path.resolve(process.cwd(), "node_modules/.bin", binary);
 }
-
-// ---------------------------------------------------------------------------
-// LSP request param shapers (kept here because they shape the args the
-// host's call() switch already validated against the per-method schema).
-// ---------------------------------------------------------------------------
 
 function textDocumentPositionParams(args: { uri: string; line: number; character: number }) {
   return {
@@ -2076,9 +1724,6 @@ function normalizeSemanticTokensResult(raw: unknown): { resultId?: string; data:
   };
 }
 
-// Extracts the server's token-type name list from the semanticTokensProvider
-// capability value as returned in the LSP initialize response. Returns an
-// empty array (no-op remap) when the legend is absent or malformed.
 function extractServerTokenTypes(capabilityValue: unknown): string[] {
   if (!capabilityValue || typeof capabilityValue !== "object") return [];
   const cap = capabilityValue as Record<string, unknown>;

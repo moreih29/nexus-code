@@ -1,37 +1,16 @@
-/**
- * Unit tests for browser tab security policy.
- *
- * Tests cover:
- *   1. Navigation guard — NAVIGATION_SCHEME_ALLOWLIST enforcement on will-navigate.
- *   2. will-frame-navigate guard — blocks data: for sub-frames, allows about:blank.
- *   3. setWindowOpenHandler policy — http/https same-tab navigate, others deny.
- *   4. Permission matrix — clipboard-sanitized-write allowed, everything else denied.
- *
- * All Electron APIs are mocked; no real WebContents or BrowserWindow is created.
- */
-
 import { beforeEach, describe, expect, mock, setSystemTime, test } from "bun:test";
 import { mainWarnMock } from "../../../../log-test-spies";
-
-// ---------------------------------------------------------------------------
-// Electron mock — must be set up before importing the module under test.
-// ---------------------------------------------------------------------------
 
 mock.module("electron", () => ({
   WebContentsView: class {},
 }));
 
-// Lazy import after mock registration
 const {
   buildBrowserTabWebPreferences,
   installPermissionHandler,
   installNavigationGuards,
   POPUP_ACTIVATION_MS,
 } = await import("../../../../../src/main/features/browser/security");
-
-// ---------------------------------------------------------------------------
-// Helpers — fake WebContents and Session factories
-// ---------------------------------------------------------------------------
 
 interface FakeEvent {
   prevented: boolean;
@@ -150,10 +129,6 @@ function makeFakeSession(): FakeSession {
   };
 }
 
-// ---------------------------------------------------------------------------
-// 1. buildBrowserTabWebPreferences
-// ---------------------------------------------------------------------------
-
 describe("buildBrowserTabWebPreferences", () => {
   test("returns hardened webPreferences with the given partition", () => {
     const prefs = buildBrowserTabWebPreferences("persist:browser-ws-1");
@@ -162,14 +137,9 @@ describe("buildBrowserTabWebPreferences", () => {
     expect(prefs.nodeIntegration).toBe(false);
     expect(prefs.sandbox).toBe(true);
     expect(prefs.webSecurity).toBe(true);
-    // No preload should be injected into browser tabs.
     expect(prefs.preload).toBeUndefined();
   });
 });
-
-// ---------------------------------------------------------------------------
-// 2. installPermissionHandler — permission matrix
-// ---------------------------------------------------------------------------
 
 describe("installPermissionHandler", () => {
   test("allows clipboard-sanitized-write", () => {
@@ -211,10 +181,6 @@ describe("installPermissionHandler", () => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// 3. installNavigationGuards — will-navigate
-// ---------------------------------------------------------------------------
-
 describe("installNavigationGuards — will-navigate", () => {
   let wc: FakeWebContents;
 
@@ -225,7 +191,6 @@ describe("installNavigationGuards — will-navigate", () => {
 
   test("allows http:// navigation", () => {
     const ev = makeFakeEvent();
-    // The will-navigate handler receives (event, url)
     wc.emit("will-navigate", ev, "http://example.com");
     expect(ev.prevented).toBe(false);
   });
@@ -249,10 +214,6 @@ describe("installNavigationGuards — will-navigate", () => {
   });
 
   test("permits file: navigation (user-opt-in local content)", () => {
-    // file: is in the navigation allowlist so users can open local HTML
-    // documents.  webSecurity + sandbox on the WebContents still constrain
-    // cross-origin behaviour at runtime; this guard only ensures the scheme
-    // is not blocked at the navigation layer.
     const ev = makeFakeEvent();
     wc.emit("will-navigate", ev, "file:///Users/x/notes.html");
     expect(ev.prevented).toBe(false);
@@ -290,10 +251,6 @@ describe("installNavigationGuards — will-navigate", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 4. installNavigationGuards — will-frame-navigate
-// ---------------------------------------------------------------------------
-
 describe("installNavigationGuards — will-frame-navigate", () => {
   let wc: FakeWebContents;
 
@@ -303,9 +260,6 @@ describe("installNavigationGuards — will-frame-navigate", () => {
   });
 
   function fireFrameNavigate(url: string, isMainFrame: boolean): FakeEvent {
-    // will-frame-navigate emits a SINGLE consolidated event object that
-    // carries url, isMainFrame, and preventDefault() together — NOT the
-    // 2-arg (event, details) form that will-navigate uses. Mirror that shape.
     const details = Object.assign(makeFakeEvent(), { url, isMainFrame });
     const frameHandlers = wc._handlers.get("will-frame-navigate") ?? [];
     for (const h of frameHandlers) h(details);
@@ -323,8 +277,6 @@ describe("installNavigationGuards — will-frame-navigate", () => {
   });
 
   test("allows data: in sub-frames (sub-frame-only scheme; opaque origin)", () => {
-    // Sub-frame data: is used by legitimate sites and is constrained by
-    // webSecurity + sandbox. It stays blocked at top-level (see will-navigate).
     const ev = fireFrameNavigate("data:text/html,<h1>preview</h1>", false);
     expect(ev.prevented).toBe(false);
   });
@@ -340,9 +292,6 @@ describe("installNavigationGuards — will-frame-navigate", () => {
   });
 
   test("allows Chromium's built-in PDF viewer sub-frame (Electron 41 inline PDF)", () => {
-    // The PDF viewer renders the document in an out-of-process sub-frame at
-    // chrome-extension://<pdf-viewer-id>/...  Blocking it leaves the viewer
-    // toolbar visible over a blank page; the guard must let this origin load.
     const ev = fireFrameNavigate(
       "chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/b0f3c59b-1673-4ef0-a69d-008a3a328639",
       false,
@@ -356,17 +305,10 @@ describe("installNavigationGuards — will-frame-navigate", () => {
   });
 
   test("skips guard for main-frame sub-frame events (covered by will-navigate)", () => {
-    // isMainFrame=true → guard should skip processing (will-navigate covers it)
     const ev = fireFrameNavigate("data:text/html,evil", true);
-    // For main frame events, we return early — so data: is NOT blocked here
-    // (it will be blocked by will-navigate instead).
     expect(ev.prevented).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// 5. installNavigationGuards — setWindowOpenHandler
-// ---------------------------------------------------------------------------
 
 describe("installNavigationGuards — setWindowOpenHandler", () => {
   let wc: FakeWebContents;
@@ -376,7 +318,6 @@ describe("installNavigationGuards — setWindowOpenHandler", () => {
     installNavigationGuards(wc as unknown as import("electron").WebContents);
   });
 
-  /** A click in the page, as before-mouse-event tells it. */
   const click = () => wc.emit("before-mouse-event", {}, { type: "mouseUp" });
 
   test("allows http/https popups (action:'allow') so OAuth window handles work", () => {
@@ -392,7 +333,6 @@ describe("installNavigationGuards — setWindowOpenHandler", () => {
     expect(wc._windowOpenHandler!({ url: "https://example.com/b" }).action).toBe("deny");
     wc.emit("before-input-event", {}, { type: "keyDown", key: "Enter" });
     expect(wc._windowOpenHandler!({ url: "https://example.com/c" }).action).toBe("allow");
-    // A letter typed, or a scheme turned down, lets nothing through nor uses the input up.
     wc.emit("before-input-event", {}, { type: "keyDown", key: "a" });
     expect(wc._windowOpenHandler!({ url: "https://example.com/d" }).action).toBe("deny");
     click();
@@ -426,7 +366,6 @@ describe("installNavigationGuards — setWindowOpenHandler", () => {
   });
 
   test("denies data: popups", () => {
-    // data:/blob: are sub-frame-only; a top-level popup to them is denied.
     const result = wc._windowOpenHandler!({ url: "data:text/html,<h1>x</h1>" });
     expect(result.action).toBe("deny");
   });
@@ -442,10 +381,6 @@ describe("installNavigationGuards — setWindowOpenHandler", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 6. installNavigationGuards — did-create-window recursively guards popups
-// ---------------------------------------------------------------------------
-
 describe("installNavigationGuards — did-create-window (popup hardening)", () => {
   let wc: FakeWebContents;
 
@@ -456,11 +391,8 @@ describe("installNavigationGuards — did-create-window (popup hardening)", () =
 
   test("installs the same guards on a popup's WebContents", () => {
     const child = makeFakeWebContents();
-    // Emit the event the same way Electron would: (childWindow, details).
     wc.emit("did-create-window", { webContents: child });
 
-    // The child must now carry its own window-open handler and navigation
-    // listeners — i.e. installNavigationGuards ran on it.
     expect(child._windowOpenHandler).not.toBeNull();
     expect((child._handlers.get("will-navigate") ?? []).length).toBeGreaterThan(0);
     expect((child._handlers.get("will-frame-navigate") ?? []).length).toBeGreaterThan(0);

@@ -256,11 +256,9 @@ describe("agent channel reconnect queue", () => {
       children[0]?.stdout.emitData(`${JSON.stringify({ type: "ready" })}\n`);
       await expect(channel.ready).resolves.toBeUndefined();
 
-      // Post-ready crash → reconnect window opens.
       children[0]?.emit("close", 137, "SIGKILL");
       expect(lifecycle).toContain("reconnecting");
 
-      // Each batch-mode respawn dies on auth (dead ControlMaster scenario).
       for (const attempt of [1, 2, 3]) {
         jest.advanceTimersByTime(1);
         await flushMicrotasks();
@@ -276,7 +274,6 @@ describe("agent channel reconnect queue", () => {
         code: "ssh.auth-failed",
       });
 
-      // The loop is dead: no further ssh respawns after the terminal transition.
       const spawnsAtFailure = spawnCalls.length;
       jest.advanceTimersByTime(60_000);
       await flushMicrotasks();
@@ -298,8 +295,6 @@ describe("agent channel reconnect queue", () => {
 
       children[0]?.emit("close", 137, "SIGKILL");
 
-      // 5 transient failures (process exits without classified auth stderr) —
-      // more than the fatal threshold — must not terminate the channel.
       for (let attempt = 1; attempt <= 5; attempt += 1) {
         jest.advanceTimersByTime(1);
         await flushMicrotasks();
@@ -321,15 +316,11 @@ describe("agent channel reconnect queue", () => {
   });
 });
 
-// ────────────────────────────────────────────────────────────────────────────
-// agentEpoch / reattach handshake tests
-// ────────────────────────────────────────────────────────────────────────────
 describe("agentEpoch reattach handshake", () => {
   it("legacy mode (no epoch in ready frame): reconnect flushes queue normally", async () => {
     jest.useFakeTimers();
     try {
       const { channel, children } = makeSshHarness({ delayMs: 1 });
-      // First ready — no agentEpoch (legacy agent)
       children[0]?.stdout.emitData(`${JSON.stringify({ type: "ready" })}\n`);
       await expect(channel.ready).resolves.toBeUndefined();
 
@@ -339,7 +330,6 @@ describe("agentEpoch reattach handshake", () => {
       jest.advanceTimersByTime(1);
       await flushMicrotasks();
       const child1 = children[1] as FakeAgentChild;
-      // Reconnect also without epoch
       child1.stdout.emitData(`${JSON.stringify({ type: "ready" })}\n`);
       await flushMicrotasks();
 
@@ -369,7 +359,6 @@ describe("agentEpoch reattach handshake", () => {
       jest.advanceTimersByTime(1);
       await flushMicrotasks();
       const child1 = children[1] as FakeAgentChild;
-      // Reconnect with same epoch → reattach OK
       child1.stdout.emitData(`${JSON.stringify({ type: "ready", agentEpoch: EPOCH })}\n`);
       await flushMicrotasks();
 
@@ -397,17 +386,14 @@ describe("agentEpoch reattach handshake", () => {
 
       children[0]?.emit("close", 137, "SIGKILL");
       const call = channel.call("fs.stat", { relPath: "c.ts" });
-      // The call must be rejected because the epoch changed
       const callRejected = call.catch((e: Error) => e);
 
       jest.advanceTimersByTime(1);
       await flushMicrotasks();
       const child1 = children[1] as FakeAgentChild;
-      // New daemon with different epoch
       child1.stdout.emitData(`${JSON.stringify({ type: "ready", agentEpoch: NEW_EPOCH })}\n`);
       await flushMicrotasks();
 
-      // held-then-expired emitted with correct epoch fields
       const hteEvent = lifecycle.find((e) => e.type === "held-then-expired");
       expect(hteEvent).toBeDefined();
       expect(hteEvent).toMatchObject({
@@ -416,12 +402,10 @@ describe("agentEpoch reattach handshake", () => {
         newEpoch: NEW_EPOCH,
       });
 
-      // Queued call must have been rejected (not forwarded to new agent)
       const rejectedErr = await callRejected;
       expect(rejectedErr).toBeInstanceOf(Error);
 
-      // Channel itself stays alive after epoch mismatch — new calls work
-      expect(child1.stdin.writes).toHaveLength(0); // rejected call not sent
+      expect(child1.stdin.writes).toHaveLength(0);
       channel.dispose();
     } finally {
       jest.useRealTimers();
@@ -429,15 +413,12 @@ describe("agentEpoch reattach handshake", () => {
   });
 
   it("epoch mismatch with no prior epoch (first connect had no epoch): no held-then-expired", async () => {
-    // If the first ready had no epoch (legacy) but the reconnect does, this is
-    // not a "daemon was replaced" scenario — there is no baseline to compare.
     jest.useFakeTimers();
     try {
       const { channel, children } = makeSshHarness({ delayMs: 1 });
       const lifecycle: ChannelLifecycleEvent[] = [];
       channel.onLifecycle((e) => lifecycle.push(e));
 
-      // First ready: no epoch
       children[0]?.stdout.emitData(`${JSON.stringify({ type: "ready" })}\n`);
       await expect(channel.ready).resolves.toBeUndefined();
 
@@ -446,11 +427,9 @@ describe("agentEpoch reattach handshake", () => {
       jest.advanceTimersByTime(1);
       await flushMicrotasks();
       const child1 = children[1] as FakeAgentChild;
-      // Reconnect: epoch present now (fresh daemon)
       child1.stdout.emitData(`${JSON.stringify({ type: "ready", agentEpoch: 42 })}\n`);
       await flushMicrotasks();
 
-      // No held-then-expired because lastAgentEpoch was 0
       expect(lifecycle.map((e) => e.type)).not.toContain("held-then-expired");
       channel.dispose();
     } finally {
@@ -459,9 +438,6 @@ describe("agentEpoch reattach handshake", () => {
   });
 });
 
-// ────────────────────────────────────────────────────────────────────────────
-// A daemon connection that ends from the daemon's side
-// ────────────────────────────────────────────────────────────────────────────
 describe("daemon connection closed by the daemon", () => {
   it("reconnects when the daemon went away under a ready connection", async () => {
     jest.useFakeTimers();
@@ -472,7 +448,6 @@ describe("daemon connection closed by the daemon", () => {
       children[0]?.stdout.emitData(`${JSON.stringify({ type: "ready", agentEpoch: 7 })}\n`);
       await expect(channel.ready).resolves.toBeUndefined();
 
-      // The dialer's exit when the daemon closed its connection.
       children[0]?.emit("close", 5, null);
       jest.advanceTimersByTime(1);
       await flushMicrotasks();
@@ -499,8 +474,6 @@ describe("daemon connection closed by the daemon", () => {
       jest.advanceTimersByTime(10);
       await flushMicrotasks();
 
-      // Reconnecting would take the daemon back, and the other connection
-      // would do the same: two workspaces on one folder would trade it forever.
       expect(children).toHaveLength(1);
       expect(lifecycle.map((e) => e.type)).toEqual(["exit"]);
       await expect(channel.call("fs.stat", { relPath: "a" })).rejects.toBeInstanceOf(Error);
@@ -539,9 +512,6 @@ describe("daemon connection closed by the daemon", () => {
   });
 });
 
-// ────────────────────────────────────────────────────────────────────────────
-// degraded / degraded-recovered lifecycle event tests
-// ────────────────────────────────────────────────────────────────────────────
 describe("heartbeat degraded signal", () => {
   it("emits degraded after 1 missed heartbeat interval and degraded-recovered on arrival", async () => {
     jest.useFakeTimers();
@@ -550,21 +520,19 @@ describe("heartbeat degraded signal", () => {
       const lifecycle: ChannelLifecycleEvent[] = [];
       channel.onLifecycle((e) => lifecycle.push(e));
 
-      const HEARTBEAT_MS = 100; // small value for faster test
+      const HEARTBEAT_MS = 100;
       children[0]?.stdout.emitData(
         `${JSON.stringify({ type: "ready", heartbeatIntervalMs: HEARTBEAT_MS })}\n`,
       );
       await expect(channel.ready).resolves.toBeUndefined();
       await flushMicrotasks();
 
-      // Advance just past 1× interval — degraded should fire
       jest.advanceTimersByTime(HEARTBEAT_MS + 1);
       await flushMicrotasks();
 
       expect(lifecycle.map((e) => e.type)).toContain("degraded");
       expect(lifecycle.map((e) => e.type)).not.toContain("degraded-recovered");
 
-      // Heartbeat arrives — degraded-recovered should fire
       children[0]?.stdout.emitData(`${JSON.stringify({ event: "agent.heartbeat" })}\n`);
       await flushMicrotasks();
 
@@ -589,7 +557,6 @@ describe("heartbeat degraded signal", () => {
       await expect(channel.ready).resolves.toBeUndefined();
       await flushMicrotasks();
 
-      // Advance 3× interval — 3 watchdog ticks fire, but degraded fires only once
       jest.advanceTimersByTime(HEARTBEAT_MS * 3 + 1);
       await flushMicrotasks();
 

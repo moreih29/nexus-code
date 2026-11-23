@@ -22,7 +22,6 @@ import {
 const fill = (byte: number, length = 32) => new Uint8Array(length).fill(byte);
 const counting = (from: number) => Uint8Array.from({ length: 32 }, (_, i) => from + i);
 
-// The vectors of ACCOUNT_KEYS.md ("Test vectors"): every device must make these bytes.
 const userId = "u-test";
 const ak1 = counting(1);
 const ak2 = counting(33);
@@ -128,17 +127,14 @@ describe("envelopes", () => {
     const { r, d, envelope } = await sealed();
     const self = { id: "dev-d", secretKey: d.secretKey };
     const held = { kid: 1, key: ak1 };
-    // Another device, with its own secret key, or with the receiver's under another id.
     expect(
       await openEnvelope({ userId, envelope, self: { id: "dev-r", secretKey: r.secretKey }, held }),
     ).toBeNull();
     expect(
       await openEnvelope({ userId, envelope, self: { id: "dev-x", secretKey: d.secretKey }, held }),
     ).toBeNull();
-    // Holding another version, or another key of that version.
     expect(await openEnvelope({ userId, envelope, self, held: { kid: 2, key: ak2 } })).toBeNull();
     expect(await openEnvelope({ userId, envelope, self, held: { kid: 1, key: ak2 } })).toBeNull();
-    // The server put in a key of its own, whose certificate it cannot make.
     const forged = await newDeviceKeyPair();
     const swapped = await sealEnvelope({
       userId,
@@ -152,7 +148,6 @@ describe("envelopes", () => {
       to: { id: "dev-d", publicKey: d.publicKey },
     });
     expect(await openEnvelope({ userId, envelope: swapped, self, held })).toBeNull();
-    // A box changed on the way.
     const box = `${envelope.box.slice(0, -2)}${envelope.box.endsWith("A") ? "B" : "A"}A`;
     expect(await openEnvelope({ userId, envelope: { ...envelope, box }, self, held })).toBeNull();
   });
@@ -174,7 +169,6 @@ describe("pairing", () => {
     const sealed = await sealPair(key, routing, { t: "pair-request", v: 1 });
     const frame = { ...routing, kid: PAIR_KID, ...sealed };
     expect(await openPair(key, frame)).toEqual({ t: "pair-request", v: 1 });
-    // Another code, another device showing it, another routing or kid.
     expect(await openPair(pairKeyOf(newPairSecret(), userId, "dev-n"), frame)).toBeNull();
     expect(await openPair(pairKeyOf(secret, userId, "dev-m"), frame)).toBeNull();
     expect(await openPair(key, { ...frame, seq: 4 })).toBeNull();

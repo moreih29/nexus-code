@@ -1,10 +1,3 @@
-// The files outside a workspace's root that its Claude tabs link, which the
-// previews may read: the workspace's protocol and its binary reads serve
-// an absolute path only when a tab granted it, the file itself or, for an
-// HTML file, the folder it is in. Each tab's grant replaces its last; a tab
-// that closes revokes its own. Held in memory: a restart starts empty and
-// the tabs grant again as they open.
-
 import fs from "node:fs";
 import path from "node:path";
 import { isDrivePath } from "../../../shared/fs/outside-url";
@@ -16,11 +9,6 @@ interface Grant {
 
 const grants = new Map<string, Map<string, Grant>>();
 
-/**
- * A clean absolute path on the workspace's host, or null for anything else:
- * a POSIX path, or a Windows drive's (`C:\…`, `C:/…`) written with `/`.
- * Neither is its root, and `..` does not climb out of a drive.
- */
 function absolute(p: string): string | null {
   if (p.includes("\0")) return null;
   const drive = isDrivePath(p);
@@ -30,10 +18,6 @@ function absolute(p: string): string | null {
   return clean || null;
 }
 
-/**
- * A path as grants are compared: a Windows path with `/` and in one case,
- * as its file system tells no case apart; a POSIX path as it is.
- */
 function comparable(p: string): string {
   return isDrivePath(p) ? p.replace(/\\/g, "/").toLowerCase() : p;
 }
@@ -45,7 +29,6 @@ function cleanAll(paths: readonly string[]): string[] {
     .map(comparable);
 }
 
-/** Replaces what `owner` (a Claude tab) granted in a workspace. */
 export function setOutsideGrant(
   workspaceId: string,
   owner: string,
@@ -60,12 +43,10 @@ export function setOutsideGrant(
   else grants.set(workspaceId, byOwner);
 }
 
-/** Whether `target` is under `dir`, both as grants compare them. */
 function isUnderDir(target: string, dir: string): boolean {
   return target.startsWith(`${dir}/`);
 }
 
-/** Whether a tab granted `absPath`, as named: the file, or one under a granted folder. */
 export function isOutsideGranted(workspaceId: string, absPath: string): boolean {
   const target = absolute(absPath);
   if (!target) return false;
@@ -77,12 +58,6 @@ export function isOutsideGranted(workspaceId: string, absPath: string): boolean 
   return false;
 }
 
-/**
- * The real path to read for a granted file on this machine, or null. A
- * file granted by name is read where its link points, as it was the file
- * linked; a file granted through its folder must really be in that folder,
- * so a link in it does not reach elsewhere.
- */
 export async function resolveOutsideGrant(
   workspaceId: string,
   absPath: string,
@@ -102,15 +77,12 @@ export async function resolveOutsideGrant(
       if (!isUnderDir(key, dir)) continue;
       try {
         if (isUnderDir(comparable(real), comparable(await fs.promises.realpath(dir)))) return real;
-      } catch {
-        // The folder is gone.
-      }
+      } catch {}
     }
   }
   return null;
 }
 
-/** Forgets every grant; for tests. */
 export function clearOutsideGrants(): void {
   grants.clear();
 }

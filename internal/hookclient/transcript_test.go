@@ -9,14 +9,11 @@ import (
 	"time"
 )
 
-// jsonString quotes s as a JSON string, as a Windows path needs its
-// backslashes escaped.
 func jsonString(s string) string {
 	quoted, _ := json.Marshal(s)
 	return string(quoted)
 }
 
-// helper: tmp jsonl 파일을 만들어 path를 반환한다.
 func writeTempTranscript(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -29,7 +26,6 @@ func writeTempTranscript(t *testing.T, content string) string {
 
 func TestExtractLastAssistantText_StringContent(t *testing.T) {
 	t.Parallel()
-	// content가 string 형태 — 가장 단순한 케이스
 	content := `{"message":{"role":"user","content":"Hello"}}
 {"message":{"role":"assistant","content":"Hi there!"}}
 `
@@ -42,7 +38,6 @@ func TestExtractLastAssistantText_StringContent(t *testing.T) {
 
 func TestExtractLastAssistantText_BlocksContent(t *testing.T) {
 	t.Parallel()
-	// content가 [{type, text}] blocks 형태
 	content := `{"message":{"role":"user","content":"Hello"}}
 {"message":{"role":"assistant","content":[{"type":"text","text":"Sure, here is the answer."}]}}
 `
@@ -55,7 +50,6 @@ func TestExtractLastAssistantText_BlocksContent(t *testing.T) {
 
 func TestExtractLastAssistantText_LastUserResetsAccumulation(t *testing.T) {
 	t.Parallel()
-	// 여러 user/assistant 라인이 있으면, 마지막 user 이후의 assistant만 누적된다.
 	content := `{"message":{"role":"assistant","content":"first answer"}}
 {"message":{"role":"user","content":"follow up"}}
 {"message":{"role":"assistant","content":"second answer"}}
@@ -69,7 +63,6 @@ func TestExtractLastAssistantText_LastUserResetsAccumulation(t *testing.T) {
 
 func TestExtractLastAssistantText_NoAssistant(t *testing.T) {
 	t.Parallel()
-	// user 라인만 있으면 빈 문자열.
 	content := `{"message":{"role":"user","content":"only user"}}
 `
 	path := writeTempTranscript(t, content)
@@ -81,7 +74,6 @@ func TestExtractLastAssistantText_NoAssistant(t *testing.T) {
 
 func TestExtractLastAssistantText_MultilineNormalized(t *testing.T) {
 	t.Parallel()
-	// 줄바꿈·연속 공백이 들어간 응답은 single-line으로 정규화된다.
 	content := "{\"message\":{\"role\":\"assistant\",\"content\":\"line one\\nline two\\n\\n   tabbed\\there\"}}\n"
 	path := writeTempTranscript(t, content)
 	got := extractLastAssistantText(path)
@@ -93,7 +85,6 @@ func TestExtractLastAssistantText_MultilineNormalized(t *testing.T) {
 
 func TestExtractLastAssistantText_LongTruncated(t *testing.T) {
 	t.Parallel()
-	// 500자를 초과하면 잘리고 끝에 ellipsis가 붙는다.
 	long := strings.Repeat("a", 600)
 	content := `{"message":{"role":"assistant","content":"` + long + `"}}` + "\n"
 	path := writeTempTranscript(t, content)
@@ -101,7 +92,6 @@ func TestExtractLastAssistantText_LongTruncated(t *testing.T) {
 	if !strings.HasSuffix(got, "…") {
 		t.Errorf("truncate: want ellipsis suffix, got %q", got[max(0, len(got)-20):])
 	}
-	// rune count로 검증 (… 포함 501)
 	runeCount := 0
 	for range got {
 		runeCount++
@@ -113,7 +103,6 @@ func TestExtractLastAssistantText_LongTruncated(t *testing.T) {
 
 func TestExtractLastAssistantText_MalformedLineSkipped(t *testing.T) {
 	t.Parallel()
-	// 깨진 JSON 라인은 건너뛰고 다른 라인을 처리한다.
 	content := `this is not json
 {"message":{"role":"assistant","content":"recovered"}}
 `
@@ -124,10 +113,6 @@ func TestExtractLastAssistantText_MalformedLineSkipped(t *testing.T) {
 	}
 }
 
-// "마지막 user 이후 누적" 정공법 핵심 — tool_use 직전 짧은 멘트만 마지막
-// assistant 라인에 있어도, 그 전 같은 응답 안의 본문 text 블록까지 같이
-// 누적되어야 한다. 실제로 본 "1 chars / 18 chars" 결과의 정체일 가능성이
-// 높은 케이스.
 func TestExtractLastAssistantText_AccumulatesMultipleAssistantTurns(t *testing.T) {
 	t.Parallel()
 	content := `{"message":{"role":"user","content":"Please analyze the codebase."}}
@@ -144,8 +129,6 @@ func TestExtractLastAssistantText_AccumulatesMultipleAssistantTurns(t *testing.T
 	}
 }
 
-// 마지막 user 이후 첫 assistant가 짧은 멘트만 있고 그 뒤에 본문이 와도
-// 둘 다 누적된다. 위 케이스와 같은 의도지만 한 turn 안에서 응답이 split된 경우.
 func TestExtractLastAssistantText_TwoTextBlocksInSameTurn(t *testing.T) {
 	t.Parallel()
 	content := `{"message":{"role":"user","content":"hi"}}
@@ -159,7 +142,6 @@ func TestExtractLastAssistantText_TwoTextBlocksInSameTurn(t *testing.T) {
 	}
 }
 
-// blocks에 text와 tool_use가 섞여 있으면 text만 join — tool_use 등은 무시.
 func TestExtractLastAssistantText_BlocksWithToolUseSkipped(t *testing.T) {
 	t.Parallel()
 	content := `{"message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{}},{"type":"text","text":"Running the command."}]}}
@@ -170,10 +152,6 @@ func TestExtractLastAssistantText_BlocksWithToolUseSkipped(t *testing.T) {
 		t.Errorf("text-with-tool_use: want %q, got %q", "Running the command.", got)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// transcriptPathFromPayload
-// ---------------------------------------------------------------------------
 
 func TestTranscriptPathFromPayload_SnakeCase(t *testing.T) {
 	payload := []byte(`{"transcript_path":"/tmp/t.jsonl","session_id":"x"}`)
@@ -191,12 +169,6 @@ func TestTranscriptPathFromPayload_CamelCase(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// stopAssistantText
-// ---------------------------------------------------------------------------
-
-// The payload's answer is taken as is, without the transcript read, whose
-// stability check alone sleeps transcriptStableInterval.
 func TestStopAssistantText_PayloadAnswerSkipsTranscript(t *testing.T) {
 	path := writeTempTranscript(t, `{"message":{"role":"assistant","content":"from transcript"}}`+"\n")
 	payload := []byte(`{"transcript_path":` + jsonString(path) + `,"last_assistant_message":"Done.\n\nAll  tests pass."}`)
@@ -210,8 +182,6 @@ func TestStopAssistantText_PayloadAnswerSkipsTranscript(t *testing.T) {
 	}
 }
 
-// An empty answer is the turn's answer too (it ended without text); the
-// transcript's older text must not stand in for it.
 func TestStopAssistantText_EmptyPayloadAnswer(t *testing.T) {
 	path := writeTempTranscript(t, `{"message":{"role":"assistant","content":"from transcript"}}`+"\n")
 	payload := []byte(`{"transcript_path":` + jsonString(path) + `,"last_assistant_message":""}`)
@@ -228,7 +198,6 @@ func TestStopAssistantText_PayloadAnswerTruncated(t *testing.T) {
 	}
 }
 
-// Versions without last_assistant_message still get the transcript's answer.
 func TestStopAssistantText_FallsBackToTranscript(t *testing.T) {
 	path := writeTempTranscript(t, `{"message":{"role":"assistant","content":"from transcript"}}`+"\n")
 	got := stopAssistantText([]byte(`{"transcript_path":` + jsonString(path) + `}`))
@@ -237,19 +206,12 @@ func TestStopAssistantText_FallsBackToTranscript(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// waitForTranscriptStable — mtime stability polling
-// ---------------------------------------------------------------------------
-
-// fakeClock 은 sleep할 때만 흐르는 시계. waitUntilSteady를 실제 시간 없이
-// 돌려서, CI 머신의 타이머 해상도나 스케줄링과 상관없이 결과가 같다.
 type fakeClock struct{ t time.Time }
 
 func (c *fakeClock) now() time.Time                   { return c.t }
 func (c *fakeClock) sleep(d time.Duration)            { c.t = c.t.Add(d) }
 func (c *fakeClock) since(t0 time.Time) time.Duration { return c.t.Sub(t0) }
 
-// 파일이 계속 자라고 있으면 maxWait까지 polling을 계속하고, 넘기지 않고 반환한다.
 func TestWaitUntilSteady_ChangingFileWaitsUntilMaxWait(t *testing.T) {
 	clock := &fakeClock{t: time.Unix(0, 0)}
 	start := clock.now()
@@ -257,19 +219,17 @@ func TestWaitUntilSteady_ChangingFileWaitsUntilMaxWait(t *testing.T) {
 	polls := 0
 	waitUntilSteady(func() (fileMark, bool) {
 		polls++
-		size++ // 매번 자란다
+		size++
 		return fileMark{mtime: clock.now(), size: size}, true
 	}, 200*time.Millisecond, 50*time.Millisecond, clock.now, clock.sleep)
 	if waited := clock.since(start); waited != 200*time.Millisecond {
 		t.Errorf("changing file: want to wait exactly maxWait (200ms), waited %v", waited)
 	}
-	// 처음 한 번 + 50ms마다 4번.
 	if polls != 5 {
 		t.Errorf("changing file: want 5 looks, got %d", polls)
 	}
 }
 
-// 한 interval 동안 변하지 않으면 그 자리에서 반환한다.
 func TestWaitUntilSteady_SteadyFileReturnsAfterOneInterval(t *testing.T) {
 	clock := &fakeClock{t: time.Unix(0, 0)}
 	start := clock.now()
@@ -281,7 +241,6 @@ func TestWaitUntilSteady_SteadyFileReturnsAfterOneInterval(t *testing.T) {
 	}
 }
 
-// mtime이 같아도 size가 자라면 아직 쓰이는 중이다 (mtime 해상도가 거친 fs).
 func TestWaitUntilSteady_GrowingSizeWithSameMtimeKeepsWaiting(t *testing.T) {
 	clock := &fakeClock{t: time.Unix(0, 0)}
 	start := clock.now()
@@ -297,7 +256,6 @@ func TestWaitUntilSteady_GrowingSizeWithSameMtimeKeepsWaiting(t *testing.T) {
 	}
 }
 
-// 파일이 없으면 기다리지 않는다.
 func TestWaitForTranscriptStable_MissingFileReturnsAtOnce(t *testing.T) {
 	start := time.Now()
 	waitForTranscriptStable(filepath.Join(t.TempDir(), "missing.jsonl"), time.Second, 100*time.Millisecond)
@@ -306,7 +264,6 @@ func TestWaitForTranscriptStable_MissingFileReturnsAtOnce(t *testing.T) {
 	}
 }
 
-// max — Go 1.21+ built-in이 있지만 명시적 helper로 안정성 확보.
 func max(a, b int) int {
 	if a > b {
 		return a

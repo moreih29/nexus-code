@@ -5,10 +5,6 @@ import { installEditorIntegrations } from "./editor-mount/install-editor-integra
 import { useRevealTargetRegistration } from "./editor-mount/use-reveal-target-registration";
 import { useSharedModelAttach } from "./editor-mount/use-shared-model-attach";
 
-// Re-export for backwards-compatible test imports. Existing call sites
-// (`tests/unit/renderer/services/editor/editor-readonly-options.test.ts`)
-// pull `applySharedModel` from this module — keeping the re-export here
-// avoids churning unrelated tests during the split.
 export {
   type ApplySharedModelEditor,
   type AttachSharedModelTemporaryModel,
@@ -18,7 +14,6 @@ export {
 export interface UseEditorMountOptions {
   filePath: string;
   workspaceId: string;
-  /** Owning tab; reveals aimed at this tab land in this editor. */
   tabId: string;
   model: Monaco.editor.ITextModel | null;
   readOnly: boolean;
@@ -30,21 +25,6 @@ export interface UseEditorMountResult {
   attachSharedModel: (editor: Monaco.editor.IStandaloneCodeEditor) => void;
 }
 
-/**
- * Orchestrates the lifecycle of a Monaco editor instance for a single
- * `(workspaceId, filePath)` mount. Composition only — each side-effect
- * lives in its own focused module under `./editor-mount/`:
- *
- *   - `useSharedModelAttach`           — model attach + temp-model disposal
- *   - `useRevealTargetRegistration`    — reveal-target registry registration
- *   - `installEditorIntegrations`      — cross-file opener + save action
- *
- * What this hook owns:
- *   - `editorRef`              the live editor instance for sync side-effect callers
- *   - `mountedEditor` state    triggers the registry effect once Monaco fires onMount
- *   - `openerDisposableRef`    holds the integration disposer for cleanup
- *   - `workspaceIdRef`         late-bound resolver for cross-file navigation
- */
 export function useEditorMount({
   filePath,
   workspaceId,
@@ -58,10 +38,6 @@ export function useEditorMount({
   const workspaceIdRef = useRef(workspaceId);
   workspaceIdRef.current = workspaceId;
 
-  // Triggers re-render after Monaco's async onMount fires. The reveal-target
-  // registration effect depends on this so it fires once the editor instance
-  // is actually live (otherwise its first commit happens before onMount and
-  // there's no editor to register).
   const [mountedEditor, setMountedEditor] = useState<Monaco.editor.IStandaloneCodeEditor | null>(
     null,
   );
@@ -92,23 +68,11 @@ export function useEditorMount({
   const onMount = useCallback(
     (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco): void => {
       editorRef.current = editor;
-      // Clear the ref the moment Monaco disposes this editor instance — usually
-      // when EditorView re-renders to a non-`<Editor>` branch (phase = "error" /
-      // "binary" / loading-with-no-model). The component-unmount cleanup below
-      // runs only when the whole EditorView unmounts, so without this hook the
-      // ref would keep pointing at a disposed editor and a subsequent
-      // `useSharedModelAttach` effect could call setModel on it — surfacing as
-      // "InstantiationService has been disposed". Mirrors VSCode's own pattern
-      // of treating editor.dispose as the canonical liveness signal.
       editor.onDidDispose(() => {
         if (editorRef.current === editor) editorRef.current = null;
       });
       rememberAsTemporary(editor);
       attachSharedModel(editor);
-      // Publish the live editor so the registry effect can fire. setState
-      // here is intentionally after attachSharedModel so the real model is
-      // in place before any queued reveal flushes against it — flushing
-      // against the temporary empty model would land on the wrong text.
       setMountedEditor(editor);
 
       openerDisposableRef.current?.dispose();

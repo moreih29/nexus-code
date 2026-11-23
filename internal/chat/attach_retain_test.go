@@ -12,7 +12,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// attachAged attaches a file for the tab and dates it `age` ago.
 func attachAged(t *testing.T, service *Service, tabID string, data []byte, age time.Duration) string {
 	t.Helper()
 	result, err := attach(t, service, tabID, "f.bin", data)
@@ -26,7 +25,6 @@ func attachAged(t *testing.T, service *Service, tabID string, data []byte, age t
 	return result.Path
 }
 
-// ageFolders dates every folder below dir (and dir) `age` ago, past attachGrace.
 func ageFolders(t *testing.T, dir string, age time.Duration) {
 	t.Helper()
 	at := time.Now().Add(-age)
@@ -48,7 +46,6 @@ func prune(t *testing.T, service *Service, params PruneAttachParams) PruneResult
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Without retain it answers nothing (struct{}), as an agent from before.
 	pruned, _ := result.(PruneResult)
 	return pruned
 }
@@ -63,7 +60,6 @@ func slotsCallOf(t *testing.T, call func(context.Context, json.RawMessage) (any,
 	return result.(SlotsResult)
 }
 
-// closeTab closes a tab of "ws" without keeping its attached files.
 func closeTab(t *testing.T, service *Service, tabID string) {
 	t.Helper()
 	raw, _ := json.Marshal(TabParams{WorkspaceID: "ws", TabID: tabID})
@@ -96,7 +92,6 @@ func TestPruneWithRetainKeepsWhatIsInUse(t *testing.T) {
 	staleOld := attachAged(t, service, "closed", []byte("s"), 31*day)
 	recent := attachAged(t, service, "other", []byte("r"), 29*day)
 	gone := attachAged(t, service, "gone", []byte("g"), 40*day)
-	// A slot without its file names nothing.
 	empty := filepath.Join(root, "ws", "other", "9")
 	if err := os.Mkdir(empty, 0o700); err != nil {
 		t.Fatal(err)
@@ -120,7 +115,6 @@ func TestPruneWithRetainKeepsWhatIsInUse(t *testing.T) {
 			t.Fatalf("%s stayed", path)
 		}
 	}
-	// The emptied tab's folder goes; the ones in use are used now.
 	if exists(filepath.Join(root, "ws", "gone")) {
 		t.Fatal("the emptied tab's folder stayed")
 	}
@@ -143,7 +137,6 @@ func TestPruneWithRetainMakesRoomLeastRecentlyUsedFirst(t *testing.T) {
 	oldest := attachAged(t, service, "b", make([]byte, 300), 5*hour)
 	older := attachAged(t, service, "b", make([]byte, 300), 4*hour)
 	newest := attachAged(t, service, "c", make([]byte, 300), 1*hour)
-	// 1300 bytes held, room for 1000: the two least recently used not kept go.
 	result := prune(t, service, PruneAttachParams{
 		WorkspaceID: "ws",
 		KeepTabIDs:  []string{"a"},
@@ -155,7 +148,6 @@ func TestPruneWithRetainMakesRoomLeastRecentlyUsedFirst(t *testing.T) {
 	if exists(oldest) || !exists(older) || !exists(newest) || !exists(kept) {
 		t.Fatalf("kept: oldest %v older %v newest %v kept %v", exists(oldest), exists(older), exists(newest), exists(kept))
 	}
-	// Room for less than what is kept: everything not kept goes, what is kept stays.
 	prune(t, service, PruneAttachParams{
 		WorkspaceID: "ws",
 		KeepTabIDs:  []string{"a"},
@@ -216,7 +208,6 @@ func TestRemoveAttachmentsRemovesOnlyNamedSlots(t *testing.T) {
 	if exists(filepath.Join(root, "ws")) {
 		t.Fatal("the workspace's folder stayed")
 	}
-	// Nothing to remove is no failure.
 	slotsCallOf(t, service.RemoveAttachments, SlotsParams{WorkspaceID: "ws", All: true})
 }
 
@@ -236,7 +227,6 @@ func TestAttachmentCallsFollowNoLink(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "ws"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	// A tab's folder that is a link to a folder elsewhere.
 	if err := os.Symlink(outside, filepath.Join(root, "ws", "linked")); err != nil {
 		t.Skipf("no symlinks here: %v", err)
 	}
@@ -252,7 +242,6 @@ func TestAttachmentCallsFollowNoLink(t *testing.T) {
 	if !exists(victim) {
 		t.Fatal("a file through a link was removed")
 	}
-	// Nothing is attached through it, and closing its tab removes the link alone.
 	if _, err := attach(t, service, "linked", "new.txt", []byte("n")); err == nil {
 		t.Fatal("a file was attached through a link")
 	}
@@ -263,7 +252,6 @@ func TestAttachmentCallsFollowNoLink(t *testing.T) {
 	if !exists(victim) || exists(filepath.Join(root, "ws", "linked")) {
 		t.Fatalf("closing a linked tab: victim %v link %v", exists(victim), exists(filepath.Join(root, "ws", "linked")))
 	}
-	// The workspace's folder as a link: removing it all removes the link alone.
 	if err := os.RemoveAll(filepath.Join(root, "ws")); err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +288,7 @@ func TestAttachmentCallsNameSlotsByTheirGrammar(t *testing.T) {
 	for _, name := range names {
 		file := filepath.Join(root, "ws", filepath.FromSlash(name), "f.bin")
 		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
-			continue // a name this system refuses
+			continue
 		}
 		if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
@@ -340,7 +328,6 @@ func TestAttachmentCallsNameSlotsAsTheFolderWritesThem(t *testing.T) {
 	useAttachRoot(t)
 	service := New()
 	path := attachAged(t, service, "tab", []byte("t"), 40*24*time.Hour)
-	// On a system that folds case these reach tab/1; not by these names.
 	other := []string{"TAB/1", "Tab/1", "tab/01"}
 	touched := slotsCallOf(t, service.TouchAttachments, SlotsParams{WorkspaceID: "ws", Slots: other})
 	if info, _ := os.Stat(path); touched.Count != 0 || time.Since(info.ModTime()) < time.Hour {
@@ -360,7 +347,6 @@ func TestPruneLeavesFoldersBeingAttachedTo(t *testing.T) {
 	service := New()
 	day := 24 * time.Hour
 	ws := filepath.Join(root, "ws")
-	// Aged: a slot without its file, and an emptied tab's folder.
 	for _, dir := range []string{filepath.Join(ws, "old", "1"), filepath.Join(ws, "olden")} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
@@ -368,8 +354,6 @@ func TestPruneLeavesFoldersBeingAttachedTo(t *testing.T) {
 	}
 	stale := attachAged(t, service, "busy", []byte("s"), 40*day)
 	ageFolders(t, ws, time.Hour)
-	// Made after the app told which tabs are open: a tab's folder, empty
-	// or with a slot whose file is not yet written.
 	newTab := filepath.Join(ws, "new")
 	newSlot := filepath.Join(ws, "newer", "1")
 	for _, dir := range []string{newTab, newSlot} {
@@ -377,7 +361,6 @@ func TestPruneLeavesFoldersBeingAttachedTo(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// A slot of a busy tab goes; its folder changed just now, and stays.
 	if err := os.Mkdir(filepath.Join(ws, "busy", "2"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +381,6 @@ func TestPruneLeavesFoldersBeingAttachedTo(t *testing.T) {
 			t.Fatalf("%s went within the grace", path)
 		}
 	}
-	// Past the grace, they go.
 	ageFolders(t, ws, time.Hour)
 	prune(t, service, PruneAttachParams{WorkspaceID: "ws", Retain: &RetainParams{MaxAgeMs: (30 * day).Milliseconds()}})
 	for _, path := range []string{newTab, filepath.Join(ws, "newer"), filepath.Join(ws, "busy")} {
@@ -408,10 +390,6 @@ func TestPruneLeavesFoldersBeingAttachedTo(t *testing.T) {
 	}
 }
 
-// A tab's folder, a slot's folder or the workspace's folder that is a link
-// (made by link: a symbolic link, or a Windows junction) to a folder
-// elsewhere: no attach, prune, touch, removal or close reaches what is
-// there; removing the workspace's folder removes the link alone.
 func attachmentCallsFollowNo(t *testing.T, junction func(t *testing.T, link, target string)) {
 	root := useAttachRoot(t)
 	service := New()
@@ -441,12 +419,10 @@ func attachmentCallsFollowNo(t *testing.T, junction func(t *testing.T, link, tar
 	if err := os.MkdirAll(filepath.Join(ws, "tab"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	// A tab's folder that is a junction, and a slot's folder that is one.
 	junction(t, filepath.Join(ws, "linked"), outside)
 	junction(t, filepath.Join(ws, "tab", "1"), filepath.Join(outside, "1"))
 	ageFolders(t, ws, time.Hour)
 
-	// Nothing is attached through a tab's junction.
 	if _, err := attach(t, service, "linked", "new.txt", []byte("n")); proto.ErrorCode(err) != "chat.attach-folder-link" {
 		t.Fatalf("attaching through a junction did not fail as a linked folder: %v", err)
 	}
@@ -466,7 +442,6 @@ func attachmentCallsFollowNo(t *testing.T, junction func(t *testing.T, link, tar
 	prune(t, service, PruneAttachParams{WorkspaceID: "ws"})
 	untouched("prune without retain")
 
-	// Closing a tab removes its junction, or its slot's, not what is there.
 	if err := os.RemoveAll(ws); err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +462,6 @@ func attachmentCallsFollowNo(t *testing.T, junction func(t *testing.T, link, tar
 		t.Fatal("the closed tab's folder stayed")
 	}
 
-	// The workspace's folder as a junction.
 	if err := os.RemoveAll(ws); err != nil {
 		t.Fatal(err)
 	}

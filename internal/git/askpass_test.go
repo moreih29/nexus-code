@@ -11,8 +11,6 @@ import (
 	"time"
 )
 
-// runAskpassPrompt runs the helper against the service's askpass socket and
-// answers its prompt with the git.askpass.respond fields in answer.
 func runAskpassPrompt(t *testing.T, answer string) (int, string) {
 	t.Helper()
 	service := New(t.TempDir())
@@ -43,8 +41,6 @@ func TestAskpassAnswerReachesHelper(t *testing.T) {
 	}
 }
 
-// A dismissed prompt must fail the helper so Git stops; printing the empty
-// secret would make Git try an empty password.
 func TestAskpassCancelFailsHelper(t *testing.T) {
 	code, stdout := runAskpassPrompt(t, `"secret":"","cancelled":true`)
 	if code == 0 || stdout != "" {
@@ -52,8 +48,6 @@ func TestAskpassCancelFailsHelper(t *testing.T) {
 	}
 }
 
-// promptingRemote is an HTTP remote that asks for credentials on every
-// request, so git calls the askpass helper.
 func promptingRemote(t *testing.T) string {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -64,8 +58,6 @@ func promptingRemote(t *testing.T) string {
 	return server.URL + "/repo.git"
 }
 
-// Cancelling a run that waits on a credential prompt must end the request:
-// the prompt fails, the orphaned helper exits, and git's pipes close.
 func TestCancelledRunFailsItsCredentialPrompt(t *testing.T) {
 	t.Parallel()
 	service := New(t.TempDir())
@@ -119,7 +111,6 @@ func TestCancelledRunFailsItsCredentialPrompt(t *testing.T) {
 	}
 }
 
-// A prompt from a run that already ended has nobody to answer it.
 func TestPromptForEndedRunFailsAtOnce(t *testing.T) {
 	service := New(t.TempDir())
 	defer service.Close()

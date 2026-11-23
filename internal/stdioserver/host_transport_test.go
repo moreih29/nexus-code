@@ -1,11 +1,3 @@
-// Package stdioserver — transport-close classification tests.
-//
-// Run() must distinguish a clean stdin EOF (the client deliberately closed the
-// channel → exit 0, no client reconnect) from a non-EOF scanner error (the SSH
-// channel carrying stdin was reset mid-stream → exit non-zero so the client
-// reconnects). Before this distinction existed, every drop — including a
-// transient network reset — exited 0 and the client treated it as an
-// intentional shutdown, leaving the workspace permanently disconnected.
 package stdioserver
 
 import (
@@ -27,9 +19,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// errReader returns a non-EOF error on the first Read, simulating an SSH
-// channel reset mid-stream (as opposed to bufio.Scanner's clean-EOF path,
-// which surfaces as Err() == nil).
 type errReader struct{ err error }
 
 func (r errReader) Read(p []byte) (int, error) { return 0, r.err }
@@ -47,8 +36,6 @@ func newRunHost(in io.Reader) (*Host, chan int) {
 	return host, exited
 }
 
-// A non-EOF inbound read error must exit TransportErrorExitCode so the client's
-// handleClose reconnects instead of treating the dropped link as clean.
 func TestRunExitsNonZeroOnTransportError(t *testing.T) {
 	host, exited := newRunHost(errReader{err: errors.New("read tcp: connection reset by peer")})
 
@@ -64,8 +51,6 @@ func TestRunExitsNonZeroOnTransportError(t *testing.T) {
 	}
 }
 
-// A clean EOF (client deliberately closed stdin) must exit 0 so the client
-// treats it as an intentional shutdown with no reconnect.
 func TestRunExitsZeroOnCleanEOF(t *testing.T) {
 	host, exited := newRunHost(strings.NewReader(""))
 
@@ -81,8 +66,6 @@ func TestRunExitsZeroOnCleanEOF(t *testing.T) {
 	}
 }
 
-// repeatReader yields the same byte forever; wrapped in io.LimitReader it
-// builds a huge request line without holding it in memory.
 type repeatReader byte
 
 func (r repeatReader) Read(p []byte) (int, error) {
@@ -92,7 +75,6 @@ func (r repeatReader) Read(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// syncBuffer is a bytes.Buffer safe for concurrent handler writes.
 type syncBuffer struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -110,10 +92,6 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-// A request line over the 64 MiB cap used to fail the scanner with
-// ErrTooLong, which took the transport-error exit — in daemon mode that
-// SIGKILLs every PTY. The line must be discarded, answered with an error
-// when its id is readable, and the requests after it still served.
 func TestRunDiscardsOversizedLineAndKeepsServing(t *testing.T) {
 	huge := func(prefix, suffix string) io.Reader {
 		return io.MultiReader(
@@ -125,7 +103,6 @@ func TestRunDiscardsOversizedLineAndKeepsServing(t *testing.T) {
 	in := io.MultiReader(
 		huge(`{"id":"big","method":"ping","params":"`, `"}`),
 		strings.NewReader(`{"id":"after-1","method":"ping"}`+"\n"),
-		// No recoverable id: params come first and would only mislead.
 		huge(`{"params":{"id":"not-me","blob":"`, `"},"id":"x","method":"ping"}`),
 		strings.NewReader(`{"id":"after-2","method":"ping"}`+"\n"),
 	)
@@ -191,8 +168,6 @@ func TestLineReaderMatchesScanLines(t *testing.T) {
 	}
 }
 
-// TestDispatchRejectsOverloadWithoutQueuingAck holds the ordered queue full
-// and verifies that an ACK still enters its handler.
 func TestDispatchRejectsOverloadWithoutQueuingAck(t *testing.T) {
 	in, writer := io.Pipe()
 	defer writer.Close()

@@ -1,34 +1,4 @@
-/**
- * useBrowserRuntimeStore — volatile (non-persisted) runtime state for embedded
- * browser tabs.
- *
- * STATE SHAPE
- * -----------
- * A Map<tabId, BrowserRuntimeState> that tracks the live navigation and
- * loading state for every active browser tab.  Entries are added when
- * `navigated` / `loadingChanged` / `titleUpdated` events arrive from main
- * and removed when the tab is destroyed (via `removeRuntime`).
- *
- * PERSISTENCE
- * -----------
- * Intentionally volatile — this store is NOT included in persistence.ts.
- * State resets on every app launch / reload.
- *
- * LIFECYCLE
- * ---------
- * - `setRuntime(tabId, partial)` — upsert (merge) an entry.
- * - `getRuntime(tabId)` — point-in-time read (not a hook).
- * - `removeRuntime(tabId)` — remove an entry when its tab is destroyed.
- *
- * IPC events feed this store via `initBrowserRuntimeSubscriptions()` (called
- * from bootstrap).
- */
-
 import { create } from "zustand";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export interface BrowserRuntimeState {
   currentUrl: string;
@@ -37,34 +7,9 @@ export interface BrowserRuntimeState {
   canGoForward: boolean;
   isLoading: boolean;
   loadFailure: { url: string; description: string } | null;
-  /**
-   * Cached page snapshot (JPEG dataURL) painted as an absolute overlay over
-   * the placeholder area while the native WebContentsView is hidden by a
-   * suspendAll cycle.  `null` means no snapshot is active — the live view
-   * is visible, or no snapshot was captured.
-   */
   snapshot: string | null;
-  /**
-   * Whether DevTools is currently open and docked for this tab.
-   *
-   * Driven by the `browser.devtoolsToggled` IPC event so the renderer can
-   * (a) show / hide its splitter region, (b) start / stop the
-   * `setDevToolsBounds` ResizeObserver, (c) reflect an "active" style on
-   * the toolbar toggle button.
-   */
   devtoolsOpen: boolean;
-  /**
-   * Favicon URL the page advertises. The first entry of the candidate array received from Chromium's
-   * page-favicon-updated event. If empty, the default icon (Globe) is shown.
-   * Kept only in the runtime store — refreshed naturally when the page reloads after an app restart.
-   */
   faviconUrl: string | null;
-  /**
-   * Imperative URL-bar focus trigger. Incremented by `requestUrlFocus`
-   * (fired by the `browser.focusUrl` command, ⌘L); BrowserTabView passes
-   * it to UrlBar's `focusToken` prop, which focuses + selects-all on
-   * every change. Monotonic counter — the value itself is meaningless.
-   */
   urlFocusToken: number;
 }
 
@@ -86,29 +31,12 @@ const DEFAULT_RUNTIME: BrowserRuntimeState = {
 interface BrowserRuntimeStore {
   runtimes: BrowserRuntimeMap;
 
-  /**
-   * Upsert (merge) the partial runtime state for `tabId`.
-   * Creates an entry with defaults if none exists.
-   */
   setRuntime(tabId: string, partial: Partial<BrowserRuntimeState>): void;
 
-  /**
-   * Remove the runtime entry for `tabId`.
-   * No-op if the entry does not exist.
-   */
   removeRuntime(tabId: string): void;
 
-  /**
-   * Bump the URL-bar focus token for `tabId` so the mounted
-   * BrowserTabView focuses + selects the URL bar. Creates the runtime
-   * entry if it does not exist yet (harmless — the view merges state).
-   */
   requestUrlFocus(tabId: string): void;
 }
-
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
 
 export const useBrowserRuntimeStore = create<BrowserRuntimeStore>((set, get) => ({
   runtimes: new Map(),
@@ -138,15 +66,6 @@ export const useBrowserRuntimeStore = create<BrowserRuntimeStore>((set, get) => 
   },
 }));
 
-// ---------------------------------------------------------------------------
-// Point-in-time accessor (non-reactive)
-// ---------------------------------------------------------------------------
-
-/**
- * Returns the current runtime state for `tabId`, or `undefined` if not found.
- * Non-reactive — suitable for imperative code paths (not React components).
- * React components should use `useBrowserRuntimeStore` with a selector.
- */
 export function getRuntime(tabId: string): BrowserRuntimeState | undefined {
   return useBrowserRuntimeStore.getState().runtimes.get(tabId);
 }

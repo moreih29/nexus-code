@@ -142,7 +142,6 @@ describe("PaletteSearchController", () => {
       scheduler,
     );
 
-    // No debounce wait — the empty-query path should fire search() at once.
     controller.setQuery("");
     expect(search).toHaveBeenCalledTimes(1);
     await flushMicrotasks();
@@ -182,7 +181,6 @@ describe("dispose after setQuery during debounce", () => {
     const countBeforeDispose = snapshots.length;
     controller.dispose();
 
-    // setQuery after dispose must be a no-op
     controller.setQuery("zz");
     scheduler.advanceBy(300);
 
@@ -202,18 +200,15 @@ describe("flush()", () => {
       scheduler,
     );
 
-    // Simulate fast typing — debounce has NOT fired yet
     controller.setQuery("feat/new-x");
     expect(search).not.toHaveBeenCalled();
 
-    // flush() must cancel the timer and run search immediately
     const result = await controller.flush();
 
     expect(search).toHaveBeenCalledTimes(1);
     expect(result.status).toBe("results");
     expect(result.items).toHaveLength(1);
     expect(result.items[0]?.id).toBe("create:feat/new-x");
-    // The debounce timer should NOT fire a second search afterward
     scheduler.advanceBy(WORKSPACE_SYMBOL_DEBOUNCE_MS);
     expect(search).toHaveBeenCalledTimes(1);
   });
@@ -234,12 +229,10 @@ describe("flush()", () => {
       scheduler,
     );
 
-    // Let the debounce fire so we enter "loading" status
     controller.setQuery("main");
     scheduler.advanceBy(WORKSPACE_SYMBOL_DEBOUNCE_MS);
     expect(snapshots.at(-1)?.status).toBe("loading");
 
-    // flush() while loading: must await the running search
     const flushPromise = controller.flush();
     resolveSearch([item("main")]);
     const result = await flushPromise;
@@ -284,11 +277,9 @@ describe("flush()", () => {
     scheduler.advanceBy(WORKSPACE_SYMBOL_DEBOUNCE_MS);
     await flushMicrotasks();
 
-    // Search has completed; no pending timers
     const result = await controller.flush();
     expect(result.status).toBe("results");
     expect(result.items[0]?.id).toBe("Alpha");
-    // search should not have been called again
     expect(search).toHaveBeenCalledTimes(1);
   });
 

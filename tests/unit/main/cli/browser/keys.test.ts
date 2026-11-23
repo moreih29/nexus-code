@@ -1,4 +1,3 @@
-/** Keys for nexus browser press, read into CDP key events. */
 import { expect, test } from "bun:test";
 import { parseBrowserKey } from "../../../../../src/main/features/cli/browser/keys";
 import { CliError } from "../../../../../src/main/features/cli/context";

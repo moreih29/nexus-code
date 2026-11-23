@@ -1,13 +1,3 @@
-/**
- * The app's NexusCode account: signing in through the system browser
- * (OAuth with PKCE and a loopback redirect, as RFC 8252 has it for a
- * desktop app), the server's session token it gets for this
- * device, and the account's devices. The token is what the relay and the
- * API take. Requests go by its route: through the proxy when there is one,
- * the server's own address when it cannot be reached, and the fallback when
- * neither can.
- */
-
 import os from "node:os";
 import { z } from "zod";
 import {
@@ -36,15 +26,11 @@ const log = createLogger("remote-account");
 
 export { SignedOutError } from "./errors";
 
-/** How long a call to the server may take. */
 export const REQUEST_TIMEOUT_MS = 20_000;
-/** How long sending a file may take (a recording of hours is tens of MB). */
 export const UPLOAD_TIMEOUT_MS = 15 * 60_000;
 
-/** How long the browser has to come back: the server gives a sign-in 10 minutes. */
 export const SIGN_IN_TIMEOUT_MS = 10 * 60_000;
 
-/** The sign-in as the app keeps it, sealed. */
 export const SavedAccountSchema = z.object({
   server: z.string(),
   token: z.string(),
@@ -61,7 +47,6 @@ const TokenResponseSchema = z.object({
 
 const DevicesResponseSchema = z.object({ devices: z.array(RemoteDeviceInfoSchema) });
 
-/** This device as the server should name it: up to 100 characters, a lowercase platform. */
 export function thisDevice(): { name: string; platform: string } {
   const name =
     os
@@ -72,53 +57,32 @@ export function thisDevice(): { name: string; platform: string } {
 }
 
 export interface RemoteAccountDeps {
-  /**
-   * The server signed in to, kept with the sign-in, e.g. http://localhost:8787;
-   * its address too unless `direct` names another.
-   */
   readonly server: string;
-  /** The proxy requests to the server go through first; none to go straight first. */
   readonly proxy?: string | null;
-  /** The server's own address, where its sign-in opens in the browser; `server` when not given. */
   readonly direct?: string;
-  /** Where requests go when neither the proxy nor `direct` can be reached; none to stop there. */
   readonly fallback?: string | null;
-  /** The time now, for how long a way that failed stays passed by. */
   now?: () => number;
   readonly store: Kept<SavedAccount>;
   openExternal(url: string): Promise<void>;
   fetch?: typeof fetch;
-  /** Told each time the state changes. */
   onChange?(state: RemoteAccountState): void;
-  /** This device as the server should name it. */
   device?: { name: string; platform: string };
-  /** This install's id, sent with a sign-in so the server gives the same device back. */
   installId?: () => Promise<string | undefined>;
   listen?: (timeoutMs: number) => Promise<LoopbackListener>;
-  /**
-   * Told when the browser comes back from the sign-in, whatever it brought:
-   * the rest of it, or why it failed, shows in the app.
-   */
   onBrowserBack?(): void;
   timeoutMs?: number;
-  /** The sign-in used when none is asked for. */
   provider?: SignInProvider;
-  /** The email to sign in as, when known: the dev sign-in then asks nothing. */
   loginHint?: string;
 }
 
 export class RemoteAccount {
   private saved: SavedAccount | null = null;
-  /** Blocks another sign-in while the callback listener is starting. */
   private startingSignIn = false;
   private signingIn: LoopbackListener | null = null;
   private recheckingToken: string | undefined;
-  /** Why the last sign-in failed, until the next one starts. */
   private failure: SignInFailure | undefined;
-  /** The provider to use when checking a pending signup again. */
   private pendingProvider: SignInProvider | undefined;
   private readonly fetch: typeof fetch;
-  /** How requests reach the server; the relay's and voice input's sockets go by it too. */
   readonly route: ServerRoute;
 
   constructor(private readonly deps: RemoteAccountDeps) {
@@ -131,10 +95,8 @@ export class RemoteAccount {
     );
   }
 
-  /** Picks up the sign-in kept from the last run, if there is one for this server. */
   async restore(): Promise<void> {
     const saved = await this.deps.store.load();
-    // A sign-in to another server is not this one's.
     if (saved && saved.server === this.deps.server && !this.saved) {
       this.saved = saved;
       this.changed();
@@ -155,17 +117,10 @@ export class RemoteAccount {
     };
   }
 
-  /** The session token, while signed in. */
   token(): string | undefined {
     return this.saved?.token;
   }
 
-  /**
-   * Opens the server's sign-in in the browser, then trades its callback code
-   * for this device's token. Without a provider, it retries a pending signup
-   * or uses the default. A failed sign-in leaves the reason in the state.
-   * The browser's page waits for how it ended, and says the same.
-   */
   async signIn(provider?: SignInProvider): Promise<RemoteAccountState> {
     if (this.startingSignIn || this.signingIn || this.saved) return this.state();
     const choice = provider ?? this.pendingProvider ?? this.deps.provider ?? "google";
@@ -227,19 +182,16 @@ export class RemoteAccount {
     return this.state();
   }
 
-  /** Stops a sign-in waiting on the browser. */
   cancelSignIn(): void {
     this.signingIn?.close();
   }
 
-  /** Ends this device's session on the server, and forgets it here either way. */
   async signOut(): Promise<void> {
     if (!this.saved) return;
     await this.call("POST", "/auth/logout").catch(() => {});
     this.forget();
   }
 
-  /** A socket says the sign-in ended. Let the authenticated request confirm it. */
   recheckSignIn(): void {
     const token = this.token();
     if (!token || this.recheckingToken === token) return;
@@ -251,16 +203,10 @@ export class RemoteAccount {
       });
   }
 
-  /** What the server offers: its sign-ins, and whether it has the relay and voice. */
   async info(): Promise<ServerInfo> {
     return ServerInfoSchema.parse(await this.call("GET", "/info", { signedIn: false }));
   }
 
-  /**
-   * Gives a device of the account an alias, shown in place of the name it
-   * signed in with, or takes it away (null or empty); the room tells every
-   * device.
-   */
   async setDeviceAlias(id: string, alias: string | null): Promise<void> {
     const given = alias?.trim() || null;
     await this.call("PATCH", `/devices/${encodeURIComponent(id)}`, { body: { alias: given } });
@@ -271,11 +217,6 @@ export class RemoteAccount {
     }
   }
 
-  /**
-   * Tells the server this machine's name when it is not the one kept from
-   * sign-in (the PC was renamed since). Never throws: a request that fails
-   * leaves the kept name, so the next run asks again.
-   */
   async syncDeviceName(): Promise<void> {
     const saved = this.saved;
     if (!saved) return;
@@ -285,7 +226,6 @@ export class RemoteAccount {
       await this.call("PATCH", `/devices/${encodeURIComponent(saved.device.id)}`, {
         body: { name },
       });
-      // Signed out, or in as another device, while the request was away.
       if (this.saved !== saved) return;
       this.saved = { ...saved, device: { ...saved.device, name } };
       await this.deps.store.save(this.saved);
@@ -295,10 +235,6 @@ export class RemoteAccount {
     }
   }
 
-  /**
-   * Deletes the account on the server: its devices, its key bundle, all
-   * of it. Every device is signed out; this one forgets its sign-in.
-   */
   async deleteAccount(headers?: Record<string, string>): Promise<void> {
     await this.call("DELETE", "/account", headers ? { headers } : {});
     this.forget();
@@ -308,23 +244,15 @@ export class RemoteAccount {
     return DevicesResponseSchema.parse(await this.call("GET", "/devices")).devices;
   }
 
-  /** Removes a device from the account; removing this one signs it out. */
   async removeDevice(id: string): Promise<void> {
     await this.call("DELETE", `/devices/${encodeURIComponent(id)}`);
     if (id === this.saved?.device.id) this.forget();
   }
 
   sendPush(body: PushSend, signal: AbortSignal, timeoutMs: number): Promise<unknown> {
-    // The sender owns the retry and rechecks the pending request before using it.
     return this.call("POST", "/push/send?v=1", { body, signal, timeoutMs, retryOrigin: false });
   }
 
-  /**
-   * Asks the server as this device: the JSON it answered, or a ServerError;
-   * a 401 signs the app out and throws SignedOutError. `headers` adds to the
-   * request's own (the account password's proof, say). An aborted request
-   * cannot update the route or sign the account out.
-   */
   request(
     method: string,
     path: string,
@@ -339,10 +267,6 @@ export class RemoteAccount {
     });
   }
 
-  /**
-   * Sends bytes to the server as this device (a recording, say): the JSON
-   * it answered, or a ServerError; a 401 signs the app out.
-   */
   upload(
     path: string,
     bytes: Uint8Array,
@@ -354,7 +278,6 @@ export class RemoteAccount {
     });
   }
 
-  /** Asks the server, signed in unless told not to; a 401 signs the app out. */
   private async call(
     method: string,
     path: string,
@@ -371,14 +294,12 @@ export class RemoteAccount {
     const { signal } = options;
     signal?.throwIfAborted();
     const headers: Record<string, string> = { ...options.raw?.headers, ...options.headers };
-    // The token the request goes with: a refusal of it signs out that sign-in alone.
     let token: string | undefined;
     if (options.signedIn !== false) {
       if (!this.saved) throw new SignedOutError();
       token = this.saved.token;
       headers.authorization = `Bearer ${token}`;
     }
-    // Signed out, or in again, while the request was away: the sign-in now is not the one refused.
     const signedInAsSent = () => this.saved !== null && this.saved.token === token;
     if (options.body !== undefined) headers["content-type"] = "application/json";
     if (options.raw) headers["content-type"] = options.raw.type;
@@ -405,10 +326,6 @@ export class RemoteAccount {
         break;
       } catch (error) {
         signal?.throwIfAborted();
-        // fetch fails with a TypeError when the server cannot be reached, a TimeoutError when it
-        // is slow. A way not reached is passed by, now and for a while, and the request goes by
-        // the next, each way once; a request that timed out may have gone through, and is not
-        // sent again.
         if (!this.route.unreachable(base) || options.retryOrigin === false || isTimeout(error)) {
           throw new UnreachableError(error);
         }
@@ -417,7 +334,6 @@ export class RemoteAccount {
         tried.push(base);
       }
     }
-    // A stale relay ticket can no longer change the account or its route.
     signal?.throwIfAborted();
     if (res.status === 401 && options.signedIn !== false) {
       void res.body?.cancel().catch(() => {});
@@ -432,7 +348,6 @@ export class RemoteAccount {
       signal?.throwIfAborted();
       if (res.status === 429)
         throw new ServerError(res.status, undefined, `${method} ${path}`, retryAfter);
-      // A known HTTP error consumes the push attempt even if its body was lost.
       if (options.retryOrigin === false) {
         if (!res.ok) throw new ServerError(res.status, undefined, `${method} ${path}`, retryAfter);
         if (error instanceof TypeError || isTimeout(error)) throw new UnreachableError(error);
@@ -444,7 +359,6 @@ export class RemoteAccount {
     if (!res.ok) {
       const refusal = isRecord(answer) ? answer : undefined;
       const code = typeof refusal?.error === "string" ? refusal.error : undefined;
-      // The server revoked access. Sign out as with a 401 and keep the reason.
       if (res.status === 403 && code === "not_invited" && options.signedIn !== false) {
         if (signedInAsSent()) {
           this.failure = refusal?.access === "suspended" ? "suspended" : "not_invited";
@@ -474,8 +388,6 @@ function failureOf(error: unknown): SignInFailure {
     if (error.code === "invalid_grant") return "invalid_grant";
     if (error.status === 409 && error.code === "too_many_devices") return "too_many_devices";
     if (error.status === 429) return "rate_limited";
-    // A code refused for the account: suspended, or not invited. The signup states
-    // (pending, rejected, closed) come with the callback, not here.
     if (error.status === 403 && error.code === "not_invited") {
       const failure = notInvitedFailure(error.access);
       return failure === "suspended" || failure === "not_invited" ? failure : "failed";
@@ -499,7 +411,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-/** A fetch that gave up waiting (AbortSignal.timeout), rather than one that reached nothing. */
 function isTimeout(error: unknown): boolean {
   return error instanceof Error && error.name === "TimeoutError";
 }

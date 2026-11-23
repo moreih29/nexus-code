@@ -24,8 +24,6 @@ function evt(target: HTMLElement | null): KeyboardEvent {
 describe("evaluateContextKey", () => {
   describe("inputFocus", () => {
     it("is false inside Monaco (those are editorFocus, not inputFocus)", () => {
-      // Monaco's host is a contentEditable but we want callers to scope
-      // by `editorFocus` and reserve `inputFocus` for plain inputs.
       const e = evt(makeTarget({ isContentEditable: true, matches: [".monaco-editor"] }));
       expect(evaluateContextKey("inputFocus", e)).toBe(false);
     });

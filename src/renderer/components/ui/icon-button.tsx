@@ -1,10 +1,3 @@
-/**
- * IconButton — a button that is only an icon: muted at rest, lit on hover,
- * pressed-looking while its menu or popover is open. Its label is both its
- * accessible name and its tooltip, with the shortcut that does the same. A
- * blocked one keeps its tooltip, which can say why, and does nothing.
- */
-
 import type * as React from "react";
 import { cn } from "@/utils/cn";
 import { tooltipProps } from "./tooltip";
@@ -25,16 +18,9 @@ export const ICON_BUTTON_CLASS = cn(
 );
 
 export interface IconButtonProps extends Omit<React.ComponentProps<"button">, "title"> {
-  /** What the button does: its tooltip and, unless `aria-label` says more, its accessible name. */
   label: string;
-  /** The keys that do the same, shown in the tooltip. */
   shortcut?: string | null;
-  /** xs 20px, sm 24px (default), md 28px, lg 32px. */
   size?: keyof typeof SIZE_CLASS;
-  /**
-   * Shown dimmed and does nothing, but unlike `disabled` keeps its tooltip
-   * and its place in the tab order, so the label can tell why.
-   */
   blocked?: boolean;
 }
 

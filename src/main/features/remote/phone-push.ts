@@ -67,7 +67,6 @@ interface PhonePushDeps {
   now?: () => number;
 }
 
-/** Observes pending work locally. Only the delivery envelope goes to the server. */
 export class PhonePush {
   private readonly now: () => number;
   private readonly stopScreenLockListener: (() => void) | undefined;
@@ -98,7 +97,6 @@ export class PhonePush {
     return this.active;
   }
 
-  /** A device can appear in presence before it connects to the room itself. */
   presence(devices: readonly AccountDevice[]): void {
     this.hasPresence = true;
     this.setDevices(devices);
@@ -213,7 +211,6 @@ export class PhonePush {
         if (!this.disposed && this.token === token && !this.hasPresence) this.setDevices(devices);
       }
     } catch {
-      // Keep the last confirmed features on a transient discovery error.
     } finally {
       if (this.discovering === token) this.discovering = undefined;
     }
@@ -316,7 +313,6 @@ export class PhonePush {
         else this.send("request", event);
       }
     } catch {
-      // A snapshot that failed does not confirm a request is still waiting.
     } finally {
       this.polling = false;
       this.scheduleRequests(revision === this.revision ? next : 0);

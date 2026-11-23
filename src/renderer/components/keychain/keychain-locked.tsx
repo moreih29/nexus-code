@@ -1,6 +1,3 @@
-// What a setting kept in the macOS keychain shows while the keychain is not
-// open: locked, and a button that opens it (macOS may then ask).
-
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type KeychainItem, keychainLocked } from "../../../shared/keychain";
@@ -8,17 +5,14 @@ import { openKeychain, useKeychain } from "../../services/keychain";
 import { SettingsRow } from "../settings/section";
 import { Button } from "../ui/button";
 
-/** Whether the item waits on the keychain now. */
 export function useKeychainLocked(item: KeychainItem): boolean {
   return useKeychain((s) => keychainLocked(s.status, item));
 }
 
-/** Refused in macOS's prompt this run: opening again cannot ask, so there is no button. */
 export function useKeychainRefused(): boolean {
   return useKeychain((s) => s.status?.refused === true);
 }
 
-/** The keychain's "열기", busy while it opens. */
 export function OpenKeychainButton({ className }: { className?: string }) {
   const { t } = useTranslation();
   const opening = useKeychain((s) => s.status?.state === "opening");
@@ -42,7 +36,6 @@ export function OpenKeychainButton({ className }: { className?: string }) {
   );
 }
 
-/** A settings row: "키체인 잠김", what waits, and the button; refused, that a restart asks again. */
 export function KeychainLockedRow({ item }: { item: Exclude<KeychainItem, "profileKeys"> }) {
   return <KeychainLockedRowView item={item} refused={useKeychainRefused()} />;
 }

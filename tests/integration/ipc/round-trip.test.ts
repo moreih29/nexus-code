@@ -1,13 +1,3 @@
-/**
- * Integration: IPC round-trip through router + channel + zod validation.
- *
- * Uses a fake ipcMain/webContents harness so the test runs without Electron.
- * Exercises the full path: register -> validateArgs (zod) -> call handler ->
- * broadcast -> fake listener.
- *
- * Monaco + xterm renderer integration requires a browser-level manual scenario.
- */
-
 import {
   afterEach,
   beforeAll,
@@ -32,10 +22,6 @@ import {
 } from "../../helpers/ipc-pair";
 import { mainErrorMock } from "../../log-test-spies";
 
-// ---------------------------------------------------------------------------
-// Fake Electron harness
-// ---------------------------------------------------------------------------
-
 type IpcCallHandler = (
   event: { sender?: { id?: number } },
   channelName: string,
@@ -53,8 +39,6 @@ const fakeListeners: {
 
 const fakeGetAllWebContents = () => [...fakeListeners, ...mockGetAllWebContents()];
 
-// Suppress electron-log output — the router creates a logger at module load
-// time, so we must stub electron-log/main before the router is imported.
 mock.module("electron-log/main", () => ({
   default: {
     error: () => {},
@@ -92,8 +76,6 @@ const { KeychainGate, openKeychain } = await import("../../../src/main/features/
 const { remoteServer } = await import("../../../src/main/features/remote/server");
 const { isIpcErrResult } = await import("../../../src/shared/ipc/result");
 
-// ---------------------------------------------------------------------------
-// Both the handler-level and renderer-lifetime cases use the same router.
 beforeEach(() => {
   resetInMemoryIpc();
   setupRouter();
@@ -108,11 +90,6 @@ function getHandler(): IpcCallHandler {
   return handler as unknown as IpcCallHandler;
 }
 
-// ---------------------------------------------------------------------------
-// Test channel: integration-echo
-// Simulates a simple call+zod-validated channel registered from main.
-// ---------------------------------------------------------------------------
-
 describe("ipc round-trip — call.echo with zod validation", () => {
   beforeAll(() => {
     const echoArgsSchema = z.object({ val: z.string() });
@@ -120,9 +97,6 @@ describe("ipc round-trip — call.echo with zod validation", () => {
     register("integration-echo", {
       call: {
         echo: (args: unknown) => {
-          // validateArgs throws IpcValidationError on schema failure.
-          // The router catches it at the IPC boundary and converts it into an
-          // IpcErrResult<"invalid-args"> so the renderer gets a typed result.
           const { val } = validateArgs(echoArgsSchema, args);
           return val.toUpperCase();
         },
@@ -165,14 +139,7 @@ describe("ipc round-trip — call.echo with zod validation", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Test channel: integration-broadcast
-// Simulates listen.changed broadcast reaching a fake webContents.
-// ---------------------------------------------------------------------------
-
 describe("ipc round-trip — broadcast reaches listener", () => {
-  // Regression: broadcasts (terminal output, OAuth redirects, SSH prompts)
-  // went to every WebContents, including embedded browser tabs and popups.
   it("broadcast skips WebContents excluded as third-party pages", () => {
     const appSend = mock((..._args: unknown[]) => {});
     const tabSend = mock((..._args: unknown[]) => {});
@@ -216,10 +183,6 @@ describe("ipc round-trip — broadcast reaches listener", () => {
     fakeListeners.splice(0, fakeListeners.length);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Test channel: unknown channel / unknown method errors
-// ---------------------------------------------------------------------------
 
 describe("ipc round-trip — routing errors", () => {
   it("returns invalid input for an unknown channel or method", async () => {
@@ -366,14 +329,12 @@ describe("ipc round-trip — routing errors", () => {
   });
 });
 
-/** Seals nothing: what the remote's fixtures write is read back as it is. */
 const plainBox = {
   available: true,
   encrypt: async (text: string) => Buffer.from(text, "utf8"),
   decrypt: async (bytes: Buffer) => bytes.toString("utf8"),
 };
 
-/** Until the remote's kept sign-in is read back, which no longer holds up its start. */
 async function remoteSignedIn(): Promise<void> {
   for (let i = 0; i < 100; i++) {
     const result = (await getHandler()({}, "remote", "account", undefined)) as {
@@ -433,7 +394,6 @@ describe("remote and the keychain", () => {
           value: { status: "signed-out" },
         });
         expect(reads).toBe(0);
-        // Signing in opens the keychain and brings the kept sign-in back, not a new one.
         expect(await getHandler()({}, "remote", "signIn", undefined)).toMatchObject({
           ok: true,
           value: { status: "signed-in", user: { id: "u1" } },
@@ -491,11 +451,9 @@ describe("remote and the keychain", () => {
         phonePush: { get: () => "off", set: () => {}, activity: { away: () => false } },
       });
       try {
-        // Registered while the signature is still being told.
         expect(keychain.status().state).toBe("checking");
         signed.resolve("developer-id");
         await keychain.decided();
-        // Signed as before: read at once, while macOS has not answered yet.
         expect(keychain.isOpen()).toBe(true);
         expect(await getHandler()({}, "remote", "account", undefined)).toMatchObject({
           ok: true,

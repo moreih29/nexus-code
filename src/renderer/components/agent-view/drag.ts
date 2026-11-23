@@ -1,9 +1,3 @@
-/**
- * Dragging an agent within the agent view: from the list or a panel's tab
- * bar onto a panel, or within the list to put it elsewhere among its
- * workspace's agents. The payload is the agent's session key.
- */
-
 import type { DropZone } from "../../types/workbench-dnd";
 
 export const MIME_AGENT = "application/x-nexus-agent";
@@ -22,7 +16,6 @@ export function agentDragKey(dataTransfer: DataTransfer | null): string | null {
   return key ? key : null;
 }
 
-/** The side a panel splits toward for an edge it was dropped on. */
 export const ZONE_DIRECTION = {
   top: "up",
   bottom: "down",
@@ -30,11 +23,6 @@ export const ZONE_DIRECTION = {
   right: "right",
 } as const satisfies Record<Exclude<DropZone, "center">, string>;
 
-/**
- * Where a drag over a panel's tab bar puts the agent: before the tab whose
- * middle the pointer is left of (null: after the last), and the x of the
- * line that shows it, in the strip's scrolled content.
- */
 export interface TabInsertion {
   x: number;
   before: string | null;
@@ -53,16 +41,11 @@ export function tabInsertion(strip: HTMLElement, clientX: number): TabInsertion 
   return { x: last ? last.getBoundingClientRect().right - origin : 0, before: null };
 }
 
-/**
- * The index `key` lands at among `tabIds` when put before `before` (null:
- * after the last), counted without `key`, as moveKey counts.
- */
 export function insertionIndex(
   tabIds: readonly string[],
   key: string,
   before: string | null,
 ): number {
-  // Before itself: where it is.
   if (before === key) return Math.max(0, tabIds.indexOf(key));
   const without = tabIds.filter((id) => id !== key);
   const at = before === null ? -1 : without.indexOf(before);

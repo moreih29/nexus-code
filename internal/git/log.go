@@ -11,7 +11,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// LogBatchSize mirrors LOG_CHUNK_ENTRY_COUNT in src/shared/types/git.ts.
 const LogBatchSize = 50
 
 const (
@@ -64,8 +63,6 @@ type LogResult struct {
 	TotalScanned *int `json:"totalScanned,omitempty"`
 }
 
-// Log streams parsed git log entries as git.log.batch events and returns the
-// final count / pagination state once traversal has stopped.
 func (s *Service) Log(ctx context.Context, raw json.RawMessage) (any, error) {
 	params, err := parseLogParams(raw)
 	if err != nil {
@@ -105,10 +102,8 @@ func (s *Service) Log(ctx context.Context, raw json.RawMessage) (any, error) {
 		return cmd.Cancel()
 	})
 	if readErr != nil {
-		// Stop git before waiting; it would block on a full stdout pipe.
 		cancel()
 	}
-	// A page limit or sink error can stop the parser before it drains stdout.
 	waitErr := finish()
 
 	if readErr != nil && !(killedForLimit && isClosedPipeReadError(readErr)) {
@@ -127,9 +122,6 @@ func (s *Service) Log(ctx context.Context, raw json.RawMessage) (any, error) {
 	return result, nil
 }
 
-// logError classifies a failed git log. Git reports the log of an unborn
-// branch's HEAD as an unknown revision; HEAD always exists, so a HEAD that
-// does not resolve means the branch has no commits yet.
 func logError(params LogParams, args []string, stderr string, code int) error {
 	err := gitError(args, stderr, code)
 	var failure Failure
@@ -201,9 +193,6 @@ func buildLogArgs(params LogParams) []string {
 	if hasSource {
 		formatFields = append([]string{"%S"}, logPrettyFields...)
 	}
-	// --date-order: git's default order can list a commit before one of its
-	// children when their times tie or clocks disagree, which the history
-	// graph cannot draw.
 	args := []string{"log", "--pretty=format:" + strings.Join(formatFields, "%x1f") + "%x1e", "--date=iso-strict", "--date-order"}
 	if params.Grep != "" {
 		args = append(args, "--grep="+params.Grep)
@@ -257,8 +246,6 @@ func logHasSource(params LogParams) bool {
 
 func (s *Service) consumeLogOutput(ctx context.Context, reader io.Reader, params LogParams, killForLimit func() error) (LogResult, error) {
 	hasSource := logHasSource(params)
-	// The next page continues the same walk past the cursor. The cursor's
-	// parents alone would leave out a merged branch's commits older than it.
 	cursorSHA := params.AfterSHA
 	cursorReached := cursorSHA == ""
 	count := 0
@@ -340,7 +327,6 @@ func (s *Service) consumeLogOutput(ctx context.Context, reader io.Reader, params
 	return result, nil
 }
 
-// readLogRecord bounds an individual commit record without limiting page scans.
 func readLogRecord(reader *bufio.Reader) (string, error) {
 	var record strings.Builder
 	for {
@@ -365,7 +351,6 @@ func (s *Service) emitLogBatch(streamID string, entries []LogEntry) error {
 	return sink("git.log.batch", LogBatchPayload{StreamID: streamID, Entries: entries})
 }
 
-// ParseLogRecord converts one custom-formatted git log record into a LogEntry.
 func ParseLogRecord(record string, hasSource bool) (LogEntry, bool) {
 	normalized := strings.TrimPrefix(record, "\n")
 	if strings.TrimSpace(normalized) == "" {

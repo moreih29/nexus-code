@@ -1,8 +1,3 @@
-/**
- * A list row reads its own conversation's facts and keeps the ones it has
- * while they say the same: a chunk of a reply streaming in gives facts
- * worked out again, equal, and renders no row.
- */
 import { describe, expect, test } from "bun:test";
 import {
   chatRowFacts,

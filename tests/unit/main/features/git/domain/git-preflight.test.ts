@@ -1,14 +1,3 @@
-/**
- * Unit tests for the trimmed git-preflight surface.
- *
- * After Stage 4 of the git stabilization cycle, preflight kept only
- * `assertHasHead` (used by `push --publish` to fail fast before building
- * argv with a missing branch name) and `resolveCheckoutTarget` (auto-track
- * promotion for remote-only refs — a feature, not a precondition guard).
- * Other situations (`no-remote`, `no-upstream`, `empty-stash`,
- * `no-local-changes`) now surface through stderr classification.
- */
-
 import { describe, expect, test } from "bun:test";
 import type { GitError } from "../../../../../../src/main/features/git/domain/error";
 import {

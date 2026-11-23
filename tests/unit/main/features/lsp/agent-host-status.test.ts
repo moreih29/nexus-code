@@ -1,8 +1,3 @@
-/**
- * The status, log and memory the LSP host keeps of each server, and what it
- * does when one crashes: start it again, until it crashed too often.
- */
-
 import { describe, expect, test } from "bun:test";
 import { startAgentLspHost } from "../../../../../src/main/features/lsp/agent-host";
 import type {
@@ -19,7 +14,6 @@ class StatusChannel implements AgentChannel {
   readonly ready = Promise.resolve();
   spawns = 0;
   spawnError: Error | null = null;
-  /** The failing spawn started a server first, as one that dies starting did. */
   assignBeforeError = false;
   serverId = "srv-0";
   private readonly listeners = new Map<string, Set<ChannelEventCallback>>();
@@ -126,7 +120,6 @@ describe("LSP server status", () => {
     expect(resets.at(-1)?.reopen).toBeUndefined();
     expect(host.serverStatuses()[0]).toMatchObject({ state: "failed", gaveUp: true });
 
-    // It stays down until the user restarts it.
     await open();
     expect(channel.spawns).toBe(3);
     host.restartLanguage(WORKSPACE_ID, "python");
@@ -162,7 +155,6 @@ describe("LSP server status", () => {
     channel.assignBeforeError = true;
 
     await open();
-    // Its exit comes after lsp.spawn failed, with the stderr that says why.
     channel.emit("lsp.serverExited", {
       serverId: "srv-1",
       reason: "exit status 1",

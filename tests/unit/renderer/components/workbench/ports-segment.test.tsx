@@ -2,7 +2,6 @@ import { afterAll, describe, expect, test } from "bun:test";
 
 const globals = globalThis as { window?: unknown };
 const originalWindow = globals.window;
-// Window IPC stub — the stores check for window.ipc on import.
 globals.window ??= {
   ipc: { call: () => Promise.resolve(null), listen: () => {}, off: () => {} },
 };

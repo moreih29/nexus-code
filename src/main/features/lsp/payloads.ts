@@ -1,8 +1,3 @@
-// Validation/parsing layer for the agent ↔ host wire payloads. The host
-// class only handles routing decisions; this module owns the schemas
-// that turn raw `unknown` channel events into typed objects (or null
-// when the payload does not match).
-
 import { z } from "zod";
 import { NumberSchema } from "../../../../packages/remote-protocol/src/validation";
 import {
@@ -19,10 +14,6 @@ interface AgentSpawnResultShape {
   serverInfo?: { name: string; version?: string };
 }
 
-/**
- * The version a server reports, as a person reads it. gopls reports its
- * whole build info as JSON, with the version inside.
- */
 function readableServerVersion(version: string | undefined): string | undefined {
   if (!version?.startsWith("{")) return version;
   try {
@@ -37,7 +28,6 @@ function readableServerVersion(version: string | undefined): string | undefined 
 const SpawnResultSchema = z.object({
   serverId: z.string().min(1),
   capabilities: z.unknown().optional(),
-  // A server's own words: dropped rather than failing the spawn when odd.
   serverInfo: z
     .object({ name: z.string(), version: z.string().optional().transform(readableServerVersion) })
     .optional()
@@ -53,7 +43,6 @@ const FindBinaryResultSchema = z.object({
   envPath: z.string().optional(),
 });
 
-/** lsp.findBinary: the server found on the agent's host, `path` empty when none was. */
 export function parseFindBinaryResult(result: unknown): { path: string; envPath?: string } {
   return FindBinaryResultSchema.parse(result);
 }
@@ -62,7 +51,6 @@ const StatsResultSchema = z.object({
   servers: z.array(z.object({ serverId: z.string(), rssBytes: NumberSchema })),
 });
 
-/** lsp.stats: each server's memory, with the processes it started. */
 export function parseStatsResult(result: unknown): Array<{ serverId: string; rssBytes: number }> {
   return StatsResultSchema.parse(result).servers;
 }
@@ -119,7 +107,6 @@ export function parseServerExitedPayload(
       serverId: z.string().min(1),
       reason: z.string().optional(),
       stderrTail: z.string().optional(),
-      // The agent stopped the server: idle, or asked to.
       shutdown: z.boolean().optional(),
     })
     .safeParse(payload);
@@ -143,9 +130,6 @@ export function parseWorkDoneProgressCreateParams(params: unknown): unknown {
   return parsed.success ? parsed.data : params;
 }
 
-// serverExitError shapes the server-exited payload into an Error with the
-// stderr tail appended. Used by the host to fail in-flight requests when
-// the LSP process dies while requests are still pending.
 export function serverExitError(payload: { reason: string; stderrTail: string }): Error {
   const reason = payload.reason || "lsp server exited";
   const tail = payload.stderrTail.trim();

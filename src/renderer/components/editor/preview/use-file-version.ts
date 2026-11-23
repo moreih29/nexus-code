@@ -1,24 +1,10 @@
-// Which version of a workspace file a viewer that loads it by URL shows.
-//
-// The `nexus-workspace://` URL is stable for a given file, so an on-disk
-// change would never re-request it. The version starts at 0 and goes up
-// whenever the file changes: on fs.changed for it, and on git.statusChanged
-// when a stat shows it moved (for directories the file-tree watcher doesn't
-// cover). A viewer appends it to the URL as `?v=<n>`, which main ignores.
-
 import { createContext, useContext, useEffect, useState } from "react";
 import { ipcCallResult, ipcListen } from "../../../ipc/client";
 import { fileSignal } from "../../../services/editor/preview/file-refresh";
 import { peerOf, usePeerFileRevision } from "../../../services/remote/peer-workspace";
 
-/** A peer workspace tab owns the lifetime of the viewer's version watch. */
 export const PeerPreviewVersion = createContext<number | null>(null);
 
-/**
- * The version of the file, one signal for every workspace: the local watch's
- * for a file here (or over SSH or WSL), the generation another computer's
- * host gives for a file there.
- */
 export function useFileVersion(workspaceId: string, relPath: string): number {
   const local = useLocalFileVersion(workspaceId, relPath);
   const supplied = useContext(PeerPreviewVersion);
@@ -30,16 +16,9 @@ function useLocalFileVersion(workspaceId: string, relPath: string): number {
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
-    // Another computer's file has no local watch: usePeerFileRevision follows it.
     if (peerOf(workspaceId)) return;
     let cancelled = false;
-    // `${mtime}|${size}` last observed; null = missing, undefined = no
-    // baseline yet (the first stat only records, never bumps).
     let statKey: string | null | undefined;
-    // fs.changed already proves a write happened, so it forces a bump even
-    // when the stat compares equal (mtime is only ms-granular).
-    // git.statusChanged fires for any workspace change, so it bumps only
-    // when this file's stat actually moved.
     const refresh = (force: boolean) => {
       void ipcCallResult("fs", "stat", { workspaceId, relPath }).then((result) => {
         if (cancelled) return;
@@ -70,7 +49,6 @@ function useLocalFileVersion(workspaceId: string, relPath: string): number {
   return version;
 }
 
-/** A URL keyed by file version and, when supplied, the chat's foreground epoch. */
 export function versionedUrl(url: string, version: number, epoch?: number): string {
   if (epoch !== undefined) return `${url}?v=${version}&epoch=${epoch}`;
   return version === 0 ? url : `${url}?v=${version}`;

@@ -1,16 +1,4 @@
-/**
- * Unit tests for browser operations — last-URL restoration.
- *
- * Tests cover:
- *  1. resolveInitialBrowserUrl — javascript: scheme → null.
- *  2. resolveInitialBrowserUrl — a rejected lastUrl does not fall back to initialUrl.
- */
-
 import { describe, expect, it } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Minimal shims so Zustand runs in bun (no DOM needed)
-// ---------------------------------------------------------------------------
 
 (globalThis as Record<string, unknown>).window = {
   ipc: {
@@ -20,17 +8,9 @@ import { describe, expect, it } from "bun:test";
   },
 };
 
-// ---------------------------------------------------------------------------
-// Imports (after shims)
-// ---------------------------------------------------------------------------
-
 import * as browserOperations from "../../../../../src/renderer/state/operations/browser";
 import { useBrowserRuntimeStore } from "../../../../../src/renderer/state/stores/browser-runtime";
 import { type BrowserTabProps, useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
-
-// ---------------------------------------------------------------------------
-// resolveInitialBrowserUrl
-// ---------------------------------------------------------------------------
 
 describe("resolveInitialBrowserUrl", () => {
   function makeProps(lastUrl: string, initialUrl = "https://initial.example.com"): BrowserTabProps {

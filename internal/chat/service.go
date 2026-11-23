@@ -25,7 +25,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/redact"
 )
 
-// Service owns the tabs' programs and their logs.
 type Service struct {
 	mu              sync.Mutex
 	sink            *connectionSink
@@ -33,7 +32,6 @@ type Service struct {
 	closedTabs      map[closedTabGeneration]struct{}
 	runs            map[runKey]*activeRun
 	earlyRunCancels map[runKey]time.Time
-	// closedOrder lets expiry and capacity discard the oldest closes first.
 	closedOrder     list.List
 	closed          bool
 	transcriptPages transcriptSnapshotCache
@@ -46,8 +44,7 @@ type tabKey struct {
 
 const (
 	maxClosedTabGenerations = 4096
-	// Covers a reconnect queue wait, an agent request, and login environment setup.
-	closedTabRetention = 2 * time.Minute
+	closedTabRetention      = 2 * time.Minute
 )
 
 type closedTabGeneration struct {
@@ -60,47 +57,29 @@ type closedTabRecord struct {
 	expiresAt time.Time
 }
 
-// session is one tab: its log, and the program running for it, if any. A
-// program that exits leaves the log, so the tab can still show the
-// conversation and start the program again on it.
 type session struct {
 	service   *Service
 	key       tabKey
 	createdAt time.Time
 
-	// mu orders the log and its events: a line is added and sent under it,
-	// and chat.replay holds it while it sends the log, so live lines follow.
-	mu   chatGate
-	log  *lineLog
-	proc *process
-	// pending reserves the next line while stdin is writing. Output readers
-	// can fill the capped log while publication waits for the write result.
-	pending *entry
-	// snaps takes the originals of the files a Codex program changes.
-	snaps *snapshots
-	// closed is set once the tab is closed: its program, still ending,
-	// sends nothing more, as the tab may already run another.
+	mu            chatGate
+	log           *lineLog
+	proc          *process
+	pending       *entry
+	snaps         *snapshots
 	closed        bool
 	tabGeneration string
 }
 
-// process is one run of a tab's program.
 type process struct {
-	generation   string
-	canonicalCwd string
-	cmd          *exec.Cmd
-	stdin        stdinWriter
-	// outputs are the stdout and stderr pipes, closed once the exit is
-	// reported, in case a process the program left behind holds them open.
-	outputs []io.Closer
-	// writeMu orders writes to stdin.
-	writeMu chatGate
-	// codexGuidance is used under writeMu, alongside the requests it accompanies.
-	codexGuidance    map[string]*codexGuidance
-	codexCompactions atomic.Uint64
-	// codexInitialized and codexExperimental are set under writeMu by the
-	// program's first initialize request: Codex takes additionalContext only
-	// from a connection that asked for experimentalApi there.
+	generation        string
+	canonicalCwd      string
+	cmd               *exec.Cmd
+	stdin             stdinWriter
+	outputs           []io.Closer
+	writeMu           chatGate
+	codexGuidance     map[string]*codexGuidance
+	codexCompactions  atomic.Uint64
 	codexInitialized  bool
 	codexExperimental bool
 	done              chan struct{}
@@ -111,17 +90,13 @@ type process struct {
 
 	stopOnce sync.Once
 
-	// tree holds the processes the program starts, where its own process
-	// group does not.
 	tree tree
 }
 
-// New constructs an empty service.
 func New() *Service {
 	return &Service{sessions: make(map[tabKey]*session), closedTabs: make(map[closedTabGeneration]struct{})}
 }
 
-// Register binds the chat.* methods onto the dispatcher.
 func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("chat.start", service.Start)
 	d.Register("chat.send", service.Send)
@@ -153,25 +128,21 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("chat.writeCodexCatalog", service.WriteCodexCatalog)
 }
 
-// connectionSink binds a sink to the host that installed it.
 type connectionSink struct {
 	ctx  context.Context
 	emit EventSink
 }
 
-// SetEventSink wires an in-process sink without a connection context.
 func (s *Service) SetEventSink(sink EventSink) {
 	s.SetConnectionSink(nil, sink)
 }
 
-// SetConnectionSink advances the generation used by chat replay.
 func (s *Service) SetConnectionSink(ctx context.Context, sink EventSink) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sink = &connectionSink{ctx: ctx, emit: sink}
 }
 
-// Close kills every program, as the agent shuts down.
 func (s *Service) Close() {
 	s.mu.Lock()
 	s.closed = true
@@ -206,7 +177,6 @@ func (s *Service) Close() {
 	}
 }
 
-// Start runs the tab's program, or attaches to the one running.
 func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 	var p StartParams
 	if err := decodeParams(raw, &p, "chat.start params must include workspaceId, tabId, cwd and program"); err != nil {
@@ -220,7 +190,6 @@ func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, protocolError("chat.start cwd and program are required")
 	}
 
-	// Out of the tab's lock: the login shell may take a while to answer.
 	env := mergeEnv(p.Env)
 	sess, err := s.sessionFor(key, p.TabGeneration)
 	if err != nil {
@@ -229,7 +198,6 @@ func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 	return s.startSession(sess, p, env)
 }
 
-// startSession starts only while the session still owns the tab.
 func (s *Service) startSession(sess *session, p StartParams, env []string) (any, error) {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
@@ -255,8 +223,6 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 		return nil, requestFailed("chat.start process generation: %s", err)
 	}
 
-	// A node package's command runs as node on its script: through npm's
-	// .cmd, cmd.exe would end a multi-line argument at its first line.
 	cmd := nodeshim.Command(p.Program, p.Args...)
 	cmd.Dir = p.Cwd
 	cmd.Env = env
@@ -300,7 +266,6 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 	if p.ResetLog {
 		sess.log.reset()
 	}
-	// The originals go with the log, and are of files under the folder.
 	if p.ResetLog || sess.snaps == nil || sess.snaps.cwd != p.Cwd {
 		sess.snaps = newSnapshots(p.Cwd)
 	}
@@ -330,7 +295,6 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 	return StartResult{PID: cmd.Process.Pid, CanonicalCwd: canonicalCwd}, nil
 }
 
-// Send writes one message to the tab's program and logs it.
 func (s *Service) Send(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p SendParams
 	if err := decodeParams(raw, &p, "chat.send params must include workspaceId, tabId and message"); err != nil {
@@ -380,7 +344,6 @@ func (s *Service) Send(ctx context.Context, raw json.RawMessage) (any, error) {
 		code := "chat.stdin-write-failed"
 		if written > 0 {
 			code = "chat.stdin-incomplete"
-			// The next request must not be appended to a partial JSON line.
 			_ = proc.stdin.Close()
 		}
 		failure, _ := json.Marshal(map[string]string{"event": "stdin-failed", "code": code})
@@ -391,8 +354,6 @@ func (s *Service) Send(ctx context.Context, raw json.RawMessage) (any, error) {
 	return struct{}{}, nil
 }
 
-// finishInput publishes the write outcome before any output produced while
-// the write was in flight. Earlier logs still use the same DirIn format.
 func (sess *session) finishInput(slot *entry, dir string, message json.RawMessage) {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
@@ -407,7 +368,6 @@ func (sess *session) finishInput(slot *entry, dir string, message json.RawMessag
 	}
 }
 
-// Stop ends the tab's program and keeps its log.
 func (s *Service) Stop(_ context.Context, raw json.RawMessage) (any, error) {
 	var p TabParams
 	if err := decodeParams(raw, &p, "chat.stop params must include workspaceId and tabId"); err != nil {
@@ -426,8 +386,6 @@ func (s *Service) Stop(_ context.Context, raw json.RawMessage) (any, error) {
 	return struct{}{}, nil
 }
 
-// CloseTab ends the tab's program and forgets its log, and its attached
-// files unless the app keeps them (keepAttachments): the tab was closed.
 func (s *Service) CloseTab(_ context.Context, raw json.RawMessage) (any, error) {
 	var p TabParams
 	if err := decodeParams(raw, &p, "chat.close params must include workspaceId and tabId"); err != nil {
@@ -470,7 +428,6 @@ func (s *Service) CloseTab(_ context.Context, raw json.RawMessage) (any, error) 
 	return struct{}{}, nil
 }
 
-// Replay sends the tab's log again as chat.line events, then answers.
 func (s *Service) Replay(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p ReplayParams
 	if err := decodeParams(raw, &p, "chat.replay params must include workspaceId and tabId"); err != nil {
@@ -524,8 +481,6 @@ func (s *Service) Replay(ctx context.Context, raw json.RawMessage) (any, error) 
 	}, nil
 }
 
-// checkReplayConnection rejects work from a superseded host even when its
-// previous write just completed. Dispatch passes the host's context through.
 func (s *Service) checkReplayConnection(ctx context.Context, sink *connectionSink) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -539,7 +494,6 @@ func (s *Service) checkReplayConnection(ctx context.Context, sink *connectionSin
 	return nil
 }
 
-// List reports the tabs the agent has logs for.
 func (s *Service) List(_ context.Context, raw json.RawMessage) (any, error) {
 	var p ListParams
 	if len(raw) > 0 && string(raw) != "null" {
@@ -574,7 +528,6 @@ func (s *Service) List(_ context.Context, raw json.RawMessage) (any, error) {
 	return result, nil
 }
 
-// sessionFor returns or creates the session for a still-open generation.
 func (s *Service) sessionFor(key tabKey, generation string) (*session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -589,14 +542,12 @@ func (s *Service) sessionFor(key tabKey, generation string) (*session, error) {
 	return sess, nil
 }
 
-// tabClosedLocked checks close intents even when they arrived before session creation.
 func (s *Service) tabClosedLocked(key tabKey, generation string) bool {
 	s.expireClosedTabsLocked(time.Now())
 	_, closed := s.closedTabs[closedTabGeneration{key, generation}]
 	return s.closed || closed
 }
 
-// rememberClosedTabLocked keeps a bounded window for rejecting late starts.
 func (s *Service) rememberClosedTabLocked(tab closedTabGeneration, now time.Time) {
 	s.expireClosedTabsLocked(now)
 	if _, exists := s.closedTabs[tab]; exists {
@@ -609,7 +560,6 @@ func (s *Service) rememberClosedTabLocked(tab closedTabGeneration, now time.Time
 	s.closedOrder.PushBack(closedTabRecord{tab, now.Add(closedTabRetention)})
 }
 
-// expireClosedTabsLocked purges expired generations without a background timer.
 func (s *Service) expireClosedTabsLocked(now time.Time) {
 	for oldest := s.closedOrder.Front(); oldest != nil; oldest = s.closedOrder.Front() {
 		if now.Before(oldest.Value.(closedTabRecord).expiresAt) {
@@ -619,7 +569,6 @@ func (s *Service) expireClosedTabsLocked(now time.Time) {
 	}
 }
 
-// forgetClosedTabLocked removes one generation from the index and expiry order.
 func (s *Service) forgetClosedTabLocked(element *list.Element) {
 	record := s.closedOrder.Remove(element).(closedTabRecord)
 	delete(s.closedTabs, record.closedTabGeneration)
@@ -629,7 +578,6 @@ func staleTab(key tabKey) error {
 	return proto.NewError("chat.tab-closed", "chat tab "+key.tabID+" is closed")
 }
 
-// dropIfEmpty forgets a session made for a program that did not start.
 func (s *Service) dropIfEmpty(sess *session) {
 	if sess.log.lastSeq() > 0 {
 		return
@@ -657,15 +605,12 @@ func (s *Service) emit(event string, payload any) error {
 	return sink.emit(event, payload)
 }
 
-// running returns the session's program, nil when none runs.
 func (sess *session) running() *process {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 	return sess.proc
 }
 
-// addLocked logs one line and sends it. A send that fails, as when no
-// client is connected, leaves the line for a later replay.
 func (sess *session) addLocked(dir string, message json.RawMessage, text string) {
 	if sess.closed {
 		return
@@ -676,7 +621,6 @@ func (sess *session) addLocked(dir string, message json.RawMessage, text string)
 	}
 }
 
-// emitLineLocked relays one committed input, output or system event.
 func (sess *session) emitLineLocked(e *entry) {
 	payload := sess.payload(e)
 	if sess.proc != nil {
@@ -685,7 +629,6 @@ func (sess *session) emitLineLocked(e *entry) {
 	_ = sess.service.emit(EventLine, payload)
 }
 
-// addSysLocked logs a line of the agent's own.
 func (sess *session) addSysLocked(fields map[string]any) {
 	data, err := json.Marshal(fields)
 	if err != nil {
@@ -694,9 +637,6 @@ func (sess *session) addSysLocked(fields map[string]any) {
 	sess.addLocked(DirSys, data, "")
 }
 
-// addPinnedLocked logs a line of the agent's own that the log's cap keeps.
-// It holds a file's text, so <, > and & are left as they are rather than
-// escaped to six bytes each.
 func (sess *session) addPinnedLocked(fields any) {
 	var data bytes.Buffer
 	encoder := json.NewEncoder(&data)
@@ -725,7 +665,6 @@ func (sess *session) payload(e *entry) LinePayload {
 	}
 }
 
-// readStdout logs each line the program writes.
 func (sess *session) readStdout(proc *process, stdout io.Reader) {
 	reader := bufio.NewReaderSize(stdout, 64*1024)
 	for {
@@ -747,7 +686,6 @@ func (sess *session) readStdout(proc *process, stdout io.Reader) {
 	}
 }
 
-// addOutput records only lines from the process that still owns the session.
 func (sess *session) addOutput(proc *process, line []byte) {
 	line = bytes.TrimRight(line, "\r\n")
 	if len(bytes.TrimSpace(line)) == 0 {
@@ -773,13 +711,10 @@ func (sess *session) addOutput(proc *process, line []byte) {
 	sess.addLocked(DirOut, nil, string(line))
 }
 
-// wait reports the program's exit once its output has been read.
 func (sess *session) wait(proc *process, stdoutDone, stderrDone <-chan struct{}) {
 	state, err := proc.cmd.Process.Wait()
 	proc.releaseTree()
 	timer := time.NewTimer(exitDrainGrace)
-	// A child the program left behind can hold both outputs open, as node
-	// does under npm's codex.cmd: the grace ends the wait for all of them.
 drain:
 	for _, done := range []<-chan struct{}{stdoutDone, stderrDone} {
 		select {
@@ -797,7 +732,6 @@ drain:
 	exit := exitPayload(sess.key, state, err)
 	exit.StderrTail = proc.stderr()
 	exit.ProcessGeneration = proc.generation
-	// Closing stdin releases any blocked write. Its outcome precedes exit.
 	proc.writeMu.Lock()
 	defer proc.writeMu.Unlock()
 	sess.mu.Lock()
@@ -809,8 +743,6 @@ drain:
 		fields["stderrTail"] = exit.StderrTail
 	}
 	sess.addSysLocked(fields)
-	// Explicit close already told the host its generation was gone. Legacy
-	// close still expects the exit while no replacement session is present.
 	told := !sess.closed || (sess.tabGeneration == "" && sess.service.lookup(sess.key) == nil)
 	if told {
 		_ = sess.service.emit(EventExit, exit)
@@ -822,7 +754,6 @@ drain:
 	sess.mu.Unlock()
 }
 
-// writeLocked writes one full line as part of the process's ordered send.
 func (p *process) writeLocked(ctx context.Context, data []byte, guidance *codexContext) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err
@@ -835,7 +766,6 @@ func (p *process) writeLocked(ctx context.Context, data []byte, guidance *codexC
 	line := append(data, '\n')
 	n, err := p.stdin.WriteContext(ctx, line)
 	if n == len(line) {
-		// The child owns this frame even if cancellation raced with Write.
 		p.noteCodexInitialize(original)
 		if commit != nil {
 			commit()
@@ -848,7 +778,6 @@ func (p *process) writeLocked(ctx context.Context, data []byte, guidance *codexC
 	return n, err
 }
 
-// startOwned starts a process with the platform's tree ownership policy.
 func (p *process) startOwned() error {
 	p.cmd.SysProcAttr = newSysProcAttr()
 	if err := p.cmd.Start(); err != nil {
@@ -862,12 +791,10 @@ func (p *process) startOwned() error {
 	return nil
 }
 
-// kill immediately terminates the owned process tree.
 func (p *process) kill() {
 	_ = p.signalKill()
 }
 
-// stop asks the program to exit, and kills it if it has not after stopGrace.
 func (p *process) stop() {
 	p.stopOnce.Do(func() {
 		_ = p.signalTerm()
@@ -907,7 +834,6 @@ func (p *process) stderr() string {
 	defer p.stderrMu.Unlock()
 	raw := p.stderrTail
 	if p.stderrTruncated {
-		// The cut may have split a character; drop that first line before decoding.
 		_, raw, _ = bytes.Cut(raw, []byte("\n"))
 	}
 	tail := decodeOutput(raw)
@@ -933,7 +859,6 @@ func keyFrom(workspaceID, tabID, method string) (tabKey, error) {
 	return tabKey{workspaceID: workspaceID, tabID: tabID}, nil
 }
 
-// CodeNotRunning is the error code for a tab whose program does not run.
 const CodeNotRunning = "chat.not-running"
 
 func notRunning(key tabKey) error {

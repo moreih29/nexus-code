@@ -14,12 +14,10 @@ import (
 )
 
 const (
-	RunCapability = "chat.run"
-	runTimeout    = 15 * time.Minute
-	runOutputCap  = 4 * 1024 * 1024
-	runCloseGrace = 2500 * time.Millisecond
-	// A cancel may dispatch ahead of its run. Keep these IDs briefly and bound
-	// their count even when a caller sends cancellations for nonexistent runs.
+	RunCapability   = "chat.run"
+	runTimeout      = 15 * time.Minute
+	runOutputCap    = 4 * 1024 * 1024
+	runCloseGrace   = 2500 * time.Millisecond
 	earlyCancelTTL  = 30 * time.Second
 	maxEarlyCancels = 256
 )
@@ -28,7 +26,6 @@ type runID struct {
 	RunID string `json:"runId"`
 }
 
-// Dispatch passes the same host context to every request on one connection.
 type runKey struct {
 	connection <-chan struct{}
 	id         string
@@ -53,7 +50,6 @@ type runResult struct {
 
 var errRunOutputLimit = errors.New("chat.run exceeded its output limit")
 
-// Run runs an owned one-shot process with stdin and an explicit environment.
 func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p runParams
 	if err := decodeParams(raw, &p, "chat.run params must include runId, cwd and program"); err != nil {
@@ -99,7 +95,6 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 
 	cmd := exec.CommandContext(runCtx, p.Program, p.Args...)
 	cmd.Dir = p.Cwd
-	// An empty but non-nil Env prevents os/exec from inheriting the agent's env.
 	cmd.Env = make([]string, 0, len(p.Env))
 	for key, value := range p.Env {
 		if !strings.HasPrefix(strings.ToUpper(key), "NEXUS_") {
@@ -140,7 +135,6 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 	return result, nil
 }
 
-// CancelRun acknowledges whether this ID was still registered.
 func (s *Service) CancelRun(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p runID
 	if err := decodeParams(raw, &p, "chat.cancelRun params must include runId"); err != nil {
@@ -162,7 +156,6 @@ func (s *Service) CancelRun(ctx context.Context, raw json.RawMessage) (any, erro
 	return false, nil
 }
 
-// The service lock is held by the caller.
 func (s *Service) rememberRunCancel(key runKey, now time.Time) {
 	if s.earlyRunCancels == nil {
 		s.earlyRunCancels = make(map[runKey]time.Time)
@@ -181,7 +174,6 @@ func validRunID(id string) bool {
 	return strings.TrimSpace(id) != "" && len(id) <= 128
 }
 
-// Both output pipes share one byte budget. Crossing it ends the process.
 type runOutput struct {
 	mu        sync.Mutex
 	remaining int

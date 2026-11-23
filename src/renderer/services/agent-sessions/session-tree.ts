@@ -10,13 +10,11 @@ export type SessionCounts = Readonly<Record<SessionPhase, number>>;
 export interface SessionTreeNode {
   readonly session: AgentSession;
   readonly children: readonly SessionTreeNode[];
-  /** True depth, even when the sidebar indents the row by less. */
   readonly depth: number;
   readonly parentName?: string;
   readonly parentClosed?: true;
   readonly count: number;
   readonly counts: SessionCounts;
-  /** The most urgent state in the subtree, and its time in that state. */
   readonly group: SessionPhase;
   readonly since: number | undefined;
 }
@@ -26,7 +24,6 @@ export function familyFoldKey(session: AgentSession): string {
   return session.key.startsWith("remote:") ? boundedPeerFoldKey(key) : key;
 }
 
-/** Resolves the parents of listed sessions. Older layouts use their saved tab order. */
 export function sessionTree(sessions: readonly AgentSession[]): readonly SessionTreeNode[] {
   const visible = sessions.filter(listed);
   const byTab = new Map(visible.map((session) => [session.tabId, session]));
@@ -39,7 +36,6 @@ export function sessionTree(sessions: readonly AgentSession[]): readonly Session
     const visited = new Set([session.tabId]);
     while (current.parent?.tabId && !current.parent.device) {
       const next = byTab.get(current.parent.tabId);
-      // The highest tab still in the list is the root when its opener is gone.
       if (!next) break;
       if (visited.has(next.tabId) || visited.size > MAX_PARENT_STEPS) {
         parentId = undefined;
@@ -98,7 +94,6 @@ export function sessionTree(sessions: readonly AgentSession[]): readonly Session
   return roots.map((root) => branch(root, 0));
 }
 
-/** Keeps a matching session and the rows needed to reach it. The family's state stays intact. */
 export function searchSessionTree(
   roots: readonly SessionTreeNode[],
   query: string,
@@ -110,7 +105,6 @@ export function searchSessionTree(
   });
 }
 
-/** The status view can disclose whole idle branches without hiding active descendants. */
 export function sessionChildren(
   node: SessionTreeNode,
   { folded, groupIdle, showIdle }: { folded: boolean; groupIdle: boolean; showIdle: boolean },
@@ -128,7 +122,6 @@ export function sessionChildren(
   };
 }
 
-/** Sessions in their visible tree order, independent of disclosure controls. */
 export function* treeSessions(roots: readonly SessionTreeNode[]): Iterable<AgentSession> {
   for (const node of roots) {
     yield node.session;

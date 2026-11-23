@@ -4,7 +4,6 @@ import { useLayoutStore } from "../../state/stores/layout/store";
 import { activateTarget, showWorkspaceOf } from "../chat/open-beside";
 import { groupOf } from "../cli/placement";
 
-/** Leaves the chat visible in its own workspace, including when it belongs to a task. */
 export function openConversationNote(workspaceId: string, tabId: string, note: LinkedNote): void {
   const chatGroup = groupOf(workspaceId, tabId);
   if (!chatGroup) return;

@@ -1,10 +1,3 @@
-/**
- * Agent panel: what a new task opens with, the chat tabs' text, and the
- * nexus command that agents in the app's terminals use to drive NexusCode —
- * a master switch, what nexus may do to other workspaces, and whether Claude
- * Code sessions are told about it when they start.
- */
-
 import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AGENT_LIST_VIEWS, DEFAULT_AGENT_LIST_VIEW } from "../../../../shared/agent-list/view";
@@ -57,7 +50,6 @@ export function AgentPanel() {
   return (
     <SettingsPage>
       <SettingsGroup title={t("agent.newTask")}>
-        {/* What the agent list's [+] and a new task open; New Task can pick another per task. */}
         <SettingsRow
           label={t("terminal.taskAgent.label")}
           description={t("terminal.taskAgent.hint")}
@@ -72,7 +64,6 @@ export function AgentPanel() {
           />
         </SettingsRow>
 
-        {/* The view an agent list opens in, until switched there. */}
         <SettingsRow
           label={t("terminal.agentListView.label")}
           description={t("terminal.agentListView.hint")}
@@ -233,7 +224,6 @@ function LimitResumeGroup() {
   );
 }
 
-/** The chat tabs' text: a preview in it, then its font and its size. */
 function ChatFontGroup() {
   const { t } = useTranslation("settings");
   const size = useChatFontStore((s) => s.size);
@@ -245,7 +235,6 @@ function ChatFontGroup() {
 
   return (
     <SettingsGroup title={t("chat.font")}>
-      {/* As a chat tab shows it: a reply, with code in it, and a tool's line. */}
       <div
         className="chat-font flex flex-col gap-1 rounded-(--radius-control) border border-border bg-background px-3 py-2"
         style={style}

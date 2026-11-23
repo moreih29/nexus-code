@@ -1,7 +1,6 @@
 import i18next from "i18next";
 import { dateTimeFormat } from "../../utils/intl-format";
 
-/** A note's time: the hour today, the day this year, else the date. */
 export function noteTime(at: number, now = Date.now()): string {
   const locale = i18next.language || "en";
   const d = new Date(at);

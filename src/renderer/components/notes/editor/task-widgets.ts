@@ -26,11 +26,6 @@ let widgetId = 0;
 const listeners = new Set<() => void>();
 let notifying = false;
 
-/**
- * ProseMirror can build a widget's DOM again without a transaction (a full
- * redraw when node views or other props change, as when the editor is mounted).
- * Listeners hear of new widget DOM once it is in the document.
- */
 export function onWidgetsCreated(listener: () => void): () => void {
   listeners.add(listener);
   return () => {

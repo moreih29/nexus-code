@@ -1,6 +1,3 @@
-// Files outside a workspace that a Claude tab linked, over the
-// nexus-workspace://<id>.outside/<absolute path> host.
-
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
@@ -41,7 +38,6 @@ function manager(meta: Partial<WorkspaceMeta>, fsProvider?: Partial<FsProvider>)
   } as unknown as WorkspaceManager;
 }
 
-/** The URL the previews ask for `absPath` by: a POSIX path from the root, a Windows one from its drive. */
 function outsideUrl(absPath: string): string {
   return buildOutsideUrl("ws", absPath);
 }

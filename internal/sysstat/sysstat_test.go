@@ -17,7 +17,6 @@ func TestParseProcStat(t *testing.T) {
 	if !ok {
 		t.Fatal("not parsed")
 	}
-	// user..steal, not guest: 4705+150+1120+16250+520+0+30+5
 	if times.total != 22780 || times.idle != 16770 {
 		t.Fatalf("got %+v", times)
 	}
@@ -77,7 +76,6 @@ func TestParsePSCPU(t *testing.T) {
 	}
 }
 
-// fakeService reads a host whose CPU readings come from a list.
 func fakeService(readings []cpuTimes, clock *time.Time) (*Service, *int) {
 	reads := 0
 	slept := 0
@@ -103,12 +101,12 @@ func noDirect() (*float64, bool) { return nil, false }
 func TestServiceSpans(t *testing.T) {
 	clock := time.Unix(1000, 0)
 	s, slept := fakeService([]cpuTimes{
-		{total: 1000, idle: 900},  // the first ask starts a span…
-		{total: 1100, idle: 950},  // …and answers for it: 50%
-		{total: 1300, idle: 1100}, // the next, from the last: 25%
-		{total: 1300, idle: 1100}, // no time passed: the last answer
-		{total: 5000, idle: 4000}, // after a long gap a new span starts…
-		{total: 5100, idle: 4090}, // …10%
+		{total: 1000, idle: 900},
+		{total: 1100, idle: 950},
+		{total: 1300, idle: 1100},
+		{total: 1300, idle: 1100},
+		{total: 5000, idle: 4000},
+		{total: 5100, idle: 4090},
 	}, &clock)
 	ask := func() Stats {
 		t.Helper()

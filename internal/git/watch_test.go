@@ -11,11 +11,6 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// Git LFS and submodule object stores (.git/lfs/objects,
-// .git/modules/<path>/objects) are as large and as irrelevant to git.changed
-// as .git/objects; watching them cost one kqueue descriptor per fan-out
-// directory on macOS. A directory merely named objects or logs elsewhere
-// (here a branch namespace) is still watched.
 func TestAddGitWatchDirsSkipsObjectStores(t *testing.T) {
 	gitDir := t.TempDir()
 	for _, dir := range []string{
@@ -67,9 +62,6 @@ func TestAddGitWatchDirsSkipsObjectStores(t *testing.T) {
 	})
 }
 
-// A submodule cloned after git.watch started is picked up from its Create
-// event; its object store must be skipped there too, which needs the path
-// judged relative to the watched .git directory rather than the new one.
 func TestGitWatchSkipsObjectStoreOfNewSubmodule(t *testing.T) {
 	gitDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
@@ -85,7 +77,6 @@ func TestGitWatchSkipsObjectStoreOfNewSubmodule(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The first submodule creates .git/modules with the clone already in it.
 	sub := filepath.Join(gitDir, "modules", "vendor", "lib")
 	if err := os.MkdirAll(filepath.Join(sub, "objects", "ab"), 0o755); err != nil {
 		t.Fatal(err)
@@ -100,8 +91,6 @@ func TestGitWatchSkipsObjectStoreOfNewSubmodule(t *testing.T) {
 	assertWatched(t, watcher, gitDir, []string{".", "modules", "modules/vendor", "modules/vendor/lib"})
 }
 
-// kqueue on macOS reports a Chmod for every read of .git/index, as its access
-// time moves; counting it re-ran status after each status. Writes still count.
 func TestGitWatchIgnoresAttributeOnlyEvents(t *testing.T) {
 	gitDir := t.TempDir()
 	entry := &watchEntry{gitDir: gitDir, done: make(chan struct{})}
@@ -135,8 +124,6 @@ func assertWatched(t *testing.T, watcher *fsnotify.Watcher, gitDir string, want 
 	}
 }
 
-// TestGitWatchRefreshesRepositoriesBeyondBatchBudget checks that the existing
-// per-repository refresh event reaches the client when the batch fills up.
 func TestGitWatchRefreshesRepositoriesBeyondBatchBudget(t *testing.T) {
 	s := New(t.TempDir())
 	s.timer = time.NewTimer(time.Hour)

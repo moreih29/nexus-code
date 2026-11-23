@@ -1,5 +1,3 @@
-// Conversation state and process log entries shared by the chat providers.
-
 import type { ClaudeTurnResult } from "../../../shared/claude/turn-result";
 import { terminalText } from "../editor/preview/notebook";
 import type { RetryReason, TurnFailure } from "./api-errors";
@@ -12,7 +10,6 @@ export interface ChatLine {
   dir: LineDir;
   message?: unknown;
   text?: string;
-  /** When the agent got the line, in Unix milliseconds. */
   at?: number;
   replay?: boolean;
 }
@@ -20,17 +17,9 @@ export interface ChatLine {
 export interface ImageBlock {
   mediaType: string;
   data: string;
-  /**
-   * Another computer's image, whose bytes stay there until it is shown
-   * (chat.image): `data` is empty until then.
-   */
   remote?: RemoteImageRef;
 }
 
-/**
- * Where another computer's chat has an image: a message's, a tool's
- * result's, or a message's held there for after the turn.
- */
 export type RemoteImageRef =
   | { kind: "user"; itemKey: string; index: number }
   | { kind: "tool"; toolUseId: string; index: number }
@@ -42,9 +31,7 @@ export function remoteImageKey(ref: RemoteImageRef): string {
 }
 
 export interface ChatMediaAccess {
-  /** Identifies what can stay on screen while the next read runs. */
   scope: string;
-  /** The current read generation. Null while the peer is offline or the panel is hidden. */
   signal: AbortSignal | null;
 }
 
@@ -57,19 +44,14 @@ export interface ImageLoader {
 export interface UserItem {
   kind: "user";
   key: string;
-  /** The CLI's uuid for the message, once it has taken it. */
   uuid?: string;
   text: string;
   images: ImageBlock[];
-  /** sent: written to the CLI; taken: the CLI echoed it back. */
   state: "sent" | "taken";
-  /** The uuid the app wrote it with, which the CLI's echo and lifecycle name. */
   sentUuid?: string;
   clientNonce?: string;
   clientDeviceId?: string;
-  /** Internal projection of a provisional host stdin write. */
   peerWritePending?: boolean;
-  /** Local preview of a send to another device. Never included on the wire. */
   optimistic?: {
     status: "sending" | "accepted" | "failed" | "unconfirmed";
     queued: boolean;
@@ -77,21 +59,14 @@ export interface UserItem {
     submittedAt: number;
     error?: string;
   };
-  /**
-   * Written during a turn: the CLI reads it after the tool it runs, and till
-   * then it waits above the box, where it can still be taken back.
-   */
   queued?: boolean;
-  /** The turn that read this message. */
   turnId?: string;
-  /** The outcome of that turn, kept so a wait can finish after newer turns. */
   turnResult?: { error?: string };
   forkable?: boolean;
   rewindable?: boolean;
   at?: number;
 }
 
-/** A message written during a turn that the CLI has not read yet. */
 export function isWaiting(item: ChatItem): item is UserItem {
   return item.kind === "user" && item.state === "sent" && item.queued === true;
 }
@@ -105,7 +80,6 @@ export interface AssistantItem {
   kind: "assistant";
   key: string;
   messageId: string;
-  /** The turn this message belongs to, which can contain several messages. */
   turnId?: string;
   uuid?: string;
   blocks: AssistantBlock[];
@@ -122,11 +96,8 @@ export type NoticeCode =
   | "cleared"
   | "error"
   | "dropped"
-  /** A thread the app could not go on with; it started a new one. */
   | "not_resumed"
-  /** Codex began reviewing (/review): what it looks at is the detail. */
   | "review"
-  /** A goal set, cleared, met or found impossible (/goal): its condition is the detail. */
   | "goal_set"
   | "goal_cleared"
   | "goal_met"
@@ -140,29 +111,15 @@ export interface NoticeItem {
   at?: number;
 }
 
-/** Who wrote a message the CLI took, when it was not the user. */
 export interface MessageSource {
-  /**
-   * peer (another session, a teammate), channel, coordinator, or as the CLI
-   * names it; tab, terminal or manager for an agent that sent it through
-   * the nexus command.
-   */
   kind: string;
-  /** The session's or teammate's name, the channel's server; the tab's title. */
   name?: string;
-  /** The agent that sent it through the nexus command: claude or codex. */
   agent?: string;
-  /** The tab it was sent from through the nexus command: on `device`, when it names one. */
   workspaceId?: string;
   tabId?: string;
-  /** The user's other computer it was sent from, as it names itself; none for this one. */
   device?: { id: string; name: string };
 }
 
-/**
- * A message the CLI took that the user did not write: another session's, a
- * channel's, the coordinator's. Claude answers it as it does the user's.
- */
 export interface ReceivedItem {
   kind: "received";
   key: string;
@@ -172,25 +129,19 @@ export interface ReceivedItem {
   at?: number;
 }
 
-/** A task that ended while Claude did not wait for it: the news of it wakes Claude. */
 export interface TaskEndItem {
   kind: "task_end";
   key: string;
   taskId: string;
-  /** completed, failed, killed or stopped. */
   status: string;
-  /** What the task was, when the news or the tab's tasks tell. */
   description?: string;
-  /** local_bash, local_agent…, when the tab's tasks tell. */
   taskType?: string;
   summary?: string;
   toolUseId?: string;
-  /** It came with no turn running, and Claude's next words answer it: another turn. */
   wakes?: boolean;
   at?: number;
 }
 
-/** A shell command the user ran in the terminal's Claude Code (`!command`), with its output. */
 export interface ShellItem {
   kind: "shell";
   key: string;
@@ -208,7 +159,6 @@ export type ChatItem =
   | TaskEndItem
   | ShellItem;
 
-/** Whether what comes after an item is another turn: a message Claude answers, or news that wakes it. */
 export function opensTurn(item: ChatItem): boolean {
   return (
     item.kind === "user" ||
@@ -220,7 +170,6 @@ export function opensTurn(item: ChatItem): boolean {
 export interface ToolResult {
   text: string;
   isError: boolean;
-  /** The CLI's `tool_use_result`: a Bash run's stdout, an edit's patch. */
   structured?: unknown;
   images: ImageBlock[];
 }
@@ -228,14 +177,11 @@ export interface ToolResult {
 export interface ToolCall {
   id: string;
   name: string;
-  /** The name a row shows when it is not `name`: the shell a Codex command runs in. */
   displayName?: string;
   input: unknown;
-  /** The input JSON as streamed so far, before the call arrives whole. */
   partialInput?: string;
   status: "streaming" | "running" | "done" | "error" | "denied" | "stopped";
   result?: ToolResult;
-  /** The Agent tool call this one runs under; null on the main thread. */
   parentToolUseId: string | null;
 }
 
@@ -248,9 +194,7 @@ export interface PermissionRequest {
   suggestions: unknown[];
   decisionReason?: string;
   toolUseId?: string;
-  /** A subagent's request carries its id. */
   agentId?: string;
-  /** The call as the card previews it, when the input alone does not tell it (a Codex patch). */
   preview?: ToolCall;
 }
 
@@ -268,25 +212,18 @@ export interface StreamingMessage {
 export interface TurnState {
   id?: string;
   startedAt?: number;
-  /** Last progress from the main conversation, in milliseconds. */
   lastActivityAt?: number;
   outputTokens: number;
   thinkingTokens: number;
-  /** requesting: waiting on the API; compacting: /compact runs. */
   status?: string;
   retry?: TurnRetry;
 }
 
-/** The program is trying the API again after an error (see api-errors). */
 export interface TurnRetry {
-  /** The try it is on, from 1. */
   attempt: number;
   maxRetries?: number;
-  /** How long it waits before the try. */
   delayMs?: number;
-  /** When it said so, in Unix milliseconds: the wait ends `delayMs` after. */
   at?: number;
-  /** The HTTP status of the error it tries again after; none when no answer came. */
   status?: number;
   reason?: RetryReason;
 }
@@ -309,18 +246,11 @@ export interface ModelInfo {
   fastTier?: { id: string; description?: string; isDefault: boolean };
 }
 
-/**
- * The model info the session runs, as the CLI names it either way (alias or
- * id). A model `chosen` ("opus") goes by its own name even where the default
- * runs the same one ("default" and "opus" both claude-opus-5-5): the default
- * is what runs when nothing chose a model.
- */
 export function currentModelInfo(
   models: readonly ModelInfo[],
   current: string | undefined,
   chosen?: string,
 ): ModelInfo | undefined {
-  // Before its first turn the session names no model: it runs the default.
   if (!current) return models.find((m) => m.value === "default");
   const named =
     chosen && longContextBase(chosen) !== "default"
@@ -329,7 +259,6 @@ export function currentModelInfo(
   return modelInfoOf(named, current) ?? modelInfoOf(models, current);
 }
 
-/** "claude-opus-5-5[1m]" is Opus 5.5 with its long context. */
 function longContextBase(model: string): string {
   return model.replace(/\[[^\]]*\]$/, "");
 }
@@ -340,8 +269,6 @@ function modelInfoOf(models: readonly ModelInfo[], current: string): ModelInfo |
     models.find((m) => m.value === current) ??
     models.find((m) => m.resolvedModel === current) ??
     models.find((m) => m.value === base || m.resolvedModel === base) ??
-    // A dated id is its model's; the longest name it starts with, so
-    // "claude-opus-5-5…" is not taken for "claude-opus-5".
     models
       .filter((m) => current.startsWith(m.value))
       .sort((a, b) => b.value.length - a.value.length)[0]
@@ -353,18 +280,14 @@ export interface CommandInfo {
   description?: string;
   argumentHint?: string;
   aliases?: string[];
-  /** The CLI's own command, or one of the app's; not a skill. */
   builtin?: boolean;
 }
 
 export interface InitializeInfo {
   commands: CommandInfo[];
   models: ModelInfo[];
-  /** The account may turn on Remote Control. */
   remoteControl: boolean;
-  /** The output styles /config takes, the user's own among them. */
   outputStyles?: string[];
-  /** Who the program is signed in as, for /status. */
   account?: AccountInfo;
 }
 
@@ -372,7 +295,6 @@ export interface AccountInfo {
   email?: string;
   organization?: string;
   subscription?: string;
-  /** firstParty, bedrock, vertex… */
   provider?: string;
 }
 
@@ -386,21 +308,15 @@ export interface ResultInfo {
   terminalReason?: string;
   outcome?: ClaudeTurnResult["outcome"];
   error?: string;
-  /** Why the turn failed on the API, and whether trying again can help. */
   failure?: TurnFailure;
-  /** When the turn ended, in Unix milliseconds. */
   at?: number;
 }
 
-/** A task the CLI runs beside the turn: a background Bash, a subagent, a teammate. */
 export interface TaskInfo {
   taskId: string;
-  /** local_bash, local_agent, in_process_teammate, a workflow's, as the CLI names it. */
   type: string;
   description: string;
-  /** running, then completed, failed, killed or stopped. */
   status: string;
-  /** The tool call that started it: an Agent call, a Bash run in the background. */
   toolUseId?: string;
   subagentType?: string;
   prompt?: string;
@@ -413,7 +329,6 @@ export interface TaskInfo {
   toolUses?: number;
   durationMs?: number;
   lastToolName?: string;
-  /** What it does now, as its last progress said ("Running Sleep 8 seconds"). */
   activity?: string;
 }
 
@@ -437,67 +352,35 @@ export interface ChatModel {
   permissions: PermissionRequest[];
   streaming: StreamingMessage | null;
   sessionId?: string;
-  /** The model the session runs, as the CLI names it ("claude-haiku-5-5"). */
   model?: string;
-  /**
-   * The model the tab or the settings chose, as they name it ("opus"); none
-   * when nothing chose one and the default runs.
-   */
   chosenModel?: string;
   permissionMode?: string;
-  /** The mode confirmed by the program, before any pending selections. */
   confirmedPermissionMode?: string;
   effort?: string;
   cwd?: string;
   version?: string;
   init?: InitializeInfo;
-  /** Names from a system/init line, available even if an old log lost initialize. */
   slashCommands?: CommandInfo[];
   running: boolean;
   turn: TurnState | null;
   process: "none" | "running" | "exited";
   exit?: { code: number | null; signal?: string; stderrTail?: string };
   lastResult?: ResultInfo;
-  /**
-   * What the tab's processes have cost, at list price: each result tells
-   * its process's total so far, which starts again with a new process.
-   */
   costUsd?: number;
-  /** The running process's part of costUsd. */
   processCostUsd?: number;
-  /** How many times /clear started the conversation over, under a new session id. */
   clears?: number;
-  /**
-   * Why bypassPermissions can't be switched to, as the CLI answered a try:
-   * a setting or policy disables it (Claude Code says so only then).
-   */
   bypassBlocked?: string;
   rateLimit?: RateLimitInfo;
-  /**
-   * get_context_usage's last answer, its total moved on by each of the
-   * main thread's API calls since (withContextTokens).
-   */
   contextUsage?: unknown;
-  /** get_usage's answer: the plan's limits, as the server sends them. */
   usage?: unknown;
   mcp?: McpServerInfo[];
   remoteControl?: { enabled: boolean; sessionUrl?: string };
-  /** The CLI's tasks by id, in the order they started. */
   tasks: Record<string, TaskInfo>;
-  /** Subagents' messages, by the Agent tool call they run under. */
   agentItems: Record<string, AssistantItem[]>;
-  /** The app asked the turn to stop: its tools' errors are the stop. */
   interrupting?: boolean;
-  /** The currently pending interrupt by its protocol request ID. */
   interruptRequestId?: string;
-  /** The app's control requests waiting for an answer: request id → subtype and request. */
   outgoing: Record<string, { subtype: string; request: Record<string, unknown> }>;
-  /**
-   * The log began with a program going on with an earlier session: what
-   * came before is in the session's transcript, not here.
-   */
   resumed?: boolean;
-  /** The goal Claude works toward (/goal); null once it was cleared. */
   goal?: ClaudeGoal | null;
 }
 
@@ -533,7 +416,6 @@ export function num(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-/** A draft of the model that copies what it changes, once. */
 export class Draft<M extends ChatModel = ChatModel> {
   readonly next: M;
   private itemsCopied = false;
@@ -575,7 +457,6 @@ export class Draft<M extends ChatModel = ChatModel> {
   }
 }
 
-/** The agent's own lines: the program started, exited, or the log dropped lines. */
 export function applySys(draft: Draft, message: Rec, seq: number, at: number | undefined): void {
   const m = draft.next;
   switch (message.event) {
@@ -605,7 +486,6 @@ export function applySys(draft: Draft, message: Rec, seq: number, at: number | u
     case "exit": {
       const code = num(message.code) ?? null;
       const signal = str(message.signal);
-      // What the program wrote to a terminal: Codex colours its log lines.
       const stderr = str(message.stderrTail);
       const stderrTail = stderr === undefined ? undefined : terminalText(stderr);
       m.process = "exited";
@@ -630,7 +510,6 @@ export function applySys(draft: Draft, message: Rec, seq: number, at: number | u
   }
 }
 
-/** The program ended: so did the tasks it ran. */
 export function stopRunningTasks(draft: Draft, at: number | undefined): void {
   const m = draft.next;
   let tasks: Record<string, TaskInfo> | null = null;
@@ -642,7 +521,6 @@ export function stopRunningTasks(draft: Draft, at: number | undefined): void {
   if (tasks) m.tasks = tasks;
 }
 
-/** Remembers how a turn ended on the accepted messages it read. */
 export function finishSubmittedTurn(
   draft: Draft,
   turnId: string | undefined,
@@ -659,7 +537,6 @@ export function finishSubmittedTurn(
   }
 }
 
-/** Clears a pending interrupt when its request or turn ends. */
 export function clearInterrupt(model: ChatModel, requestId?: string): void {
   if (requestId !== undefined && model.interruptRequestId !== requestId) return;
   model.interrupting = false;

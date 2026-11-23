@@ -1,7 +1,3 @@
-/**
- * The remote protocol's shapes: what the relay takes and gives, what a
- * sealed message holds, and the methods' params and results.
- */
 import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import {
@@ -165,7 +161,6 @@ describe("a sealed message", () => {
     const envelope = { epoch, peer: "BBBBBBBBBBBBBBBBBBBBBB", message };
     expect(SealedEnvelopeSchema.parse(envelope)).toEqual(envelope);
     expect(SealedEnvelopeSchema.safeParse({ ...envelope, peer: null }).success).toBe(true);
-    // A message of the first version, with no epochs, is not one.
     expect(SealedEnvelopeSchema.safeParse(message).success).toBe(false);
     expect(SealedEnvelopeSchema.safeParse({ ...envelope, epoch: "short" }).success).toBe(false);
     expect(SealedEnvelopeSchema.safeParse({ ...envelope, peer: undefined }).success).toBe(false);
@@ -239,7 +234,6 @@ describe("the methods", () => {
       agentItems: {},
     });
     expect(page.items.map((item) => item.kind)).toEqual(["user", "assistant", "poll"]);
-    // A known kind must fit its own shape.
     expect(ViewItemSchema.safeParse({ kind: "user", key: "u", text: 1 }).success).toBe(false);
   });
 
@@ -255,7 +249,6 @@ describe("the methods", () => {
       "terminal.wait",
       "terminal.shells",
     ]);
-    // Answering its Claude Code's request is an answer to an agent, as a chat's is.
     expect(RPC_METHODS["terminal.answer"].capability).toBe("chat.control");
     for (const m of terminal.filter((m) => !read.includes(m) && m !== "terminal.answer")) {
       expect(RPC_METHODS[m as keyof typeof RPC_METHODS].capability).toBe("terminal.control");
@@ -270,7 +263,6 @@ describe("the methods", () => {
     ).toEqual({ workspaceId: "w", command: "codex login", profile: "codex-ab12" });
     expect(params.safeParse({ workspaceId: "w", profile: "" }).success).toBe(false);
     expect(params.safeParse({ workspaceId: "w", profile: "x".repeat(101) }).success).toBe(false);
-    // One before 0.13.1 drops what it does not know, and opens in the default folder.
     expect(params.parse({ workspaceId: "w" })).toEqual({ workspaceId: "w" });
   });
 
@@ -345,7 +337,6 @@ describe("the methods", () => {
     expect(CAPABILITIES).toContain(capability);
     expect(params.parse({ workspaceId: "w" })).toEqual({ workspaceId: "w" });
     expect(params.safeParse({}).success).toBe(false);
-    // An agent's `from` is dropped, so the room refuses an agent's request.
     const from = { workspaceId: "w2", tabId: "t", kind: "tab" };
     expect(params.parse({ workspaceId: "w", from })).toEqual({ workspaceId: "w" });
     const stats = { cpu: 12.5, memUsed: 1024, memTotal: 4096 };
@@ -479,7 +470,6 @@ describe("the methods", () => {
     const parsed = result.parse({ ...peek, waiting: { kind: "review", tool: "Bash" } });
     expect(parsed.waiting).toBeUndefined();
     expect(parsed.turns).toEqual([peekTurn]);
-    // An agent's read keeps who reads, so the serving device checks it as chat.read's.
     const from = { kind: "tab", workspaceId: "w2", tabId: "t2" } as const;
     expect(RPC_METHODS["chat.peek"].params.parse({ workspaceId: "w", tabId: "t", from })).toEqual({
       workspaceId: "w",
@@ -518,7 +508,6 @@ describe("the methods", () => {
       consents: [{ ...consent, change: { kind: "instructionsEdit", instructionEdit } }],
     });
     expect(instruction.consents?.[0]?.change.instructionEdit).toEqual(instructionEdit);
-    // A kind this version does not name is still a prompt.
     expect(
       result.safeParse({
         workspaces: [],
@@ -560,7 +549,6 @@ describe("the methods", () => {
     const show = RPC_METHODS["git.show"];
     expect(show.capability).toBe("git");
     expect(show.params.safeParse({ workspaceId: "w", hash: "8021fbfd" }).success).toBe(true);
-    // Not a ref, nor an option git would take.
     for (const hash of ["HEAD", "main", "--output=x", "abc", "8021fbfd~1"]) {
       expect(show.params.safeParse({ workspaceId: "w", hash }).success).toBe(false);
     }
@@ -608,7 +596,6 @@ describe("the methods", () => {
         ],
       }).success,
     ).toBe(true);
-    // Lines count from 1.
     expect(
       search.result.safeParse({
         files: [{ path: "a.ts", matches: [{ line: 0, column: 0, length: 1, text: "x" }] }],
@@ -800,7 +787,6 @@ describe("the methods", () => {
     };
     const resume = { state: "waiting", at: 1_763_200_060_000, resetsAt: 1_763_200_000_000 };
     expect(ChatPanelSchema.parse({ ...panel, limitResume: resume }).limitResume).toEqual(resume);
-    // One this version cannot read is left out, not the panel.
     expect(ChatPanelSchema.parse({ ...panel, limitResume: { at: "soon" } })).toEqual(panel);
     const session = {
       workspaceId: "w",
@@ -863,7 +849,6 @@ describe("the methods", () => {
     });
     expect(list.sessions.map((s) => s.tabId)).toEqual(["a", "e", "d"]);
     expect(list.sessions[0]?.agents?.map((a) => a.id)).toEqual(["1", "3"]);
-    // Waiting on something this version does not know: still there, as waiting on the user.
     expect(list.sessions[1]).toMatchObject({ state: "needs-you" });
     expect(list.sessions[1]?.waiting).toBeUndefined();
     expect(list.sessions[2]?.agents).toHaveLength(MAX_SESSION_AGENTS);
@@ -884,7 +869,6 @@ describe("the methods", () => {
       more: false,
     });
     expect(events.events.map((e) => e.seq)).toEqual([1, 3]);
-    // Still a list: one that is not fails as before.
     expect(
       RPC_METHODS["sessions.list"].result.safeParse({ workspaces: [], sessions: "none" }).success,
     ).toBe(false);
@@ -898,7 +882,6 @@ describe("the methods", () => {
     expect(spec.params.safeParse({ ...tab, profile: "Work", fresh: true }).success).toBe(true);
     expect(spec.params.safeParse({ ...tab, profile: "" }).success).toBe(false);
     expect(spec.params.safeParse(tab).success).toBe(false);
-    // No `from`: the room refuses an agent's.
     const fromAgent = spec.params.safeParse({ ...tab, profile: "Work", from: { title: "x" } });
     expect(fromAgent.success && "from" in fromAgent.data).toBe(false);
     expect(spec.result.safeParse({ from: "Personal", to: "Work" }).success).toBe(true);
@@ -953,7 +936,6 @@ describe("the account key's bundle", () => {
     ).toBe(false);
     const verifier = "A".repeat(43);
     expect(KeyBundlePutSchema.parse({ bundle, expected: null, verifier }).expected).toBeNull();
-    // Every write carries the password's verifier, the first too.
     expect(KeyBundlePutSchema.safeParse({ bundle, expected: null }).success).toBe(false);
   });
 

@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// Only a whole ".." path element escapes the root; names that merely start
-// with two dots (..foo, Kubernetes' ..data) are ordinary workspace entries.
 func TestResolveDotDotElement(t *testing.T) {
 	root := t.TempDir()
 	fsys, err := New(root)

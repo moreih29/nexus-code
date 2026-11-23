@@ -1,8 +1,3 @@
-/**
- * What a note's transcript panel lists: a person's lines alone, the lines
- * with the words searched for, both at once, and the people each recording
- * has.
- */
 import { describe, expect, test } from "bun:test";
 import {
   castOf,
@@ -35,8 +30,6 @@ function recording(id: string, over: Partial<TranscriptRecording> = {}): Transcr
   };
 }
 
-// Two recordings: 지현 has two voices in the first and one in the second;
-// voice 2 is unnamed in both, a different person in each.
 const first = recording("rmhz00cc0aaaa", {
   speakers: { "1": "지현", "3": "지현" },
   lines: [
@@ -52,7 +45,6 @@ const second = recording("rmhz00cc0bbbb", {
 const read = readRecordings([first, second]);
 const noLive = { recordingId: null, partial: null };
 
-/** The rows as `<recording>:<speaker>@<seconds>`, headings as `<recording>`. */
 function shown(rows: readonly TranscriptRow[]): string[] {
   return rows.map((row) => {
     const rec = row.recording === first ? "A" : "B";

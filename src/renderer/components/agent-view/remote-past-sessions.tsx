@@ -1,13 +1,3 @@
-/**
- * Another computer's chat's earlier sessions, as a chat here lists its
- * own: under its empty conversation, or above the composer for /resume.
- * They come from that computer (history.list), each with its branch and
- * the tab it is open in there; one picked goes on in this chat there
- * (chat.resume's tabId, 0.11.0), or the tab it is open in shows here. A
- * computer before 0.11.0 opens it in a tab of its own, which shows here
- * in this one's place.
- */
-
 import { useContext, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type AgentProfile, defaultProfileId } from "../../../shared/agent-profiles/profiles";
@@ -20,15 +10,12 @@ import { BannerDismissButton } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { RemoteSessionHostContext } from "./remote-session-host";
 
-/** Most sessions asked of that computer: a chat here lists about as many. */
 const LIMIT = 100;
 
-/** That computer's profile by its name, as the list marks its sessions; its default as the default. */
 function profileIdOf(name: string | undefined, agent: ChatAgent): string {
   return !name || name === "default" ? defaultProfileId(agent) : `remote:${name}`;
 }
 
-/** That computer's profiles its sessions are kept by, and the chat's own, as the list shows them. */
 function profilesOf(
   sessions: readonly ListedSession[],
   own: string | undefined,
@@ -44,10 +31,8 @@ function profilesOf(
   }));
 }
 
-/** A session listed, with the tab it is open in there. */
 type PastSession = ListedSession & { tabId?: string };
 
-/** Its earlier sessions, null until they come; an empty list when they cannot. */
 export function usePastSessions(
   target: Pick<RemoteTarget, "deviceId" | "workspaceId" | "kind">,
 ): PastSession[] | null {
@@ -85,16 +70,10 @@ export function usePastSessions(
   return listed;
 }
 
-/** That computer's profile's name a session's profile id names; none for its default. */
 function profileNameOf(profileId: string | undefined): string | undefined {
   return profileId?.startsWith("remote:") ? profileId.slice("remote:".length) : undefined;
 }
 
-/**
- * Goes on with one of them in this chat on that computer, in the profile
- * that keeps it, and shows its tab here. What went wrong goes to `fail`,
- * a toast unless given.
- */
 export function useResumePast(
   target: RemoteTarget,
 ): (
@@ -143,25 +122,20 @@ export function RemoteSessionList({
   exceptSessionId,
 }: {
   target: RemoteTarget;
-  /** Words a session's title has (/resume's). */
   query?: string;
-  /** Shown open, with a button that closes it (/resume); folded under an empty conversation. */
   onClose?: () => void;
-  /** The chat's own session, left out. */
   exceptSessionId?: string;
 }) {
   const { t } = useTranslation();
   const open = useContext(RemoteSessionHostContext)?.openSession ?? openRemoteSession;
   const listed = usePastSessions(target);
   const resume = useResumePast(target);
-  // Under the empty conversation a failure shows there, as a chat here's; from /resume, as a toast.
   const [failed, setFailed] = useState<string | null>(null);
   const agent: ChatAgent = target.kind === "codex" ? "codex" : "claude";
   const profiles = useMemo(
     () => profilesOf(listed ?? [], target.profile, agent),
     [listed, target.profile, agent],
   );
-  // The tabs there that have one open, as a chat here marks its own.
   const openIn = useMemo(
     () =>
       new Map((listed ?? []).flatMap((s) => (s.tabId ? [[s.sessionId, s.tabId] as const] : []))),
@@ -182,7 +156,6 @@ export function RemoteSessionList({
         listed={listed}
         openIn={openIn}
         onShowTab={(tabId, session) => {
-          // Another tab: its folder and state come with that computer's next list.
           const { cwd: _cwd, state: _state, ...where } = target;
           open({ ...where, tabId, title: session.title });
         }}

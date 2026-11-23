@@ -1,10 +1,3 @@
-// A Codex tab: one Codex thread run by `codex app-server` where the
-// workspace runs, shown as a conversation with the list, rows, cards and
-// composer of a Claude tab. The program outlives the window and the
-// connection, so the view only reads what its controller has. The
-// `claude -p` and `codex exec` runs its commands start show beside the
-// conversation, in the strip a Claude tab has.
-
 import { ArrowLeft } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -119,7 +112,6 @@ interface CodexTabViewProps {
   isVisible: boolean;
 }
 
-/** From this width a file opens in a group beside the tab. */
 const SPLIT_FROM_PX = 900;
 
 export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabViewProps) {
@@ -154,16 +146,12 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
       ),
     [workspaceId, tabId],
   );
-  // Followed while shown: a tab in the background draws nothing per chunk
-  // of a streaming reply, and shows the latest when it comes to the front.
   const state = useChatTab(workspaceId, tabId, isVisible);
   const bannerScope = ["chat", workspaceId, tabId, state.model.sessionId];
   const goal = useTabGoal(workspaceId, tabId);
   const model = state.model as CodexModel;
   const steady = useStateBesideStream(state);
 
-  // Opened the first time the tab is shown, so restored tabs in the
-  // background start nothing until they are looked at.
   const opened = useRef(false);
   useEffect(() => {
     if (!isVisible || opened.current) return;
@@ -176,8 +164,6 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
     void controller.answerPermission(request, answer).catch(surfaceChatSendError);
   };
 
-  // The pane shows the conversation or one of the runs its commands
-  // started; input always goes to the conversation.
   const printRuns = usePrintRuns(workspaceId, tabId, isVisible);
   const runs = useMemo(() => printRunRows(printRuns), [printRuns]);
   const agents = useMemo(() => [...agentsOf(steady.model), ...runs], [steady.model, runs]);
@@ -198,8 +184,6 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
 
   const rootRef = useRef<HTMLDivElement>(null);
   const fontStyle = useChatFontStyle();
-  // Brought to the front (its tab picked, the inbox, the agent view), it
-  // takes the keyboard.
   useEffect(() => registerTabFocusTarget(tabId, () => focusChatTab(rootRef.current)), [tabId]);
   const [place, setPlace] = useState<PanelPlace>("beside");
   useLayoutEffect(() => {
@@ -248,20 +232,16 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
       setBesideOpen(true);
     }
   };
-  // What the conversation links opens over the tab, or beside it.
   const [look, setLook] = useState<QuickLookList | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
-  // /resume's list above the composer, with the words it was given.
   const [resumeQuery, setResumeQuery] = useState<string | null>(null);
   const [resumeError, setResumeError] = useState<string | null>(null);
   const profileId = props.profileId ?? defaultProfileId("codex");
-  // The `/` menu: Codex's commands the tab runs, described in the app's words.
   const collaboration = !!model.collaborationPresets?.plan && !!model.collaborationPresets.default;
   const commands = useMemo(
     () => codexCommandsListed((name) => t(`chat.codex.commands.describe.${name}`), collaboration),
     [t, collaboration],
   );
-  // Under the empty conversation a failure shows there; from /resume, as a toast.
   const resumeThread = (
     threadId: string,
     fromProfile: string,
@@ -277,7 +257,6 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   const resumeFailed = (message: string) => {
     showToast({ kind: "error", message: t("chat.sessions.resume_failed", { message }) });
   };
-  // What the tab has going decides what another profile offers.
   const tabUse: TabUse = model.running
     ? "running"
     : model.items.length > 0
@@ -297,13 +276,10 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
       .continueInProfile(profileId)
       .catch((err: Error) => showToast({ kind: "error", message: err.message }));
   };
-  // A tab put out of sight takes its quick look with it.
   useEffect(() => {
     if (!isVisible) setLook(null);
   }, [isVisible]);
   const [looked, setLooked] = useState<readonly string[]>([]);
-  // Taken from the parts it reads, so a line that changes neither does not
-  // walk the whole session again.
   const { items: liveItems, tools: liveTools } = state.model;
   const outside = useMemo(
     () => outsideLinksOf(liveItems, liveTools, props.cwd, rootPath, looked),
@@ -316,8 +292,6 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
     () => () => grantOutside(workspaceId, tabId, { files: [], dirs: [] }),
     [workspaceId, tabId],
   );
-  // The agent removes a tab's attached files as it closes: in a conversation gone on in a new
-  // tab, their chips only name them.
   const attached = useMemo(() => attachedImagesIn(liveItems, props.cwd), [liveItems, props.cwd]);
   const goneAttached = useGoneFiles(workspaceId, rootPath, attached);
   const latest = useRef({ state, rootPath, outside });
@@ -326,13 +300,11 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   const links = useMemo<LocalChatLinks>(() => {
     const cwd = props.cwd;
     const split = () => (rootRef.current?.clientWidth ?? 0) >= SPLIT_FROM_PX;
-    /** Lets the previews read a file outside the workspace the tab grants none of yet. */
     const grant = (path: string) => {
       const { rootPath, outside } = latest.current;
       if (isUnder(path, rootPath) || outside.files.includes(path)) return;
       setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
     };
-    /** Quick look over the conversation's images, at `target`; `alone` when it is not among them. */
     const lookAt = (target: ShownImage, alone?: () => QuickLookList) => {
       const current = latest.current.state.model as CodexModel;
       const shown = imagesOf(current.items, current.tools, cwd, current.agentItems);
@@ -349,7 +321,6 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
         if (list) setLook(list);
       });
     };
-    /** Shows a file alone, as a diff when the session changed it and the agent kept its original. */
     const showAlone = (path: string, line?: LineAt) => {
       const current = latest.current.state.model as CodexModel;
       setLook({
@@ -359,10 +330,6 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
         ...(line?.line ? { at: { path, line: line.line, column: line.column } } : {}),
       });
     };
-    /**
-     * The file a link names, and where in it, once it is known which file
-     * that is: from the tab's folder, or from where the agent's shell went.
-     */
     const follow = (target: string, then: (link: FileLink) => void) => {
       const { state, rootPath } = latest.current;
       const places = linkPlaceIndex(state.model.tools, cwd);
@@ -383,7 +350,6 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
             setLook(null);
             return;
           }
-          // An image steps through the conversation's images; any other file shows alone.
           if (fileKind(path) !== "image") return showAlone(path, line);
           lookAt({ file: path });
         });
@@ -414,9 +380,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   }, [workspaceId, tabId, goneAttached]);
 
   const signIn = () => {
-    // A browser on this machine cannot reach a sign-in an SSH host waits for.
     const command = isLocal ? "codex login" : "codex login --device-auth";
-    // In the tab's profile: in another, `codex login` would sign the default folder out.
     const { tabId: terminal } = openTerminal({ workspaceId, cwd: props.cwd, profile: profileId });
     queueStartupInput(
       workspaceId,
@@ -860,19 +824,16 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
               />
             }
             onCommand={(text) => {
-              // A bare /config (or /settings) opens the defaults.
               if (/^\/(config|settings)$/i.test(text.trim())) {
                 setConfigOpen(true);
                 return true;
               }
-              // /resume lists the folder's threads, to go on with one here.
               if (parseAppCommand(text, [])?.name === "resume") {
                 if (state.model.running) {
                   showToast({ kind: "warning", message: t("chat.commands.resume_busy") });
                 } else setResumeQuery(text.trim().replace(/^\/\S+\s*/, ""));
                 return true;
               }
-              // A bare /model or /effort opens its menu, as Codex's own does.
               const part = revealOf(text, ["model", "effort"]);
               if (part) {
                 revealPart(controller.key, part);

@@ -45,13 +45,11 @@ test("the peer status bar tells the branch against its upstream and the changes 
   );
   expect(html).toContain("Desktop");
   expect(html).toContain("main ↑1 ↓2");
-  // The changes are one button, conflicts first, each state its own count.
   expect(html).toMatch(/<button[^>]*title="[^"]*2[^"]*"/);
   expect(html.indexOf("--status-bar-conflict-fg")).toBeLessThan(
     html.indexOf("--status-bar-added-fg"),
   );
   expect(html).toContain("--status-bar-untracked-fg");
-  // The bar's items are the local bar's size.
   expect(html).toContain("text-app-ui-sm");
   expect(html).not.toContain("text-app-micro");
 });

@@ -1,14 +1,5 @@
-/**
- * A terminal's lines with their colors and styles, as SGR escapes and no
- * other escapes, for another device to draw them as this window does
- * (terminal.read and terminal.watch with `ansi`), and where its cursor is
- * in them. Each line starts from the default style and ends back at it, so
- * any line can start a text.
- */
-
 import type { TerminalCaret } from "../../../../packages/remote-protocol/src";
 
-/** A cell of xterm's buffer, as much as the escapes need. */
 export interface CellLike {
   getWidth(): number;
   getChars(): string;
@@ -31,7 +22,6 @@ export interface CellLike {
   isOverline(): number;
 }
 
-/** A row of xterm's buffer; one without its cells reads as plain text. */
 export interface AnsiLineLike {
   readonly isWrapped: boolean;
   readonly length?: number;
@@ -42,7 +32,6 @@ export interface AnsiLineLike {
 export interface AnsiBufferLike {
   readonly length?: number;
   getLine?(y: number): AnsiLineLike | undefined;
-  /** A cell to read the others into, so a line reads without making one per cell. */
   getNullCell?(): CellLike;
 }
 
@@ -73,7 +62,6 @@ function colorParams(
   return [];
 }
 
-/** The SGR parameters of a cell's style ("1;31"); "" for the default. */
 export function sgrOf(cell: CellLike): string {
   const params: string[] = [];
   if (cell.isBold()) params.push("1");
@@ -90,7 +78,6 @@ export function sgrOf(cell: CellLike): string {
   return params.join(";");
 }
 
-/** A cell that shows nothing: a blank of the default background, unstyled where it would show. */
 function blank(cell: CellLike): boolean {
   const chars = cell.getChars();
   return (
@@ -103,7 +90,6 @@ function blank(cell: CellLike): boolean {
   );
 }
 
-/** One row of the buffer with its escapes; its blank end left out when `trim`. */
 function rowAnsi(line: AnsiLineLike, cell: CellLike | undefined, trim: boolean): string {
   const at = line.getCell?.bind(line);
   if (!at || line.length === undefined) return line.translateToString(trim);
@@ -119,7 +105,6 @@ function rowAnsi(line: AnsiLineLike, cell: CellLike | undefined, trim: boolean):
   let style = "";
   for (let x = 0; x < end; x++) {
     const c = at(x, cell);
-    // The second half of a wide character, which the first one draws.
     if (!c || c.getWidth() === 0) continue;
     const sgr = sgrOf(c);
     if (sgr !== style) {
@@ -132,26 +117,22 @@ function rowAnsi(line: AnsiLineLike, cell: CellLike | undefined, trim: boolean):
   return out;
 }
 
-/** Where the cursor is: its row in the buffer (scrollback included) and its cell in that row. */
 export interface CursorAt {
   row: number;
   cell: number;
 }
 
-/** A terminal's text with its escapes, and its cursor in it (TerminalCaretSchema). */
 export interface AnsiScreen {
   text: string;
   caret?: TerminalCaret;
 }
 
 interface Row {
-  /** Its first and last rows in the buffer: more than one where the terminal wrapped it. */
   start: number;
   end: number;
   text: string;
 }
 
-/** The buffer's lines, a line the terminal wrapped joined back up. */
 function rowsOf(buffer: AnsiBufferLike): Row[] {
   const length = buffer.length ?? 0;
   const rows: Row[] = [];
@@ -170,11 +151,6 @@ function rowsOf(buffer: AnsiBufferLike): Row[] {
   return rows;
 }
 
-/**
- * The characters (code points) of `row` before the cursor's cell, as
- * rowAnsi gives them, a blank cell past the end counting one; undefined
- * for a row without its cells.
- */
 function caretColumn(
   buffer: AnsiBufferLike,
   row: Row,
@@ -196,12 +172,6 @@ function caretColumn(
   return column;
 }
 
-/**
- * The last `lines` lines it shows, scrollback included, as bufferText
- * tells them (a wrapped line whole, the blank ones at the end left out),
- * with their colors and styles; and, given the cursor, where it is in
- * them, as long as it is not above them.
- */
 export function bufferScreen(
   buffer: AnsiBufferLike,
   lines: number,
@@ -231,7 +201,6 @@ export function bufferScreen(
   return column === undefined ? { text } : { text, caret: { line: at - first, column } };
 }
 
-/** bufferScreen's text, without the cursor. */
 export function bufferAnsi(buffer: AnsiBufferLike, lines: number): string {
   return bufferScreen(buffer, lines).text;
 }

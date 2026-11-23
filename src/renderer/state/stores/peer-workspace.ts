@@ -41,21 +41,17 @@ export interface PeerSessionTab {
   type: "peer.session";
   target: RemoteTarget;
   gone?: true;
-  /** The latest list request when a control reply opened this tab. */
   pending?: number;
 }
 
-/** A note of that workspace, shown to read. */
 export interface PeerNoteTab {
   type: "peer.note";
   noteId: string;
-  /** As the list named it when opened; empty for a note not named yet. */
   title: string;
 }
 
 type PeerWorkspaceTab = PeerFileTab | PeerDiffTab | PeerCommitTab | PeerSessionTab | PeerNoteTab;
 
-/** The files panel's views for another computer's workspace, as a local one's. */
 export type PeerFilesMode = "tree" | "search" | "git" | "agents" | "notes";
 
 export function peerTabId(tab: PeerWorkspaceTab): string {
@@ -81,7 +77,6 @@ export interface PeerFolder {
 
 interface PeerWorkspaceView {
   tabs: readonly PeerWorkspaceTab[];
-  /** File path or structured tab ID. */
   activePath: string | null;
   sessions?: readonly RemoteSession[];
   hiddenSessions: ReadonlySet<string>;
@@ -89,11 +84,8 @@ interface PeerWorkspaceView {
   expanded: ReadonlySet<string>;
   gitStatus?: PeerGitStatus;
   gitError?: string;
-  /** The files panel's view; the tree until another is picked. */
   filesMode?: PeerFilesMode;
-  /** Its agent list's view, once switched; Settings' default until then. */
   agentListView?: AgentListView;
-  /** Source Control's list or tree, once switched; the local default until then. */
   gitViewMode?: ViewMode;
 }
 
@@ -137,7 +129,6 @@ interface PeerWorkspaceState {
   setGitResult: (id: string, result: IpcResult<PeerGitStatus>) => void;
   setFolder: (id: string, key: string, folder: PeerFolder | null) => void;
   toggleFolder: (id: string, path: string) => void;
-  /** Folds every folder, the root kept open, as the local tree's "Collapse Folders". */
   collapseFolders: (id: string) => void;
   setFilesMode: (id: string, mode: PeerFilesMode) => void;
   setAgentListView: (id: string, view: AgentListView) => void;

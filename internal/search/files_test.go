@@ -43,7 +43,6 @@ func TestFilesFindsByNameBestFirst(t *testing.T) {
 	if got.Truncated {
 		t.Fatal("a small tree should be walked whole")
 	}
-	// The file named so, before the one named so and more, before a scattered match.
 	want := []string{"src/components/chat/composer.tsx", "src/components/chat/composer-model.ts"}
 	if len(got.Files) < 2 || !slices.Equal(got.Files[:2], want) {
 		t.Fatalf("composer: got %v, want %v first", got.Files, want)
@@ -52,18 +51,15 @@ func TestFilesFindsByNameBestFirst(t *testing.T) {
 		t.Fatalf("open.ts has no r after its e: %v", got.Files)
 	}
 
-	// Word starts beat letters in the middle: "cmo" starts composer-model's two words.
 	if got := findFiles(t, service, "cmo", 10); len(got.Files) == 0 || got.Files[0] != "src/components/chat/composer-model.ts" {
 		t.Fatalf("cmo: got %v", got.Files)
 	}
-	// Case and spaces are not minded; a path's folders count.
 	if got := findFiles(t, service, "Chat Comp", 10); len(got.Files) == 0 || got.Files[0] != "src/components/chat/composer.tsx" {
 		t.Fatalf("Chat Comp: got %v", got.Files)
 	}
 	if got := findFiles(t, service, `chat\composer.tsx`, 10); !slices.Equal(got.Files, []string{"src/components/chat/composer.tsx"}) {
 		t.Fatalf(`backslash: got %v`, got.Files)
 	}
-	// Files text search leaves out by name are found here; binaries and empty ones too.
 	if got := findFiles(t, service, "bun.lock", 10); !slices.Contains(got.Files, "bun.lock") {
 		t.Fatalf("bun.lock: got %v", got.Files)
 	}

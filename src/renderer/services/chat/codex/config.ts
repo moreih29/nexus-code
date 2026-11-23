@@ -1,9 +1,7 @@
-// Translate app-server config into the existing chat.config read/write shape.
 import type { ChatConfig, RpcParams } from "../../../../../packages/remote-protocol/src";
 import type { ModelInfo } from "../model";
 import { compareVersions } from "../versions";
 
-// A read-origin binding carried by the existing chat.config record schema.
 export const CODEX_CONFIG_PROFILE_KEY = "_codex_profile_id";
 
 export type CodexConfigSet = NonNullable<RpcParams<"chat.config">["set"]>;
@@ -25,7 +23,6 @@ const resettableChoices: Readonly<Record<string, readonly string[]>> = {
   plan_mode_reasoning_effort: [],
 };
 
-/** Undefined is invalid, null removes the override. The peer wire stays text. */
 export function codexNumericConfigValue(key: string, value: string): number | null | undefined {
   const range = Object.hasOwn(numericSettings, key) ? numericSettings[key] : undefined;
   if (!range) return undefined;
@@ -51,7 +48,6 @@ const requirementKeys = {
   web_search: "allowedWebSearchModes",
 } as const;
 
-// These values can affect every subsequent thread on this profile. Keep them local.
 const remoteBlocked: Readonly<Record<string, string>> = {
   approval_policy: "never",
   sandbox_mode: "danger-full-access",
@@ -85,8 +81,6 @@ export function codexConfigSnapshot(
   const requirementsKnown =
     requirementResponse?.requirements === null || requirements !== undefined;
   const origins = record(result.origins);
-  // Layers are in descending precedence. App-server writes the active user
-  // layer, which may be a Codex named profile inside this Nexus profile's home.
   const enabledLayers = (Array.isArray(result.layers) ? result.layers.map(record) : []).filter(
     (layer): layer is RecordValue => !!layer && !layer.disabledReason,
   );
@@ -104,7 +98,6 @@ export function codexConfigSnapshot(
     ...(supportedEffortLevels ? { supportedEffortLevels } : {}),
   }));
 
-  // Values supplied by stronger layers can be shown but cannot be edited here.
   const isOverridden = (key: string) =>
     Object.entries(origins ?? {}).some(([path, metadata]) => {
       if (path !== key && !path.startsWith(`${key}.`)) return false;
@@ -147,9 +140,6 @@ export function codexConfigSnapshot(
     return tiers.length || text(config.service_tier) ? [...new Set(["default", ...tiers])] : [];
   };
 
-  // The batch sets a profile default. A trusted project or this server's
-  // flags can narrow the sandbox locally while another thread inherits
-  // broader settings from the profile. Check both scopes.
   const workspaceWrite = record(config.sandbox_workspace_write);
   const profileWorkspaceWrite = enabledLayers.flatMap<RecordValue>((layer) => {
     const type = record(layer.name)?.type;
@@ -209,8 +199,6 @@ export function codexConfigSnapshot(
       keys.push(keyOf("service_tier", "conversation", value, requirementsKnown ? tiers : []));
   }
 
-  // Older servers omit keys their config loader does not know. 0.170 also
-  // advertises its typed TOML fields in config/read's flattened properties.
   for (const key of Object.keys(numericSettings)) {
     if (!Object.hasOwn(config, key)) continue;
     const raw = config[key];
@@ -247,7 +235,6 @@ export function codexConfigSnapshot(
   return { shown, version, filePath, tiersFor, planEffortsFor, userConfig };
 }
 
-/** Revalidate every field on the host before issuing one config/batchWrite. */
 export function codexConfigEdits(
   set: CodexConfigSet,
   { shown, tiersFor, planEffortsFor, userConfig }: ReturnType<typeof codexConfigSnapshot>,
@@ -296,7 +283,6 @@ export function codexConfigEdits(
       (key === "plan_mode_reasoning_effort" && !planEffortsFor(selected).includes(value))
     )
       throw new CodexConfigRefusal(`${key} does not allow "${value}"`);
-    // Use the CLI's TOML spelling for Fast, including on older Codex versions.
     edit(key, key === "service_tier" && value === "priority" ? "fast" : value);
   }
   const { effort } = set;

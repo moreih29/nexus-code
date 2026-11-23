@@ -8,19 +8,11 @@ import { COMMANDS } from "../../../../../../src/shared/keybindings/commands";
 import { KEYBINDINGS } from "../../../../../../src/shared/keybindings/index";
 import { applyKeybindingOverrides } from "../../../../../../src/shared/keybindings/overrides";
 
-// ---------------------------------------------------------------------------
-// Fake Monaco — keeps the rules added through addKeybindingRule until their
-// disposable is disposed, and captures registerCommand calls. As in
-// apply.test.ts the monaco-singleton is stubbed via mock.module and the
-// subject is imported after it, so it binds to this fake.
-// ---------------------------------------------------------------------------
-
 interface Rule {
   keybinding: number;
   command: string;
 }
 
-/** Rules added and not yet disposed. */
 let added: Rule[] = [];
 let addCount = 0;
 const commands = new Map<string, () => void>();

@@ -28,7 +28,6 @@ interface TreeBranchProps {
   renderRow: (node: SessionTreeNode, collapsed: boolean) => ReactNode;
 }
 
-/** The shared disclosure and indentation rules for a conversation tree. */
 export function SessionTreeBranch({
   node,
   last = true,
@@ -81,15 +80,8 @@ export function SessionTreeBranch({
   );
 }
 
-/** Shown in a folded family's chip: what of it works, and what waits on the user. */
 const FOLDED_COUNTS = ["running", "attention"] as const;
 
-/**
- * A family's chip, `≣ 3 ⌃`: how many conversations are under the row, and
- * folds them. Folded, it tells inside its border how many of them work and
- * wait on the user, `≣ 3 · ⟳ 1 · ! 1 ⌄`, so they do not read as the row's
- * own state.
- */
 export function FamilyFold({
   session,
   count,
@@ -100,7 +92,6 @@ export function FamilyFold({
   session: AgentSession;
   count: number;
   collapsed: boolean;
-  /** The family's states, told while it is folded. */
   counts?: SessionCounts;
   testPrefix: string;
 }) {
@@ -166,10 +157,6 @@ export function useParentCaption(
   return { label, hint: device || closed ? label : t("agentView.list.parent_hint", { name }) };
 }
 
-/**
- * A row's parent where the tree does not show it (on another computer,
- * closed, or too deep), for the row's second line; nothing where it does.
- */
 export function ParentCaption({ node }: { node: SessionTreeNode }) {
   const { open } = useSessionParent(node.parentClosed ? node.session.parent : undefined);
   const closed = node.parentClosed && !open;
@@ -236,9 +223,6 @@ function TreeLine({
   testPrefix: string;
 }) {
   if (!indent) return children;
-  // The line comes down under the parent's mark (a row's border and padding,
-  // and half the mark: 16px in) and turns at the middle of the child's title
-  // line (15px down, in a two-line row and in a task card's one-line row).
   return (
     <div className="relative pl-5" data-testid={`${testPrefix}-tree-line`}>
       <span

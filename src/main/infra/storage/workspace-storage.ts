@@ -42,20 +42,6 @@ import {
 
 const log = createLogger("workspace-storage");
 
-// ---------------------------------------------------------------------------
-// WorkspaceStorage — per-workspace SQLite DB + workspace.json recovery dump.
-//
-// Directory layout (under userData/workspaces/<uuid>/):
-//   state.db      — SQLite store for workspace metadata and persisted UI state
-//   workspace.json — WorkspaceMeta JSON dump for recovery when state.db is corrupt
-//
-// NEXUS_RESET_STORAGE=1 environment variable:
-//   On first open, if this var is set, the workspace storage folder is renamed
-//   to backup-{timestamp} and a fresh directory is created. Intended as a
-//   developer escape hatch for corrupt-state recovery; the rename (rather than
-//   delete) preserves the prior state for postmortem inspection.
-// ---------------------------------------------------------------------------
-
 interface PerWorkspaceEntry {
   db: SqliteDb;
   dbPath: string;
@@ -66,11 +52,6 @@ type DbFactory = (dbPath: string) => SqliteDb;
 
 export class WorkspaceStorage {
   private readonly entries = new Map<string, PerWorkspaceEntry>();
-  /**
-   * Each open workspace's Source Control panel state as last read. Autofetch
-   * reads it every second for every workspace; setGitPanelState, the only
-   * writer, and closing the workspace drop it.
-   */
   private readonly gitPanelStates = new Map<string, GitPanelState>();
   private readonly baseDir: string;
   private readonly dbFactory: DbFactory;
@@ -80,18 +61,12 @@ export class WorkspaceStorage {
     if (dbFactory) {
       this.dbFactory = dbFactory;
     } else {
-      // Default factory uses better-sqlite3 for production.
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const BetterSQLite = require("better-sqlite3");
       this.dbFactory = (p: string) => new BetterSQLite(p) as SqliteDb;
     }
   }
 
-  /**
-   * Open (or lazily create) per-workspace storage.
-   * Honors NEXUS_RESET_STORAGE=1 as a developer escape hatch — see the
-   * file-level comment for the rename-to-backup semantics.
-   */
   openForWorkspace(workspaceId: string): void {
     if (this.entries.has(workspaceId)) {
       return;
@@ -99,7 +74,6 @@ export class WorkspaceStorage {
 
     const workspaceDir = path.join(this.baseDir, workspaceId);
 
-    // NEXUS_RESET_STORAGE=1 developer escape hatch — see the file-level comment.
     if (process.env.NEXUS_RESET_STORAGE === "1" && fs.existsSync(workspaceDir)) {
       const backupName = `backup-${Date.now()}`;
       const backupDir = path.join(this.baseDir, backupName);
@@ -113,15 +87,12 @@ export class WorkspaceStorage {
 
     db.exec("PRAGMA journal_mode = WAL;");
     db.exec("PRAGMA foreign_keys = ON;");
-    // Bootstrap _meta before running migrations.
     db.exec(`
       CREATE TABLE IF NOT EXISTS _meta (
         key   TEXT NOT NULL PRIMARY KEY,
         value TEXT NOT NULL
       );
     `);
-    // Seed schemaVersion=1 for fresh databases so applyWorkspaceMigrations
-    // knows where to start.
     const row = db.prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'").get() as
       | { value: string }
       | undefined;
@@ -169,15 +140,10 @@ export class WorkspaceStorage {
       .prepare("INSERT OR REPLACE INTO _meta (key, value) VALUES ('workspaceMeta', ?)")
       .run(serialized);
 
-    // Write recovery dump.
     const jsonPath = path.join(entry.workspaceDir, "workspace.json");
     fs.writeFileSync(jsonPath, JSON.stringify(normalized, null, 2), "utf8");
   }
 
-  /**
-   * Returns the workspace directory path for a given workspace ID.
-   * The directory is only present after openForWorkspace() has been called.
-   */
   getWorkspaceDir(workspaceId: string): string {
     return path.join(this.baseDir, workspaceId);
   }
@@ -186,10 +152,6 @@ export class WorkspaceStorage {
     return this.entries.has(workspaceId);
   }
 
-  /**
-   * Returns the persisted relative paths of expanded directories for a workspace.
-   * Returns [] if none have been saved yet.
-   */
   getExpandedPaths(workspaceId: string): string[] {
     const entry = this.entries.get(workspaceId);
     if (!entry) {
@@ -201,10 +163,6 @@ export class WorkspaceStorage {
     return rows.map((r) => r.rel_path);
   }
 
-  /**
-   * Replaces the full set of persisted expanded paths for a workspace.
-   * Uses a transaction: DELETE all existing rows then INSERT the new set.
-   */
   setExpandedPaths(workspaceId: string, relPaths: string[]): void {
     const entry = this.entries.get(workspaceId);
     if (!entry) {
@@ -212,9 +170,6 @@ export class WorkspaceStorage {
     }
     const del = entry.db.prepare("DELETE FROM expanded_paths");
     const ins = entry.db.prepare("INSERT INTO expanded_paths (rel_path) VALUES (?)");
-    // bun:sqlite and better-sqlite3 both expose transaction() on the db object.
-    // We call it via exec-level statements wrapped in BEGIN/COMMIT to stay
-    // compatible with the shared SqliteDb interface (which has only exec/prepare/close).
     entry.db.exec("BEGIN");
     try {
       del.run();
@@ -228,11 +183,6 @@ export class WorkspaceStorage {
     }
   }
 
-  /**
-   * Returns the persisted Source Control panel state for a workspace.
-   * Missing rows fall back to defaults; invalid expandedGroups JSON logs and
-   * falls back to the default panel state without throwing.
-   */
   getGitPanelState(workspaceId: string): GitPanelState {
     const entry = this.entries.get(workspaceId);
     if (!entry) {
@@ -302,11 +252,6 @@ export class WorkspaceStorage {
     return parsed.data;
   }
 
-  /**
-   * Persists partial Source Control panel state for a workspace.
-   * Only provided keys are replaced so callers can update the draft or group
-   * expansion state independently.
-   */
   setGitPanelState(workspaceId: string, state: GitPanelStateUpdate): void {
     const entry = this.entries.get(workspaceId);
     if (!entry) {
@@ -376,11 +321,6 @@ export class WorkspaceStorage {
     }
   }
 
-  /**
-   * Returns the persisted view options for the given panel kind in a workspace.
-   * Falls back to DEFAULT_VIEW_OPTIONS_BY_PANEL[panelKind] when the row is
-   * absent (fresh workspace or newly introduced panel kind).
-   */
   getPanelViewOptions(workspaceId: string, panelKind: PanelKind): PanelViewOptions {
     const entry = this.entries.get(workspaceId);
     if (!entry) {
@@ -407,12 +347,6 @@ export class WorkspaceStorage {
     return parsed.data;
   }
 
-  /**
-   * Persists partial view options for the given panel kind.
-   * Reads the current persisted row (or defaults) and merges the provided
-   * partial before writing. Uses INSERT OR REPLACE to upsert the row
-   * atomically.
-   */
   setPanelViewOptions(
     workspaceId: string,
     panelKind: PanelKind,
@@ -434,14 +368,6 @@ export class WorkspaceStorage {
       .run(panelKind, merged.viewMode);
   }
 
-  // ---------------------------------------------------------------------------
-  // origin_permissions accessors
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Returns the stored decision for a (origin, permission) pair, or null if
-   * no decision has been saved for this workspace.
-   */
   getOriginPermission(
     workspaceId: string,
     origin: string,
@@ -458,10 +384,6 @@ export class WorkspaceStorage {
     return row.decision as "allow" | "block";
   }
 
-  /**
-   * Upserts the decision for a (origin, permission) pair.
-   * Sets updated_at to Date.now().
-   */
   setOriginPermission(
     workspaceId: string,
     origin: string,
@@ -480,9 +402,6 @@ export class WorkspaceStorage {
       .run(origin, permission, decision, Date.now());
   }
 
-  /**
-   * Returns all stored origin permission rows for a workspace.
-   */
   listOriginPermissions(
     workspaceId: string,
   ): { origin: string; permission: string; decision: "allow" | "block" }[] {
@@ -496,9 +415,6 @@ export class WorkspaceStorage {
     return rows as { origin: string; permission: string; decision: "allow" | "block" }[];
   }
 
-  /**
-   * Removes a single (origin, permission) decision row.
-   */
   deleteOriginPermission(workspaceId: string, origin: string, permission: string): void {
     const entry = this.entries.get(workspaceId);
     if (!entry) {
@@ -509,9 +425,6 @@ export class WorkspaceStorage {
       .run(origin, permission);
   }
 
-  /**
-   * Removes all permission decisions for the given origin.
-   */
   clearOrigin(workspaceId: string, origin: string): void {
     const entry = this.entries.get(workspaceId);
     if (!entry) {

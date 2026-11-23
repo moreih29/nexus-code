@@ -67,7 +67,6 @@ export type GitErrorKind = z.infer<typeof GitErrorKindSchema>;
 export const RepoInfoSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("detecting") }),
   z.object({ kind: z.literal("non-repo") }),
-  // The workspace's host has no Git to run, so it cannot tell either way.
   z.object({ kind: z.literal("git-missing") }),
   z.object({
     kind: z.literal("repo"),
@@ -114,25 +113,6 @@ export const BranchInfoSchema = z.object({
 });
 export type BranchInfo = z.infer<typeof BranchInfoSchema>;
 
-/**
- * Repository-level capability flags that gate Source Control panel actions.
- * Lives on `GitStatus` because it changes on the same events (`statusChanged`)
- * — adding a remote, making the first commit, stashing, or pushing all flip
- * one of these and all flow through a status refresh anyway.
- *
- *   - `hasHEAD`     true when at least one commit exists. False right after
- *                   `git init` until the first commit lands. Disables Stash
- *                   and Commit (which would emit "no initial commit yet").
- *   - `remotes`     names of configured remotes (`git remote`). Empty when
- *                   the repo has no remotes; disables Push/Pull until one is
- *                   added; UI uses the first entry when prompting "Publish to
- *                   <remote>?".
- *   - `stashCount`  count of entries on the stash stack. Drives Stash Pop
- *                   enablement so the user never sees "No stash entries
- *                   found." after clicking the menu.
- *   - `tagCount`    count of local tags. Lets later tag pickers render an
- *                   empty state without issuing a second capability read.
- */
 export const RepoCapabilitiesSchema = z.object({
   hasHEAD: z.boolean(),
   remotes: z.array(z.string()),
@@ -148,9 +128,6 @@ export const DEFAULT_REPO_CAPABILITIES: RepoCapabilities = {
   tagCount: 0,
 };
 
-/**
- * Repository operation state derived from Git marker files under `.git/`.
- */
 export const GitOperationStateSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("none") }),
   z.object({
@@ -295,13 +272,6 @@ export const GitMarkResolvedResultSchema = z.object({
 });
 export type GitMarkResolvedResult = z.infer<typeof GitMarkResolvedResultSchema>;
 
-/**
- * Result envelope for the primary Sync action. `git.sync` owns one repository
- * queue slot and performs pull before push, so a non-ok pull state always
- * leaves `pushed` as `skipped`. Pull failures carry a minimal typed error
- * copy so the renderer can keep its inline banner behavior without making the
- * IPC call reject.
- */
 export const GitSyncErrorSchema = z.object({
   kind: z.string().min(1),
   message: z.string(),
@@ -348,11 +318,6 @@ export type GitHelperPromptId = z.infer<typeof GitHelperPromptIdSchema>;
 
 export const GitHelperWorkspaceIdSchema = WorkspaceIdSchema.optional();
 
-/**
- * Main-to-renderer askpass prompt payload. `promptId` is the domain
- * correlation key used by responses; it is intentionally independent from
- * transport request ids because the helper process is not an IPC caller.
- */
 export const AskpassPromptSchema = z.object({
   promptId: GitHelperPromptIdSchema,
   workspaceId: GitHelperWorkspaceIdSchema,
@@ -362,11 +327,6 @@ export const AskpassPromptSchema = z.object({
 });
 export type AskpassPrompt = z.infer<typeof AskpassPromptSchema>;
 
-/**
- * Main-to-renderer commit-message editor payload. The renderer edits the
- * provided content and responds with the same `promptId` so main can write the
- * exact file path opened by Git's editor hook.
- */
 export const GitEditorPromptSchema = z.object({
   promptId: GitHelperPromptIdSchema,
   workspaceId: GitHelperWorkspaceIdSchema,
@@ -406,10 +366,6 @@ export const TagSchema = z.object({
 });
 export type Tag = z.infer<typeof TagSchema>;
 
-/**
- * Remote tag row returned from one selected remote. It intentionally stays
- * separate from local `Tag` so local tag listings never imply remote presence.
- */
 export const RemoteTagSchema = z.object({
   remote: z.string(),
   name: z.string(),
@@ -439,9 +395,6 @@ export type DiffSpec = z.infer<typeof DiffSpecSchema>;
 export const GitLogScopeSchema = z.enum(["ref", "all", "branches"]);
 export type GitLogScope = z.infer<typeof GitLogScopeSchema>;
 
-/**
- * Number of parsed git log entries emitted in each streaming chunk.
- */
 export const LOG_CHUNK_ENTRY_COUNT = 50;
 
 export const GitHistoryScopeSchema = z.enum(["ref", "all"]);
@@ -512,9 +465,7 @@ export const CommitDetailSchema = z.object({
 });
 export type CommitDetail = z.infer<typeof CommitDetailSchema>;
 
-/** One uncommitted file's lines added and deleted against HEAD; a binary file has neither. */
 export const FileLineStatsSchema = z.object({
-  /** Relative to the repository's top level, as in GitStatus. */
   path: z.string(),
   added: NonnegativeIntegerSchema,
   deleted: NonnegativeIntegerSchema,
@@ -522,11 +473,6 @@ export const FileLineStatsSchema = z.object({
 });
 export type FileLineStats = z.infer<typeof FileLineStatsSchema>;
 
-/**
- * A worktree's uncommitted changes in lines, untracked files included, and
- * the commits HEAD has that a base branch has not (`ahead`) and the other
- * way round (`behind`), absent without a base or when it does not resolve.
- */
 export const GitChangeStatsSchema = z.object({
   files: z.array(FileLineStatsSchema),
   ahead: NonnegativeIntegerSchema.optional(),
@@ -557,41 +503,6 @@ export const DiffCompleteSchema = z.object({
 });
 export type DiffComplete = z.infer<typeof DiffCompleteSchema>;
 
-/**
- * Actionable next-step payload attached to typed Git errors so the renderer
- * can render a one-click recovery instead of a raw stderr toast.
- *
- * Each variant identifies a recovery path the user can take:
- *
- *   - `publish-branch`        Push -u to the suggested remote so the current
- *                              branch gains an upstream. Emitted by
- *                              `pull`/`push` preflight when no upstream is
- *                              configured but at least one remote exists.
- *   - `remote-track-available` Run `checkout --track <remoteRef>` to
- *                              materialize a local branch. Emitted by
- *                              `checkout` preflight when the requested ref
- *                              has no local match but exactly one remote.
- *   - `make-initial-commit`   Create the repository's first commit before
- *                              attempting an op that requires HEAD. Emitted
- *                              by `stash`/`commit --amend` preflight.
- *   - `add-remote`            Configure a remote before retrying. Emitted by
- *                              `pull`/`push` preflight when no remotes exist.
- *   - `stash-empty`           Stash stack is empty so Stash Pop has nothing
- *                              to apply. UI uses this to disable the menu
- *                              item and explain why.
- *   - `ambiguous-remote`      Multiple remotes carry the same short name —
- *                              the renderer surfaces a chooser instead of
- *                              guessing.
- *   - `force-delete-available` A branch delete failed because it is not fully
- *                              merged; the renderer can offer an explicit
- *                              force-delete retry.
- *   - `pull-then-retry`       A push was rejected as non-fast-forward and can
- *                              be retried after a user-approved pull.
- *   - `fetch-then-force`      A force-with-lease push failed because the
- *                              remote moved; fetch refreshes the lease.
- *   - `allow-unrelated-histories` Git refused to merge unrelated histories.
- *   - `allow-empty`           Cherry-pick produced an empty commit.
- */
 export const GitActionHintSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("publish-branch"),
@@ -678,7 +589,6 @@ export const DEFAULT_GIT_AUTOFETCH_INTERVAL_MIN = 1;
 
 const GitAutofetchIntervalMinValueSchema = z.union([z.literal(0), z.literal(1), z.literal(3)]);
 
-/** Maps persisted legacy cadence values onto the supported active intervals. */
 function migrateGitAutofetchIntervalMinInput(value: unknown): unknown {
   if (value === undefined) return value;
   const numeric =
@@ -688,10 +598,7 @@ function migrateGitAutofetchIntervalMinInput(value: unknown): unknown {
         ? Number(value)
         : Number.NaN;
   if (numeric === 0) return 0;
-  // Currently supported values pass through unchanged.
   if (numeric === 1 || numeric === 3) return numeric;
-  // Pre-existing wider cadences (5 / 15 min) collapse onto the default —
-  // we no longer offer them in the menu.
   if (numeric === 5 || numeric === 15) {
     return DEFAULT_GIT_AUTOFETCH_INTERVAL_MIN;
   }
@@ -704,7 +611,6 @@ export const GitAutofetchIntervalMinSchema = z.preprocess(
 );
 export type GitAutofetchIntervalMin = z.infer<typeof GitAutofetchIntervalMinSchema>;
 
-/** Normalizes legacy autofetch intervals to the single supported active cadence. */
 export function normalizeGitAutofetchIntervalMin(value: unknown): GitAutofetchIntervalMin {
   const parsed = GitAutofetchIntervalMinSchema.safeParse(value);
   return parsed.success ? parsed.data : DEFAULT_GIT_AUTOFETCH_INTERVAL_MIN;

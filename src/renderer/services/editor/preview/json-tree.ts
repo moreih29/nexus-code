@@ -1,13 +1,3 @@
-// A JSON file as a tree of values, for its preview.
-//
-// The parser takes what configuration files are written in as well:
-// comments (`//` and `/* */`) and a comma after the last member, as
-// tsconfig.json and VS Code's settings have. Numbers keep the text they
-// are written in, so one beyond a double's precision shows as written.
-// Members keep their order, a key written twice included. It runs with
-// a stack of its own, so a deeply nested file does not overflow the
-// call stack.
-
 export type JsonValue =
   | { readonly kind: "object"; readonly entries: JsonEntry[] }
   | { readonly kind: "array"; readonly items: JsonValue[] }
@@ -24,7 +14,6 @@ export interface JsonEntry {
 type ObjectValue = Extract<JsonValue, { kind: "object" }>;
 type ArrayValue = Extract<JsonValue, { kind: "array" }>;
 
-/** Where the text stops being JSON, by line and column from 1. */
 export class JsonSyntaxError extends Error {
   constructor(
     message: string,
@@ -161,7 +150,6 @@ export function parseJson(text: string): JsonValue {
   };
 
   for (;;) {
-    // A value is next.
     skip();
     const c = text[i];
     if (c === "{") {
@@ -190,7 +178,6 @@ export function parseJson(text: string): JsonValue {
       attach(readScalar());
     }
 
-    // A value ended: its container closes, or goes on past a comma.
     for (;;) {
       skip();
       const top = stack[stack.length - 1];
@@ -218,7 +205,6 @@ export function parseJson(text: string): JsonValue {
   }
 }
 
-/** How many values are in `value`, itself included. */
 export function countValues(value: JsonValue): number {
   let count = 0;
   const pending: JsonValue[] = [value];
@@ -230,17 +216,13 @@ export function countValues(value: JsonValue): number {
   return count;
 }
 
-/** One line of the tree: a member of an object, or an item of an array. */
 export interface JsonRow {
-  /** Names the row's place in the tree, for what is open. */
   readonly path: string;
   readonly depth: number;
-  /** The member's key, or the item's index; none for a lone root value. */
   readonly label: string | number | null;
   readonly value: JsonValue;
 }
 
-/** Whether `value` has members or items to open. */
 export function hasChildren(value: JsonValue): boolean {
   return (
     (value.kind === "object" && value.entries.length > 0) ||
@@ -248,11 +230,6 @@ export function hasChildren(value: JsonValue): boolean {
   );
 }
 
-/**
- * The rows shown, in order: the root's members (a root that is no object
- * or array is one row of its own), and the members of each row that is
- * open, under it.
- */
 export function visibleRows(
   root: JsonValue,
   isOpen: (path: string, depth: number) => boolean,
@@ -262,7 +239,6 @@ export function visibleRows(
     rows.push({ path: "", depth: 0, label: null, value: root });
     return rows;
   }
-  // Each container being walked, and the next of its children.
   const stack: { value: JsonValue; path: string; depth: number; next: number }[] = [
     { value: root, path: "", depth: 0, next: 0 },
   ];
@@ -293,22 +269,18 @@ export function visibleRows(
   return rows;
 }
 
-/** How much of a long string its row shows; the raw view has all of it. */
 export const ROW_STRING_CHARS = 1000;
 
-/** Whether `text` has a control character, which would break a row's line. */
 function hasControl(text: string): boolean {
   for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) < 0x20) return true;
   return false;
 }
 
-/** A row's key or index as it shows: quoted when empty or holding a control character. */
 export function labelText(label: string | number): string {
   if (typeof label === "number") return String(label);
   return label === "" || hasControl(label) ? JSON.stringify(label) : label;
 }
 
-/** The text a value shows; none for an object or array, which show a count. */
 export function valueText(value: JsonValue): string | null {
   switch (value.kind) {
     case "object":
@@ -327,9 +299,7 @@ export function valueText(value: JsonValue): string | null {
   }
 }
 
-/** A match of a find in a row: in its key or its value, and where in that text. */
 export interface TreeMatch {
-  /** The row's place in the rows found in, and its path. */
   readonly row: number;
   readonly path: string;
   readonly part: "label" | "value";
@@ -337,11 +307,6 @@ export interface TreeMatch {
   readonly end: number;
 }
 
-/**
- * The matches of a find in `rows`' keys and values, as they show, in
- * order. `find` is given the text of them all, a NUL between each, and
- * returns [start, end] offsets one after another.
- */
 export function treeMatches(
   rows: readonly JsonRow[],
   find: (text: string) => number[],
@@ -366,7 +331,6 @@ export function treeMatches(
   let at = 0;
   for (let i = 0; i < found.length; i += 2) {
     const start = found[i] as number;
-    // The matches come in order, so the piece each is in only moves on.
     while (at + 1 < starts.length && (starts[at + 1] as number) <= start) at++;
     const owner = owners[at];
     const offset = starts[at];
@@ -383,7 +347,6 @@ export function treeMatches(
   return matches;
 }
 
-/** The paths of the objects and arrays `path` is in, outermost first. */
 export function ancestorPaths(path: string): string[] {
   const paths: string[] = [];
   for (let at = path.indexOf("\u0000", 1); at !== -1; at = path.indexOf("\u0000", at + 1)) {

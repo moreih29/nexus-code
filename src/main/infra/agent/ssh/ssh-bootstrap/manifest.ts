@@ -1,8 +1,3 @@
-/**
- * Manifest schema, persistence, and the path/key derivations used to address
- * remote artifacts. The bootstrap orchestrator reads and writes this
- * manifest on each ensure() pass to skip work the remote already has.
- */
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { NonnegativeIntegerSchema } from "../../../../../../packages/remote-protocol/src/validation";
@@ -52,7 +47,6 @@ const LegacyRemoteManifestSchema = z.object({
 export type RemoteArtifactManifest = z.infer<typeof RemoteArtifactManifestSchema>;
 export type RemoteArtifactRecord = z.infer<typeof RemoteArtifactRecordSchema>;
 
-/** Returns the cached remote manifest, migrating the legacy single-record schema. */
 export async function readRemoteManifest(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -86,7 +80,6 @@ export async function readRemoteManifest(
   return { artifacts: {} };
 }
 
-/** Publishes a complete manifest by renaming a sibling on the remote host. */
 export async function writeRemoteManifest(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -94,9 +87,6 @@ export async function writeRemoteManifest(
 ): Promise<void> {
   const suffix = randomBytes(8).toString("hex");
   const payload = `${JSON.stringify(manifest, null, 2)}\n`;
-  // Claim a new name without clobbering an existing file. Make it private
-  // before copying any data, and retain the existing manifest's permissions
-  // if it is being replaced. A fresh manifest is private to its owner.
   const script = [
     "manifest=$1",
     "temporary=$manifest.tmp.$2",
@@ -108,7 +98,6 @@ export async function writeRemoteManifest(
     '  [ -f "$manifest" ] && cp -p "$manifest" "$temporary" || exit 1',
     "fi",
     'cat > "$temporary" || exit 1',
-    // A disconnected sender can deliver a short stream that cat reads as EOF.
     'written=$(wc -c < "$temporary") || exit 1',
     '[ "$((written + 0))" -eq "$3" ] && [ ! -d "$manifest" ] && mv -f "$temporary" "$manifest"',
   ].join("\n");
@@ -120,10 +109,6 @@ export async function writeRemoteManifest(
   );
 }
 
-/**
- * Deletes versioned directories matching `pattern` past the retention
- * window, keeping the most recent `KEEP_REMOTE_VERSIONS`.
- */
 export async function pruneRemoteVersions(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -136,7 +121,6 @@ export async function pruneRemoteVersions(
   );
 }
 
-/** Maps `uname -ms` output to the typed platform descriptor. */
 export function parseUname(value: string): RemoteAgentPlatform {
   const normalized = value.trim().toLowerCase();
   const osName = normalized.includes("darwin")
@@ -155,30 +139,22 @@ export function parseUname(value: string): RemoteAgentPlatform {
   return { os: osName, arch };
 }
 
-/** Resolves the canonical install path for an agent binary on the remote. */
 export function remoteAgentBinaryPath(version: string, platform: RemoteAgentPlatform): string {
   return `${REMOTE_AGENT_ROOT}/bin/agent-${version}-${platform.os}-${platform.arch}`;
 }
 
-/** Stable cache key for the agent binary, keyed by platform. */
 export function agentArtifactKey(platform: RemoteAgentPlatform): string {
   return `agent:${platform.os}:${platform.arch}`;
 }
 
-/** Stable cache key for the Node runtime, keyed by platform. */
 export function nodeArtifactKey(platform: RemoteAgentPlatform): string {
   return `node:${platform.os}:${platform.arch}`;
 }
 
-/** Stable cache key for an LSP archive, keyed by binary name. */
 export function lspArtifactKey(name: string): string {
   return `lsp:${name}`;
 }
 
-/**
- * Composes the in-process lock key used to coalesce concurrent ensure()
- * calls for the same artifact on the same remote into one upload.
- */
 export function artifactLockKey(
   options: EnsureRemoteAgentOptions,
   key: string,
@@ -194,7 +170,6 @@ export function artifactLockKey(
   ].join("|");
 }
 
-/** Where a Node runtime version unpacks on the remote. */
 export function remoteNodeRuntimeDir(
   node: NodeRuntimeManifestEntry,
   platform: RemoteAgentPlatform,
@@ -202,22 +177,18 @@ export function remoteNodeRuntimeDir(
   return `${REMOTE_AGENT_ROOT}/runtime/node-${node.version}-${platform.os}-${platform.arch}`;
 }
 
-/** Where an LSP archive version unpacks on the remote. */
 export function remoteLspBinaryDir(lsp: LspBinaryManifestEntry): string {
   return `${REMOTE_AGENT_ROOT}/lsp/${lsp.name}-${lsp.version}`;
 }
 
-/** Stable cache key for the wrapper binary. */
 export function wrapperArtifactKey(): string {
   return "wrapper:claude";
 }
 
-/** The fixed remote path for the wrapper binary. */
 export function remoteWrapperBinaryPath(): string {
   return `${REMOTE_AGENT_ROOT}/bin/claude`;
 }
 
-/** Resolves a `~/`-prefixed remote path against the resolved $HOME. */
 export function absoluteRemotePath(remoteHome: string, remotePath: string): string {
   if (remotePath.startsWith("~/")) return `${remoteHome}/${remotePath.slice(2)}`;
   return remotePath;

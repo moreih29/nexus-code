@@ -1,21 +1,3 @@
-// SvgPreview — renders user-supplied SVG markup via `<img>` + blob URL.
-//
-// SECURITY MODEL (plan 60 issue 3)
-//   Inline SVG inserted into the renderer's DOM (innerHTML, dangerouslySet…)
-//   shares origin with the rest of our document. That means `<script>`
-//   inside an SVG, `<foreignObject>` with embedded HTML, and even some
-//   `xlink:href="javascript:…"` patterns run with full access to our
-//   globals — a textbook XSS surface.
-//
-//   Loading the same SVG through `<img src=…>` instead opts into the
-//   browser's "image" mode for SVG: scripts are disabled, foreignObject
-//   is disabled, external resource fetches are blocked. The browser
-//   treats the SVG as an image, not a document. This is the same trick
-//   GitHub and other code hosts use for untrusted SVG.
-//
-// We construct a blob URL per source revision so the image picks up live
-// edits, and revoke the previous URL on cleanup to avoid leaking memory.
-
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { capPreviewSource, getPreviewTruncatedMessage } from "./constants";
@@ -52,12 +34,6 @@ export function SvgPreview({ source }: SvgPreviewProps) {
   );
 }
 
-/**
- * Build a blob URL for the given SVG markup and revoke the previous one
- * whenever the source changes. The mime type is set explicitly so the
- * browser picks the image renderer (rather than text/plain fallback) when
- * the `<img>` element fetches the URL. None for a null source.
- */
 export function useSvgBlobUrl(source: string | null): string | null {
   const [url, setUrl] = useState<string | null>(null);
 

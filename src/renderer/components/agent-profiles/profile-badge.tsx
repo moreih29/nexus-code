@@ -1,5 +1,3 @@
-// A profile's dot and name, as the tabs, menus and Settings show it.
-
 import type { TFunction } from "i18next";
 import {
   type AgentProfile,
@@ -12,7 +10,6 @@ import {
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { cn } from "../../utils/cn";
 
-/** Each color as a dot shows it: mid tones, seen on light and dark themes alike. */
 const COLOR_VALUES: Record<ProfileColor, string> = {
   blue: "#4c8dff",
   violet: "#a77bf3",
@@ -29,7 +26,6 @@ export function profileColor(color: string): string {
   ];
 }
 
-/** The profile's name; the default profile's usual one when the user gave none. */
 export function profileName(profile: AgentProfile, t: TFunction): string {
   if (profile.name.trim() !== "") return profile.name;
   return isDefaultProfileId(profile.id)
@@ -37,7 +33,6 @@ export function profileName(profile: AgentProfile, t: TFunction): string {
     : t("settings:profiles.unnamed");
 }
 
-/** Whether the agent has more than its default profile, which is when tabs show theirs. */
 export function hasProfileChoice(config: AgentProfiles, agent: ChatAgent): boolean {
   return profilesOf(config, agent).length > 1;
 }
@@ -52,7 +47,6 @@ export function ProfileDot({ color, className }: { color: string; className?: st
   );
 }
 
-/** A small pill: the profile's dot and name. */
 export function ProfileChip({
   profile,
   t,

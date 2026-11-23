@@ -1,7 +1,3 @@
-// The macOS keychain the app's sealed files open with, as the windows see it
-// (main/features/keychain): the question asked once before it is read, the
-// toast while macOS asks for the login password, and the settings' button.
-
 import i18next from "i18next";
 import { create } from "zustand";
 import { showConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -12,7 +8,6 @@ import type { KeychainStatus } from "../../shared/keychain";
 
 export const useKeychain = create<{ status: KeychainStatus | null }>(() => ({ status: null }));
 
-/** The question waits for the release notes to close, as for any other open question. */
 function releaseNotesClosed(): Promise<void> {
   if (!useReleaseNotesStore.getState().open) return Promise.resolve();
   return new Promise((resolve) => {
@@ -24,16 +19,13 @@ function releaseNotesClosed(): Promise<void> {
   });
 }
 
-/** What the keychain keeps, in the app's words: "원격 로그인, 기억한 목소리". */
 export function keychainItemsText(status: KeychainStatus): string {
   return status.items.map((item) => i18next.t(`common:keychain.items.${item}`)).join(", ");
 }
 
 let asking: Promise<void> | undefined;
-/** Closes this window's question once it is no longer asked (opened from elsewhere). */
 let question: AbortController | undefined;
 
-/** Asks before the keychain is read, in one window only: the others wait for its answer. */
 function ask(): Promise<void> {
   asking ??= (async () => {
     await releaseNotesClosed();
@@ -55,7 +47,6 @@ function ask(): Promise<void> {
       confirmLabel: i18next.t("common:keychain.prompt.continue"),
     });
     if (question === asked) question = undefined;
-    // Closed because it was settled elsewhere: nothing to answer.
     if (asked.signal.aborted) return;
     apply(unwrapIpcResult(await ipcCallResult("keychain", "answer", { open })));
   })()
@@ -68,7 +59,6 @@ function ask(): Promise<void> {
 
 let toast: number | undefined;
 
-/** While macOS asks for the password: what to choose there, until the call ends. */
 function showAsking(busy: boolean): void {
   if (busy && toast === undefined) {
     toast = showToast({
@@ -89,7 +79,6 @@ function apply(status: KeychainStatus): void {
   else question?.abort();
 }
 
-/** Follows the keychain for this window; mounted once (KeychainRoot). */
 export function startKeychain(): () => void {
   let initial = true;
   const off = ipcListen("keychain", "changed", (status) => {
@@ -107,7 +96,6 @@ export function startKeychain(): () => void {
   };
 }
 
-/** The settings' button: opens the keychain now, and macOS may ask. */
 export async function openKeychain(): Promise<void> {
   apply(unwrapIpcResult(await ipcCallResult("keychain", "open", undefined)));
 }

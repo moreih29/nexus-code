@@ -151,7 +151,6 @@ func TestEndpointHost(t *testing.T) {
 	}
 }
 
-// codexEvents is a `codex exec --json` run's output, as codex 0.166 prints it.
 var codexEvents = []string{
 	`{"type":"thread.started","thread_id":"01a1b19e-c0ae-72c0-b93e-b6494ea7a613"}`,
 	`{"type":"turn.started"}`,
@@ -239,7 +238,6 @@ func TestCodexHeader_TellsTheModelAndSession(t *testing.T) {
 	header := &codexHeader{run: &run, tell: func(subcommand string, payload map[string]any) {
 		told = append(told, toldFrame{subcommand, payload})
 	}, session: func(id string) {
-		// Once the header was told.
 		if len(told) == 1 {
 			sessions = append(sessions, id)
 		}

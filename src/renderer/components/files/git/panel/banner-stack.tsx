@@ -1,24 +1,3 @@
-/**
- * GitBannerStack — 1-slot + collapsed-counter banner area.
- *
- * Priority model (§1 axis-4 — High signals never hidden):
- *   High  push-guard · lastError
- *   Med   autofetch-paused
- *   Low   helper-prompt · context
- *
- * At most one banner is visible at a time (the highest-priority item).
- * Any remaining items are represented by a 24 px (h-6) counter row:
- *   "+2 notifications ›"
- * Clicking or pressing Enter/Space on the counter row expands all items
- * in-place (chevron rotates). Clicking again collapses back to 1 slot.
- *
- * unborn HEAD is not in the banner stack — it is communicated through
- * the status-bar branch segment's "(no commits)" label rather than
- * stealing the in-panel banner slot from real problems.
- *
- * Props accept the single `GitBannerModel` produced by buildGitBannerModel().
- */
-
 import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -28,18 +7,10 @@ import type { PushGuardActionKind } from "../utils/push-guard-banner";
 import type { BannerSlotItem, GitBannerModel } from "./banner-model";
 import { GitInlineBanner } from "./inline-banner";
 
-// ---------------------------------------------------------------------------
-// Public props
-// ---------------------------------------------------------------------------
-
 export interface GitBannerStackProps {
   model: GitBannerModel;
   dismissals: Partial<Record<BannerSlotItem["kind"], BannerDismiss>>;
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers — render one BannerSlotItem as a GitInlineBanner.
-// ---------------------------------------------------------------------------
 
 function renderBannerItem(
   item: BannerSlotItem,
@@ -105,7 +76,6 @@ function renderBannerItem(
   }
 }
 
-/** Renders the autofetch-paused banner with translated text. */
 function GitInlineBannerAutofetchPaused({
   details,
   onResume,
@@ -127,10 +97,6 @@ function GitInlineBannerAutofetchPaused({
     />
   );
 }
-
-// ---------------------------------------------------------------------------
-// Counter row — 24 px collapsed notification indicator.
-// ---------------------------------------------------------------------------
 
 interface CounterRowProps {
   count: number;
@@ -169,29 +135,21 @@ function CounterRow({ count, expanded, onToggle }: CounterRowProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// GitBannerStack
-// ---------------------------------------------------------------------------
-
 export function GitBannerStack({ model, dismissals }: GitBannerStackProps) {
   const [expanded, setExpanded] = useState(false);
 
   const { slotItem, collapsedItems, collapsedCount } = model;
 
-  // Nothing to show.
   if (!slotItem) return null;
 
   const showCounter = collapsedCount > 0;
 
   return (
     <div className="flex flex-col">
-      {/* Primary slot — always the highest-priority banner. */}
       {renderBannerItem(slotItem, dismissals[slotItem.kind])}
 
-      {/* Collapsed items — only shown when expanded. */}
       {expanded && collapsedItems.map((item) => renderBannerItem(item, dismissals[item.kind]))}
 
-      {/* Counter row — 24 px, shown only when there are collapsed items. */}
       {showCounter ? (
         <CounterRow
           count={collapsedCount}

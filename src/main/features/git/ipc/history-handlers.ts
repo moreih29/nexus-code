@@ -1,8 +1,3 @@
-/**
- * History handlers — commit detail/search plus commit-scoped mutations from
- * the History panel context menu.
- */
-
 import type { CommitDetail, CommitSearchResult } from "../../../../shared/git/types";
 import { ipcContract } from "../../../../shared/ipc/contract";
 import type { CallContext } from "../../../infra/ipc-router";
@@ -11,13 +6,6 @@ import { withRepo } from "./git-result";
 
 const c = ipcContract.git.call;
 
-/**
- * Builds the commit-detail handler used by the side pane.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object so the router stays log-silent. The renderer's ipcCallResult path
- * receives this as an IpcErrResult and unwrapGitResult converts it to a thrown Error.
- */
 export function commitDetailHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -29,13 +17,6 @@ export function commitDetailHandler(
   );
 }
 
-/**
- * Builds the server-side history search handler. The repository owns the
- * SHA-prefix vs message-grep branch so renderer search stays transport-only.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see commitDetailHandler for rationale.
- */
 export function searchCommitsHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -48,13 +29,6 @@ export function searchCommitsHandler(
   );
 }
 
-/**
- * Builds the detached checkout handler. It refreshes status after HEAD moves
- * so branch metadata and action state update before the call resolves.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see commitDetailHandler for rationale.
- */
 export function checkoutDetachedHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -64,13 +38,6 @@ export function checkoutDetachedHandler(
   });
 }
 
-/**
- * Builds the soft-reset handler exposed by the History panel. Mixed/hard reset
- * are intentionally absent from the contract and menu surface.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see commitDetailHandler for rationale.
- */
 export function resetSoftHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {

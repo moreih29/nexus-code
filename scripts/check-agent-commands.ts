@@ -1,20 +1,3 @@
-/**
- * Compares the slash commands Claude Code and Codex have with what the
- * app's tabs know of them, for when either CLI is upgraded. Run by hand,
- * not in CI: it runs the installed `claude` and `codex`, neither of which
- * calls a model for it. Codex's built-ins and bundled model service tiers
- * come from its release tag. The installed app-server generates its schemas.
- *
- *   bun run check:agent-commands [claude|codex] [--verbose]
- *
- * Every command a CLI has must be accounted for: the tab gets it from the
- * CLI (Claude Code's headless commands), runs it itself (APP_COMMANDS,
- * CODEX_COMMANDS), or it is listed below as left out, with the reason, or
- * as one to do later. Exits 1 when one is not, when the tab runs one the
- * CLI no longer has, when a command left out as off is on now, or when a
- * /config key or a Codex request the app uses has changed.
- */
-
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,11 +13,9 @@ import {
 import { CODEX_COMMANDS } from "../src/renderer/services/chat/codex/commands";
 import { THREAD_STATUS_CHANGED } from "../src/renderer/services/chat/codex/model";
 
-/** A command its definition turns off; the check says when it is on again. */
 const OFF = "off in its definition";
 const TERMINAL = "the terminal's own UI";
 
-/** Claude Code's commands the tab leaves out on purpose, and why. */
 const CLAUDE_LEFT_OUT: Record<string, string> = {
   artifacts: "a terminal browser of claude.ai's artifacts",
   brief: "the terminal's brief-only display",
@@ -72,7 +53,6 @@ const CLAUDE_LEFT_OUT: Record<string, string> = {
   wellbeing: OFF,
 };
 
-/** Commands the tab gets from the CLI when its account and feature flags expose them. */
 const CLAUDE_LEFT_OUT_WHEN_UNAVAILABLE: Record<string, string> = {
   advisor: "chooses a second model for advice when the advisor tool is enabled",
   "extra-usage": "the former name of /usage-credits, gated by the same billing options",
@@ -82,7 +62,6 @@ const CLAUDE_LEFT_OUT_WHEN_UNAVAILABLE: Record<string, string> = {
   "usage-credits": "manages usage credits or requests them from an admin on eligible accounts",
 };
 
-/** Keys a bare /config can omit when Claude Code is signed out. */
 const CLAUDE_SIGN_IN_CONFIG_KEYS = new Set([
   "remoteControl",
   "agentPushNotifEnabled",
@@ -90,16 +69,13 @@ const CLAUDE_SIGN_IN_CONFIG_KEYS = new Set([
   "promptSuggestionEnabled",
 ]);
 
-/** Claude Code's commands the tab could run and does not yet. */
 const CLAUDE_LATER: Record<string, string> = {
   restart:
     "restarts the program, keeping the session; the tab offers it only after a failure or a terminal command",
 };
 
-/** The Claude tab's commands Claude Code does not have. */
 const CLAUDE_APP_ONLY: Record<string, string> = {};
 
-/** Codex's commands the tab leaves out on purpose, and why. */
 const CODEX_LEFT_OUT: Record<string, string> = {
   agents: "the TUI's views of its agents",
   app: "hands the session to the Codex desktop app",
@@ -136,7 +112,6 @@ const CODEX_LEFT_OUT: Record<string, string> = {
   worktree: "the app makes worktrees as tasks of its own",
 };
 
-/** Codex's commands the tab could run and does not yet: the request each would use. */
 const CODEX_LATER: Record<string, string> = {
   apps: "app/list",
   archive: "thread/archive",
@@ -150,7 +125,6 @@ const CODEX_LATER: Record<string, string> = {
   side: "an ephemeral thread/fork",
 };
 
-/** The Codex tab's commands Codex does not have. */
 const CODEX_APP_ONLY: Record<string, string> = {
   context: "opens the tab's context panel; the TUI reports context under /status",
   default: "returns to Default collaboration mode; the TUI uses its mode switcher",
@@ -163,7 +137,6 @@ const ROOT = path.join(import.meta.dir, "..");
 interface CliCommand {
   name: string;
   aliases: string[];
-  /** Its definition turns it off (`isEnabled: () => false`). */
   off?: boolean;
 }
 
@@ -188,7 +161,6 @@ function run(command: string, args: string[], exitCodes: readonly number[] = [0]
   return result.stdout;
 }
 
-/** The first `name` on PATH that is a program, not a script wrapping it (as the app's own is). */
 function findProgram(name: string): string {
   for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
     const candidate = path.join(dir, name);
@@ -210,10 +182,6 @@ function slashed(names: Iterable<string>): string {
     .join(" ");
 }
 
-/**
- * What every command the CLI has, and every one the tables name, comes to:
- * the problems with them, and what the tables say of the rest.
- */
 function accountFor(
   agent: string,
   cli: readonly CliCommand[],
@@ -283,16 +251,9 @@ function accountFor(
   return { problems, notes };
 }
 
-// ── Claude Code ─────────────────────────────────────────────────────────
-
 const COMMAND_TYPE = 'type:"(?:local-jsx|local|prompt)"';
 const NAME = 'name:"([a-z][a-z0-9-]*)"';
 
-/**
- * The built-in commands in Claude Code's program: the objects its bundle
- * defines them with, `{type:"local-jsx",name:"…",aliases:[…],…}`, the type
- * before the name or after it (a description's getter may come between).
- */
 export function claudeCommandsIn(bundle: string): CliCommand[] {
   const found = new Map<string, CliCommand>();
   const patterns = [
@@ -303,7 +264,6 @@ export function claudeCommandsIn(bundle: string): CliCommand[] {
     for (const match of bundle.matchAll(pattern)) {
       const name = match[1];
       const end = (match.index ?? 0) + match[0].length;
-      // The rest of its object: up to the next command, object or statement.
       const rest = bundle.slice(end, end + 800);
       const stop = [new RegExp(COMMAND_TYPE), /name:"/, /;var /]
         .map((re) => rest.search(re))
@@ -323,15 +283,11 @@ export function claudeCommandsIn(bundle: string): CliCommand[] {
   return [...found.values()];
 }
 
-/** What a headless run has: its commands (system/init) and a bare /config's answer. */
 function claudeHeadless(program: string): { commands: string[]; configUsage: string } {
-  // Run by Claude Code alone, as the app's own /config list is: no model,
-  // no session kept, none of the user's hooks.
   const stdout = run(program, [
     "-p",
     "--no-session-persistence",
     "--settings",
-    // /config lists teammateMode only with agent teams enabled.
     '{"disableAllHooks":true,"env":{"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS":"1"}}',
     "--output-format",
     "stream-json",
@@ -359,7 +315,6 @@ function claudeHeadless(program: string): { commands: string[]; configUsage: str
 }
 
 function claudeSignedOut(program: string): boolean {
-  // auth status exits 1 when signed out. Require the JSON to confirm that state.
   const status = JSON.parse(run(program, ["auth", "status", "--json"], [0, 1])) as {
     loggedIn?: boolean;
   };
@@ -367,7 +322,6 @@ function claudeSignedOut(program: string): boolean {
   return !status.loggedIn;
 }
 
-/** Compare the keys the dialog gets from a bare /config with the table of value sources. */
 export function claudeConfigProblems(listed: readonly ListedKey[], signedOut: boolean): string[] {
   if (listed.length === 0) return ["/config: no keys in a bare /config's answer"];
   const problems: string[] = [];
@@ -413,17 +367,10 @@ function checkClaude(): Report {
   return { title: `Claude Code ${version} (${program})`, problems, notes };
 }
 
-// ── Codex ───────────────────────────────────────────────────────────────
-
 function kebab(variant: string): string {
   return variant.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 }
 
-/**
- * The commands of Codex's TUI, from its `SlashCommand` enum
- * (codex-rs/tui/src/slash_command.rs): each variant kebab-cased, unless
- * strum names it (`to_string` the name, `serialize` the others).
- */
 export function codexCommandsIn(source: string): CliCommand[] {
   const body = /pub enum SlashCommand \{([\s\S]*?)\n\}/.exec(source)?.[1];
   if (!body) throw new Error("no SlashCommand enum in the source");
@@ -447,7 +394,6 @@ export function codexCommandsIn(source: string): CliCommand[] {
   return commands;
 }
 
-/** The TUI derives slash names from the lowercased service tier display names. */
 export function codexServiceTierCommandsIn(catalog: string): CliCommand[] {
   const { models } = JSON.parse(catalog) as {
     models?: { service_tiers?: { name: string }[] }[];
@@ -459,7 +405,6 @@ export function codexServiceTierCommandsIn(catalog: string): CliCommand[] {
   return [...names].map((name) => ({ name, aliases: [] }));
 }
 
-/** Read method discriminants from the message variants, excluding nested payload fields. */
 export function codexMethodsIn(source: string): Set<string> {
   type Method = { const?: unknown; enum?: unknown[] };
   const schema = JSON.parse(source) as {
@@ -501,7 +446,6 @@ function codexMethods(program: string, experimental = false) {
   }
 }
 
-/** The requests the app's Codex code makes, and the methods its model reads. */
 function methodsTheAppUses() {
   const renderer = path.join(ROOT, "src/renderer");
   const source = (file: string) => readFileSync(path.join(renderer, file), "utf8");
@@ -519,7 +463,6 @@ function methodsTheAppUses() {
       (m) => m[1],
     ),
   );
-  // The shared predicate accepts a compatibility alias. The schema must list the current name.
   read.add(THREAD_STATUS_CHANGED);
   const experimentalOptIn = /capabilities:\s*\{[^}]*\bexperimentalApi:\s*true\b/.test(controller);
   return { requests, read, experimentalOptIn };
@@ -589,8 +532,6 @@ async function checkCodex(verbose: boolean): Promise<Report> {
   );
   return { title: `Codex ${version} (${program})`, problems, notes };
 }
-
-// ── Main ────────────────────────────────────────────────────────────────
 
 async function main(): Promise<number> {
   const args = process.argv.slice(2);

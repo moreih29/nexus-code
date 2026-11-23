@@ -1,12 +1,6 @@
-/**
- * Ignored-path cache — answers that were in flight when the cache was
- * cleared (a `.gitignore` edit) must not land in the fresh cache.
- */
-
 import { afterAll, afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
 
 const WS = "00000000-0000-0000-0000-0000000000aa";
-/** Past the store's 250 ms flush debounce; the clock is fake. */
 const FLUSH_WAIT_MS = 300;
 
 interface PendingCall {
@@ -18,8 +12,6 @@ const calls: PendingCall[] = [];
 
 const CLIENT = "../../../../../src/renderer/ipc/client";
 
-// Other files mock the IPC client process-wide, so this file installs its
-// own and puts back whatever it found when it is done.
 const previousClient = { ...(await import(CLIENT)) };
 mock.module(CLIENT, () => ({
   ...previousClient,
@@ -29,8 +21,6 @@ mock.module(CLIENT, () => ({
     _method: string,
     args: { workspaceId: string; relPaths: string[] },
   ) =>
-    // A flush another file scheduled can still fire here; answer it and keep
-    // it out of `calls`.
     args.workspaceId !== WS
       ? Promise.resolve({ ok: true, value: { ignored: [] } })
       : new Promise((resolve) => {
@@ -47,7 +37,6 @@ afterAll(() => {
 
 const { useIgnoredStore } = await import("../../../../../src/renderer/state/stores/git/ignored");
 
-/** Lets an answered check reach the cache. */
 async function settle(): Promise<void> {
   for (let i = 0; i < 5; i += 1) await Promise.resolve();
 }
@@ -71,13 +60,11 @@ describe("ignored cache", () => {
     jest.advanceTimersByTime(FLUSH_WAIT_MS);
     expect(calls).toHaveLength(1);
 
-    // `.gitignore` gains `dist/` while git is still answering the old batch.
     store.clearWorkspace(WS);
     store.enqueueCheck(WS, "/repo/dist/a.js", "dist/a.js");
     calls[0]?.answer([]);
     await settle();
 
-    // b.js was not re-queued yet; the stale "not ignored" must not stick.
     expect(store.isIgnored(WS, "/repo/dist/b.js")).toBeUndefined();
 
     jest.advanceTimersByTime(FLUSH_WAIT_MS);

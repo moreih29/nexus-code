@@ -1,6 +1,3 @@
-/**
- * Scenario tests for tag delete confirmation: local and remote deletes stay apart.
- */
 import { describe, expect, it, mock } from "bun:test";
 import {
   confirmTagDeleteRequest,
@@ -66,7 +63,6 @@ describe("tag delete confirmation content", () => {
   });
 });
 
-/** Builds a delete request around the default tag fixture. */
 function deleteRequest(overrides: Partial<DeleteTagRequest> = {}): DeleteTagRequest {
   const localItem: Extract<DeleteTagRequest["item"], { scope: "local" }> = {
     id: "tag:v1.0.0",

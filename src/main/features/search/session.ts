@@ -10,7 +10,6 @@ import type { FileMatch, TextSearchQuery } from "../../../shared/search/types";
 import type { AgentCallOptions } from "../../infra/agent/channel";
 import type { AgentBackedProvider } from "../fs/bridge/provider";
 
-/** Owns the ID, progress listener and cancellation for one agent text search. */
 export function createAgentSearchSession(
   provider: AgentBackedProvider,
   onBatch: (batch: FileMatch[]) => void,
@@ -24,7 +23,6 @@ export function createAgentSearchSession(
     if (parsed.success && parsed.data.searchId === searchId) onBatch(parsed.data.batch);
   });
 
-  /** Cancels a search that still owns work on the agent. */
   function cancel(): void {
     if (!started || answered || cancelSent) return;
     cancelSent = true;
@@ -32,7 +30,6 @@ export function createAgentSearchSession(
   }
 
   return {
-    /** Sends the search after its progress listener is ready. */
     start(query: TextSearchQuery, options?: AgentCallOptions) {
       started = true;
       const params = { searchId, query };
@@ -45,7 +42,6 @@ export function createAgentSearchSession(
       });
     },
     cancel,
-    /** Leaves the progress stream and releases any unfinished agent work. */
     dispose(): void {
       unsubscribe();
       cancel();

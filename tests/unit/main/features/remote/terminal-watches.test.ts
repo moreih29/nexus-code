@@ -1,4 +1,3 @@
-/** The terminals other devices watch here: numbered changes, sent to the watcher, ended when it goes. */
 import { describe, expect, test } from "bun:test";
 import type { TerminalUpdate } from "../../../../../packages/remote-protocol/src";
 import type { CliServices } from "../../../../../src/main/features/cli/context";

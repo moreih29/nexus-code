@@ -25,9 +25,6 @@ const useWorkspacesStore = createWorkspacesStore({
 
 const WORKSPACE_ID = "123e4567-e89b-42d3-a456-426614174000";
 
-/**
- * Builds the minimum workspace metadata needed by the workspaces store tests.
- */
 function makeWorkspace(id = WORKSPACE_ID): WorkspaceMeta {
   return {
     id,
@@ -41,9 +38,6 @@ function makeWorkspace(id = WORKSPACE_ID): WorkspaceMeta {
   };
 }
 
-/**
- * Delivers captured workspaces-store IPC events to their callbacks.
- */
 function emitWorkspaceEvent(event: string, args: unknown): void {
   const matching = listeners.filter(
     (record) => record.channel === "workspace" && record.event === event,
@@ -56,9 +50,6 @@ function emitWorkspaceEvent(event: string, args: unknown): void {
   }
 }
 
-/**
- * Resets mutable Zustand state between tests while preserving store actions.
- */
 function resetStore(): void {
   useWorkspacesStore.setState({
     workspaces: [],
@@ -67,9 +58,6 @@ function resetStore(): void {
   });
 }
 
-/**
- * Builds workspace metadata with explicit sort fields.
- */
 function makeWsWithOrder(
   id: string,
   sortOrder: number,
@@ -82,10 +70,6 @@ function makeWsWithOrder(
     ...opts,
   };
 }
-
-// ---------------------------------------------------------------------------
-// A separate store instance with an injectable fetchList for fallback tests.
-// ---------------------------------------------------------------------------
 
 const fetchListResults: WorkspaceMeta[][] = [];
 let fetchListCallCount = 0;
@@ -154,10 +138,6 @@ describe("workspaces store — Windows roots", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// inconsistency fallback — fetchList triggered on sort collision
-// ---------------------------------------------------------------------------
-
 describe("workspaces store — fetchList fallback on inconsistency", () => {
   const ID_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa10";
   const ID_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbb10";
@@ -166,25 +146,18 @@ describe("workspaces store — fetchList fallback on inconsistency", () => {
 
   it("triggers fetchList when upsert detects a sort-key tie (stale store)", async () => {
     const a = makeWsWithOrder(ID_A, 2048);
-    // b starts at a different sort position so it's already in the store as
-    // an existing entry; then we re-upsert it at the same position as a to
-    // simulate a missed rebalance broadcast (sort-key tie).
     const bInitial = makeWsWithOrder(ID_B, 3072);
-    const bColliding = makeWsWithOrder(ID_B, 2048); // collides with a → stale
+    const bColliding = makeWsWithOrder(ID_B, 2048);
     storeWithFetch.getState().setAll([a, bInitial]);
 
-    // Enqueue the refreshed list that fetchList should return
     const refreshed = [makeWsWithOrder(ID_A, 1024), makeWsWithOrder(ID_B, 2048)];
     fetchListResults.push(refreshed);
 
-    // Upsert b with the colliding sort key — inconsistency detected → fetchList
     storeWithFetch.getState().upsert(bColliding);
 
-    // Give the async fetchList a tick to resolve
     await new Promise((r) => setTimeout(r, 0));
 
     expect(fetchListCallCount).toBe(1);
-    // Store should now contain the refreshed list
     const ids = storeWithFetch.getState().workspaces.map((w) => w.id);
     expect(ids).toContain(ID_A);
     expect(ids).toContain(ID_B);

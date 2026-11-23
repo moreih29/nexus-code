@@ -2,20 +2,6 @@
 
 package pty
 
-// ring_test.go — unit tests for the ring buffer and pty.replay.
-//
-// Coverage required by task 11 acceptance (6):
-//   (a) Front-drop boundary: when ring is full the oldest bytes are lost and
-//       the newest are preserved.
-//   (b) Accumulate → replay content match: bytes written to ring while no sink
-//       is present appear verbatim in the replay payload.
-//   (c) Replay ordering: buffered output precedes live output with no
-//       interleaving.
-//   (d) Ring released: after session exit removeSession nils the ring slice.
-//   (e) Redraw: replay resends output the dialer already received, after a
-//       terminal reset, so a client attaching to a running session can draw
-//       its screen.
-
 import (
 	"bytes"
 	"context"
@@ -27,10 +13,6 @@ import (
 	"time"
 )
 
-// ─── helper: ring-only tests (pure struct, no PTY child) ─────────────────────
-
-// newBareSession returns a session with a small ring cap for boundary testing.
-// The child PTY fields are intentionally nil — these tests only exercise ring logic.
 func newBareSession(ringCap int) *session {
 	s := &session{
 		ring:      make([]byte, ringCap),
@@ -40,8 +22,6 @@ func newBareSession(ringCap int) *session {
 	return s
 }
 
-// ringBytes returns the current valid contents of the ring as a flat slice.
-// It does NOT reset the ring; for read-only inspection only.
 func ringBytes(s *session) []byte {
 	s.ringMu.Lock()
 	defer s.ringMu.Unlock()
@@ -56,43 +36,33 @@ func ringBytes(s *session) []byte {
 	return out
 }
 
-// TestRingFrontDrop verifies that when the ring is full the oldest bytes are
-// dropped and the newest are preserved (acceptance 1 / AC-6a).
 func TestRingFrontDrop(t *testing.T) {
 	cap := 8
 	s := newBareSession(cap)
 
-	// Write 'ABCDEFGH' (exactly fills ring).
 	s.ringAppend([]byte("ABCDEFGH"))
 	if got := string(ringBytes(s)); got != "ABCDEFGH" {
 		t.Fatalf("want ABCDEFGH, got %q", got)
 	}
 
-	// Write 'XY' — must drop 'AB', keeping 'CDEFGHXY'.
 	s.ringAppend([]byte("XY"))
 	if got := string(ringBytes(s)); got != "CDEFGHXY" {
 		t.Fatalf("after overflow want CDEFGHXY, got %q", got)
 	}
 }
 
-// TestRingFrontDropExact checks that writing exactly cap+1 bytes results in
-// only the last cap bytes being retained.
 func TestRingFrontDropExact(t *testing.T) {
 	cap := 5
 	s := newBareSession(cap)
 
-	// Write 6 bytes one at a time to exercise the per-byte path.
 	for i := 0; i < 6; i++ {
 		s.ringAppend([]byte{byte('A' + i)})
 	}
-	// 'A' was dropped; ring should contain 'BCDEF'.
 	if got := string(ringBytes(s)); got != "BCDEF" {
 		t.Fatalf("want BCDEF, got %q", got)
 	}
 }
 
-// TestRingContentsKeepsOutput verifies that reading the ring leaves its
-// contents in place for the next replay.
 func TestRingContentsKeepsOutput(t *testing.T) {
 	s := newBareSession(16)
 	s.ringAppend([]byte("hello"))
@@ -107,9 +77,6 @@ func TestRingContentsKeepsOutput(t *testing.T) {
 	}
 }
 
-// TestRingContentsStartAtLineOnceDropped verifies that once the ring has
-// dropped older output, its contents start after the first line break, so a
-// replay does not begin inside a cut escape sequence or character.
 func TestRingContentsStartAtLineOnceDropped(t *testing.T) {
 	s := newBareSession(12)
 	s.ringAppend([]byte("first line\r\n"))
@@ -120,7 +87,6 @@ func TestRingContentsStartAtLineOnceDropped(t *testing.T) {
 		t.Fatalf("before any drop: contents = %q, want the whole output", contents)
 	}
 
-	// 8 more bytes drop "first li", leaving "ne\r\nsecond\r\n".
 	s.ringAppend([]byte("second\r\n"))
 	s.ringMu.Lock()
 	contents = s.ringContentsLocked()
@@ -130,14 +96,11 @@ func TestRingContentsStartAtLineOnceDropped(t *testing.T) {
 	}
 }
 
-// ─── integration tests: accumulate while sink=nil, then replay ───────────────
-
-// sinkRecorder captures emitted events, optionally returning a configured error.
 type sinkRecorder struct {
 	mu       sync.Mutex
 	chunks   [][]byte
-	rejected []byte // data offered while sinkErr was set
-	sinkErr  error  // if non-nil, returned on every call (simulates dialer absence)
+	rejected []byte
+	sinkErr  error
 }
 
 func (r *sinkRecorder) setSinkErr(err error) {
@@ -169,7 +132,6 @@ func (r *sinkRecorder) transcript() string {
 	return string(bytes.Join(r.chunks, nil))
 }
 
-// requireTranscriptContains waits until the transcript contains marker.
 func (r *sinkRecorder) requireTranscriptContains(t *testing.T, marker string, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -182,7 +144,6 @@ func (r *sinkRecorder) requireTranscriptContains(t *testing.T, marker string, ti
 	t.Fatalf("timeout waiting for %q in transcript:\n%s", marker, r.transcript())
 }
 
-// requireRejectedContains waits until the failing sink has been offered marker.
 func (r *sinkRecorder) requireRejectedContains(t *testing.T, marker string, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -198,8 +159,6 @@ func (r *sinkRecorder) requireRejectedContains(t *testing.T, marker string, time
 	t.Fatalf("timeout waiting for the failing sink to be offered %q", marker)
 }
 
-// TestAccumulateReplayContentMatch verifies that output emitted while the sink
-// is in error mode ends up in the ring and is replayed verbatim (AC-6b).
 func TestAccumulateReplayContentMatch(t *testing.T) {
 	t.Parallel()
 	rec := &sinkRecorder{}
@@ -217,13 +176,10 @@ sleep 10
 `)
 	rec.requireTranscriptContains(t, "READY", 2*time.Second)
 
-	// Simulate dialer absence by making the sink return an error, then have
-	// the child print while it lasts.
 	rec.setSinkErr(fmt.Errorf("dialer gone"))
 	writeSession(t, svc, tabID, "go\n")
 	rec.requireRejectedContains(t, "BUFFERED", 2*time.Second)
 
-	// Reconnect: clear the error and replay.
 	rec.setSinkErr(nil)
 
 	_, err := svc.Replay(context.Background(), mustJSON(t, ReplayParams{
@@ -237,9 +193,6 @@ sleep 10
 	rec.requireTranscriptContains(t, "BUFFERED", 2*time.Second)
 }
 
-// TestReplayRedrawsDeliveredOutput verifies that replay resends output the
-// dialer already received, after a terminal reset and marked as replay, so a
-// client that has none of it (a restarted app) can draw the screen (AC-6e).
 func TestReplayRedrawsDeliveredOutput(t *testing.T) {
 	t.Parallel()
 	var mu sync.Mutex
@@ -300,9 +253,6 @@ sleep 10
 	}
 }
 
-// TestSpawnAttachesToRunningSession verifies that spawning a tab whose session
-// is still running reports the attach and fits the session to the new
-// client's size instead of starting another child.
 func TestSpawnAttachesToRunningSession(t *testing.T) {
 	t.Parallel()
 	rec := &sinkRecorder{}
@@ -338,19 +288,12 @@ while :; do sleep 1 & wait $!; done
 	rec.requireTranscriptContains(t, "SIZE 30 100", 2*time.Second)
 }
 
-// TestReplayOrderingNoReversal verifies that buffered (ring) output is delivered
-// before any live output produced after replay starts, with no interleaving
-// (AC-6c).
-//
-// The test uses a mock session to decouple from real PTY timing.
 func TestReplayOrderingNoReversal(t *testing.T) {
 	t.Parallel()
 	var mu sync.Mutex
 	var emitted []string
 
-	// failOnce: the first N calls return an error (simulating dialer absence),
-	// then succeed.
-	failRemaining := 1 // fail the first emit call
+	failRemaining := 1
 	svc := New()
 	svc.SetEventSink(context.Background(), func(event string, payload any) error {
 		if event != EventData {
@@ -371,7 +314,6 @@ func TestReplayOrderingNoReversal(t *testing.T) {
 	t.Cleanup(svc.Close)
 
 	tabID := "replay-order"
-	// Script prints BUFFERED, pauses, prints LIVE.
 	spawnTestScript(t, svc, tabID, `
 stty -echo
 echo BUFFERED
@@ -380,10 +322,8 @@ echo LIVE
 sleep 5
 `)
 
-	// Wait for BUFFERED to land in ring (readLoop got an error on first emit).
 	time.Sleep(200 * time.Millisecond)
 
-	// Reconnect by switching to a working sink; replay flushes ring.
 	mu.Lock()
 	failRemaining = 0
 	mu.Unlock()
@@ -396,7 +336,6 @@ sleep 5
 		t.Fatalf("replay: %v", err)
 	}
 
-	// Wait for LIVE to arrive via normal readLoop.
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		mu.Lock()
@@ -419,7 +358,6 @@ sleep 5
 		t.Fatalf("LIVE not in emitted output (timed out): %q", all)
 	}
 
-	// BUFFERED must appear before LIVE — no order reversal.
 	bIdx := strings.Index(all, "BUFFERED")
 	lIdx := strings.Index(all, "LIVE")
 	if bIdx > lIdx {
@@ -427,8 +365,6 @@ sleep 5
 	}
 }
 
-// TestRingReleasedOnSessionExit verifies that removeSession removes the session
-// from the map and nils the ring slice, allowing GC (AC-6d).
 func TestRingReleasedOnSessionExit(t *testing.T) {
 	t.Parallel()
 	svc := New()
@@ -447,17 +383,13 @@ func TestRingReleasedOnSessionExit(t *testing.T) {
 	t.Cleanup(svc.Close)
 
 	tabID := "ring-release"
-	// Hold a direct reference to the session so we can inspect ring after removal.
 	key := tabKey{workspaceID: testWorkspaceID, tabID: tabID}
 
-	// The child waits for a line before it exits: one that exits at once can
-	// be gone from the map before the test looks.
 	spawnTestScript(t, svc, tabID, `
 read line
 exit 0
 `)
 
-	// Capture the session pointer while the child still runs.
 	svc.mu.Lock()
 	capturedSess := svc.sessions[key]
 	svc.mu.Unlock()
@@ -466,7 +398,6 @@ exit 0
 	}
 	writeSession(t, svc, tabID, "go\n")
 
-	// Wait for exit event.
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		mu.Lock()
@@ -478,7 +409,6 @@ exit 0
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// Session must have been removed from the map.
 	svc.mu.Lock()
 	stillInMap := svc.sessions[key]
 	svc.mu.Unlock()
@@ -486,7 +416,6 @@ exit 0
 		t.Fatal("session still in map after exit — removeSession not called")
 	}
 
-	// ring must have been nilled by removeSession so GC can reclaim 1 MiB.
 	capturedSess.ringMu.Lock()
 	ringNil := capturedSess.ring == nil
 	capturedSess.ringMu.Unlock()
@@ -495,24 +424,10 @@ exit 0
 	}
 }
 
-// TestSetEventSinkClearsPreviousDialerDebt verifies the fix for the zombie
-// window deadlock scenario:
-//
-//  1. The sink accumulates debt past HighWatermarkBytes without matching acks
-//     (simulating a zombie dialer whose OS socket buffer absorbs writes).
-//  2. readLoop blocks in waitForOutputWindow — paused=true.
-//  3. A new dialer installs its sink.
-//  4. pty.replay completes successfully and live output resumes.
-//
-// The replay would otherwise block waiting on credit from the previous dialer.
 func TestSetEventSinkClearsPreviousDialerDebt(t *testing.T) {
 	t.Parallel()
-	// Phase 1: spawn a PTY that produces continuous output, then drive
-	// output debt past HighWatermarkBytes without any acks.
 	svc := New()
 
-	// Sink that succeeds but never triggers acks — models the OS buffer
-	// absorbing writes while the zombie dialer is alive.
 	var mu sync.Mutex
 	var afterReset []string
 	zombieActive := true
@@ -524,7 +439,6 @@ func TestSetEventSinkClearsPreviousDialerDebt(t *testing.T) {
 		active := zombieActive
 		mu.Unlock()
 		if !active {
-			// Post-reset: record received chunks for assertion.
 			if dp, ok := payload.(DataPayload); ok {
 				chunk, _ := base64.StdEncoding.DecodeString(dp.Chunk)
 				mu.Lock()
@@ -544,7 +458,6 @@ echo READY
 sleep 10
 `)
 
-	// Wait for READY so we know the session is registered.
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		result, _ := svc.SessionList(context.Background(), mustJSON(t, SessionListParams{WorkspaceID: testWorkspaceID}))
@@ -559,10 +472,6 @@ sleep 10
 	}
 	t.Fatal("session not found within deadline")
 sessionFound:
-
-	// Directly manipulate the session's flow state to simulate the zombie window:
-	// set outstanding to HighWatermarkBytes and paused=true, as if the sink
-	// accumulated that debt without any acks arriving.
 	key := tabKey{workspaceID: testWorkspaceID, tabID: tabID}
 	svc.mu.Lock()
 	sess := svc.sessions[key]
@@ -576,13 +485,11 @@ sessionFound:
 	sess.paused = true
 	svc.mu.Unlock()
 
-	// Phase 2: simulate new dialer wiring — SetEventSink must unblock.
 	mu.Lock()
 	zombieActive = false
 	mu.Unlock()
 	svc.SetEventSink(context.Background(), sink)
 
-	// Phase 3: verify the flow gate is now open.
 	svc.mu.Lock()
 	stillPaused := sess.paused
 	stillOutstanding := sess.outstanding
@@ -594,7 +501,6 @@ sessionFound:
 		t.Fatalf("outstanding = %d after SetEventSink, want 0", stillOutstanding)
 	}
 
-	// Phase 4: replay must complete without blocking (would time out if paused).
 	replayCh := make(chan error, 1)
 	go func() {
 		_, err := svc.Replay(context.Background(), mustJSON(t, ReplayParams{
@@ -614,21 +520,6 @@ sessionFound:
 	}
 }
 
-// TestReplayWigglesSIGWINCHAfterFlush verifies that pty.replay issues a
-// rows-1 → hold → original-rows Setsize sequence after completing the
-// live-queue flush (AC patch).
-//
-// The sequence is verified via a setSizeFn stub injected into the session:
-//   - Call 1 must set rows = lastRows-1 (shrink).
-//   - Call 2 must set rows = lastRows    (restore, after wiggleRestoreDelay).
-//
-// Using a stub avoids the Unix signal-coalescing race that makes counting
-// SIGWINCH receipts from a shell trap unreliable: the kernel may merge two
-// rapid SIGWINCH deliveries into one pending signal while the first handler
-// is executing.  That same coalescing is why production code holds the
-// shrunken size for wiggleRestoreDelay before restoring — and why this test
-// polls for the second call instead of asserting synchronously: the wiggle
-// runs in a goroutine so the replay RPC is not delayed by the hold.
 func TestReplayWigglesSIGWINCHAfterFlush(t *testing.T) {
 	t.Parallel()
 	rec := &sinkRecorder{}
@@ -644,7 +535,6 @@ sleep 10
 `)
 	rec.requireTranscriptContains(t, "READY", 2*time.Second)
 
-	// Record a size so wiggleSIGWINCH has rows > 1.
 	_, err := svc.Resize(context.Background(), mustJSON(t, ResizeParams{
 		WorkspaceID: testWorkspaceID,
 		TabID:       tabID,
@@ -655,8 +545,6 @@ sleep 10
 		t.Fatalf("resize: %v", err)
 	}
 
-	// Inject a setSizeFn stub into the session to record Setsize call arguments
-	// without relying on asynchronous SIGWINCH delivery to the shell.
 	key := tabKey{workspaceID: testWorkspaceID, tabID: tabID}
 	svc.mu.Lock()
 	sess := svc.sessions[key]
@@ -672,11 +560,9 @@ sleep 10
 		callMu.Lock()
 		calls = append(calls, sizeCall{rows: uint16(rows), cols: uint16(cols)})
 		callMu.Unlock()
-		// Also apply the real resize so the PTY fd stays consistent.
 		return sess.master.setSize(cols, rows)
 	}
 
-	// Replay (ring empty is fine — wiggle runs regardless of ring content).
 	_, err = svc.Replay(context.Background(), mustJSON(t, ReplayParams{
 		WorkspaceID: testWorkspaceID,
 		TabID:       tabID,
@@ -685,8 +571,6 @@ sleep 10
 		t.Fatalf("replay: %v", err)
 	}
 
-	// The wiggle runs in a goroutine and holds the shrunken size for
-	// wiggleRestoreDelay before restoring — poll until both calls land.
 	deadline := time.Now().Add(2 * time.Second)
 	var got []sizeCall
 	for {
@@ -702,11 +586,9 @@ sleep 10
 	if len(got) != 2 {
 		t.Fatalf("wiggle: expected 2 Setsize calls, got %d: %v", len(got), got)
 	}
-	// First call must shrink by exactly one row.
 	if got[0].rows != 23 || got[0].cols != 80 {
 		t.Fatalf("wiggle call 1: want rows=23 cols=80, got rows=%d cols=%d", got[0].rows, got[0].cols)
 	}
-	// Second call must restore the original size.
 	if got[1].rows != 24 || got[1].cols != 80 {
 		t.Fatalf("wiggle call 2: want rows=24 cols=80, got rows=%d cols=%d", got[1].rows, got[1].cols)
 	}

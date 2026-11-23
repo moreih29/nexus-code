@@ -1,7 +1,3 @@
-// What the user told Claude when it asked: its questions with the answers
-// picked, and its plan with how it went. They stand in the conversation
-// once the card that asked is gone.
-
 import {
   Ban,
   Check,
@@ -18,27 +14,19 @@ import { ToggleChevron } from "../ui/toggle-chevron";
 import { ChatMarkdown } from "./chat-markdown";
 import { questionKey, readQuestions } from "./permission-card";
 
-/** The tools whose calls ask the user, which these rows show. */
 export const PROMPT_TOOLS: ReadonlySet<string> = new Set(["AskUserQuestion", "ExitPlanMode"]);
 
-/**
- * Whether a call the user was asked about ended as they said: not in the
- * tool's own error, which a generic row shows. A no read back from the
- * transcript is an error too, though one in the user's words.
- */
 export function showsAsPrompt(tool: ToolCall | undefined): tool is ToolCall {
   if (!tool || !PROMPT_TOOLS.has(tool.name)) return false;
   return tool.status !== "error" || !(tool.result?.text ?? "").includes("<tool_use_error>");
 }
 
-/** What the user said with a no, without what the CLI added to it. */
 export function declineReason(tool: ToolCall): string {
   return (tool.result?.text ?? "")
     .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "")
     .trim();
 }
 
-/** The answers the user gave, by question, as the CLI kept them. */
 export function answersOf(tool: ToolCall): Record<string, string> {
   const structured = tool.result?.structured as { answers?: unknown } | null | undefined;
   const answers = structured?.answers;
@@ -50,7 +38,6 @@ export function answersOf(tool: ToolCall): Record<string, string> {
     }
     return out;
   }
-  // Without them, the answer's text: `"question"="answer", …`.
   for (const match of (tool.result?.text ?? "").matchAll(/"([^"]*)"="([^"]*)"/g)) {
     out[match[1] ?? ""] = match[2] ?? "";
   }
@@ -65,7 +52,6 @@ function isDeclined(tool: ToolCall): boolean {
   return tool.status === "denied" || tool.status === "error";
 }
 
-/** One line for a prompt that has no answer to show: still asked, stopped or turned down. */
 function PromptLine({
   tool,
   icon,
@@ -101,7 +87,6 @@ function PromptLine({
   );
 }
 
-/** Claude's questions and the answers the user picked. */
 export function AnsweredQuestions({ tool }: { tool: ToolCall }) {
   const { t } = useTranslation();
   const questions = readQuestions((tool.input ?? {}) as Record<string, unknown>);
@@ -165,7 +150,6 @@ export function AnsweredQuestions({ tool }: { tool: ToolCall }) {
   );
 }
 
-/** The plan's first line, its Markdown marks off, to name it while folded. */
 function planTitle(plan: string): string {
   const line = plan.split("\n").find((each) => each.trim() !== "") ?? "";
   return line
@@ -174,7 +158,6 @@ function planTitle(plan: string): string {
     .trim();
 }
 
-/** Claude's plan and how it went: approved, or sent back with what to change. */
 export function PlanOutcome({
   tool,
   workspaceId,

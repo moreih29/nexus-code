@@ -31,7 +31,6 @@ function reply(path: string, truncated = false): SearchReply {
   });
 }
 
-// Typing schedules a search; the tests run each scheduled one by hand.
 interface Scheduled {
   run: () => void;
   ms: number | undefined;
@@ -76,8 +75,6 @@ function findChild<P extends { children?: React.ReactNode }>(
   return node.type === type ? node : findChild<P>(node.props.children, type);
 }
 
-// Drives the real panel's handlers and state without a browser DOM. The
-// markup assertions render its returned element with React's server renderer.
 function mountPanel() {
   const hooks: unknown[] = [];
   let cursor = 0;
@@ -297,7 +294,6 @@ test("typing searches once it pauses, drops what it overtakes, and Enter searche
     const panel = mountPanel();
     panel.input().onChange("fi");
     panel.input().onChange("first");
-    // Only the last pause searches, and nothing before it.
     expect(waiting()).toHaveLength(1);
     expect(waiting()[0].ms).toBe(PEER_SEARCH_DEBOUNCE_MS);
     expect(call).not.toHaveBeenCalled();
@@ -305,7 +301,6 @@ test("typing searches once it pauses, drops what it overtakes, and Enter searche
     expect(call).toHaveBeenCalledTimes(1);
     expect(call.mock.calls[0][2]).toMatchObject({ query: "first" });
 
-    // Typing on drops the running search; Enter does not wait for the pause.
     panel.input().onChange("firsts");
     expect(call.mock.calls[0][3]?.signal?.aborted).toBe(true);
     expect(waiting()).toHaveLength(1);
@@ -319,7 +314,6 @@ test("typing searches once it pauses, drops what it overtakes, and Enter searche
     await Promise.all([first.promise, second.promise]);
     expect(panel.paths()).toEqual(["current.ts"]);
 
-    // Cleared, nothing is searched.
     panel.input().onChange("");
     expect(waiting()).toHaveLength(0);
   } finally {

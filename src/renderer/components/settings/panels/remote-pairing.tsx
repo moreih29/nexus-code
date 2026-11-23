@@ -1,10 +1,3 @@
-// src/renderer/components/settings/panels/remote-pairing.tsx
-//
-// Pairing through a QR code, on the Remote page: this device shows a code
-// that another device scans. A device holding the account key gives it to a
-// new phone that scans it, once the user allows it here; a device without
-// it takes it from a phone holding it, instead of the password.
-
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { PairingState } from "../../../../shared/remote/pairing";
@@ -12,7 +5,6 @@ import { ipcCallResult, ipcListen } from "../../../ipc/client";
 import { Button } from "../../ui/button";
 import { SettingsRow } from "../section";
 
-/** The pairing's state from main, kept up as it changes. */
 export function usePairing(): PairingState {
   const [state, setState] = useState<PairingState>({ status: "idle" });
   useEffect(() => {
@@ -29,7 +21,6 @@ export function usePairing(): PairingState {
   return state;
 }
 
-/** Seconds left until `at`, counted down each second. */
 function useSecondsLeft(at: number | null): number {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -47,7 +38,6 @@ export function PairingRow({ giving }: { giving: boolean }) {
   const left = useSecondsLeft(expiresAt);
   const open = state.status === "showing" || state.status === "asked";
 
-  // Leaving the page drops a code still shown, and its socket.
   useEffect(
     () => () => {
       void ipcCallResult("remote", "pairStop", undefined);

@@ -1,49 +1,10 @@
-/**
- * Pure parsers for accelerator strings (Electron's format).
- *
- * Two consumers:
- *   - The renderer dispatcher uses {@link parseAccelerator} +
- *     {@link matchesEvent} to detect when a `KeyboardEvent` satisfies
- *     a binding declaration.
- *   - Both renderer (context menu shortcut hints) and main (chord
- *     label suffixes) use {@link acceleratorToLabel} to render the
- *     binding for users.
- *
- * No DOM, no React, no Electron — these helpers stay pure so they're
- * cheap to unit-test and reuse on either side of the IPC boundary.
- */
-
 import type { AcceleratorString } from "./index";
 
 export interface ParsedKeystroke {
-  /**
-   * `CmdOrCtrl` or explicit `Cmd`/`Command`/`Meta`. Matches `metaKey`
-   * on Mac or `ctrlKey` on Win/Linux for `CmdOrCtrl`; matches `metaKey`
-   * specifically for explicit `Cmd` (only meaningful on Mac).
-   *
-   * When `ctrl` is also true, this becomes a literal "Cmd AND Ctrl"
-   * combo (Mac-only realistic; the dispatcher then requires both
-   * `metaKey` and `ctrlKey`).
-   */
   cmd: boolean;
-  /**
-   * Explicit `Ctrl`/`Control` token. Matches `ctrlKey` strictly. Used
-   * for combos like `Cmd+Ctrl+Up` where we need to distinguish the two
-   * physical modifiers on Mac. Bare `Ctrl+X` (without `Cmd`) means
-   * "Control + X" literally, not "CmdOrCtrl + X" — use `CmdOrCtrl`
-   * for the cross-platform shorthand.
-   */
   ctrl: boolean;
   shift: boolean;
   alt: boolean;
-  /**
-   * Acceptable `KeyboardEvent.code` values. Usually a single entry.
-   * `code` identifies the physical key independent of keyboard layout
-   * (a Korean layout's ₩/\ key still reports "Backslash"), so one code
-   * per token is sufficient — do NOT add sibling codes for layout
-   * parity, or unrelated shortcuts (e.g. ⌘/ comment toggle) get
-   * swallowed by the wrong binding.
-   */
   codes: readonly string[];
 }
 
@@ -121,11 +82,6 @@ function tokenToCodes(tok: string): readonly string[] {
     case "PageDown":
       return ["PageDown"];
     case "\\":
-      // KeyboardEvent.code is layout-independent: Korean layouts also
-      // report the ₩/\ physical key as "Backslash" (only e.key differs).
-      // This previously returned ["Backslash", "Slash"] for a mistaken
-      // "Korean keyboard parity" reason, which made ⌘/ trigger the ⌘\
-      // split shortcut and swallow Monaco's comment toggle.
       return ["Backslash"];
     case "/":
       return ["Slash"];
@@ -158,44 +114,11 @@ function tokenToCodes(tok: string): readonly string[] {
     case "`":
       return ["Backquote"];
     default:
-      // F1-F12 function keys: code === key === "F1", "F2", …
       if (/^F[1-9]$|^F1[0-2]$/.test(tok)) return [tok];
       throw new Error(`unsupported accelerator token: ${tok}`);
   }
 }
 
-/**
- * True when `e` matches the parsed keystroke. The match is strict on
- * modifiers — `parseAccelerator("Shift+Enter")` rejects `⌘⇧Enter`
- * (extra Cmd) — so two bindings can coexist with overlapping keys but
- * different modifier sets.
- *
- * `isMac` resolves the platform meaning of the `CmdOrCtrl` shorthand:
- *   - On Mac, `CmdOrCtrl+R` matches **only** ⌘R; bare ⌃R passes through
- *     so terminal apps (xterm) keep their Ctrl-letter shortcuts like
- *     `Ctrl+R` (reverse-i-search), `Ctrl+W` (delete-word), `Ctrl+T`
- *     (transpose). Holding both ⌘ and ⌃ is still rejected — that
- *     ambiguous combo is reserved for explicit `Cmd+Ctrl+...` bindings.
- *   - On Win/Linux, `CmdOrCtrl+R` matches **only** Ctrl+R (metaKey is
- *     usually the Windows/Super key and not part of our shortcut set).
- *
- * Modifier matrix:
- *   - `cmd && ctrl` (literal Cmd+Ctrl combo, Mac-only realistically):
- *     requires `metaKey && ctrlKey`.
- *   - `cmd && !ctrl` (CmdOrCtrl shorthand): Mac → `metaKey && !ctrlKey`;
- *     non-Mac → `ctrlKey && !metaKey`.
- *   - `!cmd && ctrl` (literal Ctrl-only): `ctrlKey && !metaKey` on every
- *     platform — used by bindings that genuinely mean "Control".
- *   - `!cmd && !ctrl`: neither modifier pressed.
- */
-/**
- * Platform-agnostic key state — the subset of modifiers + physical code
- * that {@link matchesKeyState} needs. A DOM `KeyboardEvent` and an
- * Electron `before-input-event` Input both reduce to this shape, so the
- * single matcher serves the renderer dispatcher AND the main-process
- * browser-view key interceptor (WebContentsView keystrokes never reach
- * the renderer document — see main/features/browser/keyboard.ts).
- */
 export interface KeyChordState {
   code: string;
   meta: boolean;
@@ -204,16 +127,12 @@ export interface KeyChordState {
   alt: boolean;
 }
 
-/** Core matcher — see {@link matchesEvent} for the modifier matrix rationale. */
 export function matchesKeyState(p: ParsedKeystroke, s: KeyChordState, isMac: boolean): boolean {
   if (!p.codes.includes(s.code)) return false;
 
   if (p.cmd && p.ctrl) {
     if (!(s.meta && s.ctrl)) return false;
   } else if (p.cmd) {
-    // CmdOrCtrl shorthand: pick the platform's "primary" modifier and
-    // require the other to be absent. The "absent" side matters most on
-    // Mac, where bare ⌃-letter shortcuts belong to the terminal/shell.
     if (isMac) {
       if (!s.meta || s.ctrl) return false;
     } else {
@@ -231,8 +150,6 @@ export function matchesKeyState(p: ParsedKeystroke, s: KeyChordState, isMac: boo
 }
 
 export function matchesEvent(p: ParsedKeystroke, e: KeyboardEvent, isMac: boolean): boolean {
-  // AltGr types a character in many layouts (AltGr+C is ć in Polish), and
-  // Windows reports it with Ctrl and Alt held: no shortcut takes it.
   if (!isMac && e.getModifierState?.("AltGraph")) return false;
   return matchesKeyState(
     p,
@@ -241,11 +158,6 @@ export function matchesEvent(p: ParsedKeystroke, e: KeyboardEvent, isMac: boolea
   );
 }
 
-// ---------------------------------------------------------------------------
-// Event → accelerator (the recorder's reverse function)
-// ---------------------------------------------------------------------------
-
-/** Inverse of `tokenToCodes` for the codes we support. */
 const CODE_TO_TOKEN: Readonly<Record<string, string>> = {
   Enter: "Enter",
   Escape: "Escape",
@@ -272,25 +184,6 @@ const CODE_TO_TOKEN: Readonly<Record<string, string>> = {
   Backquote: "`",
 };
 
-/**
- * Convert a captured KeyboardEvent into the accelerator string that
- * would match it — the keybinding recorder's reverse of
- * `parseAccelerator` + `matchesEvent`. Round-trip invariant:
- * `matchesEvent(parseAccelerator(eventToAccelerator(e)!), e, isMac)`
- * is true whenever the result is non-null.
- *
- * Returns `null` when the event cannot form a valid binding:
- *   - modifier-only keydowns (the recorder shows them as "pending");
- *   - physical keys outside our token table (media keys, NumPad, …);
- *   - the platform-foreign primary modifier (bare Win/Super key
- *     combos on non-Mac — `metaKey` there is not part of our
- *     accelerator vocabulary).
- *
- * Modifier mapping mirrors `matchesEvent`'s matrix:
- *   - Mac:  meta → `CmdOrCtrl`, ctrl alone → `Ctrl` (literal),
- *           meta+ctrl → `Cmd+Ctrl` (literal two-modifier combo).
- *   - Win/Linux: ctrl → `CmdOrCtrl`; metaKey set → null.
- */
 export function eventToAccelerator(e: KeyboardEvent, isMac: boolean): string | null {
   const token = codeToToken(e.code);
   if (token === null) return null;
@@ -305,7 +198,7 @@ export function eventToAccelerator(e: KeyboardEvent, isMac: boolean): string | n
       mods.push("Ctrl");
     }
   } else {
-    if (e.metaKey) return null; // Win/Super combos are not bindable
+    if (e.metaKey) return null;
     if (e.ctrlKey) mods.push("CmdOrCtrl");
   }
   if (e.shiftKey) mods.push("Shift");
@@ -323,21 +216,10 @@ function codeToToken(code: string): string | null {
   return CODE_TO_TOKEN[code] ?? null;
 }
 
-/** True when `e.code` is itself a modifier key (⇧⌃⌥⌘ keydowns). */
 export function isModifierCode(code: string): boolean {
   return /^(Shift|Control|Alt|Meta)(Left|Right)?$/.test(code) || code === "CapsLock";
 }
 
-/**
- * Reduce an accelerator to a platform-resolved canonical key, e.g.
- * `"meta+shift+KeyR"` (Mac) / `"ctrl+shift+KeyR"` (Win/Linux) for
- * `"CmdOrCtrl+Shift+R"`. Two accelerators with the same normalized form
- * match exactly the same KeyboardEvents under `matchesEvent` — this is
- * the equality the conflict engine and reserved-key catalog compare on.
- *
- * Returns `null` for unparseable input instead of throwing, so callers
- * probing user-typed strings don't need their own try/catch.
- */
 export function normalizeKeystroke(accel: AcceleratorString, isMac: boolean): string | null {
   let p: ParsedKeystroke;
   try {
@@ -347,9 +229,9 @@ export function normalizeKeystroke(accel: AcceleratorString, isMac: boolean): st
   }
   const mods: string[] = [];
   if (p.cmd && p.ctrl) {
-    mods.push("meta", "ctrl"); // literal two-modifier combo
+    mods.push("meta", "ctrl");
   } else if (p.cmd) {
-    mods.push(isMac ? "meta" : "ctrl"); // CmdOrCtrl shorthand resolution
+    mods.push(isMac ? "meta" : "ctrl");
   } else if (p.ctrl) {
     mods.push("ctrl");
   }
@@ -360,22 +242,9 @@ export function normalizeKeystroke(accel: AcceleratorString, isMac: boolean): st
 
 interface LabelOptions {
   isMac: boolean;
-  /**
-   * Host platform, to name the Windows/Super key off macOS: "Super" on
-   * Linux, "Win" otherwise.
-   */
   platform?: string;
 }
 
-/**
- * Render an accelerator string as a user-facing label. Mac uses the
- * symbol forms (⌘ ⌥ ⇧ ⌃ ↵ ↑↓←→); Win/Linux fall back to spelled
- * modifiers joined with `+`.
- *
- * An explicit `Cmd` names the key it matches (see {@link matchesKeyState}):
- * on Win/Linux that is Ctrl, or the Windows/Super key in a literal
- * `Cmd+Ctrl` combo.
- */
 export function acceleratorToLabel(accel: AcceleratorString, opts: LabelOptions): string {
   const tokens = accel.split("+").map((t) => t.trim());
   const hasCtrl = tokens.some((t) => MOD_TOKENS_CTRL.has(t));
@@ -431,10 +300,6 @@ function keyTokenToLabel(tok: string, opts: LabelOptions): string {
   return tok;
 }
 
-/**
- * Render a chord (two-step) keybinding as a single label, joining the
- * two halves with a space — `⌘K ⌘W` on Mac, `Ctrl+K Ctrl+W` elsewhere.
- */
 export function chordToLabel(
   chord: readonly [AcceleratorString, AcceleratorString],
   opts: LabelOptions,

@@ -1,11 +1,3 @@
-/**
- * What the nexus CLI reads and changes of the agent view: whether the
- * window shows it, and its panels and the tabs each holds.
- *
- * As with ./actions, nothing here takes keyboard focus, except for showing
- * a view or a panel, which is what the command asks for.
- */
-
 import { Grid } from "@/engine";
 import { useAgentViewStore } from "@/state/stores/agent-view";
 import { useMountedWorkspacesStore } from "@/state/stores/mounted-workspaces";

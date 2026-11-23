@@ -17,7 +17,6 @@ import (
 	"time"
 )
 
-// handshakingConn signals that the handler is waiting for the first line.
 type handshakingConn struct {
 	net.Conn
 	reading chan struct{}
@@ -29,8 +28,6 @@ func (c *handshakingConn) Read(p []byte) (int, error) {
 	return c.Conn.Read(p)
 }
 
-// TestCloseReleasesIncompleteRequests covers accepted connections that are
-// still waiting to finish their first frame when the server closes.
 func TestCloseReleasesIncompleteRequests(t *testing.T) {
 	srv := newTestServer(t, nil)
 	server, client := net.Pipe()
@@ -57,11 +54,7 @@ func TestCloseReleasesIncompleteRequests(t *testing.T) {
 	}
 }
 
-// TestMain points HOME at a scratch directory, so the servers the tests open
-// put their sockets there, and the stale-socket sweep in New runs there, not
-// in the developer's ~/.nexus-code/sockets.
 func TestMain(m *testing.M) {
-	// A short parent keeps socket paths under the 104-byte sun_path limit.
 	parent := "/tmp"
 	if runtime.GOOS == "windows" {
 		parent = ""
@@ -78,16 +71,8 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// -----------------------------------------------------------------------
-// 테스트용 헬퍼 — 짧은 소켓 경로를 만드는 mockServer
-// -----------------------------------------------------------------------
-
-// newTestServer 는 테스트용 Server를 생성한다.
-// macOS 104자 경로 제한을 피하기 위해 짧은 agentKey를 사용한다.
 func newTestServer(t *testing.T, sink EventSink) *Server {
 	t.Helper()
-	// os.MkdirTemp가 생성하는 경로가 길 수 있으므로 agentKey는 고정 짧은 값을 사용한다.
-	// makeSocketPath("test") = TempDir + "/nexus-h-9f86d08188.sock" ≤ 104자.
 	key := fmt.Sprintf("test-%d", os.Getpid())
 	srv, err := New(key, sink)
 	if err != nil {
@@ -97,8 +82,6 @@ func newTestServer(t *testing.T, sink EventSink) *Server {
 	return srv
 }
 
-// TestAnsweredRequestsStopDeadlineTimers uses a timer that cannot expire.
-// Taking the response must release the timer while the server stays open.
 func TestAnsweredRequestsStopDeadlineTimers(t *testing.T) {
 	for _, kind := range []string{"hook", "cli"} {
 		t.Run(kind, func(t *testing.T) {
@@ -153,7 +136,6 @@ func TestAnsweredRequestsStopDeadlineTimers(t *testing.T) {
 	}
 }
 
-// dialAndSendRequest 는 테스트에서 hookclient를 흉내내 요청을 전송한다.
 func dialAndSendRequest(t *testing.T, socketPath string, req hookWireRequest) net.Conn {
 	t.Helper()
 	conn, err := net.Dial("unix", socketPath)
@@ -171,7 +153,6 @@ func dialAndSendRequest(t *testing.T, socketPath string, req hookWireRequest) ne
 	return conn
 }
 
-// readResponse 는 conn에서 hookWireResponse 한 줄을 읽는다.
 func readResponse(t *testing.T, conn net.Conn, timeout time.Duration) hookWireResponse {
 	t.Helper()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
@@ -186,11 +167,6 @@ func readResponse(t *testing.T, conn net.Conn, timeout time.Duration) hookWireRe
 	return resp
 }
 
-// -----------------------------------------------------------------------
-// (a) New가 소켓 파일을 생성하고 0600 퍼미션인지 검증
-// -----------------------------------------------------------------------
-
-// TestNew_ListenAndPerm 은 New()가 소켓 파일을 생성하고 0600 퍼미션을 설정하는지 검증한다.
 func TestNew_ListenAndPerm(t *testing.T) {
 	var sinkCalled int32
 	srv := newTestServer(t, func(_ string, _ any) error {
@@ -198,27 +174,21 @@ func TestNew_ListenAndPerm(t *testing.T) {
 		return nil
 	})
 
-	// 소켓 파일이 존재해야 한다.
 	info, err := os.Stat(srv.SocketPath())
 	if err != nil {
 		t.Fatalf("socket file not found: %v", err)
 	}
 
-	// 퍼미션이 0600이어야 한다.
 	perm := info.Mode().Perm()
-	if runtime.GOOS != "windows" && perm != 0600 { // Windows keeps no POSIX mode bits.
+	if runtime.GOOS != "windows" && perm != 0600 {
 		t.Errorf("socket perm: want 0600, got %04o", perm)
 	}
 
-	// Token이 비어 있지 않아야 한다.
 	if srv.Token() == "" {
 		t.Error("token is empty")
 	}
 }
 
-// TestNew_SocketPathTooLong checks that New refuses a home directory deep
-// enough to push the socket path past the sun_path limit, before it creates
-// anything under it.
 func TestNew_SocketPathTooLong(t *testing.T) {
 	home := filepath.Join(t.TempDir(), strings.Repeat("h", maxSocketPathLen))
 	t.Setenv("HOME", home)
@@ -237,17 +207,9 @@ func TestNew_SocketPathTooLong(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------
-// (b) 정상 요청 → sink 호출 + inflight 등록 검증
-// -----------------------------------------------------------------------
-
-// TestHandleConn_LargePayload 는 64 KiB를 넘는 payload(큰 파일을 쓰는 Write의
-// permission-request 등)도 이벤트로 전달되는지 검증한다. 이전에는 bufio.Scanner
-// 기본 한도에 걸려 이벤트 없이 연결이 끊겼다.
 func TestHandleConn_LargePayload(t *testing.T) {
 	calls := make(chan HookEventPayload, 1)
 	srv := newTestServer(t, func(_ string, payload any) error {
-		// A hook whose client leaves unanswered is told gone too.
 		if p, ok := payload.(HookEventPayload); ok {
 			calls <- p
 		}
@@ -279,8 +241,6 @@ func TestHandleConn_LargePayload(t *testing.T) {
 	}
 }
 
-// TestHandleConn_OversizedRequestFallsBack 는 상한을 넘는 요청에 exit 0
-// 응답(native fallback)을 돌려주는지 검증한다 — 그냥 끊으면 hook 실패가 된다.
 func TestHandleConn_OversizedRequestFallsBack(t *testing.T) {
 	srv := newTestServer(t, func(_ string, _ any) error {
 		t.Error("sink must not be called for an oversized request")
@@ -293,7 +253,6 @@ func TestHandleConn_OversizedRequestFallsBack(t *testing.T) {
 	}
 	defer conn.Close()
 	go func() {
-		// 서버가 상한에서 읽기를 멈추고 닫으므로 이 write는 실패로 끝난다.
 		_, _ = conn.Write([]byte(`{"type":"hook","payload":"` + strings.Repeat("x", maxRequestBytes) + `"}` + "\n"))
 	}()
 
@@ -303,11 +262,6 @@ func TestHandleConn_OversizedRequestFallsBack(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------
-// (c) 토큰 불일치 시 conn이 즉시 닫히는지 검증
-// -----------------------------------------------------------------------
-
-// TestHandleConn_TokenMismatch 는 잘못된 토큰으로 연결하면 서버가 즉시 닫는지 검증한다.
 func TestHandleConn_TokenMismatch(t *testing.T) {
 	srv := newTestServer(t, func(_ string, _ any) error { return nil })
 
@@ -321,7 +275,6 @@ func TestHandleConn_TokenMismatch(t *testing.T) {
 	})
 	defer conn.Close()
 
-	// 서버가 연결을 닫으면 읽기 시도 시 EOF 또는 에러가 발생해야 한다.
 	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
 	buf := make([]byte, 1)
 	_, err := conn.Read(buf)
@@ -330,12 +283,6 @@ func TestHandleConn_TokenMismatch(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------
-// (d) Respond가 정확한 hookId conn에 write + close + inflight.Delete 검증
-// -----------------------------------------------------------------------
-
-// TestRespond_WritesAndDeletesInflight 는 Respond()가 응답을 write하고
-// inflight 맵에서 entry를 제거하는지 검증한다.
 func TestRespond_WritesAndDeletesInflight(t *testing.T) {
 	type sinkCall struct {
 		hookID string
@@ -343,7 +290,6 @@ func TestRespond_WritesAndDeletesInflight(t *testing.T) {
 	hookIDCh := make(chan string, 1)
 
 	srv := newTestServer(t, func(_ string, payload any) error {
-		// A hook whose client leaves unanswered is told gone too.
 		if p, ok := payload.(HookEventPayload); ok {
 			hookIDCh <- p.HookID
 		}
@@ -360,7 +306,6 @@ func TestRespond_WritesAndDeletesInflight(t *testing.T) {
 	})
 	defer conn.Close()
 
-	// sink에서 hookId를 받는다.
 	var hookID string
 	select {
 	case hookID = <-hookIDCh:
@@ -368,19 +313,16 @@ func TestRespond_WritesAndDeletesInflight(t *testing.T) {
 		t.Fatal("timed out waiting for hookId from sink")
 	}
 
-	// inflight 맵에 등록되어 있는지 확인한다.
 	_, ok := srv.inflight.Load(hookID)
 	if !ok {
 		t.Fatalf("hookId %q not in inflight map before Respond()", hookID)
 	}
 
-	// stdout과 exitCode를 명시해 응답한다.
 	exitVal := 0
 	if err := srv.Respond(hookID, HookResponse{Stdout: "hello", ExitCode: &exitVal}); err != nil {
 		t.Fatalf("Respond: %v", err)
 	}
 
-	// 응답이 conn에 도달해야 한다.
 	resp := readResponse(t, conn, 2*time.Second)
 	if !resp.OK {
 		t.Errorf("response ok: want true, got false")
@@ -389,30 +331,21 @@ func TestRespond_WritesAndDeletesInflight(t *testing.T) {
 		t.Errorf("response stdout: want 'hello', got %q", resp.Stdout)
 	}
 
-	// inflight 맵에서 제거되었는지 확인한다.
 	_, stillExists := srv.inflight.Load(hookID)
 	if stillExists {
 		t.Error("hookId still in inflight map after Respond()")
 	}
 }
 
-// -----------------------------------------------------------------------
-// (e) 120초 timeout(테스트는 짧은 deadline) → default 응답 write + close
-// -----------------------------------------------------------------------
-
-// TestDeadline_DefaultResponse 는 응답이 없을 때 deadline goroutine이
-// default 응답(ok=true, 내용 없음)을 write하고 연결을 닫는지 검증한다.
 func TestDeadline_DefaultResponse(t *testing.T) {
 	hookIDCh := make(chan string, 1)
 
 	srv := newTestServer(t, func(_ string, payload any) error {
-		// A hook whose client leaves unanswered is told gone too.
 		if p, ok := payload.(HookEventPayload); ok {
 			hookIDCh <- p.HookID
 		}
 		return nil
 	})
-	// 테스트용 짧은 deadline을 atomic으로 주입한다.
 	srv.testDeadlineNs.Store(int64(100 * time.Millisecond))
 
 	conn := dialAndSendRequest(t, srv.SocketPath(), hookWireRequest{
@@ -425,7 +358,6 @@ func TestDeadline_DefaultResponse(t *testing.T) {
 	})
 	defer conn.Close()
 
-	// hookId를 확인한다.
 	var hookID string
 	select {
 	case hookID = <-hookIDCh:
@@ -433,7 +365,6 @@ func TestDeadline_DefaultResponse(t *testing.T) {
 		t.Fatal("timed out waiting for hookId")
 	}
 
-	// deadline이 지난 후 default 응답이 와야 한다.
 	resp := readResponse(t, conn, 2*time.Second)
 	if !resp.OK {
 		t.Errorf("default response ok: want true, got false")
@@ -442,21 +373,16 @@ func TestDeadline_DefaultResponse(t *testing.T) {
 		t.Errorf("default response stdout: want empty, got %q", resp.Stdout)
 	}
 
-	// inflight 맵에서도 제거되어야 한다.
 	_, stillExists := srv.inflight.Load(hookID)
 	if stillExists {
 		t.Error("hookId still in inflight map after deadline timeout")
 	}
 }
 
-// TestUndeliveredHook_DefaultResponseAtOnce checks that a hook no app heard
-// (the sink failed, as it does once the app's link is gone) is answered at
-// once, not after the deadline.
 func TestUndeliveredHook_DefaultResponseAtOnce(t *testing.T) {
 	srv := newTestServer(t, func(string, any) error {
 		return fmt.Errorf("write: broken pipe")
 	})
-	// A deadline the test would notice waiting for.
 	srv.testDeadlineNs.Store(int64(time.Minute))
 
 	conn := dialAndSendRequest(t, srv.SocketPath(), hookWireRequest{
@@ -483,9 +409,6 @@ func TestUndeliveredHook_DefaultResponseAtOnce(t *testing.T) {
 	}
 }
 
-// TestReleaseHooks_AnswersWaitingHooks checks that the hooks an app heard but
-// never answered are answered once the daemon releases them, as it does when
-// that app goes away.
 func TestReleaseHooks_AnswersWaitingHooks(t *testing.T) {
 	heard := make(chan struct{}, 1)
 	srv := newTestServer(t, func(string, any) error {
@@ -515,10 +438,6 @@ func TestReleaseHooks_AnswersWaitingHooks(t *testing.T) {
 	}
 }
 
-// TestHookGone_ToldWhenClientLeaves checks that main is told when the client
-// of a waiting PermissionRequest goes away unanswered, as Claude Code ends
-// the hook when the user interrupts at its dialog, and that the hook is no
-// longer waiting.
 func TestHookGone_ToldWhenClientLeaves(t *testing.T) {
 	heard := make(chan HookEventPayload, 1)
 	gone := make(chan HookGonePayload, 1)
@@ -575,9 +494,6 @@ func TestHookGone_ToldWhenClientLeaves(t *testing.T) {
 	}
 }
 
-// TestPrintWatch_HeldUntilItsClientGoes checks that a `claude -p` run's
-// watch waits on no deadline, and that main is told of its run when its
-// client goes away.
 func TestPrintWatch_HeldUntilItsClientGoes(t *testing.T) {
 	heard := make(chan HookEventPayload, 1)
 	gone := make(chan HookGonePayload, 1)
@@ -606,7 +522,6 @@ func TestPrintWatch_HeldUntilItsClientGoes(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for the watch")
 	}
-	// Past the deadline a hook would be answered by, the watch still waits.
 	_ = conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
 	if n, err := conn.Read(make([]byte, 1)); n > 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Fatalf("read: want a timeout, got %d bytes, %v", n, err)
@@ -626,8 +541,6 @@ func TestPrintWatch_HeldUntilItsClientGoes(t *testing.T) {
 	}
 }
 
-// TestHookGone_NotToldOnceAnswered checks that a hook main answered is not
-// told gone when its client then leaves.
 func TestHookGone_NotToldOnceAnswered(t *testing.T) {
 	heard := make(chan string, 1)
 	gone := make(chan struct{}, 1)
@@ -670,19 +583,11 @@ func TestHookGone_NotToldOnceAnswered(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------
-// (f) Close가 listener + 모든 inflight conn 닫음 + 소켓 unlink
-// -----------------------------------------------------------------------
-
-// TestClose_CleanupAll 은 Close()가 inflight conn에 default 응답을 write하고
-// 소켓 파일을 삭제하는지 검증한다.
 func TestClose_CleanupAll(t *testing.T) {
 	hookIDCh := make(chan string, 1)
 
-	// newTestServer는 t.Cleanup에서 Close()를 부르므로 여기서는 직접 생성한다.
 	key := fmt.Sprintf("close-test-%d", os.Getpid())
 	srv, err := New(key, func(_ string, payload any) error {
-		// A hook whose client leaves unanswered is told gone too.
 		if p, ok := payload.(HookEventPayload); ok {
 			hookIDCh <- p.HookID
 		}
@@ -702,7 +607,6 @@ func TestClose_CleanupAll(t *testing.T) {
 	})
 	defer conn.Close()
 
-	// hookId 등록 완료를 기다린다.
 	select {
 	case <-hookIDCh:
 	case <-time.After(2 * time.Second):
@@ -711,42 +615,30 @@ func TestClose_CleanupAll(t *testing.T) {
 
 	socketPath := srv.SocketPath()
 
-	// Close()를 호출한다.
 	if err := srv.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 
-	// inflight conn에 default 응답이 도달해야 한다.
 	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
 	resp := readResponse(t, conn, 2*time.Second)
 	if !resp.OK {
 		t.Errorf("close cleanup response ok: want true, got false")
 	}
 
-	// 소켓 파일이 삭제되어야 한다.
 	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
 		t.Errorf("socket file still exists after Close()")
 	}
 
-	// 다시 연결 시도 시 실패해야 한다.
 	_, dialErr := net.Dial("unix", socketPath)
 	if dialErr == nil {
 		t.Error("expected dial to fail after Close(), but it succeeded")
 	}
 }
 
-// -----------------------------------------------------------------------
-// Acceptance tests — Task 2: new socket location + stale cleanup
-// -----------------------------------------------------------------------
-
-// shortTempDir 는 macOS 104자 sun_path 제한을 고려해 /tmp 아래에 짧은 임시 디렉토리를 생성한다.
-// t.TempDir()은 /var/folders/... 경로로 경우에 따라 80자+를 사용해 소켓 파일명이 104자를 초과할 수 있다.
 func shortTempDir(t *testing.T) string {
 	t.Helper()
 	parent := "/tmp"
 	if runtime.GOOS == "windows" {
-		// Windows has no /tmp: it names \tmp on the current drive, which
-		// usually does not exist. Its own temp dir is short enough.
 		parent = ""
 	}
 	dir, err := os.MkdirTemp(parent, "hs-test-")
@@ -757,15 +649,10 @@ func shortTempDir(t *testing.T) string {
 	return dir
 }
 
-// staleNow is a time from which a socket made just now is old enough to clean.
 func staleNow() time.Time {
 	return time.Now().Add(70 * time.Second)
 }
 
-// makeDeadSocket 는 bound-but-not-listening Unix 소켓 파일을 생성한다.
-// macOS는 net.Listen 후 Close()하면 소켓 파일을 자동 삭제하므로,
-// syscall.Bind만 수행해 소켓 파일을 디스크에 남겨두는 방식을 사용한다.
-// 소켓은 테스트 종료 시 닫힌다.
 func makeDeadSocket(t *testing.T, path string) {
 	t.Helper()
 	fd, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
@@ -783,12 +670,9 @@ func makeDeadSocket(t *testing.T, path string) {
 	})
 }
 
-// Test_cleanStaleSockets_AlivePreserved 는 실제 net.Listen으로 띄운 소켓 파일이
-// cleanStaleSockets 호출 후에도 제거되지 않는지 검증한다.
 func Test_cleanStaleSockets_AlivePreserved(t *testing.T) {
 	dir := shortTempDir(t)
 
-	// 살아있는 소켓을 만든다.
 	sockPath := filepath.Join(dir, "h-aabbccdd0011.sock")
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
@@ -798,12 +682,10 @@ func Test_cleanStaleSockets_AlivePreserved(t *testing.T) {
 
 	cleanStaleSockets(dir, "other-self.sock", staleNow())
 
-	// 파일이 여전히 존재해야 한다.
 	if _, err := os.Stat(sockPath); os.IsNotExist(err) {
 		t.Error("alive socket was incorrectly removed by cleanStaleSockets")
 	}
 
-	// listener가 여전히 접속 가능해야 한다.
 	conn, err := net.DialTimeout("unix", sockPath, time.Second)
 	if err != nil {
 		t.Errorf("listener no longer reachable after cleanStaleSockets: %v", err)
@@ -812,56 +694,42 @@ func Test_cleanStaleSockets_AlivePreserved(t *testing.T) {
 	}
 }
 
-// Test_cleanStaleSockets_DeadOldRemoved 는 연결 불가한 오래된 소켓 파일이
-// cleanStaleSockets 호출 후 제거되는지 검증한다.
 func Test_cleanStaleSockets_DeadOldRemoved(t *testing.T) {
 	dir := shortTempDir(t)
 
-	// bound-but-not-listening 소켓을 만든다. macOS에서 net.Listen+Close는 파일을 삭제하므로
-	// syscall.Bind 방식으로 소켓 파일을 디스크에 유지한다.
 	sockPath := filepath.Join(dir, "h-deadbeef0001.sock")
 	makeDeadSocket(t, sockPath)
 
 	cleanStaleSockets(dir, "other-self.sock", staleNow())
 
-	// 파일이 제거되어야 한다.
 	if _, err := os.Stat(sockPath); !os.IsNotExist(err) {
 		t.Error("dead+old socket was NOT removed by cleanStaleSockets")
 	}
 }
 
-// Test_cleanStaleSockets_DeadFreshPreserved 는 연결 불가한 소켓 파일이더라도
-// mtime이 현재에 가까우면(60초 미만) cleanStaleSockets가 제거하지 않는지 검증한다.
 func Test_cleanStaleSockets_DeadFreshPreserved(t *testing.T) {
 	dir := shortTempDir(t)
 
-	// bound-but-not-listening 소켓을 만든다. mtime은 현재 시간 그대로 두어 fresh 조건을 유지한다.
 	sockPath := filepath.Join(dir, "h-freshbeef0002.sock")
 	makeDeadSocket(t, sockPath)
 
 	cleanStaleSockets(dir, "other-self.sock", time.Now())
 
-	// fresh이므로 파일이 여전히 존재해야 한다.
 	if _, err := os.Stat(sockPath); os.IsNotExist(err) {
 		t.Error("fresh dead socket was incorrectly removed by cleanStaleSockets (should be preserved)")
 	}
 }
 
-// Test_cleanStaleSockets_SelfPreserved 는 selfBasename과 일치하는 파일이
-// dead+old 조건을 충족하더라도 cleanStaleSockets가 제거하지 않는지 검증한다.
 func Test_cleanStaleSockets_SelfPreserved(t *testing.T) {
 	dir := shortTempDir(t)
 
 	selfName := "h-selffile0011.sock"
 	sockPath := filepath.Join(dir, selfName)
 
-	// bound-but-not-listening 소켓을 만든다.
 	makeDeadSocket(t, sockPath)
 
-	// selfBasename으로 자기 자신을 지정한다.
 	cleanStaleSockets(dir, selfName, staleNow())
 
-	// self 파일은 보존되어야 한다.
 	if _, err := os.Stat(sockPath); os.IsNotExist(err) {
 		t.Error("self socket was incorrectly removed by cleanStaleSockets")
 	}

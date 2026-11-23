@@ -1,26 +1,3 @@
-/**
- * Opens an authenticated ssh2 connection the way `ssh` would.
- *
- * The host's settings come from `ssh -G` (config.ts): its real name and port,
- * user, keys, agent, jump hosts or proxy command, and known_hosts files. The
- * host key is checked against known_hosts (known-hosts.ts); an unknown one is
- * shown to the user to trust, as OpenSSH asks, and is then recorded.
- *
- * Authentication follows PreferredAuthentications: the agent's keys and the
- * identity files (asking for an encrypted key's passphrase), then
- * keyboard-interactive (each prompt, such as a one-time code, goes to the
- * user), then the password. A password the server rejects is asked again,
- * twice, as sshd allows.
- *
- * With ForwardAgent each session asks the host to forward the agent.
- *
- * Without a prompt handler nothing is asked: an unknown host key fails as
- * BatchMode does, and encrypted keys and passwords are skipped.
- *
- * Failures are SshErrors: ssh.connect-failed when the host cannot be reached
- * or its key is refused, ssh.auth-failed when no method authenticates.
- */
-
 import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import net from "node:net";
@@ -49,9 +26,7 @@ import {
   knownHostName,
 } from "./known-hosts";
 
-/** As auth-pty: how long a connection may take, not counting time spent on prompts. */
 const CONNECT_TIMEOUT_MS = 30_000;
-/** As OpenSSH's ServerAliveInterval=5 / ServerAliveCountMax=3 on our masters. */
 const KEEPALIVE_INTERVAL_MS = 5_000;
 const KEEPALIVE_COUNT_MAX = 3;
 const PASSWORD_ATTEMPTS = 3;
@@ -63,11 +38,9 @@ export interface ConnectSsh2Dependencies {
   readonly signal?: AbortSignal;
 }
 
-/** An open connection and the jump hosts and proxy process it runs through. */
 export interface Ssh2Connection {
   readonly client: Client;
   readonly config: SshHostConfig;
-  /** Ends the connection and everything it runs through. */
   end(): void;
 }
 
@@ -93,7 +66,6 @@ export async function connectSsh2(
   try {
     let sock: Duplex | undefined;
     if (config.proxyJump.length > 0) {
-      // Each jump host connects through the one before it, as ProxyJump does.
       let via: Ssh2Connection | null = null;
       for (const jump of config.proxyJump) {
         const hop = await connectThrough(parseJumpHost(jump), via, promptHandler, dependencies);
@@ -132,14 +104,12 @@ async function connectThrough(
 ): Promise<Ssh2Connection> {
   if (via === null) return connectSsh2(target, promptHandler, dependencies);
   const resolveConfig = dependencies.resolveConfig ?? ((t: SshTarget) => resolveSshHostConfig(t));
-  // A jump host's own ProxyJump is not followed; it is reached through the one before it.
   const config = { ...(await resolveConfig(target)), proxyJump: [], proxyCommand: null };
   const sock = await forwardTo(via, config.hostname, config.port, dependencies.signal);
   const client = await authenticate(config, sock, promptHandler, dependencies);
   return { client, config, end: () => client.end() };
 }
 
-/** Parses a ProxyJump entry, `[user@]host[:port]`. */
 export function parseJumpHost(spec: string): SshTarget {
   const at = spec.lastIndexOf("@");
   const user = at >= 0 ? spec.slice(0, at) : undefined;
@@ -157,7 +127,6 @@ export function parseJumpHost(spec: string): SshTarget {
   return { host, user: user || undefined, port };
 }
 
-/** Opens a forwarding stream without keeping a cancelled jump attempt alive. */
 function forwardTo(
   via: Ssh2Connection,
   hostname: string,
@@ -180,7 +149,6 @@ function forwardTo(
   });
 }
 
-/** Starts ProxyCommand through the shell, with its `%` tokens expanded. */
 function spawnProxyCommand(config: SshHostConfig): ChildProcess {
   const command = (config.proxyCommand ?? "").replace(/%([%hpnr])/g, (_match, token: string) => {
     switch (token) {
@@ -199,7 +167,6 @@ function spawnProxyCommand(config: SshHostConfig): ChildProcess {
   return spawn(command, { shell: true, stdio: ["pipe", "pipe", "inherit"], windowsHide: true });
 }
 
-/** The proxy process's stdio as the stream ssh2 talks over. */
 function proxySocket(proxy: ChildProcess): Duplex {
   const stdin = proxy.stdin;
   const stdout = proxy.stdout;
@@ -223,14 +190,12 @@ function proxySocket(proxy: ChildProcess): Duplex {
   return sock;
 }
 
-/** Connects and authenticates one hop. */
 function authenticate(
   config: SshHostConfig,
   sock: Duplex | undefined,
   promptHandler: SshAuthPromptHandler | null,
   dependencies: ConnectSsh2Dependencies,
 ): Promise<Client> {
-  // ssh2 is loaded on first use: only the Windows SSH path needs it.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { Client: ClientClass } = require("ssh2") as typeof import("ssh2");
   const { signal } = dependencies;
@@ -254,7 +219,6 @@ function authenticate(
       if (timer !== null) clearTimeout(timer);
       timer = null;
     };
-    /** Asks the user, with the connection timeout paused meanwhile. */
     const ask = async (prompt: SshAuthPrompt) => {
       if (promptHandler === null) throw new Error("no prompt handler");
       promptsOpen += 1;
@@ -269,8 +233,6 @@ function authenticate(
         if (promptsOpen === 0 && !settled) armTimer();
       }
     };
-    // The error is made only for a connection still opening: making an
-    // SshError logs it.
     const fail = (code: SshErrorCode, cause: unknown): void => {
       if (!settled) stop(createSshError(code, cause));
     };
@@ -293,7 +255,6 @@ function authenticate(
       settle();
       resolve(client);
     });
-    // Kept for the connection's life: an error with no listener would throw.
     client.on("error", (error: Error & { level?: string }) => {
       if (hostKeyRefused !== null) fail("ssh.connect-failed", hostKeyRefused);
       else if (error.level === "client-authentication") fail("ssh.auth-failed", error);
@@ -308,7 +269,6 @@ function authenticate(
       sock,
       keepaliveInterval: KEEPALIVE_INTERVAL_MS,
       keepaliveCountMax: KEEPALIVE_COUNT_MAX,
-      // The timer above bounds the connection instead: it pauses for prompts.
       readyTimeout: 2 ** 31 - 1,
       hostVerifier: (key: Buffer, verify: (valid: boolean) => void) => {
         verifyHostKey(config, key, ask, promptHandler !== null).then(
@@ -323,9 +283,6 @@ function authenticate(
         );
       },
       authHandler: createAuthHandler(config, ask, promptHandler !== null),
-      // ForwardAgent: each session asks the host to forward the agent, so
-      // the workspace's terminals there sign with the user's keys, as for a
-      // git push over ssh.
       ...(config.forwardAgent !== null ? { agent: config.forwardAgent, agentForward: true } : {}),
     };
     armTimer();
@@ -338,7 +295,6 @@ function authenticate(
   });
 }
 
-/** Resolves null when the host key is trusted, else why it is refused. */
 async function verifyHostKey(
   config: SshHostConfig,
   key: Buffer,
@@ -397,7 +353,6 @@ type AuthAttempt =
       ) => void;
     };
 
-/** Which server-side method an attempt uses. */
 function methodOf(attempt: AuthAttempt): AuthenticationType {
   return attempt.type === "agent" ? "publickey" : attempt.type;
 }
@@ -408,7 +363,6 @@ function createAuthHandler(
   canAsk: boolean,
 ) {
   let methodsLeft: readonly string[] | null = null;
-  // A prompt the user cancels ends authentication, as closing OpenSSH's would.
   let cancelled = false;
   const askOrCancel: typeof ask = async (prompt) => {
     try {
@@ -419,7 +373,6 @@ function createAuthHandler(
     }
   };
   const attempts = authAttempts(config, askOrCancel, canAsk, () => methodsLeft);
-  // ssh2 takes false to stop authenticating, though its types leave it out.
   const stop = false as unknown as AnyAuthMethod;
   const handler: AuthHandlerMiddleware = (left, _partialSuccess, callback) => {
     if (left !== null) methodsLeft = left;
@@ -440,7 +393,6 @@ function createAuthHandler(
   return handler;
 }
 
-/** The authentication attempts to make, in order, built as the server asks for them. */
 async function* authAttempts(
   config: SshHostConfig,
   ask: (prompt: SshAuthPrompt) => Promise<{ kind: string; value?: string }>,
@@ -459,7 +411,6 @@ async function* authAttempts(
           yield { type: "agent", username, agent: config.identityAgent };
         }
       }
-      // Unencrypted keys first, so a passphrase is asked only when they fail.
       const encrypted: Buffer[] = [];
       const encryptedFiles: string[] = [];
       for (const file of config.identityFiles) {
@@ -553,7 +504,6 @@ async function unlockKey(
   return null;
 }
 
-/** Parses a private key; "encrypted" when it needs a (different) passphrase. */
 function parsePrivateKey(data: Buffer, passphrase?: string): ParsedKey | "encrypted" | null {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { utils } = require("ssh2") as typeof import("ssh2");
@@ -565,7 +515,6 @@ function parsePrivateKey(data: Buffer, passphrase?: string): ParsedKey | "encryp
   return key ?? null;
 }
 
-/** Whether the agent socket or pipe takes connections. */
 function agentReachable(agent: string): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = net.connect(agent);

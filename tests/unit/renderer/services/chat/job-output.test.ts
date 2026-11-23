@@ -1,9 +1,3 @@
-/**
- * The end of a background job's output, as the side panel shows it: the
- * last lines of the file the CLI writes, read through the workspace, as a
- * terminal would leave them.
- */
-
 import { describe, expect, it } from "bun:test";
 import {
   outputReadPath,
@@ -48,7 +42,6 @@ describe("outputReadPath", () => {
   });
 });
 
-/** A file of `text` the workspace reads, with the reads it was asked for. */
 function file(text: string | null) {
   const bytes = text === null ? null : new TextEncoder().encode(text);
   const asked: [string, number, number][] = [];

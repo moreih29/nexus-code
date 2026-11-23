@@ -1,26 +1,3 @@
-/**
- * Wires the dirty-diff controller (gutter markers + inline peek) to a mounted
- * Monaco editor.
- *
- * Baseline source: the file's index version, fetched via `git.getFileContent`,
- * as VSCode's quick diff uses — the gutter shows the changes not yet staged,
- * and a change staged from the peek leaves it. The repo-relative path is
- * derived from the workspace's git session top-level. Untracked files resolve
- * to `null`, which the controller treats as "no diff" — matching VSCode, which
- * shows no quick-diff for untracked files.
- *
- * Refresh triggers:
- *   - buffer edits  → handled inside the controller (debounced recompute),
- *   - git.statusChanged that can move this file's index version (branch
- *     change, a change to this file's own status entry, or any change while
- *     it has staged changes) → reload baseline,
- *   - a reload of the model from disk (checkout / reset rewrote the file),
- *   - model swap in the same slot → reload baseline.
- *
- * Returns a disposer the caller drives on unmount, mirroring the conflict
- * codelens installer.
- */
-
 import type * as Monaco from "monaco-editor";
 import type { GitStatus } from "../../../../../shared/git/types";
 import { ipcCallResult, ipcListen, unwrapGitResult } from "../../../../ipc/client";
@@ -45,18 +22,12 @@ export interface InstallDirtyDiffInput {
   getWorkspaceId: () => string;
 }
 
-/** Strips the repo-root prefix to produce a git-relative path, or null. */
 function toRepoRelPath(repoRoot: string, absPath: string): string | null {
   const root = repoRoot.endsWith("/") ? repoRoot : `${repoRoot}/`;
   if (!absPath.startsWith(root)) return null;
   return absPath.slice(root.length);
 }
 
-/**
- * Resolves the index baseline for `filePath` in `workspaceId`, or null when the
- * file has no baseline (not a repo / outside repo / untracked / conflicted).
- * Text not in UTF-8 is read in the encoding the buffer is in.
- */
 async function loadIndexBaseline(
   workspaceId: string,
   filePath: string,
@@ -79,7 +50,6 @@ async function loadIndexBaseline(
   return read.encoding === "bytes" ? decodeFileContent(read, encoding).content : read.content;
 }
 
-/** Stages one change of the buffer of `filePath`, whose text is `working`. */
 async function stageBufferChange(
   workspaceId: string,
   filePath: string,
@@ -98,19 +68,12 @@ async function stageBufferChange(
   });
 }
 
-/** Repo-relative path of `filePath`, or null when there is no repo for it. */
 function repoRelPathFor(workspaceId: string, filePath: string): string | null {
   const session = useGitStore.getState().sessions.get(workspaceId);
   if (!session || session.repoInfo.kind !== "repo") return null;
   return toRepoRelPath(session.repoInfo.topLevel, filePath);
 }
 
-/**
- * Summarises the parts of a status snapshot that can change the index version
- * of `relPath`: the branch, an in-progress operation, and the file's own
- * status entry (staging, a commit, `reset` or stash changes it). Files a
- * checkout or `reset --hard` rewrites arrive as a model reload instead.
- */
 export function baselineSignature(status: GitStatus, relPath: string | null): string {
   const branch = status.branch;
   const parts = [
@@ -129,7 +92,6 @@ export function baselineSignature(status: GitStatus, relPath: string | null): st
   return parts.join("|");
 }
 
-/** Whether git sees no change to `relPath`: its index and working tree are HEAD's. */
 export function isUnchangedInStatus(status: GitStatus, relPath: string | null): boolean {
   if (relPath === null) return false;
   return (["merge", "staged", "working", "untracked"] as const).every(
@@ -138,7 +100,6 @@ export function isUnchangedInStatus(status: GitStatus, relPath: string | null): 
   );
 }
 
-/** Whether `relPath` has changes in the index. */
 export function hasStagedChanges(status: GitStatus, relPath: string | null): boolean {
   return relPath !== null && status.staged.some((entry) => entry.relPath === relPath);
 }
@@ -164,20 +125,10 @@ export function installDirtyDiffForEditor({
   const controller = new DirtyDiffController(editor, monaco, source);
   controller.start();
 
-  // git.statusChanged is workspace-wide and arrives for every working-tree
-  // change; reloading the baseline on each one ran `git show :<file>` for
-  // every open editor, parked tabs included. Reload only when the snapshot
-  // could have moved this file's index version. Staging more of a file that
-  // already has staged changes leaves its entry as it was, so such a file
-  // reloads on every snapshot.
   const relPathOf = () => repoRelPathFor(getWorkspaceId(), input.filePath);
   const signatureOf = (status: GitStatus | null | undefined): string | null =>
     status ? baselineSignature(status, relPathOf()) : null;
   let lastSignature = signatureOf(useGitStore.getState().sessions.get(getWorkspaceId())?.status);
-  // A saved buffer git sees no change in, whose gutter still shows some,
-  // missed the snapshot that had the file changed: it was written and
-  // committed between two snapshots, as an agent in a terminal does. Its
-  // baseline moved to the commit.
   const missedCommit = (status: GitStatus): boolean => {
     if (!controller.hasChanges || !isUnchangedInStatus(status, relPathOf())) return false;
     const cacheUri = getResolvedModel(input)?.cacheUri;
@@ -201,8 +152,6 @@ export function installDirtyDiffForEditor({
     void controller.refreshBaseline();
   });
 
-  // setValue (a reload from disk) flushes the model; the file may have been
-  // rewritten by a checkout or reset that moved HEAD on the same branch.
   const contentFlush = editor.onDidChangeModelContent((event) => {
     if (event.isFlush) void controller.refreshBaseline();
   });

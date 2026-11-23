@@ -1,14 +1,3 @@
-/**
- * Whether an agent on another computer of the user's may do what it asks
- * here (a request with `from`, from that computer's nexus command): not
- * more than MAX_AGENT_REQUESTS_PER_MINUTE from one agent nor
- * MAX_DEVICE_AGENT_REQUESTS_PER_MINUTE from all of one device's, not more
- * than MAX_PENDING_PROMPTS_PER_DEVICE prompts of one device's waiting on
- * the user at once, and as the user set it
- * (Settings › Remote): allowed, turned down, or asked about as the nexus
- * command's changes to another workspace are: for this once, or for every
- * change from that computer's workspace to this one until the app restarts.
- */
 import {
   AGENT_CONSENT_MS,
   type AgentSender,
@@ -30,13 +19,8 @@ import { unavailable } from "./serving/common";
 
 const MINUTE_MS = 60_000;
 
-/**
- * Most prompts one device's agents may have waiting on the user here at
- * once: more are turned away, not stacked up behind the ones shown.
- */
 export const MAX_PENDING_PROMPTS_PER_DEVICE = 3;
 
-/** A request an agent made, as it came: from which device, for what. */
 export interface AgentRequest {
   readonly device: { readonly id: string; readonly name: string };
   readonly method: RpcMethod;
@@ -67,10 +51,8 @@ const FILE_CONSENT_IDLE_MS = 120_000;
 const MAX_FILE_GRANTS = 256;
 
 interface FileConsent {
-  /** A host-resolved path: reads follow links, writes resolve their parent. */
   path: string;
   tree: boolean;
-  /** Keep approvals tied to the workspace location used when the user answered. */
   workspaceRoot: string;
 }
 
@@ -92,14 +74,8 @@ function covers(grant: FileGrant, target: string): boolean {
 const forbidden = (message: string) => new RpcFailure(RpcErrorCode.Forbidden, message);
 
 export class AgentGate {
-  /**
-   * When each agent ("device|workspace|tab") and each device ("device")
-   * asked lately, within the last minute.
-   */
   private readonly recent = new Map<string, number[]>();
-  /** The prompts waiting on the user, by the device whose agent asked. */
   private readonly prompting = new Map<string, number>();
-  /** "device|its workspace>this workspace" pairs the user allowed until restart. */
   private readonly allowed = new Set<string>();
 
   private fileGrants: FileGrant[] = [];
@@ -110,18 +86,15 @@ export class AgentGate {
     return this.deps.now?.() ?? Date.now();
   }
 
-  /** A read of an agent's (since 0.12.0) goes ahead, unasked, unless agents are turned down. */
   checkRead(): void {
     if (this.deps.policy() === "deny") {
       throw forbidden("requests from agents are off there (Settings › Remote)");
     }
   }
 
-  /** Resolves when the request may go ahead; a RpcFailure saying why when not. */
   async check(services: CliServices, request: AgentRequest): Promise<string | undefined> {
     const { device, params } = request;
     const { from } = params;
-    // The device's share first: its agents' names are its to make up.
     this.count(
       device.id,
       MAX_DEVICE_AGENT_REQUESTS_PER_MINUTE,
@@ -140,14 +113,11 @@ export class AgentGate {
     return expectedMode;
   }
 
-  /** File transfers use the same prompt and session approvals as other controls. */
   async checkFile(services: CliServices, request: AgentRequest, scope: FileConsent): Promise<void> {
     const { device, method, params } = request;
     const reading =
       method === "files.read" || (method === "files.list" && params.writeTarget !== true);
     const transferId = params.transferId;
-    // Writing one file takes one approval at begin. A recursive copy starts
-    // with mkdir and may reuse that approval for the directory's children.
     if (!reading && typeof transferId !== "string") {
       await this.consent(services, request, scope);
       return;
@@ -252,7 +222,6 @@ export class AgentGate {
     );
   }
 
-  /** Counts a request of `key`; Unavailable, saying `why`, past the minute's `max`. */
   private count(key: string, max: number, why: string): void {
     const now = this.now();
     const times = (this.recent.get(key) ?? []).filter((at) => now - at < MINUTE_MS);
@@ -262,20 +231,12 @@ export class AgentGate {
     }
     times.push(now);
     this.recent.set(key, times);
-    // Agents that stopped asking are let go of.
     for (const [k, list] of this.recent) {
       if (list.every((at) => now - at >= MINUTE_MS)) this.recent.delete(k);
     }
   }
 }
 
-/**
- * An agent answers a permission request only as it was asked, and once:
- * the consent prompt shows the request as it came, so a changed one
- * (updatedInput) would run what the user never saw, and a rule kept for
- * good (always, allowAlways) or a mode (a plan's planMode) would outlast
- * the one answer they allowed.
- */
 function refuseBeyondAsked({ method, params }: AgentRequest): void {
   const changed =
     method === "chat.answer" &&
@@ -287,7 +248,6 @@ function refuseBeyondAsked({ method, params }: AgentRequest): void {
   }
 }
 
-/** The agent's sender as chat and terminal tabs save it. */
 export function relaySenderOf(
   from: AgentSender,
   device: { id: string; name: string },
@@ -346,7 +306,6 @@ async function operationApproval(
   return { approval: "policy" };
 }
 
-/** What the user is asked to let the agent do, as the consent prompt says it. */
 async function changeOf(
   services: CliServices,
   { method, params }: AgentRequest,

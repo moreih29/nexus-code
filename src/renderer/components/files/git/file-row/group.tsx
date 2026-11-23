@@ -1,14 +1,3 @@
-/**
- * GitGroup renders one non-empty Source Control section and its file rows.
- *
- * - list mode: renders GitFileRow per entry (original behaviour).
- * - tree mode: builds a path tree from entry relPaths, renders GitTreeRow
- *   recursively with WAI-ARIA tree role and roving tabindex.
- *
- * Memoized, as its rows are: the panel renders again for what its other
- * parts show (a commit message's first word, a fetch), which changes no
- * group whose files are the same.
- */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
@@ -26,11 +15,6 @@ import { GitGroupHeader } from "./group-header";
 import { type GitFileActions, GitFileRow } from "./row";
 import { GitTreeRow } from "./tree-row";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/** What a group and its rows do: the panel gives one, which keeps its identity. */
 export interface GitGroupActions extends GitFileActions {
   readonly toggleGroup: (key: GitExpandedGroupKey) => void;
   readonly toggleTreeNode: (key: GitExpandedGroupKey, relPath: string) => void;
@@ -44,27 +28,18 @@ interface GitGroupProps {
   entries: GitStatusEntry[];
   expanded: boolean;
   viewMode?: ViewMode;
-  /** relPaths of expanded tree nodes for this group */
   expandedTreeNodes?: string[];
   actions: GitGroupActions;
 }
 
 const NO_EXPANDED_NODES: string[] = [];
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 interface FlatRow {
   node: PathTreeNode;
-  /** Index into the flat rows array — for keyboard navigation. */
   index: number;
   parentRelPath: string;
 }
 
-/**
- * Flatten a tree into a pre-order list, skipping children of collapsed dirs.
- */
 function flattenTree(
   nodes: PathTreeNode[],
   expandedSet: Set<string>,
@@ -79,15 +54,6 @@ function flattenTree(
   }
 }
 
-/**
- * Returns the highest-priority decoration kind among the dir node's leaf
- * descendants. Used to paint a single letter chip (M/A/D/...) on the
- * folder row instead of the old file-count badge — the panel header
- * already carries the total count, so per-folder counts were redundant.
- *
- * Returns undefined when no leaf matches an entry (defensive — should
- * not happen in practice because tree nodes are built from entry paths).
- */
 function dominantKindForDir(
   node: PathTreeNode,
   entryByRelPath: Map<string, GitStatusEntry>,
@@ -110,10 +76,6 @@ function dominantKindForDir(
   return result;
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
 export const GitGroup = memo(function GitGroup({
   groupKey,
   label,
@@ -127,7 +89,6 @@ export const GitGroup = memo(function GitGroup({
   if (entries.length === 0) return null;
 
   const paths = collectGitEntryPaths(entries);
-  // Read-only, the group only folds and opens: nothing staged or discarded.
   const writes = !actions.readOnly;
   const canStageRows = writes && groupKey !== "staged" && groupKey !== "merge";
   const canStageHeader = writes && (groupKey === "working" || groupKey === "untracked");
@@ -182,7 +143,6 @@ export const GitGroup = memo(function GitGroup({
     );
   }
 
-  // tree mode — delegate to sub-component to keep hook rules clean.
   return (
     <section aria-label={label}>
       {header}
@@ -199,13 +159,8 @@ export const GitGroup = memo(function GitGroup({
   );
 });
 
-// ---------------------------------------------------------------------------
-// GitGroupTree — tree-mode body (extracted so hooks are called unconditionally)
-// ---------------------------------------------------------------------------
-
 interface GitGroupTreeProps {
   groupKey: GitExpandedGroupKey;
-  /** The group's name, which names its tree. */
   label: string;
   entries: GitStatusEntry[];
   expandedTreeNodes: string[];
@@ -223,14 +178,12 @@ function GitGroupTree({
   canUnstage,
   actions,
 }: GitGroupTreeProps) {
-  // Build entry lookup by relPath for leaf actions.
   const entryByRelPath = useMemo(() => {
     const map = new Map<string, GitStatusEntry>();
     for (const e of entries) map.set(e.relPath, e);
     return map;
   }, [entries]);
 
-  // Build path tree.
   const tree = useMemo(() => {
     const relPaths = entries.map((e) => e.relPath);
     return buildPathTree(relPaths);
@@ -238,7 +191,6 @@ function GitGroupTree({
 
   const expandedSet = useMemo(() => new Set(expandedTreeNodes), [expandedTreeNodes]);
 
-  // Flatten visible rows.
   const flatRows = useMemo(() => {
     const result: FlatRow[] = [];
     if (tree.children) {
@@ -247,7 +199,6 @@ function GitGroupTree({
     return result;
   }, [tree, expandedSet]);
 
-  // Build TreeKeyboardRow array for the hook.
   const keyboardRows = useMemo<TreeKeyboardRow[]>(
     () =>
       flatRows.map((r) => ({
@@ -277,9 +228,6 @@ function GitGroupTree({
     [entryByRelPath, groupKey, actions],
   );
 
-  // Keyboard moves must carry DOM focus along: updating only the roving
-  // tabindex left the focus ring (and the Enter target the user sees) on the
-  // old row while Enter opened the diff of the new one.
   const focusAfterMoveRef = useRef(false);
   const handleMove = useCallback((next: number) => {
     focusAfterMoveRef.current = true;
@@ -339,7 +287,6 @@ function GitGroupTree({
           );
         }
 
-        // leaf
         const entry = entryByRelPath.get(node.relPath);
         if (!entry) return null;
 

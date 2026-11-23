@@ -21,7 +21,6 @@ export async function saveInstructionEdits(instructionEdits: InstructionEdit[]):
   unwrapIpcResult(await ipcCallResult("appState", "set", { instructionEdits }));
 }
 
-/** Snapshot a previous conversation's layer onto newly opened tabs. */
 export function reopenedSessionInstructions(
   workspaceId: string,
   agent: ChatAgent,

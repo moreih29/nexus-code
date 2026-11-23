@@ -65,7 +65,6 @@ describe("parseYaml", () => {
         },
       ],
     });
-    // Opening every row ends.
     expect(visibleRows(root, () => true)).toHaveLength(7);
   });
 

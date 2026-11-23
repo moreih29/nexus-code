@@ -1,7 +1,3 @@
-/**
- * The usage-limit notice above a Claude tab's composer.
- */
-
 import { describe, expect, it } from "bun:test";
 import {
   rateLimitKey,

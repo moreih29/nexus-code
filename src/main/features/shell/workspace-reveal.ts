@@ -1,10 +1,3 @@
-/**
- * Workspace-scoped OS reveal handlers.
- *
- * These are Electron shell integrations, not filesystem operations. They stay
- * in main because remote workspaces cannot be revealed by the local OS shell,
- * and local paths need to be checked before Electron's best-effort API runs.
- */
 import fs from "node:fs";
 import { FS_ERROR, fsCodeFromErrno, fsErrorMessage } from "../../../shared/fs/errors";
 import { ipcContract } from "../../../shared/ipc/contract";

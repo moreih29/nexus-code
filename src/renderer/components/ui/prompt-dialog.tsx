@@ -1,11 +1,3 @@
-/**
- * PromptDialog — renderer-side single-line input dialog.
- *
- * Replaces window.prompt(), which Electron's BrowserWindow disables. The
- * component is contract-only: callers pass a request descriptor and confirm
- * callback; cancel and overlay-click both close via onCancel.
- */
-
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -20,12 +12,7 @@ export interface PromptRequest {
   placeholder?: string;
   defaultValue?: string;
   confirmLabel?: string;
-  /**
-   * `none` turns the dialog into a confirm-only prompt for flows where an
-   * editable value would misrepresent the action being confirmed.
-   */
   inputMode?: "text" | "none";
-  /** Allows confirmation with an empty value for optional-message prompts. */
   allowEmpty?: boolean;
 }
 

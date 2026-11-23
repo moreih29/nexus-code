@@ -1,10 +1,3 @@
-/**
- * initUpdatesSubscriptions — the toasts of an update, the calls their
- * actions make, and the status it hands the updates store. A newer version
- * the app found by itself is toasted once; its download and restart are
- * left to the title bar's update button. The real ipc client and toast
- * modules are spread under spies so later files keep their other exports.
- */
 import { beforeAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { ToastInput } from "../../../../../src/renderer/components/ui/toast";
 
@@ -15,9 +8,7 @@ const visible = new Map<number, ToastInput>();
 let nextToastId = 1;
 const calls: { method: string; args: unknown }[] = [];
 let emit: (status: Status) => void = () => {};
-/** What `updates.getStatus` answers: the status before the window listened. */
 let before: Status | null = null;
-/** Whether `updates.install` fails, as a call main never took would. */
 let installFails = false;
 
 const realToast = await import("../../../../../src/renderer/components/ui/toast");

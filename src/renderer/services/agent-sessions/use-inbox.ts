@@ -1,8 +1,3 @@
-/**
- * The title bar's inbox kept current, and what it does for the user: go to
- * a session or the next one waiting on them, and mark the done ones read.
- */
-
 import { useSyncExternalStore } from "react";
 import type { TabActivity } from "../../../shared/sessions/agent-state";
 import { ipcCallResult } from "../../ipc/client";
@@ -31,7 +26,6 @@ import {
 import type { AgentSession } from "./model";
 import { viewingKey } from "./viewing";
 
-/** Every workspace's sessions' records as the stores and `activity` tell them now. */
 export function sessionsInputNow(activity: ReadonlyMap<string, TabActivity>): InboxInput {
   return {
     workspaces: useWorkspacesStore.getState().workspaces,
@@ -45,7 +39,6 @@ export function sessionsInputNow(activity: ReadonlyMap<string, TabActivity>): In
   };
 }
 
-/** The chat fields read by the inbox and the session change log. */
 function sameChatSession(a: ChatTabState | undefined, b: ChatTabState): boolean {
   if (a === b) return true;
   if (
@@ -76,7 +69,6 @@ function subscribeChatSessions(listener: () => void): () => void {
   });
 }
 
-/** The stores a session's state is read from: a change to any may change one. */
 export const SESSION_STORES: readonly { subscribe(listener: () => void): () => void }[] = [
   useWorkspacesStore,
   useTabsStore,
@@ -90,7 +82,6 @@ export const SESSION_STORES: readonly { subscribe(listener: () => void): () => v
   { subscribe: subscribeTabActivity },
 ];
 
-/** The inbox of every workspace as the stores and `activity` tell it now. */
 export function inboxNow(
   activity: ReadonlyMap<string, TabActivity> = useTabActivityStore.getState().activity,
 ): Inbox {
@@ -140,33 +131,25 @@ function subscribeInbox(listener: () => void): () => void {
   };
 }
 
-/** The shared inbox snapshot for the title bar and view switcher. */
 export function useInbox(): Inbox {
   return useSyncExternalStore(subscribeInbox, getInboxSnapshot);
 }
 
-/** The inbox as it is now, its activity read afresh. */
 async function readInbox(): Promise<Inbox> {
   await readTabActivity();
   return inboxNow(useTabActivityStore.getState().activity);
 }
 
-/** Shows the session's terminal with the keyboard in it, to answer it. */
 export function goToSession(session: AgentSession): void {
   showTerminal(session);
   requestTabFocus(session.tabId);
 }
 
-/**
- * Shows the terminal of the session after the one in front of the user, or
- * of the first; going again steps through every one waiting.
- */
 export async function goToNextWaiting(): Promise<void> {
   const next = nextInboxItem((await readInbox()).items, viewingKey());
   if (next) goToSession(next.session);
 }
 
-/** Marks the done sessions of `items` read; those waiting on the user stay. */
 export function markRead(items: readonly InboxItem[]): void {
   for (const { session } of items) {
     if (session.phase !== "done") continue;

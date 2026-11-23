@@ -57,7 +57,6 @@ export interface FileLookOptions {
   compare?: boolean;
 }
 
-/** Tracks the selected view and the controls both file surfaces offer. */
 export function useFileLookView(path: string, options: FileLookOptions) {
   const defaults = usePreviewDefaultsStore((s) => s.byFormat);
   const { at, before } = options;
@@ -127,7 +126,6 @@ interface PeerFileLookOptions {
   toolbar: ReactNode;
 }
 
-/** A file's read-only body, shared by quick look and peer file tabs. */
 export function FileLookBody({
   workspaceId,
   path,
@@ -163,7 +161,6 @@ export function FileLookBody({
       />
     );
   }
-  // Foreground changes recheck image bytes. A new connection also reloads documents.
   const key = peer ? JSON.stringify([workspaceId, path, chatFiles?.connection]) : path;
   if (view.showDiff) {
     return peer ? (
@@ -199,7 +196,6 @@ export function FileLookBody({
   );
 }
 
-/** Whether a file is shown as text: everything the binary viewers do not take. */
 function isText(path: string): boolean {
   return !(
     isImageFile(path) ||
@@ -288,7 +284,6 @@ function LookBody({
   preview: boolean;
   root: string;
   at?: LineAt;
-  /** Hears an image file's size once it loads, which its box wraps. */
   onImageSize?: (size: Size) => void;
 }) {
   if (isImageFile(path)) {
@@ -335,10 +330,6 @@ function LookBody({
   return <LookText workspaceId={workspaceId} path={path} preview={preview} line={at?.line} />;
 }
 
-/**
- * A text file of another computer's, previewed or as read-only source, as
- * LookText shows one here.
- */
 function PeerLookText({
   workspaceId,
   path,
@@ -430,7 +421,6 @@ function PeerTextBody({
   return <PeerSource path={path} text={read.text} at={at} />;
 }
 
-/** Another computer's file's source in a read-only editor of its own model, a line marked when given. */
 function PeerSource({ path, text, at }: { path: string; text: string; at?: LineAt }) {
   const theme = useMonacoThemeName();
   const [id] = useState(() => ++nextPeerSource);
@@ -461,14 +451,8 @@ function PeerSource({ path, text, at }: { path: string; text: string; at?: LineA
   );
 }
 
-/** Numbers the sources of other computers' files, so each one's model gets its own URI. */
 let nextPeerSource = 0;
 
-/**
- * A text file, previewed or as read-only source. One under the workspace
- * shares the editor's model; one outside it is read the way an outside
- * file opens in the editor.
- */
 function LookText({
   workspaceId,
   path,
@@ -541,7 +525,6 @@ const sourceOptions = {
   renderLineHighlight: "none",
 } satisfies Monaco.editor.IStandaloneEditorConstructionOptions;
 
-/** The file's source in a read-only editor on the shared model, a line marked when given. */
 function LookSource({ model, line }: { model: Monaco.editor.ITextModel | null; line?: number }) {
   const theme = useMonacoThemeName();
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -566,7 +549,6 @@ function LookSource({ model, line }: { model: Monaco.editor.ITextModel | null; l
         attach(editor);
         const shown = editor.getModel();
         if (line && shown && line <= shown.getLineCount()) {
-          // Selected, as the editor draws no line highlight here.
           editor.setSelection({
             startLineNumber: line,
             startColumn: 1,

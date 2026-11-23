@@ -1,6 +1,3 @@
-/**
- * GitHeader renders the Source Control title and top-level action buttons.
- */
 import type { GitAutofetchIntervalMin, RepoCapabilities } from "../../../../../shared/git/types";
 import type { ViewMode } from "../../../../../shared/types/panel";
 import { GitMoreMenu } from "../more-menu";
@@ -11,25 +8,13 @@ interface GitHeaderProps {
   disabled?: boolean;
   refreshing?: boolean;
   canInit?: boolean;
-  /** The workspace's host has no Git; forwarded to GitMoreMenu. */
   gitMissing?: boolean;
   hasChanges?: boolean;
-  /** Repo-level capability flags forwarded to GitMoreMenu for per-action enablement. */
   capabilities?: RepoCapabilities;
-  /** When true the repo is not yet detected/initialised — ViewModeToggle is hidden. */
   showViewToggle?: boolean;
   viewMode?: ViewMode;
   onViewModeChange?: (next: ViewMode) => void;
-  /**
-   * True when at least one directory is currently expanded across any group.
-   * Drives the single toolbar toggle: expanded → "collapse all", fully
-   * collapsed → "expand all".
-   */
   hasAnyExpanded?: boolean;
-  /**
-   * Fires when the user clicks the expand/collapse toggle. The caller decides
-   * which underlying store action to invoke based on `hasAnyExpanded`.
-   */
   onToggleAllTrees?: () => void;
   onRefresh: () => void;
   onInit: () => void;

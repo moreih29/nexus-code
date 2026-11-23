@@ -11,8 +11,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// runGitWithOutputLimit assigns the launcher before it can spawn Git or a
-// helper. The job is terminated on overflow and simply released on success.
 func runGitWithOutputLimit(cmd *exec.Cmd, stdout *cappedBuffer) (runErr, cleanupErr error) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_SUSPENDED}
 	jobReady := make(chan struct{})
@@ -44,7 +42,6 @@ func runGitWithOutputLimit(cmd *exec.Cmd, stdout *cappedBuffer) (runErr, cleanup
 		return fmt.Errorf("start Git in a job: %w", err), nil
 	}
 
-	// Wait joins the stdout copier, including overflow cleanup.
 	runErr = cmd.Wait()
 	return runErr, cleanupErr
 }

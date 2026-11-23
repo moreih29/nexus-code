@@ -1,9 +1,3 @@
-/**
- * Another computer's sessions as tabs of the agent view: opened into the
- * active panel (or brought to the front of the one holding them), kept by
- * key with the names the tab shows, and renamed as their computer's list
- * says; the panels keep them as this computer's tabs close.
- */
 import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
@@ -126,7 +120,6 @@ describe("remote sessions as tabs", () => {
       requestId: "r1",
       text: "Bash npm test",
     });
-    // Waiting with nothing to answer by (an older computer's) is no request here.
     useRemoteViewStore.getState().refresh("d2", listed({ kind: "permission", text: "Bash" }));
     expect(useRemoteViewStore.getState().targets.get(key)?.ask).toBeUndefined();
     useRemoteViewStore.getState().refresh(
@@ -139,7 +132,6 @@ describe("remote sessions as tabs", () => {
         subagent: false,
       }),
     );
-    // What it may be answered with, as a computer of 0.13.2 on tells it.
     expect(useRemoteViewStore.getState().targets.get(key)?.ask).toEqual({
       requestId: "r2",
       text: "Edit a.ts",

@@ -3,10 +3,8 @@ import type { ChatTabState } from "../store";
 import { compareVersions } from "../versions";
 import type { CodexModel } from "./model";
 
-/** The oldest app-server whose turn-boundary fork we have verified. */
 export const CODEX_HISTORY_VERSION = "0.170.0";
 
-/** The running server's version, falling back to the detected executable. */
 export function codexServerVersion(
   model: Pick<CodexModel, "appServerVersion">,
   installedVersion: string | null | undefined,
@@ -42,10 +40,8 @@ export function codexTurnIds(thread: unknown): string[] | undefined {
   return turnIds((thread as { turns?: unknown } | undefined)?.turns);
 }
 
-/** A thread's turns with their items so far, read a page at a time (thread/turns/list). */
 export interface CodexThreadPages {
   turns: unknown[];
-  /** The next page's cursor; undefined before the first, null after the last. */
   nextCursor: string | null | undefined;
   cursors: string[];
 }
@@ -54,10 +50,6 @@ export function emptyCodexThreadPages(): CodexThreadPages {
   return { turns: [], nextCursor: undefined, cursors: [] };
 }
 
-/**
- * The pages with the next one's turns, or undefined where the chain breaks:
- * no turns listed, an empty page that goes on, or a cursor seen before.
- */
 export function appendCodexThreadPage(
   previous: CodexThreadPages,
   result: Record<string, unknown>,
@@ -79,7 +71,6 @@ export function appendCodexThreadPage(
   };
 }
 
-/** Fork preflight needs ordered turn IDs, without the items in each turn. */
 export interface CodexForkPages {
   turns: string[];
   nextCursor: string | null | undefined;
@@ -144,7 +135,6 @@ export function codexForkPrefix(
   return source.slice(0, index + (request.beforeTurnId ? 0 : 1));
 }
 
-/** A historical fork must have exactly the expected durable turn history. */
 export function validCodexFork(
   request: Pick<CodexFork, "threadId" | "beforeTurnId" | "lastTurnId">,
   result: Record<string, unknown>,
@@ -159,16 +149,9 @@ export function validCodexFork(
   );
 }
 
-/** Turns asked for in one page of a whole thread's read. */
 export const THREAD_READ_TURNS = 50;
-/** The most pages one read asks for: a thread longer is not read. */
 export const THREAD_READ_PAGES = 200;
 
-/**
- * A thread's turns with their items, read without loading the thread: a
- * page at a time from CODEX_HISTORY_VERSION, in one answer before. Null
- * when the pages do not go on to an end.
- */
 export async function readCodexThread(
   request: (method: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>,
   threadId: string,

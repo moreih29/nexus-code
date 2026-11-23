@@ -1,18 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 
-// ---------------------------------------------------------------------------
-// Generic drag lifecycle hook
-//
-// Owns: mousedown → mousemove → mouseup wiring, body cursor / userSelect
-//       side-effects, dragging-state flag.
-// Caller owns: capturing start values on dragStart, computing the new value
-//              from delta in dragMove, and committing in dragEnd.
-//
-// Delta is reported as raw pixels along the drag axis — clientX delta for
-// orientation="vertical" (a vertical sash dragged left/right), clientY delta
-// for orientation="horizontal" (a horizontal sash dragged up/down).
-// ---------------------------------------------------------------------------
-
 export interface UseDragHandleOptions {
   orientation: "horizontal" | "vertical";
   onDragStart: () => void;
@@ -34,8 +21,6 @@ export function useDragHandle({
   const [isDragging, setIsDragging] = useState(false);
   const startCoordRef = useRef(0);
 
-  // Mirror callbacks every render so document listeners always invoke the
-  // latest version without re-registering on each re-render.
   const onDragStartRef = useRef(onDragStart);
   const onDragMoveRef = useRef(onDragMove);
   const onDragEndRef = useRef(onDragEnd);

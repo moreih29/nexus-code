@@ -8,24 +8,9 @@ export interface BootstrapProgressBarProps {
   readonly name: string;
   readonly bytesDone?: number;
   readonly bytesTotal?: number;
-  /**
-   * Wrapper classes. The workspace panel pins this to the bottom of the
-   * placeholder via absolute positioning; the add-workspace dialog renders it
-   * inline. Defaults to an inline column layout.
-   */
   readonly className?: string;
 }
 
-/**
- * SSH agent bootstrap progress bar (shared presentational component).
- *
- * Rules for honest progress display:
- * - A determinate bar is rendered only when bytesTotal>0 and 0<bytesDone<bytesTotal.
- * - Every other case renders an indeterminate (animated) bar.
- *
- * Progress events keyed by workspaceId (panel) and by progressId (add dialog) use the same
- * phase/byte fields, so this component is reused regardless of the key.
- */
 export function BootstrapProgressBar({
   phase,
   name,
@@ -35,13 +20,10 @@ export function BootstrapProgressBar({
 }: BootstrapProgressBarProps): React.JSX.Element {
   const { t } = useTranslation();
 
-  // Phase label: for phases that need a name ("uploading", "extracting"), name is interpolated.
   const phaseLabel = t(`panel.bootstrap_phase.${phase}`, { name });
 
-  // Size string: shown only when bytesTotal is present.
   const sizeLabel = bytesTotal && bytesTotal > 0 ? formatBytes(bytesTotal) : undefined;
 
-  // Whether it is determinate: only when bytesDone exists and 0<bytesDone<bytesTotal.
   const isDeterminate =
     bytesTotal !== undefined &&
     bytesTotal > 0 &&
@@ -70,7 +52,6 @@ export function BootstrapProgressBar({
             style={{ width: `${percent}%` }}
           />
         ) : (
-          // indeterminate: a pulse animation shows that it is in progress
           <div className="h-full w-full rounded-full bg-muted-foreground/50 motion-safe:animate-pulse" />
         )}
       </div>

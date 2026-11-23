@@ -1,11 +1,3 @@
-// src/renderer/state/stores/voice.ts — voice input's preferences.
-//
-// Mirrors AppState `voiceLanguage`, the language voice input listens for
-// (the app's or "multi"), and `voiceSendNames`, whether a voice session
-// sends the account's computer and workspace names along. Hydrated by
-// bootstrap; the Remote settings page sets them and persists them with
-// `appState.set`.
-
 import { create } from "zustand";
 
 export type VoiceLanguagePreference = "app" | "multi";

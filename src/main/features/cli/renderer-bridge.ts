@@ -1,8 +1,3 @@
-/**
- * Asks the renderer to do what only it can for a nexus command, and waits
- * for its answer: main sends "cli:uiRequest" to the app's window and the
- * renderer calls cli.uiRespond.
- */
 import type { CliUiOp, CliUiOps, CliUiRespondArgs } from "../../../shared/cli/ui";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import { limitLog } from "../../../shared/log/limit";
@@ -11,7 +6,6 @@ import { CliError } from "./context";
 
 const timeouts = limitLog(createLogger("cli-bridge"));
 
-/** How long the renderer has to answer. */
 const UI_TIMEOUT_MS = 15_000;
 
 export interface UiWindow {
@@ -96,7 +90,6 @@ export class RendererBridge {
     return response.value as CliUiOps[K]["result"];
   }
 
-  /** Takes the renderer's answer to one request. */
   resolve(response: CliUiRespondArgs, senderId?: number): void {
     this.pending.resolve(replyKey(response.requestId, senderId), response);
   }

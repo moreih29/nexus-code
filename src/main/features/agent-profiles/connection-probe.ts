@@ -153,7 +153,6 @@ export async function testConnection(
     if (!response.ok) {
       const error = classifyConnectionError(response.status, await response.text(), "test", codex);
       if (codex && response.status === 404 && error.reason === "address") {
-        // A GET can identify the sibling route without making a second inference request.
         const chat = await fetch(connectionEndpoint(probe, "chat/completions"), {
           headers,
           signal: AbortSignal.any([signal, AbortSignal.timeout(1500)]),

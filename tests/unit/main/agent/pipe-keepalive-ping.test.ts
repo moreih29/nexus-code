@@ -1,18 +1,3 @@
-/**
- * Unit tests for the client keepalive ping (pipe.ts).
- *
- * Contract: the client pings the agent ONLY when the ready frame advertises a
- * positive idleWatchdogMs (SSH agents; 0/absent for local), and it pings every
- * idleWatchdogMs / KEEPALIVE_PING_SLOTS so a live-but-idle session keeps the
- * agent's idle watchdog from tripping. Gating is keyed on idleWatchdogMs, NOT
- * heartbeatIntervalMs — a local agent advertises heartbeat but no watchdog, and
- * must receive no pings.
- *
- *   1. idleWatchdogMs > 0 → pings fire at idleWatchdogMs / 6.
- *   2. idleWatchdogMs absent (heartbeat-only) → no pings ever.
- *   3. pings stop after dispose().
- */
-
 import { afterEach, describe, expect, it, jest } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
@@ -78,11 +63,10 @@ describe("createNdjsonPipe — keepalive ping", () => {
     try {
       const { stdout, stdin, pipe } = buildPipe();
 
-      // idleWatchdogMs=60 → ping interval = floor(60/6) = 10ms.
       stdout.emitData(readyFrame({ heartbeatIntervalMs: 50, idleWatchdogMs: 60 }));
       await pipe.ready;
 
-      jest.advanceTimersByTime(35); // ticks at 10, 20, 30
+      jest.advanceTimersByTime(35);
       expect(pingCount(stdin)).toBe(3);
 
       pipe.dispose();
@@ -96,7 +80,6 @@ describe("createNdjsonPipe — keepalive ping", () => {
     try {
       const { stdout, stdin, pipe } = buildPipe();
 
-      // Heartbeat enabled but no watchdog advertised — gating is on the watchdog.
       stdout.emitData(readyFrame({ heartbeatIntervalMs: 50 }));
       await pipe.ready;
 
@@ -117,7 +100,7 @@ describe("createNdjsonPipe — keepalive ping", () => {
       stdout.emitData(readyFrame({ idleWatchdogMs: 60 }));
       await pipe.ready;
 
-      jest.advanceTimersByTime(25); // ticks at 10, 20
+      jest.advanceTimersByTime(25);
       const before = pingCount(stdin);
       expect(before).toBeGreaterThan(0);
 

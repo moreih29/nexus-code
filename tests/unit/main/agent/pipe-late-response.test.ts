@@ -1,9 +1,3 @@
-/**
- * A request that times out locally is still answered by the agent once its
- * handler finishes. That late answer must be absorbed: treating it as an
- * unknown id used to fail the whole channel with server.protocol-error, so
- * one slow git or search call took the workspace connection down with it.
- */
 import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
@@ -115,7 +109,6 @@ describe("createNdjsonPipe late responses", () => {
 
   it("lets one call outlast the pipe's request timeout", async () => {
     const fixture = buildPipe();
-    // The pipe times requests out after 5 ms; this push waits on a prompt.
     const push = fixture.pipe.call("git.push", {}, { timeoutMs: 1_000 });
     await new Promise((resolve) => setTimeout(resolve, 30));
 

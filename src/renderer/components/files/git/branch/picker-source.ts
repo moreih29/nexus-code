@@ -1,33 +1,3 @@
-/**
- * BranchPickerSource — Quick-pick PaletteSource for VS Code-style "Checkout
- * to..." (`git.checkout`). The picker classifies the user's intent into one
- * of three discriminated actions and routes each to its own store call:
- *
- *   - `checkout`         → `git checkout <local>` (existing local branch).
- *   - `checkout-tracking`→ `git checkout --track <remote>/<short>` (remote-only;
- *                          deterministic across git versions and configs, so
- *                          we never depend on `branch.autoSetupMerge` or the
- *                          single-remote auto-track shortcut).
- *   - `create-branch`    → `git checkout -b <name>` (typed name with no exact
- *                          match against either local or remote-short).
- *
- * Switch-mode item layout (mirrors VS Code "Git: Checkout to..."):
- *   1) Local branches — current first (marked `current`), then alphabetical.
- *   2) Remote branches — short-name labels, hidden when a local branch with
- *      the same short name already exists.
- *   3) `+ Create new branch: '<query>'` — only when the query is non-empty
- *      and does not exactly match an existing local or remote-short name.
- *
- * Branch action modes keep the same search-as-you-type chrome but narrow the
- * row set and accept action: rename/delete-local use local branches,
- * delete-remote uses remote branches, and only switch mode exposes create rows
- * plus branch-management shortcuts.
- *
- * `searchOnEmptyQuery: true` opts out of the workspace-symbol "type-to-search"
- * default — `search("")` fires immediately on open, so the full branch list
- * appears without typing.
- */
-
 import i18next from "i18next";
 import type { BranchList } from "../../../../../shared/git/types";
 import type { PaletteAcceptContext, PaletteItem, PaletteSource } from "../../../ui/palette/types";
@@ -39,7 +9,6 @@ export type BranchPickAction =
 
 export interface BranchPickItem extends PaletteItem {
   action: BranchPickAction;
-  /** The branch checked out now, which cannot be deleted from the picker. */
   current?: true;
 }
 
@@ -94,19 +63,12 @@ export function createBranchPickerSource(
       const includeLocals = mode !== "delete-remote";
       const includeRemotes = mode === "switch" || mode === "select-ref" || mode === "delete-remote";
 
-      // Local branches — current first, then alphabetical, all filtered.
       const otherLocals = list.local
         .filter((name) => name !== currentName)
         .filter((name) => matchesQuery(name, lowerQuery))
         .sort((a, b) => a.localeCompare(b));
 
       const localItems: BranchPickItem[] = [];
-      // Skip the synthetic "current" row when HEAD is unborn. The branch
-      // name comes from `git status -b` (which knows about unborn HEAD)
-      // but `git branch --list` does not yet include it as a real ref, so
-      // a checkout action on this entry would fail with `no-such-ref`.
-      // The Source Control panel surfaces the unborn state via its own
-      // banner; the picker just shows the create rows.
       if (
         includeLocals &&
         mode !== "delete-local" &&
@@ -134,11 +96,6 @@ export function createBranchPickerSource(
         }
       }
 
-      // Remote branches — display by short name and dedupe against locals so
-      // the user never sees both `main` (local) and `main` (remote). The
-      // `checkout-tracking` action carries the full `<remote>/<short>` ref so
-      // the main process can run an explicit `git checkout --track` instead
-      // of relying on the auto-setup shortcut.
       const remoteShortMatches = new Set<string>();
       const remoteItems: BranchPickItem[] = [];
       if (includeRemotes) {
@@ -150,7 +107,7 @@ export function createBranchPickerSource(
           if (!matchesQuery(shortName, lowerQuery) && !matchesQuery(fullName, lowerQuery)) {
             continue;
           }
-          if (dedupeRemoteShortNames && remoteShortMatches.has(shortName)) continue; // first remote wins
+          if (dedupeRemoteShortNames && remoteShortMatches.has(shortName)) continue;
           remoteShortMatches.add(shortName);
           remoteItems.push({
             id: `remote:${fullName}`,
@@ -171,11 +128,6 @@ export function createBranchPickerSource(
         !exactLocalMatch &&
         !exactRemoteShortMatch
       ) {
-        // On an unborn HEAD (`git init` with no commits), `git checkout -b X`
-        // does not "create alongside" — it re-points the unborn HEAD's
-        // symbolic ref so the previous branch name vanishes from
-        // `git branch --list`. Spell that out in the picker label so the
-        // user knows what's about to happen before they click.
         const unbornCurrent = list.current?.isUnborn && currentName ? currentName : null;
         const label = unbornCurrent
           ? i18next.t("files:git.branch.picker.renameUnborn", {
@@ -225,10 +177,6 @@ export function createBranchPickerSource(
   };
 }
 
-/**
- * Keeps the historic `checkout` mode spelling as an alias for the default
- * switch/checkout behavior used by the Source Control panel.
- */
 export function normalizeBranchPickerMode(
   mode: BranchPickerSourceMode | undefined,
 ): NormalizedBranchPickerSourceMode {
@@ -236,9 +184,6 @@ export function normalizeBranchPickerMode(
   return mode;
 }
 
-/**
- * Provides the quick-pick input's accessible heading for each branch mode.
- */
 function defaultTitleForMode(mode: NormalizedBranchPickerSourceMode): string {
   const t = i18next.t.bind(i18next);
   switch (mode) {
@@ -255,9 +200,6 @@ function defaultTitleForMode(mode: NormalizedBranchPickerSourceMode): string {
   }
 }
 
-/**
- * Provides the quick-pick search placeholder for each branch mode.
- */
 function defaultPlaceholderForMode(mode: NormalizedBranchPickerSourceMode): string {
   const t = i18next.t.bind(i18next);
   switch (mode) {
@@ -274,11 +216,6 @@ function defaultPlaceholderForMode(mode: NormalizedBranchPickerSourceMode): stri
   }
 }
 
-/**
- * Extracts the ref string represented by a branch picker item without running
- * checkout. HistoryRefSwitcher uses this so viewing another ref never mutates
- * the working tree.
- */
 function refFromBranchPickItem(item: BranchPickItem): string {
   switch (item.action.kind) {
     case "checkout":
@@ -290,19 +227,11 @@ function refFromBranchPickItem(item: BranchPickItem): string {
   }
 }
 
-/**
- * Case-insensitive substring filter; empty query matches everything.
- */
 function matchesQuery(value: string, lowerQuery: string): boolean {
   if (lowerQuery.length === 0) return true;
   return value.toLowerCase().includes(lowerQuery);
 }
 
-/**
- * Strips the `<remote>/` prefix from a `git branch --remotes` short ref. When
- * no slash is present the input is returned unchanged so non-conforming
- * remote names degrade gracefully.
- */
 function stripRemotePrefix(remoteRef: string): string {
   const slash = remoteRef.indexOf("/");
   return slash >= 0 ? remoteRef.slice(slash + 1) : remoteRef;

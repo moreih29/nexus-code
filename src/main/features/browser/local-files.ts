@@ -21,7 +21,6 @@ function isDescendant(folder: string, file: string, paths: typeof path): boolean
   );
 }
 
-/** The inputs have already been resolved to their real filesystem paths. */
 export function isScopedFilePath(
   folder: string,
   file: string,
@@ -40,13 +39,10 @@ function isFileInHtmlFolder(pageUrl: string, currentUrl: string, requestUrl: str
   if (!pageUrl.startsWith("file:") || !requestUrl.startsWith("file:")) return false;
   try {
     const page = fileURLToPath(pageUrl);
-    // Fragments and query strings can change within the document. The file
-    // that establishes the scope comes from its cross-document commit.
     if (path.relative(page, fileURLToPath(currentUrl)) !== "") return false;
     if (!htmlExtensions.has(path.extname(page).toLowerCase())) return false;
     const target = fileURLToPath(requestUrl);
     const folder = path.dirname(realpathSync.native(page));
-    // Reject obvious out-of-folder paths before following the target's links.
     if (!isDescendant(path.dirname(page), target, path) && !isDescendant(folder, target, path)) {
       return false;
     }
@@ -67,13 +63,10 @@ function canReadLocalFile(details: OnBeforeRequestListenerDetails): boolean {
   if (!committedUrl) return false;
   if (initiatorOrigin !== undefined && initiatorOrigin !== "file://") return false;
   const main = webContents.mainFrame;
-  // A subframe navigation can report the destination frame. Reads made by
-  // subframe documents themselves receive no separate grant.
   if (frame !== main && (resourceType !== "subFrame" || frame.parent !== main)) return false;
   return isFileInHtmlFolder(committedUrl, main.url, url);
 }
 
-/** Only the main HTML document can embed a local file in a direct child. */
 export function canNavigateLocalFrame(
   contents: WebContents,
   url: string,
@@ -90,7 +83,6 @@ export function canNavigateLocalFrame(
   );
 }
 
-/** Adds a tab to the session-wide guard. Popups share the guard without gaining a scope. */
 export function installLocalFileReadGuard(contents: WebContents): void {
   if (!committedUrls.has(contents)) {
     committedUrls.set(contents, "");
@@ -106,9 +98,7 @@ export function installLocalFileReadGuard(contents: WebContents): void {
       cancel = true;
       try {
         cancel = !canReadLocalFile(details);
-      } catch {
-        // A frame or tab may have gone away before Electron delivered the request.
-      }
+      } catch {}
     }
     if (cancel) logger.warn(`[file-read] blocked ${resourceType}`);
     callback({ cancel });

@@ -1,9 +1,3 @@
-/**
- * The tabs store's setters change one tab, or nothing: a setter that has
- * nothing to change leaves the state as it was, so nothing re-renders, and
- * one that moves a chat tab to another session keeps what else it has.
- */
-
 import { describe, expect, it } from "bun:test";
 
 (globalThis as Record<string, unknown>).window = {

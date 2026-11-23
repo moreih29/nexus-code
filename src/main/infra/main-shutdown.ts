@@ -1,7 +1,6 @@
 import { defaultTimerScheduler, type TimerScheduler } from "../../shared/util/timer-scheduler";
 
 export const MAIN_QUIT_GRACE_MS = 3_000;
-// Match the Go LSP request, exit and forced-exit grace periods.
 const LSP_QUIT_GRACE_MS = 2_250;
 const STATE_FLUSH_ATTEMPTS = 3;
 const STATE_FLUSH_RETRY_MS = 1_000;
@@ -13,7 +12,6 @@ interface QuitStateFlush {
   error(message: string): void;
 }
 
-/** Let Electron finish quitting after a bounded attempt to save the final state. */
 export function createQuitStateFlush(
   work: QuitStateFlush,
   timers: TimerScheduler = defaultTimerScheduler,
@@ -51,7 +49,6 @@ interface ShutdownWork {
   readonly warn: (message: string) => void;
 }
 
-/** Drains writes and children in parallel, with a shared deadline for the whole quit. */
 export async function finishMainShutdown(
   work: ShutdownWork,
   remainingMs: number,
@@ -64,14 +61,12 @@ export async function finishMainShutdown(
   let lspTimer: unknown;
   let workspacesClosed = false;
 
-  /** Closes agents once, including when the total deadline beats LSP. */
   function closeWorkspaces(): void {
     if (workspacesClosed) return;
     workspacesClosed = true;
     work.closeWorkspaces();
   }
 
-  /** Gives LSP its own grace while keeping the transports it needs alive. */
   async function stopAgents(): Promise<void> {
     try {
       if (work.lspShutdown) {

@@ -1,8 +1,3 @@
-/**
- * The side panel and the composer take a tab's state beside its streaming
- * reply: a chunk of the reply leaves it the same, anything else they show
- * gives a new one.
- */
 import { describe, expect, test } from "bun:test";
 import { sameBesideStream } from "../../../../../src/renderer/services/chat/beside-stream";
 import { applyLines } from "../../../../../src/renderer/services/chat/claude/stream-model";
@@ -13,7 +8,6 @@ let seq = 0;
 const out = (message: unknown): ChatLine => ({ seq: ++seq, dir: "out", message });
 const stream = (event: unknown) => out({ type: "stream_event", event });
 
-/** A tab whose turn runs and whose reply has begun to stream. */
 function streamingTab(): ChatTabState {
   const model = applyLines(emptyModel(), [
     { seq: ++seq, dir: "in", message: { type: "user", message: { role: "user", content: "hi" } } },

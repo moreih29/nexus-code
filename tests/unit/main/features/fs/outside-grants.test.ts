@@ -9,8 +9,6 @@ import {
   setOutsideGrant,
 } from "../../../../../src/main/features/fs/outside-grants";
 
-// The native realpath, as main's: on Windows it also spells out a short name
-// in the temp folder's path (RUNNER~1), which the JS one leaves.
 const tmp = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "nexus-outside-")));
 const site = path.join(tmp, "site");
 const secret = path.join(tmp, "secret.txt");
@@ -18,8 +16,6 @@ fs.mkdirSync(site);
 fs.writeFileSync(path.join(site, "index.html"), "<p>hi</p>");
 fs.writeFileSync(path.join(site, "style.css"), "p{}");
 fs.writeFileSync(secret, "key");
-// Only the tests skipped on Windows read the links, and making one there
-// takes a privilege a test run may not have.
 if (process.platform !== "win32") {
   fs.symlinkSync(secret, path.join(site, "leak.txt"));
   fs.symlinkSync(secret, path.join(tmp, "named-link.txt"));
@@ -95,7 +91,6 @@ describe("outside grants", () => {
     },
   );
 
-  // Making a link on Windows takes a privilege a test run may not have.
   test.skipIf(process.platform === "win32")(
     "a file granted by name is read where its link points",
     async () => {

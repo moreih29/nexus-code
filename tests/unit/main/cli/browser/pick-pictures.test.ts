@@ -1,7 +1,3 @@
-/**
- * The pictures a browser tab's pick button saves: written where the agent
- * can read them, and dropped once they are a day old.
- */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,7 +17,6 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-/** A file in `dir` last written `ageMs` before `now`. */
 async function fileAged(name: string, now: number, ageMs: number): Promise<void> {
   const file = join(dir, name);
   await writeFile(file, "x");

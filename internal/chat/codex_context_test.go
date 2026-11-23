@@ -200,9 +200,6 @@ func testCodexContext(t *testing.T, message []byte) map[string]struct{ Kind, Val
 	return decoded.Params.AdditionalContext
 }
 
-// A program started before the app asked for experimentalApi, or one whose
-// initialize this agent never saw, rejects every turn that carries
-// additionalContext: such a turn goes without the guidance.
 func TestCodexContextWaitsForAnInitializeThatAskedForExperimentalApi(t *testing.T) {
 	const turn = `{"method":"turn/start","id":"turn","params":{"threadId":"` + notesThread + `","input":[]}}`
 	context := codexContext{Files: "File links"}
@@ -233,7 +230,6 @@ func TestCodexContextWaitsForAnInitializeThatAskedForExperimentalApi(t *testing.
 	}
 }
 
-// applyTestCodexContext models guidance accepted by the child.
 func applyTestCodexContext(p *process, data []byte, guidance codexContext) []byte {
 	edited, commit := p.prepareCodexContext(data, guidance)
 	if commit != nil {

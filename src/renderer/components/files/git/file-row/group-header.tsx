@@ -1,8 +1,3 @@
-/**
- * GitGroupHeader renders an expandable Source Control section heading.
- * Read-only (a workspace on another computer's), it only folds: no actions,
- * no menu.
- */
 import { ChevronRight, Minus, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -30,7 +25,6 @@ interface GitGroupHeaderProps {
   onDiscardAll?: () => void;
   onAddToGitignore?: () => void;
   onStashGroup?: () => void;
-  /** Only folds: no group actions or menu. */
   readOnly?: boolean;
 }
 

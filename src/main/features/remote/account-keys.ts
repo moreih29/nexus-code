@@ -1,14 +1,3 @@
-/**
- * This device's hold on the account key: whether the account has one,
- * whether this device holds it, and the account password's flows (set it
- * first, type it on another device, change it, reset it when it is
- * forgotten), against the server's locked bundle (ACCOUNT_KEYS.md).
- *
- * It also keeps this device's key pair registered, takes a new account key
- * from an envelope after another device rotated it, rotates it when it
- * removes a device, and gives the server the password's proof where it asks.
- */
-
 import { z } from "zod";
 import {
   ACCOUNT_AUTH_ERROR,
@@ -60,23 +49,18 @@ const log = createLogger("remote-account-keys");
 
 const BUNDLE_PATH = "/account/key-bundle";
 
-/** The account key as this device keeps it, sealed: whose, and which version. */
 export const SavedKeySchema = z.object({
   userId: z.string(),
   kid: PositiveIntegerSchema,
   key: Base64UrlSchema,
-  /** This device's X25519 key pair (account keys v2), made once it held the key. */
   device: z.object({ secretKey: Base64UrlSchema, publicKey: Base64UrlSchema }).optional(),
-  /** The key version its public key was last registered with on the server. */
   registered: IntegerSchema.optional(),
 });
 export type SavedKey = z.infer<typeof SavedKeySchema>;
 
-/** A flow that did not go through, and why. */
 export class KeyError extends Error {
   constructor(
     readonly failure: KeyFailure,
-    /** When the server asked to be asked again, in Unix ms. */
     readonly retryAt?: number,
   ) {
     super(`the account key: ${failure}`);
@@ -95,17 +79,14 @@ export interface AccountKeysDeps {
   };
   readonly store: Kept<SavedKey>;
   onChange?(state: AccountKeyState): void;
-  /** Argon2id's cost for new bundles; tests lower it. */
   readonly kdf?: { ops: number; mem: number };
   readonly now?: () => number;
 }
 
-/** A device of the account with its key, as GET /devices tells it. */
 const KeyedDevicesSchema = z.object({
   devices: z.array(z.looseObject({ id: z.string(), key: DeviceKeySchema.nullable().optional() })),
 });
 
-/** What the server said of the account key the last time it was asked. */
 interface ServerSide {
   readonly kid: number;
   readonly pendingReset: { appliesAt: number; deviceId: string } | null;
@@ -115,7 +96,6 @@ export class AccountKeys {
   private held: SavedKey | null = null;
   private server: ServerSide | null = null;
   private current: AccountKeyState = { status: "signed-out" };
-  /** One flow at a time: each waits for the one before. */
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly deps: AccountKeysDeps) {}
@@ -124,7 +104,6 @@ export class AccountKeys {
     return this.current;
   }
 
-  /** The key, while this device holds the account's current one. */
   key(): { kid: number; key: Uint8Array } | null {
     const account = this.deps.account.state();
     if (
@@ -137,21 +116,15 @@ export class AccountKeys {
     return { kid: this.held.kid, key: fromBase64Url(this.held.key) };
   }
 
-  /**
-   * Picks up the key kept from the last run; then asks the server where it
-   * stands, which the returned promise waits for (the app does not).
-   */
   async restore(): Promise<void> {
     this.held = await this.deps.store.load();
     await this.accountChanged(this.deps.account.state()).catch(() => {});
   }
 
-  /** The account signed in, or out: a key is only ever its own user's. */
   accountChanged(account: RemoteAccountState): Promise<AccountKeyState> {
     return this.run(async () => {
       if (account.status !== "signed-in") {
         if (account.status === "signed-out") {
-          // Signed out: this device leaves the account, key and all.
           this.forget();
           this.set({ status: "signed-out" });
         }
@@ -162,12 +135,10 @@ export class AccountKeys {
     });
   }
 
-  /** Asks the server again whether the account has a key, and which. */
   refresh(): Promise<AccountKeyState> {
     return this.run(() => this.check());
   }
 
-  /** The first device: sets the account password, with a new key (version 1). */
   create(password: string): Promise<AccountKeyState> {
     return this.run(async () => {
       const userId = this.userId();
@@ -181,7 +152,6 @@ export class AccountKeys {
     });
   }
 
-  /** Another device: types the account password to take the key. */
   unlock(password: string): Promise<AccountKeyState> {
     return this.run(async () => {
       const userId = this.userId();
@@ -193,10 +163,6 @@ export class AccountKeys {
     });
   }
 
-  /**
-   * A device of a pairing handed this one the account key (version `kid`):
-   * taken when it is the account's current one, or newer than the one held.
-   */
   adopt(kid: number, key: Uint8Array): Promise<AccountKeyState> {
     return this.run(async () => {
       const userId = this.userId();
@@ -206,7 +172,6 @@ export class AccountKeys {
     });
   }
 
-  /** Locks the same key with a new password, once the current one is typed again. */
   changePassword(currentPassword: string, nextPassword: string): Promise<AccountKeyState> {
     return this.run(async () => {
       const userId = this.userId();
@@ -221,13 +186,6 @@ export class AccountKeys {
     });
   }
 
-  /**
-   * The password is forgotten: a new key (the next version) under a new
-   * password. It waits (RESET_DELAY_MS), and the devices that know the
-   * password may call it off; an account with no key yet has it at once.
-   * The account's other devices ask for the new password once they find
-   * the new version.
-   */
   reset(nextPassword: string): Promise<AccountKeyState> {
     return this.run(async () => {
       const userId = this.userId();
@@ -256,7 +214,6 @@ export class AccountKeys {
     });
   }
 
-  /** Calls off a reset that waits, with the password. */
   cancelReset(password: string): Promise<AccountKeyState> {
     return this.run(async () => {
       const userId = this.userId();
@@ -270,7 +227,6 @@ export class AccountKeys {
     });
   }
 
-  /** The password's proof for the bundle now, as DELETE /account takes it; null with no bundle. */
   proofHeaders(password: string): Promise<Record<string, string> | null> {
     return this.run(async () => {
       const userId = this.userId();
@@ -281,16 +237,6 @@ export class AccountKeys {
     });
   }
 
-  /**
-   * Removes other devices of the account. The key is rotated with them,
-   * with the password: the devices that stay get the new key sealed for
-   * each, the removed ones do not. The device that asked for a reset that
-   * waits may be removed without it, which calls the reset off; one that
-   * may hold the key takes it along, so only with `keepKey` (else
-   * needs-password): an owner who forgot the password can still stop a
-   * stolen device's reset. With no key yet, the server only ends their
-   * sign-ins. This device signs out through the account, not here.
-   */
   removeDevices(
     ids: readonly string[],
     password?: string,
@@ -319,14 +265,6 @@ export class AccountKeys {
     });
   }
 
-  /**
-   * Whether another device may hold the account key: whether it ever put a
-   * key of its own on the server. A device can overwrite its key there with
-   * any other (one set up again keeps its id) but never drop it, so one
-   * whose key does not check under the key now may have overwritten it to
-   * hide that it holds the key; only a device that never put one surely
-   * does not (NexusCloud: the key goes only with the device).
-   */
   private async mayHoldKey(deviceId: string): Promise<boolean> {
     const devices = KeyedDevicesSchema.parse(
       await this.deps.account.request("GET", "/devices"),
@@ -343,7 +281,6 @@ export class AccountKeys {
     const self = this.deviceId();
     const k = found.bundle.kid;
     const opened = await this.open(found.bundle, password, userId);
-    // The bundle's key is the current one, held here or not: this device rotates from it.
     if (!this.held || this.held.kid !== k || this.held.key !== toBase64Url(opened.key)) {
       await this.hold(userId, k, opened.key);
     }
@@ -353,7 +290,6 @@ export class AccountKeys {
       kid: k,
       cert: certOf(opened.key, { userId, deviceId: self, publicKey: pair.publicKey, kid: k }),
     };
-    // The server takes the envelopes only from a key it keeps for this device, of version k.
     if (this.held?.registered !== k) await this.register(selfKey);
     const devices = KeyedDevicesSchema.parse(
       await this.deps.account.request("GET", "/devices"),
@@ -370,7 +306,6 @@ export class AccountKeys {
     const certs = [certFor(self, pair.publicKey)];
     for (const device of devices) {
       if (device.id === self || remove.includes(device.id)) continue;
-      // A device with an older key, or none, asks for the password, as before v2.
       if (!device.key || device.key.kid !== k) continue;
       if (!certChecks(opened.key, userId, device.id, device.key)) {
         log.warn(`device ${shortId(device.id)}'s key does not check; the key was not rotated`);
@@ -426,13 +361,11 @@ export class AccountKeys {
       this.set({ status: "signed-out" });
       return this.current;
     }
-    // A key this device holds is used at once: the server only says whether it is still the current one.
     if (this.held) this.set({ status: "unlocked", kid: this.held.kid, ...this.extras() });
     else this.set({ status: "checking" });
     try {
       const found = await this.fetch();
       if (found && this.held && found.bundle.kid > this.held.kid) {
-        // Another device rotated the key: an envelope may carry it here.
         await this.takeEnvelopes().catch((error: unknown) =>
           log.warn(`Could not open the new account key envelope: ${String(error)}`),
         );
@@ -444,7 +377,6 @@ export class AccountKeys {
           log.warn(`Could not register this device key: ${String(error)}`),
         );
       } else if (this.held && this.older(found)) {
-        // A key older than the one held: the server went back, or is made to. The newer key stays.
         log.warn(
           `the server's account key (version ${found.bundle.kid}) is older than this device's (${this.held.kid}); kept this one`,
         );
@@ -453,7 +385,6 @@ export class AccountKeys {
     } catch (error) {
       const failure = keyErrorOf(error, this.now());
       if (failure.failure === "signed-out") this.set({ status: "signed-out" });
-      // The server could not say: the key held stays in use until it says otherwise.
       else if (!this.held)
         this.set({
           status: "unavailable",
@@ -463,7 +394,6 @@ export class AccountKeys {
     return this.current;
   }
 
-  /** What the server said beside the key: a reset that waits. */
   private extras(): { pendingReset?: AccountKeyStatePending } {
     const server = this.server;
     if (!server) return {};
@@ -481,10 +411,6 @@ export class AccountKeys {
     };
   }
 
-  /**
-   * Takes the account keys after the one held from this device's envelopes,
-   * in order: each only from a device the key before it vouches for.
-   */
   private async takeEnvelopes(): Promise<void> {
     const held = this.held;
     if (!held?.device) return;
@@ -506,11 +432,9 @@ export class AccountKeys {
       }
       current = { kid: envelope.kid, key };
     }
-    // The rotation vouched for this device's key under the version it carried.
     if (current.kid > held.kid) await this.hold(held.userId, current.kid, current.key, current.kid);
   }
 
-  /** Registers this device's key under the key held, where the server has not it yet. */
   private async syncDeviceKey(): Promise<void> {
     const held = this.held;
     if (!held || held.registered === held.kid) return;
@@ -531,7 +455,6 @@ export class AccountKeys {
     try {
       await this.deps.account.request("PUT", "/devices/current/key", key);
     } catch (error) {
-      // 409 stale: a rotation vouched for this key under a newer version already.
       if (!(error instanceof ServerError && error.status === 409)) throw error;
     }
     if (this.held) {
@@ -540,7 +463,6 @@ export class AccountKeys {
     }
   }
 
-  /** This device's key pair, made the first time. */
   private async devicePair(): Promise<DeviceKeyPair> {
     if (!this.held) throw new KeyError("conflict");
     if (this.held.device) return this.held.device;
@@ -550,16 +472,10 @@ export class AccountKeys {
     return pair;
   }
 
-  /**
-   * Whether the server's bundle is of a version older than the key this
-   * device holds: a key is only ever replaced by a newer one (a reset), so
-   * an older one is the server going back, which the device does not follow.
-   */
   private older(found: KeyBundleResponse): boolean {
     return this.held !== null && found.bundle.kid < this.held.kid;
   }
 
-  /** The bundle on the server, or null before there is one; it notes what the server said. */
   private async fetch(): Promise<KeyBundleResponse | null> {
     try {
       const found = KeyBundleResponseSchema.parse(
@@ -592,7 +508,6 @@ export class AccountKeys {
         ),
       );
     } catch (error) {
-      // Another device wrote first (or made a newer key): say what it is now.
       if (
         error instanceof ServerError &&
         (error.status === 409 || error.code === "kid_downgrade")
@@ -603,7 +518,6 @@ export class AccountKeys {
     }
   }
 
-  /** Runs a request that carries the password's proof: a proof the server does not take is account-auth. */
   private async withProof<T>(request: () => Promise<T>): Promise<T> {
     try {
       return await request();
@@ -647,7 +561,6 @@ export class AccountKeys {
     key: Uint8Array,
     registered?: number,
   ): Promise<void> {
-    // The device's key pair stays across key versions; its registration is of one.
     const same = this.held?.userId === userId ? this.held : null;
     const known = registered ?? (same?.kid === kid ? same.registered : undefined);
     this.held = {
@@ -689,7 +602,6 @@ export class AccountKeys {
     return (this.deps.now ?? Date.now)();
   }
 
-  /** Runs `flow` after the ones before it; its failure comes back as a KeyError where it is one. */
   private run<T>(flow: () => Promise<T>): Promise<T> {
     const next = this.queue.then(flow).catch((error: unknown) => {
       throw error instanceof KeyError ? error : keyErrorOf(error, this.now(), error);
@@ -709,7 +621,6 @@ function mustBeLongEnough(password: string): void {
   if (!passwordLongEnough(password)) throw new KeyError("too-short");
 }
 
-/** How a call to the server failed, as the flows tell it; anything else is thrown on. */
 function keyErrorOf(error: unknown, now: number, rethrow?: unknown): KeyError {
   if (error instanceof KeyError) return error;
   if (error instanceof SignedOutError) return new KeyError("signed-out");
@@ -719,7 +630,6 @@ function keyErrorOf(error: unknown, now: number, rethrow?: unknown): KeyError {
   if (error instanceof ServerError && error.status === 429) {
     return new KeyError("unavailable", now + (error.retryAfter ?? 60) * 1000);
   }
-  // A server that fails, or cannot be reached.
   if ((error instanceof ServerError && error.status >= 500) || error instanceof UnreachableError) {
     return new KeyError("unavailable");
   }

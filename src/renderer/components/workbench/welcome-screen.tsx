@@ -1,6 +1,3 @@
-/**
- * Empty-workbench welcome affordances.
- */
 import { useTranslation } from "react-i18next";
 import { Button } from "../ui/button";
 
@@ -8,7 +5,6 @@ interface WelcomeScreenProps {
   readonly onAddWorkspace?: () => void;
 }
 
-/** Prompts the user to add their first workspace or select an existing one. */
 export function WelcomeScreen({ onAddWorkspace }: WelcomeScreenProps): React.JSX.Element {
   const { t } = useTranslation();
   return (

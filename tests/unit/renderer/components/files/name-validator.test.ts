@@ -1,6 +1,3 @@
-/**
- * Pure tests for validateNewEntryName.
- */
 import { describe, expect, it } from "bun:test";
 import { validateNewEntryName } from "../../../../../src/renderer/components/files/name-validator";
 
@@ -29,9 +26,6 @@ describe("validateNewEntryName", () => {
   it("accepts nested paths so intermediate directories can be created on commit (VSCode parity)", () => {
     expect(validateNewEntryName("a/b")).toBeNull();
     expect(validateNewEntryName("src/components/foo.ts")).toBeNull();
-    // Single trailing slash is the VSCode "force folder" hint — tolerated here
-    // because the IPC layer treats the value as a path and the caller already
-    // chose file vs folder via the inline-create kind.
     expect(validateNewEntryName("foo/")).toBeNull();
   });
 
@@ -41,9 +35,7 @@ describe("validateNewEntryName", () => {
   });
 
   it("rejects empty interior segments and reserved segment names", () => {
-    // "a//b" → segments ["a","","b"] — empty interior segment is invalid.
     expect(validateNewEntryName("a//b")).not.toBeNull();
-    // Any segment being "." or ".." escapes the parent — rejected.
     expect(validateNewEntryName("foo/./bar")).not.toBeNull();
     expect(validateNewEntryName("foo/../bar")).not.toBeNull();
   });

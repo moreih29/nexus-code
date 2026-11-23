@@ -16,14 +16,6 @@ import { ErrorNotice } from "./error-notice";
 import type { WslDistroListViewProps } from "./types";
 import { useBrowseProgress } from "./use-browse-progress";
 
-// ---------------------------------------------------------------------------
-// WslDistroListView — the WSL distributions to open a folder in
-// ---------------------------------------------------------------------------
-
-/**
- * Lists the installed WSL distributions. Choosing one starts the agent in it
- * (installing it there first if needed) and moves on to the directory picker.
- */
 export function WslDistroListView({ onConnected }: WslDistroListViewProps): React.JSX.Element {
   const { t } = useTranslation();
   const [distros, setDistros] = useState<string[] | null>(null);
@@ -51,7 +43,6 @@ export function WslDistroListView({ onConnected }: WslDistroListViewProps): Reac
     if (surface.surface === "inline") setErrorMessage(surface.userMessage);
   }, [state]);
 
-  /** Starts one distribution and surfaces any failed attempt beside its row. */
   function connect(distro: string): void {
     if (isPending) return;
     setSelected(distro);

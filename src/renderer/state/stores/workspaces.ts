@@ -13,38 +13,23 @@ import { registerWorkspaceCleanup } from "../workspace-cleanup";
 
 const log = createLogger("workspaces");
 
-// ---------------------------------------------------------------------------
-// State shape
-// ---------------------------------------------------------------------------
-
 export type WorkspaceConnectionStatus =
   | "idle"
   | "connecting"
   | "connected"
   | "reconnecting"
   | "error"
-  /**
-   * Transient: 1 missed heartbeat. workspaceIsOnline stays true.
-   * Renderer shows the "unstable" dot badge on the sidebar workspace entry.
-   */
   | "unstable"
-  /**
-   * Terminal: daemon replaced during reconnect window. Held PTY sessions are
-   * gone. Renderer shows "session expired" empty state instead of the generic
-   * connection error. workspaceIsOnline=false so the user must reconnect.
-   */
   | "held-then-expired";
 
 export interface WorkspacesState {
   workspaces: WorkspaceMeta[];
   connectionStatusByWorkspaceId: Record<string, WorkspaceConnectionStatus>;
-  /** Last bootstrap progress event per workspace ID. Cleared to undefined on connection complete/error. */
   connectionProgressByWorkspaceId: Record<string, WorkspaceConnectionProgressEvent | undefined>;
   setAll: (workspaces: WorkspaceMeta[], snapshot?: WorkspaceConnectionChangedEvent[]) => void;
   upsert: (meta: WorkspaceMeta) => void;
   remove: (id: string) => void;
   setConnectionStatus: (id: string, status: WorkspaceConnectionStatus) => void;
-  /** Bulk-update sort positions after a server-side group rebalance. */
   reorder: (
     orders: Array<{ id: string; sortOrder: number; pinnedSortOrder: number; pinned: boolean }>,
   ) => void;
@@ -53,38 +38,19 @@ export interface WorkspacesState {
 interface WorkspacesStoreDeps {
   canUseIpcBridge: () => boolean;
   listen: typeof ipcListen;
-  /** Injected so tests can verify fallback behaviour without real IPC. */
   fetchList?: () => Promise<WorkspaceMeta[]>;
 }
 
-// ---------------------------------------------------------------------------
-// Sort helpers
-// ---------------------------------------------------------------------------
-
-/** The sidebar's order: pinned first, then each group's own order. */
 const sortKey = workspaceSortKey;
 const compareSortKey = compareWorkspaceOrder;
 
-/**
- * Inserts `meta` into the correct sorted position within `workspaces`.
- *
- * The list is ordered by: pinned DESC, then the group-specific order column ASC.
- * The function removes any existing entry for `meta.id` first, then finds the
- * insertion index via binary search on the effective sort key, and inserts.
- *
- * Returns the new array and a `consistent` flag.  `consistent` is false when
- * the inserted item's sort key conflicts with its immediate neighbours — which
- * signals that the local store is stale and a full list re-fetch is needed.
- */
 export function applySortedInsert(
   workspaces: WorkspaceMeta[],
   meta: WorkspaceMeta,
 ): { workspaces: WorkspaceMeta[]; consistent: boolean } {
-  // Remove the old entry for this id so we re-insert at the correct position.
   const without = workspaces.filter((w) => w.id !== meta.id);
   const [mg, mo] = sortKey(meta);
 
-  // Binary search for the insertion point.
   let lo = 0;
   let hi = without.length;
   while (lo < hi) {
@@ -100,9 +66,6 @@ export function applySortedInsert(
 
   const result = [...without.slice(0, insertIdx), meta, ...without.slice(insertIdx)];
 
-  // Consistency check: the item's sort key must sit strictly between its neighbours.
-  // A tie (equal sort key) is also inconsistent — two items cannot legitimately
-  // share the same position without a prior rebalance broadcast being missed.
   const prev = result[insertIdx - 1];
   const next = result[insertIdx + 1];
   let consistent = true;
@@ -122,21 +85,13 @@ export function applySortedInsert(
   return { workspaces: result, consistent };
 }
 
-/**
- * Converts transport lifecycle statuses into compact sidebar display statuses.
- */
 function statusFromConnectionEvent(
   status: WorkspaceConnectionEventStatus,
 ): WorkspaceConnectionStatus {
   if (status === "disconnected") return "idle";
-  // Pass new statuses through directly; the renderer store type was extended
-  // to include them. Legacy / unknown statuses fall back to "idle".
   return status as WorkspaceConnectionStatus;
 }
 
-/**
- * Returns the sidebar/workspace display status for a workspace id.
- */
 export function selectWorkspaceConnectionStatus(
   state: WorkspacesState,
   workspaceId: string,
@@ -144,17 +99,6 @@ export function selectWorkspaceConnectionStatus(
   return state.connectionStatusByWorkspaceId[workspaceId] ?? "idle";
 }
 
-/**
- * Treats the workspace connection store as the single source of truth for
- * renderer affordances that need to know whether a workspace is online.
- *
- * "unstable" (1 missed heartbeat) is treated as online — the channel is still
- * alive and the workspace is usable; only the indicator dot changes.
- * "reconnecting" is also treated as online because PTY sessions are on hold
- * (not dead) and the workspace may recover.
- * "held-then-expired" is offline — the daemon was replaced and the user must
- * explicitly reconnect.
- */
 function workspaceIsOnline(
   workspace: WorkspaceMeta | undefined,
   status: WorkspaceConnectionStatus,
@@ -164,10 +108,6 @@ function workspaceIsOnline(
   return status === "connected" || status === "unstable" || status === "reconnecting";
 }
 
-/**
- * Returns the last bootstrap progress event of a workspace.
- * Returns undefined once the connection reaches a terminal state.
- */
 export function selectWorkspaceConnectionProgress(
   state: WorkspacesState,
   workspaceId: string,
@@ -175,23 +115,15 @@ export function selectWorkspaceConnectionProgress(
   return state.connectionProgressByWorkspaceId[workspaceId];
 }
 
-/**
- * Selects whether a workspace should expose online-only per-tab status UI.
- */
 export function selectIsWorkspaceOnline(state: WorkspacesState, workspaceId: string): boolean {
   const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId);
   return workspaceIsOnline(workspace, selectWorkspaceConnectionStatus(state, workspaceId));
 }
 
-/** The workspaces the sidebar lists: all but tasks, which live inside their parent. */
 export function visibleWorkspaces(workspaces: readonly WorkspaceMeta[]): WorkspaceMeta[] {
   return workspaces.filter((workspace) => !workspace.task);
 }
 
-/**
- * The workspace a window opens on: the one main restored (`activeId`), else
- * the first in the sidebar.
- */
 export function restoredWorkspace(
   workspaces: readonly WorkspaceMeta[],
   activeId: string | null,
@@ -201,19 +133,14 @@ export function restoredWorkspace(
   );
 }
 
-/** The tasks of a workspace, in store order. */
 export function tasksOf(workspaces: readonly WorkspaceMeta[], parentId: string): WorkspaceMeta[] {
   return workspaces.filter((workspace) => workspace.task?.parentId === parentId);
 }
 
-/** The sidebar workspace `id` belongs to: its parent for a task, else itself. */
 export function rootWorkspaceId(workspaces: readonly WorkspaceMeta[], id: string): string {
   return workspaces.find((workspace) => workspace.id === id)?.task?.parentId ?? id;
 }
 
-/**
- * Removes connection state for workspaces that no longer exist in the list.
- */
 function pruneConnectionStatuses(
   current: Record<string, WorkspaceConnectionStatus>,
   workspaces: WorkspaceMeta[],
@@ -228,10 +155,6 @@ function pruneConnectionStatuses(
   return next;
 }
 
-/**
- * A local Windows root arrives as `C:\work\demo`. Renderer path code joins
- * and splits on `/`, so the store keeps it as `C:/work/demo`.
- */
 function withSlashRoot(meta: WorkspaceMeta): WorkspaceMeta {
   if (meta.location.kind !== "local" || !isDrivePath(meta.location.rootPath)) return meta;
   return {
@@ -241,15 +164,6 @@ function withSlashRoot(meta: WorkspaceMeta): WorkspaceMeta {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
-
-/**
- * Fetches the current workspace list from the main process and returns it.
- * Used as the fallback when a sort-position inconsistency is detected after a
- * `workspace.changed` event arrives with an unexpected order.
- */
 async function defaultFetchList(): Promise<WorkspaceMeta[]> {
   return mustSucceed(await ipcCallResult("workspace", "list", undefined));
 }
@@ -260,18 +174,10 @@ const defaultWorkspacesStoreDeps: WorkspacesStoreDeps = {
   fetchList: defaultFetchList,
 };
 
-/**
- * Creates the workspace store with injectable IPC dependencies for tests.
- */
 export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspacesStoreDeps) {
-  // Resolve the fallback fetch function once at store creation time so the
-  // closure captures the injected value (important for tests).
   const fetchList = deps.fetchList ?? defaultFetchList;
 
   return create<WorkspacesState>((set, get) => {
-    // Subscribe to main-process changed events so store stays in sync.
-    // `removed` is handled by the central workspace-cleanup registry; only
-    // `changed` and `reordered` need inline ipcListen here.
     if (deps.canUseIpcBridge()) {
       deps.listen("workspace", "changed", (incoming) => {
         get().upsert(incoming);
@@ -280,8 +186,6 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
       deps.listen("workspace", "connectionChanged", ({ workspaceId, status }) => {
         set((state) => {
           const displayStatus = statusFromConnectionEvent(status);
-          // When the connection reaches a terminal state (connected/error/idle/disconnected),
-          // clear the progress entry so no progress bar remains.
           const isTerminal = displayStatus !== "connecting" && displayStatus !== "reconnecting";
           const nextProgress = isTerminal
             ? { ...state.connectionProgressByWorkspaceId, [workspaceId]: undefined }
@@ -305,7 +209,6 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
         }));
       });
 
-      // Bulk rebalance event: main sends new positions for every affected row.
       deps.listen("workspace", "reordered", ({ orders }) => {
         get().reorder(orders);
       });
@@ -329,7 +232,6 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
           );
           return {
             workspaces,
-            // Live events can arrive while bootstrap waits for its snapshot.
             connectionStatusByWorkspaceId: pruneConnectionStatuses(
               { ...statuses, ...state.connectionStatusByWorkspaceId },
               workspaces,
@@ -344,7 +246,6 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
         const existing = workspaces.find((w) => w.id === meta.id);
 
         if (!existing) {
-          // New workspace — append at tail; sort will be applied on next setAll.
           set({ workspaces: [...workspaces, meta] });
           return;
         }
@@ -363,7 +264,6 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
         if (!consistent) {
           void fetchList()
             .then((list) => {
-              // A full-list response can predate a newer workspace event.
               if (get().workspaces === sorted) get().setAll(list);
             })
             .catch((error: unknown) =>
@@ -399,7 +299,6 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
 
       reorder(orders) {
         set((state) => {
-          // Patch each row's sort fields, then re-sort the full array.
           const patched = state.workspaces.map((w) => {
             const update = orders.find((o) => o.id === w.id);
             if (!update) return w;

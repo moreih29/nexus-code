@@ -67,7 +67,6 @@ describe("file links in the agent view", () => {
     expect(routeAgentViewCommand(COMMANDS.fileSave)).toBeUndefined();
     expect(computeActiveContext()).toEqual({ workspaceId: null, tabId: null });
 
-    // A second workspace split opens another copy. The panel's copy is still selected.
     const group = useLayoutStore.getState().byWorkspace[WS]?.activeGroupId;
     if (!group) throw new Error("workspace group is missing");
     useLayoutStore.getState().splitGroup(WS, group, "horizontal", "after");

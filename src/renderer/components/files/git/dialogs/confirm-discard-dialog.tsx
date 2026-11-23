@@ -1,7 +1,3 @@
-/**
- * ConfirmDiscardDialog guards destructive discard operations with Cancel first.
- */
-
 import { AlertDialog as RadixAlertDialog } from "radix-ui";
 import { useTranslation } from "react-i18next";
 import type { GitExpandedGroupKey } from "../../../../../shared/git/types";

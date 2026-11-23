@@ -1,16 +1,5 @@
 package chat
 
-// chat.historySlots: the attach slots a conversation's whole history names,
-// read from its file here (a Claude transcript or a Codex rollout), for the
-// app to keep while a tab shows it. A tab loads a long history a page at a
-// time from its end, so what it has loaded misses what the beginning named.
-// Only slot names go back, none of the history.
-//
-// The file is read as bytes, not as JSON lines: a line holding an image may
-// be far larger than any line reader's buffer. Whatever names a path below
-// the workspace's attach folder counts, a message or not: keeping a slot
-// too many costs nothing but room.
-
 import (
 	"bytes"
 	"context"
@@ -23,37 +12,24 @@ import (
 	"strings"
 )
 
-// historyChunk is how much of a history file is read at a time.
 const historyChunk = 1 << 20
 
-// slotTail is the most a slot's name takes after the workspace's folder:
-// a tab of 128, a number of 9, and two separators of at most 4 bytes.
 const slotTail = 128 + 9 + 2*4
 
-// HistorySlotsParams is the wire shape for chat.historySlots: a Claude
-// session (SessionID, in ConfigDir) or a Codex thread (ThreadID, in
-// CodexHome).
 type HistorySlotsParams struct {
 	WorkspaceID string `json:"workspaceId"`
 	SessionID   string `json:"sessionId,omitempty"`
-	// ConfigDir is the Claude profile's folder, "~" for the home; empty
-	// means CLAUDE_CONFIG_DIR or ~/.claude.
-	ConfigDir string `json:"configDir,omitempty"`
-	ThreadID  string `json:"threadId,omitempty"`
-	// CodexHome is the Codex profile's folder; empty means CODEX_HOME or ~/.codex.
-	CodexHome string `json:"codexHome,omitempty"`
+	ConfigDir   string `json:"configDir,omitempty"`
+	ThreadID    string `json:"threadId,omitempty"`
+	CodexHome   string `json:"codexHome,omitempty"`
 }
 
-// HistorySlotsResult is chat.historySlots' answer: the slots ("<tabId>/<n>")
-// named, the last maxAttachSlots by where they were last named.
 type HistorySlotsResult struct {
 	Found     bool     `json:"found"`
 	Slots     []string `json:"slots"`
 	Truncated bool     `json:"truncated,omitempty"`
 }
 
-// HistorySlots answers the slots of the workspace's attach folder that a
-// conversation's history names.
 func (s *Service) HistorySlots(_ context.Context, raw json.RawMessage) (any, error) {
 	var p HistorySlotsParams
 	if err := decodeParams(raw, &p, "chat.historySlots params must include workspaceId and sessionId or threadId"); err != nil {
@@ -96,7 +72,6 @@ func (s *Service) HistorySlots(_ context.Context, raw json.RawMessage) (any, err
 	return HistorySlotsResult{Found: true, Slots: slots, Truncated: truncated}, nil
 }
 
-// historySlots reads the slots below wsDir that the file at path names.
 func historySlots(path, wsDir string) ([]string, bool, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -109,7 +84,6 @@ func historySlots(path, wsDir string) ([]string, bool, error) {
 		longest = max(longest, len(needle))
 	}
 	overlap := longest + slotTail
-	// Where in the file each slot was last named.
 	last := map[string]int64{}
 	var base int64
 	buf := make([]byte, 0, historyChunk+overlap)
@@ -121,7 +95,6 @@ func historySlots(path, wsDir string) ([]string, bool, error) {
 		if readErr != nil && !done {
 			return nil, false, readErr
 		}
-		// Names that begin past the kept overlap are read with the next chunk.
 		limit := len(buf)
 		if !done {
 			limit = max(0, len(buf)-overlap)
@@ -158,10 +131,6 @@ func historySlots(path, wsDir string) ([]string, bool, error) {
 	return slots, truncated, nil
 }
 
-// slotNeedles is wsDir and its separator after it, as a history may write
-// it: with "/", "\", "\\" (a backslash in JSON), "\/" (a slash in JSON) or
-// "\\\\" (a backslash in JSON kept as text in JSON, as a tool's output is)
-// between its names, in lower case (asciiLower).
 func slotNeedles(wsDir string) [][]byte {
 	parts := strings.FieldsFunc(wsDir, func(r rune) bool { return r == '/' || r == '\\' })
 	lead := wsDir != "" && (wsDir[0] == '/' || wsDir[0] == '\\')
@@ -176,8 +145,6 @@ func slotNeedles(wsDir string) [][]byte {
 	return needles
 }
 
-// slotAt reads "<tabId><sep><n><sep>" at the start of b, as slotDir names
-// a slot, a separator being "/", "\", "\\", "\/" or "\\\\".
 func slotAt(b []byte) (string, bool) {
 	tab := 0
 	for tab < len(b) && tab <= 128 && slotTabByte(b[tab]) {
@@ -207,7 +174,6 @@ func slotTabByte(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-'
 }
 
-// cutSeparator takes one separator off the start of b.
 func cutSeparator(b []byte) ([]byte, bool) {
 	switch {
 	case len(b) >= 4 && b[0] == '\\' && b[1] == '\\' && b[2] == '\\' && b[3] == '\\':
@@ -220,8 +186,6 @@ func cutSeparator(b []byte) ([]byte, bool) {
 	return nil, false
 }
 
-// asciiLower is b with A-Z in lower case, the same length: a home's case
-// may differ where its system folds case (a drive letter, as written).
 func asciiLower(b []byte) []byte {
 	out := make([]byte, len(b))
 	for i, c := range b {

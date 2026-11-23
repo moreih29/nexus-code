@@ -38,15 +38,11 @@ interface TabBarProps {
   activeTabId: string | null;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
-  /** Opens a terminal; with `shell`, one that runs that shell instead of the default. */
   onNewTerminalTab: (shell?: ShellChoice) => void;
   onNewUntitledTab: () => void;
   onNewBrowserTab: () => void;
-  /** Shows the workspace's agent list, opening it if there is none. */
   onShowAgentList: () => void;
-  /** Opens a new Claude tab, with that profile rather than the workspace's. */
   onNewClaudeTab: (profileId?: string) => void;
-  /** Opens a new Codex tab, with that profile rather than the workspace's. */
   onNewCodexTab: (profileId?: string) => void;
   onTabContextMenu?: (tabId: string, event: React.MouseEvent) => void;
 }
@@ -68,16 +64,11 @@ export function TabBar({
 }: TabBarProps) {
   const { t } = useTranslation();
   const { barRef, tabsListRef, insertion } = useTabBarDropTarget({ workspaceId, leafId });
-  // The tabs scroll sideways in the strip; the bar around it, with the
-  // overflow menu and the + button, stays put.
   const stripRef = useRef<HTMLDivElement | null>(null);
   useTabInSight(stripRef, activeTabId, (strip) =>
     strip.querySelector('[role="tab"][data-state="active"]'),
   );
 
-  // "New Terminal With ›" lists this machine's shells and the ones added in
-  // the settings, so it is offered in local workspaces only (an SSH
-  // workspace runs the remote login shell).
   const isLocal = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.location.kind === "local",
   );
@@ -89,7 +80,6 @@ export function TabBar({
   const defaultShell: ShellChoice | undefined =
     chosenShell ?? (installed ? { kind: "detected", id: installed.systemDefault.id } : undefined);
 
-  // Stable sort: pinned group first, then unpinned — original order preserved within each group.
   const sortedTabs = useMemo(() => {
     const pinned = tabs.filter((t) => t.isPinned);
     const unpinned = tabs.filter((t) => !t.isPinned);
@@ -100,15 +90,11 @@ export function TabBar({
     strip.querySelector(`[data-tab-id="${CSS.escape(id)}"]`),
   );
 
-  // Basename collision disambiguation for external tabs in this group.
-  // When ≥2 external editor tabs share the same basename, append the parent
-  // directory name as a suffix so the user can distinguish them.
   const externalTabParentDir = useMemo(() => {
     const suffixMap = new Map<string, string | undefined>();
     const externalTabs = tabs.filter(
       (t): t is EditorTab => t.type === "editor" && t.props.origin === "external",
     );
-    // Count how many external tabs share each basename.
     const basenameCount = new Map<string, number>();
     for (const t of externalTabs) {
       const name = basename(t.props.filePath);
@@ -117,7 +103,6 @@ export function TabBar({
     for (const t of externalTabs) {
       const name = basename(t.props.filePath);
       if ((basenameCount.get(name) ?? 0) > 1) {
-        // Extract the parent dir name from the absolute path.
         const parts = t.props.filePath.split("/");
         const parentDir = parts.length >= 2 ? parts[parts.length - 2] : undefined;
         suffixMap.set(t.id, parentDir);
@@ -126,12 +111,6 @@ export function TabBar({
     return suffixMap;
   }, [tabs]);
 
-  // A diff tab always gets `leftRef..rightRef` secondary text so it can be told apart from a
-  // regular editor tab of the same file. The icon (FileDiff vs extension icon) also tells
-  // them apart, but with the text cue two diffs with different refs (e.g. HEAD..WORKING vs
-  // INDEX..WORKING) are distinguishable at a glance. It shares the slot (`parentDirSuffix`)
-  // with the parent-dir suffix of external tabs, but a diff tab is not of type `editor`, so
-  // the keys of the two maps never overlap and no priority conflict can happen.
   const diffTabRefSuffix = useMemo(() => {
     const map = new Map<string, string>();
     for (const t of tabs) {
@@ -142,13 +121,6 @@ export function TabBar({
     return map;
   }, [tabs]);
 
-  // Outer wrapper carries the data-dnd-tab-bar marker AND the drop
-  // listeners (via barRef) so the entire bar — including the empty area
-  // beyond the last tab and around the "+" button — is treated as a tab-bar
-  // drop zone. The inner List is used for measurement so the "|" insertion
-  // line is positioned relative to the actual tab strip.
-  // role="status" aria-live="polite" — announces Claude status changes to screen readers.
-  // When a tab glyph's aria-label changes, the live region announces it politely.
   return (
     <div
       ref={barRef}
@@ -173,10 +145,6 @@ export function TabBar({
             aria-label={t("tabBar.open_tabs")}
           >
             {sortedTabs.map((tab) => (
-              // Wrapper makes the close button a sibling of the trigger so
-              // <button> is never nested inside <button> (HTML invalid; React
-              // 19 hydration warning). Same pattern as Sidebar.tsx workspace
-              // × button.
               <TabItem
                 key={tab.id}
                 workspaceId={workspaceId}
@@ -189,8 +157,6 @@ export function TabBar({
               />
             ))}
 
-            {/* Single "|" insertion-line indicator. Position is recomputed on
-                dragover. Visible only while a supported drag is over the bar. */}
             {insertion && (
               <div
                 aria-hidden
@@ -220,7 +186,6 @@ export function TabBar({
           }}
         />
 
-        {/* New tab dropdown */}
         <DropdownMenuRoot>
           <DropdownMenuTrigger>
             <Button
@@ -232,8 +197,6 @@ export function TabBar({
               <Plus aria-hidden width={16} height={16} strokeWidth={1.5} />
             </Button>
           </DropdownMenuTrigger>
-          {/* The new tab takes focus; returning it to the + button would
-              race that and leave Enter reopening this menu. */}
           <DropdownMenuContent
             align="start"
             side="bottom"

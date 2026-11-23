@@ -1,11 +1,3 @@
-/**
- * What a session's row in the agent list says beside its state: what it
- * waits on (a permission, a question, a plan), the call it runs now, and how
- * far it is (its to-dos, its subagents, its context). A chat tab tells it
- * from its conversation, a terminal running Claude from what its hooks
- * report. Pure.
- */
-
 import type { SessionActivity } from "../../../shared/claude/activity";
 import type { TerminalWait } from "../../../shared/sessions/agent-state";
 import type { ChatModel, ToolCall } from "../chat/model";
@@ -13,7 +5,6 @@ import { agentsOf as chatAgentsOf, contextOf, todosOf } from "../chat/panel";
 import { currentTool, liveAgents, shortTarget } from "./agents";
 import type { AgentSession } from "./model";
 
-/** The groups of the list, in its order: the user's turn first, those quiet last. */
 export const ROW_GROUPS = ["attention", "running", "done", "idle"] as const;
 export type RowGroup = (typeof ROW_GROUPS)[number];
 
@@ -21,15 +12,10 @@ export function groupOf(session: AgentSession): RowGroup {
   return session.phase;
 }
 
-/**
- * Whether the agent lists show it: not an agent whose terminal ended. That
- * terminal stays a tab of its workspace, which takes the agent up again.
- */
 export function listed(session: AgentSession): boolean {
   return session.state !== "exited";
 }
 
-/** Whether `session` has `query` in its title, last prompt or last answer; any does for none. */
 export function matchesQuery(session: AgentSession, query: string): boolean {
   const needle = query.trim().toLowerCase();
   return (
@@ -40,10 +26,6 @@ export function matchesQuery(session: AgentSession, query: string): boolean {
   );
 }
 
-/**
- * The sessions of `group` that match `query`: those waiting longest first
- * among the ones waiting on the user, the latest first elsewhere.
- */
 export function sessionsIn(
   sessions: readonly AgentSession[],
   group: RowGroup,
@@ -56,7 +38,6 @@ export function sessionsIn(
     .sort((a, b) => compareStatusTime(group, a.since, b.since));
 }
 
-/** Oldest first while waiting on the user, newest first otherwise. */
 export function compareStatusTime(
   group: RowGroup,
   a: number | undefined,
@@ -65,16 +46,10 @@ export function compareStatusTime(
   return (group === "attention" ? 1 : -1) * ((a ?? 0) - (b ?? 0));
 }
 
-/** The sessions that match `query`, group by group in the list's order. */
 export function sessionsByGroup(sessions: readonly AgentSession[], query: string): AgentSession[] {
   return ROW_GROUPS.flatMap((group) => sessionsIn(sessions, group, query));
 }
 
-/**
- * The session `session` waits on to end (nexus terminal wait), among
- * `sessions`. A waiter no longer running was interrupted, whatever the
- * registry still says.
- */
 export function waitedOn(
   session: AgentSession,
   waits: readonly TerminalWait[],
@@ -91,7 +66,6 @@ export function waitedOn(
   );
 }
 
-/** What a session waits on the user for. */
 export type RowWait =
   | { readonly kind: "permission"; readonly tool: string; readonly target: string | undefined }
   | { readonly kind: "question"; readonly text: string; readonly count: number }
@@ -99,12 +73,9 @@ export type RowWait =
 
 export interface RowFacts {
   readonly wait: RowWait | undefined;
-  /** The call the session runs now, on the main thread. */
   readonly tool: { readonly name: string; readonly target: string | undefined } | undefined;
   readonly todos: { readonly done: number; readonly total: number } | undefined;
-  /** Subagents running now. */
   readonly subagents: number;
-  /** How full the context is, in percent, when the session told it. */
   readonly context: number | undefined;
 }
 
@@ -116,7 +87,6 @@ export const NO_FACTS: RowFacts = {
   context: undefined,
 };
 
-/** The input keys that name what a call works on, in the order they are looked for. */
 const TARGET_KEYS = [
   "file_path",
   "notebook_path",
@@ -129,7 +99,6 @@ const TARGET_KEYS = [
   "prompt",
 ] as const;
 
-/** What a call works on, from its input: a file, a command, a query. */
 export function inputTarget(name: string, input: unknown): string | undefined {
   const record = (input ?? {}) as Record<string, unknown>;
   for (const key of TARGET_KEYS) {
@@ -139,22 +108,13 @@ export function inputTarget(name: string, input: unknown): string | undefined {
   return undefined;
 }
 
-/** The first line of a question or plan, its Markdown heading marks off. */
 function firstLine(text: string): string {
   const line = text.split("\n").find((each) => each.trim() !== "") ?? "";
   return line.replace(/^#+\s*/, "").trim();
 }
 
-// The facts last worked out for each conversation. The lists show every
-// tab's row again when any tab's conversation moves; the tabs whose own
-// conversation did not move give the same facts without walking it again.
 const factsOf = new WeakMap<ChatModel, { activity?: SessionActivity; facts: RowFacts }>();
 
-/**
- * What a Claude or Codex tab's session waits on and does, from its
- * conversation; its running agents from its hooks (`activity`) once they
- * report any, which count its `claude -p` and `codex exec` runs too.
- */
 export function chatRowFacts(model: ChatModel, activity?: SessionActivity): RowFacts {
   const known = factsOf.get(model);
   if (known && known.activity === activity) return known.facts;
@@ -215,7 +175,6 @@ function workOutChatRowFacts(model: ChatModel, activity?: SessionActivity): RowF
   };
 }
 
-/** How full a chat tab's context is, in percent, once its program told it. */
 export function contextPercent(model: ChatModel): number | undefined {
   const context = contextOf(model.contextUsage);
   return context && context.maxTokens > 0
@@ -223,7 +182,6 @@ export function contextPercent(model: ChatModel): number | undefined {
     : undefined;
 }
 
-/** What a terminal running Claude waits on and does, from what its hooks report. */
 export function hookRowFacts(activity: SessionActivity | undefined): RowFacts {
   if (!activity) return NO_FACTS;
   const ask = activity.asks?.find((each) => each.agentId === undefined) ?? activity.asks?.[0];

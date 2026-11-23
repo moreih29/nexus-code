@@ -1,8 +1,3 @@
-// Agent list — an agent's card, beside the list: an agent a conversation
-// runs has no tab of its own, so picking its row opens this instead, with
-// what it was asked, did and wrote, its permission requests to answer, and
-// the way to its conversation's tab. Escape or a press outside closes it.
-
 import { Popover as RadixPopover } from "radix-ui";
 import { useMemo, useRef } from "react";
 import { cn } from "@/utils/cn";
@@ -21,18 +16,15 @@ export function AgentPeek({
   onShowSession,
   onClose,
 }: {
-  /** The agent's row, which the card stands beside. */
   anchor: HTMLElement;
   worktree: WorktreeEntry;
   session: AgentSession;
   agent: AgentRun;
-  /** The permission requests the agent waits on. */
   asks: readonly PermissionAsk[];
   onShowSession: () => void;
   onClose: () => void;
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null);
-  // Where the row was last seen, for while the list draws it again.
   const lastRect = useRef<DOMRect | null>(null);
   const measured = useMemo(
     () => ({
@@ -63,7 +55,6 @@ export function AgentPeek({
           sideOffset={8}
           collisionPadding={8}
           tabIndex={-1}
-          // The card takes the keyboard, for Escape; the list keeps it once it closes.
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             contentRef.current?.focus();

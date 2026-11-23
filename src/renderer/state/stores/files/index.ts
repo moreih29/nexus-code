@@ -1,5 +1,3 @@
-// Side-effect import: registers the fs.changed subscription on module load.
-// Must be retained even if no symbol is referenced from this module.
 import "./subscriber";
 
 export { parentOf, selectFlat } from "./helpers";

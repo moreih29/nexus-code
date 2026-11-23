@@ -106,7 +106,6 @@ describe("what another computer's consent prompt says", () => {
     expect(consentActionOf(t, { kind: "tabClose", detail: "Review" })).toBe(
       'close the tab "Review"',
     );
-    // A kind this version does not know is named as it came.
     expect(consentActionOf(t, { kind: "teleport", detail: "x" })).toBe("make a change (teleport)");
   });
 
@@ -157,7 +156,6 @@ describe("what another computer's consent prompt says", () => {
     expect(html).toContain("Allow an agent to change another workspace?");
     expect(html).toMatch(/<p class="[^"]*break-keep \[overflow-wrap:anywhere\][^"]*">The terminal/);
     expect(html).toContain("rm -rf dist\nbun run build");
-    // The body scrolls, as the prompt's box does.
     expect(html).toMatch(/<pre class="[^"]*overflow-auto/);
     expect(html).not.toContain("It is turned down if not answered");
     expect(html).toContain("Don&#x27;t allow");

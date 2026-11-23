@@ -1,13 +1,3 @@
-/**
- * Wire-shape tests for src/shared/git-error-ipc.
- *
- * Electron's V8 ValueSerializer drops custom Error own properties so the
- * renderer historically lost `kind`, `hint`, `stderr`, and `argv` from a
- * thrown GitError. The IPC envelope routes those fields through `cause`,
- * which structured clone preserves; these tests pin the wire contract so
- * the main router and renderer client cannot drift.
- */
-
 import { describe, expect, test } from "bun:test";
 import {
   gitErrorFromIpcResult,
@@ -96,7 +86,6 @@ describe("isIpcGitErrorResult", () => {
     expect(isIpcGitErrorResult({})).toBe(false);
     expect(isIpcGitErrorResult({ kind: "x", message: "y" })).toBe(false);
     expect(isIpcGitErrorResult(undefined)).toBe(false);
-    // The cause-side mark should not collide with the call-result mark.
     expect(isIpcGitErrorResult({ [IPC_GIT_ERROR_MARK]: true })).toBe(false);
   });
 });

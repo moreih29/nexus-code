@@ -1,8 +1,3 @@
-/**
- * The nexus command table and the runner that turns one invocation into
- * its output: it finds the command, parses its flags, runs it, and prints
- * text or, with --json, JSON.
- */
 import type { CliFile, CliResult } from "../../../shared/cli/protocol";
 import { createLogger } from "../../../shared/log/main";
 import { redactLogSecrets } from "../../../shared/log/redact-secrets";
@@ -11,36 +6,25 @@ import { type CliContext, CliError } from "./context";
 
 const log = createLogger("cli");
 
-/** What a command gives back: text for people, a value for --json. */
 export interface CliOutput {
   readonly text: string;
   readonly json: unknown;
-  /** Emit Unicode directly for commands whose output is intended as readable text. */
   readonly utf8Json?: true;
-  /**
-   * The records --jsonl prints, a line each; by default the items of a
-   * `json` that is a list, else `json` alone.
-   */
   readonly records?: readonly unknown[];
   readonly files?: readonly CliFile[];
   readonly exitCode?: number;
 }
 
 export interface CliCommand {
-  /** The words that name it, such as ["terminal", "read"]. */
   readonly path: readonly string[];
   readonly summary: string;
-  /** Its positional arguments as help shows them, such as "<tab>". */
   readonly args?: string;
   readonly flags?: Record<string, FlagSpec>;
-  /** More help, shown under the usage line. */
   readonly details?: string;
-  /** Left out of the overview: run by the app's own hooks, not by people. */
   readonly hidden?: boolean;
   run(ctx: CliContext, input: ParsedArgs): Promise<CliOutput>;
 }
 
-/** A helper for commands with nothing to say but a value. */
 export function output(text: string, json: unknown, extra: Partial<CliOutput> = {}): CliOutput {
   return { text, json, ...extra };
 }
@@ -75,7 +59,6 @@ export function commandHelp(command: CliCommand): string {
   return `${lines.join("\n")}\n`;
 }
 
-/** The overview `nexus help` prints, optionally for one group of commands. */
 export function overviewHelp(commands: readonly CliCommand[], group?: string): string {
   const listed = commands.filter((c) => !c.hidden);
   const shown = group ? listed.filter((c) => c.path[0] === group) : listed;
@@ -95,7 +78,6 @@ export function overviewHelp(commands: readonly CliCommand[], group?: string): s
   return `${lines.join("\n")}\n`;
 }
 
-/** The command `argv` names: the one whose whole path its first words match. */
 function findCommand(
   commands: readonly CliCommand[],
   argv: readonly string[],
@@ -109,16 +91,11 @@ function findCommand(
   return best ? { command: best, rest: argv.slice(best.path.length) } : null;
 }
 
-/**
- * The name of the command an invocation runs, such as "chat send", for a log
- * line. Only the command's own words: its arguments may be a user's text.
- */
 export function commandName(commands: readonly CliCommand[], argv: readonly string[]): string {
   const found = findCommand(commands, argv);
   return found ? found.command.path.join(" ") : "unknown";
 }
 
-/** Whether the command waits for something by design, so its time says nothing of a stall. */
 export function commandWaits(commands: readonly CliCommand[], argv: readonly string[]): boolean {
   const found = findCommand(commands, argv);
   if (!found) return false;
@@ -130,11 +107,6 @@ function result(stdout: string, stderr = "", exitCode = 0, files?: readonly CliF
   return { stdout, stderr, exitCode, ...(files && files.length > 0 ? { files } : {}) };
 }
 
-/**
- * A value as JSON in ASCII alone, every other character escaped: a reader
- * that takes the bytes in another code page than UTF-8 still reads it whole,
- * as Windows PowerShell 5.1 does what it pipes into ConvertFrom-Json.
- */
 function asciiJson(value: unknown, indent?: number): string {
   return (JSON.stringify(value, null, indent) ?? "null").replace(
     /[\u0080-￿]/g,
@@ -142,7 +114,6 @@ function asciiJson(value: unknown, indent?: number): string {
   );
 }
 
-/** An output as JSON Lines: its records, a line each. */
 function jsonLines(out: CliOutput): string {
   const records = out.records ?? (Array.isArray(out.json) ? out.json : [out.json]);
   return records.map((record) => `${asciiJson(record)}\n`).join("");
@@ -160,7 +131,6 @@ function stdoutOf(out: CliOutput, flags: ParsedArgs["flags"]): string {
   return withNewline(out.text);
 }
 
-/** Runs one invocation of the nexus command. Never throws. */
 export async function runCli(commands: readonly CliCommand[], ctx: CliContext): Promise<CliResult> {
   const argv = ctx.invocation.argv;
   const first = argv[0];

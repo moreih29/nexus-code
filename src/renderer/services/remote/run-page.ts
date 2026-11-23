@@ -1,10 +1,3 @@
-// A `claude -p` or `codex exec` run of a tab's as another device draws it
-// (the remote's chat.runRead): a page of the run's own session, as
-// chat-page gives one of a tab's conversation. What was read is kept a
-// short while, so a device following a run reads on, not anew: a claude
-// run's transcript from where the last read ended, a codex run's thread by
-// the reader already up (closed once no one asks).
-
 import type { ChatPage } from "../../../../packages/remote-protocol/src";
 import { ipcCallResult } from "../../ipc/client";
 import { historyModel } from "../chat/claude/history";
@@ -21,19 +14,15 @@ import {
 import { emptyTabState } from "../chat/store";
 import { chatPageOf } from "./chat-page";
 
-/** How long what was read of a run is kept after the last ask. */
 export const RUN_PAGE_KEPT_MS = 30_000;
 
-/** How long a codex run's thread, read whole, answers the asks that follow. */
 export const RUN_THREAD_FRESH_MS = 2_000;
 
 interface Kept {
   lines: RunLines;
   model?: ChatModel;
-  /** When a codex run's thread was last read whole into `model`. */
   readAt?: number;
   reader?: Promise<CodexRunReader | RunReaderMiss>;
-  /** Readers that were started and did not come up or ended, since a read gave the thread. */
   failed?: number;
   timer?: ReturnType<typeof setTimeout>;
 }
@@ -50,7 +39,6 @@ function drop(key: string): void {
   });
 }
 
-/** The run's page, null when it keeps no session to read (or is not the tab's). */
 export async function runPageOf(
   workspaceId: string,
   tabId: string,
@@ -83,15 +71,12 @@ export async function runPageOf(
     }
   }
   if (!model) {
-    // Not a claude run's transcript: a codex run's thread, if it is one.
     agent = "codex";
-    // A reader that keeps failing is started a few times, not at every ask.
     if (!entry.reader && (entry.failed ?? 0) >= RUN_READER_ATTEMPTS) return null;
     entry.reader ??= openCodexRunReader(workspaceId, tabId, runId);
     const opening = entry.reader;
     const opened = await opening;
     const reader = typeof opened === "string" ? null : opened;
-    // A page that did not fit is asked for again at once, smaller: of the thread just read.
     const fresh =
       entry.model && entry.readAt !== undefined && Date.now() - entry.readAt < RUN_THREAD_FRESH_MS;
     if (fresh) model = entry.model ?? null;
@@ -102,8 +87,6 @@ export async function runPageOf(
       if (model) entry.failed = 0;
     }
     if (!reader || reader.dead) {
-      // None started, or it ended since: the next ask starts another. One
-      // out of reach ("none") is not one that failed.
       if (entry.reader === opening) {
         entry.reader = undefined;
         if (opened !== "none") entry.failed = (entry.failed ?? 0) + 1;

@@ -1,81 +1,30 @@
-/**
- * The macOS keychain the app's sealed files open with, read only when the
- * user knows it is coming.
- *
- * Reading the "NexusCode Safe Storage" item makes macOS ask for the login
- * password whenever the item's access list does not name the running app's
- * signature, as after the move to Developer ID. So, with sealed files there
- * and an app signed otherwise than when the keychain last opened, nothing is
- * read until the user says to go on (or does something that needs it); put
- * off, the files stay locked for the run. A call that runs long is macOS
- * asking, and the windows say what to choose meanwhile.
- */
-
 import type { KeychainItem, KeychainStatus } from "../../../shared/keychain";
 import { KeychainLockedError, type SecretBox } from "../remote/sealed-file";
 
-/** What a feature with a sealed file needs of the keychain. */
 export interface Keychain {
-  /** What it seals with; null where the system has nothing to seal with. */
   readonly box: SecretBox | null;
-  /** Resolves once it is known whether the user is asked first. */
   decided(): Promise<void>;
-  /** Whether reads go ahead now; reads in the background wait while not. */
   isOpen(): boolean;
-  /** Whether the item has a sealed file now. */
   has(item: KeychainItem): boolean;
-  /**
-   * For what the user does (sign in, save an API key, agree to or remember
-   * a voice): opens a locked keychain, waits for the answer while the user
-   * is being asked, and resolves whether reads may go ahead. Never waits
-   * for the reads the opening starts, which may wait in the caller's line.
-   */
   unlock(): Promise<boolean>;
-  /**
-   * For a key the user did not just ask for (a chat an agent started, a
-   * resumed chat, a summary): asks the user again while locked, and
-   * resolves whether reads may go ahead. Refused this run, it asks nothing.
-   */
   request(): Promise<boolean>;
-  /**
-   * A read in the background: runs now while open, otherwise once it opens,
-   * resolving when it has run. A task waiting under the same key is
-   * replaced; one the keychain refused waits for the next opening.
-   */
   whenOpen(key: string, task: () => Promise<void>): Promise<void>;
 }
 
-/** The keychain as the app's windows and settings see it and answer it. */
 export interface KeychainControl extends Keychain {
   status(): KeychainStatus;
-  /** Told of each change of the status, until the returned function is called. */
   subscribe(listener: (status: KeychainStatus) => void): () => void;
-  /**
-   * The user says to open it (the prompt's answer, the settings' button):
-   * resolves once the reads that waited have run, whether it is open.
-   */
   open(): Promise<boolean>;
-  /** The user puts it off for this run. */
   putOff(): void;
 }
 
-/** A call longer than this is macOS asking the user, not the keychain answering. */
 export const KEYCHAIN_SLOW_MS = 500;
 
-/**
- * Whether a safeStorage call failed because the keychain gave no key, not
- * because of the data. Chromium asks the keychain once a run: a key it did
- * not get (the prompt refused, or the keychain locked) leaves its encryptor
- * without one, so decrypting says "temporarily unavailable" and encrypting
- * fails outright. A damaged or foreign file fails to decrypt with the key
- * there, with another message.
- */
 export function refusedByKeychain(call: "encrypt" | "decrypt", error: unknown): boolean {
   if (call === "encrypt") return true;
   return error instanceof Error && /temporarily unavailable/i.test(error.message);
 }
 
-/** Where nothing asks first (away from macOS): always open. */
 export function openKeychain(
   box: SecretBox | null,
   warn: (message: string) => void = () => {},
@@ -96,15 +45,10 @@ export function openKeychain(
 }
 
 export interface KeychainGateDeps {
-  /** safeStorage's own calls. */
   readonly raw: Pick<SecretBox, "encrypt" | "decrypt">;
-  /** The items with a sealed file now. */
   items(): KeychainItem[];
-  /** The running app's signature; null where it cannot be told. */
   signature(): Promise<string | null>;
-  /** The signature the keychain last opened for. */
   readonly recorded: { get(): string | null; set(signature: string): void };
-  /** Told each time the status changes. */
   onChange(status: KeychainStatus): void;
   warn?(message: string): void;
   slowMs?: number;
@@ -130,15 +74,11 @@ function queued(task: () => Promise<void>): Waiting {
 
 export class KeychainGate implements KeychainControl {
   private state: KeychainStatus["state"] = "checking";
-  /** Calls running past KEYCHAIN_SLOW_MS. */
   private slow = 0;
-  /** Refused in macOS's prompt: Chromium keeps the run's encryptor without a key, so opening again fails at once. */
   private refused = false;
   private readonly waiting = new Map<string, Waiting>();
   private readonly decision: Promise<void>;
-  /** The answer, while the user is asked. */
   private answer: { promise: Promise<boolean>; settle(open: boolean): void } = settled(false);
-  /** The reads an opening started, until they have run. */
   private flushing: Promise<void> = Promise.resolve();
   private readonly listeners = new Set<(status: KeychainStatus) => void>();
   private signing: Promise<string | null> | null = null;
@@ -194,7 +134,6 @@ export class KeychainGate implements KeychainControl {
     return Promise.resolve(true);
   }
 
-  /** Leaves "ask" or "locked" at once, so no other window takes the question meanwhile. */
   open(): Promise<boolean> {
     if (this.refused) return Promise.resolve(false);
     if (this.state === "checking") return this.decision.then(() => this.open());
@@ -237,12 +176,6 @@ export class KeychainGate implements KeychainControl {
     this.openNow();
   }
 
-  /**
-   * Reads go ahead from now; what waited runs behind, the first read asking
-   * macOS where it would. "opening" until it has run, for the windows only:
-   * nothing waits on it, since what waited may be in line behind a save
-   * that is waiting for this.
-   */
   private openNow(): void {
     if (this.state === "opening" || this.state === "open") return;
     this.set("opening");
@@ -265,14 +198,12 @@ export class KeychainGate implements KeychainControl {
       if (!(error instanceof KeychainLockedError)) {
         this.deps.warn?.(`${key}: ${describe(error)}`);
       } else if (!this.waiting.has(key)) {
-        // Refused, or read before opening: again at the next opening.
         this.waiting.set(key, queued(task));
       }
     }
   }
 
   private async call<T>(kind: "encrypt" | "decrypt", work: () => Promise<T>): Promise<T> {
-    // Nothing reads while closed: the features ask first, and this is the net.
     if (!this.isOpen()) throw new KeychainLockedError();
     let slow = false;
     const timer = setTimeout(() => {
@@ -303,7 +234,6 @@ export class KeychainGate implements KeychainControl {
     }
   }
 
-  /** The keychain opened for this app: the next run need not ask while it is signed the same. */
   private opened(): void {
     if (this.noted) return;
     this.noted = true;

@@ -1,4 +1,3 @@
-/** -1, 0 or 1 as a is before, the same as, or after b; x.y.z only. */
 export function compareVersions(a: string, b: string): number {
   const pa = a.split(".").map((n) => Number.parseInt(n, 10) || 0);
   const pb = b.split(".").map((n) => Number.parseInt(n, 10) || 0);

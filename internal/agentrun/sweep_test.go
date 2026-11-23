@@ -7,8 +7,6 @@ import (
 	"time"
 )
 
-// mkRunFiles creates <id>.lock/.sock/.log in dir. logAge backdates the log's
-// mtime so retention behavior can be exercised.
 func mkRunFiles(t *testing.T, dir, id string, logAge time.Duration) (lock, sock, log string) {
 	t.Helper()
 	lock = filepath.Join(dir, id+".lock")
@@ -33,9 +31,6 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// TestSweepStaleRemovesDeadDaemonFiles: a foreign workspace whose lock is NOT
-// held (daemon provably dead) loses its socket and its over-retention log,
-// but keeps the lock file itself.
 func TestSweepStaleRemovesDeadDaemonFiles(t *testing.T) {
 	dir := t.TempDir()
 	lock, sock, log := mkRunFiles(t, dir, "aaaaaaaaaaaaaaaa", staleLogRetention+time.Hour)
@@ -56,8 +51,6 @@ func TestSweepStaleRemovesDeadDaemonFiles(t *testing.T) {
 	}
 }
 
-// TestSweepStaleRemovesDeadDaemonAgentLink: the SSH agent link of a dead
-// daemon points at a socket nobody re-points any more.
 func TestSweepStaleRemovesDeadDaemonAgentLink(t *testing.T) {
 	dir := t.TempDir()
 	mkRunFiles(t, dir, "aaaaaaaaaaaaaaaa", 0)
@@ -73,8 +66,6 @@ func TestSweepStaleRemovesDeadDaemonAgentLink(t *testing.T) {
 	}
 }
 
-// TestSweepStaleKeepsRecentLog: a dead workspace's log inside the retention
-// window survives — it is post-mortem evidence.
 func TestSweepStaleKeepsRecentLog(t *testing.T) {
 	dir := t.TempDir()
 	_, sock, log := mkRunFiles(t, dir, "bbbbbbbbbbbbbbbb", time.Hour)
@@ -89,8 +80,6 @@ func TestSweepStaleKeepsRecentLog(t *testing.T) {
 	}
 }
 
-// TestSweepStaleSkipsLiveDaemon: while another process (here: this test, via
-// TryLock) holds the flock, nothing of that workspace is touched.
 func TestSweepStaleSkipsLiveDaemon(t *testing.T) {
 	dir := t.TempDir()
 	lockPath, sock, log := mkRunFiles(t, dir, "cccccccccccccccc", staleLogRetention+time.Hour)
@@ -111,8 +100,6 @@ func TestSweepStaleSkipsLiveDaemon(t *testing.T) {
 	}
 }
 
-// TestSweepStaleSkipsOwnWorkspace: the caller's own files are out of scope
-// even when its lock would be acquirable in-process.
 func TestSweepStaleSkipsOwnWorkspace(t *testing.T) {
 	dir := t.TempDir()
 	_, sock, _ := mkRunFiles(t, dir, "dddddddddddddddd", staleLogRetention+time.Hour)
@@ -127,8 +114,6 @@ func TestSweepStaleSkipsOwnWorkspace(t *testing.T) {
 	}
 }
 
-// TestSweepStaleSkipsWithoutLockFile: a socket with no lock file cannot be
-// probed for liveness, so it is left alone.
 func TestSweepStaleSkipsWithoutLockFile(t *testing.T) {
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "eeeeeeeeeeeeeeee.sock")
@@ -143,16 +128,14 @@ func TestSweepStaleSkipsWithoutLockFile(t *testing.T) {
 	}
 }
 
-// TestSweepStaleIgnoresForeignNames: files that do not match the
-// <16-hex>.{lock,sock,log} layout are never agentrun's to delete.
 func TestSweepStaleIgnoresForeignNames(t *testing.T) {
 	dir := t.TempDir()
 	foreign := []string{
 		"readme.txt",
-		"short.sock",                // id not 16 chars
-		"AAAAAAAAAAAAAAAA.sock",     // uppercase — not our hex
-		"gggggggggggggggg.sock",     // non-hex chars
-		"ffffffffffffffff.sock.bak", // wrong extension
+		"short.sock",
+		"AAAAAAAAAAAAAAAA.sock",
+		"gggggggggggggggg.sock",
+		"ffffffffffffffff.sock.bak",
 	}
 	for _, name := range foreign {
 		if err := os.WriteFile(filepath.Join(dir, name), nil, 0600); err != nil {

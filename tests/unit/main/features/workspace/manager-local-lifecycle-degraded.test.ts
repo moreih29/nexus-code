@@ -1,22 +1,3 @@
-/**
- * manager-local-lifecycle-degraded.test.ts
- *
- * Regression for the v0.6.0 local-channel teardown bug: 56e411a added the
- * `degraded` / `degraded-recovered` / `ready` lifecycle events, but
- * handleLocalChannelLifecycle still treated "anything except reconnecting /
- * disposed" as terminal. One spuriously late heartbeat then tore down the
- * local provider WITHOUT disposing the channel — abandoning a live agent
- * (orphan process keeping every fs/git watch) and lazily booting a fresh
- * watch-less agent. Push events (fs.changed / git.changed) went silent while
- * RPC kept working, and existing PTY sessions were stranded.
- *
- * Acceptance:
- *  A. `degraded` / `degraded-recovered` / `ready` do NOT tear down the local
- *     provider (no removeShimDir, no second channel boot).
- *  B. `exit` / `failure` still tear it down (removeShimDir fires, and the
- *     next getAgentChannel boots a fresh channel).
- */
-
 import { Database } from "bun:sqlite";
 import { describe, expect, jest, mock, spyOn, test } from "bun:test";
 import os from "node:os";
@@ -132,11 +113,11 @@ function makeHarness() {
     workspaceStorage,
     stateService,
     broadcast,
-    createChannel as never, // sshChannelFactory
+    createChannel as never,
     bootstrap,
-    createChannel as never, // localChannelFactory
+    createChannel as never,
     () => ({ bin: "/stub/agent", args: [] }),
-    undefined as never, // sshLspBootstrap
+    undefined as never,
     writeShimFilesMock,
     removeShimDirMock,
     { bootstrap, createChannel } as never,
@@ -244,8 +225,6 @@ for (const available of [true, false]) {
   test(`local reconnect waits for refreshed hooks before resync and spawn (${available ? "available" : "unavailable"})`, async () => {
     const harness = makeHarness();
     const { manager, channels, globalDb } = harness;
-    // Windows CI has no packaged nexus.exe to install. The launched chat
-    // needs a wrapper directory here so this test exercises hook refresh.
     const wrapperDir = spyOn(manager, "getWrapperBinDir").mockReturnValue("/stub/wrappers");
     const resynced = Promise.withResolvers<void>();
     const events: string[] = [];
@@ -270,7 +249,6 @@ for (const available of [true, false]) {
         host.startCodex(id, "codex", "/project", {}),
         host.start(id, "claude", "/project", {}),
       ]);
-      // Let both starts reach the pending hook lookup.
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(channel.spawns).toHaveLength(1);
       expect(manager.getHookInfo(id)).toBeNull();
@@ -423,10 +401,8 @@ describe("handleLocalChannelLifecycle: health signals must not tear down the pro
       harness.channels[0].emitLifecycle({ type });
       await settle();
 
-      // No teardown side effects.
       expect(harness.removeShimDirMock).not.toHaveBeenCalled();
 
-      // The same channel keeps serving — a re-request must NOT boot a new one.
       const again = await harness.manager.getAgentChannel(meta.id);
       expect(again).toBe(harness.channels[0] as never);
       expect(harness.channels).toHaveLength(1);
@@ -447,7 +423,6 @@ describe("handleLocalChannelLifecycle: health signals must not tear down the pro
       expect(harness.removeShimDirMock).toHaveBeenCalledTimes(1);
       expect(harness.removeShimDirMock.mock.calls[0][0]).toBe(meta.id);
 
-      // Next request boots a fresh channel.
       await harness.manager.getAgentChannel(meta.id);
       expect(harness.channels).toHaveLength(2);
 

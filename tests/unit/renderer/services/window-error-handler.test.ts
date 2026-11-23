@@ -1,31 +1,4 @@
-/**
- * Scenario-based tests for window-error-handler.ts.
- *
- * Verifies:
- *  1. isPureCanceled — classification of cancellation vs. real errors.
- *  2. installWindowErrorHandlers — listener registration / teardown.
- *  3. 'unhandledrejection' handler — Canceled rejections are silent (no log);
- *     real rejections are logged.
- *  4. 'error' handler — Canceled errors are silent; real errors are logged.
- *
- * electron-log/renderer is mocked so the facade can be imported without a live
- * Electron IPC channel.
- *
- * The test captures the installed listener functions via the stubbed
- * window.addEventListener and invokes them directly — this avoids requiring
- * window.dispatchEvent (absent in the minimal IPC stub) while still exercising
- * the handler logic in isolation.
- */
-
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Stub window.ipc so ipc/client loads without Electron preload.
-// Also provide addEventListener/removeEventListener so electron-log/renderer's
-// module-init code (which calls window.addEventListener("message", ...)) does
-// not throw an "Unhandled error between tests" when it is first loaded in this
-// test worker's context before the mock.module() call takes effect.
-// ---------------------------------------------------------------------------
 
 (globalThis as Record<string, unknown>).window = {
   ipc: {
@@ -36,10 +9,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
   addEventListener: () => {},
   removeEventListener: () => {},
 };
-
-// ---------------------------------------------------------------------------
-// Mock electron-log/renderer so createLogger never tries IPC
-// ---------------------------------------------------------------------------
 
 const logged: { level: string; args: unknown[] }[] = [];
 
@@ -52,22 +21,10 @@ mock.module("electron-log/renderer", () => ({
   },
 }));
 
-// ---------------------------------------------------------------------------
-// Import after mocks
-// ---------------------------------------------------------------------------
-
 import { installWindowErrorHandlers } from "../../../../src/renderer/services/window-error-handler";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 type EventHandler = (event: unknown) => void;
 
-/**
- * Creates a window stub that records addEventListener / removeEventListener
- * calls and exposes a `handlers` map for direct handler invocation.
- */
 function makeWindowStub(): {
   stub: Record<string, unknown>;
   added: { type: string; fn: EventHandler }[];
@@ -98,7 +55,6 @@ function makeWindowStub(): {
   return { stub, added, removed, invoke };
 }
 
-/** Build a minimal PromiseRejectionEvent-like object for testing. */
 function makeRejectionEvent(reason: unknown): {
   reason: unknown;
   defaultPrevented: boolean;
@@ -116,7 +72,6 @@ function makeRejectionEvent(reason: unknown): {
   };
 }
 
-/** Build a minimal ErrorEvent-like object for testing. */
 function makeErrorEvent(error: unknown): {
   error: unknown;
   defaultPrevented: boolean;
@@ -133,10 +88,6 @@ function makeErrorEvent(error: unknown): {
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Handler behaviour — unhandledrejection
-// ---------------------------------------------------------------------------
 
 describe("unhandledrejection handler — Canceled rejection is silent", () => {
   let windowStub: ReturnType<typeof makeWindowStub>;
@@ -170,10 +121,6 @@ describe("unhandledrejection handler — Canceled rejection is silent", () => {
     expect(logged.filter((l) => l.level === "error").length).toBeGreaterThan(0);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Handler behaviour — error (synchronous)
-// ---------------------------------------------------------------------------
 
 describe("error handler — Canceled error is silent", () => {
   let windowStub: ReturnType<typeof makeWindowStub>;

@@ -31,7 +31,6 @@ const WIN_ENV = {
   "ProgramFiles(x86)": "C:\\Program Files (x86)",
   LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local",
   ComSpec: "C:\\Windows\\system32\\cmd.exe",
-  // Windows env names are case-insensitive; the PATH variable is "Path".
   Path: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0;C:\\Program Files\\Git\\cmd",
   PATHEXT: ".COM;.EXE;.BAT;.CMD",
 };

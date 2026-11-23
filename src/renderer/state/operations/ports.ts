@@ -1,8 +1,3 @@
-// Mirrors main's listening ports (pty:ports) and port forwards (pty:forwards)
-// into the ports stores, and opens a port in a browser tab. An SSH
-// workspace's ports are on its host; main forwards one to this machine when
-// it is opened, or by hand.
-
 import i18next from "i18next";
 import { loopbackPort, type PortForward, portUrl } from "../../../shared/pty/ports";
 import { showToast } from "../../components/ui/toast";
@@ -38,18 +33,15 @@ export function initPortsSync(): void {
   });
 }
 
-/** The workspace's SSH host; null for a workspace on this machine or in WSL. */
 export function sshHostOf(workspaceId: string): string | null {
   const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
   return workspace?.location.kind === "ssh" ? workspace.location.host : null;
 }
 
-/** Opens a workspace's port in a new browser tab in that workspace, through its forward on SSH. */
 export function openPortInBrowser(workspaceId: string, port: number): void {
   openBrowserTabAt(workspaceId, portUrl(port));
 }
 
-/** Tells why a port of an SSH workspace's host could not be forwarded. */
 export function showForwardFailure(
   workspaceId: string,
   port: number,
@@ -63,7 +55,6 @@ export function showForwardFailure(
   showToast({ kind: "error", message });
 }
 
-/** Forwards a port of an SSH workspace's host by hand; null when that failed, as told. */
 export async function forwardPort(workspaceId: string, port: number): Promise<PortForward | null> {
   const result = await ipcCallResult("pty", "forward", { workspaceId, port });
   if (result.ok) return result.value;
@@ -75,20 +66,12 @@ export function unforwardPort(workspaceId: string, port: number): void {
   void ipcCallResult("pty", "unforward", { workspaceId, port });
 }
 
-/**
- * Where a workspace's port opens on this machine: an SSH workspace's is
- * forwarded first. Null when that failed, as told.
- */
 export async function portUrlHere(workspaceId: string, port: number): Promise<string | null> {
   if (sshHostOf(workspaceId) === null) return portUrl(port);
   const forward = await forwardPort(workspaceId, port);
   return forward ? portUrl(forward.localPort) : null;
 }
 
-/**
- * Where `url` opens on this machine: in an SSH workspace a local address
- * goes to its forward, set up for it now. Null when that failed, as told.
- */
 export async function localUrlFor(workspaceId: string, url: string): Promise<string | null> {
   const port = loopbackPort(url);
   if (sshHostOf(workspaceId) === null || port === null) return url;

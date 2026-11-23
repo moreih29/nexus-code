@@ -1,52 +1,3 @@
-// MarkdownPreview — renders user-supplied markdown via react-markdown.
-//
-// SECURITY MODEL (plan 60 issues 1, 6)
-//   - Raw HTML is parsed (`rehype-raw`) so the preview matches GitHub, but it
-//     is immediately run through `rehype-sanitize` using its DEFAULT schema —
-//     which is GitHub's own allowlist. `<script>` (content and all),
-//     `<iframe>`, event handlers (`on*`), inline `style`, and disallowed URL
-//     schemes are therefore stripped before they ever reach the DOM, while
-//     `<div align>`, `<img width/height>`, `<details>/<summary>`, `<sub>`,
-//     task-list `className`, and fenced-code `language-*` all survive.
-//   - Plugin ORDER is load-bearing: raw → sanitize → slug → highlight.
-//     Sanitize must run AFTER raw (to clean parsed HTML) but BEFORE slug /
-//     highlight, because the allowlist forbids `className` on `<span>` — and
-//     rehype-highlight emits exactly those `hljs-*` spans. Running it last
-//     would strip all syntax highlighting; running it before keeps those
-//     trusted plugins' output untouched.
-//   - Every link/image href flows through `classifyLinkHref`, which enforces
-//     the workspace root prefix and the external-scheme allowlist. Raw-HTML
-//     `<a>`/`<img>` become hast nodes and pass through the same `components`
-//     renderers below, so this guard covers HTML-authored links/images too.
-//   - External URLs open via `window.open(_, "_blank", "noopener,noreferrer")`
-//     which routes through the hardened `setWindowOpenHandler` in main.
-//   - Workspace-relative images are served by the `nexus-workspace://` custom
-//     protocol with its own realpath/symlink guard in main.
-//
-// LIVE SYNC
-//   The component is purely a function of `source`. The owning EditorView
-//   subscribes to `model.onDidChangeContent`, throttles with rAF, and feeds
-//   the latest string here — re-render handles the rest.
-//
-// INTERACTIVITY (preview → source and view-only affordances)
-//   - Task-list checkboxes (`- [ ]`) are interactive when `onToggleTask` is
-//     supplied (writable file). The `li` node carries the source position;
-//     the synthetic `input` node does NOT, so `li` publishes its model line
-//     through `TaskLineContext` and `input` reads it back to toggle. Line
-//     numbers from the AST are relative to the frontmatter-stripped body, so
-//     `frontmatterLineOffset` is added back to reach true model lines.
-//   - Code blocks get a hover "Copy" button (view-only; never edits source).
-//   - Headings get an auto `id` (rehype-slug) plus a hover "#" anchor-copy
-//     button and a fold toggle that collapses the section below them. Folding
-//     is a pure view state (a Set of heading ids) reapplied to the DOM after
-//     every live-sync re-render — it never touches the source.
-//
-// TYPOGRAPHY
-//   We render into a `.md-preview` scoped container. Styles are inline-tailwind
-//   for the body, and a small CSS file is loaded by the importer for the
-//   element-level rules (h1..h6 sizing, code blocks, tables). max-width 72ch
-//   for readability per design.md preview-area guide.
-
 import {
   createContext,
   useCallback,
@@ -82,27 +33,12 @@ const log = createLogger("markdown-preview");
 interface MarkdownPreviewProps {
   source: string;
   workspaceId: string;
-  /** Absolute (POSIX) path of the markdown file being previewed. */
   currentFileAbsPath: string;
-  /** Absolute (POSIX) path of the workspace root. */
   workspaceRootAbsPath: string;
-  /**
-   * Toggle a GFM task checkbox at the given 1-based MODEL line. When absent
-   * (read-only file), checkboxes render disabled — same as plain react-markdown.
-   */
   onToggleTask?: (modelLine: number) => void;
-  /**
-   * Images given with the source, by the source an image names them with:
-   * a notebook's outputs, which are no files to load.
-   */
   images?: ReadonlyMap<string, string>;
 }
 
-/**
- * Interactive affordances shared with the custom element renderers. Module-
- * level renderers read this instead of closing over props, so they satisfy
- * the rules-of-hooks (they are real components, mounted by react-markdown).
- */
 interface PreviewContextValue {
   onToggleTask?: (modelLine: number) => void;
   frontmatterLineOffset: number;
@@ -113,7 +49,6 @@ interface PreviewContextValue {
 
 const PreviewContext = createContext<PreviewContextValue | null>(null);
 
-/** Set by the `li` renderer (which has a source position) for `input` to read. */
 const TaskLineContext = createContext<number | null>(null);
 
 export function MarkdownPreview({
@@ -127,10 +62,6 @@ export function MarkdownPreview({
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Strip a leading YAML frontmatter block before truncation so the cap
-  // applies to the body the user actually sees rendered. The number of lines
-  // removed is the offset between AST line numbers (relative to the stripped
-  // body) and true model lines — needed to write task toggles back correctly.
   const body = useMemo(() => stripFrontmatter(source), [source]);
   const frontmatterLineOffset = useMemo(
     () => (body === source ? 0 : countNewlines(source.slice(0, source.length - body.length))),
@@ -147,18 +78,9 @@ export function MarkdownPreview({
     [currentFileAbsPath, workspaceRootAbsPath],
   );
 
-  // Anchor scrolling stays scoped to the preview container — we don't want a
-  // `#foo` click to leak out to the page-level hash and confuse routing.
   const scrollToAnchor = useCallback((id: string) => {
     const container = containerRef.current;
     if (!container) return;
-    // rehype-slug gives headings stable ids. Ids that come from the source
-    // (footnotes, raw-HTML anchors) get rehype-sanitize's `user-content-`
-    // clobber prefix while their links keep the original fragment, so fall
-    // back to the prefixed id the way github.com does. Footnotes are
-    // prefixed twice (remark-rehype, then sanitize) and resolve the same way.
-    // Jupyter links a heading by its text as written ("#Data-Cleaning"),
-    // which rehype-slug lowercases.
     const target =
       container.querySelector(`[id="${cssEscape(id)}"]`) ??
       container.querySelector(`[id="${cssEscape(`user-content-${id}`)}"]`) ??
@@ -178,11 +100,9 @@ export function MarkdownPreview({
           scrollToAnchor(classified.id);
           return;
         case "external":
-          // Routes through setWindowOpenHandler → hardened allowlist.
           window.open(classified.href, "_blank", "noopener,noreferrer");
           return;
         case "internal-file":
-          // Another computer's file opens in its chat's quick look, where this one is shown.
           if (peerOf(workspaceId)) chatLinks?.openFile(classified.absPath);
           else openOrRevealEditor({ workspaceId, filePath: classified.absPath }, { preview: true });
           return;
@@ -194,10 +114,7 @@ export function MarkdownPreview({
     [linkCtx, scrollToAnchor, workspaceId, chatLinks],
   );
 
-  // ----- View-only interactivity state -------------------------------------
   const onCopyAnchor = useCallback((id: string) => {
-    // Copy the in-document fragment. Users paste it into other markdown to
-    // link a heading; it also matches what the anchor click-handler resolves.
     copyText(`#${id}`);
   }, []);
 
@@ -211,12 +128,6 @@ export function MarkdownPreview({
     });
   }, []);
 
-  // Apply folds to the DOM after each render. Live-sync re-parses on every
-  // keystroke, so collapsed sections must be re-hidden imperatively (the
-  // rendered tree itself is always complete — folding is purely visual).
-  // `text`/`frontmatterLineOffset` are intentional deps: the effect reads the
-  // rendered DOM, which changes whenever those do, so it must re-run then —
-  // biome can't see the DOM dependency and flags them as extraneous.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-apply folds after the rendered DOM changes
   useLayoutEffect(() => {
     const content = containerRef.current?.querySelector<HTMLElement>(".md-content");
@@ -254,8 +165,6 @@ export function MarkdownPreview({
         const rawSrc = typeof src === "string" ? src : "";
         const resolved = images?.get(rawSrc) ?? resolveImageSrc(rawSrc, workspaceId, imageCtx);
         if (resolved === null) {
-          // Blocked or empty — surface a tiny inline placeholder so the user
-          // sees that an image was intended but not loaded.
           return (
             <span
               className="inline-flex items-center px-1.5 py-0.5 text-app-ui-sm text-muted-foreground border border-border rounded-(--radius-control)"
@@ -280,28 +189,14 @@ export function MarkdownPreview({
     [imageCtx, images, onLinkClick, workspaceId, t],
   );
 
-  // Parsing and highlighting happen while <ReactMarkdown> renders. Reusing the
-  // element lets React skip it when only the surrounding tab, layout or git
-  // stores changed, which otherwise re-parsed every preview in the
-  // workspace (parked ones included) on a tab switch or status event.
   const markdown = useMemo(
     () => (
       <ReactMarkdown
         remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={[
-          // Parse raw HTML in the source (centered <div>, sized <img>,
-          // <details>, …) so the preview matches GitHub …
           rehypeRaw,
-          // … then immediately sanitize with GitHub's default allowlist.
-          // Strips <script>/<iframe>/on*/style/bad-scheme URLs. MUST sit
-          // between raw and slug/highlight (see header comment).
           rehypeSanitize,
           rehypeSlug,
-          // Syntax highlighting for fenced blocks with a language hint
-          // (```python …). `detect: false` → only highlight when a language
-          // is declared; `ignoreMissing: true` → unknown languages render
-          // plain instead of throwing. Runs AFTER sanitize so its emitted
-          // <span class="hljs-*"> survive the allowlist.
           [rehypeHighlight, { detect: false, ignoreMissing: true }],
         ]}
         components={components}
@@ -331,10 +226,6 @@ export function MarkdownPreview({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Custom element renderers
-// ---------------------------------------------------------------------------
-
 type RmNode = {
   tagName?: string;
   position?: { start?: { line?: number } };
@@ -342,11 +233,6 @@ type RmNode = {
   children?: unknown[];
 };
 
-/**
- * List item. For GFM task items (`<li class="task-list-item">`) on a writable
- * file, publishes this item's model line through TaskLineContext so the nested
- * checkbox can write a toggle back to the source.
- */
 function MdListItem({ node, children, ...rest }: { node?: RmNode; children?: React.ReactNode }) {
   const ctx = useContext(PreviewContext);
   const className = (node?.properties?.className as string[] | undefined) ?? [];
@@ -364,17 +250,10 @@ function MdListItem({ node, children, ...rest }: { node?: RmNode; children?: Rea
   return <li {...rest}>{children}</li>;
 }
 
-/**
- * Checkbox renderer. When inside an interactive task item (TaskLineContext set
- * and onToggleTask available) it becomes a live control; otherwise it renders
- * the standard disabled GFM checkbox.
- */
 function MdInput({
   type,
   checked,
   node: _node,
-  // `disabled` is dropped from `rest`: remark-gfm always sets it on the
-  // synthetic checkbox, but the interactive branch must override it.
   disabled: _disabled,
   ...rest
 }: {
@@ -400,10 +279,6 @@ function MdInput({
   return <input {...rest} type={type} checked={Boolean(checked)} disabled readOnly />;
 }
 
-/**
- * Code block with a hover "Copy" button. View-only — never edits the source.
- * A ```mermaid block shows its diagram, the button still copying its source.
- */
 function MdPre({ node, children, ...rest }: { node?: RmNode; children?: React.ReactNode }) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -434,17 +309,12 @@ function MdPre({ node, children, ...rest }: { node?: RmNode; children?: React.Re
   );
 }
 
-/** Whether a <pre> holds a ```mermaid block. */
 function isMermaid(pre: RmNode | undefined): boolean {
   const code = pre?.children?.[0] as RmNode | undefined;
   const className = code?.tagName === "code" ? code.properties?.className : undefined;
   return Array.isArray(className) && className.includes("language-mermaid");
 }
 
-/**
- * Heading with a fold toggle (collapse the section below) and a "#" anchor-copy
- * button, both revealed on hover. The `id` comes from rehype-slug.
- */
 function MdHeading({
   node,
   children,
@@ -496,24 +366,17 @@ function MdHeading({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Count `\n` in a string (used for the frontmatter line offset). */
 function countNewlines(s: string): number {
   let n = 0;
   for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 10) n++;
   return n;
 }
 
-/** 1–6 if the element is a heading, else null. */
 function headingLevel(el: Element): number | null {
   const m = /^H([1-6])$/.exec(el.tagName);
   return m ? Number(m[1]) : null;
 }
 
-/** Recursively gather text from a hast node (for the code-copy button). */
 function hastToText(node: RmNode | undefined): string {
   if (!node) return "";
   const self = (node as { value?: string }).value ?? "";
@@ -523,60 +386,18 @@ function hastToText(node: RmNode | undefined): string {
   return self + kids;
 }
 
-/**
- * Strip a leading YAML frontmatter block (Jekyll/Hugo/Obsidian convention)
- * from a markdown source so it is not rendered in the preview.
- *
- *   ---
- *   key: value
- *   ---
- *   <body>
- *
- * Two-stage match (see also the YAML-signature guard inside the body):
- *   - Fence: `---` at byte 0 (BOM tolerated), then any content, then a
- *     line that is exactly `---`, terminated by newline or end-of-file.
- *   - Guard: the matched block must contain at least one YAML-key line
- *     (`identifier:` at the start of a line). This protects live-preview
- *     users from accidentally erasing a markdown body that happens to sit
- *     between two `---` thematic breaks while they are typing.
- *
- * If either stage fails the source is returned unchanged and react-markdown
- * renders the lone `---` as a normal thematic break (`<hr>`).
- */
 export function stripFrontmatter(source: string): string {
   const FRONTMATTER_RE = /^\uFEFF?---\r?\n(?:[\s\S]*?\r?\n)?---(?:\r?\n|$)/u;
   const match = FRONTMATTER_RE.exec(source);
   if (!match) return source;
 
-  // YAML-signature guard. In a live preview, every keystroke re-renders.
-  // A user typing `---\n# title\n---` (markdown body sandwiched between
-  // two `---` thematic breaks) would otherwise have their visible body
-  // silently erased — micromark / remark-frontmatter / gray-matter all
-  // share this failure mode because the token rule is purely fence-based.
-  // We additionally require that the matched block contain at least one
-  // YAML-key-looking line (`identifier:` at start of line, m-flag).
-  // Real frontmatter always satisfies this; markdown bodies between two
-  // `---` rarely do. On failure we leave the source intact, so the opening
-  // `---` renders as a normal `<hr>` — same outcome as VS Code / remark-
-  // frontmatter when the closing fence is missing.
   const inner = match[0].replace(/^\uFEFF?---\r?\n/u, "").replace(/\r?\n---(?:\r?\n|$)/u, "");
-  // YAML 1.2 allows any non-control Unicode character in plain keys.
-  // `\p{L}` covers letters in every script (Hangul, Hiragana, Cyrillic, …),
-  // `\p{N}` covers digits, `_` and `-` are the standard symbol additions.
-  // First char excludes digit/`-` so list markers (`- item`) cannot match.
   const HAS_YAML_KEY = /^[\p{L}_][\p{L}\p{N}_-]*\s*:/mu;
   if (!HAS_YAML_KEY.test(inner)) return source;
 
   return source.replace(FRONTMATTER_RE, "");
 }
 
-/**
- * Resolve a markdown image `src` to a URL safe to drop into `<img>`:
- *   - empty → null (caller renders placeholder)
- *   - http(s) → unchanged (browser handles fetch; mixed-content rules apply)
- *   - workspace-relative → nexus-workspace:// URL
- *   - escape / disallowed scheme → null (caller renders placeholder)
- */
 function resolveImageSrc(
   rawSrc: string,
   workspaceId: string,
@@ -597,11 +418,6 @@ function resolveImageSrc(
   }
 }
 
-/**
- * Minimal CSS.escape polyfill — older Electron versions may not expose it on
- * `window`, and we need to safely embed user-supplied anchor ids into a
- * querySelector selector.
- */
 function cssEscape(value: string): string {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
     return CSS.escape(value);

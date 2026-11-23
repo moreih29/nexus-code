@@ -8,18 +8,13 @@ import (
 	"time"
 )
 
-// entry is one line of a tab's log.
 type entry struct {
-	seq     int64
-	dir     string
-	message json.RawMessage
-	text    string
-	// at is when the line came, in Unix milliseconds.
-	at int64
-	// transient marks a stream event: a token of a message still being
-	// written. The complete message follows it, and then it is dropped.
+	seq       int64
+	dir       string
+	message   json.RawMessage
+	text      string
+	at        int64
 	transient bool
-	// A file original or replay state is kept outside the rolling cap.
 	pins      int
 	requestID string
 }
@@ -28,22 +23,15 @@ func (e *entry) size() int {
 	return len(e.message) + len(e.text) + 64
 }
 
-// lineLog keeps a tab's lines for replay, within logCapBytes. Its methods
-// are called with the session's lock held.
 type lineLog struct {
-	entries []*entry
-	bytes   int
-	nextSeq int64
-	// truncated reports that the oldest lines were dropped for the cap.
-	truncated bool
-	// transientFrom is the index of the first transient entry since the
-	// last complete message, or -1.
+	entries       []*entry
+	bytes         int
+	nextSeq       int64
+	truncated     bool
 	transientFrom int
 	cap           int
 	replayPins    map[string][2]*entry
 	requests      map[string]replayRequest
-	// A response can arrive before its input write returns. Commit it to
-	// replay state only once the input is confirmed.
 	input         *entry
 	inputResponse *entry
 }
@@ -55,7 +43,6 @@ func newLineLog() *lineLog {
 	}
 }
 
-// add appends one line and returns it with its sequence number.
 func (l *lineLog) add(dir string, message json.RawMessage, text string) *entry {
 	e := &entry{seq: l.nextSeq, dir: dir, message: message, text: text, at: time.Now().UnixMilli()}
 	l.nextSeq++
@@ -80,7 +67,6 @@ func (l *lineLog) add(dir string, message json.RawMessage, text string) *entry {
 
 func (l *lineLog) reserveInput(message json.RawMessage) *entry {
 	slot := l.add(DirSys, nil, "")
-	// Avoid decoding ordinary input and Codex requests, which can carry images.
 	if bytes.Contains(message, []byte(`"control_request"`)) &&
 		messageType(message) == "control_request" && l.trackReplayRequest(slot, message) {
 		l.input = slot
@@ -89,7 +75,6 @@ func (l *lineLog) reserveInput(message json.RawMessage) *entry {
 	return slot
 }
 
-// finishInput fills a reserved slot, if the log still includes it.
 func (l *lineLog) finishInput(slot *entry, dir string, message json.RawMessage) {
 	for _, e := range l.since(slot.seq - 1) {
 		if e == slot {
@@ -118,8 +103,6 @@ func (l *lineLog) finishInput(slot *entry, dir string, message json.RawMessage) 
 	l.trim()
 }
 
-// addPinned appends a line the cap keeps. What it holds is bounded by
-// whoever adds it.
 func (l *lineLog) addPinned(dir string, message json.RawMessage) *entry {
 	e := &entry{seq: l.nextSeq, dir: dir, message: message, at: time.Now().UnixMilli(), pins: 1}
 	l.nextSeq++
@@ -127,8 +110,6 @@ func (l *lineLog) addPinned(dir string, message json.RawMessage) *entry {
 	return e
 }
 
-// reset drops every line. Sequence numbers go on, so a client that saw
-// the dropped lines does not take new ones for them.
 func (l *lineLog) reset() {
 	l.entries = nil
 	l.bytes = 0
@@ -139,12 +120,10 @@ func (l *lineLog) reset() {
 	l.input, l.inputResponse = nil, nil
 }
 
-// lastSeq is the sequence number of the newest line, 0 when there is none.
 func (l *lineLog) lastSeq() int64 {
 	return l.nextSeq - 1
 }
 
-// since returns the lines after seq, oldest first.
 func (l *lineLog) since(seq int64) []*entry {
 	for i, e := range l.entries {
 		if e.seq > seq {
@@ -154,8 +133,6 @@ func (l *lineLog) since(seq int64) []*entry {
 	return nil
 }
 
-// dropTransient removes the stream events of the messages written so far:
-// each is now in the log whole.
 func (l *lineLog) dropTransient() {
 	if l.transientFrom < 0 {
 		return
@@ -175,15 +152,12 @@ func (l *lineLog) dropTransient() {
 	l.transientFrom = -1
 }
 
-// trim drops the oldest lines while the log is over its cap, always keeping
-// the newest one and the pinned ones.
 func (l *lineLog) trim() {
 	if l.bytes <= l.cap {
 		return
 	}
 	last := len(l.entries) - 1
 	rest := make([]*entry, 0, cap(l.entries))
-	// dropped counts the lines dropped before the first transient one.
 	dropped := 0
 	for i, e := range l.entries {
 		if l.bytes > l.cap && i < last && e.pins == 0 {
@@ -204,8 +178,6 @@ func (l *lineLog) trim() {
 	l.truncated = true
 	l.entries = rest
 	if l.transientFrom >= 0 {
-		// The first transient line may itself have been dropped; starting
-		// at a line before it is harmless.
 		l.transientFrom -= dropped
 		if l.transientFrom >= len(l.entries) {
 			l.transientFrom = len(l.entries) - 1
@@ -213,9 +185,6 @@ func (l *lineLog) trim() {
 	}
 }
 
-// completesStream reports whether a line of this type ends the stream
-// events before it: the message they were tokens of has arrived whole, or
-// the turn ended.
 func completesStream(kind string) bool {
 	switch kind {
 	case "assistant", "user", "result":
@@ -224,10 +193,7 @@ func completesStream(kind string) bool {
 	return false
 }
 
-// messageType reads a message's "type" without decoding the rest.
 func messageType(message json.RawMessage) string {
-	// Claude Code writes "type" first; read it there before decoding the
-	// whole line, which can be megabytes of image data.
 	const lead = `{"type":"`
 	if rest, ok := bytes.CutPrefix(message, []byte(lead)); ok {
 		if j := bytes.IndexByte(rest, '"'); j >= 0 && j < 64 && bytes.IndexByte(rest[:j], '\\') < 0 {
@@ -245,8 +211,6 @@ func messageType(message json.RawMessage) string {
 
 var errLineTooLong = errors.New("line too long")
 
-// readLine reads one line of at most limit bytes. A longer line is read to
-// its end and dropped, with errLineTooLong.
 func readLine(reader *bufio.Reader, limit int) ([]byte, error) {
 	var line []byte
 	tooLong := false

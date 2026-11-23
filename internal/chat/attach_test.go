@@ -115,7 +115,6 @@ func TestAttachWritesUnderTheWindowsNameThere(t *testing.T) {
 func TestAttachLeavesNoFolderWhenTheWriteFails(t *testing.T) {
 	root := useAttachRoot(t)
 	service := New()
-	// Longer than any file system here takes for one name.
 	name := strings.Repeat("a", 300) + ".txt"
 	if _, err := attach(t, service, "tab", name, []byte("x")); err == nil {
 		t.Fatal("a name too long was written")
@@ -162,7 +161,6 @@ func TestPruneKeepsTheOpenTabsAttachments(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "ws", "closed")); !os.IsNotExist(err) {
 		t.Fatalf("the closed tab's folder is still there: %v", err)
 	}
-	// A workspace with nothing attached prunes nothing.
 	raw, _ = json.Marshal(PruneAttachParams{WorkspaceID: "other"})
 	if _, err := service.PruneAttachments(context.Background(), raw); err != nil {
 		t.Fatal(err)
@@ -181,7 +179,6 @@ func TestAttachRootTellsWhereAttachedFilesAreKept(t *testing.T) {
 }
 
 func TestAttachRootIsAbsoluteForARelativeNexusCodeHome(t *testing.T) {
-	// The folder NEXUS_CODE_HOME names from where the agent runs, made absolute there.
 	dir := t.TempDir()
 	prev, err := os.Getwd()
 	if err != nil {

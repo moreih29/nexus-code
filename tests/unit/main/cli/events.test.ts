@@ -1,7 +1,3 @@
-/**
- * nexus events: the agent sessions' state changes across the app, read from
- * a number on, and waited for when there is none yet.
- */
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";
@@ -44,7 +40,6 @@ function event(seq: number, extra: Partial<CliSessionEvent> = {}): CliSessionEve
   };
 }
 
-/** An app whose Claude finished (#1) and whose Codex in api went busy (#2). */
 function withEvents(): FakeApp {
   const app = fakeApp();
   app.events.push(
@@ -89,7 +84,6 @@ describe("events", () => {
     const rest = JSON.parse((await nexus(app, ["events", "--since", "2", "--json"])).stdout);
     expect(rest.events.map((e: { seq: number }) => e.seq)).toEqual([3]);
     expect(rest).not.toHaveProperty("more");
-    // One workspace's alike: #1 then #3, a page each.
     const argv = ["events", "--since", "0", "--limit", "1", "--workspace", "app", "--json"];
     const ours = JSON.parse((await nexus(app, argv)).stdout);
     expect([ours.events.map((e: { seq: number }) => e.seq), ours.more]).toEqual([[1], true]);

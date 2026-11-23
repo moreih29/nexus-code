@@ -1,15 +1,3 @@
-/**
- * useGitPanelActions — extracts the business-logic handlers that were
- * previously inline in git-panel.tsx.
- *
- * Owns: push-guard policy, merge-option seeding, primary-action dispatch,
- * commit/commit-and-push flows, discard/remove-remote prompts, sync,
- * stash-group prompt, tag-history retarget, branch-create dialog lifecycle,
- * branch/tag picker launchers.
- *
- * git-panel.tsx calls this hook and delegates rendering; all policy stays here.
- */
-
 import i18next from "i18next";
 import { useCallback, useRef } from "react";
 import { useShallow } from "zustand/shallow";
@@ -36,15 +24,10 @@ import {
 } from "./panel-actions";
 import type { GitDialogsState } from "./use-dialogs";
 
-// ---------------------------------------------------------------------------
-// Types surfaced to the panel
-// ---------------------------------------------------------------------------
-
 export interface GitPanelActionsInput {
   workspaceId: string;
   dialogs: GitDialogsState;
   pickers: GitPanelPickersState;
-  /** Derived state the panel already computed */
   derived: {
     hasStagedChanges: boolean;
     stageablePaths: string[];
@@ -61,47 +44,25 @@ export interface GitPanelActionsInput {
 }
 
 export interface GitPanelActions {
-  /** Opens the branch-create dialog and loads the branch list for validation. */
   openBranchCreateDialog: (fromRef?: string) => void;
-  /** Closes the branch-create dialog and aborts any in-flight list load. */
   closeBranchCreateDialog: () => void;
-  /** Opens the shared branch picker at a given mode. */
   openBranchPicker: (mode: BranchPickerMode) => void;
-  /** Opens the shared tag picker at a given mode. */
   openTagPicker: (mode: TagPickerMode, remote?: string) => void;
-  /** Executes a push, intercepting un-tracked branches for the publish prompt. */
   requestPush: (options?: GitPushOptions) => Promise<void>;
-  /** Runs the selected merge mode (squash seeds the commit draft). */
   confirmMergeOption: (mode: GitMergeMode) => Promise<void>;
-  /** Commits staged changes. */
   handleCommitStaged: () => Promise<void>;
-  /** Stages all unstaged paths then commits. */
   handleCommitAll: () => Promise<void>;
-  /** Amends the most-recent commit. */
   handleAmend: () => Promise<void>;
-  /** Commits staged changes then pushes. */
   handleCommitAndPush: () => Promise<void>;
-  /** Pulls then pushes (sync), shows a banner if pull was cancelled. */
   handleSync: () => Promise<void>;
-  /** Opens the discard-confirmation dialog. */
   requestDiscard: (paths: string[], description: string, source?: string) => void;
-  /** Opens the remove-remote confirmation dialog. */
   requestRemoveRemote: (remote: string) => void;
-  /** Opens the stash-group prompt for a named group. */
   requestStashGroup: (paths: string[], label: string) => void;
-  /** Retargets the History panel to the given tag and closes the tag picker. */
   revealTagInHistory: (tag: Tag) => void;
-  /** Dispatches a typed push-guard banner action. */
   runPushGuardAction: (kind: PushGuardActionKind) => void;
-  /** Dispatches the primary action chosen by the action-button selector. */
   runPrimaryAction: () => void;
-  /** Stable ref used in GitDialogHost onCreateBranch callback. */
   onCreateBranch: (wid: string, name: string, fromRef?: string) => Promise<void>;
 }
-
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
 
 export function useGitPanelActions({
   workspaceId,
@@ -131,7 +92,6 @@ export function useGitPanelActions({
     setTagPickerOpen,
   } = pickers;
 
-  // Store actions — grouped by concern using useShallow
   const commitOps = useGitStore(
     useShallow((s) => ({
       commit: s.commit,
@@ -168,12 +128,7 @@ export function useGitPanelActions({
     })),
   );
 
-  // Race guard for the branch-create dialog's async list load
   const branchCreateLoadIdRef = useRef(0);
-
-  // ---------------------------------------------------------------------------
-  // Branch-create dialog lifecycle
-  // ---------------------------------------------------------------------------
 
   const openBranchCreateDialog = useCallback(
     (fromRef?: string) => {
@@ -213,10 +168,6 @@ export function useGitPanelActions({
     setBranchCreateBranchListLoading(false);
   }, [setBranchCreateBranchListLoading, setBranchCreateRequest]);
 
-  // ---------------------------------------------------------------------------
-  // Picker launchers
-  // ---------------------------------------------------------------------------
-
   const openBranchPicker = useCallback(
     (mode: BranchPickerMode): void => {
       setBranchPickerMode(mode);
@@ -233,10 +184,6 @@ export function useGitPanelActions({
     },
     [setTagPickerMode, setTagPickerRemote, setTagPickerOpen],
   );
-
-  // ---------------------------------------------------------------------------
-  // Push / publish
-  // ---------------------------------------------------------------------------
 
   const requestPush = useCallback(
     async (options: GitPushOptions = {}): Promise<void> => {
@@ -272,10 +219,6 @@ export function useGitPanelActions({
     ],
   );
 
-  // ---------------------------------------------------------------------------
-  // Merge
-  // ---------------------------------------------------------------------------
-
   const confirmMergeOption = useCallback(
     async (mode: GitMergeMode): Promise<void> => {
       const request = mergeOptionsRequest;
@@ -304,12 +247,6 @@ export function useGitPanelActions({
     ],
   );
 
-  // ---------------------------------------------------------------------------
-  // Commit operations
-  // ---------------------------------------------------------------------------
-
-  // The message is read when committing: the panel does not render per
-  // keystroke, so it holds no copy of the text.
   const handleCommitStaged = useCallback(async (): Promise<void> => {
     const message = getCommitDraft(workspaceId).trim();
     if (message.length === 0 || !derived.hasStagedChanges) return;
@@ -336,10 +273,6 @@ export function useGitPanelActions({
     if (result) await requestPush();
   }, [commitOps.commit, derived.hasStagedChanges, requestPush, workspaceId]);
 
-  // ---------------------------------------------------------------------------
-  // Sync
-  // ---------------------------------------------------------------------------
-
   const handleSync = useCallback(async (): Promise<void> => {
     const result = await pushPullOps.sync(workspaceId);
     if (result?.pulled === "cancelled") {
@@ -349,10 +282,6 @@ export function useGitPanelActions({
       });
     }
   }, [pushPullOps.sync, setContextBanner, workspaceId]);
-
-  // ---------------------------------------------------------------------------
-  // Discard / remove-remote / stash-group prompts
-  // ---------------------------------------------------------------------------
 
   const requestDiscard = useCallback(
     (paths: string[], description: string, source?: string): void => {
@@ -406,10 +335,6 @@ export function useGitPanelActions({
     [setStashGroupRequest],
   );
 
-  // ---------------------------------------------------------------------------
-  // Tag → History retargeting
-  // ---------------------------------------------------------------------------
-
   const revealTagInHistory = useCallback(
     (tag: Tag): void => {
       const ref = tagHistoryRef(tag);
@@ -429,10 +354,6 @@ export function useGitPanelActions({
       workspaceId,
     ],
   );
-
-  // ---------------------------------------------------------------------------
-  // Push-guard banner dispatch
-  // ---------------------------------------------------------------------------
 
   const runPushGuardAction = useCallback(
     (kind: PushGuardActionKind): void => {
@@ -469,10 +390,6 @@ export function useGitPanelActions({
       workspaceId,
     ],
   );
-
-  // ---------------------------------------------------------------------------
-  // Primary-action dispatch
-  // ---------------------------------------------------------------------------
 
   const runPrimaryAction = useCallback((): void => {
     switch (derived.actionStateKind) {
@@ -512,10 +429,6 @@ export function useGitPanelActions({
     commitOps.stage,
     workspaceId,
   ]);
-
-  // ---------------------------------------------------------------------------
-  // GitDialogHost create-branch callback
-  // ---------------------------------------------------------------------------
 
   const onCreateBranch = useCallback(
     async (_wid: string, name: string, fromRef?: string): Promise<void> => {

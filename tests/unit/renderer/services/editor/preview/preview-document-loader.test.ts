@@ -5,7 +5,6 @@ import {
   type PreviewFrame,
 } from "../../../../../../src/renderer/services/editor/preview/preview-document-loader";
 
-/** A store like main's, whose puts wait until `settle` is called. */
 function fakeStore() {
   const documents = new Map<string, string>();
   const waiting: Array<() => void> = [];
@@ -28,7 +27,6 @@ function fakeStore() {
       documents.delete(token);
     },
   };
-  /** Lets the waiting puts finish, one after another. */
   const settle = async () => {
     while (waiting.length > 0) {
       waiting.shift()?.();

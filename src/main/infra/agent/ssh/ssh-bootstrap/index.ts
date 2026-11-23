@@ -1,16 +1,3 @@
-/**
- * Bootstrap orchestrator for the remote agent and LSP servers.
- *
- * Responsibility: drive the install/upgrade workflow on the remote host so
- * by the time the caller spawns its NDJSON channel, the agent binary (and
- * any required Node runtime + LSP archive) are present and verified.
- *
- * The actual transport (ssh/sftp shelling, uploads, sha256 verification) and
- * the persisted manifest format live in `./ssh-bootstrap/transport.ts` and
- * `./ssh-bootstrap/manifest.ts` respectively. This file owns the
- * orchestration and the public surface — type and constant re-exports stay
- * here so existing callers keep their import paths.
- */
 import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -92,8 +79,6 @@ export type {
   SshBootstrapRunner,
   SshBootstrapRunnerResult,
 };
-// Re-export the stable public surface so existing callers keep their import
-// paths (`"./ssh-bootstrap"`) unchanged.
 export {
   LOCAL_AGENT_DIST_DIR,
   LSP_BOOTSTRAP_PROGRESS_EVENT,
@@ -120,27 +105,17 @@ interface ArtifactEnsureResult {
   readonly uploaded: boolean;
 }
 
-// Process-wide deduplication of concurrent ensure() calls for the same
-// artifact on the same remote. Each key resolves to the in-flight promise
-// so multiple workspaces booting against the same host upload once.
 const artifactLocks = new Map<
   string,
   { ready: Promise<ArtifactEnsureResult>; signal?: AbortSignal }
 >();
 
-/**
- * Ensures the agent binary is present at the canonical path on the remote.
- * The returned `remoteCommand` is the exact command line to spawn over the
- * NDJSON channel; on auth failure or sha mismatch the ControlMaster is
- * disposed before the error propagates.
- */
 export async function ensureRemoteAgent(
   options: EnsureRemoteAgentOptions,
   dependencies: SshBootstrapDependencies = {},
 ): Promise<EnsureRemoteAgentResult> {
   const context = await createBootstrapContext(options, dependencies);
   const { distDir, now, authenticatedMaster } = context;
-  // Interactive authentication has its own timeout, paused for user input.
   const deadline = new AbortController();
   const timer = setTimeout(() => {
     deadline.abort(
@@ -229,20 +204,11 @@ export async function ensureRemoteAgent(
     const remoteBinDir = absoluteRemotePath(remoteHome, `${REMOTE_AGENT_ROOT}/bin`);
     await writeRemoteCliLauncher(sshOptions, runner, remoteBinDir);
 
-    // PTY shim files: only when the caller scoped the bootstrap to a
-    // workspace (the PTY spawn path always does; the LSP path does not).
-    // The content is workspace-agnostic, so every workspace on the host
-    // shares one directory: one per workspace would pile up there, a task
-    // being a new workspace each time, with nothing to remove them.
     const remoteShimDir = options.workspaceId
       ? await ensureRemoteShimFiles(sshOptions, runner, remoteHome)
       : undefined;
 
     signal.throwIfAborted();
-    // On success, ownership of a ControlMaster authenticated *here* passes to
-    // the caller via `dispose`. When the caller supplied its own controlPath
-    // (a reused master), we surface that path back but no dispose handle —
-    // the caller already owns that socket's lifecycle.
     return {
       remoteCommand: buildRemoteAgentCommand(remoteBinaryPath, options.remotePath),
       remoteHome,
@@ -255,8 +221,6 @@ export async function ensureRemoteAgent(
       ...(remoteShimDir !== undefined ? { remoteShimDir } : {}),
     };
   } catch (error) {
-    // This function never returned, so the caller has no dispose handle.
-    // Dispose the ControlMaster here before propagating the error.
     authenticatedMaster?.dispose();
     throw signal.aborted ? signal.reason : error;
   } finally {
@@ -264,11 +228,6 @@ export async function ensureRemoteAgent(
   }
 }
 
-/**
- * Ensures both the Node runtime and the requested LSP archive are present
- * on the remote, then writes the per-language launcher that wires them
- * together. Returns the launcher path so the caller can spawn it directly.
- */
 export async function ensureRemoteLspServer(
   options: EnsureRemoteLspServerOptions,
   dependencies: SshBootstrapDependencies = {},
@@ -346,46 +305,6 @@ export async function ensureRemoteLspServer(
   }
 }
 
-/**
- * Composes the `bash -lc '...'` line used to spawn the agent in daemon/dialer
- * mode.
- *
- * Design — single retry loop:
- *
- *   p=0; while :; do
- *     ( agent --daemon <root> </dev/null >/dev/null 2>&1 & )
- *     agent --dial-workspace <root>; rc=$?
- *     if [ $rc -ne 4 ]; then exit $rc; fi
- *     p=$((p+1)); if [ $p -ge 25 ]; then exit 4; fi; sleep 0.2
- *   done
- *
- * Each iteration fires `--daemon` as a detached grandchild (subshell + &) and
- * immediately tries `--dial`. The daemon's flock invariant makes this idempotent:
- *   - No daemon yet  → daemon wins lock, binds socket; dial gets exit 4 on this
- *                      iteration (socket not ready yet) → retry; next iteration
- *                      dial succeeds.
- *   - Daemon already running → --daemon exits 3 (lock held); dial succeeds
- *                              immediately.
- *   - ETXTBSY (freshly uploaded binary) → --daemon fails; dial gets exit 4;
- *                                          next iteration retries naturally.
- *
- * Why no `wait` / `exec`:
- *   - `wait` on a daemon would block forever — daemons are long-lived processes.
- *   - `exec agent --dial` replaces the shell; if dial exits 4 (socket not ready)
- *     the SSH session ends instead of retrying. Using the dialer as a plain child
- *     keeps stdio transparent (parent shell's stdio passes through to the dialer)
- *     and lets the loop retry.
- *
- * Daemon fd isolation (</dev/null >/dev/null 2>&1):
- *   - Prevents daemon stdout from polluting the SSH channel's NDJSON stream.
- *   - Prevents the daemon from holding the ssh session channel open after the
- *     dialer exits (which would delay the Mac-side ssh process from detecting
- *     session close).
- *
- * `remotePath` must be an absolute POSIX path — the agent uses it as its fs
- * root, so a relative path or `~` literal would silently mis-root the agent
- * and cause every subsequent fs call to resolve against an unexpected base.
- */
 export function buildRemoteAgentCommand(binaryPath: string, remotePath: string): string {
   if (!remotePath.startsWith("/")) {
     throw createSshError(
@@ -396,11 +315,6 @@ export function buildRemoteAgentCommand(binaryPath: string, remotePath: string):
   const bin = quoteShellArg(binaryPath);
   const root = quoteShellArg(remotePath);
 
-  // Start and dial by workspace so both processes resolve the socket on the host.
-  // Exit code 4 = socket not ready yet → retry.
-  // Any other exit code (0 = dialer EOF clean, other = error) → propagate.
-  // Cap at 25 retries (~5 s at 0.2 s intervals) to avoid infinite spin when
-  // the daemon never starts (binary missing, permission error, etc.).
   const script =
     `p=0; while :; do ` +
     `( ${bin} --daemon ${root} </dev/null >/dev/null 2>&1 & ); ` +
@@ -411,7 +325,6 @@ export function buildRemoteAgentCommand(binaryPath: string, remotePath: string):
   return `bash -lc ${singleQuoteShellArg(script)}`;
 }
 
-/** Waits for a bootstrap step while allowing the caller to abandon the wait. */
 async function untilAborted<T>(run: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   signal?.throwIfAborted();
   if (!signal) return run();
@@ -431,11 +344,6 @@ async function untilAborted<T>(run: () => Promise<T>, signal?: AbortSignal): Pro
   }
 }
 
-/**
- * Resolves the dependency defaults and, when this is the first call against
- * this remote in interactive mode, opens the ControlMaster up front so every
- * subsequent ssh/sftp invocation rides the same socket.
- */
 async function createBootstrapContext(
   options: EnsureRemoteAgentOptions,
   dependencies: SshBootstrapDependencies,
@@ -465,7 +373,6 @@ async function createBootstrapContext(
   return { runner, distDir, now, sshOptions, authenticatedMaster };
 }
 
-/** Runs `uname -ms` on the remote and parses it into the platform tuple. */
 async function detectRemotePlatform(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -474,7 +381,6 @@ async function detectRemotePlatform(
   return parseUname(result.stdout);
 }
 
-/** Reads the remote $HOME so `~/`-prefixed paths can be resolved client-side. */
 async function detectRemoteHome(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -487,17 +393,6 @@ async function detectRemoteHome(
   return home;
 }
 
-/**
- * Reads the remote `$SHELL` so the PTY layer can decide whether to install
- * the per-workspace zsh/bash shim on that workspace's spawned shells.
- *
- * Best-effort: when `$SHELL` is unset on the remote or the command fails for
- * any reason, returns `undefined` instead of throwing. The caller treats
- * `undefined` as "skip shim activation" — the spawn-time PATH prepend still
- * applies, only the precmd hook is forgone. We use `echo` (not `printf`) to
- * keep the command shape clearly distinct from `detectRemoteHome` for tests
- * and tracing.
- */
 async function detectRemoteShell(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -511,11 +406,6 @@ async function detectRemoteShell(
   }
 }
 
-/**
- * Deduplicating ensure() entry point. The lock map coalesces concurrent
- * calls into one upload, so two workspaces racing to boot share one
- * verify/install pass.
- */
 async function ensureRemoteArtifact(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -529,8 +419,6 @@ async function ensureRemoteArtifact(
     try {
       return await untilAborted(() => existing.ready, options.signal);
     } catch (error) {
-      // A cancelled installer releases the lock. A surviving workspace can
-      // take ownership with its own transport and remaining deadline.
       if (existing.signal?.aborted && !options.signal?.aborted) {
         return ensureRemoteArtifact(options, runner, now, request, onProgress);
       }
@@ -549,10 +437,6 @@ async function ensureRemoteArtifact(
   return pending;
 }
 
-/**
- * Runs one ensure() pass without the dedupe lock. Reads the remote manifest,
- * compares sha256, installs if needed, updates the manifest, then prunes.
- */
 async function ensureRemoteArtifactUnlocked(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -582,7 +466,6 @@ async function ensureRemoteArtifactUnlocked(
   return { uploaded: true };
 }
 
-/** Uploads the Node runtime archive and extracts it into its versioned dir. */
 async function ensureRemoteNodeRuntime(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -644,7 +527,6 @@ async function ensureRemoteNodeRuntime(
   );
 }
 
-/** Uploads an LSP archive and extracts it into its versioned dir. */
 async function ensureRemoteLspArchive(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -695,14 +577,6 @@ async function ensureRemoteLspArchive(
   );
 }
 
-/**
- * The PTY shim files (`.zshrc`, `.zshenv`, the zsh login files, `bashrc`,
- * `bashenv`), the same as `runtimeDirs.writeShimFiles()` writes locally:
- * both ends share the exported constants, so there is exactly one source of
- * truth. The zsh login files are there because ZDOTDIR at the shim
- * directory would hide the user's own from a login zsh, as a Codex tab's
- * commands start.
- */
 const SHIM_FILES: ReadonlyArray<{ readonly name: string; readonly content: string }> = [
   { name: ".zshrc", content: ZSHRC_CONTENT },
   { name: ".zshenv", content: ZSHENV_CONTENT },
@@ -713,28 +587,8 @@ const SHIM_FILES: ReadonlyArray<{ readonly name: string; readonly content: strin
   { name: "bashenv", content: BASHENV_CONTENT },
 ];
 
-/**
- * The remote shim directory, under `~/.nexus-code/shim/`: one for every
- * workspace, and never removed, as terminals and chats of any of them may
- * be reading it. Its name stays the same whatever its files hold: a shell
- * keeps ZDOTDIR at it, and what zsh and its plugins keep there (history,
- * completion dumps) must not start over when an app update changes them.
- */
 const SHIM_DIR_NAME = "shared";
 
-/**
- * Uploads the PTY shim files to `<remoteHome>/.nexus-code/shim/<SHIM_DIR_NAME>/`
- * and returns that directory's absolute path.
- *
- * The shim files reference runtime env vars (`NEXUS_USER_ZDOTDIR` /
- * `NEXUS_WRAPPER_SELF_DIR`) only, so the same files serve every workspace
- * and every spawn — no per-spawn re-upload needed.
- *
- * Each file is streamed as runner stdin to a temporary name and renamed into
- * place: another workspace's bootstrap may write the same directory at the
- * same time, and a shell starting meanwhile must never read half a file.
- * Idempotent: re-runs replace the files with the same bytes.
- */
 async function ensureRemoteShimFiles(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -744,8 +598,6 @@ async function ensureRemoteShimFiles(
     remoteHome,
     `${REMOTE_AGENT_ROOT}/shim/${SHIM_DIR_NAME}`,
   );
-  // We do not chmod the files explicitly — they are plain rc files, not
-  // executables, and the default user-owned mode is sufficient.
   await runSsh(options, runner, `mkdir -p ${quoteShellArg(remoteShimDir)}`);
 
   for (const file of SHIM_FILES) {
@@ -762,13 +614,6 @@ async function ensureRemoteShimFiles(
   return remoteShimDir;
 }
 
-/**
- * Writes the nexus command and the codex wrapper into the remote bin
- * directory, the one the remote terminals have first on their PATH. They are
- * a few lines that find their programs through the terminal's environment,
- * so they are written as they are on every bootstrap rather than tracked
- * like the uploaded artifacts.
- */
 async function writeRemoteCliLauncher(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -788,7 +633,6 @@ async function writeRemoteCliLauncher(
   }
 }
 
-/** Uploads the Claude wrapper binary to the fixed remote path `~/.nexus-code/bin/claude`. */
 async function ensureRemoteWrapper(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -829,7 +673,6 @@ async function ensureRemoteWrapper(
   );
 }
 
-/** Writes a bash launcher that execs node with the LSP entry path. */
 async function writeRemoteLspLauncher(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,

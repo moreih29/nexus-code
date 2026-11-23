@@ -351,7 +351,6 @@ describe("config.toml", () => {
         "",
       ].join("\n"),
     );
-    // The default of a switch is not written.
     const next = await readBehavior(profile);
     await writeBehavior(profile, next.version, { sandboxNetwork: false });
     expect(await read(file)).not.toContain("network_access");

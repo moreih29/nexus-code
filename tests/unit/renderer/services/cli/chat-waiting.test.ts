@@ -1,9 +1,3 @@
-/**
- * The nexus command's and another device's chat.withdraw and chat.hurry on
- * a Claude tab: they act only on a message the program has not begun. A
- * command written during a turn (/compact) begins after the turn's end; from
- * then on it cannot be taken back, and hurrying it would stop it.
- */
 import { afterEach, expect, spyOn, test } from "bun:test";
 import * as agentTab from "../../../../../src/renderer/services/chat/agent-tab";
 import { ChatController } from "../../../../../src/renderer/services/chat/claude/controller";
@@ -25,7 +19,6 @@ const out = (seq: number, message: Record<string, unknown>): ChatLine => ({
   message,
 });
 
-/** A turn with /compact written during it; `begun`: the turn ended and the command began. */
 function tabWithCompact(begun: boolean) {
   const { byWorkspace } = useTabsStore.getState();
   const tabId = useTabsStore

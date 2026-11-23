@@ -1,14 +1,5 @@
-/**
- * Patterns an agent or another device gives (nexus terminal wait --match,
- * terminal.wait's match, nexus browser wait --url) run in the main
- * process, where one that backtracks without end, as `( +)+$` on a run of
- * spaces, would hold up the whole app. They are tested here, in a context
- * of their own with a time limit: past it, the test stops with
- * PatternTooSlowError instead.
- */
 import vm from "node:vm";
 
-/** How long one look for a pattern may take. */
 export const MATCH_BUDGET_MS = 100;
 
 export class PatternTooSlowError extends Error {
@@ -20,7 +11,6 @@ export class PatternTooSlowError extends Error {
 const context = vm.createContext({});
 const findLine = new vm.Script("lines.find((line) => pattern.test(line))");
 
-/** The first of `lines` the pattern matches; PatternTooSlowError past the budget. */
 export function firstMatch(
   pattern: RegExp,
   lines: readonly string[],

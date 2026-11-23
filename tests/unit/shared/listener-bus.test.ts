@@ -26,11 +26,8 @@ describe("createListenerBus", () => {
     unsub2 = bus.subscribe(() => {
       called.push(2);
     });
-    // Both listeners are snapshotted before iteration starts, so both run
-    // during the first notify even though unsub2 is called mid-flight.
     bus.notify();
     expect(called).toEqual([1, 2]);
-    // After the first notify, listener 2 has been removed — only 1 runs now.
     bus.notify();
     expect(called).toEqual([1, 2, 1]);
   });
@@ -57,11 +54,8 @@ describe("createKeyedListenerBus", () => {
     unsub2 = bus.subscribe("k", () => {
       called.push(2);
     });
-    // Both listeners are snapshotted before iteration starts, so both run
-    // during the first notify even though unsub2 is called mid-flight.
     bus.notify("k");
     expect(called).toEqual([1, 2]);
-    // After the first notify, listener 2 has been removed — only 1 runs now.
     bus.notify("k");
     expect(called).toEqual([1, 2, 1]);
   });

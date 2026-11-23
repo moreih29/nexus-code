@@ -10,7 +10,6 @@ export const validationErrorOptions: z.core.ParseContext<z.core.$ZodIssue> = {
       : undefined,
 };
 
-/** Keep the serialized issue format used in IPC and JSON-RPC replies. */
 export function validationErrorMessage(error: z.ZodError): string {
   return JSON.stringify(
     legacyIssues(error.issues, []),
@@ -60,7 +59,6 @@ function isContinuable(issue: z.core.$ZodIssue): boolean {
 }
 
 function legacyIssues(issues: readonly z.core.$ZodIssue[], base: PropertyKey[]): object[] {
-  // Zod 3 reported array length before element errors.
   const arrayBounds = new Map<string, z.core.$ZodIssue>();
   const invalidTypes = new Set<string>();
   for (const issue of issues) {

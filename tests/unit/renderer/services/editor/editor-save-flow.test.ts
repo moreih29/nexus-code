@@ -267,7 +267,7 @@ test("a restored background diff retains unsaved edits before its view mounts", 
   tabs.closeAllForWorkspace(workspaceId);
   hydrateLayoutSnapshots({ [workspaceId]: snapshot });
 
-  const model = await openModel(); // Only the visible diff has mounted.
+  const model = await openModel();
   model.setValue("unsaved in first diff");
   expect(await closeDiffWithConfirm(workspaceId, first.id)).toBe("closed");
   releaseModel(input);

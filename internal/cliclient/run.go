@@ -1,7 +1,3 @@
-// Package cliclient is `agent cli <args>`, the program behind the nexus
-// command in the app's terminals. It hands its arguments to the app through
-// the agent's hook socket and prints what the app answers; the commands
-// themselves, their parsing and their help live in the app.
 package cliclient
 
 import (
@@ -19,41 +15,28 @@ import (
 	"time"
 )
 
-// The terminal tells the client where the app is and who is asking.
 const (
 	envAgentSocket = "NEXUS_AGENT_SOCKET"
 	envHookToken   = "NEXUS_HOOK_TOKEN"
 	envWorkspaceID = "NEXUS_WORKSPACE_ID"
 	envTabID       = "NEXUS_TAB_ID"
-	// envMsysRoot is set by Git Bash's launcher, which keeps Git Bash from
-	// rewriting arguments that look like paths: the app reads them instead.
-	envMsysRoot = "NEXUS_MSYS_ROOT"
+	envMsysRoot    = "NEXUS_MSYS_ROOT"
 )
 
-// clientTimeout bounds a request the app never answers, a little past the
-// server's own deadline.
 const clientTimeout = 36 * time.Minute
 
-// maxResponseBytes bounds one answer; a page screenshot is the largest.
 const maxResponseBytes = 64 * 1024 * 1024
 
-// maxStdinBytes bounds the text read for a "-" argument.
 const maxStdinBytes = 1024 * 1024
 
-// wsaeacces is how Windows refuses a socket this process may not use, which
-// os.ErrPermission leaves out. No other system has the number.
 const wsaeacces = 10013
 
-// request is what the app is asked. Field names match CliInvocationSchema
-// in src/shared/cli/protocol.ts.
 type request struct {
-	Argv    []string `json:"argv"`
-	Cwd     string   `json:"cwd"`
-	TempDir string   `json:"tempDir"`
-	Stdin   *string  `json:"stdin,omitempty"`
-	// MsysRoot is where Git Bash's "/" is, for a command from Git Bash;
-	// empty when the launcher could not tell.
-	MsysRoot *string `json:"msysRoot,omitempty"`
+	Argv     []string `json:"argv"`
+	Cwd      string   `json:"cwd"`
+	TempDir  string   `json:"tempDir"`
+	Stdin    *string  `json:"stdin,omitempty"`
+	MsysRoot *string  `json:"msysRoot,omitempty"`
 }
 
 type wireRequest struct {
@@ -70,8 +53,6 @@ type wireResponse struct {
 	Error  string  `json:"error,omitempty"`
 }
 
-// result is the app's answer. Field names match CliResultSchema in
-// src/shared/cli/protocol.ts.
 type result struct {
 	Stdout   string `json:"stdout"`
 	Stderr   string `json:"stderr"`
@@ -79,13 +60,11 @@ type result struct {
 	Files    []file `json:"files,omitempty"`
 }
 
-// file is one file the command makes on this host, such as a screenshot.
 type file struct {
 	Path   string `json:"path"`
 	Base64 string `json:"base64"`
 }
 
-// Run is `agent cli <args>` and returns the exit code.
 func Run(args []string) int {
 	return run(args, os.Stdin, os.Stdout, os.Stderr)
 }
@@ -142,7 +121,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		var err error
 		res.Stdout, err = claudeHookContext(*req.Stdin, res.Stdout)
 		if err != nil {
-			// Keep the original hook output available to Claude on a write failure.
 			fmt.Fprintln(stderr, "nexus: could not save Claude's full instructions")
 		}
 	}
@@ -151,7 +129,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return res.ExitCode
 }
 
-// send asks the app and waits for its answer.
 func send(socketPath string, req wireRequest) (*result, error) {
 	conn, err := net.DialTimeout("unix", socketPath, 5*time.Second)
 	if err != nil {
@@ -189,9 +166,6 @@ func send(socketPath string, req wireRequest) (*result, error) {
 	return resp.Result, nil
 }
 
-// dialError says why the app's socket could not be reached. A sandbox, such
-// as an agent's around the commands it runs, denies the connection: the
-// command has to run outside it, which the agent asks the user for.
 func dialError(err error) error {
 	reason := err.Error()
 	var syscallErr *os.SyscallError
@@ -205,7 +179,6 @@ func dialError(err error) error {
 	return fmt.Errorf("NexusCode is not reachable from this terminal (%s)", reason)
 }
 
-// writeFile writes one file the app made, where the app said.
 func writeFile(f file) error {
 	data, err := base64.StdEncoding.DecodeString(f.Base64)
 	if err != nil {

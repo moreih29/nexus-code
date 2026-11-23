@@ -1,10 +1,5 @@
 import { type ChatModel, currentModelInfo } from "./model";
 
-/**
- * The side panel's model line: "model · effort". The effort joins only when
- * one is set and the model takes efforts: `efforts` is the list it offers, and
- * left out where the list is unknown (a peer's tab), a set effort is enough.
- */
 export function modelLineOf(
   model: string | undefined,
   effort: string | undefined,
@@ -15,7 +10,6 @@ export function modelLineOf(
   return `${model} · ${effort}`;
 }
 
-/** The model line of a tab's state, its efforts read from the models its program listed. */
 export function modelLineOfTab(
   tab: Pick<ChatModel, "model" | "effort" | "init" | "chosenModel">,
 ): string | undefined {

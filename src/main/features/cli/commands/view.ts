@@ -1,14 +1,3 @@
-/**
- * nexus view: which of its two views the window shows, the agent view or
- * the workspaces, and the agent view's panels: the sessions and files each
- * shows, split as a workspace's editor area is (nexus layout).
- *
- * A panel is named by its number in `view layout` (1, 2, ...), by its id,
- * by "." for the panel holding this terminal (else the active one), or by
- * a session it holds. A session is named as a tab is, among those the
- * agent view holds first, then among the tabs of this terminal's
- * workspace, or of --workspace.
- */
 import type { RpcParams, RpcResult } from "../../../../../packages/remote-protocol/src";
 import type {
   CliAgentGrouping,
@@ -47,7 +36,6 @@ import { WORKSPACE_FLAG } from "./flags";
 import { evenRatios, type GroupInfo, groupsOf, SIDES, share } from "./layout";
 import { resolveAnyTab } from "./terminal";
 
-/** Local sessions the CLI can place in the agent view. */
 const VIEW_TAB_TYPES = new Set(["claude", "codex", "terminal"]);
 
 const VIEWS: Record<string, CliView> = {
@@ -64,7 +52,6 @@ const GROUPINGS: Record<string, CliAgentGrouping> = {
   workspaces: "workspace",
 };
 
-/** What a word names in `table`, by its own keys only: "constructor" names nothing. */
 function ownValue<T>(table: Record<string, T>, key: string): T | undefined {
   return Object.hasOwn(table, key) ? table[key] : undefined;
 }
@@ -145,7 +132,6 @@ async function writeView(
   }
 }
 
-/** A session as the agent view knows it: by its workspace and tab. */
 interface Session {
   readonly workspaceId: string;
   readonly tabId: string;
@@ -155,7 +141,6 @@ interface Session {
 
 const keyOf = (s: { workspaceId: string; tabId: string }) => `${s.workspaceId}:${s.tabId}`;
 
-/** The items `selector` names, by the rules of `pick`, without choosing among several. */
 function named<T>(
   items: readonly T[],
   selector: string,
@@ -170,11 +155,6 @@ function named<T>(
   return items.filter((item) => name(item).toLowerCase() === lower);
 }
 
-/**
- * The session a selector names: among those the agent view holds (of the
- * workspace --workspace names, if given), then among the tabs of the
- * workspace. "." is this terminal.
- */
 async function resolveSession(
   ctx: CliContext,
   view: View,
@@ -311,7 +291,6 @@ const VIEW_NAME: Record<CliView, string> = {
 
 type ViewTabs = ReadonlyMap<string, CliViewAgent | CliViewHeldTab>;
 
-/** The panels drawn as layout show draws groups, with each tab's workspace or device. */
 function describeView(ctx: CliContext, view: View, tabs: ViewTabs): string[] {
   const workspaces = new Map(ctx.services.listWorkspaces().map((w) => [w.id, w.name]));
   const numbers = new Map(view.panels.map((p) => [p.id, p.number]));
@@ -588,8 +567,6 @@ const viewMove: CliCommand = {
         op: "place",
         tab: tab.ref,
         panelId: panel.id,
-        // Its place among the panel's other sessions: the view takes it out
-        // of its own panel before putting it back.
         ...(at === undefined ? {} : { index: at - 1 }),
         show: false,
       },

@@ -55,7 +55,6 @@ export function usePeerWorkbench(sidebarShown: boolean, workspaceShown: boolean)
   const reach: PeerReach =
     shownRoom?.status !== "online" ? "disconnected" : shownPeer?.online ? "online" : "offline";
   const watched = sidebarShown ? online.map(({ id }) => id) : selection ? [selection.deviceId] : [];
-  // Both visible sidebars use the same watch, including the first switch to Agents.
   const lists = usePeerSessions(watched, sidebarShown || (workspaceShown && selection !== null));
   const sessions = selection ? lists[selection.deviceId] : undefined;
   const workspaces = sessions?.status === "ready" ? sessions.list.workspaces : undefined;

@@ -1,23 +1,8 @@
-/**
- * Pure session-shape helpers extracted from `git.ts`. Each function here
- * either constructs a fresh `GitSession` value, classifies an operation
- * kind, or merges commit options against the per-workspace sticky defaults.
- *
- * `collectRecentCommits` does perform IPC (`ipcStream("git", "log")`) but
- * belongs in the same module because it produces the same canonical
- * `LogEntry[]` shape that callers use to seed pickers — the surrounding
- * store does not own that shape and shouldn't grow a dedicated method.
- */
 import type { GitCommitOptions, LogEntry } from "../../../../shared/git/types";
 import { DEFAULT_GIT_PANEL_STATE } from "../../../../shared/git/types";
 import { ipcStream } from "../../../ipc/client";
 import type { GitOperationKind, GitSession } from "./types";
 
-/**
- * Builds a fresh `GitSession` with the project's defaults, allowing
- * caller-supplied overrides to override individual fields. Used when the
- * store sees a workspaceId for the first time.
- */
 export function createDefaultSession(overrides: Partial<GitSession> = {}): GitSession {
   return {
     repoInfo: { kind: "detecting" },
@@ -43,18 +28,10 @@ export function createDefaultSession(overrides: Partial<GitSession> = {}): GitSe
   };
 }
 
-/**
- * Status-fetching operations drive the skeleton/loading affordance in the
- * panel in addition to the generic `inFlightOp` indicator.
- */
 export function isStatusFetchingOperation(kind: GitOperationKind): boolean {
   return kind === "refresh" || kind === "init";
 }
 
-/**
- * Collects a bounded recent commit list from the existing git.log stream so
- * the ref picker can include immutable commit targets without a bespoke IPC.
- */
 export async function collectRecentCommits(
   workspaceId: string,
   signal?: AbortSignal,
@@ -74,9 +51,6 @@ export async function collectRecentCommits(
   return entries.slice(0, 20);
 }
 
-/**
- * Merges per-workspace sticky commit options with one-off overrides.
- */
 export function resolveCommitOptions(
   workspaceId: string,
   overrides: Partial<GitCommitOptions>,

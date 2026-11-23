@@ -130,12 +130,10 @@ async function locate(root: string, request: Scope, directory = false): Promise<
       }
     }
   }
-  // A workspace root (including on a mount point) is already a directory.
   const workspaceRoot = !request.anywhere && !path.relative(root, asked);
   const parent = await realpath(workspaceRoot ? root : path.dirname(asked));
   if (!request.anywhere) {
     const base = await realpath(root);
-    // Canonical names use the spelling on disk, including on Windows.
     if (base !== parent && !parent.startsWith(base.endsWith(path.sep) ? base : base + path.sep)) {
       throw forbidden("the path leads outside the workspace's folder");
     }
@@ -149,7 +147,6 @@ async function locate(root: string, request: Scope, directory = false): Promise<
   return { path: workspaceRoot ? parent : path.join(parent, name), parent, parentInfo };
 }
 
-/** Resolve the path to show before a write is approved. */
 export async function fileWriteDestination(
   root: string,
   request: Scope,
@@ -169,7 +166,6 @@ async function existingFile(target: string): Promise<Stats | undefined> {
   return current;
 }
 
-/** Add a disjoint write to a compact set of covered byte ranges. */
 function cover(ranges: Range[], start: number, end: number): void {
   const index = ranges.findIndex((range) => range[1] >= start);
   const at = index === -1 ? ranges.length : index;
@@ -209,7 +205,6 @@ export async function makeRemoteDirectory(
   }
 }
 
-/** Best-effort cleanup of abandoned push files from earlier processes. */
 async function removeStaleUploads(
   destination: Destination,
   checkDestination: () => Promise<void>,
@@ -229,12 +224,9 @@ async function removeStaleUploads(
         await unlink(temporary).catch(() => {});
       }
     }
-  } catch {
-    // Listing access is optional; begin rechecks the destination before it creates a file.
-  }
+  } catch {}
 }
 
-/** Device-owned uploads, written to disk as pieces arrive and published by rename. */
 export class FileWrites {
   private readonly uploads = new Map<string, Upload>();
 

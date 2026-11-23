@@ -1,21 +1,3 @@
-// Pushes the (workspaceId, tabId) the user is currently viewing to main.
-//
-// main consults this context when handling a Stop hook to decide whether to fire a notification
-// (skipped if the user is looking at that tab). When the user activates a tab it also
-// moves the completed status to idle automatically through the markSeen IPC. The time a tab
-// was seen and left is kept in the session-seen store so the inbox can judge read state.
-//
-// Viewing a tab also implies the app window has focus (main's hook-handler uses the
-// same criterion). While the user is in another app no tab is being viewed, and on return
-// the active tab starts being viewed again.
-//
-// The active context is determined by a combination of two stores:
-//  - useActiveStore.activeWorkspaceId : the workspace currently being viewed
-//  - useLayoutStore.byWorkspace[ws].activeGroupId → that group's leaf.activeTabId
-// While the agent view is open, the agent in front of the active panel stands in.
-//
-// If either changes, the new (workspaceId, tabId) is computed and pushed to main.
-
 import { createLogger } from "../../shared/log/renderer";
 import { ipcCallResult } from "../ipc/client";
 import { activeLocalPanelTab, holdsInAgentView } from "../services/agent-view/show";
@@ -29,16 +11,6 @@ import { useSessionSeenStore } from "./stores/session-seen";
 
 const log = createLogger("claude-active-context");
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Computes the current active tabId from a given workspace's layout.
- *
- * Finds the leaf by activeGroupId and returns that leaf's activeTabId.
- * null if the leaf is not found or activeTabId is null.
- */
 function resolveActiveTabId(root: LayoutNode, activeGroupId: string | null): string | null {
   if (!activeGroupId) return null;
   for (const leaf of allLeaves(root)) {
@@ -49,12 +21,7 @@ function resolveActiveTabId(root: LayoutNode, activeGroupId: string | null): str
   return null;
 }
 
-/**
- * Computes the current active (workspaceId, tabId) pair from the two stores.
- * If the workspace or tab is missing, both are reported as null.
- */
 export function computeActiveContext(): { workspaceId: string | null; tabId: string | null } {
-  // While the agent view is open, the agent in front of the active panel is in front of the user.
   const agentView = useAgentViewStore.getState();
   if (agentView.mode === "agents") {
     const active = activeLocalPanelTab();
@@ -73,17 +40,6 @@ export function computeActiveContext(): { workspaceId: string | null; tabId: str
   return { workspaceId, tabId };
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/**
- * Subscribes to active store and layout store changes and pushes setActiveContext IPC to main.
- *
- * Called once from bootstrap. The return value is the unsubscribe function.
- *
- * An identical value to the previous one fires no IPC, avoiding unnecessary round-trips.
- */
 export function startClaudeActiveContextSync(): () => void {
   let lastWorkspaceId: string | null = null;
   let lastTabId: string | null = null;
@@ -94,9 +50,6 @@ export function startClaudeActiveContextSync(): () => void {
     if (initialPushed && workspaceId === lastWorkspaceId && tabId === lastTabId) {
       return;
     }
-    // The tab being left was in front of the user until now; the newly viewed tab, from now on.
-    // The inbox excludes sessions that ended before that (same criterion for Codex etc. with no markSeen).
-    // A tab changed while the window had no focus (nexus CLI etc.) has not been seen by anyone yet.
     const viewing = useAppFocusStore.getState().focused;
     if (viewing) {
       const seen = useSessionSeenStore.getState();
@@ -106,19 +59,13 @@ export function startClaudeActiveContextSync(): () => void {
     lastWorkspaceId = workspaceId;
     lastTabId = tabId;
     initialPushed = true;
-    // fire-and-forget — a main-side failure only affects the notification decision (not fatal).
     ipcCallResult("claude", "setActiveContext", { workspaceId, tabId }).catch((err: unknown) => {
       log.warn(`setActiveContext IPC failed: ${(err as Error).message}`);
     });
 
-    // When a real tab is activated, markSeen to automatically release that tab's completed status.
-    // main's markSeen handler moves to idle only when in the completed state (idempotent).
     if (viewing && workspaceId !== null && tabId !== null) markClaudeSeen(workspaceId, tabId);
   };
 
-  // Leaving and returning to the window is the same as switching tabs: the active tab was
-  // in front of the user until they left and from when they came back. Only sessions that
-  // ended in that tab in between stay in the inbox, and they count as read once the user returns and sees them.
   const onFocusChange = (focused: boolean): void => {
     const { workspaceId, tabId } = computeActiveContext();
     if (workspaceId === null || tabId === null) return;
@@ -126,10 +73,8 @@ export function startClaudeActiveContextSync(): () => void {
     if (focused) markClaudeSeen(workspaceId, tabId);
   };
 
-  // Initial one-time push (syncs the current value).
   push();
 
-  // Subscribe to both store changes.
   const unsubActive = useActiveStore.subscribe(push);
   const unsubLayout = useLayoutStore.subscribe(push);
   const unsubAgentView = useAgentViewStore.subscribe(push);

@@ -1,9 +1,3 @@
-/**
- * Whether nexus may change a workspace other than its terminal's own. The
- * Agents setting answers, or, set to "ask", the user does: for this once,
- * or for every change from that workspace to that one until the app
- * restarts.
- */
 import type { CliChange, CliConsentAnswer } from "../../../shared/cli/ui";
 import type { AppState } from "../../../shared/types/app-state";
 import { tryGetMainT } from "../../i18n";
@@ -41,14 +35,11 @@ function refusal(sandbox: boolean, unasked = false): CliError {
 }
 
 export class CrossWorkspaceConsent {
-  /** "from>to" pairs of workspaces the user allowed until restart. */
   private readonly allowed = new Set<string>();
-  /** Caller tab and destination to the caller's approved session. */
   private readonly sandboxAllowed = new Map<string, string>();
 
   constructor(private readonly deps: ConsentDeps) {}
 
-  /** Resolves when the change may go ahead; a CliError saying why when not. */
   async check(request: ChangeRequest, signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
     const policy = this.deps.policy();
@@ -64,13 +55,6 @@ export class CrossWorkspaceConsent {
     }
   }
 
-  /**
-   * Asks the user about `request` whatever the setting, unless they allowed
-   * that workspace's changes to that one until restart: for what the setting
-   * does not let through, as an answer to another session's permission
-   * request, a looser mode or another profile, in the caller's own workspace
-   * too. Resolves when allowed; a CliError saying why when not.
-   */
   async ask(request: ChangeRequest, signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
     if (request.change.kind === "sandboxExecution") {
@@ -98,7 +82,6 @@ export class CrossWorkspaceConsent {
           { fromWorkspaceId, fromTabId, toWorkspaceId, change: sandbox.workspaceChange },
           signal,
         );
-        // The workspace prompt may have waited across a conversation change.
         if ((await readSession()) !== session) {
           signal?.throwIfAborted();
           return this.askSandbox(request, false, signal);
@@ -108,7 +91,6 @@ export class CrossWorkspaceConsent {
       return;
     }
 
-    // A fresh sandbox prompt also authorizes this one change under the workspace policy.
     const approval = session ? request : { ...request, change: { ...change, eachTime: true } };
     const answer = await this.prompt(approval, signal);
     if (answer === "session" && session) {

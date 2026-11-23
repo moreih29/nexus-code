@@ -30,7 +30,6 @@ const ssh: WorkspaceMeta = {
   sortOrder: 2,
 };
 
-/** Drives workspace IPC without constructing a window or opening a connection. */
 function setWorkspaceIpc(call: (method: string, body: unknown) => Promise<unknown>): void {
   Object.assign(globalThis, {
     window: {

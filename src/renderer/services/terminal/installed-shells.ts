@@ -1,8 +1,3 @@
-/**
- * The shells installed on this machine, as main finds them (pty.listShells),
- * for Settings › Terminal and the tab bar's "New terminal with" menu.
- */
-
 import i18next, { type TFunction } from "i18next";
 import { useEffect, useState } from "react";
 import type { CustomShell, ShellChoice, ShellInfo } from "../../../shared/pty/shell";
@@ -11,16 +6,11 @@ import { useTerminalStore } from "../../state/stores/terminal";
 
 export interface InstalledShells {
   shells: ShellInfo[];
-  /** What a terminal runs when no shell is chosen. */
   systemDefault: ShellInfo;
 }
 
 let cached: Promise<InstalledShells> | null = null;
 
-/**
- * Loads the list once per window; `refresh` looks again (the settings panel
- * does, so a shell installed since shows up without a restart).
- */
 export function loadInstalledShells(refresh = false): Promise<InstalledShells> {
   if (cached === null || refresh) {
     const request = ipcCallResult("pty", "listShells", undefined).then(unwrapIpcResult);
@@ -32,7 +22,6 @@ export function loadInstalledShells(refresh = false): Promise<InstalledShells> {
   return cached;
 }
 
-/** The installed shells, or null until they have loaded. */
 export function useInstalledShells(refresh = false): InstalledShells | null {
   const [value, setValue] = useState<InstalledShells | null>(null);
   useEffect(() => {
@@ -49,12 +38,10 @@ export function useInstalledShells(refresh = false): InstalledShells | null {
   return value;
 }
 
-/** A shell's display name; "Command Prompt" is translated. */
 export function shellDisplayName(t: TFunction, shell: ShellInfo): string {
   return shell.id === "cmd" ? t("settings:terminal.shell.cmd") : shell.name;
 }
 
-/** A shell to pick: one found on this machine, or one the user added. */
 export interface ShellEntry {
   choice: ShellChoice;
   name: string;
@@ -62,7 +49,6 @@ export interface ShellEntry {
   args: readonly string[];
 }
 
-/** The detected shells, then the added ones, as one list to pick from. */
 export function shellEntries(
   t: TFunction,
   installed: InstalledShells | null,
@@ -84,10 +70,6 @@ export function shellEntries(
   ];
 }
 
-/**
- * The shells to pick from, as the tab bar's "New terminal with" lists them,
- * and the one a new terminal runs: the one set, else the system's.
- */
 export async function loadShellMenu(): Promise<{
   entries: ShellEntry[];
   defaultShell: ShellChoice;
@@ -100,10 +82,6 @@ export async function loadShellMenu(): Promise<{
   };
 }
 
-/**
- * Where main finds a program (pty.findShell), checked a moment after the
- * last change: undefined while empty or not yet checked, null if not found.
- */
 export function useFoundProgram(program: string): string | null | undefined {
   const [found, setFound] = useState<string | null | undefined>(undefined);
   useEffect(() => {
@@ -127,16 +105,10 @@ export function useFoundProgram(program: string): string | null | undefined {
   return found;
 }
 
-/** A program's name without its folder or `.exe`: `zsh` for `/bin/zsh`. */
 function programName(path: string): string {
   return (path.split(/[\\/]/).pop() ?? path).replace(/\.exe$/i, "").toLowerCase();
 }
 
-/**
- * The shell `name` picks among `entries`, as `nexus terminal new --shell`
- * takes it: the name the menu shows, then the id, then the program's name,
- * each ignoring case. Undefined if none does.
- */
 export function shellNamed(entries: readonly ShellEntry[], name: string): ShellEntry | undefined {
   const wanted = name.trim().toLowerCase();
   return (

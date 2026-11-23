@@ -1,9 +1,3 @@
-/**
- * External-change reconcile must apply the newest read: a formatter or a
- * checkout fires several fs.changed events, and a slow early read that
- * resolves last must not install older disk content and mark it clean.
- */
-
 import { expect, mock, test } from "bun:test";
 import type { ModelEntryDeps } from "../../../../../../src/renderer/services/editor/model/entry";
 

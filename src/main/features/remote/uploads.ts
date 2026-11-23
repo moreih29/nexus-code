@@ -1,13 +1,3 @@
-/**
- * Files another device sends a chat a piece at a time (chat.upload.begin,
- * chat.upload.chunk, chat.upload.end), for its next message: any file of
- * at most MAX_UPLOAD_BYTES, where chat.attach takes one image that fits in
- * a frame. The pieces are held here till the last comes, in order; then
- * the file is kept with the device's attachments, as an image when it is
- * one the chat takes, else as a file whose path the message will give the
- * agent. An upload is the device's alone, and is dropped when it goes
- * ATTACHMENT_TTL_MS without a piece or a piece is refused.
- */
 import { randomUUID } from "node:crypto";
 import {
   MAX_BYTES_CHUNK,
@@ -17,13 +7,8 @@ import {
 import { ATTACHMENT_TTL_MS, type Attachments, looksLike } from "./attachments";
 import { RpcFailure } from "./room";
 
-/** Most uploads one device may have under way: a phone sends one file at a time, or two. */
 export const MAX_UPLOADS_PER_DEVICE = 2;
 
-/**
- * Most bytes an uploaded image may take and still go as an image, as an
- * image pasted in the desktop's composer does; a bigger one goes as a file.
- */
 export const MAX_UPLOAD_IMAGE_BYTES = 3_750_000;
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
@@ -40,7 +25,6 @@ interface Upload {
   mediaType?: string;
   pieces: Buffer[];
   received: number;
-  /** When a piece last came, or it began. */
   at: number;
 }
 
@@ -48,7 +32,6 @@ function invalid(message: string): RpcFailure {
   return new RpcFailure(RpcErrorCode.InvalidParams, message);
 }
 
-/** Why a file's name will not do, or null: a name alone, no folder, nothing unseen in it. */
 export function badName(name: string): string | null {
   const trimmed = name.trim();
   if (trimmed === "" || trimmed === "." || trimmed === "..") return "the file needs a name";
@@ -58,17 +41,14 @@ export function badName(name: string): string | null {
   return null;
 }
 
-/** The image type the bytes are, as the name or the type given says and the bytes agree; else null. */
 function imageTypeOf(bytes: Buffer, mediaType: string | undefined): string | null {
   const said = IMAGE_TYPES.find((t) => t === mediaType);
   if (said) return looksLike(said, bytes) ? said : null;
   return IMAGE_TYPES.find((t) => looksLike(t, bytes)) ?? null;
 }
 
-/** Runs `run` in `ms`, unless cancelled first. */
 type Schedule = (run: () => void, ms: number) => () => void;
 
-/** A timer that does not keep the app from quitting. */
 const scheduleSweep: Schedule = (run, ms) => {
   const timer = setTimeout(run, ms);
   timer.unref();
@@ -77,7 +57,6 @@ const scheduleSweep: Schedule = (run, ms) => {
 
 export class Uploads {
   private uploads: Upload[] = [];
-  /** Cancels the sweep due when the upload idle longest runs out of time; null with none under way. */
   private cancelSweep: (() => void) | null = null;
 
   constructor(
@@ -86,7 +65,6 @@ export class Uploads {
     private readonly schedule: Schedule = scheduleSweep,
   ) {}
 
-  /** Starts one; its id. The device's oldest goes when it has too many under way. */
   begin(
     device: string,
     workspaceId: string,
@@ -121,7 +99,6 @@ export class Uploads {
     return id;
   }
 
-  /** Takes the next piece; a piece out of order, or too much, ends the upload. */
   chunk(device: string, uploadId: string, offset: number, data: string): void {
     const upload = this.mine(device, uploadId);
     const refuse = (message: string): never => {
@@ -143,7 +120,6 @@ export class Uploads {
     upload.at = this.now();
   }
 
-  /** Ends an upload whose bytes all came: the attachment's id for chat.send. */
   end(device: string, uploadId: string): string {
     const upload = this.mine(device, uploadId);
     this.drop(upload);
@@ -165,7 +141,6 @@ export class Uploads {
     );
   }
 
-  /** The device's upload by its id; another device's is none of its. */
   private mine(device: string, uploadId: string): Upload {
     this.sweep();
     const upload = this.uploads.find((u) => u.id === uploadId);
@@ -186,11 +161,6 @@ export class Uploads {
     this.armSweep();
   }
 
-  /**
-   * Sweeps again when the upload idle longest runs out of time, so the
-   * pieces of one its device left unfinished (gone from the room, say) do
-   * not stay till another upload comes; none is due with none under way.
-   */
   private armSweep(): void {
     this.cancelSweep?.();
     this.cancelSweep = null;

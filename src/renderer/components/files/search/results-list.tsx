@@ -1,21 +1,3 @@
-/**
- * Virtualized search results list — supports both list and tree view modes.
- *
- * List mode (default):
- *   Builds a flat row array from FileGroup[] + expanded state using:
- *     { kind: "file",  group }
- *     { kind: "match", group, matchIdx }
- *
- * Tree mode:
- *   Builds a directory tree via buildPathTree, then produces a flat ordered
- *   row array including dir rows:
- *     { kind: "dir",   node, matchCount }
- *     { kind: "file",  group }
- *     { kind: "match", group, matchIdx }
- *
- * WAI-ARIA tree role + roving tabindex applied in tree mode via useTreeKeyboard.
- */
-
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, Folder } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -30,24 +12,12 @@ import { useTreeKeyboard } from "../file-tree/use-tree-keyboard";
 import { SearchResultFileRow } from "./result-file-row";
 import { SearchResultMatchRow } from "./result-match-row";
 
-// Stable empty fallback for the optional `expandedDirs` prop. A parameter
-// default of `= new Set()` would create a fresh Set on every render where
-// the prop is undefined, invalidating downstream `useMemo` deps every tick.
-// Read-only by convention (consumers only call `.has()`).
 const EMPTY_EXPANDED_DIRS: ReadonlySet<string> = new Set<string>();
-
-// ---------------------------------------------------------------------------
-// Flat row types
-// ---------------------------------------------------------------------------
 
 type FlatRow =
   | { kind: "file"; group: FileGroup }
   | { kind: "match"; group: FileGroup; matchIdx: number }
   | { kind: "dir"; node: PathTreeNode; matchCount: number };
-
-// ---------------------------------------------------------------------------
-// List-mode flat row builder
-// ---------------------------------------------------------------------------
 
 function buildListRows(results: FileGroup[]): FlatRow[] {
   const rows: FlatRow[] = [];
@@ -62,14 +32,6 @@ function buildListRows(results: FileGroup[]): FlatRow[] {
   return rows;
 }
 
-// ---------------------------------------------------------------------------
-// Tree-mode flat row builder
-// ---------------------------------------------------------------------------
-
-/**
- * Walk the tree depth-first and emit rows in display order. Collapsed dirs
- * skip their subtrees. `matchCountMap` is pre-populated by callers.
- */
 function walkTreeRows(
   node: PathTreeNode,
   expandedDirs: ReadonlySet<string>,
@@ -85,7 +47,6 @@ function walkTreeRows(
         walkTreeRows(child, expandedDirs, matchCountMap, rows, groupByPath);
       }
     } else {
-      // File leaf node.
       const group = groupByPath.get(child.relPath);
       if (!group) continue;
       rows.push({ kind: "file", group });
@@ -104,11 +65,8 @@ function buildTreeRows(results: FileGroup[], expandedDirs: ReadonlySet<string>):
   const relPaths = results.map((g) => g.relPath);
   const tree = buildPathTree(relPaths);
 
-  // Map relPath → FileGroup for O(1) lookup during walk.
   const groupByPath = new Map<string, FileGroup>(results.map((g) => [g.relPath, g]));
 
-  // Build match count map: each file node gets the group's match count; dir nodes
-  // get the accumulated sum.
   const leafMatchMap = new Map<string, number>(results.map((g) => [g.relPath, g.matches.length]));
   const dirMatchCountMap = new Map<string, number>();
 
@@ -130,10 +88,6 @@ function buildTreeRows(results: FileGroup[], expandedDirs: ReadonlySet<string>):
   return rows;
 }
 
-// ---------------------------------------------------------------------------
-// Row → TreeKeyboardRow adapter
-// ---------------------------------------------------------------------------
-
 function toKeyboardRow(row: FlatRow, expandedDirs: ReadonlySet<string>): TreeKeyboardRow {
   if (row.kind === "dir") {
     return {
@@ -149,7 +103,6 @@ function toKeyboardRow(row: FlatRow, expandedDirs: ReadonlySet<string>): TreeKey
       isExpanded: row.group.expanded,
     };
   }
-  // match
   return {
     kind: "match",
     relPath: `${row.group.relPath}:${row.matchIdx}`,
@@ -157,19 +110,13 @@ function toKeyboardRow(row: FlatRow, expandedDirs: ReadonlySet<string>): TreeKey
   };
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
 interface SearchResultsListProps {
   onOpenMatch: (relPath: string, range: SearchRange) => void;
   results: FileGroup[];
   onToggleGroup: (relPath: string) => void;
-  /** When provided, tree mode is active. */
   viewMode?: "list" | "tree";
   expandedDirs?: ReadonlySet<string>;
   onToggleDir?: (relPath: string) => void;
-  /** Ref to expose the first-row focus method to the parent (SearchPanel). */
   firstRowFocusRef?: React.MutableRefObject<(() => void) | null>;
 }
 
@@ -189,13 +136,11 @@ export function SearchResultsList({
 
   const isTree = viewMode === "tree";
 
-  // Build flat rows — memoised on the inputs that can change their content.
   const flatRows = useMemo<FlatRow[]>(() => {
     if (!isTree) return buildListRows(results);
     return buildTreeRows(results, expandedDirs);
   }, [results, isTree, expandedDirs]);
 
-  // Convert to TreeKeyboardRow for the keyboard hook.
   const keyboardRows = useMemo<TreeKeyboardRow[]>(
     () => flatRows.map((r) => toKeyboardRow(r, expandedDirs)),
     [flatRows, expandedDirs],
@@ -208,11 +153,6 @@ export function SearchResultsList({
     overscan: 10,
   });
 
-  /**
-   * Moves DOM focus to a rendered row. List-mode wrappers are not focusable
-   * themselves, so focus goes to the row's own button instead of falling
-   * through to <body>.
-   */
   const focusRow = useCallback((index: number): boolean => {
     const el = rowRefs.current.get(index);
     if (!el) return false;
@@ -224,9 +164,6 @@ export function SearchResultsList({
     return true;
   }, []);
 
-  // A keyboard move can target a row outside the virtualizer's rendered
-  // window; it has no element until scrollToIndex brings it in, so the focus
-  // is applied after the next render.
   const pendingFocusRef = useRef<number | null>(null);
   const handleMove = useCallback(
     (next: number) => {
@@ -244,7 +181,6 @@ export function SearchResultsList({
 
   const handleToggle = useCallback(
     (relPath: string, _expanded: boolean) => {
-      // Determine whether this is a dir or a file row.
       const row = flatRows.find(
         (r) =>
           (r.kind === "dir" && r.node.relPath === relPath) ||
@@ -263,7 +199,6 @@ export function SearchResultsList({
   const handleActivate = useCallback(
     (row: TreeKeyboardRow) => {
       if (row.kind === "match") {
-        // relPath for match is "filePath:matchIdx"
         const colonIdx = row.relPath.lastIndexOf(":");
         if (colonIdx === -1) return;
         const filePath = row.relPath.slice(0, colonIdx);
@@ -286,7 +221,6 @@ export function SearchResultsList({
     onActivate: handleActivate,
   });
 
-  // Expose first-row focus to parent (for SearchInput ↓ handoff).
   if (firstRowFocusRef) {
     firstRowFocusRef.current = () => {
       if (flatRows.length === 0) return;
@@ -325,7 +259,6 @@ export function SearchResultsList({
             transform: `translateY(${vi.start}px)`,
           };
 
-          // ── Dir row (tree mode only) ──────────────────────────────────────
           if (row.kind === "dir") {
             const { node, matchCount } = row;
             const isExpanded = expandedDirs.has(node.relPath);
@@ -362,7 +295,6 @@ export function SearchResultsList({
             );
           }
 
-          // ── File row ──────────────────────────────────────────────────────
           if (row.kind === "file") {
             const depthPad = isTree ? (row.group.relPath.split("/").length - 1) * 12 : 0;
             const rowProps = isTree ? getRowProps(vi.index) : {};
@@ -387,7 +319,6 @@ export function SearchResultsList({
             );
           }
 
-          // ── Match row ─────────────────────────────────────────────────────
           const match = row.group.matches[row.matchIdx];
           if (!match) return null;
 

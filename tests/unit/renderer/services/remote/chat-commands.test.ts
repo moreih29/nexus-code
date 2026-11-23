@@ -1,8 +1,3 @@
-/**
- * A chat's slash commands as another device sees and runs them: the agent's
- * own to send, the model and effort to set, and only those of the app's own
- * that change the conversation, whose card or toast is the answer.
- */
 import { afterEach, describe, expect, test } from "bun:test";
 import type { AgentTabController } from "../../../../../src/renderer/services/chat/agent-tab";
 import type { ChatController } from "../../../../../src/renderer/services/chat/claude/controller";
@@ -35,7 +30,6 @@ function chatTab(type: "claude" | "codex" = "claude"): void {
   useChatStore.getState().update(key, () => emptyTabState());
 }
 
-/** A controller with what /btw, /subtask and /sandbox use: its card in the tab's store. */
 function controller(sent: string[] = []): AgentTabController {
   let seq = 0;
   const card = (next: (prev?: CommandCard) => CommandCard | undefined) =>
@@ -91,7 +85,6 @@ describe("a chat's commands for another device", () => {
     for (const there of ["export", "memory", "permissions", "hooks", "skills", "tasks"]) {
       expect(commands.find((c) => c.name === there)).toMatchObject({ runs: "command" });
     }
-    // What runs on the device that shows the chat (/copy, /diff, /help), or in a terminal here, is not offered.
     for (const shown of ["copy", "diff", "help", "logout", "exit"]) {
       expect(commands.some((c) => c.name === shown)).toBe(false);
     }
@@ -134,7 +127,6 @@ describe("a chat's commands for another device", () => {
     expect(commands.some((c) => c.name === "logout" || c.name === "copy")).toBe(false);
     expect(commands.find((c) => c.name === "new")).toMatchObject({ aliases: ["clear"] });
     expect(commands.find((c) => c.name === "mcp")).toMatchObject({ runs: "command" });
-    // What it tells of the thread there, its card's text for an answer (0.13.0).
     expect(commands.find((c) => c.name === "status")).toMatchObject({ runs: "command" });
   });
 });

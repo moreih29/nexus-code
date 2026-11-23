@@ -1,16 +1,9 @@
-/**
- * A Claude or Codex tab's model, effort and permission mode as the nexus
- * CLI reads and sets them: what the tab runs with and takes, as its
- * composer's chips list them, and what a set asks of it. Pure.
- */
-
 import type { CliChatChoices, CliChatSettings } from "../../../shared/cli/ui";
 import { CHAT_MODES, chatModeNamed } from "../../../shared/sessions/chat-modes";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { type ChatModel, currentModelInfo, type ModelInfo } from "../chat/model";
 import { type ModelPickerContext, modelPickerOf } from "../chat/model-picker";
 
-/** What a tab runs with now, and what it may be set to. */
 export function chatChoicesOf(
   agent: ChatAgent,
   model: ChatModel,
@@ -28,7 +21,6 @@ export function chatChoicesOf(
   };
 }
 
-/** What a set asks the tab to change: those it does not run with already. */
 export interface ChatSettingsPlan {
   readonly model?: string;
   readonly effort?: string;
@@ -40,7 +32,6 @@ const listed = (names: readonly string[]) => names.join(", ");
 function modelNamed(picker: ReturnType<typeof modelPickerOf>, name: string): ModelInfo | undefined {
   const lower = name.trim().toLowerCase();
   const { models, options } = picker;
-  // The full list still accepts aliases the picker folds into a profile model.
   return (
     models.find((m) => m.value.toLowerCase() === lower) ??
     models.find((m) => m.displayName?.toLowerCase() === lower) ??
@@ -51,18 +42,11 @@ function modelNamed(picker: ReturnType<typeof modelPickerOf>, name: string): Mod
   );
 }
 
-/**
- * What setting `wanted` asks of the tab, in the names its program takes.
- * Throws an Error saying what is wrong: a model it does not offer, an
- * effort the model does not take, an unknown mode, or the mode that lets
- * everything run when the request lacks permission to set it.
- */
 export function planChatSettings(
   agent: ChatAgent,
   model: ChatModel,
   wanted: CliChatSettings,
   effortSettable: boolean,
-  /** Main authorized the dangerous mode, subject to the program's policy. */
   allowDangerousMode = false,
   context?: ModelPickerContext,
 ): ChatSettingsPlan {
@@ -103,7 +87,6 @@ export function planChatSettings(
       throw new Error(`${mode} is turned off here: ${model.bypassBlocked}`);
     }
   }
-  // A legacy default request may still change which alias is kept across restarts.
   const currentValue =
     nextModel?.value === "default"
       ? (currentModelInfo(picker.models, model.model, model.chosenModel)?.value ?? picker.value)
@@ -111,7 +94,6 @@ export function planChatSettings(
   const newModel = nextModel && nextModel.value !== currentValue ? nextModel.value : undefined;
   return {
     ...(newModel !== undefined ? { model: newModel } : {}),
-    // A new model may start at its own effort: set again after it.
     ...(effort !== undefined && (effort !== model.effort || newModel !== undefined)
       ? { effort }
       : {}),

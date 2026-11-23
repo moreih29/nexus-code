@@ -1,9 +1,3 @@
-/**
- * windows-shell-shim.test.ts — how each Windows shell gets a `claude` that
- * runs with the app's hooks, a `codex` with --no-daemon, and the nexus
- * launchers, and the hooks file taken from the wrapper.
- */
-
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
@@ -14,7 +8,6 @@ import {
 import { CODEX_CMD_HELP, CODEX_CMD_LAUNCHER } from "../../../../src/shared/codex/wrapper";
 
 const SETTINGS = "C:\\Users\\me\\.nexus-code\\claude-settings.json";
-/** cmd's claude macro: the tab's mark set, claude with the hooks, the mark cleared. */
 const CMD_CLAUDE =
   `doskey claude=set "NEXUS_CLAUDE_TAB_ID=%NEXUS_TAB_ID%" ^& ` +
   `claude --settings "${SETTINGS}" $* ^& set "NEXUS_CLAUDE_TAB_ID="`;
@@ -81,12 +74,10 @@ describe("applyWindowsShellShim", () => {
       });
       expect(args?.slice(0, 2)).toEqual(["-NoExit", "-EncodedCommand"]);
       expect(decode(args)).toStartWith("function global:claude {");
-      // The wrapper's marks while claude runs, put back after.
       expect(decode(args)).toContain("$env:NEXUS_CLAUDE_TAB_ID = $env:NEXUS_TAB_ID");
       expect(decode(args)).toContain("$env:NEXUS_CLAUDE_PRINT = if ($args | Where-Object");
       expect(decode(args)).toContain("$env:NEXUS_CLAUDE_TAB_ID, $env:NEXUS_CLAUDE_PRINT = $marks");
       expect(env.NEXUS_CLAUDE_SETTINGS).toBe(SETTINGS);
-      // The launchers, not the wrapper, which PowerShell would run as claude.
       expect(env.NEXUS_WRAPPER_SELF_DIR).toBe(LAUNCHERS);
       expect(env.NEXUS_IN_APP).toBe("1");
     }
@@ -147,8 +138,6 @@ describe("applyWindowsShellShim", () => {
       env: { ...ENV, NEXUS_WRAPPER_SELF_DIR: BIN },
       args: ["--login", "-i"],
     });
-    // Started from Git Bash, the app passes on an ORIGINAL_PATH, which Git
-    // Bash's profile builds PATH from.
     const fromGitBash = applyWindowsShellShim({
       shell: "C:\\Program Files\\Git\\bin\\bash.exe",
       env: ENV,
@@ -169,8 +158,6 @@ describe("applyWindowsShellShim", () => {
   });
 
   test("a Git Bash started from PowerShell or cmd keeps the launchers first on PATH", () => {
-    // Claude Code's Bash tool, for one: a login Git Bash, whose profile
-    // builds PATH from the ORIGINAL_PATH an app started from Git Bash has.
     for (const shell of ["powershell.exe", "cmd.exe"]) {
       for (const settingsPath of [SETTINGS, undefined]) {
         const { env } = applyWindowsShellShim({

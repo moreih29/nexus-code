@@ -1,6 +1,3 @@
-// Byte ranges from the nexus-workspace:// protocol, which <audio> and
-// <video> ask for to play a file as it loads and to seek it.
-
 import { afterAll, describe, expect, mock, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
@@ -9,8 +6,6 @@ import type { FsProvider } from "../../../../src/main/features/fs/bridge/provide
 import type { WorkspaceManager } from "../../../../src/main/features/workspace/manager";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
-// A local file is read off disk, never by net.fetch, which goes through the
-// app session's request guard; it fails here so a read through it would show.
 mock.module("electron", () => ({
   net: { fetch: mock(() => Promise.resolve(new Response(null, { status: 500 }))) },
   protocol: {

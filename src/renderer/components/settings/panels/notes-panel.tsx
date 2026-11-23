@@ -1,9 +1,3 @@
-/**
- * Settings › Notes: what the notes take, location by location (a workspace's
- * folder), with the ones no workspace in the app is at marked "Not linked".
- * A location's notes can be shown in Finder or moved to the Trash.
- */
-
 import { FolderOpen, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";

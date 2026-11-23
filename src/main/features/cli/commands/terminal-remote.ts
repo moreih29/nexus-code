@@ -1,11 +1,3 @@
-/**
- * nexus terminal ... --device: a terminal of another computer of the
- * user's, read, typed into, waited on and opened through the remote's room
- * as terminal read, send, key, wait and new do this computer's. What is
- * typed there goes as an agent's (from), for that computer's user to
- * allow, the user's at a shell too (see agentSenderOf); the output is the
- * local commands'.
- */
 import {
   MAX_WAIT_MS as MAX_REQUEST_WAIT_MS,
   TERMINAL_KEYS,
@@ -55,7 +47,6 @@ function resolvePeerTerminal(
   return resolvePeerTab(ctx, device, flags.workspace as string | undefined, selector, ["terminal"]);
 }
 
-/** terminal read --device. */
 export async function readPeerTerminal(
   ctx: CliContext,
   device: CliDevice,
@@ -71,10 +62,8 @@ export async function readPeerTerminal(
   return output(text, { id: peer.session.tabId, ...targetJson(peer), text });
 }
 
-/** How a terminal wait ended there, in the sentence the local wait says it in. */
 function waitText(title: string, state: string, message: string | undefined): string {
   if (!message) return `${title}: ${state}.`;
-  // The other computer sends the sentence itself when there is no answer to tell.
   if (message.startsWith("Claude Code ") || message.startsWith(title)) return message;
   switch (state) {
     case "completed":
@@ -92,19 +81,12 @@ function waitText(title: string, state: string, message: string | undefined): st
   }
 }
 
-/** What terminal wait waits for there: idle, its program's exit, or a line. */
 export interface PeerWaitFor {
   readonly exit?: boolean;
   readonly match?: string;
   readonly quietMs?: number;
 }
 
-/**
- * Waits on a terminal of another computer as waitOnTerminal does here,
- * with terminal.wait a slice at a time; `after` (terminal.input's `at`)
- * needs a turn begun after it. The computer going away ends it with
- * state offline.
- */
 export async function waitOnPeerTerminal(
   ctx: CliContext,
   peer: PeerTab,
@@ -151,12 +133,10 @@ export async function waitOnPeerTerminal(
         text: `${peer.session.title} was still busy when the wait ran out; see it with "nexus terminal read".`,
       };
     }
-    // An answer sooner than asked: the other computer does not hold the wait.
     if (clock.now() - asked < slice / 2) await clock.sleep(WAIT_POLL_MS);
   }
 }
 
-/** terminal send --device: the text as one paste, then Enter unless told not to. */
 export async function sendToPeerTerminal(
   ctx: CliContext,
   device: CliDevice,
@@ -189,10 +169,6 @@ export async function sendToPeerTerminal(
 const KEY_ALIASES: Readonly<Record<string, TerminalKey>> = { return: "enter", escape: "esc" };
 const KEYS: ReadonlySet<string> = new Set(TERMINAL_KEYS);
 
-/**
- * Keys as terminal.input takes them, in order: runs of single characters
- * typed as text, and named keys pressed by name, each run a request.
- */
 function keyRuns(names: readonly string[]): Array<{ text?: string; keys?: TerminalKey[] }> {
   const runs: Array<{ text?: string; keys?: TerminalKey[] }> = [];
   for (const name of names) {
@@ -200,7 +176,6 @@ function keyRuns(names: readonly string[]): Array<{ text?: string; keys?: Termin
     const key = KEY_ALIASES[lower] ?? (KEYS.has(lower) ? (lower as TerminalKey) : undefined);
     const last = runs.at(-1);
     if (key) {
-      // Keys go after a run's text, so they join it.
       if (last?.keys) last.keys.push(key);
       else if (last) last.keys = [key];
       else runs.push({ keys: [key] });
@@ -217,7 +192,6 @@ function keyRuns(names: readonly string[]): Array<{ text?: string; keys?: Termin
   return runs;
 }
 
-/** terminal key --device. */
 export async function pressPeerKeys(
   ctx: CliContext,
   device: CliDevice,
@@ -238,7 +212,6 @@ export async function pressPeerKeys(
   return output(`Pressed ${keys.join(" ")} in ${named(peer)}.`, { ...targetJson(peer), keys });
 }
 
-/** terminal wait --device. */
 export async function waitOnPeer(
   ctx: CliContext,
   device: CliDevice,
@@ -252,7 +225,6 @@ export async function waitOnPeer(
   return peerWaitOutput(result.text, targetJson(peer), result);
 }
 
-/** terminal new --device: a terminal in a workspace of the other computer. */
 export async function newPeerTerminal(
   ctx: CliContext,
   device: CliDevice,

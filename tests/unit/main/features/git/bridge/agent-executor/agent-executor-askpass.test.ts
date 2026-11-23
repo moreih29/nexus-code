@@ -1,9 +1,3 @@
-/**
- * Credential prompts of prompting agent requests (push, pull, remote tag and
- * branch operations, interactive run): each request listens for its own
- * prompts by run id, an abort cancels its git, and a prompt it leaves open is
- * withdrawn from the renderer.
- */
 import { afterEach, describe, expect, it, mock } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
@@ -31,7 +25,6 @@ function makeFixture() {
         settlePush = { resolve, reject };
       });
     }
-    // The agent kills the cancelled git; the push request then fails.
     if (method === "git.cancel") settlePush?.reject(new Error("context canceled"));
     return undefined;
   });
@@ -111,7 +104,6 @@ describe("AgentGitExecutor credential prompts", () => {
 
     f.resolvePush({ pushed: true });
     expect(await push).toMatchObject({ pushed: true });
-    // Answered prompts are not withdrawn.
     expect(f.broadcasts.map((b) => b.key)).toEqual(["askpass.prompt"]);
   });
 
@@ -155,7 +147,6 @@ describe("AgentGitExecutor credential prompts", () => {
       params: { requestId: "req-1", cancelled: true },
     });
 
-    // Git then fails for want of the credential.
     f.rejectPush(
       Object.assign(new Error("fatal: could not read Username: terminal prompts disabled"), {
         code: "server.request-failed",
@@ -174,7 +165,6 @@ describe("AgentGitExecutor credential prompts", () => {
     f.manager.cancelAskpass({ promptId: "req-1" });
     await flush();
 
-    // git.run reports the failed git in its result.
     f.resolvePush({
       stdout: "",
       stderr: "fatal: could not read Username: terminal prompts disabled",

@@ -1,14 +1,3 @@
-/**
- * Translucent block indicator that fills the destination zone of a drop
- * target. Pure presentational — all state lives in useDropTarget.
- *
- * Placement matches VSCode's editorDropTarget.ts positionOverlay():
- *   top    → upper half
- *   bottom → lower half
- *   left   → left half
- *   right  → right half
- *   center → full leaf
- */
 import { cn } from "@/utils/cn";
 import type { DropZone } from "../../../types/workbench-dnd";
 
@@ -29,8 +18,6 @@ export function DropIndicator({ zone }: DropIndicatorProps) {
     <div
       className={cn(
         ZONE_CLASS[zone],
-        // Translucent fill + 1px outline. Pointer-events none so the indicator
-        // never intercepts the actual drop event — that lives on the slot div.
         "pointer-events-none bg-primary/15 outline outline-1 outline-primary/40 z-10",
         "transition-[clip-path] duration-100 ease-out",
       )}

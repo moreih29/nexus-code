@@ -1,6 +1,5 @@
 import type { AgentBackedProvider } from "./provider";
 
-/** Binds change and reconnect signals only while their provider registration is current. */
 export function subscribeAgentWatch(
   provider: AgentBackedProvider,
   eventName: string,
@@ -20,7 +19,6 @@ export function subscribeAgentWatch(
   };
 }
 
-/** Runs one watch operation after any earlier operation for the same key. */
 export function enqueueWatchOperation<Key>(
   pending: Map<Key, Promise<void>>,
   key: Key,

@@ -6,8 +6,6 @@ import {
 } from "../../../../../src/main/features/browser/keyboard";
 import { COMMANDS } from "../../../../../src/shared/keybindings/commands";
 
-// CmdOrCtrl resolves to ⌘ on macOS and Ctrl elsewhere — match the matcher's
-// platform behaviour so the assertions hold on every CI host.
 const IS_MAC = process.platform === "darwin";
 
 interface FakeInput {
@@ -19,7 +17,6 @@ interface FakeInput {
   alt?: boolean;
 }
 
-/** Build a before-input-event Input with the platform's primary modifier set. */
 function primaryMod(extra: Partial<FakeInput>): Partial<FakeInput> {
   return IS_MAC ? { meta: true, ...extra } : { control: true, ...extra };
 }
@@ -53,7 +50,6 @@ function fakeWc() {
 
 describe("browser-view key interceptor", () => {
   afterEach(() => {
-    // Restore default bindings for isolation.
     updateBrowserKeybindings(undefined);
   });
 
@@ -89,7 +85,6 @@ describe("browser-view key interceptor", () => {
     const h = fakeWc();
     installBrowserKeyInterceptor(h.wc, "t", run);
 
-    // copy, paste, find, save, open, bold (files panel), ⌘K chords, symbol search
     for (const [code, extra] of [
       ["KeyC", {}],
       ["KeyV", {}],

@@ -1,8 +1,3 @@
-/**
- * What the search panel says when it has no results to list: before a
- * search, when one failed (with a retry), and when one found nothing. A
- * workspace on another computer's search says the same.
- */
 import { CircleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -20,7 +15,6 @@ export function SearchFailedMessage({
   onRetry,
 }: {
   message: string;
-  /** Absent where trying again cannot help. */
   onRetry?: () => void;
 }) {
   const { t } = useTranslation("files");

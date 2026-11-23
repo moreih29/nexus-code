@@ -1,16 +1,3 @@
-// What this app's own composer drives for another computer's chat: its
-// messages, stop, chips and slash commands go through the room as the
-// protocol has them (chat.send, chat.interrupt, chat.configure,
-// chat.commands, chat.command), and an image goes ahead with chat.attach.
-// From 0.12.0 a message goes when its keys say (chat.send `when`), the
-// messages held for after the turn are that device's (panel.held,
-// chat.unqueue, their images read back with chat.image from 0.13.0), and
-// an unread one is taken back (chat.withdraw) or hurried (chat.hurry).
-// From 0.13.0 an @ lists what the chat's agent suggests
-// (chat.fileSuggestions); before, the workspace's files by name
-// (files.find). A file other than an image goes ahead with chat.upload
-// (0.10.0), and the chat's device puts its path after the message.
-
 import i18next from "i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -48,29 +35,20 @@ import {
   settlePeerSubmission,
 } from "./peer-submissions";
 
-/** The chat, by the device it runs on and its tab there. */
 export interface PeerChatRef {
   deviceId: string;
   workspaceId: string;
   tabId: string;
 }
 
-/**
- * How long a command may take before its card shows, working: a quick one
- * (a goal paused) says what it did in a toast, as it does here; one that
- * takes its time (/btw asks the model) shows its answer in the card.
- */
 const CARD_AFTER_MS = 400;
 
-/** An answer too long for a toast goes in a card however fast it came. */
 export function answerInCard(message: string, waited: boolean): boolean {
   return waited || message.length > 160 || message.includes("\n");
 }
 
-/** Room an image's base64 takes in chat.attach. */
 const ATTACH_CHARS = Math.floor(MAX_ATTACHMENT_BYTES / 3) * 4;
 
-/** The value of a call, or its failure as an error the composer tells. */
 async function answerOf<T>(sent: Promise<IpcResult<T>>): Promise<T> {
   const result = await sent;
   if (!result.ok) throw new Error(result.message);
@@ -80,40 +58,25 @@ async function answerOf<T>(sent: Promise<IpcResult<T>>): Promise<T> {
 export interface PeerComposerDeps {
   ref: PeerChatRef;
   agent: "claude" | "codex";
-  /** What the chat runs with, as chat.settings or chat.configure last said; null before. */
   settings: () => ChatSettings | null;
   onSettings: (settings: ChatSettings) => void;
-  /** What a file the user picked says when it cannot go: only images do, before 0.10.0. */
   filesRefused: string;
-  /** A message sent during a turn that did not go: the box was emptied already. */
   onError?: (message: string) => void;
-  /** The chip a bare `/model` or `/effort` asked for has opened. */
   onRevealed?: (seq: number) => void;
-  /** What the chat's device lets do with it now (panel.can); none before 0.11.0. */
   can?: () => ChatPanel["can"];
-  /** The messages the chat's device holds for after the turn (panel.held). */
   held?: () => ChatPanel["held"];
-  /** Its workspace's folder and its own there, for an @ from a device before 0.13.0. */
   folders?: () => PeerFolders | undefined;
   call?: typeof ipcCallResult;
   submissionContext?: () => { selfId?: string; baseline: number; showMain?: () => void };
 }
 
-/** Where another computer's chat runs: its workspace's folder, and its own. */
 export interface PeerFolders {
   root: string;
   cwd: string;
 }
 
-/** How many of the workspace's files an @ lists from a device before 0.13.0. */
 const FOUND_FILES = 50;
 
-/**
- * A path files.find gave (relative to the workspace's folder, "/" between
- * its parts) as an @ names it in a chat running in `cwd`: relative to that
- * folder when it is in it, as the agent's own suggestions are, and
- * absolute when it is not.
- */
 export function mentionOf(found: string, { root, cwd }: PeerFolders): string {
   const windows = /^[A-Za-z]:/.test(root) || root.includes("\\");
   const sep = windows ? "\\" : "/";
@@ -128,15 +91,10 @@ export function mentionOf(found: string, { root, cwd }: PeerFolders): string {
   return `${base}${sep}${windows ? found.replace(/\//g, "\\") : found}`;
 }
 
-/**
- * The composer's controller for another computer's chat. A message held
- * for after the turn is held there, nothing here.
- */
 export function peerComposerController(deps: PeerComposerDeps): ComposerController {
   const { ref, agent, filesRefused } = deps;
   const call = deps.call ?? ipcCallResult;
   const can = () => deps.can?.();
-  /** A file sent ahead in pieces (chat.upload): its id for chat.send. */
   const upload = async (file: File): Promise<string> => {
     const begun = await call("remote", "peerChatUploadBegin", {
       ...ref,
@@ -164,7 +122,6 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
     );
     return ended.attachmentId;
   };
-  // A device before 0.13.0 has no chat.fileSuggestions: asked once.
   let suggests = true;
   const fileSuggestions = async (query: string): Promise<string[]> => {
     if (suggests) {
@@ -242,7 +199,6 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
           readHeldNow: async () => {
             if (can()?.hurry) await answerOf(call("remote", "peerChatHurry", ref));
           },
-          // Offered as supports("cancel_async_message") says, from can.withdraw.
           withdraw: async (itemKey: string) =>
             (await answerOf(call("remote", "peerChatWithdraw", { ...ref, itemKey }))).withdrawn,
         }
@@ -255,7 +211,6 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
       return undefined;
     },
     takeBackQueued: async (id): Promise<QueuedMessage> => {
-      // Its images read first: once it is taken back, that device has them no more.
       const item = deps.held?.()?.find((item) => item.id === id);
       const count = item?.images ?? 0;
       const images = await heldImagesOf(call, ref, id, count);
@@ -266,7 +221,6 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
     },
     interrupt: () => answerOf(call("remote", "peerChatInterrupt", ref)),
     clearDraft: () => clearPeerDraft(ref),
-    // Its files go ahead as uploads, not to a path here.
     attach: async () => {
       throw new Error(filesRefused);
     },
@@ -346,11 +300,6 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
   };
 }
 
-/**
- * The messages the chat's device holds for after the turn, as the queue
- * above the box shows them: a text cut short ends in an ellipsis, and its
- * images stay there until one is taken back (chat.image's held refs).
- */
 export function heldQueueOf(held: ChatPanel["held"]): QueuedMessage[] {
   return (held ?? []).map((item) => ({
     id: item.id,
@@ -365,10 +314,6 @@ export function heldQueueOf(held: ChatPanel["held"]): QueuedMessage[] {
   }));
 }
 
-/**
- * A held message's images, read whole from the chat's device for the box
- * here; one it cannot give (a device before 0.13.0) is left out.
- */
 export async function heldImagesOf(
   call: typeof ipcCallResult,
   ref: PeerChatRef,
@@ -387,7 +332,6 @@ export async function heldImagesOf(
   return read.filter((image): image is ImageBlock => image !== null);
 }
 
-/** The models the chip offers: the chat's, its own one knowing its effort levels. */
 export function modelsOf(settings: ChatSettings): ModelInfo[] {
   return settings.options.models.map(({ id, label }) => ({
     value: id,
@@ -396,7 +340,6 @@ export function modelsOf(settings: ChatSettings): ModelInfo[] {
   }));
 }
 
-/** The chat's model with what its settings say, as the composer reads it. */
 export function withSettings(model: ChatModel, settings: ChatSettings | null): ChatModel {
   if (!settings) return model;
   return {
@@ -408,7 +351,6 @@ export function withSettings(model: ChatModel, settings: ChatSettings | null): C
   };
 }
 
-/** The `/` menu's entries for the chat's commands. */
 export function commandInfosOf(commands: readonly ChatCommand[]): CommandInfo[] {
   return commands.map((c) => ({
     name: c.name,
@@ -417,11 +359,6 @@ export function commandInfosOf(commands: readonly ChatCommand[]): CommandInfo[] 
   }));
 }
 
-/**
- * What a typed `/name args` does with the chat's commands: an app command
- * runs there, one that sets a chip sets it (or opens its menu, bare), and
- * the agent's own go as a message (null).
- */
 export function commandOf(
   commands: readonly ChatCommand[],
   text: string,
@@ -438,8 +375,6 @@ export function commandOf(
   const command =
     commands.find((c) => c.name.toLowerCase() === typed) ??
     commands.find((c) => c.aliases?.some((alias) => alias.toLowerCase() === typed));
-  // The host still validates chat.command. A known Codex command typed before
-  // its catalog arrives must never reach turn/start as a prompt.
   if (!command && agent === "codex") {
     const known = parseCodexCommand(text);
     if (known && CODEX_REMOTE_COMMANDS.has(known.name)) {
@@ -457,35 +392,23 @@ export function commandOf(
   return { kind: "set", sets: command.sets, ...(args ? { value: args } : {}) };
 }
 
-/** What the app's commands another computer's chat runs here need. */
 const NO_COMMANDS: readonly AppCommand[] = [];
 
 export interface HereCommandDeps {
-  /** The conversation as this app shows it, for /copy. */
   items: () => readonly ChatItem[];
-  /** /diff: the files the chat changed, in its side panel; or a card of them, where it has none. */
   showChanges: () => Pick<CommandCard, "sections"> | undefined;
-  /** /status: what this app shows of the chat, as Markdown lines. */
   status?: () => string;
   openUrl: (url: string) => void;
-  /**
-   * Where that computer lets this one type into its terminals: a command
-   * that runs in a terminal (/login, /update…) runs in one of its, shown
-   * here; and its program started again after, where it can be.
-   */
   terminal?: { run: (line: string) => void; restart?: () => void };
-  /** /exit: its tab there closed, once the user says so, its session kept. */
   exit?: () => void;
 }
 
-/** A command's description, as its tab's help writes it. */
 function describe(agent: "claude" | "codex", name: string): string {
   return i18next.t(
     agent === "claude" ? `chat.commands.describe.${name}` : `chat.codex.commands.describe.${name}`,
   );
 }
 
-/** /help for another computer's chat: the app's commands it runs, there or here, as a tab's lists its own. */
 export function helpText(
   agent: "claude" | "codex",
   commands: readonly ChatCommand[],
@@ -506,16 +429,10 @@ export interface PeerComposer {
   state: ChatTabState;
   commands: CommandInfo[];
   onCommand: (text: string) => boolean;
-  /** What the last command said, over the composer as a chat here shows it. */
   card: CommandCard | undefined;
   closeCard: () => void;
 }
 
-/**
- * The composer's controller and state for a chat of another computer's:
- * its settings asked for again whenever what it runs with changes, its
- * commands once.
- */
 export function usePeerComposer({
   ref,
   agent,
@@ -533,22 +450,13 @@ export function usePeerComposer({
   ref: PeerChatRef;
   agent: "claude" | "codex";
   model: ChatModel;
-  /** Its workspace's folder and its own there. */
   folders?: PeerFolders;
-  /** The chat's side panel as its device last told it: what it lets do, and what it holds. */
   panel?: ChatPanel | null;
-  /** The chat is in front and its device in reach: its settings are asked for. */
   active: boolean;
   filesRefused: string;
   onError: (message: string) => void;
-  /** What the app's commands that run here for the chat need (/copy, /diff, /help…). */
   here?: HereCommandDeps;
-  /** The commands the pane runs itself (/resume, a Codex chat's /config), for the picker. */
   paneCommands?: readonly AppCommand[];
-  /**
-   * A command opened a tab there (/fork, /branch): its id, and what goes in
-   * its box (/fork's prompt), for the pane to show it as a chat here does.
-   */
   onOpened?: (tabId: string, draft?: string) => void;
   submissionContext?: PeerComposerDeps["submissionContext"];
 }): PeerComposer {
@@ -588,7 +496,6 @@ export function usePeerComposer({
     };
   }, [deviceId, workspaceId, tabId, active, codexThread, codexProcess]);
 
-  // The latest settings, error handler and panel, for a controller made once a chat.
   const [held] = useState<{
     settings: ChatSettings | null;
     onError: (message: string) => void;
@@ -643,7 +550,6 @@ export function usePeerComposer({
     () => hereCommandsOf(agent, commands, terminal),
     [agent, commands, terminal],
   );
-  /** One of the app's commands that runs here, as the chat's tab runs it there. */
   const runHere = useCallback(
     (name: string, args: string, title: string, deps: HereCommandDeps) => {
       const t = i18next.t.bind(i18next);
@@ -754,7 +660,6 @@ export function usePeerComposer({
         cards.current += 1;
         const id = `peer-card-${cards.current}`;
         const title = text.trim();
-        // The card belongs to its command: one asked after took its place.
         const fill = (next: CommandCard | undefined) =>
           setCard((now) => (now === undefined || now.id === id ? next : now));
         let waited = false;
@@ -777,7 +682,6 @@ export function usePeerComposer({
               held.onOpened?.(said.tabId, found.name === "fork" ? found.args : undefined);
             }
             const message = said.message;
-            // As its tab shows it there, from 0.13.0; before, by how long and how fast it is.
             if (message && (said.card ?? answerInCard(message, waited))) {
               fill({ id, title, text: message });
               return;
@@ -794,7 +698,6 @@ export function usePeerComposer({
         return true;
       }
       if (found.value === undefined) {
-        // Bare, it opens its chip's menu, as this app's own /model does.
         if (found.sets !== "permissionMode") {
           setReveal((now) => ({ part: found.sets as RevealPart, seq: (now?.seq ?? 0) + 1 }));
         }

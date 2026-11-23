@@ -1,6 +1,3 @@
-/**
- * fs expanded-folder handlers — renderer tree state persisted per workspace.
- */
 import { ipcContract } from "../../../../shared/ipc/contract";
 import { validateArgs } from "../../../infra/ipc-router";
 import type { WorkspaceStorage } from "../../../infra/storage/workspace-storage";

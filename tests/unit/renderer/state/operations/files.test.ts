@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
-// ---------------------------------------------------------------------------
-// Mock ipcCallResult
-// ---------------------------------------------------------------------------
-
 const mockIpcCallResult = mock((_channel: string, _method: string, _args: unknown) =>
   Promise.resolve({ ok: true as const, value: undefined }),
 );
@@ -13,10 +9,6 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcListen: () => () => {},
   canUseIpcBridge: () => false,
 }));
-
-// ---------------------------------------------------------------------------
-// Imports after mocks
-// ---------------------------------------------------------------------------
 
 import {
   __cancelPendingSavesForTests,
@@ -36,14 +28,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // A save left pending could fire into the next test file's IPC bridge.
   __cancelPendingSavesForTests();
   useFilesStore.setState(useFilesStore.getInitialState());
 });
-
-// ---------------------------------------------------------------------------
-// Constants & helpers
-// ---------------------------------------------------------------------------
 
 const WS_ID = "00000000-0000-0000-0000-000000000002";
 const ROOT = "/test/workspace";
@@ -64,17 +51,8 @@ function setupReaddir(responses: Record<string, DirEntry[]>) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// ensureRoot
-// ---------------------------------------------------------------------------
-
 describe("ensureRoot: initializes tree and calls IPC", () => {
   it("prunes persisted rels whose fs.watch returns NOT_FOUND (stale-row cleanup)", async () => {
-    // Scenario: previous session persisted three expanded paths. The user
-    // deleted "stale" externally between sessions, so its watch fails
-    // NOT_FOUND. "good" still exists. After ensureRoot completes, the
-    // store must (a) drop "stale" from the in-memory expanded set and
-    // (b) persist a setExpanded payload that excludes "stale".
     const setExpandedCalls: string[][] = [];
 
     mockIpcCallResult.mockImplementation(
@@ -90,7 +68,6 @@ describe("ensureRoot: initializes tree and calls IPC", () => {
           });
         }
         if (method === "readdir") {
-          // Root lists "good" (dir) but NOT "stale" — it was deleted on disk.
           if (args.relPath === "") {
             return Promise.resolve({
               ok: true as const,
@@ -122,12 +99,10 @@ describe("ensureRoot: initializes tree and calls IPC", () => {
 
     await ensureRoot(WS_ID, ROOT);
 
-    // In-memory: "stale" abs path is gone, "good" remains.
     const tree = useFilesStore.getState().trees.get(WS_ID);
     expect(tree?.expanded.has(`${ROOT}/stale`)).toBe(false);
     expect(tree?.expanded.has(`${ROOT}/good`)).toBe(true);
 
-    // Persisted: at least one prune-time setExpanded fired and excludes "stale".
     expect(setExpandedCalls.length).toBeGreaterThan(0);
     const lastSave = setExpandedCalls[setExpandedCalls.length - 1];
     expect(lastSave).toContain("good");
@@ -135,9 +110,6 @@ describe("ensureRoot: initializes tree and calls IPC", () => {
   });
 
   it("does NOT prune on non-NOT_FOUND watch failures (transient permission etc.)", async () => {
-    // A PERMISSION_DENIED is a real failure but the file may exist —
-    // pruning would silently drop user-requested state. Only NOT_FOUND
-    // is the unambiguous "this is gone" signal.
     const setExpandedCalls: string[][] = [];
 
     mockIpcCallResult.mockImplementation(
@@ -183,19 +155,11 @@ describe("ensureRoot: initializes tree and calls IPC", () => {
 
     const tree = useFilesStore.getState().trees.get(WS_ID);
     expect(tree?.expanded.has(`${ROOT}/locked`)).toBe(true);
-    // No prune-time setExpanded — only the (potentially zero) debounced
-    // saves from earlier should appear. We assert no save was issued from
-    // the prune branch by checking either nothing was saved or what was
-    // saved still includes "locked".
     for (const save of setExpandedCalls) {
       expect(save).toContain("locked");
     }
   });
 });
-
-// ---------------------------------------------------------------------------
-// Staleness regressions — an expanded folder must stay watched and current
-// ---------------------------------------------------------------------------
 
 function callsOf(method: string) {
   return mockIpcCallResult.mock.calls.filter(([, m]) => m === method);
@@ -254,10 +218,10 @@ describe("collapse → re-expand re-reads the folder", () => {
     await ensureRoot(WS_ID, ROOT);
     const libAbs = `${ROOT}/lib`;
 
-    await toggleExpand(WS_ID, libAbs); // expand: lib is empty
-    await toggleExpand(WS_ID, libAbs); // collapse (unwatched from here on)
+    await toggleExpand(WS_ID, libAbs);
+    await toggleExpand(WS_ID, libAbs);
     responses.lib = [dirEntry("created-while-collapsed.ts")];
-    await toggleExpand(WS_ID, libAbs); // re-expand
+    await toggleExpand(WS_ID, libAbs);
 
     const lib = useFilesStore.getState().trees.get(WS_ID)?.nodes.get(libAbs);
     expect(lib?.children).toEqual([`${libAbs}/created-while-collapsed.ts`]);
@@ -312,8 +276,8 @@ describe("watch/unwatch for one folder reach the agent in call order", () => {
       return Promise.resolve({ ok: true as const, value: undefined });
     });
 
-    await toggleExpand(WS_ID, libAbs); // collapse → unwatch (pending)
-    const reexpand = toggleExpand(WS_ID, libAbs); // re-expand → watch must wait
+    await toggleExpand(WS_ID, libAbs);
+    const reexpand = toggleExpand(WS_ID, libAbs);
     await flush();
     expect(order.filter((m) => m === "watch" || m === "unwatch")).toEqual(["unwatch"]);
 
@@ -360,7 +324,6 @@ describe("fs.changed during a folder's first listing", () => {
         if (method === "readdir") {
           const snapshot = responses[args.relPath] ?? [];
           if (args.relPath === "lib" && libReads++ === 0) {
-            // First lib listing is taken now but answers late.
             return new Promise((resolve) => {
               releaseFirstLib = () => resolve({ ok: true as const, value: snapshot });
             });
@@ -373,11 +336,11 @@ describe("fs.changed during a folder's first listing", () => {
     await ensureRoot(WS_ID, ROOT);
     const libAbs = `${ROOT}/lib`;
 
-    const expanding = toggleExpand(WS_ID, libAbs); // first lib readdir in flight
+    const expanding = toggleExpand(WS_ID, libAbs);
     await flush();
     responses.lib = [dirEntry("new.ts")];
     handleFsChanged({ workspaceId: WS_ID, changes: [{ relPath: "lib/new.ts", kind: "added" }] });
-    releaseFirstLib(); // the stale (empty) listing lands
+    releaseFirstLib();
     await expanding;
     await flush();
 
@@ -437,7 +400,7 @@ it.each(["/", "C:/"])("restores and watches a child at filesystem root %s", asyn
   setupReaddir(responses);
   mockIpcCallResult.mockImplementationOnce(async () => ({
     ok: true,
-    value: { relPaths: ["/lib"] }, // A path saved by the previous implementation.
+    value: { relPaths: ["/lib"] },
   }));
   await ensureRoot(WS_ID, root);
   const folder = `${root}lib`;

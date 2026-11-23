@@ -14,11 +14,9 @@ import type { WorkspaceForwards } from "../../../../../src/shared/pty/ports";
 const WS = "ws";
 
 interface FakeTunnel extends SshTunnel {
-  /** Ends it as an ssh of its own that exited would. */
   end(): void;
 }
 
-/** A PortForwards over a fake connection and fake tunnels. */
 function setup(
   options: { taken?: number[]; failWith?: string; saved?: Record<string, SavedForward[]> } = {},
 ) {
@@ -132,7 +130,6 @@ describe("PortForwards", () => {
     );
     expect(await forwards.localUrl(WS, "http://127.0.0.1:5173/")).toBe("http://127.0.0.1:5174/");
     expect(await forwards.localUrl(WS, "https://example.com/")).toBe("https://example.com/");
-    // A page on the forward's local end, reloaded, stays there.
     expect(forwards.rewrites(WS, "http://localhost:5174/")).toBe(false);
     expect(opened).toHaveLength(1);
   });
@@ -153,7 +150,6 @@ describe("PortForwards", () => {
     expect(tunnels[0].alive()).toBe(false);
     expect(forwards.list(WS)).toEqual([{ remotePort: 5173, localPort: 5174, active: false }]);
 
-    // A new ControlMaster has none of the old one's forwards.
     ssh.current = {
       host: "devbox",
       connecting: false,
@@ -225,7 +221,6 @@ describe("PortForwards", () => {
     expect(forwards.rewrites(WS, "http://localhost:8789/x")).toBe(true);
     expect(await forwards.localUrl(WS, "http://localhost:8789/x")).toBe("http://localhost:8789/x");
     expect(opened).toEqual([expect.objectContaining({ remotePort: 8788, localPort: 8789 })]);
-    // Set up now, the page loads as it is.
     expect(forwards.rewrites(WS, "http://localhost:8789/x")).toBe(false);
   });
 });

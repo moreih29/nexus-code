@@ -1,23 +1,3 @@
-/**
- * MarkdownPreview — security regression suite (plan 60 issue 1).
- *
- * The premise: workspace markdown is UNTRUSTED. The component must:
- *
- *   1. Never render raw `<script>`/`<iframe>` from the source. Raw HTML is
- *      parsed (rehype-raw) then sanitized with GitHub's default allowlist, so
- *      these tags — and their contents, for `<script>` — are removed entirely.
- *   2. Never honour scheme-prefixed links outside the allowlist (javascript:,
- *      file:, vscode:, data:) — these become disabled `<a>` elements that
- *      block on click and log a warning.
- *   3. Rewrite workspace-relative image src to `nexus-workspace://` URLs.
- *   4. Truncate sources larger than `MAX_PREVIEW_BYTES` and surface a banner.
- *   5. Render the GitHub-allowlisted HTML subset (centered <div>, sized <img>,
- *      <details>) so the in-app preview matches github.com.
- *
- * These tests stub the renderer modules that pull in IPC / openOrRevealEditor
- * so they can run under `bun test` without an Electron host.
- */
-
 import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -48,13 +28,9 @@ describe("MarkdownPreview — XSS / script suppression", () => {
   test("raw <script> is stripped entirely — tag and inline code both gone", () => {
     const source = "Normal text.\n\n<script>alert(1)</script>\n\nMore text.";
     const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
-    // rehype-sanitize's default schema lists `script` under `strip`, so the
-    // element AND its text content are removed — neither an executable tag
-    // nor the escaped source survives.
     expect(html).not.toContain("<script>");
     expect(html).not.toContain("&lt;script&gt;");
     expect(html).not.toContain("alert(1)");
-    // Surrounding prose is untouched.
     expect(html).toContain("Normal text.");
     expect(html).toContain("More text.");
   });
@@ -78,7 +54,6 @@ describe("MarkdownPreview — disallowed link schemes", () => {
   test("`javascript:` href on a link is NOT placed into href attribute (sanitiser strips it)", () => {
     const source = "[click](javascript:alert(1))";
     const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
-    // react-markdown's default `urlTransform` strips `javascript:` URLs to "".
     expect(html).not.toContain("javascript:alert");
   });
 
@@ -94,7 +69,6 @@ describe("MarkdownPreview — workspace image rewriting", () => {
   test("relative image src is rewritten to nexus-workspace:// URL", () => {
     const source = "![logo](./img/logo.png)";
     const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
-    // workspace-root prefix + relative path → nexus-workspace://<id>/docs/img/logo.png
     expect(html).toContain("nexus-workspace://ws-1/docs/img/logo.png");
     expect(html).toContain('alt="logo"');
   });
@@ -115,20 +89,11 @@ describe("MarkdownPreview — YAML frontmatter", () => {
     });
 
     test("leaves an empty `---\\n---` block intact (no YAML signature → fall through)", () => {
-      // Two adjacent `---` lines are indistinguishable from two thematic
-      // breaks. The signature guard makes us prefer the safer
-      // interpretation: render as `<hr><hr>`, do not silently swallow the
-      // body below.
       const src = "---\n---\nbody";
       expect(stripFrontmatter(src)).toBe(src);
     });
 
     test("leaves a markdown body that happens to sit between two `---` intact (user typing case)", () => {
-      // The motivating case: a live-preview user typing
-      //   ---
-      //   # title
-      //   ---
-      // must NOT have `# title` disappear. No `key:` line → guard rejects.
       const src = "---\n# title\n---\nmore";
       expect(stripFrontmatter(src)).toBe(src);
     });

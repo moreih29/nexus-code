@@ -1,19 +1,9 @@
-// ---------------------------------------------------------------------------
-// Slot registry for createPortal-based content rendering.
-// Maps `${workspaceId}:${leafId}` keys to DOM container elements so that
-// ContentPool can portal content into the correct leaf slot.
-// ---------------------------------------------------------------------------
-
 import { useCallback, useSyncExternalStore } from "react";
 import { createListenerBus } from "../../../../shared/util/listener-bus";
 
 type WorkspaceId = string;
 type LeafId = string;
 
-/**
- * The scope the agent view's panels register their slots under, in place
- * of a workspace id: a panel there shows tabs of any workspace.
- */
 export const AGENT_VIEW_SLOTS = "agent-view";
 
 const slots = new Map<string, HTMLElement>();
@@ -49,10 +39,6 @@ export const slotRegistry: {
   },
 };
 
-// useSyncExternalStore requires getSnapshot to return a referentially stable
-// value across calls (or React warns "result of getSnapshot should be cached").
-// Memoize the getter on (workspaceId, leafId) so the returned function is
-// stable and its result is the same Map entry reference each call.
 const getServerSnapshot = (): null => null;
 
 export function useSlotElement(

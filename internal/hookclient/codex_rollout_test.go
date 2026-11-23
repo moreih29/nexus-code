@@ -9,8 +9,6 @@ import (
 	"time"
 )
 
-// rolloutLines are a text run's rollout as codex 0.166 writes it, cut to the
-// fields read.
 var rolloutLines = []string{
 	`{"type":"session_meta","payload":{"id":"01a1b1e2","originator":"codex_exec"}}`,
 	`{"type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}`,
@@ -45,7 +43,6 @@ func TestCodexWatch_ReadsARollout(t *testing.T) {
 	}
 	want := []toldFrame{
 		{"print-text", map[string]any{"text": "I'll create note.txt, then run ls."}},
-		// A patch's files in order, each a tool.
 		use("r:exec-1:0", "Edit", map[string]any{"file_path": "/w/a.ts"}),
 		result("r:exec-1:0", false, "", 1),
 		use("r:exec-1:1", "Write", map[string]any{"file_path": "/w/note.txt"}),
@@ -88,7 +85,6 @@ func TestCodexRollout_FollowsTheSessionsRolloutOnceKnown(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(day, "rollout-2026-11-06T17-22-50-"+id+".jsonl")
-	// Another session's rollout is not read.
 	other := filepath.Join(day, "rollout-2026-11-06T17-00-00-01a1b1cd-0000-0000-0000-000000000000.jsonl")
 	if err := os.WriteFile(other, []byte("other\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -98,7 +94,6 @@ func TestCodexRollout_FollowsTheSessionsRolloutOnceKnown(t *testing.T) {
 	}
 
 	rollout := newCodexRollout()
-	// A run that goes on the session is read from where the session was.
 	rollout.startAtEnd(id)
 	var lines []string
 	found := make(chan struct{})

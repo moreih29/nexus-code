@@ -244,7 +244,6 @@ interface ConversationChipProps {
   note: NotePlace;
   onUnavailable: (sessions: ListedSession[]) => void;
   result?: NoteLinkEntry["link"]["result"];
-  /** The links of this conversation the chip stands for; only its own entry when absent. */
   linkIds?: readonly string[];
   line?: boolean;
   card?: boolean;
@@ -540,7 +539,6 @@ export function ConversationChip(props: ConversationChipProps) {
   );
 }
 
-/** Rechecks history on activation: a session can disappear or open since it was listed. */
 async function showConversation(
   note: NotePlace,
   linkId: string,

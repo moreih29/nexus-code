@@ -1,63 +1,24 @@
-// src/renderer/state/stores/inactive-panel-dim.ts — Inactive-panel dim preference store.
-//
-// Mirrors the pattern established by state/stores/window-opacity.ts.
-//
-// Persistence model:
-//   - appState (main process, via IPC) — authoritative store.
-//   - localStorage key "inactivePanelDim" — boot cache, read synchronously
-//     before first paint so the dim level is correct on the first frame.
-//
-// Semantics: a MULTIPLIER on each theme's tuned inactive-veil alpha (dark
-// themes shade black @0.28, light themes black @0.04 — see
-// theme-adapter.ts). 1 = theme default (no change), 0 = no dim, 2 = double the
-// default strength. Applied at runtime via useInactivePanelDimEffect →
-// --inactive-panel-dim CSS var → the veil token's calc() in the generated
-// theme CSS. Takes effect immediately — no restart required.
-
 import { create } from "zustand";
 import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult } from "../../ipc/client";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 
 const log = createLogger("inactive-panel-dim");
 
 const INACTIVE_PANEL_DIM_STORAGE_KEY = "inactivePanelDim";
 
-/** Theme-default multiplier — 1 means "use each theme's tuned veil alpha". */
 export const INACTIVE_PANEL_DIM_DEFAULT = 1;
-/** Slider range: 0 = no dim, 2 = double the theme-default strength. */
 export const INACTIVE_PANEL_DIM_MIN = 0;
 export const INACTIVE_PANEL_DIM_MAX = 2;
 
-// ---------------------------------------------------------------------------
-// State shape
-// ---------------------------------------------------------------------------
-
 interface InactivePanelDimState {
-  /** Multiplier applied to the theme's inactive-veil alpha. Range: [0, 2]. */
   dim: number;
 
-  /** Hydrate from persisted appState — called once during bootstrap. */
   hydrate(dim: number | undefined): void;
 
-  /**
-   * Set the inactive-panel dim multiplier.
-   * Persists to localStorage (boot cache) + appState (authoritative store)
-   * unless `persist` is false, as for each step of a slider drag.
-   */
   setDim(dim: number, options?: { persist?: boolean }): void;
 }
 
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
-
 export const useInactivePanelDimStore = create<InactivePanelDimState>((set) => {
-  // Derive initial value from localStorage (written on a prior session). Falls
-  // back to the theme default (1) if absent/invalid/out-of-range.
   const storedRaw =
     typeof localStorage !== "undefined"
       ? localStorage.getItem(INACTIVE_PANEL_DIM_STORAGE_KEY)
@@ -85,8 +46,6 @@ export const useInactivePanelDimStore = create<InactivePanelDimState>((set) => {
       if (typeof localStorage !== "undefined") {
         localStorage.setItem(INACTIVE_PANEL_DIM_STORAGE_KEY, String(dim));
       }
-      // Authoritative write — fire-and-forget; the next boot's hydrate() will
-      // re-read whatever made it to disk. Errors are logged only.
       void ipcCallResult("appState", "set", {
         inactivePanelDim: dim === INACTIVE_PANEL_DIM_DEFAULT ? undefined : dim,
       }).then((result) => {

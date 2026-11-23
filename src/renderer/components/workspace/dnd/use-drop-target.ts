@@ -1,24 +1,3 @@
-/**
- * Drop-target hook for a layout leaf.
- *
- * Owns: dragenter / dragleave / dragover / drop wiring on the group's slot
- *       element, the visible flag (counter-based to avoid flicker on child
- *       transitions), zone calculation from cursor coordinates, and dispatch
- *       to operations.ts.
- *
- * Caller owns: attaching the returned `ref` to the slot element and
- *              rendering the indicator using `dropZone` (null when not
- *              hovered).
- *
- * IMPORTANT: native DOM addEventListener is used here, not React synthetic
- * events. React's createPortal dispatches child events to React-tree
- * ancestors of the portal-host (ContentPool), not DOM-tree ancestors. So
- * children of the slot — Monaco editor, xterm.js — that are mounted via
- * createPortal would be invisible to React onDrop / onDropCapture handlers
- * on the slot. Native DOM bubble follows the DOM tree and reaches us
- * regardless. Capture phase additionally lets us intercept before children
- * stopPropagation in their bubble handlers.
- */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { requestTabFocus } from "@/services/tab-focus";
 import { moveTabToZone, openFileAtZone } from "@/state/operations";
@@ -28,14 +7,6 @@ import { DND_FILE_SURFACE_SELECTOR, DND_TAB_BAR_SELECTOR } from "./markers";
 
 const EDGE_THRESHOLD = 1 / 3;
 
-/**
- * VSCode-style 5-zone classification.
- *
- * - Cursor outside the zone rect (e.g. over the tab-bar above the content
- *   area) → center, so dragging to the tab-bar drops into the group.
- * - Otherwise: distance from each edge in [0, 1]; closest edge within 1/3
- *   wins, beyond that → center.
- */
 export function zoneFromCoords(rect: DOMRect, clientX: number, clientY: number): DropZone {
   if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
     return "center";
@@ -63,21 +34,10 @@ export function zoneFromCoords(rect: DOMRect, clientX: number, clientY: number):
   return minZone;
 }
 
-/**
- * Test whether the event target is inside the tab bar that owns its own
- * dropTarget (single "|" insertion-line indicator with precise index).
- * When true, the group-level handler defers — it doesn't stopPropagation,
- * so the capture phase continues to the tab bar's listeners.
- */
 function isInTabBar(target: EventTarget | null): boolean {
   return (target as HTMLElement | null)?.closest(DND_TAB_BAR_SELECTOR) != null;
 }
 
-/**
- * Test whether a file from the file tree is dragged over a surface that takes
- * it itself (a note's body, which links the file where it is dropped). The
- * group defers to it as to the tab bar; a dragged tab still splits the group.
- */
 function isOnFileSurface(e: DragEvent): boolean {
   const types = e.dataTransfer?.types ?? [];
   if (!types.includes(MIME_FILE) || types.includes(MIME_TAB)) return false;
@@ -91,18 +51,7 @@ export interface UseDropTargetOptions {
 
 export interface UseDropTargetResult {
   dropZone: DropZone | null;
-  /**
-   * Callback ref for the listener-attachment element. Use the **outer**
-   * wrapper that covers all surfaces you want to receive drops (tab-bar +
-   * content slot) so the cursor anywhere inside the group lands on us.
-   */
   attachRef: (el: HTMLElement | null) => void;
-  /**
-   * Callback ref for the zone-measurement element — the content slot.
-   * Cursor positions outside this rect are classified as `center` (so the
-   * tab-bar drops "into the group" without showing edge indicators).
-   * If never set, the attach element is used as a fallback.
-   */
   zoneRef: (el: HTMLElement | null) => void;
 }
 
@@ -110,22 +59,14 @@ export function useDropTarget(opts: UseDropTargetOptions): UseDropTargetResult {
   const { workspaceId, groupId } = opts;
   const [dropZone, setDropZone] = useState<DropZone | null>(null);
 
-  // The listener-attachment element. Tracked as state so the effect re-runs
-  // when the ref changes (mutable refs do not trigger effects).
   const [attachEl, setAttachEl] = useState<HTMLElement | null>(null);
   const attachRef = useCallback((el: HTMLElement | null) => setAttachEl(el), []);
 
-  // The zone-measurement element (content slot). Cursor outside this rect
-  // → center. Falls back to the attach element when not set.
   const zoneElRef = useRef<HTMLElement | null>(null);
   const zoneRef = useCallback((el: HTMLElement | null) => {
     zoneElRef.current = el;
   }, []);
 
-  // Counter survives bubbling from descendants — every dragenter on a
-  // descendant fires once on us (capture phase), balanced by a dragleave when
-  // the cursor exits that descendant. Only when the counter returns to 0 has
-  // the cursor truly left the slot.
   const enterCountRef = useRef(0);
 
   const reset = useCallback(() => {
@@ -141,16 +82,10 @@ export function useDropTarget(opts: UseDropTargetOptions): UseDropTargetResult {
     function onEnter(e: DragEvent) {
       if (!e.dataTransfer) return;
       if (!hasSupportedMime(e.dataTransfer.types)) return;
-      // Defer to TabItem's own dropTarget when cursor is on a tab — the tab
-      // item handles precise-index insertion. Don't stopPropagation; let the
-      // capture phase continue to the tab item.
       if (isInTabBar(e.target)) {
-        // Tab bar handles its own indicator; clear ours if any was set.
         setDropZone((prev) => (prev === null ? prev : null));
         return;
       }
-      // Capture phase — we are running before any child sees the event.
-      // stopPropagation prevents Monaco/xterm from interpreting our drag.
       e.stopPropagation();
       enterCountRef.current += 1;
       if (enterCountRef.current === 1 && !isOnFileSurface(e)) {
@@ -166,15 +101,8 @@ export function useDropTarget(opts: UseDropTargetOptions): UseDropTargetResult {
         setDropZone((prev) => (prev === null ? prev : null));
         return;
       }
-      // preventDefault is required to allow drop; stopPropagation prevents
-      // children from also calling preventDefault with a different
-      // dropEffect that disagrees with effectAllowed.
       e.preventDefault();
       e.stopPropagation();
-      // dropEffect MUST be compatible with the source's effectAllowed,
-      // otherwise the browser forces dropEffect to "none" and the drop
-      // event never fires. File source uses "copy" (we create a new tab),
-      // tab source uses "move" (the tab itself relocates).
       const isFile = e.dataTransfer.types.includes(MIME_FILE);
       e.dataTransfer.dropEffect = isFile ? "copy" : "move";
       const rect = getZoneRect();
@@ -195,9 +123,7 @@ export function useDropTarget(opts: UseDropTargetOptions): UseDropTargetResult {
 
     function onDrop(e: DragEvent) {
       if (!e.dataTransfer) return;
-      // Tab item handled it — exit before consuming the event.
       if (isInTabBar(e.target)) return;
-      // The surface handles the drop; the drag is over for us.
       if (isOnFileSurface(e)) {
         reset();
         return;
@@ -220,8 +146,6 @@ export function useDropTarget(opts: UseDropTargetOptions): UseDropTargetResult {
         } else {
           const { workspaceId: srcWs, filePaths } = parsed.payload;
           if (srcWs !== workspaceId) return;
-          // For editor-open drops, use the primary path (filePaths[0]).
-          // Multi-select drag onto an editor group opens only the grabbed file.
           openFileAtZone(workspaceId, filePaths[0], { groupId, zone });
         }
       } finally {
@@ -229,7 +153,6 @@ export function useDropTarget(opts: UseDropTargetOptions): UseDropTargetResult {
       }
     }
 
-    // Capture phase across the board so we run before any child handlers.
     element.addEventListener("dragenter", onEnter, true);
     element.addEventListener("dragover", onOver, true);
     element.addEventListener("dragleave", onLeave, true);
@@ -243,8 +166,6 @@ export function useDropTarget(opts: UseDropTargetOptions): UseDropTargetResult {
     };
   }, [attachEl, workspaceId, groupId, reset]);
 
-  // Belt-and-suspenders: dragend on the document fires even when drop happens
-  // outside the app, in another window, or on a non-droppable target.
   useEffect(() => {
     function onDocDragEnd() {
       reset();

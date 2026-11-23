@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-// TestRemoteNameInvalidRejected verifies invalid remote names are rejected.
 func TestRemoteNameInvalidRejected(t *testing.T) {
 	service := New(t.TempDir())
 	cases := []string{"", "-bad", "has space"}

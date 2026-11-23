@@ -63,14 +63,11 @@ describe("another computer's chat's side panel", () => {
       }),
       model,
     );
-    // One only the conversation names is its history's: its call ran in a
-    // program before this one, and runs no more.
     expect(rows.map((row) => [row.toolUseId, row.status])).toEqual([
       ["a1", "completed"],
       ["a3", "stopped"],
       ["a2", "stopped"],
     ]);
-    // The list's empty description takes the conversation's.
     expect(rows[0]?.description).toBe("Read the tests");
     expect(rows[0]?.endedAt).toBe(2);
   });
@@ -137,14 +134,12 @@ describe("another computer's chat's side panel", () => {
     expect(html).toContain("claude-opus-5-5");
     expect(html).toContain("work");
     expect(html).toContain("25%");
-    // What fills it and what is free, as a chat here's context shows.
     expect(html).toContain("System tools");
     expect(html).toContain("12.0k");
     expect(html).toContain("150.0k tokens left");
     expect(html).toContain("Compact");
     expect(html).toContain("Write the test");
     expect(html).toContain("dev server");
-    // The usage open, as a chat here's; the changed files folded under their title.
     expect(html).toContain("Usage");
     expect(html).toContain("40%");
     expect(html).toContain("Changed files");
@@ -176,7 +171,6 @@ describe("another computer's chat's side panel", () => {
         onStopTask={() => {}}
       />,
     );
-    // Each once, though a row names its job twice (its text and its title).
     const shown = [...new Set([...html.matchAll(/job number (\d)/g)].map((match) => match[1]))];
     expect(shown).toEqual(["1"]);
     expect(html).toContain("Running");
@@ -223,11 +217,9 @@ describe("another computer's chat's side panel", () => {
     const at = titles.map((title) => html.indexOf(`>${title}<`));
     expect(at.every((i) => i >= 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
-    // The goal, while there is one: what it is, that it waits for a turn, what its check found.
     expect(html).toContain("All tests pass");
     expect(html).toContain("Waiting");
     expect(html).toContain("two still fail");
-    // The to-dos, the results, the changed files and the MCP servers, with none, do not open.
     expect(html.match(/data-empty="true"/g)).toHaveLength(4);
   });
 
@@ -294,7 +286,6 @@ describe("another computer's chat's side panel", () => {
     expect(remotePanelPartOf(" /Usage ")).toBe("usage");
     expect(remotePanelPartOf("/status")).toBe("status");
     expect(remotePanelPartOf("/mcp")).toBe("mcp");
-    // With words after it, it goes to the computer as typed.
     expect(remotePanelPartOf("/context more")).toBeNull();
     expect(remotePanelPartOf("/compact")).toBeNull();
   });
@@ -310,7 +301,6 @@ describe("another computer's chat's side panel", () => {
       <RemoteProfileChip target={chat} busy={false} conversation controls />,
     );
     expect(live).toContain("<button");
-    // A chat whose computer told no profile has no chip.
     expect(
       renderToStaticMarkup(
         <RemoteProfileChip

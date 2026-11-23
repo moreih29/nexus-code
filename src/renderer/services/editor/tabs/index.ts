@@ -1,7 +1,3 @@
-// Production barrel for the tabs module group. Test-only helpers
-// (__resetXxxForTests, stopXxxForTests) live in `./testing.ts` so the
-// surface here stays free of internals app code shouldn't reach for.
-
 export { closeEditorTabsOfDeletedPath } from "./close-deleted-tabs";
 export { closeEditor } from "./close-editor";
 export type {

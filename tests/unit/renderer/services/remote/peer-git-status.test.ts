@@ -76,7 +76,7 @@ test("Git status polls every 10 seconds when shown and refreshes on focus and on
     host.show("visible");
     expect(call).toHaveBeenCalledTimes(5);
     await Bun.sleep(0);
-    watch.stop(); // Going offline or leaving the peer workspace releases the watch.
+    watch.stop();
     host.focus();
     host.tick();
     host.show("visible");

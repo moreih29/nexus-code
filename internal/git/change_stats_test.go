@@ -30,8 +30,6 @@ func statsByPath(stats ChangeStats) map[string]FileLineStats {
 	return byPath
 }
 
-// Staged and unstaged edits count together against HEAD, a rename under its
-// new path, an untracked file as all added, and a binary file without counts.
 func TestChangeStatsCountsLinesPerFile(t *testing.T) {
 	t.Parallel()
 	root := newRepo(t)
@@ -65,8 +63,6 @@ func TestChangeStatsCountsLinesPerFile(t *testing.T) {
 	}
 }
 
-// A repository without commits has its staged and untracked files counted
-// against the empty tree.
 func TestChangeStatsWithoutCommits(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

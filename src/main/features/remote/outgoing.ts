@@ -12,7 +12,6 @@ const QUEUE_LIMIT = 150;
 const BUFFER_CHECK_MS = 25;
 const FLOOD_WINDOW_MS = 3_000;
 const FLOOD_PAUSE_MS = 5_000;
-// A watch can send 15 updates/s and a peer can hold eight chat watches.
 const FLOOD_FRAME_COUNT = 1_800;
 const FILE_CHUNK_FLOOD_COUNT = 3_000;
 const FLOOD_WARNING_INTERVAL_MS = 30_000;
@@ -59,7 +58,6 @@ interface FrameActivity {
   warnedAt: number;
 }
 
-/** Schedules sealed frames before they get sequence numbers and watches for send loops. */
 export class OutgoingFrames {
   private readonly queue: QueuedFrame[] = [];
   private readonly activity = new Map<FrameKind, FrameActivity>();
@@ -80,14 +78,12 @@ export class OutgoingFrames {
 
   push(frame: OutgoingFrame): Promise<number | null> {
     if (this.closed) return Promise.resolve(null);
-    // Only a full snapshot can replace an earlier frame.
     if (frame.snapshotKey) {
       const superseded = this.queue.findIndex((item) => item.snapshotKey === frame.snapshotKey);
       if (superseded >= 0) this.drop(superseded);
     }
     if (this.queue.length >= QUEUE_LIMIT) {
       const now = performance.now();
-      // A delayed kind cannot crowd out frames that can go now.
       const priorityOf = (item: OutgoingFrame) =>
         item.priority + (this.resumeTime(item.kind) > now ? FramePriority.Data + 1 : 0);
       const incomingPriority = priorityOf(frame);
@@ -114,7 +110,6 @@ export class OutgoingFrames {
   }
 
   rateLimited(): void {
-    // Older relays can reject individual frames and keep the connection open.
     this.resumeAt = performance.now() + RATE_LIMIT_COOLDOWN_MS;
     this.kick();
   }
@@ -196,7 +191,6 @@ export class OutgoingFrames {
     activity.count++;
     if (activity.count !== limit) return;
 
-    // Hellos and replies let peers make progress. Bulk transfers can legitimately burst.
     const delay =
       !fileChunk && kind !== "hello" && kind !== "pairing" && !kind.startsWith("reply:");
     if (delay) activity.resumeAt = now + FLOOD_PAUSE_MS;

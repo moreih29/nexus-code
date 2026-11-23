@@ -1,19 +1,8 @@
-/**
- * A file of the app's own, sealed with the system's keychain (Electron
- * safeStorage): where the NexusCode sign-in and the account key are kept.
- * Where the system has none to seal with (Linux without a keyring), nothing
- * is written: what would be kept lasts until the app quits.
- */
-
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { z } from "zod";
 
-/**
- * The keychain did not open: the user put it off, or refused macOS's
- * prompt. Not a damaged file: what is sealed stays as it is.
- */
 export class KeychainLockedError extends Error {
   constructor() {
     super("The keychain is locked");
@@ -21,22 +10,12 @@ export class KeychainLockedError extends Error {
   }
 }
 
-/** What seals and opens the file. */
 export interface SecretBox {
-  /** Whether it seals for real: false where it would write plain text. */
   readonly available: boolean;
   encrypt(text: string): Promise<Buffer>;
   decrypt(data: Buffer): Promise<string>;
 }
 
-/**
- * The system's keychain, through Electron's asynchronous safeStorage.
- *
- * A Mac always has a keychain, and asking whether it is there reads it:
- * isAsyncEncryptionAvailable fetches the key, and macOS asks for the login
- * password when the item's access list does not name this app's signature.
- * So on macOS the keychain is read only when something is sealed or opened.
- */
 export async function electronSecretBox(platform = process.platform): Promise<SecretBox> {
   const { safeStorage } = await import("electron");
   const available =
@@ -50,7 +29,6 @@ export async function electronSecretBox(platform = process.platform): Promise<Se
   };
 }
 
-/** What a sealed file is to its users: read, written, and forgotten. */
 export interface Kept<T> {
   load(): Promise<T | null>;
   save(value: T): Promise<void>;
@@ -58,7 +36,6 @@ export interface Kept<T> {
 }
 
 export class SealedFile<T> implements Kept<T> {
-  /** The value where it cannot be written down. */
   private held: T | null = null;
 
   constructor(
@@ -67,7 +44,6 @@ export class SealedFile<T> implements Kept<T> {
     private readonly schema: z.ZodType<T, unknown>,
   ) {}
 
-  /** Throws KeychainLockedError while the keychain is locked, which is not the file missing. */
   async load(): Promise<T | null> {
     if (this.held) return this.held;
     if (!this.box.available || !existsSync(this.file)) return null;
@@ -76,7 +52,6 @@ export class SealedFile<T> implements Kept<T> {
       return this.schema.parse(JSON.parse(text));
     } catch (error) {
       if (error instanceof KeychainLockedError) throw error;
-      // Sealed by another user or machine, or damaged: as good as none.
       return null;
     }
   }
@@ -103,7 +78,6 @@ export class SealedFile<T> implements Kept<T> {
   }
 }
 
-/** A sealed file's stand-in in memory, for tests. */
 export function keptInMemory<T>(initial: T | null = null): Kept<T> & { readonly value: T | null } {
   let value = initial;
   return {

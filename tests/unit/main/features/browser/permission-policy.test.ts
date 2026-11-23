@@ -1,24 +1,3 @@
-/**
- * Unit tests for the pure permission resolver.
- *
- * No mocking required — resolvePermission is a pure function with no
- * external dependencies.  Every test exercises a specific cell in the
- * decision table defined by the five-step priority chain.
- *
- * Decision table
- * ┌────────────────────┬───────────────┬───────────────┬──────────────┐
- * │ isKnownPermission  │ globalAllowed │  remembered   │   result     │
- * ├────────────────────┼───────────────┼───────────────┼──────────────┤
- * │ false              │ any           │ any           │ "block"      │
- * │ true               │ true          │ "allow"       │ "allow"      │
- * │ true               │ true          │ "block"       │ "allow"  (!) │
- * │ true               │ true          │ null          │ "allow"      │
- * │ true               │ false         │ "allow"       │ "allow"      │
- * │ true               │ false         │ "block"       │ "block"      │
- * │ true               │ false         │ null          │ "ask"        │
- * └────────────────────┴───────────────┴───────────────┴──────────────┘
- */
-
 import { describe, expect, test } from "bun:test";
 import {
   type PermissionDecision,
@@ -26,17 +5,9 @@ import {
   resolvePermission,
 } from "../../../../../src/main/features/browser/permission-policy";
 
-// ---------------------------------------------------------------------------
-// Helper
-// ---------------------------------------------------------------------------
-
 function resolve(input: PermissionResolverInput): PermissionDecision {
   return resolvePermission(input);
 }
-
-// ---------------------------------------------------------------------------
-// 1. Unknown permission — always block regardless of other inputs
-// ---------------------------------------------------------------------------
 
 describe("resolvePermission — unknown permission", () => {
   test.each([
@@ -50,10 +21,6 @@ describe("resolvePermission — unknown permission", () => {
     expect(resolve({ isKnownPermission: false, globalAllowed, remembered })).toBe("block");
   });
 });
-
-// ---------------------------------------------------------------------------
-// 2. Global allow ON — supersedes remembered block (key conflict case)
-// ---------------------------------------------------------------------------
 
 describe("resolvePermission — globalAllowed=true", () => {
   test("allows when globalAllowed=true, remembered='allow'", () => {
@@ -74,10 +41,6 @@ describe("resolvePermission — globalAllowed=true", () => {
     );
   });
 });
-
-// ---------------------------------------------------------------------------
-// 3–5. Global allow OFF — remembered and fallback
-// ---------------------------------------------------------------------------
 
 describe("resolvePermission — globalAllowed=false", () => {
   test("allows when remembered='allow'", () => {

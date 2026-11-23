@@ -1,7 +1,3 @@
-/**
- * The drawing surface of a sketch block: Excalidraw, loaded only when a
- * sketch is drawn in (it and its styles are a chunk of their own).
- */
 import "./excalidraw-assets";
 import { Excalidraw, exportToSvg, serializeAsJSON } from "@excalidraw/excalidraw";
 import "@excalidraw/excalidraw/index.css";
@@ -20,7 +16,6 @@ export interface SketchScene {
   files: SketchFiles;
 }
 
-/** A scene as the note keeps it: Excalidraw's JSON, and an SVG of it to show and for agents. */
 export async function exportSketch(scene: SketchScene): Promise<{ scene: string; svg: string }> {
   const live = scene.elements.filter((e) => !e.isDeleted);
   const json = serializeAsJSON(scene.elements, scene.appState, scene.files, "local");
@@ -28,7 +23,6 @@ export async function exportSketch(scene: SketchScene): Promise<{ scene: string;
     return { scene: json, svg: '<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0"/>' };
   const svg = await exportToSvg({
     elements: live,
-    // At the scene's own size: the picture in the note is as big as it was drawn.
     appState: {
       ...scene.appState,
       exportBackground: false,
@@ -48,7 +42,6 @@ export default function SketchCanvas({
   onApi,
   onChange,
 }: {
-  /** The scene's saved JSON, or null for a new sketch. */
   initial: string | null;
   dark: boolean;
   language: string;

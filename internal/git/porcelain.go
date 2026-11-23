@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-// GitStatusEntry is one file entry in a GitStatus group.
 type GitStatusEntry struct {
 	RelPath      string  `json:"relPath"`
 	OldRelPath   *string `json:"oldRelPath,omitempty"`
@@ -14,7 +13,6 @@ type GitStatusEntry struct {
 	ConflictType *string `json:"conflictType"`
 }
 
-// BranchInfo carries porcelain v2 branch headers.
 type BranchInfo struct {
 	Current  string  `json:"current"`
 	Upstream *string `json:"upstream"`
@@ -23,7 +21,6 @@ type BranchInfo struct {
 	IsUnborn bool    `json:"isUnborn"`
 }
 
-// RepoCapabilities mirrors the Source Control capability fields on GitStatus.
 type RepoCapabilities struct {
 	HasHEAD    bool     `json:"hasHEAD"`
 	Remotes    []string `json:"remotes"`
@@ -31,7 +28,6 @@ type RepoCapabilities struct {
 	TagCount   int      `json:"tagCount"`
 }
 
-// GitStatus is the Go mirror of the shared GitStatus schema.
 type GitStatus struct {
 	Merge          []GitStatusEntry `json:"merge"`
 	Staged         []GitStatusEntry `json:"staged"`
@@ -63,9 +59,6 @@ var conflictTypeByXY = map[string]string{
 	"UU": "both-modified",
 }
 
-// ParsePorcelainV2 parses `git status --porcelain=v2` output into GitStatus.
-// It is pure: callers supply raw stdout and receive schema-shaped status data
-// with non-porcelain fields set to their defaults.
 func ParsePorcelainV2(stdout []byte) (GitStatus, error) {
 	status := defaultGitStatus()
 	records, nulDelimited := splitPorcelainRecords(stdout)
@@ -110,7 +103,6 @@ func ParsePorcelainV2(stdout []byte) (GitStatus, error) {
 		case strings.HasPrefix(record, "? "):
 			status.Untracked = append(status.Untracked, GitStatusEntry{RelPath: record[2:], XY: "??"})
 		case strings.HasPrefix(record, "! "):
-			// Ignored entries are intentionally not part of GitStatus.
 		default:
 			return status, fmt.Errorf("unsupported porcelain record: %q", record)
 		}

@@ -1,4 +1,3 @@
-/** The socket's ticket, asked with the relay version this app speaks. */
 import { describe, expect, test } from "bun:test";
 import { RELAY_VERSION } from "../../../../../packages/remote-protocol/src";
 import {

@@ -1,8 +1,3 @@
-/**
- * Tests for the shared FS error utility hasFsErrorCode —
- * using the UNSUPPORTED_REMOTE code added for remote workspace detection.
- */
-
 import { describe, expect, it } from "bun:test";
 import { FS_ERROR, fsErrorMessage, hasFsErrorCode } from "../../../src/shared/fs/errors";
 

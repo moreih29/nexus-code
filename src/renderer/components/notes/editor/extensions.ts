@@ -1,4 +1,3 @@
-/** The note editor's TipTap extensions. */
 import { type AnyExtension, Extension } from "@tiptap/core";
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { Placeholder } from "@tiptap/extensions";
@@ -52,7 +51,6 @@ export const NoteSummaryAttributes = Extension.create({
   ],
 });
 
-// TaskItem's NodeView reads HTMLAttributes directly, bypassing renderHTML's data-type.
 export const NoteTaskItem = TaskItem.extend({
   addKeyboardShortcuts() {
     return {
@@ -65,7 +63,6 @@ export const NoteTaskItem = TaskItem.extend({
         return this.editor.commands.command(({ commands, tr }) => {
           if (!commands.splitListItem(this.name)) return false;
           const { $from } = tr.selection;
-          // Splitting mid-paragraph copies the inner node's attrs even with keepOnSplit disabled.
           if ($from.parent.attrs.nexusOrigin === origin) {
             tr.setNodeAttribute($from.before(), "nexusOrigin", null);
           }
@@ -89,7 +86,6 @@ export function noteExtensions(
         openOnClick: false,
         autolink: true,
         defaultProtocol: "https",
-        // workspace:<path>: a file of the workspace, linked from the file tree.
         protocols: [{ scheme: "workspace", optionalSlashes: true }],
       },
       heading: { levels: [1, 2, 3] },

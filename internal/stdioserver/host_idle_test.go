@@ -1,9 +1,3 @@
-// Package stdioserver — idle watchdog tests.
-//
-// StartIdleWatchdog must self-terminate the agent when the client stops
-// sending (vanished client, half-open link) but must never fire while inbound
-// traffic keeps arriving. We inject a fake exit so termination is observable
-// without killing the test runner.
 package stdioserver
 
 import (
@@ -21,8 +15,6 @@ func newTestHost() *Host {
 	return New(dispatch.New(), strings.NewReader(""), io.Discard, logger)
 }
 
-// TestIdleWatchdogWaitsForSilence advances watchdog ticks independently of
-// the scheduler and checks that each inbound line restarts the idle window.
 func TestIdleWatchdogWaitsForSilence(t *testing.T) {
 	t.Parallel()
 	host := newTestHost()
@@ -68,8 +60,6 @@ func TestIdleWatchdogWaitsForSilence(t *testing.T) {
 	<-stopped
 }
 
-// TestIdleWatchdogDisabledWhenLimitNonPositive checks the disabled option
-// without waiting for a watchdog that should never start.
 func TestIdleWatchdogDisabledWhenLimitNonPositive(t *testing.T) {
 	host := newTestHost()
 	host.startIdleWatchdog(0, func(time.Duration) (<-chan time.Time, func()) {

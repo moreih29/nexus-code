@@ -1,11 +1,3 @@
-// src/renderer/components/settings/panels/remote-outdated.tsx
-//
-// While the server no longer takes this version of the app (the room's
-// "outdated"), this computer stays out of the room until it is updated. The
-// Remote page says so first, with where the update stands and its buttons,
-// as Settings › About has them; the Other computers list says it in a line
-// whose button opens that page.
-
 import { TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ipcCallResult } from "../../../ipc/client";
@@ -20,7 +12,6 @@ export function OutdatedGroup() {
   const { t } = useTranslation("settings");
   const status = useUpdatesStore((s) => s.status);
   const progress = useUpdatesStore((s) => s.progress);
-  // The Microsoft Store updates its own install.
   const storeManaged = window.host?.windowsStore === true;
   return (
     <SettingsGroup
@@ -46,7 +37,6 @@ export function OutdatedGroup() {
   );
 }
 
-/** The Other computers list's line: out of the room until updated, and the way there. */
 export function OutdatedLine({ dismiss }: { dismiss: BannerDismiss }) {
   const { t } = useTranslation();
   return (

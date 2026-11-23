@@ -16,11 +16,9 @@ function isMachO(file) {
   } finally {
     fs.closeSync(fd);
   }
-  // Universal Mach-O and Java classes can have the same magic.
   return execFileSync("/usr/bin/file", ["-b", file], { encoding: "utf8" }).startsWith("Mach-O ");
 }
 
-/** @param {import("electron-builder").AfterPackContext} context */
 exports.default = async function afterPackDeveloperId(context) {
   await afterPack(context);
   const { appOutDir, packager, electronPlatformName } = context;
@@ -42,8 +40,6 @@ exports.default = async function afterPackDeveloperId(context) {
     if (!entry.isFile()) continue;
     const file = path.join(entry.parentPath, entry.name);
     if (!isMachO(file)) continue;
-    // Go agents and node-pty's spawn helper need no runtime exceptions.
-    // The native modules and dylibs share the Electron app's signing team.
     execFileSync("codesign", [...args, file], { stdio: "inherit" });
     execFileSync("codesign", ["--verify", "--strict", "--all-architectures", file], { stdio: "inherit" });
     signed.add(file);
@@ -57,8 +53,6 @@ exports.default = async function afterPackDeveloperId(context) {
     if (agent.os !== "darwin") continue;
     const file = path.join(agentDir, agent.path);
     if (!signed.has(file)) throw new Error(`Missing Mach-O agent at ${file}`);
-    // SSH bootstrap checks the local upload and the installed bytes against
-    // this digest. Update the packaged copy before signing seals Resources.
     const bytes = fs.readFileSync(file);
     agent.sha256 = createHash("sha256").update(bytes).digest("hex");
     agent.size = bytes.length;

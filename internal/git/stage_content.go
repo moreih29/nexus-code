@@ -8,25 +8,14 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// ---------------------------------------------------------------------------
-// git.stageContent — stage given content as one file's index version
-// ---------------------------------------------------------------------------
-
-// StageContentParams carries the full content to stage for one path.
 type StageContentParams struct {
 	Cwd     string `json:"cwd,omitempty"`
 	RelPath string `json:"relPath"`
 	Content string `json:"content"`
 }
 
-// defaultFileMode is the index mode of a path with no index or HEAD entry.
 const defaultFileMode = "100644"
 
-// StageContent makes content the staged version of relPath without touching
-// the working tree. This is how part of a file gets staged, as VSCode does:
-// the renderer applies the chosen changes to the index version and hands
-// back the result. The entry keeps its index mode (else HEAD's, else a
-// regular file's); symlinks, submodules and conflicted paths are refused.
 func (s *Service) StageContent(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p StageContentParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -40,7 +29,6 @@ func (s *Service) StageContent(ctx context.Context, raw json.RawMessage) (any, e
 		return nil, proto.ProtocolError("git.stageContent cwd must not contain NUL")
 	}
 
-	// relPath is relative to the repository root, so run where it resolves.
 	cwd, err := s.resolveCwd(ctx, p.Cwd)
 	if err != nil {
 		return nil, err
@@ -70,8 +58,6 @@ func (s *Service) StageContent(ctx context.Context, raw json.RawMessage) (any, e
 	return nil, nil
 }
 
-// stagedFileMode returns the mode relPath is staged with, or would be: its
-// index entry's, else its HEAD entry's, else a regular file's.
 func (s *Service) stagedFileMode(ctx context.Context, topLevel string, relPath string) (string, error) {
 	indexArgs := []string{"ls-files", "--stage", "-z", "--", relPath}
 	out, stderr, code, err := s.captureEnv(ctx, topLevel, indexArgs, literalPathspecs, false)
@@ -85,7 +71,6 @@ func (s *Service) stagedFileMode(ctx context.Context, topLevel string, relPath s
 		return checkStageableMode(mode)
 	}
 
-	// An unborn HEAD fails here and leaves the default.
 	treeArgs := []string{"ls-tree", "-z", "HEAD", "--", relPath}
 	out, _, code, err = s.captureEnv(ctx, topLevel, treeArgs, literalPathspecs, false)
 	if err != nil {
@@ -99,9 +84,6 @@ func (s *Service) stagedFileMode(ctx context.Context, topLevel string, relPath s
 	return defaultFileMode, nil
 }
 
-// parseEntryMode reads the mode of the first NUL-terminated `ls-files --stage`
-// or `ls-tree` record. An index entry at a merge stage other than 0 yields
-// "conflict".
 func parseEntryMode(out string, index bool) (mode string, found bool) {
 	record, _, _ := strings.Cut(out, "\x00")
 	meta, _, ok := strings.Cut(record, "\t")
@@ -129,8 +111,6 @@ func checkStageableMode(mode string) (string, error) {
 	}
 }
 
-// writeBlob stores content as a blob, through relPath's attributes (line
-// ending conversion, clean filters) as `git add` would, and returns its id.
 func (s *Service) writeBlob(ctx context.Context, topLevel string, relPath string, content string) (string, error) {
 	args := []string{"hash-object", "-w", "--stdin", "--path=" + relPath}
 	cmd, err := s.command(ctx, args, topLevel, nil, false)

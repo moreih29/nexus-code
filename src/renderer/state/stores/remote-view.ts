@@ -1,11 +1,3 @@
-/**
- * The sessions of other computers the agent view's panels hold as tabs,
- * opened from its list's Other computers: what each tab shows of its
- * session, by the key the panel holds it by (remoteSessionKey). Not kept:
- * the other computer may be gone when the app starts again, and the panels
- * let go of these keys then.
- */
-
 import { create } from "zustand";
 import type { SessionState } from "../../../../packages/remote-protocol/src/rpc";
 import { openKey, remoteSessionKey } from "../../services/agent-view/layout";
@@ -15,45 +7,30 @@ import { useAgentViewStore } from "./agent-view";
 
 export type OpenRemoteSession = (target: RemoteTarget) => void;
 
-/** A session of another computer, with the names to tell it by. */
 export interface RemoteTarget {
   deviceId: string;
   deviceName: string;
   workspaceId: string;
   workspaceName: string;
-  /** The workspace's folder on that computer. */
   path: string;
   tabId: string;
   kind: "claude" | "codex" | "terminal";
   title: string;
-  /** How it stood when its computer last listed it. */
   state?: SessionState;
-  /** The agent profile a chat runs with, by name, as its computer last listed it. */
   profile?: string;
-  /** The folder a chat runs in, when it is not its workspace's: its links are written from there. */
   cwd?: string;
-  /**
-   * A terminal's Claude Code asking for leave, as its computer last listed
-   * it (its session's `waiting` with a `requestId`): what terminal.answer
-   * answers. Never on a chat.
-   */
   ask?: TerminalAsk;
 }
 
-/** A request a terminal's Claude Code holds: its id there, and what it asks (tool and target, a line). */
 export interface TerminalAsk {
   requestId: string;
   text: string;
-  /** Whether it may be allowed always; unknown (absent) from a computer before protocol 0.13.2. */
   always?: boolean;
-  /** A subagent's, which denying cannot stop the turn for; unknown (absent) before 0.13.2. */
   subagent?: boolean;
 }
 
-/** What a listed session waits on the user for, as far as a terminal's request goes. */
 type ListedWaiting = { text: string; requestId?: string; always?: boolean; subagent?: boolean };
 
-/** The request a listed session's Claude Code holds in its terminal; none for a chat. */
 export function askOf(session: {
   kind: RemoteTarget["kind"];
   waiting?: ListedWaiting;
@@ -68,7 +45,6 @@ export function askOf(session: {
   };
 }
 
-/** What the computer's list says of its sessions now, for the tabs to show. */
 export interface ListedSessions {
   workspaces: readonly { id: string; name: string; path: string }[];
   sessions: readonly {
@@ -83,16 +59,13 @@ export interface ListedSessions {
   }[];
 }
 
-/** Takes up the metadata a computer last listed for an existing session tab. */
 export function refreshRemoteTarget(
   target: RemoteTarget,
   workspace?: ListedSessions["workspaces"][number],
   session?: ListedSessions["sessions"][number],
 ): RemoteTarget {
   const { cwd: _cwd, ask: _ask, ...rest } = target;
-  // A chat listed tells its folder, or none for its workspace's.
   const cwd = session ? session.cwd : target.cwd;
-  // A terminal listed tells the request its Claude Code holds, or none once it was answered.
   const ask = session ? askOf(session) : target.ask;
   const updated: RemoteTarget = {
     ...rest,
@@ -147,18 +120,8 @@ export function listedRemoteTarget(
 
 interface RemoteViewState {
   targets: ReadonlyMap<string, RemoteTarget>;
-  /**
-   * Shows a session as a tab of the agent view: in front of the panel
-   * holding it, else added to `leafId` (the active panel by default), with
-   * the keyboard, as a chat of this computer's opens.
-   */
   open(target: RemoteTarget, leafId?: string): void;
-  /**
-   * Takes up a computer's newer names and titles for the tabs of its
-   * sessions, and what its terminals' Claude Code asks.
-   */
   refresh(deviceId: string, listed: ListedSessions): void;
-  /** A chat now runs with another profile, by name, as chat.profile answered. */
   setProfile(key: string, profile: string): void;
 }
 
@@ -207,7 +170,6 @@ export function openRemoteSession(target: RemoteTarget): void {
   useRemoteViewStore.getState().open(target);
 }
 
-/** The tab's session a key names; undefined for one this run of the app did not open. */
 export function useRemoteTarget(key: string | null): RemoteTarget | undefined {
   return useRemoteViewStore((s) => (key !== null ? s.targets.get(key) : undefined));
 }

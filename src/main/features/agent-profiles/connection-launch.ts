@@ -13,7 +13,6 @@ import codexInstructions from "./codex-instructions";
 const CODEX_PROVIDER = "nexus_profile";
 const CODEX_PROVIDER_KEY = "NEXUS_PROFILE_CODEX_API_KEY";
 
-/** Compare launch settings, omitting UI-only preset names and empty form values. */
 function launchConnection(profile: AgentProfile | null): unknown {
   const connection = profile?.connection;
   if (connection?.method !== "custom") return connection?.method ?? "account";
@@ -50,11 +49,6 @@ function claudeReasoningCapabilities(reasoning: ConnectionModel["reasoning"]): s
   }
 }
 
-/**
- * Claude Code's custom-endpoint capability rules. A blank reasoning, or a model
- * ID its grammar cannot name, stays on Claude Code's own defaults. The settings
- * dialog rejects that combination before it becomes a new saved profile.
- */
 function claudeModelCapabilities(models: readonly ConnectionModel[]): string | undefined {
   const rules: string[] = [];
   for (const model of models) {
@@ -70,8 +64,6 @@ export function claudeConnectionEnv(
   key: string | undefined,
 ): Record<string, string> {
   if (!connection || connection.method === "account") return {};
-  // Claude's settings env would otherwise be able to redirect a launch to
-  // a different endpoint or replace the selected credential.
   const routing = {
     CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: "1",
     CLAUDE_CODE_USE_BEDROCK: "",
@@ -158,8 +150,6 @@ export function codexConnectionArgs(
   catalogPath?: string,
 ): string[] {
   if (connection?.method === "api-key") {
-    // app-server does not accept CODEX_API_KEY as its built-in account auth.
-    // A provider-scoped env key needs no account or auth.json.
     return [
       "-c",
       `model_provider=${tomlString(CODEX_PROVIDER)}`,
@@ -170,7 +160,6 @@ export function codexConnectionArgs(
   if (connection?.method !== "custom") return [];
   if (!catalogPath) throw new Error("Codex model catalog is missing");
   const { advanced } = connection;
-  // Replace the provider's entire table so inherited provider settings cannot change its auth or transport.
   const values: Record<string, string> = {
     name: tomlString("Profile API"),
     base_url: tomlString(normalizeConnectionUrl("codex", connection.baseUrl)),
@@ -203,8 +192,6 @@ export function codexConnectionArgs(
   ];
 }
 
-// The GPT-5.5 instruction template from the bundled Codex 0.170.0 catalog.
-// Keep third-party entries on the standard Responses transport and tool format.
 export function codexConnectionCatalog(connection: CustomConnection) {
   const ordered = [
     ...connection.models.filter(({ id }) => id === connection.defaultModel),

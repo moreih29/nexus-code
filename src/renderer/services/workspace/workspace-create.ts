@@ -1,23 +1,8 @@
-/**
- * Workspace creation service — wraps `workspace.create`, `workspace.createAndConnect`,
- * and `dialog.showOpenDirectory` IPC channels.
- *
- * Exposes intent-level functions so components never import ipc/client directly.
- */
-
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { IpcResult } from "../../ipc/client";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import type { CallReturn } from "../../ipc/types";
 
-// ---------------------------------------------------------------------------
-// Local workspace
-// ---------------------------------------------------------------------------
-
-/**
- * Create a local workspace from an absolute path.
- * Throws on IPC error (the caller handles it).
- */
 export async function createLocalWorkspace(rootPath: string): Promise<WorkspaceMeta> {
   return unwrapIpcResult(
     await ipcCallResult("workspace", "create", {
@@ -26,10 +11,6 @@ export async function createLocalWorkspace(rootPath: string): Promise<WorkspaceM
   );
 }
 
-/**
- * Show the OS directory picker dialog.
- * Returns `null` when the user cancels; the selected path otherwise.
- */
 export async function pickLocalDirectory(): Promise<string | null> {
   const { canceled, filePaths } = unwrapIpcResult(
     await ipcCallResult("dialog", "showOpenDirectory", {}),
@@ -38,10 +19,6 @@ export async function pickLocalDirectory(): Promise<string | null> {
   return filePaths[0];
 }
 
-// ---------------------------------------------------------------------------
-// SSH workspace
-// ---------------------------------------------------------------------------
-
 export interface CreateSshWorkspaceArgs {
   readonly host: string;
   readonly user?: string;
@@ -49,14 +26,9 @@ export interface CreateSshWorkspaceArgs {
   readonly identityFile?: string;
   readonly authMode: "interactive" | "key-only";
   readonly remotePath: string;
-  /** When provided, the existing browse-session ControlMaster is reused. */
   readonly sshBrowseSessionId?: string;
 }
 
-/**
- * Create and connect an SSH workspace, returning an IpcResult so the caller
- * can branch on `result.ok` (cancelled auth, typed failure, or success).
- */
 export async function createSshWorkspace(
   args: CreateSshWorkspaceArgs,
 ): Promise<IpcResult<WorkspaceMeta>> {
@@ -74,14 +46,6 @@ export async function createSshWorkspace(
   });
 }
 
-// ---------------------------------------------------------------------------
-// SSH config hosts
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch ~/.ssh/config host entries for the new-connection form combobox.
- * Returns an empty array on error.
- */
 export async function listSshConfigHosts(): Promise<CallReturn<"ssh", "listConfigHosts">> {
   return unwrapIpcResult(await ipcCallResult("ssh", "listConfigHosts", undefined));
 }

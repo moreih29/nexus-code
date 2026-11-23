@@ -14,8 +14,6 @@ import (
 	"time"
 )
 
-// TestWindowsChatStdinReachesNodeThroughCmd exercises libuv reading the
-// inherited stdin handle through a batch launcher, including end of input.
 func TestWindowsChatStdinReachesNodeThroughCmd(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node is not on PATH")
@@ -49,8 +47,6 @@ process.stdin.on("end", () => process.stdout.write('{"eof":true}\n'));
 		}
 		return rec.sink(event, payload)
 	})
-	// A whole run takes well under a second, but the first cmd and Node start
-	// on a fresh Windows runner has taken over 10 s, so allow 30 s here alone.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

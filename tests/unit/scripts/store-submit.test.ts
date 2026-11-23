@@ -31,7 +31,6 @@ function writeNotes(contents: unknown): string {
   return file;
 }
 
-// The shape `msstore submission get` prints, cut down.
 function submission(): StoreSubmission {
   return {
     Id: "1152921505702274229",

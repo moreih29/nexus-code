@@ -1,8 +1,3 @@
-/**
- * The account key's flows against a server of account keys v2: the
- * password's proof, device keys, rotation when a device is removed, and a
- * reset that waits (packages/remote-protocol's ACCOUNT_KEYS.md).
- */
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
@@ -28,7 +23,6 @@ const USER = "u1";
 
 const sha = (b64: string) => createHash("sha256").update(fromBase64Url(b64)).digest("base64url");
 
-/** A v2 server: one bundle, its verifier, the devices' keys and envelopes. */
 function v2Server() {
   const s = {
     bundle: null as { bundle: KeyBundle; version: number } | null,
@@ -191,7 +185,6 @@ function device(server: ReturnType<typeof v2Server>, deviceId: string, useDefaul
   return { keys, store, states };
 }
 
-/** Three devices holding the first key, each with its key registered. */
 async function threeDevices() {
   const server = v2Server();
   const a = device(server, "dev-a");
@@ -259,7 +252,6 @@ describe("account keys v2", () => {
     const before = server.s.verifier;
     await a.keys.changePassword(PASSWORD, OTHER);
     expect(server.s.verifier).not.toBe(before);
-    // A stolen device put its own verifier: the owner's proof no longer goes through.
     server.s.verifier = sha("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
     await expect(a.keys.changePassword(OTHER, PASSWORD)).rejects.toMatchObject({
       failure: "account-auth",
@@ -280,20 +272,16 @@ describe("account keys v2", () => {
     expect(s.devices.has("dev-c")).toBe(false);
     expect(s.envelopes.get("dev-b")).toHaveLength(1);
     expect(a.keys.state()).toMatchObject({ status: "unlocked", kid: 2 });
-    // B takes the new key without the password, the same as A's.
     await b.keys.refresh();
     expect(b.keys.state()).toMatchObject({ status: "unlocked", kid: 2 });
     expect(b.keys.key()?.key).toEqual(a.keys.key()?.key);
-    // The rotation vouched for B's key anew; it opened its envelope, which the server drops on the next register.
     expect(s.devices.get("dev-b")?.key?.kid).toBe(2);
-    // C is signed out; its old key opens nothing new.
     await expect(c.keys.refresh()).resolves.toBeDefined();
     expect(c.keys.key()?.kid).toBe(1);
   });
 
   test("a device without a key of the version before is asked for the password", async () => {
     const { server, a } = await threeDevices();
-    // An older app's device: signed in and holding the key, but no key registered.
     server.s.devices.set("dev-old", { key: null });
     await a.keys.removeDevices(["dev-c"], PASSWORD);
     expect(server.s.envelopes.has("dev-old")).toBe(false);
@@ -338,7 +326,6 @@ describe("account keys v2", () => {
     await expect(a.keys.cancelReset(OTHER)).rejects.toMatchObject({ failure: "wrong-password" });
     await a.keys.cancelReset(PASSWORD);
     expect(server.s.pending).toBeNull();
-    // Again, from a device with no key: the owner removes it without the password.
     const d = device(server, "dev-d");
     await d.keys.restore();
     await d.keys.reset(OTHER);
@@ -347,7 +334,6 @@ describe("account keys v2", () => {
     expect(server.s.deletes).toEqual(["dev-d"]);
     expect(server.s.pending).toBeNull();
     expect(server.s.bundle?.bundle.kid).toBe(1);
-    // Another device still needs the password.
     await expect(a.keys.removeDevices(["dev-c"])).rejects.toMatchObject({
       failure: "wrong-password",
     });
@@ -383,7 +369,6 @@ describe("account keys v2", () => {
   test("a reset's device whose key does not check may have overwritten it to hide the key: it needs the password too", async () => {
     const { server, a, b } = await threeDevices();
     await b.keys.reset(OTHER);
-    // It holds the key, yet overwrote its own with a certificate that does not check.
     const entry = server.s.devices.get("dev-b");
     if (entry?.key) entry.key = { ...entry.key, cert: "A".repeat(43) };
     await a.keys.refresh();
@@ -421,7 +406,6 @@ describe("account keys v2", () => {
     await b.keys.reset(OTHER);
     const { s } = server;
     const pending = s.pending as NonNullable<typeof s.pending>;
-    // The server puts it in place once its time has come.
     s.bundle = { bundle: pending.bundle, version: (s.bundle?.version ?? 0) + 1 };
     s.verifier = pending.verifier;
     s.pending = null;

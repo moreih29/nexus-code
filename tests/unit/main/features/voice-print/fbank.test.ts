@@ -6,8 +6,6 @@ import {
   meanNormalized,
 } from "../../../../../src/main/features/voice-print/fbank";
 
-// torchaudio.compliance.kaldi.fbank(x, num_mel_bins=80, sample_frequency=16000, dither=0.0) of the
-// signal below: frames 0, 10 and 47, and frame 10 with the mean over time taken away.
 const REFERENCE = {
   frames: 48,
   rows: {

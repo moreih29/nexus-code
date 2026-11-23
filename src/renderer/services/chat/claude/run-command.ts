@@ -1,6 +1,3 @@
-// Runs the Claude tab's own commands (app-commands.ts) where the tab is:
-// a card above the composer, the clipboard, a file, the git view.
-
 import i18next from "i18next";
 import { showConfirmDialog } from "../../../components/ui/confirm-dialog";
 import { showToast } from "../../../components/ui/toast";
@@ -52,10 +49,8 @@ export interface AppCommandContext {
   tabId: string;
   cwd: string;
   rootPath: string;
-  /** The whole conversation: what was loaded from the session, then this run's. */
   items: readonly ChatItem[];
   tools: Readonly<Record<string, ToolCall>>;
-  /** A tool call's one line, as the conversation shows it. */
   summarize: (tool: ToolCall) => string;
   openFileTab: (path: string) => void;
   openUrl: (url: string) => void;
@@ -166,7 +161,6 @@ export async function runAppCommand(
       showChanges(ctx.workspaceId);
       return;
     case "status":
-      // The panel's environment section: version, model, account, Remote Control.
       revealPart(controller.key, "status");
       return;
     case "plan":
@@ -187,7 +181,6 @@ export async function runAppCommand(
         kind: "info",
         message: t(enabled ? "chat.commands.remote_on" : "chat.commands.remote_off"),
       });
-      // Its link is in the panel.
       if (enabled) revealPart(controller.key, "status");
       return;
     }
@@ -271,7 +264,6 @@ export async function runAppCommand(
       return;
     }
     case "fork": {
-      // The whole conversation so far, in a tab of its own.
       const sessionId = controller.currentSession();
       if (!sessionId) {
         showToast({ kind: "warning", message: t("chat.commands.fork_none") });
@@ -291,8 +283,6 @@ export async function runAppCommand(
       return;
     }
     case "branch": {
-      // The conversation so far, in a tab of its own under the name given,
-      // else its title marked as a branch; this one stays as it is.
       const sessionId = controller.currentSession();
       if (!sessionId) {
         showToast({ kind: "warning", message: t("chat.commands.fork_none") });
@@ -399,11 +389,6 @@ export async function runAppCommand(
   }
 }
 
-/**
- * /tasks: what the session runs now, and the folder's background sessions
- * (`claude --bg`), to open in a terminal or stop. /workflows: the
- * session's workflows. Each action shows the card again as it then is.
- */
 async function showTasks(
   ctx: AppCommandContext,
   title: string,
@@ -466,7 +451,6 @@ async function showTasks(
           {
             label: t("chat.commands.open"),
             run: () => {
-              // The session is in the profile's folder.
               const { tabId } = openTerminal({
                 workspaceId: ctx.workspaceId,
                 cwd: ctx.cwd,
@@ -498,10 +482,6 @@ async function showTasks(
   controller.updateCard(id, { loading: false, sections, error });
 }
 
-/**
- * /plan: plan mode on, then the description sent when one is given. In
- * plan mode already, the session's plan; `open` opens its file.
- */
 async function runPlan(ctx: AppCommandContext, args: string): Promise<void> {
   const t = i18next.t.bind(i18next);
   const { controller } = ctx;
@@ -538,9 +518,7 @@ function failed(err: Error): void {
   showToast({ kind: "error", message: err.message });
 }
 
-/** Opens a terminal in the tab's folder that runs `command`, with `argument` quoted for its shell. */
 function runInTerminal(ctx: AppCommandContext, command: string, argument: string): void {
-  // In the tab's profile, as its program runs: /login and /logout there are the profile's.
   const { tabId } = openTerminal({
     workspaceId: ctx.workspaceId,
     cwd: ctx.cwd,
@@ -553,10 +531,6 @@ function runInTerminal(ctx: AppCommandContext, command: string, argument: string
   );
 }
 
-/**
- * /plugin: the installed plugins, to turn off or on, update or remove,
- * and Claude Code's own /plugin in a terminal for the marketplaces.
- */
 async function showPlugins(ctx: AppCommandContext, title: string, cardId?: string): Promise<void> {
   const t = i18next.t.bind(i18next);
   const { controller } = ctx;
@@ -606,7 +580,6 @@ async function showPlugins(ctx: AppCommandContext, title: string, cardId?: strin
           ]
             .filter(Boolean)
             .join(" · "),
-          // A managed plugin is the organization's to change.
           actions: scoped
             ? [
                 plugin.enabled
@@ -649,7 +622,6 @@ async function showPlugins(ctx: AppCommandContext, title: string, cardId?: strin
   }
 }
 
-/** Runs `claude plugin <action>`, says how it went, and has the session load the plugins again. */
 async function changePlugin(
   ctx: AppCommandContext,
   action: PluginAction,

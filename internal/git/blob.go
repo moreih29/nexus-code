@@ -53,8 +53,6 @@ type blobHeader struct {
 	Missing bool
 }
 
-// Blob streams one repository blob using git cat-file --batch. Working-tree
-// content is intentionally excluded; callers should use fs.readFile for that.
 func (s *Service) Blob(ctx context.Context, raw json.RawMessage) (any, error) {
 	params, err := parseBlobParams(raw)
 	if err != nil {
@@ -73,8 +71,6 @@ func (s *Service) Blob(ctx context.Context, raw json.RawMessage) (any, error) {
 	args := []string{"cat-file", "--batch"}
 	terminator := "\n"
 	if strings.ContainsRune(objectSpec, '\n') {
-		// -z changes only input framing and works with older Git versions
-		// that do not support -Z. Keep the usual mode for other paths.
 		args = append(args, "-z")
 		terminator = "\x00"
 	}
@@ -103,8 +99,6 @@ func (s *Service) Blob(ctx context.Context, raw json.RawMessage) (any, error) {
 	if readErr != nil || result.Truncated {
 		cancel()
 	} else {
-		// Git writes a newline after the blob body. Drain stdout before finish
-		// closes it so Wait does not report a failed copy of that newline.
 		_, readErr = io.Copy(io.Discard, stdout)
 	}
 	waitErr := finish()
@@ -219,8 +213,6 @@ func readBlobHeader(reader *bufio.Reader, objectSpec string) (blobHeader, error)
 	if err != nil {
 		return blobHeader{}, err
 	}
-	// With -z, a missing object is echoed verbatim in a newline-delimited
-	// response. Match the remaining bytes when the spec itself was multiline.
 	if first, rest, multiline := strings.Cut(objectSpec, "\n"); multiline && line == first+"\n" {
 		expected := rest + " missing\n"
 		actual := make([]byte, len(expected))

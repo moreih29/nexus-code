@@ -1,4 +1,3 @@
-/** What this device serves the others: its sessions, as the CLI's services see them. */
 import { describe, expect, jest, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -328,7 +327,6 @@ describe("the sessions list's renderer deadline", () => {
     const { list, incompleteWorkspaces } = await snapshotSessions(s, undefined);
     expect(reads).toEqual([["sessions.snapshot", { workspaceIds: ["w1", "w2", "w3"] }]]);
     expect(list.sessions.map((row) => row.tabId)).toEqual(["chat-0", "chat-1"]);
-    // The chats it could not read leave their workspace incomplete.
     expect(incompleteWorkspaces).toEqual(new Set(["w1"]));
   });
 
@@ -707,14 +705,12 @@ describe("serving the sessions", () => {
     expect(list.workspaces.filter((w) => w.pinned).map((w) => w.id)).toEqual(["d", "b"]);
   });
 
-  // A terminal not started (t6) is not listed: it has nothing to show until its workspace is opened.
   test("lists the chats and terminals of every workspace, in the app's order", async () => {
     const git = (w: { id: string }) =>
       w.id === "w2" ? { branch: "feat", ahead: 2, behind: 0, uncommitted: 3 } : undefined;
     const list = await listSessions(services(), git);
     expect(list.workspaces.map((w) => w.id)).toEqual(["w1", "w2", "w3"]);
     expect(list.workspaces[0]).toEqual({ id: "w1", name: "app", path: "/src/app" });
-    // A task names its parent and how its branch stands.
     expect(list.workspaces[1]).toMatchObject({
       parentId: "w1",
       git: { branch: "feat", ahead: 2, behind: 0, uncommitted: 3 },
@@ -740,8 +736,6 @@ describe("serving the sessions", () => {
         since: 5,
         last: "Allow rm?",
         agent: "claude",
-        // What the terminal's Claude Code asks, as the app holds it: nothing to allow always,
-        // and the session's own, which denying may stop.
         waiting: {
           kind: "permission",
           text: "Bash rm -rf dist",
@@ -750,7 +744,6 @@ describe("serving the sessions", () => {
           subagent: false,
         },
       },
-      // A terminal with only its shell: no agent, which the lists keep out of sight.
       { workspaceId: "w1", tabId: "t5", kind: "terminal", title: "bash", state: "idle" },
       {
         workspaceId: "w2",
@@ -855,7 +848,6 @@ describe("serving the sessions", () => {
       answerable: false,
       from: { workspaceName: "app", name: "zsh" },
     });
-    // A terminal's change needs the terminals' controls too.
     await expect(
       serve({ chat: true, terminal: false })({
         from: "phone",
@@ -910,7 +902,6 @@ describe("serving the sessions", () => {
       });
     await expect(read()).rejects.toMatchObject({ code: 1002 });
     await expect(read("deny")).rejects.toMatchObject({ code: 1002 });
-    // Only what an agent would change is asked about: a read goes ahead.
     expect(await read("ask")).toHaveProperty("workspaces");
     expect(await read("allow")).toHaveProperty("workspaces");
     expect(asked).not.toContain("consent.ask");
@@ -918,7 +909,6 @@ describe("serving the sessions", () => {
 });
 
 describe("serving a chat and a terminal to read", () => {
-  /** The services, recording the UI requests other than the tabs' list. */
   function recording(answer: (op: string) => unknown = () => ({ text: "$ ls" })) {
     const asked: [string, unknown][] = [];
     const base = services();
@@ -956,7 +946,6 @@ describe("serving a chat and a terminal to read", () => {
     const peek = (params: object) => serveWith(() => s)({ from: "d", method: "chat.peek", params });
     expect(await peek({ workspaceId: "w1", tabId: "t1" })).toEqual(peeked);
     expect(await peek({ workspaceId: "w2", tabId: "t4", turns: 5 })).toEqual(peeked);
-    // One request of the window, and none that opens or reads the tab whole.
     expect(asked).toEqual([
       ["chat.peek", { workspaceId: "w1", tabId: "t1" }],
       ["chat.peek", { workspaceId: "w2", tabId: "t4", turns: 5 }],
@@ -972,7 +961,6 @@ describe("serving a chat and a terminal to read", () => {
         workspaceId: "w1",
         tabId: "t1",
         turns: 2,
-        // A device cannot point the read at a history of its choosing.
         threadId: "01a1c494-518d-7651-938d-00031c0ec9fb",
         sessionId: "0b0f8a52-2b8e-4a4f-9d3e-0c4f2f6f6a22",
         codexHome: "/etc",
@@ -1059,7 +1047,6 @@ describe("serving a chat and a terminal to read", () => {
       expect(asked).toEqual([]);
       await read("ask");
       await read("allow");
-      // Only the read itself: the user is asked nothing.
       expect(asked.map(([op]) => op)).toEqual(
         method === "chat.peek" ? ["chat.peek", "chat.peek"] : ["chat.page", "chat.page"],
       );
@@ -1099,7 +1086,6 @@ describe("serving a chat and a terminal to read", () => {
     expect(await read({ workspaceId: "w1", tabId: "t2" })).toEqual({ text: "$ ls" });
     await read({ workspaceId: "w1", tabId: "t2", lines: 50 });
     expect(asked.map(([, a]) => (a as { lines: number }).lines)).toEqual([1000, 50]);
-    // With its colors, when asked.
     await read({ workspaceId: "w1", tabId: "t2", ansi: true });
     expect(asked.at(-1)?.[1]).toMatchObject({ ansi: true });
   });
@@ -1248,7 +1234,6 @@ describe("serving how busy a workspace's host is", () => {
     });
     const request = { from: "d", method: "system.stats" as const };
     expect(await serve({ ...request, params: { workspaceId: "w1" } })).toEqual(stats);
-    // While the host cannot tell, it says so.
     await expect(serve({ ...request, params: { workspaceId: "w2" } })).rejects.toMatchObject({
       code: RpcErrorCode.Unavailable,
     });
@@ -1394,7 +1379,6 @@ describe("serving a workspace's notes", () => {
     const attach = (from: string) => serve({ from, method: "notes.attach", params: photo });
     for (let i = 0; i < MAX_PHOTOS_PER_MINUTE; i++) await attach("phone");
     await expect(attach("phone")).rejects.toMatchObject({ code: RpcErrorCode.Unavailable });
-    // Another device has its own share.
     await attach("tablet");
     now += 60_000;
     await attach("phone");
@@ -1508,7 +1492,6 @@ describe("serving a workspace's files found, and a commit", () => {
       code: 1003,
       message: expect.stringContaining("2 searches running"),
     });
-    // Another device's goes.
     const other = find("e");
     await Bun.sleep(0);
     for (const done of pending.splice(0)) done();
@@ -1705,7 +1688,6 @@ describe("serving one tool call", () => {
         if (op === "tabs.list") return base.ui("tabs.list", args);
         if (args.toolUseId === "nope") throw new Error("no tool call nope in that tab");
         asked.push(args.maxText ?? 0);
-        // A result of quotes, twice as long in JSON as it is.
         const text = '"'.repeat(Math.min(args.maxText ?? 0, 600_000));
         return {
           id: "tu1",
@@ -1937,7 +1919,6 @@ describe("rewinding, forking and more of a Claude chat", () => {
       signedOut: false,
     });
     expect(asked).toEqual([["chat.checkSignIn", codex]]);
-    // A Claude chat has no sign-in to check.
     await expect(serve({ from: "d", method: "chat.checkSignIn", params: tab })).rejects.toThrow();
   });
 
@@ -1972,7 +1953,6 @@ describe("rewinding, forking and more of a Claude chat", () => {
     expect(await serve({ from: "d", method: "chat.config", params: tab })).toEqual({ config });
     const set = { ...tab, set: { changes: { verbose: true } } };
     await serve({ from: "d", method: "chat.config", params: set });
-    // A Codex chat's defaults, the same way; a terminal has none.
     const codex = { workspaceId: "w2", tabId: "t4" };
     await serve({ from: "d", method: "chat.config", params: codex });
     await expect(
@@ -2056,7 +2036,6 @@ describe("when a message goes, and the ones held for after the turn", () => {
     await serve({ from: "d", method: "chat.send", params: { ...tab, text: "now", when: "now" } });
     await serve({ from: "d", method: "chat.send", params: { ...tab, text: "next" } });
     expect(asked).toEqual([
-      // Held, it says which device held it: dropped if control from there is turned off.
       ["chat.send", { ...tab, text: "hi", user: true, when: "after", device: "d" }],
       ["chat.send", { ...tab, text: "now", user: true, when: "now" }],
       ["chat.send", { ...tab, text: "next", user: true }],
@@ -2142,7 +2121,6 @@ describe("when a message goes, and the ones held for after the turn", () => {
     expect(await serve({ from: "d", method: "chat.hurry", params: tab })).toEqual({});
     expect(asked).toEqual([
       ["chat.unqueue", { ...tab, id: "q1" }],
-      // Changed there, it is that device's user's now.
       ["chat.editHeld", { ...tab, id: "q2", text: "b", device: "d" }],
       ["chat.withdraw", { ...tab, itemKey: "u3" }],
       ["chat.hurry", tab],
@@ -2317,7 +2295,6 @@ describe("serving a chat's slash commands", () => {
     ]);
     await expect(add("/")).rejects.toMatchObject({ code: 1002 });
     await expect(add("~")).rejects.toMatchObject({ code: 1002 });
-    // A relative one is from the chat's folder: here the workspace's, as chat.state tells none.
     const relative = commandServicesWith(withRoot);
     await add("sub", relative.serve);
     expect(relative.asked.at(-1)).toEqual([
@@ -2362,7 +2339,6 @@ describe("serving a chat's controls", () => {
 
   test("sends as the user, who may write while the chat asks", async () => {
     const { serve, asked } = recording();
-    // When it took it, for a chat.wait's `after`.
     expect(
       await serve({ from: "d", method: "chat.send", params: { ...tab, text: "go on" } }),
     ).toEqual({ at: 1000 });
@@ -2388,7 +2364,6 @@ describe("serving a chat's controls", () => {
       tabId: "bt",
     };
     const params = { ...tab, text: "run the tests", from };
-    // Not taken where no gate says agents may.
     await expect(
       serveWith(() => s)({ from: "d", method: "chat.send", params }),
     ).rejects.toMatchObject({ code: 1002 });
@@ -2396,7 +2371,6 @@ describe("serving a chat's controls", () => {
       agents: new AgentGate({ policy: () => "allow" }),
       deviceName: (id) => (id === "d" ? "MacBook" : undefined),
     });
-    // A delayed message keeps the sender and the host can drop it when control is disabled.
     await expect(
       serve({ from: "d", method: "chat.send", params: { ...params, when: "after" } }),
     ).resolves.toMatchObject({});
@@ -2410,7 +2384,6 @@ describe("serving a chat's controls", () => {
         from: { ...from, device: { id: "d", name: "MacBook" } },
       },
     ]);
-    // Its settings never as the user's: no mode that lets everything run.
     await serve({
       from: "d",
       method: "chat.configure",
@@ -2588,7 +2561,6 @@ describe("serving a chat's controls", () => {
         method: "chat.upload.chunk",
         params: { uploadId, offset, data: bytes.toString("base64") },
       });
-    // Another device's upload is none of its.
     await expect(chunk("other", 0, csv)).rejects.toMatchObject({ code: -32602 });
     await chunk("d", 0, csv.subarray(0, 3));
     await chunk("d", 3, csv.subarray(3));
@@ -2979,7 +2951,6 @@ describe("serving the sessions' changes", () => {
   });
 
   test("as many as go in a frame: the first after `since`, else the last", async () => {
-    // Long titles: 500 changes then take more than a frame.
     const many = Array.from({ length: 500 }, (_, i) => ({
       ...event(i + 1, "x".repeat(500)),
       title: "t".repeat(2000),
@@ -3175,7 +3146,6 @@ describe("chat.runRead", () => {
     await expect(read({ end: undefined }, true)).rejects.toMatchObject({
       code: RpcErrorCode.Unavailable,
     });
-    // One that ended, or that keeps none, has none.
     await expect(read({ end: 200 }, true)).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
     await expect(read({ end: undefined }, false)).rejects.toMatchObject({
       code: RpcErrorCode.NotFound,

@@ -1,6 +1,3 @@
-/**
- * parseArgs and parseDuration — the command line as a command reads it.
- */
 import { expect, test } from "bun:test";
 import { CliUsageError, parseArgs, parseDuration } from "../../../../src/main/features/cli/args";
 
@@ -33,12 +30,10 @@ test.each([
   [["--toString=spare"], "unknown flag --toString"],
   [["--enter=yes"], "--enter takes no value"],
   [["--lines", ""], '--lines takes a number, not ""'],
-  // PowerShell 5.1 drops `""`: the way to an empty value is told.
   [
     ["--workspace"],
     "--workspace needs a value (an empty one: --workspace=, which every shell passes)",
   ],
-  // ...so `--workspace '' --json` reaches us as `--workspace --json`.
   [
     ["--workspace", "--json"],
     "--workspace needs a value (an empty one: --workspace=, which every shell passes)",

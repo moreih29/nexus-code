@@ -19,7 +19,6 @@ interface ModelCatalog {
   forget(tabKey: string): void;
 }
 
-/** Model options told by this renderer's open Claude tabs, latest last. */
 export const useClaudeModelCatalog = create<ModelCatalog>((set) => ({
   sources: [],
   remember: (source) =>
@@ -38,7 +37,6 @@ export function borrowedClaudeModels(catalog: ModelCatalog, profileKey: string, 
     ?.models;
 }
 
-/** A profile's directory is resolved on the host where its program runs. */
 export function claudeModelCatalogKey(workspaceId: string, profileId: string | undefined): string {
   const location = useWorkspacesStore
     .getState()

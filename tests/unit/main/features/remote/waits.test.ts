@@ -1,4 +1,3 @@
-/** Waiting on a chat or a terminal for another device, a request at a time. */
 import { describe, expect, test } from "bun:test";
 import type { CliServices } from "../../../../../src/main/features/cli/context";
 import { waitOnChat, waitOnTerminalFor } from "../../../../../src/main/features/remote/waits";
@@ -12,7 +11,6 @@ interface Fake {
     message?: string;
   };
   claude?: { status: string; message?: string; turnStartedAt?: number } | null;
-  /** Changes the fake as time goes. */
   onSleep?: (now: number) => void;
 }
 

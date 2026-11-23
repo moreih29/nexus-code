@@ -1,29 +1,3 @@
-// src/renderer/state/stores/terminal.ts — Terminal user-settings store.
-//
-// Mirrors the pattern established by state/stores/theme.ts and
-// state/stores/density.ts.
-//
-// Persistence model:
-//   - appState (main process, via IPC) — authoritative store.
-//
-// Fields (all optional, undefined = token fallback):
-//   - fontSize:      token fallback = typeScale.codeUi.fontSize
-//   - cursorStyle:   token fallback = 'block'
-//   - fontFamily:    token fallback = fontFamily.monoDisplay
-//   - fontLigatures: token fallback = false
-//   - shell:         fallback = the system default shell (resolved in main)
-//   - customShells:  the shells the user added, besides the detected ones
-//   - taskAgent:     fallback = "claude"; what the agent list's [+] and a new task open with
-//
-// fontFamily/fontLigatures are INDEPENDENT of the editor font store — the
-// terminal owns its own typeface preferences.
-//
-// Mutation side-effects (per setter):
-//   1. Zustand state update.
-//   2. Fire-and-forget IPC write to appState.
-//   3. Dispatch CustomEvent 'nexus:terminal-settings-changed' on window so
-//      open TerminalController instances re-apply the new settings.
-
 import { create } from "zustand";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import { createLogger } from "../../../shared/log/renderer";
@@ -38,31 +12,18 @@ import { ipcCallResult } from "../../ipc/client";
 
 const log = createLogger("terminal");
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-// Font size: integer in [8, 32] — matches AppStateSchema.terminalFontSize.
 export type TerminalFontSize = number;
 export type TerminalCursorStyle = "block" | "underline" | "bar";
-
-// ---------------------------------------------------------------------------
-// State shape
-// ---------------------------------------------------------------------------
 
 interface TerminalSettingsState {
   fontSize: TerminalFontSize | undefined;
   cursorStyle: TerminalCursorStyle | undefined;
   fontFamily: string | undefined;
   fontLigatures: boolean | undefined;
-  /** The shell new local terminals open with; main reads it at each spawn. */
   shell: ShellChoice | undefined;
-  /** Shells the user added in Settings › Terminal; main reads them at each spawn. */
   customShells: CustomShell[];
-  /** What a new task opens with; see `resolvedTaskAgent`. */
   taskAgent: TaskAgent | undefined;
 
-  /** Hydrate from persisted appState — called once during bootstrap. */
   hydrate(values: {
     fontSize?: TerminalFontSize | undefined;
     cursorStyle?: TerminalCursorStyle | undefined;
@@ -71,74 +32,33 @@ interface TerminalSettingsState {
     shell?: ShellChoice | undefined;
     customShells?: CustomShell[] | undefined;
     taskAgent?: string | undefined;
-    /** The command earlier versions ran in a new task's terminal, carried over once. */
     taskAgentCommand?: string | undefined;
   }): void;
 
-  /**
-   * Take the shells another window saved (`appState.terminalShellsChanged`).
-   * Does not persist.
-   */
   hydrateShells(shells: { shell?: ShellChoice | undefined; customShells: CustomShell[] }): void;
 
-  /**
-   * Set the default shell. Persists to appState only: running terminals keep
-   * their shell, and main reads the setting when the next one spawns.
-   */
   setShell(value: ShellChoice | undefined): void;
 
-  /** Add a shell to the list, or replace the one with its id. Persists to appState. */
   saveCustomShell(shell: CustomShell): void;
 
-  /**
-   * Remove a shell from the list. When it was the default shell, the default
-   * goes back to the system default.
-   */
   removeCustomShell(id: string): void;
 
-  /**
-   * Set the terminal font size.
-   * Persists to appState (authoritative store) + dispatches
-   * 'nexus:terminal-settings-changed' so open terminals re-apply.
-   */
   setFontSize(value: TerminalFontSize | undefined): void;
 
-  /**
-   * Set the terminal cursor style.
-   * Persists to appState (authoritative store) + dispatches
-   * 'nexus:terminal-settings-changed' so open terminals re-apply.
-   */
   setCursorStyle(value: TerminalCursorStyle | undefined): void;
 
-  /**
-   * Set the terminal font family (independent of the editor font).
-   * Persists to appState + dispatches 'nexus:terminal-settings-changed'.
-   */
   setFontFamily(value: string | undefined): void;
 
-  /**
-   * Toggle terminal font ligatures (independent of the editor font).
-   * Persists to appState + dispatches 'nexus:terminal-settings-changed'.
-   */
   setFontLigatures(value: boolean | undefined): void;
 
-  /** Set what a new task opens with. Persists to appState. */
   setTaskAgent(value: TaskAgent | undefined): void;
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function dispatchSettingsChanged(): void {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("nexus:terminal-settings-changed"));
   }
 }
-
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
 
 export const useTerminalStore = create<TerminalSettingsState>((set, get) => {
   const setCustomShells = (list: CustomShell[]) => {
@@ -172,7 +92,6 @@ export const useTerminalStore = create<TerminalSettingsState>((set, get) => {
     }) {
       let agent = asTaskAgent(taskAgent);
       if (taskAgent === undefined && taskAgentCommand !== undefined) {
-        // The command an earlier version ran becomes the agent it was.
         const carried = taskAgentOfCommand(taskAgentCommand);
         agent = carried === DEFAULT_TASK_AGENT ? undefined : carried;
         void ipcCallResult("appState", "set", {
@@ -282,30 +201,18 @@ export const useTerminalStore = create<TerminalSettingsState>((set, get) => {
   };
 });
 
-// ---------------------------------------------------------------------------
-// Resolved accessors (with token fallback)
-// ---------------------------------------------------------------------------
-
-/** The size a terminal draws with until the user picks one, and the one Settings shows. */
 export const DEFAULT_TERMINAL_FONT_SIZE: number = typeScale.codeUi.fontSize;
 
-/** Resolve the effective font size: store value or token fallback. */
 export function resolvedTerminalFontSize(): number {
   const { fontSize } = useTerminalStore.getState();
   return fontSize ?? DEFAULT_TERMINAL_FONT_SIZE;
 }
 
-/** Resolve the effective cursor style: store value or fallback 'block'. */
 export function resolvedTerminalCursorStyle(): TerminalCursorStyle {
   const { cursorStyle } = useTerminalStore.getState();
   return cursorStyle ?? "block";
 }
 
-/**
- * Resolve the effective font family. User override (if set) is prepended to
- * the mono fallback chain so an unavailable custom face degrades gracefully;
- * undefined falls back to the design token's mono stack.
- */
 export function resolvedTerminalFontFamily(): string {
   const { fontFamily: family } = useTerminalStore.getState();
   if (family && family.trim() !== "") {
@@ -314,12 +221,10 @@ export function resolvedTerminalFontFamily(): string {
   return fontFamily.monoDisplay;
 }
 
-/** Resolve what a new task opens with: the setting, else Claude. */
 export function resolvedTaskAgent(): TaskAgent {
   return useTerminalStore.getState().taskAgent ?? DEFAULT_TASK_AGENT;
 }
 
-/** Resolve the effective ligatures toggle: store value or fallback false. */
 export function resolvedTerminalFontLigatures(): boolean {
   const { fontLigatures } = useTerminalStore.getState();
   return fontLigatures ?? false;

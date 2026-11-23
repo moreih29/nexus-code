@@ -1,15 +1,4 @@
-/**
- * Unit tests for the Enter-to-rename keybinding.
- *
- * Coverage:
- *   - dispatcher: Enter rename fires only on macOS.
- */
-
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Renderer-side IPC dependency shim — installed before the store import
-// ---------------------------------------------------------------------------
 
 (globalThis as Record<string, unknown>).window = {
   ipc: {
@@ -25,10 +14,6 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
   canUseIpcBridge: () => false,
 }));
 
-// ---------------------------------------------------------------------------
-// Imports (after the shim is installed)
-// ---------------------------------------------------------------------------
-
 import {
   __resetCommandsForTests,
   registerCommand,
@@ -39,10 +24,6 @@ import {
 } from "../../../../src/renderer/keybindings/dispatcher";
 import { setPlatformForTests } from "../../../../src/renderer/utils/platform";
 import { COMMANDS } from "../../../../src/shared/keybindings/commands";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function makeEvent(
   key: string,
@@ -73,7 +54,6 @@ function makeEvent(
   } as unknown as KeyboardEvent;
 }
 
-/** Simulates a DOM element inside [role="tree"] — fileTreeFocus = true */
 function treeTarget(): HTMLElement {
   return {
     tagName: "DIV",
@@ -81,10 +61,6 @@ function treeTarget(): HTMLElement {
     closest: (sel: string) => (sel === '[role="tree"]' ? ({} as HTMLElement) : null),
   } as unknown as HTMLElement;
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 beforeEach(() => {
   __resetCommandsForTests();
@@ -96,7 +72,6 @@ afterEach(() => {
   __resetChordStateForTests();
 });
 
-// 5. dispatcher: Enter rename is macOS only (F2 works on all platforms)
 describe("dispatcher — Enter rename is macOS-only", () => {
   afterEach(() => setPlatformForTests(null));
 

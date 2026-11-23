@@ -1,15 +1,3 @@
-// ports-segment.tsx — the status bar's listening ports item.
-//
-// Shows the TCP ports the programs started in this workspace's terminals
-// listen on — a dev server's — as ":5174 :8787". Clicking it opens a menu
-// with each port's program and terminal, and the actions on it: open it in
-// a browser tab, copy its URL. An SSH workspace's ports are on its host:
-// opening or copying one forwards it to this machine, the menu shows where
-// each forward listens here, and a forward can be started and stopped by
-// hand. Ports forwarded but no longer listed stay in the menu until
-// stopped. Renders nothing while no program listens and nothing is
-// forwarded.
-
 import { Globe } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -32,7 +20,6 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { copyText } from "../../utils/clipboard";
 import { Popover } from "../ui/popover";
 
-/** How many ports the segment lists before "+N". */
 const SHOWN_PORTS = 3;
 
 export function PortsSegment({ workspaceId }: { workspaceId: string }): React.JSX.Element | null {
@@ -41,7 +28,6 @@ export function PortsSegment({ workspaceId }: { workspaceId: string }): React.JS
   return <PortsSegmentView workspaceId={workspaceId} ports={ports} forwards={forwards} />;
 }
 
-/** A row of the menu: a listening port, a forwarded one, or both. */
 interface PortRow {
   port: number;
   listening?: ListeningPort;

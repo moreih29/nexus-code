@@ -15,7 +15,6 @@ const (
 	tailParent = "01a1c494-518d-7651-938d-00031c0ec9fa"
 )
 
-// writeRollout writes a thread's rollout where Codex keeps it.
 func writeRollout(t *testing.T, home, id string, lines ...string) string {
 	t.Helper()
 	path := filepath.Join(home, "sessions", "2026", "11", "10", "rollout-2026-11-10T17-30-17-"+id+".jsonl")
@@ -33,7 +32,6 @@ func rolloutTailOf(t *testing.T, params RolloutTailParams) RolloutTailResult {
 	return result.(RolloutTailResult)
 }
 
-// told is the events as a line each, to compare.
 func told(events []RolloutEvent) []string {
 	out := make([]string, 0, len(events))
 	for _, e := range events {
@@ -60,7 +58,6 @@ func sameLines(t *testing.T, got, want []string) {
 
 const tailMeta = `{"type":"session_meta","payload":{"id":"` + tailThread + `"}}`
 
-// What Codex before 0.16x wrote: an event for each message and tool call.
 func oldTurn(n int) []string {
 	return []string{
 		fmt.Sprintf(`{"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-%d"}}`, n),
@@ -103,12 +100,10 @@ func TestRolloutTailReadsTheLastTurnsOfAnOlderCodex(t *testing.T) {
 	}
 	sameLines(t, told(got.Events), append(oldTurnTold(3), oldTurnTold(4)...))
 
-	// All of it, and no more before it.
 	all := rolloutTailOf(t, RolloutTailParams{ThreadID: tailThread, CodexHome: home, Turns: 4})
 	if all.More || len(all.Events) != 4*len(oldTurnTold(1)) {
 		t.Fatalf("more %v, %d events", all.More, len(all.Events))
 	}
-	// Three turns when none are asked for.
 	if def := rolloutTailOf(t, RolloutTailParams{ThreadID: tailThread, CodexHome: home}); !def.More || len(def.Events) != 3*len(oldTurnTold(1)) {
 		t.Fatalf("default: more %v, %d events", def.More, len(def.Events))
 	}
@@ -141,7 +136,6 @@ func TestRolloutTailReadsItemsOfANewerCodex(t *testing.T) {
 	sameLines(t, told(got.Events), []string{
 		"turn t1",
 		"user t1 첫 줄\n둘째 줄 m1 images=1",
-		// Of what the agent wrote in the turn, only its last words are sent.
 		"tool t1 commandExecution",
 		"tool t1 fileChange delete",
 		"tool t1 webSearch",
@@ -156,7 +150,6 @@ func TestRolloutTailFollowsAForkIntoTheThreadItCameFrom(t *testing.T) {
 	parent := append([]string{`{"type":"session_meta","payload":{"id":"` + tailParent + `"}}`}, oldTurn(1)...)
 	parent = append(parent, oldTurn(2)...)
 	forkedAt := int64(len(strings.Join(parent, "\n")) + 1)
-	// What the parent went on to after the fork is not the fork's.
 	writeRollout(t, home, tailParent, append(parent, oldTurn(9)...)...)
 	meta := fmt.Sprintf(`{"type":"session_meta","payload":{"id":"%s","forked_from_id":"%s","history_base":{"end_byte_offset":%d}}}`, tailThread, tailParent, forkedAt)
 	writeRollout(t, home, tailThread, append([]string{meta}, oldTurn(3)...)...)
@@ -167,14 +160,12 @@ func TestRolloutTailFollowsAForkIntoTheThreadItCameFrom(t *testing.T) {
 	}
 	sameLines(t, told(got.Events), append(oldTurnTold(2), oldTurnTold(3)...))
 
-	// The fork's own turn alone: what the parent holds is more.
 	one := rolloutTailOf(t, RolloutTailParams{ThreadID: tailThread, CodexHome: home, Turns: 1})
 	if !one.More {
 		t.Fatal("a fork's history was not told as more")
 	}
 	sameLines(t, told(one.Events), oldTurnTold(3))
 
-	// All three, and nothing before them.
 	all := rolloutTailOf(t, RolloutTailParams{ThreadID: tailThread, CodexHome: home, Turns: 5})
 	if all.More {
 		t.Fatal("more than the thread holds")
@@ -215,7 +206,7 @@ func TestRolloutTailReadsAStagedCopy(t *testing.T) {
 
 func TestRolloutTailCutsALongMessageInsideNoCharacter(t *testing.T) {
 	home := t.TempDir()
-	long := strings.Repeat("가", rolloutTailText) // three bytes each
+	long := strings.Repeat("가", rolloutTailText)
 	body, _ := json.Marshal(long)
 	writeRollout(t, home, tailThread,
 		tailMeta,
@@ -232,7 +223,6 @@ func TestRolloutTailCutsALongMessageInsideNoCharacter(t *testing.T) {
 	}
 }
 
-// A turn whose output is past what is read is cut, and told as more.
 func TestRolloutTailStopsAtItsScanBudget(t *testing.T) {
 	home := t.TempDir()
 	huge := `{"type":"response_item","payload":{"type":"function_call_output","output":"` + strings.Repeat("x", rolloutTailScanBytes) + `"}}`
@@ -247,11 +237,8 @@ func TestRolloutTailStopsAtItsScanBudget(t *testing.T) {
 	sameLines(t, told(got.Events), oldTurnTold(2))
 }
 
-// A long turn's words, all but the last, are not sent: the answer stays
-// small whatever the turn wrote.
 func TestRolloutTailSendsOnlyATurnsLastWords(t *testing.T) {
 	home := t.TempDir()
-	// Characters Go escapes in JSON, six bytes for each: near 6 MiB of words in all.
 	body, _ := json.Marshal(strings.Repeat("<", rolloutTailText))
 	lines := []string{tailMeta}
 	for turn := 1; turn <= 3; turn++ {
@@ -279,14 +266,11 @@ func TestRolloutTailSendsOnlyATurnsLastWords(t *testing.T) {
 			tools++
 		}
 	}
-	// The last words that are words, and every call still counted.
 	if strings.Join(agents, ",") != "done 1,done 2,done 3" || tools != 120 || got.More {
 		t.Fatalf("agents %v, %d tools, more %v", agents, tools, got.More)
 	}
 }
 
-// An answer over its bound loses its oldest turns, then the oldest events
-// of the turn left, and tells there is more.
 func TestRolloutTailAnswerIsBounded(t *testing.T) {
 	home := t.TempDir()
 	body, _ := json.Marshal(strings.Repeat("<", rolloutTailText))
@@ -301,7 +285,6 @@ func TestRolloutTailAnswerIsBounded(t *testing.T) {
 	if len(encoded) > rolloutTailBytes+1024 {
 		t.Fatalf("the answer takes %d bytes", len(encoded))
 	}
-	// Ten turns of two escaped 8 KiB texts are near 1 MiB: whole turns went.
 	if !got.More || len(got.Events) == 0 || len(got.Events)%2 != 0 || got.Events[0].Kind != "user" {
 		t.Fatalf("more %v, %d events, first %q", got.More, len(got.Events), got.Events[0].Kind)
 	}
@@ -309,7 +292,6 @@ func TestRolloutTailAnswerIsBounded(t *testing.T) {
 		t.Fatal("no turn was left out")
 	}
 
-	// One turn too long by itself keeps its newest events.
 	events := []RolloutEvent{{Kind: "user", Text: "q"}}
 	for i := 0; i < 100; i++ {
 		events = append(events, RolloutEvent{Kind: "tool", Tool: "commandExecution", Name: fmt.Sprint(i)})

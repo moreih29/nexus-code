@@ -1,7 +1,3 @@
-/**
- * TagPicker hosts the tag quick-pick plus create and delete dialogs.
- */
-
 import i18next from "i18next";
 import { AlertDialog as RadixAlertDialog } from "radix-ui";
 import { useMemo, useState } from "react";
@@ -47,9 +43,6 @@ export type DeleteTagRequest =
       remote: string;
     };
 
-/**
- * Builds the create-tag FormDialog field model.
- */
 export function buildCreateTagFields(): FormDialogField[] {
   const t = i18next.t.bind(i18next);
   return [
@@ -188,9 +181,6 @@ export function TagPicker({
   );
 }
 
-/**
- * Renders the target-ref row shown above the create-tag fields.
- */
 export function CreateTagRefSelector({
   refName,
   busy = false,
@@ -218,9 +208,6 @@ export function CreateTagRefSelector({
   );
 }
 
-/**
- * Dialog for a single local or remote tag deletion target.
- */
 function TagDeleteConfirmDialog({
   request,
   busy = false,
@@ -260,9 +247,6 @@ function TagDeleteConfirmDialog({
   );
 }
 
-/**
- * Pure delete confirmation content exported for server-rendered scenario tests.
- */
 export function TagDeleteConfirmContent({
   request,
   busy = false,
@@ -320,9 +304,6 @@ export function TagDeleteConfirmContent({
   );
 }
 
-/**
- * Converts a source-level target into dialog state.
- */
 function deleteRequestFromTarget(
   item: Extract<TagPickItem, { kind: "tag" }>,
   target: TagDeleteTarget,
@@ -340,9 +321,6 @@ interface ConfirmTagDeleteDeps {
   onDeleted: () => void;
 }
 
-/**
- * Runs exactly one tag deletion API for the selected dialog target.
- */
 export async function confirmTagDeleteRequest(
   request: DeleteTagRequest,
   deps: ConfirmTagDeleteDeps,

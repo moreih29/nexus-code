@@ -1,8 +1,3 @@
-/**
- * The app settings nexus settings reads and changes: each as the Settings
- * dialog shows and changes it, through the same store, which saves it.
- */
-
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { useAgentCliStore } from "@/state/stores/agent-cli";
 import { saveInstructionEdits, useAgentInstructionsStore } from "@/state/stores/agent-instructions";
@@ -60,30 +55,22 @@ import { loadShellMenu, shellNamed } from "../terminal/installed-shells";
 import { addTerms, splitTerms } from "../voice/terms";
 import { type CliUiHandler, UiRequestError } from "./handler";
 
-/** What a setting is now, and whether that is other than its default. */
 export interface CliSettingNow {
   value: CliSettingValue;
   changed: boolean;
-  /** Its choices now, for one whose choices are looked up (the shells). */
   choices?: readonly string[];
-  /** Why it could not be read, for one kept elsewhere (the account's). */
   unavailable?: string;
 }
 
 export interface CliSetting extends CliSettingShape {
   readonly key: string;
   readonly summary: string;
-  /** What it is now; looked up, for one that is not in a store. */
   get(): CliSettingNow | Promise<CliSettingNow>;
-  /** Changes it to a value parsed for its shape; absent for one only the user changes. */
   set?(value: CliSettingValue): void | Promise<void>;
-  /** Gives it back its default; absent for one that has none to go back to. */
   reset?(): void | Promise<void>;
-  /** Reads what is typed for it in place of parseSettingValue, for one whose values are looked up. */
   parse?(input: string): Promise<{ value: CliSettingValue } | { error: string }>;
 }
 
-/** Settings whose store the dialog's panel, not the store, saves. */
 function save(patch: Partial<AppState>): void {
   void ipcCallResult("appState", "set", patch);
 }
@@ -110,7 +97,6 @@ function limitResumeNumber(
 }
 
 const FONT_SIZE = { min: 8, max: 32 } as const;
-/** As the app keeps a font family: CSS cannot be slipped into it. */
 const FONT_FAMILY = {
   maxLength: 120,
   pattern: {
@@ -123,36 +109,29 @@ const TERMINAL_FONT_SIZE = 14;
 const LINE_HEIGHTS = ["1.0", "1.2", "1.4"] as const;
 const EDITOR_LINE_HEIGHT = 1.4;
 
-/** A font family typed: "" for the system's. */
 function family(value: CliSettingValue): string | undefined {
   const text = String(value).trim();
   return text === "" ? undefined : text;
 }
 
-/** What a format with a preview opens in: the dialog's Raw and Preview, as nexus open's flags say them. */
 const OPEN_IN = ["source", "preview"] as const;
 
-/** What terminal.shell is when no shell is set: the system's. */
 const SYSTEM_SHELL = "system";
 
-/** The shell a name picks: undefined for the system's, null for none. */
 async function shellNamedNow(name: string): Promise<ShellChoice | undefined | null> {
   if (name.trim().toLowerCase() === SYSTEM_SHELL) return undefined;
   const { entries } = await loadShellMenu();
   return shellNamed(entries, name)?.choice ?? null;
 }
 
-/** How long a list waits on the account's recognition terms, from the server. */
 const VOICE_TERMS_MS = 5_000;
 
-/** Why the account's terms could not be read or saved, as nexus says it. */
 function voiceTermsFailure(kind: string | undefined): string {
   return kind === "session-expired"
     ? "not signed in to NexusCode (Settings › Remote)"
     : "the NexusCode server did not answer";
 }
 
-/** The account's recognition terms, or why they could not be read. */
 async function voiceTerms(): Promise<{ terms: string[] } | { unavailable: string }> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<{ unavailable: string }>((resolve) => {
@@ -169,7 +148,6 @@ async function voiceTerms(): Promise<{ terms: string[] } | { unavailable: string
   return Promise.race([asked, late]).finally(() => clearTimeout(timer));
 }
 
-/** Replaces the account's recognition terms, as the settings' field and chips do. */
 async function saveVoiceTerms(terms: string[]): Promise<void> {
   const result = await ipcCallResult("remote", "setVoiceTerms", { terms });
   if (!result.ok) throw new UiRequestError(`voice.terms: ${voiceTermsFailure(result.kind)}`);
@@ -213,7 +191,6 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
     key: "appearance.windowOpacity",
     summary: "How opaque the window is; some systems apply it on restart",
     type: "number",
-    // Not down to 0, as the dialog goes: a window that cannot be seen cannot be set back.
     min: 0.2,
     max: 1,
     get: () => {
@@ -611,7 +588,6 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
     set: (value) => saveVoiceTerms(splitTerms(String(value))),
     reset: () => saveVoiceTerms([]),
   },
-  // What nexus may do is the user's to say: these two are not changed from it.
   {
     key: "agentCli.crossWorkspace",
     summary: "Whether nexus may change other workspaces than its terminal's: ask, allow or deny",
@@ -633,7 +609,6 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
   },
 ];
 
-/** A setting as main gets it. */
 export async function settingInfo(setting: CliSetting): Promise<CliSettingInfo> {
   const { value, changed, choices = setting.choices, unavailable } = await setting.get();
   return {

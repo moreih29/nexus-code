@@ -31,5 +31,4 @@ func readMemory() (uint64, uint64, error) {
 	return used, total, nil
 }
 
-// directCPU: Linux's share is read over a span, from /proc/stat.
 func directCPU() (*float64, bool) { return nil, false }

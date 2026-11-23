@@ -1,13 +1,3 @@
-// Save transaction orchestrator.
-//
-// Composes:
-//   - SaveSequentializer (per-file in-flight gate, supersession)
-//   - dirty-tracker     (alt versionId baseline + loaded mtime/size)
-//   - model-cache       (read-only model view)
-//   - fs.writeFile IPC  (atomic write with mtime/size guard)
-//
-// Public functions: saveModel(input), installEditorSaveAction(editor, input).
-
 import i18next from "i18next";
 import type * as Monaco from "monaco-editor";
 import { showConflictResolution } from "../../../components/editor/conflict-dialog";
@@ -39,7 +29,6 @@ import { promoteAllPreviewTabsForFile } from "../tabs/promote-policy";
 import type { EditorInput } from "../types";
 import { SaveSequentializer, SaveSupersededError } from "./sequentializer";
 
-/** Registers the Monaco palette action in the editor's current UI language. */
 export function installEditorSaveAction(
   editor: Monaco.editor.IStandaloneCodeEditor,
   input: EditorInput,
@@ -48,7 +37,6 @@ export function installEditorSaveAction(
     editor.addAction({
       id: "nexus.file.save",
       label: i18next.t("settings:keybindings.command.file.save"),
-      // The global keybinding dispatcher owns the save shortcut.
       run: () => runSaveAndReport(input),
     });
   let action: Monaco.IDisposable | undefined = register();
@@ -73,7 +61,6 @@ export function installEditorSaveAction(
 }
 
 export interface SaveOptions {
-  /** Write the file in this encoding, even with no edits, and keep it in it. */
   encoding?: TextEncoding;
 }
 
@@ -86,16 +73,6 @@ export type SaveResult =
   | { kind: "superseded" }
   | { kind: "error"; message: string };
 
-/**
- * Surfaces save outcomes the user must act on. `saveModel` signals failure by
- * *resolving* with a non-"saved" SaveResult (it never rejects), so every
- * callsite that fires a save must route the result here — otherwise the
- * failure vanishes with no toast and no log. Normal outcomes (saved,
- * not-dirty, superseded, no-model) are intentionally silent; read-only
- * already toasts inside saveModel. A conflict reaches here only from
- * saveModelInteractive after the user cancelled the conflict dialog, which
- * already told them the file changed on disk, so it is silent too.
- */
 export function reportSaveFailure(result: SaveResult): void {
   if (result.kind === "error") {
     showToast({
@@ -105,23 +82,6 @@ export function reportSaveFailure(result: SaveResult): void {
   }
 }
 
-/**
- * Interactive save entry point. Calls `saveModel` and, on conflict, shows the
- * conflict-resolution dialog to the user:
- *
- * - **overwrite**: syncs the dirty-tracker's loaded metadata to the actual
- *   disk state (`conflict.actual`) so the stale-write guard will pass, then
- *   retries `saveModel`. On disk-deleted (`exists: false`) the loaded mtime is
- *   cleared to `""` which causes `saveModel` to build `{exists:false}` as the
- *   expected value — matching the writeFile IPC guard.
- * - **reload**: replaces the buffer with the on-disk content via
- *   `reloadModelFromDisk`, discarding edits present at approval. Returns
- *   `{kind:"not-dirty"}` only when the disk version was applied.
- * - **cancel**: returns the original conflict result unchanged so callers can
- *   decide whether to keep the tab open.
- *
- * Errors and other non-conflict outcomes are returned directly.
- */
 export async function saveModelInteractive(
   input: EditorInput,
   options: SaveOptions = {},
@@ -148,15 +108,11 @@ export async function saveModelInteractive(
     return failure ?? { kind: applied ? "not-dirty" : "superseded" };
   }
 
-  // choice === "overwrite": sync dirty-tracker metadata to the actual disk
-  // state so the next saveModel's stale-write guard passes.
   const cacheUri = resolved?.cacheUri ?? "";
   const actual = result.actual;
   if (actual.exists) {
     updateLoadedMetadata(cacheUri, actual.mtime, actual.size);
   } else {
-    // Disk file was deleted — setting mtime to "" causes saveModel to build
-    // { exists: false } as the expected value, matching the guard.
     updateLoadedMetadata(cacheUri, "", 0);
   }
 
@@ -167,12 +123,6 @@ export async function saveModelInteractive(
   return retryResult;
 }
 
-/**
- * Safe entry point for fire-and-forget save gestures (Cmd+S, the Save
- * command). Routes every outcome to the user via the interactive conflict
- * dialog (on conflict) or a toast (on error). An unexpected promise rejection
- * is surfaced rather than swallowed.
- */
 export function runSaveAndReport(input: EditorInput): void {
   saveModelInteractive(input).then(reportSaveFailure, (error: unknown) => {
     showToast({
@@ -184,17 +134,6 @@ export function runSaveAndReport(input: EditorInput): void {
 
 const sequentializer = new SaveSequentializer();
 
-/**
- * Persist the buffer for `input` to disk. Safe to invoke concurrently:
- * a second call for the same file while the first is in-flight will
- * abort the first (which keeps writing in the background but its result
- * is discarded) and run with the latest content. The earlier caller
- * receives `{ kind: 'superseded' }`.
- *
- * The buffer is written in the encoding the file was read in, or in
- * `options.encoding`, which the file is in from then on: Save with
- * Encoding, which writes the file even when it has no edits.
- */
 export async function saveModel(
   input: EditorInput,
   options: SaveOptions = {},
@@ -202,17 +141,11 @@ export async function saveModel(
   const initial = getResolvedModel(input);
   if (!initial) return { kind: "no-model" };
 
-  // Read-only guard — must short-circuit before any dirty-tracker access.
   if (initial.readOnly) {
     showToast({ kind: "info", message: i18next.t("errors:save.read_only") });
     return { kind: "read-only" };
   }
 
-  // VSCode parity: an explicit save promotes the editor regardless of
-  // dirty state. editorService.save() pinEditor's the editor on
-  // SaveReason.EXPLICIT before invoking the model's save. saveModel is
-  // only called from explicit user gestures (Cmd+S, close-confirm), so
-  // every entry counts as EXPLICIT.
   promoteAllPreviewTabsForFile(initial.workspaceId, initial.filePath);
 
   const dirtyEntry = getDirtyEntry(initial.cacheUri);
@@ -223,20 +156,13 @@ export async function saveModel(
 
   try {
     return await sequentializer.run(initial.cacheUri, async () => {
-      // A preceding queued write may have changed the model's encoding.
       const resolved = getResolvedModel(input);
       if (!resolved) return { kind: "no-model" } satisfies SaveResult;
-      // Re-read the entry inside the gate — by the time we got here the
-      // user could have undone back to the saved baseline (dirty=false).
       const dirtyEntryNow = getDirtyEntry(resolved.cacheUri);
       if (!dirtyEntryNow || (!dirtyEntryNow.isDirty && !force)) {
         return { kind: "not-dirty" } satisfies SaveResult;
       }
 
-      // Snapshot the alt id at the moment we capture content. If the
-      // user keeps typing during the IPC roundtrip, this captured value
-      // is what we'll mark as "saved" — markSaved then re-evaluates
-      // dirty against the current alt id.
       const capturedAltId = resolved.model.getAlternativeVersionId();
       const content = resolved.model.getValue();
       const encoding = options.encoding ?? resolved.encoding;
@@ -264,7 +190,6 @@ export async function saveModel(
       );
 
       if (ipcResult.kind === "conflict") {
-        // No mutation to dirty/baseline — caller will reload or force.
         return { kind: "conflict", actual: ipcResult.actual } satisfies SaveResult;
       }
 
@@ -276,11 +201,6 @@ export async function saveModel(
         loadedSize: ipcResult.size,
       });
 
-      // A successful save re-syncs the buffer with disk — advance the
-      // loaded-value baseline to what we just wrote, and drop any prior
-      // disk-diverged marker. Without the baseline sync, the next fs/git
-      // event would make reconcileExternalChange flag this own-write as an
-      // external divergence.
       syncLoadedValueAfterSave(input, content);
       clearDiskDiverged(input);
       if (options.encoding !== undefined) {
@@ -300,11 +220,6 @@ export async function saveModel(
   }
 }
 
-/**
- * What fs.writeFile is sent for `content` in `encoding`: UTF-8 as text, with
- * the byte-order mark the agent stripped on read for "utf8-bom"; any other
- * encoding as its bytes. Fails for a character the encoding has no bytes for.
- */
 function contentToWrite(
   content: string,
   encoding: TextEncoding,

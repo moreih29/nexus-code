@@ -1,15 +1,3 @@
-/**
- * Tests for the workspace-removal teardown sequence introduced in T2.
- *
- * Core invariant: when a workspace is removed, `AgentPtyHostHandle.closeWorkspaceSessions`
- * must emit pty.exit for every active session *before* the workspace context is
- * deleted, so the renderer receives a well-ordered "session dead → workspace
- * removed" stream rather than discovering the death via a failed IPC round-trip.
- *
- * Secondary invariant: write/resize/ack/kill called on a workspace whose
- * channel is no longer available (post-removal renderer IPC) must silently
- * no-op rather than propagating a "workspace not found" throw.
- */
 import { describe, expect, test } from "bun:test";
 import type { AgentPtyWorkspaceManager } from "../../../../../src/main/features/pty/agent-host";
 import { startAgentPtyHost } from "../../../../../src/main/features/pty/agent-host";
@@ -22,10 +10,6 @@ import type {
 const WORKSPACE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const TAB_A = "11111111-1111-4111-8111-111111111111";
 const TAB_B = "22222222-2222-4222-8222-222222222222";
-
-// ---------------------------------------------------------------------------
-// Minimal fake channel
-// ---------------------------------------------------------------------------
 
 class FakeAgentChannel implements AgentChannel {
   readonly ready = Promise.resolve();
@@ -45,10 +29,6 @@ class FakeAgentChannel implements AgentChannel {
   dispose(): void {}
 }
 
-/**
- * Builds a workspace manager stub that returns `channel` for the given
- * `workspaceId` and `null` (missing) for any other id.
- */
 function makeWorkspaceManager(
   workspaceId: string,
   channel: AgentChannel,
@@ -64,10 +44,6 @@ function makeWorkspaceManager(
   };
 }
 
-// ---------------------------------------------------------------------------
-// closeWorkspaceSessions
-// ---------------------------------------------------------------------------
-
 describe("AgentPtyHostHandle.closeWorkspaceSessions", () => {
   test("emits pty.exit for every active session of the removed workspace", async () => {
     const channel = new FakeAgentChannel();
@@ -77,7 +53,6 @@ describe("AgentPtyHostHandle.closeWorkspaceSessions", () => {
     const exits: Array<unknown> = [];
     host.on("exit", (args) => exits.push(args));
 
-    // Spawn two sessions.
     await host.call("spawn", {
       workspaceId: WORKSPACE_ID,
       tabId: TAB_A,
@@ -93,7 +68,6 @@ describe("AgentPtyHostHandle.closeWorkspaceSessions", () => {
       rows: 24,
     });
 
-    // Simulate WorkspaceManager.remove() calling closeWorkspaceSessions first.
     host.closeWorkspaceSessions(WORKSPACE_ID);
 
     expect(exits).toHaveLength(2);
@@ -118,15 +92,11 @@ describe("AgentPtyHostHandle.closeWorkspaceSessions", () => {
     });
 
     host.closeWorkspaceSessions(WORKSPACE_ID);
-    host.closeWorkspaceSessions(WORKSPACE_ID); // second call must be a no-op
+    host.closeWorkspaceSessions(WORKSPACE_ID);
 
-    expect(exits).toHaveLength(1); // only one exit emitted
+    expect(exits).toHaveLength(1);
   });
 });
-
-// ---------------------------------------------------------------------------
-// write/resize/ack/kill no-op when workspace is gone
-// ---------------------------------------------------------------------------
 
 describe("AgentPtyHostHandle.call — no-op for removed workspace", () => {
   test("write returns undefined and emits no channel call when workspace is gone", async () => {
@@ -134,7 +104,6 @@ describe("AgentPtyHostHandle.call — no-op for removed workspace", () => {
     const manager = makeWorkspaceManager("other-workspace", channel);
     const host = startAgentPtyHost(manager);
 
-    // WORKSPACE_ID is unknown to this manager — tryGetAgentChannel returns null.
     const result = await host.call("write", { workspaceId: WORKSPACE_ID, tabId: TAB_A, data: "x" });
 
     expect(result).toBeUndefined();
@@ -146,27 +115,14 @@ describe("AgentPtyHostHandle.call — no-op for removed workspace", () => {
     const manager = makeWorkspaceManager("other-workspace", channel);
     const host = startAgentPtyHost(manager);
 
-    // spawn uses getAgentChannel (not tryGetAgentChannel) and must propagate
-    // the "workspace not found" error so callers know the spawn failed.
     await expect(
       host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 }),
     ).rejects.toThrow("workspace not found");
   });
 });
 
-// ---------------------------------------------------------------------------
-// Teardown ordering: closeWorkspaceSessions before context deletion
-// ---------------------------------------------------------------------------
-
 describe("workspace removal ordering", () => {
   test("closeWorkspaceSessions called before the manager removes the context means post-removal kill is a no-op", async () => {
-    // Simulate the WorkspaceManager.remove() sequence:
-    //   1. ptySessionCloser(id)          ← closeWorkspaceSessions
-    //   2. contexts.delete(id)           ← channel is now unavailable
-    //   3. broadcast workspace:removed   ← renderer sends pty.kill
-    //
-    // After step 2, the manager treats the workspace as gone.
-    // The pty.kill IPC that arrives from the renderer in step 3 must not throw.
     const channel = new FakeAgentChannel();
     let workspaceAvailable = true;
 
@@ -184,7 +140,6 @@ describe("workspace removal ordering", () => {
     const exits: Array<unknown> = [];
     host.on("exit", (args) => exits.push(args));
 
-    // Step 0 — session is live.
     await host.call("spawn", {
       workspaceId: WORKSPACE_ID,
       tabId: TAB_A,
@@ -193,18 +148,14 @@ describe("workspace removal ordering", () => {
       rows: 24,
     });
 
-    // Step 1 — WorkspaceManager calls closeWorkspaceSessions before deletion.
     host.closeWorkspaceSessions(WORKSPACE_ID);
-    expect(exits).toHaveLength(1); // exit already emitted
+    expect(exits).toHaveLength(1);
 
-    // Step 2 — Manager deletes the context.
     workspaceAvailable = false;
 
-    // Step 3 — Renderer sends pty.kill (fire-and-forget); must not throw.
     const killResult = await host.call("kill", { workspaceId: WORKSPACE_ID, tabId: TAB_A });
-    expect(killResult).toBeUndefined(); // no-op
+    expect(killResult).toBeUndefined();
 
-    // The agent channel received no kill call after the workspace was gone.
     const killCalls = channel.calls.filter((c) => c.method === "pty.kill");
     expect(killCalls).toHaveLength(0);
   });

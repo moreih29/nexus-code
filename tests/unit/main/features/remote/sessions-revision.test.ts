@@ -1,7 +1,3 @@
-/**
- * The sessions' list reads the renderer again only when the renderer tells
- * a change (its revision), and at least every SESSIONS_REREAD_MS.
- */
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { setImmediate as flush } from "node:timers/promises";
@@ -24,7 +20,6 @@ import { chatInfoOf } from "../../../../../src/renderer/services/cli/chat-view";
 import type { CliChatState } from "../../../../../src/shared/cli/ui";
 import { testSessionsRevision } from "../../../../helpers/sessions-snapshot";
 
-/** The renderer: its sessions as they are now, and its count of changes. */
 function renderer(state: () => CliChatState = () => "idle") {
   let revision = 100;
   let title = "first";
@@ -65,13 +60,11 @@ function renderer(state: () => CliChatState = () => "idle") {
   return {
     services: withRevisions,
     reads,
-    /** The renderer changes and tells main, as cli.sessionsChanged does. */
     change(next: string) {
       title = next;
       revision++;
       revisions.saw(revision);
     },
-    /** The renderer changes without telling main: the next read finds out. */
     changeUntold(next: string) {
       title = next;
       revision++;
@@ -108,7 +101,6 @@ describe("reading the renderer for the sessions' list", () => {
     expect(await titles(app.services)).toEqual(["second"]);
     expect(app.reads).toHaveLength(2);
 
-    // A change the renderer did not tell is in the list within SESSIONS_REREAD_MS.
     app.changeUntold("third");
     jest.advanceTimersByTime(SESSIONS_REREAD_MS - 1);
     expect(await titles(app.services)).toEqual(["second"]);
@@ -123,7 +115,6 @@ describe("reading the renderer for the sessions' list", () => {
     const app = renderer();
     await titles(app.services);
     app.change("second");
-    // Changed again before main read: the renderer told only the first change.
     app.changeUntold("third");
     expect(await titles(app.services)).toEqual(["third"]);
     expect(await titles(app.services)).toEqual(["third"]);
@@ -158,7 +149,6 @@ describe("reading the renderer for the sessions' list", () => {
   test("a services object made from the app's shares its reads", async () => {
     const app = renderer();
     await titles(app.services);
-    // As serve.ts wraps the services for one request.
     await titles({ ...app.services, ui: app.services.ui });
     expect(app.reads).toHaveLength(1);
   });
@@ -273,7 +263,6 @@ describe("a watched sessions' list", () => {
       },
     });
     try {
-      // Another consumer refreshes the shared cache just after a watch poll.
       const first = await watches.watch("phone");
       expect(first.sessions[0]?.state).toBe("running");
       jest.advanceTimersByTime(1);

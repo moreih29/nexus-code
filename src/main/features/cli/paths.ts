@@ -1,8 +1,3 @@
-/**
- * Paths on the command line, read as the workspace's host spells them:
- * Windows paths for a workspace whose root is a Windows path, POSIX paths
- * otherwise.
- */
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import type { CliInvocation } from "../../../shared/cli/protocol";
@@ -10,13 +5,11 @@ import { toSlashPath } from "../../../shared/fs/drive-path";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { type CliContext, CliError } from "./context";
 
-/** Whether the caller's shell paths refer to the app's own filesystem. */
 export function onAppMachine(ctx: CliContext): boolean {
   const own = ctx.services.listWorkspaces().find((w) => w.id === ctx.caller.workspaceId);
   return own?.location.kind === "local";
 }
 
-/** The path rules of the host `absolute` is a path on. */
 function rulesOf(absolute: string): path.PlatformPath {
   return /^(?:[A-Za-z]:[\\/]|\\\\)/.test(absolute) ? path.win32 : path.posix;
 }
@@ -25,11 +18,6 @@ function hostPath(workspace: WorkspaceMeta): path.PlatformPath {
   return rulesOf(workspace.rootPath);
 }
 
-/**
- * A path Git Bash spells, as Windows does: "/c/src" is C:\src, "/tmp" the
- * temp directory, and the rest is under Git's own folder. Any other caller's
- * path is as it was typed.
- */
 export function fromGitBash(input: string, invocation: CliInvocation): string {
   const msysRoot = invocation.msysRoot;
   if (msysRoot === undefined || !input.startsWith("/")) return input;
@@ -41,7 +29,6 @@ export function fromGitBash(input: string, invocation: CliInvocation): string {
   return msysRoot === "" ? input : path.win32.join(msysRoot, input);
 }
 
-/** Where `input` points on the caller's own host: from its directory, or from `base`. */
 export function callerPath(
   ctx: CliContext,
   input: string,
@@ -51,23 +38,17 @@ export function callerPath(
   return rules.resolve(base, rules === path.win32 ? fromGitBash(input, ctx.invocation) : input);
 }
 
-/**
- * Where `input` points, made absolute: from the caller's directory in its own
- * workspace, from the root in another.
- */
 export function absolutePath(ctx: CliContext, workspace: WorkspaceMeta, input: string): string {
   const base = workspace.id === ctx.caller.workspaceId ? ctx.invocation.cwd : workspace.rootPath;
   const rules = hostPath(workspace);
   return rules.resolve(base, rules === path.win32 ? fromGitBash(input, ctx.invocation) : input);
 }
 
-/** A file of a workspace: its path from the root, with "/", and as the editor names it. */
 export interface WorkspaceFile {
   readonly relPath: string;
   readonly filePath: string;
 }
 
-/** The file `input` names, which must be inside the workspace. */
 export function workspaceFile(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -78,9 +59,6 @@ export function workspaceFile(
   const outside = (rel: string) =>
     rel === "" || rel === ".." || rel.startsWith(`..${p.sep}`) || p.isAbsolute(rel);
   let rel = p.relative(workspace.rootPath, absolute);
-  // A terminal's directory is its real path: on macOS a workspace at
-  // /tmp/app is at /private/tmp/app there. A local folder's paths are
-  // compared again with links followed.
   if (outside(rel) && workspace.location.kind === "local" && p === path) {
     rel = p.relative(followed(workspace.rootPath), followed(absolute));
   }
@@ -91,10 +69,6 @@ export function workspaceFile(
   return { relPath, filePath: `${rendererRoot(workspace)}/${relPath}` };
 }
 
-/**
- * `file` with links followed, on this computer: those of the folders it is
- * in that are there, for a file not made yet.
- */
 function followed(file: string): string {
   const parent = path.dirname(file);
   try {
@@ -104,16 +78,10 @@ function followed(file: string): string {
   }
 }
 
-/**
- * A workspace's root as the renderer has it, which joins the workspace's
- * files to it with "/" (files/helpers joinPath): a Windows root is spelled
- * C:/w/app there (shared/fs/drive-path).
- */
 export function rendererRoot(workspace: WorkspaceMeta): string {
   return toSlashPath(workspace.rootPath.replace(/[\\/]+$/, ""));
 }
 
-/** Splits "file:12" or "file:12:5" into the file and the place in it. */
 export function splitLocation(input: string): { file: string; line?: number; column?: number } {
   const match = /^(.+?):(\d+)(?::(\d+))?$/.exec(input);
   if (!match) return { file: input };

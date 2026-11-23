@@ -13,7 +13,6 @@ import (
 	"testing"
 )
 
-// fakeApp answers one CLI request with `answer` and hands back what it was asked.
 func fakeApp(t *testing.T, answer string) (socket string, asked <-chan wireRequest) {
 	t.Helper()
 	parent := "/tmp"
@@ -57,8 +56,6 @@ func setTerminalEnv(t *testing.T, socket string) {
 	t.Setenv(envTabID, "tab")
 }
 
-// The client sends its arguments and where it runs, then prints the app's
-// output, writes the files it made and exits with its code.
 func TestRunPrintsTheAppsAnswer(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "shots", "page.png")
 	answer, _ := json.Marshal(wireResponse{OK: true, Result: &result{
@@ -88,7 +85,6 @@ func TestRunPrintsTheAppsAnswer(t *testing.T) {
 	}
 }
 
-// A "-" argument sends standard input along.
 func TestRunSendsStdinForADash(t *testing.T) {
 	answer, _ := json.Marshal(wireResponse{OK: true, Result: &result{}})
 	socket, asked := fakeApp(t, string(answer))
@@ -123,8 +119,6 @@ func TestRunSendsStdinForKeyFile(t *testing.T) {
 	}
 }
 
-// A command from Git Bash says where Git Bash's "/" is, even when its
-// launcher could not tell; others say nothing.
 func TestRunSendsGitBashsRoot(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -158,7 +152,6 @@ func TestRunSendsGitBashsRoot(t *testing.T) {
 
 func ptr(s string) *string { return &s }
 
-// unsetEnv removes key for the test, as t.Setenv would set it.
 func unsetEnv(t *testing.T, key string) {
 	t.Helper()
 	t.Setenv(key, "")

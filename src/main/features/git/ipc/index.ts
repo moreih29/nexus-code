@@ -1,7 +1,3 @@
-/**
- * git channel — registers Source Control panel call and stream handlers.
- */
-
 import { register } from "../../../infra/ipc-router";
 import type { WorkspaceStorage } from "../../../infra/storage/workspace-storage";
 import type { GitAutofetchScheduler } from "../domain/autofetch";
@@ -76,10 +72,6 @@ import {
   rebaseHandler,
 } from "./workflow-handlers";
 
-/**
- * Register the Git IPC channel's call handlers, broadcast event placeholders,
- * and cancellable stream handlers.
- */
 export function registerGitChannel(
   registry: GitRegistry,
   storage: WorkspaceStorage,

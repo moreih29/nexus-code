@@ -1,11 +1,3 @@
-/**
- * Markdown as a note's blocks: what an agent writes into a note (nexus note
- * write) made into the editor's document (ProseMirror JSON), as docToMarkdown
- * makes the document into Markdown the other way. GitHub's Markdown: task
- * lists, strikethrough; a table, which a note has no block for, stays as
- * its text in a code block. An image becomes a noteImage block whose src is
- * as written, for the caller to put the file in the note and set it.
- */
 import type { ListItem, PhrasingContent, RootContent } from "mdast";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
@@ -14,7 +6,6 @@ import type { DocNode } from "./markdown";
 
 type Mark = NonNullable<DocNode["marks"]>[number];
 
-/** The note's blocks for `markdown`; none for blank text. With `imageAlt`, use inline text for images. */
 export function markdownToBlocks(markdown: string, imageAlt?: string): DocNode[] {
   const tree = fromMarkdown(markdown, {
     extensions: [gfm()],
@@ -23,7 +14,6 @@ export function markdownToBlocks(markdown: string, imageAlt?: string): DocNode[]
   return blocksOf(tree.children, markdown, imageAlt);
 }
 
-/** The images among blocks (at any depth), as markdownToBlocks left them. */
 export function imagesOf(blocks: DocNode[]): DocNode[] {
   return blocks.flatMap((b) => (b.type === "noteImage" ? [b] : imagesOf(b.content ?? [])));
 }
@@ -50,8 +40,6 @@ function blockOf(node: RootContent, source: string, imageAlt: string | undefined
     case "code":
       return [codeBlock(node.value, node.lang ?? null)];
     case "list": {
-      // A note's list is all to-dos or none: one with both is cut where the
-      // kind changes, so an item written without a box does not get one.
       const runs: ListItem[][] = [];
       for (const item of node.children) {
         const run = runs.at(-1);
@@ -76,7 +64,6 @@ function blockOf(node: RootContent, source: string, imageAlt: string | undefined
       });
     }
     case "table": {
-      // No table block in a note: its Markdown as it was written.
       const { start, end } = node.position ?? {};
       const text =
         start?.offset !== undefined && end?.offset !== undefined
@@ -87,17 +74,14 @@ function blockOf(node: RootContent, source: string, imageAlt: string | undefined
     case "html":
       return node.value.trim() ? [paragraph([{ type: "text", text: node.value }])] : [];
     default:
-      // Definitions, footnotes and the like: their text, if they have any.
       return "children" in node ? blocksOf(node.children as RootContent[], source, imageAlt) : [];
   }
 }
 
-/** A to-do: an item written with a box, "[ ]" or "[x]". */
 function isTask(item: ListItem | undefined): boolean {
   return typeof item?.checked === "boolean";
 }
 
-/** A list item's blocks, which start with a paragraph. */
 function listItemContent(blocks: DocNode[]): DocNode[] {
   return blocks[0]?.type === "paragraph" ? blocks : [{ type: "paragraph" }, ...blocks];
 }
@@ -121,11 +105,6 @@ function withContent(node: DocNode, content: DocNode[]): DocNode {
   return content.length > 0 ? { ...node, content } : node;
 }
 
-/**
- * A paragraph's text, and its images as blocks of their own (a note's
- * images are blocks): the text before and after an image goes on either
- * side of it.
- */
 function paragraphs(children: PhrasingContent[], imageAlt: string | undefined): DocNode[] {
   const out: DocNode[] = [];
   let run: PhrasingContent[] = [];
@@ -146,7 +125,6 @@ function paragraphs(children: PhrasingContent[], imageAlt: string | undefined): 
   return out;
 }
 
-/** Text without the line breaks and blanks an image left at its ends. */
 function trimBreaks(content: DocNode[]): DocNode[] {
   const blank = (n: DocNode | undefined) =>
     n !== undefined && (n.type === "hardBreak" || (n.type === "text" && !n.text?.trim()));
@@ -155,7 +133,6 @@ function trimBreaks(content: DocNode[]): DocNode[] {
   while (from < to && blank(content[from])) from++;
   while (to > from && blank(content[to - 1])) to--;
   const kept = content.slice(from, to);
-  // The space that stood beside the image goes with it.
   const first = kept[0];
   if (first?.type === "text") kept[0] = { ...first, text: (first.text ?? "").trimStart() };
   const last = kept.at(-1);
@@ -175,7 +152,6 @@ function inline(nodes: PhrasingContent[], marks: Mark[], imageAlt: string | unde
       case "delete":
         return inline(node.children, [...marks, { type: "strike" }], imageAlt);
       case "inlineCode":
-        // Code takes no other mark in the editor.
         return textNode(node.value, [{ type: "code" }]);
       case "link":
         return inline(
@@ -188,7 +164,6 @@ function inline(nodes: PhrasingContent[], marks: Mark[], imageAlt: string | unde
       case "html":
         return textNode(node.value, marks);
       case "image":
-        // Within a link or a heading: its words, as a note has no image there.
         return textNode(
           imageAlt === undefined ? (node.alt ?? "") : node.alt?.trim() || imageAlt,
           marks,
@@ -204,7 +179,6 @@ function inline(nodes: PhrasingContent[], marks: Mark[], imageAlt: string | unde
 }
 
 function textNode(text: string, marks: Mark[]): DocNode[] {
-  // Soft line breaks read as spaces, as Markdown shows them.
   const flat = text.replace(/\n/g, " ");
   if (!flat) return [];
   return [marks.length > 0 ? { type: "text", text: flat, marks } : { type: "text", text: flat }];

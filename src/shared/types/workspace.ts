@@ -40,15 +40,9 @@ export const WorkspaceSshLocationSchema = z.preprocess(
   }),
 );
 
-/**
- * A folder inside a WSL distribution on a Windows host. The Linux agent runs
- * in the distribution, reached through `wsl.exe`, as it runs on an SSH host.
- */
 export const WorkspaceWslLocationSchema = z.object({
   kind: z.literal("wsl"),
-  /** The distribution's name, as `wsl.exe -l` lists it. */
   distro: z.string().min(1),
-  /** Absolute path inside the distribution. */
   remotePath: z.string(),
   remoteArch: z
     .object({
@@ -66,20 +60,10 @@ export const WorkspaceLocationSchema = z.union([
 
 export type WorkspaceLocation = z.infer<typeof WorkspaceLocationSchema>;
 
-/**
- * A task: a workspace on a git worktree of another workspace's repository,
- * with its own branch. The sidebar shows only its parent; the task is
- * switched to from inside the parent.
- */
 export const WorkspaceTaskSchema = z.object({
   parentId: z.guid(),
   branch: z.string().min(1),
-  /** The worktree's top folder; the task opens the parent's subfolder of it. */
   worktreePath: z.string().min(1),
-  /**
-   * The tab that ran the local command to make the worktree. It may be a
-   * terminal where the user ran `nexus worktree new`.
-   */
   createdBy: z.object({ workspaceId: z.guid(), tabId: z.string().min(1) }).optional(),
 });
 
@@ -91,11 +75,7 @@ export const WorkspaceConnectionEventStatusSchema = z.enum([
   "reconnecting",
   "error",
   "disconnected",
-  // Transient: 1 missed heartbeat — channel still alive; workspaceIsOnline=true.
   "unstable",
-  // Terminal: reconnected but daemon was replaced — held PTY sessions are gone.
-  // Distinct from "error" (connect failure) so the renderer can show the
-  // "session expired" empty state instead of the generic connection error.
   "held-then-expired",
 ]);
 
@@ -107,10 +87,6 @@ export type WorkspaceConnectionChangedEvent = z.infer<typeof WorkspaceConnection
 
 export type WorkspaceConnectionEventStatus = z.infer<typeof WorkspaceConnectionEventStatusSchema>;
 
-/**
- * Progress event for the workspace SSH agent bootstrap.
- * Reuses the same phase enum as LspBootstrapProgressPhaseSchema of the LSP bootstrap.
- */
 export const WorkspaceConnectionProgressEventSchema = z.object({
   workspaceId: z.string(),
   name: z.string(),
@@ -123,15 +99,6 @@ export type WorkspaceConnectionProgressEvent = z.infer<
   typeof WorkspaceConnectionProgressEventSchema
 >;
 
-/**
- * Progress event for the SSH browse session (add-workspace flow) bootstrap.
- *
- * Registered workspaces key progress by workspaceId, but in the "add workspace"
- * flow neither a workspaceId nor a sessionId exists until openBrowseSession finishes.
- * So progress is keyed by a progressId (a client-generated correlation id) the renderer
- * creates right before the call — the other fields reuse the same phase enum/byte progress
- * as WorkspaceConnectionProgressEvent.
- */
 export const SshBrowseProgressEventSchema = z.object({
   progressId: z.string(),
   name: z.string(),
@@ -142,31 +109,15 @@ export const SshBrowseProgressEventSchema = z.object({
 
 export type SshBrowseProgressEvent = z.infer<typeof SshBrowseProgressEventSchema>;
 
-/**
- * Returns the path-like root used by legacy local-only callers.
- */
 export function rootPathFromLocation(location: WorkspaceLocation): string {
   return location.kind === "local" ? location.rootPath : location.remotePath;
 }
 
-/**
- * Strips trailing slashes from a path so equivalent paths compare equal.
- * Pure string normalization — performs no filesystem access, so symlinks
- * and case-insensitive volumes are not resolved (best-effort by design).
- */
 function normalizeWorkspacePath(rawPath: string): string {
   const trimmed = rawPath.replace(/\/+$/, "");
   return trimmed.length > 0 ? trimmed : "/";
 }
 
-/**
- * Canonical identity key for a workspace location. Two workspaces whose
- * locations produce the same key refer to the same target and must not
- * coexist as separate entries — used to dedupe "open workspace" requests.
- *
- * Best-effort: an SSH `configAlias` and the host it resolves to are NOT
- * unified (they may key differently even when they reach the same server).
- */
 export function workspaceLocationKey(location: WorkspaceLocation): string {
   if (location.kind === "local") {
     return `local:${normalizeWorkspacePath(location.rootPath)}`;
@@ -179,26 +130,16 @@ export function workspaceLocationKey(location: WorkspaceLocation): string {
   return `ssh:${user}@${location.host}:${port}:${normalizeWorkspacePath(location.remotePath)}`;
 }
 
-/**
- * The host and user whose agents share one attach folder
- * (~/.nexus-code/attach there): every workspace on it, whatever its folder.
- */
 export function attachHostOf(location: WorkspaceLocation): string {
   if (location.kind === "local") return "local";
   if (location.kind === "wsl") return `wsl:${location.distro}`;
   return `ssh:${location.user ?? ""}@${location.host}:${location.port ?? 22}`;
 }
 
-/**
- * Narrows unknown JSON input to plain object records.
- */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/**
- * Derives the compatibility rootPath from a raw location-shaped value.
- */
 function rootPathFromLocationInput(location: unknown): string | undefined {
   if (!isRecord(location)) {
     return undefined;
@@ -228,9 +169,6 @@ export const WorkspaceMetaSchema = z.preprocess(
         : undefined);
     const rootPath = rootPathFromLocationInput(location) ?? value.rootPath;
 
-    // Default sort-order fields to 0 so callers that pre-date this field
-    // (persisted data, IPC payloads, tests) parse without validation failure.
-    // The same goes for the color, which an older build's tone is read as "auto".
     return {
       sortOrder: 0,
       pinnedSortOrder: 0,
@@ -244,21 +182,13 @@ export const WorkspaceMetaSchema = z.preprocess(
     id: z.guid(),
     name: z.string(),
     location: WorkspaceLocationSchema,
-    /**
-     * Deprecated compatibility field. Prefer `location`; for SSH and WSL workspaces
-     * this mirrors `location.remotePath`.
-     */
     rootPath: z.string(),
-    /** The color that tells the workspace apart; "auto" leaves it to the app. */
     color: WorkspaceColorSchema,
     pinned: z.boolean(),
     lastOpenedAt: DateTimeSchema.optional(),
     tabs: z.array(TabMetaSchema),
-    /** Sort position within the unpinned group. 0 means "not yet positioned". */
     sortOrder: IntegerSchema,
-    /** Sort position within the pinned group. 0 means "not yet positioned". */
     pinnedSortOrder: IntegerSchema,
-    /** Set when this workspace is a task of another workspace. */
     task: WorkspaceTaskSchema.optional(),
   }),
 );

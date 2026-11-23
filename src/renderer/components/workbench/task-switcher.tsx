@@ -1,11 +1,3 @@
-// Task switcher — the title bar's workspace name, as a menu of the
-// workspace's tasks.
-//
-// The sidebar has one row per workspace; a workspace's tasks are switched
-// here. The menu lists the workspace itself and its tasks, each with its
-// branch, Claude glyph and the ports its terminals' programs listen on, then
-// their agent list, New Task and, on a task, Delete This Task.
-
 import { Check, ChevronDown, GitBranch } from "lucide-react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
@@ -34,15 +26,11 @@ import {
 } from "../ui/dropdown-menu";
 import { cardGlyph } from "./sidebar";
 
-/** How many of a task's ports its menu item lists before "+N". */
 const SHOWN_PORTS = 2;
 
 interface TaskSwitcherProps {
-  /** The active workspace: a workspace or one of its tasks. */
   active: WorkspaceMeta;
-  /** The label of the task's workspace, e.g. with its SSH host. */
   label: (workspace: WorkspaceMeta) => string;
-  /** The widest it can be, in px, clear of the title bar's other buttons. */
   maxWidth?: number;
 }
 
@@ -80,8 +68,6 @@ export function TaskSwitcher({ active, label, maxWidth }: TaskSwitcherProps) {
           <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>
-      {/* Its items run once the menu has closed, so the new and remove task
-          dialogs take the keyboard and give it back to this button. */}
       <DropdownMenuContent align="center">
         <TaskItem workspace={root} active={active.id === root.id} />
         {tasks.map((task) => (
@@ -104,7 +90,6 @@ export function TaskSwitcher({ active, label, maxWidth }: TaskSwitcherProps) {
   );
 }
 
-/** One workspace in the menu: a check when active, its name, glyph and branch. */
 function TaskItem({ workspace, active }: { workspace: WorkspaceMeta; active: boolean }) {
   const { t } = useTranslation();
   const gitBranch = useGitStore((s) => {

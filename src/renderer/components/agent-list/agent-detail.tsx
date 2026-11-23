@@ -1,8 +1,3 @@
-// Agent list — an agent a Claude session runs, as its card shows it
-// (agent-peek.tsx): the conversation it belongs to, then what it was asked,
-// wrote and ran, as its session's own turn reads (agent-flow.tsx), with its
-// permission requests to answer.
-
 import { ChevronRight, SquareArrowOutUpRight, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -27,7 +22,6 @@ import {
 import { PermissionAsks } from "./permission-asks";
 import { AgentMark } from "./status-view";
 
-/** How many characters of an agent's id say which one it is. */
 const ID_SHOWN = 8;
 
 export function AgentDetail({
@@ -42,15 +36,12 @@ export function AgentDetail({
   worktree: WorktreeEntry;
   session: AgentSession;
   agent: AgentRun;
-  /** The permission requests the agent waits on. */
   asks: readonly PermissionAsk[];
   visible: boolean;
-  /** Goes to the conversation it belongs to. */
   onShowSession: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
-  // Running tools count their seconds.
   const now = useNow(visible && agent.end === undefined);
   const kind = [
     ...agentKindParts(agent),
@@ -69,10 +60,8 @@ export function AgentDetail({
         aria-label={t("agentList.agents.agent_crumb")}
         className="flex min-w-0 items-center gap-1 text-app-micro text-muted-foreground"
       >
-        {/* The workspace keeps its short name; the conversation's title gives way first. */}
         <span className="max-w-40 shrink-0 truncate">{worktree.workspace.name}</span>
         <ChevronRight aria-hidden className="size-3 shrink-0" />
-        {/* The conversation it belongs to, by its mark and title as its row reads. */}
         <Crumb
           title={t("agentList.agents.parent", { title: session.title })}
           onClick={onShowSession}
@@ -116,7 +105,6 @@ export function AgentDetail({
             title={openLabel}
             aria-label={openLabel}
             onClick={() => {
-              // A chat tab shows the agent in its pane; a terminal has none.
               if (session.kind !== "terminal") askToShowAgent(session.tabId, agent);
               showTerminal(session);
               onClose();

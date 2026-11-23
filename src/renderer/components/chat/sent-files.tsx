@@ -1,9 +1,3 @@
-// A SendUserFile call, Claude's way to put files in front of the user (it
-// has it with Remote Control on): the files shown where it sent them, as
-// an attachment shows, under its caption. An image shows itself, or a chip
-// when its turn showed it already; any other file is a card. Each opens in
-// quick look.
-
 import { fileKind, resolveFilePath } from "../../services/chat/links";
 import type { ToolCall } from "../../services/chat/model";
 import { sentFilesOf } from "../../services/chat/panel";
@@ -19,7 +13,6 @@ export function SentFiles({
   tool: ToolCall;
   workspaceId: string;
   cwd: string;
-  /** Image files its turn showed in full before it. */
   shownEarlier?: ReadonlySet<string>;
 }) {
   const files = sentFilesOf(tool).flatMap((file) => resolveFilePath(file, cwd) ?? []);

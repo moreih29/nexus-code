@@ -12,24 +12,19 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// stashRefRE matches the canonical stash@{n} reference format.
 var stashRefRE = regexp.MustCompile(`^stash@\{(\d+)\}$`)
 
-// stashMessagePatterns mirror the TS STASH_MESSAGE_PATTERNS.
 var stashMessagePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)^On ([^:]+):\s*(.*)`),
 	regexp.MustCompile(`(?i)^WIP on ([^:]+):\s*(.*)`),
 }
 
-// stashListFormat is the NUL-delimited format consumed by parseStashList.
 const stashListFormat = "--format=%gd%x00%H%x00%gs%x00%ct%x00"
 
-// StashListParams carries optional cwd for stash list.
 type StashListParams struct {
 	Cwd string `json:"cwd,omitempty"`
 }
 
-// StashEntry mirrors src/shared/types/git.ts StashEntrySchema.
 type StashEntry struct {
 	Index     int    `json:"index"`
 	SHA       string `json:"sha"`
@@ -38,25 +33,20 @@ type StashEntry struct {
 	CreatedAt int64  `json:"createdAt"`
 }
 
-// StashIndexParams carries a stash index and optional cwd.
 type StashIndexParams struct {
 	Cwd   string `json:"cwd,omitempty"`
 	Index int    `json:"index"`
 }
 
-// StashPopParams carries optional cwd for parameterless stash pop.
 type StashPopParams struct {
 	Cwd string `json:"cwd,omitempty"`
 }
 
-// StashApplyResult mirrors the run-result shape for apply/pop so the TS
-// executor can inspect errorKind without parsing a thrown error message.
 type StashApplyResult struct {
 	ErrorKind    Kind   `json:"errorKind,omitempty"`
 	ErrorMessage string `json:"errorMessage,omitempty"`
 }
 
-// StashShowParams carries the stash index and streaming identifiers.
 type StashShowParams struct {
 	Cwd           string `json:"cwd,omitempty"`
 	StreamID      string `json:"streamId,omitempty"`
@@ -64,20 +54,17 @@ type StashShowParams struct {
 	MaxChunkBytes int    `json:"maxChunkBytes,omitempty"`
 }
 
-// StashGroupParams carries the paths and optional message for a grouped stash.
 type StashGroupParams struct {
 	Cwd     string   `json:"cwd,omitempty"`
 	Message string   `json:"message,omitempty"`
 	Paths   []string `json:"paths"`
 }
 
-// StashShowResult mirrors DiffResult and is returned after all chunks are sent.
 type StashShowResult struct {
 	Bytes     int64 `json:"bytes"`
 	Truncated bool  `json:"truncated"`
 }
 
-// StashList executes `git stash list` and returns parsed StashEntry records.
 func (s *Service) StashList(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p StashListParams
 	if len(raw) > 0 {
@@ -109,8 +96,6 @@ func (s *Service) StashList(ctx context.Context, raw json.RawMessage) (any, erro
 	return entries, nil
 }
 
-// StashApply applies a stash entry by index. Conflicts are returned in the
-// result struct so the TS executor can surface errorKind without string-parsing.
 func (s *Service) StashApply(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p StashIndexParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -139,7 +124,6 @@ func (s *Service) StashApply(ctx context.Context, raw json.RawMessage) (any, err
 	return StashApplyResult{}, nil
 }
 
-// StashDrop removes one stash entry by index.
 func (s *Service) StashDrop(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p StashIndexParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -178,8 +162,6 @@ func (s *Service) StashDrop(ctx context.Context, raw json.RawMessage) (any, erro
 	return nil, nil
 }
 
-// StashPop pops the latest stash entry. Conflicts are returned in the result
-// struct using the same shape as StashApply.
 func (s *Service) StashPop(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p StashPopParams
 	if len(raw) > 0 {
@@ -206,8 +188,6 @@ func (s *Service) StashPop(ctx context.Context, raw json.RawMessage) (any, error
 	return StashApplyResult{}, nil
 }
 
-// StashShow streams the patch for one stash entry as bounded UTF-8 text chunks
-// (git.stash.show.chunk events) and returns a StashShowResult.
 func (s *Service) StashShow(ctx context.Context, raw json.RawMessage) (any, error) {
 	params := StashShowParams{MaxChunkBytes: defaultDiffChunkBytes}
 	if len(raw) != 0 {
@@ -252,7 +232,6 @@ func (s *Service) StashShow(ctx context.Context, raw json.RawMessage) (any, erro
 
 	result, readErr := s.emitStashChunks(streamCtx, params.StreamID, stdout, params.MaxChunkBytes)
 	if readErr != nil {
-		// Stop git before waiting; it would block on a full stdout pipe.
 		cancel()
 	}
 	waitErr := finish()
@@ -276,7 +255,6 @@ func (s *Service) StashShow(ctx context.Context, raw json.RawMessage) (any, erro
 	return StashShowResult{Bytes: result.Bytes, Truncated: result.Truncated}, nil
 }
 
-// StashGroup stashes only the selected paths with an optional message.
 func (s *Service) StashGroup(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p StashGroupParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -286,7 +264,6 @@ func (s *Service) StashGroup(ctx context.Context, raw json.RawMessage) (any, err
 		return nil, proto.ProtocolError("git.stash.group cwd must not contain NUL")
 	}
 
-	// Deduplicate and validate paths.
 	seen := make(map[string]struct{}, len(p.Paths))
 	unique := make([]string, 0, len(p.Paths))
 	for _, path := range p.Paths {
@@ -334,7 +311,6 @@ func (s *Service) StashGroup(ctx context.Context, raw json.RawMessage) (any, err
 	return nil, nil
 }
 
-// parseStashList parses `git stash list --format=%gd%x00%H%x00%gs%x00%ct%x00` output.
 func parseStashList(stdout string) []StashEntry {
 	fields := strings.Split(stdout, "\x00")
 	entries := make([]StashEntry, 0, len(fields)/4)
@@ -372,7 +348,6 @@ func parseStashList(stdout string) []StashEntry {
 	return entries
 }
 
-// parseStashIndex extracts the numeric part from stash@{n}, returning -1 on failure.
 func parseStashIndex(ref string) int {
 	m := stashRefRE.FindStringSubmatch(ref)
 	if m == nil {
@@ -385,13 +360,11 @@ func parseStashIndex(ref string) int {
 	return n
 }
 
-// normalizeStashRecordText removes the leading newline Git prints between NUL-delimited records.
 func normalizeStashRecordText(value string) string {
 	value = strings.TrimLeft(value, "\r\n")
 	return strings.TrimSpace(value)
 }
 
-// parseStashSubject splits a stash reflog subject into branch and display message.
 func parseStashSubject(rawMessage string) (branch string, message string) {
 	for _, pattern := range stashMessagePatterns {
 		m := pattern.FindStringSubmatch(rawMessage)
@@ -408,18 +381,13 @@ func parseStashSubject(rawMessage string) (branch string, message string) {
 	return "", rawMessage
 }
 
-// stashRef builds the canonical stash@{n} reference string.
 func stashRef(index int) string {
 	return fmt.Sprintf("stash@{%d}", index)
 }
 
-// classifyStashApplyError inspects stdout (where some git versions report
-// conflicts) and stderr, mapping conflict kinds to KindStashConflict.
 func classifyStashApplyError(stdout string, stderr string, args []string, code int) StashApplyResult {
 	kind := Classify(stderr)
 
-	// git stash apply can report CONFLICT lines on stdout (not stderr) on some
-	// git versions. Mirror TS isStashConflictOutput logic.
 	if kind == KindUnknown || kind == KindConflict || kind == KindUnresolvedConflicts {
 		if isStashConflictStdout(stdout) {
 			kind = KindStashConflict
@@ -433,15 +401,12 @@ func classifyStashApplyError(stdout string, stderr string, args []string, code i
 	return StashApplyResult{ErrorKind: kind, ErrorMessage: msg}
 }
 
-// isStashConflictStdout detects stash conflict markers reported on stdout.
 var stashConflictStdoutRE = regexp.MustCompile(`(?i)CONFLICT \([^)]+\):|Merge conflict in|Unmerged paths:`)
 
 func isStashConflictStdout(stdout string) bool {
 	return stashConflictStdoutRE.MatchString(stdout)
 }
 
-// emitStashChunks reads stdout and emits git.stash.show.chunk events,
-// mirroring emitDiffChunks from diff.go but using the stash-specific event name.
 func (s *Service) emitStashChunks(ctx context.Context, streamID string, stdout io.Reader, maxChunkBytes int) (StashShowResult, error) {
 	var result StashShowResult
 	buf := make([]byte, 32*1024)

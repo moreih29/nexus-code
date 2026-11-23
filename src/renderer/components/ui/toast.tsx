@@ -1,32 +1,3 @@
-/**
- * Lightweight in-app toast.
- *
- * Imperative API: callers anywhere call `showToast({ kind, message })`
- * and a styled toast appears in the bottom-right stack.
- *
- * Two toast varieties:
- *   - Plain (no actions): auto-dismisses on a timer; user can also click × to dismiss.
- *     Uses `role="status"` — polite announcement, non-interrupting.
- *   - Action (has actions array): has no timer. Uses `role="alert"` — assertive
- *     announcement. Action buttons are
- *     keyboard-reachable via normal tab order.
- *
- * A toast may also carry `details`, the raw text behind its message, behind a
- * collapsed "Details" toggle. Such a toast never auto-dismisses either: the
- * user reads it at their own pace. The stack keeps up to five toasts.
- *
- * Why custom (not Radix Toast): we already follow the imperative-API
- * + singleton-Root pattern from save-confirm-dialog. Toast doesn't need
- * focus management or aria-live trickery for the cases it serves
- * (filesystem operation feedback) — `role="status"` is sufficient for plain toasts.
- * Action toasts (bug category, retry-save) use `role="alert"` per WCAG guidance.
- *
- * Module is a singleton store + a Root component. The store keeps the
- * active toast list; the Root subscribes to it and re-renders on
- * change. No React context — toasts can be triggered from non-React
- * code paths (services, IPC error handlers).
- */
-
 import { TriangleAlert, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -43,68 +14,33 @@ import {
 
 export type ToastKind = "info" | "error" | "warning";
 
-/** A single action button attached to a toast. */
 export interface ToastAction {
-  /** Label shown on the button. */
   label: string;
-  /** Callback invoked when the user clicks the action button. */
   onAction: () => void;
-  /** Stable identity for callbacks that perform the same action on the same target. */
   dedupeKey?: string;
 }
 
 export interface ToastInput {
   kind: ToastKind;
   message: string;
-  /**
-   * Override auto-dismiss in ms. Defaults: see TOAST_INFO_MS / TOAST_ERROR_MS.
-   * Ignored when `actions` is non-empty — action toasts never auto-dismiss.
-   */
   durationMs?: number;
-  /**
-   * Optional action buttons. When provided the toast becomes an "action toast":
-   *   - it uses `role="alert"` (assertive) instead of `role="status"` (polite)
-   *   - it never auto-dismisses; the user must click × or an action button
-   *   - action buttons are reachable via keyboard tab order
-   */
   actions?: ToastAction[];
-  /**
-   * Raw text behind the message (e.g. a command's output), shown collapsed
-   * under it. A toast with details never auto-dismisses.
-   */
   details?: string;
 }
 
-/**
- * Default auto-dismiss durations. Errors and warnings hold longer so the
- * user can still read the toast after switching focus to investigate.
- *
- * Re-exported under toast-local names so existing callers stay unchanged.
- * See `shared/util/timing-constants.ts` for the canonical definitions.
- */
 const TOAST_INFO_MS = UI_TOAST_INFO_MS;
 const TOAST_ERROR_MS = UI_TOAST_ERROR_MS;
 const TOAST_WARNING_MS = UI_TOAST_WARNING_MS;
 
-/** Sweep interval for the dismissal timer (see canonical doc in shared/util/timing-constants). */
 const TOAST_SWEEP_INTERVAL_MS = UI_TOAST_SWEEP_INTERVAL_MS;
 
-/**
- * Sentinel value meaning "never expires". Used for action toasts that
- * must remain until the user explicitly dismisses them.
- */
 const NEVER_EXPIRES = Number.POSITIVE_INFINITY;
 
 interface ActiveToast {
   id: number;
   kind: ToastKind;
   message: string;
-  /**
-   * Wall-clock deadline in ms, or NEVER_EXPIRES for action toasts.
-   * The sweep timer skips entries where expiresAt === NEVER_EXPIRES.
-   */
   expiresAt: number;
-  /** The rendered snapshot only holds labels. */
   actionLabels: string[];
   details?: string;
 }
@@ -116,11 +52,6 @@ const actionsByToast = new Map<number, ToastAction[]>();
 const bus = createListenerBus();
 const watchers = new Set<(toast: ToastInput) => void>();
 
-/**
- * Calls `watcher` with each toast shown until the returned function is
- * called: what a command run for another device said, which that device
- * is told as the command's answer.
- */
 export function watchToasts(watcher: (toast: ToastInput) => void): () => void {
   watchers.add(watcher);
   return () => {
@@ -134,7 +65,6 @@ function defaultDuration(kind: ToastKind): number {
   return TOAST_INFO_MS;
 }
 
-/** Compares both the visible labels and what each button acts on. */
 function sameActions(first: ToastAction[], second: ToastAction[]): boolean {
   return (
     first.length === second.length &&
@@ -148,16 +78,10 @@ function sameActions(first: ToastAction[], second: ToastAction[]): boolean {
   );
 }
 
-/**
- * Imperative entry point; safe to call from any module. Returns the toast's
- * id, for `dismissToast`. Repeats share the original toast's place in the stack.
- */
 export function showToast(input: ToastInput): number {
   for (const watcher of watchers) watcher(input);
   const actions = input.actions ?? [];
 
-  // Action and details toasts never expire — they wait for the user to act
-  // or finish reading.
   const expiresAt =
     actions.length > 0 || input.details
       ? NEVER_EXPIRES
@@ -171,7 +95,6 @@ export function showToast(input: ToastInput): number {
       sameActions(actionsByToast.get(toast.id) ?? [], actions),
   );
   if (duplicate) {
-    // Keep the action and the expanded Details state while a repeat is visible.
     duplicate.expiresAt = expiresAt;
     return duplicate.id;
   }
@@ -198,7 +121,6 @@ export function showToast(input: ToastInput): number {
   return id;
 }
 
-/** Removes a toast that no longer applies, e.g. an action toast. */
 export function dismissToast(id: number): void {
   if (!active.some((toast) => toast.id === id)) return;
   actionsByToast.delete(id);
@@ -206,7 +128,6 @@ export function dismissToast(id: number): void {
   bus.notify();
 }
 
-/** Runs a button from a live toast and releases its actions as the toast closes. */
 export function runToastAction(id: number, index: number): void {
   const action = actionsByToast.get(id)?.[index];
   if (!action) return;
@@ -214,16 +135,9 @@ export function runToastAction(id: number, index: number): void {
   action.onAction();
 }
 
-/** The stack's distance from the window's bottom at rest: above the status bar. */
 const STACK_BOTTOM_PX = 40;
-/** The room left between the stack and a message box it rises above. */
 const STACK_GAP_PX = 8;
 
-/**
- * Where the stack's bottom goes: above the status bar, and above any message
- * box (`[data-toast-avoid]`) shown under it, so a toast never covers what is
- * typed. Never higher than half the window.
- */
 function stackBottom(stack: HTMLElement): number {
   const { innerHeight } = window;
   const box = stack.getBoundingClientRect();
@@ -243,10 +157,6 @@ function stackBottom(stack: HTMLElement): number {
   return Math.min(bottom, innerHeight / 2);
 }
 
-/**
- * Mount once at App level. Renders the active toast stack and runs the
- * auto-dismiss timer.
- */
 export function ToastRoot(): React.JSX.Element | null {
   const { t } = useTranslation();
   const [toasts, setToasts] = useState<ActiveToast[]>(active);
@@ -257,10 +167,6 @@ export function ToastRoot(): React.JSX.Element | null {
     return bus.subscribe(() => setToasts([...active]));
   }, []);
 
-  // Single periodic sweep keeps the dismissal logic in one place. We
-  // don't bother with per-toast setTimeout — they'd race with manual
-  // dismiss + the array would diverge from the timer set.
-  // Action and Details toasts stay out of the timed sweep.
   useEffect(() => {
     if (toasts.length === 0) return;
     const interval = setInterval(() => {
@@ -274,8 +180,6 @@ export function ToastRoot(): React.JSX.Element | null {
     return () => clearInterval(interval);
   }, [toasts.length]);
 
-  // Kept above the message boxes as toasts come and go, the window resizes
-  // and a box grows (looked at again with each sweep).
   useLayoutEffect(() => {
     if (toasts.length === 0) return;
     const place = () => {
@@ -294,24 +198,14 @@ export function ToastRoot(): React.JSX.Element | null {
 
   return (
     <div
-      // Lets the browser-suspend observer lift the stack above a browser
-      // tab's native view when the two overlap.
       data-toast-viewport=""
       ref={stackRef}
-      // Above the status bar, so its items stay clickable while a toast is
-      // up: the language server's warning sits at its right end.
       className="fixed right-4 z-(--layer-toast) flex flex-col gap-2 w-[360px] max-w-[90vw]"
       style={{ bottom }}
     >
       {toasts.map((toast) => {
-        // Action toasts use role="alert" (assertive) so assistive technology
-        // announces them immediately and the user knows buttons are available.
-        // Plain toasts (including warning) use role="status" (polite) to avoid
-        // interrupting flow — warning signals a user-decision point, not a
-        // system failure requiring immediate attention (Nielsen H5 / WCAG).
         const hasActions = toast.actionLabels.length > 0;
         const role: "alert" | "status" = hasActions ? "alert" : "status";
-        // aria-live mirrors role: assertive for alert, polite for status.
         const ariaLive: "assertive" | "polite" = hasActions ? "assertive" : "polite";
 
         return (
@@ -328,9 +222,6 @@ export function ToastRoot(): React.JSX.Element | null {
                   : "bg-popover text-popover-foreground border-border",
             )}
           >
-            {/* Message row with optional warning icon and dismiss button.
-                The icon provides a second encoding channel for warning severity
-                (WCAG 1.4.1 — not colour alone). */}
             <div className="flex items-start gap-2">
               {toast.kind === "warning" ? (
                 <TriangleAlert className="size-4 shrink-0 mt-px" aria-hidden="true" />
@@ -350,8 +241,6 @@ export function ToastRoot(): React.JSX.Element | null {
 
             {toast.details ? <DetailsDisclosure details={toast.details} /> : null}
 
-            {/* Action buttons — rendered in a dedicated row so they remain
-                keyboard-reachable (natural tab order, no z-index tricks). */}
             {hasActions ? (
               <div className="flex items-center gap-2 flex-wrap">
                 {toast.actionLabels.map((label, index) => (

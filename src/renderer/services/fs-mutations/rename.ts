@@ -1,5 +1,3 @@
-/** Rename/move an entry within its current parent via fs.rename. */
-
 import i18next from "i18next";
 import { showConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
@@ -57,10 +55,6 @@ export async function renamePath(input: RenameInput): Promise<boolean> {
   return true;
 }
 
-// ---------------------------------------------------------------------------
-// movePath — move an entry to a different parent directory via fs.rename
-// ---------------------------------------------------------------------------
-
 export interface MoveInput {
   workspaceId: string;
   workspaceRootPath: string;
@@ -74,10 +68,8 @@ export async function movePath(input: MoveInput): Promise<boolean> {
   const toAbsPath = `${input.dstDirAbsPath}/${name}`;
   const toRel = relPath(toAbsPath, input.workspaceRootPath);
 
-  // Same-directory no-op — the source is already at the destination path.
   if (toRel === fromRel) return true;
 
-  // Workspace boundary check on both source and destination.
   if (fromRel === input.srcAbsPath || toRel === toAbsPath) {
     toFsToast(new Error(FS_ERROR.OUT_OF_WORKSPACE), {
       fallback: i18next.t("files:fileTree.fsError.outsideWorkspace"),
@@ -109,7 +101,6 @@ export async function movePath(input: MoveInput): Promise<boolean> {
     try {
       await rename(overwrite);
     } catch (error) {
-      // The destination filesystem may match names the listing did not.
       if (overwrite || !hasFsErrorCode(error, FS_ERROR.ALREADY_EXISTS)) throw error;
       if (!(await confirmReplace())) return false;
       await rename(true);
@@ -127,7 +118,6 @@ export async function movePath(input: MoveInput): Promise<boolean> {
 
   void retargetEditorTabs(input.workspaceId, input.srcAbsPath, toAbsPath);
 
-  // Refresh both the source parent and the destination parent.
   const srcParent = parentOf(input.srcAbsPath, input.workspaceRootPath);
   await loadChildren(input.workspaceId, srcParent);
   if (srcParent !== input.dstDirAbsPath) {

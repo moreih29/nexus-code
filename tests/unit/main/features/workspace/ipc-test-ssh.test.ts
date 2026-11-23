@@ -1,6 +1,3 @@
-/**
- * Scenario tests for workspace.testSsh temporary SSH validation.
- */
 import { describe, expect, it, mock } from "bun:test";
 import {
   type TestSshBootstrap,
@@ -12,9 +9,6 @@ import type {
   SshChannel,
 } from "../../../../../src/main/infra/agent/ssh/channel";
 
-/**
- * Creates a manually controlled promise for channel readiness assertions.
- */
 function deferred<T>(): {
   promise: Promise<T>;
   resolve: (value: T | PromiseLike<T>) => void;
@@ -29,9 +23,6 @@ function deferred<T>(): {
   return { promise, resolve, reject };
 }
 
-/**
- * Builds the AbortError shape produced by disposed SSH channel waiters.
- */
 function createAbortError(): Error {
   const error = new Error("The operation was aborted");
   error.name = "AbortError";
@@ -155,8 +146,6 @@ describe("workspace.testSsh handler", () => {
     controller.abort();
 
     expect(channel.dispose).toHaveBeenCalledTimes(1);
-    // Per T4 Result-contract migration, cancellation resolves with ipcErr("cancelled")
-    // instead of rejecting with AbortError — the router stays log-silent.
     const result = await promise;
     expect(result).toMatchObject({ ok: false, kind: "cancelled" });
   });

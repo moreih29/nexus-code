@@ -226,23 +226,15 @@ import { UpdateProgressSchema, UpdateStatusSchema } from "../updates/status";
 import { partialWithoutDefaults } from "../validation/partial";
 import { UrlSchema } from "../validation/string";
 
-// ---------------------------------------------------------------------------
-// Primitive procedure descriptors
-// ---------------------------------------------------------------------------
-
-// call: one-shot RPC — renderer→main only; args validated by zod
 interface CallProcedure<A extends z.ZodType, R extends z.ZodType> {
   args: A;
   result: R;
 }
 
-// listen: event stream — main→renderer; args schema stored for documentation
-// Hot-path validation intentionally omitted (PTY data chunks, etc.)
 interface ListenProcedure<A extends z.ZodType> {
   args: A;
 }
 
-// stream: request-scoped progress channel — renderer→main start, main→renderer progress
 export interface StreamProcedure<A extends z.ZodType, P extends z.ZodType, R extends z.ZodType> {
   args: A;
   progress: P;
@@ -273,10 +265,6 @@ export function stream<A extends z.ZodType, P extends z.ZodType, R extends z.Zod
   return { args, progress, result, ...options };
 }
 
-// ---------------------------------------------------------------------------
-// Inference utilities
-// ---------------------------------------------------------------------------
-
 export type InferArgs<T> =
   T extends StreamProcedure<infer A, z.ZodType, z.ZodType>
     ? z.infer<A>
@@ -299,10 +287,6 @@ export type InferProgress<T> =
 export type InferComplete<T> =
   T extends StreamProcedure<z.ZodType, z.ZodType, infer R> ? z.infer<R> : never;
 
-// ---------------------------------------------------------------------------
-// Shared sub-schemas (used across channels)
-// ---------------------------------------------------------------------------
-
 const WorkspaceCreateLegacyArgsSchema = z.object({
   rootPath: z.string(),
   name: z.string().optional(),
@@ -311,10 +295,6 @@ const WorkspaceCreateLegacyArgsSchema = z.object({
 const WorkspaceCreateLocationArgsSchema = z.object({
   location: WorkspaceLocationSchema,
   name: z.string().optional(),
-  // Optional handoff hint: when a workspace is created from an SSH
-  // directory-browse session, this carries that session's id so the main
-  // process can reuse its already-authenticated ControlMaster instead of
-  // opening — and re-authenticating — a second SSH connection.
   sshBrowseSessionId: z.guid().optional(),
 });
 
@@ -357,16 +337,6 @@ const WorkspaceTestSshArgsSchema = z.object({
   remotePath: z.string().min(1),
 });
 
-/**
- * Arguments for repositioning a workspace within the sidebar.
- *
- * Natural-language semantics:
- *   - `beforeId` set → the moved workspace lands IMMEDIATELY BEFORE that row.
- *   - `afterId` set  → the moved workspace lands IMMEDIATELY AFTER that row.
- *   - Both unset    → the workspace lands at the tail of `targetGroup`.
- *
- * `beforeId` and `afterId` are mutually exclusive: providing both is invalid.
- */
 export const WorkspaceReorderArgsSchema = z
   .object({
     id: z.guid(),
@@ -378,10 +348,6 @@ export const WorkspaceReorderArgsSchema = z
     error: "beforeId and afterId are mutually exclusive",
   });
 
-/**
- * Bulk sort-order update emitted after a group rebalance so the renderer can
- * refresh every affected row's position in one pass.
- */
 export const WorkspaceReorderedEventSchema = z.object({
   orders: z.array(
     z.object({
@@ -393,11 +359,8 @@ export const WorkspaceReorderedEventSchema = z.object({
   ),
 });
 
-// Browse-session connection params — WorkspaceTestSshArgsSchema minus remotePath.
-/** A Claude Code session as a list shows it (the agent's chat.sessions). */
 const ClaudeSessionSchema = z.object({
   sessionId: z.string(),
-  /** The title it was given, else its last prompt, else its first. */
   title: z.string(),
   customTitle: z.string().optional(),
   firstPrompt: z.string().optional(),
@@ -413,9 +376,6 @@ const SshBrowseConnParamsSchema = z.object({
   port: PositiveIntegerSchema.check(z.lte(65_535)).optional(),
   identityFile: z.string().min(1).optional(),
   authMode: z.enum(["interactive", "key-only"]).default("interactive"),
-  // Client-generated correlation id so the renderer can subscribe to
-  // `ssh.browseProgress` events for THIS connect attempt before any
-  // sessionId/workspaceId exists. Optional: omitting it just disables progress.
   progressId: z.guid().optional(),
 });
 
@@ -440,11 +400,6 @@ const LspDidOpenArgsSchema = TextDocumentItemSchema.extend({
   workspaceRoot: z.string(),
 });
 
-// Shared "uri scoped to a workspace" identifier for renderer → main LSP
-// IPC. Every notification / request carries workspaceId so the host can
-// route to the right LSP server even when the same physical file URI is
-// open across multiple workspaces. See workspace-uri.ts and agent-host.ts
-// for the routing seam.
 const LspWorkspaceScopedUriSchema = z.object({
   workspaceId: z.string(),
   uri: TextDocumentIdentifierSchema.shape.uri,
@@ -463,24 +418,12 @@ const LspDidSaveArgsSchema = LspWorkspaceScopedUriSchema.extend({
   text: TextDocumentItemSchema.shape.text.optional(),
 });
 
-// Main → renderer diagnostics events. Carries workspaceId so the
-// renderer-side listener can reconstruct the cacheUri for the right
-// Monaco model — without it, two workspaces holding the same physical
-// file would race on marker assignment.
 const LspDiagnosticsEventSchema = z.object({
   workspaceId: z.string(),
   uri: TextDocumentIdentifierSchema.shape.uri,
   diagnostics: z.array(DiagnosticSchema),
 });
 
-// Main → renderer broadcast emitted when the host disposes a workspace's
-// LSP server(s): LRU eviction (see LSP_MAX_ACTIVE_WORKSPACES), a crash, a
-// setting turning the language off. The renderer's model cache uses it to
-// reset `lspOpened` on affected entries so the next interaction re-issues
-// didOpen against a freshly spawned server. languageId is optional — when
-// present only entries for that language are reset; when absent the entire
-// workspace is reset. `reopen` asks for didOpen at once rather than on the
-// next interaction: the server is restarting, not going away.
 const LspWorkspaceResetEventSchema = z.object({
   workspaceId: z.string(),
   languageId: z.string().optional(),
@@ -489,7 +432,6 @@ const LspWorkspaceResetEventSchema = z.object({
 
 const LspApplyEditEventSchema = z.object({
   requestId: z.string(),
-  // Workspace of the requesting server; its models are keyed by workspace URI.
   workspaceId: z.string(),
   params: ApplyWorkspaceEditParamsSchema,
 });
@@ -637,10 +579,6 @@ const SshConfigHostSchema = z.object({
   identityFile: z.string().optional(),
 });
 
-// ---------------------------------------------------------------------------
-// IPC contract map
-// ---------------------------------------------------------------------------
-
 const transcriptPageResult = z.object({
   found: z.boolean(),
   lines: z.array(z.unknown()),
@@ -663,29 +601,19 @@ const transcriptPageResult = z.object({
 
 export type TranscriptPageResult = z.infer<typeof transcriptPageResult>;
 
-/** An event of a Codex thread's rollout, as the agent's chat.rolloutTail cuts it down. */
 const rolloutEvent = z.object({
-  /** turn: a turn began; user, agent: a message; tool: a call. */
   kind: z.string(),
   turnId: z.string().optional(),
   text: z.string().optional(),
   images: NonnegativeIntegerSchema.optional(),
   clientId: z.string().optional(),
-  /** The call's kind, as the app-server names its item (commandExecution, fileChange…). */
   tool: z.string().optional(),
-  /** How a patch changes each file: add, delete, update. */
   changes: z.array(z.string()).optional(),
   server: z.string().optional(),
   name: z.string().optional(),
 });
 export type RolloutEvent = z.infer<typeof rolloutEvent>;
 
-/**
- * The end of a chat's history as its agent keeps it, read for a glance at
- * its last turns (chat.peekTail): a Claude transcript's last page, or a
- * Codex rollout's last events. `offline`: the workspace's host is not
- * connected, and was not dialed. Neither history: an agent too old to read it.
- */
 const chatPeekTail = z.object({
   offline: z.boolean(),
   claude: transcriptPageResult.optional(),
@@ -698,11 +626,8 @@ export type ChatPeekTail = z.infer<typeof chatPeekTail>;
 const printRunTranscriptResult = z.object({
   found: z.boolean(),
   lines: z.array(z.unknown()),
-  /** Where the next read goes on: its `from`. */
   next: NonnegativeIntegerSchema,
-  /** The file was shorter than `from`: `lines` are its whole again. */
   reset: z.boolean(),
-  /** Past the cap: only the last lines. */
   truncated: z.boolean(),
 });
 
@@ -720,10 +645,6 @@ const printRunReaderResult = z.discriminatedUnion("ok", [
 export type PrintRunReaderResult = z.infer<typeof printRunReaderResult>;
 
 const notesContracts = {
-  /**
-   * Notes: a workspace's notes, kept by the app under its data folder by
-   * where the workspace's folder is (shared/notes/types.ts).
-   */
   notes: {
     call: {
       list: call(NotesArgs.list, z.array(NoteSummarySchema)),
@@ -744,41 +665,27 @@ const notesContracts = {
       updateLink: call(NotesArgs.updateLink, z.void()),
       removeLink: call(NotesArgs.removeLink, z.void()),
       save: call(NotesArgs.save, NoteSummarySchema),
-      /** Clears away the files the note's document no longer uses; what it cleared. */
       prune: call(NotesArgs.prune, z.array(z.string())),
-      /** Moves the note's folder to the Trash. */
       remove: call(NotesArgs.remove, z.void()),
-      /** Copies files into the note's materials/. */
       addFiles: call(NotesArgs.addFiles, z.array(NoteAssetSchema)),
-      /** Writes a pasted image into the note's screens/. */
       addImage: call(NotesArgs.addImage, NoteAssetSchema),
       saveSketch: call(
         NotesArgs.saveSketch,
         z.object({ id: z.string(), src: z.string(), scene: z.string() }),
       ),
-      /** A file of the note's folder, as base64. */
       readAsset: call(NotesArgs.readAsset, z.object({ base64: z.string(), mime: z.string() })),
-      /** Opens a file of the note's folder with the system's app for it. */
       openAsset: call(NotesArgs.openAsset, z.void()),
       revealAsset: call(NotesArgs.revealAsset, z.void()),
-      /** Shows the note's folder in the system's file manager. */
       revealNote: call(NotesArgs.revealNote, z.void()),
-      /** Asks for files (or images) to put into a note: their paths, none if canceled. */
       pickFiles: call(NotesArgs.pickFiles, z.array(z.string())),
-      /** Every location with notes, and what they take. */
       storage: call(NotesArgs.storage, z.array(NoteStorageEntrySchema)),
-      /** Moves every note of a location to the Trash. */
       removeLocation: call(NotesArgs.removeLocation, z.void()),
       revealLocation: call(NotesArgs.revealLocation, z.void()),
-      /** What this window's recorder does; other devices see it (remote sessions' list). */
       recording: call(NotesArgs.recording, z.void()),
-      /** The note's recordings and their words (transcript.json); none yet is an empty one. */
       readTranscript: call(NotesArgs.readTranscript, TranscriptFileSchema),
       hasRecordingAudio: call(NotesArgs.hasRecordingAudio, z.boolean()),
-      /** Writes transcript.json, and transcript.md beside it. */
       saveTranscript: call(NotesArgs.saveTranscript, z.void()),
       appendAudio: call(NotesArgs.appendAudio, z.void()),
-      /** A line's voice print (a unit vector), which tells its voice; null when the app has no model. */
       voicePrint: call(NotesArgs.voicePrint, z.array(NumberSchema).nullable()),
       removeRecording: call(NotesArgs.removeRecording, TranscriptFileSchema),
     },
@@ -787,15 +694,12 @@ const notesContracts = {
       linksChanged: listen(NoteLinksChangedSchema),
       summaryChanged: listen(NoteSummaryChangedSchema),
       summaryCompleted: listen(NoteSummaryCompletedSchema),
-      /** Another device put a photo at the end of a note: an editor open on it does too. */
       photoAdded: listen(NotePhotoAddedSchema),
-      /** An agent put blocks into a note: an editor open on it does too. */
       blocksAdded: listen(NoteBlocksAddedSchema),
       blocksRemoved: listen(NoteBlocksRemovedSchema),
       lineReported: listen(NoteLineReportedSchema),
     },
   },
-  /** Local desktop IPC only. Voice vectors are inputs and never part of its responses. */
   voiceMemory: {
     call: {
       status: call(z.void(), VoiceNameStatusSchema),
@@ -821,30 +725,12 @@ const coreIpcContract = {
       list: call(z.void(), z.array(WorkspaceMetaSchema)),
       connectionSnapshot: call(z.void(), z.array(WorkspaceConnectionChangedEventSchema)),
       create: call(WorkspaceCreateArgsSchema, WorkspaceMetaSchema),
-      /**
-       * Atomic workspace creation: for SSH locations, authenticates and
-       * establishes the ControlMaster *before* persisting the workspace, so
-       * a cancelled or failed auth leaves no orphaned sidebar entry.
-       * For local locations, commits immediately (no connection step).
-       *
-       * Returns an IpcResult envelope:
-       *   ok:true  → WorkspaceMeta (workspace created and committed)
-       *   ok:false → kind "cancelled" (user cancelled auth — silent stop)
-       *              kind "auth-failed" (wrong credentials — show error)
-       *              kind "not-found" (browse session expired, SSH only)
-       *
-       * The result schema here represents the domain success value only;
-       * the router forwards the IpcResult envelope transparently (T1).
-       */
       createAndConnect: call(WorkspaceCreateArgsSchema, WorkspaceMetaSchema),
       update: call(WorkspaceUpdateArgsSchema, WorkspaceMetaSchema),
       reorder: call(WorkspaceReorderArgsSchema, WorkspaceMetaSchema),
       remove: call(WorkspaceIdSchema, z.void()),
-      /** Select and connect the workspace the user chose. */
       activate: call(WorkspaceIdSchema, z.void()),
-      /** Connect a workspace already shown in a view. */
       connect: call(WorkspaceIdSchema, z.void()),
-      /** The restored or most recently selected workspace; null with none. */
       active: call(z.void(), WorkspaceIdPrimitive.nullable()),
       testSsh: call(WorkspaceTestSshArgsSchema, WorkspaceTestSshResultSchema),
     },
@@ -866,9 +752,6 @@ const coreIpcContract = {
         z.object({
           sessionId: z.guid(),
           initialPath: z.string(),
-          // The user actually connected as — when the caller omits `user`,
-          // the handler defaults to the local account name and reports it
-          // back so the renderer can persist a complete connection profile.
           user: z.string(),
         }),
       ),
@@ -879,18 +762,10 @@ const coreIpcContract = {
       closeBrowseSession: call(SshBrowseSessionIdSchema, z.void()),
     },
     listen: {
-      // Bootstrap progress for an in-flight openBrowseSession, keyed by the
-      // caller's progressId (see SshBrowseConnParamsSchema.progressId).
       browseProgress: listen(SshBrowseProgressEventSchema),
     },
   },
 
-  /**
-   * WSL distributions on a Windows host, for adding a WSL workspace. A
-   * browse session opened here joins the SSH browse sessions, so
-   * `ssh.browseSession`, `ssh.closeBrowseSession` and `ssh.browseProgress`
-   * serve it.
-   */
   wsl: {
     call: {
       listDistros: call(z.void(), z.array(z.string())),
@@ -914,14 +789,6 @@ const coreIpcContract = {
     },
   },
 
-  /**
-   * Tasks: workspaces on git worktrees of another workspace (see
-   * WorkspaceTaskSchema). Their changes arrive as workspace events.
-   *
-   * Expected failures come back as IpcResult errors: a GitError as
-   * "git-error", or one of TaskErrorKind ("not-found", "not-a-repo",
-   * "not-connected", "invalid-name", "worktree-dirty").
-   */
   task: {
     call: {
       create: call(
@@ -970,27 +837,12 @@ const coreIpcContract = {
           rows: PositiveIntegerSchema,
           env: z.record(z.string(), z.string()).optional(),
           args: z.array(z.string()).optional(),
-          /**
-           * The shell this tab opens with. Absent: the default shell from
-           * Settings › Terminal. Local workspaces only; an SSH workspace runs
-           * the remote host's login shell.
-           */
           shell: ShellChoiceSchema.optional(),
-          /**
-           * An agent profile, by id: the shell runs with what a chat of it
-           * runs with (its folder's variable, its own variables). One that
-           * is not there fails the spawn: never the default folder instead.
-           */
           profile: z.string().max(64).optional(),
         }),
         z.object({
           pid: IntegerSchema,
-          /** The shell started, when main knows it (local workspaces). */
           shellPath: z.string().optional(),
-          /**
-           * The chosen shell that couldn't be found; the default ran instead.
-           * "" for an added shell that was removed from the settings.
-           */
           missingShell: z.string().optional(),
         }),
       ),
@@ -1004,128 +856,56 @@ const coreIpcContract = {
       ),
       ack: call(PtyWorkspaceTabSchema.extend({ bytesConsumed: IntegerSchema }), z.void()),
       kill: call(PtyWorkspaceTabSchema, z.void()),
-      /**
-       * Looks up the program basename of the current PTY foreground process group leader.
-       *
-       * Used when the renderer detects xterm.js's alt-screen ENTER CSI (`\x1b[?47h` / `?1047h`
-       * / `?1049h`): it calls this RPC once and applies the result as the tab's processTitle.
-       * TUIs that fire no OSC, such as lazygit / lazydocker / vim / less / htop, also get
-       * their name captured. Programs like claude that fire OSC get the OSC path
-       * applied in parallel, and the two paths agree (both "claude").
-       *
-       * On failure (no session / ioctl failure / ps failure) `name` is an empty string. Callers
-       * read an empty result as "no info" and do not overwrite the existing title.
-       */
       foregroundProcess: call(PtyWorkspaceTabSchema, z.object({ name: z.string() })),
-      /** The shells installed on this machine, and the one a terminal runs by default. */
       listShells: call(
         z.void(),
         z.object({ shells: z.array(ShellInfoSchema), systemDefault: ShellInfoSchema }),
       ),
-      /** Finds a custom shell's program: a path, or a bare name on PATH. */
       findShell: call(
         z.object({ program: z.string().max(1024) }),
         z.object({ path: z.string().nullable() }),
       ),
-      /**
-       * The TCP ports the programs in each workspace's terminals listen on,
-       * for every workspace that has any; `ports` then tells of changes.
-       */
       ports: call(z.object({}), z.array(WorkspacePortsSchema)),
-      /**
-       * The SSH workspaces' ports forwarded to this machine, for every
-       * workspace that has any; `forwards` then tells of changes.
-       */
       forwards: call(z.object({}), z.array(WorkspaceForwardsSchema)),
-      /**
-       * Forwards a port of an SSH workspace's host to this machine, or
-       * answers the forward already there. Fails with "not-ssh",
-       * "not-connected" or "failed".
-       */
       forward: call(
         z.object({ workspaceId: z.string(), port: PositiveIntegerSchema.check(z.lte(65_535)) }),
         PortForwardSchema,
       ),
-      /** Stops forwarding a port of an SSH workspace's host. */
       unforward: call(
         z.object({ workspaceId: z.string(), port: PositiveIntegerSchema.check(z.lte(65_535)) }),
         z.void(),
       ),
-      /**
-       * The URL to open for `url` on this machine: in an SSH workspace, a
-       * local address goes to its forward, set up for it if need be.
-       */
       localUrl: call(
         z.object({ workspaceId: z.string(), url: z.string().max(8192) }),
         z.object({ url: z.string() }),
       ),
     },
     listen: {
-      /** A workspace's ports changed; an empty list once its servers have stopped. */
       ports: listen(WorkspacePortsSchema),
-      /** A workspace's forwards changed; an empty list once all are stopped. */
       forwards: listen(WorkspaceForwardsSchema),
-      // data: args is string chunk — validation skipped on hot path.
-      // `replay` marks output pty.replay sends again to redraw the terminal.
       data: listen(
         PtyWorkspaceTabSchema.extend({ chunk: z.string(), replay: z.boolean().optional() }),
       ),
       exit: listen(PtyWorkspaceTabSchema.extend({ code: IntegerSchema.nullable() })),
       notificationClick: listen(z.object({ workspaceId: z.string(), tabId: z.string() })),
-      /**
-       * Fired when the channel enters `reconnecting` state and the PTY session
-       * is placed on hold rather than killed. The renderer should show a
-       * "reconnecting" overlay without emitting a dead-terminal banner.
-       * Input to the user during hold is dropped (not queued).
-       */
       held: listen(PtyWorkspaceTabSchema),
-      /**
-       * Fired after a successful reattach (epoch match). The `withReplay` flag
-       * indicates whether the ring buffer was replayed. When true the renderer
-       * should inject `\x1bc` (terminal reset) before the replay data arrives
-       * to clear any ANSI mid-sequence garbage from the buffer boundary.
-       */
       restored: listen(PtyWorkspaceTabSchema.extend({ withReplay: z.boolean() })),
-      /**
-       * Fired when the reconnected agent has a different epoch than the one
-       * seen at the previous ready — the daemon was replaced during the
-       * outage and the PTY session cannot be restored. Distinct from `exit`
-       * so the renderer can show "session expired" rather than the generic
-       * dead-terminal banner.
-       */
       expired: listen(PtyWorkspaceTabSchema),
     },
   },
 
-  // ---------------------------------------------------------------------------
-  // Claude tabs: one `claude -p` per tab, run by the workspace's agent, whose
-  // stream-json lines the renderer reads and writes (shared/chat/protocol.ts).
-  // ---------------------------------------------------------------------------
   chat: {
     call: {
-      /**
-       * Runs the tab's program, or attaches to the one the agent still runs
-       * for it (after a window reload), whose log the renderer then replays.
-       */
       start: call(
         PtyWorkspaceTabSchema.extend({
           cwd: z.string(),
-          /**
-           * A session to go on with (`--resume`): its id, or, to fork one
-           * another profile keeps, its file there (chat.sessionFile).
-           */
           resume: z.string().max(4096).optional(),
-          /** Go on with a copy of `resume` (`--fork-session`). */
           fork: z.boolean().optional(),
-          /** With fork: the message to copy the session up to (`--resume-session-at`). */
           resumeAt: z.string().max(128).optional(),
           instructions: InstructionTextSchema.optional(),
-          /** Drop the tab's log first: the program goes on with another conversation (a rewind). */
           resetLog: z.boolean().optional(),
           connectionChanged: z.boolean().optional(),
-          /** Start a disposable program for the profile's plan usage. */
           usageOnly: z.boolean().optional(),
-          /** The agent profile it runs with (see shared/agent-profiles); absent = the default. */
           profileId: z.string().max(64).optional(),
         }),
         z.discriminatedUnion("ok", [
@@ -1133,7 +913,6 @@ const coreIpcContract = {
             ok: z.literal(true),
             pid: IntegerSchema,
             attached: z.boolean(),
-            /** `claude --version`'s x.y.z; null when it could not be read. */
             version: z.string().nullable(),
           }),
           z.object({
@@ -1143,14 +922,11 @@ const coreIpcContract = {
           }),
         ]),
       ),
-      /** Runs a Codex tab's `codex app-server`, or attaches to the one the agent still runs. */
       codexStart: call(
         PtyWorkspaceTabSchema.extend({
           cwd: z.string(),
-          /** Drop the tab's log first: the tab starts over. */
           resetLog: z.boolean().optional(),
           connectionChanged: z.boolean().optional(),
-          /** The agent profile it runs with (see shared/agent-profiles); absent = the default. */
           profileId: z.string().max(64).optional(),
         }),
         z.discriminatedUnion("ok", [
@@ -1158,7 +934,6 @@ const coreIpcContract = {
             ok: z.literal(true),
             pid: IntegerSchema,
             attached: z.boolean(),
-            /** `codex --version`'s x.y.z; null when it could not be read. */
             version: z.string().nullable(),
             canonicalCwd: z.string().optional(),
           }),
@@ -1169,7 +944,6 @@ const coreIpcContract = {
           }),
         ]),
       ),
-      /** Writes one message to the program as a line. */
       send: call(
         ChatTabOrReaderSchema.extend({
           message: z.record(z.string(), z.unknown()),
@@ -1178,11 +952,8 @@ const coreIpcContract = {
         }),
         z.void(),
       ),
-      /** Ends the tab's program; its log stays, to show and to start again on. */
       stop: call(PtyWorkspaceTabSchema, z.void()),
-      /** Ends the tab's program and forgets its log: the tab was closed. */
       close: call(ChatTabOrReaderSchema, z.void()),
-      /** Sends the tab's log again as `line` events, after `afterSeq`. */
       replay: call(
         PtyWorkspaceTabSchema.extend({ afterSeq: NonnegativeIntegerSchema.optional() }),
         z.object({
@@ -1192,39 +963,17 @@ const coreIpcContract = {
           lastSeq: IntegerSchema,
         }),
       ),
-      /**
-       * Writes a file attached to a message where the tab's program can read
-       * it (on an SSH host, a file from this machine), and returns its path
-       * there. It stays after the tab closes, for the conversation to go on
-       * elsewhere, until pruneAttachments or removeAttachments removes it.
-       */
       attach: call(
         PtyWorkspaceTabSchema.extend({
           name: z.string().min(1).max(255),
-          /** The file's bytes, base64: at most 20 MiB of them. */
           data: z.string().max(28 * 1024 * 1024),
         }),
         z.object({ path: z.string() }),
       ),
-      /**
-       * The folder the workspace's agent writes attached files in, on its
-       * host, as the agent tells it (chat.attachRoot):
-       * <workspaceId>/<tabId>/<n>/<name> below it. Null with no agent up
-       * (an SSH host is not dialed for it) or one too old to tell.
-       */
       attachRoot: call(
         z.object({ workspaceId: WorkspaceIdPrimitive }),
         z.object({ root: z.string().nullable() }),
       ),
-      /**
-       * Removes the workspace's attached files not in use: those of no open
-       * tab (keepTabIds) that no open tab's conversation names (keepSlots,
-       * "<tabId>/<n>"), once unused for 30 days, and the least recently used
-       * of them past 1 GiB. capOnly leaves the 30 days aside. Without
-       * keepSlots (no attach root known to name them by), only an agent that
-       * names no root prunes, as an agent from before does: the files of
-       * every tab no longer open go.
-       */
       pruneAttachments: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
@@ -1234,7 +983,6 @@ const coreIpcContract = {
         }),
         z.void(),
       ),
-      /** Marks attached files ("<tabId>/<n>" slots) used now, as a conversation naming them is shown. */
       touchAttachments: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
@@ -1242,7 +990,6 @@ const coreIpcContract = {
         }),
         z.void(),
       ),
-      /** Removes attached files ("<tabId>/<n>" slots), as their conversation is deleted. */
       removeAttachments: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
@@ -1250,15 +997,6 @@ const coreIpcContract = {
         }),
         z.void(),
       ),
-      /**
-       * The attached files ("<tabId>/<n>" slots) a conversation's whole
-       * history names, as its agent reads them from the history kept on
-       * the workspace's host (a Claude session in the profile's folder, a
-       * Codex thread in its home): what a tab that has loaded only its last
-       * pages keeps. Empty from an agent too old to tell. `found` is false
-       * while the agent has no history of it yet: to be asked again.
-       * `truncated`: it names more than these, so what it names is not known.
-       */
       historySlots: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
@@ -1272,10 +1010,6 @@ const coreIpcContract = {
           truncated: z.boolean(),
         }),
       ),
-      /**
-       * Where a Claude session is kept on the workspace's host, for a program
-       * of another profile to copy it (`--resume <file> --fork-session`).
-       */
       sessionFile: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
@@ -1284,12 +1018,6 @@ const coreIpcContract = {
         }),
         z.object({ found: z.boolean(), path: z.string().optional() }),
       ),
-      /**
-       * Puts a copy of a Codex thread another profile keeps where the tab's
-       * profile's program finds it, for thread/fork, which finds a thread
-       * only there, with the threads it was forked from; the copies stay,
-       * as the fork reads its history from them.
-       */
       stageThread: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
@@ -1299,7 +1027,6 @@ const coreIpcContract = {
         }),
         z.object({ found: z.boolean() }),
       ),
-      /** A session's transcript, to show a conversation resumed after the agent restarted. */
       transcript: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
@@ -1312,11 +1039,6 @@ const coreIpcContract = {
           truncated: z.boolean(),
         }),
       ),
-      /**
-       * The transcript of a tab's `claude -p` run, read on from `from` (the
-       * last read's `next`), from where the run's start said its session is
-       * kept: the renderer names the run, never a path.
-       */
       printRunTranscript: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
@@ -1326,11 +1048,6 @@ const coreIpcContract = {
         }),
         printRunTranscriptResult,
       ),
-      /**
-       * Starts a Codex app-server that reads a tab's `codex exec` run's
-       * thread with the run's CODEX_HOME: its lines come by `readerTabId`,
-       * which chat.send writes to and chat.close ends.
-       */
       printRunReader: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
@@ -1339,7 +1056,6 @@ const coreIpcContract = {
         }),
         printRunReaderResult,
       ),
-      /** An internal page of a Claude transcript, from newest to oldest. */
       transcriptPage: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
@@ -1352,11 +1068,6 @@ const coreIpcContract = {
         }),
         transcriptPageResult,
       ),
-      /**
-       * The end of a chat's history, for another device's glance at its last
-       * turns (chat.peek): read without starting its program, and without
-       * connecting to a workspace's host that is not connected.
-       */
       peekTail: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
@@ -1368,11 +1079,6 @@ const coreIpcContract = {
         }),
         chatPeekTail,
       ),
-      /**
-       * One subagent's messages, which Claude Code keeps apart from its
-       * session's transcript: found by its agent id (its Agent call's result
-       * tells it), else by that call's id.
-       */
       subagentTranscript: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
@@ -1387,11 +1093,6 @@ const coreIpcContract = {
           truncated: z.boolean(),
         }),
       ),
-      /**
-       * The settings Claude Code's /config keeps in its global config file
-       * (~/.claude.json) on the workspace's host, by their keys there:
-       * get_settings tells only what settings.json has.
-       */
       claudeConfig: call(
         z.object({ workspaceId: WorkspaceIdPrimitive, profileId: z.string().max(64).optional() }),
         z.object({
@@ -1399,24 +1100,12 @@ const coreIpcContract = {
           values: z.record(z.string(), z.union([z.string(), NumberSchema, z.boolean()])),
         }),
       ),
-      /**
-       * Serves a page on this machine for an MCP server's sign-in to send the
-       * browser back to; its address is the redirect Claude Code is given.
-       */
       oauthListen: call(z.object({}), z.object({ id: z.string(), redirectUri: z.string() })),
-      /** The address the browser came back to; null once the sign-in timed out or was cancelled. */
       oauthWait: call(
         z.object({ id: z.string().max(64) }),
         z.object({ url: z.string().nullable() }),
       ),
-      /** Stops waiting for a sign-in. */
       oauthCancel: call(z.object({ id: z.string().max(64) }), z.void()),
-      /**
-       * Runs `claude` in a folder for what a tab does outside its session:
-       * the background sessions (`claude agents --json`, `claude --bg`,
-       * `claude stop`), the plugins (`claude plugin …`) and the settings
-       * a bare /config lists.
-       */
       cli: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
@@ -1442,7 +1131,6 @@ const coreIpcContract = {
             z.object({
               kind: z.literal("plugin"),
               action: z.enum(["install", "enable", "disable", "update", "uninstall"]),
-              /** name, or name@marketplace. */
               plugin: z
                 .string()
                 .regex(/^[0-9A-Za-z][0-9A-Za-z._-]{0,127}(@[0-9A-Za-z][0-9A-Za-z._-]{0,127})?$/),
@@ -1457,7 +1145,6 @@ const coreIpcContract = {
           timedOut: z.boolean().optional(),
         }),
       ),
-      /** The sessions Claude Code keeps of a folder, newest first, for a tab to go on with one. */
       sessions: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
@@ -1466,10 +1153,6 @@ const coreIpcContract = {
         }),
         z.array(ClaudeSessionSchema),
       ),
-      /**
-       * Deletes a session Claude Code keeps of a folder: its transcript and what
-       * it kept under its id. `deleted` is false when the folder had none such.
-       */
       deleteSession: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
@@ -1479,7 +1162,6 @@ const coreIpcContract = {
         }),
         z.object({ deleted: z.boolean() }),
       ),
-      /** How big transcripts are on the workspace's host, by path: a Codex thread's file. */
       fileSizes: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
@@ -1489,14 +1171,12 @@ const coreIpcContract = {
       ),
     },
     listen: {
-      // Not validated: a line can carry megabytes of image data.
       line: listen(
         PtyWorkspaceTabSchema.extend({
           seq: IntegerSchema,
           dir: z.enum(["out", "in", "sys"]),
           message: z.unknown().optional(),
           text: z.string().optional(),
-          /** When the agent got the line, in Unix milliseconds. */
           at: NumberSchema.optional(),
           replay: z.boolean().optional(),
         }),
@@ -1508,13 +1188,7 @@ const coreIpcContract = {
           stderrTail: z.string().optional(),
         }),
       ),
-      /** The workspace's connection dropped; its programs may still run on the agent. */
       held: listen(z.object({ workspaceId: WorkspaceIdPrimitive })),
-      /**
-       * The workspace's agent is reachable again, the same one or a new one:
-       * its tabs replay what they missed, and a tab the agent has no log for
-       * ended with the agent it ran on.
-       */
       resync: listen(z.object({ workspaceId: WorkspaceIdPrimitive })),
     },
   },
@@ -1536,9 +1210,6 @@ const coreIpcContract = {
       workspaceSymbol: call(WorkspaceSymbolArgsSchema, z.array(SymbolInformationSchema)),
       semanticTokens: call(SemanticTokensArgsSchema, SemanticTokensResultSchema.nullable()),
       applyEditResult: call(LspApplyEditResultArgsSchema, z.void()),
-      // Settings › Editor › Language servers and the status bar's language
-      // menu (renderer → main). Main saves the change, stops or restarts the
-      // servers it affects, and broadcasts settingsChanged.
       setEnabled: call(z.object({ enabled: z.boolean() }), z.void()),
       setLanguageSettings: call(
         z.object({ languageId: LspPresetLanguageIdSchema, settings: LspLanguageSettingsSchema }),
@@ -1556,7 +1227,6 @@ const coreIpcContract = {
         }),
         z.void(),
       ),
-      // The status bar's language menu and the log viewer.
       restartServer: call(
         z.object({ workspaceId: WorkspaceIdPrimitive, languageId: LspPresetLanguageIdSchema }),
         z.void(),
@@ -1582,7 +1252,6 @@ const coreIpcContract = {
       "bootstrap.progress": listen(LspBootstrapProgressEventSchema),
       workspaceReset: listen(LspWorkspaceResetEventSchema),
       settingsChanged: listen(LspSettingsSchema),
-      // Main → renderer on every change of a server's status.
       serverStatus: listen(LspServerStatusSchema),
     },
   },
@@ -1640,48 +1309,16 @@ const coreIpcContract = {
       ),
     },
     listen: {
-      /**
-       * Broadcast emitted by main when the active UI language changes via
-       * `appState.set({ language })`.  Sent to all renderer windows so
-       * each can update its i18next instance and the html[lang] attribute
-       * without an app restart.
-       *
-       * Correlation: `language` itself is the domain identifier — there is
-       * no per-workspace or per-tab scope for a global UI language setting.
-       */
       languageChanged: listen(z.object({ language: z.enum(["en", "ko"]) })),
       noteSummaryChanged: listen(RecordingSummarySettingsSchema),
-      /**
-       * Broadcast emitted by main when the user keybinding overrides
-       * change via `appState.set({ keybindingOverrides })`.  Sent to all
-       * renderer windows so each can recompile its dispatcher tables and
-       * refresh shortcut labels.  The full override list is the payload —
-       * deltas are small (≤ catalog size) and idempotent hydration keeps
-       * every window convergent regardless of event ordering.
-       */
       keybindingsChanged: listen(z.object({ overrides: KeybindingOverridesSchema })),
-      /**
-       * Broadcast emitted by main when the user EDITOR (Monaco)
-       * keybinding overrides change via
-       * `appState.set({ editorKeybindingOverrides })`.  Sent to all
-       * renderer windows so each re-reconciles its Monaco keybinding
-       * service.  Unlike `keybindingsChanged` this does NOT rebuild the
-       * native menu — editor commands never appear in it.
-       */
       editorKeybindingsChanged: listen(z.object({ overrides: KeybindingOverridesSchema })),
-      /**
-       * Broadcast emitted by main when the default shell or the added
-       * shells change via `appState.set`. Sent to all renderer windows so
-       * a window that edits the list next starts from the current one,
-       * not its own stale copy.
-       */
       terminalShellsChanged: listen(
         z.object({
           shell: ShellChoiceSchema.optional(),
           customShells: z.array(CustomShellSchema),
         }),
       ),
-      /** Broadcast when the agent profiles or their rules change via `appState.set`. */
       agentProfilesChanged: listen(
         z.object({
           config: AgentProfilesSchema,
@@ -1693,12 +1330,6 @@ const coreIpcContract = {
     },
   },
 
-  // Application menu → renderer command bridge.
-  //
-  // Menu items, defined in main, fire `command.invoke` events with the
-  // command's catalog ID. The renderer's command registry executes the
-  // matching handler. Keyboard shortcuts go through the same registry,
-  // so menu and keyboard always share one implementation.
   command: {
     call: {},
     listen: {
@@ -1721,7 +1352,6 @@ const coreIpcContract = {
     },
     listen: {
       prompt: listen(AskpassPromptSchema),
-      /** The Git command ended before the prompt was answered. */
       closed: listen(GitHelperPromptIdArgsSchema),
     },
   },
@@ -1743,17 +1373,12 @@ const coreIpcContract = {
       refreshDetection: call(GitWorkspaceIdSchema, RepoInfoSchema),
       init: call(GitWorkspaceIdSchema, RepoInfoSchema),
       getStatus: call(GitWorkspaceIdSchema, GitStatusSchema),
-      /**
-       * The lines each uncommitted file adds and deletes, and how far HEAD
-       * is ahead of and behind `base`, the branch a task was made from.
-       */
       getChangeStats: call(
         GitWorkspaceIdSchema.extend({ base: z.string().min(1).optional() }),
         GitChangeStatsSchema,
       ),
       stage: call(GitRelPathsArgsSchema, z.void()),
       unstage: call(GitRelPathsArgsSchema, z.void()),
-      /** Stages `content` as `relPath`'s index version, as staging part of a file does. */
       stageContent: call(GitRelPathArgsSchema.extend({ content: z.string() }), z.void()),
       discardChanges: call(GitDiscardChangesArgsSchema, z.void()),
       commit: call(
@@ -1786,15 +1411,6 @@ const coreIpcContract = {
         CommitResultSchema,
       ),
       checkout: call(GitWorkspaceIdSchema.extend({ ref: z.string().min(1) }), z.void()),
-      /**
-       * Creates and checks out a local branch that tracks `remoteRef`. Used
-       * when the user picks a remote-only entry (e.g. `origin/main`) — the
-       * caller passes the full `<remote>/<short>` ref and the main process
-       * runs `git checkout --track <remoteRef>`. This is split from `checkout`
-       * because plain `git checkout <short>` only auto-tracks under
-       * environment-dependent git rules; the explicit `--track` form is
-       * deterministic across git versions and configs.
-       */
       checkoutTracking: call(
         GitWorkspaceIdSchema.extend({ remoteRef: z.string().min(1) }),
         z.void(),
@@ -1842,12 +1458,6 @@ const coreIpcContract = {
       push: call(
         GitWorkspaceIdSchema.extend({
           force: z.boolean().optional(),
-          /**
-           * When true, push runs `push -u <firstRemote> <currentBranch>` so a
-           * branch without an upstream gains one in a single operation.
-           * Used by the renderer's "Publish branch?" prompt; ignored when an
-           * upstream already exists.
-           */
           publish: z.boolean().optional(),
         }),
         PushResultSchema,
@@ -1868,16 +1478,6 @@ const coreIpcContract = {
       ),
       openFileAtHead: call(GitRelPathArgsSchema, GitOpenFileAtHeadResultSchema),
       addToGitignore: call(GitRelPathArgsSchema, GitIgnoreAppendResultSchema),
-      /**
-       * Filters the input `relPaths` down to those Git considers ignored
-       * (matched by `.gitignore` / `.git/info/exclude` / core.excludesfile).
-       * The renderer file tree calls this lazily for paths in the viewport
-       * so we never enumerate ignored files via `status --ignored` (which
-       * would walk `node_modules` and friends on every status push).
-       *
-       * Returns the subset that *is* ignored. Paths not in the response
-       * should be cached as "not ignored" until `.gitignore` changes.
-       */
       checkIgnore: call(GitRelPathsArgsSchema, z.object({ ignored: z.array(z.string()) })),
       getPanelState: call(GitWorkspaceIdSchema, GitPanelStateSchema),
       setPanelState: call(GitSetPanelStateArgsSchema, z.void()),
@@ -1935,8 +1535,6 @@ const coreIpcContract = {
       readdir: call(
         workspaceScoped({
           relPath: z.string(),
-          // Also list entries the explorer never shows (.git, .DS_Store) —
-          // for name-collision checks, which must see every entry.
           includeHidden: z.boolean().optional(),
         }),
         z.array(DirEntrySchema),
@@ -1956,11 +1554,7 @@ const coreIpcContract = {
       getExpanded: call(workspaceScoped({}), z.object({ relPaths: z.array(z.string()) })),
       setExpanded: call(workspaceScoped({ relPaths: z.array(z.string()) }), z.void()),
       readFile: call(workspaceScoped({ relPath: z.string() }), FileReadResultSchema),
-      // A file's bytes as base64, for previews that take them whole (docx).
       readBinary: call(workspaceScoped({ relPath: z.string() }), FileReadBinaryResultSchema),
-      // Up to `length` bytes of a file from `offset`, as base64, with the
-      // file's size; at most READ_RANGE_MAX_BYTES a call. For previews that
-      // read a large file in pieces (PDF).
       readRange: call(
         workspaceScoped({
           relPath: z.string(),
@@ -1973,8 +1567,6 @@ const coreIpcContract = {
         workspaceScoped({
           relPath: z.string(),
           content: z.string(),
-          // Base64 bytes written in place of `content`, for text in an
-          // encoding other than UTF-8.
           bytes: z.string().optional(),
           expected: ExpectedFileStateSchema,
         }),
@@ -1985,11 +1577,6 @@ const coreIpcContract = {
       mkdir: call(
         workspaceScoped({
           relPath: z.string(),
-          // Optional — when true the agent uses os.MkdirAll so intermediate
-          // segments are materialised. The renderer's New File / New Folder
-          // flow sets this so a user-typed nested name like "src/foo/bar"
-          // creates the chain in one shot (VSCode parity, fileActions.ts
-          // applyBulkEdit/ResourceFileEdit).
           recursive: z.boolean().optional(),
         }),
         z.void(),
@@ -2013,22 +1600,8 @@ const coreIpcContract = {
         z.void(),
       ),
       removeAll: call(workspaceScoped({ relPath: FsMutationRelPathSchema }), z.void()),
-      // ----------------------------------------------------------------
-      // fs.trash — Local workspaces only. Moves the path to the OS
-      // recycle bin via Electron's `shell.trashItem`, where the user can
-      // restore it. SSH (remote) workspaces have no host trash equivalent;
-      // callers MUST branch on workspace kind in the renderer and call
-      // `fs.removeAll` (with an explicit "permanent" confirm) for remote.
-      //
-      // Idempotent on ENOENT (a stale row whose underlying path has
-      // disappeared resolves silently — same posture as `fs.removeAll`).
-      // ----------------------------------------------------------------
       trash: call(workspaceScoped({ relPath: FsMutationRelPathSchema }), z.void()),
       readExternal: call(workspaceScoped({ absolutePath: z.string() }), FileReadResultSchema),
-      // The files outside the workspace a Claude tab links (`owner`, its
-      // tab id), which the previews may then read; `dirs` are the folders
-      // of its HTML files, whose pages load what sits beside them. Each
-      // call replaces what that owner granted; empty lists revoke it.
       grantOutside: call(
         workspaceScoped({
           owner: z.string().min(1).max(200),
@@ -2054,42 +1627,17 @@ const coreIpcContract = {
     call: {
       openPathExternal: call(SystemAbsPathArgsSchema, SystemPathResultSchema),
       revealInOS: call(SystemAbsPathArgsSchema, SystemPathResultSchema),
-      /** The folder the app's log files are in (main.log and its old file). */
       logsPath: call(z.void(), z.object({ path: z.string() })),
-      /** Shows that folder in the OS file manager. */
       openLogsFolder: call(z.void(), SystemPathResultSchema),
       openNewWindow: call(z.void(), z.object({ ok: z.literal(true) })),
-      /**
-       * How busy the workspace's host is (an SSH or WSL one's, from its
-       * agent), or this machine when none is named or it is local. Null
-       * while the host cannot tell: not connected, or an older agent.
-       */
       stats: call(z.object({ workspaceId: z.string().optional() }), SystemStatsSchema.nullable()),
-      /**
-       * The installed font families that go by more than one name, each as
-       * its names: 맑은 고딕 as well as Malgun Gothic. The settings' font
-       * fields find a font by any of them; Chromium lists the English one
-       * only. Empty where the system cannot say (macOS).
-       */
       fontNames: call(z.void(), z.object({ groups: z.array(z.array(z.string())) })),
     },
     listen: {
-      /**
-       * The computer woke from sleep, or its screen was unlocked: timers
-       * that slept with it (a tab going on once its usage limit resets) look
-       * at the clock again. `at`: when, in Unix ms.
-       */
       woke: listen(z.object({ at: NumberSchema })),
     },
   },
 
-  // ---------------------------------------------------------------------------
-  // window — controls for the window that calls.
-  //
-  // Only a window whose frame draws no controls uses minimize, maximize and
-  // close: the Linux window created transparent (main/features/window), where
-  // the titlebar draws its own buttons.
-  // ---------------------------------------------------------------------------
   window: {
     call: {
       minimize: call(z.void(), z.void()),
@@ -2100,39 +1648,17 @@ const coreIpcContract = {
         z.void(),
       ),
       isMaximized: call(z.void(), z.boolean()),
-      /**
-       * Opens the app menu at a point of the page, in its CSS pixels. Windows
-       * and Linux show no menu bar under the hidden title bar; the titlebar's
-       * menu button opens it instead.
-       */
       showAppMenu: call(z.object({ x: NumberSchema, y: NumberSchema }), z.void()),
     },
     listen: {
-      /** Sent to one window only, when it is maximized or restored. */
       maximizedChanged: listen(z.object({ maximized: z.boolean() })),
-      /** Sent to the window whose latest layout must be written before closing. */
       prepareClose: listen(z.object({ attempt: PositiveIntegerSchema })),
     },
   },
 
-  // ---------------------------------------------------------------------------
-  // clipboard — write to the system clipboard from the main process.
-  //
-  // Why a dedicated channel: renderer's `navigator.clipboard.writeText` requires
-  // transient user activation under Chromium Async Clipboard API. Non-gesture
-  // call sites (OSC 52 from a TUI, xterm drag-selection without an explicit
-  // click) silently reject. The main-process `electron.clipboard.writeText`
-  // has no activation gate — it is the documented escape hatch.
-  //
-  // Read is intentionally not exposed: letting renderer code (or any TUI via
-  // OSC 52 `?`) read the system clipboard is a privacy/secret-exfiltration
-  // risk. Same posture as `browser/security.ts`'s `clipboard-sanitized-write`
-  // grant — write is OK, read is not.
-  // ---------------------------------------------------------------------------
   clipboard: {
     call: {
       writeText: call(z.object({ text: z.string() }), z.object({ ok: z.literal(true) })),
-      // An image, as a PNG data URL (a quick look's image, drawn whole).
       writeImage: call(
         z.object({ pngDataUrl: z.string().startsWith("data:image/png;base64,") }),
         z.object({ ok: z.literal(true) }),
@@ -2141,15 +1667,6 @@ const coreIpcContract = {
     listen: {},
   },
 
-  // ---------------------------------------------------------------------------
-  // preview — the HTML preview's documents, served at nexus-preview://<token>/.
-  //
-  // A pane puts its document (the page with the preview's preamble) and
-  // points its iframe at the address it gets back; it puts it again under the
-  // same token as the file is edited, and releases it when it closes. A
-  // srcdoc document would take on the app window's Content-Security-Policy
-  // (main's custom-protocols/nexus-preview.ts).
-  // ---------------------------------------------------------------------------
   preview: {
     call: {
       putHtml: call(
@@ -2181,19 +1698,8 @@ const coreIpcContract = {
     listen: {},
   },
 
-  // ---------------------------------------------------------------------------
-  // Embedded browser tab channel.
-  //
-  // renderer → main: create / destroy / layout / navigation commands.
-  // main → renderer: navigated / loadingChanged / error / titleUpdated events.
-  //
-  // All call handlers are fire-and-forget (return z.void()).  Security
-  // policy (navigation guards, permission handler, webPreferences) is applied
-  // entirely on the main side; the renderer only sends CSS-coordinate bounds.
-  // ---------------------------------------------------------------------------
   browser: {
     call: {
-      /** Create (or replace) the WebContentsView backing `tabId`. */
       create: call(
         z.object({
           tabId: z.guid(),
@@ -2204,17 +1710,7 @@ const coreIpcContract = {
         }),
         z.void(),
       ),
-      /** Destroy the WebContentsView and release all resources for `tabId`. */
       destroy: call(z.object({ tabId: z.guid(), viewId: z.guid() }), z.void()),
-      /**
-       * Resize/reposition the view.
-       *
-       * `x`, `y`, `width`, `height` are CSS pixels (DIPs) as measured by
-       * the renderer's `getBoundingClientRect()`. `WebContentsView.setBounds()`
-       * consumes the same DIP coordinate system on every platform, so the
-       * main process passes them through verbatim — no devicePixelRatio
-       * conversion is required.
-       */
       setBounds: call(
         z.object({
           tabId: z.guid(),
@@ -2226,37 +1722,15 @@ const coreIpcContract = {
         }),
         z.void(),
       ),
-      /** Attach (active=true) or detach (active=false) the view. */
       setActive: call(
         z.object({ tabId: z.guid(), viewId: z.guid(), active: z.boolean() }),
         z.void(),
       ),
-      /** Navigate the tab to `url`. */
       navigate: call(z.object({ tabId: z.guid(), url: UrlSchema }), z.void()),
       goBack: call(z.object({ tabId: z.guid() }), z.void()),
       goForward: call(z.object({ tabId: z.guid() }), z.void()),
-      /** Reload the tab; pass `ignoreCache:true` for a hard reload. */
       reload: call(z.object({ tabId: z.guid(), ignoreCache: z.boolean().optional() }), z.void()),
-      /**
-       * Toggle DevTools for the tab, docked inline as a sibling
-       * WebContentsView within the browser tab area.
-       *
-       * Mechanism: main creates a sibling `WebContentsView` to host the
-       * DevTools UI and wires it to the page's WebContents via
-       * `setDevToolsWebContents()`.  The renderer reserves a region under the
-       * page (default 40 % of the content area, resizable via a horizontal
-       * splitter) and sends `setDevToolsBounds` to position the host view.
-       *
-       * After the toggle, main broadcasts `devtoolsToggled` so the renderer
-       * can show / hide the splitter region.
-       */
       openDevTools: call(z.object({ tabId: z.guid() }), z.void()),
-      /**
-       * Resize/reposition the DevTools-host WebContentsView for `tabId`.
-       *
-       * No-op when DevTools is not currently open for the tab.  Coordinates
-       * are CSS pixels (DIPs), same convention as `setBounds`.
-       */
       setDevToolsBounds: call(
         z.object({
           tabId: z.guid(),
@@ -2268,39 +1742,10 @@ const coreIpcContract = {
         }),
         z.void(),
       ),
-      /**
-       * Hide every active WebContentsView so DOM overlays (dropdown menus,
-       * modal dialogs, drag indicators) can paint above the area the browser
-       * would otherwise occupy.
-       *
-       * Mechanism follows the VSCode pattern: when `captureSnapshot` is true
-       * the main process first calls `webContents.capturePage()` on every
-       * active view and hides the view via `setVisible(false)`. The resulting
-       * JPEG data URL is broadcast via `browser.snapshot`. The renderer shows
-       * the snapshot beneath the overlay.
-       *
-       * `captureSnapshot: false` skips the capture entirely and hides
-       * immediately — used by drag operations where any delay would break
-       * drag-to-split responsiveness.  The brief grey area during a drag is
-       * acceptable because drop indicators paint over it within one frame.
-       *
-       * WebContents are never destroyed — page state (scroll, form input,
-       * audio) is preserved.  The renderer holds the refcount; main only
-       * sees a suspended/not-suspended toggle.  Pair every `suspendAll`
-       * with a `resumeAll` once the overlay closes.
-       */
       suspendAll: call(z.object({ captureSnapshot: z.boolean() }), z.void()),
-      /**
-       * Re-show currently active views and clear cached snapshots, including
-       * snapshots of tabs that deactivated during the overlay.
-       */
       resumeAll: call(z.object({}), z.void()),
     },
     listen: {
-      /**
-       * Emitted after each committed navigation.
-       * Carries the new URL and back/forward availability flags.
-       */
       navigated: listen(
         z.object({
           tabId: z.guid(),
@@ -2310,11 +1755,9 @@ const coreIpcContract = {
           canGoForward: z.boolean(),
         }),
       ),
-      /** Emitted when the loading spinner should be shown or hidden. */
       loadingChanged: listen(
         z.object({ tabId: z.guid(), viewId: z.guid(), isLoading: z.boolean() }),
       ),
-      /** The main frame's last load failure, cleared on successful navigation. */
       loadFailureChanged: listen(
         z.object({
           tabId: z.guid(),
@@ -2322,10 +1765,6 @@ const coreIpcContract = {
           failure: z.object({ url: z.string(), description: z.string() }).nullable(),
         }),
       ),
-      /**
-       * A local address of an SSH workspace was not opened: its port could
-       * not be forwarded. `kind` is "not-connected" or "failed".
-       */
       refused: listen(
         z.object({
           tabId: z.guid(),
@@ -2335,16 +1774,7 @@ const coreIpcContract = {
           message: z.string(),
         }),
       ),
-      /** Emitted when the page title changes. */
       titleUpdated: listen(z.object({ tabId: z.guid(), viewId: z.guid(), title: z.string() })),
-      /**
-       * Emitted when the page advertises favicon(s).
-       *
-       * `favicons` is the array of URL candidates the page declares with link rel="icon". Chromium
-       * picks the most suitable candidate and passes it as the first entry (apple-touch-icon, png, etc.).
-       * `null` means there is no favicon or the page explicitly cleared it.
-       * Used to show the tab icon the user sees (the renderer shows the first candidate).
-       */
       faviconUpdated: listen(
         z.object({
           tabId: z.guid(),
@@ -2352,18 +1782,6 @@ const coreIpcContract = {
           favicons: z.array(z.string()).nullable(),
         }),
       ),
-      /**
-       * Snapshot event paired with `suspendAll` / `resumeAll`.
-       *
-       * `dataUrl` form: a JPEG dataURL of the page as it appeared right
-       * before the view was hidden.  The renderer overlays this image
-       * absolutely over the placeholder so a freshly-opened modal sees a
-       * still frame of the page rather than a blank area.
-       *
-       * `cleared: true` form: the suspend window has ended (resumeAll) and
-       * the renderer should drop the cached image so the live view shows
-       * through again.
-       */
       snapshot: listen(
         z.discriminatedUnion("kind", [
           z.object({
@@ -2379,100 +1797,33 @@ const coreIpcContract = {
           }),
         ]),
       ),
-      /**
-       * Emitted after every `openDevTools` toggle.  Carries the new
-       * docked-DevTools state so the renderer can show / hide its splitter
-       * region and start / stop reporting `setDevToolsBounds`.
-       */
       devtoolsToggled: listen(z.object({ tabId: z.guid(), viewId: z.guid(), open: z.boolean() })),
-      /**
-       * Emitted when the tab's WebContentsView gains focus (e.g. the user
-       * clicks anywhere in the page).
-       *
-       * WHY THIS EXISTS
-       * The page is a native WebContentsView painted *over* the renderer DOM,
-       * so it sits outside the DOM event chain. The group-activation listeners
-       * in GroupView (focusin / mousedown bubbling, plus the iframe-blur
-       * fallback) therefore never observe a click on a browser tab — only the
-       * tab-bar (real DOM) activates the group. This event lets the renderer
-       * activate the group that owns `tabId` whenever the page itself is
-       * clicked, matching the behaviour of every other panel type.
-       */
       focused: listen(z.object({ tabId: z.guid(), viewId: z.guid() })),
-      /**
-       * Emitted when the browser URL-focus shortcut (browser.focusUrl,
-       * ⌘L by default) fires while the page itself has focus. Because the
-       * keystroke lands in the WebContentsView — outside the renderer
-       * document — it is caught by the main-process key interceptor
-       * (browser/keyboard.ts) and bounced back here so the renderer can
-       * focus the address bar. The other browser shortcuts act in main
-       * directly; only URL focus needs a renderer round-trip.
-       */
       focusUrl: listen(z.object({ tabId: z.guid(), viewId: z.guid() })),
-      /**
-       * A download the user started in a browser tab is done, saved as
-       * `file` where downloads go. One a nexus command started is told in
-       * the command's output instead.
-       */
       downloaded: listen(z.object({ file: z.string() })),
     },
   },
 
-  // The macOS keychain the app's sealed files open with (main/features/keychain):
-  // whether they wait on it, the one window that asks before it is read, and
-  // the settings' button that opens it.
   keychain: {
     call: {
       status: call(z.void(), KeychainStatusSchema),
-      /** The first window to ask shows the question; the others wait for its answer or its closing. */
       claimPrompt: call(z.void(), z.object({ prompt: z.boolean(), status: KeychainStatusSchema })),
-      /** The answer from the window that claimed the question: open now, or put off for this run. */
       answer: call(z.object({ open: z.boolean() }), KeychainStatusSchema),
-      /** Opens it now (the settings' button); macOS may ask. */
       open: call(z.void(), KeychainStatusSchema),
     },
     listen: { changed: listen(KeychainStatusSchema) },
   },
 
-  // Application lifecycle channel.
-  //
-  // Intentionally separate from `appState` (KV store) to preserve cohesion:
-  // `appState` is a key/value persistence channel; `app` is the lifecycle
-  // command channel.  Only imperative, one-shot lifecycle actions live here.
   app: {
     call: {
-      /**
-       * Request an application restart.
-       * The renderer must finish all pending IPC writes before calling this.
-       * `reason` is a diagnostic string logged by main before the relaunch.
-       */
       restart: call(z.object({ reason: z.string().min(1).max(120) }), z.void()),
     },
     listen: {},
   },
 
-  // Claude Code session status channels.
-  //
-  // Broadcasts the per-tab Claude session status (running / needsInput / permissionPending, etc.)
-  // from main→renderer, and provides a full snapshot at renderer init.
-  // Hook requests (HookRequest/HookResponse) are for main↔agent NDJSON only, so they are
-  // not registered on this channel — shared/claude/status.ts is the common source to reference.
   claude: {
     call: {
-      /**
-       * Returns the Claude session status of every current (workspaceId, tabId) pair.
-       * The renderer calls it once when initializing the store, and afterwards
-       * receives incremental updates through status events.
-       */
       snapshot: call(z.object({}), z.array(StatusEntrySchema)),
-      /**
-       * The renderer pushes the (workspaceId, tabId) context the user is currently viewing to
-       * main. On a Stop hook, main consults this cache to decide whether to fire a
-       * notification (skipped if the user is looking at that tab).
-       *
-       * If both are null it is treated as "no active tab" and every Stop fires a notification.
-       * Pushed on every active-tab change (no debounce — changes are infrequent).
-       */
       setActiveContext: call(
         z.object({
           workspaceId: z.string().nullable(),
@@ -2480,41 +1831,20 @@ const coreIpcContract = {
         }),
         z.void(),
       ),
-      /**
-       * Tells main that the user activated the (workspaceId, tabId) tab.
-       * If that tab was in the completed state, it transitions to idle.
-       * The renderer calls it together with setActiveContext.
-       */
       markSeen: call(
         z.object({
           workspaceId: z.string(),
           tabId: z.string(),
           completedAt: z.number().optional(),
-          /** When the acknowledged chat result reached the stream, which can differ from completedAt. */
           resultAt: z.number().optional(),
         }),
         z.void(),
       ),
-      /**
-       * Resets the Claude session status of every (workspaceId, tabId) of a workspace.
-       * Called when the user chooses "Clear notifications" in the sidebar context menu.
-       * Removes the entries from the broker and broadcasts a cleared event for each tab.
-       */
       clearWorkspace: call(z.object({ workspaceId: z.string() }), z.void()),
-      /**
-       * What the Claude sessions of the workspaces are doing, as their hooks
-       * tell it: their tools, todo lists and agents. The agent list polls it.
-       */
       activity: call(
         z.object({ workspaceIds: z.array(z.string()) }),
         z.array(SessionActivitySchema),
       ),
-      /**
-       * Answers a permission request held for the user (an activity's
-       * `asks`): allow it, allow it always as Claude Code suggests, deny it
-       * with words for Claude, or deny it and stop the turn. False when it
-       * no longer waits, answered in the terminal or gone.
-       */
       answerPermission: call(
         z.object({
           workspaceId: z.string(),
@@ -2525,82 +1855,27 @@ const coreIpcContract = {
         }),
         z.boolean(),
       ),
-      /**
-       * A Claude tab's user answered there the last permission request it
-       * showed: the session waits on no dialog, its hooks tell nothing of
-       * that until the call allowed ends. `stopped` when the answer stopped
-       * the turn.
-       */
       answeredInChat: call(
         z.object({ workspaceId: z.string(), tabId: z.string(), stopped: z.boolean() }),
         z.void(),
       ),
-      /**
-       * Stops a session's running `claude -p` run (an activity agent of kind
-       * "print"), as an interrupt would. False when the app holds no watch
-       * of it, as for a run that ended.
-       */
       stopPrintRun: call(
         z.object({ workspaceId: z.string(), tabId: z.string(), agentId: z.string() }),
         z.boolean(),
       ),
     },
     listen: {
-      /**
-       * Broadcast by main whenever the status of a specific (workspaceId, tabId) changes.
-       * Re-setting an identical status (no change) does not fire.
-       */
       status: listen(StatusEntrySchema),
-      /**
-       * Announces that a specific (workspaceId, tabId) entry was removed from the broker.
-       * Fired when `pty.exit` or a `session-end` hook is handled.
-       *
-       * Split into a separate event because the status broadcast alone cannot express "delete"
-       * (StatusEntry's status enum is always set, so no sentinel can be made).
-       * On this event the renderer calls useClaudeStatusStore.clearTab to
-       * remove the entry from its own copy — otherwise the last broadcast running
-       * status stays in the sidebar and tab indicators.
-       */
       cleared: listen(z.object({ workspaceId: z.string(), tabId: z.string() })),
     },
   },
-  // ---------------------------------------------------------------------------
-  // App-update channel.
-  //
-  // Polls the GitHub Releases API for a newer version and broadcasts the
-  // result to all renderer windows.  The renderer can also trigger a manual
-  // check via `updates.check` and suppress a specific release via
-  // `updates.setIgnoredVersion`. The statuses are UpdateStatusSchema
-  // (shared/updates/status.ts).
-  // ---------------------------------------------------------------------------
   updates: {
     call: {
-      /** Trigger an update check.  `trigger:"manual"` always broadcasts a result. */
       check: call(z.object({ trigger: z.enum(["auto", "manual"]) }), z.void()),
-      /**
-       * Persist the version string the user wants to ignore.
-       * Pass `null` to clear a previously ignored version.
-       */
       setIgnoredVersion: call(z.object({ version: z.string().nullable() }), z.void()),
-      /**
-       * Download the newest release on the user's channel and stage it to
-       * install on restart. The steps arrive as statusChanged and the bytes
-       * as progress. Only offered when a "newer" status says `canInstall`.
-       */
       install: call(z.void(), z.void()),
-      /** Quit and install the staged update; a no-op until one is ready. */
       restart: call(z.void(), z.void()),
-      /**
-       * Open the GitHub release page URL in the system default browser.
-       * The main process validates the scheme (https only) before calling
-       * shell.openExternal, so the renderer never touches the OS handler directly.
-       */
       openReleasePage: call(z.object({ url: UrlSchema }), z.void()),
-      /**
-       * The status to show now — the last check or the step of an update
-       * under way — and the download's progress, for a view opened after
-       * the broadcasts went out.
-       */
       getStatus: call(
         z.void(),
         z.object({
@@ -2608,47 +1883,16 @@ const coreIpcContract = {
           progress: UpdateProgressSchema.nullable(),
         }),
       ),
-      /** Open the app's Microsoft Store page, where the Store updates it. */
       openStorePage: call(z.void(), z.void()),
-      /**
-       * The recent releases' notes on the user's channel, newest first, read
-       * from the GitHub releases feed when asked.
-       */
       releaseNotes: call(z.void(), ReleaseNotesResultSchema),
     },
     listen: {
-      /** Broadcast by main whenever the update status changes. */
       statusChanged: listen(UpdateStatusSchema),
-      /** Broadcast about once a second while an update downloads. */
       progress: listen(UpdateProgressSchema),
     },
   },
-  // ---------------------------------------------------------------------------
-  // Browser permission channel.
-  //
-  // Main → renderer: prompt — broadcasts a permission request to the renderer
-  //   so the user can allow or block it via a modal.  All permissions that a
-  //   single origin requests at the same time arrive as one event (the
-  //   `permissions` array).
-  //
-  // Renderer → main: respond — carries the user's allow/block decision and
-  //   the `remember` flag (persist the decision for future visits).
-  //              cancel  — dismisses a prompt without a persistent decision
-  //                        (one-off implicit block).
-  //         listRemembered — returns all remembered grants/blocks; filtered by
-  //                        workspaceId when provided, global otherwise.
-  //              revoke  — deletes a single remembered entry.
-  //
-  // Global toggle (browserPermissionGrants record field in AppState) is stored
-  // via the existing `appState` get/set channel and is NOT duplicated here.
-  // ---------------------------------------------------------------------------
   browserPermission: {
     call: {
-      /**
-       * Carry the user's allow/block decision back to main.
-       * `remember: true` causes main to persist the decision so future requests
-       * from the same origin are resolved without a prompt.
-       */
       respond: call(
         z.object({
           promptId: z.string(),
@@ -2657,16 +1901,7 @@ const coreIpcContract = {
         }),
         z.void(),
       ),
-      /**
-       * Cancel a pending prompt without creating a remembered rule.
-       * Main treats this as a one-time block for the current request only.
-       */
       cancel: call(z.object({ promptId: z.string() }), z.void()),
-      /**
-       * Returns all remembered permission decisions.
-       * Pass `workspaceId` to filter to a single workspace; omit for global.
-       * Used by the settings UI to list and manage saved rules.
-       */
       listRemembered: call(
         z.object({ workspaceId: z.string().optional() }),
         z.array(
@@ -2678,11 +1913,6 @@ const coreIpcContract = {
           }),
         ),
       ),
-      /**
-       * Delete a single remembered permission rule.
-       * After this call, the next request from `origin` for `permission` will
-       * trigger a fresh prompt.
-       */
       revoke: call(
         z.object({
           workspaceId: z.string(),
@@ -2693,15 +1923,6 @@ const coreIpcContract = {
       ),
     },
     listen: {
-      /**
-       * Broadcast by main when a page requests one or more permissions from
-       * the same origin simultaneously.  The renderer should display a modal
-       * for `promptId` listing each entry in `permissions`.
-       *
-       * `permissions` is always non-empty.  For `media`, the modal should
-       * decompose the request into camera / microphone labels; the permission
-       * string itself remains `"media"` in this array.
-       */
       prompt: listen(
         z.object({
           promptId: z.string(),
@@ -2710,48 +1931,20 @@ const coreIpcContract = {
           permissions: z.array(BrowserPermissionKindSchema),
         }),
       ),
-      /**
-       * Broadcast by main when nothing is waiting on `promptId` any more
-       * (the requesting page closed or navigated away). The renderer drops
-       * the prompt from its queue; an answer to it would be ignored.
-       */
       dismissed: listen(z.object({ promptId: z.string() })),
     },
   },
 
-  // ---------------------------------------------------------------------------
-  // nexus CLI channel.
-  //
-  // The CLI's commands run in main; those that touch tabs, the layout or a
-  // terminal's screen are asked of the renderer, which owns them, through
-  // uiRequest, and answered through uiRespond.
-  // ---------------------------------------------------------------------------
   cli: {
     call: {
       uiRespond: call(CliUiRespondArgsSchema, z.void()),
-      /**
-       * The renderer's sessions changed since main last read them
-       * (sessions.snapshot): `revision` is its count of changes now.
-       */
       sessionsChanged: call(z.object({ revision: z.number().int().nonnegative() }), z.void()),
-      /**
-       * What each live terminal has printed lately and the last notification
-       * it raised: the state of Codex and other agents without hooks, for
-       * the sessions view.
-       */
       activity: call(z.object({}), z.array(TabActivityEntrySchema)),
-      /** Which terminals are blocked in nexus terminal wait on which, for the sessions view. */
       waits: call(z.object({}), z.array(TerminalWaitSchema)),
-      /**
-       * Lets the user pick an element in a shown browser tab, as nexus
-       * browser pick does, for the tab's pick button. Answers with the text
-       * that tells an agent about the element, or why none was picked.
-       */
       pickElement: call(
         z.object({ tabId: z.guid() }),
         z.union([z.object({ text: z.string() }), z.object({ cancelled: z.string() })]),
       ),
-      /** Ends the pick going on in a browser tab, if there is one. */
       cancelPick: call(z.object({ tabId: z.guid() }), z.void()),
     },
     listen: {
@@ -2759,16 +1952,8 @@ const coreIpcContract = {
     },
   },
 
-  // Settings › Claude and Codex: the profiles' folders and sign-ins on this
-  // machine. A chat tab's profile is set up on its workspace's host instead,
-  // as it starts (chat.start's profileId).
   agentProfiles: {
     call: {
-      /**
-       * This machine's home folder, which a profile's "~/" folder is in, and
-       * each agent's default folder here: ~/.claude and ~/.codex, unless
-       * CLAUDE_CONFIG_DIR or CODEX_HOME says another.
-       */
       home: call(
         z.void(),
         z.object({
@@ -2796,38 +1981,26 @@ const coreIpcContract = {
         ConnectionProbeSchema.extend({ model: z.string().trim().min(1).max(256) }),
         ConnectionTestResultSchema,
       ),
-      /** Who the profile is signed in as on this machine. */
       status: call(z.object({ profileId: z.string().max(64) }), AgentProfileStatusSchema),
-      /** Makes the profile's folder and its links to the default folder's files. */
       prepare: call(
         z.object({ profileId: z.string().max(64) }),
         z.object({ dir: z.string(), linked: z.array(z.string()), failed: z.array(z.string()) }),
       ),
-      /** Whether a folder is there on this machine, and what of it links to the default folder. */
       inspect: call(
         z.object({ agent: z.enum(["claude", "codex"]), dir: z.string().max(4096) }),
         z.object({ exists: z.boolean(), linked: z.array(z.string()) }),
       ),
-      /** Starts the profile's sign-in (`claude auth login`, `codex login`); its output comes as events. */
       loginStart: call(
         z.object({ profileId: z.string().max(64) }),
         z.object({ id: z.string(), command: z.string() }),
       ),
-      /** Types a line into the sign-in (the code the browser shows). */
       loginInput: call(z.object({ id: z.string().max(64), text: z.string().max(4096) }), z.void()),
-      /** Stops a sign-in. */
       loginCancel: call(z.object({ id: z.string().max(64) }), z.void()),
-      /** Opens a sign-in's https address in the system browser. */
       openUrl: call(z.object({ url: UrlSchema.max(8192) }), z.void()),
-      /**
-       * The profile's behavior file (settings.json, config.toml) on this machine and
-       * the values of the fields Settings edits. `prepare` first makes the folder and links.
-       */
       readBehavior: call(
         z.object({ profileId: z.string().max(64), prepare: z.boolean().optional() }),
         BehaviorFileSchema,
       ),
-      /** Writes the changed fields only, if the file is still at `version`. */
       writeBehavior: call(
         z.object({
           profileId: z.string().max(64),
@@ -2836,7 +2009,6 @@ const coreIpcContract = {
         }),
         BehaviorWriteResultSchema,
       ),
-      /** Replaces the profile's link to the default folder's behavior file with a copy of its own. */
       unshareBehavior: call(
         z.object({ profileId: z.string().max(64) }),
         z.object({ path: z.string() }),
@@ -2850,36 +2022,21 @@ const coreIpcContract = {
 } as const satisfies Record<string, ChannelDefinition>;
 
 const remoteContracts = {
-  // The NexusCode account the remote runs on (shared/remote): signing in
-  // with Google in the browser, and the account's devices.
   remote: {
     call: {
       account: call(z.void(), RemoteAccountStateSchema),
-      /**
-       * Opens the sign-in in the browser and answers once it is over: signed
-       * in, or signed out with why it did not finish.
-       */
       signIn: call(
         z.object({ provider: SignInProviderSchema }).optional(),
         RemoteAccountStateSchema,
       ),
-      /** What the server offers (GET /info): its sign-ins, the relay, voice. */
       serverInfo: call(z.void(), ServerInfoSchema),
       cancelSignIn: call(z.void(), z.void()),
       signOut: call(z.void(), z.void()),
-      /** Deletes the account on the server, and signs every device out. */
-      /** With the account password where the server keeps its verifier (account keys v2). */
       deleteAccount: call(
         z.object({ password: z.string().max(1024).optional() }).optional(),
         z.void(),
       ),
       devices: call(z.void(), z.array(RemoteDeviceInfoSchema)),
-      /**
-       * Removes a device; another one, on a server of account keys v2, with
-       * the account password, which rotates the account key (its KeyFailure
-       * as the kind when that fails). The device that asked for a reset goes
-       * without it, but one that holds the key only with `keepKey`.
-       */
       removeDevice: call(
         z.object({
           id: z.string().min(1).max(64),
@@ -2888,7 +2045,6 @@ const remoteContracts = {
         }),
         z.void(),
       ),
-      /** Gives a device an alias, shown in place of its name, or takes it away (null or empty). */
       setDeviceAlias: call(
         z.object({
           id: z.string().min(1).max(64),
@@ -2896,34 +2052,22 @@ const remoteContracts = {
         }),
         z.void(),
       ),
-      /**
-       * The account key and the account password's flows. A flow that does
-       * not go through fails with a KeyFailure as its kind (too-short,
-       * wrong-password, conflict, unavailable, signed-out).
-       */
-      /** The account's room: whether this device is in, and the other devices. */
       room: call(z.void(), RoomStateSchema),
-      /** Another device's workspaces and sessions, asked through the room. */
       peerSessions: call(
         z.object({ deviceId: z.string().min(1).max(64) }),
         RPC_METHODS["sessions.list"].result,
       ),
-      /** Whether the account's other devices may control this one's chats. */
       allowControl: call(z.void(), z.boolean()),
       setAllowControl: call(z.object({ allowed: z.boolean() }), z.boolean()),
-      /** Whether other devices may control this one's terminals (off unless the user turned it on). */
       allowTerminal: call(z.void(), z.boolean()),
       setAllowTerminal: call(z.object({ allowed: z.boolean() }), z.boolean()),
-      /** Whether agents on the user's other computers may act here: ask, allow or deny. */
       agentsPolicy: call(z.void(), RemoteAgentsPolicySchema),
       setAgentsPolicy: call(
         z.object({ policy: RemoteAgentsPolicySchema }),
         RemoteAgentsPolicySchema,
       ),
-      /** When to notify the account's phones about requests. */
       phonePushPolicy: call(z.void(), PhonePushPolicySchema),
       setPhonePushPolicy: call(z.object({ policy: PhonePushPolicySchema }), PhonePushPolicySchema),
-      /** Starts watching another device's sessions: the list now, then peerSessionsUpdate. */
       peerSessionsWatch: call(
         z.object({ deviceId: z.string().min(1).max(64) }),
         RPC_METHODS["sessions.watch"].result,
@@ -2934,61 +2078,50 @@ const remoteContracts = {
           .merge(RPC_METHODS["sessions.unwatch"].params),
         RPC_METHODS["sessions.unwatch"].result,
       ),
-      /** Changes the order of another device's workspace sessions. */
       peerSessionsReorder: call(
         RPC_METHODS["sessions.reorder"].params.extend({ deviceId: z.string().min(1).max(64) }),
         RPC_METHODS["sessions.reorder"].result,
       ),
-      /** Acknowledges the listed results the user saw on this device. */
       peerSessionsMarkSeen: call(
         RPC_METHODS["sessions.markSeen"].params.extend({ deviceId: z.string().min(1).max(64) }),
         RPC_METHODS["sessions.markSeen"].result,
       ),
-      /** A page of another device's session state changes. */
       peerSessionEvents: call(
         RPC_METHODS["events.read"].params
           .pick({ since: true, limit: true })
           .extend({ deviceId: z.string().min(1).max(64) }),
         RPC_METHODS["events.read"].result,
       ),
-      /** A chat of another device's: its last items, or those before `before`. */
       peerChat: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.read"].params),
         RPC_METHODS["chat.read"].result,
       ),
-      /** Sends another device's chat a message, as the user. */
       peerChatSend: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.send"].params),
         RPC_METHODS["chat.send"].result,
       ),
-      /** Answers the request another device's chat waits on. */
       peerChatAnswer: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.answer"].params),
         RPC_METHODS["chat.answer"].result,
       ),
-      /** Starts another device's chat's program again, as its banner does. */
       peerChatRestart: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.restart"].params),
         RPC_METHODS["chat.restart"].result,
       ),
-      /** A file another device's chat changed as it was before, for its diff. */
       peerChatOriginal: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.original"].params),
         RPC_METHODS["chat.original"].result,
       ),
-      /** Closes another device's chat's tab, its session kept, as /exit does. */
       peerChatClose: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.close"].params),
         RPC_METHODS["chat.close"].result,
       ),
-      /** Opens a chat in one of another device's workspaces, as the user. */
       peerChatNew: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.new"].params),
         RPC_METHODS["chat.new"].result,
       ),
-      /** Renames another device's chat, as the user. */
       peerChatRename: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
@@ -2999,174 +2132,146 @@ const remoteContracts = {
           ),
         RPC_METHODS["chat.rename"].result,
       ),
-      /** Asks another device's Codex chat's program again whether it is signed in. */
       peerChatCheckSignIn: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.checkSignIn"].params),
         RPC_METHODS["chat.checkSignIn"].result,
       ),
-      /** The `claude -p` and `codex exec` runs another device's chat's session started. */
       peerChatRuns: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.runs"].params),
         RPC_METHODS["chat.runs"].result,
       ),
-      /** One of those runs, with its tools, messages and answer. */
       peerChatRun: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.run"].params),
         RPC_METHODS["chat.run"].result,
       ),
-      /** One of those runs as the conversation its own session holds, a page at a time. */
       peerChatRunRead: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.runRead"].params),
         RPC_METHODS["chat.runRead"].result,
       ),
-      /** Stops one of those runs. */
       peerChatStopRun: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.stopRun"].params),
         RPC_METHODS["chat.stopRun"].result,
       ),
-      /** Stops another device's chat's turn. */
       peerChatInterrupt: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.interrupt"].params),
         RPC_METHODS["chat.interrupt"].result,
       ),
-      /** What another device's chat runs with, and may be set to. */
       peerChatSettings: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.settings"].params),
         RPC_METHODS["chat.settings"].result,
       ),
-      /** Sets another device's chat's model, effort or permission mode, as the user. */
       peerChatConfigure: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.configure"].params),
         RPC_METHODS["chat.configure"].result,
       ),
-      /** Another device's chat's slash commands. */
       peerChatCommands: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.commands"].params.omit({ from: true })),
         RPC_METHODS["chat.commands"].result,
       ),
-      /** Starts sending a file for the next message to another device's chat. */
       peerChatUploadBegin: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.upload.begin"].params),
         RPC_METHODS["chat.upload.begin"].result,
       ),
-      /** The next piece of a file going to another device's chat. */
       peerChatUploadChunk: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.upload.chunk"].params),
         RPC_METHODS["chat.upload.chunk"].result,
       ),
-      /** Ends a file going to another device's chat: its id for the message. */
       peerChatUploadEnd: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.upload.end"].params),
         RPC_METHODS["chat.upload.end"].result,
       ),
-      /** What an @ in another device's chat's composer may name. */
       peerChatFileSuggestions: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.fileSuggestions"].params.omit({ from: true })),
         RPC_METHODS["chat.fileSuggestions"].result,
       ),
-      /** Runs one of the app's commands in another device's chat, as the user. */
       peerChatCommand: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.command"].params.omit({ from: true })),
         RPC_METHODS["chat.command"].result,
       ),
-      /** Stops a background run or subagent of another device's chat, as its side panel's button does. */
       peerChatStopTask: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.stopTask"].params),
         RPC_METHODS["chat.stopTask"].result,
       ),
-      /** The agent profiles another device's chats can run with. */
       peerProfiles: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["profiles.list"].params.omit({ from: true })),
         RPC_METHODS["profiles.list"].result,
       ),
-      /** Reads or changes the Claude Code settings of another device's chat, as the user. */
       peerChatConfig: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.config"].params),
         RPC_METHODS["chat.config"].result,
       ),
-      /** Works an MCP server of another device's chat, as the user. */
       peerChatMcp: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.mcp"].params),
         RPC_METHODS["chat.mcp"].result,
       ),
-      /** Has another device's chat run with another profile, as the user. */
       peerChatProfile: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.profile"].params.omit({ from: true })),
         RPC_METHODS["chat.profile"].result,
       ),
-      /** Another device's chat's instructions: the combined text, and from 0.16.0 its layers. */
       peerChatInstructions: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.instructions"].params.omit({ from: true })),
         RPC_METHODS["chat.instructions"].result,
       ),
-      /** Replaces another device's chat's session instructions, as the user. */
       peerChatInstructionsSet: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.instructions.set"].params.omit({ from: true })),
         RPC_METHODS["chat.instructions.set"].result,
       ),
-      /** An image of another device's chat: a message's or a tool's, by its place there. */
       peerChatImage: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.image"].params.omit({ from: true })),
         RPC_METHODS["chat.image"].result,
       ),
-      /** A folder of another device's workspace: whether the files its chats name are there. */
       peerFilesList: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.list"].params),
         RPC_METHODS["files.list"].result,
       ),
-      /** Files of another device's workspace by name: an @ in its chat's composer, before 0.13.0. */
       peerFilesFind: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.find"].params),
         RPC_METHODS["files.find"].result,
       ),
-      /** Text matches in another device's workspace. */
       peerFilesSearch: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.search"].params),
         RPC_METHODS["files.search"].result,
       ),
-      /** How busy another device's workspace's host is, for its status bar. */
       peerSystemStats: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["system.stats"].params),
         RPC_METHODS["system.stats"].result,
       ),
-      /** A file of another device's workspace, as its chats name it. */
       peerFilesRead: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.read"].params),
         RPC_METHODS["files.read"].result,
       ),
-      /** An authorized byte span, or a whole file when it fits the desktop cache. */
       peerFilesReadBytes: call(
         z.object({
           deviceId: z.string().min(1).max(64),
@@ -3185,116 +2290,98 @@ const remoteContracts = {
           version: z.string().optional(),
         }),
       ),
-      /** The branch and changed files of another device's workspace. */
       peerGitStatus: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["git.status"].params),
         RPC_METHODS["git.status"].result,
       ),
-      /** How a file of another device's workspace changed against its last commit. */
       peerGitDiff: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["git.diff"].params),
         RPC_METHODS["git.diff"].result,
       ),
-      /** The commits on another device's workspace branch. */
       peerGitLog: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["git.log"].params),
         RPC_METHODS["git.log"].result,
       ),
-      /** A commit's message and changed files on another device. */
       peerGitShow: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["git.show"].params),
         RPC_METHODS["git.show"].result,
       ),
-      /** The notes of another device's workspace, the last changed first: to read, not to change. */
       peerNotesList: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["notes.list"].params.omit({ from: true })),
         RPC_METHODS["notes.list"].result,
       ),
-      /** One of those notes as Markdown, with what its recording heard. */
       peerNotesRead: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["notes.read"].params.omit({ from: true, transcriptOnly: true })),
         RPC_METHODS["notes.read"].result,
       ),
-      /** The past conversations another device's workspace can resume. */
       peerHistory: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["history.list"].params.omit({ from: true })),
         RPC_METHODS["history.list"].result,
       ),
-      /** Resumes a past conversation on another device: in a tab of its own there, or the one named. */
       peerChatResume: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.resume"].params.omit({ from: true })),
         RPC_METHODS["chat.resume"].result,
       ),
-      /** What rewinding another device's Claude chat to before a message would undo in its files. */
       peerChatRewindPreview: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.rewindPreview"].params.omit({ from: true })),
         RPC_METHODS["chat.rewindPreview"].result,
       ),
-      /** Rewinds another device's Claude chat to before one of the user's messages. */
       peerChatRewind: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.rewind"].params.omit({ from: true })),
         RPC_METHODS["chat.rewind"].result,
       ),
-      /** Forks another device's Claude chat into a new tab there. */
       peerChatFork: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.fork"].params.omit({ from: true })),
         RPC_METHODS["chat.fork"].result,
       ),
-      /** Takes back a message another device's chat holds for after its turn, whole. */
       peerChatUnqueue: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.unqueue"].params.omit({ from: true })),
         RPC_METHODS["chat.unqueue"].result,
       ),
-      /** Takes back a message another device's Claude chat has not read. */
       peerChatWithdraw: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.withdraw"].params.omit({ from: true })),
         RPC_METHODS["chat.withdraw"].result,
       ),
-      /** Has another device's Claude chat read its unread messages now. */
       peerChatHurry: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.hurry"].params),
         RPC_METHODS["chat.hurry"].result,
       ),
-      /** Sends another device's Claude chat's running command or subagent to the background. */
       peerChatBackground: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.background"].params),
         RPC_METHODS["chat.background"].result,
       ),
-      /** Turns another device's Claude chat's Remote Control on or off. */
       peerChatRemoteControl: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.remoteControl"].params.omit({ from: true })),
         RPC_METHODS["chat.remoteControl"].result,
       ),
-      /** Gives another device's chat an image for the next message sent it. */
       peerChatAttach: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["chat.attach"].params.omit({ from: true })),
         RPC_METHODS["chat.attach"].result,
       ),
-      /** What changed in a chat another device watches here (the renderer tells main). */
       chatChanged: call(
         z.object({
           watchId: z.string(),
@@ -3302,9 +2389,7 @@ const remoteContracts = {
         }),
         z.void(),
       ),
-      /** A chat another device watched here is gone (the renderer tells main). */
       chatWatchEnded: call(z.object({ watchId: z.string() }), z.void()),
-      /** What changed in a terminal another device watches here (the renderer tells main). */
       terminalChanged: call(
         z.object({
           watchId: z.string(),
@@ -3312,9 +2397,7 @@ const remoteContracts = {
         }),
         z.void(),
       ),
-      /** A terminal another device watched here is gone (the renderer tells main). */
       terminalWatchEnded: call(z.object({ watchId: z.string() }), z.void()),
-      /** Starts watching another device's chat: its page now, then peerChatUpdate. */
       peerChatWatch: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.watch"].params),
         RPC_METHODS["chat.watch"].result,
@@ -3323,14 +2406,12 @@ const remoteContracts = {
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.unwatch"].params),
         RPC_METHODS["chat.unwatch"].result,
       ),
-      /** A terminal of another device's, as text. */
       peerTerminal: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["terminal.read"].params),
         RPC_METHODS["terminal.read"].result,
       ),
-      /** Starts watching another device's terminal: its text now, then peerTerminalUpdate. */
       peerTerminalWatch: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
@@ -3343,28 +2424,24 @@ const remoteContracts = {
           .merge(RPC_METHODS["terminal.unwatch"].params),
         RPC_METHODS["terminal.unwatch"].result,
       ),
-      /** Types into another device's terminal, where it lets this one (terminal.control). */
       peerTerminalInput: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["terminal.input"].params),
         RPC_METHODS["terminal.input"].result,
       ),
-      /** Opens a terminal on another device, where it lets this one (terminal.control). */
       peerTerminalOpen: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["terminal.open"].params),
         RPC_METHODS["terminal.open"].result,
       ),
-      /** The shells a new terminal on another device can run, as its "New terminal with" lists them. */
       peerTerminalShells: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["terminal.shells"].params.omit({ from: true })),
         RPC_METHODS["terminal.shells"].result,
       ),
-      /** Renames another device's terminal, where it lets this one (terminal.control). */
       peerTerminalRename: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
@@ -3375,21 +2452,18 @@ const remoteContracts = {
           ),
         RPC_METHODS["terminal.rename"].result,
       ),
-      /** Closes another device's terminal; one running a program only with `force`. */
       peerTerminalClose: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["terminal.close"].params),
         RPC_METHODS["terminal.close"].result,
       ),
-      /** Answers the permission request another device's terminal's Claude Code holds. */
       peerTerminalAnswer: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["terminal.answer"].params),
         RPC_METHODS["terminal.answer"].result,
       ),
-      /** Answers one of another device's consent prompts (sessions.list's `consents`), as the user. */
       peerConsentAnswer: call(
         z
           .object({ deviceId: z.string().min(1).max(64) })
@@ -3405,41 +2479,22 @@ const remoteContracts = {
         AccountKeyStateSchema,
       ),
       resetKey: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
-      /** Calls off a reset that waits, with the password. */
       cancelReset: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
-      /** Where a pairing through a QR code stands. */
       pairing: call(z.void(), PairingStateSchema),
-      /** Shows a new pairing code: giving the key when this device holds it, taking it else. */
       pairStart: call(z.void(), PairingStateSchema),
       pairStop: call(z.void(), PairingStateSchema),
-      /** The user's answer to the device that asked for the key. */
       pairAnswer: call(z.object({ allow: z.boolean() }), PairingStateSchema),
-      /** Opens a voice session: ready with the rate to capture at, or why not. */
       voiceStart: call(VoiceStartArgsSchema, VoiceStartResultSchema),
-      /** About 100 ms of audio for the open session. */
       voiceAudio: call(VoiceAudioArgsSchema, z.void()),
-      /** The user stopped speaking: the rest of the text comes, then the session closes. */
       voiceStop: call(z.object({ id: z.string() }), z.void()),
-      /** Drops the session at once. */
       voiceCancel: call(z.object({ id: z.string() }), z.void()),
-      /** This month's voice minutes (GET /voice/usage). */
       voiceUsage: call(z.void(), VoiceUsageSchema),
-      /** The account's recognition terms (GET /voice/terms), shared by all its devices. */
       voiceTerms: call(z.void(), z.array(z.string())),
-      /** Replaces them (PUT /voice/terms): the list as the server kept it. */
       setVoiceTerms: call(SetVoiceTermsArgsSchema, z.array(z.string())),
-      /** Sends a note recording's take for a second pass: its id, or why not. */
       voiceTranscribe: call(VoiceTranscribeArgsSchema, TranscribeResultSchema),
-      /** A second pass: pending, done (its segments) or failed; not-found once it is gone. */
       voiceTranscription: call(z.object({ id: z.string().min(1) }), TranscriptionSchema),
-      /** Has the server drop a second pass's recording and text. */
       voiceTranscriptionDrop: call(z.object({ id: z.string().min(1) }), z.void()),
-      /**
-       * Whether the app may use the microphone, asking the system first
-       * where it has not been asked (macOS): granted, or denied there.
-       */
       voiceMicrophone: call(z.void(), z.enum(["granted", "denied"])),
-      /** Opens the system's microphone privacy settings. */
       openMicrophoneSettings: call(z.void(), z.void()),
     },
     listen: {
@@ -3447,13 +2502,9 @@ const remoteContracts = {
       keyChanged: listen(AccountKeyStateSchema),
       pairChanged: listen(PairingStateSchema),
       roomChanged: listen(RoomStateSchema),
-      /** A chat this device watches on another changed (peerChatWatch). */
       peerChatUpdate: listen(z.object({ deviceId: z.string(), update: ChatUpdateSchema })),
-      /** A terminal this device watches on another changed (peerTerminalWatch). */
       peerTerminalUpdate: listen(z.object({ deviceId: z.string(), update: TerminalUpdateSchema })),
-      /** Another device's sessions this device watches changed (peerSessionsWatch). */
       peerSessionsUpdate: listen(z.object({ deviceId: z.string(), update: SessionsUpdateSchema })),
-      /** What the open voice session's server said, then that it closed. */
       voiceEvent: listen(VoiceEventSchema),
     },
   },

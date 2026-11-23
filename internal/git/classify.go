@@ -8,7 +8,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/redact"
 )
 
-// MessageContext supplies process details used when stderr is empty.
 type MessageContext struct {
 	Stderr     string
 	Args       []string
@@ -17,7 +16,6 @@ type MessageContext struct {
 	LimitBytes int64
 }
 
-// Classify maps Git stderr to the closest renderer-visible GitErrorKind.
 func Classify(stderr string) Kind {
 	if authRequiredStderrPatterns.Matches(stderr) {
 		return KindAuthRequired
@@ -172,7 +170,6 @@ func Classify(stderr string) Kind {
 	return KindUnknown
 }
 
-// HintForKind returns the stable recovery hint for a classified git failure.
 func HintForKind(kind Kind) *ActionHint {
 	switch kind {
 	case KindNonFastForward:
@@ -188,7 +185,6 @@ func HintForKind(kind Kind) *ActionHint {
 	}
 }
 
-// MessageForKind chooses a process-failure message while preserving stderr.
 func MessageForKind(kind Kind, ctx MessageContext) string {
 	trimmed := strings.TrimSpace(ctx.Stderr)
 	if trimmed != "" {
@@ -317,7 +313,6 @@ func MessageForKind(kind Kind, ctx MessageContext) string {
 	}
 }
 
-// renderGitCommand formats a compact command label without environment values.
 func renderGitCommand(args []string) string {
 	safe := []string{"git"}
 	for _, arg := range args {
@@ -326,7 +321,6 @@ func renderGitCommand(args []string) string {
 	return redact.Credentials(strings.Join(safe, " "))
 }
 
-// formatBytes converts a byte count to the same small MB label used by TS.
 func formatBytes(bytes int64) string {
 	mib := float64(bytes) / (1024 * 1024)
 	if mib == float64(int64(mib)) {

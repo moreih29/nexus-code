@@ -1,5 +1,3 @@
-// The remote IPC channel: the NexusCode account the remote runs on.
-
 import { join } from "node:path";
 import { app, nativeImage, shell, systemPreferences } from "electron";
 import { renderSVG } from "uqr";
@@ -59,28 +57,16 @@ const log = createLogger("remote-index");
 
 const c = ipcContract.remote.call;
 
-/**
- * For development: NEXUS_REMOTE_LOGIN_HINT signs in as that email, so the
- * dev server's sign-in asks nothing (two instances, one account).
- */
 function signInOptions(): { loginHint?: string } {
   const loginHint = process.env.NEXUS_REMOTE_LOGIN_HINT?.trim();
   return loginHint ? { loginHint } : {};
 }
 
-/** Asks the server for the renderer: how it failed, where the renderer can act on it. */
-/** The system's microphone privacy settings, where it has a page for them. */
 const MICROPHONE_SETTINGS: Partial<Record<NodeJS.Platform, string>> = {
   darwin: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
   win32: "ms-settings:privacy-microphone",
 };
 
-/**
- * Whether the app may use the microphone. macOS asks the user the first
- * time (the prompt names NSMicrophoneUsageDescription); a fake capture
- * device (Chromium's --use-fake-device-for-media-stream, for testing) needs
- * no asking. Elsewhere the page's getUserMedia finds out.
- */
 async function microphoneAccess(): Promise<"granted" | "denied"> {
   if (process.platform !== "darwin") return "granted";
   if (app.commandLine.hasSwitch("use-fake-device-for-media-stream")) return "granted";
@@ -107,11 +93,6 @@ async function ask<T>(question: () => Promise<T>): Promise<IpcResult<T>> {
   }
 }
 
-/**
- * Asks another device of the account for the renderer: its answer, or why
- * not (not-found, forbidden, unsupported: a version without the method,
- * unavailable: not in the room, gone, slow).
- */
 async function askPeer<T>(question: () => Promise<T>, chatSend = false): Promise<IpcResult<T>> {
   try {
     return ipcOk(await question());
@@ -134,7 +115,6 @@ async function askPeer<T>(question: () => Promise<T>, chatSend = false): Promise
   }
 }
 
-/** Runs an account password flow for the renderer: its KeyFailure as the kind when it fails. */
 async function keyFlow<T = AccountKeyState>(flow: () => Promise<T>): Promise<IpcResult<T>> {
   try {
     return ipcOk(await flow());
@@ -146,10 +126,6 @@ async function keyFlow<T = AccountKeyState>(flow: () => Promise<T>): Promise<Ipc
   }
 }
 
-/**
- * An image file drawn as a JPEG small enough that its base64 takes at most
- * `maxChars`: whole first, then smaller; null for one Electron cannot read.
- */
 function shrinkImage(
   bytes: Buffer,
   maxChars: number,
@@ -171,48 +147,31 @@ function shrinkImage(
 }
 
 export async function registerRemoteChannel(options: {
-  /** What the sign-in and the account key are sealed with; locked, the remote stays off. */
   keychain: Keychain;
-  /** The services the nexus CLI uses, once the app made them: the room serves with them. */
   services: () => CliServices | null;
-  /** Whether other devices may control this one's chats (off unless the user turned it on), kept with the app's state. */
   allowControl: { get(): boolean; set(allowed: boolean): void };
-  /** Whether they may control its terminals too (off unless the user turned it on). */
   allowTerminal: { get(): boolean; set(allowed: boolean): void };
-  /** Whether agents on the user's other computers may act here: ask (the default), allow or deny. */
   agents: { get(): RemoteAgentsPolicy; set(policy: RemoteAgentsPolicy): void };
   phonePush: {
     get(): PhonePushPolicy;
     set(policy: PhonePushPolicy): void;
     activity: PhonePushActivity;
   };
-  /** A workspace's git status now, for the tasks' branches the sessions' list tells; null where it is no repository. */
   gitStatus?: (workspaceId: string) => Promise<GitStatus | null>;
-  /** A workspace's file system once its agent is ready, for the files other devices read. */
   fs?: (workspaceId: string) => Promise<FsProvider>;
-  /** A workspace's repository, for the git other devices read; null where it is none. */
   repository?: (workspaceId: string) => Promise<RemoteRepository | null>;
-  /** How busy a workspace's host is, as its status bar shows; null while it cannot tell. */
   stats?: (workspaceId: string) => Promise<SystemStats | null>;
-  /** The app's color theme now, by its id: a phone may follow it. */
   theme?: () => string | undefined;
-  /** A file of a note's folder (a recording's take), for its second pass; throws if it is not there. */
   noteFile?: (workspaceId: string, noteId: string, src: string) => Promise<Uint8Array>;
-  /** The notes other devices list and put photos into, and the note it records into. */
   notes?: RemoteNotes;
-  /** Whether voice input sends the account's computer and workspace names along (off unless the user turned it on). */
   voiceNames?: () => boolean;
 }): Promise<{
   account: RemoteAccount;
   keys: AccountKeys;
-  /** The app's theme changed: the other devices are told. */
   themeChanged(): void;
   consentsChanged(): void;
-  /** Drops the removed workspace's cached Git facts. */
   forgetWorkspace(workspaceId: string): void;
-  /** The user's other computers, for the nexus command's --device. */
   cli: CliRemote;
-  /** Reads a file of another computer's workspace, for the previews of quick look over its chats. */
   peerFiles: PeerFileReader;
   dispose(): void;
 }> {
@@ -224,12 +183,10 @@ export async function registerRemoteChannel(options: {
     box,
     SavedAccountSchema,
   );
-  // In the account's room while signed in with the account key; out of it otherwise.
   let room: RemoteRoom | null = null;
   let disposed = false;
   let roomFor = "";
   let roomState: RoomState = { status: "off", peers: [] };
-  /** The room, to ask another device through; Unavailable while out of it. */
   const inRoom = (): RemoteRoom => {
     if (!room) throw new RpcFailure(RpcErrorCode.Unavailable, "not in the room");
     return room;
@@ -237,23 +194,18 @@ export async function registerRemoteChannel(options: {
   const peerFiles = new PeerFileReads((deviceId, params, signal) =>
     inRoom().request(deviceId, PEER_READ_METHODS.peerFilesRead, params, undefined, signal),
   );
-  // The chats other devices watch here, told through the room.
   const watches = new ChatWatches({
     services: options.services,
     notify: (to, update) => room?.notify(to, "chat.update", update) ?? Promise.resolve(false),
   });
-  // What agents on the user's other computers may do here, as the user set it.
   const agentGate = new AgentGate({ policy: () => options.agents.get() });
-  // The tasks' branches, looked at now and then for the sessions' list.
   const { gitStatus } = options;
   const taskGit = gitStatus ? new TaskGit(gitStatus) : null;
   const git = taskGit?.facts;
-  // What the user lets other devices control here, for the consent prompts they may answer.
   const controls = () => ({
     chat: options.allowControl.get(),
     terminal: options.allowTerminal.get(),
   });
-  // The sessions' list other devices watch here.
   const sessionWatches = new SessionWatches({
     snapshot: async (from) => {
       const services = options.services();
@@ -266,14 +218,12 @@ export async function registerRemoteChannel(options: {
     },
     notify: (to, update) => room?.notify(to, "sessions.update", update) ?? Promise.resolve(false),
   });
-  // The terminals other devices watch here.
   const terminalWatches = new TerminalWatches({
     services: options.services,
     notify: (to, update) => room?.notify(to, "terminal.update", update) ?? Promise.resolve(false),
   });
   const setRoomState = (state: RoomState) => {
     peerFiles.updateRoom(state);
-    // A device that left, or this one leaving, ends the watches it had.
     if (state.status !== "online") {
       push.presenceLost();
       void watches.dropAll();
@@ -290,8 +240,6 @@ export async function registerRemoteChannel(options: {
     roomState = state;
     broadcast("remote", "roomChanged", state);
   };
-  // Set once the account key is read: until then no change of the account reaches it, so a
-  // sign-in not read yet (the keychain locked) is not taken for a sign-out that drops the key.
   let keys: AccountKeys | null = null;
   const server = remoteServer(process.env, app.isPackaged, (message) => log.warn(message));
   const account = new RemoteAccount({
@@ -301,7 +249,6 @@ export async function registerRemoteChannel(options: {
     openExternal: (url) => shell.openExternal(url),
     installId: () => installIdAt(join(app.getPath("userData"), "remote-install-id")),
     ...signInOptions(),
-    // The browser is in front; the sign-in ends, or says why it did not, in the app.
     onBrowserBack: () => {
       if (process.platform === "darwin") app.focus({ steal: true });
       showAppWindow();
@@ -334,7 +281,6 @@ export async function registerRemoteChannel(options: {
     },
   });
   const socketRetryAfter = new SocketRetryAfter();
-  // The names of the moment a voice session sends along, when the user turned them on.
   const voiceNames = new VoiceNames({
     enabled: () => options.voiceNames?.() ?? false,
     workspaces: () =>
@@ -352,7 +298,6 @@ export async function registerRemoteChannel(options: {
     retryAfter: socketRetryAfter,
     emit: (event) => broadcast("remote", "voiceEvent", event),
   });
-  // A note's recording: its own session, so a dictation can go on beside it.
   const noteVoice = new VoiceSessions({
     account,
     purpose: "note",
@@ -362,7 +307,6 @@ export async function registerRemoteChannel(options: {
   });
   const sessionOf = (id: string) => (noteVoice.has(id) ? noteVoice : voice);
 
-  /** Gets a ticket for the current attempt and builds its WebSocket URL. */
   const relayUrl = async (signal: AbortSignal) => {
     const ticket = await askTicket(account, undefined, signal);
     signal.throwIfAborted();
@@ -376,7 +320,6 @@ export async function registerRemoteChannel(options: {
     via: () => relay?.onlineRoute() ?? null,
     reconnect: () => relay?.reconnect(),
   });
-  /** Keeps the relay in the room for the signed-in account and current key. */
   function syncRoom(): void {
     if (disposed) return;
     const signedIn = account.state();
@@ -447,8 +390,6 @@ export async function registerRemoteChannel(options: {
       }),
       onChange: setRoomState,
       onPresence: (peers) => push.presence(peers),
-      // Also a device back with a new connection the room never showed gone:
-      // the watches its old one opened end here, as setRoomState cannot see.
       onDisconnect: (peer) =>
         dropPeerHolds(
           { chats: watches, sessions: sessionWatches, terminals: terminalWatches, fileWrites },
@@ -473,12 +414,9 @@ export async function registerRemoteChannel(options: {
           });
         }
       },
-      // Another key version: the account password may have been reset on another device.
       onForeignKey: () => void keys?.refresh().catch(() => {}),
-      // A rotation or a reset, as the server tells it: ask where the key stands now.
       onAccountEvent: () => void keys?.refresh().catch(() => {}),
       onPairFrame: (frame) => pairing.onRoomFrame(frame),
-      // The relay says the sign-in ended: the server's 401 then signs the app out.
       onSignedOut: () => account.recheckSignIn(),
     });
     room.start();
@@ -508,14 +446,10 @@ export async function registerRemoteChannel(options: {
     onChange: (state) => broadcast("remote", "pairChanged", state),
   });
 
-  // The sign-in kept from the last run, then the key, once the keychain opens. A locked
-  // keychain fails the first read, and the whole waits for the next opening. The app's
-  // window does not wait for it: macOS may be asking, and the window says what to choose.
   const restored = keychain.whenOpen("remote", async () => {
     await account.restore();
     void account.syncDeviceName();
     keys = accountKeys;
-    // Asks the server where the key stands; the app does not wait for it.
     void accountKeys
       .restore()
       .catch((error: unknown) => log.warn(`the account key was not read: ${String(error)}`));
@@ -526,8 +460,6 @@ export async function registerRemoteChannel(options: {
       account: async () => ipcOk(account.state()),
       signIn: async (args: unknown) => {
         const provider = validateArgs(c.signIn.args, args)?.provider;
-        // Signing in while locked opens the keychain first: a sign-in kept there comes back
-        // rather than a new one written over it.
         if (!(await keychain.unlock())) return ipcOk(account.state());
         await restored;
         return ipcOk(await account.signIn(provider));
@@ -581,9 +513,7 @@ export async function registerRemoteChannel(options: {
         const { allowed } = validateArgs(c.setAllowControl.args, args);
         options.allowControl.set(allowed);
         push.controlsChanged();
-        // The others learn it from the hello: they show the chats as view only, or not.
         room?.announce();
-        // What they held for after a turn goes no more.
         if (!allowed)
           void options
             .services()
@@ -603,9 +533,7 @@ export async function registerRemoteChannel(options: {
       setAgentsPolicy: async (args: unknown) => {
         const { policy } = validateArgs(c.setAgentsPolicy.args, args);
         options.agents.set(policy);
-        // Turned off, the others learn it from the hello and send their agents' requests no more.
         room?.announce();
-        // Nor does what their agents' messages left held for after a turn.
         if (policy === "deny") {
           void options
             .services()

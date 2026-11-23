@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Logger } from "../../shared/log/types";
 
-/** What the start line says about the build and the machine. */
 export interface StartInfo {
   version: string;
   packaged: boolean;
@@ -11,7 +10,6 @@ export interface StartInfo {
   arch: string;
   locale: string;
   electron: string;
-  /** Milliseconds from the process start to the app being ready. */
   readyMs: number;
 }
 
@@ -27,7 +25,6 @@ export function quitLine(uptimeMs: number, reason?: string): string {
   return `NexusCode quit: uptime=${Math.round(uptimeMs / 1000)}s${reason ? ` (${reason})` : ""}`;
 }
 
-/** The file system the run marker needs; tests stand in a fake. */
 export interface MarkerFs {
   read(file: string): string | null;
   write(file: string, text: string): void;
@@ -51,13 +48,6 @@ export const realMarkerFs: MarkerFs = {
   },
 };
 
-/**
- * Tells whether the run before this one wrote its quit line. The marker is a
- * small file made at start and removed at a clean quit, so one still there at
- * the next start means the last run was cut short: a crash, a kill, a power
- * loss, or a quit that did not reach its end. Nothing is written while the app
- * runs.
- */
 export function beginRun(
   markerFile: string,
   version: string,
@@ -75,28 +65,21 @@ export function beginRun(
       const ranVersion = typeof parsed.version === "string" ? parsed.version.slice(0, 40) : "";
       if (started !== null)
         detail = ` (started ${new Date(started).toISOString()}, version=${ranVersion})`;
-    } catch {
-      // A marker that does not parse still says the run was cut short.
-    }
+    } catch {}
     logger.warn(`The previous run ended without a quit line${detail}`);
   }
   try {
     markerFs.write(markerFile, JSON.stringify({ startedAt, version }));
-  } catch {
-    // A profile that cannot be written to loses only this check.
-  }
+  } catch {}
   let quit = false;
   return {
     quit(out, reason) {
-      // The restart that installs an update calls this before the quit does.
       if (quit) return;
       quit = true;
       out.info(quitLine(now() - startedAt, reason));
       try {
         markerFs.remove(markerFile);
-      } catch {
-        // Left in place, the next start reports a cut-short run it was not.
-      }
+      } catch {}
     },
   };
 }

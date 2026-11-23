@@ -40,7 +40,6 @@ func (e *watchEntry) close() {
 	})
 }
 
-// Watch starts a recursive watcher for a repository's .git directory.
 func (s *Service) Watch(ctx context.Context, raw json.RawMessage) (any, error) {
 	gitDir, err := s.parseWatchParams(ctx, raw)
 	if err != nil {
@@ -87,7 +86,6 @@ func (s *Service) Watch(ctx context.Context, raw json.RawMessage) (any, error) {
 	return struct{}{}, nil
 }
 
-// Unwatch stops a previously registered git metadata watcher.
 func (s *Service) Unwatch(ctx context.Context, raw json.RawMessage) (any, error) {
 	gitDir, err := s.parseWatchParams(ctx, raw)
 	if err != nil {
@@ -147,10 +145,6 @@ func (s *Service) removeWatch(entry *watchEntry) {
 }
 
 func (s *Service) handleGitWatchEvent(entry *watchEntry, event fsnotify.Event) {
-	// An attribute change alone is not a change to the repository: git
-	// writes state by creating, writing and renaming files. kqueue on macOS
-	// reports one for every read of .git/index, whose access time moves, so
-	// each status refresh would report a change and set off the next one.
 	if event.Op == fsnotify.Chmod {
 		return
 	}
@@ -165,8 +159,6 @@ func (s *Service) handleGitWatchEvent(entry *watchEntry, event fsnotify.Event) {
 	s.bufferGitDirty(entry.gitDir)
 }
 
-// bufferGitDirty coalesces repository refreshes until the batch fills. A
-// repository that cannot join the batch gets the same refresh immediately.
 func (s *Service) bufferGitDirty(gitDir string) {
 	s.mu.Lock()
 	if _, queued := s.gitDirty[gitDir]; !queued && len(s.gitDirty) >= maxDirtyRepositories {
@@ -185,8 +177,6 @@ func (s *Service) bufferGitDirty(gitDir string) {
 	s.timer = time.AfterFunc(gitWatchDebounce, s.flushGitDirty)
 }
 
-// flushGitDirty allows at most one in-flight debounce batch, even when its
-// event sink is blocked. New notifications accumulate in the next batch.
 func (s *Service) flushGitDirty() {
 	s.mu.Lock()
 	dirty := s.gitDirty
@@ -208,8 +198,6 @@ func (s *Service) flushGitDirty() {
 	s.timer = time.AfterFunc(gitWatchDebounce, s.flushGitDirty)
 }
 
-// addGitWatchDirs watches root and the directories below it that
-// isIgnoredGitWatchPath, judged relative to gitDir, does not skip.
 func addGitWatchDirs(watcher *fsnotify.Watcher, gitDir string, root string) error {
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -248,11 +236,6 @@ func isIgnoredGitWatchPath(gitDir string, candidate string) bool {
 	case "lfs":
 		return len(parts) > 1 && parts[1] == "objects"
 	case "modules":
-		// A submodule's git directory is modules/<path> (nested submodules
-		// add modules/<path> below that); skip its object store and reflogs
-		// as well. It is recognized by its HEAD file, which git writes before
-		// creating objects, so a submodule path or branch name containing
-		// "objects" or "logs" is still watched.
 		last := parts[len(parts)-1]
 		if len(parts) > 2 && (last == "objects" || last == "logs") {
 			_, err := os.Stat(filepath.Join(filepath.Dir(candidate), "HEAD"))

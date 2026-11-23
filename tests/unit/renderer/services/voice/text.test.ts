@@ -8,7 +8,6 @@ describe("dictated text in a composer", () => {
   });
 
   test("joins the finals as they came, then the partial, adding nothing between", () => {
-    // The server starts every segment after the first with its own space.
     const place = placeOf("", 0);
     const live = dictatedText(place, "Hello world. How", " are yo");
     expect(live.text).toBe("Hello world. How are yo");

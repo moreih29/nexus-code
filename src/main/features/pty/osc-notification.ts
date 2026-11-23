@@ -1,28 +1,7 @@
-// OSC escape sequence parser and Electron notification dispatcher.
-// Supports OSC 9, OSC 777 (notify), and OSC 99 — the three variants that
-// terminal tools may emit to request OS notifications.
-//
-// Redefinition of the Claude Code notification channel (T7 decision):
-// In a Claude Code session the setting `preferredNotifChannel: "notifications_disabled"` is
-// injected by the wrapper scripts/assets/claude-wrapper.sh, so Claude Code itself does not
-// fire notifications over the OSC 9/777/99 channels.
-// Claude Code notifications are handled through the hook channel (internal/hookserver → "claude.hook" NDJSON event →
-// src/main/features/claude/hook-handler.ts).
-//
-// This parser is therefore redefined as the channel dedicated to general PTY notifications other than Claude Code:
-//   - OSC notifications from shell scripts the user runs directly
-//   - notifications sent by CLI tools other than Claude (aider, other AI agent CLIs, etc.)
-//   - the NEXUS_IN_APP=0 path (wrapper passthrough) — Claude Code fires OSC as it originally does
-// The same reasons explain why this parser is kept even though the OSC channel is disabled for Claude Code.
-
 import { createLogger } from "../../../shared/log/main";
 import { tryGetMainT } from "../../i18n";
 import { broadcast } from "../../infra/ipc-router";
 import { showDesktopNotification } from "../../infra/platform/desktop-notifications";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export interface OscNotification {
   kind: "osc9" | "osc99" | "osc777";
@@ -32,8 +11,6 @@ export interface OscNotification {
 
 const log = createLogger("osc-notification");
 
-// Dependency shape injected into OscNotificationDispatcher — narrow interface
-// so callers (and tests) don't need to pass a full WorkspaceManager.
 export interface WorkspaceNameLookup {
   getName(id: string): string | null;
 }
@@ -41,56 +18,26 @@ export interface WorkspaceNameLookup {
 export interface OscNotificationDispatcherDeps {
   workspaceManager: WorkspaceNameLookup;
   getFocusedWindow: () => import("electron").BrowserWindow | null;
-  /**
-   * Whether the tab is the one the renderer has in front. Without it, a
-   * focused window counts as showing every tab.
-   */
   isActiveTab?: (workspaceId: string, tabId: string) => boolean;
-  /** Settings' OS notifications toggle, read at each notification. */
   notificationsEnabled?: () => boolean;
-  /** Called on notification click to connect the workspace. */
   connectWorkspace?: (workspaceId: string) => Promise<void>;
-  /** Called on notification click to bring the app window to the foreground. */
   focusMainWindow?: () => void;
-  /** Injected in tests to avoid real Electron Notification. */
   electronNotificationCtor?: typeof import("electron").Notification;
-  /**
-   * Injected in tests to intercept broadcast calls. Defaults to the real
-   * `broadcast` from ipc-router when omitted.
-   */
   broadcastFn?: (channel: string, event: string, args: unknown) => void;
 }
 
-// ---------------------------------------------------------------------------
-// Pure parser
-// ---------------------------------------------------------------------------
-
-// OSC 9:   ESC ] 9 ; <body> BEL|ST
 // biome-ignore lint/suspicious/noControlCharactersInRegex: OSC escape sequences require ESC and BEL literals
 const OSC9_RE = /\x1b\]9;([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
-// OSC 777: ESC ] 777 ; notify ; <title> ; <body> BEL|ST
 // biome-ignore lint/suspicious/noControlCharactersInRegex: OSC escape sequences require ESC and BEL literals
 const OSC777_RE = /\x1b\]777;notify;([^;]*);([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
-// OSC 99:  ESC ] 99 ; <params> ; <body> BEL|ST
 // biome-ignore lint/suspicious/noControlCharactersInRegex: OSC escape sequences require ESC and BEL literals
 const OSC99_RE = /\x1b\]99;([^;]*);([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
 
-// Extracts optional `p=title:VALUE` from OSC 99 params field.
 const OSC99_TITLE_PARAM_RE = /(?:^|;)p=title:([^;]*)/;
 
-/**
- * Parses `chunk` for OSC 9/777/99 escape sequences and returns a list of
- * notification descriptors. Pure function — no side effects, no mutation.
- */
 export function extractOscNotifications(chunk: string): OscNotification[] {
   const results: OscNotification[] = [];
 
-  // Fast path: every OSC sequence begins with the introducer ESC ']'
-  // (0x1b 0x5d), which all three regexes below anchor on. The vast majority of
-  // PTY output chunks (plain text, CSI cursor moves, SGR colors) contain no OSC
-  // introducer at all, so bail before running three global-regex matchAll scans
-  // over the whole chunk. Behavior-preserving — a chunk without "\x1b]" cannot
-  // match any of the patterns.
   if (!chunk.includes("\x1b]")) return results;
 
   for (const m of chunk.matchAll(OSC9_RE)) {
@@ -115,15 +62,6 @@ export function extractOscNotifications(chunk: string): OscNotification[] {
   return results;
 }
 
-// ---------------------------------------------------------------------------
-// Dispatcher
-// ---------------------------------------------------------------------------
-
-/**
- * Listens to PTY data chunks, extracts OSC notifications, and fires an
- * OS-level Electron Notification unless the user has the tab in front of
- * them, as Claude's hook notifications do (claude/hook-handler.ts).
- */
 export class OscNotificationDispatcher {
   private readonly deps: OscNotificationDispatcherDeps;
 
@@ -131,10 +69,6 @@ export class OscNotificationDispatcher {
     this.deps = deps;
   }
 
-  /**
-   * Process a raw PTY data chunk. Must be called with the original, unmodified
-   * chunk — this method never mutates it.
-   */
   handleChunk(workspaceId: string, tabId: string, chunk: string): void {
     const notifications = extractOscNotifications(chunk);
     if (notifications.length === 0) return;
@@ -142,14 +76,10 @@ export class OscNotificationDispatcher {
     const { workspaceManager, getFocusedWindow, isActiveTab, notificationsEnabled } = this.deps;
     if (notificationsEnabled?.() === false) return;
 
-    // The tab in front of the user shows what the program says; a tab behind
-    // another, or a window in the background, gets an OS notification.
-    // Nothing switches tabs for the user.
     const focusedWindow = getFocusedWindow();
     const isAppFocused = focusedWindow !== null && !focusedWindow.isMinimized();
     if (isAppFocused && (isActiveTab?.(workspaceId, tabId) ?? true)) return;
 
-    // Resolve workspace name once per chunk since all notifications share it.
     const _t = tryGetMainT();
     const workspaceName =
       workspaceManager.getName(workspaceId) ??
@@ -169,8 +99,6 @@ export class OscNotificationDispatcher {
     notification: OscNotification,
     broadcastFn: (channel: string, event: string, args: unknown) => void,
   ): void {
-    // Prefer the injected ctor (tests), fall back to the real Electron one.
-    // Lazy require keeps test environments working when electron is partially mocked.
     const NotificationCtor =
       this.deps.electronNotificationCtor ??
       (require("electron") as typeof import("electron")).Notification;
@@ -183,15 +111,12 @@ export class OscNotificationDispatcher {
       const n = new NotificationCtor({ title, body: notification.body });
 
       n.on("click", () => {
-        // 1. Bring the app window to the foreground.
         this.deps.focusMainWindow?.();
 
-        // 2. Bring the workspace online for the tab being revealed.
         this.deps.connectWorkspace?.(workspaceId)?.catch((err) => {
           log.warn(`connectWorkspace failed: ${(err as Error).message}`);
         });
 
-        // 3. Tell the renderer to reveal the workspace + tab.
         broadcastFn("pty", "notificationClick", { workspaceId, tabId });
       });
 

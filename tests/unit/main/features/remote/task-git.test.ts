@@ -1,4 +1,3 @@
-/** The tasks' git facts the sessions' list tells: kept, and looked at again only once old. */
 import { describe, expect, test } from "bun:test";
 import type { CliServices } from "../../../../../src/main/features/cli/context";
 import { listSessions } from "../../../../../src/main/features/remote/serving/sessions";
@@ -41,7 +40,6 @@ describe("a task's git facts", () => {
       },
       () => clock,
     );
-    // The first read asks git and has nothing yet; the next has what it said.
     expect(git.facts(task)).toBeUndefined();
     await settle();
     expect(git.facts(task)).toMatchObject({ branch: "feat", uncommitted: 3 });

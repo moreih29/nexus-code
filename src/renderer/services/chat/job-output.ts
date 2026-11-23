@@ -1,13 +1,3 @@
-/**
- * What a background job (a Bash run in the background, a workflow) has
- * printed: the end of the file the CLI writes its output to, as a terminal
- * would leave it. Read through the workspace, so an SSH session's job is
- * read on its host; a file outside the workspace is read once the tab
- * grants it, which it does for its jobs' output files. Another computer's
- * chat's (its peer workspace) is read from there (files.read), which
- * serves its chats' jobs' output files by name.
- */
-
 import { isAbsoluteOutsidePath } from "../../../shared/fs/outside-url";
 import { peerOf } from "../../../shared/fs/peer-url";
 import { ipcCallResult } from "../../ipc/client";
@@ -16,24 +6,15 @@ import { terminalText } from "../editor/preview/notebook";
 import { readPeerPiece } from "../remote/peer-workspace";
 import { lookupPath } from "./file-presence";
 
-/** How much of the file's end is read. */
 export const TAIL_BYTES = 16 * 1024;
-/** Most lines the end shows. */
 export const TAIL_LINES = 40;
 
 export interface JobOutput {
-  /** The last lines, without escape codes. */
   lines: string[];
-  /** Lines before these were left out. */
   cut: boolean;
   sizeBytes: number;
 }
 
-/**
- * The last `max` lines of `text`, read from the file's start or from
- * somewhere in it (`fromStart` false), whose first line is then cut by
- * where the read began and is dropped.
- */
 export function tailOf(
   text: string,
   fromStart: boolean,
@@ -53,7 +34,6 @@ export function tailOf(
   return { lines, cut };
 }
 
-/** Bytes of a file from `offset`, with its size; null when it cannot be read. */
 export type RangeRead = (
   workspaceId: string,
   relPath: string,
@@ -76,17 +56,12 @@ const readRange: RangeRead = async (workspaceId, relPath, offset, length) => {
   return read?.ok && read.value.kind === "ok" ? read.value : null;
 };
 
-/**
- * The path the workspace at `root` reads `path` by: relative under it, or
- * itself outside it; null for a path it cannot read.
- */
 export function outputReadPath(path: string, root: string): string | null {
   const rel = lookupPath(path, root);
   if (rel !== null) return rel;
   return isAbsoluteOutsidePath(path) ? path : null;
 }
 
-/** The end of the output file at `path`; null while it cannot be read. */
 export async function readJobOutput(
   workspaceId: string,
   root: string,

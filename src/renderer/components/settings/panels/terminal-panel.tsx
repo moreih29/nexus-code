@@ -1,17 +1,3 @@
-// src/renderer/components/settings/panels/terminal-panel.tsx
-//
-// Two groups. The default shell (terminal-shell-section.tsx). The font: a
-// live preview — a fake shell line and blinking cursor that mirror family,
-// size, ligatures and cursor style (no xterm instance — too heavy) — then
-// family (FontFamilyRow), size (8–32 stepper), cursor style and ligatures.
-//
-// Terminal font settings are INDEPENDENT of the editor font — they live in
-// their own store (useTerminalStore) and persist to their own appState keys.
-// What a new task opens with is the Agent panel's.
-//
-// Design seal: semantic tokens only, no hex/oklch/rgba literals,
-// no magic pixel values, no shadows.
-
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -24,16 +10,8 @@ import type { SegmentedOption } from "../segmented-control";
 import { SegmentedControl } from "../segmented-control";
 import { TerminalShellSection } from "./terminal-shell-section";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 const FONT_SIZE_MIN: TerminalFontSize = 8;
 const FONT_SIZE_MAX: TerminalFontSize = 32;
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export function TerminalPanel() {
   const { t } = useTranslation("settings");
@@ -47,9 +25,6 @@ export function TerminalPanel() {
   const setFontFamily = useTerminalStore((s) => s.setFontFamily);
   const setFontLigatures = useTerminalStore((s) => s.setFontLigatures);
 
-  // Inline cursor-shape previews — rendered with currentColor so they follow
-  // the segmented control's text color (selected vs. unselected). Sized to sit
-  // on the typescale baseline without breaking row height. Labels come from i18n.
   const cursorOptions = useMemo<SegmentedOption<TerminalCursorStyle>[]>(
     () => [
       {
@@ -83,9 +58,6 @@ export function TerminalPanel() {
   const effectiveSize = fontSize ?? DEFAULT_TERMINAL_FONT_SIZE;
   const effectiveCursor: TerminalCursorStyle = cursorStyle ?? "block";
   const effectiveLigatures = ligatures ?? false;
-  // For preview render the literal user choice. Undefined ("System") falls
-  // back to plain ui-monospace so the system mono face is visible rather than
-  // silently substituting JetBrains Mono.
   const previewFamilyStack = family && family !== "" ? family : "ui-monospace";
 
   return (
@@ -95,7 +67,6 @@ export function TerminalPanel() {
       </SettingsGroup>
 
       <SettingsGroup title={t("terminal.font")}>
-        {/* Live preview — mirrors family, size, ligatures + cursor style */}
         <TerminalPreview
           fontFamily={previewFamilyStack}
           fontSize={effectiveSize}
@@ -147,20 +118,6 @@ export function TerminalPanel() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Live terminal preview
-// ---------------------------------------------------------------------------
-
-/**
- * Lightweight HTML mock of a terminal line. Renders a static shell prompt +
- * one command + an output line, then a fresh prompt followed by the user's
- * chosen cursor shape (blinking via the preview-cursor-blink utility).
- *
- * Why not a real xterm instance? xterm.js init is heavy and stateful (PTY,
- * FitAddon, theme, ligatures addon). For a 3-line preview the visual delta is
- * invisible. We mirror family/size/ligatures via inline CSS so the sample
- * tracks what xterm renders in the live terminal panel.
- */
 function TerminalPreview({
   fontFamily,
   fontSize,
@@ -172,9 +129,6 @@ function TerminalPreview({
   ligatures: boolean;
   cursorStyle: TerminalCursorStyle;
 }) {
-  // Cursor dimensions are derived from the font size so they scale with the
-  // user's pick. xterm draws block ≈ glyph cell; we approximate: width ≈
-  // 0.6em, height ≈ 1.2em (matches monospace metrics closely enough).
   const cellW = Math.round(fontSize * 0.6);
   const cellH = Math.round(fontSize * 1.2);
   const cursorStyleProps =
@@ -188,15 +142,9 @@ function TerminalPreview({
     <div
       className={cn(
         "rounded-(--radius-control) border border-border bg-background px-3 py-2 text-foreground",
-        // Clip rather than let long lines / large font sizes spill past the
-        // box border. Lines are kept short so nothing is clipped at 32px;
-        // exotic wide fonts fold via the wrap rules below instead of leaking
-        // a horizontal scrollbar.
         "overflow-hidden",
       )}
       style={{
-        // Quote the first family token so multi-word custom names like
-        // "Fira Code" survive the unquoted-parsing split on whitespace.
         fontFamily: `"${fontFamily}", ui-monospace, monospace`,
         fontSize,
         lineHeight: 1.4,
@@ -209,7 +157,6 @@ function TerminalPreview({
         <span className="text-muted-foreground">$ </span>
         <span>git push</span>
       </div>
-      {/* Ligature showcase line — mirrors what the live terminal renders */}
       <div>{"=> != >= <= === -> |>"}</div>
       <div className="inline-flex items-baseline">
         <span className="text-muted-foreground">$ </span>
@@ -217,7 +164,6 @@ function TerminalPreview({
           aria-hidden="true"
           className={cn(
             "preview-cursor-blink inline-block bg-foreground align-baseline",
-            // Underline sits at baseline; block/bar are top-aligned via inline-block.
             cursorStyle === "underline" && "self-end",
           )}
           style={cursorStyleProps}

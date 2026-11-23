@@ -1,17 +1,3 @@
-// Where the user writes to Claude: the message box, its images, the
-// messages held for the turn's end, and the chips that switch the session's
-// model, effort and permission mode.
-//
-// ↩ sends, and during a turn Claude reads it after the current tool; ⌘↩
-// (Ctrl+↩ off the Mac) has Claude read it at once, as Claude Code's
-// Ctrl+Enter; ⌘⇧↩ holds it until the turn ends; ⇧↩ breaks the line; esc
-// stops the turn.
-// A `/` at the start completes a command, an `@` a file.
-//
-// An attached file is sent as an @-mention of its path, which the CLI
-// reads without asking. Where the program cannot see the file (an SSH
-// host, a file with no path here) the agent writes it first.
-
 import type { TFunction } from "i18next";
 import {
   AtSign,
@@ -95,104 +81,56 @@ import { DictationOverlay, MicButton, useComposerDictation } from "./dictation";
 import { surfaceChatSendError } from "./send-error";
 import type { InstructionsChipSlot } from "./session-instructions-chip";
 
-/** What the composer drives: a Claude tab's controller, or a Codex tab's. */
 export interface ComposerController {
   readonly key: string;
   readonly claudeProfileDefaultModel?: string;
-  /** The permission modes the mode chip offers; Claude Code's when left out. */
   readonly modes?: ModeSet;
   send(text: string, images?: ImageBlock[]): Promise<void>;
-  /**
-   * During a turn, sends a message the program reads at once, where `send`
-   * waits for the tool it runs (⌘↩); left out where `send` does not wait.
-   */
   sendNow?(text: string, images?: ImageBlock[]): Promise<void>;
-  /** Has the program read at once the messages `send` left waiting (⌘↩ with nothing typed). */
   readHeldNow?(): Promise<void>;
   enqueue(text: string, images?: ImageBlock[]): void;
   removeQueued(id: string): QueuedMessage | undefined;
-  /**
-   * Takes back a held message to edit, where what the queue shows is not
-   * all of it (another computer's): its whole text, none once it went.
-   * Where left out, removeQueued gives it.
-   */
   takeBackQueued?(id: string): Promise<QueuedMessage | undefined>;
-  /**
-   * Takes back a message sent during the turn that the program has not read:
-   * true when it was dropped, false when it was read first. Left out where
-   * a sent message cannot wait.
-   */
   withdraw?(sentUuid: string): Promise<boolean>;
   interrupt(): Promise<unknown>;
   clearDraft(): void;
   attach(name: string, data: string): Promise<string>;
-  /**
-   * Sends an attached file ahead to where the program runs (another
-   * computer's chat): the id the message carries it by, in place of a path
-   * it mentions. Left out where `attach` writes it.
-   */
   upload?(file: File): Promise<string>;
-  /**
-   * Sends a message whose files went ahead (`uploads`, the ids `upload`
-   * gave), as send, sendNow or enqueue sends one without: where `upload` is.
-   */
   sendUploaded?(
     how: "send" | "now" | "queue",
     text: string,
     images: ImageBlock[],
     uploads: readonly string[],
   ): Promise<void>;
-  /** Submits to a peer immediately, before images or files are uploaded. */
   submitPeer?(
     how: "send" | "now" | "queue",
     text: string,
     images: ImageBlock[],
     files: readonly ComposerAttachment[],
   ): boolean;
-  /** The most images and files one message carries; any number when left out. */
   readonly maxAttachments?: number;
   fileSuggestions(query: string): Promise<string[]>;
-  /** Whether the program answers a request the composer makes (Claude Code's names). */
   supports(subtype: string): boolean;
   setPermissionMode(mode: string): Promise<unknown>;
   setModel(model: string): Promise<unknown>;
   setEffort(level: string): Promise<unknown>;
-  /**
-   * The chip a reveal asked for has opened: for a chat whose state is not in
-   * the chat store (another computer's), which drops it itself.
-   */
   revealed?(seq: number): void;
 }
 
 interface ComposerProps {
   controller: ComposerController;
   state: ChatTabState;
-  /** A local Claude tab can borrow its profile's options while its own list is missing. */
   fallbackModels?: readonly ModelInfo[];
-  /** The instructions chip, given how it fits: a chat here's or another device's. */
   instructions?: (slot: InstructionsChipSlot) => ReactNode;
-  /** The messages other agents sent through the nexus command: one waiting shows without its line. */
   relayed?: readonly RelayedMessage[];
-  /** The program runs on this machine, where an attached file's path can be read. */
   local: boolean;
-  /** What the empty box says: while an agent is shown, where input goes. */
   placeholder?: string;
-  /** Above the queue: what an app command shows. */
   above?: React.ReactNode;
-  /** Under the box: the context and the plan's usage. */
   below?: React.ReactNode;
-  /** Runs the message when it is one of the tab's own commands; false sends it. */
   onCommand?: (text: string) => boolean;
-  /** The `/` menu lists the Claude tab's own commands too. */
   appCommands?: boolean;
-  /** The `/` menu's commands, in place of the CLI's and the app's (the Codex tab's). */
   commands?: readonly CommandInfo[];
-  /**
-   * Takes the message a rewind or fork puts back; the tab's own box does,
-   * not another box on the same conversation (the agent list's).
-   */
   takesDraft?: boolean;
-  /** An editor that owns text and images across mounts, such as a peer chat. */
   composition?: {
     text: string;
     images: ImageBlock[];
@@ -205,30 +143,19 @@ interface ComposerProps {
 
 type ChipProps = Pick<ComposerProps, "controller" | "state">;
 
-/** A file attached to the message, sent as a mention of its path. */
 export interface ComposerAttachment {
   id: number;
   file: File;
-  /** Its path on this machine, which a local program reads as it is. */
   path?: string;
 }
 
-/** The API's limit on one image, before base64. */
 const MAX_IMAGE_BYTES = 3_750_000;
-/** The agent's limit on one attached file it writes. */
 const MAX_ATTACH_BYTES = 20 * 1024 * 1024;
-/** How long typing pauses before the CLI is asked for files. */
 const SUGGEST_DELAY_MS = 100;
-/** When to ask again after no files: the CLI's index may have been cold. */
 const SUGGEST_RETRY_MS = 500;
 
 let nextAttachmentId = 1;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
-/**
- * Memoized: the Claude tab gives it the state beside a streaming reply
- * (beside-stream) and functions that keep their identity, so a chunk of
- * the reply does not render the box, its chips and their menus.
- */
 export const Composer = memo(function Composer({
   controller,
   state,
@@ -276,22 +203,14 @@ export const Composer = memo(function Composer({
   const blocked = phase === "not-found" || phase === "held" || phase === "starting";
   const dictation = useComposerDictation({ text, setText, areaRef, disabled: blocked });
   const hasText = text.trim() !== "" || images.length > 0 || files.length > 0 || notes.length > 0;
-  // Sent while listening, the dictation ends first and its whole text goes (submit);
-  // not while it connects or finishes.
   const canSend =
     !blocked &&
     hasText &&
     !sending &&
     (dictation.phase === "idle" || dictation.phase === "listening");
-  // Listening with nothing heard yet: the box says so.
   const listening = dictation.phase === "starting" || dictation.phase === "listening";
-  // An empty box tells its keys, during a turn what each does with the message,
-  // unless the tab says something of its own there.
   const hint = placeholder ?? composerHint(t, running, program);
-  // Sent during the turn, not yet read: what ⌘↩ with nothing typed hurries.
-  // Not one the program began (a /compact after the turn): that would stop it.
   const held = running && model.items.some(isWaiting);
-  // Those wait above the box, where they can be taken back as the terminal's ↑ does.
   const waiting = useMemo(
     () => withRelayed(model.items.filter(isWaiting), relayed).filter(isWaiting),
     [model.items, relayed],
@@ -300,10 +219,7 @@ export const Composer = memo(function Composer({
   const canTakeBack = state.queue.length > 0 || (canWithdraw && waiting.length > 0);
   const withdrawing = useRef(new Set<string>());
 
-  // The footer drops optional controls before wrapping the ones that stay.
   const footerRef = useRef<HTMLDivElement>(null);
-  // A chip whose menu is open, or asked for by a bare /model or /effort,
-  // stays in the row however narrow it is.
   type FooterMenu = RevealPart | "instructions";
   const [menuOf, setMenuOf] = useState<FooterMenu | null>(null);
   const kept = (part: FooterMenu) => state.reveal?.part === part || menuOf === part;
@@ -315,7 +231,6 @@ export const Composer = memo(function Composer({
     FIT.WRAP,
   );
 
-  // The caret, for the token it completes; a pick moves it after the render.
   const [caret, setCaret] = useState(0);
   const [focused, setFocused] = useState(false);
   const pendingCaret = useRef<number | null>(null);
@@ -334,14 +249,10 @@ export const Composer = memo(function Composer({
     areaRef.current?.focus();
   };
 
-  // The mention being edited, so moving the caret over an existing mention
-  // leaves the list closed.
   const typedRef = useRef<TypedToken | null>(null);
   const completion = completionAt(text, caret, typedRef.current?.start ?? null);
   const completionKey = completion ? `${completion.kind}:${completion.start}` : null;
   const [dismissed, setDismissed] = useState<string | null>(null);
-  // A menu put away stays away only while its word lasts: once the word is
-  // gone (the box emptied, the message sent), the next one opens again.
   useEffect(() => {
     if (completionKey === null) setDismissed(null);
   }, [completionKey]);
@@ -357,10 +268,7 @@ export const Composer = memo(function Composer({
     return matchCommands([...listedCommands(cli), ...own], completion.query);
   }, [menuOpen, completion?.kind, completion?.query, cliCommands, t, appCommands, ownCommands]);
   const [suggested, setSuggested] = useState<string[]>([]);
-  // The program has not listed its commands yet: the list waits, rather
-  // than say that none match.
   const listing = !ownCommands && !cliCommands;
-  // The command box shows "no matching commands" when it has none to offer.
   const noneMatch = menuOpen && completion?.kind === "command" && commands.length === 0 && !listing;
   const fileQuery = menuOpen && completion?.kind === "file" ? completion.query : null;
   const recent = useRecentChatNotes(fileQuery !== null);
@@ -381,7 +289,6 @@ export const Composer = memo(function Composer({
           if (!live) return;
           setSuggested(paths);
           setFilesFor(fileQuery);
-          // The CLI answers nothing while it first lists the folder's files.
           if (paths.length === 0 && again) timer = setTimeout(() => ask(false), SUGGEST_RETRY_MS);
         })
         .catch(() => {});
@@ -443,7 +350,6 @@ export const Composer = memo(function Composer({
     edit(next.text, next.caret, next.open);
   };
 
-  /** Types a `/` or `@` at the caret, from the + menu. */
   const insertTrigger = (trigger: "/" | "@") => {
     if (trigger === "/") {
       edit(text.startsWith("/") ? text : `/${text}`, 1);
@@ -455,18 +361,12 @@ export const Composer = memo(function Composer({
     edit(`${text.slice(0, at)}${space}@${text.slice(at)}`, token.caret, token);
   };
 
-  // Fitted as what it holds or how it is written changes, not on every
-  // render: each fit lays the page out (a streamed answer renders the
-  // composer at every chunk). A tab parked in the background waits for the
-  // observer below, which fits it as it shows.
   const font = useChatFontStyle();
   // biome-ignore lint/correctness/useExhaustiveDependencies: fits again as the text, placeholder or font changes
   useLayoutEffect(() => {
     const area = areaRef.current;
     if (area) fitTextHeight(area, rootRef.current?.parentElement);
   }, [text, hint, font]);
-  // Refit when the textarea's width or its column's height changes, including
-  // when a parked tab is shown.
   useEffect(() => {
     const area = areaRef.current;
     if (area) return observeTextHeight(area, rootRef.current?.parentElement);
@@ -479,10 +379,6 @@ export const Composer = memo(function Composer({
     setNoteChips([]);
   };
 
-  /**
-   * The message with its attached files' mentions after the text, or with
-   * the ids they went ahead by where the controller uploads them.
-   */
   const withAttachments = async (body: string): Promise<{ message: string; uploads: string[] }> => {
     if (files.length === 0) return { message: body, uploads: [] };
     const upload = controller.upload?.bind(controller);
@@ -500,10 +396,6 @@ export const Composer = memo(function Composer({
     return { message: body.trim() ? `${body}\n\n${mentions}` : mentions, uploads: [] };
   };
 
-  /**
-   * send: as ↩ sends; now: read at once (⌘↩); queue: after the turn (⌘⇧↩).
-   * While listening, the dictation ends first and its whole text goes.
-   */
   const submit = async (how: "send" | "queue" | "now", body = text) => {
     if (dictation.active) {
       if (canSend) dictation.finish((heard) => void submitRef.current(how, heard));
@@ -542,7 +434,6 @@ export const Composer = memo(function Composer({
             await controller.send(message, images);
           }
         } catch (error) {
-          // Restore the original text and attachments for another attempt.
           if (body) setText((prev) => (prev ? `${body}\n${prev}` : body));
           if (images.length) setImages((prev) => [...images, ...prev]);
           if (files.length) setFiles((prev) => [...files, ...prev]);
@@ -557,7 +448,6 @@ export const Composer = memo(function Composer({
       setSending(false);
     }
   };
-  // The submit of the latest render, for a send that waits on the dictation's end.
   const submitRef = useRef(submit);
   submitRef.current = submit;
 
@@ -588,7 +478,6 @@ export const Composer = memo(function Composer({
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-    // Dictating, the box only listens: Escape or Enter stops it, and nothing is sent.
     if (dictation.active) {
       if (e.key === "Escape" || e.key === "Enter") {
         e.preventDefault();
@@ -596,10 +485,7 @@ export const Composer = memo(function Composer({
       }
       return;
     }
-    // A request's card has the keys, which the box passes on to it.
     if (e.currentTarget.dataset.cardKeys !== undefined) return;
-    // Escape closes the "no matching commands" box as it closes the list,
-    // rather than stop a running turn behind it.
     if (noneMatch && e.key === "Escape") {
       e.preventDefault();
       setDismissed(completionKey);
@@ -634,8 +520,6 @@ export const Composer = memo(function Composer({
         return;
       }
     }
-    // ↑ at the start of the box takes back the last queued message to edit,
-    // as the terminals do (Claude Code's ↑, Codex's ⇧←); again, the one before.
     if (
       e.key === "ArrowUp" &&
       !e.shiftKey &&
@@ -671,8 +555,6 @@ export const Composer = memo(function Composer({
     void addFiles(pasted);
   };
 
-  // Files dropped anywhere on the chat are attached here; while they are
-  // dragged over it, the chat says so.
   const [dropArea, setDropArea] = useState<HTMLElement | null>(null);
   const [dropping, setDropping] = useState(false);
   useEffect(() => {
@@ -689,7 +571,6 @@ export const Composer = memo(function Composer({
     });
   }, [dropArea, addFiles]);
 
-  // A rewound or forked message comes back here, after what is already typed.
   const draft = takesDraft ? state.draft : undefined;
   const tookDraft = useRef(0);
   useEffect(() => {
@@ -701,10 +582,6 @@ export const Composer = memo(function Composer({
     controller.clearDraft();
   }, [draft, controller, setText, setImages]);
 
-  /**
-   * A message taken back into the box: before what is typed with the caret
-   * left at the start (↑), else after it.
-   */
   const putBack = (item: { text: string; images: ImageBlock[] }, before: boolean) => {
     if (before) {
       setText((prev) => (prev ? `${item.text}\n${prev}` : item.text));
@@ -717,7 +594,6 @@ export const Composer = memo(function Composer({
     }
   };
 
-  /** Takes back a message the program has not read, into the box or away. */
   const takeBackWaiting = async (item: UserItem, into: "before" | "after" | "nowhere") => {
     const uuid = item.sentUuid;
     if (!uuid || !controller.withdraw || withdrawing.current.has(uuid)) return;
@@ -735,7 +611,6 @@ export const Composer = memo(function Composer({
     }
   };
 
-  /** A held message, back in the box to edit: before what is typed, or after it. */
   const takeBackQueued = async (id: string, before: boolean) => {
     try {
       const item = controller.takeBackQueued
@@ -747,7 +622,6 @@ export const Composer = memo(function Composer({
     }
   };
 
-  /** The last message waiting, the app's queue's first: ↑ again takes the one before. */
   const takeBackLast = () => {
     const last = state.queue.findLast((item) => item.status !== "sending");
     if (last) {
@@ -766,7 +640,6 @@ export const Composer = memo(function Composer({
       ref={rootRef}
       className="@container/composer shrink-0 border-t border-border pt-2 pb-3"
       data-testid="chat-composer"
-      // Toasts rise above it rather than cover what is typed (see ToastRoot).
       data-toast-avoid
     >
       {dropping && dropArea && createPortal(<DropCue />, dropArea)}
@@ -778,7 +651,6 @@ export const Composer = memo(function Composer({
               <QueueRow
                 key={item.key}
                 label={
-                  // A command waits for the turn's end, a message only for the tool's.
                   isCommandMessage(item.text, item.images.length, cliCommands)
                     ? t("chat.queue.after_turn")
                     : t("chat.queue.label")
@@ -909,7 +781,6 @@ export const Composer = memo(function Composer({
               }}
               onSelect={(e) => {
                 const at = e.currentTarget.selectionStart;
-                // The caret went somewhere other than where the typing left it.
                 if (typedRef.current && typedRef.current.caret !== at) typedRef.current = null;
                 setCaret(at);
               }}
@@ -926,7 +797,6 @@ export const Composer = memo(function Composer({
               aria-label={t("chat.composer.aria", agent)}
               className={cn(
                 "app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground",
-                // The overlay draws the text meanwhile, the partial lighter.
                 dictation.partial && "text-transparent caret-transparent",
               )}
             />
@@ -1013,7 +883,6 @@ export const Composer = memo(function Composer({
                 <Square className="size-3.5 fill-current" />
               </IconButton>
             )}
-            {/* During a turn an empty box offers only stop; with text, both. */}
             {(!running || hasText) && (
               <SendButton
                 running={running}
@@ -1036,13 +905,6 @@ function showError(err: Error): void {
   showToast({ kind: "error", message: err.message });
 }
 
-/**
- * What the row under the box leaves out, step by step, when it is too
- * narrow for all of it: the model's name loses its note, the send button
- * its key, then the effort goes, then the model, the mode's name is cut, and
- * then the mode, instructions, mic and + menu go. Send, Stop and an active
- * mic can wrap onto their own lines in the narrowest groups.
- */
 const FIT = {
   SHORT_MODEL: 1,
   NO_KEYCAP: 2,
@@ -1056,11 +918,6 @@ const FIT = {
   WRAP: 10,
 } as const;
 
-/**
- * A chip's menu, open as the user opens it or as a bare command (/model,
- * /effort) asks; one that cannot open says why instead. `onMenu` hears it
- * open and close in the same update, so the row keeps the chip it opens.
- */
 function useRevealedMenu(
   controller: ComposerController,
   state: ChatTabState,
@@ -1085,10 +942,6 @@ function useRevealedMenu(
   return [open, setOpen];
 }
 
-/**
- * An attached file's icon, name and size. An image opens in quick look
- * from the file itself, before the message goes, where the tab has quick look.
- */
 function AttachmentLabel({ file }: { file: File }) {
   const { t } = useTranslation();
   const links = useChatLinks();
@@ -1119,7 +972,6 @@ function AttachmentLabel({ file }: { file: File }) {
   );
 }
 
-/** The + menu: attach a file, mention one, or start a command. */
 function AddMenu({
   onAttach,
   onMention,
@@ -1127,7 +979,6 @@ function AddMenu({
   returnFocus,
 }: {
   onAttach: () => void;
-  /** Puts an @ in; a note in its place says why it can't. */
   onMention: (() => void) | string;
   onCommand?: () => void;
   returnFocus: () => void;
@@ -1145,7 +996,6 @@ function AddMenu({
         side="top"
         align="end"
         onCloseAutoFocus={(event) => {
-          // A typed trigger leaves the caret where it put it.
           if (typed.current) {
             event.preventDefault();
             typed.current = false;
@@ -1214,8 +1064,6 @@ function base64Of(file: File): Promise<string> {
   });
 }
 
-/** A message above the box that waits, with its pencil and × where it can be taken back. */
-/** Over the chat while files are dragged onto it: let go, and they are attached. */
 function DropCue() {
   const { t } = useTranslation();
   return (
@@ -1271,11 +1119,9 @@ function QueueRow({
   );
 }
 
-/** The send button's look, with its padding left to the one that uses it (the keycap needs less on the right). */
 export const SEND_BUTTON_CLASS =
   "flex shrink-0 items-center gap-1 rounded-(--radius-control) bg-primary py-1.5 text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-40";
 
-/** The box's main button and the keys for the available send timings. */
 function SendButton({
   running,
   waits,
@@ -1285,12 +1131,10 @@ function SendButton({
   keycap,
 }: {
   running: boolean;
-  /** During a turn, the message waits for a tool completion (↩). */
   waits: boolean;
   program: ChatAgent;
   onClick: () => void;
   disabled: boolean;
-  /** Shows the ↩ key it answers to; left out in a narrow row. */
   keycap: boolean;
 }) {
   const { t } = useTranslation();
@@ -1316,26 +1160,16 @@ function SendButton({
   );
 }
 
-/** Claude Code's permission modes; keys 1 to 5 pick them. */
 const CLAUDE_MODES = CHAT_MODES.claude;
 
-/**
- * A mode's hue on its chip and in its menu, Claude Code's and Codex's
- * alike; the asking modes stay plain and the dangerous one is red.
- */
 const MODE_TINT: Record<string, string> = {
   auto: "text-[var(--state-success-fg)] hover:text-[var(--state-success-fg)]",
   acceptEdits: "text-[var(--syntax-function)] hover:text-[var(--syntax-function)]",
   plan: "text-[var(--state-info-fg)] hover:text-[var(--state-info-fg)]",
 };
 
-/** Tabs whose user has seen bypass mode's warning in this window. */
 const bypassConfirmed = new Set<string>();
 
-/**
- * The permission mode, as a chip that picks another; the agent list's
- * detail panel has it too, its menu opening below.
- */
 export function ModeChip({
   controller,
   state,
@@ -1428,10 +1262,6 @@ export function ModeChip({
   );
 }
 
-/**
- * The composer's keys as this platform names them: the Mac's symbols there,
- * the keys' names elsewhere, as Windows and Linux label shortcuts.
- */
 export function composerKeys(): {
   send: string;
   newLine: string;
@@ -1443,10 +1273,6 @@ export function composerKeys(): {
     : { send: "Enter", newLine: "Shift+Enter", queueKey: "Ctrl+Shift+Enter", nowKey: "Ctrl+Enter" };
 }
 
-/**
- * The composer's keys as its empty box and its send button's tooltip tell
- * them, between turns or during one, for a Claude tab or a Codex tab.
- */
 export function composerHint(t: TFunction, running: boolean, program: ChatAgent): string {
   return t(running ? "chat.composer.hint_running" : "chat.composer.hint", {
     ...composerKeys(),
@@ -1454,7 +1280,6 @@ export function composerHint(t: TFunction, running: boolean, program: ChatAgent)
   });
 }
 
-/** A model's name without its note: "Default (recommended)" is "Default". */
 export function shortModelName(name: string): string {
   return name.replace(/\s*\([^)]*\)\s*$/, "") || name;
 }

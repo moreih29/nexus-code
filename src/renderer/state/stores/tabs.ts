@@ -35,22 +35,10 @@ import {
   useTerminalDeathStore,
 } from "./terminal-deaths";
 
-// ---------------------------------------------------------------------------
-// Types — Tab is a discriminated union, narrowed by `type`. Callers no longer
-// cast `tab.props as EditorTabProps`; instead, gating on `tab.type === "editor"`
-// gives the compiler a typed `props` automatically.
-// ---------------------------------------------------------------------------
-
 export interface TerminalTabProps {
   cwd: string;
-  /** The shell the tab was opened with; absent = the default shell setting. */
   shell?: ShellChoice;
-  /**
-   * The agent profile it was opened for (by id): its shell runs with what a
-   * chat of it runs with, as a sign-in for the profile needs.
-   */
   profile?: string;
-  /** The agent that opened it: a nexus command run in it is that agent's (see SerializedTab). */
   openedBy?: TerminalOpener;
   dead?: boolean;
 }
@@ -69,28 +57,15 @@ export interface ClaudeTabProps {
   cwd: string;
   openedBy?: TerminalOpener;
   instructions?: string;
-  /** The session the tab last had, to go on with once its program is gone. */
   sessionId?: string;
-  /**
-   * The session the tab's program copies, up to a message, until the copy
-   * has its own id: set on a tab opened as a fork, rewound, or gone on with
-   * in another profile (which keeps the session: `profileId`).
-   */
   fork?: { sessionId: string; at?: string; title?: string; profileId?: string };
-  /** The agent profile its program runs with; absent = the default. */
   profileId?: string;
-  /** Where the conversation went on in another profile. */
   moves?: readonly ProfileMove[];
-  /** Who sent the messages other agents sent it through the nexus command. */
   relayed?: readonly RelayedMessage[];
-  /** The messages the app sent it on its own. */
   fromApp?: readonly AppMessage[];
   peerSubmissions?: Readonly<Record<string, PeerSubmission>>;
-  /** The model and effort the user picked in the tab, for its next program to take. */
   chosen?: ChatChosen;
-  /** Going on once the plan's usage limit resets (services/chat/limit-resume). */
   limitResume?: LimitResume;
-  /** The attached files its conversation names, kept while it is open (services/chat/attach-retention). */
   attachments?: ChatAttachments;
 }
 
@@ -98,60 +73,29 @@ export interface CodexTabProps {
   cwd: string;
   openedBy?: TerminalOpener;
   instructions?: string;
-  /** The thread the tab last had, to go on with once its program is gone. */
   threadId?: string;
-  /**
-   * The thread a tab opened as a fork copies, until the copy has its own id
-   * (/fork); one another profile keeps names it (`profileId`).
-   */
   fork?: CodexFork;
-  /** The agent profile its program runs with; absent = the default. */
   profileId?: string;
-  /** Where the conversation went on in another profile. */
   moves?: readonly ProfileMove[];
-  /** Who sent the messages other agents sent it through the nexus command. */
   relayed?: readonly RelayedMessage[];
-  /** The messages the app sent it on its own. */
   fromApp?: readonly AppMessage[];
   peerSubmissions?: Readonly<Record<string, PeerSubmission>>;
-  /** The model and effort the user picked in the tab, for its next turn to take. */
   chosen?: ChatChosen;
-  /** Going on once the plan's usage limit resets (services/chat/limit-resume). */
   limitResume?: LimitResume;
-  /** The attached files its conversation names, kept while it is open (services/chat/attach-retention). */
   attachments?: ChatAttachments;
 }
 
 interface TabBase {
   id: string;
-  /** When an agent opened the tab. */
   openedAt?: number;
-  /**
-   * Display title — derived: customTitle ?? processTitle ?? defaultTitle.
-   * Every set path (rename / setProcessTitle / createTab) maintains this invariant.
-   * Callers can always read tab.title as is.
-   */
   title: string;
-  /**
-   * Default title computed when the tab is created. Fallback when customTitle and
-   * processTitle are both empty. Does not change after createTab.
-   */
   defaultTitle: string;
-  /**
-   * Title the user set manually. When set it hides processTitle and pins the title.
-   * Clearing it to undefined returns to automatic (processTitle/defaultTitle).
-   */
   customTitle?: string;
-  /**
-   * Auto-detected title. Updated from OSC 0/1/2 (xterm.js onTitleChange) for terminals and
-   * page-title-updated for browsers. Has no effect on the display when customTitle is set.
-   */
   processTitle?: string;
   isPreview: boolean;
   isPinned: boolean;
 }
 
-/** Title invariant computation: customTitle ?? processTitle ?? defaultTitle. */
 function computeDisplayTitle(parts: {
   defaultTitle: string;
   customTitle?: string;
@@ -163,13 +107,6 @@ function computeDisplayTitle(parts: {
 export interface EditorTab extends TabBase {
   type: "editor";
   props: EditorTabProps;
-  /**
-   * Render-mode flag for previewable files (.md, .html, .svg). When
-   * "preview", EditorView swaps Monaco for the rendered pane. Persisted
-   * per-tab so split panels can hold raw + preview of the same file
-   * independently. Undefined until the tab is switched: a previewable file
-   * then shows its preview, anything else its source (`defaultViewMode`).
-   */
   viewMode?: "raw" | "preview";
 }
 
@@ -198,19 +135,16 @@ export interface BrowserTab extends TabBase {
   props: BrowserTabProps;
 }
 
-/** A note of the workspace's notes. */
 export interface NoteTab extends TabBase {
   type: "note";
   props: NoteTabProps;
 }
 
-/** A conversation with Claude Code, driven through its stream-json mode. */
 export interface ClaudeTab extends TabBase {
   type: "claude";
   props: ClaudeTabProps;
 }
 
-/** A conversation with Codex, driven through `codex app-server`. */
 export interface CodexTab extends TabBase {
   type: "codex";
   props: CodexTabProps;
@@ -227,16 +161,6 @@ export type Tab =
   | ClaudeTab
   | CodexTab;
 
-// ---------------------------------------------------------------------------
-// State shape — flat record registry; ordering and active state live in layout.ts
-// ---------------------------------------------------------------------------
-
-/**
- * Discriminated input for `createTab`. Keeping `(type, props)` together as
- * a tagged record means the compiler refuses mismatched pairs at the call
- * site, and the body can branch on `args.type` to construct the matching
- * Tab branch without casts.
- */
 export type CreateTabArgs =
   | { type: "editor"; props: EditorTabProps }
   | { type: "editor.diff"; props: DiffTabProps }
@@ -252,19 +176,7 @@ interface TabsState {
   byWorkspace: Record<string, Record<string, Tab>>;
   createTab: (workspaceId: string, args: CreateTabArgs, isPreview?: boolean) => Tab;
   removeTab: (workspaceId: string, tabId: string) => void;
-  /**
-   * Manual rename by the user. If title === "" (or empty after trim), customTitle is
-   * cleared, automatically returning to processTitle/defaultTitle.
-   * External callers (commit detail fetch etc.) should use setProcessTitle for the meaning to fit —
-   * renameTab carries the meaning of user intent.
-   */
   renameTab: (workspaceId: string, tabId: string, title: string) => void;
-  /**
-   * Updates the auto-detected title. Called from terminal OSC 0/1/2, browser page-title-updated, etc.
-   * If title === null or an empty string, processTitle is cleared. If customTitle is
-   * set the displayed title does not change but the processTitle value is still updated —
-   * so that clearing customTitle later returns to the latest processTitle.
-   */
   setProcessTitle: (workspaceId: string, tabId: string, title: string | null) => void;
   setTerminalDead: (workspaceId: string, tabId: string, dead: boolean) => void;
   closeAllForWorkspace: (workspaceId: string) => void;
@@ -276,21 +188,8 @@ interface TabsState {
     title: string,
   ) => void;
   replaceCommitPreviewTab: (workspaceId: string, tabId: string, sha: string, title: string) => void;
-  /**
-   * Point an editor tab at `filePath` after its file was renamed or moved.
-   * Keeps the tab's id, pin, preview and view-mode state and a title the user
-   * gave it; the default title follows the new file name. No-op on other tab
-   * types or unknown ids.
-   */
   retargetEditorTab: (workspaceId: string, tabId: string, filePath: string) => void;
   retargetWorkingDiffTab: (workspaceId: string, tabId: string, relPath: string) => void;
-  /**
-   * Swap a diff preview tab's props (path / refs) in place, keeping its id and
-   * `isPreview: true`. Used by `openDiffTab` for VSCode-style "click another
-   * file in the SCM panel → reuse the preview slot" behaviour. Title is
-   * recomputed externally and passed in so this method stays a pure state op.
-   * No-op on non-`editor.diff` tab ids.
-   */
   replaceDiffPreviewTab: (
     workspaceId: string,
     tabId: string,
@@ -298,36 +197,15 @@ interface TabsState {
     title: string,
   ) => void;
   togglePin: (workspaceId: string, tabId: string) => void;
-  /**
-   * Toggle the raw/preview render mode for an editor tab. No-op on
-   * non-editor tab types or unknown ids.
-   */
   setViewMode: (workspaceId: string, tabId: string, mode: "raw" | "preview") => void;
-  /**
-   * Promote an untitled tab to a saved editor tab. Replaces the tab's type,
-   * props, and title in-place, preserving the tab id, isPinned, and
-   * isPreview flags. No-op when the tab does not exist or is not untitled.
-   */
   replaceUntitledWithEditor: (
     workspaceId: string,
     tabId: string,
     props: EditorTabProps,
     title: string,
   ) => void;
-  /**
-   * Persist the most-recently visited URL for a browser tab.
-   * No-op when the tab does not exist or is not of type "browser".
-   */
   setBrowserLastUrl: (workspaceId: string, tabId: string, lastUrl: string) => void;
-  /**
-   * Keep the session a Claude tab now has, and drop the fork it was opened
-   * with. No-op on other tab types.
-   */
   setClaudeSession: (workspaceId: string, tabId: string, sessionId: string) => void;
-  /**
-   * Set what a Claude tab's program starts from: its session, and the one it
-   * copies until the copy has its own id (a rewind). No-op on other tab types.
-   */
   setClaudeTarget: (
     workspaceId: string,
     tabId: string,
@@ -336,24 +214,13 @@ interface TabsState {
       fork?: { sessionId: string; at?: string; title?: string; profileId?: string };
     },
   ) => void;
-  /**
-   * Keep where a Claude or Codex tab's conversation went on in another
-   * profile; none drops them. No-op on other tab types.
-   */
   setChatMoves: (workspaceId: string, tabId: string, moves: readonly ProfileMove[]) => void;
-  /** The instruction layer that belongs to the tab itself. */
   setChatInstructions: (
     workspaceId: string,
     tabId: string,
     instructions: string | undefined,
   ) => void;
-  /**
-   * Keep the model or effort the user picked in a Claude or Codex tab, over
-   * what it had picked before; an empty pick forgets them (a Codex turn
-   * took them). No-op on other tab types.
-   */
   setChatChosen: (workspaceId: string, tabId: string, chosen: ChatChosen) => void;
-  /** Keeps who sent a message through the nexus command; one with its id is replaced. */
   addChatPeerSubmission: (
     workspaceId: string,
     tabId: string,
@@ -361,24 +228,12 @@ interface TabsState {
     submission: PeerSubmission,
   ) => void;
   addChatRelayed: (workspaceId: string, tabId: string, record: RelayedMessage) => void;
-  /** Sets, or with undefined drops, a chat tab's going on after the usage limit. */
   setLimitResume: (workspaceId: string, tabId: string, record: LimitResume | undefined) => void;
-  /** Keep the attached files a Claude or Codex tab's conversation names. No-op on other tab types. */
   setChatAttachments: (workspaceId: string, tabId: string, attachments: ChatAttachments) => void;
-  /** Keep the thread a Codex tab now has. No-op on other tab types. */
   setCodexThread: (workspaceId: string, tabId: string, threadId: string) => void;
-  /**
-   * Set the agent profile a Claude or Codex tab runs with: an empty tab that
-   * takes up a session another profile keeps, or one the user switches. The
-   * session or thread it had is the old profile's, so it goes. No-op on
-   * other tab types.
-   */
   setChatProfile: (workspaceId: string, tabId: string, profileId: string | undefined) => void;
 }
 
-/**
- * Returns the ids of terminal tabs currently marked dead in one workspace.
- */
 function deadTerminalIdsForWorkspace(workspaceId: string): Set<string> {
   const tabs = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
   const ids = new Set<string>();
@@ -390,14 +245,6 @@ function deadTerminalIdsForWorkspace(workspaceId: string): Set<string> {
   return ids;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Builds the display title used for a new tab when the caller does not
- * provide an explicit rename after creation.
- */
 export function defaultTitle(args: CreateTabArgs): string {
   if (args.type === "terminal") return terminalTitle(1);
   if (args.type === "editor.diff") {
@@ -420,13 +267,6 @@ export function defaultTitle(args: CreateTabArgs): string {
   return basename(args.props.filePath) || "Editor";
 }
 
-/**
- * The titles a tab restored from a snapshot starts with: as they were
- * saved, but a name the app gives (a chat tab's, the agent list's), worked
- * out again in the app's language. A snapshot from before the titles were
- * kept has the shown one alone: a chat tab's is its conversation's unless
- * it is the tab's name, any other tab's is taken for its name.
- */
 export function restoredTitles(
   tab: SerializedTab,
 ): Pick<TabBase, "title" | "defaultTitle" | "customTitle" | "processTitle"> {
@@ -444,17 +284,12 @@ export function restoredTitles(
   };
 }
 
-/** "Terminal" for the first terminal, "Terminal 2", "Terminal 3", … after. */
 function terminalTitle(index: number): string {
   return index === 1
     ? i18next.t("common:terminal.default_title")
     : i18next.t("common:terminal.numbered_title", { index });
 }
 
-/**
- * Picks the lowest-numbered terminal title no terminal tab in the workspace
- * is using, so several terminals can be told apart in the tab bar.
- */
 function nextTerminalTitle(tabs: Record<string, Tab> | undefined): string {
   const used = new Set<string>();
   for (const tab of Object.values(tabs ?? {})) {
@@ -466,10 +301,6 @@ function nextTerminalTitle(tabs: Record<string, Tab> | undefined): string {
   }
 }
 
-/**
- * The state with one tab changed by `change`; the same state, so nothing
- * re-renders, when the tab is not there or `change` returns it as it was.
- */
 function withTab(
   state: TabsState,
   workspaceId: string,
@@ -484,14 +315,7 @@ function withTab(
   return { byWorkspace: { ...state.byWorkspace, [workspaceId]: { ...wsRecord, [tabId]: next } } };
 }
 
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
-
 export const useTabsStore = create<TabsState>((set, get) => {
-  // A deleted workspace's tab records (and their PTYs) are cleaned up via
-  // the central workspace-cleanup registry — no need to re-implement the
-  // IPC listener here.
   registerWorkspaceCleanup((id) => {
     get().closeAllForWorkspace(id);
   });
@@ -510,7 +334,6 @@ export const useTabsStore = create<TabsState>((set, get) => {
         args.props.openedBy
           ? { openedAt: performance.timeOrigin + performance.now() }
           : {}),
-        // Initially there is neither customTitle nor processTitle, so the derived title = defaultTitle.
         title: dt,
         defaultTitle: dt,
         isPreview,
@@ -574,7 +397,6 @@ export const useTabsStore = create<TabsState>((set, get) => {
     renameTab(workspaceId, tabId, title) {
       set((state) =>
         withTab(state, workspaceId, tabId, (tab) => {
-          // An empty string after trim is read as clearing customTitle — return to processTitle/defaultTitle.
           const trimmed = title.trim();
           const nextCustom = trimmed === "" ? undefined : trimmed;
           const nextDisplay = computeDisplayTitle({
@@ -591,7 +413,6 @@ export const useTabsStore = create<TabsState>((set, get) => {
     setProcessTitle(workspaceId, tabId, title) {
       set((state) =>
         withTab(state, workspaceId, tabId, (tab) => {
-          // Empty string / null → clear processTitle.
           const trimmed = title === null ? "" : title.trim();
           const nextProcess = trimmed === "" ? undefined : trimmed;
           const nextDisplay = computeDisplayTitle({
@@ -643,10 +464,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
     replacePreviewTab(workspaceId, tabId, props, title) {
       set((state) =>
         withTab(state, workspaceId, tabId, (tab) => {
-          // Only editor tabs have a preview slot; replace is otherwise a no-op.
           if (tab.type !== "editor") return tab;
-          // The file the tab points to changes, so update defaultTitle to the new file name and
-          // clear the old customTitle / processTitle, which no longer mean anything.
           return {
             ...tab,
             props,
@@ -703,10 +521,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
     replaceDiffPreviewTab(workspaceId, tabId, props, title) {
       set((state) =>
         withTab(state, workspaceId, tabId, (tab) => {
-          // Targets only the editor.diff slot — editor / git.commit previews are owned by their own actions.
           if (tab.type !== "editor.diff") return tab;
-          // path / refs change, so update defaultTitle to the new value and
-          // clear the previous custom/process title, which no longer means anything (removes leftovers from the old file/ref).
           return {
             ...tab,
             props,
@@ -723,11 +538,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
     replaceCommitPreviewTab(workspaceId, tabId, sha, title) {
       set((state) =>
         withTab(state, workspaceId, tabId, (tab) => {
-          // Commit preview has its own slot; editor previews are intentionally
-          // left untouched by this replacement path.
           if (tab.type !== "git.commit") return tab;
-          // The SHA changes, so update defaultTitle to the new placeholder ("commit XXXXXXX") and
-          // clear the old custom/process title (the previous commit's subject etc. must not remain).
           return {
             ...tab,
             props: { workspaceId, sha },
@@ -753,8 +564,6 @@ export const useTabsStore = create<TabsState>((set, get) => {
       set((state) =>
         withTab(state, workspaceId, tabId, (tab) => {
           if (tab.type !== "untitled") return tab;
-          // Untitled → saved editor transition. Take the new file name as defaultTitle and
-          // start with custom/process cleared.
           return {
             id: tab.id,
             title,
@@ -773,7 +582,6 @@ export const useTabsStore = create<TabsState>((set, get) => {
         withTab(state, workspaceId, tabId, (tab) => {
           if (tab.type !== "codex") return tab;
           if (tab.props.threadId === threadId && !tab.props.fork) return tab;
-          // A fork's copy has its own id now: the tab goes on with it.
           const { fork: _copied, ...props } = tab.props;
           return { ...tab, props: { ...props, threadId } };
         }),
@@ -785,11 +593,6 @@ export const useTabsStore = create<TabsState>((set, get) => {
         withTab(state, workspaceId, tabId, (tab) => {
           if (tab.type !== "claude" && tab.type !== "codex") return tab;
           if (tab.props.profileId === profileId) return tab;
-          // Only what holds whichever profile runs the tab: its session or
-          // thread, fork and moves were the old profile's. The messages'
-          // senders, by id, are kept for a conversation that goes on. The
-          // model and effort picked in a Claude tab are the tab's; a Codex
-          // tab takes the new profile's own, as its controller does.
           const props = {
             cwd: tab.props.cwd,
             ...(tab.props.openedBy ? { openedBy: tab.props.openedBy } : {}),
@@ -812,7 +615,6 @@ export const useTabsStore = create<TabsState>((set, get) => {
         withTab(state, workspaceId, tabId, (tab) => {
           if (tab.type !== "claude") return tab;
           if (tab.props.sessionId === sessionId && !tab.props.fork) return tab;
-          // The copy has its own id now: the fork it was made from goes.
           const { fork: _copied, ...kept } = tab.props;
           return { ...tab, props: { ...kept, sessionId } };
         }),
@@ -891,7 +693,6 @@ export const useTabsStore = create<TabsState>((set, get) => {
         withTab(state, workspaceId, tabId, (tab) => {
           if (tab.type !== "claude" && tab.type !== "codex") return tab;
           if (record.from.kind === "app") {
-            // Kept apart, for versions that know no "app" sender (AppMessageSchema).
             const { from: _app, ...message } = record;
             const kept = (tab.props.fromApp ?? []).filter((m) => m.id !== message.id);
             const fromApp = [...kept, message].slice(-RELAYED_KEPT);
@@ -937,7 +738,6 @@ export const useTabsStore = create<TabsState>((set, get) => {
       set((state) =>
         withTab(state, workspaceId, tabId, (tab) => {
           const isPinned = !tab.isPinned;
-          // Pin implies permanent: clear preview flag when pinning.
           return { ...tab, isPinned, isPreview: isPinned ? false : tab.isPreview };
         }),
       );
@@ -964,23 +764,9 @@ export const useTabsStore = create<TabsState>((set, get) => {
   };
 });
 
-// ---------------------------------------------------------------------------
-// Untitled counter store — workspace-scoped, monotonically increasing.
-// Persisted (via persistence.ts) as part of the normal flush cycle so the
-// next session starts above the previously-used index. Not co-located with
-// workspaces.ts because the counter is pure renderer UI state — not
-// workspace metadata that the main process manages.
-// ---------------------------------------------------------------------------
-
 interface UntitledCounterState {
-  /** Next untitled index to assign, keyed by workspaceId. Starts at 1. */
   nextByWorkspace: Record<string, number>;
-  /**
-   * Claim the next untitled index for a workspace and advance the counter.
-   * Returns the claimed index (1-based, never reused).
-   */
   claimNext: (workspaceId: string) => number;
-  /** Reset a workspace's counter (used on workspace cleanup). */
   clearWorkspace: (workspaceId: string) => void;
 }
 

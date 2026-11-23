@@ -29,9 +29,6 @@ interface TerminalDeathState {
 let scheduler: TimerScheduler = defaultTimerScheduler;
 const pendingDeathWindows = new Map<string, PendingDeathWindow>();
 
-/**
- * Clears an open aggregate window without publishing a workspace banner.
- */
 function clearPendingDeathWindow(workspaceId: string): void {
   const pending = pendingDeathWindows.get(workspaceId);
   if (!pending) return;
@@ -39,10 +36,6 @@ function clearPendingDeathWindow(workspaceId: string): void {
   pendingDeathWindows.delete(workspaceId);
 }
 
-/**
- * Commits a workspace's bounded death window if two or more recorded tabs
- * are still dead when the window closes.
- */
 function flushDeathWindow(workspaceId: string): void {
   const pending = pendingDeathWindows.get(workspaceId);
   if (!pending) return;
@@ -55,10 +48,6 @@ function flushDeathWindow(workspaceId: string): void {
   useTerminalDeathStore.getState().publishAggregate(workspaceId, tabIds, currentDeadTerminalIds);
 }
 
-/**
- * Narrows an aggregate to tabs that remain dead, clearing the banner once it
- * no longer represents a multi-terminal disconnect.
- */
 function aggregateWithCurrentDeadTabs(
   tabIds: Iterable<string>,
   currentDeadTerminalIds: Set<string>,
@@ -68,16 +57,8 @@ function aggregateWithCurrentDeadTabs(
   return { tabIds: nextTabIds };
 }
 
-/**
- * Stores workspace-level dead-terminal aggregate banners. The per-tab dead
- * flag stays in `tabs.ts`; this store only tracks whether recent deaths were
- * close enough together to deserve a workspace banner.
- */
 export const useTerminalDeathStore = createTerminalDeathStore();
 
-/**
- * Builds the production terminal death store.
- */
 function createTerminalDeathStore() {
   return create<TerminalDeathState>((set) => {
     registerWorkspaceCleanup((workspaceId) => {
@@ -148,10 +129,6 @@ function createTerminalDeathStore() {
   });
 }
 
-/**
- * Starts a new 100ms aggregate window if none is pending; otherwise appends
- * to the open window without resetting its timer.
- */
 export function recordTerminalDeathForAggregate(
   workspaceId: string,
   tabId: string,
@@ -175,9 +152,6 @@ export function recordTerminalDeathForAggregate(
   pendingDeathWindows.set(workspaceId, pending);
 }
 
-/**
- * Removes one terminal from pending and published aggregate state.
- */
 export function releaseTerminalDeathFromAggregate(
   workspaceId: string,
   tabId: string,
@@ -193,10 +167,6 @@ export function releaseTerminalDeathFromAggregate(
   useTerminalDeathStore.getState().removeTerminal(workspaceId, tabId, currentDeadTerminalIds);
 }
 
-/**
- * Replaces the scheduler that owns aggregate windows. Returns a cleanup
- * callback that restores the browser scheduler and clears pending windows.
- */
 export function configureTerminalDeathAggregationScheduler(
   nextScheduler: TimerScheduler,
 ): () => void {

@@ -24,7 +24,6 @@ type statusSubcalls struct {
 	gitDir  string
 }
 
-// Status returns a bundled GitStatus snapshot from host-local git subcalls.
 func (s *Service) Status(ctx context.Context, raw json.RawMessage) (any, error) {
 	params, err := parseStatusParams(raw)
 	if err != nil {
@@ -120,10 +119,6 @@ func statusArgs(params StatusParams) []string {
 	return args
 }
 
-// statusEnv keeps the read-only status subcalls from taking optional locks.
-// Without it `git status` opportunistically rewrites .git/index to refresh
-// racily-clean stat data; the .git watcher reports that write back as a
-// change, so every status refresh would trigger another one.
 var statusEnv = map[string]string{"GIT_OPTIONAL_LOCKS": "0"}
 
 func (s *Service) statusGitOutput(ctx context.Context, cwd string, args ...string) ([]byte, error) {

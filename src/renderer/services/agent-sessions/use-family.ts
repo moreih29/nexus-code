@@ -1,11 +1,3 @@
-/**
- * The live data of a agent list: its workspace's family of sessions, the
- * output activity that tells Codex and other agents' state, what Claude
- * sessions are doing (their tools and agents), each worktree's uncommitted
- * changes, and which terminals wait on which. Polls only while the tab is
- * shown.
- */
-
 import { useEffect, useRef, useState } from "react";
 import type { GitChangeStats, GitStatus } from "../../../shared/git/types";
 import { createLogger } from "../../../shared/log/renderer";
@@ -27,12 +19,6 @@ const CLAUDE_ACTIVITY_POLL_MS = 1_000;
 const WAITS_POLL_MS = 1_000;
 const CHANGES_POLL_MS = 5_000;
 
-/**
- * Runs `read` now and every `everyMs` until stopped, one read at a time: a
- * tick while a read is still out is skipped, so a slow answer never lands
- * after a newer one. `read` is told whether its answer is still the latest
- * wanted, which it is not once polling stops.
- */
 export function startPolling(
   read: (isLatest: () => boolean) => Promise<void>,
   everyMs: number,
@@ -60,12 +46,10 @@ export function startPolling(
   };
 }
 
-/** Whether two reads list the same, to keep the one already shown. */
 function sameJson(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-/** Which terminals are waiting on which (nexus terminal wait), polled while `enabled`. */
 export function useTerminalWaits(enabled: boolean): readonly TerminalWait[] {
   const [waits, setWaits] = useState<readonly TerminalWait[]>([]);
   useEffect(() => {
@@ -80,10 +64,6 @@ export function useTerminalWaits(enabled: boolean): readonly TerminalWait[] {
   return waits;
 }
 
-/**
- * What the Claude sessions of `workspaceIds` are doing — their tools, todos
- * and agents — by session key, polled while `enabled`.
- */
 export function useSessionActivity(
   workspaceIds: readonly string[],
   enabled: boolean,
@@ -103,7 +83,6 @@ export function useSessionActivity(
   return activity;
 }
 
-/** The family of `workspaceId` as the stores and `activity` tell it now. */
 function familyNow(
   workspaceId: string,
   activity: ReadonlyMap<string, TabActivity>,
@@ -121,14 +100,7 @@ function familyNow(
   });
 }
 
-/**
- * The family of the workspace a agent list is in, kept current while
- * `visible`: rebuilt as the stores change and as the output activity is read,
- * which is also when a busy agent can turn quiet. A rebuild that tells the
- * same keeps the family already shown, so the views render only on a change.
- */
 export function useSessionFamily(workspaceId: string, visible: boolean): SessionFamily | null {
-  // Kept while the tab is hidden, so showing it again starts from the last read.
   const activity = useRef<ReadonlyMap<string, TabActivity>>(new Map());
   const [family, setFamily] = useState(() => familyNow(workspaceId, activity.current));
   useEffect(() => {
@@ -161,15 +133,12 @@ export function useSessionFamily(workspaceId: string, visible: boolean): Session
   return family;
 }
 
-/** A file a worktree has changed and not committed. */
 export interface ChangedFile {
   readonly relPath: string;
-  /** M, A, D, R, C, U (conflict) or ? (untracked). */
   readonly code: string;
 }
 
 export interface WorktreeChanges {
-  /** The checked-out branch, as git reports it. */
   readonly branch: string | undefined;
   readonly files: readonly ChangedFile[];
 }
@@ -187,10 +156,6 @@ function changesOf(status: GitStatus): WorktreeChanges {
   return { branch: status.branch?.current || undefined, files: [...files.values()] };
 }
 
-/**
- * The changes of the worktrees just read; one whose read failed keeps what it
- * last showed rather than dropping its count.
- */
 export function mergeChanges(
   prev: ReadonlyMap<string, WorktreeChanges>,
   reads: readonly (readonly [string, WorktreeChanges | undefined])[],
@@ -203,11 +168,6 @@ export function mergeChanges(
   return next;
 }
 
-/**
- * A connected worktree's uncommitted changes in lines, file by file, and its
- * commits ahead of and behind `base`, polled while `visible`. Undefined
- * until read, and for a worktree not connected.
- */
 export function useChangeStats(
   workspaceId: string,
   base: string | undefined,
@@ -215,7 +175,6 @@ export function useChangeStats(
 ): GitChangeStats | undefined {
   const online = useWorkspacesStore((s) => selectIsWorkspaceOnline(s, workspaceId));
   const [read, setRead] = useState<{ key: string; stats: GitChangeStats }>();
-  // What a read is of, so one of another worktree or base is not shown.
   const key = `${workspaceId}:${base ?? ""}`;
   useEffect(() => {
     if (!visible || !online) return;
@@ -236,11 +195,6 @@ export function useChangeStats(
   return online && read?.key === key ? read.stats : undefined;
 }
 
-/**
- * Each connected worktree's uncommitted changes, polled while `visible`.
- * A worktree not connected yet has none listed rather than being connected
- * by the poll.
- */
 export function useWorktreeChanges(
   workspaceIds: readonly string[],
   visible: boolean,

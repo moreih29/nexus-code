@@ -1,4 +1,3 @@
-/** The keychain's question goes to one window; its answer opens the keychain or puts it off. */
 import { afterEach, expect, test } from "bun:test";
 import { KeychainGate } from "../../../../../src/main/features/keychain/gate";
 import { registerKeychainChannel } from "../../../../../src/main/features/keychain/index";
@@ -31,7 +30,6 @@ async function asking() {
 }
 
 test.each([
-  // The others are let go as reading starts: macOS asks next.
   ["continue", true, "open", "opening", 1],
   ["later", false, "locked", "locked", 0],
 ] as const)("the first window asks; %s answers for all", async (_label, open, state, seen, restores) => {
@@ -43,7 +41,6 @@ test.each([
     value: { prompt: true, status: { state: "ask", items: ["remote"] } },
   });
   const waiting = second.window.ipc.call("keychain", "claimPrompt", undefined);
-  // Only the asking window answers.
   expect(await second.window.ipc.call("keychain", "answer", { open: true })).toMatchObject({
     ok: true,
     value: { state: "ask" },

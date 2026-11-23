@@ -1,37 +1,3 @@
-/**
- * Reserved / built-in key catalog — the data half of the keybinding
- * conflict engine.
- *
- * Our dispatcher protects embedded components (Monaco, xterm, the
- * browser tab) by ABSENCE: a key not in the KEYBINDINGS table simply
- * passes through at capture phase. User customization can break that
- * protection at any time (the ⌘/ → split-right bug was exactly this
- * class of failure, introduced by code instead of by a user). This
- * catalog makes the implicit reservation explicit data, so:
- *   - the conflict engine can warn "this will shadow Monaco's comment
- *     toggle" the moment a user records a colliding key;
- *   - the settings UI can render a read-only "keys used by built-ins"
- *     section;
- *   - regressions like ⌘/ are documented in one greppable place.
- *
- * `source` semantics:
- *   - "system"   — OS/window-manager level (⌘Q, ⌘H, ⌘M). The recorder
- *                  refuses these outright.
- *   - "electron" — Cocoa-registered role accelerators (Edit menu
- *                  clipboard roles, zoom, host DevTools). Binding these
- *                  may double-fire or never reach the renderer.
- *   - "monaco"   — Monaco standalone editor defaults (fire when the
- *                  editor has focus). Shadowing breaks editing UX.
- *   - "terminal" — readline / job-control keys the shell owns while
- *                  the terminal has focus (plus app-level terminal
- *                  keys like ⇧↵). Mostly literal Ctrl — relevant on
- *                  Mac too, and doubly so on Win/Linux where
- *                  CmdOrCtrl resolves to Ctrl.
- *
- * NOT exhaustive — entries earn their place by being likely collision
- * targets, not by completeness. Extend freely.
- */
-
 import type { AcceleratorString } from "./index";
 import { normalizeKeystroke } from "./keybinding-parse";
 
@@ -40,20 +6,16 @@ export type ReservedKeySource = "system" | "electron" | "monaco" | "terminal";
 export interface ReservedKey {
   accelerator: AcceleratorString;
   source: ReservedKeySource;
-  /** Translation key for the action reserved by its owner. */
   noteKey: string;
-  /** Restrict the reservation to one platform. Absent = both. */
   platform?: "mac" | "non-mac";
 }
 
 export const RESERVED_KEYS: readonly ReservedKey[] = [
-  // ── system (recorder-blocked) ───────────────────────────────────────
   { accelerator: "Cmd+Q", source: "system", noteKey: "quitApplication", platform: "mac" },
   { accelerator: "Cmd+H", source: "system", noteKey: "hideApplication", platform: "mac" },
   { accelerator: "Cmd+Alt+H", source: "system", noteKey: "hideOthers", platform: "mac" },
   { accelerator: "Cmd+M", source: "system", noteKey: "minimizeWindow", platform: "mac" },
 
-  // ── electron roles (Cocoa-registered accelerators) ──────────────────
   { accelerator: "CmdOrCtrl+C", source: "electron", noteKey: "copy" },
   { accelerator: "CmdOrCtrl+X", source: "electron", noteKey: "cut" },
   { accelerator: "CmdOrCtrl+V", source: "electron", noteKey: "paste" },
@@ -65,7 +27,6 @@ export const RESERVED_KEYS: readonly ReservedKey[] = [
   { accelerator: "CmdOrCtrl+-", source: "electron", noteKey: "zoomOut" },
   { accelerator: "CmdOrCtrl+=", source: "electron", noteKey: "zoomIn" },
 
-  // ── monaco editor defaults (editor focus) ───────────────────────────
   { accelerator: "CmdOrCtrl+/", source: "monaco", noteKey: "toggleLineComment" },
   { accelerator: "CmdOrCtrl+D", source: "monaco", noteKey: "addNextMatch" },
   { accelerator: "CmdOrCtrl+F", source: "monaco", noteKey: "find" },
@@ -85,7 +46,6 @@ export const RESERVED_KEYS: readonly ReservedKey[] = [
   { accelerator: "F12", source: "monaco", noteKey: "definition" },
   { accelerator: "Shift+F12", source: "monaco", noteKey: "references" },
 
-  // ── terminal / shell (terminal focus) ───────────────────────────────
   { accelerator: "Ctrl+C", source: "terminal", noteKey: "interrupt" },
   { accelerator: "Ctrl+D", source: "terminal", noteKey: "shellEof" },
   { accelerator: "Ctrl+Z", source: "terminal", noteKey: "suspendJob" },
@@ -106,12 +66,6 @@ export const RESERVED_KEYS: readonly ReservedKey[] = [
   { accelerator: "Shift+Enter", source: "terminal", noteKey: "multiline" },
 ];
 
-/**
- * Find the reserved entry colliding with `accel` on the given platform,
- * or `undefined`. Comparison uses {@link normalizeKeystroke}, i.e. the
- * same equality `matchesEvent` implies — `CmdOrCtrl+R` collides with
- * `Ctrl+R` on Win/Linux but not on Mac.
- */
 export function findReservedKey(accel: AcceleratorString, isMac: boolean): ReservedKey | undefined {
   const norm = normalizeKeystroke(accel, isMac);
   if (norm === null) return undefined;

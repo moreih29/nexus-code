@@ -59,11 +59,8 @@ export interface FileTransfer {
 const PARALLEL_CHUNKS = 4;
 const BUSY_RETRIES = 5;
 const BUSY_RETRY_BASE_MS = 250;
-// Leave room for chats and terminals on the relay's 50-frame-per-second budget.
 const REQUESTS_PER_SECOND = 24;
-// Pulls and pushes on the same app connection share its request budget.
 const sentByRemote = new WeakMap<CliRemote, number[]>();
-// Leave time to unwind before the hook server (35m) and client (36m) deadlines.
 const TRANSFER_TIMEOUT_MS = 34 * 60_000;
 
 async function waitForFileRequest(sent: number[], signal: AbortSignal): Promise<void> {
@@ -85,7 +82,6 @@ export function rpcMessage(error: unknown, code: number): string | undefined {
   }
 }
 
-/** Process up to four pieces together, reporting them in offset order for hashing. */
 export async function transferChunks(
   start: number,
   size: number,
@@ -107,7 +103,6 @@ export async function transferChunks(
       for (const bytes of await Promise.all(batch)) received(bytes);
     } catch (error) {
       controller.abort();
-      // A positioned operation must finish before its file handle is closed.
       await Promise.allSettled(batch);
       throw error;
     }

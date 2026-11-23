@@ -1,36 +1,18 @@
-/**
- * A Codex tab's state, read from its conversation: no hook reports it, as
- * Claude's hooks do for a Claude tab. Pure.
- */
-
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import { STATUS_PRIORITY } from "../../state/stores/claude-status";
 import type { Tab } from "../../state/stores/tabs";
 import type { ChatModel } from "../chat/model";
 import { type ChatTabState, chatKey } from "../chat/store";
 
-/** When this run of the app started: a turn that ended before it counts as looked at. */
 export const RUN_STARTED_AT = Date.now();
 
 export interface CodexSessionState {
-  /**
-   * In Claude's words: permissionPending, needsInput (a question), error,
-   * running, completed (a turn not looked at yet) or idle.
-   */
   readonly state: ClaudeStatus;
-  /** When the state began, as far as the conversation tells it. */
   readonly since: number | undefined;
-  /** The last answer. */
   readonly message: string | undefined;
-  /** The last prompt. */
   readonly prompt: string | undefined;
 }
 
-/**
- * The state of a Codex tab whose conversation is `chat`. A finished turn is
- * new until the user looks at the tab: `seenAt` is when they last had it in
- * front of them, and `viewing` is whether they have it now.
- */
 export function codexStateOf(
   chat: ChatTabState | undefined,
   seenAt: number | undefined,
@@ -59,14 +41,12 @@ export function codexStateOf(
     endedAt >= runStartedAt &&
     !viewing &&
     (seenAt === undefined || seenAt < endedAt);
-  // A turn the user stopped is no news.
   if (unseen && result?.subtype !== "interrupted") {
     return { state: result?.isError ? "error" : "completed", since: endedAt, ...told };
   }
   return { state: "idle", since: endedAt, ...told };
 }
 
-/** Uses Claude's stream to keep a chat's status independent of terminal hook order. */
 export function claudeChatStateOf(
   chat: ChatTabState | undefined,
   seenAt: number | undefined,
@@ -100,10 +80,6 @@ export function claudeChatStateOf(
   return undefined;
 }
 
-/**
- * The strongest state of the Codex tabs in `tabs` of `workspaceIds`, for a
- * workspace card or a task's: null when none of them works or waits.
- */
 export function workspaceCodexState(
   workspaceIds: readonly string[],
   tabs: Readonly<Record<string, Readonly<Record<string, Tab>> | undefined>>,
@@ -132,7 +108,6 @@ export function workspaceCodexState(
   return strongest;
 }
 
-/** The text of the answer to the last prompt, if it has any yet. */
 export function lastAnswer(model: ChatModel): string | undefined {
   for (let i = model.items.length - 1; i >= 0; i--) {
     const item = model.items[i];
@@ -147,7 +122,6 @@ export function lastAnswer(model: ChatModel): string | undefined {
   return undefined;
 }
 
-/** The last prompt the conversation was sent. */
 export function lastPrompt(model: ChatModel): string | undefined {
   for (let i = model.items.length - 1; i >= 0; i--) {
     const item = model.items[i];

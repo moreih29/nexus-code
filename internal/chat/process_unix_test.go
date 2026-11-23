@@ -14,15 +14,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// ownSession starts a command in a session of its own, out of the
-// program's process group, as Claude and Codex start each command.
 func ownSession(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 }
 
-// ended waits for the process to end, false when it is still running after
-// a few seconds. A process that has ended but is not yet reaped counts as
-// ended.
 func ended(t *testing.T, pid int) bool {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -40,8 +35,6 @@ func ended(t *testing.T, pid int) bool {
 	return false
 }
 
-// ownSessionChild starts a command the fake program runs in a session of
-// its own, and returns its pid.
 func ownSessionChild(t *testing.T, service *Service, rec *recorder) int {
 	t.Helper()
 	startFake(t, service, "tab", map[string]string{"NEXUS_CHAT_OWN_SESSION": "1"})
@@ -52,8 +45,6 @@ func ownSessionChild(t *testing.T, service *Service, rec *recorder) int {
 	return pid
 }
 
-// Stopping a tab's program ends a command it started in a session of its
-// own, which its process group does not hold.
 func TestStopEndsACommandInASessionOfItsOwn(t *testing.T) {
 	service := New()
 	rec := newRecorder()
@@ -69,7 +60,6 @@ func TestStopEndsACommandInASessionOfItsOwn(t *testing.T) {
 	}
 }
 
-// The agent shutting down ends such a command too.
 func TestCloseEndsACommandInASessionOfItsOwn(t *testing.T) {
 	service := New()
 	rec := newRecorder()
@@ -88,8 +78,6 @@ func TestDescendantsOfAProcessWithNone(t *testing.T) {
 	}
 }
 
-// TestStopReapsDetachedToolAfterItsParentExits checks the escalation after
-// the shell exits on TERM but its app-owned tool ignores the signal.
 func TestStopReapsDetachedToolAfterItsParentExits(t *testing.T) {
 	service := New()
 	rec := newRecorder()

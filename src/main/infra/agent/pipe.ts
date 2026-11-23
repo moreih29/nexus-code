@@ -1,15 +1,3 @@
-/**
- * NDJSON request/response/event state machine over an arbitrary stdio triple
- * (stdin / stdout / stderr). Used by both `ssh-channel` (over an SSH-tunneled
- * child) and `local-channel` (over a locally spawned agent child) — the
- * channel layer above owns process lifecycle and supplies a stderr classifier.
- *
- * The error code currency on this file is still `SshErrorCode` for historical
- * reasons; the `server.*` codes apply equally to local and the SSH-specific
- * codes (`ssh.connect-failed`, `ssh.auth-failed`) are simply never produced by
- * a local classifier. A future refactor may split the enum, but the channel
- * layer can already translate at its boundary today.
- */
 import type { Readable, Writable } from "node:stream";
 import { z } from "zod";
 import { NumberSchema } from "../../../../packages/remote-protocol/src/validation";
@@ -22,34 +10,17 @@ import type { SshErrorCode } from "../../../shared/ssh/errors";
 import { heartbeatHistogramLine } from "./heartbeat-histogram";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
-/** Match the Go agent's per-line limit, measured before UTF-8 decoding. */
 const MAX_AGENT_LINE_BYTES = 64 * 1024 * 1024;
 
-/** The active transport must be replaced after an oversized agent line. */
 export class AgentLineTooLongError extends Error {
   constructor() {
     super(`Agent output line exceeded ${MAX_AGENT_LINE_BYTES} bytes`);
   }
 }
-/** How many timed-out request ids to remember for absorbing late answers. */
 const ABANDONED_REQUEST_IDS_MAX = 1024;
 
-/**
- * Marker value written by the Go agent's slog logger on every structured log
- * record. Only lines that parse as JSON and carry this exact marker are
- * forwarded through the facade; all other stderr lines (panic output, SSH
- * classifier text) continue through the existing classifyStderr path.
- *
- * The value "agent-log" and the key "src" are fixed by the Go T6 contract in
- * cmd/agent/main.go — renaming either side must be kept in sync.
- */
 const AGENT_LOG_SRC_MARKER = "agent-log";
 
-/**
- * Lazy logger bound to source "agent" for forwarding Go slog records.
- * Created once on first use so that the module can be imported in test
- * environments without triggering electron-log initialization.
- */
 let agentFacadeLogger: ReturnType<typeof createLogger> | null = null;
 function getAgentLogger(): ReturnType<typeof createLogger> {
   if (agentFacadeLogger === null) {
@@ -58,26 +29,13 @@ function getAgentLogger(): ReturnType<typeof createLogger> {
   return agentFacadeLogger;
 }
 
-/**
- * The subset of a Go slog JSON record that pipe.ts reads when forwarding.
- * Unrecognised fields are ignored — forward-compatibility is intentional.
- */
 interface AgentLogRecord {
-  /** Fixed marker that identifies this line as a structured agent log entry. */
   src: typeof AGENT_LOG_SRC_MARKER;
-  /** slog log level string (e.g. "INFO", "ERROR"). */
   level?: string;
-  /** Human-readable log message. */
   msg?: string;
-  /** Optional cross-process correlation token injected by the IPC router. */
   correlationId?: string;
 }
 
-/**
- * Returns true when the parsed JSON object is a structured agent log record
- * that should be forwarded through the logging facade rather than classified
- * as an SSH/spawn error.
- */
 function isAgentLogRecord(value: unknown): value is AgentLogRecord {
   return (
     typeof value === "object" &&
@@ -87,11 +45,6 @@ function isAgentLogRecord(value: unknown): value is AgentLogRecord {
   );
 }
 
-/**
- * Maps a slog level string to the nearest facade log level.
- * slog uses uppercase names ("DEBUG", "INFO", "WARN", "ERROR"); unknown
- * values default to "info" so unexpected future levels are not silently lost.
- */
 function slogLevelToFacade(level: string | undefined): LogLevel {
   switch (level?.toUpperCase()) {
     case "DEBUG":
@@ -106,30 +59,12 @@ function slogLevelToFacade(level: string | undefined): LogLevel {
   }
 }
 
-/**
- * Byte threshold above which the stdout source is paused to prevent
- * unbounded accumulation when downstream event callbacks are slow.
- * Accounting is based on completed NDJSON line lengths, not raw chunk
- * bytes, so partial-line buffering in the splitter does not skew the
- * decision.
- */
-const STDOUT_BACKPRESSURE_HWM = 1 * 1024 * 1024; // 1 MiB
+const STDOUT_BACKPRESSURE_HWM = 1 * 1024 * 1024;
 
-/**
- * Byte threshold below which the stdout source is resumed after a
- * prior pause. The gap between LWM and HWM keeps the source from
- * oscillating on/off on every frame.
- */
-const STDOUT_BACKPRESSURE_LWM = 64 * 1024; // 64 KiB
+const STDOUT_BACKPRESSURE_LWM = 64 * 1024;
 
-/** Event name emitted by the Go agent at a regular heartbeat interval. */
 const AGENT_HEARTBEAT_EVENT = "agent.heartbeat";
 
-// The client pings the agent at the advertised idle-watchdog limit divided by
-// this many slots, so a live-but-idle session lands ~this many pings per window
-// and tolerates several missed ticks before the agent's watchdog (host.go) trips.
-// Deriving the interval from the agent's advertised idleWatchdogMs (rather than a
-// hardcoded constant) keeps the two ends in lockstep if the limit ever changes.
 const KEEPALIVE_PING_SLOTS = 6;
 
 const ReadyFrameSchema = z.looseObject({
@@ -138,7 +73,6 @@ const ReadyFrameSchema = z.looseObject({
   methods: z.array(z.string()).optional(),
   heartbeatIntervalMs: NumberSchema.optional(),
   idleWatchdogMs: NumberSchema.optional(),
-  // Reattach fields: present in protocol v2+ agents; absent in legacy agents.
   agentEpoch: NumberSchema.optional(),
   capabilities: z.array(z.string()).optional(),
 });
@@ -160,7 +94,6 @@ type ParsedFrame =
   | { kind: "error-response"; id: string; error: unknown }
   | { kind: "event"; event: string; payload: unknown };
 
-/** Per-call options for `NdjsonPipe.call`. */
 export interface NdjsonCallOptions {
   readonly correlationId?: string;
   readonly timeoutMs?: number;
@@ -182,94 +115,34 @@ export interface NdjsonPipeDependencies {
   readonly requestTimeoutMs?: number;
   readonly readyTimeoutMs?: number;
   readonly expectedProtocolMajor?: string;
-  /**
-   * Called when the first heartbeat miss is detected (advertisedInterval × 1).
-   * Fired once per degraded episode — not on every subsequent missed tick.
-   * Omit to suppress the degraded signal (e.g. local agents without heartbeat).
-   */
   readonly onDegraded?: () => void;
-  /**
-   * Called when a heartbeat arrives after a degraded episode. Provides the
-   * hysteresis clear signal so the manager can remove the unstable indicator.
-   */
   readonly onDegradedRecovered?: () => void;
 }
 
 export interface NdjsonPipe {
   readonly ready: Promise<void>;
-  /** Agent methods advertised in the ready frame. Available after ready resolves. */
   readonly methods?: readonly string[];
-  /** Heartbeat interval in milliseconds advertised in the ready frame. */
   readonly heartbeatIntervalMs?: number;
-  /**
-   * Agent epoch token from the ready frame. Non-zero only for protocol v2+
-   * agents running in daemon mode; 0 / undefined for legacy agents and local
-   * stdio mode. The channel layer compares this on each reconnect to detect
-   * daemon replacement ("held-then-expired").
-   */
   readonly agentEpoch?: number;
-  /**
-   * Send a JSON-RPC-style request to the agent and return the resolved result.
-   *
-   * @param method     The agent method name (e.g. `"lsp.spawn"`).
-   * @param params     The request payload — must be JSON-serialisable.
-   * @param options    `correlationId` is an optional cross-process correlation
-   *                   token issued by the IPC router.  When supplied it is
-   *                   included in the NDJSON frame as `correlationId` so the Go
-   *                   agent can attach the same token to its own log entries and
-   *                   error responses, linking the full call chain across
-   *                   process boundaries.  The field name `correlationId` is
-   *                   fixed by the Go-side T6 contract — do not rename.
-   *                   `timeoutMs` replaces the pipe's request timeout for this
-   *                   call.
-   */
   call<TResult = unknown>(
     method: string,
     params?: unknown,
     options?: NdjsonCallOptions,
   ): Promise<TResult>;
-  /**
-   * Sends a fire-and-forget notification to the agent. Writes the NDJSON frame
-   * and registers the pending id so the agent's ack response is absorbed cleanly
-   * when it arrives, but returns immediately without awaiting the ack. This
-   * keeps the outMu on the Go side free and avoids occupying a pendingRequests
-   * slot for the entire round-trip on every LSP notification keystroke.
-   */
   fire(method: string, params?: unknown): void;
   on(event: string, callback: NdjsonEventCallback): () => void;
-  /** Local cleanup — rejects ready/inflight, clears listeners. Owner kills the child. */
   dispose(): void;
-  /** Marks the pipe terminally failed from the orchestrator's side. */
   fail(error: Error): void;
-  /**
-   * Flushes buffered lines and reports whether the handshake had succeeded before close.
-   * `stderrTail` carries the last few masked stderr lines (loader errors, panics,
-   * unclassified warnings) so the orchestrator can attach them to the terminal
-   * error's cause — the file log is then self-sufficient for diagnosis.
-   */
   notifyClose(): { wasReady: boolean; stderrTail: string };
 }
 
-/**
- * Creates the NDJSON request/response/event state machine over a stdio triple.
- * Owns frame parsing, pending-request matching, and stderr classification —
- * but not process lifecycle (spawn/kill/timers), which the orchestrator owns.
- */
 export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   const requestTimeoutMs = deps.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
-  // Fallback derives from the single source of truth — a hardcoded "1" here
-  // silently masked the v0.6.0 protocol-constant drift for any caller that
-  // omitted expectedProtocolMajor.
   const expectedProtocolMajor = deps.expectedProtocolMajor ?? AGENT_PROTOCOL_VERSION;
   const pendingRequests = new PendingRequestMap<string, unknown>();
   const activeRequestIds = new Set<string>();
-  // Requests that timed out locally. The agent still answers them when the
-  // handler eventually finishes, and that answer is expected, not a protocol
-  // violation; failing the channel on it would turn one slow request into a
-  // dead workspace. Insertion-ordered, so the oldest id is evicted first.
   const abandonedRequestIds = new Set<string>();
   const listeners = new Map<string, Set<NdjsonEventCallback>>();
-  /** Stops this transport without buffering or logging the oversized line. */
   const onLineTooLong = () =>
     selfFail(createSshError("server.protocol-error", new AgentLineTooLongError()));
   const stdoutLines = createLineSplitter(handleStdoutLine, onLineTooLong, {
@@ -280,16 +153,9 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   });
   const stderrLines = createLineSplitter(handleStderrLine, onLineTooLong);
 
-  // Ring buffer of the most recent masked stderr lines. Retained regardless of
-  // classification so an unrecognized fatal line (e.g. a glibc loader error)
-  // is still available as diagnostic context when the process closes.
   const STDERR_TAIL_MAX_LINES = 20;
   const STDERR_TAIL_MAX_LINE_CHARS = 200;
   const recentStderr: string[] = [];
-  // Last spawn-failure line seen before ready. Login shells print profile
-  // noise such as "pyenv: command not found" before exec'ing the agent, so
-  // the line only means the agent failed to start if the process then exits
-  // without sending a ready frame.
   let deferredSpawnFailure: string | null = null;
 
   let nextRequestId = 1;
@@ -301,30 +167,20 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   let readyReceived = false;
   let readyTimer: NodeJS.Timeout | undefined;
 
-  // Capabilities from the ready frame — populated once ready arrives.
   let capabilityMethods: readonly string[] | undefined;
   let capabilityHeartbeatIntervalMs: number | undefined;
   let capabilityAgentEpoch: number | undefined;
 
-  // Heartbeat watchdog state.
   let lastHeartbeatAt = 0;
   let heartbeatWarned = false;
   let heartbeatWatchdogTimer: ReturnType<typeof setInterval> | null = null;
-  // Degraded state: true after the first miss has been reported; cleared when
-  // a heartbeat arrives. Guards against re-firing onDegraded every tick.
   let isDegraded = false;
 
-  // Heartbeat arrival histogram: bucket[i] counts arrivals with inter-arrival
-  // time in [i*intervalMs, (i+1)*intervalMs). Buckets 0..4 = on-time; 5..9
-  // = 1–5× late; 10+ = overflow. Logged once per minute.
   const HISTOGRAM_BUCKETS = 11;
   const heartbeatHistogram = new Array<number>(HISTOGRAM_BUCKETS).fill(0);
   let histogramIntervalMs = 0;
   let histogramLogTimer: ReturnType<typeof setInterval> | null = null;
 
-  // Client keepalive sender — pings the agent so its idle watchdog keeps a
-  // live-but-idle session alive. Started on ready (alongside the heartbeat
-  // watchdog), cleared on dispose/fail.
   let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
 
   const ready = new Promise<void>((resolve, reject) => {
@@ -344,7 +200,6 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   });
   ready.catch(() => {});
 
-  /** Clears the heartbeat watchdog timer, histogram timer, and resets state. */
   function clearHeartbeatWatchdog(): void {
     if (heartbeatWatchdogTimer !== null) {
       clearInterval(heartbeatWatchdogTimer);
@@ -359,7 +214,6 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     isDegraded = false;
   }
 
-  /** Clears the keepalive ping timer. */
   function clearKeepalive(): void {
     if (keepaliveTimer !== null) {
       clearInterval(keepaliveTimer);
@@ -367,7 +221,6 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     }
   }
 
-  /** Rejects all in-flight requests with the same terminal transport error. */
   function rejectPendingRequests(error: Error): void {
     for (const requestId of Array.from(activeRequestIds)) {
       pendingRequests.reject(requestId, error);
@@ -375,7 +228,6 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     activeRequestIds.clear();
   }
 
-  /** Records a terminal pipe failure detected from stream data. */
   function selfFail(error: SshError): void {
     if (disposed || terminalError) return;
     terminalError = error;
@@ -386,7 +238,6 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     deps.onTerminalError(error, readyReceived);
   }
 
-  /** Parses one stdout NDJSON line and routes it to ready, call, or event state. */
   function handleStdoutLine(line: string): void {
     if (disposed || terminalError || line.length === 0) return;
 
@@ -394,10 +245,6 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     try {
       frame = parseFrame(line);
     } catch (error) {
-      // Surface the offending line once so the operator can tell what kind of
-      // noise broke NDJSON (login-shell profile output, ANSI, partial frame,
-      // binary chunk, etc.). The channel is terminal after selfFail so this
-      // logs at most once per pipe.
       logMalformedStdoutLine(line, readySettled, error);
       selfFail(createSshError("server.protocol-error", error));
       return;
@@ -408,7 +255,6 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
         selfFail(createSshError("server.protocol-version-mismatch"));
         return;
       }
-      // Store capabilities from the ready frame.
       if (frame.methods !== undefined) {
         capabilityMethods = frame.methods;
       }
@@ -418,13 +264,7 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       if (frame.agentEpoch !== undefined) {
         capabilityAgentEpoch = frame.agentEpoch;
       }
-      // Start the watchdog only when the server advertises a positive interval.
-      // proto.go contract: heartbeatIntervalMs === 0 means heartbeat disabled.
-      // Without the `> 0` guard, setInterval(fn, 0) busy-loops every microtask.
       if (frame.heartbeatIntervalMs !== undefined && frame.heartbeatIntervalMs > 0) {
-        // Start the watchdog: fire if 3 consecutive heartbeats are missed.
-        // Also fire `onDegraded` after 1 miss (advertisedInterval × 1) as an
-        // early "unstable" signal — before the 3-miss terminal declaration.
         const intervalMs = frame.heartbeatIntervalMs;
         const degradedThresholdMs = intervalMs * 1;
         const watchdogIntervalMs = intervalMs * 3;
@@ -432,7 +272,6 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
         const timer = setInterval(() => {
           if (disposed || terminalError) return;
           const elapsed = Date.now() - lastHeartbeatAt;
-          // Degraded: 1-miss threshold exceeded but channel is still alive.
           if (elapsed >= degradedThresholdMs && !isDegraded) {
             isDegraded = true;
             deps.onDegraded?.();
@@ -446,15 +285,11 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
             }
           }
         }, degradedThresholdMs);
-        // Unref so the timer does not keep the event loop alive in Node/Bun.
         if (typeof (timer as NodeJS.Timeout).unref === "function") {
           (timer as NodeJS.Timeout).unref();
         }
         heartbeatWatchdogTimer = timer;
 
-        // Heartbeat inter-arrival histogram: one summary line per minute, only
-        // for a minute with a late beat.
-        // Buckets: [0..1×) = on-time, [1×..2×) = 1 slot late, …, 10× = overflow.
         histogramIntervalMs = intervalMs;
         const logTimer = setInterval(() => {
           if (disposed || terminalError) return;
@@ -468,12 +303,6 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
         histogramLogTimer = logTimer;
       }
 
-      // Keepalive ping — gated on the agent's advertised idle watchdog, not on
-      // heartbeat. The agent self-terminates after idleWatchdogMs of silence
-      // (SSH only; 0 for local agents), so we ping only when it is positive,
-      // and at idleWatchdogMs / SLOTS so a live-but-idle session keeps resetting
-      // the limit. Best-effort (fire) — a failed ping just means the channel is
-      // already tearing down.
       if (frame.idleWatchdogMs !== undefined && frame.idleWatchdogMs > 0) {
         const pingIntervalMs = Math.max(1, Math.floor(frame.idleWatchdogMs / KEEPALIVE_PING_SLOTS));
         const ping = setInterval(() => {
@@ -512,14 +341,11 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       return;
     }
 
-    // Heartbeat: update the watchdog timestamp and reset the warned flag so a
-    // recovered agent suppresses further warnings.
     if (frame.event === AGENT_HEARTBEAT_EVENT) {
       const now = Date.now();
       const elapsed = lastHeartbeatAt > 0 ? now - lastHeartbeatAt : 0;
       lastHeartbeatAt = now;
       heartbeatWarned = false;
-      // Record inter-arrival bucket for histogram.
       if (histogramIntervalMs > 0 && elapsed > 0) {
         const bucketIndex = Math.min(
           Math.floor(elapsed / histogramIntervalMs),
@@ -527,7 +353,6 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
         );
         heartbeatHistogram[bucketIndex] = (heartbeatHistogram[bucketIndex] ?? 0) + 1;
       }
-      // Hysteresis: clear degraded state and notify recovery.
       if (isDegraded) {
         isDegraded = false;
         deps.onDegradedRecovered?.();
@@ -536,33 +361,14 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     emitEvent(frame.event, frame.payload);
   }
 
-  /**
-   * Handles one stderr line. Two paths:
-   *
-   * 1. **Agent log record** — if the line parses as JSON and carries the
-   *    `"src":"agent-log"` marker (written by the Go slog JSONHandler), the
-   *    record is forwarded through the logging facade with source "agent".
-   *    The correlationId field, when present, is passed as log metadata so
-   *    the entry appears alongside the originating IPC call in the log file.
-   *
-   * 2. **Classifier / panic output** — all other lines (non-JSON, JSON without
-   *    the marker, multi-line panic traces) continue through the existing
-   *    classifyStderr path unchanged. This keeps SSH error detection working
-   *    and avoids misclassifying any JSON-shaped SSH diagnostic text as an
-   *    agent log record.
-   */
   function handleStderrLine(line: string): void {
     if (disposed || terminalError || line.length === 0) return;
 
-    // Attempt JSON parse only for lines that look like objects — this avoids
-    // the overhead on the overwhelming majority of classifier / panic lines.
-    if (line.charCodeAt(0) === 0x7b /* '{' */) {
+    if (line.charCodeAt(0) === 0x7b) {
       let parsed: unknown;
       try {
         parsed = JSON.parse(line);
-      } catch {
-        // Not valid JSON — fall through to classifyStderr below.
-      }
+      } catch {}
       if (isAgentLogRecord(parsed)) {
         const log = getAgentLogger();
         const level = slogLevelToFacade(parsed.level);
@@ -574,14 +380,8 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       }
     }
 
-    // Retain the diagnostic before classification so it survives even when no
-    // pattern matches — the close handler reads this tail for the cause.
     recordStderr(line);
 
-    // After ready, stderr carries the agent's own diagnostics and the SSH
-    // client's teardown chatter. A dropped connection surfaces as a process
-    // close, which takes the reconnect path; failing here would make a
-    // transient "Connection reset by peer" terminal.
     if (readySettled) return;
 
     const code = deps.classifyStderr(line);
@@ -590,13 +390,10 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       return;
     }
     if (code) {
-      // Attach the offending line as cause so the file log shows *why* the
-      // agent failed to start, not just the classified code.
       selfFail(createSshError(code, line));
     }
   }
 
-  /** Appends one stderr line to the bounded diagnostic tail buffer. */
   function recordStderr(line: string): void {
     recentStderr.push(redactLogSecrets(line).slice(0, STDERR_TAIL_MAX_LINE_CHARS));
     if (recentStderr.length > STDERR_TAIL_MAX_LINES) {
@@ -604,22 +401,6 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
     }
   }
 
-  /**
-   * Delivers one remote event to currently subscribed callbacks.
-   *
-   * All callbacks are invoked synchronously on the same tick as the
-   * line-splitter's onLine handler. A slow callback therefore blocks the
-   * splitter from processing further data, which is intentional: the
-   * resulting latency in the data handler causes OS-level backpressure
-   * to accumulate in the stdout stream's internal buffer, eventually
-   * triggering a pause() from the byte-accounting gate in createLineSplitter.
-   * Callbacks that cannot tolerate this synchronous tax should yield via
-   * queueMicrotask or a similar mechanism.
-   *
-   * A callback that throws is logged and skipped: letting the error escape
-   * would drop the rest of the chunk's frames, skip the other subscribers,
-   * and surface as an uncaught exception from the stream's data handler.
-   */
   function emitEvent(event: string, payload: unknown): void {
     const callbacks = listeners.get(event);
     if (!callbacks) return;
@@ -668,9 +449,6 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       }
 
       const requestId = `r-${nextRequestId++}`;
-      // Build the request frame.  `correlationId` is included only when
-      // provided so the wire format stays minimal for internal calls that
-      // do not originate from a renderer IPC request.
       const frame: Record<string, unknown> = { id: requestId, method, params };
       if (correlationId !== undefined) {
         frame.correlationId = correlationId;
@@ -717,20 +495,8 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       return promise;
     },
     fire(method: string, params?: unknown): void {
-      // LSP notifications (didOpen/didChange/didSave/didClose) are
-      // fire-and-forget: the agent receives and forwards them, then sends back
-      // a void ack, but the caller must not block waiting for that ack because
-      // it would occupy a pendingRequests slot and hold the agent's outMu for
-      // the full round-trip on every keystroke.  We still register the request
-      // id so the incoming ack response is matched and absorbed cleanly by the
-      // pending-request machinery — without registration, an unmatched id would
-      // trigger a protocol-error and tear the channel down.
       if (disposed || terminalError) return;
-      this.call(method, params).catch(() => {
-        // Absorb transport and agent errors silently: notification delivery is
-        // best-effort (the LSP server may have exited, the channel may be
-        // reconnecting) and callers are not awaiting this result.
-      });
+      this.call(method, params).catch(() => {});
     },
     on(event: string, callback: NdjsonEventCallback): () => void {
       let callbacks = listeners.get(event);
@@ -791,24 +557,13 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
   return pipe;
 }
 
-// === error helpers (exported for orchestrator use) ===
-
-/**
- * Creates a typed SSH transport error with no raw stderr attached.
- */
 export function createSshError(code: SshErrorCode, cause?: unknown): SshError {
   const error = new Error(messageForSshErrorCode(code), { cause }) as SshError;
   error.name = "SshError";
   (error as Error & { code: SshErrorCode }).code = code;
-  // Diagnostic log: record every SshError construction in main.log. In a packaged app
-  // the SSH flow barely goes through the logger, so this one line is the decisive clue for
-  // tracing where a protocol-error was thrown. The cause is logged with message + stack truncated,
-  // and the call stack goes in a separate field.
   try {
     const causeMsg =
       cause instanceof Error ? cause.message : cause === undefined ? "" : String(cause);
-    // 600 chars (up from 300) so a close diagnostic carrying an exit code plus
-    // a multi-line stderr tail is not truncated before the actual error text.
     const causeSnippet = redactLogSecrets(causeMsg).slice(0, 600);
     const stack = redactLogSecrets(error.stack ?? "")
       .split("\n")
@@ -817,24 +572,16 @@ export function createSshError(code: SshErrorCode, cause?: unknown): SshError {
     getMalformedStdoutLogger().warn(
       `SshError throw: code=${code} cause=${causeSnippet} stack=${stack}`,
     );
-  } catch {
-    // Ignore logging failures.
-  }
+  } catch {}
   return error;
 }
 
-/**
- * Creates the local disposal error used for abandoned ready/call waiters.
- */
 export function createDisposedError(): Error {
   const error = new Error("SSH channel disposed");
   error.name = "AbortError";
   return error;
 }
 
-/**
- * Maps stable SSH error codes to non-sensitive caller-facing messages.
- */
 export function messageForSshErrorCode(code: SshErrorCode): string {
   switch (code) {
     case "ssh.connect-failed":
@@ -862,19 +609,8 @@ export function messageForSshErrorCode(code: SshErrorCode): string {
   }
 }
 
-// === diagnostics ===
-
-/** Max chars of the offending line to surface in the diagnostic warning. */
 const MALFORMED_LINE_PREVIEW_CHARS = 256;
 
-/**
- * Logs one diagnostic line when stdout NDJSON parsing fails. Truncates the
- * offending content and escapes control characters so login-shell motd, ANSI
- * sequences, or binary leakage become visible without dumping the full line
- * (which can be megabytes for legitimate-but-malformed frames). Includes the
- * ready state so callers can distinguish boot-time pollution (ready=false,
- * usually shell profile output) from mid-session corruption (ready=true).
- */
 let malformedStdoutDiagnosticLogger: ReturnType<typeof createLogger> | null = null;
 function getMalformedStdoutLogger(): ReturnType<typeof createLogger> {
   if (malformedStdoutDiagnosticLogger === null) {
@@ -885,29 +621,18 @@ function getMalformedStdoutLogger(): ReturnType<typeof createLogger> {
 
 function logMalformedStdoutLine(line: string, ready: boolean, error: unknown): void {
   const preview = malformedLinePreview(line);
-  // JSON.parse may quote a fragment of the original input with no credential label.
   const reason = error instanceof SyntaxError ? error.name : redactLogSecrets(String(error));
-  // Route this through `createLogger` so it reaches the electron-log file transport. It used to
-  // call `console.warn` directly, so it never reached main.log in a packaged app, but
-  // this line is the top clue when diagnosing stdout pollution from a remote SSH agent, so file
-  // visibility matters.
   getMalformedStdoutLogger().warn(
     `stdout NDJSON parse failed (ready=${ready}, len=${line.length}, reason=${reason}): ${preview}`,
   );
 }
 
-/** Redacts the whole line before clipping so a partially visible value cannot leak. */
 function malformedLinePreview(line: string): string {
   const redacted = redactLogSecrets(line);
   const truncated = redacted.length > MALFORMED_LINE_PREVIEW_CHARS ? "…" : "";
   return escapeControlChars(redacted.slice(0, MALFORMED_LINE_PREVIEW_CHARS)) + truncated;
 }
 
-/**
- * Replaces ASCII control characters and the DEL byte with `\xNN` escapes so
- * shell motd output, ANSI escape sequences, and binary chunks are readable in
- * console output.
- */
 function escapeControlChars(value: string): string {
   let out = "";
   for (let i = 0; i < value.length; i++) {
@@ -925,20 +650,9 @@ function escapeControlChars(value: string): string {
   return out;
 }
 
-// === frame parsing ===
-
-/**
- * Parses exactly one NDJSON frame from stdout.
- */
 function parseFrame(line: string): ParsedFrame {
   const parsed: unknown = JSON.parse(line);
 
-  // The `ready` frame is uniquely tagged `type: "ready"` and is emitted exactly
-  // once, at handshake. Gate the schema parse behind that cheap tag check so the
-  // hot data/response/event path (every PTY output frame) doesn't pay a full
-  // Zod object parse just to have it fail. Behavior-preserving: a frame without
-  // `type === "ready"` can never satisfy ReadyFrameSchema's literal, so skipping
-  // the parse yields the same fall-through as before.
   if (isRecord(parsed) && parsed.type === "ready") {
     const ready = ReadyFrameSchema.safeParse(parsed);
     if (ready.success) {
@@ -971,11 +685,6 @@ function parseFrame(line: string): ParsedFrame {
     throw createSshError("server.protocol-error");
   }
 
-  // Void response shim: an agent that emits `{"id":"x"}` with neither result
-  // nor error nor event (the shape produced when a Go handler returns
-  // (nil, nil) and `omitempty` drops the result key) is treated as a successful
-  // void response with null result. Newer agents emit explicit `"result":null`
-  // for the same case; the shim keeps older agents from killing the channel.
   if (!hasResult && !hasError && !hasEvent && typeof parsed.id === "string") {
     return { kind: "response", id: parsed.id, result: null };
   }
@@ -998,10 +707,6 @@ function parseFrame(line: string): ParsedFrame {
     };
   }
 
-  // Only attempt the event schema when the `event` key is present (computed
-  // above). A frame without it can never satisfy EventFrameSchema's required
-  // `event` string, so this avoids a wasted parse on malformed frames while
-  // keeping the hot data-event path (which always has the key) unchanged.
   const event = hasEvent ? EventFrameSchema.safeParse(parsed) : null;
   if (event?.success) {
     return {
@@ -1017,9 +722,6 @@ function parseFrame(line: string): ParsedFrame {
   throw createSshError("server.protocol-error");
 }
 
-/**
- * Converts an agent error frame to an Error while preserving its code.
- */
 function errorFromServerFrame(value: unknown): Error {
   if (!isRecord(value)) {
     return new Error("Agent request failed");
@@ -1036,16 +738,10 @@ function errorFromServerFrame(value: unknown): Error {
   return error;
 }
 
-/**
- * Narrows unknown JSON values to object records.
- */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/**
- * Distinguishes absent keys from keys present with an explicit undefined value.
- */
 function hasOwnKey(value: Record<string, unknown>, key: string): boolean {
   return Object.hasOwn(value, key);
 }
@@ -1056,46 +752,12 @@ function protocolMajorMatches(actual: string | undefined, expectedMajor: string)
 }
 
 interface LineSplitterBackpressure {
-  /** Byte threshold above which the upstream source is paused. */
   hwm: number;
-  /** Byte threshold below which a previously paused source is resumed. */
   lwm: number;
-  /** Called once when accumulated line bytes cross hwm from below. */
   pause(): void;
-  /** Called once when accumulated line bytes drop to lwm or below. */
   resume(): void;
 }
 
-/**
- * Builds a reusable line splitter for stdout/stderr chunk streams.
- *
- * When backpressure options are supplied the splitter maintains a running
- * tally of bytes from completed NDJSON lines dispatched since the last gate
- * transition. Partial-line bytes held in the internal string buffer are
- * excluded from the tally so gate decisions are based only on fully parsed
- * lines.
- *
- * Gate semantics (per-push burst bounding):
- *  - tally += line.length before each onLine() call.
- *  - After onLine() returns (synchronous listener tax complete):
- *      * If not paused and tally > hwm: pause(), tally resets to zero.
- *        The reset lets lines that slip through before the OS honors the
- *        pause be measured fresh against lwm.
- *      * If paused and tally <= lwm: resume(), tally resets to zero.
- *  - After every push() or flush() call, if the gate is still paused and
- *    tally is at or below lwm, resume() is called unconditionally. This
- *    "post-burst resume" prevents a self-deadlock where the stream honors
- *    pause() and no further data events arrive to trigger the per-line
- *    resume branch. Concretely: pause() resets tally to zero; if the
- *    current push() chunk contained only the line that triggered the
- *    pause, tally stays at zero after the while-loop exits, satisfying
- *    tally <= lwm, so the stream is immediately resumed and can deliver
- *    the next chunk.
- *
- * The tally accumulates across consecutive push() calls so that a rapid
- * sequence of small chunks still triggers a pause once cumulative volume
- * exceeds hwm. This bounds worst-case buffering to hwm + maxSingleLineBytes.
- */
 function createLineSplitter(
   onLine: (line: string) => void,
   onLineTooLong: () => void,
@@ -1104,28 +766,12 @@ function createLineSplitter(
   push(chunk: Buffer): void;
   flush(): void;
 } {
-  // Raw bytes of the line in progress, decoded only once the whole line has
-  // arrived. Decoding each chunk on its own turned a multi-byte UTF-8
-  // character split across a chunk boundary into U+FFFD — Hangul in a large
-  // file came back corrupted and was saved that way — and re-scanning one
-  // growing string for "\n" on every chunk made a large frame quadratic.
-  // 0x0A never occurs inside a multi-byte UTF-8 sequence, so splitting the
-  // raw bytes on it is safe.
   let pending: Buffer | undefined;
   let pendingBytes = 0;
   let oversized = false;
-  // Running tally of bytes from completed lines dispatched since the last
-  // gate transition. Resets to zero after each pause() or resume() call
-  // so each measurement window starts fresh.
   let tally = 0;
   let paused = false;
 
-  /**
-   * Dispatches one completed line to the onLine handler and evaluates the
-   * per-line pause/resume gate. Errors thrown by onLine are re-thrown after
-   * the gate check so that gate accounting is never skipped by a throwing
-   * listener.
-   */
   function dispatchLine(line: string): void {
     if (!backpressure) {
       onLine(line);
@@ -1138,7 +784,6 @@ function createLineSplitter(
     } catch (err) {
       listenerError = err;
     }
-    // Evaluate gate state after listener work completes (or throws).
     if (!paused && tally > backpressure.hwm) {
       paused = true;
       tally = 0;
@@ -1153,13 +798,6 @@ function createLineSplitter(
     }
   }
 
-  /**
-   * Resumes the source after a push() or flush() call if the gate is paused
-   * and no tally accumulated since the last transition. Without this check a
-   * stream that honors pause() would never receive the next chunk and the gate
-   * would deadlock: the resume branch inside dispatchLine requires a new line,
-   * but no new lines arrive while the stream is paused.
-   */
   function postBurstResumeCheck(): void {
     if (backpressure && paused && tally <= backpressure.lwm) {
       paused = false;
@@ -1168,7 +806,6 @@ function createLineSplitter(
     }
   }
 
-  /** Reject an oversized line before retaining or concatenating its bytes. */
   function fits(bytes: number): boolean {
     if (pendingBytes + bytes <= MAX_AGENT_LINE_BYTES) return true;
     pending = undefined;
@@ -1178,7 +815,6 @@ function createLineSplitter(
     return false;
   }
 
-  /** Packs small chunks so retained buffer objects cannot grow with the number of reads. */
   function append(tail: Buffer): Buffer {
     const end = pendingBytes + tail.length;
     if (!pending || pending.length < end) {
@@ -1207,7 +843,6 @@ function createLineSplitter(
         try {
           dispatchLine(bytes.toString("utf8").replace(/\r$/, ""));
         } catch (err) {
-          // Keep the chunk's remaining lines for the next push, as before.
           if (start < chunk.length && fits(chunk.length - start)) {
             append(chunk.subarray(start));
           }

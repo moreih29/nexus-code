@@ -10,8 +10,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// Junction makes link a junction to the directory at the absolute path
-// target: a link to a folder that, unlike a symbolic link, needs no rights.
 func Junction(link, target string) error {
 	if err := os.Mkdir(link, 0o755); err != nil {
 		return err
@@ -23,7 +21,6 @@ func Junction(link, target string) error {
 	return nil
 }
 
-// setMountPoint turns the empty directory dir into a junction to target.
 func setMountPoint(dir, target string) error {
 	path, err := windows.UTF16PtrFromString(dir)
 	if err != nil {
@@ -41,9 +38,6 @@ func setMountPoint(dir, target string) error {
 	return windows.DeviceIoControl(h, windows.FSCTL_SET_REPARSE_POINT, &buf[0], uint32(len(buf)), nil, 0, &returned, nil)
 }
 
-// mountPointReparseData lays out a REPARSE_DATA_BUFFER for a junction to
-// target: the NT path it leads to (\??\C:\...) and the path shown for it, each
-// ending in NUL.
 func mountPointReparseData(target string) []byte {
 	substitute := utf16.Encode([]rune(`\??\` + target))
 	shown := utf16.Encode([]rune(target))
@@ -53,10 +47,10 @@ func mountPointReparseData(target string) []byte {
 	buf := make([]byte, 8+dataLen)
 	binary.LittleEndian.PutUint32(buf[0:], windows.IO_REPARSE_TAG_MOUNT_POINT)
 	binary.LittleEndian.PutUint16(buf[4:], uint16(dataLen))
-	binary.LittleEndian.PutUint16(buf[8:], 0)                            // SubstituteNameOffset
-	binary.LittleEndian.PutUint16(buf[10:], uint16(2*len(substitute)))   // SubstituteNameLength
-	binary.LittleEndian.PutUint16(buf[12:], uint16(2*len(substitute)+2)) // PrintNameOffset
-	binary.LittleEndian.PutUint16(buf[14:], uint16(2*len(shown)))        // PrintNameLength
+	binary.LittleEndian.PutUint16(buf[8:], 0)
+	binary.LittleEndian.PutUint16(buf[10:], uint16(2*len(substitute)))
+	binary.LittleEndian.PutUint16(buf[12:], uint16(2*len(substitute)+2))
+	binary.LittleEndian.PutUint16(buf[14:], uint16(2*len(shown)))
 	for i, c := range names {
 		binary.LittleEndian.PutUint16(buf[16+2*i:], c)
 	}

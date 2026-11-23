@@ -1,7 +1,3 @@
-// Each language server's status and log, as main knows them: kept per
-// (workspace, preset language), so a server's history carries over the
-// restarts that give it a new server id.
-
 import type {
   LspLogEntry,
   LspLogLevel,
@@ -10,9 +6,7 @@ import type {
 } from "../../../shared/lsp/status";
 import { LSP_CRASH_LIMIT, LSP_CRASH_WINDOW_MS } from "../../../shared/util/timing-constants";
 
-/** Entries kept per server; older ones are dropped. */
 const LOG_LIMIT = 1000;
-/** A longer message, such as a stack trace in one logMessage, is cut. */
 const LOG_MESSAGE_LIMIT = 8 * 1024;
 
 interface ServerLog {
@@ -58,15 +52,6 @@ export class LspServerStatusTracker {
     this.log(workspaceId, languageId, "lifecycle", `Stopped: ${detail}`);
   }
 
-  /**
-   * Records a crash, a hang or a failed start, and returns whether the
-   * server should start again: not once it failed LSP_CRASH_LIMIT times
-   * within LSP_CRASH_WINDOW_MS, nor when its binary is missing. Then it
-   * stays down until `resetFailures`.
-   *
-   * A server that did not start drops the name of the one that ran before:
-   * the user may have pointed the setting at another binary.
-   */
   failed(
     workspaceId: string,
     languageId: string,
@@ -108,7 +93,6 @@ export class LspServerStatusTracker {
     return this.statuses.get(keyOf(workspaceId, languageId))?.gaveUp === true;
   }
 
-  /** Lets a server that gave up start again: the user restarts it. */
   resetFailures(workspaceId: string, languageId: string, reason: LspStopReason): void {
     const key = keyOf(workspaceId, languageId);
     this.failures.delete(key);
@@ -117,7 +101,6 @@ export class LspServerStatusTracker {
     }
   }
 
-  /** The servers that gave up, which have no live server to stop. */
   givenUp(): Array<{ workspaceId: string; languageId: string }> {
     return [...this.statuses.values()]
       .filter((status) => status.gaveUp)
@@ -149,17 +132,11 @@ export class LspServerStatusTracker {
     if (log.entries.length > LOG_LIMIT) log.entries.splice(0, log.entries.length - LOG_LIMIT);
   }
 
-  /** The entries after `afterSeq`, or all of them. */
   logEntries(workspaceId: string, languageId: string, afterSeq = -1): LspLogEntry[] {
     const entries = this.logs.get(keyOf(workspaceId, languageId))?.entries ?? [];
     return entries.filter((entry) => entry.seq > afterSeq);
   }
 
-  /**
-   * Sets the state, keeping the server's name across it unless `keepName`
-   * is false: the name stays while the server is stopped, not once it is
-   * missing or another failed to start.
-   */
   private set(
     workspaceId: string,
     languageId: string,

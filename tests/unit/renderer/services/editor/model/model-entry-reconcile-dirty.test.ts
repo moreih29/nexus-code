@@ -1,14 +1,3 @@
-/**
- * External-change reconcile must never hide a buffer with unsaved edits.
- *
- * A `git checkout other && git checkout -` round trip deletes and recreates
- * the file under an open, edited buffer. The failed read used to move the
- * entry to the error phase (snapshot hides the model) and the later
- * successful read took the dirty branch without restoring it, so the edits
- * were unreachable: the editor showed the error state and save found no
- * model.
- */
-
 import { describe, expect, mock, test } from "bun:test";
 import type { ModelEntryDeps } from "../../../../../../src/renderer/services/editor/model/entry";
 

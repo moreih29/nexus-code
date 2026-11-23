@@ -8,9 +8,6 @@ import (
 	"strings"
 )
 
-// parseProcStat reads the first line of Linux's /proc/stat, the time all
-// CPUs spent in each state. Guest time is already in user and nice, so it
-// is not counted again; waiting on I/O counts as idle, as top shows it.
 func parseProcStat(data []byte) (cpuTimes, bool) {
 	line, _, _ := bytes.Cut(data, []byte("\n"))
 	fields := strings.Fields(string(line))
@@ -18,7 +15,6 @@ func parseProcStat(data []byte) (cpuTimes, bool) {
 		return cpuTimes{}, false
 	}
 	var times cpuTimes
-	// user nice system idle iowait irq softirq steal [guest guest_nice]
 	for i, field := range fields[1:] {
 		if i >= 8 {
 			break
@@ -35,9 +31,6 @@ func parseProcStat(data []byte) (cpuTimes, bool) {
 	return times, true
 }
 
-// parseMeminfo reads Linux's /proc/meminfo: in use is what is not
-// available, so the cache the kernel gives back on demand counts as free,
-// as free(1) shows it.
 func parseMeminfo(data []byte) (used, total uint64, ok bool) {
 	var available uint64
 	var haveTotal, haveAvailable bool
@@ -70,9 +63,6 @@ func parseMeminfo(data []byte) (used, total uint64, ok bool) {
 
 var pageSizeRE = regexp.MustCompile(`page size of (\d+) bytes`)
 
-// parseVMStat reads macOS's vm_stat for the memory in use as Activity
-// Monitor counts it: the programs' own pages less those they let go of on
-// demand, the wired ones, and those the compressor holds.
 func parseVMStat(data []byte) (uint64, bool) {
 	size := pageSizeRE.FindSubmatch(data)
 	if size == nil {
@@ -107,7 +97,6 @@ func parseVMStat(data []byte) (uint64, bool) {
 	return (anonymous - purgeable + wired + compressor) * pageSize, true
 }
 
-// parsePSCPU sums ps's %cpu column over the host's CPUs.
 func parsePSCPU(data []byte, cpus int) (float64, bool) {
 	if cpus < 1 {
 		return 0, false

@@ -1,11 +1,3 @@
-/**
- * nexus panel list/show/hide/resize: the two columns left of the editor
- * area, the workspace sidebar and the files panel, and what the files panel
- * shows: the file tree, search, git or the agent list.
- *
- * The columns are the app's, not a workspace's, so changing them needs no
- * leave; the files panel's view is kept per workspace.
- */
 import type { CliFilesMode, CliPanel, CliPanels } from "../../../../shared/cli/ui";
 import { CliUsageError, exactArgs } from "../args";
 import { resolveWorkspace } from "../context";
@@ -13,7 +5,6 @@ import { table } from "../format";
 import { type CliCommand, output } from "../registry";
 import { WORKSPACE_FLAG } from "./flags";
 
-/** A panel as the command line names it: a column, and a view of the files panel. */
 const NAMES: Record<string, { panel: CliPanel; mode?: CliFilesMode }> = {
   sidebar: { panel: "sidebar" },
   workspaces: { panel: "sidebar" },

@@ -1,13 +1,3 @@
-/**
- * Git failure → toast subscription.
- *
- * The Source Control panel shows only the failures it can recover from (see
- * gitErrorPlacement). Every other failed action surfaces here as a toast, so
- * it is seen even when the panel is not on screen, with git's output under
- * Details. A panel failure raised while the panel is not on screen gets a
- * toast too, pointing the user to it.
- */
-
 import i18next from "i18next";
 import { showToast } from "../../components/ui/toast";
 import { focusWorkspace } from "../../state/operations/workspace-selection";
@@ -22,12 +12,6 @@ type Unsubscribe = () => void;
 
 let activeUnsub: Unsubscribe | null = null;
 
-/**
- * Install (or reinstall) the git failure toast subscription.
- *
- * Safe to call multiple times — the previous subscription is removed first.
- * Failures already recorded when it is installed are not toasted.
- */
 export function initGitErrorToasts(): void {
   activeUnsub?.();
 

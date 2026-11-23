@@ -1,40 +1,26 @@
-// Package ports finds the TCP ports that programs started in the app's
-// terminals listen on — a dev server's — so the app can show and open them.
-// It looks rather than assigns: a program keeps whatever port it picked.
 package ports
 
 import "sort"
 
-// FirstDynamicPort is where the ports the system hands out on request begin
-// (IANA's dynamic range). Programs listen there for their own plumbing, a
-// debugger or an editor bridge, not for the user to open, so those ports are
-// left out.
 const FirstDynamicPort = 49152
 
-// Listener is a TCP port a process listens on.
 type Listener struct {
 	Port int
 	PID  int
 }
 
-// Process is a running process as the process table lists it.
 type Process struct {
 	PPID int
-	// Name is the program's file name, without its folder.
 	Name string
 }
 
-// Port is a listening port held by a process under one of the roots.
 type Port struct {
 	Port int
 	PID  int
-	// Name is the program holding the port.
 	Name string
-	// Root is the root the program is under.
 	Root int
 }
 
-// under maps each process under the roots, and each root, to its root.
 func under(table map[int]Process, roots []int) map[int]int {
 	children := make(map[int][]int, len(table))
 	for pid, process := range table {
@@ -61,10 +47,6 @@ func under(table map[int]Process, roots []int) map[int]int {
 	return owner
 }
 
-// onlyShells reports whether owner holds nothing but the roots: every
-// terminal at its prompt, which is most looks. The sockets are not read
-// then, the slower half of a look. The cost is a port a shell holds itself,
-// as after "exec server", which shows only once something runs under it.
 func onlyShells(owner map[int]int) bool {
 	for pid, root := range owner {
 		if pid != root {
@@ -74,9 +56,6 @@ func onlyShells(owner map[int]int) bool {
 	return true
 }
 
-// match keeps the listeners of the processes owner has, one per port and
-// below FirstDynamicPort, in port order. A port held twice, for IPv4 and
-// IPv6 or by a server's workers, goes to its lowest process id.
 func match(listeners []Listener, table map[int]Process, owner map[int]int) []Port {
 	sorted := append([]Listener(nil), listeners...)
 	sort.Slice(sorted, func(i, j int) bool {

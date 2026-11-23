@@ -1,8 +1,3 @@
-/**
- * BranchCreateDialog hosts the validated branch-name input shared by
- * Branch ▸ Create New Branch and Branch ▸ Create New Branch From.
- */
-
 import i18next from "i18next";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -46,10 +41,6 @@ interface SubmitBranchCreateInput {
   ) => Promise<void>;
 }
 
-/**
- * Builds the single field used by the branch-create dialog, including local
- * duplicate-name validation from the latest branch list.
- */
 export function buildBranchCreateFields(
   context: BranchCreateFieldContext,
 ): readonly FormDialogField[] {
@@ -66,9 +57,6 @@ export function buildBranchCreateFields(
   ];
 }
 
-/**
- * Returns the branch-create dialog title for the active create flow.
- */
 function branchCreateDialogTitle(request: BranchCreateRequest | null): string {
   const t = i18next.t.bind(i18next);
   return request?.fromRef
@@ -76,9 +64,6 @@ function branchCreateDialogTitle(request: BranchCreateRequest | null): string {
     : t("files:git.branch.createDialog.title");
 }
 
-/**
- * Returns create-flow copy that makes the checkout side effect explicit.
- */
 export function branchCreateDialogDescription(request: BranchCreateRequest | null): string {
   const t = i18next.t.bind(i18next);
   if (request?.fromRef) {
@@ -87,9 +72,6 @@ export function branchCreateDialogDescription(request: BranchCreateRequest | nul
   return t("files:git.branch.createDialog.description");
 }
 
-/**
- * Validates names that can be checked locally before invoking Git.
- */
 function validateBranchCreateName(value: string, context: BranchCreateFieldContext): string | null {
   const t = i18next.t.bind(i18next);
   const name = value.trim();
@@ -106,10 +88,6 @@ function validateBranchCreateName(value: string, context: BranchCreateFieldConte
   return null;
 }
 
-/**
- * Calls the store createBranch action with the checked-out branch behavior used
- * by VS Code's create branch commands.
- */
 export async function submitBranchCreate({
   workspaceId,
   name,
@@ -124,10 +102,6 @@ export async function submitBranchCreate({
   await createBranch(workspaceId, trimmed, options);
 }
 
-/**
- * Renders the modal branch-name form while preserving the typed value if the
- * async branch list arrives after the dialog opens.
- */
 export function BranchCreateDialog({
   request,
   branchList,

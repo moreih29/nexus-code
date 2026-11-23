@@ -70,9 +70,7 @@ describe("this machine", () => {
     expect(await local.read()).toEqual({ cpu: 50, memUsed: 5_000, memTotal: 8_000 });
     host.clock += 3_000;
     expect((await local.read()).cpu).toBe(25);
-    // No time passed: the last answer stands.
     expect((await local.read()).cpu).toBe(25);
-    // A long quiet starts a new span.
     host.clock += 60_000;
     expect((await local.read()).cpu).toBeCloseTo(10);
     expect(host.slept).toBe(2);

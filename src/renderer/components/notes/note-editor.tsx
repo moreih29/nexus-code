@@ -1,10 +1,3 @@
-/**
- * A note's tab: its title, where it is kept, and its body, a block editor
- * (TipTap) with text, lists, to-dos, sketches drawn in place, pasted images
- * and files dropped in. It saves as it is typed in; "To an agent" opens a
- * chat that reads it with `nexus note read`. "Record" records into it, what
- * is said going into the transcript beside the text.
- */
 import { type Editor, EditorContent, useEditor } from "@tiptap/react";
 import i18next from "i18next";
 import { Bot, FolderOpen, MoreHorizontal, ScrollText, Trash2 } from "lucide-react";
@@ -70,7 +63,6 @@ import { NoteTaskControls } from "./task-controls";
 import { TranscriptPanel, type TranscriptQuote } from "./transcript-panel";
 import type { TranscriptJump } from "./transcript-rows";
 
-/** How long after the last key typed in the title the tab takes its name. */
 const TAB_TITLE_DELAY_MS = 150;
 
 export function NoteEditor({
@@ -114,7 +106,6 @@ export function NoteEditor({
     notesApi.read(workspaceId, noteId).then(
       (n) => {
         if (alive) setNote(n);
-        // Opened, with no undo yet: the files of blocks deleted before can go.
         void notesApi.prune(workspaceId, noteId).catch(() => {});
       },
       () => alive && setMissing(true),
@@ -161,8 +152,6 @@ function LoadedNote({
   receiveDocumentEvent: (apply: (event: NoteDocumentEvent) => void) => () => void;
 }) {
   const { t } = useTranslation("notes");
-  // The title as typed. The input keeps it itself: a key typed there draws
-  // nothing else again, not the header, nor the transcript beside it.
   const title = useRef(note.title);
   const [saveState, setSaveState] = useState<NoteSaveState>("saved");
   const [agentOpen, setAgentOpen] = useState(false);
@@ -170,7 +159,6 @@ function LoadedNote({
   const [taskTimes, setTaskTimes] = useState(() => summaryTaskTimes(note.doc));
   const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
 
-  // The transcript shows beside the text once the note has recordings, or records.
   const recordings = useTranscriptsStore(
     (s) => s.byNote[transcriptKey(workspaceId, note.id)]?.recordings.length ?? 0,
   );
@@ -188,16 +176,11 @@ function LoadedNote({
   }, []);
   const showTranscript = transcriptOpen ?? (recordings > 0 || recordingHere);
 
-  // A new note starts at its title (and the "New note" button loses focus,
-  // so Enter does not make another one).
   const titleInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (!note.title && isEmptyDoc(note.doc)) titleInput.current?.focus();
   }, [note]);
 
-  // The tab is named after the note: once the title is opened, and a moment
-  // after the last key typed in it, not at each key (naming it draws the
-  // tab bars, whose menus each set state again after drawing).
   const tabTitleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nameTab = useCallback(() => {
     if (tabTitleTimer.current) clearTimeout(tabTitleTimer.current);
@@ -289,9 +272,6 @@ function LoadedNote({
     [urls, workspaceId, note.id, workspace?.rootPath],
   );
 
-  // Files dropped on the note: one from the file tree is linked where it is
-  // (not copied); one from the OS is copied in, an image shown. Both go after
-  // the block they are dropped on, or at the end when dropped below the text.
   const rootRef = useRef("");
   rootRef.current = (workspace?.rootPath ?? "").replace(/\/$/, "");
   const dropFiles = useRef((_at: number | null, _dt: DataTransfer): boolean => false);
@@ -407,8 +387,6 @@ function LoadedNote({
     });
   }, [documentBase, editor, receiveDocumentEvent]);
 
-  // A photo from the user's phone: written at the end of the note already;
-  // put in this copy too (once), which saves it with what is typed here.
   useEffect(() => {
     return notesApi.onPhotoAdded((event) => {
       const e = editorRef.current;
@@ -424,9 +402,6 @@ function LoadedNote({
     });
   }, [note.id, t]);
 
-  // Blocks an agent put into the note (nexus note write, add): written into
-  // it already; put in this copy too, in the same place (once), which saves
-  // them with what is typed here.
   useEffect(() => {
     return notesApi.onBlocksAdded((event) => {
       if (event.updatedAt !== undefined) return;
@@ -446,7 +421,6 @@ function LoadedNote({
           .run();
         return;
       }
-      // A heading renamed here since: at the end, rather than nowhere.
       const index = insertionIndex(doc, event.under) ?? e.state.doc.childCount;
       if (hasBlocksAt(doc, index, blocks)) return;
       let pos = 0;
@@ -495,7 +469,6 @@ function LoadedNote({
     closeNoteTabs(workspaceId, note.id);
   };
 
-  /** A transcript line into the note, as a quote: who, when, what. */
   const quote = useCallback(
     (q: TranscriptQuote) => {
       if (!editor) return;
@@ -540,7 +513,6 @@ function LoadedNote({
             onChange={(e) => typeTitle(e.target.value)}
             onBlur={nameTab}
             onKeyDown={(e) => {
-              // Enter that ends a syllable being composed (Korean, Japanese) stays here.
               if (e.nativeEvent.isComposing) return;
               if (e.key === "Enter" || e.key === "ArrowDown") {
                 e.preventDefault();
@@ -636,7 +608,6 @@ function LoadedNote({
         summaries={summaries}
         flush={flush}
       />
-      {/* The transcript beside the text where the tab is wide, under it where it is narrow. */}
       <div className="flex min-h-0 flex-1 flex-col @min-[720px]/note:flex-row">
         {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target only; the editor in it takes the keyboard */}
         <div
@@ -647,7 +618,6 @@ function LoadedNote({
             if (types.includes(MIME_FILE) || types.includes("Files")) e.preventDefault();
           }}
           onDrop={(e) => {
-            // Below or beside the text, where the editor itself does not take it.
             if (e.defaultPrevented) return;
             if (dropFiles.current(null, e.dataTransfer)) e.preventDefault();
           }}
@@ -694,7 +664,6 @@ function LoadedNote({
   );
 }
 
-/** Where a block dropped at `at` goes: after the top-level block there. */
 function blockEnd(editor: Editor, at: number): number {
   const $pos = editor.state.doc.resolve(Math.min(at, editor.state.doc.content.size));
   return $pos.depth === 0 ? $pos.pos : $pos.after(1);

@@ -42,7 +42,6 @@ func TestRunTranscriptReadsOnFromWhereItEnded(t *testing.T) {
 		t.Fatalf("before the file: %+v", got)
 	}
 
-	// A line still being written is left for the next read.
 	if err := os.WriteFile(path, []byte(`{"n":1}`+"\n"+"junk\n"+`{"n":2`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +66,6 @@ func TestRunTranscriptReadsOnFromWhereItEnded(t *testing.T) {
 		t.Fatalf("nothing new = %+v", same)
 	}
 
-	// A file shorter than where the last read ended is read again whole.
 	if err := os.WriteFile(path, []byte(`{"n":9}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -93,17 +91,14 @@ func TestRunTranscriptKeepsTheLastLinesPastTheCap(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// The cut falls inside the second line: the third is kept.
 	got, err := readRunTranscript(path, nil, nil, 12)
 	if err != nil || !got.Truncated || lineTexts(got.Lines) != `{"n":3}` || got.Next != int64(len(content)) {
 		t.Fatalf("cut inside = %+v, %v", got, err)
 	}
-	// The cut falls on a line's start: that line is kept.
 	got, err = readRunTranscript(path, nil, nil, 16)
 	if err != nil || !got.Truncated || lineTexts(got.Lines) != `{"n":2},{"n":3}` {
 		t.Fatalf("cut on a start = %+v, %v", got, err)
 	}
-	// Read on from a place, more than the cap since.
 	from := int64(0)
 	got, err = readRunTranscript(path, nil, &from, 12)
 	if err != nil || !got.Truncated || got.Reset || lineTexts(got.Lines) != `{"n":3}` {
@@ -141,7 +136,6 @@ func TestRunTranscriptFollowsNoLinkOutOfTheRunsFolder(t *testing.T) {
 	outside := t.TempDir()
 	secret := writeRunTranscript(t, outside, "elsewhere", `{"secret":1}`+"\n")
 
-	// The file is a link to one outside.
 	fileLink := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(fileLink, "projects", "p"), 0o755); err != nil {
 		t.Fatal(err)
@@ -151,7 +145,6 @@ func TestRunTranscriptFollowsNoLinkOutOfTheRunsFolder(t *testing.T) {
 		t.Fatalf("read through a linked file: %s", lineTexts(got.Lines))
 	}
 
-	// The project's folder is a link to one outside.
 	folderLink := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(folderLink, "projects"), 0o755); err != nil {
 		t.Fatal(err)
@@ -161,8 +154,6 @@ func TestRunTranscriptFollowsNoLinkOutOfTheRunsFolder(t *testing.T) {
 		t.Fatalf("read through a linked project folder: %s", lineTexts(got.Lines))
 	}
 
-	// `projects` itself may be a link (kept on another disk): its real folders
-	// and files are read, and links in it are not followed.
 	moved := t.TempDir()
 	writeRunTranscript(t, moved, "p", `{"moved":1}`+"\n")
 	symlinkOrSkip(t, secret, filepath.Join(moved, "projects", "p", "other-session.jsonl"))
@@ -176,7 +167,6 @@ func TestRunTranscriptFollowsNoLinkOutOfTheRunsFolder(t *testing.T) {
 		t.Fatalf("read through a linked file in a linked projects folder: %s", lineTexts(got.Lines))
 	}
 
-	// The config folder itself may be a link, as a user's ~/.claude can be.
 	home := t.TempDir()
 	writeRunTranscript(t, home, "p", `{"mine":1}`+"\n")
 	linked := filepath.Join(t.TempDir(), "claude")
@@ -202,7 +192,6 @@ func TestRunTranscriptReadsOnlyTheFileThatWasFound(t *testing.T) {
 func TestTranscriptFoldersAreNamesNotPatterns(t *testing.T) {
 	service := New()
 	parent := t.TempDir()
-	// A folder named with pattern characters is that folder only.
 	for _, name := range []string{"cfg[1]", "cfg*"} {
 		if runtime.GOOS == "windows" && strings.Contains(name, "*") {
 			continue
@@ -228,7 +217,6 @@ func TestTranscriptFoldersAreNamesNotPatterns(t *testing.T) {
 			t.Fatalf("%s: a subagent's path not found by its id", name)
 		}
 	}
-	// `cfg*` does not reach its sibling.
 	if runtime.GOOS != "windows" {
 		sibling := filepath.Join(parent, "cfgX")
 		writeRunTranscript(t, sibling, "p", `{"in":"sibling"}`+"\n")
@@ -242,7 +230,6 @@ func TestTranscriptFoldersAreNamesNotPatterns(t *testing.T) {
 			t.Fatal("a pattern reached a sibling's run")
 		}
 	}
-	// A project folder named with them is found too.
 	dir := t.TempDir()
 	writeRunTranscript(t, dir, "-repo-[draft]", `{"p":1}`+"\n")
 	if got := runTranscriptRead(t, service, dir, runSession, nil); !got.Found {

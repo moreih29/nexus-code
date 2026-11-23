@@ -13,8 +13,6 @@ import (
 	"unicode/utf8"
 )
 
-// TestCancelBeforeSearchRegistration verifies that a cancel dispatched first
-// still stops its search before any progress reaches the client.
 func TestCancelBeforeSearchRegistration(t *testing.T) {
 	root := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(root, "match.txt"), []byte("needle\n"), 0o644))
@@ -41,8 +39,6 @@ func TestCancelBeforeSearchRegistration(t *testing.T) {
 
 func TestTextSearchBoundsPreviewOnLongLines(t *testing.T) {
 	root := t.TempDir()
-	// One 256 KiB line: before the preview window existed, every one of the
-	// thousand matches carried the whole line, a 256 MiB progress frame.
 	long := strings.Repeat("é ab ", 256<<10/6)
 	must(t, os.WriteFile(filepath.Join(root, "data.json"), []byte(long), 0o644))
 	must(t, os.WriteFile(filepath.Join(root, "short.ts"), []byte("const ab = 1\n"), 0o644))
@@ -77,7 +73,6 @@ func TestTextSearchBoundsPreviewOnLongLines(t *testing.T) {
 		if len(m.Preview) > previewMaxBytes || !utf8.ValidString(m.Preview) {
 			t.Fatalf("preview not bounded/valid: len=%d %+v", len(m.Preview), m.Range)
 		}
-		// Range stays line-relative; PreviewStart maps it into the preview.
 		previewUnits := utf16.Encode([]rune(m.Preview))
 		start, end := m.Range.StartCol-m.PreviewStart, m.Range.EndCol-m.PreviewStart
 		if start < 0 || end > len(previewUnits) ||
@@ -91,8 +86,6 @@ func TestTextSearchBoundsPreviewOnLongLines(t *testing.T) {
 	}
 }
 
-// The renderer indexes Monaco columns and the preview string by UTF-16 code
-// units; byte offsets put the highlight past every Korean or emoji character.
 func TestTextSearchColumnsCountUTF16Units(t *testing.T) {
 	root := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(root, "a.ts"), []byte("// 한글 😀 ab\n"), 0o644))
@@ -111,8 +104,6 @@ func TestTextSearchColumnsCountUTF16Units(t *testing.T) {
 	}))
 	must(t, err)
 
-	// "// 한글 😀 " is 3 + 2 + 1 + 2 + 1 = 9 UTF-16 units (the emoji is a
-	// surrogate pair) but 15 bytes.
 	want := Range{Line: 0, StartCol: 9, EndCol: 11}
 	if len(got) != 1 || got[0].Range != want || got[0].PreviewStart != 0 {
 		t.Fatalf("matches = %+v, want range %+v", got, want)
@@ -144,9 +135,6 @@ func must(t *testing.T, err error) {
 	}
 }
 
-// splitLines runs once per searched file. It used to compile its line-break
-// regexp on every call: 23 allocations for a four-line string, against 6
-// with the pattern compiled once.
 func TestSplitLinesReusesCompiledPattern(t *testing.T) {
 	text := "alpha\r\nbeta\ngamma\rdelta"
 	got := splitLines(text)
@@ -159,7 +147,6 @@ func TestSplitLinesReusesCompiledPattern(t *testing.T) {
 	}
 }
 
-// TestTextRejectsOversizedFileBudget checks the request fails before walking.
 func TestTextRejectsOversizedFileBudget(t *testing.T) {
 	service := mustSearch(t, t.TempDir())
 	_, err := service.Text(context.Background(), mustJSON(t, Params{

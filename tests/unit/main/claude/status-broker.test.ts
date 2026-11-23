@@ -1,11 +1,3 @@
-/**
- * Unit tests for ClaudeStatusBroker.
- *
- * - Verifies set/get/clear/snapshot behavior.
- * - Verifies broadcast is skipped when the same state is set again (dedupe).
- * - Verifies broadcast fires even when only the message changes.
- */
-
 import { afterEach, describe, expect, mock, setSystemTime, test } from "bun:test";
 import { ClaudeStatusBroker } from "../../../../src/main/features/claude/status";
 
@@ -22,7 +14,7 @@ describe("ClaudeStatusBroker — broadcast 동작", () => {
   test("동일 상태 재설정 시 broadcast 생략(dedupe)", () => {
     const { broker, calls } = makeBroker();
     broker.set("ws-1", "tab-1", "running");
-    broker.set("ws-1", "tab-1", "running"); // same — no broadcast expected.
+    broker.set("ws-1", "tab-1", "running");
     expect(calls).toHaveLength(1);
   });
 
@@ -86,10 +78,10 @@ describe("ClaudeStatusBroker — answer", () => {
     const { broker, calls } = makeBroker();
     broker.set("ws-1", "tab-1", "running", undefined, "build it");
     broker.set("ws-1", "tab-1", "completed", "Built in 3s.");
-    broker.set("ws-1", "tab-1", "idle"); // seen
+    broker.set("ws-1", "tab-1", "idle");
     expect(broker.get("ws-1", "tab-1")?.message).toBe("Built in 3s.");
     expect((calls.at(-1)?.args as { message?: string }).message).toBe("Built in 3s.");
-    broker.set("ws-1", "tab-1", "running"); // a background task's notification
+    broker.set("ws-1", "tab-1", "running");
     expect(broker.get("ws-1", "tab-1")?.message).toBe("Built in 3s.");
     expect(broker.get("ws-1", "tab-1")?.prompt).toBe("build it");
   });
@@ -99,7 +91,7 @@ describe("ClaudeStatusBroker — answer", () => {
     broker.set("ws-1", "tab-1", "completed", "Built in 3s.");
     broker.set("ws-1", "tab-1", "running", undefined, "now test it");
     expect(broker.get("ws-1", "tab-1")?.message).toBeUndefined();
-    broker.set("ws-1", "tab-1", "idle"); // interrupted
+    broker.set("ws-1", "tab-1", "idle");
     expect(broker.snapshot()[0].message).toBeUndefined();
   });
 
@@ -120,7 +112,7 @@ describe("ClaudeStatusBroker — answer", () => {
     broker.set("ws-1", "tab-1", "running");
     expect(broker.get("ws-1", "tab-1")?.message).toBe("Built.");
     broker.set("ws-1", "tab-1", "needsInput", "Claude is waiting for your input");
-    broker.set("ws-1", "tab-1", "idle"); // seen
+    broker.set("ws-1", "tab-1", "idle");
     expect(broker.get("ws-1", "tab-1")?.message).toBe("Built.");
   });
 

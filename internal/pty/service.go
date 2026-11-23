@@ -20,41 +20,31 @@ import (
 	"github.com/nexus-code/nexus-code/internal/ports"
 )
 
-// Service owns the registry of active PTY-backed terminal sessions.
 type Service struct {
-	mu       sync.Mutex
-	output   *outputSink
-	sessions map[tabKey]*session
-	startPTY func(spawnSpec) (*terminal, *child, error)
-	spawning map[tabKey]*pendingSpawn
-	starts   sync.WaitGroup
-	closed   bool
-	// closedTabs are the tabs a kill came for while they had no session,
-	// and when: see Kill.
+	mu         sync.Mutex
+	output     *outputSink
+	sessions   map[tabKey]*session
+	startPTY   func(spawnSpec) (*terminal, *child, error)
+	spawning   map[tabKey]*pendingSpawn
+	starts     sync.WaitGroup
+	closed     bool
 	closedTabs map[tabKey]time.Time
 }
 
-// pendingSpawn publishes one shell startup result to concurrent callers.
 type pendingSpawn struct {
 	done    chan struct{}
 	session *session
 	err     error
 }
 
-// outputSink identifies a connection and captures its event destination.
-// The pointer distinguishes successive sink installations, and the host's
-// Done channel identifies the connection that dispatched a replay or ACK.
 type outputSink struct {
 	ctx  context.Context
 	emit EventSink
 	stop func() bool
 }
 
-// closedTabMemory is how long a kill that found no session is kept for the
-// spawn it may have overtaken.
 const closedTabMemory = 10 * time.Second
 
-// spawnSpec is the shell a session starts and the terminal it starts under.
 type spawnSpec struct {
 	shell string
 	args  []string
@@ -64,24 +54,19 @@ type spawnSpec struct {
 	rows  int
 }
 
-// child is a session's shell process.
 type child struct {
 	*os.Process
 }
 
-// wait waits for the shell to exit.
 func (c *child) wait() (*os.ProcessState, error) {
 	return c.Wait()
 }
 
-// tabKey is the domain identity for a terminal session.
 type tabKey struct {
 	workspaceID string
 	tabID       string
 }
 
-// session owns one child process, its master PTY, per-tab flow control, and the
-// ring buffer that keeps its most recent output for pty.replay.
 type session struct {
 	service *Service
 	key     tabKey
@@ -90,8 +75,6 @@ type session struct {
 
 	writeMu sync.Mutex
 
-	// The credit window is guarded by service.mu so it changes atomically
-	// with the active output sink.
 	flowCond    *sync.Cond
 	outstanding int
 	paused      bool
@@ -99,69 +82,32 @@ type session struct {
 
 	readDone        chan struct{}
 	stopReadingOnce sync.Once
-	// exited is closed once the shell has ended and been waited for.
-	exited chan struct{}
-	// stopDone is closed once stop has ended the shell.
-	stopDone chan struct{}
-	stopOnce sync.Once
-	exitOnce sync.Once
+	exited          chan struct{}
+	stopDone        chan struct{}
+	stopOnce        sync.Once
+	exitOnce        sync.Once
 
-	// ring is the fixed-capacity circular buffer holding the session's most
-	// recent output, whether or not a dialer received it, so pty.replay can
-	// redraw the screen for a client that has none of it.  ringMu serializes
-	// all reads/writes to ring*.
 	ringMu      sync.Mutex
 	ring        []byte
-	ringHead    int  // index of the oldest byte in ring
-	ringSize    int  // number of valid bytes currently stored
-	ringDropped bool // whether older output has been overwritten
+	ringHead    int
+	ringSize    int
+	ringDropped bool
 
-	// outputMu orders output on the wire.  readLoop holds it to record and emit
-	// one chunk; pty.replay holds it for the whole replay, so live output waits
-	// behind the replayed output instead of interleaving with it.
 	outputMu sync.Mutex
 
-	// createdAt is the wall-clock time when the PTY was spawned, exported in
-	// session.list so the client can match sessions to its pending tab state.
 	createdAt time.Time
 
-	// lastCols and lastRows record the most recent PTY geometry set by Spawn or
-	// Resize.  They are used by wiggleSIGWINCH after replay to force a full
-	// TUI repaint.  Zero means the size has never been explicitly set (e.g. a
-	// session that exited before the first resize), in which case the wiggle is
-	// skipped.  Protected by sizeMu.
 	sizeMu   sync.Mutex
 	lastCols int
 	lastRows int
 
-	// setSizeFn is the function used by wiggleSIGWINCH to apply a PTY geometry
-	// change.  Production code leaves it nil (master.setSize is used).
-	// Tests may replace it with a recording stub to verify call sequences
-	// without a real PTY fd.
 	setSizeFn func(cols, rows int) error
 
-	// wiggleActive guards against overlapping wiggleSIGWINCH goroutines when
-	// replays arrive in quick succession (e.g. repeated reconnects).  A wiggle
-	// already in flight will repaint the TUI anyway, so a second one is skipped.
 	wiggleActive atomic.Int32
 }
 
-// wiggleRestoreDelay is how long wiggleSIGWINCH holds the shrunken (rows-1)
-// geometry before restoring the original size.
-//
-// The gap is load-bearing, not cosmetic.  SIGWINCH is a non-queued Unix
-// signal: two deliveries while the target has not yet run its handler merge
-// into one pending signal.  Worse, handlers read the *current* size via
-// TIOCGWINSZ — if shrink and restore land back-to-back, the handler runs
-// after the restore, reads a size identical to its cached one, and skips the
-// repaint entirely (Node's tty layer only emits "resize" when the polled size
-// actually differs).  That is exactly the blank-screen-after-reattach symptom
-// this wiggle exists to fix.  Holding rows-1 for a beat lets the shrink
-// SIGWINCH be observed at the shrunken size, guaranteeing a real size delta
-// in both directions.
 const wiggleRestoreDelay = 200 * time.Millisecond
 
-// New constructs an empty PTY service registry.
 func New() *Service {
 	return &Service{
 		output:     &outputSink{ctx: context.Background()},
@@ -172,7 +118,6 @@ func New() *Service {
 	}
 }
 
-// Register binds every pty.* and session.* method onto the dispatcher.
 func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("pty.spawn", service.Spawn)
 	d.Register("pty.write", service.Write)
@@ -185,9 +130,6 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("session.list", service.SessionList)
 }
 
-// SetEventSink binds output to the context the host passes to its handlers.
-// Outstanding renderer debt belongs to the previous connection, so replacing
-// the sink also clears that debt and wakes any paused replay or reader.
 func (s *Service) SetEventSink(ctx context.Context, sink EventSink) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -214,8 +156,6 @@ func (s *Service) resetOutputWindowLocked() {
 	}
 }
 
-// Close ends every PTY session, as closing each tab does, and returns once
-// their shells are gone: hung up, or killed hangupGrace later.
 func (s *Service) Close() {
 	s.mu.Lock()
 	s.closed = true
@@ -242,7 +182,6 @@ func (s *Service) Close() {
 	}
 }
 
-// Spawn starts one shell process under a PTY and begins forwarding output events.
 func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p SpawnParams
 	if err := decodeParams(raw, &p, "pty.spawn params must include workspaceId, tabId, cwd, cols, and rows"); err != nil {
@@ -297,7 +236,6 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 	return SpawnResult{PID: attempt.session.child.Pid}, nil
 }
 
-// spawnSession starts and registers a shell for a reserved tab.
 func (s *Service) spawnSession(key tabKey, p SpawnParams) (*session, error) {
 	shell := strings.TrimSpace(p.Shell)
 	if shell == "" {
@@ -326,20 +264,16 @@ func (s *Service) spawnSession(key tabKey, p SpawnParams) (*session, error) {
 	go session.readLoop()
 	go session.waitLoop()
 	if closed {
-		// The tab's kill overtook this spawn: end the shell as it would have.
 		session.stop()
 	}
 	return session, nil
 }
 
-// attach fits a running shell to its caller, which replays the session to
-// redraw the screen. A shell exiting during the resize reports its exit.
 func (s *session) attach(cols, rows int) SpawnResult {
 	_ = s.resize(cols, rows)
 	return SpawnResult{PID: s.child.Pid, Attached: true}
 }
 
-// Write sends user input bytes to the child PTY.
 func (s *Service) Write(_ context.Context, raw json.RawMessage) (any, error) {
 	var p WriteParams
 	if err := decodeParams(raw, &p, "pty.write params must include workspaceId, tabId, and data"); err != nil {
@@ -359,7 +293,6 @@ func (s *Service) Write(_ context.Context, raw json.RawMessage) (any, error) {
 	return struct{}{}, nil
 }
 
-// Resize updates the child PTY geometry.
 func (s *Service) Resize(_ context.Context, raw json.RawMessage) (any, error) {
 	var p ResizeParams
 	if err := decodeParams(raw, &p, "pty.resize params must include workspaceId, tabId, cols, and rows"); err != nil {
@@ -382,7 +315,6 @@ func (s *Service) Resize(_ context.Context, raw json.RawMessage) (any, error) {
 	return struct{}{}, nil
 }
 
-// Ack reduces one session's renderer debt and resumes output once the low watermark is reached.
 func (s *Service) Ack(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p AckParams
 	if err := decodeParams(raw, &p, "pty.ack params must include workspaceId, tabId, and bytesConsumed"); err != nil {
@@ -404,14 +336,6 @@ func (s *Service) Ack(ctx context.Context, raw json.RawMessage) (any, error) {
 	return struct{}{}, nil
 }
 
-// Kill ends a tab's session: it hangs up the shell, which ends its jobs
-// (see stopChild). It returns without waiting for the shell to end.
-//
-// Each request runs on a goroutine of its own, and a spawn takes a fork and
-// exec, so a tab closed as soon as it opened can have its kill handled before
-// the spawn that came first stores the session. A kill that finds no session
-// is kept for closedTabMemory, and the tab's spawn ends its shell then; a tab
-// id is a UUID, never opened again once closed.
 func (s *Service) Kill(_ context.Context, raw json.RawMessage) (any, error) {
 	var p KillParams
 	if err := decodeParams(raw, &p, "pty.kill params must include workspaceId and tabId"); err != nil {
@@ -439,22 +363,6 @@ func (s *Service) Kill(_ context.Context, raw json.RawMessage) (any, error) {
 	return struct{}{}, nil
 }
 
-// ForegroundProcess returns the basename of the program currently in the PTY
-// foreground process group.
-//
-// Used by the renderer to label tabs running OSC-mute TUIs: when xterm.js
-// detects alt-screen ENTER (`\x1b[?47h` / `\x1b[?1047h` / `\x1b[?1049h`), it
-// calls this RPC once and applies the returned name as the tab's
-// processTitle. Repeat polling is intentionally avoided — TUIs sit in a single
-// process for their whole session, and child commands they spawn (e.g. lazygit
-// shelling out to `git`) are short-lived.
-//
-// Lookup path: see terminal.foregroundProcess. Windows has no foreground
-// process group, and walks the shell's process tree instead.
-//
-// All error paths return an empty `Name` rather than failing the RPC: the
-// renderer treats empty as "no info" and leaves the existing title alone, so
-// silent fallback never overwrites a working OSC-based title with empty.
 func (s *Service) ForegroundProcess(_ context.Context, raw json.RawMessage) (any, error) {
 	var p ForegroundProcessParams
 	if err := decodeParams(raw, &p, "pty.foregroundProcess params must include workspaceId and tabId"); err != nil {
@@ -472,10 +380,6 @@ func (s *Service) ForegroundProcess(_ context.Context, raw json.RawMessage) (any
 	return ForegroundProcessResult{Name: name, Alone: alone}, nil
 }
 
-// ListeningPorts lists the TCP ports the programs started in a workspace's
-// terminals listen on: those held by a process under one of its shells, as a
-// dev server is. A program that leaves the shell's tree, as a daemon or a
-// Docker container does, is not seen.
 func (s *Service) ListeningPorts(_ context.Context, raw json.RawMessage) (any, error) {
 	var p ListeningPortsParams
 	if err := decodeParams(raw, &p, "pty.listeningPorts params must include workspaceId"); err != nil {
@@ -517,8 +421,6 @@ func (s *Service) ListeningPorts(_ context.Context, raw json.RawMessage) (any, e
 	return result, nil
 }
 
-// newSession links process state with its flow-control condition variable and
-// initialises the ring buffer for output preservation during dialer absence.
 func newSession(service *Service, key tabKey, child *child, master *terminal) *session {
 	s := &session{
 		service:   service,
@@ -535,8 +437,6 @@ func newSession(service *Service, key tabKey, child *child, master *terminal) *s
 	return s
 }
 
-// readLoop serially emits PTY data, applying renderer-credit backpressure before
-// each read.
 func (s *session) readLoop() {
 	defer close(s.readDone)
 	buf := make([]byte, MaxChunkSize)
@@ -554,10 +454,6 @@ func (s *session) readLoop() {
 	}
 }
 
-// deliver records one chunk of PTY output in the ring and emits it.  When the
-// dialer is gone the chunk is kept only in the ring, for a reattaching dialer to
-// recover through pty.replay; the PTY child is NOT killed and keeps running
-// until the reattach grace expires.
 func (s *session) deliver(chunk []byte) {
 	s.outputMu.Lock()
 	defer s.outputMu.Unlock()
@@ -565,7 +461,6 @@ func (s *session) deliver(chunk []byte) {
 	_ = s.emitData(chunk, nil)
 }
 
-// resize applies a PTY geometry and records it for wiggleSIGWINCH.
 func (s *session) resize(cols int, rows int) error {
 	if err := s.master.setSize(cols, rows); err != nil {
 		return err
@@ -577,7 +472,6 @@ func (s *session) resize(cols int, rows int) error {
 	return nil
 }
 
-// waitLoop reports exactly one exit event after the child has terminated.
 func (s *session) waitLoop() {
 	state, err := s.child.wait()
 	close(s.exited)
@@ -594,8 +488,6 @@ func (s *session) waitLoop() {
 	})
 }
 
-// waitForOutputWindow waits for credit or the end of the session or replay.
-// A nil replay lets the live reader use the current connection's window.
 func (s *session) waitForOutputWindow(ctx context.Context, replay *outputSink) error {
 	s.service.mu.Lock()
 	defer s.service.mu.Unlock()
@@ -616,8 +508,6 @@ func (s *session) waitForOutputWindow(ctx context.Context, replay *outputSink) e
 	}
 }
 
-// ackLocked applies renderer credit and wakes waiters when LOW is reached.
-// The caller holds service.mu and has checked the sink generation.
 func (s *session) ackLocked(rawBytes int) {
 	if rawBytes >= s.outstanding {
 		s.outstanding = 0
@@ -630,32 +520,6 @@ func (s *session) ackLocked(rawBytes int) {
 	}
 }
 
-// wiggleSIGWINCH forces a full TUI repaint after replay by shrinking the PTY
-// by one row, holding that geometry for wiggleRestoreDelay, then restoring
-// the original size.  The hold is what makes the shrink SIGWINCH observable
-// at the shrunken size — see the wiggleRestoreDelay comment for why two
-// back-to-back Setsize calls coalesce into a no-op for the foreground TUI.
-//
-// The restore re-reads lastCols/lastRows instead of reusing the values
-// captured before the sleep: if a real pty.resize lands during the hold, the
-// restore must not clobber the fresh geometry with stale numbers.  Restoring
-// to an already-applied size produces no geometry change and therefore no
-// spurious SIGWINCH.
-//
-// The wiggle is skipped when:
-//   - lastRows/lastCols are zero (size never recorded — session exited before
-//     first resize or Spawn geometry was not stored yet).
-//   - rows-1 would underflow to zero (1-row terminal, pathological).
-//   - Another wiggle is already in flight (it will repaint the TUI anyway).
-//   - The PTY master file is already closed (stopped session).
-//
-// Best-effort: errors from Setsize are silently ignored.  A failed wiggle
-// leaves the TUI stale until the user presses a key or the TUI self-refreshes,
-// which matches the pre-fix behavior and is preferable to surfacing an error
-// from a cosmetic step.
-//
-// Blocking for wiggleRestoreDelay; callers on a latency-sensitive path should
-// run it in a goroutine.
 func (s *session) wiggleSIGWINCH() {
 	if !s.wiggleActive.CompareAndSwap(0, 1) {
 		return
@@ -674,15 +538,10 @@ func (s *session) wiggleSIGWINCH() {
 	if s.setSizeFn != nil {
 		setSize = s.setSizeFn
 	}
-	// Shrink by one row to make the geometry change.
 	_ = setSize(cols, rows-1)
 
-	// Hold the shrunken size long enough for the foreground process to run
-	// its SIGWINCH handler and observe rows-1.
 	time.Sleep(wiggleRestoreDelay)
 
-	// Restore — re-read the recorded size in case a real resize arrived
-	// during the hold.
 	s.sizeMu.Lock()
 	cols = s.lastCols
 	rows = s.lastRows
@@ -693,7 +552,6 @@ func (s *session) wiggleSIGWINCH() {
 	_ = setSize(cols, rows)
 }
 
-// write keeps each input frame whole even when multiple RPCs write at once.
 func (s *session) write(data []byte) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
@@ -710,8 +568,6 @@ func (s *session) write(data []byte) error {
 	return nil
 }
 
-// stop ends the session's shell (see stopChild) and unblocks the reader. It
-// returns at once, with a channel closed once the shell is gone.
 func (s *session) stop() <-chan struct{} {
 	s.stopOnce.Do(func() {
 		finish := s.stopChild()
@@ -723,7 +579,6 @@ func (s *session) stop() <-chan struct{} {
 	return s.stopDone
 }
 
-// stopReading wakes any paused reader and closes the PTY master.
 func (s *session) stopReading() {
 	s.service.mu.Lock()
 	s.stopped = true
@@ -733,7 +588,6 @@ func (s *session) stopReading() {
 	s.stopReadingOnce.Do(func() { _ = s.master.Close() })
 }
 
-// decodeParams unmarshals a request body into a strongly typed PTY parameter struct.
 func decodeParams(raw json.RawMessage, target any, message string) error {
 	if len(raw) == 0 || json.Unmarshal(raw, target) != nil {
 		return protocolError(message)
@@ -741,7 +595,6 @@ func decodeParams(raw json.RawMessage, target any, message string) error {
 	return nil
 }
 
-// keyFrom validates and builds the workspace/tab identity used by the session map.
 func keyFrom(workspaceID string, tabID string, method string) (tabKey, error) {
 	workspaceID = strings.TrimSpace(workspaceID)
 	tabID = strings.TrimSpace(tabID)
@@ -754,7 +607,6 @@ func keyFrom(workspaceID string, tabID string, method string) (tabKey, error) {
 	return tabKey{workspaceID: workspaceID, tabID: tabID}, nil
 }
 
-// validateSize keeps PTY geometry inside the uint16 winsize range.
 func validateSize(cols int, rows int, method string) error {
 	if cols <= 0 || rows <= 0 {
 		return protocolError(method + " cols and rows must be positive")
@@ -765,10 +617,6 @@ func validateSize(cols int, rows int, method string) error {
 	return nil
 }
 
-// hasUTF8Locale reports whether the merged env carries any non-empty
-// LANG / LC_ALL / LC_CTYPE — the three variables bash readline consults
-// to enable multibyte input. Empty values count as unset because shells
-// treat them identically to absence.
 func hasUTF8Locale(merged map[string]string) bool {
 	for _, key := range []string{"LANG", "LC_ALL", "LC_CTYPE"} {
 		if v, ok := merged[key]; ok && v != "" {
@@ -778,11 +626,8 @@ func hasUTF8Locale(merged map[string]string) bool {
 	return false
 }
 
-// wrapperDirEnv names the directory of the app's command wrappers, which the
-// shell must find before the real commands.
 const wrapperDirEnv = "NEXUS_WRAPPER_SELF_DIR"
 
-// hasEnvKey reports whether env sets the variable key.
 func hasEnvKey(env map[string]string, key string) bool {
 	for existing := range env {
 		if sameEnvKey(existing, key) {
@@ -792,7 +637,6 @@ func hasEnvKey(env map[string]string, key string) bool {
 	return false
 }
 
-// prependPath puts dir first on env's PATH, under whatever name PATH has.
 func prependPath(env map[string]string, dir string) {
 	for key, value := range env {
 		if sameEnvKey(key, "PATH") {
@@ -806,7 +650,6 @@ func prependPath(env map[string]string, dir string) {
 	env["PATH"] = dir
 }
 
-// mergeEnv overlays spawn-specific variables on the agent process environment.
 func mergeEnv(overrides map[string]string) []string {
 	merged := make(map[string]string)
 	for _, entry := range os.Environ() {
@@ -817,8 +660,6 @@ func mergeEnv(overrides map[string]string) []string {
 		merged[key] = value
 	}
 	for key, value := range overrides {
-		// Windows names variables without regard to case: an override of PATH
-		// must replace the inherited Path, not sit next to it.
 		for existing := range merged {
 			if sameEnvKey(existing, key) {
 				delete(merged, existing)
@@ -826,8 +667,6 @@ func mergeEnv(overrides map[string]string) []string {
 		}
 		merged[key] = agentpaths.ProfileEnvDir(key, value)
 	}
-	// The app's wrapper directory goes first on this host's own PATH. The app
-	// cannot build that PATH: for an SSH workspace it is the remote's.
 	if !hasEnvKey(overrides, "PATH") {
 		if dir := overrides[wrapperDirEnv]; dir != "" {
 			prependPath(merged, dir)
@@ -839,17 +678,6 @@ func mergeEnv(overrides map[string]string) []string {
 	if _, ok := merged["TERM"]; !ok {
 		merged["TERM"] = "xterm-256color"
 	}
-	// UTF-8 locale fallback. When the agent host is bootstrapped via
-	// `bash -lc 'exec agent ...'` on a remote that ships no LANG / LC_*
-	// (clean Docker/LXC images, slim Linux installs, minimal CI runners),
-	// the inherited environment leaves bash readline on POSIX/C — which
-	// rejects multibyte input and breaks Korean / Japanese / Chinese
-	// keystrokes in the terminal. We only inject `C.UTF-8` when none of
-	// LANG, LC_ALL, LC_CTYPE carry a non-empty value, so a user-configured
-	// locale (e.g. `LANG=ko_KR.UTF-8`) is never silently overridden.
-	// C.UTF-8 is the safest default: present on Linux glibc/musl and
-	// macOS 12+, and gracefully degrades to POSIX when the system has no
-	// matching definition installed.
 	if !hasUTF8Locale(merged) {
 		merged["LANG"] = "C.UTF-8"
 	}
@@ -865,7 +693,6 @@ func mergeEnv(overrides map[string]string) []string {
 	return env
 }
 
-// writeFull retries partial writes until the input slice has reached the PTY master.
 func writeFull(writer io.Writer, data []byte) error {
 	for len(data) > 0 {
 		n, err := writer.Write(data)
@@ -885,7 +712,6 @@ func writeFull(writer io.Writer, data []byte) error {
 	return nil
 }
 
-// storeSession publishes the tab's reserved shell and reports an early kill.
 func (s *Service) storeSession(key tabKey, session *session) (closed bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -897,29 +723,24 @@ func (s *Service) storeSession(key tabKey, session *session) (closed bool) {
 	return closed
 }
 
-// lookup returns the active session for key, if any.
 func (s *Service) lookup(key tabKey) *session {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.sessions[key]
 }
 
-// removeSession deletes key only if it still points at expected, and releases
-// the session ring buffer so the backing memory can be garbage-collected.
 func (s *Service) removeSession(key tabKey, expected *session) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.sessions[key] == expected {
 		delete(s.sessions, key)
 		expected.ringMu.Lock()
-		expected.ring = nil // allow GC; ringSize stays for safety
+		expected.ring = nil
 		expected.ringSize = 0
 		expected.ringMu.Unlock()
 	}
 }
 
-// ringAppend writes data into the session ring buffer, dropping the oldest
-// bytes when the ring is full.  Safe to call from any goroutine.
 func (s *session) ringAppend(data []byte) {
 	if len(data) == 0 {
 		return
@@ -927,7 +748,7 @@ func (s *session) ringAppend(data []byte) {
 	s.ringMu.Lock()
 	defer s.ringMu.Unlock()
 	if s.ring == nil {
-		return // session already removed
+		return
 	}
 	cap := len(s.ring)
 	if len(data) > cap {
@@ -940,7 +761,6 @@ func (s *session) ringAppend(data []byte) {
 		data = data[n:]
 		s.ringSize += n
 		if s.ringSize > cap {
-			// The write ran over the oldest bytes: advance head past them.
 			s.ringHead = (s.ringHead + s.ringSize - cap) % cap
 			s.ringSize = cap
 			s.ringDropped = true
@@ -948,10 +768,6 @@ func (s *session) ringAppend(data []byte) {
 	}
 }
 
-// ringContentsLocked copies the ring contents, oldest first, into a flat byte
-// slice.  Once older output has been dropped, the oldest byte may sit in the
-// middle of an escape sequence or a multi-byte character, so the copy starts
-// after the first line break instead.  Caller must hold ringMu.
 func (s *session) ringContentsLocked() []byte {
 	if s.ringSize == 0 || s.ring == nil {
 		return nil
@@ -968,12 +784,8 @@ func (s *session) ringContentsLocked() []byte {
 	return out
 }
 
-// SessionList returns metadata for every live PTY session.  The client calls
-// this after reattach to discover which tabs survived the dialer absence and
-// to decide which ones to call pty.replay on.
 func (s *Service) SessionList(_ context.Context, raw json.RawMessage) (any, error) {
 	var p SessionListParams
-	// params are optional; ignore parse failure (empty params = list all)
 	if len(raw) > 0 {
 		_ = json.Unmarshal(raw, &p)
 	}
@@ -998,15 +810,6 @@ func (s *Service) SessionList(_ context.Context, raw json.RawMessage) (any, erro
 	return SessionListResult{Sessions: infos}, nil
 }
 
-// Replay redraws a session's screen for the current dialer, which may have
-// none of its output: one reattaching after an outage, or a restarted app
-// attaching to a session that kept running.  It sends a terminal reset and the
-// retained output, marked as replay, through the ack-credit gate so the dialer
-// is not flooded.
-//
-// Ordering guarantee: Replay holds outputMu for the whole send, so live PTY
-// output read meanwhile waits in readLoop and follows the replayed output on
-// the wire with no interleaving.
 func (s *Service) Replay(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p ReplayParams
 	if err := decodeParams(raw, &p, "pty.replay params must include workspaceId and tabId"); err != nil {
@@ -1033,29 +836,16 @@ func (s *Service) Replay(ctx context.Context, raw json.RawMessage) (any, error) 
 	err = sess.emitReplay(ctx, output, replay)
 	sess.outputMu.Unlock()
 	if err != nil {
-		// Dialer disappeared again mid-replay; the ring still holds everything
-		// for the next replay.
 		return nil, err
 	}
 
-	// The retained output may not reproduce the program's current screen: the
-	// ring may have dropped the start of it, and a full-screen program's state
-	// can be ahead of what was replayed.  A SIGWINCH wiggle (rows-1 → hold →
-	// original) makes full-screen TUIs (claude, vim, tmux, etc.) redraw
-	// themselves entirely, making the terminal immediately usable without
-	// requiring user input.  Started after the replay so repaint output lands
-	// after it; run as a goroutine because the wiggle holds the shrunken size
-	// for wiggleRestoreDelay and must not stall the replay RPC response.
 	go sess.wiggleSIGWINCH()
 
 	return struct{}{}, nil
 }
 
-// emitReplay sends chunks through the credit window until it has flushed the
-// retained output, is canceled, or encounters a sink error.
 func (s *session) emitReplay(ctx context.Context, output *outputSink, data []byte) error {
 	stopWake := context.AfterFunc(ctx, func() {
-		// Take the waiter's lock so cancellation cannot signal before Wait.
 		s.service.mu.Lock()
 		defer s.service.mu.Unlock()
 		s.flowCond.Broadcast()
@@ -1075,10 +865,6 @@ func (s *session) emitReplay(ctx context.Context, output *outputSink, data []byt
 	return nil
 }
 
-// emitData charges the selected connection before writing to its captured
-// sink. A nil replay uses the active sink for live output. The write can
-// block, so it runs outside service.mu and rolls back debt only for its own
-// generation.
 func (s *session) emitData(chunk []byte, replay *outputSink) error {
 	svc := s.service
 	svc.mu.Lock()
@@ -1113,7 +899,6 @@ func (s *session) emitData(chunk []byte, replay *outputSink) error {
 	return err
 }
 
-// emit writes one event through the configured sink, if any.
 func (s *Service) emit(event string, payload any) error {
 	s.mu.Lock()
 	sink := s.output.emit
@@ -1124,7 +909,6 @@ func (s *Service) emit(event string, payload any) error {
 	return sink(event, payload)
 }
 
-// timeAfter exists so tests can verify timeout behavior without exposing timers.
 func timeAfter(duration time.Duration) <-chan time.Time {
 	return time.After(duration)
 }

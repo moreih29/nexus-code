@@ -1,17 +1,3 @@
-// JsonTreePreview — a JSON file, or one of another format read into the
-// same values (YAML), as a tree of its values.
-//
-// Objects and arrays open and close, one at a time or all at once; a
-// small file opens whole, a large one with only its top level. Only the
-// rows in view are in the DOM, so a large file scrolls smoothly. What is
-// open is kept by each value's place in the tree, so it holds as the
-// file changes. The keys work as in a tree: up and down move, right
-// opens, left closes or goes to the parent, Enter and Space toggle.
-//
-// Find (⌘F) goes through every key and value, those in closed objects
-// and arrays too; the current match's row is opened to and scrolled into
-// view.
-
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import {
@@ -44,17 +30,11 @@ import { cn } from "../../../utils/cn";
 import { IconButton } from "../../ui/icon-button";
 import { type FindMark, type FindResult, MarkedLine, usePreviewFinder } from "./preview-find";
 
-/** A row's height, in px. */
 const ROW_PX = 22;
-/** How far each level is set in, in px. */
 const INDENT_PX = 16;
-/** A file with up to this many values opens whole. */
 const OPEN_ALL_LIMIT = 5000;
-/** Past this many characters a file is not drawn as a tree. */
 const MAX_TREE_CHARS = 16 * 1024 * 1024;
-/** How much of a long string its tooltip shows. */
 const MAX_TITLE_CHARS = 2000;
-/** The toolbar's height, in px, which the find bar sits below. */
 const TOOLBAR_PX = 33;
 
 type Parsed =
@@ -63,7 +43,6 @@ type Parsed =
   | { kind: "too_large" }
   | { kind: "error"; error: JsonSyntaxError };
 
-/** Which rows are open: all, none, or each by its depth; then those toggled. */
 interface OpenState {
   readonly base: "default" | "all" | "none";
   readonly toggled: ReadonlySet<string>;
@@ -71,14 +50,12 @@ interface OpenState {
 
 const INITIAL_OPEN: OpenState = { base: "default", toggled: new Set() };
 
-/** Whether the row at `path` is open in `state`, for a file of `count` values. */
 function isOpenIn(state: OpenState, count: number, path: string): boolean {
   const base =
     state.base === "all" ? true : state.base === "none" ? false : count <= OPEN_ALL_LIMIT;
   return base !== state.toggled.has(path);
 }
 
-/** `state` with every object and array `path` is in open. */
 function openTo(state: OpenState, count: number, path: string): OpenState {
   const closed = ancestorPaths(path).filter((ancestor) => !isOpenIn(state, count, ancestor));
   if (closed.length === 0) return state;
@@ -87,13 +64,11 @@ function openTo(state: OpenState, count: number, path: string): OpenState {
   return { base: state.base, toggled };
 }
 
-/** A row's marks: in its key, and in its value. */
 interface RowMarks {
   readonly label: FindMark[];
   readonly value: FindMark[];
 }
 
-/** A format the tree reads: its name, as messages say it, and its reader. */
 export interface TreeFormat {
   readonly name: string;
   readonly parse: (source: string) => JsonValue;
@@ -174,7 +149,6 @@ function JsonTree({ root, count, format }: { root: JsonValue; count: number; for
   const [current, setCurrent] = useState(-1);
   const reportRef = useRef<(result: FindResult) => void>(() => {});
   const finding = find !== null;
-  /** Every row, every object and array open: what a find goes through. */
   const allRows = useMemo(() => (finding ? visibleRows(root, () => true) : []), [finding, root]);
   const matches = useMemo(
     () =>
@@ -189,9 +163,7 @@ function JsonTree({ root, count, format }: { root: JsonValue; count: number; for
   matchesRef.current = matches;
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
-  /** Whether the next matches start at the view, as a new query does. */
   const freshRef = useRef(false);
-  /** Whether the current match is to be opened to and scrolled to. */
   const revealRef = useRef(false);
 
   usePreviewFinder(
@@ -216,8 +188,6 @@ function JsonTree({ root, count, format }: { root: JsonValue; count: number; for
     }, []),
   );
 
-  // New matches: a new query's start at the first row in view; a file
-  // that changed keeps the current one as near as it can.
   useEffect(() => {
     if (matches.length === 0) {
       setCurrent(-1);
@@ -240,8 +210,6 @@ function JsonTree({ root, count, format }: { root: JsonValue; count: number; for
     reportRef.current({ total: matches.length, current: currentMatch ? current + 1 : 0 });
   }, [matches.length, current, currentMatch]);
 
-  // The current match's row: its objects and arrays opened, then, drawn
-  // with them open, scrolled to the middle and across to the match.
   useEffect(() => {
     if (!currentMatch || !revealRef.current) return;
     const index = rows.findIndex((row) => row.path === currentMatch.path);
@@ -264,7 +232,6 @@ function JsonTree({ root, count, format }: { root: JsonValue; count: number; for
     return () => cancelAnimationFrame(frame);
   }, [currentMatch, rows, count, virtualizer]);
 
-  /** Each row's marks, by its path. */
   const marks = useMemo(() => {
     const byRow = new Map<string, RowMarks>();
     matches.forEach((match, index) => {
@@ -353,10 +320,6 @@ function JsonTree({ root, count, format }: { root: JsonValue; count: number; for
         onKeyDown={onKeyDown}
         className="app-scrollbar flex-1 min-h-0 overflow-auto font-mono text-app-ui-sm outline-none"
       >
-        {/*
-          Never of no width, even in a hidden tab's box of no size: a box of
-          no area adds nothing to what scrolls, which would drop the scroll.
-        */}
         <div
           className="relative w-max"
           style={{ height: virtualizer.getTotalSize(), minWidth: "max(100%, 1px)" }}
@@ -387,7 +350,6 @@ function JsonTree({ root, count, format }: { root: JsonValue; count: number; for
                 }}
                 onClick={() => {
                   setActivePath(row.path);
-                  // Not when the click ends a drag that selects text.
                   if (opens && (window.getSelection()?.isCollapsed ?? true)) toggle(row.path);
                 }}
               >
@@ -456,7 +418,6 @@ function RowText({ row, marks }: { row: JsonRow; marks?: RowMarks }) {
   );
 }
 
-/** A long string's tooltip: more of it than its row shows. */
 function stringTitle(value: string): string | undefined {
   const text = JSON.stringify(value);
   return text.length > 80 ? text.slice(0, MAX_TITLE_CHARS) : undefined;

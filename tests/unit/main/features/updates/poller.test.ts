@@ -1,19 +1,3 @@
-/**
- * Unit tests for pollGithubReleases.
- *
- * The poller reads release artifacts served off github.com (NOT the rate-
- * limited api.github.com REST endpoint):
- *   - stable channel → `releases/latest/download/latest-mac.yml` (version field)
- *   - beta channel   → `releases.atom` (highest tag across all entries)
- *
- * Determinism is achieved by injecting a mock fetch via `fetchImpl` rather than
- * making real network calls.
- *
- * Conventions followed:
- * - Library behaviour (semver itself, fetch itself) is NOT re-verified per conventions.md.
- * - Each test verifies one distinct scenario (observable output shape).
- */
-
 import { describe, expect, test } from "bun:test";
 import {
   createConditionalCache,
@@ -21,11 +5,6 @@ import {
 } from "../../../../../src/main/features/updates/poller";
 import { oversizedResponse } from "../../../../helpers/http-fixtures";
 
-// ---------------------------------------------------------------------------
-// Helpers — build minimal source payloads
-// ---------------------------------------------------------------------------
-
-/** Build a minimal `latest-mac.yml` body for the stable channel. */
 function latestYml(version: string): string {
   return [
     `version: ${version}`,
@@ -39,7 +18,6 @@ function latestYml(version: string): string {
   ].join("\n");
 }
 
-/** Build a minimal `releases.atom` body listing the given tags, newest first. */
 function atomFeed(tags: string[]): string {
   const entries = tags
     .map(
@@ -56,26 +34,19 @@ ${entries}
 </feed>`;
 }
 
-/** Mock fetch returning a 200 with the given text body. */
 function fetchOkText(body: string, etag?: string): typeof fetch {
   return async () => new Response(body, etag ? { headers: { etag } } : undefined);
 }
 
-/** Mock fetch returning a non-OK HTTP status. */
 function fetchStatus(status: number): typeof fetch {
   return async () => new Response(null, { status });
 }
 
-/** Mock fetch that throws a network error. */
 function fetchThrows(message: string): typeof fetch {
   return async () => {
     throw new Error(message);
   };
 }
-
-// ---------------------------------------------------------------------------
-// Case 1 — empty stable metadata (no version) → kind:"current"
-// ---------------------------------------------------------------------------
 
 describe("pollGithubReleases — unparsable stable metadata", () => {
   test("returns current when latest-mac.yml has no version field", async () => {
@@ -90,10 +61,6 @@ describe("pollGithubReleases — unparsable stable metadata", () => {
     }
   });
 });
-
-// ---------------------------------------------------------------------------
-// Case 2 — stable channel reads version from latest-mac.yml
-// ---------------------------------------------------------------------------
 
 describe("pollGithubReleases — stable channel", () => {
   test("returns 0.2.0 newer from latest-mac.yml version field", async () => {
@@ -118,10 +85,6 @@ describe("pollGithubReleases — stable channel", () => {
     expect(result.kind).toBe("current");
   });
 });
-
-// ---------------------------------------------------------------------------
-// Case 3 — beta channel picks highest semver tag from the Atom feed
-// ---------------------------------------------------------------------------
 
 describe("pollGithubReleases — beta channel", () => {
   test("returns highest tag across entries (0.2.0 > 0.1.5-beta.1)", async () => {
@@ -149,10 +112,6 @@ describe("pollGithubReleases — beta channel", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Case 4 — latest equals currentVersion → kind:"current"
-// ---------------------------------------------------------------------------
-
 describe("pollGithubReleases — same version", () => {
   test("returns current when latest equals currentVersion", async () => {
     const result = await pollGithubReleases({
@@ -164,10 +123,6 @@ describe("pollGithubReleases — same version", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Case 5 — latest is older than currentVersion → kind:"current"
-// ---------------------------------------------------------------------------
-
 describe("pollGithubReleases — older remote version", () => {
   test("returns current when remote latest is older than currentVersion", async () => {
     const result = await pollGithubReleases({
@@ -178,10 +133,6 @@ describe("pollGithubReleases — older remote version", () => {
     expect(result.kind).toBe("current");
   });
 });
-
-// ---------------------------------------------------------------------------
-// Case 6 — fetch throws → kind:"error"
-// ---------------------------------------------------------------------------
 
 describe("pollGithubReleases — network error", () => {
   test("returns error when fetch throws", async () => {
@@ -198,10 +149,6 @@ describe("pollGithubReleases — network error", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Case 7 — HTTP 403/429 → kind:"error" reported as rate-limited, not a raw status
-// ---------------------------------------------------------------------------
-
 describe("pollGithubReleases — rate limited", () => {
   test("403 is reported as rate-limited, not a raw status dump", async () => {
     const result = await pollGithubReleases({
@@ -217,10 +164,6 @@ describe("pollGithubReleases — rate limited", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Case 8 — non-v-prefixed version in yml still parses
-// ---------------------------------------------------------------------------
-
 describe("pollGithubReleases — version without v prefix", () => {
   test("parses a bare semver version from latest-mac.yml", async () => {
     const result = await pollGithubReleases({
@@ -235,10 +178,6 @@ describe("pollGithubReleases — version without v prefix", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Case 9 — non-semver tags in the atom feed are skipped
-// ---------------------------------------------------------------------------
-
 describe("pollGithubReleases — atom feed with noise", () => {
   test("ignores non-semver tags and picks the highest valid one", async () => {
     const result = await pollGithubReleases({
@@ -252,14 +191,6 @@ describe("pollGithubReleases — atom feed with noise", () => {
     }
   });
 });
-
-// ---------------------------------------------------------------------------
-// Case 10 — ETag conditional request: first poll stores ETag + resolution,
-// second poll sends If-None-Match and reuses the cached resolution on 304.
-//
-// Pins the rate-limit-savings contract: a 304 resolves without re-reading the
-// body, so repeated polls stay cheap until the latest release changes.
-// ---------------------------------------------------------------------------
 
 describe("pollGithubReleases — ETag conditional requests", () => {
   test("second poll sends If-None-Match and resolves from cache on 304", async () => {
@@ -299,8 +230,6 @@ describe("pollGithubReleases — ETag conditional requests", () => {
   });
 
   test("a stale ETag from a different channel's source is not reused", async () => {
-    // Cache holds an ETag minted for the beta (atom) source; a stable poll
-    // must NOT send it, since If-None-Match is only valid for the same URL.
     const cache = createConditionalCache();
     cache.etag = '"beta-etag"';
     cache.sourceUrl = "https://github.com/moreih29/nexus-code/releases.atom";
@@ -329,7 +258,6 @@ describe("pollGithubReleases — ETag conditional requests", () => {
     cache.etag = '"v1"';
     cache.sourceUrl =
       "https://github.com/moreih29/nexus-code/releases/latest/download/latest-mac.yml";
-    // resolved intentionally left null — synthetic invariant violation.
     const fetchImpl: typeof fetch = async () => new Response(null, { status: 304 });
 
     const result = await pollGithubReleases({

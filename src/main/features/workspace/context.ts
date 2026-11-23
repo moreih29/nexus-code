@@ -2,12 +2,6 @@ import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
 import type { FsProvider } from "../fs/bridge/provider";
 
-// ---------------------------------------------------------------------------
-// WorkspaceContext — one instance per open workspace.
-// Holds a reference to the per-workspace storage handle and the in-memory
-// cached meta. Tab layout/session persistence is handled outside this context.
-// ---------------------------------------------------------------------------
-
 export class WorkspaceContext {
   private meta: WorkspaceMeta;
   private readonly storage: WorkspaceStorage;
@@ -33,9 +27,6 @@ export class WorkspaceContext {
     this.storage.setMeta(updated.id, updated);
   }
 
-  /**
-   * Replaces the active filesystem provider and disposes provider-owned state.
-   */
   setFsProvider(fs: FsProvider, dispose?: () => void): void {
     this.disposeCurrentFsProvider();
     this.fsProvider = fs;

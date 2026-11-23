@@ -3,36 +3,12 @@ import { cn } from "@/utils/cn";
 import { KEYBOARD_NUDGE_PX } from "./resize-handle";
 import { useDragHandle } from "./use-drag-handle";
 
-// ---------------------------------------------------------------------------
-// Ratio-based resize handle (for split panes)
-//
-// Owns: ratio↔px conversion at *usage* time (mousedown/mousemove/keydown), so
-//       a stale container size cannot poison the drag start. The container
-//       size is always read from `getContainerSize()` at the moment it is
-//       needed — never cached as a prop.
-// Caller owns: ratio state storage and persistence. The handle clamps to
-//              [minRatio, maxRatio] internally before invoking onResize.
-// ---------------------------------------------------------------------------
-
 interface ResizeHandleRatioProps {
-  /** Current ratio in [0, 1]. */
   ratio: number;
-  /** Lower bound for the ratio after clamping. */
   minRatio: number;
-  /** Upper bound for the ratio after clamping. */
   maxRatio: number;
-  /**
-   * Callback that returns the *current* container size (px) along the drag
-   * axis. Called at mousemove and keydown time so conversion never relies on
-   * a stale measurement.
-   */
   getContainerSize: () => number;
-  /**
-   * Called on mousemove (persist=false) and on mouseup commit (persist=true).
-   * Receives a clamped ratio.
-   */
   onResize: (ratio: number, persist: boolean) => void;
-  /** Optional double-click reset. */
   onReset?: () => void;
   ariaLabel: string;
   className?: string;
@@ -41,8 +17,6 @@ interface ResizeHandleRatioProps {
 }
 
 const POSITION_CLASS = {
-  // +3px past the 50% shift so the handle centers in the 6px island gap
-  // (the panel's right edge is the gap's *left* edge, not its centre).
   rightCentered:
     "group absolute right-0 top-0 h-full w-2 cursor-col-resize translate-x-[calc(50%+3px)] [-webkit-app-region:no-drag]",
   rightInside:
@@ -67,8 +41,6 @@ export function ResizeHandleRatio({
   placement,
   orientation = "vertical",
 }: ResizeHandleRatioProps) {
-  // Refs avoid stale closures in document listeners and let mouseup commit
-  // read the latest store-roundtrip ratio.
   const startRatioRef = useRef(ratio);
   const ratioRef = useRef(ratio);
   ratioRef.current = ratio;
@@ -128,9 +100,6 @@ export function ResizeHandleRatio({
       ? POSITION_CLASS.horizontal
       : POSITION_CLASS[placement ?? "rightCentered"];
 
-  // Islands model: the gap between panels IS the separator — there is no
-  // resting divider line. The indicator appears only on hover (drag
-  // affordance) and stays solid while dragging (active feedback).
   const indicatorClass =
     orientation === "horizontal"
       ? isDragging
@@ -140,7 +109,6 @@ export function ResizeHandleRatio({
         ? "absolute right-[3px] top-0 h-full w-0.5 bg-[var(--splitter-hover)]"
         : "absolute right-[3px] top-0 h-full w-0.5 bg-[var(--splitter-hover)] opacity-0 transition-opacity duration-100 group-hover:opacity-100";
 
-  // Expose ratio in 0–100 for the standard ARIA convention.
   const ariaNow = Math.round(ratio * 100);
   const ariaMin = Math.round(minRatio * 100);
   const ariaMax = Math.round(maxRatio * 100);

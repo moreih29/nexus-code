@@ -10,7 +10,6 @@ import (
 	"testing"
 )
 
-// stashListExpected mirrors the fixture expected.json for git.stash.list.
 type stashListExpected struct {
 	Method string          `json:"method"`
 	Case   string          `json:"case"`
@@ -18,7 +17,6 @@ type stashListExpected struct {
 	Result []StashEntry    `json:"result"`
 }
 
-// TestStashListFixtures verifies every stash list fixture against parseStashList.
 func TestStashListFixtures(t *testing.T) {
 	fixtureRoot := fixtureDir("stash")
 	entries, err := os.ReadDir(fixtureRoot)
@@ -59,16 +57,13 @@ func TestStashListFixtures(t *testing.T) {
 	t.Logf("loaded %d stash list fixtures", loaded)
 }
 
-// TestStashApplyConflictServiceTempRepo verifies StashApply returns a conflict result.
 func TestStashApplyConflictServiceTempRepo(t *testing.T) {
 	t.Parallel()
 	root := newRepo(t)
 
-	// Stash a change.
 	writeFile(t, filepath.Join(root, "README.md"), "stashed line\n")
 	runGit(t, root, "stash", "push")
 
-	// Create a conflicting commit.
 	writeFile(t, filepath.Join(root, "README.md"), "head line\n")
 	runGit(t, root, "add", "README.md")
 	runGit(t, root, "commit", "-m", "conflicting head")
@@ -90,7 +85,6 @@ func TestStashApplyConflictServiceTempRepo(t *testing.T) {
 	}
 }
 
-// TestStashApplyCleanServiceTempRepo verifies StashApply succeeds with empty result.
 func TestStashApplyCleanServiceTempRepo(t *testing.T) {
 	t.Parallel()
 	root := newRepo(t)
@@ -112,7 +106,6 @@ func TestStashApplyCleanServiceTempRepo(t *testing.T) {
 	}
 }
 
-// TestStashDropServiceTempRepo verifies StashDrop removes the stash entry.
 func TestStashDropServiceTempRepo(t *testing.T) {
 	t.Parallel()
 	root := newRepo(t)
@@ -125,7 +118,6 @@ func TestStashDropServiceTempRepo(t *testing.T) {
 		t.Fatalf("StashDrop returned error: %v", err)
 	}
 
-	// Verify stash list is now empty.
 	res, err := service.StashList(context.Background(), json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("StashList after drop returned error: %v", err)
@@ -136,11 +128,9 @@ func TestStashDropServiceTempRepo(t *testing.T) {
 	}
 }
 
-// TestStashGroupServiceTempRepo verifies StashGroup stashes selected paths.
 func TestStashGroupServiceTempRepo(t *testing.T) {
 	t.Parallel()
 	root := newRepo(t)
-	// Git for Windows checks text out with CRLF by default.
 	runGit(t, root, "config", "core.autocrlf", "false")
 	writeFile(t, filepath.Join(root, "a.txt"), "base-a\n")
 	writeFile(t, filepath.Join(root, "b.txt"), "base-b\n")
@@ -157,7 +147,6 @@ func TestStashGroupServiceTempRepo(t *testing.T) {
 		t.Fatalf("StashGroup returned error: %v", err)
 	}
 
-	// b.txt should still be changed, a.txt should be restored.
 	aContent := readFile(t, filepath.Join(root, "a.txt"))
 	if aContent != "base-a\n" {
 		t.Fatalf("a.txt after stash group = %q, want base-a", aContent)
@@ -168,7 +157,6 @@ func TestStashGroupServiceTempRepo(t *testing.T) {
 	}
 }
 
-// TestParseStashIndexEdgeCases verifies parseStashIndex rejects malformed refs.
 func TestParseStashIndexEdgeCases(t *testing.T) {
 	cases := []struct {
 		ref  string
@@ -190,7 +178,6 @@ func TestParseStashIndexEdgeCases(t *testing.T) {
 	}
 }
 
-// TestParseStashSubjectEdgeCases verifies parseStashSubject handles the two patterns.
 func TestParseStashSubjectEdgeCases(t *testing.T) {
 	cases := []struct {
 		raw     string
@@ -211,7 +198,6 @@ func TestParseStashSubjectEdgeCases(t *testing.T) {
 	}
 }
 
-// TestStashGroupEmptyPathsReturnsError verifies empty path list is rejected.
 func TestStashGroupEmptyPathsReturnsError(t *testing.T) {
 	service := New(t.TempDir())
 	_, err := service.StashGroup(context.Background(), json.RawMessage(`{"paths":[]}`))

@@ -1,6 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
 
-// The workspace's files, by their path from its root.
 const files = new Set(["notes/a.ts:12", "src/a.ts", "tracks/P/out/a.png", "tracks/P/b.ts:3"]);
 const stats: string[] = [];
 mock.module("../../../../../src/renderer/ipc/client", () => ({

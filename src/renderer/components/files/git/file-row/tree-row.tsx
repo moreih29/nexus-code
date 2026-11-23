@@ -1,14 +1,3 @@
-/**
- * GitTreeRow renders a single row in the Source Control tree view.
- *
- * - dir rows: collapsible folder with chevron + folder icon + displayName + child count.
- *   On hover, inline stage/unstage/discard actions appear (VS Code SCM equivalent).
- * - leaf rows: wraps GitFileRow with an indent offset applied via paddingLeft.
- *
- * WAI-ARIA tree semantics and roving tabindex are delegated to the caller via
- * the `treeItemProps` spread (role="treeitem", tabIndex, aria-expanded, etc.)
- * so this component stays focused on visual rendering only.
- */
 import { ChevronRight, Minus, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -23,15 +12,9 @@ import {
 import { INDENT_STEP_PX } from "../../file-tree/metrics";
 import { type GitFileActions, GitFileRow } from "./row";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 interface GitTreeRowBase {
-  /** Depth in the tree (root children are depth 1). */
   depth: number;
   groupKey: GitExpandedGroupKey;
-  /** Extra props spread onto the treeitem element for WAI-ARIA + roving tabindex. */
   treeItemProps: React.HTMLAttributes<HTMLElement>;
   onFocus?: () => void;
 }
@@ -41,34 +24,20 @@ interface GitTreeRowDirProps extends GitTreeRowBase {
   displayName: string;
   relPath: string;
   isExpanded: boolean;
-  /**
-   * Highest-priority decoration kind among the folder's descendants. Drives
-   * the single trailing letter chip (M/A/D/U/...). Undefined when the folder
-   * has no flagged descendants — shouldn't happen in practice because the
-   * group's tree is built from entries that are themselves flagged.
-   */
   decoration?: GitDecorationKind;
   onToggle: () => void;
-  /** Called when the user clicks the stage (plus) action on a dir row. */
   onStagePaths?: () => void;
-  /** Called when the user clicks the unstage (minus) action on a dir row. */
   onUnstagePaths?: () => void;
-  /** Called when the user clicks the discard (trash) action on a dir row. */
   onDiscardPaths?: () => void;
 }
 
 interface GitTreeRowLeafProps extends GitTreeRowBase {
   kind: "leaf";
   entry: GitStatusEntry;
-  /** What the file's row does; see `GitFileActions`. */
   actions: GitFileActions;
 }
 
 export type GitTreeRowProps = GitTreeRowDirProps | GitTreeRowLeafProps;
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export function GitTreeRow(props: GitTreeRowProps) {
   const { t } = useTranslation("files");
@@ -117,7 +86,6 @@ export function GitTreeRow(props: GitTreeRowProps) {
           aria-hidden="true"
         />
         <span className="min-w-0 flex-1 truncate">{displayName}</span>
-        {/* Inline actions — visible on hover/focus-within, hidden otherwise */}
         <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
           {onStagePaths ? (
             <Button
@@ -183,7 +151,6 @@ export function GitTreeRow(props: GitTreeRowProps) {
     );
   }
 
-  // Leaf: wrap GitFileRow with indentation override.
   const { entry, groupKey, actions } = props;
 
   return (

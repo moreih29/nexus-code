@@ -62,7 +62,6 @@ export async function changeLayout(
         .ui("layout.ratios", { workspaceId, ratios: change.ratios })
         .catch(unavailable);
     case "close":
-      // The group can contain terminals, regardless of their current state.
       if (!terminal)
         throw new RpcFailure(RpcErrorCode.Forbidden, "closing groups requires terminal control");
       return services

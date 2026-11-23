@@ -1,9 +1,3 @@
-// The voice capture's AudioWorklet (capture.ts): collects `frame` samples of
-// the first channel, then posts them. A file of the app's own, loaded by its
-// address, so the window's Content-Security-Policy runs it under
-// script-src 'self' (main's window/app-csp.ts); a blob: module would need
-// blob: in script-src.
-
 class FrameCollector extends AudioWorkletProcessor {
   constructor(options) {
     super();

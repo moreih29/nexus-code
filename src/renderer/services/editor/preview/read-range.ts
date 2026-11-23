@@ -1,28 +1,18 @@
-// Reading a workspace file a part at a time, for the previews that need not
-// take a large file whole (PDF). One fs.readRange call returns at most
-// READ_RANGE_MAX_BYTES; a larger part is read in several, a few at once. It
-// goes through the workspace, so local and SSH workspaces read the same.
-
 import { READ_RANGE_MAX_BYTES } from "../../../../shared/fs/defaults";
 import { ipcCallResult } from "../../../ipc/client";
 import { peerOf, readPeerPiece } from "../../remote/peer-workspace";
 import { bytesFromBase64 } from "../encoding/text-encoding";
 
-/** A part of a file, and what the file was when it was read. */
 export interface FilePart {
   readonly bytes: Uint8Array;
-  /** The whole file's size. */
   readonly size: number;
   readonly mtime: string;
 }
 
-/** How many fs.readRange calls of one part are on their way at once. */
 const PARALLEL_READS = 4;
 
-/** Reads one piece of at most READ_RANGE_MAX_BYTES; null when it cannot. */
 export type PieceReader = (offset: number, length: number) => Promise<FilePart | null>;
 
-/** One fs.readRange call's piece; null when the file is missing or the read failed. */
 async function readPiece(
   workspaceId: string,
   relPath: string,
@@ -38,11 +28,6 @@ async function readPiece(
   };
 }
 
-/**
- * `length` bytes of `relPath` from `offset`, fewer at the end of the file.
- * Null when the file is missing, a read failed, or the file is no longer
- * as it was at `mtime` (or at the part's first piece).
- */
 export function readWorkspaceRange(
   workspaceId: string,
   relPath: string,
@@ -66,7 +51,6 @@ export function readWorkspaceRange(
   return readRange((at, size) => readPiece(workspaceId, relPath, at, size), offset, length, mtime);
 }
 
-/** readWorkspaceRange over `read`, a piece at a time. */
 export async function readRange(
   read: PieceReader,
   offset: number,

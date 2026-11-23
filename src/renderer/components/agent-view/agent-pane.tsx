@@ -1,8 +1,3 @@
-// One panel of the agent view: a tab bar of the agents it holds, from any
-// workspace, and below it the one in front — the very tab its workspace
-// shows, moved here. Taking an agent out of the panel leaves it running.
-// It holds another computer's sessions as tabs too, drawn here.
-
 import { Columns2, Rows2, SquareArrowOutUpRight, X } from "lucide-react";
 import { memo, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -76,8 +71,6 @@ function update(change: (layout: AgentLayout) => AgentLayout): void {
   useAgentViewStore.getState().update(change);
 }
 
-// Memo: the view renders for each change of the agents' or the layout's,
-// and a panel only when its own leaf, the agents or the ended ones change.
 export const AgentPane = memo(function AgentPane({
   leaf,
   agents,
@@ -125,13 +118,9 @@ export const AgentPane = memo(function AgentPane({
   }, [outerEl, leaf.id]);
 
   const [dropZone, setDropZone] = useState<DropZone | null>(null);
-  // Over the tab bar a drag shows where among the tabs it goes, as a
-  // workspace's tab bar does; over the content, which part of the panel.
   const [insertion, setInsertion] = useState<TabInsertion | null>(null);
   useEffect(() => {
     if (!outerEl) return;
-    // Every element the drag passes enters and leaves; it left the panel
-    // once the count is back to none.
     let depth = 0;
     const reset = () => {
       depth = 0;
@@ -142,7 +131,6 @@ export const AgentPane = memo(function AgentPane({
       const slot = slotElRef.current;
       return slot ? zoneFromCoords(slot.getBoundingClientRect(), e.clientX, e.clientY) : "center";
     };
-    /** Where among the tabs the drag goes, when it is over the tab bar. */
     const insertionOf = (e: DragEvent): TabInsertion | null => {
       const bar = barRef.current;
       const strip = stripRef.current;
@@ -159,7 +147,6 @@ export const AgentPane = memo(function AgentPane({
     };
     const onOver = (e: DragEvent) => {
       if (!isAgentDrag(e.dataTransfer)) return;
-      // Ahead of the content's own drop handling (a terminal takes files).
       e.preventDefault();
       e.stopPropagation();
       if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
@@ -192,8 +179,6 @@ export const AgentPane = memo(function AgentPane({
       ) {
         return;
       }
-      // On the tab bar: where its line showed. On the content: an edge splits
-      // the panel toward it, the middle puts the agent last.
       update((layout) =>
         at
           ? placeKey(layout, key, leaf.id, undefined, insertionIndex(leaf.tabIds, key, at.before))
@@ -223,12 +208,9 @@ export const AgentPane = memo(function AgentPane({
   const splitTo = (direction: "right" | "down") =>
     update((layout) => splitLeaf(layout, leaf.id, direction));
 
-  // When every agent here is from one workspace, its chip is shown once,
-  // ahead of the tabs, instead of on each of them.
   const workspaceIds = new Set(leaf.tabIds.map((key) => parseSessionKey(key)?.workspaceId));
   const [onlyWorkspace] = workspaceIds;
   const sharedWorkspace = workspaceIds.size === 1 ? onlyWorkspace : undefined;
-  // So with another computer's sessions, when they are all this panel holds.
   const sharedDevice = useRemoteViewStore((s) => {
     const targets = leaf.tabIds.map((key) => s.targets.get(key));
     const first = targets[0];
@@ -339,13 +321,10 @@ export const AgentPane = memo(function AgentPane({
         </div>
       </div>
 
-      {/* Where the front agent's tab is moved in (see ContentHost). */}
       <div ref={slotRef} data-agent-slot={leaf.id} className="relative min-h-0 min-w-0 flex-1">
         {leaf.tabIds.length === 0 && <EmptyPane />}
         {front && <OfflinePane workspaceId={front.workspaceId} />}
         {viewShown && frontFile && <RemoteFilePane key={leaf.activeTabId} file={frontFile} />}
-        {/* Each kept while its tab is in the panel, as a chat here is: its draft,
-            drawer and goal stay its own. Only the front one is read. */}
         {leaf.tabIds.filter(isRemoteKey).map((key) => (
           <RemotePaneHost
             key={key}
@@ -364,14 +343,12 @@ export const AgentPane = memo(function AgentPane({
         />
       )}
 
-      {/* The panel of the agent the pointer is on in the list. */}
       {lit && (
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 z-20 rounded-(--radius-island) border-2 border-dashed border-[var(--state-selected-indicator)]"
         />
       )}
-      {/* The veil of a panel the keyboard is not in, as a workspace's groups have. */}
       {split && !isActive && (
         <div
           aria-hidden
@@ -382,7 +359,6 @@ export const AgentPane = memo(function AgentPane({
   );
 });
 
-/** The workspace an agent is from: its name, with its color's dot. */
 function WorkspaceChip({ workspaceId, className }: { workspaceId: string; className?: string }) {
   const name = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.name);
   const rootId = useWorkspacesStore((s) => rootWorkspaceId(s.workspaces, workspaceId));
@@ -404,7 +380,6 @@ function WorkspaceChip({ workspaceId, className }: { workspaceId: string; classN
   );
 }
 
-/** What a local tab shows, or null once its tab is gone. */
 function useLocalTabInfo(key: string, agents: Agents) {
   const ref = parseSessionKey(key);
   const tab = useTabsStore((s) => (ref ? s.byWorkspace[ref.workspaceId]?.[ref.tabId] : undefined));
@@ -439,10 +414,6 @@ function useLocalTabInfo(key: string, agents: Agents) {
   };
 }
 
-/**
- * An agent's workspace chip (unless the panel shows it once for all), mark,
- * title and state: its tab's face, and its row in the overflow menu.
- */
 function AgentTabLabel({
   sessionKey,
   agents,
@@ -495,7 +466,6 @@ function AgentTab({
   sessionKey: string;
   agents: Agents;
   active: boolean;
-  /** Off when the panel shows the one workspace of all its agents. */
   showWorkspace: boolean;
   onSelect: () => void;
   onRemove: () => void;
@@ -563,7 +533,6 @@ function RemoteFileTab({
   );
 }
 
-/** A panel's tab of another computer's session, hidden while another tab is in front. */
 function RemotePaneHost({
   sessionKey,
   front,
@@ -582,13 +551,11 @@ function RemotePaneHost({
   );
 }
 
-/** Another computer's session's face, or null once this run of the app no longer knows it. */
 function RemoteTabFace({ sessionKey, showDevice }: { sessionKey: string; showDevice: boolean }) {
   const target = useRemoteTarget(sessionKey);
   return target ? <RemoteTabLabel target={target} showDevice={showDevice} /> : null;
 }
 
-/** A tab of another computer's session, named with its computer and workspace. */
 function RemoteTab({
   sessionKey: key,
   active,
@@ -598,7 +565,6 @@ function RemoteTab({
 }: {
   sessionKey: string;
   active: boolean;
-  /** Off when the panel shows the one computer of all its sessions. */
   showDevice: boolean;
   onSelect: () => void;
   onRemove: () => void;
@@ -618,7 +584,6 @@ function RemoteTab({
   );
 }
 
-/** A panel's tab: its face, dragged to another panel, closed with its button or a middle click. */
 function PanelTab({
   sessionKey: key,
   active,
@@ -679,7 +644,6 @@ function PanelTab({
   );
 }
 
-/** The words of the button that goes to an agent's tab, by its tab's type, as the agent list says them. */
 function goToTabLabel(type: string | undefined): string {
   if (type === "editor") return "agentView.pane.show_file_tab";
   if (type === "claude") return "agentList.detail.show_claude_tab";
@@ -687,7 +651,6 @@ function goToTabLabel(type: string | undefined): string {
   return "agentList.detail.show_terminal";
 }
 
-/** What an empty panel says: where its agents come from, and a way back to the list when it is hidden. */
 function EmptyPane() {
   const { t } = useTranslation();
   const listHidden = useUIStore((s) => s.sidebarHidden);
@@ -710,10 +673,6 @@ function EmptyPane() {
   );
 }
 
-/**
- * In place of the agent of a remote workspace not connected: its tab is not
- * there to show until the workspace connects.
- */
 function OfflinePane({ workspaceId }: { workspaceId: string }) {
   const { t } = useTranslation();
   const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));

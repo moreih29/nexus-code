@@ -1,8 +1,3 @@
-/**
- * The files panel's notes view: the workspace's notes, newest first, a "New
- * note" button and a search over their titles and first words. A row opens
- * its note in a tab.
- */
 import i18next from "i18next";
 import { NotebookPen, Plus, Search, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -68,15 +63,9 @@ export function NotesPanel({ workspace }: { workspace: WorkspaceMeta }) {
   );
 }
 
-/** What a row tells of a note. Another computer's list gives no excerpt and no counts. */
 export type NoteRowFacts = Pick<NoteSummary, "id" | "title" | "updatedAt"> &
   Partial<Pick<NoteSummary, "excerpt" | "counts" | "recording">>;
 
-/**
- * The notes view itself: its title row, search, and rows. Shared with a
- * workspace on another computer, which reads only: without `onCreate` there
- * is no "New note" button.
- */
 export function NotesPanelView<Note extends NoteRowFacts>({
   notes,
   error,
@@ -89,15 +78,12 @@ export function NotesPanelView<Note extends NoteRowFacts>({
   errorText,
   searchPlaceholder,
 }: {
-  /** Null until first read. */
   notes: readonly Note[] | null;
   error: boolean;
   activeNoteId: string | null;
-  /** The local workspace, for the row's recording mark; none for another computer's. */
   workspaceId?: string;
   onOpen: (note: Note) => void;
   onCreate?: () => void;
-  /** Shown in the title row, before its search button. */
   badge?: ReactNode;
   emptyText?: string;
   errorText?: string;
@@ -261,9 +247,7 @@ function NoteRow({
   );
 }
 
-/** What a note's row says it has: its sketches, files, images and to-dos, or "Text". */
 export function noteChips(note: Pick<NoteRowFacts, "counts" | "recording">): string[] {
-  // Another computer's list tells no counts: no chip says what is not known.
   if (!note.counts) return [];
   const { sketches, files, images, todos, todosDone } = note.counts;
   const t = i18next.t.bind(i18next);
@@ -281,7 +265,6 @@ export function noteChips(note: Pick<NoteRowFacts, "counts" | "recording">): str
   return chips.length ? chips : [t("notes:chip.text")];
 }
 
-/** The note the workspace's active tab shows, if it shows one. */
 function useActiveNoteId(workspaceId: string): string | null {
   const activeTabId = useLayoutStore((s) => {
     const layout = s.byWorkspace[workspaceId];
