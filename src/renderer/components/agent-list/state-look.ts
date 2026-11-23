@@ -87,7 +87,9 @@ export const REMOTE_STATE: Readonly<Record<SessionState, string>> = {
 };
 
 export function remoteStateLook(state: SessionState): StateLook {
-  return stateLook(REMOTE_STATE[state] ?? "idle");
+  const look = stateLook(REMOTE_STATE[state] ?? "idle");
+  if (state !== "needs-you") return look;
+  return { ...stateLook(GROUP_STATE.attention), labelKey: look.labelKey };
 }
 
 export function stateText(state: string): string {
