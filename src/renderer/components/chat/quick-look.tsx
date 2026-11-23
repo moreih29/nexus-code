@@ -12,11 +12,12 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { isUnder } from "../../../shared/fs/relative-path";
 import { ipcCallResult } from "../../ipc/client";
 import { useChatFiles } from "../../services/chat/chat-files";
 import { copyImage, workspaceImageSrc } from "../../services/chat/copy-image";
 import { imageLookSize, imageSrc, type Size } from "../../services/chat/image-look";
-import { baseName, isUnder, type LineAt } from "../../services/chat/links";
+import { baseName, type LineAt } from "../../services/chat/links";
 import type { ImageBlock } from "../../services/chat/model";
 import { isImageFile } from "../../services/editor/preview/previewable";
 import { peerOf } from "../../services/remote/peer-workspace";

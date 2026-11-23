@@ -1,7 +1,7 @@
 import { useMonaco } from "@monaco-editor/react";
 import { useTranslation } from "react-i18next";
 import { MAX_READABLE_FILE_SIZE } from "../../../shared/fs/defaults";
-import { isUnder } from "../../services/chat/links";
+import { isUnder } from "../../../shared/fs/relative-path";
 import { useSharedModel } from "../../services/editor";
 import { usePeerText } from "../../services/remote/peer-workspace";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
