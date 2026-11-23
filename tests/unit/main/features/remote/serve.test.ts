@@ -852,6 +852,28 @@ describe("serving a chat and a terminal to read", () => {
     ]);
   });
 
+  test("a peek names its chat by workspace and tab alone: what else its params carry is not passed on", async () => {
+    const { s, asked } = recording(() => ({ status: { running: false }, turns: [] }));
+    await serveWith(() => s)({
+      from: "d",
+      method: "chat.peek",
+      params: {
+        workspaceId: "w1",
+        tabId: "t1",
+        turns: 2,
+        // A device cannot point the read at a history of its choosing.
+        threadId: "01a1c494-518d-7651-938d-00031c0ec9fb",
+        sessionId: "0b0f8a52-2b8e-4a4f-9d3e-0c4f2f6f6a22",
+        codexHome: "/etc",
+        configDir: "/etc",
+        profileId: "other",
+        cursor: "c1",
+        agent: "codex",
+      },
+    });
+    expect(asked).toEqual([["chat.peek", { workspaceId: "w1", tabId: "t1", turns: 2 }]]);
+  });
+
   test("a peek is fitted in its budget, whatever the window answered", async () => {
     const turn = {
       user: { text: "가".repeat(5000), images: 0 },

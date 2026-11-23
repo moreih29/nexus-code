@@ -377,6 +377,23 @@ describe("a Claude session's peek, from the end of its transcript", () => {
     expect(peek.turns[0].user).toBeUndefined();
   });
 
+  test("one whose record the tab no longer keeps is received still, by the line before it", () => {
+    const lines = [
+      ...turn(1, relayedText(sender, "Review this")),
+      ...turn(2, relayedText({ kind: "terminal", agent: "codex", name: "zsh" }, "And this")),
+      ...turn(3, "Mine"),
+    ];
+    for (const relayed of [undefined, [], [{ id: "another", from: sender, at: 1 }]]) {
+      const peek = new ClaudeTail(page(lines, 0)).peek(relayed);
+      expect(peek.turns.map((t) => [t.received, t.user?.text])).toEqual([
+        [{ from: "Lead", text: "Review this" }, undefined],
+        [{ from: "zsh", text: "And this" }, undefined],
+        [undefined, "Mine"],
+      ]);
+      expect(JSON.stringify(peek)).not.toContain("[nexus]");
+    }
+  });
+
   test("a page with no message that began a turn asks for the one before, a few times", () => {
     const [question, ...rest] = turn(1);
     const tail = new ClaudeTail(page(rest, 10, { cursor: "c1" }));
