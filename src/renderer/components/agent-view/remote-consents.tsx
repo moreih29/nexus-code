@@ -1,6 +1,14 @@
 import i18next, { type TFunction } from "i18next";
 import { ChevronDown, Shield } from "lucide-react";
-import { type ReactElement, useEffect, useState, useSyncExternalStore } from "react";
+import {
+  createContext,
+  type ReactElement,
+  useContext,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useTranslation } from "react-i18next";
 import type {
   ConsentAnswer,
@@ -105,24 +113,76 @@ export function consentHeadlineOf(
   change: RemoteConsent["change"],
   title: string,
 ): string {
-  if (!i18next.exists(`agentCli.consent.action.${change.kind}`, { ns: "settings" })) return title;
-  const action = consentActionOf(t, change).replace(/(을|를)$/, "");
-  return action.charAt(0).toUpperCase() + action.slice(1);
+  const key = `agentCli.consent.headline.${change.kind}`;
+  return i18next.exists(key, { ns: "settings" })
+    ? t(key as `agentCli.consent.headline.${CliChangeKind}`, {
+        detail: consentDetailsOf(t, change).detail,
+      })
+    : title;
 }
 
+export const CONSENT_SWAP_HOLD_MS = 500;
+
+interface ConsentPage {
+  held: () => boolean;
+  answering: () => void;
+}
+
+const ConsentPageContext = createContext<ConsentPage>({
+  held: () => false,
+  answering: () => {},
+});
+
 export function ConsentPages({ children }: { children: readonly ReactElement[] }) {
-  const [index, setIndex] = useState(0);
-  const last = Math.max(0, children.length - 1);
-  const shown = Math.min(index, last);
-  useEffect(() => {
-    if (index > last) setIndex(last);
-  }, [index, last]);
-  if (children.length < 2) return children[0] ?? null;
+  const keys = children.map((child) => String(child.key));
+  const view = useRef<{ key?: string; index: number }>({ index: 0 });
+  const answered = useRef<string | undefined>(undefined);
+  const hold = useRef<{ key: string; until: number } | null>(null);
+  const [, repaint] = useState(0);
+  const before = view.current;
+  const found = before.key === undefined ? -1 : keys.indexOf(before.key);
+  const shown = found >= 0 ? found : Math.min(before.index, Math.max(0, keys.length - 1));
+  const shownKey = keys[shown];
+  useLayoutEffect(() => {
+    const previous = view.current;
+    if (
+      previous.key !== undefined &&
+      shownKey !== undefined &&
+      previous.key !== shownKey &&
+      !keys.includes(previous.key) &&
+      answered.current !== previous.key
+    )
+      hold.current = { key: shownKey, until: performance.now() + CONSENT_SWAP_HOLD_MS };
+    view.current = { key: shownKey, index: shown };
+  });
+  const page: ConsentPage = {
+    held: () =>
+      hold.current !== null &&
+      hold.current.key === shownKey &&
+      performance.now() < hold.current.until,
+    answering: () => {
+      answered.current = shownKey;
+    },
+  };
+  const card = children[shown] ?? null;
   return (
-    <div className="flex flex-col gap-1" data-testid="remote-consent-pages">
-      <RequestPager shown={shown} total={children.length} onShow={setIndex} />
-      {children[shown]}
-    </div>
+    <ConsentPageContext.Provider value={page}>
+      {children.length < 2 ? (
+        card
+      ) : (
+        <div className="flex flex-col gap-1" data-testid="remote-consent-pages">
+          <RequestPager
+            shown={shown}
+            total={children.length}
+            onShow={(index) => {
+              view.current = { key: keys[index], index };
+              repaint((n) => n + 1);
+            }}
+          />
+          {card}
+        </div>
+      )}
+    </ConsentPageContext.Provider>
   );
 }
 
@@ -178,8 +238,10 @@ export function RemoteConsentCard({
   const [failure, setFailure] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
 
+  const page = useContext(ConsentPageContext);
   const answer = async (choice: ConsentAnswer) => {
-    if (busy !== null || gone) return;
+    if (busy !== null || gone || page.held()) return;
+    page.answering();
     setBusy(choice);
     setFailure(null);
     const result = await onAnswer(choice);

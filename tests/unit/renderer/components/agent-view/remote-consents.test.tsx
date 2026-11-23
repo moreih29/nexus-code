@@ -1,15 +1,17 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import i18next from "i18next";
-import type { MouseEvent } from "react";
+import { act, type MouseEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RemoteConsent, RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
 import * as buttons from "../../../../../src/renderer/components/ui/button";
 import * as ipc from "../../../../../src/renderer/ipc/client";
 import { ipcOk } from "../../../../../src/shared/ipc/result";
+import { withTestDom } from "../../../../helpers/test-dom";
 
 const {
   PeerConsentCard,
   RemoteConsentCard,
+  CONSENT_SWAP_HOLD_MS,
   ConsentPages,
   consentActionOf,
   consentFromChat,
@@ -174,12 +176,18 @@ describe("what another computer's consent prompt says", () => {
     expect(html).not.toContain("remote-consent-there");
   });
 
-  test("a Korean headline drops the object particle", () => {
+  test("headlines come from their own keys, the question when a kind has none", () => {
     const ko = i18next.getFixedT("ko", "settings");
     expect(consentHeadlineOf(ko, { kind: "terminalInput", detail: "dev" }, "")).toBe(
       '터미널 "dev"에 입력',
     );
     expect(consentHeadlineOf(t, { kind: "teleport" }, "Question?")).toBe("Question?");
+    expect(consentHeadlineOf(t, { kind: "chatRewind", detail: "Review" }, "")).toBe(
+      "Rewind the tab Review to before that message",
+    );
+    expect(consentHeadlineOf(ko, { kind: "chatRewind", detail: "Review" }, "")).toBe(
+      "탭 Review 되감기(그 메시지 전으로)",
+    );
   });
 
   test("its question follows what it asks, as the prompt's does", () => {
@@ -271,5 +279,104 @@ describe("what another computer's consent prompt says", () => {
     expect(two).toContain('aria-label="Previous request"');
     expect(two).toContain(">a<");
     expect(two).not.toContain(">b<");
+  });
+});
+
+describe("several consent prompts in one place", () => {
+  const prompt = (id: string) =>
+    consent({ id, eachTime: true, change: { kind: "chatInput", detail: id.toUpperCase() } });
+
+  function Pages({ ids, answers }: { ids: string[]; answers: string[] }) {
+    return (
+      <ConsentPages>
+        {ids.map((id) => (
+          <RemoteConsentCard
+            key={id}
+            consent={prompt(id)}
+            device="Work PC"
+            workspaceName="api"
+            onAnswer={(answer) => {
+              answers.push(`${id}:${answer}`);
+              return Promise.resolve(ipcOk({}));
+            }}
+            onSettled={() => {}}
+          />
+        ))}
+      </ConsentPages>
+    );
+  }
+
+  const headline = (host: HTMLElement) => host.querySelector(".font-semibold")?.textContent;
+  const page = (host: HTMLElement) =>
+    host.querySelector('[data-testid="remote-consent-pages"] span')?.textContent;
+  const press = async (host: HTMLElement, label: string) => {
+    const button = Array.from(host.querySelectorAll("button")).find(
+      (node) => node.textContent === label || node.getAttribute("aria-label") === label,
+    );
+    expect(button).toBeDefined();
+    await act(async () => button?.click());
+  };
+
+  test("the card in view stays when a new prompt arrives before or after it", async () => {
+    await withTestDom(async (host, root) => {
+      const answers: string[] = [];
+      await act(async () => root.render(<Pages ids={["a", "b"]} answers={answers} />));
+      await press(host, "Next request");
+      expect(headline(host)).toContain('"B"');
+      await act(async () => root.render(<Pages ids={["c", "a", "b"]} answers={answers} />));
+      expect(headline(host)).toContain('"B"');
+      expect(page(host)).toBe("3 of 3");
+      await act(async () => root.render(<Pages ids={["c", "a", "b", "d"]} answers={answers} />));
+      expect(headline(host)).toContain('"B"');
+      expect(page(host)).toBe("3 of 4");
+      await act(async () => root.render(<Pages ids={["c", "a", "d"]} answers={answers} />));
+      expect(headline(host)).toContain('"D"');
+      await act(async () => root.render(<Pages ids={["c", "a"]} answers={answers} />));
+      expect(headline(host)).toContain('"A"');
+    });
+  });
+
+  test("a card that takes the place of one gone elsewhere ignores answers for a moment", async () => {
+    const now = spyOn(performance, "now").mockReturnValue(10_000);
+    try {
+      await withTestDom(async (host, root) => {
+        const answers: string[] = [];
+        await act(async () => root.render(<Pages ids={["a", "b"]} answers={answers} />));
+        await act(async () => root.render(<Pages ids={["b"]} answers={answers} />));
+        expect(headline(host)).toContain('"B"');
+        await press(host, "Allow");
+        expect(answers).toEqual([]);
+        now.mockReturnValue(10_000 + CONSENT_SWAP_HOLD_MS);
+        await press(host, "Allow");
+        expect(answers).toEqual(["b:once"]);
+      });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  test("no pause after the user answers one or pages to another", async () => {
+    const now = spyOn(performance, "now").mockReturnValue(10_000);
+    try {
+      await withTestDom(async (host, root) => {
+        const answers: string[] = [];
+        await act(async () => root.render(<Pages ids={["a", "b", "c"]} answers={answers} />));
+        await press(host, "Allow");
+        await act(async () => root.render(<Pages ids={["b", "c"]} answers={answers} />));
+        expect(headline(host)).toContain('"B"');
+        await press(host, "Deny");
+        expect(answers).toEqual(["a:once", "b:deny"]);
+        await act(async () => root.render(<Pages ids={["c", "d"]} answers={answers} />));
+        await act(async () => {
+          now.mockReturnValue(10_000 + CONSENT_SWAP_HOLD_MS);
+        });
+        await press(host, "Next request");
+        expect(headline(host)).toContain('"D"');
+        await press(host, "Allow");
+        expect(answers).toEqual(["a:once", "b:deny", "d:once"]);
+      });
+    } finally {
+      now.mockRestore();
+    }
   });
 });
