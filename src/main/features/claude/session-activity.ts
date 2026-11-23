@@ -74,6 +74,12 @@ interface AgentEntry extends Omit<AgentRun, "tools"> {
   asking?: string;
   /** A `claude -p` run's directory, which its tools' paths are told from. */
   cwd?: string;
+  /**
+   * Where a `claude -p` or `codex exec` run keeps its session, on the host
+   * it ran on: its CLAUDE_CONFIG_DIR or CODEX_HOME, as its start told it.
+   * Main reads its transcript from there; never told to the renderer.
+   */
+  home?: string;
   /** The hook a running `claude -p` run holds open, whose answer stops it. */
   watch?: string;
   /** The ids of the messages a subagent wrote that it has: each is kept once. */
@@ -107,6 +113,18 @@ interface SessionEntry {
   taskLinks: Map<string, TaskLink>;
   /** The `claude -p` runs that went on an earlier run, by run id: that run's agent id. */
   runs: Map<string, string>;
+}
+
+/** Where a `claude -p` or `codex exec` run keeps its session, as main reads it. */
+export interface PrintRunSource {
+  program: "claude" | "codex";
+  running: boolean;
+  /** The run's session (claude) or thread (codex), once it told it. */
+  sessionId?: string;
+  /** Its CLAUDE_CONFIG_DIR or CODEX_HOME on the host it ran on; none when it keeps no session. */
+  home?: string;
+  /** The folder it ran in. */
+  cwd?: string;
 }
 
 /** Called as an agent starts, changes state and ends. */
@@ -366,6 +384,23 @@ export class SessionActivityLog {
   }
 
   /**
+   * Where the session's `claude -p` or `codex exec` run `runId` keeps its
+   * transcript, for main to read it: only a run of that tab's session,
+   * undefined for any other.
+   */
+  printRunSource(workspaceId: string, tabId: string, runId: string): PrintRunSource | undefined {
+    const agent = this.sessions.get(`${workspaceId}:${tabId}`)?.agents.get(runId);
+    if (agent?.kind !== "print") return undefined;
+    return {
+      program: agent.program === "codex" ? "codex" : "claude",
+      running: agent.end === undefined,
+      ...optional("sessionId", agent.sessionId),
+      ...optional("home", agent.home),
+      ...optional("cwd", agent.cwd),
+    };
+  }
+
+  /**
    * The user answered a permission request of the session's turn, or of
    * `agentId`, from the app, for the call to `tool` on `target`: the agent
    * goes on, with the call or past it, and a denied call never runs. No hook
@@ -541,6 +576,7 @@ export class SessionActivityLog {
       toolsTold: p.tools_told === true,
       ...optional("sessionId", text(p.session_id)),
       ...optional("cwd", text(p.cwd)),
+      ...optional("home", text(p.home)),
     };
     session.agents.set(id, run);
     this.emit(session, run);
@@ -578,6 +614,7 @@ export class SessionActivityLog {
     run.model = text(p.model) ?? run.model;
     run.endpoint = text(p.endpoint) ?? run.endpoint;
     run.cwd = text(p.cwd) ?? run.cwd;
+    run.home = text(p.home) ?? run.home;
     run.toolsTold = p.tools_told === true;
     delete run.end;
     delete run.answer;
@@ -858,6 +895,7 @@ function agentRunOf(agent: AgentEntry): AgentRun {
   const {
     asking: _asking,
     cwd: _cwd,
+    home: _home,
     watch: _watch,
     said: _said,
     launchToolUseId: _launch,

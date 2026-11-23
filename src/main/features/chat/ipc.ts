@@ -180,6 +180,14 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
           throw error;
         }
       }),
+      printRunTranscript: async (args: unknown) => {
+        const { workspaceId, tabId, runId, from } = validateArgs(c.printRunTranscript.args, args);
+        return ipcOk(await host.printRunTranscript(workspaceId, tabId, runId, from));
+      },
+      printRunReader: async (args: unknown) => {
+        const { workspaceId, tabId, runId } = validateArgs(c.printRunReader.args, args);
+        return ipcOk(await host.startPrintRunReader(workspaceId, tabId, runId));
+      },
       subagentTranscript: withProfileError(async (args: unknown) => {
         const { workspaceId, sessionId, agentId, toolUseId, profileId } = validateArgs(
           c.subagentTranscript.args,

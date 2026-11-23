@@ -21,7 +21,12 @@ import {
   SHAREABLE,
 } from "../../../shared/agent-profiles/profiles";
 import { type ClaudeTurnResult, claudeTurnResult } from "../../../shared/claude/turn-result";
-import type { ChatPeekTail, TranscriptPageResult } from "../../../shared/ipc/contract";
+import type {
+  ChatPeekTail,
+  PrintRunReaderResult,
+  PrintRunTranscriptResult,
+  TranscriptPageResult,
+} from "../../../shared/ipc/contract";
 import { createLogger } from "../../../shared/log/main";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { tryGetMainT } from "../../i18n";
@@ -33,6 +38,7 @@ import {
   codexConnectionCatalog,
   codexConnectionEnv,
 } from "../agent-profiles/connection-launch";
+import type { PrintRunSource } from "../claude/session-activity";
 import type { ChatAgentContext } from "../cli/commands/agent-context";
 import type { WindowsAgentFiles } from "../pty/windows-shell-shim";
 import type { HookInfo } from "../workspace/manager";
@@ -125,6 +131,21 @@ export interface AttachCleanups {
   remove(host: string, workspaceId: string): void;
 }
 
+/** The tab ids of the app-servers that read a `codex exec` run's thread. */
+const PRINT_RUN_READER_PREFIX = "print-run-reader-";
+
+export function isPrintRunReader(tabId: string): boolean {
+  return tabId.startsWith(PRINT_RUN_READER_PREFIX);
+}
+
+/** What a run's reader is told: the handshake and reads of a thread, nothing that changes one. */
+const PRINT_RUN_READER_METHODS = new Set([
+  "initialize",
+  "initialized",
+  "thread/read",
+  "thread/turns/list",
+]);
+
 export interface ChatHostOptions {
   workspaceManager: ChatWorkspaceManager;
   broadcast: (event: string, args: unknown) => void;
@@ -139,6 +160,15 @@ export interface ChatHostOptions {
   onTurnResult?: (workspaceId: string, tabId: string, result: ClaudeTurnResult) => void;
   /** The lifecycle messages for a Claude chat's background tasks. */
   onTaskEvent?: (workspaceId: string, tabId: string, message: Record<string, unknown>) => void;
+  /**
+   * Where a tab's `claude -p` or `codex exec` run keeps its session, as the
+   * app recorded it from the run's start: undefined for a run not of that tab.
+   */
+  printRunSource?: (
+    workspaceId: string,
+    tabId: string,
+    runId: string,
+  ) => PrintRunSource | undefined;
   /** A tab's program exited. */
   onProgramExit?: (workspaceId: string, tabId: string) => void;
   /** Saved chat tabs that may still have a program even before their view opens. */
@@ -591,7 +621,8 @@ export class ChatHost {
         return await (removal ? Promise.race([close(), removal.expired]) : close());
       } finally {
         this.subscriptions.get(workspaceId)?.processes.delete(tabId);
-        this.options.onProgramExit?.(workspaceId, tabId);
+        // A run's reader is no tab: nothing waits on its exit.
+        if (!isPrintRunReader(tabId)) this.options.onProgramExit?.(workspaceId, tabId);
       }
     })();
     this.closingTabs.set(key, run);
@@ -608,6 +639,11 @@ export class ChatHost {
     message: Record<string, unknown>,
     layer: { profileId?: string; instructions?: string } = {},
   ): Promise<void> {
+    if (isPrintRunReader(tabId) && !PRINT_RUN_READER_METHODS.has(String(message.method))) {
+      throw Object.assign(new Error("a run's reader only reads"), {
+        code: "chat.reader-read-only",
+      });
+    }
     const channel = await this.channelFor(workspaceId);
     if (message.type === "user" && layer.instructions !== undefined) {
       this.claudeInstructions.set(`${workspaceId}:${tabId}`, layer);
@@ -1003,6 +1039,103 @@ export class ChatHost {
     }
   }
 
+  /**
+   * The transcript of the tab's `claude -p` run `runId`, read on from
+   * `from` (where the last read ended): read where the run's own start
+   * said its session is kept, never where the renderer says. Not found for
+   * a run not of that tab, a `codex exec` run, or one that keeps none.
+   */
+  async printRunTranscript(
+    workspaceId: string,
+    tabId: string,
+    runId: string,
+    from: number | undefined,
+  ): Promise<PrintRunTranscriptResult> {
+    const none: PrintRunTranscriptResult = {
+      found: false,
+      lines: [],
+      next: 0,
+      reset: false,
+      truncated: false,
+    };
+    const source = this.options.printRunSource?.(workspaceId, tabId, runId);
+    if (source?.program !== "claude" || !source.sessionId || !source.home) return none;
+    const channel = await this.channelFor(workspaceId);
+    try {
+      const result = await channel.call<{
+        found?: boolean;
+        lines?: unknown[];
+        next?: number;
+        reset?: boolean;
+        truncated?: boolean;
+      }>("chat.runTranscript", {
+        sessionId: source.sessionId,
+        configDir: source.home,
+        ...(from !== undefined ? { from } : {}),
+      });
+      return {
+        found: result.found === true,
+        lines: result.lines ?? [],
+        next: typeof result.next === "number" ? result.next : 0,
+        reset: result.reset === true,
+        truncated: result.truncated === true,
+      };
+    } catch (error) {
+      // An agent before chat.runTranscript: the pane shows what the run told.
+      if ((error as { code?: unknown } | null)?.code === "unsupported-method") return none;
+      throw error;
+    }
+  }
+
+  /**
+   * Starts a Codex app-server that reads the tab's `codex exec` run
+   * `runId`'s thread, with the run's own CODEX_HOME, as a tab's starts (an
+   * SSH or WSL host's too): its lines come as a chat tab's do, by the
+   * reader's tab id, which chat.close ends. Send lets it be told only reads.
+   */
+  async startPrintRunReader(
+    workspaceId: string,
+    tabId: string,
+    runId: string,
+  ): Promise<PrintRunReaderResult> {
+    const source = this.options.printRunSource?.(workspaceId, tabId, runId);
+    if (source?.program !== "codex" || !source.sessionId || !source.home) {
+      return { ok: false, reason: "none" };
+    }
+    const readerTabId = `${PRINT_RUN_READER_PREFIX}${randomUUID()}`;
+    const key = `${workspaceId}:${readerTabId}`;
+    const intent = this.openTab(key);
+    try {
+      const channel = await this.channelForStart(workspaceId, key, intent);
+      const windows = this.windowsHost(workspaceId);
+      const profileEnv = mergeAgentEnv(
+        windows,
+        await this.profileEnv(channel, this.profile("codex", undefined), windows),
+        { [PROFILE_DIR_ENV.codex]: source.home },
+      );
+      const cwd = source.cwd ?? source.home;
+      const found = await this.findBinary(channel, "codex", cwd, profileEnv, windows);
+      if (!found.path) {
+        this.tabIntents.delete(key);
+        return { ok: false, reason: "not-found" };
+      }
+      const path = agentEnvValue(profileEnv, "PATH", windows) ?? found.envPath;
+      await this.spawn(key, intent, channel, {
+        workspaceId,
+        tabId: readerTabId,
+        cwd,
+        program: found.path,
+        args: ["app-server"],
+        env: mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path }),
+        resetLog: true,
+      });
+      return { ok: true, readerTabId, threadId: source.sessionId };
+    } catch (error) {
+      void this.closeTab(workspaceId, readerTabId).catch(() => {});
+      return { ok: false, reason: "failed", message: (error as Error).message };
+    }
+  }
+
   async subagentTranscript(
     workspaceId: string,
     sessionId: string,
@@ -1356,7 +1489,8 @@ export class ChatHost {
   private noteForStatus(event: string, payload: Record<string, unknown>): void {
     const workspaceId = payload.workspaceId as string;
     const tabId = typeof payload.tabId === "string" ? payload.tabId : null;
-    if (!tabId) return;
+    // A run's reader is no tab: it has no status.
+    if (!tabId || isPrintRunReader(tabId)) return;
     if (event === "exit") {
       // A restart's new file is not the exited program's.
       const key = `${workspaceId}:${tabId}`;

@@ -170,6 +170,101 @@ test.each([
   }
 });
 
+describe("a run's transcript", () => {
+  const RUN = "run-1";
+  const sources =
+    (source: ReturnType<NonNullable<ChatHostOptions["printRunSource"]>>) =>
+    (ws: string, tab: string, run: string) =>
+      ws === WS && tab === TAB && run === RUN ? source : undefined;
+
+  test("is read where the run's own start said, by its session", async () => {
+    const { host, channel } = setup({}, undefined, undefined, undefined, {
+      printRunSource: sources({
+        program: "claude",
+        running: true,
+        sessionId: "sess-0001",
+        home: "/home/u/.claude-work",
+      }),
+    });
+    await host.printRunTranscript(WS, TAB, RUN, 120);
+    expect(channel.calls.filter((call) => call.method === "chat.runTranscript")).toEqual([
+      {
+        method: "chat.runTranscript",
+        params: { sessionId: "sess-0001", configDir: "/home/u/.claude-work", from: 120 },
+      },
+    ]);
+  });
+
+  test.each([
+    ["another tab's run", "22222222-2222-4222-8222-222222222222", RUN, undefined],
+    ["an unknown run", TAB, "run-9", undefined],
+    ["a codex exec run", TAB, RUN, { program: "codex", sessionId: "th-1", home: "/c" }],
+    ["a run that told no session", TAB, RUN, { program: "claude", home: "/c" }],
+    ["a run that keeps no session", TAB, RUN, { program: "claude", sessionId: "sess-0001" }],
+  ] as const)("is not read for %s", async (_name, tab, run, source) => {
+    const { host, channel } = setup({}, undefined, undefined, undefined, {
+      printRunSource: sources(source ? { running: false, ...source } : undefined),
+    });
+    expect(await host.printRunTranscript(WS, tab, run, undefined)).toEqual({
+      found: false,
+      lines: [],
+      next: 0,
+      reset: false,
+      truncated: false,
+    });
+    expect(channel.calls.some((call) => call.method === "chat.runTranscript")).toBe(false);
+  });
+
+  test("a codex exec run's reader starts with the run's CODEX_HOME and only reads", async () => {
+    const { host, channel } = setup({}, undefined, undefined, undefined, {
+      printRunSource: sources({
+        program: "codex",
+        running: false,
+        sessionId: "th-1",
+        home: "/home/u/.codex-work",
+        cwd: "/repo",
+      }),
+    });
+    channel.found = { path: "/usr/bin/codex" };
+    const started = await host.startPrintRunReader(WS, TAB, RUN);
+    if (!started.ok) throw new Error(`not started: ${started.reason}`);
+    expect(started.threadId).toBe("th-1");
+    const start = channel.calls.find((call) => call.method === "chat.start")?.params as {
+      tabId: string;
+      cwd: string;
+      args: string[];
+      env: Record<string, string>;
+    };
+    expect(start.tabId).toBe(started.readerTabId);
+    expect(start.tabId).not.toBe(TAB);
+    expect(start.cwd).toBe("/repo");
+    expect(start.args).toEqual(["app-server"]);
+    expect(start.env.CODEX_HOME).toBe("/home/u/.codex-work");
+
+    await host.send(WS, started.readerTabId, { id: 1, method: "thread/read", params: {} });
+    await expect(
+      host.send(WS, started.readerTabId, { id: 2, method: "turn/start", params: {} }),
+    ).rejects.toMatchObject({ code: "chat.reader-read-only" });
+    await expect(
+      host.send(WS, started.readerTabId, { id: 3, result: { decision: "accept" } }),
+    ).rejects.toMatchObject({ code: "chat.reader-read-only" });
+    const sent = channel.calls.filter((call) => call.method === "chat.send");
+    expect(sent).toHaveLength(1);
+
+    await host.call("close", { workspaceId: WS, tabId: started.readerTabId });
+    expect(channel.calls.some((call) => call.method === "chat.close")).toBe(true);
+  });
+
+  test("no reader starts for a claude run or another tab's", async () => {
+    const { host, channel } = setup({}, undefined, undefined, undefined, {
+      printRunSource: sources({ program: "claude", running: false, sessionId: "s", home: "/c" }),
+    });
+    expect(await host.startPrintRunReader(WS, TAB, RUN)).toEqual({ ok: false, reason: "none" });
+    expect(await host.startPrintRunReader(WS, TAB, "run-9")).toEqual({ ok: false, reason: "none" });
+    expect(channel.calls.some((call) => call.method === "chat.start")).toBe(false);
+  });
+});
+
 describe("attachRoot", () => {
   const asked = (channel: FakeChannel) =>
     channel.calls.filter((call) => call.method === "chat.attachRoot").length;

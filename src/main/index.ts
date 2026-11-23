@@ -1034,6 +1034,8 @@ app.whenReady().then(async () => {
     onTaskEvent: (workspaceId, tabId, message) =>
       claudeSetup.activity.noteTask(workspaceId, tabId, message),
     onProgramExit: (workspaceId, tabId) => claudeSetup.noteProgramExit(workspaceId, tabId),
+    printRunSource: (workspaceId, tabId, runId) =>
+      claudeSetup.activity.printRunSource(workspaceId, tabId, runId),
   });
   workspaceManager.setChatSessionCloser(
     (workspaceId, channel) => chatHost?.closeWorkspace(workspaceId, channel) ?? Promise.resolve(),
