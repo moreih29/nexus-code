@@ -359,7 +359,13 @@ export function PeerWorkspacePanel({
           </>
         )}
       </div>
-      <PeerStatusBar target={target} status={status} gitError={view.gitError} />
+      <PeerStatusBar
+        target={target}
+        status={status}
+        gitError={view.gitError}
+        peer={peer}
+        active={shown && reachable}
+      />
       <PromptDialog
         request={
           renaming && {

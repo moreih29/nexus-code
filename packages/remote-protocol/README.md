@@ -43,6 +43,8 @@ Schema 0.24.0 adds optional `topLevel` to `git.status`, the absolute root from `
 
 Schema 0.25.0 adds optional `openedBy` to session listings and watch updates. It identifies the opener by tab and workspace, with a device ID for an opener on another computer. Large lists can omit opener names or the entire opener to fit the message limit. Older readers ignore the field.
 
+Schema 0.26.0 adds `system.stats` and its capability: how busy a workspace's host is (CPU share in use, or null, and memory used and total in bytes), as its status bar shows. A device serves it only where it serves `files`, and only to people: a request with `from` is refused. Older hosts neither list the capability nor know the method.
+
 In schema 0.16.0, `chat.instructions` can also return `session`, the tab's editable session text, and `layers`, its ordered persistent layers, including empty layers. The workspace layer comes from the parent for a worktree task. Hosts through desktop 0.36.1 only return the combined `instructions` text. Treat a response without `session` as read-only. With `chat.control`, a person can replace the session layer using `chat.instructions.set`. Send an empty string to clear it. The 5,000-character limit applies to both people and agents. An edit with `from` follows the receiving device's agent approval policy.
 
 Until it is published, other repos use it by a local path, e.g. `"@nexus-code/remote-protocol": "file:../nexus-code/packages/remote-protocol"`, after `npm run build` here: its exports point at `dist`.

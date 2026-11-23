@@ -22,6 +22,7 @@ export const SERVES: readonly Capability[] = [
   "settings.instructions",
   "profiles.usage",
   "push",
+  "system.stats",
 ];
 
 /**
@@ -36,7 +37,7 @@ export function servesWith(
   allowAgents = false,
   allowPush = false,
 ): readonly Capability[] {
-  return SERVES.filter(
+  const served = SERVES.filter(
     (c) =>
       ((c !== "chat.control" && c !== "workspace.create") || allowControl) &&
       (c !== "files.write" || (allowControl && allowAgents)) &&
@@ -44,6 +45,8 @@ export function servesWith(
       (c !== "agents" || allowAgents) &&
       (c !== "push" || allowPush),
   );
+  // How busy a host is goes only where its files may be read.
+  return served.includes("files") ? served : served.filter((c) => c !== "system.stats");
 }
 
 export { oneLine } from "../../../../shared/remote/one-line";

@@ -25,6 +25,7 @@ const peerReads = new Set([
   "peerGitLog",
   "peerGitShow",
   "peerGitStatus",
+  "peerSystemStats",
 ]);
 const agentView = "components/agent-view";
 const remote = "services/remote";
@@ -70,6 +71,7 @@ const allowedImports: readonly [file: string, module: string, ...names: string[]
   ["git-panel.tsx", `${remote}/peer-git-paths`, "peerGitPaths"],
   ["git-groups.ts", `${remote}/peer-git-status`, "isPeerGitConflict", "PeerGitFile", "PeerGitSide"],
   ["status-bar.tsx", `${remote}/peer-git-status`, "PeerGitStatus"],
+  ["system-stats.tsx", `${remote}/room`, "peerServes"],
   ["git-tree.ts", `${remote}/peer-git-status`, "isPeerGitConflict", "PeerGitStatus"],
   ["panel.tsx", `${remote}/display-name`, "remoteTitle"],
   ["panel.tsx", `${remote}/room`, "PeerReach", "peerServes"],

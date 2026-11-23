@@ -56,14 +56,12 @@ import { EncodingSegment } from "./encoding-segment";
 import { LspStatusSegment } from "./lsp-status-segment";
 import { PortsSegment } from "./ports-segment";
 import { branchLabel, ChangeCountsSegment, NoGitSegment, StatusBarItem } from "./status-bar-items";
-import { SystemStatsSegment, useWiderThan } from "./system-stats";
+import { STATS_MIN_WIDTH, SystemStatsSegment, useWiderThan } from "./system-stats";
 
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 
-/** The bar's width from which it shows how busy the host is. */
-const STATS_MIN_WIDTH = 576;
 /** The bar's width from which it lists the ports the terminals listen on. */
 const PORTS_MIN_WIDTH = 440;
 /** The bar's width from which it shows the encoding and language server. */

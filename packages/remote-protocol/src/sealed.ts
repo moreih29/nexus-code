@@ -126,6 +126,11 @@ export const CAPABILITIES = [
   "profiles.usage",
   /** Sends push notifications to the account's phones for what waits on the user here. Since 0.18.0. */
   "push",
+  /**
+   * system.stats: how busy a workspace's host is. Only the user's: an
+   * agent's request is refused. Served only where files is. Since 0.26.0.
+   */
+  "system.stats",
 ] as const;
 export const CapabilitySchema = z.string();
 export type Capability = (typeof CAPABILITIES)[number];

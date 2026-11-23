@@ -247,7 +247,12 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     // An agent's request: let through as the user set it, and shown as that agent's.
     // A read is only taken where agents are (the room saw to that): nothing to ask.
     const by = (params as { from?: AgentSender } | undefined)?.from;
-    if ((method === "sessions.reorder" || method === "sessions.markSeen") && by !== undefined) {
+    if (
+      (method === "sessions.reorder" ||
+        method === "sessions.markSeen" ||
+        method === "system.stats") &&
+      by !== undefined
+    ) {
       throw new RpcFailure(RpcErrorCode.Forbidden, `${method} is not taken from agents`);
     }
     let relay: RelaySender | undefined;
@@ -550,6 +555,19 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "files.find":
       case "files.search":
         return serveFileSearch(s, request, watches, searching);
+      case "system.stats": {
+        // Only where the workspace's files may be read.
+        if (!watches.files || !watches.stats) {
+          throw new RpcFailure(RpcErrorCode.MethodNotFound, "system.stats is not served here");
+        }
+        const { workspaceId } = params as RpcParams<"system.stats">;
+        if (!workspaceOf(s, workspaceId)) {
+          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        }
+        const stats = await watches.stats(workspaceId);
+        if (!stats) throw new RpcFailure(RpcErrorCode.Unavailable, "the host cannot tell now");
+        return stats;
+      }
       case "git.status":
       case "git.diff":
       case "git.log":
