@@ -20,6 +20,7 @@ import {
   PROFILE_DIR_ENV,
   SHAREABLE,
 } from "../../../shared/agent-profiles/profiles";
+import { isPrintRunReader, PRINT_RUN_READER_PREFIX } from "../../../shared/chat/print-run-reader";
 import { type ClaudeTurnResult, claudeTurnResult } from "../../../shared/claude/turn-result";
 import type {
   ChatPeekTail,
@@ -129,13 +130,6 @@ export interface AttachCleanups {
   waiting(host: string): string[];
   /** One no longer waits: its folder went. */
   remove(host: string, workspaceId: string): void;
-}
-
-/** The tab ids of the app-servers that read a `codex exec` run's thread. */
-const PRINT_RUN_READER_PREFIX = "print-run-reader-";
-
-export function isPrintRunReader(tabId: string): boolean {
-  return tabId.startsWith(PRINT_RUN_READER_PREFIX);
 }
 
 /** How many readers one tab's runs have at a time. */

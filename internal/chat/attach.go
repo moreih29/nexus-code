@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nexus-code/nexus-code/internal/agentpaths"
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // Files attached to a Claude or Codex tab's message are sent to the agent
@@ -76,6 +77,8 @@ type PruneAttachParams struct {
 	Retain *RetainParams `json:"retain,omitempty"`
 }
 
+var errAttachFolderLinked = proto.NewError("chat.attach-folder-link", "chat.attach: the tab's attach folder is not a folder of its own")
+
 // Attach writes one file for a tab's message and returns its path.
 func (s *Service) Attach(_ context.Context, raw json.RawMessage) (any, error) {
 	var p AttachParams
@@ -112,12 +115,18 @@ func (s *Service) Attach(_ context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, requestFailed("chat.attach: %v", err)
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	wsDir := filepath.Dir(dir)
+	if err := os.MkdirAll(filepath.Dir(wsDir), 0o700); err != nil {
 		return nil, requestFailed("chat.attach: %v", err)
 	}
 	// No link is written through, as none is pruned through (slotDir).
-	if !realDir(filepath.Dir(dir)) || !realDir(dir) {
-		return nil, requestFailed("chat.attach: the tab's attach folder is not a folder of its own")
+	for _, step := range []string{wsDir, dir} {
+		if err := os.Mkdir(step, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+			return nil, requestFailed("chat.attach: %v", err)
+		}
+		if !realDir(step) {
+			return nil, errAttachFolderLinked
+		}
 	}
 	// Each file gets a folder of its own, so two of one name both stay.
 	for n := 1; ; n++ {

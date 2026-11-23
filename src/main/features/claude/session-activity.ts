@@ -616,6 +616,7 @@ export class SessionActivityLog {
     run.cwd = text(p.cwd) ?? run.cwd;
     run.home = homeOf(p.home) ?? run.home;
     run.toolsTold = p.tools_told === true;
+    run.start = this.now();
     delete run.end;
     delete run.answer;
     delete run.exitCode;

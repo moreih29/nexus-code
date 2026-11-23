@@ -1,24 +1,4 @@
-/**
- * Browser feature — public interface.
- *
- * Call `initBrowserFeature(win)` once after the main BrowserWindow is created.
- * Afterwards use `getRegistry()` to obtain the singleton BrowserTabRegistry
- * (useful for cleanup on window close).
- *
- * USAGE (src/main/index.ts)
- * -------------------------
- *   import { initBrowserFeature, getBrowserRegistry } from "./features/browser";
- *
- *   // Inside app.whenReady() after createMainWindow():
- *   initBrowserFeature(mainWindow);
- *
- *   // On window close (optional — disposeAll is idempotent):
- *   mainWindow.on("closed", () => {
- *     getBrowserRegistry()?.disposeAll();
- *   });
- */
-
-import type { BrowserWindow, WebContents } from "electron";
+import type { WebContents } from "electron";
 import type { GlobalStorage } from "../../infra/storage/global-storage";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
 import { type BrowserChannelDeps, registerBrowserChannel } from "./ipc";
@@ -37,19 +17,8 @@ export interface BrowserFeatureDeps {
   readonly globalStorage?: GlobalStorage;
 }
 
-/**
- * Initialises the browser feature for the given `BrowserWindow`.
- *
- * Creates the singleton `BrowserTabRegistry` bound to `win` and registers
- * the `browser` IPC channel.  When `deps` carries a `promptManager`,
- * `workspaceStorage`, and `globalStorage`, the `browserPermission` IPC channel
- * is also registered.
- *
- * Calling this more than once replaces the previous registry — the caller is
- * responsible for disposing any open tabs before reinitialising.
- */
-export function initBrowserFeature(win: BrowserWindow, deps?: BrowserFeatureDeps): void {
-  registry = new BrowserTabRegistry(win, deps?.permissionDeps);
+export function initBrowserFeature(deps?: BrowserFeatureDeps): void {
+  registry = new BrowserTabRegistry(deps?.permissionDeps);
   for (const listener of createListeners) registry.onCreate(listener);
   registry.setAddressResolver(addressResolver);
 

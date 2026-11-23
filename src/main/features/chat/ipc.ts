@@ -1,5 +1,6 @@
 // Claude tab IPC channel: renderer ↔ main ↔ the workspace's agent.
 
+import { ATTACH_FOLDER_LINK } from "../../../shared/chat/attach-errors";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
@@ -103,9 +104,17 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         });
       },
       attach: async (args: unknown) => {
-        const result = (await host.call("attach", validateArgs(c.attach.args, args))) as
-          | { path?: string }
-          | undefined;
+        const valid = validateArgs(c.attach.args, args);
+        let result: { path?: string } | undefined;
+        try {
+          result = (await host.call("attach", valid)) as { path?: string } | undefined;
+        } catch (error) {
+          const code = (error as { code?: unknown } | null)?.code;
+          if (code === ATTACH_FOLDER_LINK) {
+            return ipcErr(code, "The tab's attach folder is a link", { category: "failed", code });
+          }
+          throw error;
+        }
         if (!result?.path) throw new Error("the agent wrote no file");
         return ipcOk({ path: result.path });
       },

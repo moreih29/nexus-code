@@ -39,6 +39,7 @@
  */
 
 import i18next from "i18next";
+import { ATTACH_FOLDER_LINK } from "../../../shared/chat/attach-errors";
 import type { AppError } from "../../../shared/error/app-error";
 import { createLogger } from "../../../shared/log/renderer";
 import { showToast } from "../../components/ui/toast";
@@ -169,6 +170,7 @@ function buildFailedMessage(error: AppError): string {
   if (error.code === "terminal-input-queue-full")
     return i18next.t("errors:terminal.inputQueueFull");
   if (error.code === "clipboard-write-failed") return i18next.t("errors:clipboard.writeFailed");
+  if (error.code === ATTACH_FOLDER_LINK) return i18next.t("errors:chat.attachFolderLink");
   if (error.domain === "fs" && error.code) {
     return knownFsErrorMessage(error.code) ?? i18next.t("errors:generic.failed");
   }

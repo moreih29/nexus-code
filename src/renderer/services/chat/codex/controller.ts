@@ -30,7 +30,14 @@ import {
   removeConversationAttachments,
 } from "../attach-retention";
 import type { PermissionAnswer, RewindPreview } from "../claude/controller";
-import type { AssistantItem, ChatLine, ImageBlock, PermissionRequest, UserItem } from "../model";
+import type {
+  AssistantItem,
+  ChatItem,
+  ChatLine,
+  ImageBlock,
+  PermissionRequest,
+  UserItem,
+} from "../model";
 import {
   forgetPlanWait,
   ingestCodexPush,
@@ -1029,14 +1036,28 @@ export class CodexController {
     if (threadId === this.currentThread()) throw new Error("the tab's own thread");
     if (!(await this.ensureRunning())) throw new Error("Codex is not running");
     const read = await this.readThreadWhole(threadId).catch(() => null);
+    const inherited = read ? await this.forkParentItems(threadId) : null;
     // What open tabs' histories name, a fork's of this one too, read while it is there.
     await readOpenHistories(this.target.workspaceId);
     await this.request("thread/delete", { threadId });
-    if (!read) return;
+    if (!read || !inherited) return;
     const { workspaceId, cwd } = this.target;
-    await removeConversationAttachments(workspaceId, codexThreadItems(read), cwd).catch(
+    await removeConversationAttachments(workspaceId, codexThreadItems(read), cwd, inherited).catch(
       (error: Error) => log.warn(`removing thread ${threadId}'s attachments: ${error.message}`),
     );
+  }
+
+  private async forkParentItems(threadId: string): Promise<ChatItem[] | null> {
+    const meta = await this.request("thread/read", { threadId, includeTurns: false }).catch(
+      () => null,
+    );
+    const thread = meta?.thread as { forkedFromId?: unknown } | undefined;
+    if (!thread) return null;
+    const parent = thread.forkedFromId;
+    if (parent === null || parent === undefined) return [];
+    if (typeof parent !== "string") return null;
+    const read = await this.readThreadWhole(parent).catch(() => null);
+    return read ? codexThreadItems(read) : null;
   }
 
   /**

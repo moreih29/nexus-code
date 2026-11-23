@@ -54,3 +54,99 @@ test("disposing the chat host ends an MCP sign-in waiting over IPC", async () =>
     await waiting;
   }
 });
+
+test("chat.send and chat.close take a run reader's tab id and refuse other names", async () => {
+  setupRouter();
+  const handler = ipcCall;
+  if (!handler) throw new Error("IPC call handler was not installed");
+  const host = registerChatChannel({
+    workspaceManager: {
+      getAgentChannel: async () => {
+        throw new Error("unexpected agent request");
+      },
+      tryGetAgentChannel: async () => null,
+      peekAgentChannel: async () => null,
+      onProviderReady: () => () => {},
+      getSpawnHookInfo: async () => null,
+      getWrapperBinDir: () => null,
+      getWrapperAgentBin: () => null,
+      getWrapperShimDir: () => null,
+    },
+  });
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const call = (method: string, args: unknown) =>
+    handler({}, "chat", method, args) as Promise<{ ok: boolean; kind?: string }>;
+  const message = { id: 1, method: "thread/read" };
+  try {
+    const reader = "print-run-reader-0f8e2b9c-4d1a-4e5f-9a7b-3c2d1e0f9a8b";
+    expect(await call("close", { workspaceId, tabId: reader })).toEqual(ipcOk(undefined));
+    const sent = await call("send", { workspaceId, tabId: reader, message });
+    expect(sent.ok).toBe(false);
+    expect(sent.kind).toBe("chat.reader-read-only");
+
+    for (const tabId of [
+      "print-run-reader-made-up",
+      "print-run-reader-0f8e2b9c-4d1a-4e5f-9a7b-3c2d1e0f9a8b-x",
+      "print-run-reader-0F8E2B9C-4D1A-4E5F-9A7B-3C2D1E0F9A8B",
+      "x-print-run-reader-0f8e2b9c-4d1a-4e5f-9a7b-3c2d1e0f9a8b",
+      "../0f8e2b9c-4d1a-4e5f-9a7b-3c2d1e0f9a8b",
+      "",
+    ]) {
+      for (const [method, args] of [
+        ["close", { workspaceId, tabId }],
+        ["send", { workspaceId, tabId, message }],
+      ] as const) {
+        const refused = await call(method, args);
+        expect(refused.ok).toBe(false);
+        expect(refused.kind).toBe("invalid-args");
+      }
+    }
+  } finally {
+    host.dispose();
+  }
+});
+
+test("chat.attach refused for a linked attach folder is a failure with its code, not a bug", async () => {
+  setupRouter();
+  const handler = ipcCall;
+  if (!handler) throw new Error("IPC call handler was not installed");
+  const refusing = {
+    ready: Promise.resolve(),
+    on: () => () => {},
+    onLifecycle: () => () => {},
+    call: async () => {
+      throw Object.assign(
+        new Error("chat.attach: the tab's attach folder is not a folder of its own"),
+        {
+          code: "chat.attach-folder-link",
+        },
+      );
+    },
+  };
+  const host = registerChatChannel({
+    workspaceManager: {
+      getAgentChannel: async () => refusing as never,
+      tryGetAgentChannel: async () => refusing as never,
+      onProviderReady: () => () => {},
+      getSpawnHookInfo: async () => null,
+      getWrapperBinDir: () => null,
+      getWrapperAgentBin: () => null,
+      getWrapperShimDir: () => null,
+    },
+  });
+  try {
+    const result = (await handler({}, "chat", "attach", {
+      workspaceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      tabId: "11111111-1111-4111-8111-111111111111",
+      name: "a.txt",
+      data: "eA==",
+    })) as { ok: boolean; kind?: string; category?: string };
+    expect(result).toMatchObject({
+      ok: false,
+      kind: "chat.attach-folder-link",
+      category: "failed",
+    });
+  } finally {
+    host.dispose();
+  }
+});

@@ -32,6 +32,7 @@ import {
   InstructionEditSchema,
   InstructionTextSchema,
 } from "../chat/instructions";
+import { PRINT_RUN_READER_TAB_ID } from "../chat/print-run-reader";
 import {
   ACTIVITY_TEXT_MAX_CHARS,
   PermissionAnswerSchema,
@@ -333,6 +334,10 @@ const WorkspaceIdSchema = z.object({ id: WorkspaceIdPrimitive });
 const PtyWorkspaceTabSchema = z.object({
   workspaceId: WorkspaceIdPrimitive,
   tabId: z.guid(),
+});
+const ChatTabOrReaderSchema = z.object({
+  workspaceId: WorkspaceIdPrimitive,
+  tabId: z.union([z.guid(), z.string().regex(PRINT_RUN_READER_TAB_ID)]),
 });
 
 const FsMutationRelPathSchema = z
@@ -1166,7 +1171,7 @@ const coreIpcContract = {
       ),
       /** Writes one message to the program as a line. */
       send: call(
-        PtyWorkspaceTabSchema.extend({
+        ChatTabOrReaderSchema.extend({
           message: z.record(z.string(), z.unknown()),
           profileId: z.string().max(64).optional(),
           instructions: InstructionTextSchema.optional(),
@@ -1176,7 +1181,7 @@ const coreIpcContract = {
       /** Ends the tab's program; its log stays, to show and to start again on. */
       stop: call(PtyWorkspaceTabSchema, z.void()),
       /** Ends the tab's program and forgets its log: the tab was closed. */
-      close: call(PtyWorkspaceTabSchema, z.void()),
+      close: call(ChatTabOrReaderSchema, z.void()),
       /** Sends the tab's log again as `line` events, after `afterSeq`. */
       replay: call(
         PtyWorkspaceTabSchema.extend({ afterSeq: NonnegativeIntegerSchema.optional() }),

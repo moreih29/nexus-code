@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // attachAged attaches a file for the tab and dates it `age` ago.
@@ -445,8 +447,8 @@ func attachmentCallsFollowNo(t *testing.T, junction func(t *testing.T, link, tar
 	ageFolders(t, ws, time.Hour)
 
 	// Nothing is attached through a tab's junction.
-	if _, err := attach(t, service, "linked", "new.txt", []byte("n")); err == nil {
-		t.Fatal("a file was attached through a junction")
+	if _, err := attach(t, service, "linked", "new.txt", []byte("n")); proto.ErrorCode(err) != "chat.attach-folder-link" {
+		t.Fatalf("attaching through a junction did not fail as a linked folder: %v", err)
 	}
 	if entries, _ := os.ReadDir(outside); len(entries) != 1 {
 		t.Fatalf("attaching wrote through a junction: %v", entries)
@@ -495,6 +497,12 @@ func attachmentCallsFollowNo(t *testing.T, junction func(t *testing.T, link, tar
 	untouched("prune of a junction workspace")
 	if _, err := attach(t, service, "1", "new.txt", []byte("n")); err == nil {
 		t.Fatal("a file was attached below a junction workspace")
+	}
+	if _, err := attach(t, service, "fresh", "new.txt", []byte("n")); proto.ErrorCode(err) != "chat.attach-folder-link" {
+		t.Fatalf("attaching in a new tab below a junction workspace did not fail as a linked folder: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(outside, "fresh")); err == nil {
+		t.Fatal("attaching made a tab's folder through a junction workspace")
 	}
 	closeTab(t, service, "1")
 	untouched("closing a tab below a junction workspace")
