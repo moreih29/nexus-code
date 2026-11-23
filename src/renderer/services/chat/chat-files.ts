@@ -17,6 +17,12 @@ export interface ChatFiles {
   connection: number | null;
   /** Which of these absolute paths are files. */
   there(paths: readonly string[]): Promise<ReadonlySet<string>>;
+  /**
+   * Which of these files, each one that computer serves by its name (an
+   * attached file), it says are no longer there; one it cannot tell of is
+   * not among them.
+   */
+  gone?(paths: readonly string[]): Promise<ReadonlySet<string>>;
   /** An image file's picture, small enough for a card. */
   picture(path: string): Promise<ImageBlock>;
   subscribePicture(path: string, listener: (image: ImageBlock | null) => void): () => void;

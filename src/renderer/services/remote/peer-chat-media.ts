@@ -193,6 +193,14 @@ const folderNames = peerReads<ReadonlySet<string>>({
 // The host limits concurrent whole-file image reads and queues only a few.
 const pictures = peerReads<ImageBlock>(undefined, 8);
 
+// Whether a file that computer serves by its name is there, for a while.
+const presence = peerReads<boolean>({
+  entries: 512,
+  bytes: 256 * 1024,
+  freshMs: 30_000,
+  size: () => 64,
+});
+
 function mediaAccess(
   access: PeerAccess | null,
   target: readonly string[],
@@ -308,6 +316,31 @@ export function peerChatFiles(
       }
       return current.signal.aborted ? new Set() : new Set(paths.filter((path) => found.has(path)));
     },
+    async gone(paths) {
+      if (!current || current.signal.aborted) return new Set<string>();
+      const missing = new Set<string>();
+      await Promise.all(
+        paths.map(async (path) => {
+          // Its metadata alone, read as its picture would be: within what that computer serves.
+          const there = await presence
+            .read(current, key(path), async (signal) => {
+              const result = await ipcCallResult(
+                "remote",
+                "peerFilesRead",
+                { ...where, path, as: "bytes", length: 0, versioned: true },
+                { signal },
+              );
+              if (result.ok) return true;
+              if (result.kind === "not-found") return false;
+              // An older computer, a denial, the room: nothing is told of the file.
+              throw new Error(result.message);
+            })
+            .catch(() => true);
+          if (!there) missing.add(path);
+        }),
+      );
+      return current.signal.aborted ? new Set() : missing;
+    },
     picture(path) {
       return pictures.read(current, key(path), async (signal) => {
         // Main checks the current file and its access on every distinct read.
@@ -351,6 +384,8 @@ function reset(peer: WatchedPeer, connection: string | null, reads: string | nul
     attachments.revoke(previousRead);
     folderNames.revoke(previousRead);
     folderNames.clear(previousRead.cacheId);
+    presence.revoke(previousRead);
+    presence.clear(previousRead.cacheId);
     pictures.revoke(previousRead);
   }
   const controller = connection === null ? undefined : new AbortController();
