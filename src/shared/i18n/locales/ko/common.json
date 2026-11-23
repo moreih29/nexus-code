@@ -216,6 +216,10 @@
     "error_invalid_name": "이름에 글자나 숫자를 넣으세요.",
     "remove_title": "작업 “{{name}}”을(를) 삭제하시겠습니까?",
     "remove_description": "터미널과 에이전트 탭을 닫고 워크트리 폴더를 삭제합니다.",
+    "remove_agents_one": "에이전트 탭 {{count}}개",
+    "remove_agents_other": "에이전트 탭 {{count}}개",
+    "remove_agents_under": "‘{{name}}’ 아래 {{count}} 포함",
+    "remove_agents_more": "외 {{count}}개",
     "remove_branch": "브랜치 {{branch}}도 삭제",
     "remove_dirty": "작업을 삭제하면 커밋하지 않은 변경 사항도 사라집니다.",
     "remove": "삭제",
@@ -558,6 +562,11 @@
       "exited": "종료"
     },
     "estimated": "{{label}} (추정)",
+    "wait": {
+      "permission": "권한 요청",
+      "question": "질문",
+      "plan": "계획 승인"
+    },
     "duration": {
       "now": "방금",
       "minutes": "{{count}}분",
@@ -1954,8 +1963,8 @@
       "held": "패널에 있음 (다른 탭 뒤)",
       "failed": "실패",
       "hidden": "{{count}}개 숨김",
-      "children": "하위 {{count}}",
-      "toggle_children": "하위 대화 접기 · 펼치기",
+      "children_one": "하위 대화 {{count}}",
+      "children_other": "하위 대화 {{count}}",
       "idle_children": "대기 {{count}}",
       "parent": "↳ {{name}}",
       "parent_hint": "상위 대화 · {{name}}",
@@ -1963,8 +1972,7 @@
       "closed_conversation": "닫힌 대화",
       "remote_parent": "↳ {{device}} · {{name}}",
       "this_computer": "이 컴퓨터",
-      "parent_closed_state": "닫힘",
-      "moved_family": "↳ ‘{{name}}’ 아래 {{count}}"
+      "parent_closed_state": "닫힘"
     },
     "pane": {
       "close": "패널 닫기",

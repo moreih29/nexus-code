@@ -565,8 +565,9 @@ describe("local workspace grouping", () => {
         workingHtml.indexOf("Task working"),
       );
       expect(failedRow).not.toContain('data-testid="agent-sidebar-state"');
-      expect(failedRow).toContain("Local error details");
-      expect(failedRow).toContain("lucide-triangle-alert");
+      // The failure is told once, by the words beside the time; the error reads in red.
+      expect(failedRow).toMatch(/text-\(--state-error-fg\)"><span[^>]*>Local error details/);
+      expect(failedRow).not.toContain("lucide-triangle-alert");
       expect(failedRow).toContain(">just now<");
       expect(workingHtml).not.toContain("Local idle");
       expect(workingHtml).not.toContain("Task idle");
@@ -776,7 +777,7 @@ describe("the agent view's other computers", () => {
         <RemoteSessionRow session={session({ state: "needs-you" })} />
       </I18nextProvider>,
     );
-    expect(html).toContain(`class="sr-only">${ko.t("agentList.group.attention")}</span>`);
+    expect(html).toContain(`role="img" aria-label="${ko.t("agentList.group.attention")}"`);
   });
 
   test("orders both groups and only offers reordering with multiple online computers outside search", () => {

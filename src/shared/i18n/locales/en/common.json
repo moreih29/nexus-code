@@ -216,6 +216,10 @@
     "error_invalid_name": "Put a letter or a digit in the name.",
     "remove_title": "Delete task “{{name}}”?",
     "remove_description": "Close its terminal and agent tabs and delete the worktree folder.",
+    "remove_agents_one": "{{count}} agent tab",
+    "remove_agents_other": "{{count}} agent tabs",
+    "remove_agents_under": "including {{count}} under “{{name}}”",
+    "remove_agents_more": "and {{count}} more",
     "remove_branch": "Also delete branch {{branch}}",
     "remove_dirty": "Deleting the task discards its uncommitted changes.",
     "remove": "Delete",
@@ -558,6 +562,11 @@
       "exited": "Ended"
     },
     "estimated": "{{label}} (estimated)",
+    "wait": {
+      "permission": "Permission request",
+      "question": "Question",
+      "plan": "Plan to approve"
+    },
     "duration": {
       "now": "just now",
       "minutes": "{{count}}m",
@@ -1954,8 +1963,8 @@
       "held": "In a panel, behind another tab",
       "failed": "Failed",
       "hidden": "{{count}} hidden",
-      "children": "{{count}} under it",
-      "toggle_children": "Fold or unfold its conversations",
+      "children_one": "{{count}} conversation under it",
+      "children_other": "{{count}} conversations under it",
       "idle_children": "{{count}} idle",
       "parent": "↳ {{name}}",
       "parent_hint": "Parent · {{name}}",
@@ -1963,8 +1972,7 @@
       "closed_conversation": "Closed conversation",
       "remote_parent": "↳ {{device}} · {{name}}",
       "this_computer": "This computer",
-      "parent_closed_state": "closed",
-      "moved_family": "↳ {{count}} under {{name}}"
+      "parent_closed_state": "closed"
     },
     "pane": {
       "close": "Close panel",

@@ -50,7 +50,6 @@ import {
   listed,
   matchesQuery,
   ROW_GROUPS,
-  type RowGroup,
 } from "../../services/agent-sessions/rows";
 import { type SessionTreeNode, treeSessions } from "../../services/agent-sessions/session-tree";
 import { leafHolding, remoteSessionKey } from "../../services/agent-view/layout";
@@ -64,7 +63,7 @@ import {
 import { moveSessionRoot } from "../../services/agent-view/sidebar-tree";
 import { resumeTimeText } from "../../services/chat/limit-resume";
 import { remoteAccountKey, useRemoteAccount } from "../../services/remote/account";
-import { remoteDisplayName } from "../../services/remote/display-name";
+import { remoteDisplayName, remoteTitle } from "../../services/remote/display-name";
 import {
   offlinePeers,
   type PeerSessions,
@@ -86,11 +85,13 @@ import {
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { cn } from "../../utils/cn";
 import { AgentRows } from "../agent-list/agent-rows";
+import { type RowPlace, rowShellClass, SessionRowLines } from "../agent-list/session-row";
 import {
   FailureLabel,
   HiddenSessionCount,
   StateGlyph,
   useDurationLabel,
+  WaitSign,
 } from "../agent-list/session-status";
 import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
@@ -117,7 +118,11 @@ import {
   renamePeerSession,
   reorderPeerSessions,
 } from "./remote-session-actions";
-import { RemoteSessionBranch, type RemoteTreeNavigation } from "./remote-session-branch";
+import {
+  type RemoteRowTree,
+  RemoteSessionBranch,
+  type RemoteTreeNavigation,
+} from "./remote-session-branch";
 import {
   endSessionDrag,
   hoverWorkspaceReorder,
@@ -194,7 +199,7 @@ function matches(session: RemoteSession, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   return (
-    remoteDisplayName(session.title).toLowerCase().includes(q) ||
+    remoteTitle(session.title).toLowerCase().includes(q) ||
     (session.last ?? "").toLowerCase().includes(q)
   );
 }
@@ -309,21 +314,16 @@ export function workspaceGroups(
   const byWorkspace = new Map<string, RemoteSession[]>(
     [...workspaces.keys()].map((id) => [id, []]),
   );
-  const moved = new Map<string, { key: string; title: string; count: number }[]>();
+  // Worktrees that hold a child listed under its parent elsewhere: a quiet
+  // worktree behind its parent's chip, since the child shows only there.
+  const hosts = new Set<string>();
   for (const root of roots) {
-    const counts = new Map<string, number>();
     for (const child of treeSessions(root.children)) {
       if (
-        child.workspaceId === root.session.workspaceId ||
-        !workspaces.get(child.workspaceId)?.parentId
+        child.workspaceId !== root.session.workspaceId &&
+        workspaces.get(child.workspaceId)?.parentId
       )
-        continue;
-      counts.set(child.workspaceId, (counts.get(child.workspaceId) ?? 0) + 1);
-    }
-    for (const [workspaceId, count] of counts) {
-      const notes = moved.get(workspaceId) ?? [];
-      notes.push({ key: root.session.key, title: root.session.title, count });
-      moved.set(workspaceId, notes);
+        hosts.add(child.workspaceId);
     }
   }
   // Keep the host's root order. A search can still find a terminal with only its shell.
@@ -361,8 +361,8 @@ export function workspaceGroups(
     const canStart =
       opens && !searching && workspace && (workspace.parentId === undefined || rootParent);
     const terminals = plainShown.get(id);
-    const hasMoved = moved.has(id);
-    if (rows.length === 0 && !terminals && !canStart && !hasMoved) continue;
+    const hosting = !searching && hosts.has(id);
+    if (rows.length === 0 && !terminals && !canStart && !hosting) continue;
     eligible.add(id);
     if (rootParent && !searching) eligible.add(rootParent.id);
 
@@ -381,12 +381,11 @@ export function workspaceGroups(
         disclosedTerminals,
       );
       hiddenCounts.set(owner, (hiddenCounts.get(owner) ?? 0) + count);
-      if (parentFolded && visible.length === 0 && !hasMoved) hidden.add(id);
+      if (parentFolded && visible.length === 0) hidden.add(id);
     }
 
     if (searching || !rootParent || parentFolded || reordering?.has(id)) continue;
-    if (hasMoved || rows.some(keepsWorktreeVisible) || terminals?.some(keepsWorktreeVisible))
-      continue;
+    if (rows.some(keepsWorktreeVisible) || terminals?.some(keepsWorktreeVisible)) continue;
     worktreeCounts.set(rootParent.id, (worktreeCounts.get(rootParent.id) ?? 0) + 1);
     if (!worktreesIn.has(rootParent.id)) hidden.add(id);
   }
@@ -397,7 +396,6 @@ export function workspaceGroups(
     workspaces,
     branches,
     byKey,
-    moved,
     plain: plainShown,
     worktreeCounts,
     foldedWorkspaces,
@@ -763,7 +761,6 @@ export function PeerGroup({
     workspaces,
     branches,
     byKey,
-    moved,
     plain,
     worktreeCounts,
     foldedWorkspaces,
@@ -835,7 +832,12 @@ export function PeerGroup({
       },
     [renaming, t],
   );
-  const rowOf = (workspaceId: string, session: RemoteSession, reorder?: SessionReorder) => {
+  const rowOf = (
+    workspaceId: string,
+    session: RemoteSession,
+    reorder?: SessionReorder,
+    tree?: RemoteRowTree,
+  ) => {
     const row = (
       <OpenRemoteSessionRow
         session={session}
@@ -843,6 +845,7 @@ export function PeerGroup({
         workspace={workspaces.get(workspaceId)}
         reorder={reorder}
         resultFeed={results}
+        tree={tree}
       />
     );
     const ref: PeerSessionRef = {
@@ -1029,16 +1032,6 @@ export function PeerGroup({
                           }))}
                         />
                       )}
-                      {moved.get(workspaceId)?.map(({ key, title, count }) => (
-                        <span
-                          key={key}
-                          className="min-w-0 truncate px-2 py-1 pl-6 text-app-micro text-muted-foreground"
-                          title={t("agentView.list.moved_family", { name: title, count })}
-                          data-testid="remote-session-moved"
-                        >
-                          {t("agentView.list.moved_family", { name: title, count })}
-                        </span>
-                      ))}
                       {ordered.map((session) => {
                         const key = remoteSessionKey({ deviceId: peer.id, ...session });
                         const node = branches.get(key);
@@ -1050,7 +1043,7 @@ export function PeerGroup({
                             searching={searching}
                             navigation={navigation}
                             workspaceOf={(id) => workspaces.get(id)}
-                            renderRow={(branch) => {
+                            renderRow={(branch, tree) => {
                               const row = byKey.get(branch.session.key);
                               return (
                                 row &&
@@ -1060,6 +1053,7 @@ export function PeerGroup({
                                   branch.depth === 0 && canReorderSession(row)
                                     ? reorder
                                     : undefined,
+                                  tree,
                                 )
                               );
                             }}
@@ -1100,7 +1094,7 @@ export function OpenRemoteSessionRow({
   reorder,
   resultFeed,
   showContext,
-  sectionGroup,
+  tree,
   onOpenSession,
   ...buttonProps
 }: {
@@ -1109,8 +1103,10 @@ export function OpenRemoteSessionRow({
   workspace?: RemoteWorkspace;
   reorder?: SessionReorder;
   resultFeed?: RemoteResults;
+  /** By state: a family's root tells its computer and where it runs. */
   showContext?: boolean;
-  sectionGroup?: RowGroup;
+  /** Its place in its family's tree, where it is in one. */
+  tree?: RemoteRowTree;
   onOpenSession?: OpenRemoteSession;
 } & Omit<ComponentProps<"button">, "type" | "onClick" | "children" | "title">) {
   const where = useAgentViewStore((s) =>
@@ -1118,23 +1114,28 @@ export function OpenRemoteSessionRow({
       ? undefined
       : panelPlaceOf(s.root, remoteSessionKey({ deviceId: peer.id, ...session })),
   );
+  // Its computer and place once: a child runs on its parent's computer, and
+  // tells its place only where its family's root does not run.
+  const top = showContext && (tree === undefined || tree.depth === 0);
+  const placed = top ? workspace : tree?.elsewhere;
   return (
     <RemoteSessionRow
       data-agent-row=""
       {...buttonProps}
       session={session}
-      sectionGroup={sectionGroup}
       deviceId={peer.id}
       onReorder={reorder}
       where={where}
-      context={
-        showContext
-          ? {
-              device: remoteDisplayName(peer.name),
-              workspace: workspace?.name ?? session.workspaceId,
-            }
-          : undefined
+      device={top ? remoteDisplayName(peer.name) : undefined}
+      place={
+        placed
+          ? remotePlace(placed)
+          : top
+            ? { kind: "workspace", name: remoteDisplayName(session.workspaceId) }
+            : undefined
       }
+      parent={tree?.parent}
+      family={tree?.family}
       onOpen={() => {
         (onOpenSession ?? openRemoteSession)(listedRemoteTarget(peer, workspace, session));
         resultFeed?.markSeen([
@@ -1143,6 +1144,13 @@ export function OpenRemoteSessionRow({
       }}
     />
   );
+}
+
+/** Where another computer's session runs: a task's branch, or a workspace's folder. */
+export function remotePlace(workspace: RemoteWorkspace): RowPlace {
+  return workspace.parentId !== undefined
+    ? { kind: "branch", name: remoteDisplayName(workspace.git?.branch ?? workspace.name) }
+    : { kind: "workspace", name: remoteDisplayName(workspace.name) };
 }
 
 /**
@@ -1375,9 +1383,10 @@ export function agentRunsOf(agents: readonly RemoteSessionAgent[] | undefined): 
 }
 
 /**
- * A session's row: its state, kind and title, and what it waits on the
- * user for or last said. What else a button takes (a menu's trigger's
- * props) goes to it.
+ * A session's row: its kind, title and state, and what it waits on the
+ * user for or last said, in the two lines every conversation's row has.
+ * What else a button takes (a menu's trigger's props) goes to the button
+ * behind the row's content, so the chips in it stay buttons.
  */
 export function RemoteSessionRow({
   session,
@@ -1385,8 +1394,10 @@ export function RemoteSessionRow({
   deviceId,
   onReorder,
   onOpen,
-  context,
-  sectionGroup,
+  device,
+  place,
+  parent,
+  family,
   className,
   ...rest
 }: {
@@ -1396,13 +1407,16 @@ export function RemoteSessionRow({
   deviceId?: string;
   onReorder?: SessionReorder;
   onOpen?: () => void;
-  context?: { device: string; workspace: string };
-  sectionGroup?: RowGroup;
+  /** The computer it runs on, where the list does not tell. */
+  device?: string;
+  place?: RowPlace;
+  parent?: ReactNode;
+  family?: ReactNode;
 } & Omit<ComponentProps<"button">, "type" | "onClick" | "children" | "title">) {
   const { t, i18n } = useTranslation();
   const group = remoteGroupOf(session);
   const duration = useDurationLabel(session.since);
-  const title = remoteDisplayName(session.title);
+  const title = remoteTitle(session.title);
   const Icon =
     session.kind === "claude" ? ClaudeIcon : session.kind === "codex" ? CodexIcon : SquareTerminal;
   const selected = where === "shown" || rest["aria-current"] === true;
@@ -1417,63 +1431,69 @@ export function RemoteSessionRow({
   const dragRow = { key: session.tabId, deviceId, workspaceId: session.workspaceId };
   const { edge, dropProps } = useSessionDrop(dragRow, onReorder);
   return (
-    <button
-      type="button"
-      {...rest}
-      {...(onReorder && {
-        ...dropProps,
-        draggable: true,
-        onDragStart: (event) => startSessionDrag(event, dragRow),
-        onDragEnd: endSessionDrag,
-      })}
-      onClick={onOpen}
-      aria-current={selected || rest["aria-current"]}
+    <div
+      {...(onReorder && dropProps)}
       className={cn(
-        "relative flex min-w-0 flex-col rounded-(--radius-control) px-2 py-1 text-left",
-        selected ? PANEL_SHOWN_BG : "hover:bg-[var(--state-hover-bg)]",
-        // Its right-click menu open.
-        "data-[state=open]:bg-[var(--state-hover-bg)]",
+        rowShellClass({ attention: group === "attention", selected: selected && PANEL_SHOWN_BG }),
         className,
       )}
-      title={session.last ? `${title}\n${session.last}` : title}
-      data-testid="remote-session-row"
+      data-testid="remote-session-item"
     >
       <SidebarDropIndicator edge={edge} testId="remote-session-drop" />
-      {where && (
-        <PanelMark where={where} className="top-1 bottom-1" testId="remote-session-panel" />
-      )}
-      <span className="flex min-w-0 items-center gap-1.5">
-        {(!context || (sectionGroup && sectionGroup !== group)) && !session.failed && (
-          <StateGlyph state={GROUP_STATE[group]} className={GROUP_TINT[group]} />
+      {where && <PanelMark where={where} testId="remote-session-panel" />}
+      <button
+        type="button"
+        {...rest}
+        {...(onReorder && {
+          draggable: true,
+          onDragStart: (event) => startSessionDrag(event, dragRow),
+          onDragEnd: endSessionDrag,
+        })}
+        onClick={onOpen}
+        aria-current={selected || rest["aria-current"]}
+        aria-label={title}
+        className={cn(
+          "absolute inset-0 rounded-(--radius-raised) outline-none focus-visible:ring-1 focus-visible:ring-ring",
+          // Its right-click menu open.
+          "data-[state=open]:bg-[var(--state-hover-bg)]",
         )}
-        {!session.failed && <span className="sr-only">{state}</span>}
-        <Icon aria-hidden className="size-3 shrink-0" />
-        <span className="min-w-0 truncate text-app-ui-sm text-foreground">{title}</span>
-        {(session.failed || duration) && (
-          <span className="ml-auto flex shrink-0 items-center gap-1">
-            {session.failed && <FailureLabel />}
-            {duration && (
-              <span className="text-app-micro whitespace-nowrap tabular-nums text-muted-foreground">
-                {duration}
-              </span>
-            )}
-          </span>
-        )}
-      </span>
-      {(context || message) && (
-        <span className="flex min-w-0 items-center gap-1.5 pl-4.5 text-app-micro text-muted-foreground">
-          {context && (
-            <>
-              <DeviceChip name={context.device} />
-              <span
-                className="max-w-[40%] shrink-0 truncate"
-                title={remoteDisplayName(context.workspace)}
-              >
-                {remoteDisplayName(context.workspace)}
-              </span>
-            </>
-          )}
-          {message && (
+        title={session.last ? `${title}\n${session.last}` : title}
+        data-testid="remote-session-row"
+      />
+      <SessionRowLines
+        icon={<Icon aria-hidden className="size-3.5 shrink-0" />}
+        title={title}
+        sign={
+          session.failed ? (
+            <FailureLabel />
+          ) : session.state === "needs-you" ? (
+            // What for, as the computer tells it since 0.25; the attention glyph before.
+            <WaitSign
+              kind={session.waiting?.kind}
+              label={
+                session.waiting
+                  ? `${state} · ${t(`agentList.wait.${session.waiting.kind}`)}`
+                  : state
+              }
+              testId="remote-session-wait"
+            />
+          ) : (
+            <span role="img" aria-label={state} title={state} className="inline-flex">
+              <StateGlyph
+                state={session.state === "ended" ? "exited" : GROUP_STATE[group]}
+                className={GROUP_TINT[group]}
+              />
+            </span>
+          )
+        }
+        time={duration}
+        timeHint={state}
+        urgent={group === "attention" && !session.failed}
+        device={device}
+        place={place}
+        parent={parent}
+        preview={
+          message && (
             <span
               className={cn(
                 "min-w-0 truncate",
@@ -1484,10 +1504,11 @@ export function RemoteSessionRow({
             >
               {message}
             </span>
-          )}
-        </span>
-      )}
-    </button>
+          )
+        }
+        family={family}
+      />
+    </div>
   );
 }
 
@@ -1528,7 +1549,7 @@ export function RemoteTabLabel({
     <>
       {showDevice && <DeviceChip name={target.deviceName} />}
       <Icon aria-hidden className="size-3 shrink-0" />
-      <span className="min-w-0 truncate">{remoteDisplayName(target.title)}</span>
+      <span className="min-w-0 truncate">{remoteTitle(target.title)}</span>
       {state && (ended || group !== "idle") && (
         <span
           role="img"

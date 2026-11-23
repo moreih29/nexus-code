@@ -16,7 +16,7 @@ import type { LimitResume } from "../../../shared/types/layout";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { Tab } from "../../state/stores/tabs";
 import type { ChatTabState } from "../chat/store";
-import { remoteDisplayName } from "../remote/display-name";
+import { remoteDisplayName, remoteTitle } from "../remote/display-name";
 import { claudeChatStateOf, codexStateOf } from "./codex-state";
 
 /**
@@ -70,7 +70,8 @@ export interface AgentSession {
 export function sessionParentName(opener: TerminalOpener | undefined, title?: string) {
   return (
     title ||
-    opener?.name ||
+    // A conversation on another computer is named as that computer's list shows it.
+    (opener?.device ? remoteTitle(opener.name) : opener?.name) ||
     (opener?.device && remoteDisplayName(opener.tabId?.slice(0, 8))) ||
     (opener?.kind !== "tab" ? opener?.agent : undefined)
   );

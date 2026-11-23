@@ -50,9 +50,10 @@ import { cn } from "@/utils/cn";
 import type { SessionActivity } from "../../../shared/claude/activity";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { AgentRows } from "../agent-list/agent-rows";
+import { type RowPlace, rowShellClass, SessionRowLines } from "../agent-list/session-row";
 import {
-  FailureLabel,
   HiddenSessionCount,
+  SessionSign,
   StateGlyph,
   stateLabel,
   useDurationLabel,
@@ -452,7 +453,7 @@ export function StatusGroups({
                     groupIdle
                     navigation={row.navigation}
                     workspaceOf={(id) => row.workspaces.get(id)}
-                    renderRow={(node) => {
+                    renderRow={(node, tree) => {
                       const session = row.byKey.get(node.session.key);
                       if (!session) return null;
                       return (
@@ -462,8 +463,8 @@ export function StatusGroups({
                             peer={row.peer}
                             workspace={row.workspaces.get(session.workspaceId)}
                             resultFeed={results}
-                            sectionGroup={group}
                             showContext
+                            tree={tree}
                           />
                           <AgentRows
                             agents={agentRunsOf(session.agents)}
@@ -662,10 +663,10 @@ function FamilyGroup({
           onColor={(color) => update({ color })}
         />
       </ContextMenuRoot>
-      {worktrees.map(({ worktree, roots, moved }) => {
+      {worktrees.map(({ worktree, roots, hosted }) => {
         const foldedHere = folded && reordering !== worktree.workspace.id;
         const visible = foldedHere ? roots.filter((node) => node.group !== "idle") : roots;
-        if (foldedHere && visible.length === 0 && moved.length === 0) return null;
+        if (foldedHere && visible.length === 0) return null;
         return (
           // biome-ignore lint/a11y/noStaticElementInteractions: restores the fold when a native row drag leaves
           <div
@@ -694,16 +695,6 @@ function FamilyGroup({
                 <NewAgentMenu workspace={worktree.workspace} />
               </div>
             )}
-            {moved.map(({ key, title, count }) => (
-              <span
-                key={key}
-                className="min-w-0 truncate px-2 py-1 pl-6 text-app-micro text-muted-foreground"
-                title={t("agentView.list.moved_family", { name: title, count })}
-                data-testid="agent-sidebar-moved"
-              >
-                {t("agentView.list.moved_family", { name: title, count })}
-              </span>
-            ))}
             {visible.map((node) => (
               <SessionBranch
                 key={node.session.key}
@@ -716,7 +707,8 @@ function FamilyGroup({
                 onReorder={roots.length > 1 ? onReorder : undefined}
               />
             ))}
-            {worktree.isRoot && roots.length === 0 && (
+            {/* A conversation listed under its parent elsewhere still runs here. */}
+            {worktree.isRoot && roots.length === 0 && hosted === 0 && (
               <p className="py-1 pl-7 text-app-micro text-muted-foreground">
                 {t("agentView.list.no_agents")}
               </p>
@@ -764,22 +756,23 @@ function SessionBranch({
       renderRow={(branchNode, collapsed) => {
         const current = branchNode.session;
         const placed = agents.byKey.get(current.key);
+        // Its place once: by state, a family's root says where it runs; a
+        // child, and by workspace any row, only where its group does not.
+        const told =
+          (group !== undefined && branchNode.depth === 0) ||
+          current.workspaceId !== rootWorkspaceId;
         return (
           <AgentItem
             session={current}
             run={activity.get(current.key)}
-            where={group !== undefined ? placed : undefined}
-            group={group}
+            place={told && placed ? placeOf(placed) : undefined}
             dragScope={branchNode.depth === 0 ? scope : current.workspaceId}
             draggable={branchNode.depth === 0}
-            branch={
-              current.workspaceId !== rootWorkspaceId ? placed?.workspace.task?.branch : undefined
-            }
             parentName={visibleParentName(branchNode)}
             parentClosed={branchNode.parentClosed}
             familyCount={branchNode.count}
             collapsed={collapsed}
-            counts={collapsed ? branchNode.counts : undefined}
+            counts={branchNode.counts}
           />
         );
       }}
@@ -861,11 +854,9 @@ const NewAgentMenu = memo(function NewAgentMenu({ workspace }: { workspace: Work
 const AgentItem = memo(function AgentItem({
   session,
   run,
-  where: placed,
-  group,
+  place,
   dragScope,
   draggable,
-  branch,
   parentName,
   parentClosed,
   familyCount,
@@ -875,17 +866,15 @@ const AgentItem = memo(function AgentItem({
   session: AgentSession;
   /** What its hooks report, when they do. */
   run: SessionActivity | undefined;
-  /** The workspace shown in the status list. */
-  where?: { readonly workspace: WorkspaceMeta; readonly root: WorkspaceMeta };
-  group?: RowGroup;
+  /** Where it runs, where its group does not tell. */
+  place?: RowPlace;
   dragScope: string;
   draggable: boolean;
-  branch?: string;
   parentName?: string;
   parentClosed?: true;
   familyCount: number;
   collapsed: boolean;
-  counts?: SessionCounts;
+  counts: SessionCounts;
 }) {
   const key = session.key;
   const where = useAgentViewStore((s) => panelPlaceOf(s.root, key));
@@ -896,19 +885,10 @@ const AgentItem = memo(function AgentItem({
   const { open } = useSessionParent(parentClosed ? session.parent : undefined);
   const closed = parentClosed && !open;
   const parent = useParentCaption(open?.title || parentName, session.parent?.device, closed);
-  const preview = <RowLine session={session} facts={facts} />;
+  const attention = session.phase === "attention";
   return (
     <div
-      className={cn(
-        "relative rounded-(--radius-raised) border px-2 py-1.5 text-app-ui-sm transition-colors",
-        session.phase === "attention" ? "border-(--state-warning-fg)/40" : "border-transparent",
-        where === "shown"
-          ? PANEL_SHOWN_BG
-          : cn(
-              session.phase === "attention" && "bg-(--state-warning-fg)/5",
-              "hover:bg-[var(--state-hover-bg)]",
-            ),
-      )}
+      className={rowShellClass({ attention, selected: where === "shown" && PANEL_SHOWN_BG })}
       onPointerEnter={() => hover(true)}
       onPointerLeave={() => hover(false)}
       data-testid="agent-sidebar-item"
@@ -928,92 +908,44 @@ const AgentItem = memo(function AgentItem({
         onDragEnd={draggable ? endSessionDrag : undefined}
         className="absolute inset-0 rounded-(--radius-raised) outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
-      <div className="pointer-events-none relative flex min-w-0 flex-col gap-0.5">
-        <div className="flex min-w-0 items-center gap-2">
-          <AgentMark session={session} />
-          <span className="min-w-0 flex-1 truncate text-foreground" title={session.title}>
-            {session.title}
-          </span>
-          {/* Its state at a glance, the glyph its filter has (running, waiting
-              on the user, done, or idle), and for how long. */}
-          <span className="flex shrink-0 items-center gap-1">
-            {group !== session.phase && session.state !== "error" && (
-              <span
-                role="img"
-                aria-label={stateLabel(session)}
-                title={stateLabel(session)}
-                className="inline-flex"
-                data-testid="agent-sidebar-state"
-              >
-                <StateGlyph state={session.state} />
-              </span>
-            )}
-            {session.state === "error" && <FailureLabel />}
-            {duration && (
-              <span
-                className={cn(
-                  "text-app-micro whitespace-nowrap tabular-nums",
-                  session.phase === "attention" && session.state !== "error"
-                    ? "text-(--state-warning-fg)"
-                    : "text-muted-foreground",
-                )}
-                title={stateLabel(session)}
-              >
-                {duration}
-              </span>
-            )}
-          </span>
-        </div>
-        <div className="flex min-w-0 items-center gap-1.5 pl-5.5 text-app-micro">
-          {branch ? (
+      <SessionRowLines
+        icon={<AgentMark session={session} />}
+        title={session.title}
+        sign={<SessionSign session={session} facts={facts} testId="agent-sidebar-state" />}
+        time={duration}
+        timeHint={stateLabel(session)}
+        urgent={attention && session.state !== "error"}
+        place={place}
+        placeTestId={place?.kind === "branch" ? "agent-sidebar-branch" : "agent-sidebar-workspace"}
+        parent={
+          parent && (
             <span
-              className="inline-flex max-w-[45%] min-w-0 items-center gap-0.5 rounded-full border border-border px-1.5 font-mono text-muted-foreground"
-              title={branch}
-              data-testid="agent-sidebar-branch"
+              className={cn("max-w-40 min-w-0 shrink-[2] truncate", closed && "opacity-70")}
+              title={parent.hint}
+              data-testid="agent-sidebar-parent"
             >
-              <GitBranch aria-hidden className="size-3 shrink-0" />
-              <span className="truncate">{branch}</span>
+              {parent.label}
             </span>
-          ) : (
-            placed && (
-              <WorkspaceTag
-                workspace={placed.workspace}
-                root={placed.root}
-                compact={familyCount > 0 || parent !== undefined}
-              />
-            )
-          )}
-          {parent ? (
-            <div className="flex min-w-0 grow basis-1/2 items-center gap-1.5 overflow-hidden">
-              <span
-                className={cn(
-                  "max-w-[60%] shrink-0 truncate text-muted-foreground",
-                  closed && "opacity-70",
-                )}
-                title={parent.hint}
-                data-testid="agent-sidebar-parent"
-              >
-                {parent.label}
-              </span>
-              {preview}
-            </div>
-          ) : (
-            preview
-          )}
-          {familyCount > 0 && (
+          )
+        }
+        preview={<RowLine session={session} facts={facts} />}
+        family={
+          familyCount > 0 && (
             <FamilyFold
               session={session}
               count={familyCount}
               collapsed={collapsed}
+              counts={counts}
               testPrefix="agent-sidebar"
             />
-          )}
-          {counts && <StateSummary counts={counts} compact />}
-        </div>
-        {session.kind !== "terminal" && (
+          )
+        }
+      />
+      {session.kind !== "terminal" && (
+        <div className="pointer-events-none relative">
           <GoalRowLine workspaceId={session.workspaceId} tabId={session.tabId} />
-        )}
-      </div>
+        </div>
+      )}
       <AgentRows
         agents={run?.agents ?? []}
         selectedId={undefined}
@@ -1024,31 +956,23 @@ const AgentItem = memo(function AgentItem({
   );
 });
 
-/** The workspace an agent runs in, by its color and name, where the list is by state. */
-function WorkspaceTag({
+/**
+ * Where a conversation of this computer runs, as its row tells it: a task's
+ * branch, or a workspace by its color and name.
+ */
+function placeOf({
   workspace,
   root,
-  compact = false,
 }: {
-  workspace: WorkspaceMeta;
-  root: WorkspaceMeta;
-  compact?: boolean;
-}) {
-  return (
-    <span
-      className={cn(
-        "flex max-w-[45%] items-center gap-1 text-muted-foreground",
-        compact ? "min-w-0" : "shrink-0",
-      )}
-      title={workspace.id === root.id ? root.name : `${root.name} · ${workspace.name}`}
-      data-testid="agent-sidebar-workspace"
-    >
-      <span
-        aria-hidden
-        className="size-1.5 shrink-0 rounded-full"
-        style={{ background: workspaceColor(root.id, root.color) }}
-      />
-      <span className="min-w-0 truncate">{workspace.name}</span>
-    </span>
-  );
+  readonly workspace: WorkspaceMeta;
+  readonly root: WorkspaceMeta;
+}): RowPlace {
+  const branch = workspace.task?.branch;
+  if (branch) return { kind: "branch", name: branch, hint: `${root.name} · ${branch}` };
+  return {
+    kind: "workspace",
+    name: workspace.name,
+    color: workspaceColor(root.id, root.color),
+    hint: workspace.id === root.id ? root.name : `${root.name} · ${workspace.name}`,
+  };
 }

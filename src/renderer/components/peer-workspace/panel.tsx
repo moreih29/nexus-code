@@ -3,6 +3,7 @@ import { Tabs } from "radix-ui";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { RoomPeer } from "../../../shared/remote/room";
+import { remoteTitle } from "../../services/remote/display-name";
 import type { PeerReach } from "../../services/remote/room";
 import { returnFromPeerWorkspace } from "../../state/operations/workspace-selection";
 import {
@@ -113,7 +114,7 @@ export function PeerWorkspacePanel({
                         const Icon = peerSessionIcons[tab.target.kind];
                         const { kind } = tab.target;
                         const title =
-                          tab.target.title ||
+                          remoteTitle(tab.target.title) ||
                           t(
                             kind === "terminal"
                               ? "terminal.default_title"
