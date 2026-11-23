@@ -15,6 +15,11 @@ export interface ShownImage {
   file?: string;
   /** Its data, as a tool or the user gave it. */
   image?: ImageBlock;
+  /**
+   * The file is shown in full where the conversation names it (sent the
+   * user, or ![alt](path) in a reply), which lets the previews read it.
+   */
+  placed?: true;
 }
 
 /**
@@ -101,7 +106,9 @@ export function latestReadFile(
  * Quick look over a conversation's images (`shown`), at the one at `at`.
  * An image with its data shows from it, as it was read, and keeps its file
  * for the file's actions; one with none shows as the file when `there` finds
- * it; one gone with no data is left out, unless it is the one opened.
+ * it, or when the conversation shows it in full (`placed`), as it does the
+ * one opened: what the chat shows stays a step away, whatever a lookup at
+ * the moment answers. One only named, gone, with no data is left out.
  */
 export function conversationLook(
   shown: readonly ShownImage[],
@@ -113,9 +120,9 @@ export function conversationLook(
   const paths: Record<string, string> = {};
   let keys = 0;
   let index = 0;
-  shown.forEach(({ file, image }, i) => {
+  shown.forEach(({ file, image, placed }, i) => {
     if (i === at) index = files.length;
-    const asFile = file !== undefined && (there(file) || (i === at && !image));
+    const asFile = file !== undefined && (there(file) || (!image && (i === at || placed === true)));
     if (hasData(image) || (image && !asFile)) {
       const key = imageKey(keys++);
       images[key] = image;
@@ -150,7 +157,13 @@ export async function lookAtImage(
     // A link to the file shows the file, not what a read of it once gave.
     list = list.map((entry, i) => (i === at ? { file: target.file } : entry));
   }
-  const found = await filesThere(list.flatMap(({ file }) => (file ? [file] : [])));
+  // Only an image the chat shows no data or picture of waits on its file
+  // being found: each lookup is a call to the files' host, and a long
+  // conversation has hundreds of images.
+  const wanted = list.flatMap(({ file, image, placed }, i) =>
+    file && i !== at && !placed && !hasData(image) ? [file] : [],
+  );
+  const found = wanted.length > 0 ? await filesThere(wanted) : new Set<string>();
   return conversationLook(list, at, (file) => found.has(file));
 }
 

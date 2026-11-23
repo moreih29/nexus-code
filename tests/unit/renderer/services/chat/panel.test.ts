@@ -933,3 +933,65 @@ describe("imagesOf", () => {
     expect(shown).toHaveLength(1);
   });
 });
+
+describe("imagesOf, the images a chat shows in full", () => {
+  const image = (data: string): ImageBlock => ({ mediaType: "image/png", data });
+  const tool = (id: string, name: string, input: unknown, images: ImageBlock[] = []): ToolCall =>
+    ({ id, name, status: "done", input, result: { text: "", isError: false, images } }) as ToolCall;
+  const turn = (blocks: unknown[]): ChatItem =>
+    ({ kind: "assistant", blocks }) as unknown as ChatItem;
+
+  test("marks the files sent to the user and shown in a reply as placed, not one only linked", () => {
+    const tree = image("tree");
+    const tools = {
+      r: tool("r", "Read", { file_path: "/tmp/s/tree.png" }, [tree]),
+      s: tool("s", "SendUserFile", { files: ["/tmp/s/tree.png", "/tmp/s/top.png"] }),
+    };
+    const shown = imagesOf(
+      [
+        turn([
+          { type: "tool", toolUseId: "r" },
+          { type: "tool", toolUseId: "s" },
+          { type: "text", text: "![x](/tmp/s/shown.png) and [y](/tmp/s/linked.png)" },
+        ]),
+      ],
+      tools,
+      "/ws",
+    );
+    expect(shown).toEqual([
+      // Read, then sent: shown from its data.
+      { file: "/tmp/s/tree.png", image: tree, placed: true },
+      { file: "/tmp/s/top.png", placed: true },
+      { file: "/tmp/s/shown.png", placed: true },
+      { file: "/tmp/s/linked.png" },
+    ]);
+  });
+
+  test("places a file linked first once a later part shows it, where it first came", () => {
+    const tools = { s: tool("s", "SendUserFile", { files: ["/tmp/s/a.png"] }) };
+    const shown = imagesOf(
+      [
+        turn([
+          { type: "text", text: "[a](/tmp/s/a.png)" },
+          { type: "tool", toolUseId: "s" },
+        ]),
+      ],
+      tools,
+      "/ws",
+    );
+    expect(shown).toEqual([{ file: "/tmp/s/a.png", placed: true }]);
+  });
+
+  test("does not place what a send not yet done names", () => {
+    const sending = {
+      ...tool("s", "SendUserFile", { files: ["/tmp/s/a.png"] }),
+      status: "running",
+    };
+    const shown = imagesOf(
+      [turn([{ type: "tool", toolUseId: "s" }])],
+      { s: sending as ToolCall },
+      "/ws",
+    );
+    expect(shown).toEqual([{ file: "/tmp/s/a.png" }]);
+  });
+});

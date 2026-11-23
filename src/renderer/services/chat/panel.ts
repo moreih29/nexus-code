@@ -607,7 +607,9 @@ const LOOK_TOOLS = new Set(["Read", "ViewImage"]);
  * took, its data kept for when the file is gone), and the image files it
  * sent the user, wrote new, or showed or pointed at in a reply, as
  * resultsOf takes them. An agent's images come where it was called
- * (`agentItems`, by the call's id).
+ * (`agentItems`, by the call's id). An image file the conversation shows
+ * in full where it names it (placedImages: sent the user, or ![alt](path)
+ * in a reply) is `placed`.
  */
 export function imagesOf(
   items: readonly ChatItem[],
@@ -619,23 +621,27 @@ export function imagesOf(
   const byFile = new Map<string, number>();
   const seen = new Set<ImageBlock>();
   const touched = touchedFiles(tools, cwd);
-  const addFile = (named: string, image?: ImageBlock) => {
+  /** `placed`: the image files the part naming it shows in full. */
+  const addFile = (named: string, image?: ImageBlock, placed?: ReadonlySet<string>) => {
     const file = resolveFilePath(named, cwd);
     if (!file || fileKind(file) !== "image") return;
     if (image) {
       if (seen.has(image)) return;
       seen.add(image);
     }
+    const shows = placed?.has(file) === true;
     const at = byFile.get(file);
     if (at === undefined) {
       byFile.set(file, out.length);
-      out.push(image ? { file, image } : { file });
+      out.push(image ? { file, image } : { file, ...(shows ? { placed: true } : {}) });
     } else if (image && !out[at].image) {
-      out[at] = { file, image };
+      out[at] = { ...out[at], image };
     } else if (image) {
       // Another read of the same file, which gave another image.
       byFile.set(file, out.length);
       out.push({ file, image });
+    } else if (shows && !out[at].placed) {
+      out[at] = { ...out[at], placed: true };
     }
   };
   const addData = (image: ImageBlock) => {
@@ -652,7 +658,10 @@ export function imagesOf(
       if (item.kind !== "assistant") continue;
       for (const block of item.blocks) {
         if (block.type === "text") {
-          for (const named of filesNamedIn(block.text, cwd, touched)) addFile(named);
+          const placed = new Set(placedImages(block, tools, cwd));
+          for (const named of filesNamedIn(block.text, cwd, touched)) {
+            addFile(named, undefined, placed);
+          }
           continue;
         }
         const tool = block.type === "tool" ? tools[block.toolUseId] : undefined;
@@ -665,7 +674,8 @@ export function imagesOf(
         }
         // A Codex ViewImage gives no data back: the file is the image it looked at.
         if (read && given.length === 0 && LOOK_TOOLS.has(tool.name)) addFile(read);
-        for (const file of sentFilesOf(tool)) addFile(file);
+        const sent = new Set(placedImages(block, tools, cwd));
+        for (const file of sentFilesOf(tool)) addFile(file, undefined, sent);
         const written = str(rec(tool.input)?.file_path);
         if (tool.name === "Write" && tool.status === "done" && written) {
           if (rec(tool.result?.structured)?.type === "create") addFile(written);
