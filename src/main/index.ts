@@ -1008,14 +1008,17 @@ app.whenReady().then(async () => {
           attachCleanups: [...waiting, { host, workspaceId }].slice(-200),
         });
       },
-      take: (host) => {
+      waiting: (host) =>
+        (stateService.getState().attachCleanups ?? [])
+          .filter((entry) => entry.host === host)
+          .map((entry) => entry.workspaceId),
+      remove: (host, workspaceId) => {
         const waiting = stateService.getState().attachCleanups ?? [];
-        const taken = waiting.filter((entry) => entry.host === host);
-        if (taken.length > 0) {
-          const rest = waiting.filter((entry) => entry.host !== host);
-          stateService.setState({ attachCleanups: rest.length > 0 ? rest : undefined });
-        }
-        return taken.map((entry) => entry.workspaceId);
+        const rest = waiting.filter(
+          (entry) => entry.host !== host || entry.workspaceId !== workspaceId,
+        );
+        if (rest.length === waiting.length) return;
+        stateService.setState({ attachCleanups: rest.length > 0 ? rest : undefined });
       },
     },
     savedClaudeInstructions: (workspaceId, tabId) => {

@@ -1418,10 +1418,13 @@ describe("attached files", () => {
       waiting,
       attachCleanups: {
         add: (host: string, workspaceId: string) => waiting.push({ host, workspaceId }),
-        take: (host: string) => {
-          const taken = waiting.filter((entry) => entry.host === host);
-          for (const entry of taken) waiting.splice(waiting.indexOf(entry), 1);
-          return taken.map((entry) => entry.workspaceId);
+        waiting: (host: string) =>
+          waiting.filter((entry) => entry.host === host).map((entry) => entry.workspaceId),
+        remove: (host: string, workspaceId: string) => {
+          const at = waiting.findIndex(
+            (entry) => entry.host === host && entry.workspaceId === workspaceId,
+          );
+          if (at >= 0) waiting.splice(at, 1);
         },
       },
     };
@@ -1543,9 +1546,12 @@ describe("attached files", () => {
       { host: "local", workspaceId: "w-failed" },
     ]);
 
-    // Still failing: both stay for the next time.
+    // Still failing: both stay for the next time, as they were.
     await host.pruneAttachments({ workspaceId: WS, keepTabIds: [], keepSlots: [] });
-    expect(waiting).toHaveLength(2);
+    expect(waiting).toEqual([
+      { host: "local", workspaceId: OTHER },
+      { host: "local", workspaceId: "w-failed" },
+    ]);
 
     channel.failures.clear();
     channel.calls.length = 0;

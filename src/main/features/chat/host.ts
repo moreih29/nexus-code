@@ -119,8 +119,10 @@ function namedRoot(root: unknown): string | null {
 /** Removed workspaces whose attached files wait for an agent on their host to remove them. */
 export interface AttachCleanups {
   add(host: string, workspaceId: string): void;
-  /** The workspaces waiting on the host, which no longer wait. */
-  take(host: string): string[];
+  /** The workspaces waiting on the host. */
+  waiting(host: string): string[];
+  /** One no longer waits: its folder went. */
+  remove(host: string, workspaceId: string): void;
 }
 
 export interface ChatHostOptions {
@@ -765,7 +767,7 @@ export class ChatHost {
     const cleanups = this.options.attachCleanups;
     const host = this.options.workspaceManager.attachHost?.(workspaceId);
     if (!cleanups || !host) return;
-    for (const removed of cleanups.take(host)) {
+    for (const removed of cleanups.waiting(host)) {
       try {
         await channel.call("chat.removeAttachments", {
           workspaceId: removed,
@@ -773,11 +775,13 @@ export class ChatHost {
           all: true,
         });
       } catch (error) {
+        // It waits on, for the next time.
         log.warn(
           `could not remove removed workspace ${removed}'s attached files: ${String(error)}`,
         );
-        cleanups.add(host, removed);
+        continue;
       }
+      cleanups.remove(host, removed);
     }
   }
 
