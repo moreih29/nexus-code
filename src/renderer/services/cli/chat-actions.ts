@@ -284,8 +284,11 @@ export async function peekChat(
   if (open && (open.turns.length > 0 || open.status.running)) return open;
   const stored = await storedPeek(workspaceId, tab, turns);
   if (!open) return stored;
-  // Open, with its conversation not in yet (its log is still read): its history's turns, as it stands.
-  if (stored.turns.length === 0) return open;
+  // Open, with its conversation not in yet (its log is still read): its history's turns, as it
+  // stands, or why there are none to read (its host is not connected, it never ran).
+  if (stored.turns.length === 0) {
+    return stored.unavailable ? { ...open, unavailable: stored.unavailable } : open;
+  }
   return fitPeek({ ...open, turns: stored.turns, ...(stored.more ? { more: true } : {}) });
 }
 

@@ -240,8 +240,21 @@ test("a tab opening, its conversation not in yet, tells its history's turns as i
     status: { running: false, phase: "starting" },
     turns: [{ user: { text: "Earlier", images: 0 }, reply: "Yes.", tools: {} }],
   });
-  // With its host not connected, it is still the open tab's answer: no turns, not unavailable.
+  // With its host not connected, or no history, the open tab's answer says why it has no turns.
   tail = () => ({ offline: true });
+  expect(await peek(tabId)).toEqual({
+    status: { running: false, phase: "starting" },
+    turns: [],
+    unavailable: "offline",
+  });
+  tail = () => ({ offline: false, codex: { found: false, events: [] } });
+  expect(await peek(tabId)).toEqual({
+    status: { running: false, phase: "starting" },
+    turns: [],
+    unavailable: "missing",
+  });
+  // A history that is there with no turn in it is no reason: none is given.
+  tail = () => ({ offline: false, codex: { found: true, events: [] } });
   expect(await peek(tabId)).toEqual({ status: { running: false, phase: "starting" }, turns: [] });
 });
 
