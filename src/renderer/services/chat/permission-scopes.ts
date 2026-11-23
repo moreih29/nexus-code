@@ -27,7 +27,9 @@ function describeSuggestion(raw: unknown, t: Translate): string {
       .join(", ");
   }
   if (s.type === "setMode" && typeof s.mode === "string") {
-    return t("chat.permission.suggest_mode", { mode: t(`chat.mode.${s.mode}`) });
+    return t("chat.permission.suggest_mode", {
+      mode: t(`agentConfig.claude.permissionMode.${s.mode}`),
+    });
   }
   if (s.type === "session") {
     return t("chat.permission.suggest_session");

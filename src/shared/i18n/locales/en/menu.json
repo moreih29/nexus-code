@@ -1,20 +1,16 @@
 {
   "appMenu": {
     "about": "About {{appName}}",
-    "checkForUpdates": "Check for Updates...",
+    "checkForUpdates": "Check for Updates…",
     "releaseNotes": "Release Notes",
     "settings": "Settings…"
   },
   "file": {
     "label": "File",
-    "newFile": "New File",
     "newWorkspace": "New Workspace…",
     "newTask": "New Task…",
     "openFile": "Open File…",
     "save": "Save",
-    "closeEditor": "Close Tab",
-    "closeOthers": "Close Other Tabs",
-    "refreshFiles": "Refresh Files",
     "exit": "Exit"
   },
   "edit": {
@@ -22,28 +18,13 @@
   },
   "view": {
     "label": "View",
-    "toggleFilesPanel": "Toggle Files Panel",
-    "toggleSidebar": "Toggle Sidebar",
     "revealInFinder": "Reveal in Finder",
     "revealInExplorer": "Reveal in File Explorer",
     "openContainingFolder": "Open Containing Folder",
-    "copyPath": "Copy Path",
-    "copyRelativePath": "Copy Relative Path",
-    "toggleChatPanel": "Toggle Chat Side Panel",
-    "toggleAgentView": "Toggle Agent View",
     "reloadWindow": "Reload Window"
   },
   "workspace": {
-    "label": "Workspace",
-    "previousWorkspace": "Previous Workspace",
-    "nextWorkspace": "Next Workspace",
-    "splitRight": "Split Right",
-    "splitDown": "Split Down",
-    "closeGroup": "Close Group",
-    "focusGroupLeft": "Focus Group Left",
-    "focusGroupRight": "Focus Group Right",
-    "focusGroupUp": "Focus Group Up",
-    "focusGroupDown": "Focus Group Down"
+    "label": "Workspace"
   },
   "window": {
     "label": "Window"

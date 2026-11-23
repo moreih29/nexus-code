@@ -25,7 +25,7 @@ function render(request: Partial<PermissionRequest>, planModeOptions?: boolean):
 describe("plan approval", () => {
   it("offers a single approval when the session cannot choose a permission mode", () => {
     const plan = { toolName: "ExitPlanMode", input: {} };
-    const dropdown = i18next.t("chat.plan.approve_other");
+    const dropdown = i18next.t("chat.plan.approve_more");
     const simple = render(plan, false);
     expect(simple).toContain(i18next.t("chat.plan.approve"));
     expect(simple).toContain(i18next.t("chat.plan.request_changes"));
@@ -96,7 +96,9 @@ describe("scopesOf", () => {
     );
     expect(scopes.map((scope) => scope.label)).toEqual([
       "Read, Bash(ls)",
-      i18next.t("chat.permission.suggest_mode", { mode: i18next.t("chat.mode.acceptEdits") }),
+      i18next.t("chat.permission.suggest_mode", {
+        mode: i18next.t("agentConfig.claude.permissionMode.acceptEdits"),
+      }),
       i18next.t("chat.permission.suggest_session"),
     ]);
     expect(scopes[1].suggestion).toEqual({ type: "setMode", mode: "acceptEdits" });

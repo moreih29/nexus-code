@@ -458,8 +458,8 @@ function AllowAlways({
             size="sm"
             variant="outline"
             className="rounded-l-none border-l-0 px-1.5"
-            title={t("chat.permission.allow_always_one")}
-            aria-label={t("chat.permission.allow_always_one")}
+            title={t("chat.permission.allow_always_single")}
+            aria-label={t("chat.permission.allow_always_single")}
           >
             <ChevronDown className="size-3.5" />
           </Button>
@@ -943,8 +943,8 @@ function PlanApproval({
                   <Button
                     size="sm"
                     className="rounded-l-none border-l border-primary-foreground/25 px-1.5"
-                    title={t("chat.plan.approve_other")}
-                    aria-label={t("chat.plan.approve_other")}
+                    title={t("chat.plan.approve_more")}
+                    aria-label={t("chat.plan.approve_more")}
                   >
                     <ChevronDown className="size-3.5" />
                   </Button>

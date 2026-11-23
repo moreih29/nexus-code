@@ -1,4 +1,3 @@
-import i18next from "i18next";
 import {
   File,
   FileDiff,
@@ -52,6 +51,7 @@ import { useTabEditingStore } from "../../../state/stores/tab-editing";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
 import { MIME_TAB, type TabDragPayload } from "../../../types/workbench-dnd";
 import { codexStatusLabel, estimatedLabel, StateGlyph } from "../../agent-list/session-status";
+import { programStateLabel } from "../../agent-list/state-look";
 import { TabProfileMark } from "../../agent-profiles/tab-profile";
 import { ClaudeIcon, CodexIcon } from "../../chat/agent-icons";
 import { GoalTabBadge } from "../../chat/goal-bar";
@@ -170,23 +170,6 @@ export function useTabDirty(tab: Tab): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }
 
-function claudeAriaLabel(status: ClaudeStatus): string {
-  switch (status) {
-    case "running":
-      return i18next.t("claudeStatus.running");
-    case "completed":
-      return i18next.t("claudeStatus.completed");
-    case "needsInput":
-      return i18next.t("claudeStatus.needsInput");
-    case "permissionPending":
-      return i18next.t("claudeStatus.permissionPending");
-    case "error":
-      return i18next.t("claudeStatus.error");
-    case "idle":
-      return i18next.t("claudeStatus.idle");
-  }
-}
-
 function ClaudeGlyph({
   status,
   estimated = false,
@@ -201,7 +184,7 @@ function ClaudeGlyph({
     ? estimatedLabel(status)
     : codex
       ? codexStatusLabel(status)
-      : claudeAriaLabel(status);
+      : programStateLabel("claude", status);
   return (
     <span role="img" aria-label={label} title={estimated ? label : undefined}>
       <StateGlyph state={status} />

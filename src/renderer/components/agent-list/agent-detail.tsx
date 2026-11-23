@@ -46,9 +46,7 @@ export function AgentDetail({
         : t("agentList.detail.show_terminal");
   const rootPath = worktree.workspace.rootPath;
   const crumb =
-    agent.kind === "print"
-      ? t(agent.program === "codex" ? "chat.run.kind_codex" : "chat.run.kind")
-      : t("agentList.agents.agent_crumb");
+    agent.kind === "print" ? t("agentList.agents.run_crumb") : t("agentList.agents.agent_crumb");
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className="flex shrink-0 flex-col gap-4 p-4 pb-2">

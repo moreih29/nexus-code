@@ -7,6 +7,7 @@ import {
   type BehaviorField,
   type BehaviorFile,
   type BehaviorValue,
+  behaviorOptionKey,
 } from "../../../../shared/agent-profiles/behavior";
 import type { AgentProfile } from "../../../../shared/agent-profiles/profiles";
 import { ipcCallResult } from "../../../ipc/client";
@@ -225,7 +226,7 @@ export function ProfileBehaviorSection({
       ? t(`profiles.behavior.fields.${id}.hint`)
       : undefined;
   const optionLabel = (id: string, value: string) =>
-    t(`profiles.behavior.options.${id}.${value}`, { defaultValue: value });
+    t(behaviorOptionKey(fieldOf(id), value), { defaultValue: value });
   const unsupported = (id: string) => file?.unsupported.includes(id) === true;
   const dirty = (id: string) => id in draft;
   const reset = (id: string) =>

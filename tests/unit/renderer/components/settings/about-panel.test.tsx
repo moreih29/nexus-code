@@ -223,9 +223,7 @@ describe("the update wording", () => {
           <VersionRow status={status} progress={null} storeManaged={false} />
         </I18nextProvider>,
       );
-    expect(row({ kind: "current", trigger: "manual", current: "1.2.3" })).toContain(
-      ">최신 버전 사용 중<",
-    );
+    expect(row({ kind: "current", trigger: "manual", current: "1.2.3" })).toContain(">최신 상태<");
     expect(
       row({
         kind: "newer",

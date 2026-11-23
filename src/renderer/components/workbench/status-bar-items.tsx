@@ -75,7 +75,7 @@ export function ChangeCountsSegment({
       Icon: FileWarning,
       count: conflictCount,
       color: "var(--status-bar-conflict-fg)",
-      label: t("statusBar.conflict_one", { count: conflictCount }),
+      label: t("statusBar.conflict", { count: conflictCount }),
     });
   }
   if (stagedCount > 0) {

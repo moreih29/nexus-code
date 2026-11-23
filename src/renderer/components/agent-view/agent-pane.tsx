@@ -624,15 +624,15 @@ export function panelTabMenu(
     },
     {
       kind: "item",
-      label: t("tabBar.close_others"),
+      label: t("agentView.pane.remove_others"),
       onSelect: () => remove(keys.filter((each) => each !== key)),
     },
     {
       kind: "item",
-      label: t("tabBar.close_all_right"),
+      label: t("agentView.pane.remove_right"),
       onSelect: () => remove(keys.slice(index + 1)),
     },
-    { kind: "item", label: t("tabBar.close_all"), onSelect: () => remove(keys) },
+    { kind: "item", label: t("agentView.pane.remove_all"), onSelect: () => remove(keys) },
     ...(path !== undefined
       ? [
           { kind: "separator" as const },

@@ -275,7 +275,7 @@ export function CodexConfigRow({
       describe={(option) =>
         key === "model"
           ? (models?.find((m) => m.value === option)?.displayName ?? option)
-          : t(`chat.config.codex.options.${key}.${option}`, {
+          : t(`agentConfig.codex.${key}.${option}`, {
               defaultValue: option === "default" ? t("chat.config.codex.use_default") : option,
             })
       }

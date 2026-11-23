@@ -1,6 +1,5 @@
 {
   "panel": {
-    "reconnectError": "Failed to reconnect. Check your SSH settings.",
     "tab": {
       "tree": "File tree",
       "search": "Find in workspace",
@@ -355,7 +354,6 @@
         "rebasing": "Rebasing onto {{onto}}",
         "conflicts": "Rebasing onto {{onto}}{{progress}} · {{conflictText}}",
         "step": "step {{done}} of {{total}}",
-        "ready": "Rebase ready to continue",
         "readyDetail": "Resolve, then Continue."
       },
       "cherryPick": {
@@ -553,8 +551,6 @@
       "title_other": "Discard {{count}} changes?",
       "description_one": "Discard changes in {{description}}? This cannot be undone.",
       "description_other": "Discard all changes in {{description}}? This cannot be undone.",
-      "dialogTitle": "Discard changes?",
-      "dialogDescription": "This cannot be undone.",
       "dialogConfirm": "Discard",
       "cancel": "Cancel"
     },
@@ -611,15 +607,6 @@
       "acceptIncomingTooltip": "Keep the incoming (theirs) side and remove all markers",
       "acceptBoth": "Accept Both Changes",
       "acceptBothTooltip": "Concatenate current then incoming; remove all markers"
-    },
-    "relativeTime": {
-      "justNow": "just now",
-      "minutesAgo": "{{count}}m ago",
-      "hoursAgo": "{{count}}h ago",
-      "daysAgo": "{{count}}d ago",
-      "monthsAgo": "{{count}}mo ago",
-      "yearsAgo": "{{count}}y ago",
-      "unknown": "unknown time"
     },
     "stashPicker": {
       "applyTitle": "Stashes",
@@ -723,10 +710,6 @@
       "pickFromBranchPlaceholder": "Select a branch to list commits…"
     },
     "panelActions": {
-      "publish": {
-        "title": "Publish branch?",
-        "confirmLabel": "Publish"
-      },
       "tagReveal": "Showing History for tag '{{name}}' at {{sha}}.",
       "syncCancelled": "Sync cancelled (pull aborted before push).",
       "openTerminal": "Open Terminal",

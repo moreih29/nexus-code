@@ -102,4 +102,31 @@ describe("keys in the code", () => {
     }
     expect(missing).toEqual([]);
   });
+
+  test("no code names a plural form, so i18next can pick it from the count", () => {
+    const named: string[] = [];
+    for (const file of sourceFiles(join(ROOT, "src"))) {
+      const source = readFileSync(file, "utf8");
+      for (const match of source.matchAll(
+        /\bt\(\s*["'`]([^"'`$]*_(?:zero|one|two|few|many|other))["'`]/g,
+      )) {
+        const line = source.slice(0, match.index).split("\n").length;
+        named.push(`${relative(ROOT, file)}:${line} ${match[1]}`);
+      }
+    }
+    expect(named).toEqual([]);
+  });
+
+  test("a key with a plural ending has both its one and other forms", () => {
+    const lone: string[] = [];
+    for (const ns of I18N_NAMESPACES) {
+      const keys = new Set(keyPaths(resources.en[ns]));
+      for (const key of keys) {
+        const base = key.match(/^(.*)_(?:zero|one|two|few|many|other)$/)?.[1];
+        if (base !== undefined && !(keys.has(`${base}_one`) && keys.has(`${base}_other`)))
+          lone.push(`${ns}:${key}`);
+      }
+    }
+    expect(lone).toEqual([]);
+  });
 });

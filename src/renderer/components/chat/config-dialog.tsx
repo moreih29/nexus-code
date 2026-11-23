@@ -417,7 +417,7 @@ function optionLabel(
       : t(`chat.config.option.model.${choice}`, { defaultValue: choice });
     return choice === "default" ? t("chat.config.option.model.default") : name;
   }
-  const fallback =
-    key === "permissionMode" ? t(`chat.mode.${choice}`, { defaultValue: choice }) : choice;
-  return t(`chat.config.option.${key}.${choice}`, { defaultValue: fallback });
+  if (key === "permissionMode")
+    return t(`agentConfig.claude.permissionMode.${choice}`, { defaultValue: choice });
+  return t(`chat.config.option.${key}.${choice}`, { defaultValue: choice });
 }

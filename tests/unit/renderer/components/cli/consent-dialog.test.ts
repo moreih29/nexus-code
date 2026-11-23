@@ -184,10 +184,10 @@ test("instruction edits and profile additions use the same Korean sentence as ot
   const edit = t("agentCli.consent.action.instructionsEdit", { detail });
   const add = t("agentCli.consent.action.profileAdd", { detail: "QA Codex" });
   expect(describeConsent(t, prompt(), edit, consentNamesTarget(change.kind))).toBe(
-    'app의 터미널 "zsh"이(가) 모든 에이전트 지시 바꾸기를 하려고 합니다.',
+    'app의 터미널 "zsh": 모든 에이전트 지시 바꾸기를 하려고 합니다.',
   );
   expect(describeConsent(t, prompt(), add, consentNamesTarget("profileAdd"))).toBe(
-    'app의 터미널 "zsh"이(가) 에이전트 프로필 "QA Codex" 추가를 하려고 합니다.',
+    'app의 터미널 "zsh": 에이전트 프로필 "QA Codex" 추가를 하려고 합니다.',
   );
   expect(body).toBe("지시 비우기");
 });
