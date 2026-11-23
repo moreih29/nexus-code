@@ -52,6 +52,10 @@ export function getAppWindows(): BrowserWindow[] {
   return appWindows.filter((win) => !win.isDestroyed());
 }
 
+export function appWindowOf(contents: { readonly id: number }): BrowserWindow | null {
+  return appWindows.find((win) => !win.isDestroyed() && win.webContents.id === contents.id) ?? null;
+}
+
 /** Whether any app window is open. */
 export function hasAppWindow(): boolean {
   return appWindows.some((win) => !win.isDestroyed());

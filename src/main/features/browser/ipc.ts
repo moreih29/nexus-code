@@ -23,11 +23,11 @@ import { COMMANDS } from "../../../shared/keybindings/commands";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
 import type { GlobalStorage } from "../../infra/storage/global-storage";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
-import { getActiveAppWindow } from "../window/app-windows";
+import { appWindowOf, getActiveAppWindow } from "../window/app-windows";
 import { noticeDownloads } from "./downloads";
 import { installBrowserKeyInterceptor } from "./keyboard";
 import type { BrowserPermissionPromptManager } from "./permission-prompt-manager";
-import type { BrowserTabRegistry } from "./registry";
+import type { BrowserHostWindow, BrowserTabRegistry } from "./registry";
 
 /**
  * Whether the app renderer may load a page-supplied favicon URL. The tab bar
@@ -97,6 +97,7 @@ function runBrowserCommand(
 export function registerBrowserChannel(
   registry: BrowserTabRegistry,
   channelDeps?: BrowserChannelDeps,
+  windowOf: (sender: { readonly id: number }) => BrowserHostWindow | null = appWindowOf,
 ): void {
   type Owner = { viewId: string; sender: NonNullable<CallContext["sender"]> };
   const owners = new Map<string, Owner>();
@@ -138,6 +139,8 @@ export function registerBrowserChannel(
       create: (args: unknown, ctx) => {
         const { tabId, viewId, workspaceId, url, partition } = validateArgs(c.create.args, args);
         if (!ctx?.sender) return ipcErr("not-found", "Browser renderer is unavailable");
+        const win = windowOf(ctx.sender);
+        if (!win) return ipcErr("not-found", "Browser renderer is unavailable");
         const previous = owners.get(tabId);
         if (previous && previous.sender.id !== ctx.sender.id && !previous.sender.isDestroyed()) {
           return ipcErr("conflict", "Browser tab is open in another window");
@@ -148,7 +151,7 @@ export function registerBrowserChannel(
         const owner = { viewId, sender: ctx.sender };
         owners.set(tabId, owner);
         try {
-          registry.create({ tabId, workspaceId, url, partition });
+          registry.create({ tabId, workspaceId, url, partition, win });
         } catch (error) {
           owners.delete(tabId);
           return ipcErr("browser-create-failed", String(error), { category: "bug" });
@@ -299,11 +302,12 @@ export function registerBrowserChannel(
         return ipcOk(undefined);
       },
 
-      suspendAll: async (args: unknown) => {
+      suspendAll: async (args: unknown, ctx) => {
         const { captureSnapshot } = validateArgs(c.suspendAll.args, args);
+        if (!ctx?.sender) return ipcOk(undefined);
         // Capture before hiding so the renderer can show the last frame under the overlay.
         const capturing = new Map(owners);
-        const snapshots = await registry.suspendAll({ captureSnapshot });
+        const snapshots = await registry.suspendAll({ captureSnapshot, windowId: ctx.sender.id });
         for (const { tabId, dataUrl } of snapshots) {
           const owner = capturing.get(tabId);
           if (owner) sendViewEvent(tabId, "snapshot", { kind: "set", dataUrl }, owner);
@@ -311,9 +315,10 @@ export function registerBrowserChannel(
         return ipcOk(undefined);
       },
 
-      resumeAll: (args: unknown) => {
+      resumeAll: (args: unknown, ctx) => {
         validateArgs(c.resumeAll.args, args);
-        for (const tabId of registry.resumeAll()) {
+        if (!ctx?.sender) return ipcOk(undefined);
+        for (const tabId of registry.resumeAll(ctx.sender.id)) {
           sendViewEvent(tabId, "snapshot", { kind: "cleared" });
         }
         return ipcOk(undefined);

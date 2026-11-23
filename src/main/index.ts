@@ -35,7 +35,6 @@ import type { ChatHost } from "./features/chat/host";
 import { instructionsFor } from "./features/chat/instructions";
 import { registerChatChannel } from "./features/chat/ipc";
 import { createPromptFiles } from "./features/chat/prompt-files";
-import { endRunReadersWithWindow } from "./features/chat/run-reader-windows";
 import { setupClaudeFeature } from "./features/claude/index";
 import { type CliFeature, setupCliFeature } from "./features/cli";
 import type { CliRemote } from "./features/cli/context";
@@ -116,6 +115,7 @@ import {
 } from "./features/window/app-windows";
 import { registerWindowChannel } from "./features/window/ipc";
 import { logChildProcessDeaths } from "./features/window/page-health";
+import { wireAppWindow } from "./features/window/wire-app-window";
 import { registerWorkspaceChannel } from "./features/workspace/ipc";
 import { WorkspaceManager } from "./features/workspace/manager";
 import { registerWslChannel } from "./features/wsl/ipc";
@@ -229,7 +229,15 @@ let chatHost: ChatHost | null = null;
 
 function openAppWindow(): BrowserWindow {
   const win = createMainWindow(stateService.getState());
-  endRunReadersWithWindow(win, (opener) => chatHost?.closePrintRunReadersOf(opener));
+  wireAppWindow(win, {
+    closeRunReadersOf: (opener) => chatHost?.closePrintRunReadersOf(opener),
+    pauseAutofetch: (paused) => gitAutofetch?.setGlobalPaused(paused),
+    closeBrowserTabsOf: (owner) => {
+      const registry = getBrowserRegistry();
+      registry?.disposeWindow(owner);
+      if (!hasAppWindow()) registry?.disposeAll();
+    },
+  });
   return win;
 }
 let agentProfiles: { dispose(): void } | null = null;
@@ -1065,8 +1073,7 @@ app.whenReady().then(async () => {
   registerLspChannel(lspHost, stateService);
 
   // Pass persisted appState so titleBarOverlay color matches the user's saved theme.
-  const mainWin = openAppWindow();
-  wireAutofetchWindowFocus(mainWin);
+  openAppWindow();
 
   // Create the browser permission prompt manager.  The broadcast function and
   // workspace storage setter are injected so the manager has no Electron import.
@@ -1081,9 +1088,7 @@ app.whenReady().then(async () => {
     },
   });
 
-  // Initialise the embedded browser tab subsystem.  Must be called after the
-  // main window is created so the registry can hold a strong reference to it.
-  initBrowserFeature(mainWin, {
+  initBrowserFeature({
     permissionDeps: {
       getGlobalGrant: (permission) =>
         stateService.getState().browserPermissionGrants?.[permission] === true,
@@ -1102,34 +1107,12 @@ app.whenReady().then(async () => {
   // workspace context is deleted. Must be called after initBrowserFeature so
   // the registry singleton is available.
   registerBrowserCloser(workspaceManager);
-  mainWin.on("closed", () => {
-    getBrowserRegistry()?.disposeAll();
-  });
 
   // With every window closed, as macOS keeps the app running: a click on its
   // Dock icon, or a second launch, opens one again.
   reopenAppWindow = () => {
     if (quitStarted || hasAppWindow()) return;
-    const newWin = openAppWindow();
-    wireAutofetchWindowFocus(newWin);
-    // Reuse the existing permission manager with the new window.
-    initBrowserFeature(newWin, {
-      permissionDeps: {
-        getGlobalGrant: (permission) =>
-          stateService.getState().browserPermissionGrants?.[permission] === true,
-        getRemembered: (ws, origin, permission) => {
-          if (!workspaceStorage.isOpen(ws)) return null;
-          return workspaceStorage.getOriginPermission(ws, origin, permission);
-        },
-        promptManager: browserPermissionManager,
-      },
-      promptManager: browserPermissionManager,
-      workspaceStorage,
-      globalStorage,
-    });
-    newWin.on("closed", () => {
-      getBrowserRegistry()?.disposeAll();
-    });
+    openAppWindow();
   };
   app.on("activate", reopenAppWindow);
 });
@@ -1213,18 +1196,4 @@ async function shutDownMain(): Promise<void> {
       closePersistence.remainingQuitMs(),
     );
   }
-}
-
-/**
- * BrowserWindow focus/blur globally pauses only scheduler due checks. Any
- * in-flight fetch continues through the repository queue; focus recomputes
- * next due times instead of replaying missed background work immediately.
- */
-function wireAutofetchWindowFocus(win: BrowserWindow): void {
-  win.on("blur", () => {
-    gitAutofetch?.setGlobalPaused(true);
-  });
-  win.on("focus", () => {
-    gitAutofetch?.setGlobalPaused(false);
-  });
 }
