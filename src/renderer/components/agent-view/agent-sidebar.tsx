@@ -356,7 +356,7 @@ export function StatusGroups({
             <>
               {cards.length > 0 && (
                 <div className="flex flex-col px-1 py-1" data-testid="remote-consents">
-                  <ConsentPages>
+                  <ConsentPages place="agent-sidebar">
                     {cards.map(({ consent, source: { peer, list }, workspace }) => (
                       <PeerConsentCard
                         key={JSON.stringify([peer.id, consent.id])}

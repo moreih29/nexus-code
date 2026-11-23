@@ -889,7 +889,7 @@ export function PeerGroup({
             <>
               {consents.length > 0 && (
                 <div className="flex flex-col px-1 py-1" data-testid="remote-consents">
-                  <ConsentPages>
+                  <ConsentPages place={JSON.stringify(["computer", peer.id])}>
                     {consents.map((consent) => (
                       <PeerConsentCard
                         key={consent.id}
