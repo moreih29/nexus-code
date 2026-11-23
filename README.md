@@ -126,20 +126,18 @@ nexus open README.md
 
 ## 설치
 
-- **macOS** (14 이상, Apple Silicon): `NexusCode-X.Y.Z-arm64.dmg`를 열고 앱을 `/Applications`로 옮기세요. [다운로드](https://github.com/moreih29/nexus-code/releases/latest)
+- **macOS** (14 이상, Apple Silicon): `NexusCode-arm64.dmg`를 열고 앱을 `/Applications`로 옮기세요. [다운로드](https://github.com/moreih29/nexus-code/releases/latest/download/NexusCode-arm64.dmg)
 - **Windows** (11 이상, x64): Microsoft Store에서 설치하세요. ARM PC에서는 x64 에뮬레이션으로 실행합니다. 소스 제어에는 Git for Windows가 필요합니다. [Microsoft Store](https://apps.microsoft.com/detail/9P04CSF0J5ZD) · [Git for Windows](https://git-scm.com/downloads/win)
 - **Linux** (x64, arm64): `.deb`나 `.AppImage`를 받으세요. Ubuntu 24.04에서 확인했습니다. [다운로드](https://github.com/moreih29/nexus-code/releases/latest)
 
 <details>
-<summary>macOS 첫 실행 보안 해제 (Gatekeeper)</summary>
+<summary>macOS 첫 실행</summary>
 
-macOS 릴리스는 자체 서명 인증서를 사용하며 Apple Developer ID 서명과 공증 없이 배포합니다. macOS가 앱을 차단하거나 ‘손상된 앱’으로 표시하면, 앱을 `/Applications`로 옮긴 뒤 터미널에서 아래 명령을 실행하고 앱을 여세요.
+0.38.1부터 macOS 앱과 DMG는 Apple Developer ID로 서명하고 공증했습니다. 처음 열 때 확인되지 않은 개발자 경고가 뜨지 않습니다. 0.37.0 이하는 앱 안에서 업데이트되지 않으니 DMG로 직접 설치하세요.
 
-```bash
-xattr -dr com.apple.quarantine "/Applications/NexusCode.app"
-```
+원격 로그인, 프로필 API 키, 기억한 목소리를 저장해 두었다면 앱 서명이 바뀐 뒤 처음 켤 때 앱이 "키체인을 열까요?"라고 묻습니다. **계속**을 누르고, 이어서 뜨는 macOS 창에서 로그인 암호를 넣은 뒤 **항상 허용**을 고르세요.
 
-처음 설치할 때 한 번만 하면 됩니다. Finder나 시스템 설정에서 해제하는 방법은 [macOS 설치 가이드](docs/INSTALL.md#3-gatekeeper-우회)에 있습니다.
+직접 빌드해 다른 Mac에서 내려받은 앱처럼 공증되지 않은 앱이 차단되면 [macOS 설치 가이드](docs/INSTALL.md#4-gatekeeper-가-차단할-때)를 보세요.
 
 </details>
 
@@ -148,20 +146,20 @@ xattr -dr com.apple.quarantine "/Applications/NexusCode.app"
 
 | 배포판 | x64 | arm64 |
 |---|---|---|
-| Debian·Ubuntu | `NexusCode-X.Y.Z-amd64.deb` | `NexusCode-X.Y.Z-arm64.deb` |
-| 그 밖의 배포판 | `NexusCode-X.Y.Z-x86_64.AppImage` | `NexusCode-X.Y.Z-arm64.AppImage` |
+| Debian·Ubuntu | [`NexusCode-amd64.deb`](https://github.com/moreih29/nexus-code/releases/latest/download/NexusCode-amd64.deb) | [`NexusCode-arm64.deb`](https://github.com/moreih29/nexus-code/releases/latest/download/NexusCode-arm64.deb) |
+| 그 밖의 배포판 | [`NexusCode-x86_64.AppImage`](https://github.com/moreih29/nexus-code/releases/latest/download/NexusCode-x86_64.AppImage) | [`NexusCode-arm64.AppImage`](https://github.com/moreih29/nexus-code/releases/latest/download/NexusCode-arm64.AppImage) |
 
-Debian·Ubuntu에서는 내려받은 폴더에서 `.deb`를 설치하세요.
+Debian·Ubuntu에서는 내려받은 폴더에서 `.deb`를 설치하세요. arm64에서는 `NexusCode-arm64.deb`입니다.
 
 ```bash
-sudo apt install ./NexusCode-X.Y.Z-*.deb
+sudo apt install ./NexusCode-amd64.deb
 ```
 
-AppImage는 실행 권한을 준 뒤 여세요.
+AppImage는 실행 권한을 준 뒤 여세요. arm64에서는 `NexusCode-arm64.AppImage`입니다.
 
 ```bash
-chmod +x NexusCode-X.Y.Z-*.AppImage
-./NexusCode-X.Y.Z-*.AppImage
+chmod +x NexusCode-x86_64.AppImage
+./NexusCode-x86_64.AppImage
 ```
 
 Ubuntu 23.10 이상에서는 AppImage를 처음 실행하기 전에 AppArmor 프로필을 한 번 등록하세요. [AppArmor 프로필 등록 방법](docs/INSTALL.md#ubuntu-2310-이상에서-appimage-가-바로-종료될-때)

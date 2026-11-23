@@ -1,7 +1,7 @@
 {
   "name": "nexus-code",
   "productName": "NexusCode",
-  "version": "0.38.1",
+  "version": "0.39.0",
   "description": "Multi-workspace VSCode-style editor. Monaco editor + terminal in one window.",
   "homepage": "https://nexuscode.gradiendo.com/",
   "license": "MIT",

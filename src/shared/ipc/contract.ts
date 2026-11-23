@@ -94,6 +94,7 @@ import {
 } from "../git/types";
 import { CommandIdSchema } from "../keybindings/commands";
 import { KeybindingOverridesSchema } from "../keybindings/overrides";
+import { KeychainStatusSchema } from "../keychain";
 import {
   ApplyWorkspaceEditParamsSchema,
   ApplyWorkspaceEditResultSchema,
@@ -1467,7 +1468,9 @@ const coreIpcContract = {
     call: {
       get: call(z.void(), AppStateSchema),
       set: call(
-        partialWithoutDefaults(AppStateSchema.omit({ rememberedVoices: true })).extend({
+        partialWithoutDefaults(
+          AppStateSchema.omit({ rememberedVoices: true, keychainSignature: true }),
+        ).extend({
           instructionEdits: z.array(InstructionEditSchema).optional(),
         }),
         z.void(),
@@ -2250,6 +2253,22 @@ const coreIpcContract = {
        */
       downloaded: listen(z.object({ file: z.string() })),
     },
+  },
+
+  // The macOS keychain the app's sealed files open with (main/features/keychain):
+  // whether they wait on it, the one window that asks before it is read, and
+  // the settings' button that opens it.
+  keychain: {
+    call: {
+      status: call(z.void(), KeychainStatusSchema),
+      /** The first window to ask shows the question; the others wait for its answer or its closing. */
+      claimPrompt: call(z.void(), z.object({ prompt: z.boolean(), status: KeychainStatusSchema })),
+      /** The answer from the window that claimed the question: open now, or put off for this run. */
+      answer: call(z.object({ open: z.boolean() }), KeychainStatusSchema),
+      /** Opens it now (the settings' button); macOS may ask. */
+      open: call(z.void(), KeychainStatusSchema),
+    },
+    listen: { changed: listen(KeychainStatusSchema) },
   },
 
   // Application lifecycle channel.

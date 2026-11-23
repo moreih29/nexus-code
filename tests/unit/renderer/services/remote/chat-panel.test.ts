@@ -280,11 +280,32 @@ describe("a chat's side panel", () => {
     expect(chatPanelOf(source({})).held).toBeUndefined();
   });
 
+  test("a Claude chat's context is none while its window is unknown or 0", () => {
+    const counted = (window: Record<string, unknown>) =>
+      chatPanelOf(
+        source({
+          contextUsage: {
+            categories: [{ name: "Messages", tokens: 1200, kind: "used" }],
+            totalTokens: 1200,
+            percentage: 0,
+            ...window,
+          },
+        }),
+      ).context;
+    expect(counted({})).toBeNull();
+    expect(counted({ maxTokens: 0 })).toBeNull();
+    expect(counted({ maxTokens: "200000" })).toBeNull();
+    expect(counted({ maxTokens: 200_000 })).toMatchObject({ usedTokens: 1200, maxTokens: 200_000 });
+    expect(chatPanelOf(source({})).context).toBeNull();
+  });
+
   test("a Codex chat's context is its tokens; none before it told them", () => {
     expect(chatPanelOf(source({ tokens: { used: 10, window: 100 } }, "codex")).context).toEqual({
       usedTokens: 10,
       maxTokens: 100,
     });
+    expect(chatPanelOf(source({ tokens: { used: 10, window: 0 } }, "codex")).context).toBeNull();
+    expect(chatPanelOf(source({ tokens: { used: 10 } }, "codex")).context).toBeNull();
     expect(chatPanelOf(source({}, "codex"))).toMatchObject({ context: null, goal: null });
   });
 

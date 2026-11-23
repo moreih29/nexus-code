@@ -28,6 +28,7 @@ import { ipcCallResult } from "../../../ipc/client";
 import { useRemoteAccount } from "../../../services/remote/account";
 import { useRemoteRoom, useShownRoom } from "../../../services/remote/room";
 import { dateTimeFormat } from "../../../utils/intl-format";
+import { KeychainLockedRow, useKeychainLocked } from "../../keychain/keychain-locked";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
 import { PromptDialog } from "../../ui/prompt-dialog";
@@ -89,21 +90,30 @@ function useSignIns(ask: boolean): {
 }
 
 export function RemotePanel() {
+  const { t } = useTranslation("settings");
   const state = useRemoteAccount();
   const key = useAccountKey();
   // Who is in the room, with a drop shorter than DROP_SHOWN_AFTER_MS left out.
   const room = useShownRoom(useRemoteRoom());
-  const signIns = useSignIns(state?.status === "signed-out");
+  // The sign-in kept in a keychain not open yet: the remote is off until it opens.
+  const locked = useKeychainLocked("remote");
+  const signIns = useSignIns(state?.status === "signed-out" && !locked);
   if (!state) return null;
   return (
     <SettingsPage>
       {room?.status === "outdated" && <OutdatedGroup />}
-      <AccountGroup
-        state={state}
-        signIns={signIns.providers}
-        unreachable={signIns.unreachable}
-        onRetry={signIns.retry}
-      />
+      {locked && state.status !== "signed-in" ? (
+        <SettingsGroup title={t("remote.account.title")}>
+          <KeychainLockedRow item="remote" />
+        </SettingsGroup>
+      ) : (
+        <AccountGroup
+          state={state}
+          signIns={signIns.providers}
+          unreachable={signIns.unreachable}
+          onRetry={signIns.retry}
+        />
+      )}
       {state.status === "signed-in" && key && <AccountKeyGroup state={key} />}
       {state.status === "signed-in" && <RemoteControlGroup />}
       {state.status === "signed-in" && (

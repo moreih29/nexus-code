@@ -605,10 +605,25 @@ export function withContextTokens(usage: unknown, tokens: number): unknown {
 }
 
 /**
+ * The context's size a line from the CLI says the main thread's API call
+ * sent: a message's start as it streams, or the message whole. None for a
+ * subagent's, a teammate's or a fork's, nor for any other line.
+ */
+export function mainCallContextTokens(message: unknown): number | undefined {
+  const line = rec(message);
+  if (!line || line.parent_tool_use_id) return undefined;
+  if (line.type === "assistant") return contextTokensOf(rec(line.message)?.usage);
+  if (line.type !== "stream_event") return undefined;
+  const event = rec(line.event);
+  return event?.type === "message_start" ? contextTokensOf(rec(event.message)?.usage) : undefined;
+}
+
+/**
  * Moves the context's size on as the main thread's API call says it, so it
  * follows a turn of many calls, which get_context_usage is asked only at
  * the end of; asked more often, it would count each category with the
- * token-count API.
+ * token-count API. With no count to move yet, the controller asks for one
+ * once (askContextBase).
  */
 function takeContextTokens(m: ChatModel, usage: unknown): void {
   const tokens = contextTokensOf(usage);

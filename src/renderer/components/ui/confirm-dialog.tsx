@@ -9,6 +9,9 @@
  * Concurrency: callers may queue prompts back-to-back. A second
  * showConfirmDialog() while one is open queues, and is shown after the
  * first resolves.
+ *
+ * A prompt whose question no longer stands (its `signal` aborted) leaves the
+ * queue, or closes if shown, resolving false.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -45,6 +48,8 @@ export interface ConfirmDialogRequest {
   cancelLabel?: string;
   confirmLabel?: string;
   variant?: "default" | "destructive";
+  /** Aborted when the question is settled elsewhere: the prompt closes, resolving false. */
+  signal?: AbortSignal;
 }
 
 interface PendingPrompt extends ConfirmDialogRequest {
@@ -64,9 +69,24 @@ function getActive(): PendingPrompt | null {
  */
 export function showConfirmDialog(request: ConfirmDialogRequest): Promise<boolean> {
   return new Promise((resolve) => {
-    queue.push({ ...request, resolve });
+    const { signal } = request;
+    if (signal?.aborted) {
+      resolve(false);
+      return;
+    }
+    const prompt: PendingPrompt = { ...request, resolve };
+    signal?.addEventListener("abort", () => withdraw(prompt), { once: true });
+    queue.push(prompt);
     bus.notify();
   });
+}
+
+/** Takes a prompt out, shown or waiting, as if cancelled. */
+function withdraw(prompt: PendingPrompt): void {
+  if (!queue.includes(prompt)) return;
+  queue = queue.filter((queued) => queued !== prompt);
+  prompt.resolve(false);
+  bus.notify();
 }
 
 function resolveActive(confirmed: boolean): void {
@@ -76,6 +96,13 @@ function resolveActive(confirmed: boolean): void {
   active.resolve(confirmed);
   bus.notify();
 }
+
+/**
+ * Korean breaks between words, not inside one; an overlong word still wraps.
+ * `wrap-break-word`, not `break-words`: tailwind-merge (in DialogHeader's
+ * `cn()`) counts `break-words` as the same group as `break-keep` and drops it.
+ */
+export const CONFIRM_TEXT_CLASS = "break-keep wrap-break-word";
 
 /**
  * Mount once at App level. Reads the head of the prompt queue and
@@ -146,8 +173,17 @@ export function ConfirmDialogRoot(): React.JSX.Element {
       size="sm"
       {...(active?.description ? {} : { "aria-describedby": undefined })}
     >
-      <DialogHeader title={active?.title} description={active?.description} />
-      {active?.hint && <p className="mt-3 text-app-ui-sm text-muted-foreground">{active.hint}</p>}
+      {/* Korean breaks between words, not inside one; an overlong word still wraps. */}
+      <DialogHeader
+        title={active?.title}
+        description={active?.description}
+        descriptionClassName={CONFIRM_TEXT_CLASS}
+      />
+      {active?.hint && (
+        <p className={`mt-3 ${CONFIRM_TEXT_CLASS} text-app-ui-sm text-muted-foreground`}>
+          {active.hint}
+        </p>
+      )}
       {/* Enter takes the focused button: Cancel when confirming would
           delete or discard something, so a stray Enter loses nothing. */}
       <div className="mt-5 flex justify-end gap-2">

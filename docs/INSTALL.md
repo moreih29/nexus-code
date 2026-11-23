@@ -4,11 +4,11 @@
 
 ### 1. 다운로드
 
-[Releases 페이지](https://github.com/moreih29/nexus-code/releases)에서 Mac 아키텍처에 맞는 파일을 내려받는다.
+[Releases 페이지](https://github.com/moreih29/nexus-code/releases)에서 Mac 아키텍처에 맞는 파일을 내려받는다. 아래 파일명을 누르면 최신 버전을 바로 받는다.
 
 | Mac 종류 | 파일명 |
 |---|---|
-| Apple Silicon (M1/M2/M3/M4) | `NexusCode-X.Y.Z-arm64.dmg` |
+| Apple Silicon (M1/M2/M3/M4) | [`NexusCode-arm64.dmg`](https://github.com/moreih29/nexus-code/releases/latest/download/NexusCode-arm64.dmg) |
 
 > Intel (x64) 빌드는 정식 배포에 포함되지 않는다. Intel 머신 사용자는 [Self-build](#self-build) 절차로 직접 빌드한다.
 
@@ -16,9 +16,15 @@
 
 `.dmg`를 마운트하고 **NexusCode**를 `/Applications`로 드래그한다.
 
-### 3. Gatekeeper 우회
+### 3. 첫 실행
 
-NexusCode는 현재 Apple 공증(notarization) 없이 배포된다. 처음 실행 시 macOS Gatekeeper가 앱을 차단할 수 있다.
+0.38.1 부터 릴리스 앱과 DMG 는 Apple Developer ID 로 서명하고 공증(notarization)한다. 처음 열 때 확인되지 않은 개발자 경고 없이 열린다.
+
+원격 로그인, 프로필 API 키, 기억한 목소리를 저장해 두었다면 앱 서명이 바뀐 뒤 처음 켤 때 앱이 "키체인을 열까요?" 라고 묻는다. **계속** 을 누르고, 이어서 뜨는 macOS 창에서 로그인 암호를 넣은 뒤 **항상 허용** 을 고른다.
+
+### 4. Gatekeeper 가 차단할 때
+
+0.38.0 이하의 DMG 나, 직접 빌드해 다른 Mac 에서 내려받은 앱처럼 공증되지 않은 앱은 macOS Gatekeeper 가 차단할 수 있다. 아래 방법 중 하나로 연다.
 
 #### macOS 14 (Sonoma)
 
@@ -53,19 +59,19 @@ xattr -dr com.apple.quarantine "/Applications/NexusCode.app"
 
 ### 1. 다운로드
 
-[Releases 페이지](https://github.com/moreih29/nexus-code/releases)에서 배포판과 아키텍처에 맞는 파일을 내려받는다. Ubuntu 24.04 에서 확인했다.
+[Releases 페이지](https://github.com/moreih29/nexus-code/releases)에서 배포판과 아키텍처에 맞는 파일을 내려받는다. 아래 파일명을 누르면 최신 버전을 바로 받는다. Ubuntu 24.04 에서 확인했다.
 
 | 형식 | x64 | arm64 |
 |---|---|---|
-| deb (Debian · Ubuntu) | `NexusCode-X.Y.Z-amd64.deb` | `NexusCode-X.Y.Z-arm64.deb` |
-| AppImage (그 밖의 배포판) | `NexusCode-X.Y.Z-x86_64.AppImage` | `NexusCode-X.Y.Z-arm64.AppImage` |
+| deb (Debian · Ubuntu) | [`NexusCode-amd64.deb`](https://github.com/moreih29/nexus-code/releases/latest/download/NexusCode-amd64.deb) | [`NexusCode-arm64.deb`](https://github.com/moreih29/nexus-code/releases/latest/download/NexusCode-arm64.deb) |
+| AppImage (그 밖의 배포판) | [`NexusCode-x86_64.AppImage`](https://github.com/moreih29/nexus-code/releases/latest/download/NexusCode-x86_64.AppImage) | [`NexusCode-arm64.AppImage`](https://github.com/moreih29/nexus-code/releases/latest/download/NexusCode-arm64.AppImage) |
 
 Debian · Ubuntu 계열이면 deb 를 권장한다.
 
 ### 2-a. deb 설치
 
 ```bash
-sudo apt install ./NexusCode-X.Y.Z-amd64.deb
+sudo apt install ./NexusCode-amd64.deb
 ```
 
 앱은 `/opt/NexusCode` 에 설치되고 애플리케이션 메뉴에 **NexusCode** 가 생긴다. 터미널에서는 `nexus-code` 로 실행한다. 제거는 `sudo apt remove nexus-code`.
@@ -73,8 +79,8 @@ sudo apt install ./NexusCode-X.Y.Z-amd64.deb
 ### 2-b. AppImage 실행
 
 ```bash
-chmod +x NexusCode-X.Y.Z-x86_64.AppImage
-./NexusCode-X.Y.Z-x86_64.AppImage
+chmod +x NexusCode-x86_64.AppImage
+./NexusCode-x86_64.AppImage
 ```
 
 설치 과정 없이 파일 하나로 실행된다. 앱 안 업데이트가 이 파일을 새 버전으로 바꾸므로, 쓰기 권한이 있는 곳(예: `~/Applications`)에 둔다.
@@ -95,10 +101,9 @@ Ubuntu 23.10 이상에서는 처음 실행 전에 AppArmor 프로필을 한 번 
 
 새 버전 알림의 **Update** 를 누르면 앱이 새 버전을 내려받고, 준비되면 **Restart Now** 로 설치한다. 누르지 않으면 다음 종료 때 설치된다. 내려받는 진행률과 지금 상태는 **Settings → About**(설정 → 정보) 에 나온다.
 
-- 릴리스 빌드는 모두 같은 자체 서명 인증서로 서명된다. macOS 업데이터(Squirrel.Mac)는 새 버전의 서명이 실행 중인 앱과 같은 인증서일 때만 설치한다.
-- 0.10.0 이전 버전은 앱 안 업데이트를 지원하지 않는다. 그 버전에서는 한 번 `.dmg` 로 설치하고 보안 해제를 거친다.
+- 0.38.1 부터 릴리스 빌드는 Apple Developer ID 로 서명한다. macOS 업데이터(Squirrel.Mac)는 새 버전의 서명이 실행 중인 앱의 서명 요구 조건에 맞을 때만 설치한다. 0.38.0 이상은 앱 안에서 업데이트되고, 0.37.0 이하(앱 안 업데이트가 없는 0.10.0 이전 포함)는 `.dmg` 로 한 번 직접 설치한다.
 - Self-build 앱(ad-hoc 서명)은 앱 안에서 업데이트할 수 없다. 업데이트가 실패하면 알림의 **Open Release Page** 로 릴리스 페이지에서 내려받는다.
-- Linux 의 AppImage 는 같은 방식으로 앱 안에서 업데이트된다. 내려받은 새 AppImage 가 실행 중인 파일을 바꾼다.
+- Linux 의 AppImage 는 같은 방식으로 앱 안에서 업데이트된다. 내려받은 새 AppImage 가 실행 중인 파일을 같은 이름으로 바꾼다. 다만 파일명에 버전이 든 AppImage(0.38.1 까지 받은 `NexusCode-0.38.1-x86_64.AppImage` 같은 파일)는 같은 폴더의 `NexusCode-x86_64.AppImage`(arm64: `NexusCode-arm64.AppImage`)로 한 번 바뀌고 옛 파일은 지워진다. 옛 경로를 가리키던 바로가기나 `.desktop` 파일은 새 파일로 고친다.
 - deb 설치도 앱 안에서 업데이트된다. 새 deb 를 내려받아 두고, **Restart Now**(지금 다시 시작) 를 누르면 관리자 암호를 물은 뒤 `apt` 로 설치하고 다시 실행한다. 암호를 물어야 하므로 그냥 종료할 때는 설치하지 않는다.
 
 ---
@@ -140,7 +145,7 @@ bun x electron-builder --mac dmg --x64 --publish never
 
 ```
 dist/
-  NexusCode-X.Y.Z-arm64.dmg
+  NexusCode-arm64.dmg
   NexusCode-X.Y.Z-arm64.zip
 ```
 
@@ -167,8 +172,8 @@ bun run package:linux
 
 ```
 dist/
-  NexusCode-X.Y.Z-x86_64.AppImage   (arm64: NexusCode-X.Y.Z-arm64.AppImage)
-  NexusCode-X.Y.Z-amd64.deb         (arm64: NexusCode-X.Y.Z-arm64.deb)
+  NexusCode-x86_64.AppImage   (arm64: NexusCode-arm64.AppImage)
+  NexusCode-amd64.deb         (arm64: NexusCode-arm64.deb)
 ```
 
 ---
@@ -177,7 +182,7 @@ dist/
 
 ### "App is damaged and can't be opened"
 
-quarantine 속성이 남아 있는 경우다. 터미널에서 아래 명령을 실행한다.
+공증되지 않은 앱(위 [4. Gatekeeper 가 차단할 때](#4-gatekeeper-가-차단할-때))에 quarantine 속성이 남아 있는 경우다. 터미널에서 아래 명령을 실행한다.
 
 ```bash
 xattr -dr com.apple.quarantine "/Applications/NexusCode.app"

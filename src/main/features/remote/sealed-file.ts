@@ -10,6 +10,17 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { dirname } from "node:path";
 import type { z } from "zod";
 
+/**
+ * The keychain did not open: the user put it off, or refused macOS's
+ * prompt. Not a damaged file: what is sealed stays as it is.
+ */
+export class KeychainLockedError extends Error {
+  constructor() {
+    super("The keychain is locked");
+    this.name = "KeychainLockedError";
+  }
+}
+
 /** What seals and opens the file. */
 export interface SecretBox {
   /** Whether it seals for real: false where it would write plain text. */
@@ -18,12 +29,20 @@ export interface SecretBox {
   decrypt(data: Buffer): Promise<string>;
 }
 
-/** The system's keychain, through Electron's asynchronous safeStorage. */
-export async function electronSecretBox(): Promise<SecretBox> {
+/**
+ * The system's keychain, through Electron's asynchronous safeStorage.
+ *
+ * A Mac always has a keychain, and asking whether it is there reads it:
+ * isAsyncEncryptionAvailable fetches the key, and macOS asks for the login
+ * password when the item's access list does not name this app's signature.
+ * So on macOS the keychain is read only when something is sealed or opened.
+ */
+export async function electronSecretBox(platform = process.platform): Promise<SecretBox> {
   const { safeStorage } = await import("electron");
   const available =
-    (await safeStorage.isAsyncEncryptionAvailable()) &&
-    !(process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text");
+    platform === "darwin" ||
+    ((await safeStorage.isAsyncEncryptionAvailable()) &&
+      !(platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text"));
   return {
     available,
     encrypt: (text) => safeStorage.encryptStringAsync(text),
@@ -48,13 +67,15 @@ export class SealedFile<T> implements Kept<T> {
     private readonly schema: z.ZodType<T, unknown>,
   ) {}
 
+  /** Throws KeychainLockedError while the keychain is locked, which is not the file missing. */
   async load(): Promise<T | null> {
     if (this.held) return this.held;
     if (!this.box.available || !existsSync(this.file)) return null;
     try {
       const text = await this.box.decrypt(readFileSync(this.file));
       return this.schema.parse(JSON.parse(text));
-    } catch {
+    } catch (error) {
+      if (error instanceof KeychainLockedError) throw error;
       // Sealed by another user or machine, or damaged: as good as none.
       return null;
     }

@@ -269,8 +269,7 @@ describe("another computer's chat's side panel", () => {
     );
     expect(html).toContain("remote-side-panel");
     expect(html).toContain("0.166.0");
-    expect(html).toContain("gpt-5.5");
-    expect(html).toContain("high");
+    expect(html).toContain("gpt-5.5 · high");
     expect(html).toContain("25%");
     expect(html).toContain("Review the diff");
     expect(html).toContain("Compact after the Codex turn");

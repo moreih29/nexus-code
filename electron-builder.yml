@@ -5,7 +5,21 @@ directories:
   buildResources: build
   output: dist
 
+# The mac zip and the Store appx keep the version in their names. The in-app
+# update on macOS finds the running version's zip blockmap by swapping that
+# version into the new zip's name, and scripts/store-submit.ts picks the AppX
+# by its version.
 artifactName: "${productName}-${version}-${arch}.${ext}"
+
+# The installers people download carry no version, so the site can link
+# releases/latest/download/<name> for each one. ${arch} is still spelled per
+# format: x86_64 for an AppImage, amd64 for a deb.
+dmg:
+  artifactName: "${productName}-${arch}.${ext}"
+appImage:
+  artifactName: "${productName}-${arch}.${ext}"
+deb:
+  artifactName: "${productName}-${arch}.${ext}"
 
 # extraResources 복사 시 떨어진 에이전트 바이너리 실행 비트(+x)를 패킹 직후 복원.
 # On Windows it drops the binaries built for the other architecture.

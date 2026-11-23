@@ -53,6 +53,51 @@ const result = (replay = false): ChatLine => ({
   ...(replay ? { replay: true } : {}),
 });
 
+/** A main-thread API call's start as it streams, which tells the context it sent; a subagent's with `parent`. */
+const callStart = (input: number, parent?: string): ChatLine => ({
+  seq: ++seq,
+  dir: "out",
+  message: {
+    type: "stream_event",
+    event: {
+      type: "message_start",
+      message: { id: `m${seq}`, usage: { input_tokens: 10, cache_read_input_tokens: input - 10 } },
+    },
+    parent_tool_use_id: parent ?? null,
+    session_id: "s1",
+  },
+});
+
+/** The CLI's answer to the last get_context_usage written, its request as the log keeps it first. */
+function answerContext(c: Controller, body: Record<string, unknown> | null): void {
+  const request = sent.findLast(
+    (m) => (m.request as Record<string, unknown> | undefined)?.subtype === "get_context_usage",
+  );
+  const id = request?.request_id as string;
+  c.receive({ seq: ++seq, dir: "in", message: request });
+  c.receive({
+    seq: ++seq,
+    dir: "out",
+    message: {
+      type: "control_response",
+      response: body
+        ? { subtype: "success", request_id: id, response: body }
+        : { subtype: "error", request_id: id, error: "busy" },
+    },
+  });
+  c.flushNow();
+}
+
+const CONTEXT = {
+  categories: [
+    { name: "Messages", tokens: 1_000, kind: "used" },
+    { name: "Free space", tokens: 199_000, kind: "free" },
+  ],
+  totalTokens: 1_000,
+  maxTokens: 200_000,
+  percentage: 1,
+};
+
 /** The control requests written so far, each as its subtype and what it was asked with. */
 function asked(): Record<string, unknown>[] {
   return sent
@@ -122,6 +167,76 @@ describe("the line under the composer", () => {
     c.refreshUsageLine();
     await settle();
     expect(asked()).toContainEqual({ subtype: "get_usage" });
+  });
+
+  test("a turn begun with no count asks for one as its first API call comes, and the calls after move it on", async () => {
+    const c = running();
+    c.receive(callStart(5_000));
+    c.flushNow();
+    expect(asked()).toEqual([{ subtype: "get_context_usage" }]);
+    // Still unanswered: the next call asks nothing.
+    c.receive(callStart(6_000));
+    c.flushNow();
+    expect(asked()).toHaveLength(1);
+    answerContext(c, CONTEXT);
+    await settle();
+    expect(c.state.model.contextUsage).toEqual(CONTEXT);
+    c.receive(callStart(50_000));
+    c.flushNow();
+    expect(asked()).toHaveLength(1);
+    expect(c.state.model.contextUsage).toMatchObject({
+      totalTokens: 50_000,
+      maxTokens: 200_000,
+      percentage: 25,
+      categories: [
+        { name: "Messages", tokens: 1_000, kind: "used" },
+        { name: "Free space", tokens: 150_000, kind: "free" },
+      ],
+    });
+  });
+
+  test("a failed ask for the count is not made again for each call of the turn, but the next turn's", async () => {
+    const c = running();
+    c.receive(callStart(5_000));
+    c.flushNow();
+    answerContext(c, null);
+    await settle();
+    c.receive(callStart(6_000));
+    c.flushNow();
+    expect(asked()).toEqual([{ subtype: "get_context_usage" }]);
+    // The turn's end asks as ever; failed too, the next turn's first call asks once more.
+    c.receive(result());
+    c.flushNow();
+    answerContext(c, null);
+    await settle();
+    c.receive(callStart(7_000));
+    c.flushNow();
+    c.receive(callStart(8_000));
+    c.flushNow();
+    expect(asked().filter((r) => r.subtype === "get_context_usage")).toHaveLength(3);
+  });
+
+  test("a call with a count already, a subagent's, or one replayed asks nothing", async () => {
+    const c = running();
+    c.receive(callStart(5_000, "toolu_1"));
+    c.receive({ ...callStart(5_000), replay: true });
+    c.flushNow();
+    expect(asked()).toEqual([]);
+    c.refreshUsageLine();
+    await settle();
+    answerContext(c, CONTEXT);
+    await settle();
+    sent.length = 0;
+    c.receive(callStart(6_000));
+    c.flushNow();
+    expect(asked()).toEqual([]);
+  });
+
+  test("a Claude Code that cannot tell the context is not asked mid-turn", () => {
+    const c = running("2.1.100");
+    c.receive(callStart(5_000));
+    c.flushNow();
+    expect(asked()).toEqual([]);
   });
 
   test("a program not running is asked nothing", () => {

@@ -305,6 +305,11 @@ export const AppStateSchema = z.object({
   /** Local consent and preferences, written through the voice memory service. */
   rememberedVoices: VoiceNameSettingsSchema.optional(),
 
+  // The hash of the app's designated requirement when the macOS keychain last
+  // opened for it (main/features/keychain). Another one asks the user before
+  // the keychain is read, since macOS will ask for the login password.
+  keychainSignature: z.string().max(128).nullable().default(null),
+
   // Whether the account's other devices may control this one's chats
   // (send, answer, stop, open, close) or only look (main/features/remote).
   remoteControl: z.boolean().default(false),

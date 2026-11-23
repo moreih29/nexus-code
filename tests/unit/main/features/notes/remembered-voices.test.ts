@@ -3,6 +3,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { openKeychain } from "../../../../../src/main/features/keychain/gate";
 import {
   openVoiceMemoryFile,
   RememberedVoices,
@@ -173,7 +174,7 @@ test.each([
         state = { ...state, ...next };
       },
     },
-    async () => box,
+    openKeychain(box),
   );
   try {
     const first = createIpcPair();

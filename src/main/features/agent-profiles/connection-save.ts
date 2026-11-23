@@ -138,37 +138,44 @@ export function createProfileConnections(
     ) {
       const next = normalizedProfile(profile);
       let connectionChanged = false;
-      const keyChanged = await keys.saveProfile(next, key, () => {
-        add?.signal?.throwIfAborted();
-        const agentProfiles = config();
-        const existing = findProfile(state, next.id);
-        if (existing && existing.agent !== next.agent) {
-          throw new ProfileValidationError("Profile does not belong to this agent");
-        }
-        if (add) checkAdd(next);
-        else {
-          if (
-            agentProfiles.profiles.length >= MAX_AGENT_PROFILES &&
-            !agentProfiles.profiles.some(({ id }) => id === next.id)
-          ) {
-            throw new ProfileValidationError(`At most ${MAX_AGENT_PROFILES} profiles can be saved`);
+      const keyChanged = await keys.saveProfile(
+        next,
+        key,
+        () => {
+          add?.signal?.throwIfAborted();
+          const agentProfiles = config();
+          const existing = findProfile(state, next.id);
+          if (existing && existing.agent !== next.agent) {
+            throw new ProfileValidationError("Profile does not belong to this agent");
           }
-          checkFolder(next, existing);
-        }
-        connectionChanged = !sameLaunchConnection(existing, next);
-        const current = state.getState();
-        const agentInstructions =
-          instructions === undefined
-            ? undefined
-            : withInstruction(current.agentInstructions ?? EMPTY_INSTRUCTIONS, {
-                scope: { kind: "profile", id: next.id },
-                text: instructions,
-              });
-        state.commitState({
-          agentProfiles: withProfile(agentProfiles, next),
-          ...(agentInstructions ? { agentInstructions } : {}),
-        });
-      });
+          if (add) checkAdd(next);
+          else {
+            if (
+              agentProfiles.profiles.length >= MAX_AGENT_PROFILES &&
+              !agentProfiles.profiles.some(({ id }) => id === next.id)
+            ) {
+              throw new ProfileValidationError(
+                `At most ${MAX_AGENT_PROFILES} profiles can be saved`,
+              );
+            }
+            checkFolder(next, existing);
+          }
+          connectionChanged = !sameLaunchConnection(existing, next);
+          const current = state.getState();
+          const agentInstructions =
+            instructions === undefined
+              ? undefined
+              : withInstruction(current.agentInstructions ?? EMPTY_INSTRUCTIONS, {
+                  scope: { kind: "profile", id: next.id },
+                  text: instructions,
+                });
+          state.commitState({
+            agentProfiles: withProfile(agentProfiles, next),
+            ...(agentInstructions ? { agentInstructions } : {}),
+          });
+        },
+        findProfile(state, next.id),
+      );
       if (instructions !== undefined) {
         broadcast("appState", "agentInstructionsChanged", {
           config: state.getState().agentInstructions ?? EMPTY_INSTRUCTIONS,
