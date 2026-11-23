@@ -3,6 +3,7 @@
  * sealed message holds, and the methods' params and results.
  */
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 import {
   aadOf,
   bundleAadOf,
@@ -27,6 +28,7 @@ import {
   PushRegistrationSchema,
   PushSendResultSchema,
   PushSendSchema,
+  RemoteConsentSchema,
   RemoteSessionSchema,
   RPC_METHODS,
   RpcIdSchema,
@@ -525,6 +527,26 @@ describe("the methods", () => {
       }).success,
     ).toBe(true);
     expect(result.parse({ workspaces: [], sessions: [] }).consents).toBeUndefined();
+  });
+
+  test("a consent prompt without a time limit says so; one with a limit and an older reader leave it out", () => {
+    const consent = {
+      id: "c1",
+      at: 1000,
+      expiresAt: 1000 + 24 * 60 * 60_000,
+      expiresInMs: 24 * 60 * 60_000,
+      from: { workspaceId: "w9", tabId: "t9" },
+      workspaceId: "w1",
+      change: { kind: "terminalInput" },
+      eachTime: false,
+      answerable: true,
+    };
+    expect(RemoteConsentSchema.parse({ ...consent, untimed: true }).untimed).toBe(true);
+    expect(RemoteConsentSchema.parse(consent).untimed).toBeUndefined();
+    expect(RemoteConsentSchema.safeParse({ ...consent, untimed: false }).success).toBe(false);
+    const { untimed: _, ...olderShape } = RemoteConsentSchema.shape;
+    const older = z.object(olderShape);
+    expect(older.parse({ ...consent, untimed: true })).toEqual(consent);
   });
 
   test("consent.answer takes once, session or deny, under chat.control", () => {

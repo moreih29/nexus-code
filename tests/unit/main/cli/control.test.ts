@@ -80,18 +80,24 @@ describe("changing another workspace", () => {
     expect(app.uiCalls.filter((c) => c.op === "terminal.input")).toHaveLength(3);
   });
 
-  test.each([
-    ["the user turns it down", "deny", "nexus: the user did not allow it\n"],
-    [
-      "the user does not answer",
-      "timeout",
-      "nexus: the user did not answer in time; nothing was changed\n",
-    ],
-  ] as const)("changes nothing when %s", async (_label, answer, stderr) => {
+  test("changes nothing when the user turns it down", async () => {
     const app = fakeApp();
-    app.answers.push(answer);
+    app.answers.push("deny");
     const result = await nexus(app, argv);
-    expect(result.stderr).toBe(stderr);
+    expect(result.stderr).toBe("nexus: the user did not allow it\n");
+    expect(app.uiCalls.some((c) => c.op === "terminal.input")).toBe(false);
+  });
+
+  test("changes nothing when the command's client went before the user allowed it", async () => {
+    const app = fakeApp();
+    const client = new AbortController();
+    app.answers.shift = () => {
+      client.abort(new Error("the client went"));
+      return "once";
+    };
+    const result = runCli(CLI_COMMANDS, { ...contextFor(app, argv), signal: client.signal });
+    await result.catch(() => undefined);
+    expect(app.asked).toHaveLength(1);
     expect(app.uiCalls.some((c) => c.op === "terminal.input")).toBe(false);
   });
 

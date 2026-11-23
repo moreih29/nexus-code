@@ -601,6 +601,84 @@ describe("the room", () => {
   });
 });
 
+describe("a request that waits on the serving device's user", () => {
+  async function pair() {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const serving: { waits?: boolean; signal?: AbortSignal; release: () => void }[] = [];
+    const a = device(relay, "a", key, {
+      serve: ({ waits, signal }) =>
+        new Promise((resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+          serving.push({
+            ...(waits !== undefined ? { waits } : {}),
+            ...(signal ? { signal } : {}),
+            release: () => resolve({ workspaces: [], sessions: [] }),
+          });
+        }),
+    });
+    const b = device(relay, "b", key);
+    a.room.start();
+    b.room.start();
+    await flushRelay();
+    return { a, b, serving };
+  }
+
+  const settle = async () => {
+    for (let i = 0; i < 5; i++) await flushRelay();
+  };
+
+  test("waits past the usual time for the answer, from a requester that says it waits", async () => {
+    const { b, serving } = await pair();
+    const asked = b.room.request("a", "sessions.list", {}, Number.POSITIVE_INFINITY);
+    await settle();
+    expect(serving[0]?.waits).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    serving[0]?.release();
+    expect((await asked).workspaces).toEqual([]);
+  });
+
+  test("called off by the requester: the serving device's signal aborts", async () => {
+    const { b, serving } = await pair();
+    const controller = new AbortController();
+    const asked = b.room.request(
+      "a",
+      "sessions.list",
+      {},
+      Number.POSITIVE_INFINITY,
+      controller.signal,
+    );
+    await settle();
+    controller.abort(new Error("the command went"));
+    await expect(asked).rejects.toThrow("the command went");
+    await settle();
+    expect(serving[0]?.signal?.aborted).toBe(true);
+    expect(String(serving[0]?.signal?.reason?.message)).toContain("called it off");
+  });
+
+  test("the requester left the room: the serving device's signal aborts", async () => {
+    const { b, serving } = await pair();
+    const asked = b.room.request("a", "sessions.list", {}, Number.POSITIVE_INFINITY);
+    await settle();
+    b.room.stop();
+    await expect(asked).rejects.toBeInstanceOf(RpcFailure);
+    await settle();
+    expect(serving[0]?.signal?.aborted).toBe(true);
+    expect(String(serving[0]?.signal?.reason?.message)).toContain("left the room");
+  });
+
+  test("the serving device left the room: the requester stops waiting", async () => {
+    const { a, b } = await pair();
+    const asked = b.room.request("a", "sessions.list", {}, Number.POSITIVE_INFINITY);
+    await settle();
+    a.room.stop();
+    await expect(asked).rejects.toMatchObject({
+      code: RpcErrorCode.Unavailable,
+      message: "that device is not in the room",
+    });
+  });
+});
+
 describe("what the relay keeps and sends again", () => {
   async function pair() {
     const relay = new MockRelay();

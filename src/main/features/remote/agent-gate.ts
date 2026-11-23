@@ -44,6 +44,18 @@ export interface AgentRequest {
     string,
     unknown
   > & { readonly from: AgentSender };
+  readonly signal?: AbortSignal;
+  readonly waits?: boolean;
+}
+
+export function lifetimeOf(request: {
+  readonly signal?: AbortSignal;
+  readonly waits?: boolean;
+}): Pick<AgentRequest, "signal" | "waits"> {
+  return {
+    ...(request.signal ? { signal: request.signal } : {}),
+    ...(request.waits ? { waits: true } : {}),
+  };
 }
 
 export interface AgentGateDeps {
@@ -182,7 +194,7 @@ export class AgentGate {
     scope?: FileConsent,
     approval: Approval = "policy",
   ) {
-    const { device, params } = request;
+    const { device, params, signal, waits } = request;
     const { from } = params;
     const policy = this.deps.policy();
     if (policy === "deny") throw forbidden("control by agents is off there (Settings › Remote)");
@@ -198,6 +210,7 @@ export class AgentGate {
         "the user there has that device's agents' prompts waiting already: try again once they answer",
       );
     }
+    signal?.throwIfAborted();
     this.prompting.set(device.id, waiting + 1);
     const { answer } = await services
       .ui(
@@ -207,14 +220,15 @@ export class AgentGate {
           fromTabId: from.tabId,
           toWorkspaceId: params.workspaceId,
           change,
-          timeoutMs: AGENT_CONSENT_MS,
+          ...(waits ? {} : { timeoutMs: AGENT_CONSENT_MS }),
           fromDevice: device.name,
           fromDeviceId: device.id,
           ...(from.name ? { fromName: from.name } : {}),
         },
-        AGENT_CONSENT_MS + 10_000,
+        waits ? Number.POSITIVE_INFINITY : AGENT_CONSENT_MS + 10_000,
       )
       .catch((error: unknown) => {
+        if (error instanceof RpcFailure) throw error;
         throw new RpcFailure(
           RpcErrorCode.Unavailable,
           error instanceof Error ? error.message : String(error),
@@ -225,6 +239,7 @@ export class AgentGate {
         if (left > 0) this.prompting.set(device.id, left);
         else this.prompting.delete(device.id);
       });
+    signal?.throwIfAborted();
     if (answer === "once" || (answer === "session" && !eachTime)) {
       this.checkRead();
       if (answer === "session") this.allowed.add(pair);

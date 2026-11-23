@@ -446,16 +446,19 @@ const chatRewind: CliCommand = {
     if (withFiles && !preview.canRewind) {
       throw new CliError(`its files cannot be rewound${preview.error ? `: ${preview.error}` : ""}`);
     }
-    await ctx.services.askUser({
-      fromWorkspaceId: ctx.caller.workspaceId,
-      fromTabId: ctx.caller.tabId,
-      toWorkspaceId: target.workspace.id,
-      change: {
-        kind: withFiles ? "chatRewindFiles" : "chatRewind",
-        detail: `"${target.tab.title}" (#${i})`,
-        body: [item.text ?? "", withFiles ? files : ""].filter(Boolean).join("\n\n"),
+    await ctx.services.askUser(
+      {
+        fromWorkspaceId: ctx.caller.workspaceId,
+        fromTabId: ctx.caller.tabId,
+        toWorkspaceId: target.workspace.id,
+        change: {
+          kind: withFiles ? "chatRewindFiles" : "chatRewind",
+          detail: `"${target.tab.title}" (#${i})`,
+          body: [item.text ?? "", withFiles ? files : ""].filter(Boolean).join("\n\n"),
+        },
       },
-    });
+      ctx.signal,
+    );
     await ctx.services.ui(
       "chat.rewind",
       { ...target.ref, itemKey: item.itemKey, files: withFiles },

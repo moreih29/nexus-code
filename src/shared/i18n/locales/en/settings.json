@@ -375,9 +375,8 @@
       "action_other": "make a change ({{kind}})",
       "sandbox_title": "Let an agent run a command outside its sandbox?",
       "sandbox_denied": "The user denied running this command outside the sandbox.",
-      "sandbox_timeout": "The approval to run this command outside the sandbox timed out. Try again when the user can approve it in NexusCode.",
+      "sandbox_unasked": "NexusCode could not ask for approval to run this command outside the sandbox. Try again when the user can approve it in NexusCode.",
       "sandbox_description": "Review the command requested by \"{{tab}}\" in {{from}} to run in {{to}}.",
-      "sandbox_deadline": "Respond within {{seconds}} seconds to allow this request.",
       "sandbox_description_same_workspace": "Review the command requested by \"{{tab}}\" in {{from}}."
     },
     "heading": "nexus CLI"

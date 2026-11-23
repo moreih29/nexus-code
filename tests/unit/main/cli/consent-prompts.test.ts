@@ -55,6 +55,21 @@ describe("the consent prompts waiting on the user", () => {
     expect(prompts.list()).toEqual([]);
   });
 
+  test("one without a timeout waits until answered, listed with no expiry", async () => {
+    const { prompts, shown } = setup();
+    const { timeoutMs: _, ...untimed } = request;
+    const asked = prompts.ask(untimed);
+    const [prompt] = prompts.list();
+    expect(prompt?.expiresAt).toBeUndefined();
+    expect(shown[0]?.timeoutMs).toBe(Number.POSITIVE_INFINITY);
+    expect(shown[0]?.args.timeoutMs).toBeUndefined();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(prompts.list()).toHaveLength(1);
+    shown[0]?.answer("deny");
+    expect(await asked).toEqual({ answer: "deny" });
+    expect(prompts.list()).toEqual([]);
+  });
+
   test("in the order asked; a wait told takes the place of the default", async () => {
     const { prompts, shown } = setup();
     void prompts.ask(request);

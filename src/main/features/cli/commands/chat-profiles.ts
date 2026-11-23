@@ -427,22 +427,25 @@ export const chatProfilesAdd = {
         : connection.method === "api-key"
           ? API_KEY_CONNECTION_URL[agent]
           : undefined;
-    await ctx.services.askUser({
-      fromWorkspaceId: ctx.caller.workspaceId,
-      fromTabId: ctx.caller.tabId,
-      toWorkspaceId: ctx.caller.workspaceId,
-      change: {
-        kind: "profileAdd",
-        detail: name,
-        profileAdd: {
-          agent,
-          folder: dir,
-          connection: connection.method,
-          ...(endpoint ? { endpoint } : {}),
+    await ctx.services.askUser(
+      {
+        fromWorkspaceId: ctx.caller.workspaceId,
+        fromTabId: ctx.caller.tabId,
+        toWorkspaceId: ctx.caller.workspaceId,
+        change: {
+          kind: "profileAdd",
+          detail: name,
+          profileAdd: {
+            agent,
+            folder: dir,
+            connection: connection.method,
+            ...(endpoint ? { endpoint } : {}),
+          },
+          eachTime: true,
         },
-        eachTime: true,
       },
-    });
+      ctx.signal,
+    );
     ctx.signal?.throwIfAborted();
     try {
       const folder = await inspectLocalFolder(agent, dir);

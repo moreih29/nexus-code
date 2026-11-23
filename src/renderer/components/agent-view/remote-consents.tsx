@@ -1,21 +1,6 @@
-/**
- * Another computer's consent prompts (sessions.list's `consents`), at the
- * top of its group in the agent view's list: an agent asks to change
- * something there, and the user may answer from here as at that computer
- * (consent.answer). Each is told in the words and look of this computer's
- * own prompt (consent-dialog): what it asks, what it would run or write
- * (all of it, in a box that scrolls), the seconds left before it counts as
- * turned down, and the answers it allows ("until restart" not for one
- * asked about each time). Its own agent's too: the user answers it here as
- * from any other computer. One this computer may not answer (one too long
- * to be sent whole, one the settings there keep from here, or its own
- * agent's where that computer runs an older NexusCode) shows, to be
- * answered at that computer.
- */
-
 import i18next, { type TFunction } from "i18next";
 import { ShieldQuestion } from "lucide-react";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   ConsentAnswer,
@@ -26,7 +11,6 @@ import { consentDetailsOf } from "../../../shared/cli/consent-copy";
 import type { CliChangeKind } from "../../../shared/cli/ui";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { createListenerBus } from "../../../shared/util/listener-bus";
-import { useNow } from "../../hooks/use-now";
 import { ipcCallResult } from "../../ipc/client";
 import { refreshPeerSessions } from "../../services/remote/room";
 import { cn } from "../../utils/cn";
@@ -169,14 +153,8 @@ export function RemoteConsentCard({
 }) {
   const { t } = useTranslation("settings");
   const { t: tc } = useTranslation();
-  // When it counts as turned down, by this computer's clock: what it had left as the list came.
-  const deadline = useMemo(() => Date.now() + consent.expiresInMs, [consent.expiresInMs]);
-  const now = useNow(true);
-  const seconds = Math.max(0, Math.ceil((deadline - now) / 1000));
   const [busy, setBusy] = useState<ConsentAnswer | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  // Run out: it was turned down there, and goes with the next list.
-  if (seconds === 0 && busy === null) return null;
 
   const answer = async (choice: ConsentAnswer) => {
     setBusy(choice);
@@ -232,9 +210,6 @@ export function RemoteConsentCard({
           {body}
         </pre>
       )}
-      <p className="text-app-micro text-muted-foreground">
-        {t("agentCli.consent.timeout", { seconds })}
-      </p>
       {consent.answerable ? (
         <span className="flex flex-wrap justify-end gap-2">
           {button("deny", t("agentCli.consent.deny"), "ghost")}

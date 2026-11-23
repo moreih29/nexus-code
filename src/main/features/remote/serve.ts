@@ -14,10 +14,10 @@ import {
   workspaceInstructionTarget,
 } from "../../../shared/chat/instructions";
 import type { RelaySender } from "../../../shared/chat/relay";
-import { PROFILE_USAGE_REFRESH_TIMEOUT_MS } from "../../../shared/cli/ui";
+import { type CliUiOps, PROFILE_USAGE_REFRESH_TIMEOUT_MS } from "../../../shared/cli/ui";
 import type { CliServices } from "../cli/context";
 import { openerOf } from "../cli/sender";
-import { type AgentRequest, relaySenderOf } from "./agent-gate";
+import { type AgentRequest, lifetimeOf, relaySenderOf } from "./agent-gate";
 import { Attachments } from "./attachments";
 import { answerConsent } from "./consents";
 import { isFileTransferMethod } from "./file-io";
@@ -252,6 +252,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     // An agent's request: let through as the user set it, and shown as that agent's.
     // A read is only taken where agents are (the room saw to that): nothing to ask.
     const by = (params as { from?: AgentSender } | undefined)?.from;
+    if (by && request.signal) s = askingWhileWanted(s, request.signal);
     if (
       (method === "sessions.reorder" ||
         method === "sessions.markSeen" ||
@@ -298,24 +299,27 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         device,
         method,
         params: params as AgentRequest["params"],
+        ...lifetimeOf(request),
       });
     }
     const checkCurrent = () => {
       if (request.isCurrent?.() === false) {
         throw new RpcFailure(RpcErrorCode.Unavailable, "the requesting device left the room");
       }
+      request.signal?.throwIfAborted();
     };
     if (by && !readOnly && !checkInHandler) {
       checkCurrent();
+      const asking = s;
       s = {
-        ...services,
+        ...asking,
         ui: (op, args, timeoutMs) => {
           checkCurrent();
-          return services.ui(op, args, timeoutMs);
+          return asking.ui(op, args, timeoutMs);
         },
         answerClaudeAsk: (...args) => {
           checkCurrent();
-          return services.answerClaudeAsk(...args);
+          return asking.answerClaudeAsk(...args);
         },
       };
     }
@@ -762,3 +766,17 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
 export { DEFAULT_EVENTS } from "./serving/chat-details";
 export { MAX_SEARCHES_PER_DEVICE } from "./serving/files";
 export type { WorkspaceGit } from "./serving/sessions";
+
+function askingWhileWanted(services: CliServices, signal: AbortSignal): CliServices {
+  return {
+    ...services,
+    ui: (op, args, timeoutMs) =>
+      op === "consent.ask"
+        ? (services.consents.ask(
+            args as CliUiOps["consent.ask"]["args"],
+            timeoutMs,
+            signal,
+          ) as Promise<CliUiOps[typeof op]["result"]>)
+        : services.ui(op, args, timeoutMs),
+  };
+}

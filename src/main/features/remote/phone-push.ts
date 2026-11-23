@@ -167,7 +167,13 @@ export class PhonePush {
     for (const prompt of pending) {
       let event = this.consents.get(prompt.id);
       if (!event) {
-        event = createEvent(prompt.at + (away ? 0 : CONSENT_GRACE_MS), prompt.expiresAt - 2_000);
+        const readyAt = prompt.at + (away ? 0 : CONSENT_GRACE_MS);
+        event = createEvent(
+          readyAt,
+          prompt.expiresAt !== undefined
+            ? prompt.expiresAt - 2_000
+            : readyAt + PUSH_TTL_SECONDS.consent.max * 1_000,
+        );
         this.consents.set(prompt.id, event);
       }
       if (!this.active || refusalFor(prompt, controls) !== null) {

@@ -11,9 +11,6 @@ import { CliError } from "./context";
 
 export type CrossWorkspacePolicy = AppState["cliCrossWorkspace"];
 
-/** How long the user has to answer before the change is turned down. */
-export const CONSENT_TIMEOUT_MS = 90_000;
-
 export interface ChangeRequest {
   readonly fromWorkspaceId: string;
   readonly fromTabId: string;
@@ -27,25 +24,19 @@ export interface ChangeRequest {
 
 export interface ConsentDeps {
   policy(): CrossWorkspacePolicy;
-  ask(request: ChangeRequest, timeoutMs: number, signal?: AbortSignal): Promise<CliConsentAnswer>;
+  ask(request: ChangeRequest, signal?: AbortSignal): Promise<CliConsentAnswer>;
   sandboxSession(workspaceId: string, tabId: string, signal?: AbortSignal): Promise<string | null>;
 }
 
-function refusal(answer: CliConsentAnswer, sandbox: boolean): CliError {
-  if (sandbox) {
-    const t = tryGetMainT();
-    return new CliError(
-      answer === "timeout"
-        ? (t?.("settings:agentCli.consent.sandbox_timeout") ??
-            "The approval to run this command outside the sandbox timed out. Try again when the user can approve it in NexusCode.")
-        : (t?.("settings:agentCli.consent.sandbox_denied") ??
-            "The user denied running this command outside the sandbox."),
-    );
-  }
+function refusal(sandbox: boolean, unasked = false): CliError {
+  if (!sandbox) return new CliError("the user did not allow it");
+  const t = tryGetMainT();
   return new CliError(
-    answer === "timeout"
-      ? "the user did not answer in time; nothing was changed"
-      : "the user did not allow it",
+    unasked
+      ? (t?.("settings:agentCli.consent.sandbox_unasked") ??
+          "NexusCode could not ask for approval to run this command outside the sandbox. Try again when the user can approve it in NexusCode.")
+      : (t?.("settings:agentCli.consent.sandbox_denied") ??
+          "The user denied running this command outside the sandbox."),
   );
 }
 
@@ -130,12 +121,13 @@ export class CrossWorkspaceConsent {
   private async prompt(request: ChangeRequest, signal?: AbortSignal): Promise<"once" | "session"> {
     signal?.throwIfAborted();
     const sandbox = request.change.kind === "sandboxExecution";
-    const answer = await this.deps.ask(request, CONSENT_TIMEOUT_MS, signal).catch((error) => {
+    const answer = await this.deps.ask(request, signal).catch((error) => {
+      signal?.throwIfAborted();
       if (!sandbox) throw error;
-      return "timeout" as const;
+      return null;
     });
     signal?.throwIfAborted();
     if (answer === "once" || (answer === "session" && !request.change.eachTime)) return answer;
-    throw refusal(answer, sandbox);
+    throw refusal(sandbox, answer === null);
   }
 }

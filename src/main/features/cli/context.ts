@@ -8,6 +8,7 @@ import type { ClaudeStatus } from "../../../shared/claude/status";
 import type { CliInvocation } from "../../../shared/cli/protocol";
 import type {
   CliChange,
+  CliConsentAnswer,
   CliPlacement,
   CliTabInfo,
   CliUiOp,
@@ -81,15 +82,19 @@ export interface CliRemote {
 /** A consent prompt waiting on the user (consent-prompts.ts). */
 export interface PendingConsent {
   readonly id: string;
-  /** When it was asked, and when it counts as turned down (Unix ms). */
   readonly at: number;
-  readonly expiresAt: number;
+  readonly expiresAt?: number;
   /** What was asked, as the renderer shows it. */
   readonly request: CliUiOps["consent.ask"]["args"];
 }
 
 /** The consent prompts waiting on the user, for another device of theirs to list and answer. */
 export interface CliConsents {
+  ask(
+    args: CliUiOps["consent.ask"]["args"],
+    bridgeTimeoutMs?: number,
+    signal?: AbortSignal,
+  ): Promise<{ answer: CliConsentAnswer }>;
   /** In the order asked. */
   list(): readonly PendingConsent[];
   /**
@@ -354,7 +359,7 @@ export async function mayChange(
   ctx: CliContext,
   workspace: WorkspaceMeta,
   change: CliChange,
-  signal?: AbortSignal,
+  signal = ctx.signal,
 ): Promise<void> {
   if (workspace.id === ctx.caller.workspaceId) return;
   await ctx.services.allowChange(

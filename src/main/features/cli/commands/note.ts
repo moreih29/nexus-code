@@ -588,12 +588,15 @@ const noteRecord: CliCommand = {
         .catch(() => ({ id: now.noteId as string, title: "" }));
       const change = { detail: note.title || note.id };
       if (act === "resume") {
-        await ctx.services.askUser({
-          fromWorkspaceId: ctx.caller.workspaceId,
-          fromTabId: ctx.caller.tabId,
-          toWorkspaceId: workspace.id,
-          change: { kind: "noteRecord", ...change, eachTime: true },
-        });
+        await ctx.services.askUser(
+          {
+            fromWorkspaceId: ctx.caller.workspaceId,
+            fromTabId: ctx.caller.tabId,
+            toWorkspaceId: workspace.id,
+            change: { kind: "noteRecord", ...change, eachTime: true },
+          },
+          ctx.signal,
+        );
       } else {
         await mayChange(ctx, workspace, { kind: "noteRecordStop", ...change });
       }
@@ -603,17 +606,20 @@ const noteRecord: CliCommand = {
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const note = await findNote(ctx, workspace.id, selector as string);
     // The microphone: the user's to allow, each time.
-    await ctx.services.askUser({
-      fromWorkspaceId: ctx.caller.workspaceId,
-      fromTabId: ctx.caller.tabId,
-      toWorkspaceId: workspace.id,
-      change: {
-        kind: "noteRecord",
-        eachTime: true,
-        detail: note.title || note.id,
-        ...(participants !== undefined ? { body: `Participants: ${participants}` } : {}),
+    await ctx.services.askUser(
+      {
+        fromWorkspaceId: ctx.caller.workspaceId,
+        fromTabId: ctx.caller.tabId,
+        toWorkspaceId: workspace.id,
+        change: {
+          kind: "noteRecord",
+          eachTime: true,
+          detail: note.title || note.id,
+          ...(participants !== undefined ? { body: `Participants: ${participants}` } : {}),
+        },
       },
-    });
+      ctx.signal,
+    );
     const recorder = await ctx.services.ui(
       "note.recorder",
       {
@@ -827,12 +833,19 @@ const voiceNamesDelete: CliCommand = {
         { name: name ?? null, device: deviceRef(device) },
       );
     }
-    await ctx.services.askUser({
-      fromWorkspaceId: ctx.caller.workspaceId,
-      fromTabId: ctx.caller.tabId,
-      toWorkspaceId: ctx.caller.workspaceId,
-      change: { kind: "voiceNamesDelete", detail: name ?? "all remembered names", eachTime: true },
-    });
+    await ctx.services.askUser(
+      {
+        fromWorkspaceId: ctx.caller.workspaceId,
+        fromTabId: ctx.caller.tabId,
+        toWorkspaceId: ctx.caller.workspaceId,
+        change: {
+          kind: "voiceNamesDelete",
+          detail: name ?? "all remembered names",
+          eachTime: true,
+        },
+      },
+      ctx.signal,
+    );
     const result = await ctx.services.ui("note.voiceNames", {
       action: { op: "delete", ...(name !== undefined ? { name } : {}) },
     });

@@ -13,7 +13,6 @@ import type { CliConsents, PendingConsent } from "./context";
 type AskArgs = CliUiOps["consent.ask"]["args"];
 
 export interface ConsentPromptsDeps {
-  /** Shows the prompt (the renderer's consent.ask), waiting up to `timeoutMs` for the answer. */
   ask(
     args: AskArgs,
     timeoutMs: number,
@@ -31,11 +30,6 @@ export class ConsentPrompts implements CliConsents {
 
   constructor(private readonly deps: ConsentPromptsDeps) {}
 
-  /**
-   * Asks the user, as consent.ask does, keeping the prompt listed until it
-   * is answered or runs out. The renderer takes it down at its timeout; the
-   * wait for the answer, `bridgeTimeoutMs`, is a little longer by default.
-   */
   async ask(
     args: AskArgs,
     bridgeTimeoutMs?: number,
@@ -45,7 +39,13 @@ export class ConsentPrompts implements CliConsents {
     const id = randomUUID();
     const at = this.deps.now?.() ?? Date.now();
     const request = { ...args, id };
-    this.pending.set(id, { id, at, expiresAt: at + args.timeoutMs, request });
+    const { timeoutMs } = args;
+    this.pending.set(id, {
+      id,
+      at,
+      ...(timeoutMs !== undefined ? { expiresAt: at + timeoutMs } : {}),
+      request,
+    });
     this.deps.onChange?.();
     const cancel = () => {
       this.remove(id);
@@ -55,7 +55,8 @@ export class ConsentPrompts implements CliConsents {
     try {
       const answer = await this.deps.ask(
         request,
-        bridgeTimeoutMs ?? args.timeoutMs + 10_000,
+        bridgeTimeoutMs ??
+          (timeoutMs !== undefined ? timeoutMs + 10_000 : Number.POSITIVE_INFINITY),
         signal,
       );
       signal?.throwIfAborted();

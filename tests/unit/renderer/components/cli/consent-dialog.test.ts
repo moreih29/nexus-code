@@ -50,6 +50,32 @@ for (const [eachTime, labels] of [
   });
 }
 
+describe("a prompt without a time limit", () => {
+  test("stays until the user answers, and says nothing of a time limit", async () => {
+    const { timeoutMs: _, ...request } = prompt("untimed");
+    let answer: string | undefined;
+    const asked = askCliConsent(request).then((a) => {
+      answer = a;
+      return a;
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(answer).toBeUndefined();
+      const html = renderToStaticMarkup(createElement(CliConsentDialogRoot));
+      expect(html).not.toContain("turned down");
+      expect(html).not.toContain("seconds");
+    } finally {
+      settleCliConsent("untimed", "once");
+    }
+    expect(await asked).toBe("once");
+  });
+
+  test("a timed one, from a computer that does not wait longer, is turned down after it", async () => {
+    const answer = await askCliConsent({ ...prompt("timed"), timeoutMs: 5 });
+    expect(answer).toBe("timeout");
+  });
+});
+
 describe("settling a consent prompt from another device", () => {
   test("the prompt resolves to that answer, and a toast names the device", async () => {
     const toasts: ToastInput[] = [];

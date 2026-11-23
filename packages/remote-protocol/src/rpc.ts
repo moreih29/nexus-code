@@ -339,20 +339,11 @@ export type RemoteSession = z.infer<typeof RemoteSessionSchema>;
 export const ConsentAnswerSchema = z.enum(["once", "session", "deny"]);
 export type ConsentAnswer = z.infer<typeof ConsentAnswerSchema>;
 
-/**
- * A change an agent asks to make that waits on the user's consent on the
- * serving device: an agent of another device of the account, a nexus
- * command changing another workspace there, or its agent manager. The user
- * may answer it there or, when `answerable`, from the device that lists it
- * (consent.answer); unanswered by `expiresAt`, it counts as turned down.
- */
 export const RemoteConsentSchema = z.object({
   id: z.string(),
   /** When it was asked, by the serving device's clock (Unix ms). */
   at: NumberSchema,
-  /** When it counts as turned down, by the serving device's clock. */
   expiresAt: NumberSchema,
-  /** How long it has left as the list is sent: a countdown that needs no clock in common. */
   expiresInMs: NonnegativeIntegerSchema,
   /** Who asks. */
   from: z.object({
@@ -416,6 +407,7 @@ export const RemoteConsentSchema = z.object({
    * says false to it): consent.answer is not taken from agents.
    */
   answerable: z.boolean(),
+  untimed: z.literal(true).optional(),
 });
 export type RemoteConsent = z.infer<typeof RemoteConsentSchema>;
 
@@ -455,13 +447,6 @@ const SessionsSchema = z.object({
 /** A session of the serving device, by its ids there. */
 const TabRef = { workspaceId: z.string(), tabId: z.string() };
 
-/**
- * The agent that sends a request, when an agent does (nexus chat send on
- * another device): its own tab there, which the receiving chat shows as
- * the reply address. The device is the frame's sender. A control method
- * with `from` takes the `agents` capability, not its own, and the serving
- * device may ask its user first (AGENT_CONSENT_MS) or turn it down.
- */
 export const AgentSenderSchema = z.object({
   /** tab: a Claude or Codex tab; terminal: an agent in a terminal; manager: the agent manager. */
   kind: z.enum(["tab", "terminal", "manager"]),
@@ -552,11 +537,13 @@ export const TERMINAL_KEYS = [
 export const TerminalKeySchema = z.enum(TERMINAL_KEYS);
 export type TerminalKey = z.infer<typeof TerminalKeySchema>;
 
-/**
- * How long a serving device may ask its user about a request with `from`
- * before it turns it down: a requester waits this long, and a little more.
- */
 export const AGENT_CONSENT_MS = 90_000;
+
+export const UNTIMED_CONSENT_SCHEMA = "0.29.0";
+
+export const REQUEST_CANCEL = "request.cancel";
+export const RequestCancelSchema = z.object({ id: RpcIdSchema });
+export type RequestCancel = z.infer<typeof RequestCancelSchema>;
 
 /** Most requests with `from` one agent (a device's tab) may make a minute; more are Unavailable. */
 export const MAX_AGENT_REQUESTS_PER_MINUTE = 20;

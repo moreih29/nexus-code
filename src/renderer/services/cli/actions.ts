@@ -568,7 +568,7 @@ export const actionHandlers: {
       toWorkspace: name(toWorkspaceId),
       sameWorkspace: !fromDevice && fromWorkspaceId === toWorkspaceId,
       change,
-      timeoutMs,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     });
     return { answer };
   },

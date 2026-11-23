@@ -1224,7 +1224,7 @@ describe("sandbox execution approvals", () => {
     ]);
   });
 
-  test("workspace approval still requires sandbox consent and one-time approval expires", async () => {
+  test("workspace approval still requires sandbox consent and one-time approval is asked again", async () => {
     const app = withChat();
     const caller = addCaller(app, "codex", "auto", true);
     app.answers.push("session");
@@ -1233,10 +1233,10 @@ describe("sandbox execution approvals", () => {
     ).toBe(0);
     const run = () =>
       nexus(app, ["terminal", "new", "--command", "make test", "--workspace", "api"], caller);
-    app.answers.push("once", "timeout", "session");
+    app.answers.push("once", "deny", "session");
     expect((await run()).exitCode).toBe(0);
     expect((await run()).stderr).toBe(
-      "nexus: The approval to run this command outside the sandbox timed out. Try again when the user can approve it in NexusCode.\n",
+      "nexus: The user denied running this command outside the sandbox.\n",
     );
     expect((await run()).exitCode).toBe(0);
     expect((await run()).exitCode).toBe(0);

@@ -22,16 +22,18 @@ const send = (over: Partial<typeof from> = {}, workspaceId = "w1") => ({
 function gate(policy: RemoteAgentsPolicy, answers: string[] = []) {
   let now = 0;
   const asked: Record<string, unknown>[] = [];
+  const waits: (number | undefined)[] = [];
   const services = {
     listWorkspaces: () => [{ id: "w1", name: "Work" }],
     notes: {
       list: async () => [{ id: "nqaspeaker02", title: "Design review" }],
       read: async () => ({ id: "nqaspeaker02", title: "Design review" }),
     },
-    ui: async (op: string, args: Record<string, unknown>) => {
+    ui: async (op: string, args: Record<string, unknown>, timeoutMs?: number) => {
       if (op === "tabs.list") return { tabs: [{ id: "t1", type: "claude", title: "Review" }] };
       if (op === "consent.ask") {
         asked.push(args);
+        waits.push(timeoutMs);
         return { answer: answers.shift() ?? "deny" };
       }
       if (op === "chat.settings") return { agent: "claude", mode: "plan" };
@@ -48,8 +50,65 @@ function gate(policy: RemoteAgentsPolicy, answers: string[] = []) {
     claudeAsks: () => [{ id: "a1", tool: "Bash", target: "npm test" }],
   } as unknown as CliServices;
   const g = new AgentGate({ policy: () => policy, now: () => now });
-  return { g, services, asked, later: (ms: number) => (now += ms) };
+  return { g, services, asked, waits, later: (ms: number) => (now += ms) };
 }
+
+describe("how long an agent's request waits for the user", () => {
+  test("from a computer that waits for the answer: no time limit", async () => {
+    const { g, services, asked, waits } = gate("ask", ["once"]);
+    await g.check(services, { ...send(), waits: true });
+    expect(asked[0]).not.toHaveProperty("timeoutMs");
+    expect(waits).toEqual([Number.POSITIVE_INFINITY]);
+  });
+
+  test("from an older computer, which gives up: the old time limit", async () => {
+    const { g, services, asked, waits } = gate("ask", ["once"]);
+    await g.check(services, send());
+    expect(asked[0]).toMatchObject({ timeoutMs: 90_000 });
+    expect(waits).toEqual([100_000]);
+  });
+
+  test("the user's answer goes as given", async () => {
+    const allowed = gate("ask", ["once"]);
+    await allowed.g.check(allowed.services, { ...send(), waits: true });
+    const denied = gate("ask", ["deny"]);
+    await expect(denied.g.check(denied.services, { ...send(), waits: true })).rejects.toMatchObject(
+      { code: 1002, message: "the user there did not allow it" },
+    );
+  });
+
+  test("called off while the user is asked: nothing goes, even when they then allow it", async () => {
+    const { g, services, asked } = gate("ask", ["session"]);
+    const controller = new AbortController();
+    const ui = services.ui.bind(services);
+    const asking = {
+      ...services,
+      ui: (async (op: string, args: never, timeoutMs?: number) => {
+        const answer = await ui(op as never, args, timeoutMs);
+        if (op === "consent.ask")
+          controller.abort(new Error("the requesting device called it off"));
+        return answer;
+      }) as CliServices["ui"],
+    } as CliServices;
+    await expect(
+      g.check(asking, { ...send(), waits: true, signal: controller.signal }),
+    ).rejects.toThrow("the requesting device called it off");
+    await expect(g.check(services, send())).rejects.toMatchObject({
+      message: "the user there did not allow it",
+    });
+    expect(asked).toHaveLength(2);
+  });
+
+  test("called off before the prompt: the user is not asked", async () => {
+    const { g, services, asked } = gate("ask", ["once"]);
+    const controller = new AbortController();
+    controller.abort(new Error("gone"));
+    await expect(
+      g.check(services, { ...send(), waits: true, signal: controller.signal }),
+    ).rejects.toThrow("gone");
+    expect(asked).toEqual([]);
+  });
+});
 
 describe("an agent's request from another computer", () => {
   test("allowed, it goes; turned down, it is Forbidden", async () => {
