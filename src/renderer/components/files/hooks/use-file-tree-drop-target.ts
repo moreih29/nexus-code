@@ -11,7 +11,7 @@ import {
 import { loadChildren, toggleExpand } from "@/state/operations/files";
 import { joinPath, parentOf } from "@/state/stores/files/helpers";
 import { useFilesStore } from "@/state/stores/files/store";
-import { basename, relPath } from "@/utils/path";
+import { basename, relativeTo } from "@/utils/path";
 import { createLogger } from "../../../../shared/log/renderer";
 import { MIME_FILE } from "../../../types/workbench-dnd";
 import { isMac } from "../../../utils/platform";
@@ -164,8 +164,8 @@ export async function dropFilePaths({
     try {
       if (copy) {
         const name = basename(srcAbsPath);
-        const fromRel = relPath(srcAbsPath, workspaceRootPath);
-        const toRel = relPath(joinPath(dir, name), workspaceRootPath);
+        const fromRel = relativeTo(srcAbsPath, workspaceRootPath);
+        const toRel = relativeTo(joinPath(dir, name), workspaceRootPath);
         ok = await copyPathWithAutoRename({
           workspaceId,
           fromRelPath: fromRel,

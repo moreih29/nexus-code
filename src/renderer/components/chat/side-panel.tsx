@@ -28,7 +28,7 @@ import {
   TextButton,
 } from "./session-side-panel";
 
-export { shortPath } from "./session-side-panel";
+export { shownPath as shortPath } from "../../../shared/fs/relative-path";
 
 const log = createLogger("chat-side-panel");
 

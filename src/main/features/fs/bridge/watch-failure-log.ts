@@ -1,5 +1,6 @@
-import { errorText, type LimitedLogger, shortId } from "../../../../shared/log/limit";
+import { errorText, type LimitedLogger } from "../../../../shared/log/limit";
 import { redactLogSecrets } from "../../../../shared/log/redact-secrets";
+import { shortId } from "../../../../shared/util/short-id";
 
 export function isTeardownFailure(error: unknown): boolean {
   const text = error instanceof Error ? `${error.name} ${error.message}` : String(error);

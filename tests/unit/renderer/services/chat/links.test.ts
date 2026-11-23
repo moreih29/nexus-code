@@ -3,12 +3,11 @@ import {
   baseName,
   fileKind,
   isLocalAddress,
-  isUnder,
   resolveFileLink,
   resolveFilePath,
   resultFiles,
-  slashWindowsPath,
 } from "../../../../../src/renderer/services/chat/links";
+import { isUnder, slashWindowsPath } from "../../../../../src/shared/fs/relative-path";
 
 describe("chat links", () => {
   test("a path resolves against the session's folder", () => {

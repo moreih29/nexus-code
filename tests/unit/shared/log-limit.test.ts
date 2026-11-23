@@ -4,11 +4,11 @@ import {
   limitLog,
   opaqueTag,
   safeText,
-  shortId,
   stripPaths,
   truncate,
 } from "../../../src/shared/log/limit";
 import { redactLogSecrets } from "../../../src/shared/log/redact-secrets";
+import { shortId } from "../../../src/shared/util/short-id";
 
 function fake() {
   const warn = mock();

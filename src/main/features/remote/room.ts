@@ -39,6 +39,7 @@ import {
   type RoomStatus,
   speaks,
 } from "../../../shared/remote/room";
+import { shortId } from "../../../shared/util/short-id";
 import {
   validationErrorMessage,
   validationErrorOptions,
@@ -521,7 +522,7 @@ export class RemoteRoom {
     p.reject(this.interrupted(p, `${method}: no answer in time`));
     this.warnOccasionally(
       "request-timeout",
-      `Remote request timed out method=${method} peer=${to.slice(0, 8)} elapsedMs=${Math.round(performance.now() - started)}`,
+      `Remote request timed out method=${method} peer=${shortId(to)} elapsedMs=${Math.round(performance.now() - started)}`,
     );
     if (attempt?.seq !== undefined) {
       this.retryHello(to, this.heard.get(to)?.epoch ?? attempt.peer);
@@ -586,7 +587,7 @@ export class RemoteRoom {
     const count = (this.retriedRequests.get(reason) ?? 0) + 1;
     const logged = this.warnOccasionally(
       `request-retry-${reason}`,
-      `Remote read retried method=${p.message.method} peer=${p.to.slice(0, 8)} reason=${reason} attempt=2 count=${count}`,
+      `Remote read retried method=${p.message.method} peer=${shortId(p.to)} reason=${reason} attempt=2 count=${count}`,
     );
     this.retriedRequests.set(reason, logged ? 0 : count);
   }
@@ -930,7 +931,7 @@ export class RemoteRoom {
         const method = isRpcMethod(message.method) ? message.method : "unknown";
         this.warnOccasionally(
           "stale-epoch",
-          `Dropped request for stale epoch method=${method} peer=${frame.from.slice(0, 8)}`,
+          `Dropped request for stale epoch method=${method} peer=${shortId(frame.from)}`,
         );
         if (!this.past.has(`${frame.from}|${envelope.epoch}`)) {
           this.retryHello(frame.from, envelope.epoch);
@@ -1270,7 +1271,7 @@ export class RemoteRoom {
       const elapsed = Math.round(performance.now() - started);
       this.warnOccasionally(
         "slow-serving",
-        `Still serving remote request method=${method} peer=${from.slice(0, 8)} elapsedMs=${elapsed}`,
+        `Still serving remote request method=${method} peer=${shortId(from)} elapsedMs=${elapsed}`,
       );
     }, REQUEST_TIMEOUT_MS);
     slow.unref?.();

@@ -4,7 +4,7 @@ import { FileText, FolderOpen } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import { formatBytes } from "../../../utils/format-bytes";
+import { formatBytes } from "../../../../shared/util/format-bytes";
 import type { NoteHost } from "./host";
 
 export interface AssetNodeOptions {

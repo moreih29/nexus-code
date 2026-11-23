@@ -14,6 +14,7 @@ import type {
 import { toSlashPath } from "../../../shared/fs/drive-path";
 import { parseRemoteFileKey } from "../../../shared/fs/remote-file-key";
 import type { RemoteFileSnapshot } from "../../../shared/types/agent-view";
+import { shortId } from "../../../shared/util/short-id";
 import { sessionKey } from "../agent-sessions/model";
 import {
   type AgentLayout,
@@ -75,7 +76,7 @@ function describeTabs(
         kind: "remote-file",
         workspaceId: file.workspaceId,
         title: basename(toSlashPath(file.path)),
-        device: remoteFiles.get(key)?.deviceName || file.deviceId.slice(0, 8),
+        device: remoteFiles.get(key)?.deviceName || shortId(file.deviceId),
         path: file.path,
       });
       continue;
@@ -88,8 +89,8 @@ function describeTabs(
         key,
         kind: "remote-session",
         workspaceId: remote.workspaceId,
-        title: target?.title || remote.tabId.slice(0, 8),
-        device: target?.deviceName || remote.deviceId.slice(0, 8),
+        title: target?.title || shortId(remote.tabId),
+        device: target?.deviceName || shortId(remote.deviceId),
         ...(target?.path ? { path: target.path } : {}),
       });
     }

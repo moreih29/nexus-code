@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { revealEditorAt } from "@/services/editor/tabs";
-import { useWorkspacesStore } from "@/state/stores/workspaces";
+import { useWorkspace } from "@/state/stores/workspaces";
 import type { SearchRange } from "../../../../shared/search/types";
 import type { ViewMode } from "../../../../shared/types/panel";
 import { usePanelViewOptionsStore, useViewOptions } from "../../../state/stores/panel-view-options";
@@ -31,7 +31,7 @@ const EMPTY_EXPANDED_DIRS: ReadonlySet<string> = new Set<string>();
 
 export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps) {
   const { t } = useTranslation("files");
-  const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
+  const workspace = useWorkspace(workspaceId);
   const rootPath = workspace?.rootPath ?? "";
 
   const [inputValue, setInputValue] = useState(

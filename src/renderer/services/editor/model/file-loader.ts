@@ -5,7 +5,7 @@ import { workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../../ipc/client";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
-import { relPath } from "../../../utils/path";
+import { relativeTo } from "../../../utils/path";
 import {
   bytesFromBase64,
   decodeBytes,
@@ -73,7 +73,7 @@ export function workspaceRootForInput(input: EditorInput): string {
 }
 
 export function relPathForInput(input: EditorInput): string {
-  return relPath(input.filePath, workspaceRootForInput(input));
+  return relativeTo(input.filePath, workspaceRootForInput(input));
 }
 
 export async function readFileForModel(

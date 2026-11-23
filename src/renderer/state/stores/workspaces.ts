@@ -317,3 +317,18 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
 }
 
 export const useWorkspacesStore = createWorkspacesStore();
+
+export function useWorkspace(id: string | null | undefined): WorkspaceMeta | undefined;
+export function useWorkspace<T>(
+  id: string | null | undefined,
+  pick: (workspace: WorkspaceMeta | undefined) => T,
+): T;
+export function useWorkspace<T>(
+  id: string | null | undefined,
+  pick?: (workspace: WorkspaceMeta | undefined) => T,
+): T | WorkspaceMeta | undefined {
+  return useWorkspacesStore((state) => {
+    const workspace = id ? state.workspaces.find((w) => w.id === id) : undefined;
+    return pick ? pick(workspace) : workspace;
+  });
+}

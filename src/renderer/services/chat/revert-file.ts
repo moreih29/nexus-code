@@ -4,7 +4,7 @@ import { showConfirmDialog } from "../../components/ui/confirm-dialog";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { fileErrorMessage } from "../../utils/file-error";
-import { relPath } from "../../utils/path";
+import { relativeTo } from "../../utils/path";
 import { acquireModel, releaseModel } from "../editor/model";
 import { reportSaveFailure, saveModelInteractive } from "../editor/save/service";
 import { confirmAndDeletePath } from "../fs-mutations/confirm-delete";
@@ -46,7 +46,7 @@ export async function revertChangedFile(
   try {
     const model = state.model;
     if (!model && state.errorCode === "NOT_FOUND") {
-      const error = await writeAnew(workspaceId, relPath(path, root), before);
+      const error = await writeAnew(workspaceId, relativeTo(path, root), before);
       return error === null ? reverted() : failed(error);
     }
     if (!model) {

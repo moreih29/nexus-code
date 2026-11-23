@@ -5,6 +5,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import type { DiffTabPayload } from "../../../shared/types/tab";
+import { formatBytes } from "../../../shared/util/format-bytes";
 import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import { useMonacoThemeName } from "../../hooks/use-monaco-theme-name";
 import {
@@ -15,7 +16,6 @@ import { acquireModel, releaseModel, useSharedModel } from "../../services/edito
 import { useDiffWorkingFile } from "../../services/editor/tabs";
 import type { EditorInput } from "../../services/editor/types";
 import { registerTabFocusTarget } from "../../services/tab-focus";
-import { formatBytes } from "../../utils/format-bytes";
 import { type BannerDismiss, BannerDismissButton } from "../ui/banner";
 import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";

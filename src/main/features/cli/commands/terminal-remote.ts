@@ -3,8 +3,9 @@ import {
   TERMINAL_KEYS,
   type TerminalKey,
 } from "../../../../../packages/remote-protocol/src";
+import { shortId } from "../../../../shared/util/short-id";
 import { CliUsageError, type ParsedArgs } from "../args";
-import { type CliContext, type CliDevice, CliError, shortId } from "../context";
+import { type CliContext, type CliDevice, CliError } from "../context";
 import { oneLine } from "../format";
 import { type CliOutput, output } from "../registry";
 import {

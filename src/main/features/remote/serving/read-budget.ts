@@ -1,6 +1,7 @@
 import { RpcErrorCode, type RpcMethod } from "../../../../../packages/remote-protocol/src";
 import type { CliUiOp, CliUiOps } from "../../../../shared/cli/ui";
 import { createLogger } from "../../../../shared/log/main";
+import { shortId } from "../../../../shared/util/short-id";
 import type { CliServices } from "../../cli/context";
 import { RpcFailure } from "../room";
 
@@ -81,7 +82,7 @@ export class ReadBudget {
     if (this.slow.size === 0 && skipped === 0 && elapsed < SLOW_UI_MS) return;
     if (now - (warnedAt.get(this.method) ?? -Infinity) < WARNING_INTERVAL_MS) return;
     warnedAt.set(this.method, now);
-    const peer = this.from ? ` peer=${this.from.slice(0, 8)}` : "";
+    const peer = this.from ? ` peer=${shortId(this.from)}` : "";
     const details = [...this.slow].map(
       ([op, stats]) => `${op} count=${stats.count} timeouts=${stats.timeouts} maxMs=${stats.maxMs}`,
     );

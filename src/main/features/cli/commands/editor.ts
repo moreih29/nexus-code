@@ -1,6 +1,7 @@
 import type { CliEditorView, CliProblem } from "../../../../shared/cli/ui";
+import { shortId } from "../../../../shared/util/short-id";
 import { CliUsageError, exactArgs } from "../args";
-import { CliError, mayChange, placementFor, resolveWorkspace, shortId } from "../context";
+import { CliError, mayChange, placementFor, resolveWorkspace } from "../context";
 import { rendererRoot, splitLocation, workspaceFile } from "../paths";
 import { type CliCommand, output } from "../registry";
 import { BACKGROUND_FLAG, WORKSPACE_FLAG } from "./flags";

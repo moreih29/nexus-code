@@ -8,6 +8,7 @@ import {
 } from "../../../shared/sessions/agent-state";
 import type { LimitResume } from "../../../shared/types/layout";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { shortId } from "../../../shared/util/short-id";
 import type { Tab } from "../../state/stores/tabs";
 import type { ChatTabState } from "../chat/store";
 import { remoteDisplayName, remoteTitle } from "../remote/display-name";
@@ -38,7 +39,7 @@ export function sessionParentName(opener: TerminalOpener | undefined, title?: st
   return (
     title ||
     (opener?.device ? remoteTitle(opener.name) : opener?.name) ||
-    (opener?.device && remoteDisplayName(opener.tabId?.slice(0, 8))) ||
+    (opener?.device && remoteDisplayName(opener.tabId && shortId(opener.tabId))) ||
     (opener?.kind !== "tab" ? opener?.agent : undefined)
   );
 }

@@ -2,7 +2,7 @@ import i18next from "i18next";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { loadChildren } from "@/state/operations/files";
 import { parentOf } from "@/state/stores/files";
-import { relPath } from "@/utils/path";
+import { relativeTo } from "@/utils/path";
 import { trashName } from "@/utils/trash-name";
 import { FS_ERROR } from "../../../shared/fs/errors";
 import { toFsToast } from "./errors";
@@ -17,7 +17,7 @@ export interface TrashPathInput {
 export async function trashPath(input: TrashPathInput): Promise<boolean> {
   const { workspaceId, workspaceRootPath, absPath, nodeType } = input;
   const parentAbsPath = parentOf(absPath, workspaceRootPath);
-  const rel = relPath(absPath, workspaceRootPath);
+  const rel = relativeTo(absPath, workspaceRootPath);
 
   if (rel === absPath) {
     toFsToast(new Error(FS_ERROR.OUT_OF_WORKSPACE), {

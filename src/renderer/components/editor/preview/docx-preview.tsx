@@ -9,7 +9,7 @@ import {
 } from "../../../services/editor/preview/link-router";
 import { readWorkspaceBinary } from "../../../services/editor/preview/read-binary";
 import { peerOf } from "../../../services/remote/peer-workspace";
-import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { useWorkspace } from "../../../state/stores/workspaces";
 import { cn } from "../../../utils/cn";
 import { EmptyState } from "../../ui/empty-state";
 import { wordListMarkers } from "./docx-lists";
@@ -79,9 +79,7 @@ function DocxDocument({ workspaceId, relPath, filePath }: DocxDocumentProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const pageWidth = useRef(0);
   const [status, setStatus] = useState<Status>({ kind: "loading" });
-  const workspaceRootAbsPath = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
-  );
+  const workspaceRootAbsPath = useWorkspace(workspaceId, (w) => w?.rootPath ?? "");
   const linkCtx: LinkClassifyContext = useMemo(
     () => ({ currentFileAbsPath: filePath, workspaceRootAbsPath, kind: "link" }),
     [filePath, workspaceRootAbsPath],

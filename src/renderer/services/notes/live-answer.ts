@@ -1,10 +1,10 @@
+import { slashWindowsPath } from "../../../shared/fs/relative-path";
 import {
   liveAnswerPreview,
   liveAnswerTime,
   type NoteLastAnswer,
 } from "../../../shared/notes/links";
 import { codexItemTools } from "../chat/codex/model";
-import { slashWindowsPath } from "../chat/links";
 import { type ChatItem, type ChatModel, num, opensTurn, rec, str } from "../chat/model";
 import { changedFilesOf } from "../chat/panel";
 import type { ChatTabState } from "../chat/store";

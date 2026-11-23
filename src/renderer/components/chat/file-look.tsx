@@ -31,7 +31,7 @@ import {
 } from "../../services/remote/peer-file-live";
 import { type PeerText, peerOf, usePeerText } from "../../services/remote/peer-workspace";
 import { usePreviewDefaultsStore } from "../../state/stores/preview-defaults";
-import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { useWorkspace } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
 import { fileErrorMessage } from "../../utils/file-error";
 import { ImagePreview } from "../editor/preview/image-preview";
@@ -465,17 +465,13 @@ function LookText({
   line?: number;
 }) {
   const { t } = useTranslation();
-  const location = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location,
-  );
+  const location = useWorkspace(workspaceId, (w) => w?.location);
   const root = location
     ? location.kind === "local"
       ? location.rootPath
       : location.remotePath
     : "";
-  const rootPath = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
-  );
+  const rootPath = useWorkspace(workspaceId, (w) => w?.rootPath ?? "");
   const inside = isUnder(path, root);
   const { model, phase, errorCode } = useSharedModel({
     workspaceId,

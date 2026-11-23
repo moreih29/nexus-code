@@ -11,6 +11,7 @@ import {
   ruleMatches,
 } from "../../../../shared/agent-profiles/profiles";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
+import { shortId } from "../../../../shared/util/short-id";
 import { ipcCallResult } from "../../../ipc/client";
 import {
   matchOptions,
@@ -99,7 +100,7 @@ export function ProfileRulesPanel() {
     const ws = workspaces.find((w) => w.id === target.workspaceId);
     return {
       icon: Monitor,
-      text: ws?.name ?? target.workspaceId.slice(0, 8),
+      text: ws?.name ?? shortId(target.workspaceId),
       sub: t("profileRules.workspaceTarget"),
     };
   };

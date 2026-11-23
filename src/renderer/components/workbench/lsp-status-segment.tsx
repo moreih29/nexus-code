@@ -10,6 +10,7 @@ import {
 } from "../../../shared/lsp/config";
 import { isLspLanguageOn, isLspLanguageOnForWorkspace } from "../../../shared/lsp/settings";
 import type { LspServerStatus } from "../../../shared/lsp/status";
+import { formatBytes } from "../../../shared/util/format-bytes";
 import { ipcCallResult } from "../../ipc/client";
 import { dismissLspFailureToast } from "../../state/operations/lsp-status";
 import { useLayoutStore } from "../../state/stores/layout";
@@ -131,10 +132,6 @@ function describeState(
   return t(`lsp.state.stopped.${status.stopReason ?? "idle"}`);
 }
 
-function formatMegabytes(bytes: number): string {
-  return `${Math.round(bytes / (1024 * 1024))} MB`;
-}
-
 const MENU_ITEM_CLASS =
   "flex w-full items-center px-2 py-1 rounded-(--radius-control) text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none";
 
@@ -194,7 +191,7 @@ function LspStatusPopover({
         {server && <span className="text-app-ui-sm text-muted-foreground truncate">{server}</span>}
         <span className="text-app-ui-sm text-muted-foreground">
           {describeState(t, on, status, progress)}
-          {running && memory !== null && ` · ${t("lsp.memory", { size: formatMegabytes(memory) })}`}
+          {running && memory !== null && ` · ${t("lsp.memory", { size: formatBytes(memory) })}`}
         </span>
         {status?.state === "failed" &&
           (install ? (

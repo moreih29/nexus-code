@@ -1,6 +1,7 @@
 import type { AgentRun, ToolRun } from "../../../../shared/claude/activity";
+import { shortId } from "../../../../shared/util/short-id";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
-import { type CliContext, CliError, mayChange, pick, resolveWorkspace, shortId } from "../context";
+import { type CliContext, CliError, mayChange, pick, resolveWorkspace } from "../context";
 import { ago, oneLine, table } from "../format";
 import { type CliCommand, output } from "../registry";
 import { DEFAULT_WAIT_MS, MAX_WAIT_MS, WAIT_POLL_MS } from "../wait";

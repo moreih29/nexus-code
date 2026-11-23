@@ -14,7 +14,7 @@ import {
 import { useSystemStats } from "../../services/system-stats/use-system-stats";
 import { useActiveStore } from "../../state/stores/active";
 import { useAgentViewStore } from "../../state/stores/agent-view";
-import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { useWorkspace } from "../../state/stores/workspaces";
 
 function useStatsTitle(stats: SystemStats, host: string | null): string {
   const { t } = useTranslation();
@@ -84,9 +84,7 @@ export function SystemStatsSegment({
   const isActiveWorkspace = useActiveStore((s) => s.activeWorkspaceId === workspaceId);
   const agentView = useAgentViewStore((s) => s.mode === "agents");
   const stats = useSystemStats(workspaceId, isActiveWorkspace && !agentView);
-  const location = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location,
-  );
+  const location = useWorkspace(workspaceId, (w) => w?.location);
   if (!stats) return null;
   return <SystemStatsItem stats={stats} host={hostLabel(location)} />;
 }

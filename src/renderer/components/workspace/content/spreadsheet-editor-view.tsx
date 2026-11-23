@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { useWorkspace } from "../../../state/stores/workspaces";
 import { PreviewFindScope } from "../../editor/preview/preview-find";
 import { SpreadsheetPreview } from "../../editor/preview/spreadsheet-preview";
 import { EditorBreadcrumbs } from "./editor-breadcrumbs";
@@ -15,9 +15,7 @@ export function SpreadsheetEditorView({
   workspaceId,
   breadcrumbs,
 }: SpreadsheetEditorViewProps) {
-  const workspaceRootAbsPath = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
-  );
+  const workspaceRootAbsPath = useWorkspace(workspaceId, (w) => w?.rootPath ?? "");
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between gap-2 overflow-hidden px-2 py-1 border-b border-[var(--surface-island-border)]">

@@ -1,8 +1,9 @@
 import { type ListeningPort, portUrl } from "../../../../shared/pty/ports";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import { shortId } from "../../../../shared/util/short-id";
 import { ForwardError } from "../../pty/forwards";
 import { CliUsageError, exactArgs } from "../args";
-import { type CliContext, CliError, mayChange, resolveWorkspace, shortId } from "../context";
+import { type CliContext, CliError, mayChange, resolveWorkspace } from "../context";
 import { table } from "../format";
 import { type CliCommand, output } from "../registry";
 import { WORKSPACE_FLAG } from "./flags";

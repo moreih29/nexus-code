@@ -26,6 +26,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { RelayedMessage } from "../../../shared/chat/relay";
 import { CHAT_MODES, type ModeSet } from "../../../shared/sessions/chat-modes";
+import { formatBytes } from "../../../shared/util/format-bytes";
 import { useFitStep } from "../../hooks/use-fit-step";
 import { appCommandsBeside, listedCommands } from "../../services/chat/app-commands";
 import { firstVersionOf } from "../../services/chat/claude/versions";
@@ -57,7 +58,6 @@ import { useChatNotes, useRecentChatNotes } from "../../services/notes/chat-note
 import { type NoteChoice, noteChoices } from "../../services/notes/choices";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { cn } from "../../utils/cn";
-import { formatBytes } from "../../utils/format-bytes";
 import { isMac } from "../../utils/platform";
 import { showConfirmDialog } from "../ui/confirm-dialog";
 import {

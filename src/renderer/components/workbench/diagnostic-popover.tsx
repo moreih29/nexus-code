@@ -3,12 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { toNativeDrivePath } from "../../../shared/fs/drive-path";
+import { relativeTo } from "../../../shared/fs/relative-path";
 import type { WorkspaceLocation } from "../../../shared/types/workspace";
 import { rootPathFromLocation } from "../../../shared/types/workspace";
 import { getEntryMetadata } from "../../services/editor/model";
 import { requireMonaco } from "../../services/editor/runtime/monaco-singleton";
 import { revealEditorAt } from "../../services/editor/tabs/reveal-editor-at";
-import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { useWorkspace } from "../../state/stores/workspaces";
 
 export type DiagnosticKind = "error" | "warning";
 
@@ -98,11 +99,7 @@ function relativeDirOf(filePath: string, workspaceRoot: string | null): string {
   const lastSlash = filePath.lastIndexOf("/");
   if (lastSlash < 0) return "";
   const dir = filePath.slice(0, lastSlash);
-  if (!workspaceRoot) return dir;
-  const root = workspaceRoot.endsWith("/") ? workspaceRoot.slice(0, -1) : workspaceRoot;
-  if (dir === root) return "";
-  if (dir.startsWith(`${root}/`)) return dir.slice(root.length + 1);
-  return dir;
+  return workspaceRoot ? relativeTo(dir, workspaceRoot) : dir;
 }
 
 interface DiagnosticListProps {
@@ -118,9 +115,7 @@ export function DiagnosticList({
 }: DiagnosticListProps): React.ReactNode {
   const { t } = useTranslation();
   const markers = useWorkspaceMarkers(workspaceId, kind);
-  const location: WorkspaceLocation | null = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location ?? null,
-  );
+  const location: WorkspaceLocation | null = useWorkspace(workspaceId, (w) => w?.location ?? null);
   const workspaceRoot = location ? rootPathFromLocation(location) : null;
 
   const groups = useMemo(() => buildGroups(markers, workspaceRoot), [markers, workspaceRoot]);

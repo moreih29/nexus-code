@@ -15,12 +15,15 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { ChatPanel } from "../../../../packages/remote-protocol/src/view";
+import { shownPath } from "../../../shared/fs/relative-path";
+import { formatBytes } from "../../../shared/util/format-bytes";
+import { shortId } from "../../../shared/util/short-id";
 import { useNow } from "../../hooks/use-now";
 import { artifactsOf } from "../../services/chat/artifact";
 import { useFoundFiles } from "../../services/chat/file-presence";
 import { type JobOutput, readJobOutput } from "../../services/chat/job-output";
 import { linkPlaceIndex, linkPlaces } from "../../services/chat/link-places";
-import { fileKind, slashWindowsPath } from "../../services/chat/links";
+import { fileKind } from "../../services/chat/links";
 import type { ChatItem, ChatModel, ToolCall } from "../../services/chat/model";
 import { modelLineOfTab } from "../../services/chat/model-line";
 import {
@@ -38,7 +41,6 @@ import {
 import { type ActivityRow, activityOf, type JobLike } from "../../services/chat/running";
 import { formatTokens, meterLevel, shownReset } from "../../services/chat/usage-line";
 import { cn } from "../../utils/cn";
-import { formatBytes } from "../../utils/format-bytes";
 import { usageLineOf } from "../agent-view/remote-usage";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
 import { CopyButton } from "../ui/copy-button";
@@ -416,7 +418,7 @@ export function PanelEnv({
       {session?.id && (
         <Field label={t("chat.panel.env.session")}>
           <span className="min-w-0 truncate font-mono text-app-micro" title={session.id}>
-            {session.id.slice(0, 8)}
+            {shortId(session.id)}
           </span>
           <CopyButton text={session.id} label={t("chat.panel.env.copy_session")} />
           {onForkSession && (
@@ -744,12 +746,6 @@ export function TodosSection({
   );
 }
 
-export function shortPath(path: string, cwd: string): string {
-  const base = slashWindowsPath(cwd).replace(/\/$/, "");
-  const file = slashWindowsPath(path);
-  return file.startsWith(`${base}/`) ? file.slice(base.length + 1) : path;
-}
-
 export function ResultsSection({
   items,
   tools,
@@ -986,7 +982,7 @@ function ResultRow({
   onOpen: () => void;
 }) {
   const { t } = useTranslation();
-  const label = path ? shortPath(path, cwd) : result.target;
+  const label = path ? shownPath(path, cwd) : result.target;
   const [hover, setHover] = useState<DOMRect | null>(null);
   const image = path !== null && fileKind(path) === "image";
   return (
@@ -1081,7 +1077,7 @@ export function ChangedRow({
         <FileText className="size-3.5 shrink-0 text-muted-foreground" />
       )}
       <span className="min-w-0 flex-1 truncate font-mono text-app-micro">
-        {shortPath(file.path, cwd)}
+        {shownPath(file.path, cwd)}
       </span>
       <span className="shrink-0 text-app-micro tabular-nums text-[var(--git-status-added-fg)]">
         +{file.added}

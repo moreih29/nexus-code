@@ -5,6 +5,7 @@ import {
   RpcErrorCode,
   type RpcParams,
 } from "../../../../../packages/remote-protocol/src";
+import { shortId } from "../../../../shared/util/short-id";
 import type { CliServices } from "../../cli/context";
 import { isAgentBackedProvider } from "../../fs/bridge/provider";
 import { AgentFileWrites } from "../agent-file-writes";
@@ -91,7 +92,7 @@ export async function serveFileDestination(
   await watches.agents?.checkFile(
     s,
     {
-      device: { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) },
+      device: { id: from, name: watches.deviceName?.(from) ?? shortId(from) },
       method,
       params: write,
       ...lifetimeOf(request),
@@ -181,7 +182,7 @@ export async function serveFileRead(
     await watches.agents?.checkFile(
       s,
       {
-        device: { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) },
+        device: { id: from, name: watches.deviceName?.(from) ?? shortId(from) },
         method,
         params: { ...read, from: by as AgentSender },
         ...lifetimeOf(request),

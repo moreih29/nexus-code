@@ -2,13 +2,14 @@ import type { ChatCommand, ChatPanel } from "../../../../../packages/remote-prot
 import type { CliPastSession, CliTabInfo } from "../../../../shared/cli/ui";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import { shortId } from "../../../../shared/util/short-id";
 import {
   applyRemoteControl,
   remoteControlCommand,
   remoteControlOutput,
 } from "../../chat/remote-control";
 import { CliUsageError, exactArgs, type ParsedArgs } from "../args";
-import { type CliContext, CliError, mayChange, resolveWorkspace, shortId } from "../context";
+import { type CliContext, CliError, mayChange, resolveWorkspace } from "../context";
 import { ago, clockAt, oneLine } from "../format";
 import { type CliCommand, type CliOutput, output } from "../registry";
 import {

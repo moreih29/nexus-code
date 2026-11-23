@@ -1,6 +1,7 @@
 import type { CliBrowserAction, CliTabInfo } from "../../../../shared/cli/ui";
 import { loopbackPort, portUrl } from "../../../../shared/pty/ports";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import { shortId } from "../../../../shared/util/short-id";
 import { CliUsageError, exactArgs } from "../args";
 import type { PageInfo } from "../browser/driver";
 import {
@@ -11,7 +12,6 @@ import {
   placementFor,
   resolveTab,
   resolveWorkspace,
-  shortId,
 } from "../context";
 import { table } from "../format";
 import { type CliCommand, output } from "../registry";

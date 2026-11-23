@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { Fragment } from "react";
 import { useTranslation } from "react-i18next";
-import { relPath } from "../../../utils/path";
+import { relativeTo } from "../../../utils/path";
 
 interface EditorBreadcrumbsProps {
   filePath: string;
@@ -15,7 +15,7 @@ export function EditorBreadcrumbs({
   const { t } = useTranslation();
   if (!workspaceRootAbsPath) return null;
 
-  const rel = relPath(filePath, workspaceRootAbsPath);
+  const rel = relativeTo(filePath, workspaceRootAbsPath);
   const segments = rel.split("/").filter(Boolean);
   if (segments.length === 0) return null;
 

@@ -1,7 +1,7 @@
 import { Maximize2, Minus, Plus } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { useWorkspace } from "../../../state/stores/workspaces";
 import { type PdfControls, PdfPreview } from "../../editor/preview/pdf-preview";
 import { PreviewFindScope } from "../../editor/preview/preview-find";
 import { IconButton } from "../../ui/icon-button";
@@ -14,9 +14,7 @@ interface PdfEditorViewProps {
 }
 
 export function PdfEditorView({ filePath, workspaceId, breadcrumbs }: PdfEditorViewProps) {
-  const workspaceRootAbsPath = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
-  );
+  const workspaceRootAbsPath = useWorkspace(workspaceId, (w) => w?.rootPath ?? "");
   const [controls, setControls] = useState<PdfControls | null>(null);
 
   return (

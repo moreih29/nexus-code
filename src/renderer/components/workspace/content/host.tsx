@@ -18,7 +18,7 @@ import { retainPanelDirectoryWatch } from "@/state/operations/files";
 import { useAgentViewStore } from "@/state/stores/agent-view";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
-import { relPath } from "@/utils/path";
+import { relativeTo } from "@/utils/path";
 import { NoteTab } from "../../notes/note-tab";
 import { BrowserTabView } from "./browser-view";
 import { DocxEditorView } from "./docx-editor-view";
@@ -71,7 +71,7 @@ export const ContentHost = memo(function ContentHost({
   );
   useEffect(() => {
     if (!panelFilePath || !workspaceRoot) return;
-    const file = relPath(panelFilePath, workspaceRoot);
+    const file = relativeTo(panelFilePath, workspaceRoot);
     if (!file || file === panelFilePath) return;
     const dir = file.slice(0, Math.max(0, file.lastIndexOf("/")));
     const watch = retainPanelDirectoryWatch(workspaceId, dir);

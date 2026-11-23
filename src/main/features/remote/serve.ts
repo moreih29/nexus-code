@@ -10,6 +10,7 @@ import {
 } from "../../../shared/chat/instructions";
 import type { RelaySender } from "../../../shared/chat/relay";
 import { type CliUiOps, PROFILE_USAGE_REFRESH_TIMEOUT_MS } from "../../../shared/cli/ui";
+import { shortId } from "../../../shared/util/short-id";
 import type { CliServices } from "../cli/context";
 import { openerOf } from "../cli/sender";
 import { type AgentRequest, lifetimeOf, relaySenderOf } from "./agent-gate";
@@ -279,7 +280,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     const readOnly = AGENT_READS.has(method);
     if (by && (readOnly || checkInHandler)) watches.agents?.checkRead();
     if (by && watches.agents && !readOnly && !checkInHandler) {
-      const device = { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) };
+      const device = { id: from, name: watches.deviceName?.(from) ?? shortId(from) };
       relay = relaySenderOf(by, device);
       expectedMode = await watches.agents.check(s, {
         device,
@@ -516,7 +517,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "consent.answer":
         return answerConsent(
           s,
-          { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) },
+          { id: from, name: watches.deviceName?.(from) ?? shortId(from) },
           controls,
           request.params as RpcParams<"consent.answer">,
         );

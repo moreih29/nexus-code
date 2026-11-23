@@ -1,5 +1,5 @@
 import { copyText } from "@/utils/clipboard";
-import { relPath } from "@/utils/path";
+import { relativeTo } from "@/utils/path";
 import { toNativeDrivePath } from "../../../shared/fs/drive-path";
 import { revealInFinder as revealInFinderService } from "./reveal";
 
@@ -25,7 +25,7 @@ export function createPathActions(ctx: PathActionContext): PathActions {
     copyRelativePath() {
       const abs = ctx.getAbsPath();
       if (!abs) return;
-      copyText(relPath(abs, ctx.workspaceRootPath));
+      copyText(relativeTo(abs, ctx.workspaceRootPath));
     },
     revealInFinder() {
       const abs = ctx.getAbsPath();
