@@ -549,18 +549,18 @@ export function SshNewConnectionView({
       <div className="rounded-(--radius-control) border border-border px-3 py-2">
         <button
           type="button"
-          className="flex w-full items-center justify-between text-left text-app-ui-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
+          className="flex w-full items-center gap-1.5 text-left text-app-ui-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:opacity-50"
           aria-expanded={advancedOpen}
           aria-controls={NEW_CONN_ADVANCED_ID}
           disabled={connecting}
           onClick={() => setAdvancedOpen((prev) => !prev)}
         >
-          <span>{t("ssh.label_advanced")}</span>
           {advancedOpen ? (
-            <ChevronDown className="size-4" aria-hidden="true" />
+            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
           ) : (
-            <ChevronRight className="size-4" aria-hidden="true" />
+            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
           )}
+          <span>{t("ssh.label_advanced")}</span>
         </button>
         {advancedOpen ? (
           <div
