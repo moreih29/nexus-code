@@ -998,6 +998,26 @@ app.whenReady().then(async () => {
       },
     },
     ...(isWindows() ? { promptFiles: createPromptFiles() } : {}),
+    attachCleanups: {
+      add: (host, workspaceId) => {
+        const waiting = stateService.getState().attachCleanups ?? [];
+        if (waiting.some((entry) => entry.host === host && entry.workspaceId === workspaceId))
+          return;
+        // The oldest give way: an agent there may never come up again.
+        stateService.setState({
+          attachCleanups: [...waiting, { host, workspaceId }].slice(-200),
+        });
+      },
+      take: (host) => {
+        const waiting = stateService.getState().attachCleanups ?? [];
+        const taken = waiting.filter((entry) => entry.host === host);
+        if (taken.length > 0) {
+          const rest = waiting.filter((entry) => entry.host !== host);
+          stateService.setState({ attachCleanups: rest.length > 0 ? rest : undefined });
+        }
+        return taken.map((entry) => entry.workspaceId);
+      },
+    },
     savedClaudeInstructions: (workspaceId, tabId) => {
       const tab = stateService
         .getState()

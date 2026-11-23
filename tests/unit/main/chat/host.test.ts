@@ -1401,11 +1401,26 @@ describe("ChatHost", () => {
 });
 
 describe("attached files", () => {
+  const OTHER = "w-removed";
+  function cleanups() {
+    const waiting: Array<{ host: string; workspaceId: string }> = [];
+    return {
+      waiting,
+      attachCleanups: {
+        add: (host: string, workspaceId: string) => waiting.push({ host, workspaceId }),
+        take: (host: string) => {
+          const taken = waiting.filter((entry) => entry.host === host);
+          for (const entry of taken) waiting.splice(waiting.indexOf(entry), 1);
+          return taken.map((entry) => entry.workspaceId);
+        },
+      },
+    };
+  }
   const callsOf = (channel: FakeChannel, method: string) =>
     channel.calls.filter((call) => call.method === method).map((call) => call.params);
 
-  test("closing a tab keeps its files, but not as its workspace is removed", async () => {
-    const { host, channel } = setup();
+  test("closing a tab keeps its files; removing its workspace removes the folder", async () => {
+    const { host, channel } = setup({ attachHost: () => "local" });
     await host.start(WS, TAB, "/repo", {});
     await host.call("close", { workspaceId: WS, tabId: TAB });
     expect(callsOf(channel, "chat.close")).toEqual([
@@ -1417,6 +1432,9 @@ describe("attached files", () => {
     const closes = callsOf(channel, "chat.close") as Array<Record<string, unknown>>;
     expect(closes).toHaveLength(2);
     expect(closes[1]?.keepAttachments).toBeUndefined();
+    expect(callsOf(channel, "chat.removeAttachments")).toEqual([
+      { workspaceId: WS, slots: [], all: true },
+    ]);
   });
 
   test("a prune tells the agent what to keep and for how long", async () => {
@@ -1435,6 +1453,94 @@ describe("attached files", () => {
         retain: { keep: [], maxAgeMs: 0, maxBytes: ATTACH_ROOM_BYTES },
       },
     ]);
+  });
+
+  test("a removed workspace's folder waits for its host's next prune when it cannot go now", async () => {
+    const { waiting, attachCleanups } = cleanups();
+    const { host, channel } = setup(
+      { attachHost: () => "local" },
+      undefined,
+      undefined,
+      undefined,
+      {
+        attachCleanups,
+      },
+    );
+    await host.closeWorkspace(OTHER, null);
+    expect(waiting).toEqual([{ host: "local", workspaceId: OTHER }]);
+
+    channel.failures.set("chat.removeAttachments", "request-failed");
+    await host.closeWorkspace("w-failed", channel);
+    expect(waiting).toEqual([
+      { host: "local", workspaceId: OTHER },
+      { host: "local", workspaceId: "w-failed" },
+    ]);
+
+    // Still failing: both stay for the next time.
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [] });
+    expect(waiting).toHaveLength(2);
+
+    channel.failures.clear();
+    channel.calls.length = 0;
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB], keepSlots: ["t/1"] });
+    expect(waiting).toEqual([]);
+    expect(channel.calls).toEqual([
+      { method: "chat.removeAttachments", params: { workspaceId: OTHER, slots: [], all: true } },
+      {
+        method: "chat.removeAttachments",
+        params: { workspaceId: "w-failed", slots: [], all: true },
+      },
+      {
+        method: "chat.pruneAttachments",
+        params: {
+          workspaceId: WS,
+          keepTabIds: [TAB],
+          retain: { keep: ["t/1"], maxAgeMs: ATTACH_UNUSED_MS, maxBytes: ATTACH_ROOM_BYTES },
+        },
+      },
+    ]);
+  });
+
+  test("another host's removed workspaces wait for an agent there", async () => {
+    const { waiting, attachCleanups } = cleanups();
+    attachCleanups.add("ssh:u@h:22", OTHER);
+    const { host, channel } = setup(
+      { attachHost: () => "local" },
+      undefined,
+      undefined,
+      undefined,
+      {
+        attachCleanups,
+      },
+    );
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [], capOnly: true });
+    expect(waiting).toEqual([{ host: "ssh:u@h:22", workspaceId: OTHER }]);
+    expect(channel.calls).toEqual([
+      {
+        method: "chat.pruneAttachments",
+        params: {
+          workspaceId: WS,
+          keepTabIds: [],
+          retain: { keep: [], maxAgeMs: 0, maxBytes: ATTACH_ROOM_BYTES },
+        },
+      },
+    ]);
+  });
+
+  test("an agent from before neither keeps nor waits for a removed workspace's files", async () => {
+    const { waiting, attachCleanups } = cleanups();
+    const { host, channel } = setup(
+      { attachHost: () => "local" },
+      undefined,
+      undefined,
+      undefined,
+      {
+        attachCleanups,
+      },
+    );
+    channel.failures.set("chat.removeAttachments", "unsupported-method");
+    await host.closeWorkspace(OTHER, channel);
+    expect(waiting).toEqual([]);
   });
 
   test("touching and removing slots skip an empty list and an agent from before", async () => {

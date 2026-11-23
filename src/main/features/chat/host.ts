@@ -93,12 +93,24 @@ export interface ChatWorkspaceManager {
   isLocal?(workspaceId: string): boolean;
   /** The workspace's agent channel only while it is up: an SSH host is not dialed. */
   peekAgentChannel?(workspaceId: string): Promise<AgentChannel | null>;
+  /**
+   * The host and user whose attach folder the workspace's agent writes in,
+   * the same for every workspace there (attachHostOf); null when unknown.
+   */
+  attachHost?(workspaceId: string): string | null;
 }
 
 /** How long an attached file no open tab uses stays unused before a prune removes it. */
 export const ATTACH_UNUSED_MS = 30 * 24 * 60 * 60 * 1000;
 /** The most a workspace's attached files hold; past it a prune removes the least recently used. */
 export const ATTACH_ROOM_BYTES = 1024 * 1024 * 1024;
+
+/** Removed workspaces whose attached files wait for an agent on their host to remove them. */
+export interface AttachCleanups {
+  add(host: string, workspaceId: string): void;
+  /** The workspaces waiting on the host, which no longer wait. */
+  take(host: string): string[];
+}
 
 export interface ChatHostOptions {
   workspaceManager: ChatWorkspaceManager;
@@ -136,6 +148,8 @@ export interface ChatHostOptions {
     workspaceId: string,
     tabId: string,
   ) => { profileId?: string; instructions?: string } | undefined;
+  /** Where a removed workspace's attached files wait when its host's agent was not up. */
+  attachCleanups?: AttachCleanups;
 }
 
 export type StartResult =
@@ -670,7 +684,8 @@ export class ChatHost {
    * Prunes the workspace's attached files (chat.pruneAttachments): those of
    * no open tab, that no open tab's conversation names, once unused for
    * ATTACH_UNUSED_MS (not with capOnly), and the least recently used past
-   * ATTACH_ROOM_BYTES.
+   * ATTACH_ROOM_BYTES. First the files of removed workspaces left for an
+   * agent on the same host go.
    */
   async pruneAttachments({
     workspaceId,
@@ -684,6 +699,7 @@ export class ChatHost {
     capOnly?: boolean;
   }): Promise<void> {
     const channel = await this.channelFor(workspaceId);
+    await this.removeWaitingAttachments(workspaceId, channel);
     await channel.call("chat.pruneAttachments", {
       workspaceId,
       keepTabIds,
@@ -709,6 +725,61 @@ export class ChatHost {
     await channel.call(`chat.${method}`, args).catch((error: unknown) => {
       if ((error as { code?: unknown } | null)?.code !== "unsupported-method") throw error;
     });
+  }
+
+  /** Removes the folders of removed workspaces whose host is this workspace's. */
+  private async removeWaitingAttachments(
+    workspaceId: string,
+    channel: AgentChannel,
+  ): Promise<void> {
+    const cleanups = this.options.attachCleanups;
+    const host = this.options.workspaceManager.attachHost?.(workspaceId);
+    if (!cleanups || !host) return;
+    for (const removed of cleanups.take(host)) {
+      try {
+        await channel.call("chat.removeAttachments", {
+          workspaceId: removed,
+          slots: [],
+          all: true,
+        });
+      } catch (error) {
+        log.warn(
+          `could not remove removed workspace ${removed}'s attached files: ${String(error)}`,
+        );
+        cleanups.add(host, removed);
+      }
+    }
+  }
+
+  /**
+   * Removes a removed workspace's attached files, its whole folder; left for
+   * the next prune on the same host when its agent is not up or fails.
+   */
+  private async removeWorkspaceAttachments(
+    workspaceId: string,
+    channel: AgentChannel | null,
+    host: string | null,
+    deadline: number,
+  ): Promise<void> {
+    const wait = () => {
+      if (host) this.options.attachCleanups?.add(host, workspaceId);
+    };
+    const timeoutMs = deadline - Date.now();
+    if (!channel || timeoutMs <= 0) return wait();
+    try {
+      await channel.call(
+        "chat.removeAttachments",
+        { workspaceId, slots: [], all: true },
+        { timeoutMs },
+      );
+    } catch (error) {
+      // An agent from before removed each tab's files as it closed.
+      if ((error as { code?: unknown } | null)?.code === "unsupported-method") return;
+      log.warn(
+        `could not remove removed workspace ${workspaceId}'s attached files: ${String(error)}`,
+      );
+      wait();
+    }
   }
 
   /**
@@ -1038,22 +1109,30 @@ export class ChatHost {
     this.workspaces.delete(workspaceId);
     subscription?.dispose();
     this.subscriptions.delete(workspaceId);
-    if (tabIds.size === 0) return;
+    // Read while the workspace is still known.
+    const host = this.options.workspaceManager.attachHost?.(workspaceId) ?? null;
     const deadline = Date.now() + WORKSPACE_CHAT_CLOSE_MS;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const expired = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("chat.close timed out")), WORKSPACE_CHAT_CLOSE_MS);
-    });
-    const removal = { channel, deadline, expired };
-    const results = await Promise.allSettled(
-      Array.from(tabIds, (tabId) => this.closeTab(workspaceId, tabId, removal)),
-    ).finally(() => clearTimeout(timer));
-    for (const result of results) {
-      if (result.status === "rejected")
-        log.warn(
-          `could not close a chat in removed workspace ${workspaceId}: ${String(result.reason)}`,
+    if (tabIds.size > 0) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const expired = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("chat.close timed out")),
+          WORKSPACE_CHAT_CLOSE_MS,
         );
+      });
+      const removal = { channel, deadline, expired };
+      const results = await Promise.allSettled(
+        Array.from(tabIds, (tabId) => this.closeTab(workspaceId, tabId, removal)),
+      ).finally(() => clearTimeout(timer));
+      for (const result of results) {
+        if (result.status === "rejected")
+          log.warn(
+            `could not close a chat in removed workspace ${workspaceId}: ${String(result.reason)}`,
+          );
+      }
     }
+    // Its closed tabs' files stayed for conversations of its own, which go with it.
+    await this.removeWorkspaceAttachments(workspaceId, channel, host, deadline);
   }
 
   dispose(): void {

@@ -4,6 +4,7 @@ import path from "node:path";
 import { AgentManifestSchema } from "../../../shared/agent/manifest";
 import { createLogger } from "../../../shared/log/main";
 import {
+  attachHostOf,
   rootPathFromLocation,
   type WorkspaceConnectionChangedEvent,
   type WorkspaceLocation,
@@ -386,6 +387,12 @@ export class WorkspaceManager {
   /** Whether the workspace runs on this machine rather than over SSH. */
   isLocal(id: string): boolean {
     return this.contexts.get(id)?.getMeta().location.kind === "local";
+  }
+
+  /** The host and user whose attach folder the workspace's agent writes in (attachHostOf). */
+  attachHost(id: string): string | null {
+    const meta = this.contexts.get(id)?.getMeta();
+    return meta ? attachHostOf(meta.location) : null;
   }
 
   /**
