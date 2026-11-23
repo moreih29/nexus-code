@@ -41,7 +41,7 @@ const ROOT_TRIES = 10;
 export const HISTORY_RETRY_MS = 60_000;
 /** Most slots a tab keeps: the newest stay. */
 const MAX_TAB_SLOTS = 500;
-/** Most slots one call names (the agent's own limit). */
+/** Most slots one call names, or one history tells (the agent's own limit). */
 const MAX_CALL_SLOTS = 5_000;
 
 type ChatTab = ClaudeTab | CodexTab;
@@ -112,9 +112,14 @@ function conversationOf(
 /**
  * The slots the open chat tabs' conversations name: those they keep, those
  * read now, and those their whole histories name (readOpenHistories).
- * Null while a history's are not known: nothing is to go on a guess.
+ * Null while a history's are not known: nothing is to go on a guess. All
+ * of them, however many: one left out would look unused.
  */
-function keptSlots(workspaceId: string, tabs: readonly ChatTab[], root: string): string[] | null {
+function keptSlots(
+  workspaceId: string,
+  tabs: readonly ChatTab[],
+  root: string,
+): Set<string> | null {
   const slots = new Set<string>();
   for (const tab of tabs) {
     const history = askedHistorySlots(workspaceId, tab);
@@ -130,7 +135,7 @@ function keptSlots(workspaceId: string, tabs: readonly ChatTab[], root: string):
     ))
       slots.add(slot);
   }
-  return [...slots].slice(-MAX_CALL_SLOTS);
+  return slots;
 }
 
 /** A conversation's history as the agent keeps it, in a profile. */
@@ -177,7 +182,8 @@ const askingHistory = new Map<string, Promise<readonly string[]>>();
 
 /**
  * The slots a history names (chat.historySlots), asked once a run. One
- * that cannot be read (its file's rights, say) fails the same for
+ * that cannot be read (its file's rights, say, or more slots named than
+ * the agent tells) fails the same for
  * HISTORY_RETRY_MS, unasked: a chat is looked at each second it streams.
  * One the agent has no file of yet (a fork's own, just named) names none
  * for as long, then is asked again; with `again`, now.
@@ -200,7 +206,9 @@ function historyOf(
   if (asking) return asking;
   const asked = ipcCallResult("chat", "historySlots", { workspaceId, ...history })
     .then((result) => {
-      const { slots, found } = unwrapIpcResult(result);
+      const { slots, found, truncated } = unwrapIpcResult(result);
+      // Those left out are not known: as one not read.
+      if (truncated) throw new Error("a history names more attachments than can be told");
       historyFailed.delete(key);
       if (found) {
         historySlots.set(key, slots);
@@ -421,7 +429,8 @@ registerWorkspaceCleanup((workspaceId) => {
 /**
  * Prunes the workspace's attached files (chat.pruneAttachments): the open
  * chat tabs' and what their conversations name stay; with `capOnly`, only
- * the room is made. Files are kept by use only once the agent tells its
+ * the room is made. Nothing goes while a history is not known, or while
+ * they name more than a call can (MAX_CALL_SLOTS). Files are kept by use only once the agent tells its
  * attach root, so a file an open conversation names is never taken for an
  * unused one; false while it tells none. Main then prunes only where the
  * agent names no root (a home it cannot name, or an agent from before),
@@ -438,9 +447,16 @@ export async function pruneAttachments(workspaceId: string, capOnly = false): Pr
     return false;
   }
   await readOpenHistories(workspaceId);
-  const keepSlots = keptSlots(workspaceId, tabs, root);
+  const kept = keptSlots(workspaceId, tabs, root);
   // What an open conversation names early on is not known: nothing goes now.
-  if (!keepSlots) throw new Error("an open conversation's history could not be read");
+  if (!kept) throw new Error("an open conversation's history could not be read");
+  // An open tab's own folder stays by its id.
+  const open = new Set(keepTabIds);
+  const keepSlots = [...kept].filter((slot) => !open.has(slot.slice(0, slot.indexOf("/"))));
+  // More than one call names: one left out would go as unused, so none goes now.
+  if (keepSlots.length > MAX_CALL_SLOTS) {
+    throw new Error("the open conversations name more attachments than a prune can keep");
+  }
   unwrapIpcResult(
     await ipcCallResult("chat", "pruneAttachments", {
       workspaceId,
@@ -506,9 +522,8 @@ export async function removeConversationAttachments(
   const tabs = chatTabsOf(workspaceId);
   const openTabs = new Set(tabs.map((tab) => tab.id));
   // Read before the conversation went (readOpenHistories), as a fork's may be its.
-  const kept = keptSlots(workspaceId, tabs, root);
-  if (!kept) return;
-  const used = new Set(kept);
+  const used = keptSlots(workspaceId, tabs, root);
+  if (!used) return;
   const slots = named.filter(
     (slot) => !used.has(slot) && !openTabs.has(slot.slice(0, slot.indexOf("/"))),
   );

@@ -1196,6 +1196,7 @@ const coreIpcContract = {
        * Codex thread in its home): what a tab that has loaded only its last
        * pages keeps. Empty from an agent too old to tell. `found` is false
        * while the agent has no history of it yet: to be asked again.
+       * `truncated`: it names more than these, so what it names is not known.
        */
       historySlots: call(
         z.object({
@@ -1204,7 +1205,11 @@ const coreIpcContract = {
           conversation: z.string().max(128),
           profileId: z.string().max(64).optional(),
         }),
-        z.object({ slots: z.array(z.string().max(300)).max(5_000), found: z.boolean() }),
+        z.object({
+          slots: z.array(z.string().max(300)).max(5_000),
+          found: z.boolean(),
+          truncated: z.boolean(),
+        }),
       ),
       /**
        * Where a Claude session is kept on the workspace's host, for a program

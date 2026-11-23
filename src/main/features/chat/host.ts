@@ -879,7 +879,8 @@ export class ChatHost {
    * the agent from the history kept in the profile's folder (a Claude
    * session) or home (a Codex thread): only their names come back. `found`
    * is false while the agent has no history of it yet (a fork's own, just
-   * named): to be asked again. None from an agent too old to tell, nor in
+   * named): to be asked again. `truncated` tells that it names more than
+   * these. None from an agent too old to tell, nor in
    * a profile since removed: a tab outlives its profile, and no history is
    * read there.
    */
@@ -888,7 +889,7 @@ export class ChatHost {
     agent: ChatAgent,
     conversation: string,
     profileId?: string,
-  ): Promise<{ slots: string[]; found: boolean }> {
+  ): Promise<{ slots: string[]; found: boolean; truncated: boolean }> {
     let where: Record<string, string>;
     try {
       if (agent === "claude") {
@@ -898,22 +899,28 @@ export class ChatHost {
         where = { threadId: conversation, ...(codexHome ? { codexHome } : {}) };
       }
     } catch (error) {
-      if (error instanceof AgentProfileSelectionError) return { slots: [], found: true };
+      if (error instanceof AgentProfileSelectionError)
+        return { slots: [], found: true, truncated: false };
       throw error;
     }
     const channel = await this.channelFor(workspaceId);
     const result = await channel
-      .call<{ slots?: unknown; found?: unknown }>("chat.historySlots", { workspaceId, ...where })
+      .call<{ slots?: unknown; found?: unknown; truncated?: unknown }>("chat.historySlots", {
+        workspaceId,
+        ...where,
+      })
       .catch((error: unknown) => {
         if ((error as { code?: unknown } | null)?.code === "unsupported-method") return null;
         throw error;
       });
-    const slots = Array.isArray(result?.slots) ? result.slots : [];
+    const told = Array.isArray(result?.slots) ? result.slots : [];
+    const slots = told.filter(
+      (slot): slot is string => typeof slot === "string" && slot.length <= 300,
+    );
     return {
-      slots: slots
-        .filter((slot): slot is string => typeof slot === "string" && slot.length <= 300)
-        .slice(-5_000),
+      slots: slots.slice(-5_000),
       found: result?.found !== false,
+      truncated: result?.truncated === true || slots.length > 5_000,
     };
   }
 

@@ -21,11 +21,14 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
     if (method === "historySlots") {
       const slots = histories[(args as { conversation: string }).conversation];
       if (slots === "none-yet") {
-        return Promise.resolve({ ok: true, value: { slots: [], found: false } });
+        return Promise.resolve({ ok: true, value: { slots: [], found: false, truncated: false } });
       }
       return Promise.resolve(
         slots
-          ? { ok: true, value: { slots, found: true } }
+          ? {
+              ok: true,
+              value: { slots: slots.slice(-5000), found: true, truncated: slots.length > 5000 },
+            }
           : { ok: false, error: { code: "request-failed", message: "unread" } },
       );
     }
@@ -277,6 +280,45 @@ test("a fork that took its own name before its history was written keeps what it
   expect(await retention.readOpenHistories(WS)).toBe(true);
   expect(await retention.readOpenHistories(WS)).toBe(true);
   expect(of("historySlots")).toHaveLength(asks + 2);
+});
+
+test("past what one call names, no open tab's slot is left out: a deletion compares all, a prune waits", async () => {
+  const many = (tab: string) => Array.from({ length: 3_000 }, (_, i) => `${tab}/${i + 1}`);
+  histories = { h1: many("a"), h2: many("b") };
+  const tabs = useTabsStore.getState();
+  const first = tabs.createTab(WS, { type: "claude", props: { cwd: "/p" } });
+  const second = tabs.createTab(WS, { type: "claude", props: { cwd: "/p" } });
+  shows(first.id, "h1");
+  shows(second.id, "h2");
+  expect(await retention.readOpenHistories(WS)).toBe(true);
+  // The first tab's are among the first 1000 of 6000.
+  const items = [sent("x", `@${ROOT}/${WS}/a/1/f.png @${ROOT}/${WS}/solo/3/c.png`)];
+  await retention.removeConversationAttachments(WS, items as never, "/p");
+  expect(of("removeAttachments")).toEqual([{ workspaceId: WS, slots: ["solo/3"] }]);
+  await expect(retention.pruneAttachments(WS)).rejects.toThrow(/more attachments/);
+  expect(of("pruneAttachments")).toEqual([]);
+  // With one closed, they fit; an open tab's own folder is not named.
+  histories.h2 = [`${second.id}/1`, "b/1"];
+  retention.resetAttachmentRetention();
+  expect(await retention.pruneAttachments(WS)).toBe(true);
+  const kept = (of("pruneAttachments").at(-1) as { keepSlots: string[] }).keepSlots;
+  expect(kept).toHaveLength(3_001);
+  expect(kept).not.toContain(`${second.id}/1`);
+});
+
+test("a history that names more than the agent tells is as one not read", async () => {
+  histories = { big: Array.from({ length: 5_001 }, (_, i) => `a/${i + 1}`) };
+  const tab = useTabsStore.getState().createTab(WS, { type: "claude", props: { cwd: "/p" } });
+  shows(tab.id, "big");
+  expect(await retention.readOpenHistories(WS)).toBe(false);
+  await retention.removeConversationAttachments(
+    WS,
+    [sent("a", `@${ROOT}/${WS}/a/1/c.png`)] as never,
+    "/p",
+  );
+  expect(of("removeAttachments")).toEqual([]);
+  await expect(retention.pruneAttachments(WS)).rejects.toThrow();
+  expect(of("pruneAttachments")).toEqual([]);
 });
 
 test("a history that cannot be read is asked for again only a while on", async () => {
