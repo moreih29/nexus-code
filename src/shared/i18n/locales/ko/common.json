@@ -840,6 +840,28 @@
       "failed": "업데이트 실패"
     }
   },
+  "keychain": {
+    "prompt": {
+      "title": "키체인을 열까요?",
+      "description": "macOS 키체인에 보관 중 · {{items}}",
+      "hint": "다음 macOS 창에서 로그인 암호 입력 후 \"항상 허용\"을 선택하세요. 앱 서명이 바뀐 뒤 한 번만 요청",
+      "later": "나중에",
+      "continue": "계속"
+    },
+    "items": {
+      "remote": "원격 로그인",
+      "profileKeys": "프로필 API 키",
+      "voices": "기억한 목소리"
+    },
+    "asking": "키체인 확인 중 · macOS 창에서 \"항상 허용\"을 선택하세요.",
+    "locked": {
+      "title": "키체인 잠김",
+      "remote": "원격 꺼짐 · 저장된 로그인 열기 전",
+      "profileKeys": "키체인 잠김 · 저장된 API 키 열기 전",
+      "voices": "이름 제안 꺼짐 · 기억한 목소리 열기 전",
+      "open": "열기"
+    }
+  },
   "chat": {
     "tab_title": "Claude",
     "copy": "복사",

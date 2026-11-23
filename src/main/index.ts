@@ -70,6 +70,8 @@ import {
 } from "./features/git/domain/status-coalescer";
 import { registerGitChannel } from "./features/git/ipc";
 import { registerAutofetchChannel } from "./features/git/ipc/autofetch-handlers";
+import { createKeychain, registerKeychainChannel } from "./features/keychain";
+import type { KeychainControl } from "./features/keychain/gate";
 import { type LspHostHandle, startConfiguredLspHost } from "./features/lsp/host";
 import { registerLspChannel } from "./features/lsp/ipc";
 import { installAppMenu } from "./features/menu";
@@ -225,6 +227,9 @@ let agentPtyHost: PtyHostHandle | null = null;
 let chatHost: ChatHost | null = null;
 let agentProfiles: { dispose(): void } | null = null;
 let profileConnectionKeys: ConnectionKeys | undefined;
+/** What the sealed files open with; on macOS, read only when the user knows it is coming. */
+let keychain: KeychainControl | undefined;
+let keychainChannel: { dispose(): void } | undefined;
 
 let remote: {
   themeChanged(): void;
@@ -468,11 +473,9 @@ function agentProfilesChanged(connectionChangedProfileId?: string): void {
 }
 
 function pruneDeletedProfileKeys(): void {
-  if (profileConnectionKeys) {
-    void pruneProfileKeys(profileConnectionKeys, stateService).catch((error) =>
-      logger.warn(`Could not remove deleted profile keys: ${String(error)}`),
-    );
-  }
+  const keys = profileConnectionKeys;
+  // Once the keychain is open; the gate tells what failed.
+  if (keys) void keychain?.whenOpen("profileKeys", () => pruneProfileKeys(keys, stateService));
 }
 
 // Seed the browser-view key interceptor with persisted overrides so the
@@ -728,8 +731,17 @@ app.whenReady().then(async () => {
     resolve: (workspaceId, url) => forwards.localUrl(workspaceId, url),
   });
 
+  // The keychain the profiles' API keys, the remote's sign-in and the remembered voices are
+  // sealed with. Nothing reads it here.
+  keychain = await createKeychain({
+    userData,
+    state: stateService,
+    warn: (message) => logger.warn(`keychain: ${message}`),
+  });
+  keychainChannel = registerKeychainChannel(keychain);
+
   // Settings' view of the Claude and Codex profiles on this machine.
-  profileConnectionKeys = await openConnectionKeys();
+  profileConnectionKeys = await openConnectionKeys(keychain);
   const profileConnections = createProfileConnections(
     stateService,
     profileConnectionKeys,
@@ -747,6 +759,7 @@ app.whenReady().then(async () => {
   // The NexusCode account the remote runs on. A failure there leaves the
   // app without the remote, never without its window.
   remote = await registerRemoteChannel({
+    keychain,
     services: () => cliFeature?.services ?? null,
     allowControl: {
       get: () => stateService.getState().remoteControl ?? false,
@@ -830,7 +843,7 @@ app.whenReady().then(async () => {
     },
   });
 
-  rememberedVoices = registerRememberedVoices(app.getPath("userData"), stateService);
+  rememberedVoices = registerRememberedVoices(app.getPath("userData"), stateService, keychain);
 
   // The nexus command in the app's terminals.
   cliFeature = setupCliFeature({
@@ -1142,6 +1155,7 @@ async function shutDownMain(): Promise<void> {
     remote?.dispose();
     notesFeature?.dispose();
     rememberedVoices?.dispose();
+    keychainChannel?.dispose();
     lspShutdown = lspHost?.dispose() ?? undefined;
     agentFsWatcher?.dispose();
     gitStatusCoalescer?.clearAll();

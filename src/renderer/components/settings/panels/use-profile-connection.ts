@@ -21,6 +21,7 @@ import {
 import type { AgentProfile } from "../../../../shared/agent-profiles/profiles";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { ipcCallResult } from "../../../ipc/client";
+import { useKeychain } from "../../../services/keychain";
 
 interface ModelRow extends ConnectionModel {
   rowId: string;
@@ -93,6 +94,9 @@ export function useProfileConnection(agent: ChatAgent, profile: AgentProfile | n
     setKeyEdit(value === undefined ? undefined : { target, value });
   const keyStatus =
     savedKey?.target === target && savedKey?.profileId === profileId ? savedKey?.status : undefined;
+  // Read again once the keychain opens: locked, the saved key does not show.
+  const keychainOpen = useKeychain((s) => s.status?.state === "open");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the keychain opening asks again
   useEffect(() => {
     let active = true;
     void ipcCallResult("agentProfiles", "connectionKeyStatus", { profileId, target }).then(
@@ -103,7 +107,7 @@ export function useProfileConnection(agent: ChatAgent, profile: AgentProfile | n
     return () => {
       active = false;
     };
-  }, [profileId, target]);
+  }, [profileId, target, keychainOpen]);
 
   const [rows, setRows] = useState<ModelRow[]>(
     () => originalCustom?.models.map((model) => ({ ...model, rowId: model.id })) ?? [blankModel()],

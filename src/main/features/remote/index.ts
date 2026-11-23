@@ -20,6 +20,8 @@ import { broadcast, type CallContext, register, validateArgs } from "../../infra
 import type { CliRemote, CliServices } from "../cli/context";
 import type { PeerFileReader } from "../custom-protocols/nexus-workspace";
 import type { FsProvider } from "../fs/bridge/provider";
+import { SEALED_FILES } from "../keychain/files";
+import type { Keychain } from "../keychain/gate";
 import { showAppWindow } from "../window/app-windows";
 import { RemoteAccount, SavedAccountSchema } from "./account";
 import { roomKeyOf } from "./account-key";
@@ -41,7 +43,7 @@ import { RelayConnection } from "./relay-connection";
 import { SocketRetryAfter } from "./retry-after";
 import { RemoteRoom, RpcFailure } from "./room";
 import { returnToProxy } from "./route";
-import { electronSecretBox, SealedFile } from "./sealed-file";
+import { SealedFile } from "./sealed-file";
 import { servesWith, serveWith } from "./serve";
 import { remoteServer, remoteWays } from "./server";
 import { snapshotSessions } from "./serving/sessions";
@@ -168,6 +170,8 @@ function shrinkImage(
 }
 
 export async function registerRemoteChannel(options: {
+  /** What the sign-in and the account key are sealed with; locked, the remote stays off. */
+  keychain: Keychain;
   /** The services the nexus CLI uses, once the app made them: the room serves with them. */
   services: () => CliServices | null;
   /** Whether other devices may control this one's chats (off unless the user turned it on), kept with the app's state. */
@@ -209,9 +213,11 @@ export async function registerRemoteChannel(options: {
   peerFiles: PeerFileReader;
   dispose(): void;
 }> {
-  const box = await electronSecretBox();
+  const { keychain } = options;
+  const box = keychain.box;
+  if (!box) throw new Error("there is no keychain to seal the sign-in with");
   const store = new SealedFile(
-    join(app.getPath("userData"), "remote-account.bin"),
+    join(app.getPath("userData"), SEALED_FILES.remoteAccount),
     box,
     SavedAccountSchema,
   );
@@ -281,6 +287,8 @@ export async function registerRemoteChannel(options: {
     roomState = state;
     broadcast("remote", "roomChanged", state);
   };
+  // Set once the account key is read: until then no change of the account reaches it, so a
+  // sign-in not read yet (the keychain locked) is not taken for a sign-out that drops the key.
   let keys: AccountKeys | null = null;
   const server = remoteServer(process.env, app.isPackaged, (message) => log.warn(message));
   const account = new RemoteAccount({
@@ -310,17 +318,18 @@ export async function registerRemoteChannel(options: {
     activity: options.phonePush.activity,
     onEnabledChanged: () => room?.announce(),
   });
-  await account.restore();
-  void account.syncDeviceName();
   const accountKeys = new AccountKeys({
     account,
-    store: new SealedFile(join(app.getPath("userData"), "remote-key.bin"), box, SavedKeySchema),
+    store: new SealedFile(
+      join(app.getPath("userData"), SEALED_FILES.remoteKey),
+      box,
+      SavedKeySchema,
+    ),
     onChange: (state) => {
       broadcast("remote", "keyChanged", state);
       syncRoom();
     },
   });
-  keys = accountKeys;
   const socketRetryAfter = new SocketRetryAfter();
   // The names of the moment a voice session sends along, when the user turned them on.
   const voiceNames = new VoiceNames({
@@ -494,14 +503,28 @@ export async function registerRemoteChannel(options: {
     onChange: (state) => broadcast("remote", "pairChanged", state),
   });
 
-  // Asks the server where the key stands; the app does not wait for it.
-  void accountKeys.restore();
+  // The sign-in kept from the last run, then the key, once the keychain opens. A locked
+  // keychain fails the first read, and the whole waits for the next opening.
+  const restored = keychain.whenOpen("remote", async () => {
+    await account.restore();
+    void account.syncDeviceName();
+    keys = accountKeys;
+    // Asks the server where the key stands; the app does not wait for it.
+    void accountKeys
+      .restore()
+      .catch((error: unknown) => log.warn(`the account key was not read: ${String(error)}`));
+  });
+  await keychain.decided();
+  if (keychain.isOpen()) await restored;
 
   register("remote", {
     call: {
       account: async () => ipcOk(account.state()),
       signIn: async (args: unknown) => {
         const provider = validateArgs(c.signIn.args, args)?.provider;
+        // Signing in while locked opens the keychain first: a sign-in kept there comes back
+        // rather than a new one written over it.
+        if (!(await keychain.unlock())) return ipcOk(account.state());
         return ipcOk(await account.signIn(provider));
       },
       serverInfo: () =>

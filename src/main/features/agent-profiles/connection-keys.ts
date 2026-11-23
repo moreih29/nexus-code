@@ -5,10 +5,20 @@ import {
   connectionKeyTarget,
 } from "../../../shared/agent-profiles/connection";
 import type { AgentProfile } from "../../../shared/agent-profiles/profiles";
-import { electronSecretBox, type Kept, keptInMemory, SealedFile } from "../remote/sealed-file";
+import { SEALED_FILES } from "../keychain/files";
+import type { Keychain } from "../keychain/gate";
+import { type Kept, KeychainLockedError, keptInMemory, SealedFile } from "../remote/sealed-file";
 
 const KeysSchema = z.record(z.string(), z.object({ target: z.string(), key: z.string() }));
 type Keys = z.infer<typeof KeysSchema>;
+
+/** The keychain as the keys wait on it; always open where none asks first. */
+type KeysKeychain = Pick<Keychain, "isOpen" | "has" | "unlock">;
+const ALWAYS_OPEN: KeysKeychain = {
+  isOpen: () => true,
+  has: () => false,
+  unlock: async () => true,
+};
 
 export class ConnectionKeys {
   private pending = Promise.resolve();
@@ -16,16 +26,31 @@ export class ConnectionKeys {
   constructor(
     private readonly storage: Kept<Keys>,
     private readonly persistent: boolean,
+    private readonly keychain: KeysKeychain = ALWAYS_OPEN,
   ) {}
 
+  /**
+   * The key, for what the user started (a chat, a connection test, a
+   * summary): opens a locked keychain. None while it stays locked.
+   */
   async get(id: string, target: string | undefined): Promise<string | undefined> {
     await this.pending;
-    const saved = (await this.storage.load())?.[id];
-    return saved?.target === target ? saved?.key : undefined;
+    if (!this.keychain.isOpen()) {
+      if (!this.keychain.has("profileKeys") || !(await this.keychain.unlock())) return undefined;
+    }
+    return this.read(id, target).catch((error: unknown) => {
+      if (error instanceof KeychainLockedError) return undefined;
+      throw error;
+    });
   }
 
+  /** What the settings show: read only while the keychain is open, as if none otherwise. */
   async status(id?: string, target?: string): Promise<ConnectionKeyStatus> {
-    const key = id && target ? await this.get(id, target) : undefined;
+    await this.pending;
+    const key =
+      id && target && this.keychain.isOpen()
+        ? await this.read(id, target).catch(() => undefined)
+        : undefined;
     return {
       present: key !== undefined,
       last4: key && key.length > 4 ? key.slice(-4) : undefined,
@@ -33,13 +58,27 @@ export class ConnectionKeys {
     };
   }
 
-  /** Serialize edits and restore the key if saving the profile fails. */
+  private async read(id: string, target: string | undefined): Promise<string | undefined> {
+    const saved = (await this.storage.load())?.[id];
+    return saved?.target === target ? saved?.key : undefined;
+  }
+
+  /**
+   * Serialize edits and restore the key if saving the profile fails. Only a
+   * key given, or one an API-key connection needs, reads the keys: a
+   * profile saved without one leaves them as they are.
+   */
   saveProfile(
     profile: AgentProfile,
     key: string | null | undefined,
     commit: () => void,
   ): Promise<boolean> {
     return this.serialize(async () => {
+      if (key === undefined && profile.connection?.method !== "api-key") {
+        commit();
+        return false;
+      }
+      if (!(await this.keychain.unlock())) throw new KeychainLockedError();
       const target = connectionKeyTarget(profile.agent, profile.connection);
       const before = (await this.storage.load()) ?? {};
       const saved = before[profile.id];
@@ -63,6 +102,7 @@ export class ConnectionKeys {
     });
   }
 
+  /** Drops the keys of removed profiles; run once the keychain is open (Keychain.whenOpen). */
   prune(getIds: () => ReadonlySet<string>): Promise<void> {
     return this.serialize(async () => {
       const keys = await this.storage.load();
@@ -84,12 +124,13 @@ export class ConnectionKeys {
   }
 }
 
-export async function openConnectionKeys(): Promise<ConnectionKeys> {
+export async function openConnectionKeys(keychain: Keychain): Promise<ConnectionKeys> {
   const { app } = await import("electron");
-  const box = await electronSecretBox().catch(() => undefined);
+  const { box } = keychain;
   if (!box) return new ConnectionKeys(keptInMemory(), false);
   return new ConnectionKeys(
-    new SealedFile(join(app.getPath("userData"), "profile-api-keys.bin"), box, KeysSchema),
+    new SealedFile(join(app.getPath("userData"), SEALED_FILES.profileKeys), box, KeysSchema),
     box.available,
+    keychain,
   );
 }

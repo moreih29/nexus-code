@@ -11,6 +11,7 @@ import {
   connectionPresetsFor,
 } from "../../../../shared/agent-profiles/connection";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
+import { OpenKeychainButton, useKeychainLocked } from "../../keychain/keychain-locked";
 import { Button } from "../../ui/button";
 import type { ProfileConnectionDraft } from "./use-profile-connection";
 
@@ -110,6 +111,8 @@ export function ProfileConnectionSection({
   draft: ProfileConnectionDraft;
 }) {
   const { t } = useTranslation("settings");
+  // The saved key is in a keychain not open yet: none shows until it opens.
+  const keysLocked = useKeychainLocked("profileKeys");
   const group = useId();
   const custom = draft.method === "custom";
   const claude = agent === "claude";
@@ -264,11 +267,18 @@ export function ProfileConnectionSection({
               </Button>
             )}
           </div>
-          <p className={hintClass}>
-            {draft.keyStatus?.persistent === false
-              ? t("profiles.connection.memoryKey")
-              : t("profiles.connection.sealedKey")}
-          </p>
+          {keysLocked ? (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className={hintClass}>{t("common:keychain.locked.profileKeys")}</p>
+              <OpenKeychainButton />
+            </div>
+          ) : (
+            <p className={hintClass}>
+              {draft.keyStatus?.persistent === false
+                ? t("profiles.connection.memoryKey")
+                : t("profiles.connection.sealedKey")}
+            </p>
+          )}
         </section>
       )}
 
