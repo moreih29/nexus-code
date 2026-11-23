@@ -1,4 +1,5 @@
 import { afterEach, expect, mock, test } from "bun:test";
+import { type RelaySender, relayedText } from "../../../../../src/shared/chat/relay";
 
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
 
@@ -73,13 +74,18 @@ interface Harness {
   turnEnd(): Message;
 }
 
-async function claudeTab(): Promise<Harness> {
-  const tab = new ChatController({
-    workspaceId: "ws-reconnect",
-    tabId: `claude-${++nextTab}`,
-    cwd: "/p",
-    sessionId: "s",
-  });
+async function claudeTab(
+  hooks: ConstructorParameters<typeof ChatController>[1] = {},
+): Promise<Harness> {
+  const tab = new ChatController(
+    {
+      workspaceId: "ws-reconnect",
+      tabId: `claude-${++nextTab}`,
+      cwd: "/p",
+      sessionId: "s",
+    },
+    hooks,
+  );
   live.push(tab);
   respond = (message) => {
     if (message.type === "control_request") {
@@ -336,4 +342,132 @@ test("codex steers a prompt held for a tool into the turn its restarted program 
     { threadId: "t1", expectedTurnId: "turn-2", input: [{ type: "text", text: "after a tool" }] },
   ]);
   expect(tab.state.queue).toEqual([]);
+});
+
+function sentUser(): { uuid: string; text: string }[] {
+  return sent.flatMap((message) =>
+    message.type === "user"
+      ? [
+          {
+            uuid: String(message.uuid),
+            text: String((message.message as { content: unknown }).content),
+          },
+        ]
+      : [],
+  );
+}
+
+async function unreadPair(): Promise<{
+  tab: InstanceType<typeof ChatController>;
+  read: string[];
+}> {
+  const { tab } = await claudeTab();
+  const claude = tab as InstanceType<typeof ChatController>;
+  expect(claude.state.model.running).toBe(true);
+  await claude.send("first after the tool");
+  await claude.send("second after the tool");
+  await Bun.sleep(0);
+  claude.flushNow();
+  expect(
+    claude.state.model.items.filter((item) => item.kind === "user" && item.queued),
+  ).toHaveLength(2);
+  return { tab: claude, read: sentUser().map(({ uuid }) => uuid) };
+}
+
+test.each([
+  ["is gone", { found: false, running: false }],
+  ["ended", { found: true, running: false }],
+] as const)("claude sends messages its program never read once, in order, to the program started after the old one %s", async (_end, found) => {
+  const { tab, read } = await unreadPair();
+
+  tab.held();
+  replay = () => {
+    if (!found.found) return { ...found, lastSeq: 0 };
+    const exit = ++lineSeq;
+    tab.receive({
+      seq: exit,
+      dir: "sys",
+      replay: true,
+      message: { event: "exit", code: 1 },
+    } as never);
+    return { ...found, lastSeq: exit };
+  };
+  await tab.resync();
+  await Bun.sleep(20);
+
+  expect(sentUser()).toEqual([
+    { uuid: read[0], text: "first after the tool" },
+    { uuid: read[1], text: "second after the tool" },
+    { uuid: read[0], text: "first after the tool" },
+    { uuid: read[1], text: "second after the tool" },
+  ]);
+  expect(tab.state.queue).toEqual([]);
+  const shown = [...(tab.state.history?.items ?? []), ...tab.state.model.items];
+  expect(shown.flatMap((item) => (item.kind === "user" ? [item.text] : []))).toEqual([
+    "Start",
+    "first after the tool",
+    "second after the tool",
+  ]);
+});
+
+test("claude sends messages its program never read once when the program exits while the tab watches", async () => {
+  const { tab, read } = await unreadPair();
+
+  tab.receive({ seq: ++lineSeq, dir: "sys", message: { event: "exit", code: 1 } } as never);
+  tab.flushNow();
+  await Bun.sleep(20);
+
+  expect(sentUser().slice(2)).toEqual([
+    { uuid: read[0], text: "first after the tool" },
+    { uuid: read[1], text: "second after the tool" },
+  ]);
+  expect(tab.state.queue).toEqual([]);
+});
+
+test("claude does not send again a message its program read before it exited", async () => {
+  const { tab, read } = await unreadPair();
+  tab.receive({
+    seq: ++lineSeq,
+    dir: "out",
+    message: { type: "command_lifecycle", command_uuid: read[0], state: "started" },
+  } as never);
+  tab.flushNow();
+
+  tab.receive({ seq: ++lineSeq, dir: "sys", message: { event: "exit", code: 1 } } as never);
+  tab.flushNow();
+  await Bun.sleep(20);
+
+  expect(sentUser().slice(2)).toEqual([{ uuid: read[1], text: "second after the tool" }]);
+  expect(tab.state.queue).toEqual([]);
+});
+
+test("claude sends a relayed message its program never read again under the same sender", async () => {
+  const relayed = new Map<string, RelaySender>();
+  const { tab } = await claudeTab({
+    onRelayed: (record) => relayed.set(record.id, record.from),
+    relayedFrom: (id) => relayed.get(id),
+  });
+  const claude = tab as InstanceType<typeof ChatController>;
+  const from: RelaySender = {
+    kind: "tab",
+    agent: "codex",
+    name: "Reviewer",
+    workspaceId: "ws-other",
+    tabId: "tab-other",
+  };
+  await claude.send("look at this", [], from);
+  await Bun.sleep(0);
+  claude.flushNow();
+  const [first] = sentUser();
+
+  claude.receive({ seq: ++lineSeq, dir: "sys", message: { event: "exit", code: 1 } } as never);
+  claude.flushNow();
+  expect(claude.state.queue[0]).toMatchObject({ text: "look at this", from });
+  await Bun.sleep(20);
+
+  expect(sentUser()).toEqual([
+    first,
+    { uuid: first?.uuid, text: relayedText(from, "look at this") },
+  ]);
+  expect(claude.state.queue).toEqual([]);
 });
