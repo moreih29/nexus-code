@@ -42,6 +42,9 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
 const { CodexController } = await import(
   "../../../../../../src/renderer/services/chat/codex/controller"
 );
+const { CodexForkedHistoryError } = await import(
+  "../../../../../../src/renderer/services/chat/codex/controller"
+);
 const { codexThreadItems } = await import(
   "../../../../../../src/renderer/services/chat/codex/model"
 );
@@ -170,7 +173,10 @@ test("pages of turns join while each cursor leads on to one not seen", () => {
   expect(appendCodexThreadPage(emptyCodexThreadPages(), { nextCursor: null })).toBeUndefined();
 });
 
-function tab(reply: (message: Message) => unknown): Controller {
+function tab(
+  reply: (message: Message) => unknown,
+  fail: (message: Message) => Message | undefined = () => undefined,
+): Controller {
   const c = new CodexController({ workspaceId: WS, tabId: `d${++seq}`, cwd: "/p", threadId: "t1" });
   live.push(c);
   const line = (dir: "sys" | "in" | "out", message: Message) =>
@@ -180,6 +186,11 @@ function tab(reply: (message: Message) => unknown): Controller {
     sent.push(message);
     line("in", message);
     if (message.id === undefined) return;
+    const error = fail(message);
+    if (error) {
+      line("out", { id: message.id, error });
+      return;
+    }
     const result =
       message.method === "initialize"
         ? { userAgent: `nexus-code/${version} (test)` }
@@ -316,4 +327,40 @@ test("a thread is deleted without waiting while the agent looks for other conver
   expect(removed).toEqual([
     { workspaceId: WS, slots: ["tab-a/1", "tab-a/2"], exceptThread: { threadId: "gone" } },
   ]);
+});
+
+const refusal = (threadId: string) => (message: Message) =>
+  message.method === "thread/delete"
+    ? {
+        code: -32600,
+        message: `cannot delete thread ${threadId}: forked history still references it`,
+      }
+    : undefined;
+
+test("a parent whose fork still uses its history is refused by name and keeps its files", async () => {
+  version = "0.169.0";
+  const c = tab(
+    (message) =>
+      message.method === "thread/read" ? { thread: thread([FIRST], "parent") } : undefined,
+    refusal("parent"),
+  );
+  await c.prepareSend();
+  const error = await c.deleteThread("parent").catch((reason: unknown) => reason);
+  await settled();
+  expect(error).toBeInstanceOf(CodexForkedHistoryError);
+  expect(asked()).toContain("thread/delete");
+  expect(removed).toEqual([]);
+});
+
+test("another refusal of thread/delete comes through as Codex worded it", async () => {
+  const cut = tab(
+    () => undefined,
+    (message) =>
+      message.method === "thread/delete" ? { code: -32603, message: "disk full" } : undefined,
+  );
+  await cut.prepareSend();
+  const error = await cut.deleteThread("gone").catch((reason: unknown) => reason);
+  expect(error).not.toBeInstanceOf(CodexForkedHistoryError);
+  expect((error as Error).message).toBe("disk full");
+  expect(removed).toEqual([]);
 });

@@ -1389,7 +1389,8 @@
       "delete": "Delete this conversation",
       "delete_hint": "Deletes its attached files too · Cannot be undone",
       "deleting": "Deleting…",
-      "delete_failed": "Couldn’t delete the conversation. {{message}}"
+      "delete_failed": "Couldn’t delete the conversation. {{message}}",
+      "delete_forked": "This conversation can’t be deleted while a fork still uses its history. Delete the fork first."
     },
     "commands": {
       "close": "Close",
