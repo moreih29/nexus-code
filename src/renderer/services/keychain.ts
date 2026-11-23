@@ -30,6 +30,8 @@ export function keychainItemsText(status: KeychainStatus): string {
 }
 
 let asking: Promise<void> | undefined;
+/** Closes this window's question once it is no longer asked (opened from elsewhere). */
+let question: AbortController | undefined;
 
 /** Asks before the keychain is read, in one window only: the others wait for its answer. */
 function ask(): Promise<void> {
@@ -39,8 +41,11 @@ function ask(): Promise<void> {
       await ipcCallResult("keychain", "claimPrompt", undefined),
     );
     apply(status);
-    if (!prompt) return;
+    if (!prompt || status.state !== "ask") return;
+    const asked = new AbortController();
+    question = asked;
     const open = await showConfirmDialog({
+      signal: asked.signal,
       title: i18next.t("common:keychain.prompt.title"),
       description: i18next.t("common:keychain.prompt.description", {
         items: keychainItemsText(status),
@@ -49,6 +54,9 @@ function ask(): Promise<void> {
       cancelLabel: i18next.t("common:keychain.prompt.later"),
       confirmLabel: i18next.t("common:keychain.prompt.continue"),
     });
+    if (question === asked) question = undefined;
+    // Closed because it was settled elsewhere: nothing to answer.
+    if (asked.signal.aborted) return;
     apply(unwrapIpcResult(await ipcCallResult("keychain", "answer", { open })));
   })()
     .catch(() => {})
@@ -78,6 +86,7 @@ function apply(status: KeychainStatus): void {
   useKeychain.setState({ status });
   showAsking(status.busy);
   if (status.state === "ask") void ask();
+  else question?.abort();
 }
 
 /** Follows the keychain for this window; mounted once (KeychainRoot). */

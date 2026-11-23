@@ -9,6 +9,9 @@
  * Concurrency: callers may queue prompts back-to-back. A second
  * showConfirmDialog() while one is open queues, and is shown after the
  * first resolves.
+ *
+ * A prompt whose question no longer stands (its `signal` aborted) leaves the
+ * queue, or closes if shown, resolving false.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -45,6 +48,8 @@ export interface ConfirmDialogRequest {
   cancelLabel?: string;
   confirmLabel?: string;
   variant?: "default" | "destructive";
+  /** Aborted when the question is settled elsewhere: the prompt closes, resolving false. */
+  signal?: AbortSignal;
 }
 
 interface PendingPrompt extends ConfirmDialogRequest {
@@ -64,9 +69,24 @@ function getActive(): PendingPrompt | null {
  */
 export function showConfirmDialog(request: ConfirmDialogRequest): Promise<boolean> {
   return new Promise((resolve) => {
-    queue.push({ ...request, resolve });
+    const { signal } = request;
+    if (signal?.aborted) {
+      resolve(false);
+      return;
+    }
+    const prompt: PendingPrompt = { ...request, resolve };
+    signal?.addEventListener("abort", () => withdraw(prompt), { once: true });
+    queue.push(prompt);
     bus.notify();
   });
+}
+
+/** Takes a prompt out, shown or waiting, as if cancelled. */
+function withdraw(prompt: PendingPrompt): void {
+  if (!queue.includes(prompt)) return;
+  queue = queue.filter((queued) => queued !== prompt);
+  prompt.resolve(false);
+  bus.notify();
 }
 
 function resolveActive(confirmed: boolean): void {

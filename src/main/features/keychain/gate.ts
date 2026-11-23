@@ -25,10 +25,18 @@ export interface Keychain {
   /** Whether the item has a sealed file now. */
   has(item: KeychainItem): boolean;
   /**
-   * For what the user does: opens the keychain, after the user's answer
-   * while being asked first, and resolves whether it is open.
+   * For what the user does (sign in, save an API key, agree to or remember
+   * a voice): opens a locked keychain, waits for the answer while the user
+   * is being asked, and resolves whether reads may go ahead. Never waits
+   * for the reads the opening starts, which may wait in the caller's line.
    */
   unlock(): Promise<boolean>;
+  /**
+   * For a key the user did not just ask for (a chat an agent started, a
+   * resumed chat, a summary): asks the user again while locked, and
+   * resolves whether reads may go ahead. Refused this run, it asks nothing.
+   */
+  request(): Promise<boolean>;
   /**
    * A read in the background: runs now while open, otherwise once it opens,
    * resolving when it has run. A task waiting under the same key is
@@ -40,7 +48,12 @@ export interface Keychain {
 /** The keychain as the app's windows and settings see it and answer it. */
 export interface KeychainControl extends Keychain {
   status(): KeychainStatus;
-  /** The user says to open it: the prompt's answer, or the settings' button. */
+  /** Told of each change of the status, until the returned function is called. */
+  subscribe(listener: (status: KeychainStatus) => void): () => void;
+  /**
+   * The user says to open it (the prompt's answer, the settings' button):
+   * resolves once the reads that waited have run, whether it is open.
+   */
   open(): Promise<boolean>;
   /** The user puts it off for this run. */
   putOff(): void;
@@ -73,6 +86,8 @@ export function openKeychain(
     isOpen: () => true,
     has: () => false,
     unlock: async () => true,
+    request: async () => true,
+    subscribe: () => () => {},
     whenOpen: (key, task) => task().catch((error: unknown) => warn(`${key}: ${describe(error)}`)),
     status: () => ({ state: "open", items: [], busy: false, refused: false }),
     open: async () => true,
@@ -122,9 +137,10 @@ export class KeychainGate implements KeychainControl {
   private readonly waiting = new Map<string, Waiting>();
   private readonly decision: Promise<void>;
   /** The answer, while the user is asked. */
-  private answer: { promise: Promise<boolean>; settle(open: Promise<boolean> | boolean): void } =
-    settled(false);
-  private opening: Promise<boolean> | null = null;
+  private answer: { promise: Promise<boolean>; settle(open: boolean): void } = settled(false);
+  /** The reads an opening started, until they have run. */
+  private flushing: Promise<void> = Promise.resolve();
+  private readonly listeners = new Set<(status: KeychainStatus) => void>();
   private signing: Promise<string | null> | null = null;
   private noted = false;
   readonly box: SecretBox;
@@ -163,21 +179,35 @@ export class KeychainGate implements KeychainControl {
     if (this.refused) return Promise.resolve(false);
     if (this.state === "checking") return this.decision.then(() => this.unlock());
     if (this.state === "ask") return this.answer.promise;
-    if (this.state === "locked") return this.openNow();
-    return this.opening ?? Promise.resolve(true);
+    if (this.state === "locked") this.openNow();
+    return Promise.resolve(true);
+  }
+
+  request(): Promise<boolean> {
+    if (this.refused) return Promise.resolve(false);
+    if (this.state === "checking") return this.decision.then(() => this.request());
+    if (this.state === "locked") {
+      this.answer = asked();
+      this.set("ask");
+    }
+    if (this.state === "ask") return this.answer.promise;
+    return Promise.resolve(true);
   }
 
   /** Leaves "ask" or "locked" at once, so no other window takes the question meanwhile. */
   open(): Promise<boolean> {
     if (this.refused) return Promise.resolve(false);
     if (this.state === "checking") return this.decision.then(() => this.open());
-    if (this.state === "ask") {
-      const opened = this.openNow();
-      this.answer.settle(opened);
-      return opened;
+    if (this.state === "ask" || this.state === "locked") {
+      this.openNow();
+      this.answer.settle(true);
     }
-    if (this.state === "locked") return this.openNow();
-    return this.opening ?? Promise.resolve(true);
+    return this.flushing.then(() => this.state === "open");
+  }
+
+  subscribe(listener: (status: KeychainStatus) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   putOff(): void {
@@ -204,26 +234,28 @@ export class KeychainGate implements KeychainControl {
         return;
       }
     }
-    void this.openNow();
+    this.openNow();
   }
 
-  /** Runs what waited; the first read asks macOS where it would. */
-  private openNow(): Promise<boolean> {
-    if (this.opening) return this.opening;
+  /**
+   * Reads go ahead from now; what waited runs behind, the first read asking
+   * macOS where it would. "opening" until it has run, for the windows only:
+   * nothing waits on it, since what waited may be in line behind a save
+   * that is waiting for this.
+   */
+  private openNow(): void {
+    if (this.state === "opening" || this.state === "open") return;
     this.set("opening");
     const tasks = [...this.waiting];
     this.waiting.clear();
-    this.opening = Promise.all(
+    this.flushing = Promise.all(
       tasks.map(async ([key, { task, done }]) => {
         await this.run(key, task);
         done();
       }),
     ).then(() => {
-      this.opening = null;
       if (this.state === "opening") this.set("open");
-      return this.state === "open";
     });
-    return this.opening;
   }
 
   private async run(key: string, task: () => Promise<void>): Promise<void> {
@@ -294,12 +326,14 @@ export class KeychainGate implements KeychainControl {
   }
 
   private changed(): void {
-    this.deps.onChange(this.status());
+    const status = this.status();
+    this.deps.onChange(status);
+    for (const listener of this.listeners) listener(status);
   }
 }
 
-function asked(): { promise: Promise<boolean>; settle(open: Promise<boolean> | boolean): void } {
-  let settle: (open: Promise<boolean> | boolean) => void = () => {};
+function asked(): { promise: Promise<boolean>; settle(open: boolean): void } {
+  let settle: (open: boolean) => void = () => {};
   const promise = new Promise<boolean>((resolve) => {
     settle = resolve;
   });

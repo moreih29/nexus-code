@@ -13,11 +13,12 @@ const KeysSchema = z.record(z.string(), z.object({ target: z.string(), key: z.st
 type Keys = z.infer<typeof KeysSchema>;
 
 /** The keychain as the keys wait on it; always open where none asks first. */
-type KeysKeychain = Pick<Keychain, "isOpen" | "has" | "unlock">;
+type KeysKeychain = Pick<Keychain, "isOpen" | "has" | "unlock" | "request">;
 const ALWAYS_OPEN: KeysKeychain = {
   isOpen: () => true,
   has: () => false,
   unlock: async () => true,
+  request: async () => true,
 };
 
 export class ConnectionKeys {
@@ -30,14 +31,15 @@ export class ConnectionKeys {
   ) {}
 
   /**
-   * The key, for what the user started (a chat, a connection test, a
-   * summary): opens a locked keychain. None while it stays locked.
+   * The key, for a chat, a connection test or a summary, which an agent or a
+   * resumed chat may start as well as the user: a locked keychain asks the
+   * user again. None while it stays locked, or after macOS refused it.
    */
   async get(id: string, target: string | undefined): Promise<string | undefined> {
-    await this.pending;
     if (!this.keychain.isOpen()) {
-      if (!this.keychain.has("profileKeys") || !(await this.keychain.unlock())) return undefined;
+      if (!this.keychain.has("profileKeys") || !(await this.keychain.request())) return undefined;
     }
+    await this.pending;
     return this.read(id, target).catch((error: unknown) => {
       if (error instanceof KeychainLockedError) return undefined;
       throw error;
@@ -66,20 +68,33 @@ export class ConnectionKeys {
   /**
    * Serialize edits and restore the key if saving the profile fails. Only a
    * key given, or one an API-key connection needs, reads the keys: a
-   * profile saved without one leaves them as they are.
+   * profile saved without one leaves them as they are, as does an API-key
+   * profile kept as it was while the keychain is not open (its key stays,
+   * and cannot be checked).
    */
-  saveProfile(
+  async saveProfile(
     profile: AgentProfile,
     key: string | null | undefined,
     commit: () => void,
+    existing?: AgentProfile | null,
   ): Promise<boolean> {
-    return this.serialize(async () => {
-      if (key === undefined && profile.connection?.method !== "api-key") {
+    const target = connectionKeyTarget(profile.agent, profile.connection);
+    const keptApiKey =
+      key === undefined &&
+      !this.keychain.isOpen() &&
+      this.keychain.has("profileKeys") &&
+      existing?.agent === profile.agent &&
+      existing.connection?.method === "api-key" &&
+      connectionKeyTarget(existing.agent, existing.connection) === target;
+    if ((key === undefined && profile.connection?.method !== "api-key") || keptApiKey) {
+      return this.serialize(async () => {
         commit();
         return false;
-      }
-      if (!(await this.keychain.unlock())) throw new KeychainLockedError();
-      const target = connectionKeyTarget(profile.agent, profile.connection);
+      });
+    }
+    // Opened before taking a place in line: the reads the opening starts may be in it.
+    if (!(await this.keychain.unlock())) throw new KeychainLockedError();
+    return this.serialize(async () => {
       const before = (await this.storage.load()) ?? {};
       const saved = before[profile.id];
       const nextKey = key === undefined && saved?.target === target ? saved?.key : key;

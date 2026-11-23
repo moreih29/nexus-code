@@ -80,3 +80,23 @@ test("the settings' button opens a keychain put off", async () => {
   });
   expect(restored()).toBe(1);
 });
+
+test("opened elsewhere while a window asks: its question is over, a late answer changes nothing", async () => {
+  const { gate, restored } = await asking();
+  const first = createIpcPair();
+  const second = createIpcPair();
+  const third = createIpcPair();
+  await first.window.ipc.call("keychain", "claimPrompt", undefined);
+  const waiting = third.window.ipc.call("keychain", "claimPrompt", undefined);
+  expect(await second.window.ipc.call("keychain", "open", undefined)).toMatchObject({
+    ok: true,
+    value: { state: "open" },
+  });
+  expect(await waiting).toMatchObject({ ok: true, value: { prompt: false } });
+  expect(await first.window.ipc.call("keychain", "answer", { open: false })).toMatchObject({
+    ok: true,
+    value: { state: "open" },
+  });
+  expect(gate.status().state).toBe("open");
+  expect(restored()).toBe(1);
+});

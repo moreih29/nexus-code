@@ -56,23 +56,32 @@ export class RememberedVoices {
   }
 
   /**
-   * The people, read once. A read in the background waits on a locked
-   * keychain (null); one for what the user does opens it, or throws
-   * KeychainLockedError while it stays locked. A locked read is not kept as
-   * none, so nothing written after it drops the people sealed.
+   * The people, read once. While the keychain is not open, a read in the
+   * background waits (null) and one for what the user does throws
+   * KeychainLockedError. A locked read is not kept as none, so nothing
+   * written after it drops the people sealed.
    */
   private async load(user: boolean): Promise<RememberedVoice[] | null> {
     if (this.people) return this.people;
     if (this.file && !this.keychain.isOpen()) {
       if (!user) return null;
-      if (!(await this.keychain.unlock())) throw new KeychainLockedError();
+      throw new KeychainLockedError();
     }
     this.people = (await this.file?.load())?.people ?? [];
     return this.people;
   }
 
-  /** For what the user does: the people, opening a locked keychain. */
-  private run<T>(task: (people: RememberedVoice[]) => T | Promise<T>): Promise<T> {
+  /**
+   * For what the user does: opens a locked keychain before taking a place in
+   * line, since the reads the opening starts may be in it.
+   */
+  private async opened(): Promise<void> {
+    if (this.file && !this.keychain.isOpen()) await this.keychain.unlock();
+  }
+
+  /** For what the user does: the people, the keychain opened first. */
+  private async run<T>(task: (people: RememberedVoice[]) => T | Promise<T>): Promise<T> {
+    await this.opened();
     return this.queue(async () => task((await this.load(true)) ?? []));
   }
 
@@ -130,9 +139,9 @@ export class RememberedVoices {
   }
 
   /** Agreeing opens a locked keychain, as remembering a voice will need it. */
-  consent(allowed: boolean): Promise<VoiceNameStatus> {
+  async consent(allowed: boolean): Promise<VoiceNameStatus> {
+    if (allowed) await this.opened();
     return this.queue(async () => {
-      if (allowed && this.file && !this.keychain.isOpen()) await this.keychain.unlock();
       const before = this.prefs.read();
       if (this.file && before.consent === "pending") {
         this.prefs.write({
@@ -173,7 +182,8 @@ export class RememberedVoices {
   }
 
   /** Remembering a voice opens a locked keychain; false while it stays locked. */
-  learn({ revision, ...sample }: z.infer<typeof VoiceNameLearnArgsSchema>): Promise<boolean> {
+  async learn({ revision, ...sample }: z.infer<typeof VoiceNameLearnArgsSchema>): Promise<boolean> {
+    if (this.prefs.read().consent === "allowed") await this.opened();
     return this.queue(async () => {
       const { consent, expire } = this.prefs.read();
       if (!this.file || revision !== this.revision || consent !== "allowed") return false;

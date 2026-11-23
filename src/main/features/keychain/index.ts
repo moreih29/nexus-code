@@ -45,6 +45,11 @@ export async function createKeychain(options: {
 export function registerKeychainChannel(keychain: KeychainControl): { dispose(): void } {
   let prompt: { owner: WebContents; done: Promise<void>; release: () => void } | undefined;
   let disposed = false;
+  // Opened from elsewhere (another window, the settings' button, what the user did): the
+  // question is over, and its window closes it unanswered.
+  const unsubscribe = keychain.subscribe((status) => {
+    if (status.state !== "ask") prompt?.release();
+  });
 
   /** The first window to ask shows the question; the others wait for its answer or its closing. */
   async function claimPrompt(owner?: WebContents): Promise<{
@@ -85,7 +90,9 @@ export function registerKeychainChannel(keychain: KeychainControl): { dispose():
       answer: async (args, ctx) => {
         const { open } = validateArgs(c.answer.args, args);
         const asking = prompt;
-        if (!asking || asking.owner !== ctx?.sender) return ipcOk(keychain.status());
+        if (!asking || asking.owner !== ctx?.sender || keychain.status().state !== "ask") {
+          return ipcOk(keychain.status());
+        }
         try {
           if (open) {
             // The question closes as reading starts; macOS asks next.
@@ -109,6 +116,7 @@ export function registerKeychainChannel(keychain: KeychainControl): { dispose():
   return {
     dispose: () => {
       disposed = true;
+      unsubscribe();
       prompt?.release();
     },
   };

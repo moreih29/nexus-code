@@ -148,19 +148,57 @@ describe("what the app reads by itself waits", () => {
   });
 });
 
-describe("what the user does opens it", () => {
-  test("a key used for a chat, after the user's answer", async () => {
-    const { gate, keys } = await setup();
+/** An API-key profile, as saved before and as saved again unchanged. */
+const apiKeyProfile = {
+  id: "a",
+  agent: "claude",
+  name: "A",
+  dir: "/tmp/a",
+  connection: { method: "api-key" },
+} as unknown as AgentProfile;
+
+/** Settles, or says it did not within the time. */
+const within = (promise: Promise<unknown>, ms = 1000) =>
+  Promise.race([
+    promise.then(
+      () => "settled",
+      () => "settled",
+    ),
+    new Promise((resolve) => setTimeout(() => resolve("hung"), ms)),
+  ]);
+
+describe("a key a chat needs, which an agent or a resumed chat may start", () => {
+  test("asks again once put off, and goes on as answered", async () => {
+    const { gate, calls, keys } = await setup();
     const key = keys.get("a", "t");
     // Asked while the question is up: waits for its answer.
     await new Promise((resolve) => setTimeout(resolve, 0));
     gate.putOff();
     expect(await key).toBeUndefined();
-    // Locked for the run: the next use opens it.
-    expect(await keys.get("b", "t")).toBe("sk-bbbb2222");
+    // Locked for the run: the user is asked again, macOS not yet.
+    const later = keys.get("b", "t");
+    expect(gate.status().state).toBe("ask");
+    gate.putOff();
+    expect(await later).toBeUndefined();
+    expect(calls).toEqual([]);
+    const now = keys.get("b", "t");
+    expect(gate.status().state).toBe("ask");
+    void gate.open();
+    expect(await now).toBe("sk-bbbb2222");
     expect(gate.status().state).toBe("open");
   });
 
+  test("refused in macOS: goes on without it, asking nothing", async () => {
+    const { gate, keys } = await setup({ refuse: true });
+    void gate.open();
+    expect(await keys.get("a", "t")).toBeUndefined();
+    expect(gate.status()).toMatchObject({ state: "locked", refused: true });
+    expect(await keys.get("b", "t")).toBeUndefined();
+    expect(gate.status()).toMatchObject({ state: "locked", refused: true });
+  });
+});
+
+describe("what the user does opens it", () => {
   test("saving an API key keeps the other profiles' keys", async () => {
     const { gate, keys } = await setup();
     gate.putOff();
@@ -176,6 +214,81 @@ describe("what the user does opens it", () => {
     await voices.consent(true);
     expect(gate.isOpen()).toBe(true);
     expect(await voices.list()).toEqual([{ name: "A", count: 1, lastHeard: TIME }]);
+  });
+});
+
+describe("what the user does, with the app's own reads waiting", () => {
+  test("saving an API key put off, with the start's cleanup waiting", async () => {
+    const { gate, keys } = await setup();
+    gate.putOff();
+    const pruned = gate.whenOpen("profileKeys", () => keys.prune(() => new Set(["a", "b"])));
+    expect(await within(keys.saveProfile(...profile("sk-new-3333")))).toBe("settled");
+    expect(await within(pruned)).toBe("settled");
+    expect(await keys.get("a", "t")).toBeUndefined();
+    expect(await keys.get("b", "t")).toBe("sk-bbbb2222");
+  });
+
+  test("agreeing to remember voices put off, with the start's cleanup waiting", async () => {
+    const { gate, voices } = await setup();
+    gate.putOff();
+    const pruned = gate.whenOpen("voices", () => voices.prune());
+    expect(await within(voices.consent(true))).toBe("settled");
+    expect(await within(pruned)).toBe("settled");
+    expect(await voices.list()).toEqual([{ name: "A", count: 1, lastHeard: TIME }]);
+  });
+
+  test("a save waiting on the question, answered from another window", async () => {
+    const { gate, keys } = await setup();
+    const pruned = gate.whenOpen("profileKeys", () => keys.prune(() => new Set(["a", "b"])));
+    const saving = keys.saveProfile(...profile("sk-new-3333"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const opening = gate.open();
+    expect(await within(saving)).toBe("settled");
+    expect(await within(opening)).toBe("settled");
+    expect(await within(pruned)).toBe("settled");
+    expect(await opening).toBe(true);
+    expect(await keys.get("b", "t")).toBe("sk-bbbb2222");
+  });
+});
+
+describe("an API-key profile saved unchanged while locked", () => {
+  test.each([
+    ["put off", false],
+    ["refused", true],
+  ])("%s: saved without the keychain, its key kept", async (_label, refuse) => {
+    const { gate, calls, keys, sealed } = await setup({ refuse });
+    const before = sealed();
+    if (refuse) {
+      void gate.open();
+      expect(await keys.get("a", "t")).toBeUndefined();
+    } else gate.putOff();
+    calls.length = 0;
+    let committed = false;
+    const saved = keys.saveProfile(
+      apiKeyProfile,
+      undefined,
+      () => {
+        committed = true;
+      },
+      apiKeyProfile,
+    );
+    expect(await saved).toBe(false);
+    expect(committed).toBe(true);
+    expect(calls).toEqual([]);
+    expect(gate.status().state).toBe("locked");
+    expect(sealed()).toEqual(before);
+  });
+
+  test("turned into an API-key profile, it still needs the keychain", async () => {
+    const { gate, keys } = await setup({ refuse: true });
+    void gate.open();
+    expect(await keys.get("a", "t")).toBeUndefined();
+    await expect(
+      keys.saveProfile(apiKeyProfile, undefined, () => {}, {
+        ...apiKeyProfile,
+        connection: { method: "account" },
+      } as AgentProfile),
+    ).rejects.toThrow("The keychain is locked");
   });
 });
 

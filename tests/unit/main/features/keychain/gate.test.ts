@@ -185,12 +185,69 @@ describe("the user's answer", () => {
     gate.putOff();
     expect(await waiting).toBe(false);
     let restored = false;
-    void gate.whenOpen("remote", async () => {
+    const restoring = gate.whenOpen("remote", async () => {
       restored = true;
     });
+    // Opened at once: what the user does goes ahead, the reads that waited behind it.
     expect(await gate.unlock()).toBe(true);
+    await restoring;
     expect(restored).toBe(true);
+    // Open once all that waited has run.
+    expect(await gate.open()).toBe(true);
     expect(gate.status().state).toBe("open");
+  });
+
+  test("what the user does never waits for the reads that waited", async () => {
+    const { gate } = gateWith({ items: ["profileKeys"], recorded: "old" });
+    const held = Promise.withResolvers<void>();
+    const pruned = gate.whenOpen("profileKeys", () => held.promise);
+    await gate.decided();
+    const unlocking = gate.unlock();
+    const opening = gate.open();
+    expect(await unlocking).toBe(true);
+    expect(gate.isOpen()).toBe(true);
+    // The settings' button waits for them, to say how it went.
+    let opened: boolean | undefined;
+    void opening.then((open) => {
+      opened = open;
+    });
+    await Promise.resolve();
+    expect(opened).toBeUndefined();
+    held.resolve();
+    await pruned;
+    expect(await opening).toBe(true);
+    expect(gate.status().state).toBe("open");
+  });
+
+  test("a read that needs a key asks again once put off, and goes on as answered", async () => {
+    const { gate, statuses } = gateWith({ items: ["profileKeys"], recorded: "old" });
+    await gate.decided();
+    gate.putOff();
+    statuses.length = 0;
+    const later = gate.request();
+    expect(gate.status().state).toBe("ask");
+    expect(statuses.at(-1)?.state).toBe("ask");
+    gate.putOff();
+    expect(await later).toBe(false);
+    const now = gate.request();
+    void gate.open();
+    expect(await now).toBe(true);
+    expect(gate.isOpen()).toBe(true);
+    // Open: nothing asked.
+    expect(await gate.request()).toBe(true);
+  });
+
+  test("refused in macOS: a read that needs a key is not asked again", async () => {
+    const { gate, statuses } = gateWith({ items: ["profileKeys"], recorded: "old", refuse: true });
+    const file = sealedFileIn(gate);
+    writeFileSync((file as unknown as { file: string }).file, "v10sealed");
+    await gate.decided();
+    await gate.open();
+    await expect(file.load()).rejects.toBeInstanceOf(KeychainLockedError);
+    expect(gate.status()).toMatchObject({ state: "locked", refused: true });
+    statuses.length = 0;
+    expect(await gate.request()).toBe(false);
+    expect(statuses).toEqual([]);
   });
 
   test("opening from the question leaves it at once, so no other window takes it", async () => {

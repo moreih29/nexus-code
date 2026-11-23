@@ -504,7 +504,8 @@ export async function registerRemoteChannel(options: {
   });
 
   // The sign-in kept from the last run, then the key, once the keychain opens. A locked
-  // keychain fails the first read, and the whole waits for the next opening.
+  // keychain fails the first read, and the whole waits for the next opening. The app's
+  // window does not wait for it: macOS may be asking, and the window says what to choose.
   const restored = keychain.whenOpen("remote", async () => {
     await account.restore();
     void account.syncDeviceName();
@@ -514,8 +515,6 @@ export async function registerRemoteChannel(options: {
       .restore()
       .catch((error: unknown) => log.warn(`the account key was not read: ${String(error)}`));
   });
-  await keychain.decided();
-  if (keychain.isOpen()) await restored;
 
   register("remote", {
     call: {
@@ -525,6 +524,7 @@ export async function registerRemoteChannel(options: {
         // Signing in while locked opens the keychain first: a sign-in kept there comes back
         // rather than a new one written over it.
         if (!(await keychain.unlock())) return ipcOk(account.state());
+        await restored;
         return ipcOk(await account.signIn(provider));
       },
       serverInfo: () =>

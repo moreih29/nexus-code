@@ -373,6 +373,18 @@ const plainBox = {
   decrypt: async (bytes: Buffer) => bytes.toString("utf8"),
 };
 
+/** Until the remote's kept sign-in is read back, which no longer holds up its start. */
+async function remoteSignedIn(): Promise<void> {
+  for (let i = 0; i < 100; i++) {
+    const result = (await getHandler()({}, "remote", "account", undefined)) as {
+      value?: { status?: string };
+    };
+    if (result.value?.status === "signed-in") return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("the kept sign-in was not read back");
+}
+
 describe("remote and the keychain", () => {
   it("put off, the kept sign-in stays unread and the remote off; signing in opens it", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "nexus-remote-keychain-"));
@@ -413,6 +425,7 @@ describe("remote and the keychain", () => {
         phonePush: { get: () => "off", set: () => {}, activity: { away: () => false } },
       });
       try {
+        await keychain.decided();
         expect(keychain.status().state).toBe("ask");
         keychain.putOff();
         expect(await getHandler()({}, "remote", "account", undefined)).toMatchObject({
@@ -431,6 +444,70 @@ describe("remote and the keychain", () => {
         remote.dispose();
       }
     } finally {
+      fetch.mockRestore();
+      userData = "/tmp";
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("the app's start waits neither for the signature nor for macOS's answer", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "nexus-remote-start-"));
+    userData = directory;
+    const fetch = spyOn(globalThis, "fetch").mockImplementation(
+      async () => new Response(null, { status: 404 }),
+    );
+    const signed = Promise.withResolvers<string>();
+    const answered = Promise.withResolvers<void>();
+    const keychain = new KeychainGate({
+      raw: {
+        encrypt: plainBox.encrypt,
+        decrypt: async (bytes) => {
+          await answered.promise;
+          return plainBox.decrypt(bytes);
+        },
+      },
+      items: () => ["remote"],
+      signature: () => signed.promise,
+      recorded: { get: () => "developer-id", set: () => {} },
+      onChange: () => {},
+    });
+    try {
+      await writeFile(
+        path.join(directory, "remote-account.bin"),
+        JSON.stringify({
+          server: remoteServer(process.env, false),
+          token: "fixture-token",
+          user: { id: "u1", name: "Test", email: "test@example.test" },
+          device: { id: "d1", name: "Test", platform: "darwin" },
+        }),
+      );
+      const off = { get: () => false, set: () => {} };
+      const remote = await registerRemoteChannel({
+        keychain,
+        services: () => null,
+        allowControl: off,
+        allowTerminal: off,
+        agents: { get: () => "deny", set: () => {} },
+        phonePush: { get: () => "off", set: () => {}, activity: { away: () => false } },
+      });
+      try {
+        // Registered while the signature is still being told.
+        expect(keychain.status().state).toBe("checking");
+        signed.resolve("developer-id");
+        await keychain.decided();
+        // Signed as before: read at once, while macOS has not answered yet.
+        expect(keychain.isOpen()).toBe(true);
+        expect(await getHandler()({}, "remote", "account", undefined)).toMatchObject({
+          ok: true,
+          value: { status: "signed-out" },
+        });
+        answered.resolve();
+        await remoteSignedIn();
+      } finally {
+        remote.dispose();
+      }
+    } finally {
+      answered.resolve();
       fetch.mockRestore();
       userData = "/tmp";
       await rm(directory, { recursive: true, force: true });
@@ -470,6 +547,7 @@ describe("remote shutdown", () => {
         phonePush: { get: () => "off", set: () => {}, activity: { away: () => false } },
       });
       try {
+        await remoteSignedIn();
         const start = getHandler()({}, "remote", "pairStart", undefined);
         const signal = await ticket.promise;
         await start;
