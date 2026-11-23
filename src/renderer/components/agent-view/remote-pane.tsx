@@ -121,7 +121,7 @@ import { BannerDismissButton } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { forkPeerChat, peerRewinder } from "./remote-chat-actions";
 import { RemoteCodexConfigDialog, RemoteConfigDialog } from "./remote-config-dialog";
-import { consentFromChat, PeerConsentCard, usePeerConsents } from "./remote-consents";
+import { ConsentPages, consentFromChat, PeerConsentCard, usePeerConsents } from "./remote-consents";
 import { RemoteInstructionsChip } from "./remote-instructions-chip";
 import { useRemoteLinks } from "./remote-links";
 import { RemoteSessionList } from "./remote-past-sessions";
@@ -515,8 +515,9 @@ function RemoteChatView({
   const consents = usePeerConsents(deviceId, host ? undefined : list?.consents).filter((consent) =>
     consentFromChat(consent, target),
   );
-  const consentCards = consents.length
-    ? consents.map((consent) => (
+  const consentCards = consents.length ? (
+    <ConsentPages>
+      {consents.map((consent) => (
         <PeerConsentCard
           key={consent.id}
           consent={controls ? consent : { ...consent, answerable: false }}
@@ -528,8 +529,9 @@ function RemoteChatView({
             consent.workspaceId.slice(0, 8)
           }
         />
-      ))
-    : null;
+      ))}
+    </ConsentPages>
+  ) : null;
   const submissions = usePeerSubmissions({ deviceId, workspaceId, tabId });
   const previewItems = useMemo(() => {
     const visible = submissions.filter(

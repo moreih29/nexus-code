@@ -99,7 +99,7 @@ import {
 import { PromptDialog, type PromptRequest } from "../ui/prompt-dialog";
 import { useContextMenuHandoff } from "../ui/use-context-menu-handoff";
 import { PANEL_SHOWN_BG, PanelMark, type PanelPlace, panelPlaceOf } from "./panel-mark";
-import { PeerConsentCard, usePeerConsents } from "./remote-consents";
+import { ConsentPages, PeerConsentCard, usePeerConsents } from "./remote-consents";
 import { RemoteNewMenu } from "./remote-new-menu";
 import { type PeerDrag, type PeerReorder, RemotePeerHeader } from "./remote-peer-header";
 import {
@@ -887,19 +887,21 @@ export function PeerGroup({
           ) : (
             <>
               {consents.length > 0 && (
-                <div className="flex flex-col gap-1.5 px-1 py-1" data-testid="remote-consents">
-                  {consents.map((consent) => (
-                    <PeerConsentCard
-                      key={consent.id}
-                      consent={consent}
-                      deviceId={peer.id}
-                      device={remoteDisplayName(peer.name)}
-                      sessions={sessions.list.sessions}
-                      workspaceName={
-                        names.get(consent.workspaceId) ?? consent.workspaceId.slice(0, 8)
-                      }
-                    />
-                  ))}
+                <div className="flex flex-col px-1 py-1" data-testid="remote-consents">
+                  <ConsentPages>
+                    {consents.map((consent) => (
+                      <PeerConsentCard
+                        key={consent.id}
+                        consent={consent}
+                        deviceId={peer.id}
+                        device={remoteDisplayName(peer.name)}
+                        sessions={sessions.list.sessions}
+                        workspaceName={
+                          names.get(consent.workspaceId) ?? consent.workspaceId.slice(0, 8)
+                        }
+                      />
+                    ))}
+                  </ConsentPages>
                 </div>
               )}
               {groups.length === 0 ? (
