@@ -950,6 +950,7 @@ app.whenReady().then(async () => {
       claudeSetup.noteInput(workspaceId, tabId, data);
       cliFeature?.noteInput(workspaceId, tabId);
     },
+    onResize: (workspaceId, tabId) => cliFeature?.noteResize(workspaceId, tabId),
     ports: portWatcher,
     forwards,
     profileEnv: async (workspaceId, profileId) =>

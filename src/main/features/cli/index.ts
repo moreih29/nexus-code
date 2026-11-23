@@ -159,6 +159,8 @@ export interface CliFeature {
   ): Promise<ChatAgentContext | undefined>;
   /** A key typed into a terminal (activity.ts). */
   noteInput(workspaceId: string, tabId: string): void;
+  /** A terminal's new size (activity.ts). */
+  noteResize(workspaceId: string, tabId: string): void;
   dispose(): void;
 }
 
@@ -477,6 +479,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       return linked ? { ...context, status: `${context.status}\n${linked}` } : context;
     },
     noteInput: (workspaceId, tabId) => activity.noteInput(workspaceId, tabId),
+    noteResize: (workspaceId, tabId) => activity.noteResize(workspaceId, tabId),
     dispose: () => {
       off();
       offCancel();

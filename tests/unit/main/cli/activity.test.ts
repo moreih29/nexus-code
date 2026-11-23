@@ -78,6 +78,49 @@ test("what a terminal echoes of the keys typed in is no sign of work", () => {
   });
 });
 
+test("what a program draws again as its terminal changes size is no sign of work", () => {
+  const source = host();
+  let now = 1_000;
+  const tracker = new ActivityTracker(source, () => now);
+  const resized = (chunk: string, after: number) => {
+    tracker.noteResize("w", "t");
+    now += after;
+    source.emit("data", { workspaceId: "w", tabId: "t", chunk });
+  };
+
+  // A terminal's first output tells what runs there, drawn for its size or not.
+  resized("› codex", 10);
+  expect(tracker.get("w", "t")?.lastOutputAt).toBe(1_010);
+
+  // Closing the pane beside it lets it grow, and Codex draws its idle screen again.
+  now = 9_000;
+  resized("\x1b[2J› codex", 50);
+  expect(tracker.get("w", "t")?.lastOutputAt).toBe(1_010);
+
+  // What it prints past the redraw is work.
+  now += 500;
+  source.emit("data", { workspaceId: "w", tabId: "t", chunk: "Working (1s)" });
+  expect(tracker.get("w", "t")?.lastOutputAt).toBe(now);
+
+  // At work while a window's edge is dragged for longer than the busy window:
+  // a resize each 100 ms, what it prints still counts, and it stays busy.
+  for (let i = 0; i < 30; i++) resized(`Working (${i}s)`, 100);
+  expect(tracker.get("w", "t")?.lastOutputAt).toBe(now);
+
+  // Quiet again, it draws its idle screen for each resize of a long drag.
+  const quietSince = now;
+  now += 3_000;
+  for (let i = 0; i < 30; i++) resized("\x1b[2J› codex", 100);
+  expect(tracker.get("w", "t")?.lastOutputAt).toBe(quietSince);
+
+  // A notification in a redraw still counts; the output time stays.
+  resized("\x1b]9;Agent turn complete\x07", 10);
+  expect(tracker.get("w", "t")).toEqual({
+    lastOutputAt: quietSince,
+    lastNotice: { body: "Agent turn complete", at: now },
+  });
+});
+
 test("looks at the foreground program as output starts, and again once it has settled", async () => {
   const source = host();
   let now = 1_000;

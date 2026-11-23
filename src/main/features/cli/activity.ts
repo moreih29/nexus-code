@@ -41,6 +41,8 @@ export class ActivityTracker {
   private readonly lookedAt = new Map<string, number>();
   /** When a key was last typed into each terminal. */
   private readonly typedAt = new Map<string, number>();
+  /** When each terminal last changed size. */
+  private readonly resizedAt = new Map<string, number>();
 
   constructor(
     source: ActivitySource,
@@ -71,6 +73,7 @@ export class ActivityTracker {
         this.quietTimers.delete(key);
         this.lookedAt.delete(key);
         this.typedAt.delete(key);
+        this.resizedAt.delete(key);
       }),
     );
   }
@@ -81,6 +84,15 @@ export class ActivityTracker {
    */
   noteInput(workspaceId: string, tabId: string): void {
     this.typedAt.set(`${workspaceId}:${tabId}`, this.now());
+  }
+
+  /**
+   * Notes a terminal's new size: a program that draws its screen, as Codex
+   * does, draws it again for it, as when closing a tab or pane lets the
+   * terminal beside it grow. That is no sign of work.
+   */
+  noteResize(workspaceId: string, tabId: string): void {
+    this.resizedAt.set(`${workspaceId}:${tabId}`, this.now());
   }
 
   get(workspaceId: string, tabId: string): TabActivity | null {
@@ -103,6 +115,7 @@ export class ActivityTracker {
     this.quietTimers.clear();
     this.lookedAt.clear();
     this.typedAt.clear();
+    this.resizedAt.clear();
     this.byTab.clear();
   }
 
@@ -116,9 +129,19 @@ export class ActivityTracker {
     // the program is not at work for it.
     const typed = this.typedAt.get(key);
     const echo = typed !== undefined && at - typed < ECHO_MS;
-    if (echo && !notice) return;
+    // The screen drawn again for a new size, by a program that was quiet
+    // when it came: output of one at work counts, or dragging a window's
+    // edge would leave it idle. A terminal's first output still tells what
+    // runs there.
+    const resized = this.resizedAt.get(key);
+    const redraw =
+      previous !== undefined &&
+      resized !== undefined &&
+      at - resized < ECHO_MS &&
+      resized - previous.lastOutputAt >= BUSY_WINDOW_MS;
+    if ((echo || redraw) && !notice) return;
     this.byTab.set(key, {
-      lastOutputAt: echo && previous ? previous.lastOutputAt : at,
+      lastOutputAt: (echo || redraw) && previous ? previous.lastOutputAt : at,
       lastNotice: notice
         ? { ...(notice.title ? { title: notice.title } : {}), body: notice.body, at }
         : previous?.lastNotice,
