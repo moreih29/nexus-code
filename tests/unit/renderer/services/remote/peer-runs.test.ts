@@ -1,7 +1,11 @@
 /** Another computer's chat's `claude -p` runs, as a chat here lists its own beside its subagents. */
 import { describe, expect, test } from "bun:test";
 import type { ChatRun } from "../../../../../packages/remote-protocol/src";
-import { agentRunOf, peerRunRows } from "../../../../../src/renderer/services/remote/peer-runs";
+import {
+  agentRunOf,
+  peerRunRows,
+  runReadAgain,
+} from "../../../../../src/renderer/services/remote/peer-runs";
 
 const run = (over: Partial<ChatRun>): ChatRun => ({
   id: "r1",
@@ -63,5 +67,16 @@ describe("another computer's chat's runs", () => {
       failedCount: 0,
       sessionId: "s1",
     });
+  });
+
+  test("a run the other computer refused or does not have is not asked for again", () => {
+    for (const failure of ["not-found", "permission-denied", "unsupported"]) {
+      expect(runReadAgain(failure, false)).toBe(false);
+    }
+    // One that was read, or was out of reach, is asked for while it goes on.
+    expect(runReadAgain(null, false)).toBe(true);
+    expect(runReadAgain("unavailable", false)).toBe(true);
+    expect(runReadAgain(null, true)).toBe(false);
+    expect(runReadAgain("unavailable", true)).toBe(false);
   });
 });

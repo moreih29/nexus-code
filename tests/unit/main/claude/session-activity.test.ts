@@ -709,6 +709,22 @@ describe("`claude -p` runs", () => {
     expect(log.printRunSource(WS, TAB, "p2")).toBeUndefined();
   });
 
+  test("where a run keeps its session is kept as told, and one too long is none", () => {
+    const spaced = ` /home/u/${"d".repeat(3000)} `;
+    print("print-start", { session_id: "s-1", home: spaced });
+    expect(log.printRunSource(WS, TAB, "p1")?.home).toBe(spaced);
+    print("print-end", { exit_code: 0 });
+    log.notePrint(WS, TAB, "print-start", {
+      run_id: "p3",
+      session_id: "s-3",
+      program: "claude",
+      home: `/${"d".repeat(4096)}`,
+    });
+    const long = log.printRunSource(WS, TAB, "p3");
+    expect(long?.sessionId).toBe("s-3");
+    expect(long?.home).toBeUndefined();
+  });
+
   test("a codex exec run that keeps no session tells no home", () => {
     print("print-start", { program: "codex", session_id: "th-1" });
     expect(log.printRunSource(WS, TAB, "p1")).toEqual({

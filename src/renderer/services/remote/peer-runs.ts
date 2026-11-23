@@ -160,6 +160,18 @@ export function usePeerRun(ref: PeerChatRef, row: AgentRun, enabled: boolean): A
   return useMemo(() => (read ? agentRunOf(read) : row), [read, row]);
 }
 
+/**
+ * Whether a run's session is asked for again after an ask that ended with
+ * `failure` (null: it was read). While it runs, after a read, and after an
+ * ask that only did not arrive. Not after one that computer refused or does
+ * not know (no such run or session there, not allowed, no such method): the
+ * run is asked for once more as it ends.
+ */
+export function runReadAgain(failure: string | null, ended: boolean): boolean {
+  if (ended) return false;
+  return failure === null || failure === "unavailable";
+}
+
 /** A run's session as its pane shows it, read from the computer that has it. */
 export interface PeerRunConversation {
   model: ChatModel;
@@ -203,12 +215,10 @@ export function usePeerRunConversation(
       if (result.ok) {
         const fresh = result.value;
         setPage((old) => (old ? keepEarlier(old, fresh) : fresh));
-      } else if (result.kind === "unsupported") {
-        // A computer before chat.runRead: not asked again.
-        return;
       }
-      // A run tells its session a moment after it starts: asked again while it runs.
-      if (!ended) timer = setTimeout(ask, RUN_READ_LIVE_MS);
+      if (runReadAgain(result.ok ? null : result.kind, ended)) {
+        timer = setTimeout(ask, RUN_READ_LIVE_MS);
+      }
     };
     void ask();
     return () => {

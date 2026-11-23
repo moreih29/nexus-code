@@ -22,9 +22,14 @@ import { chatPageOf } from "./chat-page";
 /** How long what was read of a run is kept after the last ask. */
 export const RUN_PAGE_KEPT_MS = 30_000;
 
+/** How long a codex run's thread, read whole, answers the asks that follow. */
+export const RUN_THREAD_FRESH_MS = 2_000;
+
 interface Kept {
   lines: RunLines;
   model?: ChatModel;
+  /** When a codex run's thread was last read whole into `model`. */
+  readAt?: number;
   reader?: Promise<CodexRunReader | null>;
   timer?: ReturnType<typeof setTimeout>;
 }
@@ -75,12 +80,23 @@ export async function runPageOf(
     // Not a claude run's transcript: a codex run's thread, if it is one.
     agent = "codex";
     entry.reader ??= openCodexRunReader(workspaceId, tabId, runId);
-    const reader = await entry.reader;
-    if (!reader) {
-      entry.reader = undefined;
+    const opening = entry.reader;
+    const reader = await opening;
+    // A page that did not fit is asked for again at once, smaller: of the thread just read.
+    const fresh =
+      entry.model && entry.readAt !== undefined && Date.now() - entry.readAt < RUN_THREAD_FRESH_MS;
+    if (fresh) model = entry.model ?? null;
+    else {
+      model = reader && !reader.dead ? await reader.read().catch(() => null) : null;
+      entry.model = model ?? undefined;
+      entry.readAt = model ? Date.now() : undefined;
+    }
+    if (!reader || reader.dead) {
+      // None started, or it ended since: the next ask starts another.
+      if (entry.reader === opening) entry.reader = undefined;
+      reader?.close();
       return null;
     }
-    model = await reader.read().catch(() => null);
   }
   if (!model || model.items.length === 0) return null;
   return chatPageOf({ agent, title: "", chat: { ...emptyTabState(), model } }, window);
