@@ -7,6 +7,7 @@ import { describe, expect, it } from "bun:test";
 import {
   createFilePresence,
   filesFound,
+  filesGone,
   lookupPath,
 } from "../../../../../src/renderer/services/chat/file-presence";
 
@@ -158,5 +159,28 @@ describe("filesFound", () => {
     expect(most).toBe(8);
     expect([...found]).toEqual(paths.filter((path) => !path.endsWith("gone.png")));
     expect(await filesFound(presence, "ws", "/p", [], 8)).toEqual(new Set());
+  });
+});
+
+describe("filesGone", () => {
+  it("is what was looked up and not found, not what cannot be looked up yet", async () => {
+    const granted = new Set(["/h/attach/w/c/1/kept.png", "/h/attach/w/old/1/removed.png"]);
+    const grantedCheck = (_workspaceId: string, path: string) => granted.has(path);
+    const presence = createFilePresence(
+      async (_workspaceId, relPath) =>
+        relPath === "/h/attach/w/c/1/kept.png" || relPath === "in.png",
+      () => 0,
+      grantedCheck,
+    );
+    const paths = [
+      "/h/attach/w/c/1/kept.png",
+      "/h/attach/w/old/1/removed.png",
+      "/p/in.png",
+      "/p/gone.png",
+      // Outside and not granted (yet): not known to be gone.
+      "/h/attach/w/c/2/new.png",
+    ];
+    const gone = await filesGone(presence, "w", "/p", paths, grantedCheck);
+    expect([...gone]).toEqual(["/h/attach/w/old/1/removed.png", "/p/gone.png"]);
   });
 });

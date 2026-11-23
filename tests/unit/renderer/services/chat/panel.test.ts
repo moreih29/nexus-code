@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { applyLines } from "../../../../../src/renderer/services/chat/claude/stream-model";
+import { lookAtImage } from "../../../../../src/renderer/services/chat/image-look";
 import { resultFiles } from "../../../../../src/renderer/services/chat/links";
 import {
   type ChatItem,
@@ -13,6 +14,7 @@ import {
   agentsOf,
   agentTranscript,
   answerExtras,
+  attachedImagesIn,
   attachedImagesOf,
   changedFilesOf,
   contextOf,
@@ -1045,7 +1047,7 @@ describe("images the user attached to a message", () => {
     expect(shown).toEqual([
       { file: "/tmp/a/first.png", image: before },
       { image: pasted },
-      { file: "/tmp/a/big.png", placed: true },
+      { file: "/tmp/a/big.png" },
       { file: "/tmp/a/last.png", image: after },
     ]);
   });
@@ -1054,6 +1056,31 @@ describe("images the user attached to a message", () => {
   // first line the one that says who sent it (withRelayed shows it as received only on screen).
   const tab: RelaySender = { kind: "tab", agent: "claude", name: "Other", tabId: "t2" };
   const relayed = (text: string) => user(relayedText(tab, text));
+
+  test("in a chat here, are looked up: one there keeps its place, one removed with its tab is left out", async () => {
+    const [before, after] = [image("b"), image("a")];
+    const tools = {
+      r1: readCall("r1", "/tmp/a/first.png", [before]),
+      r2: readCall("r2", "/tmp/a/last.png", [after]),
+    };
+    const kept = "/h/.nexus-code/attach/w1/c1/1/kept.png";
+    const removed = "/h/.nexus-code/attach/w1/old/1/removed.png";
+    const items = [turn(["r1"]), user(`@${removed}`), user(`see\n\n@${kept}`), turn(["r2"])];
+    const shown = imagesOf(items, tools, "/ws");
+    expect(attachedImagesIn(items, "/ws")).toEqual([removed, kept]);
+    const asked: string[][] = [];
+    const look = await lookAtImage(
+      shown,
+      { file: "/tmp/a/last.png", image: after },
+      async (files) => {
+        asked.push(files);
+        return new Set([kept]);
+      },
+    );
+    expect(asked).toEqual([[removed, kept]]);
+    expect(look?.files).toEqual(["image:1", kept, "image:2"]);
+    expect(look?.index).toBe(2);
+  });
 
   test("are placed only where `served` says the files are served, as another computer's are", () => {
     const ours = "/h/.nexus-code/attach/w1/c1/1/shot.png";
@@ -1069,7 +1096,7 @@ describe("images the user attached to a message", () => {
       expect(attachedImagesOf(relayed(text) as never, "/ws")).toEqual([]);
     }
     const shown = imagesOf([relayed("look\n\n@/tmp/x.png"), user("@/tmp/a/big.png")], {}, "/ws");
-    expect(shown).toEqual([{ file: "/tmp/a/big.png", placed: true }]);
+    expect(shown).toEqual([{ file: "/tmp/a/big.png" }]);
   });
 
   test("are granted to the previews, and only they: not other attachments or others' messages", () => {

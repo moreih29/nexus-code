@@ -13,6 +13,7 @@ import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { placeLocalFile, showHeldLocalFile } from "../../services/agent-view/file-tabs";
 import { codexTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
+import { attachedOpens } from "../../services/chat/attach-folders";
 import { useStateBesideStream } from "../../services/chat/beside-stream";
 import type { PermissionAnswer } from "../../services/chat/claude/controller";
 import { codexCommandsListed, parseCodexCommand } from "../../services/chat/codex/commands";
@@ -24,7 +25,7 @@ import {
 } from "../../services/chat/codex/history";
 import { type CodexModel, originalsFor } from "../../services/chat/codex/model";
 import { runCodexCommand } from "../../services/chat/codex/run-command";
-import { filesThere } from "../../services/chat/file-presence";
+import { filesThere, useGoneFiles } from "../../services/chat/file-presence";
 import { goalViewOf } from "../../services/chat/goal";
 import {
   imageLook,
@@ -43,7 +44,7 @@ import {
 import { lookAreaOf } from "../../services/chat/look-area";
 import type { AssistantItem, PermissionRequest, UserItem } from "../../services/chat/model";
 import { followFileLink, openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
-import { agentsOf, imagesOf, outsideLinksOf } from "../../services/chat/panel";
+import { agentsOf, attachedImagesIn, imagesOf, outsideLinksOf } from "../../services/chat/panel";
 import { registerPanelToggle } from "../../services/chat/panel-toggle";
 import { usePlanCodexLimits } from "../../services/chat/plan-usage";
 import {
@@ -313,6 +314,10 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
     () => () => grantOutside(workspaceId, tabId, { files: [], dirs: [] }),
     [workspaceId, tabId],
   );
+  // The agent removes a tab's attached files as it closes: in a conversation gone on in a new
+  // tab, their chips only name them.
+  const attached = useMemo(() => attachedImagesIn(liveItems, props.cwd), [liveItems, props.cwd]);
+  const goneAttached = useGoneFiles(workspaceId, rootPath, attached);
   const latest = useRef({ state, rootPath, outside });
   latest.current = { state, rootPath, outside };
   // biome-ignore lint/correctness/useExhaustiveDependencies: the tab's state is read from `latest` when a link is followed
@@ -368,6 +373,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
       });
     };
     return {
+      opensAttached: attachedOpens(goneAttached, cwd),
       openFile(target) {
         follow(target, ({ path, ...line }) => {
           grant(path);
@@ -403,7 +409,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
         }
       },
     };
-  }, [workspaceId, tabId]);
+  }, [workspaceId, tabId, goneAttached]);
 
   const signIn = () => {
     // A browser on this machine cannot reach a sign-in an SSH host waits for.

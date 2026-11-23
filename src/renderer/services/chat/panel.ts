@@ -612,6 +612,15 @@ export function attachedImagesOf(item: UserItem, cwd: string): string[] {
   });
 }
 
+/** The image files the user attached to the conversation's messages (attachedImagesOf), each once. */
+export function attachedImagesIn(items: readonly ChatItem[], cwd: string): string[] {
+  const files = new Set<string>();
+  for (const item of items) {
+    if (item.kind === "user") for (const file of attachedImagesOf(item, cwd)) files.add(file);
+  }
+  return [...files];
+}
+
 /** Most agents within agents whose images are looked for. */
 const MAX_AGENT_DEPTH = 4;
 
@@ -628,14 +637,15 @@ const LOOK_TOOLS = new Set(["Read", "ViewImage"]);
  * (`agentItems`, by the call's id). An image file the conversation shows
  * in full where it names it (placedImages: sent the user, or ![alt](path)
  * in a reply) is `placed`, as one the user attached is where `served` lets
- * it (another computer's tab: those that computer serves).
+ * it (another computer's tab: those that computer serves). Any other is
+ * looked up: the agent removes a tab's attached files as the tab closes.
  */
 export function imagesOf(
   items: readonly ChatItem[],
   tools: Record<string, ToolCall>,
   cwd: string,
   agentItems: Readonly<Record<string, readonly ChatItem[]>> = {},
-  served: (attached: string) => boolean = () => true,
+  served: (attached: string) => boolean = () => false,
 ): ShownImage[] {
   const out: ShownImage[] = [];
   const byFile = new Map<string, number>();
@@ -673,7 +683,7 @@ export function imagesOf(
     for (const item of items) {
       if (item.kind === "user") {
         for (const image of item.images) addData(image);
-        // Its chip shows the file, as a card does: no lookup decides whether it stays.
+        // A chip served shows the file, as a card does: no lookup decides whether it stays.
         const attached = attachedImagesOf(item, cwd);
         const placed = new Set(attached.filter(served));
         for (const file of attached) addFile(file, undefined, placed);

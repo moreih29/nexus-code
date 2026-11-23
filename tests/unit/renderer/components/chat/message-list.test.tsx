@@ -5,7 +5,10 @@ import {
   ChatLinksContext,
 } from "../../../../../src/renderer/components/chat/chat-links";
 import { MessageList } from "../../../../../src/renderer/components/chat/message-list";
-import { servedAttachment } from "../../../../../src/renderer/services/chat/attach-folders";
+import {
+  attachedOpens,
+  servedAttachment,
+} from "../../../../../src/renderer/services/chat/attach-folders";
 import { resolveFilePath } from "../../../../../src/renderer/services/chat/links";
 import { WINDOW_ITEMS } from "../../../../../src/renderer/services/chat/message-window";
 import { emptyModel, type UserItem } from "../../../../../src/renderer/services/chat/model";
@@ -100,4 +103,17 @@ test("in another computer's chat, only the chips of images that computer serves 
     return file !== null && servedAttachment("w1", "c1", "/p", file);
   };
   expect(attachedChips(ATTACHED, { ...links, opensAttached })).toEqual(["inside.png", "sent.png"]);
+});
+
+test("in a chat here, the chip of an attached image removed with its tab only names it", () => {
+  const gone = new Set(["/Users/me/.nexus-code/attach/w1/c1/2/sent.png"]);
+  const opensAttached = attachedOpens(gone, "/p");
+  expect(attachedChips(ATTACHED, { ...links, opensAttached })).toEqual([
+    "dropped.png",
+    "inside.png",
+  ]);
+  // Until the lookup answers, none is gone: every chip opens, none flickers to a name first.
+  expect(
+    attachedChips(ATTACHED, { ...links, opensAttached: attachedOpens(new Set(), "/p") }),
+  ).toEqual(["dropped.png", "inside.png", "sent.png"]);
 });

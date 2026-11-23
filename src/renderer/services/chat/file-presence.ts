@@ -141,8 +141,29 @@ export async function filesFound(
   return new Set(paths.filter((path) => found.has(path)));
 }
 
+/**
+ * Which of `paths` are gone: looked up, in the workspace at `root` or
+ * granted outside it, and not found. One that cannot be looked up (yet),
+ * as a file outside not granted, is not gone.
+ */
+export async function filesGone(
+  presence: Pick<ReturnType<typeof createFilePresence>, "isThere">,
+  workspaceId: string,
+  root: string,
+  paths: readonly string[],
+  granted: OutsideGrantCheck = grantedOutside,
+): Promise<ReadonlySet<string>> {
+  const looked = paths.filter((path) => pathToLookUp(workspaceId, path, root, granted) !== null);
+  const found = await filesFound(presence, workspaceId, root, looked);
+  return new Set(looked.filter((path) => !found.has(path)));
+}
+
 const presence = createFilePresence();
 const EMPTY_PATHS: ReadonlySet<string> = new Set();
+
+function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  return a.size === b.size && [...b].every((path) => a.has(path));
+}
 
 /** Which of `paths`, in the workspace at `root` or granted outside it, are files. */
 export function filesThere(
@@ -199,4 +220,35 @@ export function useFoundFiles(
     };
   }, [workspaceId, root, key, recheck, outside, files, scope]);
   return found.scope === scope ? found.paths : EMPTY_PATHS;
+}
+
+/**
+ * Which of `paths`, in the workspace at `root` or granted outside it, are
+ * gone (filesGone): none until the lookup answers, so a file that is there
+ * never shows as gone first. Looked up again as a file outside is granted.
+ */
+export function useGoneFiles(
+  workspaceId: string,
+  root: string,
+  paths: readonly string[],
+): ReadonlySet<string> {
+  const key = paths.join("\n");
+  // The tab grants what it names a moment after it names it.
+  const outside = useOutsideGrantsStore((s) =>
+    paths.filter((path) => isOutsideGranted(s.byWorkspace, workspaceId, path)).join("\n"),
+  );
+  const [gone, setGone] = useState<ReadonlySet<string>>(EMPTY_PATHS);
+  // `key` stands for `paths`, which is a new array each render.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `outside` only says when to look again
+  useEffect(() => {
+    let live = true;
+    const wanted = key === "" ? [] : key.split("\n");
+    void filesGone(presence, workspaceId, root, wanted).then((next) => {
+      if (live) setGone((was) => (sameSet(was, next) ? was : next));
+    });
+    return () => {
+      live = false;
+    };
+  }, [workspaceId, root, key, outside]);
+  return gone;
 }

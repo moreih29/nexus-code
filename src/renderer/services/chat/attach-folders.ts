@@ -5,7 +5,7 @@
 // message is text, which anyone who sends one writes as they like.
 
 import { ipcCallResult } from "../../ipc/client";
-import { isUnder } from "./links";
+import { isUnder, resolveFilePath } from "./links";
 
 /** A numbered folder's file, below a tab's folder: `<n>/<name>`. */
 const SLOT_FILE = /^\d+\/[^/]+$/;
@@ -65,4 +65,19 @@ export function servedAttachment(
   file: string,
 ): boolean {
   return attachShaped(workspaceId, tabId, file) || isUnder(file, root);
+}
+
+/**
+ * What a chat here answers opensAttached with: every attached file but
+ * those `gone` (useGoneFiles), as the agent removes a tab's attached files
+ * when the tab closes. A file written from `cwd`.
+ */
+export function attachedOpens(
+  gone: ReadonlySet<string>,
+  cwd: string,
+): (written: string) => boolean {
+  return (written) => {
+    const file = resolveFilePath(written, cwd);
+    return file === null || !gone.has(file);
+  };
 }
