@@ -1632,7 +1632,10 @@ describe("attached files", () => {
       { workspaceId: WS, sessionId: "session-1", configDir: "/profiles/claude-p" },
       { workspaceId: WS, threadId: "thread-1", codexHome: "/profiles/codex-p" },
     ]);
-    await expect(host.historySlots(WS, "claude", "s", "codex-p")).rejects.toThrow(/profile/i);
+    // A tab outlives its profile: no history is read there, and none asked for.
+    expect(await host.historySlots(WS, "claude", "s", "codex-p")).toEqual([]);
+    expect(await host.historySlots(WS, "codex", "t", "gone")).toEqual([]);
+    expect(callsOf(channel, "chat.historySlots")).toHaveLength(2);
 
     channel.failures.set("chat.historySlots", "unsupported-method");
     expect(await host.historySlots(WS, "claude", "session-1")).toEqual([]);

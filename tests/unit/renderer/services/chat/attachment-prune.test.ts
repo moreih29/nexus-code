@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 
 const ROOT = "/Users/me/.nexus-code/attach";
@@ -241,6 +241,36 @@ test("nothing goes while an open tab's history cannot be read", async () => {
   expect(of("removeAttachments")).toEqual([]);
   await expect(retention.pruneAttachments(WS)).rejects.toThrow();
   expect(of("pruneAttachments")).toEqual([]);
+});
+
+test("a history that cannot be read is asked for again only a while on", async () => {
+  histories = {};
+  const tab = useTabsStore.getState().createTab(WS, { type: "claude", props: { cwd: "/p" } });
+  retention.pruneAttachmentsOnce(WS);
+  await Bun.sleep(0);
+  const now = spyOn(Date, "now");
+  try {
+    const start = Date.now();
+    // Each look at the streaming chat, and each prune, asks nothing more.
+    for (let i = 1; i <= 3; i++) {
+      shows(tab.id, "unread", `${ROOT}/${WS}/t0/${i}/a.png`);
+      await retention.followAttachmentsNow();
+      await expect(retention.pruneAttachments(WS)).rejects.toThrow();
+    }
+    expect(of("historySlots")).toHaveLength(1);
+    // What the tab loaded is still kept and marked used.
+    expect(of("touchAttachments")).toHaveLength(3);
+    // Once it can be read, a while on, the prune goes.
+    histories = { unread: ["early/1"] };
+    now.mockReturnValue(start + retention.HISTORY_RETRY_MS + 1_000);
+    expect(await retention.pruneAttachments(WS)).toBe(true);
+    expect(of("historySlots")).toHaveLength(2);
+    expect(of("pruneAttachments").at(-1)).toMatchObject({
+      keepSlots: expect.arrayContaining(["early/1", "t0/3"]),
+    });
+  } finally {
+    now.mockRestore();
+  }
 });
 
 test("a conversation gone on after days keeps and marks used what it named early on", async () => {

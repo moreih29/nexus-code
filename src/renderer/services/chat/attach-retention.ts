@@ -37,6 +37,8 @@ const ROOT_KNOWN_MS = 60_000;
 /** When a prune waits for the agent to tell its root, how long it waits between asks, and how many. */
 const ROOT_RETRY_MS = 30_000;
 const ROOT_TRIES = 10;
+/** How long a history that could not be read is not asked for again. */
+export const HISTORY_RETRY_MS = 60_000;
 /** Most slots a tab keeps: the newest stay. */
 const MAX_TAB_SLOTS = 500;
 /** Most slots one call names (the agent's own limit). */
@@ -166,21 +168,37 @@ const historyKey = (workspaceId: string, history: History) =>
 
 /** The slots each history named when asked this run (historyKey). */
 const historySlots = new Map<string, readonly string[]>();
+/** The histories that could not be read, and when: asked again HISTORY_RETRY_MS on. */
+const historyFailed = new Map<string, { at: number; error: unknown }>();
 /** The histories being asked. */
 const askingHistory = new Map<string, Promise<readonly string[]>>();
 
-/** The slots a history names (chat.historySlots), asked once a run; asked again after a failure. */
+/**
+ * The slots a history names (chat.historySlots), asked once a run. One
+ * that cannot be read (its file's rights, say) fails the same for
+ * HISTORY_RETRY_MS, unasked: a chat is looked at each second it streams.
+ */
 function historyOf(workspaceId: string, history: History): Promise<readonly string[]> {
   const key = historyKey(workspaceId, history);
   const known = historySlots.get(key);
   if (known) return Promise.resolve(known);
+  const failed = historyFailed.get(key);
+  if (failed && Date.now() - failed.at < HISTORY_RETRY_MS) return Promise.reject(failed.error);
   const asking = askingHistory.get(key);
   if (asking) return asking;
   const asked = ipcCallResult("chat", "historySlots", { workspaceId, ...history })
     .then((result) => {
       const slots = unwrapIpcResult(result).slots;
       historySlots.set(key, slots);
+      historyFailed.delete(key);
       return slots;
+    })
+    .catch((error: unknown) => {
+      historyFailed.set(key, { at: Date.now(), error });
+      log.warn(
+        `reading a conversation's attachments: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw error;
     })
     .finally(() => askingHistory.delete(key));
   askingHistory.set(key, asked);
@@ -245,12 +263,9 @@ async function followTab(workspaceId: string, tab: ChatTab, root: string): Promi
     live: conversation.live,
   });
   const loaded = slotsOf(attachedFilesIn(conversation.items, tab.props.cwd), root, workspaceId);
-  // What the history named before the pages the tab loaded; asked again next time on failure.
-  const early = await historySlotsOf(workspaceId, tab).catch((error: Error) => {
-    looked.delete(at);
-    log.warn(`reading a conversation's attachments: ${error.message}`);
-    return [];
-  });
+  // What the history named before the pages the tab loaded. Unread, a
+  // prune asks again (historyOf), and keeps and marks used what it names.
+  const early = await historySlotsOf(workspaceId, tab).catch(() => []);
   const slots = [...new Set([...early, ...loaded])];
   // Nothing named, or nothing read yet: what the tab keeps stays.
   if (slots.length === 0) return;
@@ -375,8 +390,8 @@ registerWorkspaceCleanup((workspaceId) => {
   followed.delete(workspaceId);
   roots.delete(workspaceId);
   touched.delete(workspaceId);
-  for (const key of historySlots.keys()) {
-    if (key.startsWith(`${workspaceId}\n`)) historySlots.delete(key);
+  for (const known of [historySlots, historyFailed]) {
+    for (const key of known.keys()) if (key.startsWith(`${workspaceId}\n`)) known.delete(key);
   }
   waiting.delete(workspaceId);
   const prefix = `${workspaceId}:`;
@@ -502,5 +517,6 @@ export function resetAttachmentRetention(): void {
   touched.clear();
   looked.clear();
   historySlots.clear();
+  historyFailed.clear();
   askingHistory.clear();
 }

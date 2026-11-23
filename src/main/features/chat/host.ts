@@ -878,7 +878,8 @@ export class ChatHost {
    * The slots ("<tabId>/<n>") a conversation's whole history names, read by
    * the agent from the history kept in the profile's folder (a Claude
    * session) or home (a Codex thread): only their names come back. None
-   * from an agent too old to tell.
+   * from an agent too old to tell, nor in a profile since removed: a tab
+   * outlives its profile, and no history is read there.
    */
   async historySlots(
     workspaceId: string,
@@ -886,13 +887,18 @@ export class ChatHost {
     conversation: string,
     profileId?: string,
   ): Promise<string[]> {
-    const where =
-      agent === "claude"
-        ? { sessionId: conversation, ...this.configDir(workspaceId, profileId) }
-        : (() => {
-            const codexHome = this.profileDir(workspaceId, "codex", profileId);
-            return { threadId: conversation, ...(codexHome ? { codexHome } : {}) };
-          })();
+    let where: Record<string, string>;
+    try {
+      if (agent === "claude") {
+        where = { sessionId: conversation, ...this.configDir(workspaceId, profileId) };
+      } else {
+        const codexHome = this.profileDir(workspaceId, "codex", profileId);
+        where = { threadId: conversation, ...(codexHome ? { codexHome } : {}) };
+      }
+    } catch (error) {
+      if (error instanceof AgentProfileSelectionError) return [];
+      throw error;
+    }
     const channel = await this.channelFor(workspaceId);
     const result = await channel
       .call<{ slots?: unknown }>("chat.historySlots", { workspaceId, ...where })
