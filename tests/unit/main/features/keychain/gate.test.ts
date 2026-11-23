@@ -133,6 +133,7 @@ describe("whether the user is asked before the keychain is read", () => {
       state: "ask",
       items: ["profileKeys", "voices"],
       busy: false,
+      refused: false,
     });
     expect(gate.isOpen()).toBe(false);
     expect(ran).toBe(false);
@@ -265,7 +266,11 @@ describe("refused in macOS's prompt", () => {
   });
 
   test("locks it; the file is neither taken for none nor written over", async () => {
-    const { gate } = gateWith({ items: ["remote"], recorded: "old", refuse: true });
+    const { gate, calls, statuses } = gateWith({
+      items: ["remote"],
+      recorded: "old",
+      refuse: true,
+    });
     const file = sealedFileIn(gate);
     const path = (file as unknown as { file: string }).file;
     writeFileSync(path, "v10sealed");
@@ -281,9 +286,32 @@ describe("refused in macOS's prompt", () => {
     await expect(file.load()).rejects.toBeInstanceOf(KeychainLockedError);
     await expect(file.save({ token: "new" })).rejects.toBeInstanceOf(KeychainLockedError);
     expect(readFileSync(path, "utf8")).toBe("v10sealed");
-    // The read waits for the next opening.
-    await gate.open();
-    expect(tries).toBe(2);
+    expect(gate.status()).toMatchObject({ state: "locked", refused: true });
+    expect(statuses.at(-1)).toMatchObject({ state: "locked", refused: true });
+    // Chromium will not ask again this run: opening fails at once, reading nothing.
+    const read = calls.length;
+    expect(await gate.open()).toBe(false);
+    expect(await gate.unlock()).toBe(false);
+    expect(tries).toBe(1);
+    expect(calls.length).toBe(read);
+  });
+
+  test("put off is locked, not refused: opening still asks", async () => {
+    const { gate } = gateWith({ items: ["remote"], recorded: "old" });
+    await gate.decided();
+    gate.putOff();
+    expect(gate.status()).toMatchObject({ state: "locked", refused: false });
+    expect(await gate.open()).toBe(true);
+  });
+
+  test("refused while open: locked and refused, told once", async () => {
+    const { gate, statuses } = gateWith({ items: [], refuse: true });
+    await gate.decided();
+    statuses.length = 0;
+    const file = sealedFileIn(gate);
+    await expect(file.save({ token: "t" })).rejects.toBeInstanceOf(KeychainLockedError);
+    await expect(file.save({ token: "t" })).rejects.toBeInstanceOf(KeychainLockedError);
+    expect(statuses).toEqual([{ state: "locked", items: [], busy: false, refused: true }]);
   });
 
   test("a damaged file is still as good as none, the keychain open", async () => {

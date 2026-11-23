@@ -19,6 +19,11 @@ export const KeychainStatusSchema = z.object({
   items: z.array(KeychainItemSchema),
   /** A keychain call has run past the time macOS takes to answer by itself: it is asking. */
   busy: z.boolean(),
+  /**
+   * Refused in macOS's prompt this run (locked, not put off). Chromium reads
+   * the keychain once a run, so nothing asks again until the app restarts.
+   */
+  refused: z.boolean(),
 });
 export type KeychainStatus = z.infer<typeof KeychainStatusSchema>;
 

@@ -859,6 +859,7 @@
       "remote": "Remote off · saved sign-in not opened yet",
       "profileKeys": "Keychain locked · saved API key not opened yet",
       "voices": "Name suggestions off · remembered voices not opened yet",
+      "refused": "Refused in macOS · asked again after the app restarts",
       "open": "Open"
     }
   },

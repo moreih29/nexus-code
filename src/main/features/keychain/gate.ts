@@ -74,7 +74,7 @@ export function openKeychain(
     has: () => false,
     unlock: async () => true,
     whenOpen: (key, task) => task().catch((error: unknown) => warn(`${key}: ${describe(error)}`)),
-    status: () => ({ state: "open", items: [], busy: false }),
+    status: () => ({ state: "open", items: [], busy: false, refused: false }),
     open: async () => true,
     putOff: () => {},
   };
@@ -117,6 +117,8 @@ export class KeychainGate implements KeychainControl {
   private state: KeychainStatus["state"] = "checking";
   /** Calls running past KEYCHAIN_SLOW_MS. */
   private slow = 0;
+  /** Refused in macOS's prompt: Chromium keeps the run's encryptor without a key, so opening again fails at once. */
+  private refused = false;
   private readonly waiting = new Map<string, Waiting>();
   private readonly decision: Promise<void>;
   /** The answer, while the user is asked. */
@@ -137,7 +139,12 @@ export class KeychainGate implements KeychainControl {
   }
 
   status(): KeychainStatus {
-    return { state: this.state, items: this.deps.items(), busy: this.slow > 0 };
+    return {
+      state: this.state,
+      items: this.deps.items(),
+      busy: this.slow > 0,
+      refused: this.refused,
+    };
   }
 
   decided(): Promise<void> {
@@ -153,6 +160,7 @@ export class KeychainGate implements KeychainControl {
   }
 
   unlock(): Promise<boolean> {
+    if (this.refused) return Promise.resolve(false);
     if (this.state === "checking") return this.decision.then(() => this.unlock());
     if (this.state === "ask") return this.answer.promise;
     if (this.state === "locked") return this.openNow();
@@ -161,6 +169,7 @@ export class KeychainGate implements KeychainControl {
 
   /** Leaves "ask" or "locked" at once, so no other window takes the question meanwhile. */
   open(): Promise<boolean> {
+    if (this.refused) return Promise.resolve(false);
     if (this.state === "checking") return this.decision.then(() => this.open());
     if (this.state === "ask") {
       const opened = this.openNow();
@@ -246,7 +255,10 @@ export class KeychainGate implements KeychainControl {
     } catch (error) {
       if (refusedByKeychain(kind, error)) {
         this.deps.warn?.(`the keychain gave no key: ${describe(error)}`);
-        this.set("locked");
+        const first = !this.refused;
+        this.refused = true;
+        if (this.state !== "locked") this.set("locked");
+        else if (first) this.changed();
         throw new KeychainLockedError();
       }
       throw error;

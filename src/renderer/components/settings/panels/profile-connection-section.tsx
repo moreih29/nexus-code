@@ -11,7 +11,11 @@ import {
   connectionPresetsFor,
 } from "../../../../shared/agent-profiles/connection";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
-import { OpenKeychainButton, useKeychainLocked } from "../../keychain/keychain-locked";
+import {
+  OpenKeychainButton,
+  useKeychainLocked,
+  useKeychainRefused,
+} from "../../keychain/keychain-locked";
 import { Button } from "../../ui/button";
 import type { ProfileConnectionDraft } from "./use-profile-connection";
 
@@ -113,6 +117,7 @@ export function ProfileConnectionSection({
   const { t } = useTranslation("settings");
   // The saved key is in a keychain not open yet: none shows until it opens.
   const keysLocked = useKeychainLocked("profileKeys");
+  const keychainRefused = useKeychainRefused();
   const group = useId();
   const custom = draft.method === "custom";
   const claude = agent === "claude";
@@ -269,8 +274,12 @@ export function ProfileConnectionSection({
           </div>
           {keysLocked ? (
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className={hintClass}>{t("common:keychain.locked.profileKeys")}</p>
-              <OpenKeychainButton />
+              <p className={hintClass}>
+                {keychainRefused
+                  ? `${t("common:keychain.locked.title")} · ${t("common:keychain.locked.refused")}`
+                  : t("common:keychain.locked.profileKeys")}
+              </p>
+              {!keychainRefused && <OpenKeychainButton />}
             </div>
           ) : (
             <p className={hintClass}>

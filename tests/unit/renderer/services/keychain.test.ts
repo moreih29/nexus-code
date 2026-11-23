@@ -57,6 +57,7 @@ const status = (patch: Partial<KeychainStatus>): KeychainStatus => ({
   state: "open",
   items: [],
   busy: false,
+  refused: false,
   ...patch,
 });
 

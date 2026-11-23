@@ -13,6 +13,11 @@ export function useKeychainLocked(item: KeychainItem): boolean {
   return useKeychain((s) => keychainLocked(s.status, item));
 }
 
+/** Refused in macOS's prompt this run: opening again cannot ask, so there is no button. */
+export function useKeychainRefused(): boolean {
+  return useKeychain((s) => s.status?.refused === true);
+}
+
 /** The keychain's "열기", busy while it opens. */
 export function OpenKeychainButton({ className }: { className?: string }) {
   const { t } = useTranslation();
@@ -37,15 +42,27 @@ export function OpenKeychainButton({ className }: { className?: string }) {
   );
 }
 
-/** A settings row: "키체인 잠김", what waits, and the button. */
+/** A settings row: "키체인 잠김", what waits, and the button; refused, that a restart asks again. */
 export function KeychainLockedRow({ item }: { item: Exclude<KeychainItem, "profileKeys"> }) {
+  return <KeychainLockedRowView item={item} refused={useKeychainRefused()} />;
+}
+
+export function KeychainLockedRowView({
+  item,
+  refused,
+}: {
+  item: Exclude<KeychainItem, "profileKeys">;
+  refused: boolean;
+}) {
   const { t } = useTranslation();
   return (
     <SettingsRow
       label={t("common:keychain.locked.title")}
-      description={t(`common:keychain.locked.${item}`)}
+      description={
+        refused ? t("common:keychain.locked.refused") : t(`common:keychain.locked.${item}`)
+      }
     >
-      <OpenKeychainButton />
+      {refused ? null : <OpenKeychainButton />}
     </SettingsRow>
   );
 }
