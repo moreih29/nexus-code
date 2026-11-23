@@ -100,6 +100,7 @@ const SHOWN_WHEN_BARE: Readonly<Record<string, RevealPart>> = {
   mcp: "mcp",
   model: "model",
   effort: "effort",
+  changes: "changes",
 };
 
 export function revealOf(text: string, parts?: readonly RevealPart[]): RevealPart | null {

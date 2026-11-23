@@ -11,20 +11,30 @@ import {
   claudeUsageLine,
   codexUsageLine,
   formatTokens,
+  meterLevel,
   resetParts,
   type UsageLine,
   type UsageMeter,
   usageViews,
-  WARN_AT,
 } from "../../services/chat/usage-line";
 import { ContextRing } from "../ui/context-ring";
 import { tooltipProps } from "../ui/tooltip";
 
+const LEVEL_TEXT = {
+  alert: "text-(--state-error-fg)",
+  warn: "text-(--state-warning-fg)",
+  ok: undefined,
+} as const;
+
+const LEVEL_BAR = {
+  alert: "bg-(--state-error-fg)",
+  warn: "bg-(--state-warning-fg)",
+  ok: "bg-(--state-loading-indicator)",
+} as const;
+
 function Percent({ percent }: { percent: number }) {
   return (
-    <span className={cn(percent >= WARN_AT && "text-(--state-warning-fg)")}>
-      {Math.round(percent)}%
-    </span>
+    <span className={cn(LEVEL_TEXT[meterLevel(percent) ?? "ok"])}>{Math.round(percent)}%</span>
   );
 }
 
@@ -34,7 +44,7 @@ function Bar({ percent }: { percent: number }) {
       <span
         className={cn(
           "absolute inset-y-0 left-0 rounded-full",
-          percent >= WARN_AT ? "bg-(--state-warning-fg)" : "bg-(--state-loading-indicator)",
+          LEVEL_BAR[meterLevel(percent) ?? "ok"],
         )}
         style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
       />

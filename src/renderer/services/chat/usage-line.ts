@@ -138,6 +138,12 @@ export function resetParts(resetsAt: number, now: number, locale: string): Reset
 }
 
 export const WARN_AT = 80;
+export const ALERT_AT = 95;
+
+export function meterLevel(percent: number): "alert" | "warn" | null {
+  if (percent >= ALERT_AT) return "alert";
+  return percent >= WARN_AT ? "warn" : null;
+}
 
 function near(percent: number): boolean {
   return percent >= WARN_AT;
