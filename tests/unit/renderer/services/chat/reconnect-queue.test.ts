@@ -283,3 +283,57 @@ test.each([
   expect(delivered()).toEqual(["while away"]);
   expect(tab.state.queue).toEqual([]);
 });
+
+test("codex steers a prompt held for a tool into the turn its restarted program runs, after that turn's next tool", async () => {
+  const { tab, delivered } = await codexTab();
+  const codex = tab as InstanceType<typeof CodexController>;
+  expect(tab.state.model.running).toBe(true);
+  await codex.sendWithTiming("after a tool", [], "next", undefined, undefined, "after-tool");
+  expect(tab.state.queue[0]?.afterTool).toBeGreaterThan(0);
+
+  tab.held();
+  replay = () => ({ found: false, running: false, lastSeq: 0 });
+  lineSeq = 0;
+  const program = respond;
+  respond = (message) => {
+    program?.(message);
+    if (message.method !== "thread/resume") return;
+    queueMicrotask(() =>
+      tab.receive({
+        seq: ++lineSeq,
+        dir: "out",
+        message: { method: "turn/started", params: { threadId: "t1", turn: { id: "turn-2" } } },
+      } as never),
+    );
+  };
+  await tab.resync();
+  await Bun.sleep(20);
+
+  expect(tab.state.model.running).toBe(true);
+  expect(sent.some((message) => message.method === "thread/resume")).toBe(true);
+  expect(delivered()).toEqual([]);
+  expect(
+    tab.state.queue.map(({ text, status, afterTool }) => ({ text, status, afterTool })),
+  ).toEqual([{ text: "after a tool", status: undefined, afterTool: 0 }]);
+
+  tab.receive({
+    seq: ++lineSeq,
+    dir: "out",
+    message: {
+      method: "item/completed",
+      params: {
+        threadId: "t1",
+        turnId: "turn-2",
+        item: { id: "cmd", type: "commandExecution", command: "pwd", status: "completed" },
+      },
+    },
+  } as never);
+  await Bun.sleep(20);
+
+  expect(
+    sent.filter(({ method }) => method === "turn/steer").map(({ params }) => params),
+  ).toMatchObject([
+    { threadId: "t1", expectedTurnId: "turn-2", input: [{ type: "text", text: "after a tool" }] },
+  ]);
+  expect(tab.state.queue).toEqual([]);
+});
