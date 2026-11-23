@@ -15,6 +15,6 @@ test("an attach refused for a linked attach folder says so, not that the app fai
     stop();
   }
   expect(toasts.map((toast) => [toast.kind, toast.message])).toEqual([
-    ["error", "Can't attach: attachment folder is a link"],
+    ["error", "Can't attach files because the attachment folder is a link."],
   ]);
 });
