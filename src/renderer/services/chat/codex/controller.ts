@@ -14,11 +14,7 @@ import type { ChatChosen, CodexFork, ProfileMove } from "../../../../shared/type
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
-import {
-  pruneAttachmentsAfterAttach,
-  readOpenHistories,
-  removeConversationAttachments,
-} from "../attach-retention";
+import { readOpenHistories, removeConversationAttachments } from "../attach-retention";
 import type { PermissionAnswer, RewindPreview } from "../claude/controller";
 import type {
   AssistantItem,
@@ -44,11 +40,18 @@ import {
   emptyTabState,
   useChatStore,
 } from "../store";
+import {
+  attachToTab,
+  editQueuedIn,
+  heldTab,
+  type ReplayResult,
+  removeQueuedIn,
+  replayTab,
+} from "../tab-core";
 import { ConnectionRestart } from "../transport/connection-restart";
 import { LiveLines } from "../transport/live-lines";
 import { ProgramStartup, stopChatProgram } from "../transport/program-startup";
 import {
-  cancelQueuedMessage,
   clearObservedQueued,
   dispatchQueuedMessage,
   isChatWriteRejected,
@@ -112,7 +115,6 @@ const HISTORY_MUTATIONS = new Set([
   "turn/start",
   "turn/steer",
 ]);
-const REPLAY_CATCH_UP_MS = 3_000;
 const MAX_SUGGESTIONS = 50;
 
 const SUPPORTED = new Set(["apply_flag_settings", "file_suggestions"]);
@@ -136,13 +138,6 @@ const MODE_SETTINGS: Record<CodexMode, { approvalPolicy: string; sandboxPolicy: 
 };
 
 const UNSUPPORTED = { code: -32601, message: "NexusCode does not answer this request" };
-
-interface ReplayResult {
-  found: boolean;
-  running: boolean;
-  truncated: boolean;
-  lastSeq: number;
-}
 
 interface Pending {
   resolve: (result: Record<string, unknown>) => void;
@@ -1374,36 +1369,18 @@ export class CodexController {
     void wantPlanUsage(this.usageKey());
   }
 
-  private async replay(afterSeq?: number): Promise<ReplayResult> {
-    const { workspaceId, tabId } = this.target;
-    this.live.hold();
-    try {
-      const replay = unwrapIpcResult(
-        await ipcCallResult("chat", "replay", {
-          workspaceId,
-          tabId,
-          ...(afterSeq !== undefined ? { afterSeq } : {}),
-        }),
-      );
-      await this.catchUp(replay);
-      return replay;
-    } finally {
-      const held = this.live.release();
-      if (held.length > 0 && !this.disposed) {
-        this.buffered.push(...held);
-        this.flushNow();
-      }
-    }
-  }
-
-  private async catchUp(replay: ReplayResult): Promise<void> {
-    this.flushNow();
-    if (!replay.found) return;
-    const deadline = Date.now() + REPLAY_CATCH_UP_MS;
-    while (this.model.lastSeq < replay.lastSeq && !this.disposed && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 16));
-      this.flushNow();
-    }
+  private replay(afterSeq?: number): Promise<ReplayResult> {
+    return replayTab(
+      {
+        target: this.target,
+        live: this.live,
+        disposed: () => this.disposed,
+        lastSeq: () => this.model.lastSeq,
+        flushNow: () => this.flushNow(),
+        keep: (lines) => this.buffered.push(...lines),
+      },
+      afterSeq,
+    );
   }
 
   async resync(): Promise<void> {
@@ -1440,7 +1417,7 @@ export class CodexController {
   }
 
   held(): void {
-    this.update((prev) => (prev.phase === "ready" ? { ...prev, phase: "held" } : prev));
+    this.update(heldTab);
   }
 
   async prepareSend(): Promise<void> {
@@ -1721,25 +1698,11 @@ export class CodexController {
   }
 
   removeQueued(id: string): QueuedMessage | undefined {
-    const item = this.state.queue.find((q) => q.id === id && q.status !== "sending");
-    if (!item) return undefined;
-    this.update((prev) => cancelQueuedMessage(prev, id));
-    return item;
+    return removeQueuedIn(this.state, (change) => this.update(change), id);
   }
 
   editQueued(id: string, text: string, device?: string, from?: RelaySender): boolean {
-    if (!this.state.queue.some((q) => q.id === id && !q.status)) return false;
-    this.update((prev) => ({
-      ...prev,
-      queue: prev.queue.map((q) => {
-        if (q.id !== id) return q;
-        if (from) return { ...q, text, from, device };
-        if (!device) return { ...q, text };
-        const { from: _agent, ...rest } = q;
-        return { ...rest, text, device };
-      }),
-    }));
-    return true;
+    return editQueuedIn(this.state, (change) => this.update(change), id, text, device, from);
   }
 
   private sendNextQueued(): void {
@@ -1974,13 +1937,8 @@ export class CodexController {
     return suggestedPaths(result.files);
   }
 
-  async attach(name: string, data: string): Promise<string> {
-    const { workspaceId, tabId } = this.target;
-    const result = unwrapIpcResult(
-      await ipcCallResult("chat", "attach", { workspaceId, tabId, name, data }),
-    );
-    pruneAttachmentsAfterAttach(workspaceId);
-    return result.path;
+  attach(name: string, data: string): Promise<string> {
+    return attachToTab(this.target, name, data);
   }
 
   async answerPermission(request: PermissionRequest, answer: PermissionAnswer): Promise<void> {

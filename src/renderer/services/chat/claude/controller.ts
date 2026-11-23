@@ -14,7 +14,6 @@ import type { ChatChosen, ProfileMove } from "../../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
-import { pruneAttachmentsAfterAttach } from "../attach-retention";
 import {
   type ChatLine,
   type ChatModel,
@@ -33,11 +32,18 @@ import {
   emptyTabState,
   useChatStore,
 } from "../store";
+import {
+  attachToTab,
+  editQueuedIn,
+  heldTab,
+  type ReplayResult,
+  removeQueuedIn,
+  replayTab,
+} from "../tab-core";
 import { ConnectionRestart } from "../transport/connection-restart";
 import { LiveLines } from "../transport/live-lines";
 import { ProgramStartup, stopChatProgram } from "../transport/program-startup";
 import {
-  cancelQueuedMessage,
   clearObservedQueued,
   dispatchQueuedMessage,
   isChatWriteRejected,
@@ -79,7 +85,6 @@ const CONTROL_TIMEOUT_MS = 15_000;
 const SIDE_QUESTION_TIMEOUT_MS = 180_000;
 const TITLE_FROM_CHARS = 2_000;
 
-const REPLAY_CATCH_UP_MS = 3_000;
 const COMMAND_DONE_MS = 10_000;
 const GOAL_SYNC_MS = [500, 2_500];
 const GOAL_STOP_MS = 10_000;
@@ -99,13 +104,6 @@ interface TranscriptSource {
   title?: string;
   logTruncated?: boolean;
   appended?: ChatModel;
-}
-
-interface ReplayResult {
-  found: boolean;
-  running: boolean;
-  truncated: boolean;
-  lastSeq: number;
 }
 
 const PANEL_REQUESTS = {
@@ -1333,36 +1331,18 @@ export class ChatController {
     this.flushNow();
   }
 
-  private async replay(afterSeq?: number): Promise<ReplayResult> {
-    const { workspaceId, tabId } = this.target;
-    this.live.hold();
-    try {
-      const replay = unwrapIpcResult(
-        await ipcCallResult("chat", "replay", {
-          workspaceId,
-          tabId,
-          ...(afterSeq !== undefined ? { afterSeq } : {}),
-        }),
-      );
-      await this.catchUp(replay);
-      return replay;
-    } finally {
-      const held = this.live.release();
-      if (held.length > 0 && !this.disposed) {
-        this.buffered.push(...held);
-        this.flushNow();
-      }
-    }
-  }
-
-  private async catchUp(replay: ReplayResult): Promise<void> {
-    this.flushNow();
-    if (!replay.found) return;
-    const deadline = Date.now() + REPLAY_CATCH_UP_MS;
-    while (this.state.model.lastSeq < replay.lastSeq && !this.disposed && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 16));
-      this.flushNow();
-    }
+  private replay(afterSeq?: number): Promise<ReplayResult> {
+    return replayTab(
+      {
+        target: this.target,
+        live: this.live,
+        disposed: () => this.disposed,
+        lastSeq: () => this.state.model.lastSeq,
+        flushNow: () => this.flushNow(),
+        keep: (lines) => this.buffered.push(...lines),
+      },
+      afterSeq,
+    );
   }
 
   async resync(): Promise<void> {
@@ -1377,6 +1357,7 @@ export class ChatController {
     if (this.disposed || this.changingSession || this.transcriptSource !== source) return;
     if (replay.found) {
       this.update((prev) => ({ ...prev, phase: replay.running ? "ready" : "ended" }));
+      if (replay.running) this.sendNextQueued();
       return;
     }
     const pages = this.transcriptPages;
@@ -1404,7 +1385,7 @@ export class ChatController {
   }
 
   held(): void {
-    this.update((prev) => (prev.phase === "ready" ? { ...prev, phase: "held" } : prev));
+    this.update(heldTab);
   }
 
   async prepareSend(): Promise<void> {
@@ -1498,30 +1479,16 @@ export class ChatController {
       ...(device ? { device } : {}),
     };
     this.update((prev) => ({ ...prev, queue: [...prev.queue, item] }));
-    if (!this.state.model.running) this.sendNextQueued();
+    this.sendNextQueued();
     return this.state.queue.some((entry) => entry.id === item.id) ? item.id : undefined;
   }
 
   removeQueued(id: string): QueuedMessage | undefined {
-    const item = this.state.queue.find((q) => q.id === id && q.status !== "sending");
-    if (!item) return undefined;
-    this.update((prev) => cancelQueuedMessage(prev, id));
-    return item;
+    return removeQueuedIn(this.state, (change) => this.update(change), id);
   }
 
   editQueued(id: string, text: string, device?: string, from?: RelaySender): boolean {
-    if (!this.state.queue.some((q) => q.id === id && !q.status)) return false;
-    this.update((prev) => ({
-      ...prev,
-      queue: prev.queue.map((q) => {
-        if (q.id !== id) return q;
-        if (from) return { ...q, text, from, device };
-        if (!device) return { ...q, text };
-        const { from: _agent, ...rest } = q;
-        return { ...rest, text, device };
-      }),
-    }));
-    return true;
+    return editQueuedIn(this.state, (change) => this.update(change), id, text, device, from);
   }
 
   private sendNextQueued(): void {
@@ -1534,9 +1501,14 @@ export class ChatController {
       (id) => this.sawQueuedMessage(id),
       () => {
         this.flushNow();
-        if (!this.state.model.running) this.sendNextQueued();
+        this.sendNextQueued();
       },
+      () => this.canSendQueued(),
     );
+  }
+
+  private canSendQueued(): boolean {
+    return !this.disposed && this.state.phase !== "held" && !this.state.model.running;
   }
 
   private sawQueuedMessage(id: string): boolean {
@@ -2027,13 +1999,8 @@ export class ChatController {
     });
   }
 
-  async attach(name: string, data: string): Promise<string> {
-    const { workspaceId, tabId } = this.target;
-    const result = unwrapIpcResult(
-      await ipcCallResult("chat", "attach", { workspaceId, tabId, name, data }),
-    );
-    pruneAttachmentsAfterAttach(workspaceId);
-    return result.path;
+  attach(name: string, data: string): Promise<string> {
+    return attachToTab(this.target, name, data);
   }
 
   setRemoteControl(enabled?: boolean): Promise<{ enabled: boolean; url?: string }> {
