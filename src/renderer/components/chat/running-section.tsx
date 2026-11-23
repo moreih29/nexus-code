@@ -29,10 +29,10 @@ import {
   searchActivity,
 } from "../../services/chat/running";
 import { cn } from "../../utils/cn";
+import { relativeTime } from "../../utils/time-format";
 import { elapsedLabel } from "../agent-list/agent-status";
 import { IconButton } from "../ui/icon-button";
 import { SearchInput } from "../ui/search-input";
-import { relativeTime } from "./message-list";
 import { FirstFew, Row, Section, useFold, useRevealedRow } from "./panel-section";
 import { BackgroundBadge, BackgroundIcon } from "./tool-row";
 
@@ -515,7 +515,6 @@ function EndedList({
   const now = useNow(true, 30_000);
   const asked = reveal?.id;
   const at = asked === undefined ? -1 : found.findIndex((row) => row.job?.taskId === asked);
-  const justNow = t("chat.time.now");
   return (
     <div className="flex flex-col gap-0.5" data-testid="panel-ended-list">
       <SearchInput
@@ -535,7 +534,7 @@ function EndedList({
             <EndedRow
               key={row.key}
               row={row}
-              ago={agoOf(row, now, i18n.language, justNow)}
+              ago={agoOf(row, now, i18n.language)}
               reveal={row.job && row.job.taskId === asked ? reveal?.seq : undefined}
               onRevealed={onRevealed}
               onOpen={onOpen}
@@ -548,13 +547,13 @@ function EndedList({
   );
 }
 
-function agoOf(row: ActivityRow, now: number, locale: string, justNow: string): string {
+function agoOf(row: ActivityRow, now: number, locale: string): string {
   const took =
     row.startedAt !== undefined && row.endedAt !== undefined
       ? elapsedLabel(Math.max(0, row.endedAt - row.startedAt))
       : undefined;
   const at = endedAtOf(row);
-  const ago = at !== undefined ? relativeTime(at, now, locale, justNow) : undefined;
+  const ago = at !== undefined ? relativeTime(at, now, locale) : undefined;
   return [took, ago].filter(Boolean).join(" · ");
 }
 

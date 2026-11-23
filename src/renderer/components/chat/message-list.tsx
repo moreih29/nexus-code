@@ -8,7 +8,6 @@ import {
   CircleCheck,
   CircleSlash,
   CircleX,
-  Copy,
   FileText,
   GitFork,
   MessageSquareShare,
@@ -75,16 +74,12 @@ import { showPeerSession } from "../../services/remote/show-peer";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { isAgentViewShown } from "../../state/stores/agent-view";
 import { useTabsStore } from "../../state/stores/tabs";
-import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
-import {
-  DATE_AND_TIME,
-  DATE_ONLY,
-  dateTimeFormat,
-  relativeTimeFormat,
-} from "../../utils/intl-format";
+import { DATE_AND_TIME, dateTimeFormat } from "../../utils/intl-format";
+import { relativeTime } from "../../utils/time-format";
 import { ProfileDot, profileName } from "../agent-profiles/profile-badge";
 import { SaveAnswerMenu } from "../notes/save-answer-menu";
+import { CopyButton } from "../ui/copy-button";
 import { IconButton } from "../ui/icon-button";
 import { ToggleChevron } from "../ui/toggle-chevron";
 import { AnswerExtrasView } from "./answer-extras";
@@ -648,7 +643,7 @@ function ReceivedBubble({ item }: { item: ReceivedItem }) {
       </div>
       <div className="flex items-center gap-1 text-app-micro text-muted-foreground opacity-0 group-focus-within/received:opacity-100 group-hover/received:opacity-100">
         <MessageTime at={item.at} />
-        <CopyButton text={item.text} />
+        {item.text && <CopyButton text={item.text} label={t("chat.copy")} />}
       </div>
     </div>
   );
@@ -942,7 +937,7 @@ function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
         <div className="flex items-center gap-1 text-app-micro text-muted-foreground">
           <div className="flex items-center gap-1 opacity-0 group-focus-within/user:opacity-100 group-hover/user:opacity-100">
             <MessageTime at={item.at} />
-            <CopyButton text={item.text} />
+            {item.text && <CopyButton text={item.text} label={t("chat.copy")} />}
             {actions?.onRewind && (actions.canRewindItem?.(item) ?? taken) && (
               <IconButton
                 label={actions.running ? t("chat.rewind.busy") : t("chat.rewind.action")}
@@ -1042,7 +1037,7 @@ function AssistantMessage({
       )}
       {text && (
         <div className="mt-1 flex items-center gap-1 text-app-micro text-muted-foreground opacity-0 group-focus-within/assistant:opacity-100 group-hover/assistant:opacity-100">
-          <CopyButton text={text} />
+          <CopyButton text={text} label={t("chat.copy")} />
           {forkable && ctx.actions && (
             <IconButton
               label={t("chat.fork.from_assistant")}
@@ -1298,50 +1293,16 @@ function Notice({ item }: { item: NoticeItem }) {
   );
 }
 
-function CopyButton({ text }: { text: string }) {
-  const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  if (!text) return null;
-  return (
-    <IconButton
-      label={t("chat.copy")}
-      onClick={() => {
-        copyText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1200);
-      }}
-    >
-      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-    </IconButton>
-  );
-}
-
 function MessageTime({ at }: { at?: number }) {
-  const { t, i18n } = useTranslation();
+  const { i18n } = useTranslation();
   const now = useSharedClock(messageClock);
   if (at === undefined) return null;
   const exact = dateTimeFormat(i18n.language, DATE_AND_TIME).format(at);
   return (
     <time dateTime={new Date(at).toISOString()} title={exact} className="px-1 tabular-nums">
-      {relativeTime(at, now, i18n.language, t("chat.time.now"))}
+      {relativeTime(at, now, i18n.language)}
     </time>
   );
 }
-
-const MINUTE_MS = 60_000;
-const HOUR_MS = 60 * MINUTE_MS;
-const DAY_MS = 24 * HOUR_MS;
-
-export function relativeTime(at: number, now: number, locale: string, justNow: string): string {
-  const ago = now - at;
-  if (ago < MINUTE_MS) return justNow;
-  const format = relativeTimeFormat(locale, RELATIVE);
-  if (ago < HOUR_MS) return format.format(-Math.floor(ago / MINUTE_MS), "minute");
-  if (ago < DAY_MS) return format.format(-Math.floor(ago / HOUR_MS), "hour");
-  if (ago < 7 * DAY_MS) return format.format(-Math.floor(ago / DAY_MS), "day");
-  return dateTimeFormat(locale, DATE_ONLY).format(at);
-}
-
-const RELATIVE: Intl.RelativeTimeFormatOptions = { numeric: "auto" };
 
 const messageClock = sharedClock(30_000);

@@ -28,7 +28,7 @@ interface HistoryListProps {
   loading: boolean;
   loadingMore: boolean;
   hasMore: boolean;
-  searchQuery: string;
+  searchQuery?: string;
   errorMessage?: string | null;
   laneState?: LaneState;
   graphWidthPx?: number;
@@ -41,8 +41,8 @@ interface HistoryListProps {
   onSelect: (entry: LogEntry) => void;
   onOpen: (entry: LogEntry) => void;
   onLoadMore: () => void;
-  onOpenMenu: (request: HistoryRowMenuRequest) => void;
-  onClearSearch: () => void;
+  onOpenMenu?: (request: HistoryRowMenuRequest) => void;
+  onClearSearch?: () => void;
 }
 
 type HistoryListCssVars = React.CSSProperties & {
@@ -55,7 +55,7 @@ export function HistoryList({
   loading,
   loadingMore,
   hasMore,
-  searchQuery,
+  searchQuery = "",
   errorMessage,
   laneState,
   graphWidthPx = DEFAULT_GRAPH_WIDTH_PX,

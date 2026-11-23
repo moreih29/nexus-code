@@ -6,6 +6,7 @@ import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult, unwrapGitResult } from "../../ipc/client";
 import { closeTab, openDiffTab } from "../../state/operations/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
+import { commitTime } from "../../utils/time-format";
 import { Button } from "../ui/button";
 
 const log = createLogger("commit-tab");
@@ -104,7 +105,7 @@ function CommitDetailContent({
         <dd className="min-w-0 truncate text-foreground">{detail.authorEmail}</dd>
         <dt className="text-muted-foreground">{t("editor.time")}</dt>
         <dd className="min-w-0 truncate text-foreground" title={detail.committerTs}>
-          {formatCommitTime(detail.committerTs, i18n.language)}
+          {commitTime(detail.committerTs, i18n.language)}
         </dd>
       </dl>
       {detail.body.length > 0 ? (
@@ -168,12 +169,6 @@ function CenteredMessage({ children }: { children: ReactNode }) {
       {children}
     </div>
   );
-}
-
-export function formatCommitTime(value: string, locale: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "medium" }).format(date);
 }
 
 export function commitTabErrorFrom(error: unknown, sha: string): CommitTabError {
