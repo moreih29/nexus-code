@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/nexus-code/nexus-code/internal/claudefiles"
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
@@ -35,7 +36,7 @@ func (s *Service) RunTranscript(_ context.Context, raw json.RawMessage) (any, er
 	if p.From != nil && *p.From < 0 {
 		return nil, proto.ProtocolError("chat.runTranscript from is negative")
 	}
-	path, info := findClaudeSession(configDir(p.ConfigDir), p.SessionID)
+	path, info := claudefiles.FindSession(configDir(p.ConfigDir), p.SessionID)
 	if path == "" {
 		return RunTranscriptResult{Found: false, Lines: []json.RawMessage{}}, nil
 	}
@@ -48,7 +49,7 @@ func (s *Service) RunTranscript(_ context.Context, raw json.RawMessage) (any, er
 
 func readRunTranscript(path string, want os.FileInfo, from *int64, limit int64) (RunTranscriptResult, error) {
 	result := RunTranscriptResult{Found: true, Lines: []json.RawMessage{}}
-	file, info, err := openFound(path, want)
+	file, info, err := claudefiles.Open(path, want)
 	if err != nil {
 		return result, err
 	}

@@ -11,10 +11,11 @@ import (
 	"regexp"
 
 	"github.com/nexus-code/nexus-code/internal/agentpaths"
+	"github.com/nexus-code/nexus-code/internal/claudefiles"
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-var sessionIDPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z_-]{7,127}$`)
+var sessionIDPattern = claudefiles.SessionIDPattern
 
 func (s *Service) Transcript(_ context.Context, raw json.RawMessage) (any, error) {
 	var p TranscriptParams
@@ -24,7 +25,7 @@ func (s *Service) Transcript(_ context.Context, raw json.RawMessage) (any, error
 	if !sessionIDPattern.MatchString(p.SessionID) {
 		return nil, proto.ProtocolError("chat.transcript sessionId is not a session id")
 	}
-	path, info := findClaudeSession(configDir(p.ConfigDir), p.SessionID)
+	path, info := claudefiles.FindSession(configDir(p.ConfigDir), p.SessionID)
 	if path == "" {
 		return TranscriptResult{Found: false, Lines: []json.RawMessage{}}, nil
 	}
@@ -78,7 +79,7 @@ func (s *Service) SessionFile(_ context.Context, raw json.RawMessage) (any, erro
 	if !sessionIDPattern.MatchString(p.SessionID) {
 		return nil, proto.ProtocolError("chat.sessionFile sessionId is not a session id")
 	}
-	path, _ := findClaudeSession(configDir(p.ConfigDir), p.SessionID)
+	path, _ := claudefiles.FindSession(configDir(p.ConfigDir), p.SessionID)
 	if path == "" {
 		return SessionFileResult{Found: false}, nil
 	}
@@ -114,7 +115,7 @@ func readJSONLines(path string, want os.FileInfo, limit int64) ([]json.RawMessag
 }
 
 func readJSONLinesWhere(path string, want os.FileInfo, limit int64, keep func(json.RawMessage) bool) ([]json.RawMessage, bool, error) {
-	file, info, err := openFound(path, want)
+	file, info, err := claudefiles.Open(path, want)
 	if err != nil {
 		return nil, false, err
 	}

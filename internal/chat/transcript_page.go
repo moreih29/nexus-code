@@ -15,6 +15,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/nexus-code/nexus-code/internal/claudefiles"
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
@@ -147,7 +148,7 @@ func (s *Service) readTranscriptPage(ctx context.Context, p transcriptPageParams
 		return page, err
 	}
 	dir := configDir(p.ConfigDir)
-	path, found := findClaudeSession(dir, p.SessionID)
+	path, found := claudefiles.FindSession(dir, p.SessionID)
 	var snapshot *transcriptSnapshot
 	var pos, fragment int64
 	var boundary [32]byte
@@ -160,9 +161,9 @@ func (s *Service) readTranscriptPage(ctx context.Context, p transcriptPageParams
 	if path == "" {
 		return page, nil
 	}
-	file, info, err := openFound(path, found)
+	file, info, err := claudefiles.Open(path, found)
 	if err != nil {
-		if snapshot != nil && (os.IsNotExist(err) || errors.Is(err, errNotFoundFile)) {
+		if snapshot != nil && (os.IsNotExist(err) || errors.Is(err, claudefiles.ErrNotFoundFile)) {
 			return page, errStaleTranscriptCursor
 		}
 		return page, err

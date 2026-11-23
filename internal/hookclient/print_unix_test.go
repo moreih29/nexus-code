@@ -366,9 +366,9 @@ func TestRunPrint_FollowsTheSessionTheRunWasGiven(t *testing.T) {
 	}
 	claude := transcriptClaude(t, dir, transcriptLines, nil, "")
 	var stderr bytes.Buffer
-	runPrint(claude, []string{"-p", "hi", "--session-id", "s1"}, strings.NewReader(""), &bytes.Buffer{},
+	runPrint(claude, []string{"-p", "hi", "--session-id", sessionA}, strings.NewReader(""), &bytes.Buffer{},
 		&stderr, newPrintTeller(socket, "tok", "ws", "t1"))
-	if stderr.String() != "args: -p hi --session-id s1\n" {
+	if stderr.String() != "args: -p hi --session-id "+sessionA+"\n" {
 		t.Fatalf("claude ran with %q", stderr.String())
 	}
 	if told := fs.told(t); len(told) != 9 || told[8].Payload["answer"] != "It is fine.\nShip it." {

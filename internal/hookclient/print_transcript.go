@@ -7,13 +7,15 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/claudefiles"
 )
 
 var printTranscriptPoll = 200 * time.Millisecond
 
 type printTranscript struct {
-	projects   string
-	name       string
+	config     string
+	sessionID  string
 	from       int64
 	stop, done chan struct{}
 }
@@ -24,10 +26,10 @@ func newPrintTranscript(sessionID string) *printTranscript {
 		return nil
 	}
 	return &printTranscript{
-		projects: filepath.Join(dir, "projects"),
-		name:     sessionID + ".jsonl",
-		stop:     make(chan struct{}),
-		done:     make(chan struct{}),
+		config:    dir,
+		sessionID: sessionID,
+		stop:      make(chan struct{}),
+		done:      make(chan struct{}),
 	}
 }
 
@@ -106,19 +108,15 @@ func followFile(
 }
 
 func (tr *printTranscript) open() *os.File {
-	entries, err := os.ReadDir(tr.projects)
+	path, info := claudefiles.FindSession(tr.config, tr.sessionID)
+	if path == "" {
+		return nil
+	}
+	file, _, err := claudefiles.Open(path, info)
 	if err != nil {
 		return nil
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		if file, err := os.Open(filepath.Join(tr.projects, entry.Name(), tr.name)); err == nil {
-			return file
-		}
-	}
-	return nil
+	return file
 }
 
 func (tr *printTranscript) startAtEnd() {

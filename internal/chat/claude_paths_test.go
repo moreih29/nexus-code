@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/nexus-code/nexus-code/internal/claudefiles"
 )
 
 const (
@@ -220,7 +222,7 @@ func TestClaudeLookupsTakeNoPathAsAnID(t *testing.T) {
 	writeText(t, filepath.Join(config, "projects", "p", "subagents", "agent-x.jsonl"), "{}\n")
 	writeText(t, filepath.Join(config, "projects", "p", "s", "subagents", "agent-..jsonl"), "{}\n")
 	for _, id := range []string{"../../secret", `..\..\secret`, "..", "/etc/passwd", "", "a/b/c/d/e/f"} {
-		if path, _ := findClaudeSession(config, id); path != "" {
+		if path, _ := claudefiles.FindSession(config, id); path != "" {
 			t.Fatalf("session id %q found %s", id, path)
 		}
 		if path, _ := findSubagent(config, id, "x", ""); path != "" {
@@ -253,10 +255,10 @@ func TestClaudeLookupsTakeNoPathAsAnID(t *testing.T) {
 func TestClaudeLookupsNeedAProjectsFolder(t *testing.T) {
 	config := t.TempDir()
 	writeText(t, filepath.Join(config, "projects"), "not a folder")
-	if path, _ := findClaudeSession(config, runSession); path != "" {
+	if path, _ := claudefiles.FindSession(config, runSession); path != "" {
 		t.Fatalf("found %s without a projects folder", path)
 	}
-	if path, _ := findClaudeSession("", runSession); path != "" {
+	if path, _ := claudefiles.FindSession("", runSession); path != "" {
 		t.Fatalf("found %s without a config folder", path)
 	}
 }
@@ -270,7 +272,7 @@ func TestClaudeLookupsTakeTheNewestSession(t *testing.T) {
 	if err := os.Chtimes(older, past, past); err != nil {
 		t.Fatal(err)
 	}
-	if path, info := findClaudeSession(config, runSession); path != newer || !os.SameFile(info, mustStat(t, newer)) {
+	if path, info := claudefiles.FindSession(config, runSession); path != newer || !os.SameFile(info, mustStat(t, newer)) {
 		t.Fatalf("found %s, not the newest %s", path, newer)
 	}
 }

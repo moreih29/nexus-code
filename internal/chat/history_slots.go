@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/nexus-code/nexus-code/internal/claudefiles"
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
@@ -48,7 +49,7 @@ func (s *Service) HistorySlots(_ context.Context, raw json.RawMessage) (any, err
 		if !sessionIDPattern.MatchString(p.SessionID) {
 			return nil, proto.ProtocolError("chat.historySlots sessionId is not a session id")
 		}
-		path, found = findClaudeSession(configDir(p.ConfigDir), p.SessionID)
+		path, found = claudefiles.FindSession(configDir(p.ConfigDir), p.SessionID)
 	case p.ThreadID != "" && p.SessionID == "":
 		if !sessionIDPattern.MatchString(p.ThreadID) {
 			return nil, proto.ProtocolError("chat.historySlots threadId is not a thread id")
@@ -76,7 +77,7 @@ func (s *Service) HistorySlots(_ context.Context, raw json.RawMessage) (any, err
 }
 
 func historySlots(path string, want os.FileInfo, wsDir string) ([]string, bool, error) {
-	file, _, err := openFound(path, want)
+	file, _, err := claudefiles.Open(path, want)
 	if err != nil {
 		return nil, false, err
 	}

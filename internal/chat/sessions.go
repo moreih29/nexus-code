@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/nexus-code/nexus-code/internal/claudefiles"
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
@@ -39,7 +40,7 @@ func (s *Service) Sessions(_ context.Context, raw json.RawMessage) (any, error) 
 		limit = sessionsDefaultLimit
 	}
 	limit = min(limit, sessionsMaxLimit)
-	return SessionsResult{Sessions: listSessions(claudeProjectsDir(configDir(p.ConfigDir)), p.Cwd, limit)}, nil
+	return SessionsResult{Sessions: listSessions(claudefiles.ProjectsDir(configDir(p.ConfigDir)), p.Cwd, limit)}, nil
 }
 
 func listSessions(projects, cwd string, limit int) []ClaudeSession {
@@ -60,7 +61,7 @@ func listSessions(projects, cwd string, limit int) []ClaudeSession {
 				continue
 			}
 			path := filepath.Join(dir, entry.Name())
-			info, ok := claudeFile(path)
+			info, ok := claudefiles.RegularFile(path)
 			if !ok {
 				continue
 			}
@@ -247,7 +248,7 @@ func jsonStringAt(b []byte) (string, bool) {
 }
 
 func readEnds(path string, want os.FileInfo, n int64) (head, tail []byte, err error) {
-	file, info, err := openFound(path, want)
+	file, info, err := claudefiles.Open(path, want)
 	if err != nil {
 		return nil, nil, err
 	}

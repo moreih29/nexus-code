@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/nexus-code/nexus-code/internal/claudefiles"
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
@@ -28,9 +29,9 @@ func (s *Service) DeleteSession(_ context.Context, raw json.RawMessage) (any, er
 		return DeleteSessionResult{Deleted: false}, nil
 	}
 	deleted := false
-	for _, project := range claudeProjectFoldersFor(claudeProjectsDir(dir), p.Cwd) {
+	for _, project := range claudeProjectFoldersFor(claudefiles.ProjectsDir(dir), p.Cwd) {
 		transcript := filepath.Join(project, p.SessionID+".jsonl")
-		if _, ok := claudeFile(transcript); !ok {
+		if _, ok := claudefiles.RegularFile(transcript); !ok {
 			continue
 		}
 		if err := os.Remove(transcript); err != nil {
