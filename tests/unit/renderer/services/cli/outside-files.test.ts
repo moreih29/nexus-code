@@ -3,9 +3,17 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 const globals = globalThis as Record<string, unknown>;
 const saved = globals.window;
+/** The attach root main answers chat.attachRoot with. */
+let attachRoot: string | null = null;
 globals.window = {
   ...((saved as object | undefined) ?? {}),
-  ipc: { call: async () => ({}), cancel: () => {}, on: () => () => {}, listen: () => () => {} },
+  ipc: {
+    call: async (channel: string, method: string) =>
+      channel === "chat" && method === "attachRoot" ? { root: attachRoot } : {},
+    cancel: () => {},
+    on: () => () => {},
+    listen: () => () => {},
+  },
 };
 afterAll(() => {
   globals.window = saved;
@@ -18,7 +26,7 @@ const { chatKey, emptyTabState, useChatStore } = await import(
   "../../../../../src/renderer/services/chat/store"
 );
 const { emptyModel } = await import("../../../../../src/renderer/services/chat/model");
-const { forgetAttachFolders, inAttachFolder, noteAttached } = await import(
+const { attachRootOf, attachShaped, inAttachFolder } = await import(
   "../../../../../src/renderer/services/chat/attach-folders"
 );
 const { relayedText } = await import("../../../../../src/shared/chat/relay");
@@ -48,7 +56,7 @@ function read(id: string, path: string) {
 }
 
 beforeEach(() => {
-  forgetAttachFolders();
+  attachRoot = null;
   useWorkspacesStore.setState({
     workspaces: [{ id: "w1", name: "work", rootPath: ROOT }],
   } as never);
@@ -85,56 +93,84 @@ describe("chat.outsideFiles", () => {
     );
   });
 
-  test("of the images the user attached, only those the app wrote in the tab's attach folder", async () => {
-    const attach = "/Users/me/.nexus-code/attach";
-    // The agent answered chat.attach with a file here, once: the tab's folder is known since.
-    noteAttached("w1", "c1", `${attach}/w1/c1/1/first.png`);
-    const ours = `${attach}/w1/c1/2/shot.png`;
+  const ATTACH = "/Users/me/.nexus-code/attach";
+
+  /** The c1 tab's conversation with these messages the user sent after what it had. */
+  function userSent(...texts: string[]) {
     const chat = useChatStore.getState().tabs[chatKey("w1", "c1")];
+    const items = texts.map((text, i) => sent(`u${i}`, text));
     useChatStore.setState({
       tabs: {
         [chatKey("w1", "c1")]: {
           ...chat,
-          model: {
-            ...chat.model,
-            items: [
-              ...chat.model.items,
-              sent("u1", `look\n\n@${ours}`),
-              sent("u2", "and\n\n@/Users/me/Pictures/private.png"),
-              sent("u3", `@${attach}/w1/other-tab/1/theirs.png`),
-              sent("u4", `@${attach}/w1/c1/2/../../../other-tab/1/theirs.png`),
-              sent(
-                "u5",
-                relayedText(
-                  { kind: "tab", name: "Other", tabId: "t2" },
-                  `@${attach}/w1/c1/3/x.png`,
-                ),
-              ),
-            ],
-          },
+          model: { ...chat.model, items: [...chat.model.items, ...items] },
         },
       },
     } as never);
+  }
+
+  const NAMED = ["/tmp/cam/frame.jpg", "/tmp/scale/chart.png", "/tmp/scale/old.jpg"];
+
+  test("of the images the user attached, only those in the tab's folder under the agent's attach root", async () => {
+    attachRoot = ATTACH;
+    const ours = `${ATTACH}/w1/c1/2/shot.png`;
+    userSent(
+      `look\n\n@${ours}`,
+      "and\n\n@/Users/me/Pictures/private.png",
+      `@${ATTACH}/w1/other-tab/1/theirs.png`,
+      `@${ATTACH}/w1/c1/2/../../../other-tab/1/theirs.png`,
+      `@/tmp/attach/w1/c1/1/elsewhere.png`,
+      relayedText({ kind: "tab", name: "Other", tabId: "t2" }, `@${ATTACH}/w1/c1/3/x.png`),
+    );
+    const { files } = await chatHandlers["chat.outsideFiles"]({ workspaceId: "w1" } as never);
+    expect([...files].sort()).toEqual([...NAMED, ours].sort());
+  });
+
+  test("a file's name, as another device chose it, takes nothing out of the tab's folder", async () => {
+    attachRoot = ATTACH;
+    userSent(
+      // Read as a link, %2F is a "/": these name /tmp/attach/w1/c1/1/y.png and 7/e/f.png.
+      `@${ATTACH}/w1/c1/1/x${"%2F..".repeat(12)}%2Ftmp%2Fattach%2Fw1%2Fc1%2F1%2Fy.png`,
+      `@${ATTACH}/w1/c1/7/e%2Ff.png`,
+      // A link ends at # and ?, and :12 is its line: these name 4/a, 5/c.png and 6/d.png.
+      `@${ATTACH}/w1/c1/4/a#b.png`,
+      `@${ATTACH}/w1/c1/5/c.png?x=1`,
+      `@${ATTACH}/w1/c1/6/d.png:12`,
+    );
     const { files } = await chatHandlers["chat.outsideFiles"]({ workspaceId: "w1" } as never);
     expect([...files].sort()).toEqual(
-      ["/tmp/cam/frame.jpg", "/tmp/scale/chart.png", "/tmp/scale/old.jpg", ours].sort(),
+      [...NAMED, `${ATTACH}/w1/c1/5/c.png`, `${ATTACH}/w1/c1/6/d.png`].sort(),
     );
   });
 
-  test("an attach folder is the one the agent's answer names, for that tab only", () => {
-    const attach = "/Users/me/.nexus-code/attach";
-    noteAttached("w1", "c1", `${attach}/w1/c1/1/a.png`);
-    // Of another shape, or another tab's: no folder.
-    noteAttached("w1", "c1", "/tmp/w1/c1/1/a.png");
-    noteAttached("w1", "c1", `${attach}/w1/c2/1/a.png`);
-    expect(inAttachFolder("w1", "c1", `${attach}/w1/c1/7/b.png`)).toBe(true);
-    expect(inAttachFolder("w1", "c1", `${attach}/w1/c1/b.png`)).toBe(false);
-    expect(inAttachFolder("w1", "c1", `${attach}/w1/c1/7/sub/b.png`)).toBe(false);
-    expect(inAttachFolder("w1", "c1", "/tmp/w1/c1/1/a.png")).toBe(false);
-    expect(inAttachFolder("w1", "c2", `${attach}/w1/c2/1/a.png`)).toBe(false);
-    // On Windows, as the agent there answers.
-    noteAttached("w1", "c3", "C:\\Users\\me\\.nexus-code\\attach\\w1\\c3\\1\\a.png");
-    expect(inAttachFolder("w1", "c3", "C:/Users/me/.nexus-code/attach/w1/c3/2/b.png")).toBe(true);
+  test("no attached image while main knows no attach root, as before an SSH host connects", async () => {
+    userSent(`@${ATTACH}/w1/c1/2/shot.png`);
+    const { files } = await chatHandlers["chat.outsideFiles"]({ workspaceId: "w1" } as never);
+    expect([...files].sort()).toEqual(NAMED);
+  });
+
+  test("an attach folder is the tab's, right below the root, a file in a numbered folder of it", async () => {
+    expect(inAttachFolder(ATTACH, "w1", "c1", `${ATTACH}/w1/c1/7/b.png`)).toBe(true);
+    expect(inAttachFolder(ATTACH, "w1", "c1", `${ATTACH}/w1/c1/b.png`)).toBe(false);
+    expect(inAttachFolder(ATTACH, "w1", "c1", `${ATTACH}/w1/c1/x/b.png`)).toBe(false);
+    expect(inAttachFolder(ATTACH, "w1", "c1", `${ATTACH}/w1/c1/7/sub/b.png`)).toBe(false);
+    expect(inAttachFolder(ATTACH, "w1", "c1", `${ATTACH}/w1/c2/7/b.png`)).toBe(false);
+    expect(inAttachFolder(ATTACH, "w1", "c1", "/tmp/attach/w1/c1/7/b.png")).toBe(false);
+    // A Windows root, as main answers it, is written as resolveFilePath writes paths.
+    attachRoot = "c:\\Users\\me\\.nexus-code\\attach\\";
+    const root = await attachRootOf("w1");
+    expect(root).toBe("C:/Users/me/.nexus-code/attach");
+    expect(
+      inAttachFolder(root ?? "", "w1", "c1", "C:/Users/me/.nexus-code/attach/w1/c1/2/b.png"),
+    ).toBe(true);
+  });
+
+  test("another computer's tab tells the attached files that computer serves by their place", () => {
+    expect(attachShaped("w1", "c1", `${ATTACH}/w1/c1/2/b.png`)).toBe(true);
+    expect(attachShaped("w1", "c1", "C:/Users/me/.nexus-code/attach/w1/c1/2/b.png")).toBe(true);
+    expect(attachShaped("w1", "c1", "/Users/me/Desktop/b.png")).toBe(false);
+    expect(attachShaped("w1", "c1", `${ATTACH}/w1/c2/2/b.png`)).toBe(false);
+    expect(attachShaped("w1", "c1", `${ATTACH}/w1/c1/b.png`)).toBe(false);
   });
 
   test("nothing for a workspace it doesn't know", async () => {

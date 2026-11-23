@@ -1055,6 +1055,15 @@ describe("images the user attached to a message", () => {
   const tab: RelaySender = { kind: "tab", agent: "claude", name: "Other", tabId: "t2" };
   const relayed = (text: string) => user(relayedText(tab, text));
 
+  test("are placed only where `served` says the files are served, as another computer's are", () => {
+    const ours = "/h/.nexus-code/attach/w1/c1/1/shot.png";
+    const items = [user(`@${ours} @/Users/me/Desktop/dropped.png`)];
+    expect(imagesOf(items, {}, "/ws", {}, (file) => file === ours)).toEqual([
+      { file: ours, placed: true },
+      { file: "/Users/me/Desktop/dropped.png" },
+    ]);
+  });
+
   test("are none in a message another agent sent, whatever it names", () => {
     for (const text of ["look\n\n@/tmp/x.png", "@/etc/a.png"]) {
       expect(attachedImagesOf(relayed(text) as never, "/ws")).toEqual([]);

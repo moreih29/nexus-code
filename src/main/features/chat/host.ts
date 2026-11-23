@@ -91,6 +91,8 @@ export interface ChatWorkspaceManager {
   getWrapperAgentBin(workspaceId: string): string | null;
   getWrapperShimDir(workspaceId: string): string | null;
   isLocal?(workspaceId: string): boolean;
+  /** Where the workspace's agent writes the files attached to a message (chat.attach). */
+  getAttachRoot?(workspaceId: string): string | null;
 }
 
 export interface ChatHostOptions {

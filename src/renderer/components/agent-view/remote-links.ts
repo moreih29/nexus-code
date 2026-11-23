@@ -11,6 +11,7 @@ import { remoteFileKey } from "../../../shared/fs/remote-file-key";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { showHeldRemoteFile } from "../../services/agent-view/file-tabs";
 import { remoteSessionKey } from "../../services/agent-view/layout";
+import { attachShaped } from "../../services/chat/attach-folders";
 import type { ChatFiles } from "../../services/chat/chat-files";
 import {
   imageLook,
@@ -69,7 +70,11 @@ export function useRemoteLinks(
     /** Quick look over the conversation's images, at `target`; `alone` when it is not among them. */
     const lookAt = (image: ShownImage, alone?: () => QuickLookList) => {
       const { model } = latest.current;
-      const shown = imagesOf(model.items, model.tools, cwd, model.agentItems);
+      // That computer serves only the attached files its agent wrote for the tab; others wait
+      // on a lookup, as an image only named does.
+      const shown = imagesOf(model.items, model.tools, cwd, model.agentItems, (file) =>
+        attachShaped(peerWorkspace, tabId, file),
+      );
       // The last read of a file a panel holds selects the panel; an earlier one shows as it was read.
       const held = image.image ? latestReadFile(shown, image) : undefined;
       if (held) {

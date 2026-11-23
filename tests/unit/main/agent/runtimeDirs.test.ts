@@ -13,8 +13,10 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
+  attachDir,
   ensureDir,
   HOME_ENV,
+  remoteAttachDir,
   root,
   socketsDir,
   writeShimFiles,
@@ -38,6 +40,12 @@ describe("root", () => {
     process.env[HOME_ENV] = dir;
     expect(root()).toBe(dir);
     expect(socketsDir()).toBe(path.join(dir, "sockets"));
+    expect(attachDir()).toBe(path.join(dir, "attach"));
+  });
+
+  test("the attach folder of an agent on another host is in ~/.nexus-code under its home", () => {
+    expect(remoteAttachDir("/home/me")).toBe("/home/me/.nexus-code/attach");
+    expect(remoteAttachDir("/root/")).toBe("/root/.nexus-code/attach");
   });
 });
 

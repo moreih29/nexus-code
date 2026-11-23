@@ -23,7 +23,6 @@ import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
 import { useTabsStore } from "../../../state/stores/tabs";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
-import { attachFile } from "../attach-folders";
 import {
   type ChatLine,
   type ChatModel,
@@ -2432,8 +2431,12 @@ export class ChatController {
    * Writes a file attached to a message where the program can read it,
    * and returns its path there.
    */
-  attach(name: string, data: string): Promise<string> {
-    return attachFile(this.target, name, data);
+  async attach(name: string, data: string): Promise<string> {
+    const { workspaceId, tabId } = this.target;
+    const result = unwrapIpcResult(
+      await ipcCallResult("chat", "attach", { workspaceId, tabId, name, data }),
+    );
+    return result.path;
   }
 
   /** Turns Remote Control on or off; on, its answer has the session's URL. */

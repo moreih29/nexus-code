@@ -627,13 +627,15 @@ const LOOK_TOOLS = new Set(["Read", "ViewImage"]);
  * resultsOf takes them. An agent's images come where it was called
  * (`agentItems`, by the call's id). An image file the conversation shows
  * in full where it names it (placedImages: sent the user, or ![alt](path)
- * in a reply), or that the user attached, is `placed`.
+ * in a reply) is `placed`, as one the user attached is where `served` lets
+ * it (another computer's tab: those that computer serves).
  */
 export function imagesOf(
   items: readonly ChatItem[],
   tools: Record<string, ToolCall>,
   cwd: string,
   agentItems: Readonly<Record<string, readonly ChatItem[]>> = {},
+  served: (attached: string) => boolean = () => true,
 ): ShownImage[] {
   const out: ShownImage[] = [];
   const byFile = new Map<string, number>();
@@ -673,7 +675,8 @@ export function imagesOf(
         for (const image of item.images) addData(image);
         // Its chip shows the file, as a card does: no lookup decides whether it stays.
         const attached = attachedImagesOf(item, cwd);
-        for (const file of attached) addFile(file, undefined, new Set(attached));
+        const placed = new Set(attached.filter(served));
+        for (const file of attached) addFile(file, undefined, placed);
         continue;
       }
       if (item.kind !== "assistant") continue;

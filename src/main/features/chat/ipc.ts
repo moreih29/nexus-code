@@ -109,6 +109,10 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         if (!result?.path) throw new Error("the agent wrote no file");
         return ipcOk({ path: result.path });
       },
+      attachRoot: async (args: unknown) => {
+        const { workspaceId } = validateArgs(c.attachRoot.args, args);
+        return ipcOk({ root: options.workspaceManager.getAttachRoot?.(workspaceId) ?? null });
+      },
       pruneAttachments: async (args: unknown) => {
         await host.call("pruneAttachments", validateArgs(c.pruneAttachments.args, args));
         return ipcOk(undefined);
