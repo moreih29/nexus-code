@@ -15,6 +15,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { ChatPanel } from "../../../../packages/remote-protocol/src/view";
+import { peerOf } from "../../../shared/fs/peer-url";
 import { shownPath } from "../../../shared/fs/relative-path";
 import { formatBytes } from "../../../shared/util/format-bytes";
 import { shortId } from "../../../shared/util/short-id";
@@ -297,6 +298,7 @@ export function SessionSidePanel({
         panel={panel}
         tools={tools}
         cwd={cwd}
+        workspaceId={workspaceId}
         reveal={asked("changes")}
         onRevealed={onRevealed}
       />
@@ -657,20 +659,23 @@ export function PanelChanged({
   panel,
   tools,
   cwd,
+  workspaceId,
   reveal,
   onRevealed,
 }: {
   panel: ChatPanel | undefined;
   tools: Record<string, ToolCall>;
   cwd: string;
+  workspaceId: string;
   reveal?: number;
   onRevealed?: (seq: number) => void;
 }) {
   const { t } = useTranslation();
   const links = useChatLinks();
   const changed = panel?.changedFiles ?? [];
-  const madeHere = useMemo(
-    () => new Set(changedFilesOf(tools).flatMap((f) => (f.created ? [f.path] : []))),
+  const peer = peerOf(workspaceId);
+  const changesByPath = useMemo(
+    () => new Map(changedFilesOf(tools).map((file) => [file.path, file])),
     [tools],
   );
   return (
@@ -682,20 +687,24 @@ export function PanelChanged({
       reveal={reveal}
       onRevealed={onRevealed}
     >
-      {changed.map((file) => (
-        <ChangedRow
-          key={file.path}
-          file={{
-            path: file.path,
-            added: file.added ?? 0,
-            removed: file.removed ?? 0,
-            created: file.created ?? madeHere.has(file.path),
-            toolUseIds: [],
-          }}
-          cwd={cwd}
-          {...(links ? { onOpen: () => links.openChange(file.path) } : {})}
-        />
-      ))}
+      {changed.map((file) => {
+        const change = changesByPath.get(file.path);
+        return (
+          <ChangedRow
+            key={file.path}
+            file={{
+              path: file.path,
+              rawPath: peer ? undefined : change?.rawPath,
+              added: file.added ?? 0,
+              removed: file.removed ?? 0,
+              created: file.created ?? change?.created ?? false,
+              toolUseIds: [],
+            }}
+            cwd={cwd}
+            {...(links ? { onOpen: () => links.openChange(file.path) } : {})}
+          />
+        );
+      })}
     </Section>
   );
 }
@@ -1077,7 +1086,7 @@ export function ChangedRow({
         <FileText className="size-3.5 shrink-0 text-muted-foreground" />
       )}
       <span className="min-w-0 flex-1 truncate font-mono text-app-micro">
-        {shownPath(file.path, cwd)}
+        {shownPath(file.rawPath ?? file.path, cwd)}
       </span>
       <span className="shrink-0 text-app-micro tabular-nums text-[var(--git-status-added-fg)]">
         +{file.added}

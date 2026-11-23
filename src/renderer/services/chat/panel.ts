@@ -300,6 +300,7 @@ const EDIT_TOOLS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
 
 export interface ChangedFile {
   path: string;
+  rawPath?: string;
   added: number;
   removed: number;
   created: boolean;
@@ -318,6 +319,7 @@ export function changedFilesOf(tools: Record<string, ToolCall>): ChangedFile[] {
     const structured = rec(tool.result?.structured);
     const file = files.get(path) ?? {
       path,
+      ...(named !== path ? { rawPath: named } : {}),
       added: 0,
       removed: 0,
       created: false,
