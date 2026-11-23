@@ -406,6 +406,7 @@ export async function registerRemoteChannel(options: {
           options.allowTerminal.get(),
           options.agents.get() !== "deny",
           push.enabled(),
+          options.fs !== undefined,
         ),
       connect: (handlers) => {
         relay = new RelayConnection({

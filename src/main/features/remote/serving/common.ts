@@ -29,24 +29,26 @@ export const SERVES: readonly Capability[] = [
  * What this device serves as the user set it: its chats' controls, and
  * its terminals', each only when the user lets other devices have them
  * (Settings › Remote), else they may only look; agents' requests unless
- * the user turned them down.
+ * the user turned them down. The workspaces' files (and writing them, and
+ * how busy their host is) only where this device can read them.
  */
 export function servesWith(
   allowControl: boolean,
   allowTerminal = false,
   allowAgents = false,
   allowPush = false,
+  servesFiles = true,
 ): readonly Capability[] {
-  const served = SERVES.filter(
+  return SERVES.filter(
     (c) =>
       ((c !== "chat.control" && c !== "workspace.create") || allowControl) &&
       (c !== "files.write" || (allowControl && allowAgents)) &&
       (c !== "terminal.control" || allowTerminal) &&
       (c !== "agents" || allowAgents) &&
-      (c !== "push" || allowPush),
+      (c !== "push" || allowPush) &&
+      // How busy a host is goes only where its files may be read.
+      ((c !== "files" && c !== "files.write" && c !== "system.stats") || servesFiles),
   );
-  // How busy a host is goes only where its files may be read.
-  return served.includes("files") ? served : served.filter((c) => c !== "system.stats");
 }
 
 export { oneLine } from "../../../../shared/remote/one-line";

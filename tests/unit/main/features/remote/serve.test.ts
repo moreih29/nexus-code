@@ -982,6 +982,15 @@ describe("what this device serves", () => {
       expect(set).toContain("system.stats");
     }
   });
+
+  test("no files, writing them or host load where this device cannot read the files", () => {
+    const set = servesWith(true, true, true, true, false);
+    for (const capability of ["files", "files.write", "system.stats"] as const) {
+      expect(set).not.toContain(capability);
+    }
+    expect(set).toContain("chat.control");
+    expect(set).toContain("git");
+  });
 });
 
 describe("serving how busy a workspace's host is", () => {
