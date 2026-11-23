@@ -166,8 +166,17 @@ export function ConfirmDialogRoot(): React.JSX.Element {
       size="sm"
       {...(active?.description ? {} : { "aria-describedby": undefined })}
     >
-      <DialogHeader title={active?.title} description={active?.description} />
-      {active?.hint && <p className="mt-3 text-app-ui-sm text-muted-foreground">{active.hint}</p>}
+      {/* Korean breaks between words, not inside one; an overlong word still wraps. */}
+      <DialogHeader
+        title={active?.title}
+        description={active?.description}
+        descriptionClassName="break-keep break-words"
+      />
+      {active?.hint && (
+        <p className="mt-3 break-keep break-words text-app-ui-sm text-muted-foreground">
+          {active.hint}
+        </p>
+      )}
       {/* Enter takes the focused button: Cancel when confirming would
           delete or discard something, so a stray Enter loses nothing. */}
       <div className="mt-5 flex justify-end gap-2">
