@@ -45,11 +45,15 @@ export function AgentDetail({
         ? t("agentList.detail.show_codex_tab")
         : t("agentList.detail.show_terminal");
   const rootPath = worktree.workspace.rootPath;
+  const crumb =
+    agent.kind === "print"
+      ? t(agent.program === "codex" ? "chat.run.kind_codex" : "chat.run.kind")
+      : t("agentList.agents.agent_crumb");
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className="flex shrink-0 flex-col gap-4 p-4 pb-2">
         <nav
-          aria-label={t("agentList.agents.agent_crumb")}
+          aria-label={crumb}
           className="flex min-w-0 items-center gap-1 text-app-micro text-muted-foreground"
         >
           <span className="max-w-40 shrink-0 truncate">{worktree.workspace.name}</span>
@@ -62,7 +66,7 @@ export function AgentDetail({
             <span className="truncate">{session.title}</span>
           </Crumb>
           <ChevronRight aria-hidden className="size-3 shrink-0" />
-          <span className="shrink-0">{t("agentList.agents.agent_crumb")}</span>
+          <span className="shrink-0">{crumb}</span>
           <Button
             size="icon-sm"
             variant="ghost"

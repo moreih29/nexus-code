@@ -159,6 +159,10 @@ export function useParentCaption(
 }
 
 export function ParentCaption({ node }: { node: SessionTreeNode }) {
+  return useNodeParentCaption(node);
+}
+
+export function useNodeParentCaption(node: SessionTreeNode): ReactNode {
   const { open } = useSessionParent(node.parentClosed ? node.session.parent : undefined);
   const closed = node.parentClosed && !open;
   const parent = useParentCaption(

@@ -58,6 +58,7 @@ export function SessionRowLines({
   family?: ReactNode;
 }) {
   const meta = device || place || parent;
+  const second = Boolean(meta || preview);
   return (
     <div className="pointer-events-none relative flex min-w-0 flex-col">
       <div className="flex h-5 min-w-0 items-center gap-2">
@@ -69,6 +70,7 @@ export function SessionRowLines({
           {title}
         </span>
         <span className="flex shrink-0 items-center gap-1">
+          {!second && family}
           {sign}
           {time && (
             <span
@@ -89,23 +91,25 @@ export function SessionRowLines({
           )}
         </span>
       </div>
-      <div className="flex h-4 min-w-0 items-center gap-1.5 pl-5.5 text-app-micro text-muted-foreground">
-        <div className="flex h-4 min-w-0 flex-1 flex-wrap content-start items-center gap-x-1.5 overflow-hidden">
-          {meta && (
-            <span className="flex h-4 max-w-full min-w-0 shrink-0 items-center gap-1.5">
-              {device && <DeviceTag name={device} />}
-              {place && <PlaceTag place={place} testId={placeTestId} />}
-              {parent}
-            </span>
-          )}
-          {preview && (
-            <span className="flex h-4 min-w-[3em] flex-1 basis-0 items-center overflow-hidden">
-              {preview}
-            </span>
-          )}
+      {second && (
+        <div className="flex h-4 min-w-0 items-center gap-1.5 pl-5.5 text-app-micro text-muted-foreground">
+          <div className="flex h-4 min-w-0 flex-1 flex-wrap content-start items-center gap-x-1.5 overflow-hidden">
+            {meta && (
+              <span className="flex h-4 max-w-full min-w-0 shrink-0 items-center gap-1.5">
+                {device && <DeviceTag name={device} />}
+                {place && <PlaceTag place={place} testId={placeTestId} />}
+                {parent}
+              </span>
+            )}
+            {preview && (
+              <span className="flex h-4 min-w-[3em] flex-1 basis-0 items-center overflow-hidden">
+                {preview}
+              </span>
+            )}
+          </div>
+          {family}
         </div>
-        {family}
-      </div>
+      )}
     </div>
   );
 }

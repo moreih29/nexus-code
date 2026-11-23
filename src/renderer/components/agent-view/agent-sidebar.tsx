@@ -55,7 +55,7 @@ import {
   useParentCaption,
   visibleParentName,
 } from "../agent-list/session-tree-rows";
-import { AgentMark, RowLine, StatusSections } from "../agent-list/status-view";
+import { AgentMark, StatusSections, useRowLine } from "../agent-list/status-view";
 import { NewChatMenuItems } from "../agent-profiles/new-chat-menu";
 import { GoalRowLine } from "../chat/goal-bar";
 import { ContextMenuRoot, ContextMenuTrigger } from "../ui/context-menu";
@@ -786,6 +786,7 @@ const AgentItem = memo(function AgentItem({
   const where = useAgentViewStore((s) => panelPlaceOf(s.root, key));
   const duration = useDurationLabel(session.since);
   const facts = useRowFacts(session, run);
+  const preview = useRowLine(session, facts);
   const show = () => showInAgentView(session.workspaceId, session.tabId);
   const hover = (on: boolean) => useAgentViewStore.getState().setHovered(on ? key : null);
   const { open } = useSessionParent(parentClosed ? session.parent : undefined);
@@ -833,7 +834,7 @@ const AgentItem = memo(function AgentItem({
             </span>
           )
         }
-        preview={<RowLine session={session} facts={facts} />}
+        preview={preview}
         family={
           familyCount > 0 && (
             <FamilyFold

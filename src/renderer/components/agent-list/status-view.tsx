@@ -62,7 +62,12 @@ import {
   stateLabel,
   useDurationLabel,
 } from "./session-status";
-import { FamilyFold, FoldChevron, ParentCaption, SessionTreeBranch } from "./session-tree-rows";
+import {
+  FamilyFold,
+  FoldChevron,
+  SessionTreeBranch,
+  useNodeParentCaption,
+} from "./session-tree-rows";
 
 export { GROUP_STATE, GROUP_TINT } from "./session-status";
 
@@ -315,6 +320,8 @@ const SessionRow = memo(function SessionRow({
   const { session, count } = node;
   const group = session.phase;
   const facts = useRowFacts(session, activity);
+  const parent = useNodeParentCaption(node);
+  const preview = useRowLine(session, facts);
   const onSelect = (from: HTMLElement) => select({ kind: "session", key: session.key }, from);
   const onSelectAgent = (agentId: string, from: HTMLElement) =>
     select({ kind: "agent", key: session.key, agentId }, from);
@@ -372,8 +379,8 @@ const SessionRow = memo(function SessionRow({
         }
         place={branch ? { kind: "branch", name: branch } : undefined}
         placeTestId="agent-list-branch"
-        parent={<ParentCaption node={node} />}
-        preview={<RowLine session={session} facts={facts} />}
+        parent={parent}
+        preview={preview}
         family={
           count > 0 && (
             <FamilyFold
@@ -426,7 +433,7 @@ export function ToolIcon({ name }: { name: string }) {
   return <Wrench aria-hidden className={cn(cls, "text-emerald-500")} />;
 }
 
-export function RowLine({ session, facts }: { session: AgentSession; facts: RowFacts }) {
+export function useRowLine(session: AgentSession, facts: RowFacts): ReactNode {
   const { t, i18n } = useTranslation();
   const wait = facts.wait;
   if (wait?.kind === "permission" || (!wait && session.state === "permissionPending")) {
