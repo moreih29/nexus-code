@@ -1,4 +1,4 @@
-import { FileDiff, GitBranch, GitCommitHorizontal, Lock } from "lucide-react";
+import { FileDiff, GitCommitHorizontal } from "lucide-react";
 import { Tabs } from "radix-ui";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -27,7 +27,7 @@ import { peerGitDisplayPath } from "./git-path-label";
 import { PeerReadOnlyBadge } from "./labels";
 import { showPeerWorkspaceSession } from "./session-placement";
 import { PeerSessionTabBody, peerSessionIcons } from "./session-tab";
-import { PeerDeviceIcon } from "./sidebar";
+import { PeerStatusBar } from "./status-bar";
 
 export function PeerWorkspacePanel({
   target,
@@ -265,35 +265,7 @@ export function PeerWorkspacePanel({
           </>
         )}
       </div>
-      <div
-        role="status"
-        aria-label={t("statusBar.aria")}
-        className="flex h-6 shrink-0 items-center gap-1.5 px-2 text-app-micro text-[var(--status-bar-fg)]"
-      >
-        <PeerDeviceIcon platform={target.platform} className="size-3 shrink-0" />
-        <span className="truncate">{target.deviceName}</span>
-        <span aria-hidden="true">·</span>
-        <Lock className="size-3 shrink-0 text-[var(--state-warning-fg)]" aria-hidden="true" />
-        <span className="shrink-0 text-[var(--state-warning-fg)]">
-          {t("peerWorkspace.readOnly")}
-        </span>
-        {status && (
-          <>
-            <span aria-hidden="true">·</span>
-            <GitBranch className="size-3 shrink-0" aria-hidden="true" />
-            <span className="truncate" title={status.branch ?? undefined}>
-              {status.branch ?? t("peerWorkspace.gitDetached")}
-            </span>
-            <span aria-hidden="true">·</span>
-            <span
-              className="shrink-0"
-              title={status.truncated ? t("peerWorkspace.gitTruncated") : undefined}
-            >
-              {t("peerWorkspace.changes", { count: status.files.length })}
-            </span>
-          </>
-        )}
-      </div>
+      <PeerStatusBar target={target} status={status} gitError={view.gitError} />
     </div>
   );
 }

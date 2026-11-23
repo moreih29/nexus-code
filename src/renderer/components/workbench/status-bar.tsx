@@ -40,17 +40,7 @@
 //   - redundant encoding for errors/warnings: color + glyph (design.md §7)
 //   - neutral / dimmed render when repo absent
 
-import {
-  AlertTriangle,
-  FileCheck,
-  FileDiff,
-  FilePlus,
-  FileWarning,
-  GitBranch,
-  Loader2,
-  type LucideIcon,
-  XCircle,
-} from "lucide-react";
+import { AlertTriangle, GitBranch, Loader2, XCircle } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -65,6 +55,7 @@ import { type DiagnosticKind, DiagnosticList } from "./diagnostic-popover";
 import { EncodingSegment } from "./encoding-segment";
 import { LspStatusSegment } from "./lsp-status-segment";
 import { PortsSegment } from "./ports-segment";
+import { branchLabel, ChangeCountsSegment, NoGitSegment, StatusBarItem } from "./status-bar-items";
 import { SystemStatsSegment, useWiderThan } from "./system-stats";
 
 // ---------------------------------------------------------------------------
@@ -194,23 +185,9 @@ export function BranchSegment({
   const { t } = useTranslation();
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  if (!branchInfo) {
-    return (
-      <StatusBarItem
-        title={t(gitMissing ? "statusBar.git_missing_title" : "statusBar.no_git_title")}
-        className="opacity-50"
-      >
-        <GitBranch className="size-3 shrink-0" aria-hidden="true" />
-        <span className="truncate max-w-40">
-          {t(gitMissing ? "statusBar.git_missing" : "statusBar.no_git")}
-        </span>
-      </StatusBarItem>
-    );
-  }
+  if (!branchInfo) return <NoGitSegment gitMissing={gitMissing} />;
 
-  const { current: branch, ahead, behind, isUnborn } = branchInfo;
-  const aheadBehind = !isUnborn && (ahead > 0 || behind > 0) ? ` ↑${ahead} ↓${behind}` : "";
-  const label = isUnborn ? `${branch} (${t("statusBar.no_commits")})` : `${branch}${aheadBehind}`;
+  const label = branchLabel(branchInfo, t);
 
   return (
     <>
@@ -270,89 +247,18 @@ function ChangesSegment({
   workspaceId: string;
   status: GitStatus | null;
 }): React.JSX.Element | null {
-  const { t } = useTranslation();
   const setFilesPanelMode = useUIStore((s) => s.setFilesPanelMode);
-
   if (!status) return null;
-
-  const stagedCount = status.staged.length;
-  const workingCount = status.working.length;
-  const untrackedCount = status.untracked.length;
-  const conflictCount = status.merge.length;
-  const totalCount = stagedCount + workingCount + untrackedCount + conflictCount;
-
-  // Clean tree — hide the whole segment so the bar reads "quiet" on idle.
-  if (totalCount === 0) return null;
-
-  // Tokens, in render order. Conflicts lead so the most urgent state is
-  // the first thing the eye reaches after the branch name.
-  const tokens: Array<{
-    key: string;
-    Icon: LucideIcon;
-    count: number;
-    color: string;
-    label: string;
-  }> = [];
-  if (conflictCount > 0) {
-    tokens.push({
-      key: "conflict",
-      Icon: FileWarning,
-      count: conflictCount,
-      color: "var(--status-bar-conflict-fg)",
-      label: t("statusBar.conflict_one", { count: conflictCount }),
-    });
-  }
-  if (stagedCount > 0) {
-    tokens.push({
-      key: "staged",
-      Icon: FileCheck,
-      count: stagedCount,
-      color: "var(--status-bar-added-fg)",
-      label: t("statusBar.staged", { count: stagedCount }),
-    });
-  }
-  if (workingCount > 0) {
-    tokens.push({
-      key: "modified",
-      Icon: FileDiff,
-      count: workingCount,
-      color: "var(--status-bar-modified-fg)",
-      label: t("statusBar.modified", { count: workingCount }),
-    });
-  }
-  if (untrackedCount > 0) {
-    tokens.push({
-      key: "untracked",
-      Icon: FilePlus,
-      count: untrackedCount,
-      color: "var(--status-bar-untracked-fg)",
-      label: t("statusBar.untracked", { count: untrackedCount }),
-    });
-  }
-
-  const title = t("statusBar.changes_title", {
-    summary: tokens.map((tok) => tok.label).join(", "),
-  });
-
   return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      onClick={() => setFilesPanelMode(workspaceId, "git")}
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap h-full px-2",
-        "text-app-ui-sm font-sans leading-none tabular-nums",
-        "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
-      )}
-    >
-      {tokens.map(({ key, Icon, count, color }) => (
-        <span key={key} style={{ color }} className="inline-flex items-center gap-1">
-          <Icon aria-hidden="true" className="size-3.5" />
-          <span>{count}</span>
-        </span>
-      ))}
-    </button>
+    <ChangeCountsSegment
+      counts={{
+        conflict: status.merge.length,
+        staged: status.staged.length,
+        modified: status.working.length,
+        untracked: status.untracked.length,
+      }}
+      onOpen={() => setFilesPanelMode(workspaceId, "git")}
+    />
   );
 }
 
@@ -479,41 +385,5 @@ function InFlightOpSegment({ op }: { op: GitInFlightOp }): React.JSX.Element {
       <Loader2 className="size-3 shrink-0 animate-spin" aria-hidden="true" />
       <span>{label}</span>
     </StatusBarItem>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Shared StatusBarItem primitive
-// ---------------------------------------------------------------------------
-
-interface StatusBarItemProps {
-  children: React.ReactNode;
-  className?: string;
-  title?: string;
-  /**
-   * Set to true only for segments that have an onClick — hover affordance
-   * should not appear on non-interactive segments (C-3: no false signifier).
-   */
-  interactive?: boolean;
-}
-
-function StatusBarItem({
-  children,
-  className,
-  title,
-  interactive = false,
-}: StatusBarItemProps): React.JSX.Element {
-  return (
-    <span
-      title={title}
-      className={cn(
-        "inline-flex min-w-0 items-center gap-1 whitespace-nowrap h-full px-2",
-        "text-app-ui-sm font-sans leading-none",
-        interactive && "hover:bg-[var(--status-bar-item-hover-bg)] transition-colors",
-        className,
-      )}
-    >
-      {children}
-    </span>
   );
 }

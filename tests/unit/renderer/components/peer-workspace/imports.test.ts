@@ -43,6 +43,8 @@ const allowedImports: readonly [file: string, module: string, ...names: string[]
   ["diff-tab.tsx", `${remote}/peer-git-status`, "PeerGitFile"],
   ["file-tree.tsx", `${remote}/room`, "refreshPeerSessions"],
   ["git-panel.tsx", `${remote}/peer-git-status`, "isPeerGitConflict", "PeerGitSide"],
+  ["git-groups.ts", `${remote}/peer-git-status`, "isPeerGitConflict", "PeerGitFile", "PeerGitSide"],
+  ["status-bar.tsx", `${remote}/peer-git-status`, "PeerGitStatus"],
   ["git-tree.ts", `${remote}/peer-git-status`, "isPeerGitConflict", "PeerGitStatus"],
   ["panel.tsx", `${remote}/display-name`, "remoteTitle"],
   ["panel.tsx", `${remote}/room`, "PeerReach"],
