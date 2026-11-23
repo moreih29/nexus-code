@@ -85,7 +85,7 @@ import {
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { cn } from "../../utils/cn";
 import { AgentRows } from "../agent-list/agent-rows";
-import { type RowPlace, rowShellClass, SessionRowLines } from "../agent-list/session-row";
+import { PlaceTag, type RowPlace, rowShellClass, SessionRowLines } from "../agent-list/session-row";
 import {
   FailureLabel,
   HiddenSessionCount,
@@ -95,6 +95,7 @@ import {
 } from "../agent-list/session-status";
 import { FoldChevron } from "../agent-list/session-tree-rows";
 import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
+import { TaskRowLine } from "../agent-list/task-row-line";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { OutdatedLine } from "../settings/panels/remote-outdated";
 import { type ShownSignInFailure, SignInNotice } from "../settings/panels/sign-in-notice";
@@ -1095,9 +1096,12 @@ export function OpenRemoteSessionRow({
   resultFeed,
   showContext,
   tree,
+  compact,
   onOpenSession,
   ...buttonProps
 }: {
+  /** In one line, as the agent list's task view rows are. */
+  compact?: boolean;
   session: RemoteSession;
   peer: RoomPeer;
   workspace?: RemoteWorkspace;
@@ -1123,6 +1127,7 @@ export function OpenRemoteSessionRow({
       data-agent-row=""
       {...buttonProps}
       session={session}
+      compact={compact}
       deviceId={peer.id}
       onReorder={reorder}
       where={where}
@@ -1394,6 +1399,11 @@ export function agentRunsOf(agents: readonly RemoteSessionAgent[] | undefined): 
  * What else a button takes (a menu's trigger's props) goes to the button
  * behind the row's content, so the chips in it stay buttons.
  */
+/** A terminal's mark is dimmed, as the local list's is. */
+const MARK_TINT: Partial<Record<RemoteSession["kind"], string>> = {
+  terminal: "text-muted-foreground",
+};
+
 export function RemoteSessionRow({
   session,
   where = null,
@@ -1404,10 +1414,13 @@ export function RemoteSessionRow({
   place,
   parent,
   family,
+  compact,
   className,
   ...rest
 }: {
   session: RemoteSession;
+  /** In one line, as the agent list's task view rows are. */
+  compact?: boolean;
   /** Where the agent view's panels have it, which its mark tells; none where they do not. */
   where?: PanelPlace | null;
   deviceId?: string;
@@ -1436,6 +1449,53 @@ export function RemoteSessionRow({
       : session.last);
   const dragRow = { key: session.tabId, deviceId, workspaceId: session.workspaceId };
   const { edge, dropProps } = useSessionDrop(dragRow, onReorder);
+  const sign = session.failed ? (
+    <FailureLabel />
+  ) : session.state === "needs-you" ? (
+    // What for, as the computer tells it since 0.25; the attention glyph before.
+    <WaitSign
+      kind={session.waiting?.kind}
+      label={session.waiting ? `${state} · ${t(`agentList.wait.${session.waiting.kind}`)}` : state}
+      testId="remote-session-wait"
+    />
+  ) : (
+    <span role="img" aria-label={state} title={state} className="inline-flex">
+      <StateGlyph
+        state={session.state === "ended" ? "exited" : GROUP_STATE[group]}
+        className={GROUP_TINT[group]}
+      />
+    </span>
+  );
+  if (compact) {
+    const lively = group === "attention" || group === "running" || group === "done";
+    return (
+      <TaskRowLine
+        {...rest}
+        mark={<Icon aria-hidden className={cn("size-3.5 shrink-0", MARK_TINT[session.kind])} />}
+        title={title}
+        tooltip={session.last ? `${title}\n${session.last}` : title}
+        emphasized={lively}
+        tags={
+          (place || parent) && (
+            <>
+              {place && <PlaceTag place={place} testId="remote-session-place" />}
+              {parent}
+            </>
+          )
+        }
+        family={family}
+        sign={sign}
+        duration={duration}
+        durationClass={
+          group === "attention" || group === "done" ? GROUP_TINT[group] : "text-muted-foreground"
+        }
+        selected={selected}
+        aria-current={selected || rest["aria-current"]}
+        onSelect={() => onOpen?.()}
+        testId="remote-session-task-row"
+      />
+    );
+  }
   return (
     <div
       {...(onReorder && dropProps)}
@@ -1469,29 +1529,7 @@ export function RemoteSessionRow({
       <SessionRowLines
         icon={<Icon aria-hidden className="size-3.5 shrink-0" />}
         title={title}
-        sign={
-          session.failed ? (
-            <FailureLabel />
-          ) : session.state === "needs-you" ? (
-            // What for, as the computer tells it since 0.25; the attention glyph before.
-            <WaitSign
-              kind={session.waiting?.kind}
-              label={
-                session.waiting
-                  ? `${state} · ${t(`agentList.wait.${session.waiting.kind}`)}`
-                  : state
-              }
-              testId="remote-session-wait"
-            />
-          ) : (
-            <span role="img" aria-label={state} title={state} className="inline-flex">
-              <StateGlyph
-                state={session.state === "ended" ? "exited" : GROUP_STATE[group]}
-                className={GROUP_TINT[group]}
-              />
-            </span>
-          )
-        }
+        sign={sign}
         time={duration}
         timeHint={state}
         urgent={group === "attention" && !session.failed}
