@@ -28,6 +28,11 @@ import (
 // maxAttachSlots caps how many slots one call names.
 const maxAttachSlots = 5000
 
+// attachGrace is how long a prune leaves a slot without its file, or an
+// empty tab's folder, after the folder last changed: a tab opened after the
+// app told which are open may be attaching a file there now.
+const attachGrace = 10 * time.Minute
+
 // RetainParams is chat.pruneAttachments' retain.
 type RetainParams struct {
 	// Keep are the slots ("<tabId>/<n>") the open tabs' conversations name.
@@ -148,7 +153,8 @@ func slotsCall(raw json.RawMessage, method string) (SlotsParams, string, error) 
 // unused longer than retain.MaxAgeMs, then the least recently used of them
 // while the slots hold more than retain.MaxBytes. The slots in use are
 // marked used now. A slot without its one file, which no message can name,
-// goes too. It answers how many slots went.
+// goes too, and a tab's emptied folder, but neither within attachGrace of
+// its folder's last change. It answers how many slots went.
 func pruneRetained(wsDir string, keepTabs map[string]bool, retain RetainParams, now time.Time) int {
 	if !realDir(wsDir) {
 		return 0
@@ -162,6 +168,8 @@ func pruneRetained(wsDir string, keepTabs map[string]bool, retain RetainParams, 
 		dir  string
 		size int64
 		used time.Time
+		// fresh: the tab's folder changed within attachGrace before this prune.
+		fresh bool
 	}
 	var loose []unused
 	var total int64
@@ -174,6 +182,8 @@ func pruneRetained(wsDir string, keepTabs map[string]bool, retain RetainParams, 
 			continue
 		}
 		openTab := keepTabs[tab.Name()]
+		// Read before this prune removes anything in it.
+		fresh := changedWithin(tabDir, now, attachGrace)
 		slots, _ := os.ReadDir(tabDir)
 		for _, entry := range slots {
 			slot := tab.Name() + "/" + entry.Name()
@@ -189,6 +199,9 @@ func pruneRetained(wsDir string, keepTabs map[string]bool, retain RetainParams, 
 				}
 				continue
 			}
+			if !ok && changedWithin(dir, now, attachGrace) {
+				continue // its file may be on the way
+			}
 			if !ok || (maxAge > 0 && now.Sub(info.ModTime()) > maxAge) {
 				if os.RemoveAll(dir) == nil {
 					removed++
@@ -196,9 +209,9 @@ func pruneRetained(wsDir string, keepTabs map[string]bool, retain RetainParams, 
 				continue
 			}
 			total += info.Size()
-			loose = append(loose, unused{dir: dir, size: info.Size(), used: info.ModTime()})
+			loose = append(loose, unused{dir: dir, size: info.Size(), used: info.ModTime(), fresh: fresh})
 		}
-		if !openTab {
+		if !openTab && !fresh {
 			// Goes once its last slot has: an open tab may be writing one.
 			_ = os.Remove(tabDir)
 		}
@@ -214,7 +227,9 @@ func pruneRetained(wsDir string, keepTabs map[string]bool, retain RetainParams, 
 			}
 			total -= slot.size
 			removed++
-			_ = os.Remove(filepath.Dir(slot.dir))
+			if !slot.fresh {
+				_ = os.Remove(filepath.Dir(slot.dir))
+			}
 		}
 	}
 	return removed
@@ -271,6 +286,12 @@ func slotFile(dir string) (string, os.FileInfo, bool) {
 		return "", nil, false
 	}
 	return path, info, true
+}
+
+// changedWithin reports whether path (not followed) changed less than d before now.
+func changedWithin(path string, now time.Time, d time.Duration) bool {
+	info, err := os.Lstat(path)
+	return err == nil && now.Sub(info.ModTime()) < d
 }
 
 // realDir reports whether path is a folder, not a link to one.

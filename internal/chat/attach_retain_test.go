@@ -24,6 +24,21 @@ func attachAged(t *testing.T, service *Service, tabID string, data []byte, age t
 	return result.Path
 }
 
+// ageFolders dates every folder below dir (and dir) `age` ago, past attachGrace.
+func ageFolders(t *testing.T, dir string, age time.Duration) {
+	t.Helper()
+	at := time.Now().Add(-age)
+	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || !entry.IsDir() {
+			return err
+		}
+		return os.Chtimes(path, at, at)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func prune(t *testing.T, service *Service, params PruneAttachParams) PruneResult {
 	t.Helper()
 	raw, _ := json.Marshal(params)
@@ -73,6 +88,7 @@ func TestPruneWithRetainKeepsWhatIsInUse(t *testing.T) {
 	if err := os.Mkdir(empty, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	ageFolders(t, filepath.Join(root, "ws"), time.Hour)
 	result := prune(t, service, PruneAttachParams{
 		WorkspaceID: "ws",
 		KeepTabIDs:  []string{"open"},
@@ -292,5 +308,58 @@ func TestAttachmentCallsNameSlotsAsTheFolderWritesThem(t *testing.T) {
 	}
 	if slotsCallOf(t, service.RemoveAttachments, SlotsParams{WorkspaceID: "ws", Slots: []string{"tab/1"}}).Count != 1 {
 		t.Fatal("the slot by its own name stayed")
+	}
+}
+
+func TestPruneLeavesFoldersBeingAttachedTo(t *testing.T) {
+	root := useAttachRoot(t)
+	service := New()
+	day := 24 * time.Hour
+	ws := filepath.Join(root, "ws")
+	// Aged: a slot without its file, and an emptied tab's folder.
+	for _, dir := range []string{filepath.Join(ws, "old", "1"), filepath.Join(ws, "olden")} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stale := attachAged(t, service, "busy", []byte("s"), 40*day)
+	ageFolders(t, ws, time.Hour)
+	// Made after the app told which tabs are open: a tab's folder, empty
+	// or with a slot whose file is not yet written.
+	newTab := filepath.Join(ws, "new")
+	newSlot := filepath.Join(ws, "newer", "1")
+	for _, dir := range []string{newTab, newSlot} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A slot of a busy tab goes; its folder changed just now, and stays.
+	if err := os.Mkdir(filepath.Join(ws, "busy", "2"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	result := prune(t, service, PruneAttachParams{
+		WorkspaceID: "ws",
+		Retain:      &RetainParams{MaxAgeMs: (30 * day).Milliseconds()},
+	})
+	if result.Removed != 2 || exists(stale) {
+		t.Fatalf("removed %d, stale %v", result.Removed, exists(stale))
+	}
+	for _, path := range []string{filepath.Join(ws, "old"), filepath.Join(ws, "olden")} {
+		if exists(path) {
+			t.Fatalf("%s stayed past the grace", path)
+		}
+	}
+	for _, path := range []string{newTab, newSlot, filepath.Join(ws, "busy", "2")} {
+		if !exists(path) {
+			t.Fatalf("%s went within the grace", path)
+		}
+	}
+	// Past the grace, they go.
+	ageFolders(t, ws, time.Hour)
+	prune(t, service, PruneAttachParams{WorkspaceID: "ws", Retain: &RetainParams{MaxAgeMs: (30 * day).Milliseconds()}})
+	for _, path := range []string{newTab, filepath.Join(ws, "newer"), filepath.Join(ws, "busy")} {
+		if exists(path) {
+			t.Fatalf("%s stayed past the grace", path)
+		}
 	}
 }
