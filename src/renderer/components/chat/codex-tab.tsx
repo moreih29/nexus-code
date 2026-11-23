@@ -6,7 +6,7 @@
 // conversation, in the strip a Claude tab has.
 
 import { ArrowLeft } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { defaultProfileId, profileOf } from "../../../shared/agent-profiles/profiles";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
@@ -102,6 +102,7 @@ import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
 import { RewindDialog } from "./rewind-dialog";
 import { surfaceChatSendError } from "./send-error";
+import { type InstructionsChipSlot, SessionInstructionsChip } from "./session-instructions-chip";
 import { CodexSessionList } from "./session-list";
 import { StatusLine } from "./status-line";
 import { SummaryLine } from "./summary-line";
@@ -120,7 +121,12 @@ interface CodexTabViewProps {
 const SPLIT_FROM_PX = 900;
 
 export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabViewProps) {
-  const instructionsTab = useMemo(() => ({ workspaceId, tabId }), [workspaceId, tabId]);
+  const instructions = useCallback(
+    (slot: InstructionsChipSlot) => (
+      <SessionInstructionsChip workspaceId={workspaceId} tabId={tabId} {...slot} />
+    ),
+    [workspaceId, tabId],
+  );
   const { t } = useTranslation();
   const rootPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
@@ -791,7 +797,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
             onRetry={(text) => controller.send(text)}
           />
           <Composer
-            instructionsTab={instructionsTab}
+            instructions={instructions}
             controller={controller}
             state={state}
             relayed={relayedOf(props)}

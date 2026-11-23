@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import {
   memo,
+  type ReactNode,
   useCallback,
   useContext,
   useEffect,
@@ -90,7 +91,7 @@ import { COMPOSER_CHIP_CLASS } from "./composer-chip";
 import { fitTextHeight, observeTextHeight } from "./composer-height";
 import { DictationOverlay, MicButton, useComposerDictation } from "./dictation";
 import { surfaceChatSendError } from "./send-error";
-import { type InstructionsTab, SessionInstructionsChip } from "./session-instructions-chip";
+import type { InstructionsChipSlot } from "./session-instructions-chip";
 
 /** What the composer drives: a Claude tab's controller, or a Codex tab's. */
 export interface ComposerController {
@@ -166,7 +167,8 @@ interface ComposerProps {
   state: ChatTabState;
   /** A local Claude tab can borrow its profile's options while its own list is missing. */
   fallbackModels?: readonly ModelInfo[];
-  instructionsTab?: InstructionsTab;
+  /** The instructions chip, given how it fits: a chat here's or another device's. */
+  instructions?: (slot: InstructionsChipSlot) => ReactNode;
   /** The messages other agents sent through the nexus command: one waiting shows without its line. */
   relayed?: readonly RelayedMessage[];
   /** The program runs on this machine, where an attached file's path can be read. */
@@ -229,7 +231,7 @@ export const Composer = memo(function Composer({
   controller,
   state,
   fallbackModels,
-  instructionsTab,
+  instructions,
   relayed,
   local,
   placeholder,
@@ -307,7 +309,7 @@ export const Composer = memo(function Composer({
     setMenuOf((now) => (open ? part : now === part ? null : now));
   const fit = useFitStep(
     footerRef,
-    `${model.permissionMode}|${picker.label}|${model.effort}|${picker.models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}|${dictation.phase}|${!!instructionsTab}`,
+    `${model.permissionMode}|${picker.label}|${model.effort}|${picker.models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}|${dictation.phase}|${!!instructions}`,
     FIT.WRAP,
   );
 
@@ -968,13 +970,12 @@ export const Composer = memo(function Composer({
                 onMenu={onMenu("effort")}
               />
             )}
-            {instructionsTab && (fit < FIT.NO_INSTRUCTIONS || kept("instructions")) && (
-              <SessionInstructionsChip
-                {...instructionsTab}
-                compact={fit >= FIT.TRUNCATE_MODE}
-                onMenu={onMenu("instructions")}
-              />
-            )}
+            {instructions &&
+              (fit < FIT.NO_INSTRUCTIONS || kept("instructions")) &&
+              instructions({
+                compact: fit >= FIT.TRUNCATE_MODE,
+                onMenu: onMenu("instructions"),
+              })}
             {fit < FIT.WRAP && <div className="flex-1" />}
             {fit < FIT.NO_ADD && (
               <AddMenu

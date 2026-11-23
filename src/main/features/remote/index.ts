@@ -854,6 +854,14 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerChatProfile.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.profile", params));
       },
+      peerChatInstructions: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatInstructions.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.instructions", params));
+      },
+      peerChatInstructionsSet: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatInstructionsSet.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.instructions.set", params));
+      },
       peerChatAttach: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatAttach.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.attach", params));
