@@ -137,7 +137,7 @@ func (s *Service) TranscriptPage(ctx context.Context, raw json.RawMessage) (any,
 		if err == errStaleTranscriptCursor {
 			return nil, err
 		}
-		return nil, proto.RequestFailed("chat.transcriptPage: the transcript could not be read: %s", claudefiles.Reason(err))
+		return nil, proto.RequestFailed("chat.transcriptPage: the transcript could not be read: %s", proto.Reason(err))
 	}
 	return page, nil
 }

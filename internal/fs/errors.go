@@ -34,6 +34,10 @@ func (e FSError) Error() string { return fmt.Sprintf("%s: %s", e.Code, e.Path) }
 func (e FSError) ErrorCode() string { return e.Code }
 
 func mapPathError(err error, path string) error {
+	var fsErr FSError
+	if errors.As(err, &fsErr) {
+		return FSError{Code: fsErr.Code, Path: path}
+	}
 	if errors.Is(err, iofs.ErrNotExist) {
 		return FSError{Code: CodeNotFound, Path: path}
 	}

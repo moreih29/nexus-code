@@ -74,7 +74,7 @@ func (s *Service) RemoveAttachments(_ context.Context, raw json.RawMessage) (any
 			return SlotsResult{}, nil
 		}
 		if err := os.RemoveAll(wsDir); err != nil {
-			return nil, proto.RequestFailed("chat.removeAttachments: %v", err)
+			return nil, proto.RequestFailed("chat.removeAttachments: %s", proto.Reason(err))
 		}
 		return SlotsResult{Count: 1}, nil
 	}
@@ -109,7 +109,7 @@ func slotsCall(raw json.RawMessage, method string) (SlotsParams, string, error) 
 	}
 	root, err := attachRoot()
 	if err != nil {
-		return p, "", proto.RequestFailed("%s: %v", method, err)
+		return p, "", proto.RequestFailed("%s: %s", method, proto.Reason(err))
 	}
 	return p, filepath.Join(root, workspaceID), nil
 }

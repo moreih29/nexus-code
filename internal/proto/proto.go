@@ -160,8 +160,18 @@ func ErrorCode(err error) string {
 	return CodeRequestFailed
 }
 
+func coded(err error) bool {
+	var withCode interface{ ErrorCode() string }
+	var ce CodedError
+	return errors.As(err, &withCode) || errors.As(err, &ce)
+}
+
 func ErrorResponse(id string, err error) Response {
-	resp := Failure(id, ErrorCode(err), err.Error())
+	message := err.Error()
+	if !coded(err) {
+		message = Reason(err)
+	}
+	resp := Failure(id, ErrorCode(err), message)
 	var withData interface{ ErrorData() any }
 	if errors.As(err, &withData) {
 		resp.Error.Data = withData.ErrorData()

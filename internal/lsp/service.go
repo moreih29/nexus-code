@@ -106,7 +106,7 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	workspaceRoot, err := filepath.Abs(p.WorkspaceRoot)
 	if err != nil {
-		return nil, proto.RequestFailed("invalid workspaceRoot: %s", err)
+		return nil, proto.RequestFailed("invalid workspaceRoot: %s", proto.Reason(err))
 	}
 	workspaceRoot = filepath.Clean(workspaceRoot)
 
@@ -179,7 +179,7 @@ func (s *Service) Stats(_ context.Context, _ json.RawMessage) (any, error) {
 
 	table, err := processTable()
 	if err != nil {
-		return nil, proto.RequestFailed("lsp.stats failed: %s", err)
+		return nil, proto.RequestFailed("lsp.stats failed: %s", proto.Reason(err))
 	}
 	pids := make([]int, 0, len(servers))
 	for _, server := range servers {

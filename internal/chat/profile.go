@@ -44,10 +44,10 @@ func (s *Service) ProfileDir(_ context.Context, raw json.RawMessage) (any, error
 	}
 	defaultDir := defaultProfileDir(p.Agent, home)
 	if defaultDir != "" && sameDir(dir, defaultDir) {
-		return nil, proto.RequestFailed("chat.profileDir: %s is the default folder", dir)
+		return nil, proto.RequestFailed("chat.profileDir: %s is the default folder", p.Dir)
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, proto.RequestFailed("chat.profileDir: %s", err)
+		return nil, proto.RequestFailed("chat.profileDir: %s: %s", p.Dir, proto.Reason(err))
 	}
 	result := ProfileDirResult{Dir: dir, DefaultDir: defaultDir, Linked: []string{}, Failed: []string{}}
 	shared := make(map[string]bool, len(p.Shared))

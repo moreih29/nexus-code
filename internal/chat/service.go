@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -218,7 +217,7 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 	}()
 	var generation [16]byte
 	if _, err := rand.Read(generation[:]); err != nil {
-		return nil, proto.RequestFailed("chat.start process generation: %s", err)
+		return nil, proto.RequestFailed("chat.start process generation: %s", proto.Reason(err))
 	}
 
 	cmd := nodeshim.Command(p.Program, p.Args...)
@@ -227,7 +226,7 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 	generationID := hex.EncodeToString(generation[:])
 	stdin, childStdin, err := newChatStdin(generationID)
 	if err != nil {
-		return nil, proto.RequestFailed("chat.start: %s", err)
+		return nil, proto.RequestFailed("chat.start: %s", proto.Reason(err))
 	}
 	defer childStdin.Close()
 	cmd.Stdin = childStdin
@@ -239,12 +238,12 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 	}()
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, proto.RequestFailed("chat.start: %s", err)
+		return nil, proto.RequestFailed("chat.start: %s", proto.Reason(err))
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		_ = stdout.Close()
-		return nil, proto.RequestFailed("chat.start: %s", err)
+		return nil, proto.RequestFailed("chat.start: %s", proto.Reason(err))
 	}
 	proc := &process{
 		generation: generationID,
@@ -254,7 +253,7 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 		done:       make(chan struct{}),
 	}
 	if err := proc.startOwned(); err != nil {
-		return nil, proto.RequestFailed("chat.start: %s", err)
+		return nil, proto.RequestFailed("chat.start: %s: %s", p.Program, proto.Reason(err))
 	}
 	_ = childStdin.Close()
 	started = true
@@ -346,7 +345,7 @@ func (s *Service) Send(ctx context.Context, raw json.RawMessage) (any, error) {
 		}
 		failure, _ := json.Marshal(map[string]string{"event": "stdin-failed", "code": code})
 		sess.finishInput(slot, DirSys, failure)
-		return nil, proto.NewError(code, fmt.Sprintf("chat.send: %s", err))
+		return nil, proto.NewError(code, "chat.send: "+proto.Reason(err))
 	}
 	sess.finishInput(slot, DirIn, message)
 	return struct{}{}, nil
@@ -463,7 +462,7 @@ func (s *Service) Replay(ctx context.Context, raw json.RawMessage) (any, error) 
 				if ctxErr := s.checkReplayConnection(ctx, sink); ctxErr != nil {
 					return nil, ctxErr
 				}
-				return nil, proto.RequestFailed("chat.replay: %s", err)
+				return nil, proto.RequestFailed("chat.replay: %s", proto.Reason(err))
 			}
 		}
 		last = e.seq

@@ -40,12 +40,12 @@ func (s *Service) StageThread(_ context.Context, raw json.RawMessage) (any, erro
 	}
 	dir := filepath.Join(to, "sessions", stagedDir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, proto.RequestFailed("chat.stageThread: %s", err)
+		return nil, proto.RequestFailed("chat.stageThread: %s", proto.Reason(err))
 	}
 	seen := map[string]bool{p.ThreadID: true}
 	for path := source; path != ""; {
 		if err := copyGrown(path, filepath.Join(dir, filepath.Base(path))); err != nil {
-			return nil, proto.RequestFailed("chat.stageThread: %s", err)
+			return nil, proto.RequestFailed("chat.stageThread: %s", proto.Reason(err))
 		}
 		parent := forkedFrom(path)
 		if parent == "" || seen[parent] || len(seen) >= stagedLineage || rolloutPath(to, parent) != "" {

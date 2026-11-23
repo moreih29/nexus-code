@@ -50,7 +50,7 @@ func (s *Service) RolloutTail(ctx context.Context, raw json.RawMessage) (any, er
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
-			return nil, proto.RequestFailed("chat.rolloutTail: %s", err)
+			return nil, proto.RequestFailed("chat.rolloutTail: %s", proto.Reason(err))
 		}
 		if tail.done || parent == "" {
 			break
