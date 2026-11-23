@@ -1,9 +1,3 @@
-/**
- * Another computer's consent prompts in the agent view's list, told in the
- * words of this computer's own prompt: who asks to do what, all of what it
- * would run, and the answers it allows, with no time limit; or, where this
- * computer may not answer it, where to.
- */
 import { describe, expect, spyOn, test } from "bun:test";
 import i18next from "i18next";
 import type { MouseEvent } from "react";

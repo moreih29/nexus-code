@@ -399,7 +399,6 @@ export interface CliChatChoices {
   readonly dangerousBlocked?: string;
 }
 
-/** The user's answer: allowed this once, until the app restarts, refused, or none within a prompt's `timeoutMs`. */
 export type CliConsentAnswer = "once" | "session" | "deny" | "timeout";
 
 /**
@@ -1567,15 +1566,6 @@ export interface CliUiOps {
     };
     result: Record<string, never>;
   };
-  /**
-   * Asks the user whether a terminal of one workspace may make a change in
-   * another, or an agent on another computer of theirs (`fromDevice`, its
-   * name; `fromName`, its tab's title there) here. It waits until the
-   * user answers, or main takes it down (consent.settle) once the asker is
-   * gone; with `timeoutMs` (an agent of a computer that does not wait
-   * longer), unanswered after it, the answer is "timeout". `id` names it
-   * for consent.settle.
-   */
   "consent.ask": {
     args: {
       fromWorkspaceId: string;

@@ -33,10 +33,6 @@ export const DEVICE_FLAG = {
 
 export const NOT_IN_ROOM = "this computer is not in the remote room (Settings › Remote)";
 
-/**
- * How long a request an agent sends waits on a device before schema
- * UNTIMED_CONSENT_SCHEMA: the user there may be asked first.
- */
 const AGENT_REQUEST_MS = AGENT_CONSENT_MS + 10_000;
 // Commands whose renderer work can take 60 seconds after the approval.
 const PEER_APPLY_MS = AGENT_CONSENT_MS + 70_000;

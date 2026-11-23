@@ -1,18 +1,3 @@
-/**
- * Another computer's consent prompts (sessions.list's `consents`), at the
- * top of its group in the agent view's list: an agent asks to change
- * something there, and the user may answer from here as at that computer
- * (consent.answer). Each is told in the words and look of this computer's
- * own prompt (consent-dialog): what it asks, what it would run or write
- * (all of it, in a box that scrolls), and the answers it allows ("until
- * restart" not for one asked about each time). It shows until answered, or
- * until the next list leaves it out. Its own agent's too: the user answers it here as
- * from any other computer. One this computer may not answer (one too long
- * to be sent whole, one the settings there keep from here, or its own
- * agent's where that computer runs an older NexusCode) shows, to be
- * answered at that computer.
- */
-
 import i18next, { type TFunction } from "i18next";
 import { ShieldQuestion } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";

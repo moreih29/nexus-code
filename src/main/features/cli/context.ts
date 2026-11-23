@@ -82,7 +82,6 @@ export interface CliRemote {
 /** A consent prompt waiting on the user (consent-prompts.ts). */
 export interface PendingConsent {
   readonly id: string;
-  /** When it was asked, and when it counts as turned down (Unix ms); none while it waits until answered. */
   readonly at: number;
   readonly expiresAt?: number;
   /** What was asked, as the renderer shows it. */

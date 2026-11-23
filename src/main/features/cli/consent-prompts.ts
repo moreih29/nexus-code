@@ -13,7 +13,6 @@ import type { CliConsents, PendingConsent } from "./context";
 type AskArgs = CliUiOps["consent.ask"]["args"];
 
 export interface ConsentPromptsDeps {
-  /** Shows the prompt (the renderer's consent.ask), waiting up to `timeoutMs` (maybe Infinity) for the answer. */
   ask(
     args: AskArgs,
     timeoutMs: number,
@@ -31,13 +30,6 @@ export class ConsentPrompts implements CliConsents {
 
   constructor(private readonly deps: ConsentPromptsDeps) {}
 
-  /**
-   * Asks the user, as consent.ask does, keeping the prompt listed until it
-   * is answered, `signal` aborts (the asker is gone: the prompt closes as
-   * turned down), or it runs out. A prompt without `timeoutMs` waits until
-   * then; one with it, the renderer takes down at its timeout, and the
-   * wait for the answer, `bridgeTimeoutMs`, is a little longer by default.
-   */
   async ask(
     args: AskArgs,
     bridgeTimeoutMs?: number,

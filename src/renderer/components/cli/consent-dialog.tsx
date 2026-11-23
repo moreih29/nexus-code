@@ -1,14 +1,3 @@
-/**
- * Asks the user whether an agent may change another workspace than its
- * terminal's own, or answer another session's permission request, for the
- * nexus CLI (main/features/cli/consent). One prompt at a time; more wait
- * their turn. A prompt waits until the user answers, or main takes it down
- * as turned down once its asker is gone; one with a timeout (an agent of a
- * computer that does not wait longer) is taken down after it, as turned
- * down too. One answered on another device of the user's (the remote's
- * consent.answer) is taken down with a toast saying so.
- */
-
 import i18next from "i18next";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -78,7 +67,6 @@ export function settleCliConsent(
   return true;
 }
 
-/** Shows the prompt and resolves to the user's answer, or "timeout" past its `timeoutMs`. */
 export function askCliConsent(prompt: CliConsentPrompt): Promise<CliConsentAnswer> {
   return new Promise((resolve) => {
     const { timeoutMs } = prompt;
