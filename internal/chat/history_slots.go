@@ -27,8 +27,8 @@ import (
 const historyChunk = 1 << 20
 
 // slotTail is the most a slot's name takes after the workspace's folder:
-// a tab of 128, a number of 9, and two separators of at most 2 bytes.
-const slotTail = 128 + 9 + 2*2
+// a tab of 128, a number of 9, and two separators of at most 4 bytes.
+const slotTail = 128 + 9 + 2*4
 
 // HistorySlotsParams is the wire shape for chat.historySlots: a Claude
 // session (SessionID, in ConfigDir) or a Codex thread (ThreadID, in
@@ -159,13 +159,14 @@ func historySlots(path, wsDir string) ([]string, bool, error) {
 }
 
 // slotNeedles is wsDir and its separator after it, as a history may write
-// it: with "/", "\", "\\" (a backslash in JSON) or "\/" (a slash in JSON)
+// it: with "/", "\", "\\" (a backslash in JSON), "\/" (a slash in JSON) or
+// "\\\\" (a backslash in JSON kept as text in JSON, as a tool's output is)
 // between its names, in lower case (asciiLower).
 func slotNeedles(wsDir string) [][]byte {
 	parts := strings.FieldsFunc(wsDir, func(r rune) bool { return r == '/' || r == '\\' })
 	lead := wsDir != "" && (wsDir[0] == '/' || wsDir[0] == '\\')
 	var needles [][]byte
-	for _, sep := range []string{"/", `\`, `\\`, `\/`} {
+	for _, sep := range []string{"/", `\`, `\\`, `\/`, `\\\\`} {
 		joined := strings.Join(parts, sep) + sep
 		if lead {
 			joined = sep + joined
@@ -176,7 +177,7 @@ func slotNeedles(wsDir string) [][]byte {
 }
 
 // slotAt reads "<tabId><sep><n><sep>" at the start of b, as slotDir names
-// a slot, a separator being "/", "\", "\\" or "\/".
+// a slot, a separator being "/", "\", "\\", "\/" or "\\\\".
 func slotAt(b []byte) (string, bool) {
 	tab := 0
 	for tab < len(b) && tab <= 128 && slotTabByte(b[tab]) {
@@ -209,6 +210,8 @@ func slotTabByte(c byte) bool {
 // cutSeparator takes one separator off the start of b.
 func cutSeparator(b []byte) ([]byte, bool) {
 	switch {
+	case len(b) >= 4 && b[0] == '\\' && b[1] == '\\' && b[2] == '\\' && b[3] == '\\':
+		return b[4:], true
 	case len(b) >= 2 && b[0] == '\\' && (b[1] == '\\' || b[1] == '/'):
 		return b[2:], true
 	case len(b) >= 1 && (b[0] == '/' || b[0] == '\\'):

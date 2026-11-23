@@ -92,9 +92,11 @@ func TestHistorySlotsFindsAWindowsHomeAsWritten(t *testing.T) {
 		`{"t":"@c:/users/me/.nexus-code/attach/ws/b/2/y.png"}`,
 		// Slashes JSON-escaped.
 		`{"t":"@C:\/Users\/Me\/.nexus-code\/attach\/ws\/c\/3\/z.png"}`,
+		// JSON kept as text in JSON (a tool's output): each backslash is four.
+		`{"out":"`+jsonText(`{"file":"`+jsonText(ws+`\d\4\w.png`)+`"}`)+`"}`,
 	)
 	slots, truncated, err := historySlots(path, ws)
-	if err != nil || truncated || !reflect.DeepEqual(slots, []string{"a/1", "b/2", "c/3"}) {
+	if err != nil || truncated || !reflect.DeepEqual(slots, []string{"a/1", "b/2", "c/3", "d/4"}) {
 		t.Fatalf("slots %v truncated %v err %v", slots, truncated, err)
 	}
 }
