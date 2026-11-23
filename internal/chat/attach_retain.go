@@ -58,7 +58,13 @@ type SlotsResult struct {
 	Count int `json:"count"`
 }
 
-var slotNumber = regexp.MustCompile(`^[0-9]+$`)
+// A slot is "<tabId>/<n>": a tab of at most 128 letters, digits, "_" or
+// "-", and at most 9 digits, as the app reads them (attach-folders.ts). A
+// name no system folds or reads more in (case aside), which fits a call.
+var (
+	slotTab    = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+	slotNumber = regexp.MustCompile(`^[0-9]{1,9}$`)
+)
 
 // TouchAttachments marks the named slots used now.
 func (s *Service) TouchAttachments(_ context.Context, raw json.RawMessage) (any, error) {
@@ -216,10 +222,7 @@ func pruneRetained(wsDir string, keepTabs map[string]bool, retain RetainParams, 
 // folder of its own (a link).
 func slotDir(wsDir, slot string) (string, bool) {
 	tabID, n, ok := strings.Cut(slot, "/")
-	if !ok || !slotNumber.MatchString(n) {
-		return "", false
-	}
-	if _, ok := plainName(tabID); !ok {
+	if !ok || !slotTab.MatchString(tabID) || !slotNumber.MatchString(n) {
 		return "", false
 	}
 	tabDir := filepath.Join(wsDir, tabID)

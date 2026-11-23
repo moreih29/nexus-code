@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -244,5 +245,33 @@ func TestAttachmentCallsRefuseABadWorkspace(t *testing.T) {
 		if _, err := service.RemoveAttachments(context.Background(), raw); err == nil {
 			t.Fatalf("workspace %q was taken", ws)
 		}
+	}
+}
+
+func TestAttachmentCallsNameSlotsByTheirGrammar(t *testing.T) {
+	root := useAttachRoot(t)
+	service := New()
+	long := strings.Repeat("t", 128)
+	names := []string{long + "/123456789", long + "t/1", "tab/1234567890", "tab./1", "Tab:s/1"}
+	for _, name := range names {
+		file := filepath.Join(root, "ws", filepath.FromSlash(name), "f.bin")
+		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			continue // a name this system refuses
+		}
+		if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	touched := slotsCallOf(t, service.TouchAttachments, SlotsParams{WorkspaceID: "ws", Slots: names})
+	if touched.Count != 1 {
+		t.Fatalf("touched %d, want only the longest slot name", touched.Count)
+	}
+	removed := slotsCallOf(t, service.RemoveAttachments, SlotsParams{WorkspaceID: "ws", Slots: names})
+	if removed.Count != 1 || exists(filepath.Join(root, "ws", long)) {
+		t.Fatalf("removed %d", removed.Count)
+	}
+	if !exists(filepath.Join(root, "ws", long+"t", "1", "f.bin")) ||
+		!exists(filepath.Join(root, "ws", "tab", "1234567890", "f.bin")) {
+		t.Fatal("a name past the grammar was removed")
 	}
 }

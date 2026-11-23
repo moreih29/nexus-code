@@ -9,8 +9,13 @@
 import { ipcCallResult } from "../../ipc/client";
 import { isUnder, resolveFilePath } from "./links";
 
-/** A slot's file below the workspace's folder: `<tabId>/<n>/<name>`. */
-const SLOT_PATH = /^([^/]+)\/(\d+)\/[^/]+$/;
+/**
+ * A slot's file below the workspace's folder: `<tabId>/<n>/<name>`, as the
+ * agent names slots (internal/chat/attach_retain.go slotDir): a tab of at
+ * most 128 letters, digits, "_" or "-", and at most 9 digits. A longer name
+ * would not pass as a slot in a call (IPC caps each at 300).
+ */
+const SLOT_PATH = /^([A-Za-z0-9_-]{1,128})\/(\d{1,9})\/[^/]+$/;
 
 /**
  * A path as resolveFilePath gives one, taken as it is written: "/" for
@@ -42,7 +47,7 @@ export function attachSlotOf(root: string, workspaceId: string, file: string): s
   const folder = `${root}/${workspaceId}/`;
   if (!file.startsWith(folder)) return null;
   const match = SLOT_PATH.exec(file.slice(folder.length));
-  if (!match || match[1] === "." || match[1] === "..") return null;
+  if (!match) return null;
   return `${match[1]}/${match[2]}`;
 }
 

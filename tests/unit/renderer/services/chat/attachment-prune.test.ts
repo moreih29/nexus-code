@@ -3,6 +3,8 @@ import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 
 const ROOT = "/Users/me/.nexus-code/attach";
 let root: string | null = ROOT;
+/** Calls answered with a failure, by their order among the calls to `failing`. */
+let failing: { method: string; at: number[] } | undefined;
 const calls: { method: string; args: unknown }[] = [];
 const realIpc = await import("../../../../../src/renderer/ipc/client");
 mock.module("../../../../../src/renderer/ipc/client", () => ({
@@ -11,6 +13,9 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
     if (channel !== "chat") return Promise.resolve({ ok: true, value: undefined });
     if (method === "attachRoot") return Promise.resolve({ ok: true, value: { root } });
     calls.push({ method, args });
+    if (failing?.method === method && failing.at.includes(of(method).length - 1)) {
+      return Promise.resolve({ ok: false, error: { code: "request-failed", message: "no" } });
+    }
     return Promise.resolve({ ok: true, value: undefined });
   },
 }));
@@ -46,6 +51,7 @@ function of(method: string) {
 
 beforeEach(() => {
   root = ROOT;
+  failing = undefined;
   calls.length = 0;
   retention.resetAttachmentRetention();
   useChatStore.setState({ tabs: {} });
@@ -166,4 +172,14 @@ test("a deleted conversation's files go, but those an open tab uses", async () =
   ];
   await retention.removeConversationAttachments(WS, items as never, "/p");
   expect(of("removeAttachments")).toEqual([{ workspaceId: WS, slots: ["old/1"] }]);
+});
+
+test("a call of slots that fails stops none after it", async () => {
+  const slots = Array.from({ length: 12_000 }, (_, i) => `old/${i + 1}`);
+  const items = [sent("a", slots.map((slot) => `@${ROOT}/${WS}/${slot}/f.png`).join(" "))];
+  failing = { method: "removeAttachments", at: [0] };
+  await expect(retention.removeConversationAttachments(WS, items as never, "/p")).rejects.toThrow();
+  expect(
+    (of("removeAttachments") as Array<{ slots: string[] }>).map((call) => call.slots.length),
+  ).toEqual([5000, 5000, 2000]);
 });

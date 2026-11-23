@@ -171,15 +171,33 @@ async function followTab(workspaceId: string, tab: ChatTab, root: string): Promi
   });
 }
 
-async function touchAttachments(workspaceId: string, slots: string[]): Promise<void> {
+/**
+ * Touches or removes slots MAX_CALL_SLOTS a call. A call that fails stops
+ * none after it; the first failure is thrown once all have gone.
+ */
+async function slotCalls(
+  method: "touchAttachments" | "removeAttachments",
+  workspaceId: string,
+  slots: string[],
+): Promise<void> {
+  let failed: unknown;
   for (let i = 0; i < slots.length; i += MAX_CALL_SLOTS) {
-    unwrapIpcResult(
-      await ipcCallResult("chat", "touchAttachments", {
-        workspaceId,
-        slots: slots.slice(i, i + MAX_CALL_SLOTS),
-      }),
-    );
+    try {
+      unwrapIpcResult(
+        await ipcCallResult("chat", method, {
+          workspaceId,
+          slots: slots.slice(i, i + MAX_CALL_SLOTS),
+        }),
+      );
+    } catch (error) {
+      failed ??= error;
+    }
   }
+  if (failed !== undefined) throw failed;
+}
+
+function touchAttachments(workspaceId: string, slots: string[]): Promise<void> {
+  return slotCalls("touchAttachments", workspaceId, slots);
 }
 
 /**
@@ -343,14 +361,7 @@ export async function removeConversationAttachments(
   const slots = named.filter(
     (slot) => !used.has(slot) && !openTabs.has(slot.slice(0, slot.indexOf("/"))),
   );
-  for (let i = 0; i < slots.length; i += MAX_CALL_SLOTS) {
-    unwrapIpcResult(
-      await ipcCallResult("chat", "removeAttachments", {
-        workspaceId,
-        slots: slots.slice(i, i + MAX_CALL_SLOTS),
-      }),
-    );
-  }
+  await slotCalls("removeAttachments", workspaceId, slots);
 }
 
 /** For tests: looks at the followed chats now, not once they settle. */

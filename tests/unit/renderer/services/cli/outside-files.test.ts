@@ -169,6 +169,17 @@ describe("chat.outsideFiles", () => {
     expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/./7/b.png`)).toBeNull();
     expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w2/c1/7/b.png`)).toBeNull();
     expect(attachSlotOf(ATTACH, "w1", "/tmp/attach/w1/c1/7/b.png")).toBeNull();
+    // As the agent names slots: a tab of at most 128 letters, digits, "_" or "-", at most 9 digits.
+    const long = "t".repeat(128);
+    expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/${long}/123456789/b.png`)).toBe(
+      `${long}/123456789`,
+    );
+    expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/${long}t/7/b.png`)).toBeNull();
+    expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/c1/1234567890/b.png`)).toBeNull();
+    expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/${"x".repeat(301)}/7/b.png`)).toBeNull();
+    expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/c1./7/b.png`)).toBeNull();
+    expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/c1:s/7/b.png`)).toBeNull();
+    expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/c 1/7/b.png`)).toBeNull();
     // A Windows root, as main answers it, is written as resolveFilePath writes paths.
     attachRoot = "c:\\Users\\me\\.nexus-code\\attach\\";
     const root = await attachRootOf("w1");
