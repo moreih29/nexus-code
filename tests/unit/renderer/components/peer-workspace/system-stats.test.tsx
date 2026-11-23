@@ -2,6 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   askPeerSystemStats,
+  asksPeerSystemStats,
   PeerSystemStatsSegment,
 } from "../../../../../src/renderer/components/peer-workspace/system-stats";
 import { SystemStatsItem } from "../../../../../src/renderer/components/workbench/system-stats";
@@ -99,7 +100,21 @@ test("the local status bar's item, with that computer first in its tooltip", () 
   expect(html).toContain("lucide-cpu");
 });
 
-test("nothing, and nothing asked, from a computer that does not serve it", () => {
+test("asked only of a computer that serves it, while the workspace is shown and reached", () => {
+  const serving: RoomPeer = {
+    id: "desktop",
+    name: "Desktop",
+    online: true,
+    serves: ["files", "system.stats"],
+  };
+  const old: RoomPeer = { ...serving, serves: ["files"] };
+  expect(asksPeerSystemStats(serving, true)).toBe(true);
+  expect(asksPeerSystemStats(serving, false)).toBe(false);
+  expect(asksPeerSystemStats(old, true)).toBe(false);
+  expect(asksPeerSystemStats(undefined, true)).toBe(false);
+});
+
+test("nothing drawn for a computer that does not serve it", () => {
   const call = spyOn(ipc, "ipcCallResult");
   try {
     const old: RoomPeer = { id: "desktop", name: "Desktop", online: true, serves: ["files"] };

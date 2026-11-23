@@ -27,6 +27,11 @@ export async function askPeerSystemStats(
   return result.kind === "unsupported" ? "never" : null;
 }
 
+/** Whether that computer is asked: while the workspace is shown and reached, and it serves it. */
+export function asksPeerSystemStats(peer: RoomPeer | undefined, active: boolean): boolean {
+  return active && peerServes(peer, "system.stats");
+}
+
 export function PeerSystemStatsSegment({
   target,
   peer,
@@ -38,8 +43,10 @@ export function PeerSystemStatsSegment({
   active: boolean;
 }) {
   const served = peerServes(peer, "system.stats");
-  const stats = usePolledStats(`peer:${peerTargetId(target)}`, active && served, (signal) =>
-    askPeerSystemStats(target, signal),
+  const stats = usePolledStats(
+    `peer:${peerTargetId(target)}`,
+    asksPeerSystemStats(peer, active),
+    (signal) => askPeerSystemStats(target, signal),
   );
   if (!served || !stats) return null;
   return <SystemStatsItem stats={stats} host={target.deviceName} />;
