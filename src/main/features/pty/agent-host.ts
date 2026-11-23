@@ -478,11 +478,6 @@ class AgentPtyHostHandle implements PtyHostHandle {
         for (const tabId of tabIds) {
           this.emitExit(workspaceId, tabId, null);
         }
-        const sub = this.subscriptions.get(workspaceId);
-        if (sub) {
-          for (const dispose of sub.disposers) dispose();
-          this.subscriptions.delete(workspaceId);
-        }
       }
       return;
     }

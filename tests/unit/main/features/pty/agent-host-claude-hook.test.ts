@@ -4,6 +4,7 @@ import type {
   AgentChannel,
   ChannelEventCallback,
   ChannelLifecycleCallback,
+  ChannelLifecycleEvent,
 } from "../../../../../src/main/infra/agent/channel";
 
 const WORKSPACE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -13,8 +14,10 @@ const TAB_ID = "11111111-1111-4111-8111-111111111111";
 class FakeAgentChannel implements AgentChannel {
   readonly ready = Promise.resolve();
   private readonly listeners = new Map<string, Set<ChannelEventCallback>>();
+  private readonly lifecycleListeners = new Set<ChannelLifecycleCallback>();
 
   async call<T = unknown>(method: string): Promise<T> {
+    if (method === "session.list") return { sessions: [] } as T;
     return (method === "pty.spawn" ? { pid: 1 } : undefined) as T;
   }
   fire(): void {}
@@ -24,8 +27,12 @@ class FakeAgentChannel implements AgentChannel {
     this.listeners.set(event, set);
     return () => set.delete(cb);
   }
-  onLifecycle(_cb: ChannelLifecycleCallback): () => void {
-    return () => {};
+  onLifecycle(cb: ChannelLifecycleCallback): () => void {
+    this.lifecycleListeners.add(cb);
+    return () => this.lifecycleListeners.delete(cb);
+  }
+  emitLifecycle(event: ChannelLifecycleEvent): void {
+    for (const cb of [...this.lifecycleListeners]) cb(event);
   }
   dispose(): void {}
   emit(event: string, payload: unknown): void {
@@ -108,5 +115,64 @@ describe("AgentPtyHost claude.hook relay", () => {
 
     host.dispose();
     expect(ready).toBeUndefined();
+  });
+
+  test("keeps relaying hooks and CLI requests once a local agent restarts on the same channel", async () => {
+    const channel = new FakeAgentChannel();
+    let ready: ((workspaceId: string) => void) | undefined;
+    const host = startAgentPtyHost({
+      async getAgentChannel() {
+        return channel;
+      },
+      async tryGetAgentChannel() {
+        return channel;
+      },
+      onProviderReady(listener) {
+        ready = listener;
+        return () => {
+          ready = undefined;
+        };
+      },
+    });
+    const hooks: unknown[] = [];
+    const gone: unknown[] = [];
+    const requests: unknown[] = [];
+    host.on("claude.hook", (payload) => hooks.push(payload));
+    host.on("claude.hookGone", (payload) => gone.push(payload));
+    host.on("cli.request", (payload) => requests.push(payload));
+    ready?.(WORKSPACE_ID);
+    await Bun.sleep(0);
+
+    channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: false });
+    channel.emitLifecycle({ type: "ready" });
+    await Bun.sleep(0);
+
+    const start = {
+      hookId: "h1",
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_ID,
+      subcommand: "print-start",
+      payload: { run_id: "print-1" },
+    };
+    const watchGone = { ...start, hookId: "h2", subcommand: "print-watch" };
+    const request = { requestId: "r1", workspaceId: WORKSPACE_ID, tabId: TAB_ID };
+    const tell = () => {
+      channel.emit("claude.hook", start);
+      channel.emit("claude.hookGone", watchGone);
+      channel.emit("cli.request", request);
+    };
+    tell();
+    expect(hooks).toEqual([start]);
+    expect(gone).toEqual([watchGone]);
+    expect(requests).toEqual([request]);
+
+    ready?.(WORKSPACE_ID);
+    await Bun.sleep(0);
+    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_ID, cols: 80, rows: 24 });
+    await host.call("write", { workspaceId: WORKSPACE_ID, tabId: TAB_ID, data: "x" });
+    tell();
+    expect(hooks).toEqual([start, start]);
+    expect(gone).toEqual([watchGone, watchGone]);
+    expect(requests).toEqual([request, request]);
   });
 });
