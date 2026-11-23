@@ -13,11 +13,16 @@ import { type PeerWorkspaceTarget, peerTargetId } from "../../state/stores/peer-
 import { SystemStatsItem } from "../workbench/system-stats";
 
 /** One ask of that computer: none while it cannot tell, "never" from one without the method. */
-export async function askPeerSystemStats(target: PeerWorkspaceTarget): Promise<StatsAnswer> {
-  const result = await ipcCallResult("remote", "peerSystemStats", {
-    deviceId: target.deviceId,
-    workspaceId: target.workspaceId,
-  });
+export async function askPeerSystemStats(
+  target: PeerWorkspaceTarget,
+  signal?: AbortSignal,
+): Promise<StatsAnswer> {
+  const result = await ipcCallResult(
+    "remote",
+    "peerSystemStats",
+    { deviceId: target.deviceId, workspaceId: target.workspaceId },
+    { signal },
+  );
   if (result.ok) return result.value;
   return result.kind === "unsupported" ? "never" : null;
 }
@@ -33,8 +38,8 @@ export function PeerSystemStatsSegment({
   active: boolean;
 }) {
   const served = peerServes(peer, "system.stats");
-  const stats = usePolledStats(`peer:${peerTargetId(target)}`, active && served, () =>
-    askPeerSystemStats(target),
+  const stats = usePolledStats(`peer:${peerTargetId(target)}`, active && served, (signal) =>
+    askPeerSystemStats(target, signal),
   );
   if (!served || !stats) return null;
   return <SystemStatsItem stats={stats} host={target.deviceName} />;

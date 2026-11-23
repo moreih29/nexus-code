@@ -34,7 +34,7 @@ test("that computer is asked for its workspace's host; an older one that lacks t
     expect(await askPeerSystemStats(target)).toEqual(stats);
     expect(await askPeerSystemStats(target)).toBeNull();
     expect(await askPeerSystemStats(target)).toBe("never");
-    expect(call.mock.calls[0]).toEqual([
+    expect(call.mock.calls[0].slice(0, 3)).toEqual([
       "remote",
       "peerSystemStats",
       { deviceId: "desktop", workspaceId: "repo" },
@@ -72,14 +72,20 @@ test("asked again a while after each answer, until stopped or told never", async
   expect(told).toEqual([stats, null, null]);
   expect(waits).toHaveLength(2);
 
-  // Stopped while an answer is on its way, it is not told.
+  // Stopped while an answer is on its way, the ask is aborted and nothing told.
   const late: unknown[] = [];
+  let signal: AbortSignal | undefined;
   const stop = pollStats(
-    async () => stats,
+    async (given) => {
+      signal = given;
+      return stats;
+    },
     (value) => late.push(value),
     wait,
   );
+  expect(signal?.aborted).toBe(false);
   stop();
+  expect(signal?.aborted).toBe(true);
   await Promise.resolve();
   await Promise.resolve();
   expect(late).toEqual([]);
