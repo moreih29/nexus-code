@@ -18,12 +18,20 @@ export interface SecretBox {
   decrypt(data: Buffer): Promise<string>;
 }
 
-/** The system's keychain, through Electron's asynchronous safeStorage. */
-export async function electronSecretBox(): Promise<SecretBox> {
+/**
+ * The system's keychain, through Electron's asynchronous safeStorage.
+ *
+ * A Mac always has a keychain, and asking whether it is there reads it:
+ * isAsyncEncryptionAvailable fetches the key, and macOS asks for the login
+ * password when the item's access list does not name this app's signature.
+ * So on macOS the keychain is read only when something is sealed or opened.
+ */
+export async function electronSecretBox(platform = process.platform): Promise<SecretBox> {
   const { safeStorage } = await import("electron");
   const available =
-    (await safeStorage.isAsyncEncryptionAvailable()) &&
-    !(process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text");
+    platform === "darwin" ||
+    ((await safeStorage.isAsyncEncryptionAvailable()) &&
+      !(platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text"));
   return {
     available,
     encrypt: (text) => safeStorage.encryptStringAsync(text),

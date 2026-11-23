@@ -4,7 +4,11 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SavedAccountSchema } from "../../../../../src/main/features/remote/account";
-import { SealedFile, type SecretBox } from "../../../../../src/main/features/remote/sealed-file";
+import {
+  electronSecretBox,
+  SealedFile,
+  type SecretBox,
+} from "../../../../../src/main/features/remote/sealed-file";
 
 const account = {
   server: "http://localhost:8787",
@@ -48,6 +52,30 @@ describe("SealedFile", () => {
     expect(existsSync(file)).toBe(false);
     expect(await store.load()).toEqual(account);
     expect(await new SealedFile(file, box(false), SavedAccountSchema).load()).toBeNull();
+  });
+
+  test.each([
+    ["darwin", false, true],
+    ["win32", true, true],
+    ["linux", true, false],
+  ] as const)("on %s, asks whether it seals: %p", async (platform, asks, available) => {
+    const { safeStorage } = await import("electron");
+    const stub = safeStorage as unknown as Record<string, unknown>;
+    const before = { ...stub };
+    let asked = 0;
+    stub.isAsyncEncryptionAvailable = async () => {
+      asked++;
+      return true;
+    };
+    stub.getSelectedStorageBackend = () => "basic_text";
+    try {
+      const sealing = await electronSecretBox(platform);
+      expect(asked).toBe(asks ? 1 : 0);
+      expect(sealing.available).toBe(available);
+    } finally {
+      for (const key of Object.keys(stub)) delete stub[key];
+      Object.assign(stub, before);
+    }
   });
 
   test("a damaged file is as good as signed out, and clear removes it", async () => {
