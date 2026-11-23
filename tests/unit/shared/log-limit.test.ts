@@ -57,10 +57,8 @@ describe("limitLog", () => {
     const lim = limitLog(logger, { intervalMs: 1_000_000, maxKeys: 3, now: () => 0 });
     for (let i = 0; i < 10; i++) lim.log("warn", `k${i}`, "x");
     expect(warn).toHaveBeenCalledTimes(10);
-    // k0 was dropped to make room, so it writes again instead of being held back.
     lim.log("warn", "k0", "x");
     expect(warn).toHaveBeenCalledTimes(11);
-    // k9 is still tracked.
     lim.log("warn", "k9", "x");
     expect(warn).toHaveBeenCalledTimes(11);
   });

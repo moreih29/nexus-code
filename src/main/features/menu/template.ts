@@ -1,24 +1,3 @@
-/**
- * Pure builder for the Application Menu.
- *
- * Returns a tree of {@link MenuItemSpec} that the Electron-aware
- * installer (`menu.ts`) maps to `MenuItemConstructorOptions`.
- *
- * Single source of truth for keybindings: every command-typed item
- * looks up its accelerator in `shared/keybindings/index.ts`. Single-key
- * bindings come back through Electron's normal `accelerator` field;
- * chord bindings (`⌘K …`) cannot be Electron-registered, so we
- * suffix the menu label with `[⌘K ⌘W]` exactly as VSCode does.
- *
- * Key conflicts with Electron's default menu (mac):
- *   - Cmd+W   → "Close Window" replaced by "Close Editor" (tab.close).
- *   - Cmd+R   → "Reload" replaced by "Refresh Files" (files.refresh).
- *   - Cmd+⇧+R → "Force Reload" dropped (devs use the DevTools button).
- *
- * Standard editor / window items (Cmd+C/V/X/A/Z, Cmd+M, Cmd+Q, Cmd+H,
- * Cmd+Alt+I) keep their Electron-built `role`s so Chromium and macOS
- * handle them uniformly.
- */
 import type { TFunction } from "i18next";
 import { COMMANDS, type CommandId } from "../../../shared/keybindings/commands";
 import {
@@ -35,16 +14,8 @@ export type MenuItemSpec =
   | { type: "command"; label: string; command: CommandId; accelerator?: string }
   | { type: "action"; label: string; action: MenuAction };
 
-/**
- * What a menu item does in the main process itself: what has to work while
- * the window's page cannot take a command, such as loading that page again.
- */
 export type MenuAction = "reloadWindow";
 
-/**
- * Subset of Electron `MenuItemConstructorOptions["role"]` we use.
- * Listed explicitly so tests/types fail fast when a typo creeps in.
- */
 export type ElectronRole =
   | "about"
   | "hide"
@@ -70,23 +41,9 @@ export type ElectronRole =
 export type ElectronSubmenuRole = "appMenu" | "editMenu" | "windowMenu";
 
 interface BuildMenuOptions {
-  /** Host platform: macOS has the app and Window menus and ⌘ shortcuts. */
   platform: NodeJS.Platform;
   appName: string;
-  /**
-   * i18next TFunction for the main-process locale instance.
-   * Injected by the caller so this module stays a pure function with no
-   * global i18next import.  When omitted the English fallback strings
-   * embedded in each builder are used (e.g. in tests that build without i18n).
-   */
   t?: TFunction;
-  /**
-   * EFFECTIVE binding table (defaults + user overrides, merged by
-   * `applyKeybindingOverrides`).  Injected by the installer so this
-   * module stays pure.  When omitted, falls back to the static
-   * `KEYBINDINGS` defaults — correct for tests and for boots with no
-   * stored overrides.
-   */
   bindings?: readonly KeybindingDecl[];
 }
 
@@ -111,12 +68,6 @@ export function buildMenuTemplate(opts: BuildMenuOptions): MenuItemSpec[] {
   return enrichWithKeybindings(menu, isMac, opts.bindings ?? KEYBINDINGS);
 }
 
-/**
- * Tiny helper that constructs a command spec without an inline
- * accelerator — the post-process step below fills it in by looking up
- * `shared/keybindings.ts`. Keeps the menu structure declarative and
- * removes the parallel-table-of-strings smell.
- */
 function cmd(label: string, command: CommandId): MenuItemSpec {
   return { type: "command", label, command };
 }
@@ -141,7 +92,6 @@ function appMenu(appName: string, t?: TFunction): MenuItemSpec {
         COMMANDS.updatesReleaseNotes,
       ),
       { type: "separator" },
-      // macOS convention: Settings… right under About, ⌘, accelerator.
       cmd(t != null ? t("menu:appMenu.settings") : "Settings…", COMMANDS.settingsOpen),
       { type: "separator" },
       { type: "role", role: "hide" },
@@ -168,8 +118,6 @@ function fileMenu(isMac: boolean, t?: TFunction): MenuItemSpec {
     cmd(t != null ? t("menu:file.refreshFiles") : "Refresh Files", COMMANDS.filesRefresh),
   ];
 
-  // Win/Linux don't get the App menu, so Quit (and Settings and the release
-  // notes, which on macOS live in the App menu) live in File instead.
   if (!isMac) {
     items.push({ type: "separator" });
     items.push(cmd(t != null ? t("menu:appMenu.settings") : "Settings…", COMMANDS.settingsOpen));
@@ -187,10 +135,6 @@ function fileMenu(isMac: boolean, t?: TFunction): MenuItemSpec {
 }
 
 function editMenu(t?: TFunction): MenuItemSpec {
-  // The role-based Edit menu lets Chromium handle copy/paste/select-all
-  // inside any focused input or contenteditable. Defining our own
-  // command-based Edit items here would break Monaco's built-in
-  // shortcuts (it expects the standard roles to flow through Cocoa).
   return {
     type: "submenu",
     label: t != null ? t("menu:edit.label") : "Edit",
@@ -208,7 +152,6 @@ function editMenu(t?: TFunction): MenuItemSpec {
   };
 }
 
-/** The reveal command's platform-native name, as VSCode words it. */
 function revealLabel(platform: NodeJS.Platform, t?: TFunction): string {
   if (platform === "darwin") return t != null ? t("menu:view.revealInFinder") : "Reveal in Finder";
   if (platform === "win32") {
@@ -263,12 +206,6 @@ function viewMenu(platform: NodeJS.Platform, t?: TFunction): MenuItemSpec {
   };
 }
 
-/**
- * The zoomIn role's own key is CmdOrCtrl+Plus, which Win/Linux read as
- * Ctrl+Shift+=. A hidden zoomIn twin adds Ctrl+= there. Not on macOS: Cocoa
- * runs menu keys before the renderer, so ⌘= would also take the second key
- * of Monaco's ⌘K ⌘= chord.
- */
 function zoomInEqualKey(platform: NodeJS.Platform): MenuItemSpec[] {
   if (platform === "darwin") return [];
   return [{ type: "role", role: "zoomIn", accelerator: "CmdOrCtrl+=", visible: false }];
@@ -323,19 +260,6 @@ function windowMenu(t?: TFunction): MenuItemSpec {
   };
 }
 
-/**
- * Walk the spec tree and fill in `accelerator` (and the chord label
- * suffix) for each command item from the EFFECTIVE binding table
- * (defaults + user overrides). Pure over the spec — no Electron access
- * here.
- *
- * Mirrors VSCode's `withKeybinding` strategy:
- *   - Single-key binding → set `accelerator` (display only — every
- *     command item sets `registerAccelerator: false`).
- *   - Chord binding → no accelerator, append `[⌘K ⌘W]` to the label
- *     (Electron can't register chords; renderer dispatches them).
- *   - No binding (user unbound it) → bare label, no shortcut shown.
- */
 function enrichWithKeybindings(
   specs: MenuItemSpec[],
   isMac: boolean,

@@ -10,7 +10,6 @@ import (
 	hostproc "github.com/nexus-code/nexus-code/internal/process"
 )
 
-// parents maps each process to its parent, read from /proc.
 func parents() map[int]int {
 	dirs, err := os.ReadDir("/proc")
 	if err != nil {
@@ -22,7 +21,6 @@ func parents() map[int]int {
 		if err != nil {
 			continue
 		}
-		// A process can exit between the listing and this read.
 		data, err := os.ReadFile("/proc/" + dir.Name() + "/stat")
 		if err != nil {
 			continue
@@ -34,10 +32,6 @@ func parents() map[int]int {
 	return table
 }
 
-// parentInStat reads the parent from the contents of /proc/<pid>/stat. The
-// command name, field 2, is in parentheses and may hold spaces and
-// parentheses itself, so fields are counted from the last ")": the state,
-// then the parent.
 func parentInStat(data []byte) (int, bool) {
 	_, suffix := hostproc.SplitPIDStat(data)
 	fields := bytes.Fields(suffix)
@@ -48,7 +42,6 @@ func parentInStat(data []byte) (int, bool) {
 	return ppid, err == nil
 }
 
-// processStart identifies a process by the kernel's start ticks.
 func processStart(pid int) uint64 {
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
@@ -56,7 +49,7 @@ func processStart(pid int) uint64 {
 	}
 	_, suffix := hostproc.SplitPIDStat(data)
 	fields := bytes.Fields(suffix)
-	const startTimeField = 22 - 3 // suffix begins with field 3, state.
+	const startTimeField = 22 - 3
 	if len(fields) <= startTimeField {
 		return 0
 	}

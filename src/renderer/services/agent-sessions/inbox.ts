@@ -1,24 +1,10 @@
-/**
- * The title bar's inbox: the agent sessions of every workspace that wait on
- * the user. First those that need an answer, a permission or a look at an
- * error, which stay until the agent moves on; then those that finished a
- * turn the user has not looked at since. Pure: built from the same records
- * as the agent list.
- */
-
 import type { RpcParams } from "../../../../packages/remote-protocol/src/rpc";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { type AgentSession, type SessionsInput, sessionKey, sessionsOf } from "./model";
 
 export interface InboxInput extends SessionsInput {
   readonly workspaces: readonly WorkspaceMeta[];
-  /** workspaceId → tabId → when the user last looked at the terminal. */
   readonly seenByWorkspace: Readonly<Record<string, Readonly<Record<string, number>>>>;
-  /**
-   * The tab in front of the user, by session key: the active one while the
-   * app window has focus, as main counts it for notifications; none while
-   * the user is in another app.
-   */
   readonly viewing: string | null;
 }
 
@@ -28,22 +14,17 @@ export interface InboxItem {
 }
 
 export interface Inbox {
-  /** Those waiting on the user, then those done and not looked at. */
   readonly items: readonly InboxItem[];
-  /** How many wait on the user. */
   readonly attention: number;
-  /** How many are done and not looked at. */
   readonly unread: number;
 }
 
-/** A permission blocks the agent outright; an error, then a question, may not. */
 const ATTENTION_RANK: Readonly<Record<string, number>> = {
   permissionPending: 0,
   error: 1,
   needsInput: 2,
 };
 
-/** Whether a session finished after the user last looked at its terminal. */
 export function isUnread(session: AgentSession, seenAt: number | undefined): boolean {
   return seenAt === undefined || (session.since ?? 0) > seenAt;
 }
@@ -78,7 +59,6 @@ export function buildInbox(input: InboxInput): Inbox {
   };
 }
 
-/** Only an unread result with a host timestamp can be acknowledged remotely. */
 export function unreadResults(inbox: Inbox) {
   return inbox.items.flatMap(({ session }) => {
     const { since } = session;
@@ -102,10 +82,6 @@ export function acknowledgedResults(inbox: Inbox, seen: RpcParams<"sessions.mark
   });
 }
 
-/**
- * Whether two inboxes list the same sessions, in the same states and order:
- * a rebuild that changed nothing keeps the one already shown.
- */
 export function sameInbox(a: Inbox, b: Inbox): boolean {
   return (
     a.items.length === b.items.length &&
@@ -131,10 +107,6 @@ function longestWaitingFirst(a: InboxItem, b: InboxItem): number {
   );
 }
 
-/**
- * The item to go to from the terminal `currentKey`: the one after it, so
- * going again steps through them all, or the first.
- */
 export function nextInboxItem(
   items: readonly InboxItem[],
   currentKey: string | null,

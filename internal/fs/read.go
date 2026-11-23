@@ -13,16 +13,10 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// hiddenNames are directory entries that fs.readdir omits by default and the
-// watcher never reports. Only VCS/OS metadata the explorer should never show
-// (VS Code's files.exclude defaults) — build and dependency folders such as
-// node_modules or dist are real workspace content and stay visible.
 var hiddenNames = map[string]struct{}{
 	".git": {}, ".DS_Store": {},
 }
 
-// Readdir lists the entries at relPath, omitting names in hiddenNames unless
-// the request sets includeHidden (name-collision checks need every entry).
 func (s *Service) Readdir(ctx context.Context, raw json.RawMessage) (any, error) {
 	abs, err := s.resolve(raw)
 	if err != nil {
@@ -47,8 +41,6 @@ func (s *Service) Readdir(ctx context.Context, raw json.RawMessage) (any, error)
 	return out, nil
 }
 
-// Stat returns Lstat metadata by default. An editor can ask for the target
-// metadata used by ReadFile and WriteFile.
 func (s *Service) Stat(ctx context.Context, raw json.RawMessage) (any, error) {
 	abs, err := s.resolve(raw)
 	if err != nil {
@@ -79,9 +71,6 @@ func (s *Service) Stat(ctx context.Context, raw json.RawMessage) (any, error) {
 	}, nil
 }
 
-// ReadFile loads relPath's contents up to MaxReadableFileSize. Missing files
-// resolve to a "missing" result so renderer file-open races do not surface as
-// error toasts.
 func (s *Service) ReadFile(ctx context.Context, raw json.RawMessage) (any, error) {
 	abs, err := s.resolve(raw)
 	if err != nil {
@@ -90,8 +79,6 @@ func (s *Service) ReadFile(ctx context.Context, raw json.RawMessage) (any, error
 	return readFileAt(ctx, abs)
 }
 
-// ReadAbsolute loads an absolute path on the agent host. This supports
-// read-only external references such as LSP results outside the workspace.
 func (s *Service) ReadAbsolute(ctx context.Context, raw json.RawMessage) (any, error) {
 	abs, err := parseAbsolutePath(raw)
 	if err != nil {
@@ -100,9 +87,6 @@ func (s *Service) ReadAbsolute(ctx context.Context, raw json.RawMessage) (any, e
 	return readFileAt(ctx, abs)
 }
 
-// ReadAbsoluteBinary loads an absolute path's bytes on the agent host, as
-// ReadBinary does a workspace file's. The app asks for it only for files a
-// Claude tab links outside the workspace, to preview them.
 func (s *Service) ReadAbsoluteBinary(ctx context.Context, raw json.RawMessage) (any, error) {
 	abs, err := parseAbsolutePath(raw)
 	if err != nil {
@@ -111,11 +95,6 @@ func (s *Service) ReadAbsoluteBinary(ctx context.Context, raw json.RawMessage) (
 	return readBinaryAt(ctx, abs)
 }
 
-// ReadBinary loads relPath's bytes (up to MaxReadableFileSize) and returns
-// them base64-encoded. Used by the renderer's image preview pipeline for
-// SSH workspaces, where binary bytes cannot be transported as a UTF-8
-// content string the way fs.readFile does. Same missing-file handling so
-// renderer races against fs.changed events do not surface as toasts.
 func (s *Service) ReadBinary(ctx context.Context, raw json.RawMessage) (any, error) {
 	abs, err := s.resolve(raw)
 	if err != nil {
@@ -124,11 +103,6 @@ func (s *Service) ReadBinary(ctx context.Context, raw json.RawMessage) (any, err
 	return readBinaryAt(ctx, abs)
 }
 
-// ReadRange returns `length` bytes of relPath from `offset`, base64-encoded,
-// with the file's size: at most MaxReadRangeLength, and fewer at the end of
-// the file. The previews read large files with it in pieces, so they need
-// not be read whole, and no piece holds the channel for long. A symlink is
-// followed, as ReadBinary follows one.
 func (s *Service) ReadRange(ctx context.Context, raw json.RawMessage) (any, error) {
 	abs, err := s.resolve(raw)
 	if err != nil {
@@ -141,9 +115,6 @@ func (s *Service) ReadRange(ctx context.Context, raw json.RawMessage) (any, erro
 	return readRangeAt(ctx, abs, r)
 }
 
-// ReadAbsoluteRange is ReadRange for an absolute path on the agent host, as
-// ReadAbsoluteBinary is ReadBinary's: for files a Claude tab links outside
-// the workspace.
 func (s *Service) ReadAbsoluteRange(ctx context.Context, raw json.RawMessage) (any, error) {
 	abs, err := parseAbsolutePath(raw)
 	if err != nil {
@@ -166,8 +137,6 @@ func parseReadRange(raw json.RawMessage) (ReadRangeParams, error) {
 }
 
 func readRangeAt(ctx context.Context, abs string, r ReadRangeParams) (any, error) {
-	// The size and time are the target's, not a link's, since the range is
-	// of the bytes read.
 	target, err := os.Stat(abs)
 	if err != nil {
 		if errors.Is(err, iofs.ErrNotExist) {
@@ -182,8 +151,6 @@ func readRangeAt(ctx context.Context, abs string, r ReadRangeParams) (any, error
 		return nil, err
 	}
 	mtime := formatMTime(target.ModTime())
-	// A device, FIFO or socket is not opened (a FIFO blocks until a writer
-	// appears); it reads as empty.
 	if !target.Mode().IsRegular() {
 		return ReadBinaryResult{Kind: "ok", Base64: "", Size: 0, MTime: mtime}, nil
 	}
@@ -197,7 +164,6 @@ func readRangeAt(ctx context.Context, abs string, r ReadRangeParams) (any, error
 	defer file.Close()
 	buf := make([]byte, max(0, min(r.Length, target.Size()-r.Offset)))
 	n, err := file.ReadAt(buf, r.Offset)
-	// A file cut short since the stat ends the range early.
 	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, mapPathError(err, abs)
 	}
@@ -248,8 +214,6 @@ func readFileAt(ctx context.Context, abs string) (any, error) {
 	return buildFileContent(buf, info), nil
 }
 
-// readTarget returns the bytes and metadata of the same file, following
-// symlinks. A device, FIFO or socket is reported without opening it.
 func readTarget(abs string) ([]byte, os.FileInfo, error) {
 	target, err := os.Stat(abs)
 	if err != nil {

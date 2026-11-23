@@ -1,18 +1,3 @@
-/**
- * A note's transcript, beside its text: each recording with its people and
- * what they said, a time to a line. While this note records, the words
- * come in as they are said. A person's chip shows only what they said
- * (shown above the lines too, which takes it back to everyone), and its
- * pencil names them (the name goes to each of their voices); a search
- * shows the lines with its words; a line's time, while either holds, shows
- * that line in the whole conversation. A line is moved to another voice by
- * clicking its speaker, and goes into the note as a quote; a recording of
- * more than one person is heard again, whole, once it ends. The line
- * between it and the text is dragged to give either more room.
- *
- * Only the lines in sight are drawn (a meeting of hours has thousands), and
- * the panel is drawn again only for its own changes, not the note's.
- */
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Search, X } from "lucide-react";
 import {
@@ -93,13 +78,10 @@ export interface TranscriptQuote {
 
 const NO_RECORDINGS: readonly TranscriptRecording[] = [];
 
-/** Within this of the end, the transcript follows new words. */
 const STUCK_PX = 40;
 
-/** How long a line shown in the whole conversation stays lit. */
 const LIT_MS = 1600;
 
-/** A line being moved to another voice, and where its menu opens. */
 interface Moving {
   readonly recordingId: string;
   readonly line: TranscriptLine;
@@ -121,7 +103,6 @@ export const TranscriptPanel = memo(function TranscriptPanel({
   summaries: RecordingSummaries;
   taskTimes: SummaryTaskTimes;
   flushNote: () => Promise<boolean>;
-  /** Puts a line into the note, as a quote. */
   onQuote: (quote: TranscriptQuote) => void;
   onClose: () => void;
   jump?: TranscriptJump;
@@ -191,7 +172,6 @@ export const TranscriptPanel = memo(function TranscriptPanel({
       new Map(recordings.map((r) => [r.id, castOf(r, r.id === liveId ? partialSpeaker : null)])),
     [recordings, liveId, partialSpeaker],
   );
-  // Names used in this note, offered when naming a person.
   const names = useMemo(
     () =>
       [
@@ -201,7 +181,6 @@ export const TranscriptPanel = memo(function TranscriptPanel({
   );
   const unnamed = useCallback((key: string) => t("transcript.speaker", { label: key }), [t]);
 
-  // What the transcript is narrowed to.
   const [speaker, setSpeaker] = useState<SpeakerFilter | null>(null);
   const [naming, setNaming] = useState<{ recordingId: string; keys: readonly string[] } | null>(
     null,
@@ -229,8 +208,6 @@ export const TranscriptPanel = memo(function TranscriptPanel({
     searchToggleRef.current?.focus();
   }, []);
 
-  // The person picked, as their chip names them: shown above the lines, which
-  // the recording's chips scroll away from.
   const alone = useMemo(() => {
     if (!speaker) return null;
     const recording = recordings.find((r) => r.id === speaker.recordingId);
@@ -241,7 +218,6 @@ export const TranscriptPanel = memo(function TranscriptPanel({
         color: speakerColor(p.color),
       };
     }
-    // Gone from its recording (its voices grouped again): still the way back.
     const { person } = speaker;
     return { name: isNamed(person) ? person : unnamed(person.slice(1)), color: null };
   }, [speaker, recordings, casts, unnamed]);
@@ -264,7 +240,6 @@ export const TranscriptPanel = memo(function TranscriptPanel({
       const confirmed = value.trim().slice(0, 80);
       if (confirmed) dismissVoiceSuggestions(ref, keys);
       for (const key of keys) nameSpeaker(workspaceId, noteId, recordingId, key, confirmed);
-      // The person picked, named, stays picked under their name.
       const after = recordingNow();
       if (!after) return;
       const is = personOf(after, first);
@@ -298,7 +273,6 @@ export const TranscriptPanel = memo(function TranscriptPanel({
     [workspaceId, noteId, name],
   );
 
-  // Scrolling: only the rows in sight are drawn.
   const scroller = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -310,16 +284,10 @@ export const TranscriptPanel = memo(function TranscriptPanel({
     paddingEnd: 8,
   });
 
-  // Following the newest words: while it records and the end is in sight,
-  // the transcript stays at its end (unless scrolled up to read).
   const stuck = useRef(true);
-  // The row at the top of the whole transcript, and how far into it it is
-  // scrolled: where to go back to once a narrowing is taken back. By row,
-  // since rows not yet drawn change their height once they are.
   const wholeTop = useRef<{ key: string; into: number } | null>(null);
   const wholeAt = useRef<{ top: typeof wholeTop.current; stuck: boolean } | null>(null);
   const wasNarrowed = useRef(false);
-  // A line to bring into sight once the whole transcript shows again.
   const [reveal, setReveal] = useState<{ key: string }>();
   const handled = useRef<typeof reveal>(undefined);
   const [lit, setLit] = useState<string | null>(null);
@@ -337,15 +305,12 @@ export const TranscriptPanel = memo(function TranscriptPanel({
       stuck.current = false;
       const index = rows.findIndex((row) => row.key === reveal.key);
       if (index >= 0) virtualizer.scrollToIndex(index, { align: "center" });
-      // The time clicked is gone with the narrowing; the keyboard stays here.
       el.focus({ preventScroll: true });
       return;
     }
     if (narrowed) {
       if (!wasNarrowed.current) wholeAt.current = { top: wholeTop.current, stuck: stuck.current };
       wasNarrowed.current = true;
-      // A narrowed view reads from its start, but goes on following the
-      // words coming in as they come.
       if (!(live && stuck.current)) {
         stuck.current = false;
         el.scrollTop = 0;
@@ -361,7 +326,6 @@ export const TranscriptPanel = memo(function TranscriptPanel({
     if (at.stuck) return;
     const { top } = at;
     const row = top && virtualizer.measurementsCache[rows.findIndex((r) => r.key === top.key)];
-    // Not scrolled before it was narrowed: it was at its start.
     el.scrollTop = row && top ? row.start + top.into : 0;
   }, [viewKey, reveal]);
 
@@ -395,7 +359,6 @@ export const TranscriptPanel = memo(function TranscriptPanel({
     showInWhole(key);
   }, [jump, read, showInWhole]);
 
-  // The handlers rows are given stay the same; they read what is current here.
   const current = useRef({ casts, recordings, unnamed, onQuote });
   current.current = { casts, recordings, unnamed, onQuote };
 
@@ -466,7 +429,6 @@ export const TranscriptPanel = memo(function TranscriptPanel({
     [applyMove],
   );
 
-  // Escape takes back the narrowing: the person picked, then the search.
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key !== "Escape" || e.defaultPrevented) return;
     if (speaker) setSpeaker(null);
@@ -507,7 +469,6 @@ export const TranscriptPanel = memo(function TranscriptPanel({
               color={alone.color}
               onClear={() => {
                 setSpeaker(null);
-                // The chip goes; the keyboard stays in the transcript.
                 scroller.current?.focus({ preventScroll: true });
               }}
             />
@@ -653,7 +614,6 @@ export const TranscriptPanel = memo(function TranscriptPanel({
   );
 });
 
-/** One row of the transcript, as its kind draws it. */
 function Row({
   row,
   cast,

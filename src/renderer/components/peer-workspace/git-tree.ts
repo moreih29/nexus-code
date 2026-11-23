@@ -46,7 +46,6 @@ function pathsOf(root: string, status: PeerGitStatus | undefined) {
   return mapped;
 }
 
-/** Immediate parents of paths added to or removed from the Git file set. */
 export function changedPeerGitParents(
   root: string,
   previous: PeerGitStatus | undefined,

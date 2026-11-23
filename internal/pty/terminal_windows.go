@@ -16,26 +16,19 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// consoleDrainGrace bounds how long Close waits for a closed console's output
-// to end.
 const consoleDrainGrace = 5 * time.Second
 
-// terminal is the Windows pseudoconsole (ConPTY) a session's shell runs
-// under. The shell's input goes in through one pipe, and the console renders
-// its output as VT sequences into another.
 type terminal struct {
-	in  *os.File // write end of the console's input pipe
-	out *os.File // read end of the console's output pipe
+	in  *os.File
+	out *os.File
 
-	mu     sync.Mutex // keeps setSize off a closed console
+	mu     sync.Mutex
 	closed bool
 	hpc    windows.Handle
 
-	shellPID uint32 // the shell's process id, once it has started
+	shellPID uint32
 }
 
-// defaultShell resolves the shell for a PTY when the client names none:
-// Windows PowerShell, which every supported Windows ships, else %COMSPEC%.
 func defaultShell() string {
 	if path, err := exec.LookPath("powershell.exe"); err == nil {
 		return path
@@ -46,18 +39,12 @@ func defaultShell() string {
 	return "cmd.exe"
 }
 
-// allowCtrlC lets the shells take Ctrl+C. A process started in a new
-// process group ignores it and passes that on to the processes it starts,
-// so in an app started from one, no program a terminal ran stopped on
-// Ctrl+C.
 var allowCtrlC sync.Once
 
 var procSetConsoleCtrlHandler = windows.NewLazySystemDLL("kernel32.dll").NewProc("SetConsoleCtrlHandler")
 
-// startTerminal starts spec's shell in a new pseudoconsole.
 func startTerminal(spec spawnSpec) (*terminal, *child, error) {
 	allowCtrlC.Do(func() {
-		// SetConsoleCtrlHandler(NULL, FALSE): stop ignoring Ctrl+C.
 		_, _, _ = procSetConsoleCtrlHandler.Call(0, 0)
 	})
 	path, err := exec.LookPath(spec.shell)
@@ -76,7 +63,6 @@ func startTerminal(spec spawnSpec) (*terminal, *child, error) {
 	}
 	var hpc windows.Handle
 	err = windows.CreatePseudoConsole(windows.Coord{X: int16(spec.cols), Y: int16(spec.rows)}, inRead, outWrite, 0, &hpc)
-	// The console keeps its own handles to the ends it uses.
 	_ = windows.CloseHandle(inRead)
 	_ = windows.CloseHandle(outWrite)
 	if err != nil {
@@ -99,23 +85,18 @@ func startTerminal(spec spawnSpec) (*terminal, *child, error) {
 	return t, &child{process}, nil
 }
 
-// startInConsole starts the program at path, with spec's arguments,
-// directory and environment, attached to the pseudoconsole hpc.
 func startInConsole(path string, spec spawnSpec, hpc windows.Handle) (*os.Process, error) {
 	attrs, err := windows.NewProcThreadAttributeList(1)
 	if err != nil {
 		return nil, err
 	}
 	defer attrs.Delete()
-	// The attribute's value is the console handle itself, not a pointer to it.
 	if err := attrs.Update(windows.PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, *(*unsafe.Pointer)(unsafe.Pointer(&hpc)), unsafe.Sizeof(hpc)); err != nil {
 		return nil, err
 	}
 	si := windows.StartupInfoEx{
 		StartupInfo: windows.StartupInfo{
-			Cb: uint32(unsafe.Sizeof(windows.StartupInfoEx{})),
-			// No standard handles: without this flag the shell would take the
-			// agent's own (the pipes to the app) instead of the console's.
+			Cb:    uint32(unsafe.Sizeof(windows.StartupInfoEx{})),
 			Flags: windows.STARTF_USESTDHANDLES,
 		},
 		ProcThreadAttributeList: attrs.List(),
@@ -146,14 +127,10 @@ func startInConsole(path string, spec spawnSpec, hpc windows.Handle) (*os.Proces
 		return nil, err
 	}
 	defer windows.CloseHandle(pi.Thread)
-	// pi.Process stays open until FindProcess has its own handle, so the
-	// process id cannot be reused meanwhile.
 	defer windows.CloseHandle(pi.Process)
 	return os.FindProcess(int(pi.ProcessId))
 }
 
-// environmentBlock encodes env as CreateProcess takes it: each "key=value"
-// NUL-terminated, the block ending in one more NUL.
 func environmentBlock(env []string) (*uint16, error) {
 	var block []uint16
 	for _, entry := range env {
@@ -170,17 +147,14 @@ func environmentBlock(env []string) (*uint16, error) {
 	return &block[0], nil
 }
 
-// Read reads the console's rendered output.
 func (t *terminal) Read(p []byte) (int, error) {
 	return t.out.Read(p)
 }
 
-// Write sends input to the console.
 func (t *terminal) Write(p []byte) (int, error) {
 	return t.in.Write(p)
 }
 
-// setSize resizes the console.
 func (t *terminal) setSize(cols, rows int) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -190,10 +164,6 @@ func (t *terminal) setSize(cols, rows int) error {
 	return windows.ResizePseudoConsole(t.hpc, windows.Coord{X: int16(cols), Y: int16(rows)})
 }
 
-// foregroundProcess returns the name of the program the shell runs, or the
-// shell's own when it runs none (see foregroundOf), or "" when it cannot be
-// told. With alone it is reported alone: foregroundOf goes on past a shell,
-// a script's included, to the program it runs, so a shell it names runs none.
 func (t *terminal) foregroundProcess(alone bool) (string, *bool) {
 	if t.shellPID == 0 {
 		return "", nil
@@ -210,8 +180,6 @@ func (t *terminal) foregroundProcess(alone bool) (string, *bool) {
 	return name, &only
 }
 
-// Close closes the console and its pipes. The output pipe reads end once the
-// console has gone.
 func (t *terminal) Close() error {
 	t.mu.Lock()
 	if t.closed {
@@ -222,16 +190,12 @@ func (t *terminal) Close() error {
 	t.mu.Unlock()
 
 	_ = t.in.Close()
-	// Before Windows 11 24H2, ClosePseudoConsole waits until its last output
-	// has been read, and the session may have stopped reading.
 	drained := make(chan struct{})
 	go func() {
 		defer close(drained)
 		_, _ = io.Copy(io.Discard, t.out)
 	}()
 	windows.ClosePseudoConsole(t.hpc)
-	// A process still attached to the console can keep its output open; past
-	// the grace the pipe is left to close once that process ends.
 	select {
 	case <-drained:
 	case <-time.After(consoleDrainGrace):
@@ -242,8 +206,6 @@ func (t *terminal) Close() error {
 	return nil
 }
 
-// sameEnvKey reports whether two environment variable names name the same
-// variable: Windows ignores case, so Path and PATH are one.
 func sameEnvKey(a, b string) bool {
 	return strings.EqualFold(a, b)
 }

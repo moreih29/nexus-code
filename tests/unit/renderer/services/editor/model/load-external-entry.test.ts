@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Provide a minimal window.ipc stub so ipc/client.ts can be imported.
 (globalThis as Record<string, unknown>).window = {
   ipc: {
     call: () => Promise.resolve(null),
@@ -9,19 +8,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
   },
 };
 
-// ---------------------------------------------------------------------------
-// IPC mock — replaced per-test via ipcCallMock.mockImplementation
-// ---------------------------------------------------------------------------
-
 const ipcCallMock = mock(() => Promise.resolve({ ok: true as const, value: null as unknown }));
 
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: ipcCallMock,
   ipcListen: () => () => {},
   canUseIpcBridge: () => false,
-  // load-external-entry.ts imports unwrapIpcResult directly from ipc/client.
-  // Without this export the module link fails when this file runs standalone
-  // (Bun's first-registered mock wins; a sibling that provides it may not run first).
   unwrapIpcResult: <T>(result: { ok: boolean; value?: T; message?: string; kind?: string }): T => {
     if (result.ok) return result.value as T;
     const err = new Error(result.message ?? "ipc error");
@@ -46,10 +38,6 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
     v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === false,
   ipcStream: () => ({ promise: Promise.resolve(undefined), onProgress: () => () => {} }),
 }));
-
-// ---------------------------------------------------------------------------
-// Monaco singleton mock
-// ---------------------------------------------------------------------------
 
 function makeModel(content = "") {
   let stored = content;
@@ -82,10 +70,6 @@ mock.module("../../../../../../src/renderer/services/editor/runtime/monaco-singl
   onMonacoReady: () => () => {},
 }));
 
-// ---------------------------------------------------------------------------
-// Import the module under test (after mocks are registered)
-// ---------------------------------------------------------------------------
-
 const { loadExternalEntry } = await import(
   "../../../../../../src/renderer/services/editor/model/load-external-entry"
 );
@@ -116,16 +100,11 @@ beforeEach(() => {
   ipcCallMock.mockClear();
   getModelMock.mockClear();
   createModelMock.mockClear();
-  // Default: model not in cache, create a fresh one
   getModelMock.mockImplementation(() => null);
   createModelMock.mockImplementation((_content: string, _lang: unknown, _uri: unknown) =>
     makeModel(_content),
   );
 });
-
-// ---------------------------------------------------------------------------
-// Scenario 1: success path — phase=ready, origin=external, readOnly=true
-// ---------------------------------------------------------------------------
 
 describe("loadExternalEntry — success", () => {
   test("returns a ready ModelEntry with origin=external, readOnly=true, originatingWorkspaceId", async () => {

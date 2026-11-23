@@ -5,12 +5,6 @@ import path from "node:path";
 import { getConfig } from "app-builder-lib/out/util/config/config.js";
 import { parse } from "yaml";
 
-/**
- * The release file names electron-builder.yml gives. The site links the
- * installers as releases/latest/download/<name>, so their names must not
- * change from one release to the next.
- */
-
 interface Config {
   productName: string;
   artifactName: string;
@@ -21,13 +15,11 @@ interface Config {
 const projectDir = path.join(import.meta.dir, "..", "..", "..");
 const config = parse(readFileSync(path.join(projectDir, "electron-builder.yml"), "utf8")) as Config;
 
-/** A target's name pattern: its own, else the top-level one, as electron-builder picks. */
 function pattern(target: string): string {
   const own = (config[target] as { artifactName?: string } | undefined)?.artifactName;
   return own ?? config.artifactName;
 }
 
-/** `target`'s file name, with `arch` spelled as electron-builder spells it for the format. */
 function fileName(target: string, ext: string, arch: string): string {
   const macros: Record<string, string> = {
     productName: config.productName,
@@ -81,7 +73,6 @@ describe("release file names", () => {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
       }
-      // electron-builder requires the config, which reads the environment at load time.
       delete require.cache[configModule];
       const merged = await getConfig(projectDir, configPath, null);
 
@@ -102,8 +93,6 @@ describe("release file names", () => {
     }
   });
 
-  // The macOS update finds the running version's zip blockmap by its version
-  // in the name, and scripts/store-submit.ts picks the AppX by its version.
   test("the mac zip and the Store appx keep their versioned names", () => {
     expect(fileName("zip", "zip", "arm64")).toBe("NexusCode-1.2.3-arm64.zip");
     expect(fileName("appx", "appx", "x64")).toBe("NexusCode-1.2.3-x64.appx");

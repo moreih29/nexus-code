@@ -1,9 +1,3 @@
-/**
- * CredentialPromptDialog renders Git askpass prompts as one reusable modal.
- *
- * The parent replaces `prompt` as Git asks for username then password, so the
- * same dialog instance re-renders rather than stacking multiple modals.
- */
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AskpassPrompt } from "../../../../../shared/git/types";
@@ -27,18 +21,10 @@ interface CredentialPromptDialogContentProps {
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
 }
 
-/**
- * Returns the input type that keeps passwords/passphrases masked.
- */
 export function credentialPromptInputType(field: AskpassPrompt["field"]): "text" | "password" {
   return field === "password" || field === "passphrase" ? "password" : "text";
 }
 
-/**
- * Presents the form body separately from the Radix portal for static renderer
- * tests and for keeping modal chrome focused in the wrapper component. Its
- * header is the dialog's Radix Title, so it renders inside a Dialog root.
- */
 export function CredentialPromptDialogContent({
   prompt,
   value,
@@ -91,10 +77,6 @@ export function CredentialPromptDialogContent({
   );
 }
 
-/**
- * Mounts the credential form in a Radix dialog. Escape and outside-click
- * dismissal both call `onCancel` through Radix's open-state callback.
- */
 export function CredentialPromptDialog({
   prompt,
   busy = false,

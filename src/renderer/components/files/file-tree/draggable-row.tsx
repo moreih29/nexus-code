@@ -13,20 +13,6 @@ export function DraggableFileTreeRow({
   ...row
 }: FileTreeRowProps & { workspaceId: string; isRoot: boolean }) {
   const { absPath } = row;
-  // Drag source — everything except the workspace root. Directories are
-  // draggable (move/copy a folder into another folder); the root is the
-  // only exception because it has no meaningful destination.
-  //
-  // Phase E: payload and drag-image label are resolved at dragstart time so
-  // they reflect the current multi-selection state:
-  //   - absPath is in selection.paths → drag the whole selection (distinctParents).
-  //   - absPath is NOT in selection.paths → drag only this row (single path).
-  // This is a read-once snapshot; selection changes during drag do not affect
-  // the in-flight payload.
-  //
-  // `payload` is a stable identity value (always the single-path shape) that
-  // keeps the useCallback dep array stable.  `getPayload` is called at dragstart
-  // time to produce the real multi-path payload.
   const stablePayload = useMemo(
     () => buildFileDragPayload(workspaceId, [absPath]),
     [workspaceId, absPath],
@@ -66,8 +52,6 @@ export function DraggableFileTreeRow({
     dragImage: getDragImage,
     effectAllowed: "copyMove",
   });
-  // Dim the source row while it is being dragged (VSCode parity — the dragged
-  // entry fades so the floating drag label / drop target stand out).
   const [isDragging, setIsDragging] = useState(false);
   const handleDragStart = (e: React.DragEvent<HTMLButtonElement>): void => {
     setIsDragging(true);

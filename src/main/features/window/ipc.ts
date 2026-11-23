@@ -1,18 +1,9 @@
-/**
- * Workspace-agnostic application window handlers.
- */
-
 import { BrowserWindow, Menu, type WebContents } from "electron";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
 import { type CallContext, register, validateArgs } from "../../infra/ipc-router";
 import type { ClosePersistence } from "./close-persistence";
 
-/**
- * Builds the handler used by the "Open in new window" action. The callback is
- * injected from main/index.ts to keep this IPC channel free of BrowserWindow
- * construction details.
- */
 export function openNewWindowHandler(openWindow: () => unknown): () => { ok: true } {
   return () => {
     openWindow();
@@ -20,7 +11,6 @@ export function openNewWindowHandler(openWindow: () => unknown): () => { ok: tru
   };
 }
 
-/** The window calls act on: the minimal BrowserWindow surface they use. */
 export interface ControlledWindow {
   minimize(): void;
   maximize(): void;
@@ -29,17 +19,11 @@ export interface ControlledWindow {
   close(): void;
 }
 
-/** A point of the page, in its CSS pixels. */
 export interface PagePoint {
   x: number;
   y: number;
 }
 
-/**
- * Builds the window channel handlers, each acting on the caller's own window.
- * `fromSender` resolves that window; null leaves the call a no-op.
- * `showMenu` opens the app menu over a window.
- */
 export function windowControlHandlers<W extends ControlledWindow>(
   fromSender: (sender: WebContents) => W | null,
   showMenu: (win: W, at: PagePoint) => void,
@@ -67,17 +51,12 @@ export function windowControlHandlers<W extends ControlledWindow>(
   };
 }
 
-/**
- * Registers the window channel: controls for a window whose frame draws none,
- * and the app menu for a window that shows no menu bar.
- */
 export function registerWindowChannel(closePersistence: ClosePersistence): void {
   register("window", {
     call: {
       ...windowControlHandlers(
         (sender) => BrowserWindow.fromWebContents(sender),
         (win, at) => {
-          // The page's CSS pixels grow with its zoom; the menu takes the window's.
           const zoom = win.webContents.getZoomFactor();
           Menu.getApplicationMenu()?.popup({
             window: win,

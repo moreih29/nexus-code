@@ -1,10 +1,3 @@
-// src/renderer/components/settings/panels/remote-password-dialog.tsx
-//
-// Asks for the account password before what only the account's owner may
-// do (account keys v2): removing another device, which rotates the account
-// key, and deleting the account. The dialog stays open on a wrong password
-// and says why.
-
 import { Dialog as RadixDialog } from "radix-ui";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,9 +10,7 @@ export interface PasswordRequest {
   readonly description: string;
   readonly confirmLabel: string;
   readonly destructive?: boolean;
-  /** Runs with the password: null once done, else what to say in the dialog. */
   run(password: string): Promise<string | null>;
-  /** Another way to go on without the password, beside Cancel. */
   readonly withoutPassword?: {
     readonly label: string;
     run(): Promise<string | null>;

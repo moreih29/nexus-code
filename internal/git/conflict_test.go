@@ -7,11 +7,6 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// Unit tests for path normalization helpers
-// ---------------------------------------------------------------------------
-
-// TestNormalizeConflictPathValid verifies valid relative paths are accepted.
 func TestNormalizeConflictPathValid(t *testing.T) {
 	cases := []struct {
 		relPath string
@@ -33,7 +28,6 @@ func TestNormalizeConflictPathValid(t *testing.T) {
 	}
 }
 
-// TestNormalizeConflictPathRejectsAbsolute verifies absolute paths are rejected.
 func TestNormalizeConflictPathRejectsAbsolute(t *testing.T) {
 	_, err := normalizeConflictPath("/repo", "/etc/passwd")
 	if err == nil {
@@ -41,7 +35,6 @@ func TestNormalizeConflictPathRejectsAbsolute(t *testing.T) {
 	}
 }
 
-// TestNormalizeConflictPathRejectsEmpty verifies empty paths are rejected.
 func TestNormalizeConflictPathRejectsEmpty(t *testing.T) {
 	_, err := normalizeConflictPath("/repo", "")
 	if err == nil {
@@ -49,7 +42,6 @@ func TestNormalizeConflictPathRejectsEmpty(t *testing.T) {
 	}
 }
 
-// TestNormalizeConflictPathRejectsTraversal verifies path traversal is rejected.
 func TestNormalizeConflictPathRejectsTraversal(t *testing.T) {
 	_, err := normalizeConflictPath("/repo", "../outside")
 	if err == nil {
@@ -57,7 +49,6 @@ func TestNormalizeConflictPathRejectsTraversal(t *testing.T) {
 	}
 }
 
-// TestConflictedPathSet verifies conflictedPathSet collects both relPath and oldRelPath.
 func TestConflictedPathSet(t *testing.T) {
 	old := "old.txt"
 	status := GitStatus{
@@ -78,11 +69,6 @@ func TestConflictedPathSet(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Integration tests using real temp git repos
-// ---------------------------------------------------------------------------
-
-// TestConflictMarkResolvedNotConflictedReturnsError verifies non-conflicted path is rejected.
 func TestConflictMarkResolvedNotConflictedReturnsError(t *testing.T) {
 	t.Parallel()
 	root := newRepo(t)
@@ -94,17 +80,14 @@ func TestConflictMarkResolvedNotConflictedReturnsError(t *testing.T) {
 	}
 }
 
-// TestConflictMarkResolvedResolvesConflict verifies a conflicted path is staged and remaining count decreases.
 func TestConflictMarkResolvedResolvesConflict(t *testing.T) {
 	t.Parallel()
 	root := newConflictRepo(t)
 	service := New(root)
 
-	// Start a conflicting merge.
 	mergeRaw, _ := json.Marshal(map[string]string{"cwd": root, "branch": "feature"})
 	_, _ = service.WorkflowMerge(context.Background(), mergeRaw)
 
-	// Resolve the conflict by writing a clean version of the file.
 	writeFile(t, filepath.Join(root, "conflict.txt"), "resolved\n")
 
 	resolveRaw, _ := json.Marshal(map[string]any{"cwd": root, "relPaths": []string{"conflict.txt"}})

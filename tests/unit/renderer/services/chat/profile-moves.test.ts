@@ -1,7 +1,3 @@
-/**
- * Where a conversation went on in another profile: the line that says so
- * follows the last message before the move, found again by its id.
- */
 import { describe, expect, test } from "bun:test";
 import type { ChatItem } from "../../../../../src/renderer/services/chat/model";
 import {
@@ -20,7 +16,6 @@ const notice = { kind: "notice", key: "n", code: "error", detail: "x" } as ChatI
 describe("profile moves", () => {
   test("follow the last message: its uuid, else the message an answer is of", () => {
     expect(lastMessageId([user("u", "uu"), answer("a", "m", "au"), notice])).toBe("au");
-    // Codex's answers have no uuid: the turn they belong to.
     expect(lastMessageId([user("u", "uu"), answer("a", "turn-1")])).toBe("turn-1");
     expect(lastMessageId([answer("a", "turn-1"), user("u", "uu")])).toBe("uu");
     expect(lastMessageId([user("u"), notice])).toBeUndefined();

@@ -20,29 +20,14 @@ import { useDropTarget } from "../dnd/use-drop-target";
 import { GroupPlaceholder } from "./placeholder";
 import { GroupTabBar } from "./tab-bar";
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
 interface GroupViewProps {
   workspaceId: string;
   leaf: LayoutLeaf;
   onActivateGroup: (groupId: string) => void;
-  /**
-   * True when this leaf is the root of the workspace layout (sole leaf).
-   * Used to decide whether to render the empty-state placeholder.
-   */
   isRootLeaf: boolean;
-  /** Root path of the workspace for creating new terminal tabs. */
   workspaceRootPath: string;
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
-// Stable empty fallback — returning a fresh `{}` from the selector would change
-// identity on every render and trip useSyncExternalStore's infinite-loop guard.
 const EMPTY_TABS: Record<string, Tab> = {};
 
 export function GroupView({
@@ -60,10 +45,6 @@ export function GroupView({
     .map((id) => tabsMap[id])
     .filter((t): t is NonNullable<typeof t> => t !== undefined);
 
-  // ---------------------------------------------------------------------------
-  // Tab actions
-  // ---------------------------------------------------------------------------
-
   function handleSelectTab(tabId: string) {
     const currentActiveTabId = leaf.activeTabId;
     useLayoutStore.getState().setActiveTabInGroup({
@@ -73,19 +54,13 @@ export function GroupView({
       activateGroup: true,
     });
     onActivateGroup(leaf.id);
-    // Re-selecting the already-active tab promotes it from preview (VSCode behaviour).
     if (tabId === currentActiveTabId) {
       useTabsStore.getState().promoteFromPreview(workspaceId, tabId);
     }
   }
 
-  // One identity per workspace: every TabItem takes it, and a new one each
-  // render drew every tab again whenever any tab of the workspace changed.
   const handleCloseTab = useCallback(
     (tabId: string) => {
-      // Fire-and-forget: the dispatcher runs the dirty confirm flow (async for
-      // editor and untitled tabs). Group-view doesn't react to the outcome —
-      // the close itself updates layout via the tabs store, which re-renders us.
       void closeTabWithConfirm(workspaceId, tabId);
     },
     [workspaceId],
@@ -106,8 +81,6 @@ export function GroupView({
     onActivateGroup(leaf.id);
   }
 
-  // A conversation opened from the + menu takes the keyboard in its message
-  // box, as a terminal or an untitled file opened from it does.
   function handleNewClaudeTab(profileId?: string) {
     const tab = openClaudeTab(
       workspaceId,
@@ -139,10 +112,6 @@ export function GroupView({
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
-
   const showPlaceholder = isRootLeaf && leaf.tabIds.length === 0;
 
   const setSlotEl = useCallback(
@@ -152,16 +121,6 @@ export function GroupView({
     [workspaceId, leaf.id],
   );
 
-  // D&D drop target — uses native addEventListener (not React onDrop) because
-  // ContentHost is injected via createPortal, and React-tree event dispatch
-  // bypasses DOM-tree ancestors. Native bubble follows the DOM tree and
-  // therefore reaches us.
-  //
-  // attachRef → outer wrapper (covers tab-bar + content slot) so the cursor
-  //             anywhere in the group lands on us, including the tab-bar.
-  // zoneRef   → content slot only, used for 5-zone classification. Cursor
-  //             over the tab-bar is outside this rect → classified as
-  //             "center" (drop "into the group").
   const { dropZone, attachRef, zoneRef } = useDropTarget({ workspaceId, groupId: leaf.id });
 
   const [outerEl, setOuterEl] = useState<HTMLElement | null>(null);
@@ -182,7 +141,6 @@ export function GroupView({
     });
   }, [outerEl, workspaceId, leaf.id, onActivateGroup]);
 
-  // Merge slotRegistry callback with the dnd zoneRef on the slot div.
   const slotRef = useCallback(
     (el: HTMLElement | null) => {
       setSlotEl(el);
@@ -217,18 +175,11 @@ export function GroupView({
         onActivateGroup={onActivateGroup}
       />
 
-      {/* Content slot — portal target registered in slotRegistry for ContentHost */}
       <div ref={slotRef} data-group-slot={leaf.id} className="flex-1 min-h-0 min-w-0 relative">
         {showPlaceholder && <GroupPlaceholder />}
         {dropZone && <DropIndicator zone={dropZone} />}
       </div>
 
-      {/* Inactive-group focus veil — design.md §5: unfocused panes get a
-          translucent backdrop-coloured veil so only the active pane stays
-          sharp. Replaces the previous bright active-group ring, whose
-          near-white edge read as a stray strip beside the pane.
-          pointer-events-none: a click still reaches the content beneath and
-          activates the group. */}
       {!isActive && (
         <div
           aria-hidden

@@ -24,8 +24,6 @@ func (s *Service) protectedPath(raw json.RawMessage) (string, error) {
 	return filepath.Join(s.protectedRoot, rel), nil
 }
 
-// ReaddirNoLinks lists a relative workspace path or an absolute path that
-// the caller already resolved and authorized. It never reopens by name.
 func (s *Service) ReaddirNoLinks(ctx context.Context, raw json.RawMessage) (any, error) {
 	var target struct {
 		AbsolutePath string `json:"absolutePath"`

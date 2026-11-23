@@ -1,8 +1,3 @@
-/**
- * nexus chat ... --device and tab close --device: another computer's
- * Claude and Codex tabs, read and driven through the remote's room, the
- * output as the local commands print it.
- */
 import { describe, expect, test } from "bun:test";
 import {
   AGENT_CONSENT_MS,
@@ -57,7 +52,6 @@ const STATUS = {
 
 type Handler = (params: Record<string, unknown>) => unknown;
 
-/** "MacBook" with "Mac mini" online, taking agents' requests; `handlers` answer its methods. */
 function withPeer(handlers: Record<string, Handler> = {}): FakeApp {
   const app = fakeApp(NOW);
   const device = (over: Partial<CliDevice> & Pick<CliDevice, "id" | "name">): CliDevice => ({
@@ -93,7 +87,6 @@ function withPeer(handlers: Record<string, Handler> = {}): FakeApp {
 
 const AGENT = { workspaceId: APP, tabId: CLAUDE_TAB };
 const USER = { workspaceId: APP, tabId: SHELL_TAB };
-/** What the user runs at a shell goes there as an agent in that terminal: it is not told from one. */
 const FROM_SHELL = { kind: "terminal", ...USER };
 
 function unrestrictedCaller(app: FakeApp): CliCaller {
@@ -165,7 +158,6 @@ describe("chat send --device", () => {
       device: { id: MINI, name: "Mac mini" },
       text: "hi",
     });
-    // Sent without --wait: the agent there is told to write back.
     expect(asked(app, "chat.send")[0]).toMatchObject({ from: { ...FROM_SHELL, waits: false } });
   });
 

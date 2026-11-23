@@ -1,4 +1,3 @@
-/** A workspace's repository as another device reads it: its changes, a changed file's diff, its commits, what one changed. */
 import { describe, expect, test } from "bun:test";
 import {
   addedHunk,
@@ -69,7 +68,6 @@ const commits: Record<string, CommitDetail> = {
     subject: "Fix the thing",
     author: "Me",
     authorEmail: "me@example.com",
-    // Committed later than written: a rebase.
     committerTs: "2026-11-14T09:00:00+09:00",
     message: "Fix the thing\n\nIt was broken.",
     body: "It was broken.",
@@ -250,7 +248,6 @@ describe("a commit", () => {
       subject: "Fix the thing",
       body: "It was broken.",
       author: "Me",
-      // As git.log has it: written, not committed.
       at: Date.parse("2026-11-10T00:00:00Z"),
       files: [
         { path: "a.ts", status: "M" },

@@ -2,7 +2,6 @@ import { expect, mock, test } from "bun:test";
 import { ClosePersistence } from "../../../../../src/main/features/window/close-persistence";
 import type { TimerScheduler } from "../../../../../src/shared/util/timer-scheduler";
 
-/** Drives main's bounded waits without advancing real time. */
 function fakeTimer(): TimerScheduler & { expire(): void } {
   const timers = new Set<() => void>();
   return {
@@ -21,7 +20,6 @@ function fakeTimer(): TimerScheduler & { expire(): void } {
   };
 }
 
-/** A window with a separate renderer and native close entry point. */
 function fakeWindow(id: number, onClose: () => void = () => {}) {
   const attempts: number[] = [];
   return {
@@ -59,7 +57,6 @@ test("quit waits per window, bounds an absent reply, and flushes anew after unlo
   persistence.interceptQuit(event, windows, replay);
   expect(event.preventDefault).toHaveBeenCalledTimes(1);
   persistence.acknowledge(1, first.attempts[0], true);
-  // The first window cannot acknowledge the second one's attempt.
   persistence.acknowledge(1, second.attempts[0], true);
   expect(replay).not.toHaveBeenCalled();
   now += 1_000;
@@ -68,7 +65,6 @@ test("quit waits per window, bounds an absent reply, and flushes anew after unlo
   expect(persistence.remainingQuitMs()).toBe(2_000);
   expect(warn).toHaveBeenCalledTimes(1);
 
-  // The main window's unsaved-buffers dialog returns Cancel.
   persistence.cancelQuit();
   now += 50;
   const retry = Promise.withResolvers<void>();

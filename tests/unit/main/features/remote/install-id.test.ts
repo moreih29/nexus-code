@@ -1,7 +1,3 @@
-/**
- * This install's id: made once, kept in the app's data folder, and sent
- * with each sign-in.
- */
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

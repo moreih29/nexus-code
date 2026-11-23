@@ -12,8 +12,6 @@ import (
 	"time"
 )
 
-// TestOversizedHookPayloadIsDrainedWithoutForwarding covers the server's
-// frame limit while keeping the caller's input pipe drained.
 func TestOversizedHookPayloadIsDrainedWithoutForwarding(t *testing.T) {
 	in := bytes.NewReader(make([]byte, 16*1024*1024+4096))
 	payload, err := readStdinPayload(in)
@@ -25,21 +23,13 @@ func TestOversizedHookPayloadIsDrainedWithoutForwarding(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------
-// 헬퍼 — 테스트용 Unix 소켓 mock 서버
-// -----------------------------------------------------------------------
-
-// mockServer 는 테스트에서 Unix 도메인 소켓으로 단일 연결을 수락하는 서버다.
 type mockServer struct {
 	listener   net.Listener
 	socketPath string
 }
 
-// newMockServer 는 임시 디렉토리에 Unix 소켓 listener를 생성한다.
-// macOS는 소켓 경로가 104자로 제한되므로 os.MkdirTemp + 단순 파일명을 사용한다.
 func newMockServer(t *testing.T) *mockServer {
 	t.Helper()
-	// os.TempDir() 기반으로 짧은 경로를 만들어 macOS 104자 한계를 회피한다.
 	dir, err := os.MkdirTemp("", "nh-")
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
@@ -54,7 +44,6 @@ func newMockServer(t *testing.T) *mockServer {
 	return &mockServer{listener: ln, socketPath: socketPath}
 }
 
-// serveOnce 는 연결 1개를 수락해 handler를 실행한다. goroutine에서 호출해야 한다.
 func (s *mockServer) serveOnce(handler func(conn net.Conn)) {
 	conn, err := s.listener.Accept()
 	if err != nil {
@@ -64,11 +53,6 @@ func (s *mockServer) serveOnce(handler func(conn net.Conn)) {
 	handler(conn)
 }
 
-// -----------------------------------------------------------------------
-// ENV 설정 헬퍼
-// -----------------------------------------------------------------------
-
-// setHookEnv 는 테스트에 필요한 ENV를 설정하고 cleanup 함수를 등록한다.
 func setHookEnv(t *testing.T, socketPath, token, workspaceID, tabID string) {
 	t.Helper()
 	pairs := map[string]string{
@@ -82,7 +66,6 @@ func setHookEnv(t *testing.T, socketPath, token, workspaceID, tabID string) {
 		if err := os.Setenv(k, v); err != nil {
 			t.Fatalf("setenv %s: %v", k, err)
 		}
-		// 클로저 변수 캡처를 위한 복사.
 		kk, pp, hp := k, prev, hadPrev
 		t.Cleanup(func() {
 			if hp {
@@ -94,7 +77,6 @@ func setHookEnv(t *testing.T, socketPath, token, workspaceID, tabID string) {
 	}
 }
 
-// clearHookEnv 는 4개의 hook ENV를 모두 해제한다.
 func clearHookEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{envAgentSocket, envHookToken, envWorkspaceID, envTabID} {
@@ -109,11 +91,6 @@ func clearHookEnv(t *testing.T) {
 	}
 }
 
-// -----------------------------------------------------------------------
-// stdin 리디렉션 헬퍼
-// -----------------------------------------------------------------------
-
-// withStdin 은 테스트 중 os.Stdin을 data를 읽는 파이프로 교체한다.
 func withStdin(t *testing.T, data []byte) {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -132,8 +109,6 @@ func withStdin(t *testing.T, data []byte) {
 	w.Close()
 }
 
-// captureStdout 은 테스트 중 os.Stdout을 파이프로 교체하고,
-// cleanup 시 캡처된 내용을 반환하는 함수를 돌려준다.
 func captureStdout(t *testing.T) func() string {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -152,12 +127,6 @@ func captureStdout(t *testing.T) func() string {
 	}
 }
 
-// -----------------------------------------------------------------------
-// 테스트 케이스
-// -----------------------------------------------------------------------
-
-// TestRunENVMissing_ExitsZero 는 4개 ENV가 모두 비어 있을 때
-// Run()이 exit 0을 반환하는지 검증한다.
 func TestRunENVMissing_ExitsZero(t *testing.T) {
 	withStdin(t, []byte(`{"test":true}`))
 	clearHookEnv(t)
@@ -168,9 +137,6 @@ func TestRunENVMissing_ExitsZero(t *testing.T) {
 	}
 }
 
-// TestRunNDJSON_RoundTrip 은 정상 NDJSON 송수신 시나리오를 검증한다:
-// (1) hookclient가 요청 프레임을 올바른 형식으로 송신한다.
-// (2) agent 응답 ok=true·stdout="HOOK_OK" 를 받으면 stdout에 기록하고 exit 0을 반환한다.
 func TestRunNDJSON_RoundTrip(t *testing.T) {
 	srv := newMockServer(t)
 
@@ -223,9 +189,6 @@ func TestRunNDJSON_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestRunMarksPrintRuns checks that a hook tells a `claude -p` run by the
-// wrapper's mark or by Claude Code's own entrypoint, as cmd's macro leaves
-// no mark of its own.
 func TestRunMarksPrintRuns(t *testing.T) {
 	cases := []struct {
 		name, mark, entrypoint string
@@ -268,7 +231,6 @@ func TestRunMarksPrintRuns(t *testing.T) {
 	}
 }
 
-// TestRunNDJSON_OkFalse 는 agent가 ok=false를 반환할 때 exit 1을 반환하는지 검증한다.
 func TestRunNDJSON_OkFalse(t *testing.T) {
 	srv := newMockServer(t)
 
@@ -288,8 +250,6 @@ func TestRunNDJSON_OkFalse(t *testing.T) {
 	}
 }
 
-// TestRunNDJSON_ExitCodePropagated 는 응답에 exitCode가 명시되면 그 값을
-// 그대로 반환하는지 검증한다.
 func TestRunNDJSON_ExitCodePropagated(t *testing.T) {
 	srv := newMockServer(t)
 
@@ -310,18 +270,13 @@ func TestRunNDJSON_ExitCodePropagated(t *testing.T) {
 	}
 }
 
-// TestRunTimeout_ReturnsOne 은 서버가 응답을 보내지 않을 때 timeout 후 exit 1을
-// 반환하는지 검증한다. 짧은 timeout context를 직접 사용해 빠르게 확인한다.
 func TestRunTimeout_ReturnsOne(t *testing.T) {
 	srv := newMockServer(t)
 
-	// 서버는 연결을 수락하지만 곧 닫아버려 응답을 보내지 않는다.
 	go srv.serveOnce(func(conn net.Conn) {
 		time.Sleep(200 * time.Millisecond)
-		// conn.Close()는 defer에서 처리됨.
 	})
 
-	// runWithContext를 짧은 timeout으로 직접 호출한다.
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 

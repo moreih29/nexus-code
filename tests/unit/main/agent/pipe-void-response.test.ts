@@ -1,20 +1,3 @@
-/**
- * Regression tests for the void-response shim in createNdjsonPipe's parseFrame.
- *
- * Background: a Go agent handler that returns `(nil, nil)` is marshaled through
- * proto.Success → encoding/json with `omitempty`, producing the wire frame
- * `{"id":"r-46"}` with neither `result` nor `error` nor `event` keys. The
- * client used to reject this as malformed and tear the channel down with
- * `server.protocol-error`. The fix is dual:
- *   - Go side: proto.Success coerces nil → json.RawMessage("null"), emitting
- *     `{"id":"r-46","result":null}` (covered by proto_test.go).
- *   - TS side: parseFrame treats `{"id":"x"}` (no result/error/event) as a
- *     successful void response with `result: null` so an older agent that
- *     still emits the bare form does not crash the channel.
- *
- * These tests pin the TS half of that contract.
- */
-
 import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
@@ -87,7 +70,6 @@ describe("createNdjsonPipe void-response shim", () => {
 
     const result = pipe.call("void.method");
 
-    // The pipe assigned an id and wrote it to stdin; read it back from the FakeWritable.
     expect(stdin.writes).toHaveLength(1);
     const requestId = (JSON.parse(stdin.writes[0]!) as { id: string }).id;
 
@@ -115,9 +97,6 @@ describe("createNdjsonPipe void-response shim", () => {
     stdout.emitData(frame(JSON.stringify({ id: requestId })));
     await result;
 
-    // Channel must still accept subsequent traffic — the next call resolves
-    // when the agent answers it. If the void-response had crashed the pipe,
-    // this second call would reject with server.protocol-error.
     const second = pipe.call("void.method2");
     const secondId = (JSON.parse(stdin.writes[1]!) as { id: string }).id;
     stdout.emitData(frame(JSON.stringify({ id: secondId, result: { ok: true } })));
@@ -128,7 +107,6 @@ describe("createNdjsonPipe void-response shim", () => {
   it("rejects frames that have neither id nor any of result/error/event", () => {
     const fixture = buildPipe();
 
-    // No id, no result, no error, no event — purely garbage shape.
     fixture.stdout.emitData(frame(JSON.stringify({ foo: "bar" })));
 
     const err = fixture.terminalError;
@@ -141,11 +119,9 @@ describe("createNdjsonPipe fire() — fire-and-forget notification path", () => 
   it("writes a frame to stdin and returns immediately without awaiting the ack", () => {
     const { stdin, pipe } = buildPipe();
 
-    // fire() must return void synchronously — it does not return a Promise.
     const result = pipe.fire("lsp.notify", { serverId: "srv-1", message: {} });
     expect(result).toBeUndefined();
 
-    // The frame must have been written to stdin.
     expect(stdin.writes).toHaveLength(1);
     const frame = JSON.parse(stdin.writes[0]!) as { id: string; method: string };
     expect(frame.method).toBe("lsp.notify");
@@ -158,10 +134,8 @@ describe("createNdjsonPipe fire() — fire-and-forget notification path", () => 
     pipe.fire("lsp.notify", { serverId: "srv-1", message: {} });
     const requestId = (JSON.parse(stdin.writes[0]!) as { id: string }).id;
 
-    // Simulate the agent sending back its void ack for the notification.
     stdout.emitData(Buffer.from(`${JSON.stringify({ id: requestId, result: null })}\n`, "utf8"));
 
-    // Channel must remain alive — a subsequent call must succeed.
     const second = pipe.call("lsp.send", { serverId: "srv-1", message: {} });
     const secondId = (JSON.parse(stdin.writes[1]!) as { id: string }).id;
     stdout.emitData(
@@ -175,7 +149,6 @@ describe("createNdjsonPipe fire() — fire-and-forget notification path", () => 
     const { pipe } = buildPipe();
     pipe.dispose();
 
-    // Must not throw even after disposal.
     expect(() => pipe.fire("lsp.notify", {})).not.toThrow();
   });
 });

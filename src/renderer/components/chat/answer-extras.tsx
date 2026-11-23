@@ -1,9 +1,3 @@
-// Under a turn's last answer: the images its tools gave, and a card for
-// each file it wrote new or named. A card opens the file in quick look;
-// an image file in the workspace shows itself on its card. A file gets its
-// card once it is found to be one: from the chat's folder, or from where
-// the agent's shell went.
-
 import { useMemo } from "react";
 import { useChatFiles, useFilePicture } from "../../services/chat/chat-files";
 import { useFoundFiles } from "../../services/chat/file-presence";
@@ -31,7 +25,6 @@ export function AnswerExtrasView({
     [extras],
   );
   const found = useFoundFiles(workspaceId, rootPath, lookedUp);
-  // A file named from where the agent's shell went is at the first of its other places found.
   const files = useMemo(() => {
     const shown: string[] = [];
     for (const path of extras.files) {
@@ -69,7 +62,6 @@ export function AnswerExtrasView({
   );
 }
 
-/** A file as a card: its name and folder, an image file its picture too; opens in quick look. */
 export function FileCard({
   path,
   workspaceId,
@@ -82,7 +74,6 @@ export function FileCard({
   const links = useChatLinks();
   const file = useWorkspaceFile(workspaceId, path);
   const isImage = fileKind(path) === "image";
-  // Another computer's chat reads the picture from there.
   const files = useChatFiles();
   const picture = useFilePicture(isImage ? files : null, path);
   const src = !isImage
@@ -107,7 +98,6 @@ export function FileCard({
           <FileKindIcon path={path} className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0 truncate text-app-ui-sm">{baseName(path)}</span>
           {folder && (
-            // The folder gives way before the name does.
             <span className="min-w-0 shrink-[4] truncate text-app-micro text-muted-foreground">
               {folder}
             </span>
@@ -118,10 +108,6 @@ export function FileCard({
   );
 }
 
-/**
- * The folder a file is in, from the session's folder when it is under it.
- * Either separator: a Windows path may be written with / or \.
- */
 export function folderOf(path: string, cwd: string): string {
   const slashed = path.replace(/\\/g, "/");
   const dir = slashed.slice(0, Math.max(0, slashed.lastIndexOf("/")));

@@ -1,8 +1,3 @@
-/**
- * Which terminals are waiting on which, for the app's sessions view: a wait
- * is listed from when nexus terminal wait (or terminal send --wait) starts
- * until it ends, or until the waiting terminal exits.
- */
 import type { TerminalRef, TerminalWait } from "../../../shared/sessions/agent-state";
 import type { ActivitySource } from "./activity";
 
@@ -24,7 +19,6 @@ export class WaitRegistry {
     );
   }
 
-  /** Lists `waiter` as waiting on `target`; the returned function ends it. */
   begin(waiter: TerminalRef, target: TerminalRef, since: number): () => void {
     const wait: TerminalWait = {
       waiter: { workspaceId: waiter.workspaceId, tabId: waiter.tabId },

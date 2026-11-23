@@ -23,9 +23,6 @@ test("the first note opens its editor after the note is read", async () => {
     },
   };
   const read = Promise.withResolvers<NoteContent>();
-  // The note's recorder controls start the app-wide voice availability watch, which
-  // keeps its first answer. Answer as the recorder tests' own window does, so a test
-  // file run after this one finds the same signed-in, voice-ready state.
   const answers: Record<string, unknown> = {
     readTranscript: EMPTY_TRANSCRIPT,
     account: { status: "signed-in" },
@@ -40,7 +37,6 @@ test("the first note opens its editor after the note is read", async () => {
     await withTestDom(async (host, root) => {
       Object.assign(window, { ipc: { call, listen: () => () => {} } });
       Object.defineProperty(document, "hasFocus", { value: () => true });
-      // TipTap moves its editable DOM into the React host with Element.append.
       Object.defineProperty(Object.getPrototypeOf(host), "append", {
         configurable: true,
         value(this: HTMLElement, ...nodes: Node[]) {
@@ -63,7 +59,6 @@ test("the first note opens its editor after the note is read", async () => {
         expect(host.querySelector('[data-testid="note-body"]')?.textContent).toBe("Note body");
       } finally {
         await act(async () => root.render(null));
-        // TipTap defers destruction so its editor can survive React's dev remount.
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
     });

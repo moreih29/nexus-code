@@ -1,29 +1,10 @@
-/**
- * Unit tests for the ready-frame extended fields and heartbeat processing
- * added to createNdjsonPipe (pipe.ts T2).
- *
- * Three cases:
- *   1. Ready frame with methods + heartbeatIntervalMs populates pipe capabilities.
- *   2. Heartbeat event is routed to external on() subscribers unchanged.
- *   3. Heartbeat watchdog emits a log.warn once when heartbeats are missed,
- *      resets after a heartbeat is received, and stops after dispose().
- */
-
 import { afterEach, beforeEach, describe, expect, it, jest } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
 import { createNdjsonPipe } from "../../../../src/main/infra/agent/pipe";
 import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 
-// Spy imported from the preload — the log-test-spies.ts preload wraps
-// src/shared/log/main's createLogger so that every call to log.warn()
-// inside pipe.ts (via getMalformedStdoutLogger()) increments mainWarnMock,
-// regardless of which earlier test file first called getMalformedStdoutLogger().
 import { mainWarnMock } from "../../../../tests/log-test-spies";
-
-// ---------------------------------------------------------------------------
-// Minimal fake stream helpers (mirrors the pattern from pipe-void-response.test.ts)
-// ---------------------------------------------------------------------------
 
 class FakeReadable extends EventEmitter {
   pause(): this {
@@ -49,10 +30,6 @@ class FakeWritable {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Frame factories
-// ---------------------------------------------------------------------------
-
 function readyFrame(extra: Record<string, unknown> = {}): Buffer {
   return Buffer.from(
     `${JSON.stringify({ type: "ready", protocolVersion: AGENT_PROTOCOL_VERSION, ...extra })}\n`,
@@ -67,10 +44,6 @@ function heartbeatFrame(seq: number, uptimeMs: number): Buffer {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Helper: build a pipe with injectable stdout / stderr / stdin
-// ---------------------------------------------------------------------------
-
 function buildPipe(stdoutOverride?: FakeReadable) {
   const stdout = stdoutOverride ?? new FakeReadable();
   const stderr = new FakeReadable();
@@ -84,10 +57,6 @@ function buildPipe(stdoutOverride?: FakeReadable) {
   });
   return { stdout, stderr, stdin, pipe };
 }
-
-// ---------------------------------------------------------------------------
-// Case 1 — Ready frame extended fields
-// ---------------------------------------------------------------------------
 
 describe("createNdjsonPipe — ready frame extended fields", () => {
   it("exposes methods and heartbeatIntervalMs after the ready frame arrives", async () => {
@@ -108,10 +77,6 @@ describe("createNdjsonPipe — ready frame extended fields", () => {
     pipe.dispose();
   });
 });
-
-// ---------------------------------------------------------------------------
-// Case 2 — Heartbeat event routing
-// ---------------------------------------------------------------------------
 
 describe("createNdjsonPipe — heartbeat event routing", () => {
   it("delivers agent.heartbeat payload to on() subscribers", async () => {
@@ -136,15 +101,8 @@ describe("createNdjsonPipe — heartbeat event routing", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Case 3 — Heartbeat watchdog warns once, resets, stops after dispose
-// ---------------------------------------------------------------------------
-
 describe("createNdjsonPipe — heartbeat watchdog", () => {
   beforeEach(() => {
-    // Clear accumulated warn calls from prior tests (e.g. createSshError calls
-    // from pipe-protocol-version.test.ts) so only the watchdog's warn in this
-    // test is counted.
     mainWarnMock.mockClear();
   });
 
@@ -157,19 +115,15 @@ describe("createNdjsonPipe — heartbeat watchdog", () => {
     try {
       const { stdout, pipe } = buildPipe();
 
-      // heartbeatIntervalMs=50ms → watchdog fires at 150ms.
       stdout.emitData(readyFrame({ heartbeatIntervalMs: 50 }));
       await pipe.ready;
 
-      // No heartbeats sent. Advance past the 3-miss window.
       jest.advanceTimersByTime(160);
 
       expect(mainWarnMock).toHaveBeenCalledTimes(1);
-      // The preload wrapper calls warn(msg, meta?) — first arg is the message.
       const [msg] = mainWarnMock.mock.calls[0] as [string];
       expect(msg).toContain("heartbeat watchdog");
 
-      // Advancing further must NOT produce a second warning (heartbeatWarned guard).
       jest.advanceTimersByTime(160);
       expect(mainWarnMock).toHaveBeenCalledTimes(1);
 
@@ -187,16 +141,11 @@ describe("createNdjsonPipe — heartbeat watchdog", () => {
       stdout.emitData(readyFrame({ heartbeatIntervalMs: 50 }));
       await pipe.ready;
 
-      // Advance exactly to the watchdog boundary (150ms = 50*3) — first warn fires.
       jest.advanceTimersByTime(150);
       expect(mainWarnMock).toHaveBeenCalledTimes(1);
 
-      // Heartbeat arrives now (at t=150), resetting lastHeartbeatAt to t=150 and
-      // clearing the heartbeatWarned flag.
       stdout.emitData(heartbeatFrame(1, 100));
 
-      // Advance another 150ms — the watchdog fires at t=300.
-      // diff = 300 - 150 = 150 >= 150 → second warn fires.
       jest.advanceTimersByTime(150);
       expect(mainWarnMock).toHaveBeenCalledTimes(2);
 
@@ -216,7 +165,6 @@ describe("createNdjsonPipe — heartbeat watchdog", () => {
 
       pipe.dispose();
 
-      // Advance well past the watchdog window — nothing should fire.
       jest.advanceTimersByTime(1_000);
 
       expect(mainWarnMock).not.toHaveBeenCalled();

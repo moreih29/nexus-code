@@ -1,9 +1,3 @@
-/**
- * Another computer's workspace, as this one's previews read it (quick look
- * over its chat): its files' bytes through the room (files.read), a piece
- * at a time, and the folder it is at there, which its chat's pane tells.
- */
-
 import { MAX_BYTES_CHUNK, MAX_READ_BYTES } from "../../../../packages/remote-protocol/src/rpc";
 import { MAX_READABLE_FILE_SIZE, READ_RANGE_MAX_BYTES } from "../../../shared/fs/defaults";
 import type { PeerWorkspace } from "../../../shared/fs/peer-url";
@@ -13,10 +7,8 @@ import { bytesFromBase64 } from "../editor/encoding/text-encoding";
 
 export { peerOf, peerWorkspaceId } from "../../../shared/fs/peer-url";
 
-/** The folders the workspaces of other computers are at there, by their peer workspace ids. */
 const roots = new Map<string, string>();
 
-/** Tells where another computer's workspace is there, while a pane of its shows. */
 export function setPeerRoot(id: string, root: string): () => void {
   roots.set(id, root);
   return () => {
@@ -24,12 +16,10 @@ export function setPeerRoot(id: string, root: string): () => void {
   };
 }
 
-/** The folder another computer's workspace is at there; "" when no pane told it. */
 export function peerRoot(id: string): string {
   return roots.get(id) ?? "";
 }
 
-/** A piece of a file of another computer's, and the file's generation when available. */
 export interface PeerPiece {
   readonly bytes: Uint8Array;
   readonly size: number;
@@ -73,7 +63,6 @@ function joinBytes(parts: Uint8Array[]): Uint8Array {
   return bytes;
 }
 
-/** Reads just the requested span, with a fresh host check for an independently requested span. */
 export async function readPeerPiece(
   peer: PeerWorkspace,
   path: string,
@@ -108,7 +97,6 @@ export async function readPeerPiece(
   return parts.length === 1 ? first : { ...first, bytes: joinBytes(parts) };
 }
 
-/** How many pieces of a whole file are on their way at once. */
 const PARALLEL = 4;
 
 export type PeerBinary =
@@ -116,7 +104,6 @@ export type PeerBinary =
   | { readonly kind: "too_large" }
   | { readonly kind: "failed" };
 
-/** All of a file of another computer's, within the readable file size limit. */
 export async function readPeerBinary(
   peer: PeerWorkspace,
   path: string,
@@ -157,7 +144,6 @@ async function assemblePeerBinary(
     );
     for (const [j, piece] of batch.entries()) {
       const at = offsets[i + j] ?? 0;
-      // A file that changed size while it was read is not shown as either.
       if (
         !piece ||
         piece.size !== head.size ||
@@ -171,12 +157,6 @@ async function assemblePeerBinary(
   return { kind: "ok", bytes, ...(head.version ? { version: head.version } : {}) };
 }
 
-/**
- * The generation of a file of another computer's, by the cheapest read the
- * room has: one byte, which the desktop's cache answers with a conditional
- * read (notModified) while the file stands. undefined for a host that gives
- * no version, null when the read fails (the file is gone, the host away).
- */
 export async function probePeerVersion(
   peer: PeerWorkspace,
   path: string,
@@ -186,7 +166,6 @@ export async function probePeerVersion(
   return piece ? piece.version : null;
 }
 
-/** How far into a file a NUL makes it binary, as the editor tells. */
 const SNIFF_BYTES = 8000;
 
 export const PEER_WORKSPACE_TEXT_LIMIT = 8 * 1024 * 1024;
@@ -202,7 +181,6 @@ interface PeerTextRead {
   version?: string;
 }
 
-/** A text file of another computer's, as UTF-8, its byte-order mark left out. */
 export async function readPeerText(
   peer: PeerWorkspace,
   path: string,
@@ -211,7 +189,6 @@ export async function readPeerText(
   return (await readPeerTextVersioned(peer, path, signal)).text;
 }
 
-/** A text file as readPeerText gives it, and the generation it was read at when the host tells. */
 export async function readPeerTextVersioned(
   peer: PeerWorkspace,
   path: string,
@@ -233,7 +210,6 @@ function decodePeerText(read: PeerBinary): PeerTextRead {
   };
 }
 
-/** Full text up to the desktop cache's limit, otherwise the host's UTF-8 prefix. */
 export async function readPeerWorkspaceText(
   peer: PeerWorkspace,
   path: string,

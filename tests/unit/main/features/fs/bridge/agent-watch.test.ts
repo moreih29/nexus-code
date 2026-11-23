@@ -45,7 +45,6 @@ function makeFixture() {
       return () => providerReadyListeners.delete(listener);
     },
   };
-  /** Simulates the manager booting a replacement agent after the channel died. */
   const reboot = () => {
     const next = makeProvider();
     current = next.provider;
@@ -53,7 +52,6 @@ function makeFixture() {
       listener(WORKSPACE_ID, next.provider);
     return next;
   };
-  /** Installs a replacement provider without announcing it. */
   const swapSilently = () => {
     const next = makeProvider();
     current = next.provider;
@@ -215,9 +213,6 @@ describe("AgentFsWatcher", () => {
     expect(next.provider.callAgentMethod.mock.calls).toEqual([["fs.watch", { relPath: "src" }]]);
   });
 
-  // Regression: a respawned agent process starts with zero fs watches, so the
-  // watcher must replay every registered relPath when the channel reports a
-  // successful reconnect handshake (`ready` lifecycle event).
   it("replays all watched relPaths on the channel ready lifecycle event", async () => {
     const { watcher, provider, emitLifecycle } = makeFixture();
 
@@ -261,9 +256,6 @@ describe("AgentFsWatcher", () => {
     expect(provider.callAgentMethod.mock.calls).toEqual([["fs.watch", { relPath: "src" }]]);
   });
 
-  // Regression: after a terminal channel failure the manager boots a new
-  // agent behind a new provider. The subscription stayed on the dead one, so
-  // no fs.changed reached the renderer and the new agent had no watches.
   it("moves watches to a rebooted agent when the manager reports a new provider", async () => {
     const fixture = makeFixture();
     await fixture.watcher.watch(WORKSPACE_ID, "");

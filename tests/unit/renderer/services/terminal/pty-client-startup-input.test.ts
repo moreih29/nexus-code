@@ -1,11 +1,6 @@
-/**
- * Startup input — a command a new terminal runs — goes in once the shell is
- * ready: it printed its prompt and went quiet, or the wait ran out.
- */
 import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
 
 const writes: string[] = [];
-/** When set, spawns wait for it. */
 let spawnGate: Promise<void> | null = null;
 const listeners = new Map<string, (args: Record<string, unknown>) => void>();
 
@@ -69,7 +64,6 @@ describe("queueStartupInput", () => {
     jest.advanceTimersByTime(1);
     expect(writes).toEqual(["claude /bin/zsh\r"]);
 
-    // Once only.
     emit("data");
     jest.advanceTimersByTime(STARTUP_INPUT_MAX_WAIT_MS);
     expect(writes).toEqual(["claude /bin/zsh\r"]);

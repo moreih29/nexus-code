@@ -1,15 +1,5 @@
-/**
- * Unit tests for forceDisposeExternalsForWorkspace.
- *
- * Verifies that closing workspace A disposes only that workspace's external
- * models, leaving workspace B's external models and workspace A's own
- * workspace-origin models untouched.
- */
-
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Bun mock.module is process-global. Spread real exports so other editor/*
-// test files see the full module surface after this file runs.
 const realLspBridge = await import("../../../../../../src/renderer/services/editor/lsp/bridge");
 
 mock.module("../../../../../../src/renderer/services/editor/lsp/bridge", () => ({
@@ -45,7 +35,6 @@ mock.module("../../../../../../src/renderer/services/editor/runtime/monaco-singl
   }),
 }));
 
-// Provide a minimal window.ipc stub so ipc/client.ts can be imported.
 (globalThis as Record<string, unknown>).window = {
   ipc: {
     call: () => Promise.resolve(null),
@@ -182,8 +171,6 @@ describe("forceDisposeExternalsForWorkspace", () => {
     releaseModel(ws1);
   });
 
-  // --- untitled model cleanup ---
-
   test("disposes untitled entries for the closed workspace", async () => {
     const u1 = untitledInputA("Untitled-1");
     const u2 = untitledInputA("Untitled-2");
@@ -199,7 +186,6 @@ describe("forceDisposeExternalsForWorkspace", () => {
   });
 
   test("disposes untitled entries regardless of dirty state", async () => {
-    // Dirty state is irrelevant — workspace is gone, no recovery is possible.
     const u1 = untitledInputA("Untitled-dirty");
 
     await acquireModel(u1);

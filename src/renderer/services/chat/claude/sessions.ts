@@ -9,14 +9,9 @@ import { historyModel } from "./history";
 const log = createLogger("chat-sessions");
 
 export type ClaudeSession = CallReturn<"chat", "sessions">[number] & {
-  /** The Claude profile whose folder keeps it. */
   profileId: string;
 };
 
-/**
- * The folder's sessions in each of the profiles' folders, newest first;
- * null until they are read, or when none could be.
- */
 export function useClaudeSessions(
   workspaceId: string,
   cwd: string,
@@ -55,14 +50,6 @@ export function useClaudeSessions(
   return sessions;
 }
 
-/**
- * Deletes a Claude session of the folder: its transcript and what it kept
- * under its id, in the profile's folder that keeps it. One already gone is
- * as good as deleted. The files attached to its messages go too, but those
- * an open tab uses; its transcript is read first, as nothing is left to
- * read after. One that cannot be read leaves them to the prune of unused
- * ones.
- */
 export async function deleteClaudeSession(
   workspaceId: string,
   cwd: string,
@@ -74,7 +61,6 @@ export async function deleteClaudeSession(
     sessionId,
     ...(profileId ? { profileId } : {}),
   }).catch(() => null);
-  // What open tabs' histories name, a fork's of this one too, read while it is there.
   await readOpenHistories(workspaceId);
   unwrapIpcResult(
     await ipcCallResult("chat", "deleteSession", { workspaceId, cwd, sessionId, profileId }),

@@ -34,11 +34,6 @@ const diffEditorOptions = {
   readOnly: true,
   originalEditable: false,
   renderSideBySide: true,
-  // Monaco collapses the side-by-side diff into a single inline column once the
-  // editor is narrower than `renderSideBySideInlineBreakpoint` (900px by
-  // default). The Source Control diff often opens in a panel below that width,
-  // which made the "Left → Right" header lie about a one-column body. Pin the
-  // two-column layout regardless of available width.
   useInlineViewWhenSpaceIsLimited: false,
   minimap: { enabled: false },
   fontSize: typeScale.codeBody.fontSize,
@@ -47,21 +42,10 @@ const diffEditorOptions = {
   automaticLayout: true,
 } satisfies Monaco.editor.IDiffEditorConstructionOptions;
 
-// IDiffEditorConstructionOptions doesn't include semanticHighlighting.enabled
-// in its type but the runtime accepts it (the underlying single editors
-// honour IGlobalEditorOptions). Cast handles the type gap.
 (diffEditorOptions as Record<string, unknown>)["semanticHighlighting.enabled"] = true;
 
-/** Numbers diff editors so each one's snapshot models get their own URIs. */
 let nextDiffEditorId = 0;
 
-/**
- * Returns true only after `status` has been "refreshing" for longer than
- * REFRESHING_INDICATOR_DELAY_MS.  This prevents a visible flicker for fast
- * background reloads (e.g. every git.statusChanged) that complete well within
- * the threshold.  The timer is cancelled and the indicator hidden immediately
- * when the status leaves "refreshing".
- */
 function useDelayedRefreshing(status: DiffContentStatus): boolean {
   const [showRefreshing, setShowRefreshing] = useState(false);
 
@@ -79,22 +63,8 @@ function useDelayedRefreshing(status: DiffContentStatus): boolean {
 
 type DiffTabProps = DiffTabPayload & { tabId: string };
 
-/**
- * Monaco-backed tab body for Source Control file diffs.
- *
- * A diff against the working tree edits the file itself, as VSCode's does:
- * its right side is the file's shared model, so changes made there (typed,
- * or reverted block by block from the gutter) are the file's own — dirty in
- * its editor tabs and saved with ⌘S. A diff whose right side is a git
- * revision (the index of a staged change) stays read-only.
- *
- * Changes stage from the diff of unstaged changes and unstage from the diff
- * of staged ones, one at a time from the gutter or by selected lines.
- */
 export function DiffTab({ tabId, ...payload }: DiffTabProps) {
   const workingFile = useDiffWorkingFile(payload);
-  // Keyed by file: a preview tab swapped onto another file mounts afresh,
-  // rather than rendering the old file's model under the new file's path.
   return workingFile ? (
     <WorkingTreeDiff key={workingFile} tabId={tabId} payload={payload} filePath={workingFile} />
   ) : (
@@ -102,7 +72,6 @@ export function DiffTab({ tabId, ...payload }: DiffTabProps) {
   );
 }
 
-/** The working-tree file's model the right side edits. */
 interface WorkingSide {
   model: Monaco.editor.ITextModel;
   input: EditorInput;
@@ -119,8 +88,6 @@ function WorkingTreeDiff({
 }) {
   const { workspaceId } = payload;
   const shared = useSharedModel({ workspaceId, filePath });
-  // A file the editor cannot load as editable text (binary, missing,
-  // read-only) falls back to the read-only snapshot read from disk.
   const model = shared.phase === "ready" && !shared.readOnly ? shared.model : null;
   const working = useMemo<WorkingSide | null>(
     () => (model ? { model, input: { workspaceId, filePath } } : null),
@@ -144,7 +111,6 @@ function DiffView({
 }: {
   tabId: string;
   payload: DiffTabPayload;
-  /** The side the diff edits, or null when it is read-only. */
   working: WorkingSide | null;
   workingPending: boolean;
 }) {
@@ -152,7 +118,6 @@ function DiffView({
   const { left, right, status, reload } = useDiffContent(payload);
   const showRefreshing = useDelayedRefreshing(status);
   const monacoTheme = useMonacoThemeName();
-  // null while @monaco-editor/react is lazy-loading monaco.
   const monaco = useMonaco();
   const leftContent = readyContentFor(left);
   const rightContent = readyContentFor(right);
@@ -168,8 +133,6 @@ function DiffView({
     rightContent?.placeholder === "missing" ? [true] : undefined,
     true,
   );
-  // A side git does not have shows as an empty file; staging lines of it
-  // would write an empty file rather than add or remove one.
   const placeholderSide = !!leftContent?.placeholder || !!rightContent?.placeholder;
   const staging = useMemo<DiffStaging | null>(() => {
     if (placeholderSide) return null;
@@ -232,14 +195,9 @@ function DiffView({
 interface DiffSideSnapshot {
   content: string;
   language: string;
-  /** Model URI path (`/…`); keeps the file extension for syntax detection. */
   path: string;
 }
 
-/**
- * Snapshot of one side. Monaco's model language is resolved from the path
- * here: an empty language would leave the side as plain text.
- */
 function snapshotOf(monaco: typeof Monaco, content: DiffSideReadyState): DiffSideSnapshot {
   return {
     content: content.content,
@@ -248,11 +206,6 @@ function snapshotOf(monaco: typeof Monaco, content: DiffSideReadyState): DiffSid
   };
 }
 
-/**
- * Owns the Monaco diff editor and its snapshot models. The working model,
- * when given, belongs to the model cache: the editor shows and edits it but
- * never disposes it.
- */
 function DiffEditorHost({
   tabId,
   monaco,
@@ -274,25 +227,18 @@ function DiffEditorHost({
   const [editor, setEditor] = useState<Monaco.editor.IStandaloneDiffEditor | null>(null);
   const [instanceId] = useState(() => ++nextDiffEditorId);
   const ownedRef = useRef<SnapshotModels>({ original: null, modified: null });
-  // The editor's own reference to the working model's cache entry, held while
-  // it shows the model. The owner's release runs first when the tab closes
-  // (React cleans up a parent before its children), and the cache disposing
-  // a model the widget still shows throws.
   const heldRef = useRef<EditorInput | null>(null);
   const workingModel = working?.model ?? null;
   const workingInput = working?.input ?? null;
   const { content: originalContent, language: originalLanguage, path: originalPath } = original;
   const { content: modifiedContent, language: modifiedLanguage, path: modifiedPath } = modified;
 
-  // Declared before the editor's creation so that on unmount it comes off
-  // while the editor is still alive: React runs cleanups in this order.
   useEffect(() => {
     if (!editor || !staging) return;
     const installed = installDiffStaging(editor, monaco, staging);
     return () => installed.dispose();
   }, [editor, monaco, staging]);
 
-  // The theme only seeds creation; the effect below follows it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
     const container = containerRef.current;
@@ -300,8 +246,6 @@ function DiffEditorHost({
     const created = monaco.editor.createDiffEditor(container, { ...diffEditorOptions, theme });
     setEditor(created);
     return () => {
-      // Detach the models before disposing them, the order microsoft/vscode#222197
-      // settled on; disposing a model the widget still shows throws.
       created.setModel(null);
       created.dispose();
       ownedRef.current.original?.dispose();
@@ -348,8 +292,6 @@ function DiffEditorHost({
     const holdChanged = !sameInput(held, workingInput);
     if (holdChanged && workingInput) {
       heldRef.current = workingInput;
-      // The entry is loaded, so this only counts the reference; a failure has
-      // already dropped it.
       acquireModel(workingInput).catch(() => {
         if (heldRef.current === workingInput) heldRef.current = null;
       });
@@ -396,11 +338,6 @@ interface SnapshotModels {
   modified: Monaco.editor.ITextModel | null;
 }
 
-/**
- * Brings the snapshot model of `side` up to date with `snapshot`, creating
- * one for a new path. A replaced model goes to `stale`, to be disposed once
- * the editor no longer shows it.
- */
 function syncSnapshotModel(
   monaco: typeof Monaco,
   owned: SnapshotModels,
@@ -409,7 +346,6 @@ function syncSnapshotModel(
   instanceId: number,
   stale: Monaco.editor.ITextModel[],
 ): Monaco.editor.ITextModel {
-  // Two diff tabs of the same sides each own their models.
   const uri = monaco.Uri.parse(`nexus-diff:///${instanceId}${snapshot.path}`);
   const current = owned[side];
   if (current && current.uri.toString() === uri.toString()) {
@@ -428,15 +364,11 @@ function syncSnapshotModel(
 interface DiffShellProps {
   left: DiffSideState;
   right: DiffSideState;
-  /** True only after the refreshing state has persisted past the indicator delay threshold. */
   showRefreshing: boolean;
   onReload: () => void;
   children: ReactNode;
 }
 
-/**
- * Provides the common header and body frame for the diff editor states.
- */
 function DiffShell({ left, right, showRefreshing, onReload, children }: DiffShellProps) {
   const { t } = useTranslation();
   return (
@@ -459,10 +391,6 @@ function DiffShell({ left, right, showRefreshing, onReload, children }: DiffShel
   );
 }
 
-/**
- * Renders the side identity in the diff header.
- * The filename is the primary identifier; the ref hash is secondary context.
- */
 function SideLabel({ label, state }: { label: string; state: DiffSideState }) {
   return (
     <div className="min-w-0 truncate">
@@ -475,9 +403,6 @@ function SideLabel({ label, state }: { label: string; state: DiffSideState }) {
   );
 }
 
-/**
- * Shows when a git/fs side is absent and the diff uses empty content.
- */
 function MissingContentNotice({
   side,
   dismiss,
@@ -501,10 +426,6 @@ interface BlockingPlaceholder {
   description?: string;
 }
 
-/**
- * Returns a message that should block Monaco from mounting, if any side cannot
- * be represented as plain text.
- */
 function blockingPlaceholder(
   left: DiffSideState,
   right: DiffSideState,
@@ -529,10 +450,6 @@ function blockingPlaceholder(
   return { title: i18next.t("editor.no_display_binary"), description };
 }
 
-/**
- * Builds a stable Monaco model URI path that preserves the file extension for
- * syntax detection.
- */
 function modelPathFor(content: DiffSideReadyState): string {
   const encodedPath = content.request.relPath.split("/").map(encodeURIComponent).join("/");
   return `/${encodeURIComponent(content.request.workspaceId)}/${content.request.side}/${encodeURIComponent(content.request.ref)}/${encodedPath}`;

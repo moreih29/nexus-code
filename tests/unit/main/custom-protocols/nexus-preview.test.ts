@@ -18,7 +18,6 @@ import {
 } from "../../../../src/main/features/custom-protocols/nexus-preview";
 import type { CallContext } from "../../../../src/main/infra/ipc-router";
 
-/** Tokens in the shape main mints (32 hex digits), numbered. */
 function tokens(): () => string {
   let next = 0;
   return () => (next++).toString(16).padStart(32, "0");
@@ -74,7 +73,6 @@ describe("PreviewDocuments", () => {
     expect(() => documents.put(WINDOW_A, "one more")).toThrow();
     expect(documents.size(WINDOW_A)).toBe(MAX_DOCUMENTS_PER_OWNER);
     for (const [i, token] of held.entries()) expect(documents.get(token)).toBe(`doc ${i}`);
-    // A held one is still put again, another window still puts, and one let go of makes room.
     const first = held[0] ?? "";
     expect(documents.put(WINDOW_A, "doc 0 again", first)).toBe(first);
     expect(documents.get(first)).toBe("doc 0 again");
@@ -85,7 +83,6 @@ describe("PreviewDocuments", () => {
 });
 
 describe("releaseWithPage", () => {
-  /** A webContents' page events, on a plain emitter. */
   function owner(id: number): EventEmitter & PreviewOwner {
     return Object.assign(new EventEmitter(), { id });
   }

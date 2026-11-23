@@ -1,19 +1,3 @@
-/**
- * Unit tests for shell-shim.ts — applyShellPathShim pure function.
- *
- * Acceptance criteria:
- *  1. shell="/bin/zsh"        → ZDOTDIR=<shimDir>, NEXUS_USER_ZDOTDIR=<original or "">
- *  2. shell="zsh-5.9"         → zsh branch
- *  3. shell="/bin/bash"       → args starts with --rcfile <shimDir>/bashrc -i
- *  4. shell="/usr/local/bin/bash" → same
- *  5. shell="/usr/local/bin/fish" → no-op
- *  6. shell undefined + env.SHELL="/bin/zsh" → zsh branch
- *  7. shell undefined + env.SHELL undefined   → no-op
- *  8. zsh branch + existing args → args unchanged
- *  9. bash branch + existing args → --rcfile/-i prepended before existing args,
- *     after any long options (bash takes those first)
- */
-
 import { describe, expect, test } from "bun:test";
 import { applyShellPathShim } from "../../../../../src/main/features/pty/shell-shim";
 
@@ -30,7 +14,6 @@ describe("applyShellPathShim", () => {
 
     expect(output.env.ZDOTDIR).toBe(SHIM_DIR);
     expect(output.env.NEXUS_USER_ZDOTDIR).toBe("/home/user/.config/zsh");
-    // Other env keys preserved
     expect(output.env.PATH).toBe("/usr/bin");
   });
 
@@ -97,7 +80,6 @@ describe("applyShellPathShim", () => {
     const output = applyShellPathShim(input);
 
     expect(output.args).toEqual(["--rcfile", `${SHIM_DIR}/bashrc`, "-i", "-l"]);
-    // original args array not mutated
     expect(existingArgs).toEqual(["-l"]);
   });
 

@@ -18,17 +18,11 @@ func newSysProcAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{CreationFlags: windows.CREATE_SUSPENDED}
 }
 
-// tree is the job object the program runs in. It holds the processes the
-// program starts, as its process group does on Unix: ending the program
-// alone left them running, as a command Claude ran in the background was
-// once its tab closed.
 type tree struct {
-	mu sync.Mutex
-	// job is zero when the program has none, or once it is released.
+	mu  sync.Mutex
 	job windows.Handle
 }
 
-// holdTree assigns the suspended launcher before it can start any children.
 func (p *process) holdTree() error {
 	p.tree.mu.Lock()
 	defer p.tree.mu.Unlock()
@@ -45,8 +39,6 @@ func (p *process) holdTree() error {
 	return nil
 }
 
-// releaseTree lets go of the job once the program has exited, which ends
-// what it left running.
 func (p *process) releaseTree() {
 	p.tree.mu.Lock()
 	defer p.tree.mu.Unlock()
@@ -56,21 +48,16 @@ func (p *process) releaseTree() {
 	}
 }
 
-// endTree ends the program and every process in its job; false when it has
-// no job.
 func (p *process) endTree() bool {
 	p.tree.mu.Lock()
 	defer p.tree.mu.Unlock()
 	return p.tree.job != 0 && windows.TerminateJobObject(p.tree.job, 1) == nil
 }
 
-// signalTerm uses the job on Windows, where there is no portable TERM.
 func (p *process) signalTerm() error {
 	return p.signalKill()
 }
 
-// signalKill terminates the job, or the launcher if it was cancelled during
-// creation before it was able to join the job.
 func (p *process) signalKill() error {
 	if p.endTree() {
 		return nil
@@ -78,7 +65,6 @@ func (p *process) signalKill() error {
 	return p.cmd.Process.Kill()
 }
 
-// exitPayload translates the program's exit into the chat.exit wire shape.
 func exitPayload(key tabKey, state *os.ProcessState, err error) ExitPayload {
 	code := -1
 	if err == nil && state != nil {
@@ -87,8 +73,6 @@ func exitPayload(key tabKey, state *os.ProcessState, err error) ExitPayload {
 	return ExitPayload{WorkspaceID: key.workspaceID, TabID: key.tabID, Code: &code}
 }
 
-// sameEnvKey reports whether two variable names name the same variable,
-// which on Windows is without regard to case.
 func sameEnvKey(a, b string) bool {
 	return strings.EqualFold(a, b)
 }

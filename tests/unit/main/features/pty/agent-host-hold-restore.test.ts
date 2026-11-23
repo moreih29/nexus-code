@@ -1,15 +1,3 @@
-/**
- * Tests for PTY hold / restore / expire lifecycle (task 13 acceptance 1–2).
- *
- * Acceptance criteria:
- *   (1) `reconnecting` with hadEpoch=true → sessions held (pty.held emitted),
- *       NO pty.exit. On `ready` → session.list + pty.replay for alive tabs,
- *       pty.exit for dead tabs. Held state released.
- *   (2) `held-then-expired` → pty.expired + pty.exit for held sessions.
- *
- * Legacy / local path (hadEpoch=false) on `reconnecting` still emits pty.exit
- * immediately (invariant preserved).
- */
 import { describe, expect, test } from "bun:test";
 import type { AgentPtyWorkspaceManager } from "../../../../../src/main/features/pty/agent-host";
 import { startAgentPtyHost } from "../../../../../src/main/features/pty/agent-host";
@@ -24,10 +12,6 @@ const WORKSPACE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const TAB_A = "11111111-1111-4111-8111-111111111111";
 const TAB_B = "22222222-2222-4222-8222-222222222222";
 
-// ---------------------------------------------------------------------------
-// Fake channel
-// ---------------------------------------------------------------------------
-
 class FakeAgentChannel implements AgentChannel {
   readonly ready = Promise.resolve();
   readonly calls: Array<{ method: string; params: unknown }> = [];
@@ -35,7 +19,6 @@ class FakeAgentChannel implements AgentChannel {
   private readonly eventListeners = new Map<string, Set<ChannelEventCallback>>();
   private readonly lifecycleListeners = new Set<ChannelLifecycleCallback>();
 
-  // Default session.list response — override per test.
   sessionListResult: { sessions: Array<{ workspaceId: string; tabId: string }> } = {
     sessions: [],
   };
@@ -83,10 +66,6 @@ function makeWorkspaceManager(channel: FakeAgentChannel): AgentPtyWorkspaceManag
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Acceptance 1a: reconnecting (hadEpoch=true) → sessions held
-// ---------------------------------------------------------------------------
 
 describe("PTY hold on reconnecting (hadEpoch=true)", () => {
   test("emits pty.held and NO pty.exit when reconnecting with epoch", async () => {
@@ -146,14 +125,9 @@ describe("PTY hold on reconnecting (hadEpoch=true)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Acceptance 1b: ready → session.list + replay, pty.exit for dead tabs
-// ---------------------------------------------------------------------------
-
 describe("PTY restore on ready (epoch-match)", () => {
   test("alive tab gets pty.restored + pty.replay, dead tab gets pty.exit", async () => {
     const channel = new FakeAgentChannel();
-    // Only TAB_A is alive in session.list.
     channel.sessionListResult = {
       sessions: [{ workspaceId: WORKSPACE_ID, tabId: TAB_A }],
     };
@@ -183,16 +157,11 @@ describe("PTY restore on ready (epoch-match)", () => {
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
     channel.emitLifecycle({ type: "ready" });
 
-    // Allow the async restoreHeldSessions to complete.
     await new Promise<void>((r) => setTimeout(r, 0));
 
-    // TAB_A: restored with replay
     expect(restored).toContainEqual({ workspaceId: WORKSPACE_ID, tabId: TAB_A, withReplay: true });
-    // TAB_B: restored without replay (dead)
     expect(restored).toContainEqual({ workspaceId: WORKSPACE_ID, tabId: TAB_B, withReplay: false });
-    // TAB_B gets exit
     expect(exits).toContainEqual({ workspaceId: WORKSPACE_ID, tabId: TAB_B, code: null });
-    // TAB_A does NOT get exit
     expect(exits.some((e) => (e as { tabId: string }).tabId === TAB_A)).toBe(false);
   });
 
@@ -204,10 +173,6 @@ describe("PTY restore on ready (epoch-match)", () => {
 
     const host = startAgentPtyHost(makeWorkspaceManager(channel));
 
-    // Capture the interleaved order of data chunks, restored events, and
-    // pty.replay RPC calls. The reset MUST travel on the data stream ahead of
-    // the replay request — a control-channel reset races the data stream and
-    // can wipe the wiggle repaint (observed live: black TUI until a keypress).
     const order: string[] = [];
     host.on("data", (a) => {
       const d = a as { tabId: string; chunk: string };
@@ -354,10 +319,6 @@ describe("PTY restore on ready (epoch-match)", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Acceptance 2: held-then-expired → pty.expired + pty.exit for held sessions
-// ---------------------------------------------------------------------------
-
 describe("PTY expire on held-then-expired", () => {
   test("held sessions receive pty.expired then pty.exit", async () => {
     const channel = new FakeAgentChannel();
@@ -429,14 +390,9 @@ describe("PTY expire on held-then-expired", () => {
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
     channel.emitLifecycle({ type: "failure", error: new Error("connection lost") });
 
-    // Hold is preserved — no exits yet; manager owns the decision.
     expect(exits).toHaveLength(0);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Legacy / local path invariant: reconnecting with hadEpoch=false → immediate exit
-// ---------------------------------------------------------------------------
 
 describe("legacy path: reconnecting hadEpoch=false → immediate exit", () => {
   test("emits pty.exit immediately when hadEpoch=false", async () => {
@@ -461,10 +417,6 @@ describe("legacy path: reconnecting hadEpoch=false → immediate exit", () => {
     expect(held).toHaveLength(0);
   });
 });
-
-// ---------------------------------------------------------------------------
-// manager-owned hold resolution API (plan issue 4 + 6 review fix)
-// ---------------------------------------------------------------------------
 
 describe("releaseHeld: manager releases held sessions on non-reauth exit", () => {
   test("releaseHeld emits pty.expired + pty.exit for each held tab", async () => {
@@ -491,14 +443,10 @@ describe("releaseHeld: manager releases held sessions on non-reauth exit", () =>
       rows: 24,
     });
 
-    // Put sessions on hold (simulating reconnecting with epoch).
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
-    // Simulate failure (e.g. auth-cancelled → manager calls releaseHeld).
     channel.emitLifecycle({ type: "failure", error: new Error("connection lost") });
-    // Hold is preserved after failure — exits still empty.
     expect(exits).toHaveLength(0);
 
-    // Manager calls releaseHeld (e.g. after auth-cancelled decision).
     host.releaseHeld(WORKSPACE_ID);
 
     expect(expired).toContainEqual({ workspaceId: WORKSPACE_ID, tabId: TAB_A });
@@ -510,15 +458,11 @@ describe("releaseHeld: manager releases held sessions on non-reauth exit", () =>
 
 describe("restoreAfterReauth: manager-driven restore through new channel", () => {
   test("restoreAfterReauth calls session.list and replays alive tabs via new channel", async () => {
-    // First channel that goes into failure.
     const channel = new FakeAgentChannel();
-    // Second channel (new, after reauth success).
     const channel2 = new FakeAgentChannel();
     channel2.sessionListResult = {
       sessions: [{ workspaceId: WORKSPACE_ID, tabId: TAB_A }],
     };
-    // spawn uses getAgentChannel; restoreAfterReauth uses tryGetAgentChannel.
-    // Return channel2 on tryGetAgentChannel (only called from restoreAfterReauth in this test).
     const manager: AgentPtyWorkspaceManager = {
       async getAgentChannel(id: string): Promise<AgentChannel> {
         return id === WORKSPACE_ID
@@ -556,18 +500,13 @@ describe("restoreAfterReauth: manager-driven restore through new channel", () =>
 
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
     channel.emitLifecycle({ type: "failure", error: new Error("auth failed") });
-    // Hold preserved — no exits.
     expect(exits).toHaveLength(0);
 
-    // Manager calls restoreAfterReauth after reauth success.
     await host.restoreAfterReauth(WORKSPACE_ID);
 
-    // TAB_A alive → restored with replay.
     expect(restored).toContainEqual({ workspaceId: WORKSPACE_ID, tabId: TAB_A, withReplay: true });
-    // TAB_B dead → restored without replay + exit.
     expect(restored).toContainEqual({ workspaceId: WORKSPACE_ID, tabId: TAB_B, withReplay: false });
     expect(exits).toContainEqual({ workspaceId: WORKSPACE_ID, tabId: TAB_B, code: null });
-    // Replay called on new channel for TAB_A.
     const replayCalls = channel2.calls.filter((c) => c.method === "pty.replay");
     expect(replayCalls).toHaveLength(1);
     expect(replayCalls[0]).toEqual({
@@ -579,7 +518,6 @@ describe("restoreAfterReauth: manager-driven restore through new channel", () =>
   test("restoreAfterReauth with empty session.list (grace expired during reauth) → all tabs exit", async () => {
     const channel = new FakeAgentChannel();
     const channel2 = new FakeAgentChannel();
-    // Empty session.list → all tabs are dead (daemon replaced during reauth).
     channel2.sessionListResult = { sessions: [] };
 
     const manager: AgentPtyWorkspaceManager = {
@@ -612,7 +550,6 @@ describe("restoreAfterReauth: manager-driven restore through new channel", () =>
 
     await host.restoreAfterReauth(WORKSPACE_ID);
 
-    // All tabs dead → exit emitted for TAB_A.
     expect(exits).toContainEqual({ workspaceId: WORKSPACE_ID, tabId: TAB_A, code: null });
   });
 });

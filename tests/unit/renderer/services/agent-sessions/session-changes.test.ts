@@ -1,8 +1,3 @@
-/**
- * The sessions' state changes nexus events tells: from two reads of every
- * workspace's sessions, one that appeared at work, changed state, or whose
- * tab went.
- */
 import { describe, expect, it } from "bun:test";
 import {
   markSessions,

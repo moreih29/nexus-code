@@ -69,7 +69,6 @@ func readExistingGitignore(ignorePath string) (string, error) {
 	return string(buf), nil
 }
 
-// atomicWriteText retains an existing file's mode while replacing its contents.
 func atomicWriteText(targetPath string, content string) error {
 	mode := os.FileMode(0o644)
 	info, err := os.Stat(targetPath)
@@ -91,7 +90,6 @@ func atomicWriteText(targetPath string, content string) error {
 		return err
 	}
 	if info != nil {
-		// OpenFile applied the umask. A replacement keeps the previous mode.
 		if err := os.Chmod(tmpPath, mode); err != nil {
 			return err
 		}

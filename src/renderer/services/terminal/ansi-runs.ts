@@ -1,11 +1,3 @@
-/**
- * A terminal's text with its colors: SGR escapes (ESC [ … m) read into runs
- * of styled text, every other escape dropped. Text without escapes is one
- * plain run. Pure. Another device's terminal comes as such text
- * (terminal.watch with `ansi`, made by bufferAnsi), as the phone reads it.
- */
-
-/** A color: an index into the 256-color palette, or "#rrggbb". */
 export type Color = number | string;
 
 export interface Style {
@@ -17,23 +9,19 @@ export interface Style {
   underline?: boolean;
   inverse?: boolean;
   strike?: boolean;
-  /** SGR 8: there, but not seen (a typed password's place). */
   hidden?: boolean;
 }
 
 export interface Run {
   text: string;
   style: Style;
-  /** The character the terminal's cursor is on. */
   caret?: boolean;
 }
 
-// CSI (with its final byte), OSC (to BEL or ST), and the short escapes.
 const ESCAPE =
   // biome-ignore lint/suspicious/noControlCharactersInRegex: escapes are what it reads
   /\x1b\[([0-9;:?<=>]*)[ -/]*([@-~])|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[()*+][0-9A-Za-z]|\x1b[@-Z\\-_]|\x1b./g;
 
-/** The text's runs, in order, each with the style it is drawn in. */
 export function parseAnsi(text: string): Run[] {
   const runs: Run[] = [];
   let style: Style = {};
@@ -53,11 +41,6 @@ export function parseAnsi(text: string): Run[] {
   return runs;
 }
 
-/**
- * The runs with the character after `column` characters (code points) of
- * them in a run of its own, marked as the cursor's; past their end, blanks
- * up to it and a blank for it (TerminalCaretSchema).
- */
 export function withCaret(runs: readonly Run[], column: number): Run[] {
   const out: Run[] = [];
   let left = column;
@@ -83,13 +66,11 @@ export function withCaret(runs: readonly Run[], column: number): Run[] {
   return out;
 }
 
-/** The text with every escape taken out. */
 export function stripAnsi(text: string): string {
   return text.replace(ESCAPE, "");
 }
 
 function applySgr(from: Style, params: string): Style {
-  // "38:2::r:g:b" and "38;2;r;g;b" read alike.
   const codes = params === "" ? [0] : params.replace(/:/g, ";").split(";").map(toNumber);
   let style: Style = { ...from };
   for (let i = 0; i < codes.length; i++) {
@@ -128,7 +109,6 @@ function applySgr(from: Style, params: string): Style {
   return style;
 }
 
-/** A 256-color or true color after 38 or 48, and how many codes it took. */
 function extended(codes: number[], at: number): [Color | undefined, number] {
   const kind = codes[at];
   if (kind === 5) {
@@ -136,7 +116,6 @@ function extended(codes: number[], at: number): [Color | undefined, number] {
     return [index !== undefined && index >= 0 && index < 256 ? index : undefined, 2];
   }
   if (kind === 2) {
-    // A colon form may hold an empty color space id before r, g, b.
     const rest = codes.slice(at + 1, at + 5);
     const rgb = rest.length === 4 && Number.isNaN(rest[0]) ? rest.slice(1) : rest.slice(0, 3);
     const used = rest.length === 4 && Number.isNaN(rest[0]) ? 5 : 4;
@@ -152,7 +131,6 @@ function toNumber(code: string): number {
   return code === "" ? Number.NaN : Number(code);
 }
 
-/** The 256-color palette's color at `index`, its first 16 from the theme's. */
 export function paletteColor(index: number, sixteen: readonly string[]): string {
   if (index < 16) return sixteen[index] ?? "#ffffff";
   if (index < 232) {
@@ -165,7 +143,6 @@ export function paletteColor(index: number, sixteen: readonly string[]): string 
   return `#${gray}${gray}${gray}`;
 }
 
-/** The theme's 16 colors in the order SGR numbers them, from xterm's palette. */
 export function sixteenOf(theme: {
   black?: string;
   red?: string;

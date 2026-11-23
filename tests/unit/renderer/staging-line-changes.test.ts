@@ -1,7 +1,3 @@
-// Verifies the index text staging part of a file writes: the index with the
-// chosen changes taken from the working text, or put back to HEAD's when
-// unstaging. Diffs come from monaco's own computer, as in the app.
-
 import { describe, expect, test } from "bun:test";
 import { computeDirtyChanges } from "../../../src/renderer/services/editor/git/dirty-diff/compute";
 import {
@@ -24,13 +20,11 @@ function lines(start: number, endInclusive: number): LineRange {
   return { startLineNumber: start, endLineNumberExclusive: endInclusive + 1 };
 }
 
-/** The index after staging the working lines in `ranges`. */
 function stage(index: string, working: string, ranges: LineRange[], eol = "\n"): string {
   const picked = selectChanges(diff(index, working), ranges);
   return applyLineChanges(index, splitLines(working).lines, picked, eol);
 }
 
-/** The index after unstaging its lines in `ranges` back to HEAD. */
 function unstage(head: string, index: string, ranges: LineRange[]): string {
   const picked = selectChanges(diff(head, index), ranges).map(invertLineChange);
   return applyLineChanges(index, splitLines(head).lines, picked, "\n");

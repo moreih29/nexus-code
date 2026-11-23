@@ -1,24 +1,3 @@
-/**
- * confirmAndDeletePath — shared helper for deleting a file/directory.
- *
- * Branches on workspace kind so the user sees a confirm message that
- * matches what's actually about to happen — VSCode parity:
- *   - Local workspace → moves to the OS Trash (recoverable). Confirm
- *     text reads "You can restore it from the Trash."
- *   - SSH workspace   → permanent delete (no remote trash). Confirm text
- *     reads "This cannot be undone." and the action runs `fs.removeAll`
- *     / `fs.unlink` directly.
- *
- * Uses showConfirmDialog (custom ConfirmDialog component) for user
- * confirmation. For directories on the SSH path, falls through to
- * removeDir (which calls fs.removeAll). For files/symlinks on the SSH
- * path, falls through to unlinkPath.
- *
- * CRITICAL — this function contains no root-path guard.
- * Callers (use-file-tree-actions: isRoot check, global handler: rootAbsPath comparison)
- * must identify the root with isRoot or equivalent before calling.
- */
-
 import i18next from "i18next";
 import { showConfirmDialog } from "@/components/ui/confirm-dialog";
 import { createLogger } from "../../../shared/log/renderer";
@@ -42,14 +21,6 @@ import { removeDir } from "./remove-dir";
 import { trashPath } from "./trash";
 import { unlinkPath } from "./unlink";
 
-/**
- * @param workspaceId    Current workspace ID.
- * @param workspaceRootPath   Absolute path of the workspace root.
- * @param absPath        Absolute path of the deletion target.
- * @param nodeType       "file" | "dir" | "symlink"
- * @param name           Name for the confirm dialog (default: basename(absPath)).
- * @returns              true on successful deletion, false on confirm cancel or IPC failure.
- */
 export async function confirmAndDeletePath(
   workspaceId: string,
   workspaceRootPath: string,
@@ -60,9 +31,6 @@ export async function confirmAndDeletePath(
   const displayName = name ?? basename(absPath);
   const isDir = nodeType === "dir";
 
-  // Workspace kind drives the deletion semantics: local goes through the
-  // OS trash (recoverable), SSH goes through agent removeAll/unlink
-  // (permanent — there's no host trash on the remote side).
   const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
   const useTrash = workspace?.location.kind === "local";
 
@@ -78,8 +46,6 @@ export async function confirmAndDeletePath(
   });
   if (!ok) return false;
 
-  // Local goes to the Trash. SSH is permanent — directory: removeAll
-  // (already collapses the empty/non-empty distinction); file/symlink: unlink.
   const deleted = useTrash
     ? await trashPath({ workspaceId, workspaceRootPath, absPath, nodeType })
     : nodeType === "dir"
@@ -113,26 +79,6 @@ function deleteLabel(useTrash: boolean): string {
     : i18next.t("common:action.delete");
 }
 
-// ---------------------------------------------------------------------------
-// confirmAndDeleteBatch — delete multiple paths with a single confirm.
-// ---------------------------------------------------------------------------
-
-/**
- * Delete multiple paths from a workspace after a single user confirmation.
- *
- * Algorithm:
- *  1. Apply `distinctParents` to drop redundant descendants before confirming.
- *  2. Delegate to `confirmAndDeletePath` when only one effective path remains.
- *  3. For N≥2 show a batch-flavoured dialog, then attempt each path in order.
- *  4. Aggregate results: on full success show a success toast; on partial/full
- *     failure show an error toast with the first failure message.
- *
- * @param workspaceId      Current workspace ID.
- * @param workspaceRootPath Workspace root absolute path.
- * @param absPaths          Absolute paths to delete (duplicates + descendants
- *                          are collapsed via distinctParents before prompting).
- * @returns true when every path was deleted successfully, false otherwise.
- */
 export async function confirmAndDeleteBatch(
   workspaceId: string,
   workspaceRootPath: string,
@@ -140,28 +86,18 @@ export async function confirmAndDeleteBatch(
 ): Promise<boolean> {
   if (absPaths.length === 0) return false;
 
-  // Collapse descendants — operating on /a when /a/b is also selected is
-  // correct (deleting the parent covers the child).
   const effective = distinctParents(absPaths);
 
-  // Single-path: delegate to the existing helper so the message is identical
-  // to the current single-delete UX.
   if (effective.length === 1) {
     const p = effective[0];
-    // Determine node type for the single-path delegate.
-    // Resolve from the workspace tree if available; fall back to "file"
-    // (conservative — trashPath/unlinkPath work for both files and symlinks).
     const tree = useFilesStore.getState().trees.get(workspaceId);
     const nodeType = tree?.nodes.get(p)?.type ?? "file";
     return confirmAndDeletePath(workspaceId, workspaceRootPath, p, nodeType);
   }
 
-  // Workspace kind — drives trash vs permanent semantics. SSH is permanent
-  // unconditionally because there is no remote trash.
   const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
   const useTrash = workspace?.location.kind === "local";
 
-  // Build dialog text.
   const N = effective.length;
   const names = effective.map((p) => basename(p));
   const suffix = useTrash
@@ -184,12 +120,9 @@ export async function confirmAndDeleteBatch(
   });
   if (!ok) return false;
 
-  // Execute deletions sequentially. Collect results.
   let successCount = 0;
   let firstFailure: BatchFailure | null = null;
 
-  // Snapshot the tree once before the loop — loadChildren may mutate it
-  // between iterations but we only need each path's type at start time.
   const treeSnapshot = useFilesStore.getState().trees.get(workspaceId);
 
   for (const p of effective) {
@@ -217,7 +150,6 @@ export async function confirmAndDeleteBatch(
       successCount += 1;
       closeEditorTabsOfDeletedPath(workspaceId, p);
     } else if (firstFailure === null) {
-      // Per-path helpers already surface their own error toasts; record for summary.
       firstFailure = reportedFailure(p);
     } else {
       log.error(`failed: ${p}`);

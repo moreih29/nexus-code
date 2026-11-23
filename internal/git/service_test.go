@@ -14,14 +14,7 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// processTimeout bounds a test's wait on a git process. It only has to catch
-// a hang, and a loaded Windows CI runner has taken over ten seconds to start
-// git and its askpass helper.
 const processTimeout = time.Minute
-
-// ---------------------------------------------------------------------------
-// isUnmergedIndexEntry unit tests
-// ---------------------------------------------------------------------------
 
 func TestIsUnmergedIndexEntry(t *testing.T) {
 	cases := []struct {
@@ -65,23 +58,14 @@ func TestIsUnmergedIndexEntry(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// GetFileContent integration: unmerged INDEX entry returns {kind:"unmerged"}
-// ---------------------------------------------------------------------------
-
-// TestGetFileContentUnmergedReturnsUnmergedKind creates a real merge conflict
-// in a temp repo and verifies that GetFileContent with ref=INDEX returns
-// {kind:"missing", reason:"index"} instead of propagating the raw fatal error.
 func TestGetFileContentUnmergedReturnsUnmergedKind(t *testing.T) {
 	t.Parallel()
 	root := newConflictRepo(t)
 
-	// Attempt merge — expect conflict; ignore the error.
 	mergeCmd := exec.Command("git", "merge", "feature")
 	mergeCmd.Dir = root
 	_ = mergeCmd.Run()
 
-	// Verify we actually have a conflict by checking for conflict markers.
 	content, err := os.ReadFile(filepath.Join(root, "conflict.txt"))
 	if err != nil {
 		t.Fatalf("read conflicted file: %v", err)
@@ -90,7 +74,6 @@ func TestGetFileContentUnmergedReturnsUnmergedKind(t *testing.T) {
 		t.Fatalf("expected conflict markers in conflict.txt, got:\n%s", content)
 	}
 
-	// Now call GetFileContent with INDEX ref — should return {kind:"unmerged"}.
 	d := dispatch.New()
 	service := New(root)
 	Register(d, service)
@@ -121,7 +104,6 @@ func TestGetFileContentUnmergedReturnsUnmergedKind(t *testing.T) {
 	}
 }
 
-// TestGetFileContentSizeCap checks the 5 MiB cap on both sides of the edge.
 func TestGetFileContentSizeCap(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -144,10 +126,6 @@ func TestGetFileContentSizeCap(t *testing.T) {
 	}
 }
 
-// TestGetFileContentStopsReadingAtCap — the blob used to be read whole with
-// cmd.Output() before the size check, so a huge blob was buffered in full
-// only to be rejected. The fake git here never stops writing: the read must
-// stop at the cap and kill it.
 func TestGetFileContentStopsReadingAtCap(t *testing.T) {
 	fakeDir := t.TempDir()
 	writeFakeGit(t, fakeDir, "#!/bin/sh\nexec yes aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n")
@@ -169,7 +147,6 @@ func TestGetFileContentStopsReadingAtCap(t *testing.T) {
 	}
 }
 
-// A blob not in UTF-8 goes to the reader as its bytes, as fs.readFile's do.
 func TestGetFileContentTextNotInUTF8IsBytes(t *testing.T) {
 	t.Parallel()
 	for name, data := range map[string][]byte{

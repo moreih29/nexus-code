@@ -1,16 +1,3 @@
-// Dirty-aware close handlers for editor and untitled tabs.
-//
-// Why a dedicated module: closing is no longer a one-liner. Three steps
-// have to compose in a fixed order — read dirty state, ask the user,
-// run save (or discard), then close. Group-view's handleCloseTab used
-// to call closeEditor directly; with dirty handling that turns into
-// a multi-step async sequence. Centralizing it here keeps every close
-// callsite from re-implementing (and inevitably mis-ordering) it.
-//
-// Concurrency: showSaveConfirm already serializes prompts. saveModel
-// serializes per-file disk writes. The two compose: this function may
-// run concurrently for different tabs without races on either side.
-
 import { showSaveConfirm } from "@/components/editor/save-confirm-dialog";
 import { releaseModel } from "@/services/editor/model";
 import { closeTab } from "@/state/operations/tabs";
@@ -29,18 +16,12 @@ function findTab(workspaceId: string, tabId: string) {
   return useTabsStore.getState().byWorkspace[workspaceId]?.[tabId] ?? null;
 }
 
-/**
- * Close an editor tab, prompting first if its buffer is dirty.
- * Returns the outcome so the caller knows whether the close happened
- * (e.g. group-view can update active-tab focus only on real close).
- */
 export async function closeEditorWithConfirm(
   workspaceId: string,
   tabId: string,
 ): Promise<CloseTabOutcome> {
   const tab = findTab(workspaceId, tabId);
   if (!tab || tab.type !== "editor") {
-    // Non-editor tab (or already gone) — nothing for us to handle.
     return "closed";
   }
 
@@ -58,25 +39,16 @@ export async function closeEditorWithConfirm(
   if (choice === "save") {
     const result = await saveModelInteractive({ workspaceId, filePath });
     if (result.kind !== "saved" && result.kind !== "not-dirty") {
-      // conflict (user cancelled resolution) / error / superseded / no-model —
-      // keep the tab open so the user can react. reportSaveFailure toasts on
-      // error; conflict after a cancel is silent since the user already saw
-      // the dialog.
       reportSaveFailure(result);
       return "save-failed";
     }
     if (isDirty(cacheUri)) return "cancelled";
   }
-  // For "dont-save" we drop the buffer's edits silently.
 
   closeEditor(tabId);
   return "closed";
 }
 
-/**
- * Close a diff tab, prompting first when it is the last tab showing the
- * unsaved working-tree file it edits: closing it would drop the edits.
- */
 export async function closeDiffWithConfirm(
   workspaceId: string,
   tabId: string,
@@ -113,7 +85,6 @@ export async function closeDiffWithConfirm(
   return "closed";
 }
 
-/** Whether a tab other than `tabId` keeps `filePath`'s model open. */
 function otherTabShowsFile(workspaceId: string, tabId: string, filePath: string): boolean {
   const tabs = Object.values(useTabsStore.getState().byWorkspace[workspaceId] ?? {});
   return tabs.some(
@@ -124,12 +95,6 @@ function otherTabShowsFile(workspaceId: string, tabId: string, filePath: string)
   );
 }
 
-/**
- * Close an untitled tab, prompting first if its buffer is dirty.
- *
- * A successful first save converts the tab in place. Close the converted
- * editor only if the save also left its buffer clean.
- */
 export async function closeUntitledWithConfirm(
   workspaceId: string,
   tabId: string,
@@ -144,10 +109,6 @@ export async function closeUntitledWithConfirm(
     closeTab(workspaceId, tabId);
   };
 
-  // Untitled buffers are keyed in the model cache under the `untitled://`
-  // scheme (cacheUriForInput), NOT the workspace file scheme — `cacheUriFor`
-  // would throw on the non-absolute "Untitled-N" name. Use the canonical
-  // untitled cacheUri builder so isDirty resolves the right model entry.
   if (!isDirty(untitledCacheUriFor(workspaceId, tab.props.untitledIndex))) {
     discard();
     return "closed";
@@ -162,7 +123,6 @@ export async function closeUntitledWithConfirm(
     return "closed";
   }
 
-  // choice === "save": delegate to native save-dialog flow.
   const saveOutcome = await saveUntitledModel(workspaceId, tabId);
 
   if (saveOutcome === "saved") {
@@ -180,6 +140,5 @@ export async function closeUntitledWithConfirm(
 
   if (saveOutcome === "cancelled") return "cancelled";
 
-  // saveOutcome === "failed": toast was already shown inside saveUntitledModel.
   return "save-failed";
 }

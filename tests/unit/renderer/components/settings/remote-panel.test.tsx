@@ -19,14 +19,12 @@ const server = "http://localhost:8787";
 const render = (state: RemoteAccountState, signIns?: readonly string[]) =>
   renderToStaticMarkup(<AccountGroup state={state} signIns={signIns} />);
 
-/** Renders `node` with the app in `language`. */
 async function renderIn(language: string, node: ReactElement): Promise<string> {
   const i18n = i18next.cloneInstance({ lng: language });
   await i18n.changeLanguage(language);
   return renderToStaticMarkup(<I18nextProvider i18n={i18n}>{node}</I18nextProvider>);
 }
 
-/** The link to `url` labelled `label` that opens in a new tab, or null. */
 function linkTo(html: string, url: string, label: string): string | null {
   const escaped = url.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
   const tag = html.match(new RegExp(`<a [^>]*href="${escaped}"[^>]*>${label}</a>`))?.[0] ?? null;
@@ -69,14 +67,12 @@ describe("the remote panel's account", () => {
     expect(html).toContain('role="alert"');
     expect(html).toContain("Email not verified");
     expect(html).toContain("Verify your email with the sign-in provider, then sign in again.");
-    // Only an approval the server waits on, or keeps closed, says it takes approved accounts.
     expect(html).not.toContain("Approved accounts only");
     expect(html).toContain(`Server: ${server}`);
   });
 
   test("signed out, the group's description and the sign-in buttons say so", () => {
     const html = render({ status: "signed-out", server: SERVER });
-    // No label of its own above the buttons: the description, then the buttons.
     expect(html).not.toContain("Not signed in");
     const description = html.indexOf("Sign in to see this computer&#x27;s sessions");
     expect(description).toBeGreaterThan(-1);
@@ -97,9 +93,7 @@ describe("the remote panel's account", () => {
       );
       expect(html).toContain("Awaiting approval");
       expect(html).toContain("Approved accounts only for now");
-      // Without the sign-in it is for (the app started anew), the body names none.
       expect(html).toContain("Once approved, sign in again with the same account.");
-      // Under the group's description, the notice comes before the sign-in buttons.
       expect(html.indexOf("Sign in to see")).toBeLessThan(html.indexOf("Awaiting approval"));
       expect(html.indexOf("Awaiting approval")).toBeLessThan(
         html.indexOf('data-testid="sign-in-buttons"'),
@@ -244,7 +238,6 @@ describe("the remote panel's account", () => {
     expect(html).toContain('data-failure="unreachable"');
     expect(html).toContain("Can&#x27;t reach the server");
     expect(html).toContain("Try again");
-    // The sign-in stays: the server may answer it.
     expect(html).toContain("Sign in with Google");
     const reached = render({ status: "signed-out", server });
     expect(reached).not.toContain("Try again");
@@ -274,7 +267,6 @@ describe("the remote panel's account", () => {
     expect(html).toContain("Me");
     expect(html).toContain(email);
     expect(html).toContain("Sign out");
-    // Signed in, the page does not explain signing in.
     expect(html).not.toContain("Sign in to see");
   });
 
@@ -381,7 +373,6 @@ describe("the remote panel's voice input", () => {
     expect(html).toContain("Send computer and workspace names");
     expect(html).toContain("Sent to the speech recognition service along with your dictation.");
     expect(html).toContain('aria-checked="false"');
-    // The terms are still being asked for: the field waits.
     expect(html).toContain("Loading…");
   });
 

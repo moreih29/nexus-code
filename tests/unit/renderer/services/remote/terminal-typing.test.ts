@@ -1,7 +1,3 @@
-/**
- * Typing into another device's terminal: key presses as its keys, and what
- * is typed sent in order, joined while a send is on its way.
- */
 import { describe, expect, test } from "bun:test";
 import { watchPeerTerminalTyping } from "../../../../../src/renderer/services/remote/peer-terminal";
 import {
@@ -154,7 +150,6 @@ describe("typing", () => {
   });
 });
 
-/** Describes one allowed peer without hiding brief connection changes. */
 function room(rejoins: number, status: RoomState["status"] = "online"): RoomState {
   return {
     status,
@@ -171,7 +166,6 @@ function room(rejoins: number, status: RoomState["status"] = "online"): RoomStat
   };
 }
 
-/** Lets the IPC promise and queue drain's continuation settle after a reply. */
 async function settle(): Promise<void> {
   for (let i = 0; i < 6; i++) await Promise.resolve();
 }
@@ -239,7 +233,7 @@ test("a rejoin or disconnection closes the old queue before another send can dra
       "after rejoin",
       "first on new connection",
     ]);
-    expect(errors).toHaveLength(2); // One loss notice for each retired queue.
+    expect(errors).toHaveLength(2);
     sent[2]?.reply.resolve({});
     await settle();
     expect(sent.at(-1)?.text).toBe("second on new connection");

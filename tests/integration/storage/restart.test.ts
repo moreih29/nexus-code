@@ -1,13 +1,3 @@
-/**
- * Integration: storage persistence across simulated restart.
- *
- * Uses real temporary SQLite files (not in-memory) backed by bun:sqlite so the
- * test verifies that GlobalStorage + StateService survive a close/re-open cycle
- * without data loss — the scenario that an in-memory DB cannot exercise.
- *
- * Monaco + xterm renderer integration requires a browser-level manual scenario.
- */
-
 import type { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
@@ -18,10 +8,6 @@ import { WorkspaceStorage } from "../../../src/main/infra/storage/workspace-stor
 import type { WorkspaceMeta } from "../../../src/shared/types/workspace";
 import { closeTestDatabases, openTestDatabase } from "../../helpers/test-database";
 import { openTestState } from "../../helpers/test-state";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function makeTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "nexus-restart-test-"));
@@ -49,10 +35,6 @@ function makeMeta(id: string, rootPath: string): WorkspaceMeta {
   };
 }
 
-// ---------------------------------------------------------------------------
-// storage-restart: WorkspaceStorage — per-workspace directory + state.db survive
-// ---------------------------------------------------------------------------
-
 describe("storage-restart — WorkspaceStorage directory survives session boundary", () => {
   let tmpDir: string;
   let wsBaseDir: string;
@@ -78,17 +60,12 @@ describe("storage-restart — WorkspaceStorage directory survives session bounda
     ws1.setMeta(id, meta);
     ws1.closeForWorkspace(id);
 
-    // Verify the workspace.json recovery dump is readable without SQLite.
     const jsonPath = path.join(wsBaseDir, id, "workspace.json");
     const parsed = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as WorkspaceMeta;
     expect(parsed.id).toBe(id);
     expect(parsed.rootPath).toBe(rootPath);
   });
 });
-
-// ---------------------------------------------------------------------------
-// storage-restart: Full stateService + globalStorage combo (primary scenario)
-// ---------------------------------------------------------------------------
 
 describe("storage-restart — stateService + globalStorage combined restart scenario", () => {
   let tmpDir: string;
@@ -107,7 +84,6 @@ describe("storage-restart — stateService + globalStorage combined restart scen
     const statePath = path.join(tmpDir, "state.json");
     const wsId = "00000000-0000-0000-0000-cafebabe0001";
 
-    // --- Session 1 ---
     const g1 = openGlobalStorage(globalDbPath);
     const ss1 = openTestState(statePath);
     g1.addWorkspace(makeMeta(wsId, "/projects/nexus"));
@@ -115,7 +91,6 @@ describe("storage-restart — stateService + globalStorage combined restart scen
     ss1.flushNow();
     g1.close();
 
-    // --- Session 2 ---
     const g2 = openGlobalStorage(globalDbPath);
     const ss2 = openTestState(statePath);
 

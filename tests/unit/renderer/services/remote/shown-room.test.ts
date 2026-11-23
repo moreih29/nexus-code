@@ -1,4 +1,3 @@
-/** A drop shorter than three seconds, this device's or another's, is never seen. */
 import { describe, expect, test } from "bun:test";
 import type { RoomPeer, RoomState } from "../../../../../src/shared/remote/room";
 
@@ -15,7 +14,6 @@ const peer = (id: string, online: boolean): RoomPeer => ({
 });
 const room = (status: RoomState["status"], ...peers: RoomPeer[]): RoomState => ({ status, peers });
 
-/** The rooms in turn, each at its time: what the last one shows at `at`. */
 function shownAfter(steps: [number, RoomState][], at: number) {
   const drops = new Map<string, number>();
   let prev: RoomState | null = null;

@@ -1,12 +1,3 @@
-// What the agent asks before a tool runs: the call, and the user's answer.
-// AskUserQuestion is answered with choices and ExitPlanMode with the plan's
-// approval; every other tool is allowed, allowed for good, or denied.
-//
-// The card takes the keyboard as a request shows, unless the user is typing
-// somewhere else: Enter gives the answer on the button marked ↵, the number
-// keys pick a question's options, and Esc leaves a reason being written. A
-// key the card has no use for goes on to the tab's message box.
-
 import {
   ArrowLeft,
   ArrowRight,
@@ -52,7 +43,6 @@ interface PermissionCardProps {
   workspaceId: string;
   cwd: string;
   rootPath: string;
-  /** Whether the session accepts a permission mode along with plan approval. */
   planModeOptions?: boolean;
   onAnswer: (request: PermissionRequest, answer: PermissionAnswer) => void;
 }
@@ -129,56 +119,32 @@ interface FormProps {
   onAnswer: (request: PermissionRequest, answer: PermissionAnswer) => void;
 }
 
-// ---------------------------------------------------------------------------
-// The keyboard
-// ---------------------------------------------------------------------------
-
-/** The chat tab `el` is in; none in the agent list's detail panel. */
 function chatTabOf(el: Element): Element | null {
   return el.closest(
     '[data-testid="claude-tab"], [data-testid="codex-tab"], [data-testid="remote-chat"]',
   );
 }
 
-/** A text field with nothing in it: the user is not typing there. */
 function isEmptyField(el: Element): boolean {
   return (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) && el.value === "";
 }
 
-/** The message box of the chat tab `tab`. */
 function composerOf(tab: Element | null): HTMLTextAreaElement | null {
   return tab?.querySelector<HTMLTextAreaElement>('[data-testid="chat-composer"] textarea') ?? null;
 }
 
-/**
- * Puts the keyboard in the chat tab `tab` as the user brings it to the
- * front: with the request waiting on them, so its keys work at once, else
- * in the message box. A request that showed while the tab was hidden never
- * took it.
- */
 export function focusChatTab(tab: Element | null): void {
   const card = tab?.querySelector<HTMLElement>('[data-testid="chat-permission"] [tabindex="-1"]');
   if (card) takeKeys(card, tab);
   else composerOf(tab)?.focus({ preventScroll: true });
 }
 
-/** Gives the card `card` its keys back, as a step in it ends. */
 function giveKeys(card: HTMLElement | null): void {
   if (card) takeKeys(card, chatTabOf(card));
 }
 
-/** The card each message box passes its keys on to, and how it stops. */
 const passing = new WeakMap<HTMLTextAreaElement, { card: Element; stop: () => void }>();
 
-/**
- * Gives `card` the keys: the message box of `tab` takes the focus and
- * passes each key on to the card, until the user types in the box or
- * leaves it. The focus stays in a text field so that an IME stays on: in
- * the card, which takes no text, Windows turns it off, and the first letter
- * typed on to the box came as a Latin one. While it passes them, the box
- * acts on no key itself (`data-card-keys`). Without a box, or with a draft
- * in it, which Enter would send, the card takes the focus.
- */
 function takeKeys(card: HTMLElement, tab: Element | null): void {
   const box = composerOf(tab);
   if (!box || box.value !== "") {
@@ -222,17 +188,10 @@ function takeKeys(card: HTMLElement, tab: Element | null): void {
   box.focus({ preventScroll: true });
 }
 
-/** Whether `el` is on screen: a tab not in front is hidden, and keeps its hands off the keyboard. */
 function onScreen(el: Element | null): el is HTMLElement {
   return el instanceof HTMLElement && el.checkVisibility({ visibilityProperty: true });
 }
 
-/**
- * Gives `ref` the keys as a request shows, so they work at once: from
- * nowhere, or from the tab's own empty message box. Never from text being
- * typed, or from another tab or terminal. Once answered, the focus it had
- * goes back to the message box.
- */
 function useTakeKeyboard(ref: RefObject<HTMLElement | null>, requestId: string): void {
   useEffect(() => {
     const el = ref.current;
@@ -248,23 +207,17 @@ function useTakeKeyboard(ref: RefObject<HTMLElement | null>, requestId: string):
       const box = composerOf(tab);
       const held = box ? passing.get(box) : undefined;
       if (held?.card === el) held.stop();
-      // Gone with the card, the focus fell to the page.
       const now = document.activeElement;
       if ((now === null || now === document.body || el.contains(now)) && onScreen(box)) box.focus();
     };
   }, [ref, requestId]);
 }
 
-/**
- * Sends a typed character the card has no use for on to the tab's message
- * box: moved there before the key lands, it lands there.
- */
 function passToComposer(event: KeyboardEvent, card: Element): void {
   if (event.key.length !== 1 || event.metaKey || event.ctrlKey || event.altKey) return;
   composerOf(chatTabOf(card))?.focus();
 }
 
-/** Enter sends and Shift+Enter starts a new line; Esc goes back. */
 function reasonKeys(event: KeyboardEvent, send: () => void, back: () => void): void {
   if (isImeComposing(event)) return;
   if (event.key === "Escape") {
@@ -296,10 +249,6 @@ function BackButton({ onBack }: { onBack: () => void }) {
 const REASON_CLASS =
   "app-scrollbar w-full resize-none rounded-(--radius-control) border border-border bg-background px-2 py-1.5 text-app-ui-sm outline-none focus:border-ring";
 
-// ---------------------------------------------------------------------------
-// A tool
-// ---------------------------------------------------------------------------
-
 function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
   const { t } = useTranslation();
   const agent = useAgentContext();
@@ -316,7 +265,6 @@ function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
     parentToolUseId: null,
   };
   const preview = request.preview !== undefined || hasPreview(request.toolName);
-  // A command of several lines shows them all: its first can hide the rest.
   const summary = wholeCommand(tool.input) ?? toolSummary(tool, cwd);
   const scopes = scopesOf(request.suggestions, t);
   const deny = (stop: boolean) =>
@@ -437,10 +385,6 @@ function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
   );
 }
 
-/**
- * "Always allow", with what it adds on hover. With more than one rule or
- * mode to add, its menu adds just one of them; the button adds them all.
- */
 function AllowAlways({
   scopes,
   onAllow,
@@ -489,7 +433,6 @@ function AllowAlways({
   );
 }
 
-/** A tool's command, when it runs one of more than a line. */
 function wholeCommand(input: unknown): string | undefined {
   const command = (input as { command?: unknown } | undefined)?.command;
   if (typeof command !== "string") return undefined;
@@ -497,16 +440,11 @@ function wholeCommand(input: unknown): string | undefined {
   return whole.includes("\n") ? whole : undefined;
 }
 
-/** Tools whose input reads best as the patch or command they carry. */
 function hasPreview(toolName: string): boolean {
   return toolName === "Edit" || toolName === "Write" || toolName === "MultiEdit";
 }
 
 export { scopesOf };
-
-// ---------------------------------------------------------------------------
-// Questions
-// ---------------------------------------------------------------------------
 
 export interface Question {
   id?: string;
@@ -516,7 +454,6 @@ export interface Question {
   options: { label: string; description?: string }[];
 }
 
-/** Codex names each question; Claude's questions are keyed by their text. */
 export function questionKey(question: Question): string {
   return question.id ?? question.question;
 }
@@ -541,25 +478,13 @@ export function readQuestions(input: Record<string, unknown>): Question[] {
     }));
 }
 
-/** How long a picked answer shows before the next question takes its place. */
 export const ONWARD_MS = 200;
 
-/**
- * The question after `shown` still without an answer (from the first, past
- * the last), or -1 when no other is left.
- */
 export function nextUnanswered(unanswered: readonly boolean[], shown: number): number {
   const after = unanswered.findIndex((open, i) => open && i > shown);
   return after >= 0 ? after : unanswered.findIndex((open, i) => open && i !== shown);
 }
 
-/**
- * The questions, one at a time: the number keys pick the shown one's
- * options (the last number writes another answer). A question of one answer
- * goes on to the next unanswered one as it is picked; the button marked ↵
- * (and Enter) goes on after several, or a written one, and sends the answers
- * once all have one. They are never sent by a pick alone.
- */
 function QuestionForm({ request, onAnswer }: FormProps) {
   const { t } = useTranslation();
   const root = useRef<HTMLFormElement>(null);
@@ -611,7 +536,6 @@ function QuestionForm({ request, onAnswer }: FormProps) {
     }
     if (next >= 0) show(next);
   };
-  /** Picks `label` for the shown question; one of one answer goes on to the next. */
   const pick = (question: Question, label: string) => {
     toggle(question, label);
     if (question.multiSelect || next < 0) return;
@@ -800,7 +724,6 @@ function QuestionForm({ request, onAnswer }: FormProps) {
   );
 }
 
-/** A radio dot for one answer, a check box for several. */
 function Pick({ multi, on }: { multi: boolean; on: boolean }) {
   return (
     <span
@@ -825,10 +748,8 @@ function Pick({ multi, on }: { multi: boolean; on: boolean }) {
   );
 }
 
-/** How tall a question shows before it folds. */
 const QUESTION_FOLD_PX = 150;
 
-/** The question, folded when it runs long. */
 function QuestionText({ text }: { text: string }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
@@ -870,10 +791,6 @@ function QuestionText({ text }: { text: string }) {
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// A plan
-// ---------------------------------------------------------------------------
 
 function PlanApproval({
   request,

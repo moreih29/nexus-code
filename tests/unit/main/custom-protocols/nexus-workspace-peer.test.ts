@@ -1,7 +1,3 @@
-// The peer branch of the nexus-workspace:// protocol handler: another
-// computer's file, read through the room a piece at a time, for quick look
-// over that computer's chat.
-
 import { describe, expect, mock, test } from "bun:test";
 import { PeerFileReads } from "../../../../src/main/features/remote/peer-file-reads";
 import type { WorkspaceManager } from "../../../../src/main/features/workspace/manager";
@@ -23,7 +19,6 @@ const { buildPeerUrl } = await import("../../../../src/shared/fs/peer-url");
 const manager = { list: () => [], getFs: async () => null } as unknown as WorkspaceManager;
 const PEER = { deviceId: "dev-1", workspaceId: "ws-1" };
 
-/** A file of `size` bytes, each its offset's low byte, read as the room reads it. */
 function fileOf(size: number) {
   const asked: { peer: PeerWorkspace; path: string; offset: number; length: number }[] = [];
   const read = async (peer: PeerWorkspace, path: string, offset: number, length: number) => {
@@ -90,7 +85,6 @@ describe("nexus-workspace:// another computer's file", () => {
   test("a path that climbs out, or names no file, is refused unasked", async () => {
     const file = fileOf(10);
     const handler = buildNexusWorkspaceHandler(manager, () => file.read);
-    // A segment that decodes to a separator; that computer keeps reads to its folders besides.
     const climbing = "nexus-workspace://peer/dev-1/ws-1/home/%2E%2E%2Fetc/passwd";
     expect((await handler(new Request(climbing))).status).toBe(404);
     expect((await handler(new Request("nexus-workspace://peer/dev-1/ws-1/"))).status).toBe(404);

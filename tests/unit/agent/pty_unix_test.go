@@ -76,7 +76,6 @@ func TestTerminalOutputResumesWhenDialerLeaves(t *testing.T) {
 }
 
 func TestNaturalTerminalExitClosesMaster(t *testing.T) {
-	// With collection disabled, the test measures explicit descriptor cleanup.
 	previous := debug.SetGCPercent(-1)
 	defer debug.SetGCPercent(previous)
 	fdDir := "/dev/fd"

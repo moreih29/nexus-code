@@ -1,11 +1,3 @@
-// Shared type definitions for the model layer.
-// Extracted from entry.ts so that attach-* helpers and cache.ts can import
-// types without creating a circular dependency back through entry.ts.
-//
-// Intentionally does NOT import from lsp/bridge (bridge → cache → types
-// would be circular). Function shapes in ModelEntryDeps that belong to
-// bridge are written as explicit inline signatures.
-
 import type * as Monaco from "monaco-editor";
 import type { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
 import type { TextDocumentContentChangeEvent } from "../../../../shared/lsp";
@@ -23,20 +15,16 @@ import type {
 } from "./dirty-tracker";
 import type { FileLoadResult, FsChangedForFile, workspaceRootForInput } from "./file-loader";
 
-/** Lifecycle phase of a `ModelEntry`. */
 export type SharedModelPhase = "loading" | "ready" | "binary" | "error";
 
-/** Stable snapshot shape consumed by `useSyncExternalStore`. */
 export interface SharedModelState {
   phase: SharedModelPhase;
   model: Monaco.editor.ITextModel | null;
   errorCode?: FileErrorCode;
   readOnly: boolean;
-  /** Present when the on-disk file has changed while the buffer has unsaved edits. */
   diskDiverged?: { mtime: string; size: number };
 }
 
-/** Full in-memory record for a single open file. */
 export interface ModelEntry {
   input: EditorInput;
   cacheUri: string;
@@ -48,17 +36,7 @@ export interface ModelEntry {
   phase: SharedModelPhase;
   model: Monaco.editor.ITextModel | null;
   errorCode?: FileErrorCode;
-  /**
-   * The model's text the last time it was in sync with disk, as the model
-   * reads it back: Monaco gives every line of a file with mixed line endings
-   * the same one, so this may differ from the bytes read.
-   */
   lastLoadedValue: string;
-  /**
-   * The encoding the file was last read or saved in, which a save writes
-   * in: the agent strips a UTF-8 BOM on read, so a save writes it back for
-   * "utf8-bom".
-   */
   encoding?: TextEncoding;
   loadPromise: Promise<void>;
   contentDisposable?: Monaco.IDisposable;
@@ -67,53 +45,19 @@ export interface ModelEntry {
   lspOpened: boolean;
   didOpenPromise?: Promise<void>;
   lspDegraded?: boolean;
-  /**
-   * Sticky flag set by the cache when the main-side LSP host evicts this
-   * workspace (LSP_MAX_ACTIVE_WORKSPACES). The content-change handler
-   * uses it to distinguish "initial didOpen still pending" (false) from
-   * "server-side state lost, re-issue didOpen before forwarding more
-   * changes" (true). Cleared on a successful rehydrate.
-   */
   lspNeedsRehydrate?: boolean;
-  /**
-   * Bumped by manual and external-change reads and by successful saves.
-   * Only the current generation can apply a disk read.
-   */
   diskReadSeq?: number;
-  /** True while a rehydrate didOpen is in flight. */
   lspRehydrating?: boolean;
-  /**
-   * Bumped whenever the server's copy of the document is redefined: by a
-   * rehydrate didOpen (whose text already holds every edit so far) or by
-   * an eviction (which drops the server's copy). A content change seen
-   * under an older epoch is not forwarded.
-   */
   lspOpenEpoch?: number;
   disposed: boolean;
   subscribers: Set<() => void>;
   origin: "workspace" | "external" | "untitled";
   readOnly: boolean;
   deps?: ModelEntryDeps;
-  /** Set only when origin === "external"; identifies the workspace the opener came from. */
   originatingWorkspaceId?: string;
-  /**
-   * Set when the on-disk file has changed while the buffer has unsaved edits.
-   * Holds the mtime/size that the disk currently has. Cleared when the entry
-   * is re-synced with disk (non-dirty reload, explicit reload, or successful save).
-   */
   diskDiverged?: { mtime: string; size: number };
 }
 
-/**
- * All injectable dependencies consumed by the model-entry lifecycle.
- *
- * Written as an explicit interface (rather than `typeof defaultModelEntryDeps`)
- * so that this module remains a dependency-free type leaf — importing bridge.ts
- * here would create a cycle (bridge → cache → types → bridge). The field set
- * and function signatures EXACTLY match `defaultModelEntryDeps` in entry.ts,
- * so all `Pick<ModelEntryDeps, ...>` usages in attach-* helpers continue to
- * compile correctly.
- */
 export interface ModelEntryDeps {
   attachDirtyTracker: typeof attachDirtyTracker;
   detachDirtyTracker: typeof detachDirtyTracker;
@@ -128,14 +72,10 @@ export interface ModelEntryDeps {
   subscribeGitStatusChanged: (input: EditorInput, onChanged: () => void) => () => void;
   attachGitSubscription: typeof attachGitSubscription;
   workspaceRootForInput: typeof workspaceRootForInput;
-  /** Returns true when `languageId` should be routed to the LSP server. */
   isLspLanguage: (languageId: string) => boolean;
-  /** Returns true when LSP is enabled for the given workspace + language pair. */
   isLspEnabledForWorkspace: (workspaceId: string, languageId: string) => boolean;
-  /** Ensures LSP language providers are registered for the given language id. */
   ensureProvidersFor: (languageId: string) => void;
   monacoContentChangesToLsp: typeof monacoContentChangesToLsp;
-  /** Sends `textDocument/didOpen` to the LSP server. */
   notifyDidOpen: (
     uri: string,
     workspaceId: string,
@@ -144,14 +84,12 @@ export interface ModelEntryDeps {
     version: number,
     text: string,
   ) => Promise<void>;
-  /** Sends `textDocument/didChange` to the LSP server. */
   notifyDidChange: (
     workspaceId: string,
     uri: string,
     version: number,
     contentChanges: TextDocumentContentChangeEvent[],
   ) => Promise<void>;
-  /** Sends `textDocument/didClose` to the LSP server. */
   notifyDidClose: (workspaceId: string, uri: string) => Promise<void>;
   registerKnownModelUri: typeof registerKnownModelUri;
   unregisterKnownModelUri: typeof unregisterKnownModelUri;

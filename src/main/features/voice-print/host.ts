@@ -1,12 +1,3 @@
-/**
- * The voice print model, in a utility process of its own: a note's lines
- * are heard here while it records, away from the app's main process. It
- * takes 16 kHz audio and answers with the line's voice print, a unit vector
- * (CAM++, 3D-Speaker's, as ONNX; src/main/features/voice-print/index.ts).
- *
- * Messages: { id, model } loads the model (once); { id, audio } asks for a
- * voice print; each is answered { id, vector } or { id, error }.
- */
 import * as ort from "onnxruntime-node";
 import { fbank, frameCount, MEL_BINS, meanNormalized } from "./fbank";
 
@@ -20,13 +11,11 @@ const port = (process as unknown as { parentPort: Port }).parentPort;
 let session: Promise<ort.InferenceSession> | null = null;
 
 async function voicePrint(model: string, audio: Float32Array): Promise<number[]> {
-  // One thread: a line every few seconds is little work, and the app has other things to do.
   session ??= ort.InferenceSession.create(model, {
     intraOpNumThreads: 1,
     interOpNumThreads: 1,
     graphOptimizationLevel: "all",
   }).catch((error: unknown) => {
-    // Tried again next time.
     session = null;
     throw error;
   });

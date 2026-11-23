@@ -1,20 +1,4 @@
-/**
- * model cache — untitled entries are removed on the last release
- *
- * Closing an "untitled" tab calls releaseModel. Verifies that the release
- * drops the ref-count to zero and removes the entry from the model cache
- * (getModelSnapshot returns null).
- *
- * The test exercises the real cache module but stubs out Monaco, the LSP
- * bridge, and the entry helpers — the same pattern used by
- * model-cache-release.test.ts — so no Electron/DOM infrastructure is needed.
- */
-
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Module stubs — must be registered before any dynamic import of cache.ts
-// ---------------------------------------------------------------------------
 
 const cleanupEntry = mock((_entry: unknown) => {});
 
@@ -28,10 +12,6 @@ mock.module("../../../../../../src/renderer/services/editor/lsp/bridge", () => (
   unregisterKnownModelUri: () => {},
 }));
 
-/**
- * Mock entry module — provides both createEntry (for workspace tabs) and
- * createUntitledEntry (for the untitled path under test).
- */
 mock.module("../../../../../../src/renderer/services/editor/model/entry", () => ({
   cleanupEntry,
   createEntry: (input: { workspaceId: string; filePath: string }, cacheUri: string) => ({
@@ -92,17 +72,9 @@ mock.module("../../../../../../src/renderer/services/editor/model/dirty-tracker"
   getDirtyEntry: () => undefined,
 }));
 
-// ---------------------------------------------------------------------------
-// Subject under test
-// ---------------------------------------------------------------------------
-
 const { acquireModel, releaseModel, getModelSnapshot } = await import(
   "../../../../../../src/renderer/services/editor/model/cache"
 );
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 const WS = "ws-untitled-test";
 
@@ -114,10 +86,6 @@ function untitledInput(index: number) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe("untitled model — releaseModel removes cache entry", () => {
   beforeEach(() => {
     cleanupEntry.mockClear();
@@ -127,13 +95,10 @@ describe("untitled model — releaseModel removes cache entry", () => {
     const input = untitledInput(1);
 
     await acquireModel(input);
-    // Entry must be present before close.
     expect(getModelSnapshot(input)).not.toBeNull();
 
-    // Closing an untitled tab calls releaseModel.
     releaseModel(input);
 
-    // Cache entry must be gone after the last reference is released.
     expect(getModelSnapshot(input)).toBeNull();
     expect(cleanupEntry).toHaveBeenCalledTimes(1);
   });
@@ -145,12 +110,10 @@ describe("untitled model — releaseModel removes cache entry", () => {
     await acquireModel(input);
 
     releaseModel(input);
-    // Still one ref — entry must survive.
     expect(getModelSnapshot(input)).not.toBeNull();
     expect(cleanupEntry).toHaveBeenCalledTimes(0);
 
     releaseModel(input);
-    // Last ref gone — entry must be removed.
     expect(getModelSnapshot(input)).toBeNull();
     expect(cleanupEntry).toHaveBeenCalledTimes(1);
   });
@@ -162,20 +125,17 @@ describe("untitled model — releaseModel removes cache entry", () => {
     await acquireModel(input1);
     await acquireModel(input2);
 
-    // Release only the first tab — second must stay in cache.
     releaseModel(input1);
 
     expect(getModelSnapshot(input1)).toBeNull();
     expect(getModelSnapshot(input2)).not.toBeNull();
 
-    // Cleanup — release the second too.
     releaseModel(input2);
     expect(getModelSnapshot(input2)).toBeNull();
   });
 
   test("releaseModel without prior acquire is a no-op (no crash)", () => {
     const input = untitledInput(99);
-    // Must not throw.
     expect(() => releaseModel(input)).not.toThrow();
     expect(cleanupEntry).toHaveBeenCalledTimes(0);
   });

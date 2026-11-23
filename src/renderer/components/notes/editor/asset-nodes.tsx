@@ -1,7 +1,3 @@
-/**
- * A note's pasted images and the files put into it: blocks that point at a
- * file in the note's folder (screens/, materials/).
- */
 import { mergeAttributes, Node } from "@tiptap/core";
 import { NodeViewWrapper, type ReactNodeViewProps, ReactNodeViewRenderer } from "@tiptap/react";
 import { FileText, FolderOpen } from "lucide-react";

@@ -1,19 +1,9 @@
-/**
- * Rich text from a parsed Office file (a slide's text as HTML), read into
- * a tree of what may be drawn: a few text elements, each with only
- * typographic styles. The HTML is never handed to the browser to parse;
- * the preview builds elements from this tree. Anything else is dropped:
- * other elements keep only their text, attributes other than style go,
- * and so does any style that could load something (url(), image-set()).
- */
-
 import { scanXml } from "./xml";
 
 export type RichNode = string | RichElement;
 
 export interface RichElement {
   readonly tag: RichTag;
-  /** CSS properties by name, all from the allowed list. */
   readonly style: Readonly<Record<string, string>>;
   readonly children: readonly RichNode[];
 }
@@ -40,7 +30,6 @@ export type RichTag = (typeof TAGS)[number];
 
 const ALLOWED_TAGS: ReadonlySet<string> = new Set(TAGS);
 
-/** Elements HTML closes on their own. */
 const VOID_TAGS: ReadonlySet<string> = new Set(["br", "img", "hr", "wbr"]);
 
 const ALLOWED_STYLES: ReadonlySet<string> = new Set([
@@ -72,23 +61,18 @@ const ALLOWED_STYLES: ReadonlySet<string> = new Set([
   "padding-bottom",
 ]);
 
-/** A value that could fetch something, or run something in old engines. */
 const UNSAFE_VALUE = /url\s*\(|image-set|expression\s*\(|javascript:|[<>\\]/i;
 
 export function sanitizeRichText(html: string): RichNode[] {
   const root: { children: RichNode[] } = { children: [] };
-  /** Open elements, kept or not; a dropped one has no node of its own. */
   const stack: { name: string; node: { children: RichNode[] } }[] = [];
   const top = () => stack[stack.length - 1]?.node ?? root;
 
-  // A `<` that cannot start a tag is text: pptxtojson writes a run's text
-  // into its HTML as it is, so "a < b" arrives unescaped.
   scanXml(html.replace(/<(?![a-zA-Z/!?])/g, "&lt;"), {
     start(name, attrs, empty) {
       const tag = name.toLowerCase();
       const isVoid = empty || VOID_TAGS.has(tag);
       if (tag === "script" || tag === "style") {
-        // Their text is not text the document shows.
         if (!isVoid) stack.push({ name: tag, node: { children: [] } });
         return;
       }
@@ -113,7 +97,6 @@ export function sanitizeRichText(html: string): RichNode[] {
   return root.children;
 }
 
-/** The allowed properties of a style attribute. */
 export function parseStyle(text: string): Record<string, string> {
   const style: Record<string, string> = {};
   for (const declaration of splitDeclarations(text)) {
@@ -131,7 +114,6 @@ export function parseStyle(text: string): Record<string, string> {
   return style;
 }
 
-/** Declarations split at `;`, but not at one inside quotes (a font's name). */
 function splitDeclarations(text: string): string[] {
   const parts: string[] = [];
   let quote = "";

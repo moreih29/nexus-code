@@ -10,8 +10,6 @@ import (
 
 var procK32GetProcessMemoryInfo = windows.NewLazySystemDLL("kernel32.dll").NewProc("K32GetProcessMemoryInfo")
 
-// processMemoryCounters is PROCESS_MEMORY_COUNTERS, which x/sys/windows
-// does not define.
 type processMemoryCounters struct {
 	cb                         uint32
 	pageFaultCount             uint32
@@ -42,8 +40,6 @@ func processTable() (map[int]processEntry, error) {
 	return table, nil
 }
 
-// workingSet is the process's resident memory, or zero for a process this
-// one may not open, such as a system service.
 func workingSet(pid uint32) uint64 {
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_VM_READ, false, pid)
 	if err != nil {

@@ -1,4 +1,3 @@
-/** A search result's file row folds its matches and tells a screen reader whether they show. */
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SearchResultFileRow } from "../../../../../src/renderer/components/files/search/result-file-row";

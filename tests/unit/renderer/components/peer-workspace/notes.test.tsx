@@ -1,4 +1,3 @@
-/** Another computer's notes: listed and read through the two read calls, and drawn to read only. */
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import {

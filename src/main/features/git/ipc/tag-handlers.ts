@@ -1,8 +1,3 @@
-/**
- * Tag management handlers — list, create, delete local, and delete remote
- * tags while refreshing RepoCapabilities.tagCount after every mutation.
- */
-
 import type { RemoteTag, Tag } from "../../../../shared/git/types";
 import { ipcContract } from "../../../../shared/ipc/contract";
 import type { CallContext } from "../../../infra/ipc-router";
@@ -11,13 +6,6 @@ import { withRepo } from "./git-result";
 
 const c = ipcContract.git.call;
 
-/**
- * Builds the read-only tag list handler used by ref and tag pickers.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object so the router stays log-silent. The renderer's ipcCallResult path
- * receives this as an IpcErrResult and unwrapGitResult converts it to a thrown Error.
- */
 export function listTagsHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -29,12 +17,6 @@ export function listTagsHandler(
   );
 }
 
-/**
- * Builds the selected-remote tag list handler used only by delete-remote flows.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see listTagsHandler for rationale.
- */
 export function listRemoteTagsHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -46,13 +28,6 @@ export function listRemoteTagsHandler(
   );
 }
 
-/**
- * Builds the create-tag handler. Message presence selects annotated tags in
- * the repository helper; an omitted/empty message creates a lightweight tag.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see listTagsHandler for rationale.
- */
 export function createTagHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -66,12 +41,6 @@ export function createTagHandler(
   );
 }
 
-/**
- * Builds the local tag delete handler.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see listTagsHandler for rationale.
- */
 export function deleteTagHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -81,13 +50,6 @@ export function deleteTagHandler(
   });
 }
 
-/**
- * Builds the remote tag delete handler. The repository method uses helper
- * askpass env because remote deletion is a network push.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see listTagsHandler for rationale.
- */
 export function deleteRemoteTagHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -101,13 +63,6 @@ export function deleteRemoteTagHandler(
   );
 }
 
-/**
- * Builds the bulk tag push handler. The repository method owns the exact
- * `git push [remote] --tags` argv and helper env setup for authentication.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see listTagsHandler for rationale.
- */
 export function pushTagsHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {

@@ -1,8 +1,3 @@
-/**
- * runCli with the real command table over a made-up app: what an agent sees
- * when it asks about workspaces, terminals and sessions, and how a command
- * line it gets wrong is answered.
- */
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";
@@ -26,7 +21,6 @@ async function nexus(argv: string[], app = fakeApp(), invocation = {}) {
   return runCli(CLI_COMMANDS, contextFor(app, argv, undefined, invocation));
 }
 
-/** The arguments of the last request of `op` the command made of the renderer. */
 function lastCall(app: ReturnType<typeof fakeApp>, op: string): unknown {
   return app.uiCalls.filter((c) => c.op === op).at(-1)?.args;
 }
@@ -201,7 +195,6 @@ describe("tabs, browsers and workspaces", () => {
     expect((await nexus(["tab", "close", "--all", "--saved"], app)).exitCode).toBe(2);
   });
 
-  /** The app, with "api" on the SSH host devbox. */
   function sshApp() {
     const app = fakeApp();
     const ssh = {
@@ -222,7 +215,6 @@ describe("tabs, browsers and workspaces", () => {
       workspaceId: API,
       url: "http://localhost:3001/login",
     });
-    // A URL elsewhere is as given.
     await nexus(["browser", "open", "example.com", "--workspace", "api"], app);
     expect(lastCall(app, "browser.open")).toMatchObject({ url: "example.com" });
     app.forwarding.error = new ForwardError("not-connected", "devbox is not connected");
@@ -245,7 +237,6 @@ describe("tabs, browsers and workspaces", () => {
       null,
     ]);
 
-    // A server started outside the terminals, forwarded all the same.
     app.forwarding.forwards[API].push({ remotePort: 9000, localPort: 9000, active: false });
     expect((await nexus(["port", "list", "--workspace", "api"], app)).stdout).toContain(
       "Also forwarded: 9000 at http://localhost:9000 (once reconnected).\n",

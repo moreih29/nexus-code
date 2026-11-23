@@ -1,7 +1,3 @@
-// ---------------------------------------------------------------------------
-// Pure SSH utility functions — exported for unit tests.
-// ---------------------------------------------------------------------------
-
 import type { SshConfigHost } from "./types";
 
 export function parseSshDestination(input: string): { host: string; user?: string } | null {
@@ -53,10 +49,6 @@ export function findSshConfigHost(
   return hosts.find((host) => host.alias === alias) ?? null;
 }
 
-// ---------------------------------------------------------------------------
-// Private helpers
-// ---------------------------------------------------------------------------
-
 function hostHasWhitespace(host: string): boolean {
   return /\s/.test(host);
 }
@@ -89,30 +81,16 @@ export function formatProfileSubtitle(profile: {
   return `${userPrefix}${profile.host}${portSuffix}`;
 }
 
-// ---------------------------------------------------------------------------
-// Path helpers
-// ---------------------------------------------------------------------------
-
-/** Returns the last path segment (folder name) from an absolute path. */
 export function folderName(absPath: string): string {
   const clean = absPath.replace(/[\\/]+$/, "");
   const idx = Math.max(clean.lastIndexOf("/"), clean.lastIndexOf("\\"));
   return idx >= 0 ? clean.slice(idx + 1) : clean;
 }
 
-/**
- * Formats the secondary display line for an SSH connection: `user@host`.
- * Port is intentionally omitted from this short form; use formatSshTooltip
- * for the full path + port in title attributes.
- */
 export function formatSshSecondaryLine(params: { user?: string | null; host: string }): string {
   return params.user ? `${params.user}@${params.host}` : params.host;
 }
 
-/**
- * Formats the full SSH tooltip string: `user@host:port  remotePath`.
- * Port 22 is always included for clarity. Double-space separates host from path.
- */
 export function formatSshTooltip(params: {
   user?: string | null;
   host: string;
@@ -125,16 +103,6 @@ export function formatSshTooltip(params: {
   return `${userPrefix}${host}:${resolvedPort}  ${remotePath}`;
 }
 
-/**
- * @deprecated Use formatSshSecondaryLine for the row subtitle and
- * formatSshTooltip for the title attribute tooltip instead.
- *
- * Formats an SSH remote bookmark's second display line: `user@host:/path`
- * - Port 22 is omitted; non-22 port appended as `user@host:PORT:/path`
- * - Host is middle-truncated in JS when longer than maxHostChars (CSS middle-truncation
- *   is not supported; JS truncation preserves the tail for recognition).
- * - Full untruncated string is also returned as `full` for the title tooltip.
- */
 export function formatRemotePath(params: {
   user?: string | null;
   host: string;
@@ -148,17 +116,12 @@ export function formatRemotePath(params: {
   const portInfix = port && port !== 22 ? `:${port}` : "";
   const full = `${userPrefix}${host}${portInfix}:${remotePath}`;
 
-  // Middle-truncate host if necessary
   const truncatedHost = middleTruncate(host, maxHostChars);
   const display = `${userPrefix}${truncatedHost}${portInfix}:${remotePath}`;
 
   return { display, full };
 }
 
-/**
- * Middle-truncates a string: keeps leading and trailing chars, replaces middle with `…`.
- * Used for long hostnames where the tail (TLD / IP suffix) matters for recognition.
- */
 function middleTruncate(str: string, maxLen: number): string {
   if (str.length <= maxLen) return str;
   const keep = Math.max(4, Math.floor((maxLen - 1) / 2));

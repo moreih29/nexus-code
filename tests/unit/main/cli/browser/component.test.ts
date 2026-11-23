@@ -1,8 +1,3 @@
-/**
- * The component nexus browser pick names for an element: DESCRIBE_COMPONENT
- * run here on stand-ins for what each framework's development build leaves
- * on the DOM node.
- */
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   DESCRIBE_COMPONENT,
@@ -17,7 +12,6 @@ function componentOf(el: object): PickedComponent | null {
   return describeComponent.call(el);
 }
 
-/** A DOM node: its parent, and what a framework set on it. */
 function node(expandos: Record<string, unknown> = {}, parentNode: object | null = null): object {
   return Object.assign({ parentNode }, expandos);
 }
@@ -28,7 +22,6 @@ function App() {}
 function handleSubmit() {}
 
 describe("React", () => {
-  /** The fibers above a <button> LoginForm draws, in AuthPage (forwardRef) in App (memo). */
   function fibers(host: Record<string, unknown>) {
     const app = { type: { $$typeof: Symbol.for("react.memo"), type: App }, return: null };
     const page = {
@@ -147,7 +140,6 @@ describe("Svelte", () => {
   });
 
   test("Svelte 5 counts lines from 1, and names the components it is in", () => {
-    // <Login/> written in Page.svelte, inside an {#each} of App.svelte's.
     const el = node({
       __svelte_meta: {
         loc: { file: "src/Login.svelte", line: 12, column: 4 },

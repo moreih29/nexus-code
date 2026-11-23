@@ -1,4 +1,3 @@
-/** An image's size as its header says, read without decoding it. */
 import { describe, expect, test } from "bun:test";
 import { deflateSync } from "node:zlib";
 import {
@@ -7,7 +6,6 @@ import {
   pixelSizeOf,
 } from "../../../../src/shared/remote/image-size";
 
-/** A PNG header saying `width` by `height`, its pixels left out. */
 function png(width: number, height: number): Buffer {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
@@ -26,7 +24,6 @@ function png(width: number, height: number): Buffer {
   ]);
 }
 
-/** A JPEG with an APP0 segment, then a baseline start of frame. */
 function jpeg(width: number, height: number): Buffer {
   const app0 = Buffer.from([
     0xff,
@@ -69,7 +66,6 @@ function webpX(width: number, height: number): Buffer {
   return b;
 }
 
-/** A BMP header saying `width` by `height`, top down when `height` is below zero. */
 function bmp(width: number, height: number): Buffer {
   const b = Buffer.alloc(54);
   b.write("BM", 0, "ascii");
@@ -104,7 +100,6 @@ describe("an image's size, from its header", () => {
     expect(decodable(jpeg(4032, 3024))).toBe(true);
     expect(decodable(png(8192, 6144))).toBe(true);
     expect(8192 * 6144).toBe(MAX_DECODED_PIXELS);
-    // A small file that says it is 50000 by 50000.
     const bomb = png(50_000, 50_000);
     expect(bomb.length).toBeLessThan(100);
     expect(decodable(bomb)).toBe(false);

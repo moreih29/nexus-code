@@ -1,8 +1,3 @@
-/**
- * Virtualized commit list for the History panel. Paging stays explicit via a
- * button so keyboard and screen-reader position remain stable across chunks.
- */
-
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -18,14 +13,9 @@ const HISTORY_ROW_HEIGHT_PX = 24;
 const HISTORY_LIST_OVERSCAN = 10;
 const HISTORY_GRAPH_LANE_WIDTH_PX = 16;
 const DEFAULT_GRAPH_WIDTH_PX = HISTORY_GRAPH_LANE_WIDTH_PX;
-/**
- * The most of the list's width the graph takes, so a narrow panel keeps room
- * for the other columns; lanes past it are cut off.
- */
 const HISTORY_GRAPH_MAX_WIDTH_FRACTION = 0.4;
 const HISTORY_LIST_BREAKPOINT_DEBOUNCE_MS = 100;
 
-/** Widths of the room beside the graph; below each one the rows drop to that density. */
 export const HISTORY_LIST_BREAKPOINT_COMPACT = 220;
 export const HISTORY_LIST_BREAKPOINT_NARROW = 320;
 export const HISTORY_LIST_BREAKPOINT_MEDIUM = 480;
@@ -59,7 +49,6 @@ type HistoryListCssVars = React.CSSProperties & {
   "--graph-w": string;
 };
 
-/** Renders current search/log entries and the explicit Load 50 more control. */
 export function HistoryList({
   entries,
   selectedSha,
@@ -232,8 +221,6 @@ export function HistoryList({
           width={resolvedGraphWidthPx}
           fadeRightEdge={resolvedGraphWidthPx < fullGraphWidthPx}
           className="z-0"
-          // Past the selected row's bar, which would cover the HEAD ring's edge;
-          // the row's padding leaves the room.
           style={GRAPH_CANVAS_STYLE}
         />
       ) : null}
@@ -300,10 +287,6 @@ export function HistoryList({
   );
 }
 
-/**
- * Observes the scroll container and returns the density breakpoint for history
- * rows, from the room they have beside a graph `graphWidthPx` wide.
- */
 export function useHistoryListBreakpoint(
   scrollRef: React.RefObject<HTMLElement | null>,
   graphWidthPx = 0,
@@ -320,7 +303,6 @@ export function useHistoryListBreakpoint(
 
     let pendingTimer: ReturnType<typeof setTimeout> | null = null;
 
-    /** Debounces non-zero width measurements so hidden panels keep their last density. */
     function scheduleBreakpointUpdate(widthPx: number): void {
       if (widthPx <= 0) return;
       if (pendingTimer !== null) clearTimeout(pendingTimer);
@@ -357,12 +339,10 @@ export function useHistoryListBreakpoint(
   return listWidthPx === null ? "medium" : widthToHistoryListBreakpoint(listWidthPx - graphWidthPx);
 }
 
-/** Tracks the list's width, keeping the last one while the panel is hidden. */
 function useListWidth(scrollRef: React.RefObject<HTMLElement | null>): number {
   const [widthPx, setWidthPx] = useState(0);
   const observedRef = useRef<{ element: HTMLElement; observer: ResizeObserver } | null>(null);
 
-  // Runs after every render: the list mounts its scroll element only once it has rows.
   useEffect(() => {
     const element = scrollRef.current;
     if (observedRef.current?.element === element) return;
@@ -389,7 +369,6 @@ function useListWidth(scrollRef: React.RefObject<HTMLElement | null>): number {
   return widthPx;
 }
 
-/** Limits the graph to its share of the list, never below one lane. */
 export function capGraphWidth(graphWidthPx: number, listWidthPx: number): number {
   if (listWidthPx <= 0) return graphWidthPx;
   const maxWidthPx = Math.max(
@@ -404,7 +383,6 @@ interface HistoryListBreakpointObserver {
   readonly cleanup: () => void;
 }
 
-/** Converts the room beside the graph into the row density bucket. */
 function widthToHistoryListBreakpoint(widthPx: number): HistoryListBreakpoint {
   if (widthPx < HISTORY_LIST_BREAKPOINT_COMPACT) return "compact";
   if (widthPx < HISTORY_LIST_BREAKPOINT_NARROW) return "narrow";
@@ -412,7 +390,6 @@ function widthToHistoryListBreakpoint(widthPx: number): HistoryListBreakpoint {
   return "wide";
 }
 
-/** Reads ResizeObserver width while tolerating older contentRect-only implementations. */
 function resizeEntryWidth(entry: ResizeObserverEntry): number {
   const borderBoxSize = Array.isArray(entry.borderBoxSize)
     ? entry.borderBoxSize[0]
@@ -420,12 +397,10 @@ function resizeEntryWidth(entry: ResizeObserverEntry): number {
   return borderBoxSize?.inlineSize ?? entry.contentRect.width;
 }
 
-/** Computes the graph column width from every lane currently known by the reducer. */
 function graphWidthFromLaneState(laneState: LaneState): number {
   return Math.max(1, getRightmostLane(laneState) + 1) * HISTORY_GRAPH_LANE_WIDTH_PX;
 }
 
-/** Finds the largest lane index present in nodes, edges, or open streaming lanes. */
 function getRightmostLane(laneState: LaneState): number {
   let rightmostLane = laneState.openLanes.length - 1;
   for (const lane of laneState.laneByCommit.values()) rightmostLane = Math.max(rightmostLane, lane);
@@ -436,29 +411,24 @@ function getRightmostLane(laneState: LaneState): number {
   return rightmostLane;
 }
 
-/** Suppresses the legacy row dot once Canvas owns graph visuals. */
 function graphFallback(laneState: LaneState | undefined): React.ReactNode {
   return laneState ? false : undefined;
 }
 
-/** Renders a muted empty/loading list state. */
 function HistoryListMessage({ children }: { children: React.ReactNode }) {
   return <div className="p-4 text-app-ui-sm text-muted-foreground">{children}</div>;
 }
 
-/** Keeps a row index valid as pages are replaced or appended. */
 function clampHistoryIndex(index: number, count: number): number {
   if (count <= 0) return 0;
   return Math.max(0, Math.min(count - 1, index));
 }
 
-/** Converts the visible scroll height into the number of fixed-height rows per page jump. */
 function getPageJumpSize(scrollElement: HTMLElement | null, rowHeightPx: number): number {
   if (!scrollElement) return 1;
   return Math.max(1, Math.floor(scrollElement.clientHeight / rowHeightPx));
 }
 
-/** Detects editable descendants so list navigation never steals typing keys. */
 function isEditableKeyTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;

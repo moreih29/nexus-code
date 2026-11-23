@@ -1,11 +1,3 @@
-// What a chat tab shows of its profile: its dot and name after the tab's
-// title, and under the composer a chip that tells the account, the folder
-// and the rule that gave it, and moves the tab to another profile: its
-// conversation goes on there (a copy; the old profile keeps the session),
-// or a new one starts. In a narrow tab the chip is the dot alone, its name
-// told on hover.
-// Neither shows while the agent has only its default profile.
-
 import { Square } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -37,7 +29,6 @@ export function TabProfileMark({
 }: {
   agent: ChatAgent;
   profileId?: string;
-  /** Over the name's own, as to hide it where there is no room: the dot then tells it on hover. */
   nameClassName?: string;
 }) {
   const { t } = useTranslation();
@@ -57,11 +48,6 @@ export function TabProfileMark({
   );
 }
 
-/**
- * What a chat tab has going, for moving it to another profile: a
- * conversation, one with a turn under way, or none yet (the recent
- * sessions show).
- */
 export type TabUse = "empty" | "conversation" | "running";
 
 export function ProfileUsageChip({
@@ -77,9 +63,7 @@ export function ProfileUsageChip({
   workspaceId: string;
   profileId?: string;
   use: TabUse;
-  /** Starts the tab over in a new conversation with another profile. */
   onSwitch: (profileId: string) => void;
-  /** Goes on with the tab's conversation in another profile. */
   onContinue: (profileId: string) => void;
   compact?: boolean;
 }) {
@@ -109,7 +93,6 @@ export function ProfileUsageChip({
       : status?.state === "signed-out"
         ? t("tabBar.profile_signed_out")
         : undefined;
-  // An SSH host's default folder is its own, which only its agent knows.
   const folder = isDefaultProfileId(profile.id)
     ? local
       ? localDefault
@@ -122,8 +105,6 @@ export function ProfileUsageChip({
   const others = profilesOf(config, agent).filter((p) => p.id !== profile.id);
   const name = profileName(profile, t);
 
-  // Nothing asks first: picking a profile here is the user's mind made up,
-  // and neither way loses the conversation, which the old profile keeps.
   const conversation = use !== "empty";
   const pick = (id: string, fresh: boolean) => {
     setOpen(false);

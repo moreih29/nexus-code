@@ -1,12 +1,3 @@
-/**
- * claude-wrapper.sh tests.
- *
- * Each test puts a fake `claude` on PATH, runs the wrapper under bash and
- * checks the settings it writes or which claude it execs. In-app runs also
- * need a listening Unix socket at NEXUS_AGENT_SOCKET; the generated settings
- * JSON is captured through NEXUS_CAPTURE_SETTINGS_TO.
- */
-
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -16,8 +7,6 @@ import path from "node:path";
 
 const WRAPPER_PATH = path.resolve(import.meta.dir, "../../../scripts/assets/claude-wrapper.sh");
 
-// The wrapper runs under bash where claude does: macOS and Linux, locally or
-// on an SSH host, and Git Bash on Windows, which has its own tests below.
 const describeOnPosix = describe.skipIf(process.platform === "win32");
 const GIT_BASH = path.join(
   process.env.ProgramFiles ?? "C:\\Program Files",
@@ -74,10 +63,6 @@ let tmpDir: string;
 let socketServer: net.Server;
 let socketPath: string;
 
-/**
- * Creates a fake claude executable at tmpDir/bin/claude.
- * When the wrapper execs it, this script runs and exits 0 immediately.
- */
 function createFakeClaude(binDir: string): void {
   fs.mkdirSync(binDir, { recursive: true });
   const fakePath = path.join(binDir, "claude");
@@ -85,10 +70,6 @@ function createFakeClaude(binDir: string): void {
   fs.chmodSync(fakePath, 0o755);
 }
 
-/**
- * Runs the wrapper script and returns the generated settings JSON.
- * Sets NEXUS_CAPTURE_SETTINGS_TO to a capture path and reads the file copied before exec.
- */
 function runWrapper(hookBin: string): {
   exitCode: number;
   settings: unknown;
@@ -99,12 +80,10 @@ function runWrapper(hookBin: string): {
 
   const capturePath = path.join(tmpDir, "captured-settings.json");
 
-  // Remove any existing capture file (avoids contamination across repeated calls)
   if (fs.existsSync(capturePath)) {
     fs.unlinkSync(capturePath);
   }
 
-  // Create a fake hook binary file (it must be executable to pass the HOOK_BIN check)
   const hookBinDir = path.dirname(hookBin);
   fs.mkdirSync(hookBinDir, { recursive: true });
   if (!fs.existsSync(hookBin)) {
@@ -147,7 +126,6 @@ function runWrapper(hookBin: string): {
 beforeEach(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-wrapper-test-"));
 
-  // Create a Unix domain socket (satisfies the -S check)
   socketPath = path.join(tmpDir, "agent.sock");
   socketServer = net.createServer();
   await new Promise<void>((resolve) => {
@@ -163,15 +141,8 @@ afterEach(async () => {
 });
 
 describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
-  /**
-   * Acceptance 1: when NEXUS_AGENT_BIN is set, the command field in settings.json
-   * records the literal "${NEXUS_AGENT_BIN}" hook <sub> form.
-   * (The variable reference must be stored as is, not the path itself.)
-   */
   // biome-ignore lint/suspicious/noTemplateCurlyInString: the test is about the literal ${NEXUS_AGENT_BIN} text.
   test("NEXUS_AGENT_BIN 설정 시 settings.json command 필드에 리터럴 ${NEXUS_AGENT_BIN}이 포함된다", () => {
-    // A path with a space: the command must quote the variable, because the
-    // shell that runs the hook expands it.
     const hookBin = path.join(tmpDir, "agent bin path", "agent-darwin");
     const { exitCode, settings, parseError } = runWrapper(hookBin);
 
@@ -186,12 +157,9 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
       const eventKey = toHookKey(event);
       const cmd = (hooks[eventKey] as Array<{ hooks: Array<{ command: string }> }>)[0].hooks[0]
         .command;
-      // The command must contain the literal variable reference (not the expanded real path).
       expect(cmd).toBe(`"\${NEXUS_AGENT_BIN}" hook ${event}`);
     }
 
-    // Claude Code's worktrees are made and removed as the app's tasks; each
-    // waits for the task, so the hooks get the task's time.
     expect(hooks.WorktreeCreate).toEqual([
       {
         hooks: [
@@ -215,8 +183,6 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
       },
     ]);
 
-    // The note on nexus: a second SessionStart hook, run in step so its
-    // output reaches the session as context.
     const sessionStart = (hooks.SessionStart as Array<{ hooks: unknown[] }>)[0].hooks;
     expect(sessionStart[1]).toEqual({
       type: "command",
@@ -224,18 +190,12 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
       timeout: 10,
     });
 
-    // SendMessage's own PreToolUse hook, waited on: it refuses a message to
-    // a Remote Control session, which the nexus CLI sends instead.
     expect((hooks.PreToolUse as unknown[])[1]).toEqual({
       matcher: "SendMessage",
       hooks: [{ type: "command", command: `"\${NEXUS_AGENT_BIN}" hook send-message`, timeout: 5 }],
     });
   });
 
-  /**
-   * Acceptance 2: when NEXUS_AGENT_BIN is unset, a warning goes to stderr, no
-   * settings file is created, and the real claude is exec'd.
-   */
   test("NEXUS_AGENT_BIN 미설정 시 stderr 경고 출력 + settings 주입 없이 passthrough한다", () => {
     const fakeBinDir = path.join(tmpDir, "bin");
     createFakeClaude(fakeBinDir);
@@ -247,7 +207,6 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
         NEXUS_IN_APP: "1",
         NEXUS_AGENT_SOCKET: socketPath,
         NEXUS_HOOK_TOKEN: "test-token-abc",
-        // NEXUS_AGENT_BIN is unset
         NEXUS_CAPTURE_SETTINGS_TO: capturePath,
         PATH: `${fakeBinDir}:${process.env["PATH"] ?? ""}`,
       },
@@ -255,18 +214,14 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
       encoding: "utf8",
     });
 
-    // Passes through to the real claude (fake), so exit 0
     expect(result.status).toBe(0);
-    // No settings file should be created
     expect(fs.existsSync(capturePath)).toBe(false);
-    // stderr should contain the warning text
     expect(result.stderr).toContain("NEXUS_AGENT_BIN is not set");
     expect(result.stderr).toContain("hook injection skipped");
   });
 });
 
 describeOnPosix("claude-wrapper.sh — the settings file", () => {
-  /** Runs the wrapper with a claude that prints the --settings path it got. */
   function launch(
     home: string | undefined,
     env: Record<string, string> = {},
@@ -341,7 +296,6 @@ describeOnPosix("claude-wrapper.sh — the settings file", () => {
 });
 
 describeOnPosix("claude-wrapper.sh — claude's arguments", () => {
-  /** Runs the wrapper with `args` and a claude that prints the arguments it got, one a line. */
   function argsGiven(args: string[]): string[] {
     const binDir = path.join(tmpDir, "bin");
     fs.mkdirSync(binDir, { recursive: true });
@@ -366,9 +320,6 @@ describeOnPosix("claude-wrapper.sh — claude's arguments", () => {
     return result.stdout.split("\n").filter((line) => line !== "");
   }
 
-  // Claude Code refuses --session-id with --continue or --resume ("--session-id
-  // can only be used with --continue or --resume if --fork-session is also
-  // specified"), so in the app's terminals neither could pick a session up.
   test("gives claude the hooks and the user's arguments, and no session id", () => {
     for (const args of [[], ["--continue"], ["-r", "abc"], ["--resume"], ["-p", "hi there"]]) {
       const given = argsGiven(args);
@@ -379,7 +330,6 @@ describeOnPosix("claude-wrapper.sh — claude's arguments", () => {
 });
 
 describeOnPosix("claude-wrapper.sh — a `claude -p` run", () => {
-  /** Runs the wrapper with `args`, and a claude that prints the mark of a print run its hooks read. */
   function printMark(args: string[], env: Record<string, string> = {}): string {
     const binDir = path.join(tmpDir, "bin");
     fs.mkdirSync(binDir, { recursive: true });
@@ -406,7 +356,6 @@ describeOnPosix("claude-wrapper.sh — a `claude -p` run", () => {
     return result.stdout;
   }
 
-  // Claude Code waits on a print run's PermissionRequest hook, which no dialog answers.
   test("marks a print run, so its permission requests are answered at once", () => {
     expect(printMark(["-p", "hi"])).toBe("1");
     expect(printMark(["--model", "opus", "--print", "hi"])).toBe("1");
@@ -415,7 +364,6 @@ describeOnPosix("claude-wrapper.sh — a `claude -p` run", () => {
   test("leaves an interactive claude unmarked, whatever it inherits", () => {
     expect(printMark([])).toBe("0");
     expect(printMark(["--continue"], { NEXUS_CLAUDE_PRINT: "1" })).toBe("0");
-    // Past `--`, a "-p" is the prompt.
     expect(printMark(["--", "-p"])).toBe("0");
   });
 
@@ -429,11 +377,6 @@ describeOnPosix("claude-wrapper.sh — a `claude -p` run", () => {
 });
 
 describeOnPosix("claude-wrapper.sh — a claude inside the tab's Claude session", () => {
-  /**
-   * Runs the wrapper for tab t1 with `env` and `args`, and a claude that
-   * prints whether it got hooks and the mark its own processes carry; an
-   * agent that prints how it was run.
-   */
   function launch(
     env: Record<string, string>,
     args: string[] = ["-p", "hi"],
@@ -473,7 +416,6 @@ describeOnPosix("claude-wrapper.sh — a claude inside the tab's Claude session"
     expect(launch({})).toMatchObject({ hooks: true, mark: "t1" });
   });
 
-  // As claude run by Claude's Bash tool: its hooks would report it as the tab's session.
   test("a claude run by it gets none", () => {
     expect(launch({ NEXUS_CLAUDE_TAB_ID: "t1" }, ["hi"])).toMatchObject({
       hooks: false,
@@ -481,7 +423,6 @@ describeOnPosix("claude-wrapper.sh — a claude inside the tab's Claude session"
     });
   });
 
-  // As `claude -p` run by an offload script: the app tells it as one of the session's agents.
   test("a `claude -p` run by it runs under the agent, which tells the app of it", () => {
     const run = launch({ NEXUS_CLAUDE_TAB_ID: "t1" }, [
       "-p",
@@ -498,7 +439,6 @@ describeOnPosix("claude-wrapper.sh — a claude inside the tab's Claude session"
     ).toMatchObject({ hooks: false, mark: "t1" });
   });
 
-  // A terminal an older app started names its older agent, which has no print-run.
   test("a `claude -p` run by it runs alone when its agent cannot run it", () => {
     expect(launch({ NEXUS_CLAUDE_TAB_ID: "t1", NEXUS_AGENT_PRINT_RUN: "" })).toMatchObject({
       hooks: false,
@@ -506,21 +446,13 @@ describeOnPosix("claude-wrapper.sh — a claude inside the tab's Claude session"
     });
   });
 
-  // A terminal of an app started from inside a Claude session in another tab.
   test("a mark of another tab is not the tab's session", () => {
     expect(launch({ NEXUS_CLAUDE_TAB_ID: "t0" })).toMatchObject({ hooks: true, mark: "t1" });
   });
 });
 
 describeOnPosix("claude-wrapper.sh — 다른 wrapper 회피 (무한 루프 방지)", () => {
-  /**
-   * Scenario: when cmux and our wrapper are both on PATH, find_real_claude must not
-   * mistake the other wrapper for the real claude and fall into an infinite exec loop.
-   * If it finds the magic marker ("nexus-code claude wrapper" / "cmux claude wrapper")
-   * in the first 5 header lines, it must skip that candidate and move on to the next.
-   */
   test("PATH 에 wrapper 마커 후보가 있어도 진짜 claude 까지 fall-through 한다", () => {
-    // A fake wrapper carrying a cmux-style marker.
     const fakeWrapperDir = path.join(tmpDir, "fake-cmux-bin");
     fs.mkdirSync(fakeWrapperDir, { recursive: true });
     const fakeWrapperPath = path.join(fakeWrapperDir, "claude");
@@ -530,17 +462,12 @@ describeOnPosix("claude-wrapper.sh — 다른 wrapper 회피 (무한 루프 방�
     );
     fs.chmodSync(fakeWrapperPath, 0o755);
 
-    // Stands in for the real claude, with no marker.
     const realDir = path.join(tmpDir, "real-bin");
     fs.mkdirSync(realDir, { recursive: true });
     const realPath = path.join(realDir, "claude");
     fs.writeFileSync(realPath, "#!/usr/bin/env bash\necho REAL_CLAUDE_CALLED\nexit 0\n");
     fs.chmodSync(realPath, 0o755);
 
-    // NEXUS_IN_APP is unset → our wrapper runs in passthrough mode.
-    // Even if fake-cmux comes before real in PATH, the marker check must skip it.
-    // PATH must also include /bin and /usr/bin so the external commands head and grep work
-    // inside the wrapper.
     const result = spawnSync("bash", [WRAPPER_PATH], {
       env: {
         PATH: `${fakeWrapperDir}:${realDir}:/bin:/usr/bin`,
@@ -556,20 +483,13 @@ describeOnPosix("claude-wrapper.sh — 다른 wrapper 회피 (무한 루프 방�
 });
 
 describeOnPosix("claude-wrapper.sh — NEXUS_WRAPPER_SELF_DIR SSH 시나리오", () => {
-  /**
-   * Acceptance 3: when NEXUS_WRAPPER_SELF_DIR is set to /home/u/.nexus-code/bin (an SSH path),
-   * find_real_claude skips that directory as self and picks the next candidate.
-   */
   test("NEXUS_WRAPPER_SELF_DIR 설정 시 해당 디렉터리의 claude를 self로 skip한다", () => {
-    // Place a fake claude without a wrapper marker in a directory that looks like an SSH deploy path.
-    // (In practice this path is self_dir and must be skipped.)
     const sshBinDir = path.join(tmpDir, "home", "u", ".nexus-code", "bin");
     fs.mkdirSync(sshBinDir, { recursive: true });
     const sshClaude = path.join(sshBinDir, "claude");
     fs.writeFileSync(sshClaude, "#!/usr/bin/env bash\necho SSH_SELF_CALLED\nexit 0\n");
     fs.chmodSync(sshClaude, 0o755);
 
-    // The real claude that should actually be selected.
     const realDir = path.join(tmpDir, "usr", "local", "bin");
     fs.mkdirSync(realDir, { recursive: true });
     const realClaude = path.join(realDir, "claude");
@@ -578,7 +498,6 @@ describeOnPosix("claude-wrapper.sh — NEXUS_WRAPPER_SELF_DIR SSH 시나리오",
 
     const result = spawnSync("bash", [WRAPPER_PATH], {
       env: {
-        // Set NEXUS_WRAPPER_SELF_DIR to sshBinDir to force the self skip
         NEXUS_WRAPPER_SELF_DIR: sshBinDir,
         PATH: `${sshBinDir}:${realDir}:/bin:/usr/bin`,
       },
@@ -611,9 +530,6 @@ describeInGitBash("claude-wrapper.sh — Git Bash on Windows", () => {
     return { exitCode: result.status, injected: fs.existsSync(capturePath) };
   }
 
-  // Git Bash sees the agent's AF_UNIX socket as a plain file. Its first start
-  // on a runner may take longer than a test's 5 seconds: the test waits as
-  // long as the run may take, and more.
   test("takes the agent's socket, a plain file to it, for the app's", () => {
     const socket = path.join(tmpDir, "h-test.sock");
     fs.writeFileSync(socket, "");
@@ -628,9 +544,6 @@ describeInGitBash("claude-wrapper.sh — Git Bash on Windows", () => {
   }, 20_000);
 });
 
-/**
- * Converts the hook event name ("session-start") to the JSON key ("SessionStart").
- */
 function toHookKey(event: (typeof HOOK_EVENT_NAMES)[number]): string {
   const map: Record<(typeof HOOK_EVENT_NAMES)[number], string> = {
     "session-start": "SessionStart",

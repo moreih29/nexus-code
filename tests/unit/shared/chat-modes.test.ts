@@ -4,7 +4,6 @@ import type { ChatAgent } from "../../../src/shared/sessions/task-agent";
 
 describe("grants", () => {
   const rows: [ChatAgent, string | undefined, string[], string[]][] = [
-    // Caller, mode, permitted Claude modes, permitted Codex modes.
     ["claude", "plan", ["plan"], ["readOnly"]],
     ["claude", "default", ["plan", "default"], ["readOnly"]],
     ["claude", "acceptEdits", ["plan", "default", "acceptEdits"], ["readOnly", "auto"]],

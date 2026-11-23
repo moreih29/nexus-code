@@ -1,9 +1,3 @@
-/**
- * The ssh2 client against an in-process ssh2 server: host-key trust, the
- * authentication prompts, and commands sharing one connection as they would
- * a ControlMaster.
- */
-
 import { afterEach, describe, expect, it, setDefaultTimeout } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
@@ -20,15 +14,8 @@ import {
 import { addHostKey, knownHostName } from "../../../../src/main/infra/agent/ssh/ssh2/known-hosts";
 import type { SshAuthPrompt, SshAuthResponse } from "../../../../src/shared/ssh/auth-prompt";
 
-// ssh2 runs its handshake crypto in JavaScript: on a loaded runner, a test
-// that connects twice takes longer than the 5s default.
 setDefaultTimeout(30_000);
 
-/**
- * An ed25519 key pair ssh2 can read back. About one pair in 256 has a public
- * key that starts with a zero byte, which ssh2's generator drops: it then
- * writes a 31-byte key that it rejects as malformed.
- */
 function generateHostKey(): ReturnType<typeof utils.generateKeyPairSync> {
   for (;;) {
     const pair = utils.generateKeyPairSync("ed25519");
@@ -41,16 +28,12 @@ const OTHER_HOST_KEY = generateHostKey();
 
 interface TestServer {
   readonly port: number;
-  /** Connections that authenticated. */
   readonly sessions: () => number;
-  /** Sessions that asked to forward the agent. */
   readonly agentRequests: () => number;
-  /** Ends every connection; resolves once the client side has had time to see it. */
   dropAll(): Promise<void>;
   close(): Promise<void>;
 }
 
-/** Serves `password` (or a one-time code) and a few test commands. */
 function startServer(auth: { password?: string; code?: string }): Promise<TestServer> {
   const clients = new Set<Connection>();
   let sessions = 0;
@@ -118,16 +101,10 @@ function startServer(auth: { password?: string; code?: string }): Promise<TestSe
           );
           for (const client of clients) client.end();
           await Promise.all(closed);
-          // The server closes its side first; the master learns of the drop
-          // only after it reads the FIN. A zero or 1 ms wait still failed a few
-          // runs in a hundred under parallel load; 10 ms did not.
           await new Promise((resolve) => setTimeout(resolve, 10));
         },
         close: async () => {
           for (const client of clients) client.end();
-          // Not waited for: under load, Bun can keep an accepted socket the
-          // client has closed neither open nor destroyed, and close() would
-          // wait on it for good.
           server.close();
         },
       });
@@ -182,7 +159,6 @@ async function setup(
   return { server, knownHosts, prompts, answers, handler, dependencies, target };
 }
 
-/** Runs `ssh … command` on the control path; resolves its output and exit code. */
 function run(controlPath: string, command: string, input?: string) {
   const child = spawnSsh2Process(
     "ssh",
@@ -320,7 +296,6 @@ describe("ssh2 control master", () => {
   });
 
   it("asks the host to forward the agent for ForwardAgent, and not otherwise", async () => {
-    // Never reached: the test host only records the request.
     const agent =
       process.platform === "win32"
         ? "\\\\.\\pipe\\nexus-test-agent"

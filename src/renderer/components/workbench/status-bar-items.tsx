@@ -1,9 +1,3 @@
-// status-bar-items.tsx — The status bar's parts that a workspace on another
-// computer shows too: the plain item, the branch's label and its "no git"
-// stand-in, and the changes segment from its counts. Kept apart from the
-// local bar, which also switches branches, so they bring nothing that
-// writes.
-
 import type { TFunction } from "i18next";
 import {
   FileCheck,
@@ -17,10 +11,6 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { BranchInfo } from "../../../shared/git/types";
 
-/**
- * The branch as the bar writes it: its name and how far it is ahead of and
- * behind its upstream, or that it has no commits yet.
- */
 export function branchLabel(
   {
     current,
@@ -34,7 +24,6 @@ export function branchLabel(
   return isUnborn ? `${current} (${t("statusBar.no_commits")})` : `${current}${aheadBehind}`;
 }
 
-/** The dimmed "no git" (or "git not installed") stand-in for the branch. */
 export function NoGitSegment({ gitMissing = false }: { gitMissing?: boolean }): React.JSX.Element {
   const { t } = useTranslation();
   return (
@@ -50,7 +39,6 @@ export function NoGitSegment({ gitMissing = false }: { gitMissing?: boolean }): 
   );
 }
 
-/** How many files are in each state: a file staged and changed again counts in both. */
 export interface ChangeCounts {
   conflict: number;
   staged: number;
@@ -58,11 +46,6 @@ export interface ChangeCounts {
   untracked: number;
 }
 
-/**
- * The changes segment from its counts: the tokens that are not zero, none at
- * all in a clean tree, as one button that opens Source Control. `note` is
- * told after the counts in its tooltip.
- */
 export function ChangeCountsSegment({
   counts,
   onOpen,
@@ -77,11 +60,8 @@ export function ChangeCountsSegment({
   const untrackedCount = counts.untracked;
   const totalCount = stagedCount + workingCount + untrackedCount + conflictCount;
 
-  // Clean tree — hide the whole segment so the bar reads "quiet" on idle.
   if (totalCount === 0) return null;
 
-  // Tokens, in render order. Conflicts lead so the most urgent state is
-  // the first thing the eye reaches after the branch name.
   const tokens: Array<{
     key: string;
     Icon: LucideIcon;
@@ -151,18 +131,10 @@ export function ChangeCountsSegment({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Shared StatusBarItem primitive
-// ---------------------------------------------------------------------------
-
 interface StatusBarItemProps {
   children: React.ReactNode;
   className?: string;
   title?: string;
-  /**
-   * Set to true only for segments that have an onClick — hover affordance
-   * should not appear on non-interactive segments (C-3: no false signifier).
-   */
   interactive?: boolean;
 }
 

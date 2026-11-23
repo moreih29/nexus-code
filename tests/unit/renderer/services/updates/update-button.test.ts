@@ -40,7 +40,6 @@ describe("updateButtonOf", () => {
       version: "1.1.0",
       percent: 33,
     });
-    // Progress of another version, or of an unknown size, tells nothing.
     expect(updateButtonOf(downloading, { ...progress, version: "1.0.9" }, null)).not.toHaveProperty(
       "percent",
     );

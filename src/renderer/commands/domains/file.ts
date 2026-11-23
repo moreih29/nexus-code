@@ -1,10 +1,3 @@
-/**
- * File-domain commands: open, save, refresh, open-to-side.
- *
- * `register()` returns the array of unregister callbacks so the hook
- * that mounts the global listener can compose them with the others.
- */
-
 import i18next from "i18next";
 import { toSlashPath } from "../../../shared/fs/drive-path";
 import { COMMANDS } from "../../../shared/keybindings/commands";
@@ -34,21 +27,8 @@ import { fsErrorReason } from "../../utils/file-error";
 import { isWithinWorkspace, relPath } from "../../utils/path";
 import { getActiveTabContext } from "../context";
 
-// ---------------------------------------------------------------------------
-// Shared preamble helpers
-// ---------------------------------------------------------------------------
-
-/** A resolved { relPath, absPath } pair used by clipboard commands. */
 type ClipboardEntry = { relPath: string; absPath: string };
 
-/**
- * Resolves the active workspace id, its file tree, the operable
- * (non-root, known-node) paths, and the corresponding clipboard entries,
- * then calls `handler` with the resolved data.
- *
- * Returns without calling `handler` when any precondition fails (no active
- * workspace, no tree, or the filtered path list is empty).
- */
 function withFocusedTreePaths(
   handler: (ctx: {
     wsId: string;
@@ -73,14 +53,6 @@ function withFocusedTreePaths(
   handler({ wsId, tree, absPaths, entries });
 }
 
-/**
- * Resolves the active workspace id, its file tree, and the focused single
- * path (via `selectFocus`), then calls `handler` with the resolved data.
- *
- * Returns without calling `handler` when any precondition fails (no active
- * workspace, no focused path, no tree, or the focused path is the workspace
- * root).
- */
 function withFocusedSinglePath(
   handler: (ctx: { wsId: string; tree: WorkspaceTree; path: string }) => void,
 ): void {
@@ -93,11 +65,6 @@ function withFocusedSinglePath(
   if (!tree || path === tree.rootAbsPath) return;
   handler({ wsId, tree, path });
 }
-
-// ---------------------------------------------------------------------------
-// Parameterized clipboard action — copy and cut share identical logic except
-// for the clipboard service call and the toast message.
-// ---------------------------------------------------------------------------
 
 function makeClipboardCommand(
   action: typeof handleCopy | typeof handleCut,
@@ -115,9 +82,6 @@ function makeClipboardCommand(
 
 export function registerFileCommands(): Array<() => void> {
   return [
-    // ⌘N — open a new untitled buffer in the active workspace's active
-    // group. No-op when no workspace is active so the shortcut never
-    // surfaces a confusing error state. Mirrors VSCode's File ▸ New File.
     registerCommand(COMMANDS.fileNew, () => {
       const wsId = useActiveStore.getState().activeWorkspaceId;
       if (!wsId) return;
@@ -135,12 +99,6 @@ export function registerFileCommands(): Array<() => void> {
       if (!wsId) return;
       const path = selectFocus(useFilesStore.getState(), wsId);
       if (!path) return;
-      // Mirror the file-tree's local "open in side split" — the
-      // explorer publishes the active row's absPath to the store so
-      // this handler can act without seeing the tree's component
-      // state. Directories are filtered here (not in the file-tree)
-      // because the global dispatcher fires regardless of the row's
-      // node type.
       const tree = useFilesStore.getState().trees.get(wsId);
       const node = tree?.nodes.get(path);
       if (!node || node.type !== "file") return;
@@ -150,11 +108,7 @@ export function registerFileCommands(): Array<() => void> {
       );
     }),
 
-    // F2 — enter inline rename of the current row while the file tree has focus.
-    // No-op if activeAbsPath is the root or missing. While the rename input is open, the
-    // when:"!inputFocus" condition blocks it, so it never reaches this handler.
     registerCommand(COMMANDS.fileRename, () => {
-      // The workspace root cannot be renamed (same guard as inside startRename)
       withFocusedSinglePath(({ path }) => {
         useFilesStore.getState().requestRename(path);
       });
@@ -163,16 +117,11 @@ export function registerFileCommands(): Array<() => void> {
     registerCommand(COMMANDS.fileOpen, async () => {
       const wsId = useActiveStore.getState().activeWorkspaceId;
       if (!wsId) return;
-      // No filters: the first filter is the dialog's default on Windows and
-      // Linux, and the editor opens any text file.
       const { canceled, filePaths } = unwrapIpcResult(
         await ipcCallResult("dialog", "showOpenFile", {}),
       );
       if (canceled || filePaths.length === 0) return;
       const filePath = toSlashPath(filePaths[0]);
-      // The agent resolves workspace paths under the root, so a file picked
-      // elsewhere opens read-only through the external loader instead of
-      // failing with NOT_FOUND.
       const rootPath = useWorkspacesStore
         .getState()
         .workspaces.find((w) => w.id === wsId)?.rootPath;
@@ -202,7 +151,6 @@ export function registerFileCommands(): Array<() => void> {
         });
         return;
       }
-      // A diff against the working tree saves the file it edits.
       const filePath =
         tab.type === "editor"
           ? tab.props.filePath
@@ -213,10 +161,6 @@ export function registerFileCommands(): Array<() => void> {
       runSaveAndReport({ workspaceId: ctx.wsId, filePath });
     }),
 
-    // File clipboard — copy/cut/paste scoped to file-tree focus.
-    // Phase D: selectOperablePaths returns the full multi-selection after
-    // distinctParents, so keybinding gestures work on N items just like the
-    // context-menu copy/cut actions. Root path is filtered; no-op if empty.
     registerCommand(
       COMMANDS.fileCopy,
       makeClipboardCommand(handleCopy, "files:fileTree.clipboard.copied"),
@@ -231,18 +175,12 @@ export function registerFileCommands(): Array<() => void> {
     registerCommand(COMMANDS.fileMoveHere, () => {
       handlePaste().catch(() => {});
     }),
-    // Enter-triggered rename — Mac only (scoped by when: "isMac").
     registerCommand(COMMANDS.fileRenameByEnter, () => {
       withFocusedSinglePath(({ path }) => {
         useFilesStore.getState().requestRename(path);
       });
     }),
 
-    // Cmd+Backspace — delete the current row(s) while the file tree has focus (macOS Finder parity).
-    //   local workspace: move to the trash (recoverable).
-    //   SSH workspace: there is no remote trash, so delete permanently (confirm-delete branches itself).
-    // The when:"fileTreeFocus && !inputFocus" condition blocks firing at the dispatcher level
-    // while typing in an edit-row input. The handler also keeps the root / missing-node guard.
     registerCommand(COMMANDS.fileDelete, () => {
       withFocusedTreePaths(({ wsId, tree, absPaths }) => {
         confirmAndDeleteBatch(wsId, tree.rootAbsPath, absPaths).catch(() => {});

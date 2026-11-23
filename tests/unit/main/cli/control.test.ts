@@ -1,7 +1,3 @@
-/**
- * nexus reaching past its own workspace and waiting on other terminals:
- * the user's leave for changes elsewhere, and terminal wait and send --wait.
- */
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";
@@ -39,7 +35,6 @@ describe("changing another workspace", () => {
         fromWorkspaceId: APP,
         fromTabId: SHELL_TAB,
         toWorkspaceId: API,
-        // What would be typed, Enter and all, shown whole.
         change: { kind: "terminalInput", detail: "codex", body: "go on\n" },
       },
     ]);
@@ -61,7 +56,6 @@ describe("changing another workspace", () => {
     await nexus(app, rename);
     await nexus(app, rename);
     expect(app.asked.map((r) => r.change.kind)).toEqual(["tabRename", "tabRename"]);
-    // Until restart holds for every change from that workspace to that one.
     await nexus(app, ["tab", "close", "codex", "--workspace", "api"]);
     expect(app.asked).toHaveLength(2);
   });
@@ -73,7 +67,6 @@ describe("changing another workspace", () => {
     await nexus(app, argv);
     await nexus(app, ["terminal", "key", "codex", "ctrl-c", "--workspace", "api"]);
     await nexus(app, ["terminal", "new", "--command", "make deploy", "--workspace", "api"]);
-    // Asked once, with what would be typed shown whole.
     expect(app.asked.map((r) => r.change)).toEqual([
       { kind: "terminalInput", detail: "codex", body: "go on\n" },
     ]);
@@ -103,7 +96,6 @@ describe("changing another workspace", () => {
 
   test("types nothing when the agent there came to wait on the user while they were asked", async () => {
     const app = fakeApp();
-    // The user allows it; meanwhile Claude Code there asks to run a tool.
     app.answers.shift = () => {
       app.claude.set(`${API}:${CODEX_TAB}`, { status: "permissionPending", since: Date.now() });
       return "once";
@@ -138,9 +130,6 @@ describe("changing another workspace", () => {
     expect(app.asked).toHaveLength(0);
   });
 
-  // Every command that takes a local --workspace, as run on a busy "api" with the user
-  // saying no: one that changes it asks first and changes nothing, one that
-  // reads it runs through without asking. A new command fails until it is here.
   const CHANGES = `
     worktree new feat | worktree remove api-feat | terminal new | terminal send codex hi
     terminal key codex enter | tab close codex | tab save main.go | tab revert main.go
@@ -168,7 +157,6 @@ describe("changing another workspace", () => {
     browser console | browser wait --text hi | browser pick | browser network
     note list | note voice suggestions list nmhz00cc | note read nmhz00cc | note transcript nmhz00cc | note path nmhz00cc | chat panel eeee | chat commands eeee | chat files eeee
     settings lsp status | chat history | chat profiles | chat usage --refresh | chat instructions eeee --show | settings instructions show`;
-  /** What a command may do in "api" without asking: read it, show it, or arrange the window. */
   const LOOKS = new Set(
     `tabs.list tab.show terminal.read chat.state chat.read chat.tool events.read layout.get
     files.reveal problems.list agentView.get agentView.place agentView.remove panels.get
@@ -185,7 +173,6 @@ describe("changing another workspace", () => {
         .split(/[|\n]/)
         .map((line) => line.trim())
         .filter(Boolean);
-    // File transfers use --workspace on the remote computer.
     const paths = CLI_COMMANDS.filter((c) => c.flags?.workspace)
       .map((c) => c.path.join(" "))
       .filter((p) => !p.startsWith("file "));
@@ -195,7 +182,6 @@ describe("changing another workspace", () => {
       ...lines(CHANGES).map((line) => ({ line, changes: true })),
       ...lines(READS).map((line) => ({ line, changes: false })),
     ];
-    // chat answer is refused to a terminal outright; manager.test.ts covers who may answer.
     expect([...new Set([...runs.map((r) => commandOf(r.line)), "chat answer"])].sort()).toEqual(
       paths.sort(),
     );
@@ -227,12 +213,6 @@ const CHAT_TAB = "eeeeeeee-0000-4000-8000-000000000008";
 const WEB_TAB = "dddddddd-0000-4000-8000-000000000007";
 const MAIN_TAB = "dddddddd-0000-4000-8000-00000000000a";
 
-/**
- * "api" over SSH with something for every command: a Claude tab asking the
- * user, a browser and an unsaved editor in a second group, a worktree, a
- * forwarded port, and a claude -p run in its codex terminal beside one that
- * ended.
- */
 function apiAtWork(): FakeApp {
   const app = fakeApp();
   const at = app.workspaces.findIndex((w) => w.id === API);
@@ -387,7 +367,6 @@ describe("terminal wait", () => {
     const key = `${APP}:${CLAUDE_TAB}`;
     const sentAt = app.time.now;
     app.time.onTick = (now) => {
-      // The user looks at the tab: the earlier turn's completed goes idle.
       if (now - sentAt === 500) app.claude.set(key, { status: "idle", since: now });
     };
     const result = await nexus(app, ["terminal", "send", "✳ claude code", "/help", "--wait"]);
@@ -448,7 +427,6 @@ describe("terminal wait", () => {
     const start = app.time.now;
     const stop = new AbortController();
     app.time.onTick = (now) => {
-      // Codex keeps printing; the client goes after a second.
       app.activity.set(`${API}:${CODEX_TAB}`, { lastOutputAt: now });
       if (now - start >= 1_000) stop.abort();
     };

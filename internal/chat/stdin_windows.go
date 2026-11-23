@@ -14,8 +14,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// overlappedStdin owns the write end. The child's synchronous handle reads
-// the same byte stream without needing to know about cancellation.
 type overlappedStdin struct {
 	mu     sync.Mutex
 	handle windows.Handle
@@ -23,8 +21,6 @@ type overlappedStdin struct {
 	cancel context.CancelFunc
 }
 
-// newChatStdin opens an overlapped write end because anonymous Windows pipes
-// do not support write deadlines in Go.
 func newChatStdin(generation string) (stdinWriter, *os.File, error) {
 	name, err := windows.UTF16PtrFromString(`\\.\pipe\nexus-chat-` + generation)
 	if err != nil {
@@ -51,12 +47,10 @@ func newChatStdin(generation string) (stdinWriter, *os.File, error) {
 		_ = windows.CloseHandle(handle)
 		return nil, nil, err
 	}
-	// CreateFile already connected the client; its default read mode is byte.
 	closed, cancel := context.WithCancel(context.Background())
 	return &overlappedStdin{handle: handle, closed: closed, cancel: cancel}, os.NewFile(uintptr(child), "chat stdin"), nil
 }
 
-// Close cancels and joins an active write before releasing its handle.
 func (w *overlappedStdin) Close() error {
 	w.cancel()
 	w.mu.Lock()
@@ -85,8 +79,6 @@ func (w *overlappedStdin) WriteContext(request context.Context, data []byte) (in
 		return 0, err
 	}
 	defer windows.CloseHandle(event)
-	// A message fits inside the pipe's quota. Counting completed messages
-	// preserves the distinction between an untouched and a partial frame.
 	written := 0
 	for len(data) != 0 {
 		chunk := data[:min(len(data), 16<<10)]
@@ -103,8 +95,6 @@ func (w *overlappedStdin) WriteContext(request context.Context, data []byte) (in
 	return written, nil
 }
 
-// writeChunk cancels the specific operation and waits for kernel completion
-// before its buffer and OVERLAPPED structure can be reused.
 func (w *overlappedStdin) writeChunk(ctx context.Context, event windows.Handle, data []byte) (int, error) {
 	if err := ctx.Err(); err != nil {
 		return 0, err

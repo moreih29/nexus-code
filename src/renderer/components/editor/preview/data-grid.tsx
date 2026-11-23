@@ -1,15 +1,3 @@
-// DataGrid — rows of fields in columns, for the table previews (CSV, TSV,
-// spreadsheets).
-//
-// The header row stays in view as the grid scrolls, and each row's number
-// stays at its left. Columns keep the widths they are given; a field wider
-// than its column is cut, with its whole text in its tooltip. Only the rows in view are in
-// the DOM, so a large table scrolls smoothly. Fields are text: nothing in
-// them is interpreted.
-//
-// Find (⌘F) goes through the fields themselves, not the rows drawn, and
-// scrolls the current match's row and column into view.
-
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { displayWidth } from "../../../services/editor/preview/delimited";
@@ -19,28 +7,21 @@ import { cn } from "../../../utils/cn";
 import { gridTemplate } from "./grid-template";
 import { type FindMark, type FindResult, MarkedLine, usePreviewFinder } from "./preview-find";
 
-/** A row's height, in px: one line of the UI's small text with its padding. */
 const ROW_PX = 24;
 
 export interface GridField {
   readonly text: string;
-  /** Lined up at the right, as numbers are. */
   readonly end?: boolean;
 }
 
 interface DataGridProps {
-  /** Each column's title, in the header row. */
   header: readonly string[];
   rowCount: number;
-  /** The fields of the row at `index`, by column; a missing one is empty. */
   rowAt: (index: number) => readonly (GridField | undefined)[] | undefined;
-  /** Each column's width, in characters. */
   widths: readonly number[];
-  /** The header's text at the middle of its column rather than its start. */
   centerHeader?: boolean;
 }
 
-/** A match of the find in a field: its row, column, and place in the field's line. */
 interface GridMatch {
   readonly row: number;
   readonly column: number;
@@ -48,12 +29,10 @@ interface GridMatch {
   readonly end: number;
 }
 
-/** A field's text on its one line. */
 function lineOf(text: string): string {
   return text.replace(/\r?\n/g, " ↵ ");
 }
 
-/** The matches of `query` in the fields, row by row. */
 function gridMatches(
   rowCount: number,
   rowAt: DataGridProps["rowAt"],
@@ -80,7 +59,6 @@ function gridMatches(
 }
 
 export function DataGrid({ header, rowCount, rowAt, widths, centerHeader }: DataGridProps) {
-  /** Each column's number, which keys its fields in a row. */
   const columns = useMemo(
     () => Array.from({ length: widths.length }, (_, column) => column),
     [widths.length],
@@ -104,9 +82,7 @@ export function DataGrid({ header, rowCount, rowAt, widths, centerHeader }: Data
   );
   const matchesRef = useRef(matches);
   matchesRef.current = matches;
-  /** Whether the next matches start at the view, as a new query does. */
   const freshRef = useRef(false);
-  /** Whether the current match is to be scrolled to. */
   const revealRef = useRef(false);
 
   usePreviewFinder(
@@ -130,8 +106,6 @@ export function DataGrid({ header, rowCount, rowAt, widths, centerHeader }: Data
     }, []),
   );
 
-  // New matches: a new query's start at the first row in view; a table
-  // that changed keeps the current one as near as it can.
   useEffect(() => {
     if (matches.length === 0) {
       setCurrent(-1);
@@ -157,7 +131,6 @@ export function DataGrid({ header, rowCount, rowAt, widths, centerHeader }: Data
     if (!currentMatch || !revealRef.current) return;
     revealRef.current = false;
     virtualizer.scrollToIndex(currentMatch.row, { align: "center" });
-    // The row is drawn on the next frame; then its field comes into view.
     const frame = requestAnimationFrame(() => {
       const scroller = scrollRef.current;
       const mark = scroller?.querySelector<HTMLElement>("[data-find-current]");
@@ -174,7 +147,6 @@ export function DataGrid({ header, rowCount, rowAt, widths, centerHeader }: Data
     return () => cancelAnimationFrame(frame);
   }, [currentMatch, virtualizer]);
 
-  /** Each field's marks, by "row:column". */
   const marks = useMemo(() => {
     const byField = new Map<string, FindMark[]>();
     matches.forEach((match, index) => {
@@ -249,7 +221,6 @@ export function DataGrid({ header, rowCount, rowAt, widths, centerHeader }: Data
   );
 }
 
-/** One field, on one line: a longer one is cut, its whole text in the tooltip. */
 function Field({
   field,
   Cell,
@@ -259,10 +230,8 @@ function Field({
 }: {
   field: GridField | undefined;
   Cell: "th" | "td";
-  /** The column's width, in characters, past which the text is cut. */
   width: number;
   center?: boolean;
-  /** The find's matches in the field's line. */
   marks?: readonly FindMark[];
 }) {
   const text = field?.text ?? "";

@@ -313,7 +313,6 @@ test("reports the busy error after five retries", async () => {
     const pending = pull(app, "source.bin");
     await firstRead.promise;
     for (let attempt = 1; attempt <= 5; attempt++) {
-      // Let each busy response schedule its retry before advancing time.
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(reads(app)).toHaveLength(attempt);
       jest.advanceTimersToNextTimer();

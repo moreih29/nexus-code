@@ -18,7 +18,6 @@ describe("isScriptReadableRequest", () => {
   test("cancels loads whose bytes page script could read", () => {
     expect(isScriptReadableRequest("xhr", workspace(".env"))).toBe(true);
     expect(isScriptReadableRequest("xhr", workspace("app/main.js"))).toBe(true);
-    // JSON modules arrive as script requests.
     expect(isScriptReadableRequest("script", workspace("data/config.json"))).toBe(true);
     expect(isScriptReadableRequest("script", workspace(".env"))).toBe(true);
     expect(isScriptReadableRequest("xhr", file("/Users/u/.ssh/id_rsa"))).toBe(true);

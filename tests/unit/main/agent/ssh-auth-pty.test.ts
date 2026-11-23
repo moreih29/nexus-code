@@ -38,18 +38,9 @@ class FakePty {
   }
 }
 
-/**
- * Minimal EventEmitter-based child stub for the dispose-master spawn path.
- * The production `unlinkAfterControlExit` registers `.once` and then calls
- * `.off` on close/exit/error events — the fake must be a full EventEmitter so
- * those calls do not throw and the cleanup timer fires synchronously instead
- * of after its 5-second fallback, preventing leaks into subsequent tests.
- */
 class FakeDisposeChild extends EventEmitter {
   readonly stdin = { end() {} };
 
-  // Immediately emit "close" so unlinkAfterControlExit runs cleanup
-  // synchronously rather than waiting for the 5-second fallback timer.
   emitClose(): void {
     this.emit("close", 0, null);
   }
@@ -197,8 +188,6 @@ describe("authenticateSshControlMaster", () => {
         spawn: (_command, args) => {
           disposeSpawnCalls.push(args);
           const child = new FakeDisposeChild();
-          // Immediately settle the child so the cleanup callback fires before
-          // the fallback timer, preventing async leaks into subsequent tests.
           queueMicrotask(() => child.emitClose());
           return child as unknown as ChildProcessWithoutNullStreams;
         },
@@ -255,8 +244,6 @@ describe("authenticateSshControlMaster", () => {
         spawnPty: () => pty as never,
         spawn: () => {
           const child = new FakeDisposeChild();
-          // Immediately settle so unlinkAfterControlExit's cleanup runs before
-          // the 5-second fallback timer can leak into subsequent tests.
           queueMicrotask(() => child.emitClose());
           return child as unknown as ChildProcessWithoutNullStreams;
         },

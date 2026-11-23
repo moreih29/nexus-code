@@ -71,7 +71,6 @@ describe("run log", () => {
     expect(line).toContain("ended without a quit line");
     expect(line).toContain("1970-01-01T00:00:00.000Z");
     expect(line).toContain("version=0.9.0");
-    // The new run's own marker replaced the old one.
     expect(files.get("m")).toContain('"startedAt":5');
   });
 

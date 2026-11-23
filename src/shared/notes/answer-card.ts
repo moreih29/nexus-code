@@ -2,13 +2,11 @@ import { markdownToBlocks } from "./from-markdown";
 import { withBlocks } from "./insert";
 import type { DocNode } from "./markdown";
 
-/** URLs imported from an answer or explicitly entered in the note's toolbar. */
 export function safeNoteUrl(value: unknown): string | undefined {
   if (typeof value !== "string" || !/^https?:\/\//i.test(value)) return;
   if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(value)) return;
   const url = URL.parse(value);
   if (!url?.hostname) return;
-  // Keep the destination inside a Markdown link even when it contains delimiters.
   return url.href.replace(/[()<>'"\\]/g, (char) => `%${char.charCodeAt(0).toString(16)}`);
 }
 
@@ -54,6 +52,5 @@ export function hasAnswerCard(doc: DocNode, linkId: string): boolean {
 export function withAnswerCard(doc: DocNode, card: DocNode): DocNode {
   const linkId = card.attrs?.nexusLink;
   if (typeof linkId !== "string" || hasAnswerCard(doc, linkId)) return doc;
-  // No heading is specified, so the append always has a destination.
   return withBlocks(doc, [card]) ?? doc;
 }

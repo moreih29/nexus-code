@@ -1,10 +1,3 @@
-/**
- * The commands while the agent view is shown. The tab and group commands
- * act on its panels; the rest of the workspace's commands would act on the
- * workspace hidden behind it (⌘W closing one of its tabs), so they do
- * nothing until the workspaces are back.
- */
-
 import { COMMANDS, type CommandId } from "../../../shared/keybindings/commands";
 import {
   type AgentLayout,
@@ -26,7 +19,6 @@ function step(change: (layout: AgentLayout) => AgentLayout): CommandHandler {
   };
 }
 
-/** ⌘W takes the front agent out of its panel, or closes a panel left empty. */
 function closeFront(layout: AgentLayout): AgentLayout {
   const key = activeKey(layout);
   return key !== null ? removeKey(layout, key) : closeLeaf(layout, layout.activeLeafId);
@@ -45,7 +37,6 @@ const AGENT_VIEW_HANDLERS: Partial<Record<CommandId, CommandHandler>> = {
   [COMMANDS.groupFocusDown]: step((layout) => cycleLeaf(layout, 1)),
 };
 
-/** The commands that mean the same in both views, run as registered. */
 const BOTH_VIEWS = new Set<CommandId>([
   COMMANDS.workspaceAdd,
   COMMANDS.taskNew,
@@ -55,13 +46,10 @@ const BOTH_VIEWS = new Set<CommandId>([
   COMMANDS.updatesReleaseNotes,
   COMMANDS.workbenchToggleSidebar,
   COMMANDS.workbenchToggleAgentView,
-  // Dictates into the composer focused last, in either view.
   COMMANDS.chatVoiceToggle,
-  // The side panel of the agent in front, in either view.
   COMMANDS.chatTogglePanel,
 ]);
 
-/** What `id` does while the agent view is shown; undefined while it is not. */
 export function routeAgentViewCommand(id: CommandId): CommandHandler | "skip" | undefined {
   if (!isAgentViewShown() || BOTH_VIEWS.has(id)) return undefined;
   if (id === COMMANDS.fileSave && activeLocalPanelTab()?.tab.type === "editor") return undefined;

@@ -13,14 +13,8 @@ import {
 import { toWorkspaceColor } from "../../../shared/types/workspace-color";
 import { applyMigrations, type SqliteDb } from "./migrations";
 
-// ---------------------------------------------------------------------------
-// Entry-point persistence — folder_bookmarks + connection_profiles
-// ---------------------------------------------------------------------------
-
-/** Non-secret cap for recent (non-favorite) rows in each entry-point table. */
 const ENTRY_POINT_RECENT_CAP = 20;
 
-/** Local folder bookmark (abs_path on the host machine). */
 export interface LocalFolderBookmark {
   kind: "local";
   id: string;
@@ -31,7 +25,6 @@ export interface LocalFolderBookmark {
   createdAt: number;
 }
 
-/** SSH remote folder bookmark — linked to a connection_profiles row. */
 export interface SshFolderBookmark {
   kind: "ssh";
   id: string;
@@ -49,9 +42,7 @@ export interface ConnectionProfile {
   id: string;
   label: string | null;
   host: string;
-  /** Normalized: never null/undefined — defaults to the resolved login at write time. */
   user: string;
-  /** Normalized: never null/undefined — defaults to 22 at write time. */
   port: number;
   identityFile: string | null;
   authMode: string;
@@ -84,10 +75,6 @@ interface ConnectionProfileRow {
   created_at: number;
 }
 
-/**
- * Converts a database row to a FolderBookmark discriminated union value.
- * Returns null for ssh rows that are missing connection_profile_id (damaged rows).
- */
 function rowToFolderBookmark(row: FolderBookmarkRow): FolderBookmark | null {
   const base = {
     id: row.id,
@@ -100,7 +87,6 @@ function rowToFolderBookmark(row: FolderBookmarkRow): FolderBookmark | null {
 
   if (row.kind === "ssh") {
     if (!row.connection_profile_id) {
-      // Damaged row: ssh kind without a connection_profile_id — exclude from results.
       return null;
     }
     return { kind: "ssh", connectionProfileId: row.connection_profile_id, ...base };
@@ -124,10 +110,6 @@ function rowToConnectionProfile(row: ConnectionProfileRow): ConnectionProfile {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Row type — mirrors workspaces table columns 1:1
-// ---------------------------------------------------------------------------
-
 interface WorkspaceRow {
   id: string;
   name: string;
@@ -141,16 +123,10 @@ interface WorkspaceRow {
   task: string | null;
 }
 
-/**
- * Builds the local location fallback used for legacy or invalid stored rows.
- */
 function fallbackLocalLocation(rootPath: string): WorkspaceLocation {
   return { kind: "local", rootPath };
 }
 
-/**
- * Parses a stored location JSON blob, falling back to root_path for old rows.
- */
 function rowLocation(row: WorkspaceRow): WorkspaceLocation {
   if (!row.location) {
     return fallbackLocalLocation(row.root_path);
@@ -171,10 +147,6 @@ function rowLocation(row: WorkspaceRow): WorkspaceLocation {
   return parsedLocation.data;
 }
 
-/**
- * True when the row's location reads back exactly: a valid stored location,
- * or a legacy row with none, whose local fallback is its true location.
- */
 function storedLocationIsValid(row: WorkspaceRow): boolean {
   if (!row.location) return true;
   try {
@@ -184,11 +156,6 @@ function storedLocationIsValid(row: WorkspaceRow): boolean {
   }
 }
 
-/**
- * Recovers an SSH location that fails validation only on optional fields
- * (e.g. a remoteArch value this build does not know), so the workspace does
- * not reopen as a local folder at the remote path.
- */
 function salvageSshLocation(value: unknown): WorkspaceLocation | null {
   if (typeof value !== "object" || value === null) return null;
   const stored = value as Record<string, unknown>;
@@ -207,7 +174,6 @@ function salvageSshLocation(value: unknown): WorkspaceLocation | null {
   return WorkspaceSshLocationSchema.parse(salvaged);
 }
 
-/** The stored task, or undefined for an ordinary workspace or an unreadable one. */
 function rowTask(row: WorkspaceRow): WorkspaceTask | undefined {
   if (!row.task) return undefined;
   try {
@@ -222,9 +188,6 @@ function normalizeLocation(location: WorkspaceLocation): WorkspaceLocation {
   return WorkspaceLocationSchema.parse(location);
 }
 
-/**
- * Converts a database row into the normalized workspace metadata shape.
- */
 function rowToMeta(row: WorkspaceRow): WorkspaceMeta {
   const location = rowLocation(row);
   return WorkspaceMetaSchema.parse({
@@ -242,12 +205,6 @@ function rowToMeta(row: WorkspaceRow): WorkspaceMeta {
   });
 }
 
-// ---------------------------------------------------------------------------
-// GlobalStorage — better-sqlite3 KV + workspaces table.
-// Accepts any SqliteDb-compatible database so unit tests can inject
-// bun:sqlite in-memory databases.
-// ---------------------------------------------------------------------------
-
 export class GlobalStorage {
   private readonly db: SqliteDb;
 
@@ -258,13 +215,7 @@ export class GlobalStorage {
     applyMigrations(db);
   }
 
-  /**
-   * Open (or create) the global state.db at the given file path.
-   * Creates parent directories as needed.
-   */
   static openFile(dbPath: string): GlobalStorage {
-    // Dynamic require keeps the module importable in test environments that
-    // do not have better-sqlite3 available as a native module.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const BetterSQLite = require("better-sqlite3");
     const dir = path.dirname(dbPath);
@@ -323,10 +274,6 @@ export class GlobalStorage {
       partial.location ?? (partial.rootPath ? fallbackLocalLocation(partial.rootPath) : null);
     let locationJson = row.location;
     let rootPath = row.root_path;
-    // A stored location this build cannot fully read (salvaged, or replaced
-    // by the local fallback) is kept verbatim unless the caller changes it;
-    // rewriting it from the parsed form would lose the SSH host on the next
-    // rename or open.
     if (changedLocation || storedLocationIsValid(row)) {
       const normalizedLocation = normalizeLocation(changedLocation ?? rowLocation(row));
       locationJson = JSON.stringify(normalizedLocation);
@@ -353,12 +300,6 @@ export class GlobalStorage {
     this.db.prepare("DELETE FROM workspaces WHERE id = ?").run(id);
   }
 
-  /**
-   * Atomically updates sort-order columns (and optionally the pinned flag) for
-   * a single workspace row. Used by WorkspaceManager.reorder() and the pin-
-   * toggle path in WorkspaceManager.update() where both sort columns and the
-   * pinned bit must change in the same write.
-   */
   updateSortOrder(
     id: string,
     values: { sortOrder: number; pinnedSortOrder: number; pinned?: boolean },
@@ -382,20 +323,6 @@ export class GlobalStorage {
     }
   }
 
-  /**
-   * Atomically repositions a workspace row within the given target group.
-   *
-   * The entire read-neighbours → compute-midpoint → write sequence runs inside
-   * a single SQLite transaction so concurrent reads never observe a partial state.
-   * When the gap between neighbours collapses to < 2 the group is rebalanced
-   * first and the position is recomputed; the returned `rebalancedRows` field
-   * carries the updated values for every row so the caller can broadcast a bulk
-   * event.
-   *
-   * Cross-group moves (targetGroup differs from currentPinned) zero the source
-   * group's sort column so the item no longer participates in the old group's
-   * ordering.
-   */
   reorderWorkspace(
     id: string,
     params: {
@@ -430,7 +357,6 @@ export class GlobalStorage {
 
         if ("rebalance" in positionResult) {
           rebalancedRows = this.rebalanceGroup(targetGroup);
-          // After rebalance, positions are step-1024 so the gap will be ≥ 1024.
           positionResult = this.computeInsertPosition({
             groupKind: targetGroup,
             beforeId,
@@ -457,17 +383,6 @@ export class GlobalStorage {
     return { sortOrder, pinnedSortOrder, rebalancedRows };
   }
 
-  // -------------------------------------------------------------------------
-  // Workspace sort-order helpers
-  // -------------------------------------------------------------------------
-  // Tasks (rows with a task) are not sidebar rows, so they take no part in
-  // a group's order: they keep position 0 and the queries skip them.
-
-  /**
-   * Returns the tail position for a new workspace appended to the given group.
-   * The tail is max(existing positions) + 1024.  If the group is empty, 1024 is
-   * returned so the first row gets a non-zero, rebalance-safe position.
-   */
   nextTailSortOrder(groupKind: "pinned" | "unpinned"): number {
     const col = groupKind === "pinned" ? "pinned_sort_order" : "sort_order";
     const pinnedFilter = groupKind === "pinned" ? 1 : 0;
@@ -482,27 +397,6 @@ export class GlobalStorage {
     return maxVal + 1024;
   }
 
-  /**
-   * Computes the sort-order position for a workspace being inserted adjacent to
-   * a reference row within the given group.
-   *
-   * Natural-language semantics — `beforeId` and `afterId` describe where the
-   * NEW row will sit relative to the reference row:
-   *
-   * - Both absent → tail position (max + 1024, or 1024 when the group is empty).
-   * - Both present → invalid; throws.
-   * - Only `beforeId` present → insert the new row IMMEDIATELY BEFORE that row
-   *   (midpoint between beforeId's predecessor and beforeId; or
-   *   `floor(beforeId.pos / 2)` if beforeId is the first row of the group, with
-   *   a rebalance signal when that would underflow to < 1).
-   * - Only `afterId` present → insert the new row IMMEDIATELY AFTER that row
-   *   (midpoint between afterId and afterId's successor; or afterId + 1024 if
-   *   afterId is the last row of the group).
-   *
-   * Returns `{ position: number }` when a concrete position is available, or
-   * `{ rebalance: true }` when the gap between neighbors has collapsed to < 2
-   * and the caller must rebalance the group before retrying.
-   */
   computeInsertPosition(params: {
     groupKind: "pinned" | "unpinned";
     beforeId?: string;
@@ -517,7 +411,6 @@ export class GlobalStorage {
     const col = groupKind === "pinned" ? "pinned_sort_order" : "sort_order";
     const pinnedFilter = groupKind === "pinned" ? 1 : 0;
 
-    // Insert BEFORE `beforeId`: midpoint between beforeId's predecessor and beforeId.
     if (beforeId !== undefined) {
       const refRow = this.db
         .prepare(`SELECT ${col} AS pos FROM workspaces WHERE id = ? AND pinned = ?`)
@@ -538,10 +431,6 @@ export class GlobalStorage {
         .get(pinnedFilter, refRow.pos) as { pos: number } | undefined;
 
       if (!prevRow) {
-        // beforeId is the first row of the group; midpoint between an
-        // implicit lower bound (0) and the row itself, so a top-of-group
-        // insert always lands above the existing first row (and stays a
-        // positive integer). Rebalance only when the midpoint underflows.
         const newPos = Math.floor(refRow.pos / 2);
         if (newPos < 1) {
           return { rebalance: true };
@@ -557,12 +446,10 @@ export class GlobalStorage {
       return { position: Math.floor((prevRow.pos + refRow.pos) / 2) };
     }
 
-    // No reference → tail insertion.
     if (afterId === undefined) {
       return { position: this.nextTailSortOrder(groupKind) };
     }
 
-    // Insert AFTER `afterId`: midpoint between afterId and afterId's successor.
     const refRow = this.db
       .prepare(`SELECT ${col} AS pos FROM workspaces WHERE id = ? AND pinned = ?`)
       .get(afterId, pinnedFilter) as { pos: number } | undefined;
@@ -582,7 +469,6 @@ export class GlobalStorage {
       .get(pinnedFilter, refRow.pos) as { pos: number } | undefined;
 
     if (!nextRow) {
-      // afterId is the last row; append after it.
       return { position: refRow.pos + 1024 };
     }
 
@@ -594,14 +480,6 @@ export class GlobalStorage {
     return { position: Math.floor((refRow.pos + nextRow.pos) / 2) };
   }
 
-  /**
-   * Rebalances the sort positions of all workspaces within the given group by
-   * reassigning step-1024 positions (1024, 2048, 3072, …) ordered by the
-   * current sort column then by id as a tiebreaker for deterministic output.
-   *
-   * Returns every row that was touched with its new position values so that the
-   * caller can broadcast the changes to interested parties.
-   */
   rebalanceGroup(
     groupKind: "pinned" | "unpinned",
   ): Array<{ id: string; sortOrder: number; pinnedSortOrder: number }> {
@@ -652,14 +530,6 @@ export class GlobalStorage {
     return results;
   }
 
-  // -------------------------------------------------------------------------
-  // folder_bookmarks
-  // -------------------------------------------------------------------------
-
-  /**
-   * Returns all folder bookmarks ordered by recency. SSH bookmarks whose
-   * linked connection_profiles row has been deleted are excluded (orphan hiding).
-   */
   listFolderBookmarks(): FolderBookmark[] {
     const rows = this.db
       .prepare(
@@ -673,15 +543,6 @@ export class GlobalStorage {
     return rows.map(rowToFolderBookmark).filter((b): b is FolderBookmark => b !== null);
   }
 
-  /**
-   * Upsert a folder bookmark by its natural key (local: abs_path; ssh: connection_profile_id +
-   * abs_path). Updates last_used_at on conflict. Evicts the oldest non-favorite, non-orphan rows
-   * beyond ENTRY_POINT_RECENT_CAP in the same transaction.
-   *
-   * The conflict target predicate matches each partial UNIQUE index so that SQLite
-   * can route the conflict correctly without triggering a PK violation on the
-   * unrelated variant's index.
-   */
   recordFolderBookmark(params: {
     id: string;
     absPath: string;
@@ -693,13 +554,9 @@ export class GlobalStorage {
     const db = this.db;
     const kind = params.kind ?? "local";
 
-    // better-sqlite3 exposes .transaction(); the SqliteDb interface used in
-    // tests (bun:sqlite Database) also exposes .transaction() with the same
-    // synchronous semantics, so this cast is safe in both runtimes.
     const txn = (db as unknown as { transaction: (fn: () => void) => () => void }).transaction(
       () => {
         if (kind === "ssh") {
-          // SSH variant — conflict target is the partial index on (connection_profile_id, abs_path).
           db.prepare(
             `INSERT INTO folder_bookmarks
                (id, abs_path, kind, connection_profile_id, label, favorite, last_used_at, created_at)
@@ -715,7 +572,6 @@ export class GlobalStorage {
             now,
           );
         } else {
-          // Local variant — conflict target is the partial index on (abs_path).
           db.prepare(
             `INSERT INTO folder_bookmarks
                (id, abs_path, kind, connection_profile_id, label, favorite, last_used_at, created_at)
@@ -725,9 +581,6 @@ export class GlobalStorage {
           ).run(params.id, params.absPath, params.label ?? null, now, now);
         }
 
-        // Evict non-favorite, non-orphan rows beyond the cap (oldest first).
-        // The orphan filter mirrors listFolderBookmarks so that hidden ssh rows
-        // do not occupy eviction cap slots and cause the visible list to shrink.
         db.prepare(
           `DELETE FROM folder_bookmarks
            WHERE favorite = 0
@@ -756,10 +609,6 @@ export class GlobalStorage {
     this.db.prepare(`DELETE FROM folder_bookmarks WHERE id = ?`).run(id);
   }
 
-  // -------------------------------------------------------------------------
-  // connection_profiles
-  // -------------------------------------------------------------------------
-
   listConnectionProfiles(): ConnectionProfile[] {
     const rows = this.db
       .prepare(`SELECT * FROM connection_profiles ORDER BY favorite DESC, last_used_at DESC`)
@@ -767,13 +616,6 @@ export class GlobalStorage {
     return rows.map(rowToConnectionProfile);
   }
 
-  /**
-   * Upsert a connection profile by its natural key (host, user, port).
-   * Port defaults to 22 and user must be provided as a resolved login so the
-   * UNIQUE INDEX never sees null-distinct collisions.
-   * Updates last_used_at on conflict. Evicts oldest non-favorite rows beyond
-   * ENTRY_POINT_RECENT_CAP in the same transaction.
-   */
   recordConnectionProfile(params: {
     id: string;
     label?: string | null;
@@ -786,7 +628,6 @@ export class GlobalStorage {
     const now = Date.now();
     const db = this.db;
 
-    // Normalize to prevent null-distinct issues on the UNIQUE INDEX.
     const normalizedPort = params.port ?? 22;
     const normalizedUser = params.user;
     const normalizedAuthMode = params.authMode ?? "interactive";
@@ -810,7 +651,6 @@ export class GlobalStorage {
           now,
         );
 
-        // Evict non-favorite rows beyond the cap (oldest first).
         db.prepare(
           `DELETE FROM connection_profiles
            WHERE favorite = 0

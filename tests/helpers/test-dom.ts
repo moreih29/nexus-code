@@ -2,7 +2,6 @@ import { createWindow } from "@mixmark-io/domino";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 
-/** Provides the DOM needed to exercise React effects and input events in Bun. */
 export async function withTestDom(run: (host: HTMLElement, root: Root) => Promise<void>) {
   const page = createWindow('<div id="root"></div>');
   Object.defineProperty(page.document, "oninput", { value: null });

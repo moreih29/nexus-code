@@ -1,6 +1,3 @@
-// Over the composer when the plan's limit is near (a warning, which closes
-// until the limit resets) or reached.
-
 import { useTranslation } from "react-i18next";
 import type { BannerScope } from "../../hooks/use-banner-dismissal";
 import { rateLimitKey, rateLimitNotice } from "../../services/chat/claude/rate-limit";

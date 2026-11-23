@@ -10,7 +10,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// BranchCreateParams carries the parameters for git.branch.create.
 type BranchCreateParams struct {
 	Cwd      string `json:"cwd,omitempty"`
 	Name     string `json:"name"`
@@ -18,23 +17,18 @@ type BranchCreateParams struct {
 	StartRef string `json:"startRef,omitempty"`
 }
 
-// BranchDeleteParams carries the parameters for git.branch.delete.
 type BranchDeleteParams struct {
 	Cwd   string `json:"cwd,omitempty"`
 	Name  string `json:"name"`
 	Force bool   `json:"force,omitempty"`
 }
 
-// BranchDeleteResult is returned by git.branch.delete. On success, both fields
-// are empty. On classifiable failure, ErrorKind and ErrorHint are populated so
-// the TS executor can surface a typed GitError with the branch name in the hint.
 type BranchDeleteResult struct {
 	ErrorKind    Kind        `json:"errorKind,omitempty"`
 	ErrorMessage string      `json:"errorMessage,omitempty"`
 	ErrorHint    *ActionHint `json:"errorHint,omitempty"`
 }
 
-// BranchDeleteRemoteParams carries the parameters for git.branch.deleteRemote.
 type BranchDeleteRemoteParams struct {
 	Cwd    string `json:"cwd,omitempty"`
 	Remote string `json:"remote"`
@@ -42,22 +36,18 @@ type BranchDeleteRemoteParams struct {
 	RunID  string `json:"runId,omitempty"`
 }
 
-// BranchRenameParams carries the parameters for git.branch.rename.
 type BranchRenameParams struct {
 	Cwd  string `json:"cwd,omitempty"`
 	From string `json:"from"`
 	To   string `json:"to"`
 }
 
-// BranchSetUpstreamParams carries the parameters for git.branch.setUpstream.
-// Upstream is nil to unset, non-nil to set.
 type BranchSetUpstreamParams struct {
 	Cwd      string  `json:"cwd,omitempty"`
 	Branch   string  `json:"branch"`
 	Upstream *string `json:"upstream"`
 }
 
-// BranchFastForwardParams carries the parameters for git.branch.fastForward.
 type BranchFastForwardParams struct {
 	Cwd       string `json:"cwd,omitempty"`
 	Branch    string `json:"branch"`
@@ -66,14 +56,12 @@ type BranchFastForwardParams struct {
 	RunID     string `json:"runId,omitempty"`
 }
 
-// BranchFastForwardResult carries before/after SHAs for git.branch.fastForward.
 type BranchFastForwardResult struct {
 	Advanced bool   `json:"advanced"`
 	FromSha  string `json:"fromSha"`
 	ToSha    string `json:"toSha"`
 }
 
-// BranchCreate creates a new branch, optionally checking it out.
 func (s *Service) BranchCreate(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p BranchCreateParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -87,7 +75,6 @@ func (s *Service) BranchCreate(ctx context.Context, raw json.RawMessage) (any, e
 		return nil, proto.ProtocolError("git.branch.create params must not contain NUL")
 	}
 
-	// Resolve the start point if provided.
 	startRef := ""
 	if trimmed := strings.TrimSpace(p.StartRef); trimmed != "" {
 		resolved, err := s.resolveCreateBranchStartRef(ctx, p.Cwd, trimmed)
@@ -113,10 +100,6 @@ func (s *Service) BranchCreate(ctx context.Context, raw json.RawMessage) (any, e
 	return nil, nil
 }
 
-// BranchDelete deletes a local branch. When the branch is not fully merged and
-// force is false, the result body carries errorKind/errorHint so the TS executor
-// can surface a typed GitError with the force-delete hint — matching the old
-// withBranchDeleteHint pattern without extending the proto envelope.
 func (s *Service) BranchDelete(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p BranchDeleteParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -162,7 +145,6 @@ func (s *Service) BranchDelete(ctx context.Context, raw json.RawMessage) (any, e
 		message = strings.TrimSpace(stderrStr)
 	}
 
-	// Attach force-delete hint for not-fully-merged errors.
 	var hint *ActionHint
 	if kind == KindBranchNotFullyMerged || kind == KindBranchNotMerged {
 		hint = &ActionHint{Kind: "force-delete-available", Branch: p.Name}
@@ -174,7 +156,6 @@ func (s *Service) BranchDelete(ctx context.Context, raw json.RawMessage) (any, e
 	}, nil
 }
 
-// BranchDeleteRemote deletes a remote branch via push with askpass helpers.
 func (s *Service) BranchDeleteRemote(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p BranchDeleteRemoteParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -204,7 +185,6 @@ func (s *Service) BranchDeleteRemote(ctx context.Context, raw json.RawMessage) (
 	return nil, nil
 }
 
-// BranchRename renames a local branch.
 func (s *Service) BranchRename(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p BranchRenameParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -225,7 +205,6 @@ func (s *Service) BranchRename(ctx context.Context, raw json.RawMessage) (any, e
 	return nil, nil
 }
 
-// BranchSetUpstream sets or unsets the upstream tracking ref for a branch.
 func (s *Service) BranchSetUpstream(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p BranchSetUpstreamParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -259,8 +238,6 @@ func (s *Service) BranchSetUpstream(ctx context.Context, raw json.RawMessage) (a
 	return nil, nil
 }
 
-// BranchFastForward fetches a remote ref and fast-forwards a local branch.
-// It returns before/after SHAs so callers can detect whether the branch advanced.
 func (s *Service) BranchFastForward(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p BranchFastForwardParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -296,7 +273,6 @@ func (s *Service) BranchFastForward(ctx context.Context, raw json.RawMessage) (a
 	}
 
 	if currentBranch == p.Branch {
-		// Checked-out branch: fetch to FETCH_HEAD then ff-only merge.
 		if err := s.runBranchCommand(ctx, []string{"fetch", p.Remote, fetchRef}, p.Cwd, true); err != nil {
 			return nil, err
 		}
@@ -304,7 +280,6 @@ func (s *Service) BranchFastForward(ctx context.Context, raw json.RawMessage) (a
 			return nil, err
 		}
 	} else {
-		// Non-checked-out branch: use refspec to update the ref directly.
 		refspec := fmt.Sprintf("%s:refs/heads/%s", fetchRef, p.Branch)
 		if err := s.runBranchCommand(ctx, []string{"fetch", p.Remote, refspec}, p.Cwd, true); err != nil {
 			return nil, err
@@ -323,8 +298,6 @@ func (s *Service) BranchFastForward(ctx context.Context, raw json.RawMessage) (a
 	}, nil
 }
 
-// runBranchCommand executes one git branch command and converts non-zero exits to
-// typed errors via the stderr classifier.
 func (s *Service) runBranchCommand(ctx context.Context, args []string, cwd string, interactive bool) error {
 	_, stderr, code, err := s.capture(ctx, cwd, args, interactive)
 	if err != nil {
@@ -336,7 +309,6 @@ func (s *Service) runBranchCommand(ctx context.Context, args []string, cwd strin
 	return nil
 }
 
-// branchRevParse reads the SHA for a branch via --verify.
 func (s *Service) branchRevParse(ctx context.Context, cwd, ref string) (string, error) {
 	args := []string{"rev-parse", "--verify", ref}
 	stdout, stderr, code, err := s.capture(ctx, cwd, args, false)
@@ -349,28 +321,21 @@ func (s *Service) branchRevParse(ctx context.Context, cwd, ref string) (string, 
 	return strings.TrimSpace(stdout), nil
 }
 
-// readCurrentBranch returns the currently checked-out branch name, or "" for
-// detached HEAD or unborn repos.
 func (s *Service) readCurrentBranch(ctx context.Context, cwd string) (string, error) {
 	stdout, _, code, err := s.capture(ctx, cwd, []string{"symbolic-ref", "--quiet", "--short", "HEAD"}, false)
 	if err != nil {
 		return "", err
 	}
 	if code != 0 {
-		// Detached HEAD or unborn repo: not an error for our purposes.
 		return "", nil
 	}
 	return strings.TrimSpace(stdout), nil
 }
 
-// resolveCreateBranchStartRef resolves a start-point ref for branch creation.
-// Remote short names (e.g. "origin/main") are expanded to the full remote-tracking
-// ref; plain SHAs and tags pass through unchanged.
 func (s *Service) resolveCreateBranchStartRef(ctx context.Context, cwd, fromRef string) (string, error) {
-	// Fetch local and remote branch names.
 	localOut, err := s.branchListOutput(ctx, cwd, false)
 	if err != nil {
-		return fromRef, nil // fall through on error — git will validate
+		return fromRef, nil
 	}
 	remoteOut, err2 := s.branchListOutput(ctx, cwd, true)
 	if err2 != nil {
@@ -380,14 +345,12 @@ func (s *Service) resolveCreateBranchStartRef(ctx context.Context, cwd, fromRef 
 	localBranches := parseNonemptyLines(localOut)
 	remoteBranches := parseNonemptyLines(remoteOut)
 
-	// Local branch takes priority.
 	for _, b := range localBranches {
 		if b == fromRef {
 			return fromRef, nil
 		}
 	}
 
-	// Look for a unique remote match.
 	var remoteMatches []string
 	for _, r := range remoteBranches {
 		slash := strings.Index(r, "/")
@@ -405,11 +368,9 @@ func (s *Service) resolveCreateBranchStartRef(ctx context.Context, cwd, fromRef 
 		}
 	}
 
-	// Not a branch name: pass through as-is (tag, SHA, etc.).
 	return fromRef, nil
 }
 
-// branchListOutput runs `git branch --format=%(refname:short)` and returns stdout.
 func (s *Service) branchListOutput(ctx context.Context, cwd string, remotes bool) (string, error) {
 	args := []string{"branch", "--format=%(refname:short)"}
 	if remotes {
@@ -427,13 +388,11 @@ func (s *Service) branchListOutput(ctx context.Context, cwd string, remotes bool
 		return "", err
 	}
 	if err != nil || code != 0 {
-		return "", nil // non-fatal fallthrough
+		return "", nil
 	}
 	return stdout, nil
 }
 
-// normalizeBranchFetchRef converts an upstream-style ref (e.g. "origin/main")
-// into the remote-side ref name ("main") accepted by `git fetch <remote> <ref>`.
 func normalizeBranchFetchRef(remote, remoteRef string) string {
 	if strings.HasPrefix(remoteRef, "refs/") {
 		return remoteRef

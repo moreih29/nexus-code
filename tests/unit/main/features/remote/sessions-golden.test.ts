@@ -1,8 +1,3 @@
-/**
- * The sessions' list another device is sent, pinned for one fixed state of
- * the app: how the renderer is read may change, what goes over the network
- * may not.
- */
 import { afterEach, expect, test } from "bun:test";
 import {
   RPC_METHODS,
@@ -73,7 +68,6 @@ const CLIPPED_OPENER = {
   device: { id: "peer-device", name: `${"한".repeat(118)}😀` },
 };
 
-/** Each workspace's tabs as the renderer lists them for the remote list (agent order). */
 const TABS: Record<string, Tab[]> = {
   "w-root": [
     { id: "c-ask", type: "claude", title: "Asks", openedBy: CHAT_OPENER },
@@ -113,7 +107,6 @@ const TABS: Record<string, Tab[]> = {
   ],
 };
 
-/** Each chat as chat.state (peek, includeWaitingId) tells it. */
 const CHATS: Record<string, ReturnType<SessionsSnapshotReaders["peekChat"]>> = {
   "c-ask": {
     agent: "claude",
@@ -153,7 +146,6 @@ const CHATS: Record<string, ReturnType<SessionsSnapshotReaders["peekChat"]>> = {
   },
 };
 
-/** The finished turns the user has not looked at, by workspace and tab. */
 const UNREAD = {
   "w-root": { "c-idle": 21, "c-err": 31, "x-done": 81 },
   "w-pin": { "c-limit": 51, "x-codex": 1_001 },
@@ -167,7 +159,6 @@ const CLAUDE: Record<string, { status: string; message?: string; since: number }
   "x-other": { status: "running", message: "Working", since: 99 },
 };
 
-/** Terminals without Claude's hooks, as their output tells them: long quiet. */
 const ACTIVITY: Record<string, unknown> = {
   "x-codex": {
     lastOutputAt: 1_000,
@@ -246,7 +237,6 @@ const CONSENTS: PendingConsent[] = [
   },
 ] as unknown as PendingConsent[];
 
-/** What the renderer reads of this fixed app state. */
 const readers: SessionsSnapshotReaders = {
   readRevision: () => 1,
   listTabs(workspaceId) {
@@ -299,7 +289,6 @@ const GIT = (w: { id: string }) =>
 const NOTES = { recording: () => ({ noteId: "n1", startedAt: 5 }) } as never;
 const CONTROLS = { chat: true, terminal: false };
 
-/** Drops what moves with the clock: a prompt's time left. */
 function steady<T>(value: T): T {
   return JSON.parse(
     JSON.stringify(value, (key, v) => (key === "expiresInMs" || key === "expiresAt" ? 0 : v)),
@@ -437,7 +426,6 @@ test("a watch starts compact, compares what it sent, and keeps its reduction thr
   await watches.poll();
   expect(sent[1]?.sessions).toHaveLength(500);
   expect(sent[1]?.sessions[1]?.openedBy).toBeUndefined();
-  // A rejected update did not commit a stronger reduction.
   list = { ...list, sessions: original.sessions.slice(0, 4) };
   accept = true;
   await watches.poll();
@@ -547,7 +535,6 @@ test("a watch is sent what it was before", async () => {
     pollMs: 60_000,
   });
   const first = await watches.watch("phone");
-  // The workspace and chat that failed to read read now; the codex chat finished.
   source = recovered;
   await watches.poll();
   await watches.poll();

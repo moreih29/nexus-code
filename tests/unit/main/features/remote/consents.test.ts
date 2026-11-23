@@ -1,4 +1,3 @@
-/** The consent prompts waiting on the user here, as another device sees and answers them. */
 import { describe, expect, test } from "bun:test";
 import { RpcErrorCode } from "../../../../../packages/remote-protocol/src";
 import type { CliServices, PendingConsent } from "../../../../../src/main/features/cli/context";
@@ -94,13 +93,11 @@ describe("the consent prompts another device is told", () => {
       eachTime: false,
       answerable: true,
     });
-    // A tab since closed: no name to tell.
     expect(listed[1]).toMatchObject({
       from: { workspaceId: "w1", workspaceName: "app", tabId: "gone" },
       change: terminal,
     });
     expect(listed[1]?.from).not.toHaveProperty("name");
-    // Another computer's agent: its workspace and tab name nothing here.
     expect(listed[2]).toMatchObject({
       from: {
         device: { id: "mac", name: "MacBook" },

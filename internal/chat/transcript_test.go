@@ -72,7 +72,6 @@ func TestSubagentTranscriptFindsAnAgentByItsIdOrItsCall(t *testing.T) {
 	if got := read(SubagentTranscriptParams{SessionID: id, ToolUseID: "toolu_01", ConfigDir: dir}); !got.Found || len(got.Lines) != 2 {
 		t.Fatalf("by call = %+v", got)
 	}
-	// An agent id with no file of its own is looked for by its call.
 	if got := read(SubagentTranscriptParams{SessionID: id, AgentID: "gone", ToolUseID: "toolu_02", ConfigDir: dir}); !got.Found || len(got.Lines) != 1 {
 		t.Fatalf("by call after the id = %+v", got)
 	}

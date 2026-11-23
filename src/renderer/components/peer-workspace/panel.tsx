@@ -414,7 +414,6 @@ export function PeerWorkspacePanel({
   );
 }
 
-/** A tab's face: its label, icon and state, and a file's path there. */
 interface TabFace {
   key: string;
   value: string;

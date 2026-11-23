@@ -12,9 +12,6 @@ import {
   isWaiting,
 } from "../../../../../src/renderer/services/chat/model";
 
-// Three turns recorded from claude 2.1.318 with the app's flags: a Write
-// outside the folder (a permission request) and a Bash ls; a one-word
-// answer, between two mode switches; a Bash sleep stopped by interrupt.
 const FIXTURE: ChatLine[] = readFileSync(
   join(import.meta.dir, "../../../../fixtures/chat/three-turns.jsonl"),
   "utf8",
@@ -39,7 +36,6 @@ function run(lines: ChatLine[]): ChatModel {
   return applyLines(applyLine(emptyModel(), { ...started, seq: 0.5 }), lines, 1000);
 }
 
-/** A message the tab writes, as the CLI is given it. */
 function typed(seq: number, text: string, uuid: string): ChatLine {
   return {
     seq,
@@ -48,7 +44,6 @@ function typed(seq: number, text: string, uuid: string): ChatLine {
   };
 }
 
-/** A message the CLI echoes as taken. */
 function echoed(seq: number, text: string, uuid: string): ChatLine {
   return {
     seq,
@@ -147,7 +142,6 @@ describe("chat model from a recorded conversation", () => {
       ["Bash", "stopped"],
     ]);
     expect(model.items.some((i) => i.kind === "notice" && i.code === "interrupted")).toBe(true);
-    // The interrupt's error result is not shown as an error.
     expect(model.items.some((i) => i.kind === "notice" && i.code === "error")).toBe(false);
     expect(model.lastResult?.terminalReason).toBe("aborted_tools");
     expect(model.costUsd).toBeGreaterThan(0);
@@ -182,8 +176,6 @@ describe("chat model from a recorded conversation", () => {
     });
     const before = run(FIXTURE);
     const lastSeq = before.lastSeq;
-    // As 2.1.319 answers a /clear: the reset, an init with the new id, then
-    // the command echoed as a message taken.
     const model = applyLines(before, [
       typed(lastSeq + 1, "/clear", "c1"),
       {
@@ -275,7 +267,6 @@ describe("chat model from a recorded conversation", () => {
   });
 
   test("text streams in before its message arrives whole", () => {
-    // The last turn's first answer text, mid-stream.
     const lines = upTo(
       (l) =>
         messageOf(l).type === "stream_event" &&
@@ -285,7 +276,6 @@ describe("chat model from a recorded conversation", () => {
     const blocks = Object.values(model.streaming?.blocks ?? {});
     expect(blocks.some((b) => b.type === "text" && b.text.length > 0)).toBe(true);
 
-    // When the assistant line comes, the streamed block is in the item instead.
     const whole = run(
       upTo((l) => l.seq > lines[lines.length - 1].seq && messageOf(l).type === "assistant"),
     );
@@ -397,7 +387,6 @@ describe("chat model process lines", () => {
 
   test("an exit's output reads without the colours it was written in", () => {
     const esc = String.fromCharCode(0x1b);
-    // A line as codex 0.166 wrote it on Windows, colours and all.
     const written =
       `${esc}[2m2026-11-06T03:00:34.233537Z${esc}[0m ${esc}[31mERROR${esc}[0m ` +
       `${esc}[2mcodex_app_server${esc}[0m${esc}[2m:${esc}[0m Invalid configuration; using defaults.\r\n`;
@@ -425,7 +414,6 @@ describe("chat model process lines", () => {
       message: { event: "start", pid: 1 },
     });
     expect(fresh.resumed).toBe(false);
-    // A later restart of the program does not change how the log began.
     const later = applyLine(
       applyLine(fresh, { seq: 2, dir: "sys", message: { event: "exit", code: 0 } }),
       { seq: 3, dir: "sys", message: { event: "start", pid: 2, resumed: true } },
@@ -570,11 +558,9 @@ describe("messages written during a turn", () => {
         "c-1",
       ),
     );
-    // Nor does it take the message the user wrote.
     expect(users(model)).toEqual(["go:sent"]);
     model = applyLine(model, echo(4, "go", "u-1"));
     expect(users(model)).toEqual(["go:taken"]);
-    // /compact's, which its own notice tells.
     model = applyLine(
       model,
       echo(5, "<local-command-stdout>Compacted </local-command-stdout>", "c-2"),
@@ -701,10 +687,6 @@ describe("messages written during a turn", () => {
   });
 });
 
-// The order Claude Code 2.1.325 gave, recorded with the app's flags: a
-// command written during a turn waits in the CLI's queue (cancel_async_message
-// takes it back then), and starts only after the turn's result; it is echoed
-// once it is done, a compaction's after its status and boundary.
 describe("a command written during a turn", () => {
   const sent = (seq: number, text: string, uuid: string, more: Record<string, unknown> = {}) =>
     ({
@@ -750,14 +732,12 @@ describe("a command written during a turn", () => {
   test("/compact waits till the turn ends, then compacts in a turn of its own", () => {
     let model = turnWith("/compact");
     expect(users(model)).toEqual(["go:taken", "/compact:sent:waiting"]);
-    // The turn's result, and the command started in the same frame.
     model = applyLines(model, [
       result(7),
       lifecycle(8, "u-1", "completed"),
       lifecycle(9, "u-2", "started"),
       status(10, "compacting"),
     ]);
-    // Begun, it can no longer be taken back: it no longer waits above the box.
     expect(users(model)).toEqual(["go:taken", "/compact:sent"]);
     expect(model.items.map((item) => item.kind)).toEqual(["user", "assistant", "user"]);
     expect(model.running).toBe(true);
@@ -938,8 +918,6 @@ describe("the context's size during a turn", () => {
   });
 
   test("a call's size is the total the CLI counts after it", () => {
-    // The fixture's first turn ends on a call that sent 2 + 113 + 25472
-    // tokens, and the app's count after it (app-2) is 25587.
     const last = FIXTURE.find((line) => line.seq === 60) as ChatLine;
     const model = run([...answered, last]);
     expect((model.contextUsage as typeof counted).totalTokens).toBe(25587);
@@ -1049,7 +1027,6 @@ describe("initialize", () => {
 describe("applyLines", () => {
   const begin = applyLine(emptyModel(), { ...started, seq: 0.5 }, 1000);
 
-  /** The fixture applied a line at a time, as each line its own draft. */
   const oneByOne = FIXTURE.reduce((model, line) => applyLine(model, line, 1000), begin);
 
   test("lines applied in one draft make the model they make one at a time", () => {

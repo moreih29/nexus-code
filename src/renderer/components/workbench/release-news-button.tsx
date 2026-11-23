@@ -1,6 +1,3 @@
-// The title bar's "what's new": after an update, the new version's release
-// notes are a click away, until the user reads them or dismisses this.
-
 import { Sparkles, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { newsVersionOf } from "../../services/updates/release-notes";

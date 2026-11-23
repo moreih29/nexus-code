@@ -4,10 +4,6 @@ import type { CliServices } from "../../cli/context";
 import { type FolderSystem, folderToAdd, SYSTEM_FOLDERS } from "../folders";
 import { unavailable } from "./common";
 
-/**
- * Adds one of this device's folders as a workspace, as Add Workspace does;
- * the user is told which device added it.
- */
 export async function createWorkspace(
   services: CliServices,
   { path: asked, name }: RpcParams<"workspace.create">,

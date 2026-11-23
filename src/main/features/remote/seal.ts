@@ -1,10 +1,3 @@
-/**
- * Sealing what one device sends another (packages/remote-protocol's
- * ./sealed.ts): XChaCha20-Poly1305 with the room key, a fresh nonce, and
- * the frame's routing as associated data, so the relay can neither read a
- * message nor pass it off as another's. What is sealed is an envelope: the
- * message, with the epochs that tell it fresh (the room checks those).
- */
 import {
   aadOf,
   type Delivered,
@@ -16,7 +9,6 @@ import {
 import { fromBase64Url, toBase64Url } from "./account-key";
 import { sodium } from "./sodium";
 
-/** The room key and the account key's version it comes from. */
 export interface RoomKey {
   readonly kid: number;
   readonly key: Uint8Array;
@@ -42,11 +34,6 @@ export async function sealMessage(options: {
   return { t: "send", to, seq, kid: room.kid, nonce: toBase64Url(nonce), box: toBase64Url(box) };
 }
 
-/**
- * Opens a delivered message: null when it does not open (sealed with
- * another key or protocol version, or changed on the way) or is not an
- * envelope of the protocol. Whether it is fresh is the room's to tell.
- */
 export async function openMessage(room: RoomKey, frame: Delivered): Promise<SealedEnvelope | null> {
   if (frame.kid !== room.kid) return null;
   const lib = await sodium();

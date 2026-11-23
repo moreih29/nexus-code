@@ -20,39 +20,19 @@ import { ErrorNotice } from "./error-notice";
 import type { SshDirectoryPickerViewProps } from "./types";
 import { type BrowseCacheEntry, usePathAutocomplete } from "./use-path-autocomplete";
 
-// ---------------------------------------------------------------------------
-// Private types
-// ---------------------------------------------------------------------------
-
-/**
- * Browse session error classification.
- * - "path-not-found": the typed path does not exist. Non-destructive — the
- *   previous valid listing stays on screen and the error is shown inline by
- *   the path bar rather than replacing the tree.
- * - "session-expired": connection/auth is gone — the tree is meaningless, so
- *   the error replaces it and offers a reconnect path.
- * - "retryable": transient failure — replace the tree with a Retry affordance.
- */
 type BrowseErrorKind = "session-expired" | "path-not-found" | "retryable" | null;
 
-// Session expiry / disconnect error codes
 const SESSION_FATAL_CODES = new Set([
   "ssh.session-expired",
   "ssh.connect-failed",
   "ssh.auth-failed",
 ]);
 
-// ---------------------------------------------------------------------------
-// Private helpers
-// ---------------------------------------------------------------------------
-
-/** POSIX path join — append last segment. */
 function joinPath(base: string, segment: string): string {
   const clean = base.endsWith("/") ? base : `${base}/`;
   return segment === ".." ? parentPath(base) : `${clean}${segment}`;
 }
 
-/** Return POSIX parent path. */
 function parentPath(path: string): string {
   const clean = path.endsWith("/") && path.length > 1 ? path.slice(0, -1) : path;
   const idx = clean.lastIndexOf("/");
@@ -60,7 +40,6 @@ function parentPath(path: string): string {
   return clean.slice(0, idx);
 }
 
-/** Selects a recovery action from the browse error's typed code. */
 function browseErrorKindFor(error: AppError): BrowseErrorKind {
   if (error.code === "ssh.path-not-found") return "path-not-found";
   if (error.code && SESSION_FATAL_CODES.has(error.code)) return "session-expired";
@@ -69,16 +48,9 @@ function browseErrorKindFor(error: AppError): BrowseErrorKind {
 
 const HOVER_PREFETCH_DELAY_MS = 150;
 
-/** Listbox element id for the path autocomplete dropdown. */
 const PATH_SUGGEST_LISTBOX_ID = "picker-path-suggestions";
 
-// ---------------------------------------------------------------------------
-// SshDirectoryPickerView — T4 implementation
-// ---------------------------------------------------------------------------
-
-/** Imperative handle — lets the dialog footer button drive the picker's primary action. */
 export interface SshDirectoryPickerHandle {
-  /** Invoke the "Add workspace" action (equivalent to clicking the footer primary button). */
   submit(): void;
 }
 
@@ -93,38 +65,29 @@ export function SshDirectoryPickerView({
   readonly ref?: React.Ref<SshDirectoryPickerHandle>;
 }): React.JSX.Element {
   const { t } = useTranslation();
-  // An SSH host's session, or a WSL distribution's (it has `distro`).
   const { sessionId, initialPath } = session;
 
-  // Path state
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [pathInput, setPathInput] = useState(initialPath);
   const pathInputRef = useRef<HTMLInputElement>(null);
 
-  // List state
   const [entries, setEntries] = useState<readonly DirEntry[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [truncated, setTruncated] = useState(false);
   const [browseErrorHuman, setBrowseErrorHuman] = useState<string | null>(null);
   const [browseErrorKind, setBrowseErrorKind] = useState<BrowseErrorKind>(null);
-  // Non-destructive "path not found" notice: shown inline by the path bar
-  // while the previous valid listing stays visible (does not wipe the tree).
   const [pathErrorHuman, setPathErrorHuman] = useState<string | null>(null);
 
-  // Add Workspace state
   const [addPhase, setAddPhase] = useState<"idle" | "creating">("idle");
   const [addErrorHuman, setAddErrorHuman] = useState<string | null>(null);
 
-  // Prefetch
   const browseCache = useRef<Map<string, BrowseCacheEntry>>(new Map());
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverAbortRef = useRef<AbortController | null>(null);
   const inFlightAbortRef = useRef<AbortController | null>(null);
 
-  // List load
   const loadPath = useCallback(
     async (path: string, abortSignal?: AbortSignal): Promise<void> => {
-      // Cache hit
       const cached = browseCache.current.get(path);
       if (cached) {
         setCurrentPath(path);
@@ -178,7 +141,6 @@ export function SshDirectoryPickerView({
     [sessionId],
   );
 
-  // Initial load — mount-only; initialPath and loadPath are stable for view lifetime.
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional mount-only effect
   useEffect(() => {
     const controller = new AbortController();
@@ -186,16 +148,12 @@ export function SshDirectoryPickerView({
     void loadPath(initialPath, controller.signal).finally(() => {
       if (inFlightAbortRef.current === controller) inFlightAbortRef.current = null;
     });
-    // Focus path input
     pathInputRef.current?.focus();
     return () => {
       controller.abort();
     };
   }, []);
 
-  // Begin a directory navigation in the main list: cancel any in-flight load,
-  // show the skeleton, then load the target path. Shared by folder clicks, the
-  // path bar (Enter), and autocomplete selection.
   function navigateTo(targetPath: string): void {
     inFlightAbortRef.current?.abort();
     const controller = new AbortController();
@@ -209,7 +167,6 @@ export function SshDirectoryPickerView({
     });
   }
 
-  // Drill down — click a folder row in the main list.
   function drillDown(segment: string): void {
     const targetPath = joinPath(currentPath, segment);
     setPathInput(targetPath);
@@ -217,7 +174,6 @@ export function SshDirectoryPickerView({
     navigateTo(targetPath);
   }
 
-  // Path bar Enter with no highlighted suggestion — navigate to the typed path.
   function handlePathSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     const trimmed = pathInput.trim();
@@ -227,9 +183,6 @@ export function SshDirectoryPickerView({
     navigateTo(trimmed);
   }
 
-  // Path autocomplete combobox — owns the dropdown listing, keyboard nav, and
-  // click-outside dismissal. Committing a suggestion moves the main list into
-  // that folder and appends a trailing slash so the dropdown keeps drilling.
   const autocomplete = usePathAutocomplete({
     sessionId,
     pathInput,
@@ -247,7 +200,6 @@ export function SshDirectoryPickerView({
     autocomplete.handleInputChange();
   }
 
-  // Hover prefetch
   function handleRowHoverStart(segment: string): void {
     const targetPath = joinPath(currentPath, segment);
     if (browseCache.current.has(targetPath)) return;
@@ -276,7 +228,6 @@ export function SshDirectoryPickerView({
     hoverAbortRef.current = null;
   }
 
-  // Add Workspace
   async function handleAddWorkspace(): Promise<void> {
     if (addPhase === "creating" || browseErrorHuman) return;
     setAddPhase("creating");
@@ -286,10 +237,6 @@ export function SshDirectoryPickerView({
       return;
     }
     try {
-      // createAndConnect with sshBrowseSessionId: the directory-picker path
-      // is already authenticated (the user browsed via the browse session).
-      // The main handler detects the browseSessionId and adopts that
-      // ControlMaster, skipping a second auth prompt.
       const result = await createSshWorkspace({
         host: session.host,
         user: session.user,
@@ -297,8 +244,6 @@ export function SshDirectoryPickerView({
         identityFile: session.identityFile,
         remotePath: currentPath,
         authMode: "interactive",
-        // Hand off the browse session's authenticated connection so the
-        // workspace boots without a second credential prompt.
         sshBrowseSessionId: sessionId,
       });
 
@@ -308,16 +253,12 @@ export function SshDirectoryPickerView({
         return;
       }
 
-      // Record the SSH folder bookmark — before onWorkspaceCreated so
-      // it appears in RECENT on the next modal open.
-      // Failure is silent — workspace creation already succeeded.
       await recordSshBookmark({
         id: crypto.randomUUID(),
         absPath: currentPath,
         connectionProfileId: session.connectionProfileId,
       }).catch(() => {});
 
-      // Session cleanup is handled by unmount effect — no separate call needed.
       await onWorkspaceCreated(result.value);
       onClose();
     } catch (error) {
@@ -326,14 +267,11 @@ export function SshDirectoryPickerView({
     }
   }
 
-  /** Presents an add failure once, beside the picker when it can be retried there. */
   function presentAddError(error: unknown): void {
     const surface = surfaceError(normaliseError(error), { surface: "inline" });
     setAddErrorHuman(surface.surface === "inline" ? surface.userMessage : null);
   }
 
-  // A WSL workspace needs no connection handoff: the distribution is reached
-  // through wsl.exe again. It records no bookmark (bookmarks are local or SSH).
   async function addWslWorkspace(distro: string): Promise<void> {
     try {
       const result = await createWslWorkspace({ distro, remotePath: currentPath });
@@ -350,8 +288,6 @@ export function SshDirectoryPickerView({
     }
   }
 
-  // Session cleanup on Back / workspace add success / modal close — runs on unmount.
-  // sessionId is stable for the lifetime of this view.
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional mount-only cleanup
   useEffect(() => {
     return () => {
@@ -363,13 +299,10 @@ export function SshDirectoryPickerView({
   const isAtRoot = currentPath === "/" || currentPath === "";
   const addDisabled = addPhase === "creating" || browseErrorKind === "session-expired";
 
-  // Sync footer primary button state
   useEffect(() => {
     onAddPhaseChange(addPhase, addDisabled);
   }, [addPhase, addDisabled, onAddPhaseChange]);
 
-  // The footer primary button lives in the dialog shell; expose the action so it
-  // can invoke handleAddWorkspace directly (no hidden-button / DOM-id handshake).
   useImperativeHandle(ref, () => ({
     submit: () => {
       void handleAddWorkspace();
@@ -378,10 +311,7 @@ export function SshDirectoryPickerView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {/* Path bar — pinned (shrink-0) so it stays visible while only the
-          directory list below scrolls. */}
       <form onSubmit={handlePathSubmit} className="flex shrink-0 flex-col gap-1">
-        {/* Connection identity (user@host, or the WSL distribution) heads the path field. */}
         <div className="truncate text-app-body-emphasis text-foreground">
           {"distro" in session
             ? t("wsl.identity", { distro: session.distro })
@@ -401,7 +331,6 @@ export function SshDirectoryPickerView({
               <CornerLeftUp className="size-4" aria-hidden="true" />
             </button>
           ) : (
-            // Placeholder keeps the path input's left edge fixed at filesystem root.
             <div className="size-7 shrink-0" aria-hidden="true" />
           )}
           <input
@@ -466,16 +395,12 @@ export function SshDirectoryPickerView({
         </div>
       </form>
 
-      {/* Path-not-found notice — inline + non-destructive: the directory list
-          below keeps showing the last valid listing. */}
       {pathErrorHuman ? (
         <ErrorNotice message={pathErrorHuman} className="shrink-0 px-2 py-2" />
       ) : null}
 
-      {/* Directory list — grows to fill the dialog's available height */}
       <div className="min-h-0 flex-1 overflow-hidden rounded-(--radius-control) border border-border">
         {listLoading ? (
-          // Loading: skeleton rows — no generic spinner
           <Skeleton
             label={t("sshPicker.loading_listing")}
             className="h-full gap-0 overflow-hidden px-0 py-0"
@@ -485,8 +410,6 @@ export function SshDirectoryPickerView({
             ))}
           </Skeleton>
         ) : browseErrorHuman ? (
-          // Error: inline card within 240px (height invariant)
-          // Redundant encoding: icon + border + bg + fg color
           <div className="flex h-full flex-col items-center justify-center gap-3 px-4">
             <ErrorNotice message={browseErrorHuman} className="w-full px-3 py-2" />
             {browseErrorKind === "session-expired" ? (
@@ -519,7 +442,6 @@ export function SshDirectoryPickerView({
             )}
           </div>
         ) : dirEntries.length === 0 ? (
-          // Empty folder — current path is still a valid workspace root
           <div className="flex h-full items-center justify-center">
             <EmptyState
               tone="status"
@@ -529,7 +451,6 @@ export function SshDirectoryPickerView({
             />
           </div>
         ) : (
-          // Directory list
           <ul
             className="app-scrollbar h-full overflow-y-auto py-1"
             aria-label={t("sshPicker.directory_listing")}
@@ -564,7 +485,6 @@ export function SshDirectoryPickerView({
         )}
       </div>
 
-      {/* Add error — humanised, redundant encoding */}
       {addErrorHuman ? (
         <ErrorNotice message={addErrorHuman} className="shrink-0 px-2 py-2" />
       ) : null}

@@ -28,8 +28,6 @@ type logExpectedEvent struct {
 	Payload LogBatchPayload `json:"payload"`
 }
 
-// TestLogFixtures verifies every manually authored log fixture against the Go
-// record parser, cursor/limit logic, and git.log.batch payload shape.
 func TestLogFixtures(t *testing.T) {
 	fixtureRoot := fixtureDir("log")
 	entries, err := os.ReadDir(fixtureRoot)
@@ -136,8 +134,6 @@ func TestLogNextRefPageKeepsMergedBranchCommits(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	runGit(t, root, "init", "-b", "main")
-	// base, a side commit off it, five main commits off it, then the side
-	// merged in: the side commit is older than every main commit.
 	var stream strings.Builder
 	commit := func(mark int, message string, parents ...int) {
 		fmt.Fprintf(&stream, "commit refs/heads/main\nmark :%d\ncommitter Nexus Test <nexus@example.test> %d +0000\ndata %d\n%s\n", mark, 1700000000+mark*60, len(message), message)
@@ -194,8 +190,6 @@ func TestLogNextRefPageKeepsMergedBranchCommits(t *testing.T) {
 func TestLogLimitCursorKillsPromptly(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init", "-b", "main")
-	// One fast-import writes the 1000 empty commits. A git process per commit
-	// made this the slowest test, on Windows above all.
 	var stream strings.Builder
 	for i := 0; i < 1000; i++ {
 		message := fmt.Sprintf("commit %04d", i)
@@ -244,8 +238,6 @@ func TestLogListsCommitsAfterTheirChildren(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	runGit(t, root, "init", "-b", "main")
-	// Every commit at one time: base, then main 1 and side 1 → side 2 off it,
-	// then a merge. In git's default order base comes before side 1.
 	var stream strings.Builder
 	commit := func(mark int, message string, parents ...int) {
 		fmt.Fprintf(&stream, "commit refs/heads/main\nmark :%d\ncommitter Nexus Test <nexus@example.test> 1700000000 +0000\ndata %d\n%s\n", mark, len(message), message)

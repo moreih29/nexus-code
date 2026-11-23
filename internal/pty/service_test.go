@@ -19,8 +19,6 @@ import (
 
 const testWorkspaceID = "00000000-0000-0000-0000-000000000001"
 
-// TestConcurrentWritesKeepFramesWhole verifies that simultaneous RPCs do
-// not splice their input together when each write spans several PTY chunks.
 func TestConcurrentWritesKeepFramesWhole(t *testing.T) {
 	t.Parallel()
 	service, recorder := newTestService(t)
@@ -56,7 +54,6 @@ exec cat
 	}
 }
 
-// TestBackpressureBoundsDataBeforeAck verifies Go pauses before unbounded NDJSON emission.
 func TestBackpressureBoundsDataBeforeAck(t *testing.T) {
 	t.Parallel()
 	service, recorder := newTestService(t)
@@ -86,10 +83,6 @@ sleep 5
 	recorder.requireDataBytesGreaterThan(t, withoutAck, 2*time.Second)
 }
 
-// TestResizeAndForegroundRacingKill drives the master-fd ioctls (resize,
-// foreground lookup) while the session is killed. They used to reach the
-// descriptor through os.File.Fd(), unsynchronized with the Close that kill
-// performs, which `go test -race` reports as a data race.
 func TestResizeAndForegroundRacingKill(t *testing.T) {
 	t.Parallel()
 	service, recorder := newTestService(t)
@@ -128,9 +121,6 @@ while :; do sleep 1; done
 	wg.Wait()
 }
 
-// TestForegroundToldAloneOnlyWhenTheShellRunsNothing: a script's shell
-// waiting for its program shares its process group with it, so the shell in
-// front is not alone; one in a builtin is.
 func TestForegroundToldAloneOnlyWhenTheShellRunsNothing(t *testing.T) {
 	t.Parallel()
 	service, recorder := newTestService(t)
@@ -152,7 +142,6 @@ read line
 		}
 		return result.(ForegroundProcessResult)
 	}
-	// sleep starts a moment after the marker is printed.
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		got := foreground("waiting", true)
@@ -178,11 +167,6 @@ read line
 	}
 }
 
-// TestExitReportedWhileBackgroundJobHoldsTerminal covers a job-control
-// background job (its own process group) that keeps the PTY slave open after
-// the shell exits or is killed. On Linux the master read then never ended and
-// closing the master did not interrupt it, so pty.exit was never sent and the
-// tab hung.
 func TestExitReportedWhileBackgroundJobHoldsTerminal(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -198,7 +182,6 @@ func TestExitReportedWhileBackgroundJobHoldsTerminal(t *testing.T) {
 			tabID := "bg-job-" + tc.name
 			spawnTestScript(t, service, tabID, tc.script)
 			recorder.requireTranscriptContains(t, "READY", 2*time.Second)
-			// The background job outlives the test; reap it afterwards.
 			if transcript := recorder.transcript(); strings.Contains(transcript, "BG=") {
 				var bgPID int
 				if _, err := fmt.Sscanf(transcript[strings.Index(transcript, "BG="):], "BG=%d", &bgPID); err == nil && bgPID > 0 {
@@ -215,7 +198,6 @@ func TestExitReportedWhileBackgroundJobHoldsTerminal(t *testing.T) {
 	}
 }
 
-// eventRecorder captures PTY push events for focused service tests.
 type eventRecorder struct {
 	mu      sync.Mutex
 	data    [][]byte
@@ -223,7 +205,6 @@ type eventRecorder struct {
 	sinkErr error
 }
 
-// newTestService creates a PTY service and wires its event sink to a recorder.
 func newTestService(t *testing.T) (*Service, *eventRecorder) {
 	t.Helper()
 	recorder := &eventRecorder{}
@@ -233,7 +214,6 @@ func newTestService(t *testing.T) (*Service, *eventRecorder) {
 	return service, recorder
 }
 
-// sink records data and exit events emitted by the service.
 func (r *eventRecorder) sink(event string, payload any) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -262,21 +242,18 @@ func (r *eventRecorder) sink(event string, payload any) error {
 	return nil
 }
 
-// transcript returns all captured PTY output as one UTF-8 string.
 func (r *eventRecorder) transcript() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return string(bytes.Join(r.data, nil))
 }
 
-// dataBytes returns the number of raw output bytes emitted so far.
 func (r *eventRecorder) dataBytes() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.dataBytesLocked()
 }
 
-// dataBytesLocked counts raw output bytes while the recorder mutex is held.
 func (r *eventRecorder) dataBytesLocked() int {
 	total := 0
 	for _, chunk := range r.data {
@@ -285,7 +262,6 @@ func (r *eventRecorder) dataBytesLocked() int {
 	return total
 }
 
-// requireTranscriptContains waits until output includes marker.
 func (r *eventRecorder) requireTranscriptContains(t *testing.T, marker string, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -305,7 +281,6 @@ func (r *eventRecorder) requireTranscriptContains(t *testing.T, marker string, t
 	t.Fatalf("timed out waiting for %q in transcript:\n%s", marker, r.transcript())
 }
 
-// requireDataBytesAtLeast waits until at least n raw PTY bytes have been emitted.
 func (r *eventRecorder) requireDataBytesAtLeast(t *testing.T, n int, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -318,7 +293,6 @@ func (r *eventRecorder) requireDataBytesAtLeast(t *testing.T, n int, timeout tim
 	t.Fatalf("timed out waiting for >= %d data bytes; got %d", n, r.dataBytes())
 }
 
-// requireDataBytesGreaterThan waits until more than n raw PTY bytes have been emitted.
 func (r *eventRecorder) requireDataBytesGreaterThan(t *testing.T, n int, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -331,7 +305,6 @@ func (r *eventRecorder) requireDataBytesGreaterThan(t *testing.T, n int, timeout
 	t.Fatalf("timed out waiting for data bytes > %d; got %d", n, r.dataBytes())
 }
 
-// requireExit waits for an exit payload for tabID.
 func (r *eventRecorder) requireExit(t *testing.T, tabID string, timeout time.Duration) ExitPayload {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -354,7 +327,6 @@ func (r *eventRecorder) requireExit(t *testing.T, tabID string, timeout time.Dur
 	return ExitPayload{}
 }
 
-// spawnTestScript writes body to a shell script and spawns /bin/sh running it as the PTY child.
 func spawnTestScript(t *testing.T, service *Service, tabID string, body string) SpawnResult {
 	t.Helper()
 	path := writeTestScript(t, body)
@@ -373,10 +345,6 @@ func spawnTestScript(t *testing.T, service *Service, tabID string, body string) 
 	return spawned
 }
 
-// writeTestScript creates a temporary /bin/sh script for spawnTestScript.
-// The script is read by /bin/sh, never exec'd itself: a parallel test's fork
-// can inherit the still-open write descriptor, and exec'ing the fresh file
-// then fails with "text file busy" (golang/go#22315).
 func writeTestScript(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "child.sh")
@@ -387,7 +355,6 @@ func writeTestScript(t *testing.T, body string) string {
 	return path
 }
 
-// writeSession invokes pty.write for tabID.
 func writeSession(t *testing.T, service *Service, tabID string, data string) {
 	t.Helper()
 	_, err := service.Write(context.Background(), mustJSON(t, WriteParams{WorkspaceID: testWorkspaceID, TabID: tabID, Data: data}))
@@ -396,7 +363,6 @@ func writeSession(t *testing.T, service *Service, tabID string, data string) {
 	}
 }
 
-// ackSession invokes pty.ack for tabID.
 func ackSession(t *testing.T, service *Service, tabID string, bytesConsumed int) {
 	t.Helper()
 	_, err := service.Ack(context.Background(), mustJSON(t, AckParams{WorkspaceID: testWorkspaceID, TabID: tabID, BytesConsumed: bytesConsumed}))
@@ -405,7 +371,6 @@ func ackSession(t *testing.T, service *Service, tabID string, bytesConsumed int)
 	}
 }
 
-// mustJSON encodes a request parameter value for direct service calls.
 func mustJSON(t *testing.T, value any) json.RawMessage {
 	t.Helper()
 	data, err := json.Marshal(value)
@@ -415,8 +380,6 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 	return data
 }
 
-// envValue extracts a single VAR=VALUE entry's value from mergeEnv's
-// sorted result. Returns "" when the key is absent.
 func envValue(env []string, key string) (string, bool) {
 	prefix := key + "="
 	for _, entry := range env {
@@ -427,12 +390,6 @@ func envValue(env []string, key string) (string, bool) {
 	return "", false
 }
 
-// TestMergeEnvInjectsUTF8LocaleWhenAbsent verifies the locale fallback
-// added so remote bash readline accepts Korean / multibyte input even on
-// hosts whose login env ships LANG / LC_* as empty (clean Docker images,
-// minimal Linux installs). All three locale variables are emptied first
-// because t.Setenv with "" mirrors what we observed in the wild —
-// LC_CTYPE="POSIX" came from locale's effective resolution, not the env.
 func TestMergeEnvInjectsUTF8LocaleWhenAbsent(t *testing.T) {
 	t.Setenv("LANG", "")
 	t.Setenv("LC_ALL", "")
@@ -446,8 +403,6 @@ func TestMergeEnvInjectsUTF8LocaleWhenAbsent(t *testing.T) {
 	}
 }
 
-// TestMergeEnvPreservesUserLang ensures a user-configured locale is left
-// alone — the fallback only fires when nothing UTF-8-capable is present.
 func TestMergeEnvPreservesUserLang(t *testing.T) {
 	t.Setenv("LANG", "ko_KR.UTF-8")
 	t.Setenv("LC_ALL", "")
@@ -461,9 +416,6 @@ func TestMergeEnvPreservesUserLang(t *testing.T) {
 	}
 }
 
-// TestMergeEnvPreservesLcAllWithoutLang covers the case where the user
-// pinned the locale via LC_ALL only — LC_ALL beats LANG in shell
-// precedence, so we must not inject a competing LANG fallback.
 func TestMergeEnvPreservesLcAllWithoutLang(t *testing.T) {
 	t.Setenv("LANG", "")
 	t.Setenv("LC_ALL", "ja_JP.UTF-8")
@@ -479,10 +431,6 @@ func TestMergeEnvPreservesLcAllWithoutLang(t *testing.T) {
 	}
 }
 
-// TestMergeEnvOverrideLangIsRespected verifies a spawn-time override of
-// LANG (renderer requests a specific locale per terminal) wins over the
-// fallback. The fallback path runs after the override merge, so this is
-// the order we depend on.
 func TestMergeEnvOverrideLangIsRespected(t *testing.T) {
 	t.Setenv("LANG", "")
 	t.Setenv("LC_ALL", "")

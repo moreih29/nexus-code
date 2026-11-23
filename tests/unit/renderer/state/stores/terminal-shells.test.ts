@@ -1,16 +1,9 @@
-/**
- * Shells added in Settings › Terminal — saved to appState as a list, and
- * removing the default one sends the default back to the system default.
- */
-
 import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 
 const writes: unknown[] = [];
 
 const CLIENT = "../../../../../src/renderer/ipc/client";
 
-// Other files mock the IPC client process-wide, so this file installs its
-// own and puts back whatever it found when it is done.
 const previousClient = { ...(await import(CLIENT)) };
 mock.module(CLIENT, () => ({
   ...previousClient,

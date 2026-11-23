@@ -1,19 +1,3 @@
-/**
- * Integration tests: workspace drag/pin reorder scenarios.
- *
- * Exercises the full main-process stack — GlobalStorage (bun:sqlite in-memory),
- * WorkspaceManager, and broadcast spy — without spinning up Electron IPC or
- * a renderer.  Each suite maps to one acceptance criterion in T7.
- *
- * Test scope (Tester-authored, per authoring split):
- *   - Migration v5→v6 visual order preservation
- *   - Single-group reorder + broadcast routing
- *   - Cross-section reorder + automatic pin toggle
- *   - Rebalance trigger + bulk `workspace.reordered` event
- *   - Concurrent reorder serialization (determinism)
- *   - Renderer-store fallback on stale applySortedInsert (consistent=false → fetchList)
- */
-
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import os from "node:os";
@@ -26,10 +10,6 @@ import { createWorkspacesStore } from "../../../src/renderer/state/stores/worksp
 import { WorkspaceReorderedEventSchema } from "../../../src/shared/ipc/contract";
 import type { WorkspaceMeta } from "../../../src/shared/types/workspace";
 import { openTestState } from "../../helpers/test-state";
-
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
 
 function uuid(n: number): string {
   return `00000000-0000-0000-0000-${String(n).padStart(12, "0")}`;
@@ -66,17 +46,11 @@ function makeFixtures(): Fixtures {
   return { globalDb, globalStorage, manager, broadcast };
 }
 
-/**
- * Helper: creates a workspace through WorkspaceManager.create() and returns its id.
- */
 function createWs(manager: WorkspaceManager, n: number): string {
   const meta = manager.create({ rootPath: makeRootPath(n), name: `ws-${n}` });
   return meta.id;
 }
 
-/**
- * Reads all workspace rows directly from the DB, returning id → sort_order / pinned_sort_order.
- */
 function readSortRows(
   db: Database,
 ): Map<string, { sortOrder: number; pinnedSortOrder: number; pinned: number }> {
@@ -99,16 +73,10 @@ function readSortRows(
   return map;
 }
 
-// ---------------------------------------------------------------------------
-// Scenario 1 — Migration v5→v6: visual order preservation
-// ---------------------------------------------------------------------------
-
 describe("migration v5→v6 — last_opened_at DESC visual order preserved", () => {
   it("listWorkspaces after v6 migration returns rows in last_opened_at DESC order", () => {
-    // Simulate a v5 DB: workspaces table without sort_order / pinned_sort_order columns.
     const db = new Database(":memory:");
 
-    // Apply only migrations 1–5 (no sort columns yet) by hand, then insert rows.
     db.exec(`
       CREATE TABLE IF NOT EXISTS _meta (
         key   TEXT NOT NULL PRIMARY KEY,
@@ -126,8 +94,6 @@ describe("migration v5→v6 — last_opened_at DESC visual order preserved", () 
     `);
     db.prepare("INSERT INTO _meta (key, value) VALUES ('schemaVersion', '5')").run();
 
-    // Insert 4 workspaces with distinct last_opened_at timestamps.
-    // The DESC order should be: ws-D (4000), ws-C (3000), ws-B (2000), ws-A (1000).
     const rows = [
       { id: uuid(1), name: "ws-A", ts: 1000 },
       { id: uuid(2), name: "ws-B", ts: 2000 },
@@ -142,20 +108,13 @@ describe("migration v5→v6 — last_opened_at DESC visual order preserved", () 
       insert.run(row.id, row.name, row.ts);
     }
 
-    // Apply the v6 migration (adds sort_order / pinned_sort_order and backfills).
     applyMigrations(db);
 
-    // Open via GlobalStorage — listWorkspaces must use the new ORDER BY.
     const storage = new GlobalStorage(db);
     const list = storage.listWorkspaces();
 
-    // All 4 rows must be present.
     expect(list.length).toBe(4);
 
-    // The backfill assigns step-1024 positions ordered by last_opened_at DESC,
-    // so the DESC order is: ws-D=1024, ws-C=2048, ws-B=3072, ws-A=4096.
-    // listWorkspaces orders by sort_order ASC (within unpinned group), so the
-    // result must be [ws-D, ws-C, ws-B, ws-A] — same visual order as last_opened_at DESC.
     const names = list.map((w) => w.name);
     expect(names).toEqual(["ws-D", "ws-C", "ws-B", "ws-A"]);
     expect(list[0].sortOrder).toBe(1024);
@@ -166,10 +125,6 @@ describe("migration v5→v6 — last_opened_at DESC visual order preserved", () 
     db.close();
   });
 });
-
-// ---------------------------------------------------------------------------
-// Scenario 2 — Single-group reorder + broadcast routing
-// ---------------------------------------------------------------------------
 
 describe("single-group reorder — DB consistency + workspace.changed broadcast", () => {
   let fixtures: Fixtures;
@@ -182,13 +137,7 @@ describe("single-group reorder — DB consistency + workspace.changed broadcast"
     fixtures.globalDb.close();
   });
 
-  // --- Regression: user-reported drop-slot scenarios -----------------------
-  // These tests assert visible list order via manager.list() — not raw sort
-  // numbers — so any future inversion of beforeId/afterId semantics will
-  // fail loudly here rather than silently shipping again.
-
   it("regression: drop d onto the slot ABOVE a → list order [d, a, b, c]", () => {
-    // [a, b, c, d] → drag d to the top slot (beforeId = a) → [d, a, b, c]
     const ida = createWs(fixtures.manager, 1);
     const idb = createWs(fixtures.manager, 2);
     const idc = createWs(fixtures.manager, 3);
@@ -197,9 +146,6 @@ describe("single-group reorder — DB consistency + workspace.changed broadcast"
 
     fixtures.manager.reorder(idd, { targetGroup: "unpinned", beforeId: ida });
 
-    // Read directly from storage so the test compares visible (sorted) order,
-    // not the manager.list() Map-insertion order which doesn't re-sort on
-    // reorder. This is the source of truth the sidebar actually renders.
     const order = fixtures.globalDb
       .prepare(
         `SELECT id FROM workspaces
@@ -212,7 +158,6 @@ describe("single-group reorder — DB consistency + workspace.changed broadcast"
   });
 
   it("regression: drop b onto the slot BELOW d → list order [a, c, d, b]", () => {
-    // [a, b, c, d] → drag b to the bottom slot (afterId = d) → [a, c, d, b]
     const ida = createWs(fixtures.manager, 1);
     const idb = createWs(fixtures.manager, 2);
     const idc = createWs(fixtures.manager, 3);
@@ -221,9 +166,6 @@ describe("single-group reorder — DB consistency + workspace.changed broadcast"
 
     fixtures.manager.reorder(idb, { targetGroup: "unpinned", afterId: idd });
 
-    // Read directly from storage so the test compares visible (sorted) order,
-    // not the manager.list() Map-insertion order which doesn't re-sort on
-    // reorder. This is the source of truth the sidebar actually renders.
     const order = fixtures.globalDb
       .prepare(
         `SELECT id FROM workspaces
@@ -236,10 +178,6 @@ describe("single-group reorder — DB consistency + workspace.changed broadcast"
   });
 
   it("regression: drop b onto the slot ABOVE c (between a&b's old slot and c) → [a, b, c, d] unchanged", () => {
-    // beforeId=c means "land BEFORE c"; b is already directly before c, so the
-    // server-side computation places b right between its predecessor (a) and c.
-    // Final order remains [a, b, c, d] — this is a no-op equivalent, surfaced
-    // by the renderer's isSlotNoOp suppression rule.
     const ida = createWs(fixtures.manager, 1);
     const idb = createWs(fixtures.manager, 2);
     const idc = createWs(fixtures.manager, 3);
@@ -248,9 +186,6 @@ describe("single-group reorder — DB consistency + workspace.changed broadcast"
 
     fixtures.manager.reorder(idb, { targetGroup: "unpinned", beforeId: idc });
 
-    // Read directly from storage so the test compares visible (sorted) order,
-    // not the manager.list() Map-insertion order which doesn't re-sort on
-    // reorder. This is the source of truth the sidebar actually renders.
     const order = fixtures.globalDb
       .prepare(
         `SELECT id FROM workspaces
@@ -271,9 +206,6 @@ describe("single-group reorder — DB consistency + workspace.changed broadcast"
 
     fixtures.manager.reorder(ida, { targetGroup: "unpinned", afterId: idc });
 
-    // Read directly from storage so the test compares visible (sorted) order,
-    // not the manager.list() Map-insertion order which doesn't re-sort on
-    // reorder. This is the source of truth the sidebar actually renders.
     const order = fixtures.globalDb
       .prepare(
         `SELECT id FROM workspaces
@@ -285,10 +217,6 @@ describe("single-group reorder — DB consistency + workspace.changed broadcast"
     expect(order).toEqual([idb, idc, ida, idd]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Scenario 3 — Cross-section reorder + automatic pin toggle
-// ---------------------------------------------------------------------------
 
 describe("cross-section reorder — automatic pin toggle + sort column zeroing", () => {
   let fixtures: Fixtures;
@@ -308,10 +236,9 @@ describe("cross-section reorder — automatic pin toggle + sort column zeroing",
     const result = fixtures.manager.reorder(id1, { targetGroup: "pinned" });
 
     expect(result.pinned).toBe(true);
-    expect(result.pinnedSortOrder).toBe(1024); // tail of the empty pinned group
+    expect(result.pinnedSortOrder).toBe(1024);
     expect(result.sortOrder).toBe(0);
 
-    // DB state must match the returned meta.
     const rows = readSortRows(fixtures.globalDb);
     const row = rows.get(id1)!;
     expect(row.pinned).toBe(1);
@@ -320,12 +247,10 @@ describe("cross-section reorder — automatic pin toggle + sort column zeroing",
   });
 
   it("pinned → unpinned reorder: result meta has pinned=false, sortOrder>0, pinnedSortOrder=0", () => {
-    // First pin the workspace via update().
     const id1 = createWs(fixtures.manager, 11);
     fixtures.manager.update(id1, { pinned: true });
     fixtures.broadcast.mockClear();
 
-    // Now reorder back to unpinned group.
     const result = fixtures.manager.reorder(id1, { targetGroup: "unpinned" });
 
     expect(result.pinned).toBe(false);
@@ -340,10 +265,6 @@ describe("cross-section reorder — automatic pin toggle + sort column zeroing",
   });
 });
 
-// ---------------------------------------------------------------------------
-// Scenario 4 — Rebalance trigger + bulk workspace.reordered event
-// ---------------------------------------------------------------------------
-
 describe("rebalance trigger — bulk reordered event + 1024-step redistribution", () => {
   let fixtures: Fixtures;
 
@@ -354,8 +275,6 @@ describe("rebalance trigger — bulk reordered event + 1024-step redistribution"
   it("11 insertions into a 1-gap space trigger rebalance and workspace.reordered broadcast", () => {
     fixtures = makeFixtures();
 
-    // Place two unpinned workspaces with gap=1 to force immediate rebalance on
-    // the very next insertion between them.
     const db = fixtures.globalDb;
     const insertRow = (id: string, sortOrder: number): void => {
       db.prepare(
@@ -393,17 +312,12 @@ describe("rebalance trigger — bulk reordered event + 1024-step redistribution"
       (fixtures.manager["contexts"] as Map<string, unknown>).set(id, ctx);
     };
 
-    // Two adjacent workspaces with gap=1: positions 100 and 101.
     insertRow(uuid(101), 100);
     insertRow(uuid(102), 101);
 
-    // Create a third workspace via the manager (gets tail position 1124 = max+1024).
     const id3 = createWs(fixtures.manager, 103);
     fixtures.broadcast.mockClear();
 
-    // Reorder id3 to be inserted between uuid(101) and uuid(102).
-    // Natural semantics: beforeId=uuid(102) means "land BEFORE uuid(102)";
-    // predecessor of uuid(102) is uuid(101), and that gap is 1 (<2) → rebalance.
     fixtures.manager.reorder(id3, { targetGroup: "unpinned", beforeId: uuid(102) });
 
     const calls = fixtures.broadcast.mock.calls as [string, string, unknown][];
@@ -412,34 +326,25 @@ describe("rebalance trigger — bulk reordered event + 1024-step redistribution"
     expect(ch).toBe("workspace");
     expect(ev).toBe("reordered");
 
-    // The reordered event must carry all rows in the group in the IPC envelope.
     const { orders } = WorkspaceReorderedEventSchema.parse(args);
     expect(orders.length).toBeGreaterThanOrEqual(3);
 
-    // After rebalance, uuid(101) and uuid(102) get step-1024 positions.
     const byId = Object.fromEntries(orders.map((r) => [r.id, r.sortOrder]));
     expect(byId[uuid(101)]).toBe(1024);
     expect(byId[uuid(102)]).toBe(2048);
 
-    // id3 ends up at midpoint (1536) between 1024 and 2048 after rebalance.
     expect(byId[id3]).toBe(1536);
 
-    // DB positions must also be at 1024 multiples for the rebalanced rows.
     const rows = readSortRows(db);
     expect(rows.get(uuid(101))!.sortOrder).toBe(1024);
     expect(rows.get(uuid(102))!.sortOrder).toBe(2048);
     expect(rows.get(id3)!.sortOrder).toBe(1536);
 
-    // The manager's own list (nexus, other devices) has them in their new places too.
     const listed = Object.fromEntries(fixtures.manager.list().map((w) => [w.id, w.sortOrder]));
     expect(listed[uuid(101)]).toBe(1024);
     expect(listed[uuid(102)]).toBe(2048);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Scenario 5 — Concurrent reorder serialization (deterministic)
-// ---------------------------------------------------------------------------
 
 describe("concurrent reorder serialization — deterministic final state", () => {
   let fixtures: Fixtures;
@@ -453,41 +358,27 @@ describe("concurrent reorder serialization — deterministic final state", () =>
   });
 
   it("two simultaneous reorder calls produce a consistent, conflict-free final DB state", async () => {
-    // Create 3 unpinned workspaces at positions 1024, 2048, 3072.
     const id1 = createWs(fixtures.manager, 20);
     const id2 = createWs(fixtures.manager, 21);
     const id3 = createWs(fixtures.manager, 22);
     fixtures.broadcast.mockClear();
 
-    // Fire two reorders concurrently via Promise.all.
-    // better-sqlite3 (and bun:sqlite) are synchronous, so the calls actually
-    // execute sequentially under the hood — but the result must still be
-    // internally consistent regardless of which fires first.
     await Promise.all([
-      // Move ws-1 to tail (after ws-3).
       Promise.resolve(fixtures.manager.reorder(id1, { targetGroup: "unpinned" })),
-      // Move ws-2 to after ws-3 (which may have moved from the first call).
       Promise.resolve(fixtures.manager.reorder(id2, { targetGroup: "unpinned" })),
     ]);
 
-    // Final DB must have no duplicate sortOrder values.
     const rows = readSortRows(fixtures.globalDb);
     const sortOrders = [
       rows.get(id1)!.sortOrder,
       rows.get(id2)!.sortOrder,
       rows.get(id3)!.sortOrder,
     ];
-    // All three must be positive (positioned).
     expect(sortOrders.every((s) => s > 0)).toBe(true);
-    // No two rows may share the same sortOrder.
     const uniqueSortOrders = new Set(sortOrders);
     expect(uniqueSortOrders.size).toBe(3);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Scenario 6 — Broadcast fallback: stale store triggers fetchList
-// ---------------------------------------------------------------------------
 
 describe("renderer store — stale applySortedInsert triggers fetchList fallback", () => {
   it("consistent=false on a sort collision triggers fetchList and setAll", async () => {
@@ -505,8 +396,6 @@ describe("renderer store — stale applySortedInsert triggers fetchList fallback
       fetchList: fetchListMock,
     });
 
-    // Pre-seed the store with two workspaces at distinct positions.
-    // ws-A at 1024, ws-B at 3072 (gap of 2048 between them).
     const wsA: WorkspaceMeta = {
       id: "00000000-0000-0000-0000-cc0000000001",
       name: "ws-A",
@@ -533,20 +422,15 @@ describe("renderer store — stale applySortedInsert triggers fetchList fallback
     };
     store.getState().setAll([wsA, wsB]);
 
-    // Emit a workspace.changed event for ws-A with the SAME sortOrder as ws-B (3072).
-    // applySortedInsert will re-insert ws-A at position 3072, which ties with ws-B
-    // → consistent=false → fetchList must be called.
     const changedCallback = listenCallbacks.get("changed");
     expect(changedCallback).toBeDefined();
 
     const updatedWsA: WorkspaceMeta = {
       ...wsA,
-      // sortOrder changed from 1024 to 3072 — ties with ws-B's position.
       sortOrder: 3072,
     };
     changedCallback!(updatedWsA);
 
-    // Give the async fetchList promise time to resolve.
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(fetchListMock).toHaveBeenCalledTimes(1);
@@ -561,7 +445,6 @@ describe("renderer store — stale applySortedInsert triggers fetchList fallback
       fetchList: fetchListMock,
     });
 
-    // Pre-seed two workspaces at distinct positions.
     const ws1: WorkspaceMeta = {
       id: "00000000-0000-0000-0000-aaa000000001",
       name: "ws-1",
@@ -588,7 +471,6 @@ describe("renderer store — stale applySortedInsert triggers fetchList fallback
     };
     store.getState().setAll([ws1, ws2]);
 
-    // Upsert ws1 with sortOrder=3072 — ties with ws2, triggering consistent=false.
     const staleWs1 = { ...ws1, sortOrder: 3072 };
     store.getState().upsert(staleWs1);
 

@@ -1,15 +1,3 @@
-/**
- * The + in the heading of another computer's workspace, in the agent
- * view's list: a new Claude or Codex conversation there, where that
- * computer lets this one control its chats, and a new terminal, where it
- * lets this one control its terminals; shown in a panel once it opens, as
- * a click on its row shows it. As the tab bar's + has it: with more than
- * one profile of an agent there, a submenu opens a conversation with
- * another than the workspace's; with more than one shell, the terminal
- * asks which. The profiles and shells are asked as the menu opens (or the
- * pointer comes to it), and kept for the next time.
- */
-
 import { Plus, SquareTerminal } from "lucide-react";
 import { cloneElement, type ReactElement, type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -36,9 +24,7 @@ import { newPeerChat, newPeerTerminal, type PeerWorkspaceRef } from "./remote-se
 export type PeerProfile = RpcResult<"profiles.list">["profiles"][number];
 export type PeerShell = RpcResult<"terminal.shells">["shells"][number];
 
-/** Each computer's profiles, as it last listed them. */
 const knownProfiles = new Map<string, readonly PeerProfile[]>();
-/** Each workspace's shells, by computer and workspace, as last listed. */
 const knownShells = new Map<string, readonly PeerShell[]>();
 
 export function RemoteNewMenu({
@@ -53,13 +39,9 @@ export function RemoteNewMenu({
   peer: RoomPeer;
   workspace: { id: string; name: string; path: string };
   onOpenSession?: OpenRemoteSession;
-  /** The button that opens it; the heading's small + by default. */
   trigger?: ReactElement<{ onPointerEnter?: () => void }>;
-  /** Conversations only, as the agent list's new-conversation menu. */
   chatsOnly?: boolean;
-  /** The terminal before the conversations, as the tab bar's menu lists them. */
   terminalFirst?: boolean;
-  /** Items after its own, as the tab bar's agent list. */
   children?: ReactNode;
 }) {
   const { t } = useTranslation();
@@ -73,7 +55,6 @@ export function RemoteNewMenu({
   const load = () => {
     if (chats) {
       void ipcCallResult("remote", "peerProfiles", { deviceId: peer.id }).then((result) => {
-        // Not listed: those known before, if any; the workspace's own profile opens either way.
         if (!result.ok) return;
         knownProfiles.set(peer.id, result.value.profiles);
         setProfiles(result.value.profiles);
@@ -84,7 +65,6 @@ export function RemoteNewMenu({
         deviceId: peer.id,
         workspaceId: workspace.id,
       }).then((result) => {
-        // Not listed: the computer's default shell, as with none named.
         const listed = result.ok ? result.value.shells : (knownShells.get(shellsKey) ?? []);
         knownShells.set(shellsKey, listed);
         setShells(listed);
@@ -117,13 +97,11 @@ export function RemoteNewMenu({
     >
       <DropdownMenuTrigger>
         {trigger ? (
-          // Asked before the click, so the menu opens with them where it can.
           cloneElement(trigger, { onPointerEnter: preload })
         ) : (
           <IconButton
             label={t("agentView.remote.newIn", { name: workspace.name })}
             size="xs"
-            // Asked before the click, so the menu opens with them where it can.
             onPointerEnter={preload}
             data-testid="remote-new-menu"
           >
@@ -149,10 +127,6 @@ export function RemoteNewMenu({
   );
 }
 
-/**
- * A new conversation of `agent`: with the profile the workspace gives, and,
- * with more than one there, a submenu of them all, as the tab bar's items.
- */
 function NewChatItems({
   agent,
   profiles,
@@ -196,11 +170,6 @@ function NewChatItems({
   );
 }
 
-/**
- * A new terminal: with more than one shell there, a submenu asks which, its
- * default one marked; with one or none listed, its default. Until the
- * computer has said, it waits.
- */
 function NewTerminalItems({
   shells,
   onOpen,

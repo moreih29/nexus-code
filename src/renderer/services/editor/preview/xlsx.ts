@@ -1,13 +1,3 @@
-/**
- * Reading Excel workbooks (.xlsx, .xlsm) for the spreadsheet preview: each
- * visible sheet's cells as the spreadsheet application last showed them.
- * Loaded with the first spreadsheet opened, not with the app.
- *
- * A formula's value is the one the application computed and saved with the
- * file; nothing is computed here. Numbers and dates are written out in the
- * cell's number format. Macros, charts and pictures are not read.
- */
-
 import { type Unzipped, unzipSync } from "fflate";
 import { format, getFormatFromId, isDateFormat } from "numfmt";
 import { displayWidth } from "./delimited";
@@ -20,17 +10,12 @@ import {
 } from "./spreadsheet";
 import { scanXml } from "./xml";
 
-/** The largest part of the file read, uncompressed; a larger one is refused. */
 const MAX_PART_BYTES = 256 * 1024 * 1024;
 
 export class SpreadsheetError extends Error {
   override name = "SpreadsheetError";
 }
 
-/**
- * Reads a workbook from the bytes of its file. Throws SpreadsheetError for
- * one it cannot read: not a zip, or with no workbook in it.
- */
 export function readWorkbook(bytes: Uint8Array): Workbook {
   let files: Unzipped;
   try {
@@ -87,11 +72,9 @@ const EMPTY_SHEET: Omit<Sheet, "name"> = {
 
 interface Relationship {
   readonly type: string;
-  /** The part it points to, as a path in the archive. */
   readonly target: string;
 }
 
-/** A .rels part's relationships by id, their targets resolved against `source`. */
 function relationships(xml: string | null, source: string): Map<string, Relationship> {
   const rels = new Map<string, Relationship>();
   if (xml === null) return rels;
@@ -105,13 +88,11 @@ function relationships(xml: string | null, source: string): Map<string, Relation
   return rels;
 }
 
-/** Where the relationships of the part at `path` are kept. */
 function relsPathOf(path: string): string {
   const slash = path.lastIndexOf("/");
   return `${path.slice(0, slash + 1)}_rels/${path.slice(slash + 1)}.rels`;
 }
 
-/** `target` as a path in the archive, read from the part at `source`. */
 export function resolvePart(source: string, target: string): string {
   const base = target.startsWith("/") ? [] : source.split("/").slice(0, -1);
   for (const segment of target.split("/")) {
@@ -149,13 +130,11 @@ function isTrue(value: string | undefined): boolean {
   return value === "1" || value === "true";
 }
 
-/** The shared strings, in order, with the text of each one's runs joined. */
 function sharedStrings(xml: string | null): string[] {
   const strings: string[] = [];
   if (xml === null) return strings;
   let current: string[] | null = null;
   let inText = false;
-  /** Inside a phonetic reading, whose text is not the cell's. */
   let phonetic = 0;
   scanXml(xml, {
     start(name, _attrs, empty) {
@@ -177,7 +156,6 @@ function sharedStrings(xml: string | null): string[] {
   return strings;
 }
 
-/** Excel writes characters XML cannot hold as _xHHHH_. */
 function unescapeXstring(text: string): string {
   if (!text.includes("_x")) return text;
   return text.replace(/_x([0-9a-f]{4})_/gi, (_, hex: string) =>
@@ -185,7 +163,6 @@ function unescapeXstring(text: string): string {
   );
 }
 
-/** Each cell style's number format, by style index. */
 function cellFormats(xml: string | null): string[] {
   const formats: string[] = [];
   if (xml === null) return formats;
@@ -223,7 +200,6 @@ function readSheet(name: string, xml: string, context: SheetContext): Sheet {
   let row = -1;
   let column = -1;
   let cell: { type: string; style: number } | null = null;
-  /** Which of the cell's elements text is being read for. */
   let reading: "v" | "t" | null = null;
   let value: string[] = [];
   let inline = false;
@@ -322,7 +298,6 @@ function cellText(
   }
 }
 
-/** Days from 1900-01-00 to 1904-01-01, for a workbook that counts dates from 1904. */
 const DATE_1904_OFFSET = 1462;
 
 function formatNumber(number: number, pattern: string, date1904: boolean): string {
@@ -334,14 +309,8 @@ function formatNumber(number: number, pattern: string, date1904: boolean): strin
   }
 }
 
-/** About how many rows a column's text width is taken from. */
 const WIDTH_SAMPLE_ROWS = 2000;
 
-/**
- * Each column's width: the file's, else its widest text within bounds,
- * among rows taken evenly through the sheet (all of a small one), so a
- * column whose values grow down the sheet is not sized by its first ones.
- */
 function columnWidths(
   rows: readonly (readonly (SheetCell | undefined)[] | undefined)[],
   columns: number,

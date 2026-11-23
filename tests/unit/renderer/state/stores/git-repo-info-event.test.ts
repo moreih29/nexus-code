@@ -1,7 +1,3 @@
-/**
- * applyRepoInfoEvent — a detection broadcast handled after the call results
- * that followed it in main must not leave a repository without a status.
- */
 import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
 
 const STATUS = {
@@ -19,7 +15,6 @@ const ipcCallResult = mock((_channel: string, method: string) =>
   Promise.resolve({ ok: true as const, value: method === "getStatus" ? STATUS : {} }),
 );
 
-// Mocks must be installed before the store module is evaluated.
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult,
   ipcListen: mock(() => () => {}),
@@ -50,7 +45,6 @@ function seed(overrides: Parameters<typeof createDefaultSession>[0]): void {
 
 const session = () => useGitStore.getState().sessions.get(WS);
 
-/** Runs the status-hint debounce on the fake clock and lets its read land. */
 async function settle(): Promise<void> {
   jest.advanceTimersByTime(GIT_STATUS_HINT_DEBOUNCE_MS + 50);
   for (let i = 0; i < 5; i += 1) await Promise.resolve();

@@ -1,12 +1,3 @@
-/**
- * Unit tests for the browser permission taxonomy module.
- *
- * Covers:
- * - classifyPermission: all 20 known kinds + unknown string inputs
- * - isKnownPermission: union membership excluding 'unknown'
- * - PERMISSION_TOGGLES: structural assertions (no auto/unknown entries)
- */
-
 import { describe, expect, test } from "bun:test";
 import {
   classifyPermission,
@@ -14,12 +5,7 @@ import {
   PERMISSION_TOGGLES,
 } from "../../../../src/shared/security/browser-permissions";
 
-// ---------------------------------------------------------------------------
-// classifyPermission
-// ---------------------------------------------------------------------------
-
 describe("classifyPermission", () => {
-  // --- auto ---
   test("clipboard-sanitized-write → auto", () => {
     expect(classifyPermission("clipboard-sanitized-write")).toBe("auto");
   });
@@ -32,7 +18,6 @@ describe("classifyPermission", () => {
     expect(classifyPermission("top-level-storage-access")).toBe("auto");
   });
 
-  // --- blocked ---
   test("'unknown' → blocked", () => {
     expect(classifyPermission("unknown")).toBe("blocked");
   });
@@ -46,11 +31,9 @@ describe("classifyPermission", () => {
   });
 
   test("near-miss typo → blocked", () => {
-    // 'media' is known but 'medias' is not
     expect(classifyPermission("medias")).toBe("blocked");
   });
 
-  // --- prompt (all remaining known kinds) ---
   const promptPermissions = [
     "clipboard-read",
     "display-capture",
@@ -77,10 +60,6 @@ describe("classifyPermission", () => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// isKnownPermission
-// ---------------------------------------------------------------------------
-
 describe("isKnownPermission", () => {
   test("known permission other than 'unknown' → true", () => {
     expect(isKnownPermission("media")).toBe(true);
@@ -104,10 +83,6 @@ describe("isKnownPermission", () => {
     expect(isKnownPermission("top-level-storage-access")).toBe(true);
   });
 });
-
-// ---------------------------------------------------------------------------
-// PERMISSION_TOGGLES structure
-// ---------------------------------------------------------------------------
 
 describe("PERMISSION_TOGGLES", () => {
   test("no toggle covers auto-granted permissions", () => {

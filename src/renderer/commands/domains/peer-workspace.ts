@@ -1,12 +1,3 @@
-/**
- * The tab commands in a workspace on another computer, where no local
- * workspace is active: ⌘W closes its front tab, the bulk closes close its
- * tabs, and the tab cycling moves along its strip, as in a local one. ⌘T
- * opens a terminal there only where that computer lets this one control
- * its terminals. The agent view's interceptor takes these first while it
- * is shown.
- */
-
 import { newPeerTerminal } from "../../components/agent-view/remote-session-actions";
 import { showPeerWorkspaceSession } from "../../components/peer-workspace/session-placement";
 import { ipcCallResult } from "../../ipc/client";
@@ -29,7 +20,6 @@ function shownPeerView() {
 
 export type PeerTabCommand = "close" | "closeOthers" | "closeAll" | "next" | "previous";
 
-/** Runs a tab command in the peer workspace shown; false where none is. */
 export function runPeerTabCommand(command: PeerTabCommand): boolean {
   const shown = shownPeerView();
   if (!shown) return false;
@@ -55,11 +45,6 @@ export function runPeerTabCommand(command: PeerTabCommand): boolean {
   return true;
 }
 
-/**
- * Opens a terminal in the peer workspace shown, with that computer's
- * default shell, where it lets this one control its terminals; false
- * where no peer workspace is shown.
- */
 export function newPeerWorkspaceTerminal(): boolean {
   const shown = shownPeerView();
   if (!shown) return false;

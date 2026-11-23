@@ -3,11 +3,6 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import { openReleasePage } from "../../state/operations/release-notes";
 
-/**
- * Hands the notes, which are HTML, to the HTML step whole: a Markdown read
- * of them would end an HTML block at a blank line, as one in a code
- * sample, and read what follows as Markdown.
- */
 function remarkWholeHtml() {
   return (tree: unknown, file: { value: unknown }) => {
     (tree as { children: unknown[] }).children = [{ type: "html", value: String(file.value) }];

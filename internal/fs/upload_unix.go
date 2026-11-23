@@ -10,8 +10,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Capture the inherited mask during package initialization, before requests
-// can create files. Chmod at publish time must apply the mask explicitly.
 var newUploadMode = func() os.FileMode {
 	mask := unix.Umask(0o777)
 	unix.Umask(mask)
@@ -22,8 +20,6 @@ func openUploadParent(path string) (*os.File, error) {
 	return openCanonicalPath(path, true)
 }
 
-// The upload's parent handle only has search access. Open a listing
-// relative to it so a path rename cannot redirect the sweep.
 func openUploadListing(dir *os.File) (*os.File, error) {
 	fd, err := unix.Openat(int(dir.Fd()), ".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {

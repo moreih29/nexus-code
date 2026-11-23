@@ -36,7 +36,6 @@ describe("GitRepository operation queue", () => {
     const slowRead = repo.status();
     const fastWrite = repo.stage(["queued.txt"]);
 
-    // Drain microtasks: the stage must still be waiting behind the held status.
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     expect(log).toEqual(["status:start"]);
 

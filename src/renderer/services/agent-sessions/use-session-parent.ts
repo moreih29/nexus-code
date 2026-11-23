@@ -17,7 +17,6 @@ function ownTab(
     : undefined;
 }
 
-/** The stored workspace is a hint: the parent tab may have moved. */
 export function useSessionParent(opener: TerminalOpener | undefined) {
   const tabId = opener?.tabId;
   const open = useTabsStore(

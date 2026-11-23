@@ -1,11 +1,3 @@
-/**
- * Pure builder for the tab-strip right-click menu spec.
- *
- * The menu shape branches on the context tab's type (editor vs terminal)
- * and on its `isPinned` flag, all of which is plain data — keeping the
- * builder out of the React component lets it be unit-tested without
- * mounting Radix or the tab tree.
- */
 import i18next from "i18next";
 import type { MenuItemSpec } from "@/components/ui/context-menu";
 import { SHORTCUTS } from "@/keybindings/shortcut-labels";
@@ -17,13 +9,6 @@ type GroupActions = ReturnType<typeof useGroupActions>;
 export interface TabContextInfo {
   isPinned: boolean;
   isEditor: boolean;
-  /**
-   * Flag to show the "Rename Tab" item only for terminal tabs and Claude tabs.
-   * Only terminal tabs have automatic renaming (OSC), so only there can the user override
-   * customTitle. A Claude tab's name becomes the name of that session (/rename).
-   * For editor/browser/diff tabs the system-decided name is considered right, so no rename
-   * UI is shown.
-   */
   canRename: boolean;
 }
 
@@ -33,9 +18,7 @@ interface BuildOptions {
   togglePin: () => void;
   copyPath: () => void;
   copyRelativePath: () => void;
-  /** Absent in a remote workspace, where the system file manager cannot help. */
   revealInFinder?: () => void;
-  /** When the "Rename Tab" menu item is clicked — enters inline edit mode. */
   renameTab: () => void;
 }
 
@@ -61,8 +44,6 @@ export function buildGroupTabBarMenuItems({
     onSelect: togglePin,
   });
 
-  // The Rename item is shown only for terminal and Claude tabs. It activates the same edit
-  // mode (useTabEditingStore.startEditing) as the double-click entry path.
   if (context.canRename) {
     items.push({
       kind: "item",

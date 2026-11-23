@@ -1,12 +1,3 @@
-/**
- * The recent releases' notes, read from the repository's Atom feed
- * (`releases.atom`), which lists the ten newest published releases with the
- * HTML GitHub renders from each one's Markdown. Like the poller, it reads
- * github.com rather than api.github.com, so it does not spend the API's
- * hourly allowance, and it keeps the feed's ETag so asking again while
- * nothing was published costs a 304.
- */
-
 import { prerelease, rcompare, valid } from "semver";
 import type { ReleaseNote, ReleaseNotesResult } from "../../../shared/updates/release-notes";
 import { ResponseTooLargeError, readResponseText } from "../../infra/http/body";
@@ -16,7 +7,6 @@ const FEED_URL = `${REPO_BASE}/releases.atom`;
 const TIMEOUT_MS = 15_000;
 const RELEASE_NOTES_MAX_BYTES = 1024 * 1024;
 
-/** The last feed read, to ask GitHub whether it changed since. */
 export interface ReleaseNotesCache {
   etag: string | null;
   notes: ReleaseNote[] | null;
@@ -27,7 +17,6 @@ export function createReleaseNotesCache(): ReleaseNotesCache {
 }
 
 export interface FetchReleaseNotesOptions {
-  /** Stable leaves prereleases out. */
   channel: "stable" | "beta";
   fetchImpl?: typeof fetch;
   cache?: ReleaseNotesCache;
@@ -70,10 +59,6 @@ export async function fetchReleaseNotes(
   };
 }
 
-/**
- * The releases in a GitHub releases feed, newest version first. An entry
- * whose link names no version is left out.
- */
 export function parseReleaseNotes(feed: string): ReleaseNote[] {
   const notes: ReleaseNote[] = [];
   for (const [, entry] of feed.matchAll(/<entry>([\s\S]*?)<\/entry>/g)) {
@@ -95,7 +80,6 @@ export function parseReleaseNotes(feed: string): ReleaseNote[] {
   return notes.sort((a, b) => rcompare(a.version, b.version));
 }
 
-/** The text of an entry's first `name` element, as the feed has it. */
 function textOf(entry: string, name: string): string {
   const match = entry.match(new RegExp(`<${name}\\b[^>]*>([\\s\\S]*?)</${name}>`));
   if (!match) return "";
@@ -104,7 +88,6 @@ function textOf(entry: string, name: string): string {
   return cdata ? cdata[1] : text;
 }
 
-/** A release's title without the version it starts with: "v1.2.0 — Sync" is "Sync". */
 function subtitleOf(title: string, tag: string, version: string): string {
   for (const lead of [tag, `v${version}`, version]) {
     if (title.startsWith(lead)) {
@@ -119,7 +102,6 @@ function subtitleOf(title: string, tag: string, version: string): string {
 
 const NAMED: Record<string, string> = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'" };
 
-/** XML's five named entities and its character references, in one pass. */
 export function unescapeXml(text: string): string {
   return text.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|lt|gt|amp|quot|apos);/g, (whole, ref: string) => {
     if (ref[0] !== "#") return NAMED[ref] ?? whole;

@@ -1,8 +1,3 @@
-/**
- * Another computer's terminal while its Claude Code asks for leave: the
- * request under the screen, in the words and look of this computer's agent
- * list, with the answers terminal.answer takes.
- */
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -34,7 +29,6 @@ describe("a terminal's Claude Code asking, from another computer", () => {
       expect(html).toContain(`>${answer}</button>`);
     }
     expect(html).toContain("The terminal&#x27;s permission prompt can answer it too.");
-    // The agent list's warning frame.
     expect(html).toContain("border-(--state-warning-fg)/40");
   });
 

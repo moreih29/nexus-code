@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// writeSession writes a transcript of `lines` in `project`, modified at `at`.
 func writeSession(t *testing.T, project, id string, at time.Time, lines ...string) {
 	t.Helper()
 	if err := os.MkdirAll(project, 0o755); err != nil {
@@ -46,7 +45,6 @@ func TestSessionsListsAFoldersSessionsNewestFirst(t *testing.T) {
 		`{"type":"user","timestamp":"2026-11-01T10:00:01.000Z","message":{"content":"Fix the\n  build"}}`,
 		`{"type":"assistant","message":{"content":[{"type":"text","text":"Done"}]},"gitBranch":"main"}`,
 	)
-	// Renamed, and asked again since: its title is the one it was given.
 	writeSession(t, project, "22222222-2222-4222-8222-222222222222", now.Add(-time.Hour),
 		`{"type":"user","timestamp":"2026-11-02T10:00:00.000Z","message":{"content":[{"type":"text","text":"Write tests"}]}}`,
 		`{"type":"custom-title","customTitle":"Old name","sessionId":"22222222-2222-4222-8222-222222222222"}`,
@@ -54,25 +52,21 @@ func TestSessionsListsAFoldersSessionsNewestFirst(t *testing.T) {
 		`{"type":"last-prompt","lastPrompt":"And the docs","sessionId":"22222222-2222-4222-8222-222222222222"}`,
 		`{"type":"assistant","gitBranch":"feat/tests"}`,
 	)
-	// Asked again: its title is the last prompt.
 	writeSession(t, project, "33333333-3333-4333-8333-333333333333", now.Add(-2*time.Hour),
 		`{"type":"user","message":{"content":"First ask"}}`,
 		`{"type":"last-prompt","lastPrompt":"Second ask"}`,
 		`{"type":"assistant","gitBranch":"HEAD"}`,
 	)
-	// Only a command: named by it.
 	writeSession(t, project, "44444444-4444-4444-8444-444444444444", now.Add(-4*time.Hour),
 		`{"type":"user","message":{"content":"<command-name>/context</command-name>\n<command-args></command-args>"}}`,
 		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"x"}]}}`,
 	)
-	// A subagent's, and one with nothing to show: left out.
 	writeSession(t, project, "55555555-5555-4555-8555-555555555555", now,
 		`{"type":"user","isSidechain":true,"message":{"content":"Sub task"}}`,
 	)
 	writeSession(t, project, "66666666-6666-4666-8666-666666666666", now,
 		`{"type":"queue-operation","operation":"enqueue"}`,
 	)
-	// Another folder's.
 	writeSession(t, filepath.Join(config, "projects", "-home-me-other"), "77777777-7777-4777-8777-777777777777", now,
 		`{"type":"user","message":{"content":"Elsewhere"}}`,
 	)

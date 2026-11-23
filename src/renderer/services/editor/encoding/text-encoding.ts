@@ -1,28 +1,9 @@
-// The encodings a file's text can be read and written in.
-//
-// The agent sends UTF-8 as text, and any other text as its bytes. Those
-// are decoded here with the browser's TextDecoder: in UTF-16 when they
-// start with its byte-order mark, else in the first encoding of the
-// user's languages they are valid in (Korean: EUC-KR; Japanese: Shift_JIS,
-// EUC-JP; Chinese: GBK, Big5), else as Western (Windows-1252), which
-// takes any bytes. The user can reopen the file in another.
-//
-// Writing goes back the same way. The browser has no encoder but UTF-8's,
-// so each encoding's is built from its decoder: every byte, and every
-// pair of bytes for the double-byte ones, decoded once, to the character
-// it is. A character the encoding has no bytes for cannot be saved in it.
-
-/** An encoding a file is read and written in. */
 export type TextEncoding = (typeof TEXT_ENCODINGS)[number]["id"];
 
 export interface TextEncodingInfo {
-  /** As files store it; the TextDecoder label, but for the two UTF-8s. */
   readonly id: string;
-  /** Its name, as menus show it. */
   readonly name: string;
-  /** The language or script it is for, an i18n key under `encoding.group`. */
   readonly group: string;
-  /** Bytes per character: one, or one or two. */
   readonly width: "single" | "double" | "utf";
 }
 
@@ -59,7 +40,6 @@ export function encodingInfo(id: TextEncoding): TextEncodingInfo {
   return TEXT_ENCODINGS.find((encoding) => encoding.id === id) as TextEncodingInfo;
 }
 
-/** Encodings tried, in turn, for a user of each language, before Windows-1252. */
 const BY_LANGUAGE: Record<string, readonly TextEncoding[]> = {
   ko: ["euc-kr"],
   ja: ["shift_jis", "euc-jp"],
@@ -69,7 +49,6 @@ const BY_LANGUAGE: Record<string, readonly TextEncoding[]> = {
   "zh-hant": ["big5", "gbk"],
 };
 
-/** The encodings to try for bytes not in UTF-8, the user's languages first. */
 export function encodingsToTry(languages: readonly string[]): TextEncoding[] {
   const order: TextEncoding[] = [];
   for (const language of languages) {
@@ -84,16 +63,10 @@ function decoderLabel(id: TextEncoding): string {
   return id === "utf8" || id === "utf8-bom" ? "utf-8" : id;
 }
 
-/** `bytes` decoded in `encoding`, with U+FFFD for bytes not valid in it. */
 export function decodeBytes(bytes: Uint8Array, encoding: TextEncoding): string {
-  // TextDecoder drops a byte-order mark that matches its encoding.
   return new TextDecoder(decoderLabel(encoding)).decode(bytes);
 }
 
-/**
- * The encoding `bytes` most likely are in: UTF-16 by its byte-order mark,
- * else the first of `candidates` they are valid in, else Windows-1252.
- */
 export function guessEncoding(
   bytes: Uint8Array,
   candidates: readonly TextEncoding[],
@@ -104,25 +77,18 @@ export function guessEncoding(
     try {
       new TextDecoder(decoderLabel(candidate), { fatal: true }).decode(bytes);
       return candidate;
-    } catch {
-      // Not valid in it: the next.
-    }
+    } catch {}
   }
   return "windows-1252";
 }
 
-/** Each character an encoding has bytes for, to its bytes. */
 type EncodeTable = Map<number, Uint8Array>;
 
 const tables = new Map<TextEncoding, EncodeTable>();
 
-/** The lead bytes to read in turn: where two pairs read as one character, the first is kept. */
 function leadBytes(encoding: TextEncoding): number[] {
   const leads: number[] = [];
   for (let b = 0x81; b <= 0xfe; b++) leads.push(b);
-  // Big5's leads below 0xA1 are Hong Kong additions, some of which repeat
-  // standard characters; Shift_JIS's 0xED and 0xEE repeat IBM's 0xFA–0xFC.
-  // The standard places come first, as the WHATWG encoders choose them.
   if (encoding === "big5")
     return [...leads.filter((b) => b >= 0xa1), ...leads.filter((b) => b < 0xa1)];
   if (encoding === "shift_jis") {
@@ -164,10 +130,8 @@ function tableFor(encoding: TextEncoding): EncodeTable {
   return table;
 }
 
-/** A character an encoding has no bytes for, and where it is. */
 export interface Unencodable {
   readonly char: string;
-  /** Its line and column, from 1. */
   readonly line: number;
   readonly column: number;
 }
@@ -184,7 +148,6 @@ function utf16(text: string, littleEndian: boolean): Uint8Array {
   return out;
 }
 
-/** `text` in `encoding`, as a file stores it: UTF-16 with its byte-order mark. */
 export function encodeText(text: string, encoding: TextEncoding): EncodeResult {
   if (encoding === "utf8") return { ok: true, bytes: new TextEncoder().encode(text) };
   if (encoding === "utf8-bom") return { ok: true, bytes: new TextEncoder().encode(`﻿${text}`) };

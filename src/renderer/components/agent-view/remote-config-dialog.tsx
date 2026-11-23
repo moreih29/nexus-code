@@ -1,11 +1,3 @@
-/**
- * Another computer's Claude chat's settings (/config), in the dialog a tab
- * here has: read from that computer as its own dialog reads them, and the
- * changes saved there as it saves them (chat.config), where it lets this
- * one control its chats. A Codex chat's defaults the same way, in a Codex
- * tab's dialog.
- */
-
 import { useMemo } from "react";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { configShownOf } from "../../services/remote/chat-config";
@@ -13,7 +5,6 @@ import type { PeerChatRef } from "../../services/remote/peer-mcp";
 import { CodexDefaultsDialog, type CodexDefaultsSource } from "../chat/codex-config-dialog";
 import { ConfigDialogView, type ConfigSource } from "../chat/config-dialog";
 
-/** The settings of another computer's chat, as the dialog reads and saves them. */
 export function peerConfigSource(ref: PeerChatRef): ConfigSource {
   return {
     load(show, fail) {
@@ -29,7 +20,6 @@ export function peerConfigSource(ref: PeerChatRef): ConfigSource {
       };
     },
     async apply(changes, _keys, { effort }) {
-      // That computer makes the /config messages, with its own keys.
       unwrapIpcResult(
         await ipcCallResult("remote", "peerChatConfig", {
           ...ref,
@@ -69,7 +59,6 @@ export function RemoteConfigDialog({
   );
 }
 
-/** A Codex chat's defaults on another computer, as its dialog reads and saves them. */
 export function peerCodexDefaults(ref: PeerChatRef): CodexDefaultsSource {
   return {
     async readDefaults() {

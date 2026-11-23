@@ -1,39 +1,9 @@
-/**
- * VSCode-style `when` expressions for keybindings.
- *
- * The grammar is intentionally a small subset of VSCode's
- * `ContextKeyExpr` — we only need what our shortcut declarations
- * actually use right now:
- *
- *     expr   := or
- *     or     := and ('||' and)*
- *     and    := unary ('&&' unary)*
- *     unary  := '!' unary | atom
- *     atom   := identifier | '(' expr ')'
- *
- * Identifiers are bare context-key names (`editorFocus`, `inputFocus`,
- * `fileTreeFocus`, `terminalFocus`, …). Equality checks (`view ==
- * 'explorer'`), regex match, and the `in` operator are intentionally
- * left out; add them only when a real binding needs them.
- *
- * The module is pure and runtime-agnostic — it never touches the DOM.
- * Evaluators inject a `(name) => boolean` getter that knows how to
- * resolve a key against the current event/document. That separation
- * keeps `parseWhen` testable without a renderer environment and lets
- * the parser live in `shared/` next to the binding declarations.
- */
-
 export type WhenExpr =
   | { kind: "key"; name: string }
   | { kind: "not"; expr: WhenExpr }
   | { kind: "and"; left: WhenExpr; right: WhenExpr }
   | { kind: "or"; left: WhenExpr; right: WhenExpr };
 
-/**
- * Parse a `when` string into an AST. Whitespace is insignificant.
- * Throws on malformed input — declarations live in source, so a parse
- * error is a programming bug we want to catch loudly at module load.
- */
 export function parseWhen(input: string): WhenExpr {
   const tokens = tokenize(input);
   const cursor = { i: 0 };
@@ -44,11 +14,6 @@ export function parseWhen(input: string): WhenExpr {
   return expr;
 }
 
-/**
- * Evaluate a parsed expression. `getter` returns the truth-value for
- * a context-key name. Unknown keys should resolve to `false` (caller's
- * choice) — the evaluator itself does not interpret missing keys.
- */
 export function evaluateWhen(expr: WhenExpr, getter: (name: string) => boolean): boolean {
   switch (expr.kind) {
     case "key":
@@ -62,7 +27,6 @@ export function evaluateWhen(expr: WhenExpr, getter: (name: string) => boolean):
   }
 }
 
-/** The context-key names `expr` reads, in order, repeats included. */
 export function whenKeys(expr: WhenExpr): string[] {
   switch (expr.kind) {
     case "key":
@@ -74,21 +38,11 @@ export function whenKeys(expr: WhenExpr): string[] {
   }
 }
 
-/** The context keys that name the platform the app runs on. */
 export const PLATFORM_KEYS: ReadonlySet<string> = new Set(["isMac", "isLinux", "isWindows"]);
 
-/**
- * Whether `when` reads nothing but the platform (`isLinux`, `!isMac`,
- * `isMac || isWindows`): a declaration that exists for some platforms only,
- * not one scoped to a surface or a focus.
- */
 export function isPlatformOnlyWhen(when: string): boolean {
   return whenKeys(parseWhen(when)).every((key) => PLATFORM_KEYS.has(key));
 }
-
-// ---------------------------------------------------------------------------
-// Tokenizer + recursive-descent parser
-// ---------------------------------------------------------------------------
 
 type Token = string;
 

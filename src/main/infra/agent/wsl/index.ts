@@ -1,11 +1,3 @@
-/**
- * WSL transport for the agent. A WSL workspace runs the Linux agent inside a
- * distribution the way an SSH workspace runs it on a remote host: the SSH
- * bootstrap installs and verifies the agent there, with each of its remote
- * steps run through `wsl.exe` instead of `ssh`, and the channel spawns the
- * bootstrap's daemon/dialer command line through `wsl.exe` too.
- */
-
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { opaqueTag } from "../../../../shared/log/limit";
 import type { AgentChannel } from "../channel";
@@ -31,7 +23,6 @@ const WSL_EXE = "wsl.exe";
 const WSL_COMMAND_TIMEOUT_MS = 120_000;
 const WSL_LIST_TIMEOUT_MS = 10_000;
 
-/** Starts `argv` in `distro`, in the distribution user's home. */
 export type SpawnWslProcess = (
   distro: string,
   argv: readonly string[],
@@ -39,10 +30,8 @@ export type SpawnWslProcess = (
 
 export interface WslAgentOptions {
   readonly distro: string;
-  /** Absolute path inside the distribution; the agent's root. */
   readonly remotePath: string;
   readonly signal?: AbortSignal;
-  /** Installs the workspace's shell shim files too, as for SSH. */
   readonly workspaceId?: string;
   readonly cachedRemoteArch?: RemoteAgentPlatform;
 }
@@ -59,7 +48,6 @@ export interface WslBootstrapDependencies {
 
 export interface CreateWslChannelOptions {
   readonly distro: string;
-  /** The bootstrap's `remoteCommand`, a POSIX shell command line. */
   readonly remoteCommand: string;
 }
 
@@ -69,10 +57,6 @@ export interface WslChannelDependencies {
   readonly reconnect?: AgentReconnectOptions;
 }
 
-/**
- * wsl.exe writes its own messages (an unknown distribution, no WSL) in
- * UTF-16 unless WSL_UTF8 is set. The variable stays on the Windows side.
- */
 function wslEnv(): NodeJS.ProcessEnv {
   return { ...process.env, WSL_UTF8: "1" };
 }
@@ -84,22 +68,11 @@ export const defaultSpawnWsl: SpawnWslProcess = (distro, argv) =>
     env: wslEnv(),
   });
 
-/**
- * Text from wsl.exe: UTF-8 with WSL_UTF8 set, UTF-16LE from a wsl.exe too
- * old to know the variable.
- */
 export function decodeWslOutput(buffer: Buffer): string {
   const text = buffer.includes(0) ? buffer.toString("utf16le") : buffer.toString("utf8");
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 }
 
-/**
- * Runs the SSH bootstrap's remote steps in `distro`. The bootstrap hands
- * each step over as `ssh <options> -- <destination> <command>`; the command
- * runs under `sh -c` in the distribution. It also tries `sftp` for uploads,
- * which has no counterpart here: the refusal sends it to its fallback, the
- * file piped into `cat`.
- */
 export function createWslBootstrapRunner(
   distro: string,
   spawnImpl: SpawnWslProcess = defaultSpawnWsl,
@@ -130,7 +103,6 @@ export function createWslBootstrapRunner(
 
 function bootstrapOptions(options: WslAgentOptions) {
   return {
-    // Keys the bootstrap's per-host upload lock and nothing else.
     host: `wsl:${opaqueTag(options.distro)}`,
     authMode: "key-only" as const,
     remotePath: options.remotePath,
@@ -140,11 +112,6 @@ function bootstrapOptions(options: WslAgentOptions) {
   };
 }
 
-/**
- * Installs the agent (and the Claude wrapper and shell shim files) in the
- * distribution when missing or stale, and returns the command line that
- * starts it there.
- */
 export async function ensureWslAgent(
   options: WslAgentOptions,
   dependencies: WslBootstrapDependencies = {},
@@ -162,7 +129,6 @@ export async function ensureWslAgent(
   return result;
 }
 
-/** Installs a language server in the distribution, as for an SSH host. */
 export function ensureWslLspServer(
   options: WslLspServerOptions,
   dependencies: WslBootstrapDependencies = {},
@@ -180,11 +146,6 @@ export function ensureWslLspServer(
   );
 }
 
-/**
- * Opens the NDJSON channel to the agent in the distribution. The command
- * line keeps a daemon running there, so a dropped `wsl.exe` reconnects to
- * the same terminals.
- */
 export function createWslChannel(
   options: CreateWslChannelOptions,
   dependencies: WslChannelDependencies = {},
@@ -192,7 +153,6 @@ export function createWslChannel(
   const spawnImpl = dependencies.spawn ?? defaultSpawnWsl;
   return createReconnectingProcessChannel({
     spawn: () => spawnImpl(options.distro, ["sh", "-c", options.remoteCommand]),
-    // wsl.exe asks nothing, so stderr carries no prompt to recognize.
     classifyStderr: () => null,
     logLabel: `wsl:${opaqueTag(options.distro)}`,
     closeError: (_wasReady, context) =>
@@ -203,10 +163,6 @@ export function createWslChannel(
   });
 }
 
-/**
- * Parses `wsl.exe -l -q`. Docker Desktop's distributions hold its engine,
- * not a place to work, and are left out.
- */
 export function parseWslDistros(output: string): string[] {
   return output
     .split(/\r?\n/)
@@ -214,10 +170,6 @@ export function parseWslDistros(output: string): string[] {
     .filter((name) => name.length > 0 && !name.startsWith("docker-desktop"));
 }
 
-/**
- * The installed WSL distributions; none off Windows, without WSL, or when
- * wsl.exe fails (it exits non-zero when no distribution is installed).
- */
 export function listWslDistros(
   run: (args: readonly string[]) => Promise<Buffer> = runWslExe,
   platform: NodeJS.Platform = process.platform,
@@ -229,7 +181,6 @@ export function listWslDistros(
   );
 }
 
-/** Runs WSL discovery with the same child ownership as bootstrap commands. */
 export async function runWslExe(args: readonly string[], spawnImpl = spawn): Promise<Buffer> {
   const child = spawnImpl(WSL_EXE, [...args], { windowsHide: true, env: wslEnv() });
   const { stdout, code } = await collectProcess(child, {

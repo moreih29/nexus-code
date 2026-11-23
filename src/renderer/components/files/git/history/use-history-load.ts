@@ -1,10 +1,3 @@
-/**
- * useGitHistoryLoad — owns all data-fetching logic for the History panel:
- * IPC calls (log stream + commit search), pagination, debounce, SHA-prefix
- * detection, and the monotonic load-token guard. The panel consumes this hook
- * for state and callbacks, and keeps only rendering + row selection.
- */
-
 import i18next from "i18next";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -13,16 +6,8 @@ import { ipcCallResult, ipcStream, unwrapGitResult } from "../../../../ipc/clien
 import type { LaneState } from "./graph/lane-assign";
 import { initialLaneState, reduceLanes } from "./graph/lane-assign";
 
-// ---------------------------------------------------------------------------
-// Constants (kept identical to original panel values)
-// ---------------------------------------------------------------------------
-
 const HISTORY_PAGE_SIZE = 50;
 const HISTORY_SEARCH_DEBOUNCE_MS = 200;
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export interface HistoryLoadState {
   entries: LogEntry[];
@@ -33,29 +18,16 @@ export interface HistoryLoadState {
 }
 
 export interface UseGitHistoryLoadResult {
-  /** Current list state (entries, loading flags, error). */
   loadState: HistoryLoadState;
-  /** Graph lane assignment derived from loaded entries. */
   laneState: LaneState;
-  /** The raw (un-debounced) search query for controlled search inputs. */
   query: string;
-  /** The debounced search query (used by the panel for display props). */
   debouncedQuery: string;
-  /** Currently selected commit SHA (null when nothing is selected). */
   selectedSha: string | null;
-  /** Controlled query setter — updates both raw and debounced query state. */
   setQuery: (query: string) => void;
-  /** Select a commit SHA directly (e.g. on row click). */
   setSelectedSha: React.Dispatch<React.SetStateAction<string | null>>;
-  /** Append the next page to the current list. No-op during a search. */
   loadMore: () => void;
-  /** Re-run the current view (first-page refresh or search-nonce bump). */
   refresh: () => void;
 }
-
-// ---------------------------------------------------------------------------
-// Public hook
-// ---------------------------------------------------------------------------
 
 export function useGitHistoryLoad(workspaceId: string, refName: string): UseGitHistoryLoadResult {
   const [query, setQuery] = useState("");
@@ -66,9 +38,6 @@ export function useGitHistoryLoad(workspaceId: string, refName: string): UseGitH
   const [loadState, setLoadState] = useState<HistoryLoadState>(emptyLoadState(true));
   const [laneState, setLaneState] = useState(() => initialLaneState());
 
-  // Monotonic load token — incremented on every first-page / search / load-more
-  // start. In-flight callbacks only commit state when their token still matches,
-  // which blocks stale chunks from a superseded load from polluting fresh state.
   const loadTokenRef = useRef(0);
   const nextLoadToken = useCallback((): number => {
     loadTokenRef.current += 1;
@@ -87,10 +56,6 @@ export function useGitHistoryLoad(workspaceId: string, refName: string): UseGitH
     setLaneState((state) => reduceLanes(state, chunk));
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // Core first-page loader
-  // ---------------------------------------------------------------------------
-
   const loadFirstPage = useCallback(
     (signal?: AbortSignal) => {
       const token = nextLoadToken();
@@ -106,10 +71,6 @@ export function useGitHistoryLoad(workspaceId: string, refName: string): UseGitH
     },
     [appendLaneChunk, isCurrentLoad, nextLoadToken, refName, resetLaneState, workspaceId],
   );
-
-  // ---------------------------------------------------------------------------
-  // Search + refresh effect
-  // ---------------------------------------------------------------------------
 
   useEffect(() => {
     const trimmed = debouncedQuery.trim();
@@ -129,8 +90,6 @@ export function useGitHistoryLoad(workspaceId: string, refName: string): UseGitH
         )
           .then((ipcRes) => {
             if (controller.signal.aborted || !isCurrentLoad(token)) return;
-            // unwrapGitResult throws on git errors so the .catch handler below
-            // still receives the typed error with its `.kind` field intact.
             const result = unwrapGitResult(ipcRes);
             const graphEntries = applySearchResult(result, setLoadState, setSelectedSha);
             setLaneState(reduceLanes(initialLaneState(), graphEntries));
@@ -176,10 +135,6 @@ export function useGitHistoryLoad(workspaceId: string, refName: string): UseGitH
     workspaceId,
   ]);
 
-  // ---------------------------------------------------------------------------
-  // Load-more
-  // ---------------------------------------------------------------------------
-
   const loadMore = useCallback(() => {
     if (debouncedQuery.trim().length > 0) return;
     const lastSha = loadState.entries.at(-1)?.sha;
@@ -223,10 +178,6 @@ export function useGitHistoryLoad(workspaceId: string, refName: string): UseGitH
     workspaceId,
   ]);
 
-  // ---------------------------------------------------------------------------
-  // Refresh
-  // ---------------------------------------------------------------------------
-
   const refresh = useCallback(() => {
     if (debouncedQuery.trim().length > 0) {
       setSearchNonce((value) => value + 1);
@@ -248,11 +199,6 @@ export function useGitHistoryLoad(workspaceId: string, refName: string): UseGitH
   };
 }
 
-// ---------------------------------------------------------------------------
-// Internal: collapsed runLogLoad helper (deduplicates the two call sites)
-// ---------------------------------------------------------------------------
-
-/** Runs a first-page or grep-search log load, wiring token-guarded callbacks. */
 function runLogLoad(
   token: number,
   isCurrentLoad: (token: number) => boolean,
@@ -303,11 +249,6 @@ function runLogLoad(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Internal: IPC loader
-// ---------------------------------------------------------------------------
-
-/** Loads one log page through the stream API and appends progress chunks. */
 async function loadLogPage({
   workspaceId,
   refName,
@@ -355,8 +296,6 @@ async function loadLogPage({
     onComplete(Boolean(complete.hasMore));
   } catch (error) {
     if (signal?.aborted) return;
-    // A branch without commits has no history: show the empty state, not
-    // git's "does not have any commits yet" error.
     if (gitErrorKind(error) === "no-head") {
       onComplete(false);
       return;
@@ -365,11 +304,6 @@ async function loadLogPage({
   }
 }
 
-// ---------------------------------------------------------------------------
-// Internal: search result application
-// ---------------------------------------------------------------------------
-
-/** Applies a server-side search result to list state. */
 function applySearchResult(
   result: CommitSearchResult,
   setLoadState: React.Dispatch<React.SetStateAction<HistoryLoadState>>,
@@ -399,11 +333,6 @@ function applySearchResult(
   return result.entries;
 }
 
-// ---------------------------------------------------------------------------
-// Internal: pure helpers
-// ---------------------------------------------------------------------------
-
-/** Constructs the canonical "empty / initial" load state. */
 function emptyLoadState(loading: boolean): HistoryLoadState {
   return {
     entries: [],
@@ -414,7 +343,6 @@ function emptyLoadState(loading: boolean): HistoryLoadState {
   };
 }
 
-/** Converts a detail response into the list-row shape for SHA search hits. */
 function logEntryFromDetail(detail: CommitDetail): LogEntry {
   return {
     sha: detail.sha,
@@ -429,14 +357,12 @@ function logEntryFromDetail(detail: CommitDetail): LogEntry {
   };
 }
 
-/** Appends log entries while guarding against duplicate chunks. */
 function appendUniqueEntries(current: readonly LogEntry[], nextPage: readonly LogEntry[]) {
   const seen = new Set(current.map((entry) => entry.sha));
   const appended = nextPage.filter((entry) => !seen.has(entry.sha));
   return [...current, ...appended];
 }
 
-/** Returns only chunk entries that have not already advanced the graph reducer. */
 function collectNewLaneEntries(seenShas: Set<string>, chunk: readonly LogEntry[]): LogEntry[] {
   const freshEntries: LogEntry[] = [];
   for (const entry of chunk) {
@@ -447,12 +373,10 @@ function collectNewLaneEntries(seenShas: Set<string>, chunk: readonly LogEntry[]
   return freshEntries;
 }
 
-/** Matches the legacy SHA-prefix search path for single-ref history queries. */
 function isShaPrefixQuery(query: string): boolean {
   return /^[0-9a-f]{4,40}$/i.test(query.trim());
 }
 
-/** Small debounce hook used for History search. */
 function useDebouncedValue(value: string, delayMs: number): string {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -462,12 +386,10 @@ function useDebouncedValue(value: string, delayMs: number): string {
   return debounced;
 }
 
-/** Extracts a user-facing message from unknown IPC failures. */
 function messageFromError(error: unknown): string {
   return error instanceof Error ? error.message : i18next.t("files:git.history.list.loadFailed");
 }
 
-/** Reads the stable git error kind rehydrated by the renderer IPC layer. */
 function gitErrorKind(error: unknown): string | null {
   if (typeof error === "object" && error !== null && "kind" in error) {
     const kind = (error as { kind?: unknown }).kind;

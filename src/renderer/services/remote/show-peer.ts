@@ -1,9 +1,3 @@
-/**
- * Shows a session of another computer of the user's as a tab of the agent
- * view, as its list's Other computers does, from what a message it sent
- * tells: its device and tab. Its workspace's name and folder come from that
- * computer's list when it answers; its ids otherwise.
- */
 import { ipcCallResult } from "../../ipc/client";
 import { useRemoteViewStore } from "../../state/stores/remote-view";
 

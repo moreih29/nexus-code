@@ -5,7 +5,6 @@ import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } fro
 export const SEARCH_TEXT_METHOD = "search.text";
 export const SEARCH_CANCEL_METHOD = "search.cancel";
 export const SEARCH_PROGRESS_EVENT = "search.progress";
-/** Files by name, as quick open finds them; an older agent (on a host not updated yet) lacks it. */
 export const SEARCH_FILES_METHOD = "search.files";
 
 export const AgentSearchTextParamsSchema = z.object({
@@ -33,10 +32,8 @@ export const AgentSearchFilesParamsSchema = z.object({
 });
 export type AgentSearchFilesParams = z.infer<typeof AgentSearchFilesParamsSchema>;
 
-/** Relative paths with "/" between their parts, the best matches first. */
 export const AgentSearchFilesResultSchema = z.object({
   files: z.array(z.string()),
-  /** The walk stopped before every file was seen. */
   truncated: z.boolean(),
 });
 export type AgentSearchFilesResult = z.infer<typeof AgentSearchFilesResultSchema>;

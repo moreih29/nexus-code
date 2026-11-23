@@ -13,43 +13,25 @@ import type {
   ChannelLifecycleCallback,
 } from "../../../infra/agent/channel";
 
-/**
- * Filesystem provider bound to one workspace-scoped agent.
- */
 export interface FsProvider {
   readonly kind: "local" | "ssh" | "wsl";
-  /** `includeHidden` also lists entries the explorer hides (.git, .DS_Store). */
   readdir(relPath: string, options?: { includeHidden?: boolean }): Promise<DirEntry[]>;
-  /** Lists through a directory handle without following links in the authorized path. */
   readdirNoLinks?(target: { relPath: string } | { absolutePath: string }): Promise<DirEntry[]>;
   readFileNoLinks?(relPath: string): Promise<FileReadResult>;
   readBinaryNoLinks?(relPath: string): Promise<FileReadBinaryResult>;
   readRangeNoLinks?(relPath: string, offset: number, length: number): Promise<FileReadBinaryResult>;
   stat(relPath: string, followSymlink?: boolean): Promise<FsStat>;
   readFile(relPath: string): Promise<FileReadResult>;
-  /**
-   * Read a workspace-relative file as base64-encoded bytes. Used for binary
-   * content (images, etc.) that cannot ride fs.readFile's UTF-8 string body.
-   */
   readBinary(relPath: string): Promise<FileReadBinaryResult>;
   readAbsolute(absolutePath: string): Promise<FileReadResult>;
-  /** An absolute path's bytes on the agent host; for files a Claude tab granted. */
   readAbsoluteBinary(absolutePath: string): Promise<FileReadBinaryResult>;
-  /**
-   * Up to `length` bytes of a workspace-relative file from `offset`, as
-   * base64, with the file's size. One call returns at most
-   * READ_RANGE_MAX_BYTES.
-   */
   readRange(relPath: string, offset: number, length: number): Promise<FileReadBinaryResult>;
-  /** readRange for an absolute path on the agent host; for files a Claude tab granted. */
   readAbsoluteRange(
     absolutePath: string,
     offset: number,
     length: number,
   ): Promise<FileReadBinaryResult>;
-  /** null when the installed agent predates preview reads. */
   readPreview?(params: FsPreviewParams): Promise<FsPreviewResult | null>;
-  /** Writes `content`, or `bytes` (base64) in its place: text in another encoding. */
   writeFile(
     relPath: string,
     content: string,
@@ -57,12 +39,6 @@ export interface FsProvider {
     bytes?: string,
   ): Promise<WriteFileResult>;
   createFile(relPath: string): Promise<void>;
-  /**
-   * Create a directory. `recursive` opts into os.MkdirAll on the agent so
-   * intermediate segments are materialised (needed for the renderer's
-   * nested-path inline-create — e.g. "src/foo/bar"). Default is single-level
-   * mkdir so unrelated callers still get NOT_FOUND for missing parents.
-   */
   mkdir(relPath: string, recursive?: boolean): Promise<void>;
   unlink(relPath: string): Promise<void>;
   rmdir(relPath: string): Promise<void>;
@@ -79,11 +55,6 @@ export interface AgentBackedProvider extends FsProvider {
     options?: AgentCallOptions,
   ): Promise<TResult>;
   onAgentEvent(event: string, callback: ChannelEventCallback): () => void;
-  /**
-   * Subscribes to channel lifecycle transitions. Watch bridges use the
-   * `ready` event (successful reconnect handshake) to replay agent-side
-   * fs.watch / git.watch registrations onto the replacement agent process.
-   */
   onAgentLifecycle(callback: ChannelLifecycleCallback): () => void;
   isAgentAvailable?(): boolean;
 }

@@ -1,24 +1,13 @@
-/**
- * The right-click menu of a tab in a workspace on another computer: the
- * local tab menu's items that only look. Renaming a session where that
- * computer lets this one control it; closing the tab, the others, those to
- * its right or all, as the local menu; and a file's paths to copy. No pin,
- * split, reveal or "close saved": the tabs here are not saved, pinned or
- * split.
- */
-
 import i18next from "i18next";
 import type { MenuItemSpec } from "@/components/ui/context-menu";
 import { SHORTCUTS } from "@/keybindings/shortcut-labels";
 
 export function peerTabMenu(actions: {
-  /** Renames its session, where that computer lets this one. */
   rename?: () => void;
   close: () => void;
   closeOthers: () => void;
   closeToRight: () => void;
   closeAll: () => void;
-  /** A file's: its path there, and its path in the workspace. */
   copyPath?: () => void;
   copyRelativePath?: () => void;
 }): MenuItemSpec[] {

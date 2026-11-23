@@ -1,16 +1,5 @@
 package chat
 
-// The end of a Codex thread's rollout, read for a glance at its last turns
-// (another device's chat.peek) without starting Codex: the app-server that
-// reads a thread whole is what a peek must not start. Codex writes a thread
-// to <codex home>/sessions/YYYY/MM/DD/rollout-<time>-<thread id>.jsonl, a
-// JSON line for each record. What a peek takes of it are the events: the
-// user's messages, the agent's words and the tools it called, as Codex
-// before 0.16x wrote them (user_message, agent_message, exec_command_end…)
-// and after (item_completed with its item). They come back cut down to what
-// a peek shows: no call's output or patch's diff, of what the agent wrote
-// in a turn only its last words, and no more than rolloutTailBytes in all.
-
 import (
 	"bytes"
 	"context"
@@ -22,26 +11,15 @@ import (
 )
 
 const (
-	// rolloutTailTurns is how many turns are read when the request names none.
-	rolloutTailTurns = 3
-	// rolloutTailMaxTurns is the most turns a request reads.
-	rolloutTailMaxTurns = 10
-	// rolloutTailScanBytes bounds what is read of the files, from their end:
-	// a long command's output can fill a turn.
+	rolloutTailTurns     = 3
+	rolloutTailMaxTurns  = 10
 	rolloutTailScanBytes = 8 << 20
-	// rolloutTailText is the most bytes of a message's text sent: more than
-	// a peek shows (2,000 characters, 4 bytes at most each).
-	rolloutTailText = 8 << 10
-	// rolloutTailEvents bounds the events sent; a turn with more is cut.
-	rolloutTailEvents = 5000
-	// rolloutTailBytes bounds the answer, as JSON: over it, the oldest turns
-	// are left out, then the oldest events of the one left.
-	rolloutTailBytes = 512 << 10
-	// rolloutTailForks is how many threads back a fork's history is followed.
-	rolloutTailForks = 4
+	rolloutTailText      = 8 << 10
+	rolloutTailEvents    = 5000
+	rolloutTailBytes     = 512 << 10
+	rolloutTailForks     = 4
 )
 
-// RolloutTail reads the events of a Codex thread's last turns.
 func (s *Service) RolloutTail(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p RolloutTailParams
 	if err := decodeParams(raw, &p, "chat.rolloutTail params must include threadId"); err != nil {
@@ -75,7 +53,6 @@ func (s *Service) RolloutTail(ctx context.Context, raw json.RawMessage) (any, er
 		if tail.done || parent == "" {
 			break
 		}
-		// A fork keeps only what it added: what came before is its parent's, up to where it forked.
 		if !tail.full && fork+1 < rolloutTailForks {
 			if parentPath := keptRollout(home, parent); parentPath != "" {
 				path, end = parentPath, parentEnd
@@ -93,15 +70,11 @@ func (s *Service) RolloutTail(ctx context.Context, raw json.RawMessage) (any, er
 	return RolloutTailResult{Found: true, Events: events, More: tail.more || cut}, nil
 }
 
-// fitRolloutEvents is the events, oldest first, that go in `limit` bytes of
-// JSON: the oldest turns are left out first (a turn begins at the user's
-// message), then the oldest events of the one turn left. True when any were.
 func fitRolloutEvents(events []RolloutEvent, limit int) ([]RolloutEvent, bool) {
 	sizes := make([]int, len(events))
 	total := 0
 	for i, event := range events {
 		encoded, _ := json.Marshal(event)
-		// The comma between two events.
 		sizes[i] = len(encoded) + 1
 		total += sizes[i]
 	}
@@ -112,7 +85,6 @@ func fitRolloutEvents(events []RolloutEvent, limit int) ([]RolloutEvent, bool) {
 			next++
 		}
 		if next >= len(events) {
-			// One turn left: its oldest events go, one by one.
 			next = start + 1
 		}
 		for ; start < next; start++ {
@@ -122,28 +94,19 @@ func fitRolloutEvents(events []RolloutEvent, limit int) ([]RolloutEvent, bool) {
 	return events[start:], start > 0
 }
 
-// rolloutTail gathers a thread's events from its end, newest first.
 type rolloutTail struct {
-	ctx context.Context
-	// want is how many of the user's messages to read back to.
-	want   int
-	budget int64
-	events []RolloutEvent
-	users  int
-	// full: want messages were read; what is before them only tells `more`.
-	full bool
-	// turnTaken: the turn the earliest message began was told.
+	ctx       context.Context
+	want      int
+	budget    int64
+	events    []RolloutEvent
+	users     int
+	full      bool
 	turnTaken bool
-	// replied: the agent's last words of the turn being read (the first read,
-	// from the end) were taken; a peek shows no others of that turn.
-	replied bool
-	done    bool
-	more    bool
+	replied   bool
+	done      bool
+	more      bool
 }
 
-// read reads a rollout back from `end` (its end when 0), and tells the
-// thread it was forked from and where in that one the fork began, when its
-// first line names them and it was read to its start.
 func (t *rolloutTail) read(path string, end int64) (string, int64, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -167,7 +130,6 @@ func (t *rolloutTail) read(path string, end int64) (string, int64, error) {
 			return "", 0, err
 		}
 		if start == floor && floor != 0 {
-			// The rest is past what is read: a line cut at its start, and all before it.
 			pos = floor
 			break
 		}
@@ -190,8 +152,6 @@ func (t *rolloutTail) read(path string, end int64) (string, int64, error) {
 	return "", 0, nil
 }
 
-// first reads a rollout's first line: its thread's start, or an event of
-// an older Codex that wrote none.
 func (t *rolloutTail) first(line []byte) (string, int64, error) {
 	var meta struct {
 		Type    string `json:"type"`
@@ -213,14 +173,12 @@ func (t *rolloutTail) first(line []byte) (string, int64, error) {
 		return "", 0, nil
 	}
 	if t.full {
-		// The earliest message read had turns before it, in the thread forked from.
 		t.more, t.done = true, true
 		return "", 0, nil
 	}
 	return parent, parentEnd, nil
 }
 
-// take reads a line, newest first; true once nothing before it is needed.
 func (t *rolloutTail) take(line []byte) bool {
 	if !bytes.Contains(line, []byte(`"event_msg"`)) {
 		return false
@@ -230,7 +188,6 @@ func (t *rolloutTail) take(line []byte) bool {
 		return false
 	}
 	if t.full {
-		// The turn the earliest message read began, else news of an earlier turn.
 		if event.Kind == "turn" && !t.turnTaken {
 			t.turnTaken = true
 			t.events = append(t.events, event)
@@ -248,7 +205,6 @@ func (t *rolloutTail) take(line []byte) bool {
 	}
 	switch event.Kind {
 	case "agent":
-		// Only a turn's last words are shown: the rest of what it wrote is not sent.
 		if t.replied || strings.TrimSpace(event.Text) == "" {
 			return false
 		}
@@ -262,7 +218,6 @@ func (t *rolloutTail) take(line []byte) bool {
 	return false
 }
 
-// rolloutRecord is a rollout's event, cut to what is read of it.
 type rolloutRecord struct {
 	Type    string `json:"type"`
 	Payload struct {
@@ -295,8 +250,6 @@ type rolloutRecord struct {
 	} `json:"payload"`
 }
 
-// rolloutEventOf is the event a rollout's line tells; false for one a peek
-// does not show (reasoning, token counts, a turn's end).
 func rolloutEventOf(line []byte) (RolloutEvent, bool) {
 	var record rolloutRecord
 	if json.Unmarshal(line, &record) != nil || record.Type != "event_msg" {
@@ -379,7 +332,6 @@ func rolloutEventOf(line []byte) (RolloutEvent, bool) {
 		event.Name = item.Tool
 		return tool("collabAgentToolCall")
 	case "Extension":
-		// Codex 0.170 writes its web search as an extension's.
 		if item.Kind == "web.search" {
 			return tool("webSearch")
 		}
@@ -387,7 +339,6 @@ func rolloutEventOf(line []byte) (RolloutEvent, bool) {
 	return RolloutEvent{}, false
 }
 
-// changeKinds is how a patch changes each file (add, delete, update), by path.
 func changeKinds(changes map[string]struct {
 	Type string `json:"type"`
 }) []string {
@@ -403,7 +354,6 @@ func changeKinds(changes map[string]struct {
 	return kinds
 }
 
-// cutText is the text in at most rolloutTailText bytes, not cut inside a character.
 func cutText(text string) string {
 	if len(text) <= rolloutTailText {
 		return text

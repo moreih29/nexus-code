@@ -1,12 +1,3 @@
-/**
- * FormDialog — renderer-side modal form primitive for multi-field prompts.
- *
- * Uses the same Radix Dialog + Button visual conventions as PromptDialog while
- * allowing callers to host several validated fields in one
- * focused modal. Escape and outside-click dismissal both flow through
- * onCancel via Radix's onOpenChange contract.
- */
-
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
@@ -68,10 +59,6 @@ interface FormDialogContentProps {
   children?: React.ReactNode;
 }
 
-/**
- * Builds the initial value map from field defaults and caller overrides.
- * Caller-provided values win so a dialog can reopen with an edited draft.
- */
 export function initialFormDialogValues(
   fields: readonly FormDialogField[],
   initialValues: FormDialogValues = {},
@@ -83,11 +70,6 @@ export function initialFormDialogValues(
   return values;
 }
 
-/**
- * Returns per-field validation state using the dialog's required-field rule
- * and optional custom validator. Required defaults to true to keep submit
- * disablement safe by default.
- */
 export function getFormDialogFieldStates(
   fields: readonly FormDialogField[],
   values: FormDialogValues,
@@ -101,10 +83,6 @@ export function getFormDialogFieldStates(
   });
 }
 
-/**
- * True when the dialog should block submit for pending work, missing required
- * values, or inline validation errors.
- */
 export function isFormDialogSubmitDisabled(
   fields: readonly FormDialogField[],
   values: FormDialogValues,
@@ -113,20 +91,10 @@ export function isFormDialogSubmitDisabled(
   return busy || getFormDialogFieldStates(fields, values).some((state) => state.error !== null);
 }
 
-/**
- * Adapts Radix Dialog's open-state callback to the FormDialog cancel contract.
- * Radix sends false for Escape and outside pointer dismissal, so both routes
- * resolve through the same caller-provided onCancel handler.
- */
 export function handleFormDialogOpenChange(nextOpen: boolean, onCancel: () => void): void {
   if (!nextOpen) onCancel();
 }
 
-/**
- * Renders the form body without the Radix portal so unit tests can assert the
- * field layout in a no-DOM server-render environment. Its header is the
- * dialog's Radix Title, so it renders inside a Dialog root.
- */
 export function FormDialogContent({
   title,
   description,
@@ -155,9 +123,6 @@ export function FormDialogContent({
           const inputId = `form-dialog-${field.name}`;
           const helpId = `${inputId}-help`;
           const required = field.required !== false;
-          // An empty required field is marked by its label's asterisk and the
-          // disabled submit button, not scolded before anything was typed; a
-          // value that fails its validator says why.
           const error = fieldError === "Required" ? null : fieldError;
           return (
             <div key={field.name} className="flex flex-col gap-2">
@@ -177,7 +142,6 @@ export function FormDialogContent({
                     value={value}
                     onChange={(event) => onValueChange(field.name, event.target.value)}
                     onKeyDown={(event) => {
-                      // Enter writes a newline here; ⌘/Ctrl+Enter submits.
                       if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
                         event.preventDefault();
                         event.currentTarget.form?.requestSubmit();
@@ -239,10 +203,6 @@ export function FormDialogContent({
   );
 }
 
-/**
- * Mounts the validated form inside a Radix Dialog. The value state resets when
- * the dialog opens so callers can reuse the same component across prompts.
- */
 export function FormDialog({
   open,
   title,

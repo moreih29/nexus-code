@@ -9,16 +9,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// hangUp sends the shell what a hung-up terminal sends its session leader.
-// Closing the master is not enough on macOS: the master is a blocking file,
-// and its close waits for the read pending on it, which ends only once the
-// shell does (macOS revokes the terminal when its session leader exits).
 func (c *child) hangUp() {
 	_ = syscall.Kill(c.Pid, syscall.SIGHUP)
 	_ = syscall.Kill(c.Pid, syscall.SIGCONT)
 }
 
-// sessionProcesses lists the processes in session sid but its leader.
 func sessionProcesses(sid int) []int {
 	procs, err := unix.SysctlKinfoProcSlice("kern.proc.all")
 	if err != nil {

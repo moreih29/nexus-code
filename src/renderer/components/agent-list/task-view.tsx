@@ -1,10 +1,3 @@
-// Agent list — the task view: one group per worktree (the workspace, then
-// its tasks), each headed by its branch, the conversation that made it and
-// its uncommitted changes, with its conversations in compact rows. A row
-// says what its conversation waits on or runs, and which terminal it waits
-// to end. The header unfolds the worktree's facts, and offers what can be
-// done in it.
-
 import {
   CornerDownRight,
   Ellipsis,
@@ -63,7 +56,6 @@ interface TaskViewProps {
   activity: ActivityByKey;
   waits: readonly TerminalWait[];
   selection: AgentListSelection | null;
-  /** A conversation picked, or an agent, with the row it was picked from. */
   onSelect: (selection: AgentListSelection, from: HTMLElement) => void;
   query: string;
 }
@@ -78,8 +70,6 @@ export function TaskView({
   query,
 }: TaskViewProps) {
   const { t } = useTranslation();
-  // The worktrees whose facts are unfolded, kept by the app as the status
-  // view's folded groups are: folded until the user opens one.
   const unfolded = useUIStore((s) => s.agentListUnfoldedTasks);
   const folded = useAgentViewStore((s) => s.folded);
   const order = useAgentViewStore((s) => s.order);
@@ -88,7 +78,6 @@ export function TaskView({
   const roots = useMemo(() => searchSessionTree(tree, query), [tree, query]);
   const needle = query.trim().toLowerCase();
   const searching = needle !== "";
-  // Empty worktrees still have actions and can be found by name.
   const groups =
     workspaceTrees([family], roots, order, searching, (worktree) =>
       worktreeName(worktree, undefined).toLowerCase().includes(needle),
@@ -132,7 +121,6 @@ export function TaskView({
                 changes={changes.get(id)}
               />
             )}
-            {/* A conversation listed under its parent elsewhere still runs here. */}
             {roots.length === 0 && hosted === 0 && (
               <p className="border-t border-border px-3 py-1.5 text-app-ui-sm text-muted-foreground">
                 {t("agentList.task.no_conversations")}
@@ -195,13 +183,11 @@ export function TaskView({
   );
 }
 
-/** A worktree's name: the workspace's own, or a task's branch. */
 export function worktreeName(worktree: WorktreeEntry, branch: string | undefined): string {
   if (worktree.isRoot) return worktree.workspace.name;
   return worktree.branch ?? worktree.workspace.task?.branch ?? branch ?? worktree.workspace.name;
 }
 
-/** The worktree's mark: a folder for the workspace, a branch for a task. */
 export function WorktreeMark({
   worktree,
   className,
@@ -213,11 +199,6 @@ export function WorktreeMark({
   return <Icon aria-hidden className={cn("size-3.5 shrink-0 text-muted-foreground", className)} />;
 }
 
-/**
- * A worktree's header: its name, the conversation that made it and its
- * changes, folding its facts open or shut. Under the pointer, or with the
- * keyboard in it, the changes give way to what can be done in it.
- */
 function TaskHeader({
   worktree,
   branch,
@@ -228,14 +209,12 @@ function TaskHeader({
 }: {
   worktree: WorktreeEntry;
   branch: string | undefined;
-  /** The conversation that made the task, while it is open. */
   creator: AgentSession | undefined;
   changed: number;
   unfolded: boolean;
   onToggle: () => void;
 }) {
   const { t } = useTranslation();
-  // Its actions stay while their menu is open, which takes the pointer and the keyboard.
   const [menuOpen, setMenuOpen] = useState(false);
   const { workspace } = worktree;
   const name = worktreeName(worktree, branch);
@@ -314,14 +293,6 @@ function TaskHeader({
   );
 }
 
-/**
- * A conversation in a line, in the agent view's order: its mark and title,
- * the branch it runs on where the card is another worktree's, its parent
- * where the tree does not show it, the conversation its terminal waits to
- * end, its children's chip, its state and how long. The title keeps the
- * room it needs first; what follows it goes out of sight where it would not
- * fit beside it.
- */
 export function TaskRow({
   session,
   activity,
@@ -334,13 +305,11 @@ export function TaskRow({
 }: {
   session: AgentSession;
   activity: ActivityByKey;
-  /** The conversation its terminal waits to end. */
   waitingOn: AgentSession | undefined;
   branch?: string;
   parent?: ReactNode;
   family?: ReactNode;
   selected: boolean;
-  /** Picked, with its row. */
   onSelect: (from: HTMLElement) => void;
 }) {
   const { t } = useTranslation();

@@ -5,9 +5,6 @@ import { LocalFsProvider } from "./local-provider";
 import type { FsProvider } from "./provider";
 import { SshFsProvider } from "./ssh-provider";
 
-/**
- * Creates the filesystem provider that matches a workspace location.
- */
 export function createFsProvider(meta: WorkspaceMeta, channel?: AgentChannel): FsProvider {
   if (meta.location.kind === "local") {
     return new LocalFsProvider(meta.location.rootPath);

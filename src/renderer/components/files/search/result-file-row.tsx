@@ -1,8 +1,3 @@
-/**
- * File group header row in the flat search results list.
- * Shows: chevron + file icon + truncated relPath + match-count badge.
- */
-
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { FileIcon } from "../file-tree/file-icon";
 import { ROW_HEIGHT_PX } from "../file-tree/metrics";

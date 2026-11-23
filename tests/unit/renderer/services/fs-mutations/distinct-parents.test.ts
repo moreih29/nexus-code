@@ -1,17 +1,3 @@
-/**
- * distinctParents — pure helper unit tests.
- *
- * Covers the 7 cases specified in Phase C:
- *   1. Parent + child → only parent kept.
- *   2. Duplicate paths → deduplicated.
- *   3. Sort stability — output is shortest-first.
- *   4. Empty input → [].
- *   5. Single path → that path.
- *   6. Unrelated siblings → both kept.
- *   7. Root prefix collision: /foo vs /foobar → both kept (not a parent).
- *   8. Mixed: parents, children, siblings, duplicates together.
- */
-
 import { describe, expect, it } from "bun:test";
 import { distinctParents } from "../../../../../src/renderer/services/fs-mutations/distinct-parents";
 
@@ -39,7 +25,6 @@ describe("distinctParents", () => {
   });
 
   it("does NOT drop /foobar when /foo is in the list (root prefix collision guard)", () => {
-    // /foo is NOT an ancestor of /foobar — the trailing-slash check is essential.
     const result = distinctParents(["/foo", "/foobar"]);
     expect(result).toHaveLength(2);
     expect(result).toContain("/foo");
@@ -47,16 +32,8 @@ describe("distinctParents", () => {
   });
 
   it("handles the full mixed case: parent + children + duplicates + siblings", () => {
-    const input = [
-      "/repo/src/a.ts", // child of /repo/src
-      "/repo/src", // parent — should be kept
-      "/repo/src", // duplicate — deduped
-      "/repo/lib/b.ts", // sibling — should be kept
-      "/repo/lib", // parent of lib/b.ts — should be kept; drops lib/b.ts
-    ];
+    const input = ["/repo/src/a.ts", "/repo/src", "/repo/src", "/repo/lib/b.ts", "/repo/lib"];
     const result = distinctParents(input);
-    // /repo/src is the ancestor of /repo/src/a.ts → only /repo/src
-    // /repo/lib is the ancestor of /repo/lib/b.ts → only /repo/lib
     expect(result).toHaveLength(2);
     expect(result).toContain("/repo/src");
     expect(result).toContain("/repo/lib");

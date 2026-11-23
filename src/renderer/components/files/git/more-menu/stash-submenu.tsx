@@ -1,8 +1,3 @@
-/**
- * Stash flyout for GitMoreMenu. The model decides which entries are visible
- * and which are disabled (stash count, HEAD presence); this view only routes
- * the resulting pick onto the matching handler.
- */
 import { useTranslation } from "react-i18next";
 import {
   DropdownMenuItem,

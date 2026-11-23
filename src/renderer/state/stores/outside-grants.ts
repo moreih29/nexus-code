@@ -1,10 +1,3 @@
-/**
- * The files outside a workspace's root that its Claude tabs link, which the
- * previews may read; main holds the same grants and serves only those. A
- * tab's grant is the files it wrote or named, and the folders of its HTML
- * files. Kept for this run only, as main's are.
- */
-
 import { create } from "zustand";
 import { ipcCallResult } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
@@ -15,13 +8,11 @@ export interface OutsideGrant {
 }
 
 interface OutsideGrantsStore {
-  /** workspaceId → owner (a Claude tab's id) → what it granted. */
   byWorkspace: Record<string, Record<string, OutsideGrant>>;
   set(workspaceId: string, owner: string, grant: OutsideGrant): void;
   clearWorkspace(workspaceId: string): void;
 }
 
-// What each tab last asked for, so an unchanged grant is not sent again.
 const sent = new Map<string, OutsideGrant>();
 
 export const useOutsideGrantsStore = create<OutsideGrantsStore>((set, get) => {
@@ -61,11 +52,6 @@ function sameGrant(a: OutsideGrant | undefined, b: OutsideGrant): boolean {
   return same(a.files, b.files) && same(a.dirs, b.dirs);
 }
 
-/**
- * Replaces what a Claude tab granted, in main and then here; empty lists
- * revoke it. The previews ask for a file only once main serves it, and stop
- * asking before main stops.
- */
 export function grantOutside(workspaceId: string, owner: string, grant: OutsideGrant): void {
   const key = `${workspaceId}\0${owner}`;
   if (sameGrant(sent.get(key), grant)) return;
@@ -79,14 +65,12 @@ export function grantOutside(workspaceId: string, owner: string, grant: OutsideG
     dirs: [...grant.dirs],
   })
     .then((result) => {
-      // A newer grant of the tab's has gone out since.
       if (!result.ok || revoke || sent.get(key) !== grant) return;
       useOutsideGrantsStore.getState().set(workspaceId, owner, grant);
     })
     .catch(() => {});
 }
 
-/** Whether a tab of the workspace granted `absPath`: the file, or one in a granted folder. */
 export function isOutsideGranted(
   byWorkspace: OutsideGrantsStore["byWorkspace"],
   workspaceId: string,
@@ -99,12 +83,10 @@ export function isOutsideGranted(
   return false;
 }
 
-/** The hook form of isOutsideGranted. */
 export function useOutsideGranted(workspaceId: string, absPath: string): boolean {
   return useOutsideGrantsStore((s) => isOutsideGranted(s.byWorkspace, workspaceId, absPath));
 }
 
-/** Whether the files in folder `absDir` are granted with it, as an HTML file's siblings are. */
 export function useOutsideDirGranted(workspaceId: string, absDir: string): boolean {
   return useOutsideGrantsStore((s) =>
     Object.values(s.byWorkspace[workspaceId] ?? {}).some((grant) =>

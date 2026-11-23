@@ -23,7 +23,6 @@ export class StateWriter {
     private readonly workerPath: string,
   ) {}
 
-  /** One call at a time. Partition the clone of a large layout across main turns. */
   async write(snapshot: AppState, gate: Int32Array): Promise<boolean> {
     this.worker ??= this.startWorker();
     const current = this.worker;
@@ -62,7 +61,6 @@ export class StateWriter {
       const watchdog = setTimeout(() => {
         failure ??= new StateWorkerError("App state worker write timed out", !current.ready);
         Atomics.compareExchange(gate, 0, PREPARING, CANCELLED);
-        // An old rename can only be ruled out after the worker has exited.
         void worker.terminate().catch(onError);
       }, WORKER_WRITE_TIMEOUT_MS);
       worker.on("error", onError);
@@ -98,7 +96,6 @@ export class StateWriter {
     } catch (error) {
       throw new StateWorkerError(`Could not start app state worker: ${String(error)}`, true);
     }
-    // An idle worker can exit too. Keep an error listener until exit.
     worker.on("error", () => {});
     worker.once("exit", () => {
       this.worker = undefined;

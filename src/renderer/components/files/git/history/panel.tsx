@@ -1,7 +1,3 @@
-/**
- * History panel orchestrator — loads paged logs and server-side search for
- * one workspace while commit details open in editor-area tabs.
- */
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { LogEntry } from "../../../../../shared/git/types";
@@ -23,7 +19,6 @@ interface HistoryPanelProps {
   onRefChange: (refName: string) => void;
 }
 
-/** Renders the full History MVP surface. */
 export function HistoryPanel({
   workspaceId,
   refName,
@@ -34,11 +29,6 @@ export function HistoryPanel({
   const cherryPick = useGitStore((state) => state.cherryPick);
   const checkoutDetached = useGitStore((state) => state.checkoutDetached);
   const resetSoft = useGitStore((state) => state.resetSoft);
-  // Subscribe to the workspace's branch info so the panel can auto-refresh
-  // after a checkout (or any operation that moves HEAD). A composite
-  // signature captures every state transition that warrants a reload:
-  // current branch name (checkout), upstream rebind (set-upstream),
-  // ahead/behind shifts (commit / fetch / pull / push / rebase).
   const branchSignature = useGitStore((state) => {
     const info = state.sessions.get(workspaceId)?.branchInfo;
     if (!info) return null;
@@ -65,12 +55,6 @@ export function HistoryPanel({
     setQuery("");
   }
 
-  // Auto-refresh: re-load the first page whenever the workspace's branch
-  // state shifts (checkout, commit, fetch, pull, push, rebase, set-upstream).
-  // The branchSignature subscription gives us one notification per relevant
-  // transition; the first observation seeds the ref without triggering a
-  // reload so we do not double-fetch on mount. Searches keep their query
-  // intact so a user mid-search is not surprised by a snap to head history.
   const lastBranchSignatureRef = useRef<string | null>(null);
   useEffect(() => {
     if (lastBranchSignatureRef.current === null) {

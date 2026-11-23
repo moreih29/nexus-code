@@ -1,8 +1,3 @@
-// Apply LSP textDocument content changes to a cached buffer. The agent
-// does not store text — caching lives on the TS side so we can downgrade
-// incremental updates to a "Full" payload when the server's
-// textDocumentSync.change is Full but the client only sees deltas.
-
 import type { TextDocumentContentChangeEvent } from "../../../shared/lsp";
 
 export function reconstructMissingCache(

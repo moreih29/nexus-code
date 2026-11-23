@@ -2,13 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
 import type { CustomScheme } from "electron";
-// Namespace import (not `import { net, protocol }`): under Bun's test runtime
-// the real electron entry is a CJS shim with no named exports, so a static
-// named import fails to link with "Export named 'protocol' not found" — an
-// error bun surfaces as a flake "between tests". A namespace import has no
-// link-time named-export requirement; net/protocol are only dereferenced
-// inside the functions below (never at module load), so this is behavior-
-// equivalent in the real electron runtime.
 import * as electron from "electron";
 import { MAX_BYTES_CHUNK } from "../../../../packages/remote-protocol/src";
 import { READ_RANGE_MAX_BYTES } from "../../../shared/fs/defaults";
@@ -22,13 +15,7 @@ import type { WorkspaceManager } from "../workspace/manager";
 
 const logger = createLogger("nexus-workspace");
 
-// ---------------------------------------------------------------------------
-// MIME type mapping. New entries should be added here when additional media
-// types are needed.
-// ---------------------------------------------------------------------------
-
 const MIME_MAP: Record<string, string> = {
-  // Images
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
@@ -36,12 +23,6 @@ const MIME_MAP: Record<string, string> = {
   ".svg": "image/svg+xml",
   ".webp": "image/webp",
   ".ico": "image/x-icon",
-  // Web assets — needed so the HTML preview can load relatively-referenced
-  // sibling files (`<script src>`, `<link rel=stylesheet>`, fonts, …). The
-  // preview iframe is at an opaque origin, so these load cross-origin: a
-  // stylesheet served with the wrong MIME is REJECTED by Chromium and a
-  // script may refuse to execute. Serving the correct type is what makes
-  // sibling .js/.css resolve instead of 404-ing.
   ".js": "text/javascript; charset=utf-8",
   ".mjs": "text/javascript; charset=utf-8",
   ".cjs": "text/javascript; charset=utf-8",
@@ -53,13 +34,11 @@ const MIME_MAP: Record<string, string> = {
   ".xml": "application/xml; charset=utf-8",
   ".txt": "text/plain; charset=utf-8",
   ".wasm": "application/wasm",
-  // Fonts
   ".woff": "font/woff",
   ".woff2": "font/woff2",
   ".ttf": "font/ttf",
   ".otf": "font/otf",
   ".eot": "application/vnd.ms-fontobject",
-  // Audio and video, which the editor plays in <audio> and <video>
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",
   ".ogg": "audio/ogg",
@@ -80,34 +59,20 @@ function mimeFromPath(filePath: string): string {
   return MIME_MAP[ext] ?? "application/octet-stream";
 }
 
-/** Response headers shared by the local and SSH branches. */
 function responseHeaders(filePath: string): Record<string, string> {
   return {
     "Content-Type": mimeFromPath(filePath),
-    // `no-store` is required, not just a hint: Blink's memory cache treats
-    // non-http(s) responses without cache headers as fresh FOREVER, so an
-    // image (or an HTML-preview sibling .css/.js) edited on disk would keep
-    // rendering the first-fetched bytes for the life of the renderer.
     "Cache-Control": "no-store",
-    // Stops a page from loading a non-JS/non-CSS file as a classic script or
-    // stylesheet to read it (an `.env` of `KEY="…"` lines is valid JS).
     "X-Content-Type-Options": "nosniff",
-    // <audio> and <video> seek by asking for the bytes at the new place.
     "Accept-Ranges": "bytes",
   };
 }
 
-/** The bytes a request asks for, from `start` to `end` inclusive. */
 export interface ByteRange {
   readonly start: number;
   readonly end: number;
 }
 
-/**
- * The range a `Range` header asks of a file of `size` bytes: null for the
- * whole file (no header, or one this does not serve, as several ranges),
- * "unsatisfiable" for one that starts past the end.
- */
 export function requestedRange(
   header: string | null,
   size: number,
@@ -118,7 +83,6 @@ export function requestedRange(
   if (from === "" && to === "") return null;
   if (size === 0) return "unsatisfiable";
   if (from === "") {
-    // The last `to` bytes.
     const length = Number(to);
     if (length === 0) return "unsatisfiable";
     return { start: Math.max(0, size - length), end: size - 1 };
@@ -130,7 +94,6 @@ export function requestedRange(
   return { start, end };
 }
 
-/** A 206 for `range` of a file of `size` bytes, or the 416 for none in it. */
 function partialResponse(
   body: ConstructorParameters<typeof Response>[0],
   range: ByteRange,
@@ -151,17 +114,12 @@ function unsatisfiable(size: number): Response {
   return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
 }
 
-// ---------------------------------------------------------------------------
-// Handler — exported for unit testing via dependency injection.
-// ---------------------------------------------------------------------------
-
 interface PeerPiece {
   data: string;
   size: number;
   version?: string;
 }
 
-/** Opens a peer file with an authorized first piece and a reader for that response. */
 export type PeerFileReader = (
   peer: PeerWorkspace,
   absPath: string,
@@ -177,21 +135,13 @@ export type PeerFileReader = (
   | "missing"
 >;
 
-/** The most one request reads of another computer's file (the protocol's MAX_BYTES_CHUNK). */
 export const PEER_PIECE_BYTES = MAX_BYTES_CHUNK;
 
-/**
- * Builds the protocol handler function.  Exported so tests can call it
- * directly without requiring a live Electron app context. `peers` reads the
- * files of other computers' workspaces, which quick look over their chats
- * shows; none are served without it.
- */
 export function buildNexusWorkspaceHandler(
   workspaceManager: WorkspaceManager,
   peers?: () => PeerFileReader | null,
 ): (req: Request) => Promise<Response> {
   return async (req: Request): Promise<Response> => {
-    // Step 1 — parse the custom URL.
     let parsed: URL;
     try {
       parsed = new URL(req.url);
@@ -200,11 +150,8 @@ export function buildNexusWorkspaceHandler(
       return new Response(null, { status: 404 });
     }
 
-    // A file outside the workspace that a Claude tab linked has the
-    // workspace's host with a suffix, and its absolute path.
     const outsideOf = outsideWorkspaceOf(parsed.host);
     const workspaceId = outsideOf ?? parsed.host;
-    // pathname always starts with "/" — strip it and decode each segment.
     let segments: string[];
     try {
       segments = parsed.pathname.slice(1).split("/").map(decodeURIComponent);
@@ -213,7 +160,6 @@ export function buildNexusWorkspaceHandler(
     }
     const relPath = segments.join(path.sep);
 
-    // A file of another computer's workspace, by its path there.
     if (parsed.host === PEER_HOST) {
       const file = peerFileOf(segments);
       const reader = peers?.() ?? null;
@@ -221,7 +167,6 @@ export function buildNexusWorkspaceHandler(
       return servePeerFile(reader, file.peer, file.absPath, req);
     }
 
-    // Step 2 — look up the workspace meta.
     const metas = workspaceManager.list();
     const meta = metas.find((m) => m.id === workspaceId);
     if (!meta) {
@@ -230,7 +175,6 @@ export function buildNexusWorkspaceHandler(
     }
 
     if (outsideOf !== null) {
-      // A Windows file's URL path starts at its drive (/C:/…), a POSIX file's at the root.
       const fromDrive =
         meta.location.kind === "local" &&
         process.platform === "win32" &&
@@ -251,20 +195,12 @@ export function buildNexusWorkspaceHandler(
       return serveLocalFile(realPath, req.headers.get("range"));
     }
 
-    // SSH workspaces are served through the agent's fs.readRange method.
-    // Local workspaces are read straight off disk below, without a base64
-    // round-trip.
     if (meta.location.kind !== "local" || isGuardedPeerViewFile(workspaceId, relPath)) {
       return serveViaAgent(workspaceManager, workspaceId, relPath, req.headers.get("range"));
     }
 
-    // A root saved with "/" on Windows (C:/repo) is compared in the form
-    // path.resolve gives the file path below (C:\repo), or no file matches.
     const rootPath = path.resolve(meta.location.rootPath);
 
-    // Step 4 — path traversal guard (.. escape).
-    // Normalise with path.resolve so ".." segments are collapsed before the
-    // prefix check.  Ensure the resolved path is strictly inside rootPath.
     const resolved = path.resolve(rootPath, relPath);
     const rootNorm = rootPath.endsWith(path.sep) ? rootPath : rootPath + path.sep;
     if (resolved !== rootPath && !resolved.startsWith(rootNorm)) {
@@ -272,7 +208,6 @@ export function buildNexusWorkspaceHandler(
       return new Response(null, { status: 404 });
     }
 
-    // Step 5 — symlink escape guard via realpath.
     let realPath: string;
     try {
       realPath = await fs.promises.realpath(resolved);
@@ -282,7 +217,6 @@ export function buildNexusWorkspaceHandler(
     }
 
     const realRootNorm = rootPath.endsWith(path.sep) ? rootPath : rootPath + path.sep;
-    // Also resolve the root itself to handle symlinked roots correctly.
     let realRoot: string;
     try {
       realRoot = await fs.promises.realpath(rootPath);
@@ -305,10 +239,7 @@ export function buildNexusWorkspaceHandler(
   };
 }
 
-/** A file on this machine, at a path already checked, whole or the range asked. */
 async function serveLocalFile(realPath: string, rangeHeader: string | null): Promise<Response> {
-  // Step 6 — a range, as <audio> and <video> ask for, is read from the
-  // file at its place.
   if (rangeHeader !== null) {
     try {
       const { size } = await fs.promises.stat(realPath);
@@ -325,9 +256,6 @@ async function serveLocalFile(realPath: string, rangeHeader: string | null): Pro
     }
   }
 
-  // Step 7 — the whole file, streamed off disk. Not by net.fetch of its
-  // file:// URL: that goes through the app session's request guard, which
-  // cancels a file outside the renderer's folder (window/app-csp.ts).
   try {
     const stat = await fs.promises.stat(realPath);
     if (!stat.isFile()) {
@@ -342,31 +270,15 @@ async function serveLocalFile(realPath: string, rangeHeader: string | null): Pro
   }
 }
 
-// ---------------------------------------------------------------------------
-// SSH path — relays the file through the agent's fs.readRange method. The
-// agent already enforces workspace-bound path resolution (rejecting `..` and
-// absolute paths) so we don't repeat the realpath/symlink dance here; the
-// trust boundary lives on the remote end.
-//
-// A file is read in pieces of READ_RANGE_MAX_BYTES, as the response is
-// taken, so no one read holds the agent's channel for long, a range (a
-// <video> seeking) reads only its bytes, and a file of any size can be
-// served. `Cache-Control: no-store` keeps the renderer from caching across
-// SSH reconnects where the same path may resolve to a different blob.
-// ---------------------------------------------------------------------------
-
-/** How many pieces a response reads ahead of the one being taken. */
 const READ_AHEAD = 2;
 
 type PieceReader = (offset: number, length: number) => Promise<FileReadBinaryResult>;
 
-/** Where a `Range` header's range starts, when it says; 0 otherwise. */
 function rangeStart(header: string | null): number {
   const from = header?.trim().match(/^bytes=(\d+)-\d*$/)?.[1];
   return from === undefined ? 0 : Number(from);
 }
 
-/** A piece's bytes, when it is all of them and the file has not changed since `mtime`. */
 function pieceBytes(
   result: FileReadBinaryResult,
   length: number,
@@ -381,11 +293,6 @@ function pieceBytes(
   return bytes;
 }
 
-/**
- * The bytes of `span` read in pieces as the stream is taken, a few ahead.
- * `head` is the first piece, read already. The stream fails when the file
- * changes under it.
- */
 function piecesStream(
   read: PieceReader,
   span: ByteRange,
@@ -406,7 +313,6 @@ function piecesStream(
     const piece = read(offset, length).then((result) =>
       pieceBytes(result, length, mtime, filePath),
     );
-    // A piece still on its way when the stream is cancelled fails unseen.
     piece.catch(() => {});
     pending.push(piece);
   };
@@ -463,10 +369,6 @@ async function serveViaAgent(
   relPath: string,
   rangeHeader: string | null,
 ): Promise<Response> {
-  // posix-style for the agent (it splits on "/" internally and runs on
-  // unix hosts in SSH mode). path.sep was applied at parse time for the
-  // local branch — undo it here so the wire path stays portable. An
-  // absolute path is an outside file already checked against the grants.
   const posixRelPath = relPath.split(path.sep).join("/");
   const outside = posixRelPath.startsWith("/");
   let fsProvider: Awaited<ReturnType<WorkspaceManager["getFs"]>>;
@@ -494,15 +396,12 @@ async function serveViaAgent(
   }
 }
 
-/** A file read by `read` a piece of at most `pieceSize` at a time: whole, or the range asked. */
 async function servePieces(
   read: PieceReader,
   filePath: string,
   rangeHeader: string | null,
   pieceSize: number,
 ): Promise<Response> {
-  // The first piece tells the file's size. It is read where the range
-  // asked starts, so that a seek takes one round trip before it plays.
   const start = rangeStart(rangeHeader);
   const first = await read(start, pieceSize);
   return serveOpenedPieces(read, filePath, rangeHeader, pieceSize, start, first);
@@ -522,7 +421,6 @@ async function serveOpenedPieces(
   const range = requestedRange(rangeHeader, size);
   if (range === "unsatisfiable") return unsatisfiable(size);
   const span = range ?? { start: 0, end: size - 1 };
-  // A range from the end starts where only the size tells.
   if (span.start !== start || (first.base64 === "" && span.start < size)) {
     first = await read(span.start, Math.min(pieceSize, span.end - span.start + 1));
     if (first.kind === "missing") return new Response(null, { status: 404 });
@@ -542,12 +440,6 @@ async function serveOpenedPieces(
     headers: { ...responseHeaders(filePath), "Content-Length": String(size) },
   });
 }
-
-// ---------------------------------------------------------------------------
-// Another computer's file — read through the room (files.read), which that
-// computer keeps to the workspace's folders, a piece of at most
-// PEER_PIECE_BYTES at a time. A versioned open pins subsequent pieces.
-// ---------------------------------------------------------------------------
 
 async function servePeerFile(
   reader: PeerFileReader,
@@ -596,38 +488,18 @@ async function servePeerFile(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Public wiring API
-// ---------------------------------------------------------------------------
-
-/**
- * The `nexus-workspace` scheme's privileges: a standard scheme, registered
- * with the app's other schemes before `app.whenReady()` (app-schemes.ts).
- */
 export const NEXUS_WORKSPACE_SCHEME: CustomScheme = {
   scheme: "nexus-workspace",
   privileges: {
     standard: true,
     secure: true,
     supportFetchAPI: false,
-    // corsEnabled lets the preview iframe (opaque/"null" origin) load
-    // resources that are fetched in CORS mode — @font-face fonts, which
-    // the spec always requests as CORS even without `crossorigin`, and
-    // module scripts. Without it Chromium blocks those cross-origin
-    // loads regardless of response headers. It also makes every file
-    // readable by XHR, which the read guard (app-schemes.ts)
-    // cancels. supportFetchAPI stays false: no JS fetch() surface.
     corsEnabled: true,
     bypassCSP: false,
-    // Lets <audio> and <video> play files as they load, and seek them.
     stream: true,
   },
 };
 
-/**
- * Installs the `nexus-workspace://` protocol handler.
- * Must be called **after** `app.whenReady()`.
- */
 export function installNexusWorkspaceProtocol(
   workspaceManager: WorkspaceManager,
   peers?: () => PeerFileReader | null,

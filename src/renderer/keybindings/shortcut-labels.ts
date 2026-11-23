@@ -1,41 +1,13 @@
-/**
- * Platform-aware shortcut label resolution for context menus.
- *
- * Reads from the resolver's ACTIVE binding table (defaults + user
- * overrides) — not the static `KEYBINDINGS` — so a user-customized
- * shortcut renders correctly everywhere a label is shown. This module's
- * only job is to format an accelerator for the current platform; the
- * underlying binding lives next to the command declaration.
- *
- * Every command surfaced in a context menu has a binding entry —
- * including context-scoped ones like `openToSide` (registered with
- * `when: "fileTreeFocus"`). There is no separate map of hand-written
- * labels.
- *
- * Reactivity note: labels are resolved lazily AT READ TIME (the
- * `SHORTCUTS` members below are getters). Context menus and tooltips
- * mount on open, so they pick up a rebinding on their next render
- * without any subscription plumbing.
- */
-
 import { COMMANDS, type CommandId } from "../../shared/keybindings/commands";
 import { findDisplayPrimary } from "../../shared/keybindings/index";
 import { acceleratorToLabel, chordToLabel } from "../../shared/keybindings/keybinding-parse";
 import { type HostPlatform, hostPlatform, isLinux, isMac } from "../utils/platform";
 import { getActiveBindings } from "./resolver";
 
-/** Label options for this platform (names the Windows/Super key too). */
 export function labelOptions(): { isMac: boolean; platform: HostPlatform } {
   return { isMac: isMac(), platform: hostPlatform() };
 }
 
-/**
- * Render the shortcut label for a command from the ACTIVE binding
- * table. Returns `undefined` if the command currently has neither a
- * primary nor a chord declaration (including the user-unbound case) —
- * callers can conditionally omit the shortcut column in their menu
- * spec.
- */
 export function shortcutFor(command: CommandId): string | undefined {
   const bindings = getActiveBindings();
   const primary = findDisplayPrimary(bindings, command, isMac(), isLinux());
@@ -49,13 +21,6 @@ export function shortcutFor(command: CommandId): string | undefined {
   return undefined;
 }
 
-/**
- * Back-compat shim: the previous `SHORTCUTS` map is still consumed in
- * a handful of places. New callers should prefer `shortcutFor(...)`.
- * Members are GETTERS — resolved against the active binding table at
- * read time, so user rebindings flow through on the next render of
- * whatever surface shows the label.
- */
 export const SHORTCUTS = {
   get closeTab() {
     return shortcutFor(COMMANDS.tabClose) ?? "";

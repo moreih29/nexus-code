@@ -1,7 +1,3 @@
-/**
- * nexus worktree new and remove: the app's tasks made and deleted from a
- * terminal, with the user's leave where they reach past its workspace.
- */
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";
@@ -17,7 +13,6 @@ import {
   WORKSPACES,
 } from "./fake-services";
 
-/** A terminal of the "fix-login" worktree. */
 const IN_FIX = { workspaceId: FIX, tabId: "dddddddd-0000-4000-8000-000000000007" };
 
 async function nexus(
@@ -65,7 +60,6 @@ describe("worktree new", () => {
     app.answers.push("once");
     await nexus(app, ["worktree", "new", "pay"], IN_FIX);
     expect(uiArgs(app, "task.create")).toMatchObject({ parentId: APP });
-    // The workspace is not the worktree's own, so the user is asked.
     expect(app.asked[0]?.change).toEqual({ kind: "worktreeNew", detail: "pay" });
   });
 
@@ -85,7 +79,6 @@ describe("worktree new", () => {
 });
 
 describe("worktree claude-create", () => {
-  /** Runs the hidden command as Claude Code's WorktreeCreate hook does, with its JSON on stdin. */
   function hook(app: FakeApp, stdin: string, caller = { workspaceId: APP, tabId: SHELL_TAB }) {
     return runCli(
       CLI_COMMANDS,
@@ -142,10 +135,6 @@ describe("worktree claude-create", () => {
 describe("worktree claude-remove", () => {
   const FIX_FOLDER = "/home/u/.nexus-code/worktrees/app/fix-login";
 
-  /**
-   * Runs the hidden command as Claude Code's WorktreeRemove hook does, with
-   * "fix-login" made by `madeBy` (by the user in the app when absent).
-   */
   function hook(app: FakeApp, stdin: string, madeBy?: { workspaceId: string; tabId: string }) {
     const ctx = contextFor(app, ["worktree", "claude-remove", "-"], undefined, { stdin });
     const workspaces = WORKSPACES.map((w) =>
@@ -199,7 +188,6 @@ describe("worktree claude-remove", () => {
       stderr: "nexus: no worktree of this workspace is at /w/app/.claude/worktrees/x\n",
       exitCode: 1,
     });
-    // The workspace itself is not a worktree to remove.
     expect((await hook(app, payload("/w/app"))).exitCode).toBe(1);
     expect((await hook(app, "{}")).exitCode).not.toBe(0);
     expect(uiArgs(app, "task.remove")).toBeUndefined();

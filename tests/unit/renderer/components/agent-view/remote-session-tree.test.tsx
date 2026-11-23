@@ -86,7 +86,6 @@ test("each computer's family shares the status of its most urgent descendant", (
   const other = { ...host, id: "other", name: "Studio" };
   const remote = [
     { peer: host, list: treeList },
-    // The same IDs on another machine cannot join this computer's family.
     { peer: other, list: { workspaces: [workspace], sessions: [activeChild] } },
   ];
   const render = (query = "") =>
@@ -197,7 +196,6 @@ function remoteStatus(list = treeList) {
   );
 }
 
-/** Each row's markup, from its frame to the next row's. */
 function remoteRows(html: string): string[] {
   return html.split('data-testid="remote-session-item"').slice(1);
 }
@@ -211,7 +209,6 @@ test("by state, a family's root tells its computer and place once and a child on
   expect(child).not.toContain('data-testid="session-row-device"');
   expect(child).toMatch(/data-testid="session-row-place"><svg[^>]*lucide-git-branch/);
   expect(child).toContain(">ship<");
-  // No line of its own for the relations: the chip is in the row's second line.
   expect(root).toMatch(
     /data-testid="remote-session-fold-family"[\s\S]*<\/button><\/div><\/div><\/div>/,
   );
@@ -219,7 +216,6 @@ test("by state, a family's root tells its computer and place once and a child on
 
 test("every remote row tells its own state, a parent raised by its children too", () => {
   const [root = "", child = ""] = remoteRows(remoteStatus());
-  // In the group that needs the user, raised there by its child, the parent still works.
   expect(root).toContain('role="img" aria-label="Running"');
   expect(child).toContain('role="img" aria-label="Needs you"');
   const running = remoteRows(
@@ -518,7 +514,6 @@ test("local workspace rows keep a saved parent closed when the ID has no own tab
   const read = spyOn(tabs, "useTabsStore").mockImplementation((select) =>
     select({
       ...state,
-      // Reject both inherited keys and an own value that is missing tab metadata.
       byWorkspace: {
         [workspace.id]: { bogus: { id: "bogus", title: "Invalid" } },
       } as typeof state.byWorkspace,
@@ -728,10 +723,8 @@ test("visible remote rows take arrow and edge keys, and Enter opens the first se
   expect(rows[1]?.click).not.toHaveBeenCalled();
 });
 
-// A title an older app on another computer made kept the whole path.
 const OLD_BRIEF = "작업 지시서 /c/Users/demo/AppData/Local/Temp/qa-brief.md 를 읽고";
 const SHORT_BRIEF = "작업 지시서 qa-brief.md 를 읽고";
-// A title the user wrote: past a sentence's end and past sixty letters.
 const WRITTEN =
   "C:\\Users\\demo\\notes\\release-plan.md 정리. 그다음 0.4.0 변경 사항을 세 묶음으로 나누고 릴리스 노트 초안을 써 주세요";
 
@@ -741,7 +734,6 @@ test("another computer's title shows its paths shortened, and nothing else cut",
   expect(remoteTitle(WRITTEN)).toBe(
     "release-plan.md 정리. 그다음 0.4.0 변경 사항을 세 묶음으로 나누고 릴리스 노트 초안을 써 주세요",
   );
-  // Its lines are joined, as every label from another computer's is, not cut to the first.
   expect(remoteTitle("첫 줄\n/Users/demo/out/report.md 둘째 줄")).toBe("첫 줄 report.md 둘째 줄");
   expect(remoteTitle("/review src/app.ts")).toBe("/review src/app.ts");
   expect(remoteTitle(undefined)).toBe("");
@@ -763,7 +755,6 @@ test("rows, tabs and parents show another computer's titles shortened; what is k
   expect(shown).toContain(`>${SHORT_BRIEF}</span>`);
   expect(shown).toContain(`aria-label="${SHORT_BRIEF}"`);
   expect(shown).not.toContain("AppData");
-  // The workspace grouping's rows, and a search for what the row shows.
   const grouped = renderToStaticMarkup(
     <PeerGroup
       peer={host}
@@ -772,13 +763,11 @@ test("rows, tabs and parents show another computer's titles shortened; what is k
     />,
   );
   expect(grouped).toContain(`>${SHORT_BRIEF}</span>`);
-  // The tab keeps the title as that computer sent it, and shows it shortened.
   const target = listedRemoteTarget(host, workspace, brief);
   expect(target.title).toBe(OLD_BRIEF);
   expect(renderToStaticMarkup(<RemoteTabLabel target={target} />)).toContain(
     `>${SHORT_BRIEF}</span>`,
   );
-  // A parent named by its child's opener, closed or on yet another computer.
   const opener = { workspaceId: workspace.id, tabId: "1a2b3c4d-missing", name: OLD_BRIEF };
   expect(remoteWithOpener(opener)).toContain(
     `data-testid="remote-session-parent">↳ ${SHORT_BRIEF} · closed</span>`,

@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-// pathValues returns the values env gives PATH, under any name PATH has.
 func pathValues(env []string) []string {
 	var values []string
 	for _, entry := range env {

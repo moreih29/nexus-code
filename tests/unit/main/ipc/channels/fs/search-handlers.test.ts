@@ -171,7 +171,6 @@ describe("searchTextStream", () => {
     let resolveProvider!: (value: FakeAgentProvider) => void;
     const manager = {
       list: (): WorkspaceMeta[] => [makeWorkspace()],
-      // The context still holds the inert placeholder until the agent boots.
       requireContext: () => ({ fs: {} }),
       getFs: () =>
         new Promise<FakeAgentProvider>((resolve) => {

@@ -1,7 +1,3 @@
-/**
- * Without a sealed file, starting the app and its clean-ups never reach the
- * keychain: on macOS that read is what asks for the login password.
- */
 import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,7 +18,6 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-/** A keychain that counts each read or write, and fails it. */
 function countingBox() {
   const calls: string[] = [];
   const box: SecretBox = {

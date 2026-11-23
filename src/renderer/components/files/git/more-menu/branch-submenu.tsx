@@ -1,8 +1,3 @@
-/**
- * Branch flyout for GitMoreMenu. Items are driven by the shared menu model so
- * enablement (e.g. requires HEAD) lives next to other Git menu decisions
- * rather than inline in this view.
- */
 import { useTranslation } from "react-i18next";
 import {
   DropdownMenuItem,

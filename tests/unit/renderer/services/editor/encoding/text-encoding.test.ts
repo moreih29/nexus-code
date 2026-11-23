@@ -1,7 +1,3 @@
-/**
- * Text in encodings other than UTF-8: guessed from its bytes and the
- * user's languages, decoded, and written back byte for byte.
- */
 import { describe, expect, test } from "bun:test";
 import {
   bytesFromBase64,
@@ -13,11 +9,8 @@ import {
   type TextEncoding,
 } from "../../../../../../src/renderer/services/editor/encoding/text-encoding";
 
-// Bun's TextDecoder lacks some single-byte encodings Chromium has (KOI8-R,
-// Windows-1251, ISO-8859-2, ...), so these use only those it has.
 const bytes = (...values: number[]) => Uint8Array.from(values);
 
-/** "한글" in EUC-KR, "日本" in Shift_JIS, "café" in Windows-1252. */
 const EUC_KR = bytes(0xc7, 0xd1, 0xb1, 0xdb);
 const SHIFT_JIS = bytes(0x93, 0xfa, 0x96, 0x7b);
 const LATIN = bytes(0x63, 0x61, 0x66, 0xe9);
@@ -50,7 +43,6 @@ describe("guessEncoding", () => {
 
   test("Windows-1252 when none takes them", () => {
     expect(guessEncoding(LATIN, [])).toBe("windows-1252");
-    // 0xE9 0x00 is no EUC-KR character.
     expect(guessEncoding(bytes(0xe9, 0x00), ["euc-kr"])).toBe("windows-1252");
   });
 });

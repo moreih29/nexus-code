@@ -1,12 +1,3 @@
-/**
- * Shared context resolvers used by every command-domain registrar.
- *
- * Each handler re-resolves the active group, tab, and workspace through
- * the live stores so user navigation tracks without rewiring the global
- * listener. Pulling these out of the registrar keeps each domain module
- * focused on the commands it owns.
- */
-
 import { Grid } from "../engine";
 import { closeTabWithConfirm } from "../services/editor/save/close-tab";
 import { createPathActions } from "../services/fs-mutations";
@@ -37,11 +28,6 @@ function getWorkspaceRootPath(workspaceId: string): string | null {
   );
 }
 
-/**
- * Build the path-action trio anchored to the currently active editor.
- * Returns null when there is no active editor (or no workspace), so the
- * caller can no-op without each shortcut handler re-walking the chain.
- */
 export function getActiveEditorPathActions() {
   const ctx = getActiveTabContext();
   if (!ctx) return null;
@@ -58,15 +44,6 @@ export function getActiveEditorPathActions() {
   });
 }
 
-/**
- * Close one tab through the type-appropriate dirty-aware path.
- * Returned outcome lets bulk-close callers honour cancel.
- *
- * Maps CloseTabOutcome to the two-way contract tab.ts expects:
- * "save-failed" is treated the same as "closed" (the tab stays open but the
- * bulk-close loop continues), matching the prior behaviour where only an
- * explicit user cancel ("cancelled") would stop iteration.
- */
 export async function closeTabById(
   workspaceId: string,
   tabId: string,

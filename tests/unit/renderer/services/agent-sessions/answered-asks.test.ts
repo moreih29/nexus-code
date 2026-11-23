@@ -14,7 +14,6 @@ const shown = () =>
   unansweredAsks(session, asks, useAnsweredAsksStore.getState().keys).map((each) => each.id);
 
 beforeEach(resetAnsweredAsks);
-// Timed cases run on fake timers: real ones step by about 15.6 ms on Windows.
 afterEach(() => jest.useRealTimers());
 
 describe("a request answered from the app", () => {

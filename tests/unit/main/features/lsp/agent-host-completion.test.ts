@@ -1,10 +1,3 @@
-/**
- * Completion on the agent path: the list keeps what the editor shows
- * (detail, documentation, edits, sort order), a trigger character the
- * server does not list asks nothing, and a picked item is resolved for the
- * fields servers leave out of the list.
- */
-
 import { expect, test } from "bun:test";
 import { startAgentLspHost } from "../../../../../src/main/features/lsp/agent-host";
 import type {
@@ -16,7 +9,6 @@ import type {
 const WORKSPACE_ID = "55555555-5555-4555-8555-555555555555";
 const URI = "file:///tmp/ws/main.ts";
 
-/** Answers each LSP request with `responses[method]` and records what it sent. */
 class CompletionChannel implements AgentChannel {
   readonly ready = Promise.resolve();
   readonly sent: Array<{ method: string; params: unknown }> = [];

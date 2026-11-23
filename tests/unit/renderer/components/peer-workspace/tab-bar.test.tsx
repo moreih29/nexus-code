@@ -54,7 +54,6 @@ test("a session tab tells its state as a local tab does", () => {
       state: "running",
     }),
   );
-  // Rendered with the store's current state, as the running app does.
   const storeView = spyOn(workspaceStore, "usePeerWorkspaceStore");
   storeView.mockImplementation(
     Object.assign(

@@ -131,7 +131,6 @@ interface MediaDispatcher {
   useSyncExternalStore(_subscribe: unknown, getSnapshot: () => unknown): unknown;
 }
 
-/** Drives one hook's state and effects with a supplied context value. */
 function mountMedia<C, T>(_context: React.Context<C>, hook: () => T) {
   const internals = (
     React as unknown as {
@@ -249,7 +248,6 @@ describe("another computer's chat, read from there", () => {
     if (change === "account switch") {
       events.get("accountChanged")?.(signedIn("another-user"));
       expect(peerChatAccess("d1")).toBeNull();
-      // React may receive the new room before it renders the null access.
       events.get("roomChanged")?.(online());
     }
     if (change === "room closes") events.get("roomChanged")?.({ ...offline(), status: "waiting" });
@@ -383,7 +381,6 @@ describe("another computer's chat, read from there", () => {
     const files = peerChatFiles(target, peerChatAccess("d1"));
     const found = await files.there(["/w/src/a.ts", "/w/src/lib", "/w/src/gone.ts", "/etc/x"]);
     expect([...found]).toEqual(["/w/src/a.ts"]);
-    // Each folder is listed once while its entries are fresh.
     await files.there(["/w/src/a.ts"]);
     expect(calls.filter((c) => c.args.path === "/w/src")).toHaveLength(1);
     expect(calls[0]?.args).toEqual({ deviceId: "d1", workspaceId: "w1", path: "/w/src" });
@@ -407,7 +404,6 @@ describe("another computer's chat, read from there", () => {
     const files = peerChatFiles(target, peerChatAccess("d1"));
     const asked = ["/a/t1/1/kept.png", "/a/t1/2/gone.png", "/a/t1/3/older-host.png"];
     expect([...((await files.gone?.(asked)) ?? [])]).toEqual(["/a/t1/2/gone.png"]);
-    // Its metadata alone, as its picture is read.
     expect(calls.find((c) => c.args.path === "/a/t1/1/kept.png")?.args).toEqual({
       deviceId: "d1",
       workspaceId: "w1",
@@ -416,11 +412,9 @@ describe("another computer's chat, read from there", () => {
       length: 0,
       versioned: true,
     });
-    // An answer is kept a while; one that told nothing is asked again.
     calls.length = 0;
     await files.gone?.(asked);
     expect(calls.map((c) => c.args.path)).toEqual(["/a/t1/3/older-host.png"]);
-    // Nothing is asked while that computer is away.
     calls.length = 0;
     expect([...((await peerChatFiles(target, null).gone?.(asked)) ?? [])]).toEqual([]);
     expect(calls).toEqual([]);
@@ -622,7 +616,6 @@ describe("another computer's chat, read from there", () => {
     await Promise.resolve();
     desktop.dispatchEvent(new Event("focus"));
     expect(peerChatAccess("d1")).not.toBe(old);
-    // The foreground rechecks what a connection holds, but is still that connection.
     expect(peerChatFiles(target, peerChatAccess("d1")).epoch).not.toBe(stale.epoch);
     expect(peerChatFiles(target, peerChatAccess("d1")).connection).toBe(stale.connection);
     answer = () => pictureResult("new");
@@ -678,20 +671,17 @@ describe("another computer's chat, read from there", () => {
   });
 
   test("a change's file before it is the hunks against the last commit taken back", () => {
-    // a b d (committed) became a c d e: b changed to c, e added at the end.
     const hunks = [
       { oldStart: 1, oldLines: 3, newStart: 1, newLines: 3, lines: [" a", "-b", "+c", " d"] },
       { oldStart: 3, oldLines: 0, newStart: 4, newLines: 1, lines: ["+e"] },
     ];
     expect(beforeOfHunks(hunks, "a\nc\nd\ne\n")).toBe("a\nb\nd\n");
-    // A line taken out comes back where it was.
     expect(
       beforeOfHunks(
         [{ oldStart: 2, oldLines: 1, newStart: 1, newLines: 0, lines: ["-x"] }],
         "a\nb",
       ),
     ).toBe("a\nx\nb");
-    // Hunks that do not fit the file now (it changed since) give nothing.
     expect(beforeOfHunks(hunks, "z\ny\n")).toBeNull();
   });
 });
@@ -701,7 +691,6 @@ describe("a Windows computer's paths, written with either separator", () => {
     expect(shownPath("C:/Users/me/app/README.md", "C:\\Users\\me\\app")).toBe("README.md");
     expect(shownPath("C:\\Users\\me\\app\\src\\a.ts", "C:\\Users\\me\\app\\")).toBe("src/a.ts");
     expect(shownPath("/Users/me/app/src/a.ts", "/Users/me/app")).toBe("src/a.ts");
-    // Outside it, as written.
     expect(shownPath("D:\\other\\b.ts", "C:\\Users\\me\\app")).toBe("D:\\other\\b.ts");
   });
 
@@ -782,7 +771,6 @@ describe("what another computer's chat tells of its plan and senders", () => {
         source,
       ),
     ).toEqual({ kind: "tab", workspaceId: "w", tabId: "t", device: { id: "lap", name: "Laptop" } });
-    // Without knowing which computer this is, a sender stays as told.
     expect(senderOf({ kind: "manager" })).toEqual({ kind: "manager" });
   });
 });

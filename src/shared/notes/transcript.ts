@@ -1,20 +1,3 @@
-/**
- * A note's recordings and what was said in them: `transcript.json` in the
- * note's folder (with `transcript.md`, the same as text for agents), the
- * audio itself in its `recordings/`.
- *
- * A recording runs from "Record" to "Stop". It is made of takes, one per
- * voice session on the server: a pause ends a take and going on starts the
- * next, and a recording longer than a session allows goes on in a new one.
- * Each take is a file of its own, and a server labels the voices it hears
- * anew in each session, so a voice's key carries its take ("1" in the first
- * take, "2.1" in the second); the names the user gives are by key, and
- * giving two keys one name makes them one person. A recording the app told
- * its voices apart in by voice print (voices.ts) keys them for the whole
- * recording instead ("1", "2", … across its takes).
- *
- * Pure: no IO here.
- */
 import { z } from "zod";
 import {
   NonnegativeNumberSchema,
@@ -25,10 +8,8 @@ import { nextVoiceKey, voicePerson } from "./voices";
 
 export const TRANSCRIPT_VERSION = 1;
 
-/** A recording's id: r + base36 time + 4 hex. */
 export const RECORDING_ID_RE = /^r[0-9a-z]{6,12}[0-9a-f]{4}$/;
 
-/** A take's audio, by place in the note's folder. */
 export const TAKE_FILE_RE = /^recordings\/r[0-9a-z]{6,12}[0-9a-f]{4}-\d{1,3}\.(webm|ogg)$/;
 
 export const ParticipantCountSchema = z.union([
@@ -40,31 +21,23 @@ export type ParticipantCount = z.infer<typeof ParticipantCountSchema>;
 
 export const PARTICIPANT_OPTIONS = ["auto", 2, 3, 4, 5, 6, "7+"] as const;
 
-/** One stretch of one voice's words. Times are from the recording's start, in ms. */
 export const TranscriptLineSchema = z.object({
   speaker: z.string().min(1).max(40),
   startMs: NonnegativeNumberSchema,
   endMs: NonnegativeNumberSchema,
   text: z.string(),
-  /** The user moved the line to its voice: it stays there. */
   pinned: z.boolean().optional(),
 });
 export type TranscriptLine = z.infer<typeof TranscriptLineSchema>;
 
-/** How far a take's second pass (the whole file heard again) is. */
 export const TakePassSchema = z.enum(["none", "pending", "done", "error"]);
 export type TakePass = z.infer<typeof TakePassSchema>;
 
 export const TranscriptTakeSchema = z.object({
-  /** recordings/<recording id>-<n>.webm */
   file: z.string().regex(TAKE_FILE_RE),
-  /** Where the take starts in the recording. */
   offsetMs: NonnegativeNumberSchema,
-  /** Its length, as the server counted it once it was done. */
   seconds: NonnegativeNumberSchema,
-  /** The session's `done` (or `error`) `transcribeToken`, until it is used. */
   token: z.string().optional(),
-  /** The second pass on the server, while it is under way. */
   transcriptionId: z.string().optional(),
   pass: TakePassSchema,
 });
@@ -72,30 +45,20 @@ export type TranscriptTake = z.infer<typeof TranscriptTakeSchema>;
 
 export const TranscriptRecordingSchema = z.object({
   id: z.string().regex(RECORDING_ID_RE),
-  /** Epoch ms. */
   startedAt: NumberSchema,
-  /** The language listened for. */
   language: z.string(),
   takes: z.array(TranscriptTakeSchema),
-  /** Names given to voices, by key. */
   speakers: z.record(z.string(), z.string()),
   lines: z.array(TranscriptLineSchema),
-  /** Names the user declined for each voice. */
   rejectedVoiceNames: z.record(z.string(), z.array(z.string().min(1).max(80))).optional(),
-  /** The audio was deleted (the text stays). */
   audioRemoved: z.boolean().optional(),
-  /** Its voices were told apart by voice print: keyed for the whole recording. */
   voicePrint: z.boolean().optional(),
-  /** A participant count selected for this recording. Older recordings default to Auto. */
   participantCount: ParticipantCountSchema.optional(),
-  /** The user dismissed the prompt to review the automatic speaker count. */
   speakerPromptDismissed: z.boolean().optional(),
-  /** Display numbers once the recording ends. Keys still identify the original voices. */
   speakerNumbers: z.record(z.string(), z.string()).optional(),
 });
 export type TranscriptRecording = z.infer<typeof TranscriptRecordingSchema>;
 
-/** One recording changed against the version the editor last read or saved. */
 export const TranscriptEditSchema = z.object({
   id: z.string().regex(RECORDING_ID_RE),
   before: TranscriptRecordingSchema.optional(),
@@ -111,22 +74,18 @@ export type TranscriptFile = z.infer<typeof TranscriptFileSchema>;
 
 export const EMPTY_TRANSCRIPT: TranscriptFile = { version: TRANSCRIPT_VERSION, recordings: [] };
 
-/** The key of voice `label` in take `take` (0-based). */
 export function speakerKey(take: number, label: string): string {
   return take === 0 ? label : `${take + 1}.${label}`;
 }
 
-/** Where a take's audio goes. */
 export function takeFile(recordingId: string, take: number): string {
   return `recordings/${recordingId}-${take + 1}.webm`;
 }
 
-/** The voices of a recording, in the order they first spoke. */
 export function speakersOf(recording: Pick<TranscriptRecording, "lines">): string[] {
   return [...new Set(recording.lines.map((line) => line.speaker))];
 }
 
-/** Compact speaker numbers in order of first speech, without changing voice identities. */
 export function numberSpeakers(recording: TranscriptRecording): TranscriptRecording {
   const numbers = new Map<string, string>();
   const speakerNumbers = Object.fromEntries(
@@ -140,12 +99,10 @@ export function numberSpeakers(recording: TranscriptRecording): TranscriptRecord
   return { ...recording, speakerNumbers };
 }
 
-/** How many people spoke: voices given one name count once. */
 export function peopleIn(recording: Pick<TranscriptRecording, "lines" | "speakers">): number {
   return new Set(speakersOf(recording).map((key) => voicePerson(recording.speakers, key))).size;
 }
 
-/** The least number of people allowed by names and manual assignments. */
 export function protectedVoiceCount(recording: TranscriptRecording): number {
   const protectedPeople = new Set<string>();
   for (const line of recording.lines) {
@@ -156,7 +113,6 @@ export function protectedVoiceCount(recording: TranscriptRecording): number {
   return protectedPeople.size;
 }
 
-/** A small amount of speech in extra groups can indicate that one voice was split. */
 export function shouldPromptSpeakerCount(recording: TranscriptRecording): boolean {
   if (recording.speakerPromptDismissed || recording.audioRemoved) return false;
   if (typeof recording.participantCount === "number") return false;
@@ -177,32 +133,17 @@ export function shouldPromptSpeakerCount(recording: TranscriptRecording): boolea
   );
 }
 
-/** A recording's length: its takes', or as far as its words go while a take is open. */
 export function recordingMs(recording: Pick<TranscriptRecording, "takes" | "lines">): number {
   const takes = recording.takes.reduce((ms, t) => Math.max(ms, t.offsetMs + t.seconds * 1000), 0);
   const words = recording.lines.reduce((ms, l) => Math.max(ms, l.endMs), 0);
   return Math.max(takes, words);
 }
 
-/**
- * The names for a second pass's voices: each takes the name of the person
- * (as the live session had them) it shares the most time with, if that one
- * had a name. Live voices given one name are one person, the user said, and
- * an unnamed live voice is one of its own. A person's name goes to one new
- * voice only, the one that shares the most time with them: when the pass
- * hears two voices where the live session heard one, the other stays
- * unnamed, a person of its own, for the user to name (giving it the same
- * name joins it back). Named after the live person, it would be one person
- * with no way to tell them apart. That holds when the live session mixed
- * people up and the user gave its voices their names as they went: the
- * voices the pass tells apart do not go back to one name.
- */
 export function carryNames(
   live: readonly TranscriptLine[],
   names: Readonly<Record<string, string>>,
   next: readonly TranscriptLine[],
 ): Record<string, string> {
-  // A live voice's person: its name, or the voice itself when it has none.
   const overlap = new Map<string, Map<string, number>>();
   for (const n of next) {
     for (const l of live) {
@@ -214,7 +155,6 @@ export function carryNames(
       overlap.set(n.speaker, byPerson);
     }
   }
-  // Each new voice's live person, and the new voice that shares the most with each person.
   const heir = new Map<string, { speaker: string; ms: number }>();
   const personOfNew = new Map<string, string>();
   for (const [speaker, byPerson] of overlap) {
@@ -239,14 +179,6 @@ export function carryNames(
   return out;
 }
 
-/**
- * A take's lines replaced by its second pass: the take's own lines go, the
- * pass's come in (moved to the take's place in the recording, their voices
- * keyed by the take), and names carry over by time. A recording told apart
- * by voice print keeps its voices instead: each new line takes the voice of
- * the lines it shares the most time with, since the server's labels mix
- * people up.
- */
 export function withSecondPass(
   recording: TranscriptRecording,
   take: number,
@@ -321,7 +253,6 @@ function withSecondPassByVoice(
   rest: readonly TranscriptLine[],
   segments: readonly TranscriptLine[],
 ): TranscriptRecording {
-  // A take the live session heard nothing in: the pass's labels, as new voices.
   const taken = new Set([
     ...recording.lines.map((l) => l.speaker),
     ...Object.keys(recording.speakers),
@@ -386,7 +317,6 @@ function overlapBySpeaker(
   return shared;
 }
 
-/** Preserve manual assignments across shifted boundaries without pinning incidental overlap. */
 function pinnedSpeaker(
   shared: ReadonlyMap<string, number>,
   durationMs: number,
@@ -408,9 +338,6 @@ function greatestOverlap(shared: ReadonlyMap<string, number>): string | undefine
 
 export type SpeakerMoveScope = "line" | "following" | "all";
 
-/**
- * Move the selected lines to voice `to` and pin them there.
- */
 export function movedLines(
   recording: TranscriptRecording,
   shown: Pick<TranscriptLine, "speaker" | "startMs" | "endMs">,
@@ -469,7 +396,6 @@ export function movedLines(
   return recording.speakerNumbers ? numberSpeakers(next) : next;
 }
 
-/** A declined name belongs to this speaker within this recording. */
 export function withRejectedVoiceName(
   recording: TranscriptRecording,
   key: string,
@@ -485,7 +411,6 @@ export function withRejectedVoiceName(
   };
 }
 
-/** A key for a new voice of the recording: the next number not taken. */
 export function newSpeakerKey(recording: Pick<TranscriptRecording, "lines" | "speakers">): string {
   return nextVoiceKey([
     ...recording.lines.map((l) => l.speaker),
@@ -493,7 +418,6 @@ export function newSpeakerKey(recording: Pick<TranscriptRecording, "lines" | "sp
   ]);
 }
 
-/** "3:07", or "1:03:07" past an hour. */
 export function clockOf(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(total / 3600);
@@ -503,7 +427,6 @@ export function clockOf(ms: number): string {
   return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
 }
 
-/** A voice's name, or "Speaker 2" (its label, with its take: "Speaker 2.1"). */
 export function speakerName(
   recording: Pick<TranscriptRecording, "speakers" | "speakerNumbers">,
   key: string,
@@ -512,7 +435,6 @@ export function speakerName(
   return recording.speakers[key]?.trim() || unnamed(recording.speakerNumbers?.[key] ?? key);
 }
 
-/** Lines as the CLI can show them, with an id within the recording. */
 export function transcriptLinesForCli(recording: TranscriptRecording) {
   const occurrences = new Map<string, number>();
   return recording.lines.map(({ speaker, startMs, endMs, text }) => {
@@ -531,7 +453,6 @@ export function transcriptLinesForCli(recording: TranscriptRecording) {
   });
 }
 
-/** Adjacent lines of one voice, run together: how a transcript reads. */
 export function joinedLines(lines: readonly TranscriptLine[], gapMs = 4000): TranscriptLine[] {
   const out: TranscriptLine[] = [];
   for (const line of lines) {
@@ -547,7 +468,6 @@ export function joinedLines(lines: readonly TranscriptLine[], gapMs = 4000): Tra
   return out;
 }
 
-/** Two stretches of words as one: with a space, except between CJK characters. */
 function joinText(a: string, b: string): string {
   if (!a) return b;
   if (!b) return a;
@@ -561,7 +481,6 @@ function dateOf(ms: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-/** `transcript.md`: each recording, then its words, a voice and a time to a line. */
 export function transcriptMarkdown(file: TranscriptFile, title: string): string {
   const out: string[] = [`# Transcript${title.trim() ? `: ${title.trim()}` : ""}`];
   for (const rec of file.recordings) {

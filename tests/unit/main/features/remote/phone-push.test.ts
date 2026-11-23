@@ -49,7 +49,6 @@ function setup(
     devices?: (typeof phone)[];
     mode?: PhonePushPolicy;
     signedOut?: boolean;
-    /** The renderer tells its sessions' changes (cli.sessionsChanged). */
     revisions?: boolean;
   } = {},
 ) {
@@ -153,7 +152,6 @@ function setup(
       chatReadable = value;
     },
     snapshots: () => snapshots,
-    /** The renderer's sessions changed, and it told main. */
     changed: () => {
       revision++;
       revisions.saw(revision);
@@ -539,7 +537,6 @@ describe("chat and terminal request notifications", () => {
     await tick();
     const first = app.snapshots();
     expect(first).toBe(1);
-    // The 3-second push poll refreshes the expired read at the nine-second tick.
     await tick(6_000);
     expect(app.snapshots()).toBe(first);
     await tick(3_000);

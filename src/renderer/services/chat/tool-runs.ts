@@ -1,16 +1,8 @@
-// Tool calls in a row, folded into one line: a turn that ran ten commands
-// and read five files reads as that, and opens to show each call. Pure.
-
 import { ARTIFACT_TOOL } from "./artifact";
 import type { AssistantBlock, AssistantItem, ChatItem, ToolCall } from "./model";
 import { AGENT_TOOLS, SEND_FILES_TOOL } from "./panel";
 import type { ToolRowStatuses } from "./running";
 
-/**
- * Calls that keep a line of their own: a subagent's, those that ask the
- * user, one that puts files in front of the user, and one that publishes a
- * page, which shows as a card.
- */
 const LONE_TOOLS = new Set([
   ...AGENT_TOOLS,
   "AskUserQuestion",
@@ -19,29 +11,18 @@ const LONE_TOOLS = new Set([
   ARTIFACT_TOOL,
 ]);
 
-/** Fewest calls in a row that fold into one line. */
 export const MIN_RUN = 2;
 
-/** A block as a message shows it: as it came, or calls in a row folded together. */
 export type ShownBlock = AssistantBlock | { type: "run"; blocks: AssistantBlock[] };
 
-/** Whether a call keeps a line of its own, out of any run. */
 export function isLoneTool(name: string): boolean {
   return LONE_TOOLS.has(name);
 }
 
-/** What an entry is to a run: a call that folds, what may come between two, or what ends it. */
 export type RunPart = "call" | "between" | "end";
 
-/** Entries as shown: alone, or calls in a row (with what came between them) as a run. */
 export type FoldedEntry<T> = { readonly one: T } | { readonly run: readonly T[] };
 
-/**
- * Entries with calls in a row folded into runs, for any list of an agent's
- * turn: the main conversation's blocks and a run's own steps alike. A run
- * takes `MIN_RUN` calls or more and what comes between them, and ends at
- * its last call.
- */
 export function foldRuns<T>(entries: readonly T[], part: (entry: T) => RunPart): FoldedEntry<T>[] {
   const out: FoldedEntry<T>[] = [];
   let i = 0;
@@ -68,13 +49,6 @@ export function foldRuns<T>(entries: readonly T[], part: (entry: T) => RunPart):
   return out;
 }
 
-/**
- * What each assistant message shows: its blocks, with calls in a row folded
- * into a run. A run goes on across messages, as Claude makes a call a
- * message, and is shown in the message it begins in; one whose blocks all
- * went into an earlier run shows none. Thinking between two calls goes in
- * the run; text, a lone call or the user's turn ends it.
- */
 export function foldToolRuns(
   items: readonly ChatItem[],
   tools: Record<string, ToolCall>,
@@ -117,7 +91,6 @@ const READ_TOOLS = new Set(["Read", "NotebookRead", "ViewImage"]);
 const EDIT_TOOLS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit", "Delete"]);
 const SEARCH_TOOLS = new Set(["Grep", "Glob", "LS", "WebSearch", "ToolSearch"]);
 
-/** What a run did, by kind: files read or edited count once however often. */
 export interface RunTally {
   commands: number;
   reads: number;
@@ -128,7 +101,6 @@ export interface RunTally {
   denied: number;
 }
 
-/** A call as a run's line counts it: its tool, the file it works on, and how it went. */
 export interface RunCall {
   readonly name: string;
   readonly path?: string;

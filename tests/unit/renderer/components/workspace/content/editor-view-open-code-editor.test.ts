@@ -1,6 +1,4 @@
 import { describe, expect, mock, test } from "bun:test";
-// Import directly from the originating module so editor-view.tsx (and its
-// transitive React/git-store dependencies) are never loaded in this test.
 import { createCrossFileOpenCodeEditorOpener } from "../../../../../../src/renderer/services/editor/tabs/cross-file-opener";
 
 interface FakeResource {
@@ -9,13 +7,6 @@ interface FakeResource {
 
 const WORKSPACE_A = "workspace-a";
 
-/**
- * Build a workspace-scoped cacheUri identical in shape to what
- * monaco-converters.ts produces for LSP Location results. Tests run
- * against this shape because every Monaco model's URI is workspace-
- * scoped now (the cross-workspace cache-isolation work) — Monaco passes
- * those URIs through to the openCodeEditor hook unchanged.
- */
 function cacheUri(workspaceId: string, absPath: string): string {
   return `nexus-ws://${workspaceId}${absPath}`;
 }

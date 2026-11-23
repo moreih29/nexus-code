@@ -32,14 +32,8 @@ const INITIAL_OPTIONS = {
 
 const PATTERN_REASON_LIMIT = 256;
 
-/**
- * How long typing pauses before the search runs, as the local panel's 300ms
- * but a little longer: each search runs on the other computer, and one that
- * typing overtakes is only dropped here, not stopped there.
- */
 export const PEER_SEARCH_DEBOUNCE_MS = 400;
 
-/** What a search looks for: the text, its options and the two filters. */
 interface SearchCriteria {
   query: string;
   options: typeof INITIAL_OPTIONS;
@@ -56,7 +50,6 @@ export function PeerSearchPanel({
   target: PeerWorkspaceTarget;
   canRead: boolean;
   rejoin: number;
-  /** Bumped by each click on the Search button: the input takes the keyboard. */
   focusRequest?: number;
 }) {
   const { t } = useTranslation();
@@ -112,11 +105,6 @@ export function PeerSearchPanel({
     );
   }
 
-  /**
-   * A change to what is searched for: the results so far, and a search still
-   * running, are dropped; the search runs again once typing pauses, or at
-   * once for an option, as locally.
-   */
   function changeSearchCriteria(next: Partial<SearchCriteria>, at: "pause" | "once" = "pause") {
     cancelPending();
     flight.current?.abort();
@@ -278,7 +266,6 @@ export function PeerSearchPanel({
       {errorMessage && canRead && (
         <SearchFailedMessage
           message={errorMessage}
-          // A computer that cannot search this way says so again on a retry.
           onRetry={unsupported ? undefined : () => void search()}
         />
       )}

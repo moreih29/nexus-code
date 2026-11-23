@@ -18,23 +18,17 @@ import (
 	"github.com/nexus-code/nexus-code/internal/dispatch"
 )
 
-// Service owns the registry of active LSP server processes.
 type Service struct {
 	mu      sync.Mutex
 	sink    EventSink
 	servers map[string]*serverProcess
 	closed  bool
 
-	// serverIDPrefix sets this agent's server ids apart from those of the
-	// agent it replaced: when a local agent restarts, calls queued for the
-	// old one's servers reach the new one and must not land on a new server
-	// that happens to take the same number.
 	serverIDPrefix string
 	nextServerSeq  uint64
 	nextAgentSeq   uint64
 }
 
-// New constructs an empty LSP service registry.
 func New() *Service {
 	return &Service{servers: make(map[string]*serverProcess), serverIDPrefix: newServerIDPrefix()}
 }
@@ -45,13 +39,6 @@ func newServerIDPrefix() string {
 	return hex.EncodeToString(b[:])
 }
 
-// Register binds every lsp.* method onto the dispatcher.
-//
-// The methods that write to a server's stdin are ordered: a server must see
-// its messages in the order the client sent them. Run concurrently, a
-// completion request could overtake the didChange that typed the "." before
-// it, or two didChanges could swap and leave the server's copy of the
-// document wrong until it is reopened.
 func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("lsp.spawn", service.Spawn)
 	d.RegisterOrderedBy("lsp.send", service.Send, serverQueueKey)
@@ -63,8 +50,6 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("lsp.findBinary", service.FindBinary)
 }
 
-// serverQueueKey keeps document updates, requests and cancellations for one
-// server in the same arrival queue.
 func serverQueueKey(raw json.RawMessage) string {
 	var params struct {
 		ServerID string `json:"serverId"`
@@ -73,14 +58,12 @@ func serverQueueKey(raw json.RawMessage) string {
 	return "lsp:" + params.ServerID
 }
 
-// SetEventSink wires the service to the stdio host after both are constructed.
 func (s *Service) SetEventSink(sink EventSink) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sink = sink
 }
 
-// Close terminates all active language server processes.
 func (s *Service) Close() {
 	s.mu.Lock()
 	s.closed = true
@@ -155,10 +138,6 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 
-	// Announce the serverId before initialize runs so the client can
-	// route any pre-spawn-resolution server messages (configuration,
-	// publishDiagnostics on a workspace open, etc.) by serverId rather
-	// than guessing from the order spawns were issued.
 	_ = s.emit(EventServerAssigned, ServerAssignedPayload{
 		ServerID:      serverID,
 		CorrelationID: p.CorrelationID,
@@ -177,8 +156,6 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 	return SpawnResult{ServerID: serverID, Capabilities: capabilities, ServerInfo: serverInfo}, nil
 }
 
-// startServer publishes the child and its pipes together. A concurrent close
-// or early process exit can only see the fully started process.
 func (s *Service) startServer(ctx context.Context, server *serverProcess) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -192,8 +169,6 @@ func (s *Service) startServer(ctx context.Context, server *serverProcess) error 
 	return nil
 }
 
-// Stats reports the memory each server takes, with the processes it
-// started.
 func (s *Service) Stats(_ context.Context, _ json.RawMessage) (any, error) {
 	s.mu.Lock()
 	servers := make([]*serverProcess, 0, len(s.servers))
@@ -238,12 +213,6 @@ func (s *Service) Send(ctx context.Context, raw json.RawMessage) (any, error) {
 	return struct{}{}, nil
 }
 
-// Notify handles lsp.notify — the fire-and-forget path for LSP notifications
-// (textDocument/didOpen, didChange, didSave, didClose).  The TS client sends
-// these without awaiting the ack so the request pipeline is not stalled for
-// a semantically-empty round-trip on every keystroke.  The handler forwards
-// the message to the LSP child process and returns a void ack just like Send,
-// but having a dedicated method name keeps the intent unambiguous on both sides.
 func (s *Service) Notify(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p NotifyParams
 	if err := decodeParams(raw, &p, "lsp.notify params must include serverId and message"); err != nil {

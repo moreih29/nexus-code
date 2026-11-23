@@ -5,7 +5,6 @@ import type { TimerScheduler } from "../../../../../../src/shared/util/timer-sch
 interface FakeScheduler extends TimerScheduler {
   tick(): void;
   readonly pendingCount: number;
-  /** delayMs of the most recently armed timer. */
   readonly lastDelayMs: number | undefined;
 }
 
@@ -50,14 +49,13 @@ describe("createStatusCoalescer", () => {
     fakeNow = 1000 + 200;
     coalescer.schedule("workspace-a", run);
 
-    // Only the window-end timer is armed, for the remainder of the window.
     expect(scheduler.pendingCount).toBe(1);
     expect(scheduler.lastDelayMs).toBe(SUPPRESSION - 200);
     expect(run).toHaveBeenCalledTimes(0);
 
-    scheduler.tick(); // window ends → normal debounced schedule
+    scheduler.tick();
     expect(run).toHaveBeenCalledTimes(0);
-    scheduler.tick(); // debounce fires
+    scheduler.tick();
     expect(run).toHaveBeenCalledTimes(1);
     await flushMicrotasks();
     expect(coalescer.size).toBe(0);
@@ -120,8 +118,6 @@ describe("createStatusCoalescer", () => {
       scheduler,
       nowFn: () => fakeNow,
     });
-    // Simulates a git that rewrites the index on every status: each refresh
-    // marks the window and its own watcher event lands inside it.
     const run = mock(async () => {
       coalescer.markRecentlyRefreshed("workspace-a");
     });
@@ -132,8 +128,8 @@ describe("createStatusCoalescer", () => {
       fakeNow += 300;
       coalescer.schedule("workspace-a", run);
       delays.push(scheduler.lastDelayMs ?? -1);
-      scheduler.tick(); // deferred timer
-      scheduler.tick(); // debounce → run
+      scheduler.tick();
+      scheduler.tick();
       await flushMicrotasks();
     }
 
@@ -163,7 +159,7 @@ describe("createStatusCoalescer", () => {
     }
 
     fakeNow += 10_000;
-    coalescer.schedule("workspace-a", run); // outside the window → resets
+    coalescer.schedule("workspace-a", run);
     scheduler.tick();
     await flushMicrotasks();
 
@@ -225,7 +221,6 @@ describe("createStatusCoalescer", () => {
   });
 });
 
-/** Creates a deterministic scheduler so coalescer tests assert calls, not time. */
 function makeFakeScheduler(): FakeScheduler {
   const pending: PendingTimer[] = [];
   let lastDelayMs: number | undefined;
@@ -255,7 +250,6 @@ function makeFakeScheduler(): FakeScheduler {
   };
 }
 
-/** Lets awaited async coalescer runs progress through their finally blocks. */
 async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();

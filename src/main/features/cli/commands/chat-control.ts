@@ -1,11 +1,3 @@
-/**
- * nexus chat ...: what else a Claude or Codex tab's own buttons do, for an
- * agent: its side panel read; a message held for after the turn, or sent
- * and not read yet, taken back or changed; the conversation rewound or
- * forked; a running call sent to the background, a task stopped; Remote
- * Control turned; the slash commands another device may run; and the
- * conversations of the past listed and gone on with.
- */
 import type { ChatCommand, ChatPanel } from "../../../../../packages/remote-protocol/src";
 import type { CliPastSession, CliTabInfo } from "../../../../shared/cli/ui";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
@@ -37,7 +29,6 @@ import { peerCliChat } from "./chat-remote";
 import { AGENT_NAMES } from "./chat-text";
 import { WORKSPACE_FLAG } from "./flags";
 
-/** A tab of a workspace, and how a request names it. */
 interface ChatTarget {
   readonly workspace: WorkspaceMeta;
   readonly tab: CliTabInfo;
@@ -54,7 +45,6 @@ async function chatTarget(
   return { workspace, tab, ref: { workspaceId: workspace.id, tabId: tab.id } };
 }
 
-/** A tab other than the caller's own, for a change to it. */
 async function otherChat(
   ctx: CliContext,
   flags: ParsedArgs["flags"],
@@ -71,7 +61,6 @@ function claudeOnly({ tab }: ChatTarget, what: string): void {
   if (tab.type !== "claude") throw new CliError(`only a Claude tab can ${what}`);
 }
 
-/** A message's place as chat read shows it (#12), given with or without its #. */
 function placeArg(text: string, what = "message"): number {
   const match = /^#?(\d+)$/.exec(text.trim());
   if (!match) {
@@ -86,7 +75,6 @@ function named({ tab }: ChatTarget): string {
   return `${tab.title} (${shortId(tab.id)})`;
 }
 
-/** How far off `at` is: "3m ago", "2d ago", or "in 4h". */
 function when(at: number, now: number): string {
   const ahead = at > now;
   const hours = Math.abs(now - at) / 3_600_000;
@@ -104,7 +92,6 @@ const TODO_MARKS: Readonly<Record<string, string>> = {
   in_progress: "[>]",
 };
 
-/** A side panel as chat panel prints it: what it shows, a part to a block, empty parts left out. */
 export function panelText(title: string, panel: ChatPanel, now: number): string {
   const blocks: string[] = [];
   const block = (head: string, lines: readonly string[]) => {
@@ -186,7 +173,6 @@ export function panelText(title: string, panel: ChatPanel, now: number): string 
   return blocks.length > 0 ? `${title}\n\n${blocks.join("\n\n")}` : `${title}: its panel is empty.`;
 }
 
-/** Going on after the usage limit, as chat panel says it; undefined for a state it does not know. */
 function limitResumeLine(
   resume: NonNullable<ChatPanel["limitResume"]>,
   now: number,
@@ -208,7 +194,6 @@ function limitResumeLine(
   }
 }
 
-/** The panel without the account its program is signed in with: not the agent's to read. */
 function withoutAccount(panel: ChatPanel): ChatPanel {
   if (!panel.session?.account) return panel;
   const { account: _, ...session } = panel.session;
@@ -319,7 +304,6 @@ const chatUnsend: CliCommand = {
   },
 };
 
-/** The text a command takes in its words, or from standard input for a lone "-". */
 function textOf(ctx: CliContext, words: readonly string[]): string {
   const fromStdin = words.length === 1 && words[0] === "-";
   return (fromStdin ? (ctx.invocation.stdin ?? "").replace(/\r?\n$/, "") : words.join(" ")).trim();
@@ -727,7 +711,6 @@ const chatCommandRun: CliCommand = {
       return setRemoteControl(ctx, target);
     }
     const text = `/${name}${args ? ` ${args}` : ""}`;
-    // Asked first: listing its commands starts a tab's program that is not running.
     await mayExecute(
       ctx,
       target.workspace,
@@ -736,7 +719,6 @@ const chatCommandRun: CliCommand = {
         detail: target.tab.title,
         body: text,
       },
-      // These commands can start a thread using profile defaults.
       lower === "fork" || lower === "new" || lower === "clear" ? {} : { target: target.tab },
     );
     const { commands } = await ctx.services.ui("chat.commands", target.ref, SEND_TIMEOUT_MS);
@@ -851,7 +833,6 @@ const chatHistory: CliCommand = {
   },
 };
 
-/** The past conversation an id or the start of one names. */
 async function pastSession(
   ctx: CliContext,
   workspace: WorkspaceMeta,

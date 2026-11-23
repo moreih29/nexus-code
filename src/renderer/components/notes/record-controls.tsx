@@ -1,8 +1,3 @@
-/**
- * The note's recording controls, in its header: "Record" while nothing is
- * recorded; while this note is, the time so far with Pause (or Resume) and
- * Stop. Another note's recording leaves the button off: one at a time.
- */
 import { Loader2, Mic, Pause, Square } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -29,7 +24,6 @@ const BUTTON =
 const ICON_BUTTON =
   "inline-flex size-7 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground";
 
-/** The time so far, ticking while it records. */
 function useElapsed(): number {
   const state = useRecorderStore();
   const [now, setNow] = useState(() => Date.now());
@@ -48,7 +42,6 @@ export function RecordControls({
 }: {
   workspaceId: string;
   noteId: string;
-  /** A recording started here: the transcript shows. */
   onStart: () => void;
 }) {
   const { t } = useTranslation("notes");

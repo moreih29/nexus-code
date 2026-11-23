@@ -1,7 +1,3 @@
-/**
- * Making a chat.peek answer: texts cut by code points, a turn's tools
- * counted, and the whole fitted in MAX_PEEK_BYTES.
- */
 import { describe, expect, test } from "bun:test";
 import {
   type ChatPeek,
@@ -19,7 +15,6 @@ import {
 
 const bytesOf = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
 const points = (text: string) => Array.from(text).length;
-/** No half of a character outside the BMP stands alone. */
 const whole = (text: string) =>
   !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text);
 
@@ -27,7 +22,6 @@ describe("clipHead and clipTail", () => {
   test("a text within its limit stays as it is", () => {
     expect(clipHead("hello", 5)).toBe("hello");
     expect(clipTail("hello", 5)).toBe("hello");
-    // Five emoji are ten UTF-16 units, five characters.
     expect(clipHead("😀".repeat(5), 5)).toBe("😀".repeat(5));
   });
 
@@ -78,7 +72,6 @@ describe("peekTools", () => {
     const counted = peekTools(["__proto__", "Bash"]);
     expect(Object.keys(counted.tools)).toEqual(["__proto__", "Bash"]);
     expect(JSON.stringify(counted.tools)).toBe('{"__proto__":1,"Bash":1}');
-    // A record's reader checks such an entry, then drops it (wireRecord).
     const turn = { reply: "", ...counted };
     const parsed = ChatPeekSchema.parse({ status: { running: false }, turns: [turn] });
     expect(parsed.turns[0].tools).toEqual({ Bash: 1 });
@@ -127,7 +120,6 @@ describe("fitPeek", () => {
     expect(bytesOf(fitted)).toBeLessThanOrEqual(MAX_PEEK_BYTES);
     expect(fitted.turns).toHaveLength(1);
     expect(fitted.more).toBe(true);
-    // One turn at its limits fits (9,000 bytes of text): nothing more is cut.
     expect(fitted.turns[0]).toEqual(peek.turns[2]);
     expect(ChatPeekSchema.safeParse(fitted).success).toBe(true);
   });
@@ -144,17 +136,14 @@ describe("fitPeek", () => {
       ],
       waiting: { kind: "permission", tool: "Bash" },
     };
-    // 4,000 emoji of 4 bytes each, and their escapes: over the budget.
     expect(bytesOf(peek)).toBeGreaterThan(MAX_PEEK_BYTES);
     const fitted = fitPeek(peek);
     const bytes = bytesOf(fitted);
     expect(bytes).toBeLessThanOrEqual(MAX_PEEK_BYTES);
-    // As long as fits: one more character would not.
     expect(bytes).toBeGreaterThan(MAX_PEEK_BYTES - 8);
     const [last] = fitted.turns;
     expect(last.reply.endsWith("…")).toBe(true);
     expect(points(last.reply)).toBeLessThan(MAX_PEEK_REPLY);
-    // The reply alone was enough: the rest stays.
     expect(last.user?.text).toBe(peek.turns[0].user?.text);
     expect(fitted.status.streaming).toBe(peek.status.streaming);
     expect(whole(last.reply)).toBe(true);

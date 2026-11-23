@@ -1,7 +1,3 @@
-/**
- * Status handlers — one-shot Git status snapshots for the Source Control panel.
- */
-
 import {
   DEFAULT_GIT_OPERATION_STATE,
   DEFAULT_REPO_CAPABILITIES,
@@ -15,10 +11,6 @@ import type { GitRegistry } from "../domain/registry";
 
 const c = ipcContract.git.call;
 
-/**
- * Builds the getStatus handler; non-repository workspaces return the empty
- * status shape so the renderer can render the initialize-repository state.
- */
 export function getStatusHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<GitStatus> {
@@ -30,10 +22,6 @@ export function getStatusHandler(
   };
 }
 
-/**
- * Builds the getChangeStats handler; a workspace not in a repository has no
- * changes.
- */
 export function getChangeStatsHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<GitChangeStats> {
@@ -45,9 +33,6 @@ export function getChangeStatsHandler(
   };
 }
 
-/**
- * Builds the empty status shape used for non-repository workspaces.
- */
 function createEmptyGitStatus(): GitStatus {
   return {
     merge: [],

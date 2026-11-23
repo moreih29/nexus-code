@@ -1,8 +1,3 @@
-/**
- * WorkspaceStorage keeps each workspace's Source Control panel state once
- * read, for autofetch reads it every second: a write and a close drop it,
- * so a read after either sees what is stored.
- */
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";

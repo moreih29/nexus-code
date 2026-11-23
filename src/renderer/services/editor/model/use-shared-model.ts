@@ -1,16 +1,3 @@
-/**
- * React binding for the framework-agnostic model cache.
- *
- * Each `EditorView` mounts this hook with its EditorInput; the hook
- * acquires a ref-counted shared TextModel through {@link ./model-cache}
- * and hands back a `SharedModelState` snapshot, re-rendering on every
- * phase / model change.
- *
- * Lives in its own file so the cache module stays framework-agnostic
- * (it's also driven by save-service / promote-policy etc., which don't
- * involve React).
- */
-
 import { useEffect, useState } from "react";
 import type { EditorInput } from "../types";
 import {
@@ -75,9 +62,6 @@ export function useSharedModel(input: EditorInput): SharedModelState {
         setState(nextState);
         unsubscribe = subscribeModel(sharedInput, () => {
           const snap = getModelSnapshot(sharedInput);
-          // Every reconcile notifies (one per fs/git event), usually with an
-          // unchanged snapshot. Keeping the previous object skips re-rendering
-          // the whole EditorView subtree — previews included — for nothing.
           if (snap) setState((prev) => (sameSnapshot(prev, snap) ? prev : snap));
         });
       })

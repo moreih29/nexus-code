@@ -1,31 +1,15 @@
-// What the composer completes as the user types: a command after a `/` at
-// the start of the message, a file after an `@`. Pure, for the composer and
-// its tests.
-
 import type { CommandInfo } from "./model";
 
 export interface Completion {
   kind: "command" | "file";
-  /** Where the token starts: its `/` or `@`. */
   start: number;
-  /** Where it ends: the caret. */
   end: number;
-  /** What is typed after the `/` or `@`. */
   query: string;
 }
 
 const COMMAND_RE = /^\/(\S*)$/;
-// An `@` opens the list unless the character before it could end the front
-// of an email address (`name@host`); a space, a letter of another script,
-// punctuation, or the start of the text all open it.
 const FILE_RE = /(^|[^A-Za-z0-9._%+-])@("[^"\n]*|[^\s@"]*)$/;
 
-/**
- * The token the caret is in that the composer completes, if any.
- *
- * A file token opens while the user edits it. A bare `@` can also open at
- * the end of a word, where it has no query yet.
- */
 export function completionAt(
   text: string,
   caret: number,
@@ -49,17 +33,11 @@ function fileTokenAt(before: string): Pick<Completion, "start" | "query"> | null
   return { start: before.length - token.length - 1, query: token.replace(/^"/, "") };
 }
 
-/** An `@` token the user is editing and where the edit left the caret. */
 export interface TypedToken {
   start: number;
   caret: number;
 }
 
-/**
- * Follows the mention the user is editing. Start when the user types `@` or
- * edits a query after one already there. Keep it while the edit stays between
- * that `@` and the caret, including changes made by an IME or a paste.
- */
 export function followTyped(
   prev: string,
   next: string,
@@ -81,14 +59,6 @@ export function followTyped(
   return { start: typed.start, caret };
 }
 
-/**
- * The session's commands that match what is typed: names (and aliases)
- * that start with it first, then those that contain it. The CLI's own
- * hidden ones (`__name`) are left out. The list is not cut: the menu
- * scrolls, and the commands the CLI lists after its many skills would
- * otherwise fall off it. Built-in commands (the CLI's and the app's) come
- * before skills within each of the two groups; each keeps the order it came in.
- */
 export function matchCommands(commands: CommandInfo[], query: string): CommandInfo[] {
   const q = query.toLowerCase();
   const visible = commands.filter((c) => !c.name.startsWith("__"));
@@ -105,12 +75,6 @@ export function matchCommands(commands: CommandInfo[], query: string): CommandIn
   return [...builtinFirst(starts), ...builtinFirst(contains)];
 }
 
-/**
- * Whether a message is one of the program's commands (`/compact`, a skill's),
- * by the list it gave: Claude Code holds one written during a turn till the
- * turn ends (2.1.325), where a message is read at the next tool's end. A
- * message with images, or a path at its start, is a message.
- */
 export function isCommandMessage(
   text: string,
   images: number,
@@ -124,16 +88,10 @@ export function isCommandMessage(
   );
 }
 
-/** A file as the CLI reads a mention of it: quoted when it has a space. */
 export function fileMention(path: string): string {
   return /\s/.test(path) ? `@"${path}"` : `@${path}`;
 }
 
-/**
- * The text with the token replaced by what was picked, and where the caret
- * goes. A folder is left open (`open` is its token), so its files can be
- * picked next.
- */
 export function applyCompletion(
   text: string,
   completion: Completion,
@@ -143,9 +101,6 @@ export function applyCompletion(
   if (picked.kind === "command") insert = `/${picked.name} `;
   else if (isFolder(picked.path) && !/\s/.test(picked.path)) insert = `@${picked.path}`;
   else insert = `${fileMention(picked.path)} `;
-  // The CLI reads a mention after a space: one goes in front of an `@`
-  // that follows other text, and one behind it (the one there, if any, is
-  // kept as that one).
   const lead =
     picked.kind === "file" && completion.start > 0 && !/\s/.test(text[completion.start - 1])
       ? " "
@@ -155,7 +110,6 @@ export function applyCompletion(
   return {
     text: text.slice(0, completion.start) + lead + insert + rest,
     caret: completion.start + lead.length + insert.length,
-    // A folder's token goes on, to be completed further.
     open: insert.endsWith(" ")
       ? null
       : {
@@ -165,7 +119,6 @@ export function applyCompletion(
   };
 }
 
-/** The CLI ends a folder's suggestion with a path separator. */
 export function isFolder(path: string): boolean {
   return path.endsWith("/") || path.endsWith("\\");
 }
@@ -173,10 +126,6 @@ export function isFolder(path: string): boolean {
 const MENTIONS_RE = /^(?:@(?:"[^"\n]+"|[^\s"]+)\s*)+$/;
 const MENTION_RE = /@(?:"([^"\n]+)"|([^\s"]+))/g;
 
-/**
- * A sent message's attached files: the mentions the composer put in its
- * last paragraph, apart from the text before them.
- */
 export function splitAttachments(text: string): { text: string; files: string[] } {
   const cut = text.lastIndexOf("\n\n");
   const last = cut >= 0 ? text.slice(cut + 2) : text;

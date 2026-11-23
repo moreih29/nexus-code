@@ -1,8 +1,3 @@
-// The title bar's switch between the two views of the window: the workspaces,
-// one at a time with their files, terminals and tabs, and the agent view,
-// the agents of every workspace side by side. It sits right of the brand in
-// both, clear of the workspace name the title bar centers.
-
 import { Bot, Folder } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -16,7 +11,6 @@ import { useAgentViewStore } from "../../state/stores/agent-view";
 export function ViewToggle() {
   const { t } = useTranslation();
   const mode = useAgentViewStore((s) => s.mode);
-  // How many agents wait on the user, told from the workspaces too.
   const waiting = useInbox().attention;
   const shortcut = shortcutFor(COMMANDS.workbenchToggleAgentView);
   const option = (value: AgentViewMode, label: string, icon: React.ReactNode, count = 0) => {

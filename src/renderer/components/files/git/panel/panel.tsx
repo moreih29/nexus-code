@@ -1,14 +1,3 @@
-/**
- * GitPanel is the top-level Source Control surface for one workspace.
- *
- * Thin container — orchestrates store selectors, derived state, and
- * inter-dialog callbacks, then delegates rendering to:
- *   GitHeader       — title + toolbar
- *   GitBannerStack  — inline banner row (push-guard / error / etc.)
- *   GitPanelBody    — segment toggle + commit input + file list
- *   GitDialogHost   — all modal dialogs
- */
-
 import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/shallow";
@@ -59,22 +48,12 @@ export interface GitPanelOpenDiffInput {
   workspaceId: string;
   groupKey: GitExpandedGroupKey;
   entry: GitStatusEntry;
-  /**
-   * When `false`, opens the diff as a permanent tab (double-click on the SCM
-   * row). When omitted or `true`, the receiving side uses preview-slot reuse
-   * — single-click peek semantics, matching the file tree.
-   */
   preview?: boolean;
 }
 
 interface GitPanelProps {
   workspaceId: string;
   workspaceRootPath?: string;
-  /**
-   * Integration seam for opening a diff view from the panel. When a parent
-   * provides a handler the row's "open changes" action delegates to it,
-   * keeping row rendering and git operations decoupled from the diff host.
-   */
   onOpenDiff?: (input: GitPanelOpenDiffInput) => void;
 }
 
@@ -86,12 +65,8 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.location.kind !== "local",
   );
 
-  // ---------------------------------------------------------------------------
-  // Store — grouped selectors (session lifecycle / load)
-  // ---------------------------------------------------------------------------
   const { loadInitial } = useGitStore(useShallow((s) => ({ loadInitial: s.loadInitial })));
 
-  // Operations needed directly in the panel (not delegated to the actions hook)
   const directOps = useGitStore(
     useShallow((s) => ({
       refresh: s.refresh,
@@ -122,7 +97,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     })),
   );
 
-  // Panel-UI store actions
   const panelUiOps = useGitStore(
     useShallow((s) => ({
       setCommitDraft: s.setCommitDraft,
@@ -139,7 +113,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     })),
   );
 
-  // View options store
   const viewOptActions = usePanelViewOptionsStore(
     useShallow((s) => ({
       setViewMode: s.setViewMode,
@@ -147,9 +120,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     })),
   );
 
-  // ---------------------------------------------------------------------------
-  // Side-effects
-  // ---------------------------------------------------------------------------
   useEffect(() => {
     void loadInitial(workspaceId);
   }, [loadInitial, workspaceId]);
@@ -158,9 +128,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     viewOptActions.loadViewOptions("git", workspaceId);
   }, [viewOptActions.loadViewOptions, workspaceId]);
 
-  // ---------------------------------------------------------------------------
-  // Derived state
-  // ---------------------------------------------------------------------------
   const viewOptions = useViewOptions("git", workspaceId);
 
   const groups = useMemo(() => buildGitGroups(session?.status), [session?.status]);
@@ -182,8 +149,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   );
   const hasChanges = allChangedPaths.length > 0;
   const hasStagedChanges = (session?.status?.staged.length ?? 0) > 0;
-  // Any directory expanded across any group? Drives the single header toggle:
-  // when true the toggle collapses everything, otherwise it expands everything.
   const expandedTreeNodes = session?.expandedTreeNodes;
   const hasAnyExpanded = useMemo(() => {
     if (!expandedTreeNodes) return false;
@@ -201,9 +166,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const isRefreshing = session?.inFlightOp?.kind === "refresh" || Boolean(session?.statusFetching);
   const isLoading = !session || session.repoInfo.kind === "detecting" || session.statusFetching;
   const showSkeleton = useLoaderDelay(isLoading ? "running" : "done");
-  // Whether the message has words, not the message: typing renders the
-  // commit input alone (it reads the draft), and the panel only when the
-  // message turns empty or not. What is committed is read when it is.
   const hasDraft = useCommitDraftStore((s) => (s.drafts.get(workspaceId) ?? "").trim().length > 0);
   const operationState = session?.status?.operationState ?? { kind: "none" as const };
   const activeOperation = operationState.kind === "none" ? null : operationState;
@@ -235,9 +197,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const currentBranchName = branchInfo?.current ?? null;
   const hasRemote = capabilities.remotes.length > 0;
 
-  // ---------------------------------------------------------------------------
-  // Dialog + picker state
-  // ---------------------------------------------------------------------------
   const dialogs = useGitDialogs();
   const { setAddRemoteOpen, setEmptyCommitRequest, contextBanner, setContextBanner } = dialogs;
 
@@ -254,9 +213,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     setStashPickerOpen,
   } = pickers;
 
-  // ---------------------------------------------------------------------------
-  // Actions hook
-  // ---------------------------------------------------------------------------
   const actions = useGitPanelActions({
     workspaceId,
     dialogs,
@@ -296,9 +252,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     onCreateBranch,
   } = actions;
 
-  // ---------------------------------------------------------------------------
-  // Entry actions (per-row context-menu handlers)
-  // ---------------------------------------------------------------------------
   const entryActions = useMemo(
     () =>
       createEntryActions({
@@ -320,9 +273,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     addPathsToGitignore,
   } = entryActions;
 
-  // ---------------------------------------------------------------------------
-  // Picker sources
-  // ---------------------------------------------------------------------------
   const mergeTargetSource = useMemo(
     () =>
       createMergeTargetPickerSource({
@@ -405,9 +355,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     [t],
   );
 
-  // ---------------------------------------------------------------------------
-  // Error / push-guard banners
-  // ---------------------------------------------------------------------------
   const errorAction = buildErrorAction(session?.lastError, {
     workspaceId,
     cwd: repoPath ?? workspaceRootPath,
@@ -415,9 +362,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
       void directOps.refresh(workspaceId);
     },
   });
-  // A failure with nothing to act on here goes to a toast instead (see
-  // initGitErrorToasts); the banner keeps the ones the panel recovers from.
-  // A refresh that still finds no Git adds nothing to the git-missing state.
   const panelError =
     session?.lastError &&
     gitErrorPlacement(session.lastError) !== "toast" &&
@@ -458,9 +402,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     true,
   );
 
-  // ---------------------------------------------------------------------------
-  // Hotkey
-  // ---------------------------------------------------------------------------
   const handlePanelKeyDown = useGitOpHotkey({
     disabled: isBusy || hasActiveOperation || !commitActionEnabled,
     onCommit: () => {
@@ -468,10 +409,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     },
   });
 
-  // ---------------------------------------------------------------------------
-  // File list actions — one object for every group and row, which keeps its
-  // identity, so the memoized rows render only when their files change.
-  // ---------------------------------------------------------------------------
   const fileActions = useStableHandlers<Omit<GitGroupActions, "openMenu">>({
     toggleGroup: (key) =>
       panelUiOps.setExpandedGroup(workspaceId, key, !(session?.expandedGroups[key] ?? false)),
@@ -500,9 +437,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     stashGroup: requestStashGroup,
   });
 
-  // ---------------------------------------------------------------------------
-  // Render helpers
-  // ---------------------------------------------------------------------------
   const headerDisabled = isBusy || isLoading;
   const isRepo = session?.repoInfo.kind === "repo";
   const { viewMode } = viewOptions;
@@ -516,9 +450,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     canPull: hasRemote,
   };
 
-  // ---------------------------------------------------------------------------
-  // JSX
-  // ---------------------------------------------------------------------------
   return (
     <section
       className="flex h-full min-h-0 min-w-0 flex-col"
@@ -541,13 +472,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           else panelUiOps.expandAllTrees(workspaceId);
         }}
         onRefresh={() => {
-          // Refresh button = "give me the freshest state". When the repo
-          // has remotes we fetch first (main-side fetchAll handler runs a
-          // refreshStatus afterward and broadcasts statusChanged, so the
-          // renderer's branch ↑↓ updates without another call). Without
-          // remotes there is nothing to fetch — fall back to the local
-          // re-read so the button still produces a visible refresh on
-          // detached/local-only repos.
           if (capabilities.remotes.length > 0) {
             void directOps.fetchAll(workspaceId);
           } else {

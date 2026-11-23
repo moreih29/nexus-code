@@ -19,7 +19,6 @@ func processTable() (map[int]processEntry, error) {
 		if err != nil {
 			continue
 		}
-		// A process can exit between the listing and this read.
 		data, err := os.ReadFile("/proc/" + dir.Name() + "/stat")
 		if err != nil {
 			continue

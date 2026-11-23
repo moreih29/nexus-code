@@ -1,17 +1,3 @@
-/**
- * Popover — a panel opened from a button: what the status bar's ports,
- * problems, encoding and language-server segments and the title bar's
- * update button show. One look (the floating panel) and one behaviour,
- * from Radix: placed against its button and kept in the window, closed by
- * Escape or a press outside, the keyboard back on the button after.
- *
- * Opening puts the keyboard on the panel itself, not its first control,
- * so an Enter meant for the terminal does not press a button in it; Tab
- * goes on into it. Closing puts it back on the button only when nothing
- * else took it: an action that opened a file keeps the keyboard there.
- * A menu of commands is a DropdownMenu instead.
- */
-
 import { Popover as RadixPopover } from "radix-ui";
 import { type ReactNode, type SyntheticEvent, useRef } from "react";
 import { cn } from "@/utils/cn";
@@ -46,22 +32,13 @@ export function Popover({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** The panel's accessible name. */
   label: string;
-  /** The button that opens it; Radix toggles `open` on its click. */
   trigger: ReactNode;
   children: ReactNode;
   side?: "top" | "bottom";
   align?: "start" | "center" | "end";
-  /** Width and padding over the default. */
   className?: string;
   testId?: string;
-  /**
-   * Keeps presses and keys in the panel from reaching what holds its
-   * button. React bubbles them out of the portal along the component tree,
-   * so a panel opened from inside a list row would also click the row or
-   * move the list.
-   */
   containEvents?: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null);

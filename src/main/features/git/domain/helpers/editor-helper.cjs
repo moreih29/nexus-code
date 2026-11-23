@@ -1,20 +1,11 @@
 #!/usr/bin/env node
-/**
- * Git editor helper.
- *
- * Git invokes this script with the temporary commit-message file path. The
- * script asks the main process to open the renderer editor dialog and exits
- * zero only when the renderer saves the message.
- */
 const net = require("node:net");
 
-/** Writes an error message and exits with Git's editor failure code. */
 function fail(message) {
   if (message) process.stderr.write(`${message}\n`);
   process.exit(1);
 }
 
-/** Reads required connection values and Git's temporary file argument. */
 function readEditorRequest() {
   const socketPath = process.env.NEXUS_HELPERS_SOCKET;
   const token = process.env.NEXUS_HELPERS_TOKEN;
@@ -28,7 +19,6 @@ function readEditorRequest() {
   return { socketPath, token, filePath };
 }
 
-/** Sends one JSON-line request to the helper manager and resolves its reply. */
 function sendHelperRequest(socketPath, payload) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(socketPath);
@@ -59,7 +49,6 @@ function sendHelperRequest(socketPath, payload) {
   });
 }
 
-/** Runs the editor request and maps cancellation to exit code 1. */
 async function main() {
   const { socketPath, token, filePath } = readEditorRequest();
   const response = await sendHelperRequest(socketPath, {

@@ -1,9 +1,3 @@
-/**
- * CommitMessageDialog renders Git's editor hook as a modal textarea.
- *
- * The helper manager writes the saved content back to Git's temporary message
- * file; cancel maps to a non-zero editor exit so Git aborts the commit.
- */
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { GitEditorPrompt } from "../../../../../shared/git/types";
@@ -27,20 +21,12 @@ interface CommitMessageDialogContentProps {
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
 }
 
-/**
- * Checks whether a commit message has non-comment text Git can commit.
- */
 export function hasCommitMessageBody(content: string): boolean {
   return content
     .split(/\r?\n/)
     .some((line) => !line.trimStart().startsWith("#") && line.trim().length > 0);
 }
 
-/**
- * Renders the editor form body without creating a portal, keeping static tests
- * focused on the commit-message controls. Its header is the dialog's Radix
- * Title, so it renders inside a Dialog root.
- */
 export function CommitMessageDialogContent({
   prompt,
   content,
@@ -84,10 +70,6 @@ export function CommitMessageDialogContent({
   );
 }
 
-/**
- * Mounts the commit-message form in a Radix dialog. Escape and outside-click
- * dismissal both call `onCancel` through Radix's open-state callback.
- */
 export function CommitMessageDialog({
   prompt,
   busy = false,

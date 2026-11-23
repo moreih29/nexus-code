@@ -17,12 +17,10 @@ export interface SessionsSnapshotReaders {
   readUnread(): NonNullable<Snapshot["result"]["unread"]>;
 }
 
-/** A chat's state as the remote sessions' list uses it, its texts on one line. */
 function sessionChat(info: ChatInfo): CliSessionChat {
   return {
     state: info.state,
     ...(info.since !== undefined ? { since: info.since } : {}),
-    // Kept when it is only white space: the list tells it as an empty line.
     ...(info.message ? { message: oneLine(info.message) } : {}),
     ...(info.profile ? { profile: info.profile } : {}),
     ...(info.cwd ? { cwd: info.cwd } : {}),
@@ -46,7 +44,6 @@ export function snapshotTab(tab: Omit<CliSessionTab, "chat">, chat?: ChatInfo): 
   };
 }
 
-/** The remote list is unbounded. Limit each IPC reply and continue in the same order. */
 export const MAX_SESSION_SNAPSHOT_TABS = 1_000;
 
 export function sessionsSnapshot(
@@ -70,9 +67,7 @@ export function sessionsSnapshot(
         if (tab.type === "claude" || tab.type === "codex") {
           try {
             return snapshotTab(tab, readers.peekChat(workspaceId, tab.id));
-          } catch {
-            // Main leaves that chat out and marks the workspace incomplete.
-          }
+          } catch {}
         }
         return snapshotTab(tab);
       });
@@ -89,8 +84,6 @@ export function sessionsSnapshot(
   let unread: Snapshot["result"]["unread"];
   try {
     if (!cursor) unread = readers.readUnread();
-  } catch {
-    // Main keeps the last map it read for a while.
-  }
+  } catch {}
   return { revision, workspaces, ...(unread ? { unread } : {}), ...(next ? { next } : {}) };
 }

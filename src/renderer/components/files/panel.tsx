@@ -27,7 +27,6 @@ import { GitPanel, type GitPanelOpenDiffInput } from "./git";
 import { FilesPanelModeBar } from "./mode-bar";
 import { SearchPanel } from "./search/panel";
 
-// Memo: kept while hidden, it would render again with each of the app's.
 export const FilesPanel = memo(function FilesPanel({ peerPanel }: { peerPanel?: ReactNode }) {
   const { t } = useTranslation("files");
   const filesPanelWidth = useUIStore((s) => s.filesPanelWidth);
@@ -37,8 +36,6 @@ export const FilesPanel = memo(function FilesPanel({ peerPanel }: { peerPanel?: 
   const activeWorkspace = activeWorkspaceId
     ? (workspaces.find((w) => w.id === activeWorkspaceId) ?? null)
     : null;
-  // Per-workspace mode: subscribe by workspace id so switching workspaces
-  // pulls a fresh value instead of carrying the previous one over.
   const filesPanelMode = useUIStore(
     (s) =>
       (activeWorkspace ? s.filesPanelModes.get(activeWorkspace.id) : undefined) ??
@@ -48,12 +45,9 @@ export const FilesPanel = memo(function FilesPanel({ peerPanel }: { peerPanel?: 
     activeWorkspace ? selectIsWorkspaceOnline(s, activeWorkspace.id) : true,
   );
 
-  // For disconnected SSH and WSL workspaces, suppress all remote-reading panels so
-  // no IPC call reaches getFs / getAgentChannel before the user connects.
   const showOffline =
     activeWorkspace !== null && activeWorkspace.location.kind !== "local" && !workspaceOnline;
 
-  // Whether a reconnect is in progress — used to disable the Reconnect button and change its label.
   const reconnect = useIpcAction<void>();
   const isReconnecting = reconnect.state.status === "loading";
   const connectionError = reconnect.state.status === "error" ? reconnect.state.error : null;
@@ -62,8 +56,6 @@ export const FilesPanel = memo(function FilesPanel({ peerPanel }: { peerPanel?: 
       surfaceError(connectionError, { surface: "toast" });
     }
   }, [connectionError]);
-  // Bumped by each click on the Search button so the panel focuses its input,
-  // whether the click mounts it or it is already showing.
   const [searchFocusRequest, setSearchFocusRequest] = useState(0);
 
   const handleReconnect = (): void => {
@@ -90,7 +82,6 @@ export const FilesPanel = memo(function FilesPanel({ peerPanel }: { peerPanel?: 
             />
             <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
               {filesPanelMode === "notes" ? (
-                // ErrorBoundary: a notes panel crash leaves the other views working.
                 <ErrorBoundary logSource="notes-panel">
                   <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
                     <NotesPanel key={activeWorkspace.id} workspace={activeWorkspace} />
@@ -108,8 +99,6 @@ export const FilesPanel = memo(function FilesPanel({ peerPanel }: { peerPanel?: 
                   disabled={isReconnecting}
                 />
               ) : filesPanelMode === "tree" ? (
-                // ErrorBoundary: a crash in the file tree must not collapse
-                // the entire sidebar or prevent switching to other modes.
                 <ErrorBoundary logSource="file-tree-panel">
                   <div className="flex-1 min-h-0 overflow-hidden">
                     <FileTree
@@ -119,12 +108,8 @@ export const FilesPanel = memo(function FilesPanel({ peerPanel }: { peerPanel?: 
                   </div>
                 </ErrorBoundary>
               ) : filesPanelMode === "search" ? (
-                // ErrorBoundary: search panel crash is isolated — git and file
-                // tree panels remain functional.
                 <ErrorBoundary logSource="search-panel">
                   <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-                    {/* Keyed so the query input and options belong to one
-                        workspace; they are restored from its search session. */}
                     <SearchPanel
                       key={activeWorkspace.id}
                       workspaceId={activeWorkspace.id}
@@ -133,8 +118,6 @@ export const FilesPanel = memo(function FilesPanel({ peerPanel }: { peerPanel?: 
                   </div>
                 </ErrorBoundary>
               ) : filesPanelMode === "git" ? (
-                // ErrorBoundary: git panel crash is isolated — the editor and
-                // terminal panels in the workspace remain unaffected.
                 <ErrorBoundary logSource="git-panel">
                   <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
                     <GitPanel
@@ -145,10 +128,8 @@ export const FilesPanel = memo(function FilesPanel({ peerPanel }: { peerPanel?: 
                   </div>
                 </ErrorBoundary>
               ) : filesPanelMode === "agents" ? (
-                // ErrorBoundary: an agent list crash leaves the other views working.
                 <ErrorBoundary logSource="agent-list-panel">
                   <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-                    {/* Keyed so a search and an open card belong to one workspace. */}
                     <AgentsPanel key={activeWorkspace.id} workspace={activeWorkspace} />
                   </div>
                 </ErrorBoundary>
@@ -188,9 +169,6 @@ function openGitDiffFromRow({
   const isUnborn =
     useGitStore.getState().sessions.get(workspaceId)?.status?.branch?.isUnborn ?? false;
   const refs = refsForGitGroup(groupKey, isUnborn);
-  // When preview is unspecified, defer to openDiffTab's default (preview=true) — the same
-  // temporary-slot reuse flow as a file tree single-click. A double-click promotes it to
-  // permanent with `preview=false`.
   openDiffTab(workspaceId, entry.relPath, refs.leftRef, refs.rightRef, entry.oldRelPath, {
     ...(preview === false ? { preview: false } : {}),
   });

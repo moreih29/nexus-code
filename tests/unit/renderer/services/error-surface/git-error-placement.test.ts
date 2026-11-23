@@ -1,6 +1,3 @@
-/**
- * summarizeGitError — the line a git failure leads with.
- */
 import { describe, expect, it } from "bun:test";
 import { summarizeGitError } from "../../../../../src/renderer/services/error-surface/git-error-placement";
 import type { GitStoreError } from "../../../../../src/renderer/state/stores/git/types";

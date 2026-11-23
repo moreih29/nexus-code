@@ -11,15 +11,11 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// AssignJob creates a job and assigns pid to it. The caller owns the returned
-// handle. A job with killOnClose ends its remaining processes when released.
 func AssignJob(pid int, killOnClose bool) (windows.Handle, error) {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return 0, err
 	}
-	// Neither policy permits breakaway. Git Bash would start its programs
-	// outside the job if it were allowed to.
 	if killOnClose {
 		var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
 		info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
@@ -42,8 +38,6 @@ func AssignJob(pid int, killOnClose bool) (windows.Handle, error) {
 	return job, nil
 }
 
-// ResumeSuspended opens the primary thread, whose handle os/exec closes.
-// A newly created suspended process has not had a chance to create another.
 func ResumeSuspended(pid uint32) error {
 	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPTHREAD, 0)
 	if err != nil {
@@ -67,9 +61,6 @@ func ResumeSuspended(pid uint32) error {
 	return os.ErrProcessDone
 }
 
-// TerminateJobAndWait stops the job and waits on the process handles captured
-// before termination. A process handle is signaled after its resources are
-// released, including the working directory.
 func TerminateJobAndWait(job windows.Handle, timeout time.Duration) error {
 	pids, listErr := jobProcessIDs(job)
 	var handles []windows.Handle
@@ -77,7 +68,7 @@ func TerminateJobAndWait(job windows.Handle, timeout time.Duration) error {
 	for _, pid := range pids {
 		process, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
 		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
-			continue // The process exited before OpenProcess.
+			continue
 		}
 		if err != nil {
 			openErr = errors.Join(openErr, err)
@@ -108,8 +99,6 @@ func TerminateJobAndWait(job windows.Handle, timeout time.Duration) error {
 	return errors.Join(listErr, openErr)
 }
 
-// jobProcessIDs decodes JOBOBJECT_BASIC_PROCESS_ID_LIST. Its two DWORD
-// counts precede the pointer-sized array of process IDs.
 func jobProcessIDs(job windows.Handle) ([]uintptr, error) {
 	const wordSize = int(unsafe.Sizeof(uintptr(0)))
 	const headerWords = 8 / wordSize

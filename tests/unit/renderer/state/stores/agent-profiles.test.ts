@@ -1,9 +1,3 @@
-/**
- * The default profile's folder as Settings and a chat tab show it: the one
- * the agent uses on this machine, which CLAUDE_CONFIG_DIR or CODEX_HOME may
- * move from ~/.claude or ~/.codex.
- */
-
 import { afterEach, describe, expect, test } from "bun:test";
 import { defaultFolderLabel } from "../../../../../src/renderer/state/stores/agent-profiles";
 import { setPlatformForTests } from "../../../../../src/renderer/utils/platform";

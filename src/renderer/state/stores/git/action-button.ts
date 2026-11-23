@@ -1,9 +1,3 @@
-/**
- * Pure Source Control action-button selector.
- *
- * The ordering mirrors the task-plan state machine: first match wins, so more
- * specific commit/dirty states are evaluated before clean remote-sync states.
- */
 import i18next from "i18next";
 import type { BranchInfo, RepoCapabilities, RepoInfo } from "../../../../shared/git/types";
 
@@ -34,7 +28,6 @@ export interface GitActionButtonInput {
   readonly capabilities: RepoCapabilities;
   readonly branch: BranchInfo | null;
   readonly dirty: GitDirtyCounts;
-  /** The commit message has more than white space. */
   readonly hasDraft: boolean;
 }
 
@@ -47,10 +40,8 @@ export interface GitActionButtonState {
   readonly hint?: string;
 }
 
-/** Looks up a translation key; the panel passes its `t` so labels follow language changes. */
 export type GitActionButtonTranslate = (key: string) => string;
 
-/** Selects the primary Source Control action using the 11-state plan order. */
 export function selectGitActionButton(
   input: GitActionButtonInput,
   translate: GitActionButtonTranslate = (key) => i18next.t(key),
@@ -127,7 +118,6 @@ export function selectGitActionButton(
   });
 }
 
-/** Builds a disabled-commit hint without making callers duplicate copy. */
 function commitReadinessHint(
   label: (key: string) => string,
   hasDraft: boolean,
@@ -138,7 +128,6 @@ function commitReadinessHint(
   return label("hintStage");
 }
 
-/** Normalizes optional state fields for one selected action. */
 function action(
   kind: GitActionButtonKind,
   label: string,

@@ -1,8 +1,3 @@
-// Agent list — an agent a Claude session runs (a subagent or a `claude -p`
-// run): its state as a glyph and words, its name, and what it is doing.
-// The glyphs are the sessions' own (session-status.tsx), so a state reads
-// the same for a session and its agents.
-
 import i18next from "i18next";
 import {
   CircleAlert,
@@ -59,14 +54,12 @@ export function agentStateLabel(state: AgentRunState): string {
   return i18next.t(`common:agentList.agents.state.${state}`);
 }
 
-/** What a run started inside a session is called: `claude -p`, or `codex exec`. */
 export function printLabel(program: AgentRun["program"]): string {
   return program === "codex"
     ? i18next.t("common:agentList.agents.print_codex")
     : i18next.t("common:agentList.agents.print");
 }
 
-/** What the agent was asked to do, else its type. */
 export function agentLabel(agent: AgentRun): string {
   return (
     agentDescription(agent) ??
@@ -77,10 +70,6 @@ export function agentLabel(agent: AgentRun): string {
   );
 }
 
-/**
- * What the agent's detail is headed: what it was asked to do, else its
- * type or its program, as its request shows under it.
- */
 export function agentTitle(agent: AgentRun): string {
   return (
     agent.description ??
@@ -91,11 +80,6 @@ export function agentTitle(agent: AgentRun): string {
   );
 }
 
-/**
- * What the agent is, for a line under its name: its type and whether it runs
- * in the background; for a `claude -p` or `codex exec` run, its model, where
- * it is served when not by its program's own API, and the program.
- */
 export function agentKindParts(agent: AgentRun): string[] {
   if (agent.kind === "print") {
     return [agent.model, agent.endpoint, printLabel(agent.program)].filter(
@@ -108,7 +92,6 @@ export function agentKindParts(agent: AgentRun): string[] {
   ].filter((part): part is string => part !== undefined);
 }
 
-/** How long `ms` is, to the second under ten minutes: "8s", "1m 52s", "14m", "2h 5m". */
 export function elapsedLabel(ms: number): string {
   const seconds = Math.max(0, Math.floor(ms / 1_000));
   if (seconds < 60) return i18next.t("common:agentList.elapsed.seconds", { count: seconds });
@@ -126,7 +109,6 @@ export function elapsedLabel(ms: number): string {
   });
 }
 
-/** How long the agent has run, or ran. */
 export function AgentDuration({ agent, className }: { agent: AgentRun; className?: string }) {
   const live = useDurationLabel(agent.end === undefined ? agent.start : undefined);
   const label = agent.end === undefined ? live : elapsedLabel(agent.end - agent.start);

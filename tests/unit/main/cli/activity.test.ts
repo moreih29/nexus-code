@@ -1,8 +1,3 @@
-/**
- * ActivityTracker — what a terminal running Codex or another CLI agent is
- * known to be doing: when it last printed, and the last notification it
- * raised.
- */
 import { expect, test } from "bun:test";
 import { ActivityTracker } from "../../../../src/main/features/cli/activity";
 
@@ -32,7 +27,6 @@ test("output, the last notification and the terminal's end", () => {
     lastNotice: { body: "Agent turn complete", at: 1_000 },
   });
 
-  // Output shown again after a reconnect is not new activity.
   now = 9_000;
   source.emit("data", { workspaceId: "w", tabId: "t", chunk: "old", replay: true });
   expect(tracker.get("w", "t")?.lastOutputAt).toBe(5_000);
@@ -51,25 +45,21 @@ test("what a terminal echoes of the keys typed in is no sign of work", () => {
     source.emit("data", { workspaceId: "w", tabId: "t", chunk });
   };
 
-  // Typed before the terminal printed anything: nothing is known of it yet.
   typed("h", 10);
   expect(tracker.get("w", "t")).toBeNull();
   source.emit("data", { workspaceId: "w", tabId: "t", chunk: "\x1b]9;Agent turn complete\x07" });
   expect(tracker.get("w", "t")?.lastOutputAt).toBe(1_010);
 
-  // The prompt typed into Codex, a key at a time: it is not at work.
   now = 5_000;
   typed("› f", 20);
   typed("› fi", 300);
   expect(tracker.get("w", "t")?.lastOutputAt).toBe(1_010);
 
-  // What it prints once the prompt went in and it works on past the echo.
   typed("\r", 100);
   now += 400;
   source.emit("data", { workspaceId: "w", tabId: "t", chunk: "Working (1s)" });
   expect(tracker.get("w", "t")?.lastOutputAt).toBe(now);
 
-  // A notification in an echo still counts; the output time stays.
   const before = now;
   typed("\x1b]9;Agent turn complete\x07", 10);
   expect(tracker.get("w", "t")).toEqual({
@@ -88,32 +78,25 @@ test("what a program draws again as its terminal changes size is no sign of work
     source.emit("data", { workspaceId: "w", tabId: "t", chunk });
   };
 
-  // A terminal's first output tells what runs there, drawn for its size or not.
   resized("› codex", 10);
   expect(tracker.get("w", "t")?.lastOutputAt).toBe(1_010);
 
-  // Closing the pane beside it lets it grow, and Codex draws its idle screen again.
   now = 9_000;
   resized("\x1b[2J› codex", 50);
   expect(tracker.get("w", "t")?.lastOutputAt).toBe(1_010);
 
-  // What it prints past the redraw is work.
   now += 500;
   source.emit("data", { workspaceId: "w", tabId: "t", chunk: "Working (1s)" });
   expect(tracker.get("w", "t")?.lastOutputAt).toBe(now);
 
-  // At work while a window's edge is dragged for longer than the busy window:
-  // a resize each 100 ms, what it prints still counts, and it stays busy.
   for (let i = 0; i < 30; i++) resized(`Working (${i}s)`, 100);
   expect(tracker.get("w", "t")?.lastOutputAt).toBe(now);
 
-  // Quiet again, it draws its idle screen for each resize of a long drag.
   const quietSince = now;
   now += 3_000;
   for (let i = 0; i < 30; i++) resized("\x1b[2J› codex", 100);
   expect(tracker.get("w", "t")?.lastOutputAt).toBe(quietSince);
 
-  // A notification in a redraw still counts; the output time stays.
   resized("\x1b]9;Agent turn complete\x07", 10);
   expect(tracker.get("w", "t")).toEqual({
     lastOutputAt: quietSince,
@@ -137,7 +120,6 @@ test("looks at the foreground program as output starts, and again once it has se
     10,
   );
 
-  // The task's shell starts, and Codex right after it.
   source.emit("data", { workspaceId: "w", tabId: "t", chunk: "$ " });
   await Promise.resolve();
   expect(tracker.get("w", "t")?.program).toBe("bash");
@@ -149,7 +131,6 @@ test("looks at the foreground program as output starts, and again once it has se
   expect(tracker.get("w", "t")?.program).toBe("codex");
   expect(tracker.snapshot()[0]).toMatchObject({ tabId: "t", program: "codex" });
 
-  // Output after a quiet spell may be a program started or ended since.
   now = 9_000;
   source.emit("data", { workspaceId: "w", tabId: "t", chunk: "$ " });
   expect(looked).toHaveLength(3);
@@ -159,7 +140,6 @@ test("looks at the foreground program as output starts, and again once it has se
   expect(tracker.get("w", "t")).toBeNull();
 });
 
-/** A tracker whose foreground lookup answers from `programs`, quiet after 20 ms of its clock. */
 function looking(programs: Array<string | null>) {
   const source = host();
   const clock = { now: 1_000 };
@@ -190,7 +170,6 @@ test("an agent that printed until it exited: once quiet, the shell is seen and i
   print(1_500, "› 5+6");
   await elapse();
   expect(tracker.get("w", "t")?.program).toBe("codex");
-  // Its turn's notification, then it exits within the same run of output.
   print(2_000, "\x1b]9;Agent turn complete\x07");
   print(2_500, "$ ");
   expect(looked).toHaveLength(2);

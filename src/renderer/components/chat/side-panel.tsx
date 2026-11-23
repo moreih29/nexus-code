@@ -1,10 +1,3 @@
-// A Claude tab's side panel, its sections always in the same order: where
-// it runs, how full its context is, the plan's usage, its goal (while it has
-// one), the to-do list Claude keeps, its tasks and its agents (what runs now
-// and what ended), and what it made; folded at the end, the files it changed
-// and the MCP servers. A section with nothing in it is its title and a 0. What only a request
-// tells is asked for when the panel opens and after each turn.
-
 import {
   Check,
   Copy,
@@ -74,32 +67,19 @@ const log = createLogger("chat-side-panel");
 interface SidePanelProps {
   conversationTabId?: string;
   controller: ChatController;
-  /**
-   * The state beside a streaming reply (beside-stream): its `model.streaming`,
-   * `model.turn` and `model.lastSeq` may be behind, and are not read here.
-   */
   state: ChatTabState;
   workspaceId: string;
   cwd: string;
   rootPath: string;
-  /**
-   * The session's subagents, those of its history too, then the `claude -p`
-   * runs it started (sessionAgentsOf).
-   */
   agents: readonly AgentRow[];
-  /** Stops a running run, by its agent id. */
   onStopRun: (agentId: string) => void;
   onShowAgent: (toolUseId: string) => void;
-  /** Brings a call into view in the conversation, by its id. */
   onShowCall?: (toolUseId: string) => void;
-  /** Sends a call the turn waits on to the background, by its id, as its row's button does. */
   onBackground?: (toolUseId: string) => void;
-  /** Opens a new Claude tab from the whole session. */
   onForkSession: () => void;
   className?: string;
 }
 
-/** Memoized: a chunk of a streaming reply changes nothing it shows. */
 export const SidePanel = memo(function SidePanel({
   conversationTabId,
   controller,
@@ -127,12 +107,10 @@ export const SidePanel = memo(function SidePanel({
   );
   const { tasks, permissions, running: turnRunning } = model;
   const jobs = useMemo(() => jobsOf({ tasks }), [tasks]);
-  // A call waiting on the user's answer cannot go to the background yet, as in the conversation.
   const waiting = useMemo(
     () => new Set(permissions.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
     [permissions],
   );
-  // The calls the turn waits on are the program's, never its history's.
   const activity = useMemo(
     () =>
       activityOf({
@@ -149,7 +127,6 @@ export const SidePanel = memo(function SidePanel({
   const changed = useMemo(() => changedFilesOf(tools), [tools]);
 
   const links = useChatLinks();
-  // A version without stop_task keeps the button, saying which version has it.
   const stopNote = controller.supports("stop_task")
     ? undefined
     : t("chat.panel.needs_version", { version: firstVersionOf("stop_task") });
@@ -171,8 +148,6 @@ export const SidePanel = memo(function SidePanel({
     },
     [controller, onStopRun, stopFailed],
   );
-  // The same while the calls change (one streaming in): a job opened reads
-  // them as its row draws, and the rows, which may be many, do not draw for it.
   const toolsNow = useRef(tools);
   toolsNow.current = tools;
   const jobDetail = useCallback(
@@ -248,10 +223,6 @@ export const SidePanel = memo(function SidePanel({
   );
 });
 
-/**
- * The to-do list Claude keeps, as a checklist: done, the one it works on,
- * and what waits; counted as done of all.
- */
 export function TodosSection({
   todos,
 }: {
@@ -266,7 +237,6 @@ export function TodosSection({
       empty={todos.length === 0}
     >
       {todos.map((todo, i) => (
-        // A to-do another computer tells has no id: its list is replaced whole.
         <Row key={todo.id ?? i}>
           {todo.status === "completed" ? (
             <SquareCheck
@@ -306,18 +276,12 @@ function stop(controller: ChatController, taskId: string, failed: string): void 
   });
 }
 
-/** A path from the session's folder, when it is under it. */
 export function shortPath(path: string, cwd: string): string {
   const base = slashWindowsPath(cwd).replace(/\/$/, "");
   const file = slashWindowsPath(path);
   return file.startsWith(`${base}/`) ? file.slice(base.length + 1) : path;
 }
 
-/**
- * What the chat made, newest first: the pages it published to claude.ai,
- * the files it named once they are found to be files, and the addresses it
- * gave. Another computer's chat finds its files there (ChatFilesContext).
- */
 export function ResultsSection({
   items,
   tools,
@@ -332,8 +296,6 @@ export function ResultsSection({
   rootPath: string;
 }) {
   const { t } = useTranslation();
-  // A file is listed once it is found to be one: from the chat's folder, or
-  // from where the agent's shell went (link-places).
   const named = useMemo(() => resultsOf(items, tools, cwd), [items, tools, cwd]);
   const filePlaces = useMemo(() => {
     const index = linkPlaceIndex(tools, cwd);
@@ -346,14 +308,12 @@ export function ResultsSection({
     return places;
   }, [named, tools, cwd]);
   const lookedUp = useMemo(() => [...new Set([...filePlaces.values()].flat())], [filePlaces]);
-  // A file named before the agent made it is found once a tool of its is done.
   const toolsDone = useMemo(
     () =>
       Object.values(tools).filter((t) => t.status !== "running" && t.status !== "streaming").length,
     [tools],
   );
   const found = useFoundFiles(workspaceId, rootPath, lookedUp, toolsDone);
-  // Each file's target by the first of its places found.
   const filePaths = useMemo(() => {
     const paths = new Map<string, string>();
     for (const [target, places] of filePlaces) {
@@ -371,12 +331,9 @@ export function ResultsSection({
       ),
     [named, filePaths, cwd],
   );
-  // The pages it published to claude.ai, newest first, as what it made; a
-  // reply's link to one is that page.
   const artifacts = useMemo(() => artifactsOf(tools, cwd).reverse(), [tools, cwd]);
   const made = useMemo(() => {
     const pages = new Set(artifacts.flatMap((page) => (page.url ? [page.url] : [])));
-    // Newest first, as the pages: the first few show.
     return results
       .filter((result) => !(result.kind === "url" && pages.has(result.target)))
       .reverse();
@@ -416,7 +373,6 @@ export function ResultsSection({
   );
 }
 
-/** The part of the tab a bare command asked to see, when it is this one: its ask's seq. */
 function revealSeq(state: ChatTabState, part: RevealPart): number | undefined {
   return state.reveal?.part === part ? state.reveal.seq : undefined;
 }
@@ -669,15 +625,9 @@ export function Meter({ percent }: { percent: number }) {
   );
 }
 
-/** How often an open job's output is read again while it runs. */
 const OUTPUT_POLL_MS = 1000;
-/** How many times an output that cannot be read yet is tried: the tab grants it a moment after it names it. */
 const OUTPUT_TRIES = 5;
 
-/**
- * The end of a job's output file, read again each second while `live`.
- * Undefined until first read; null when it cannot be read.
- */
 export function useJobOutput(
   workspaceId: string,
   rootPath: string,
@@ -698,7 +648,6 @@ export function useJobOutput(
       if (gone) return;
       tries = got ? 0 : tries + 1;
       if (got || tries >= OUTPUT_TRIES) setOutput((prev) => (sameOutput(prev, got) ? prev : got));
-      // A job at rest is read once it reads.
       if (live || (!got && tries < OUTPUT_TRIES)) timer = setTimeout(read, OUTPUT_POLL_MS);
     };
     void read();
@@ -720,10 +669,6 @@ function sameOutput(a: JobOutput | null | undefined, b: JobOutput | null): boole
   );
 }
 
-/**
- * The end of a job's output, following its end as it comes unless scrolled
- * up from it; or why there is none to show.
- */
 export function JobOutputView({ output }: { output: JobOutput | null | undefined }) {
   const { t } = useTranslation();
   const outRef = useRef<HTMLPreElement>(null);
@@ -871,7 +816,6 @@ function ResultRow({
   onOpen,
 }: {
   result: ResultEntry;
-  /** The file it names, where it was found; null for an address. */
   path: string | null;
   cwd: string;
   workspaceId: string;
@@ -879,7 +823,6 @@ function ResultRow({
 }) {
   const { t } = useTranslation();
   const label = path ? shortPath(path, cwd) : result.target;
-  // An image shows itself while the pointer is on its row.
   const [hover, setHover] = useState<DOMRect | null>(null);
   const image = path !== null && fileKind(path) === "image";
   return (
@@ -916,10 +859,8 @@ function ResultRow({
   );
 }
 
-/** Largest side of an image's hover thumbnail, in pixels. */
 const THUMB_PX = 192;
 
-/** An image beside the panel, by the row the pointer is on. */
 function Thumbnail({
   workspaceId,
   path,
@@ -930,7 +871,6 @@ function Thumbnail({
   near: DOMRect;
 }) {
   const file = useWorkspaceFile(workspaceId, path);
-  // The viewers read only the workspace's files so far.
   if (file.kind !== "inside") return null;
   const top = Math.max(
     8,
@@ -959,7 +899,6 @@ export function ChangedRow({
 }: {
   file: ChangedFile;
   cwd: string;
-  /** Opens its change; left out where it cannot be opened here (another computer's file). */
   onOpen?: () => void;
 }) {
   const Tag = onOpen ? "button" : "div";
@@ -992,12 +931,10 @@ export function ChangedRow({
 
 function UsageSection({ controller, state }: { controller: ChatController; state: ChatTabState }) {
   const { t, i18n } = useTranslation();
-  // The profile's, one for all its tabs; the tab's own until it has one.
   const plan = usePlanUsageStore((s) => s.byKey[controller.usageKey()]?.claude);
   const limits = usageLimitsOf(plan ?? state.model.usage);
   const supported = controller.supports("get_usage");
   const cost = state.model.costUsd;
-  // Open from the start, it asks again as the program comes up: asked before, it is not answered.
   const ready = state.phase === "ready" && state.model.process === "running";
   return (
     <Section
@@ -1053,7 +990,6 @@ function UsageSection({ controller, state }: { controller: ChatController; state
   );
 }
 
-/** Dollars, with the cents' fractions a small session's cost is in. */
 export function formatCost(usd: number, locale: string): string {
   return new Intl.NumberFormat(locale, {
     style: "currency",
@@ -1064,7 +1000,6 @@ export function formatCost(usd: number, locale: string): string {
   }).format(usd);
 }
 
-/** The chat's goal, while it has one, as the bar over the composer tells it. */
 function GoalSection({ state }: { state: ChatTabState }) {
   const { t } = useTranslation();
   const { model } = state;
@@ -1088,8 +1023,6 @@ function McpSection({ controller, state }: { controller: ChatController; state: 
   const signIn = state.mcpSignIn;
   const ready = state.phase === "ready" && state.model.process === "running";
   const fail = (err: Error) => showToast({ kind: "error", message: err.message });
-  // Asked as the program comes up, open or not: with none, it is its title and a 0 and does
-  // not open, as a section with nothing; folded, it counts them.
   useEffect(() => {
     if (ready) controller.refreshPanel(["mcp"]);
   }, [ready, controller]);
@@ -1162,7 +1095,6 @@ function McpSection({ controller, state }: { controller: ChatController; state: 
   );
 }
 
-/** A small button in a row's words: signing in to a server, opening its page again. */
 export function TextButton({
   onClick,
   children,

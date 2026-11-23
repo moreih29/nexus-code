@@ -1,11 +1,3 @@
-// In-app workspace removal confirmation modal — L3 surface (design.md §2).
-//
-// Imperative API: callers invoke `showRemoveWorkspaceConfirm(name)` and await
-// the boolean result. The component is rendered once at App level via
-// RemoveWorkspaceDialogRoot and renders the active prompt.
-//
-// Replaces window.confirm in app.tsx:handleRemoveWorkspace.
-
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -43,12 +35,6 @@ function resolveActive(confirmed: boolean): void {
   bus.notify();
 }
 
-/**
- * Imperative entry point. Resolves to `true` (confirmed remove) or `false`
- * (cancelled). Esc / backdrop click resolves to `false`. `unsavedCount` is
- * the number of the workspace's buffers whose edits removal will discard;
- * `taskCount` the number of its tasks that close with it.
- */
 export function showRemoveWorkspaceConfirm(
   name: string,
   unsavedCount = 0,
@@ -57,10 +43,6 @@ export function showRemoveWorkspaceConfirm(
   return pushPrompt(name, unsavedCount, taskCount);
 }
 
-/**
- * Mount once at App level inside GlobalRoots. Reads the head of the prompt
- * queue and shows the confirmation dialog.
- */
 export function RemoveWorkspaceDialogRoot(): React.JSX.Element {
   const { t } = useTranslation();
   const [active, setActive] = useState<PendingPrompt | null>(getActive());
@@ -74,9 +56,6 @@ export function RemoveWorkspaceDialogRoot(): React.JSX.Element {
     if (active !== null) mountAtRef.current = performance.now();
   }, [active]);
 
-  // Same guard as ConfirmDialog: a keyboard-synthesized click (`detail`
-  // 0) right after the dialog opens is the residue of the key that opened
-  // it, not an answer.
   const answer =
     (confirmed: boolean) =>
     (e: React.MouseEvent): void => {
@@ -117,10 +96,6 @@ export function RemoveWorkspaceDialogRoot(): React.JSX.Element {
         }
       />
       <div className="mt-5 flex justify-end gap-2">
-        {/* Focus starts on Cancel: the dialog often opens from a key press
-            (Enter on the sidebar's remove button), and key repeat or a
-            second Enter must not remove the workspace, kill its terminals
-            and discard its unsaved edits. */}
         <Button variant="ghost" size="sm" onClick={answer(false)} autoFocus>
           {t("action.cancel")}
         </Button>

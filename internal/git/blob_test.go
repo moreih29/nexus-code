@@ -12,7 +12,6 @@ import (
 
 func TestBlobDrainsTrailingNewline(t *testing.T) {
 	dir := t.TempDir()
-	// Keep the terminator out of the parser's buffer until it emits the blob.
 	writeFakeGit(t, dir, `#!/bin/sh
 set -e
 cat >/dev/null

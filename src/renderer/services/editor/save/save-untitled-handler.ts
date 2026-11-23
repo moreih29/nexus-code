@@ -1,19 +1,3 @@
-// First-save handler for untitled buffers.
-//
-// saveUntitledModel orchestrates the full "Untitled → saved file" flow:
-//   1. Show the native save-file dialog.
-//   2. User cancels → silent return (untitled tab preserved).
-//   3. User picks a path → write a new file or confirm a collision in the
-//      target workspace before replacing it.
-//   4. On write success → acquireModel with the new path, replace the tab,
-//      then releaseModel on the old untitled entry (and, once the tab's
-//      editor holds the new model, on the new one).
-//   5. On write error → toast(error), untitled tab preserved.
-//
-// Kept separate from service.ts so the latter's module initialisation
-// does not pull in tabs/workspaces stores (which need IPC), avoiding
-// test-pollution in save-service.test.ts.
-
 import i18next from "i18next";
 import { toSlashPath } from "../../../../shared/fs/drive-path";
 import { showConfirmDialog } from "../../../components/ui/confirm-dialog";
@@ -36,27 +20,8 @@ import { writeConfirmedSaveTarget } from "./confirmed-target-write";
 
 export type SaveUntitledOutcome = "saved" | "cancelled" | "failed";
 
-/**
- * How long the handler keeps its own reference to the saved file's model
- * after swapping the tab, so the model survives until the tab's editor
- * acquires it. Releasing at once would dispose it and reload it from disk.
- */
 const SAVED_MODEL_HANDOFF_MS = 5_000;
 
-/**
- * Save an untitled buffer to a user-chosen path via the native save dialog.
- *
- * Returns a 3-way outcome:
- *   "cancelled" — user dismissed the native dialog (tab preserved).
- *   "failed"    — write/model error; toast already shown (tab preserved).
- *   "saved"     — file written; tab converted in-place; untitled model released.
- *
- * Only paths inside the workspace root are accepted: the agent writes
- * relative to the root and has no write path for external files.
- *
- * The tab id is preserved — only the tab type, props, and title change.
- * The untitled model is released only after the replacement succeeds.
- */
 export async function saveUntitledModel(
   workspaceId: string,
   tabId: string,
@@ -67,7 +32,7 @@ export async function saveUntitledModel(
   const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
   if (!workspace) return "failed";
 
-  const tabTitle = tab.title; // e.g. "Untitled-1"
+  const tabTitle = tab.title;
   const defaultPath = `${workspace.rootPath}/${tabTitle}`;
 
   const dialogResult = unwrapIpcResult(
@@ -75,13 +40,11 @@ export async function saveUntitledModel(
   );
 
   if (dialogResult.canceled || !dialogResult.filePath) {
-    // User cancelled — silent, untitled tab is preserved.
     return "cancelled";
   }
 
   const chosenPath = toSlashPath(dialogResult.filePath);
 
-  // Resolve the untitled model to grab its current content.
   const untitledInput: EditorInput = {
     workspaceId,
     filePath: tabTitle,
@@ -101,9 +64,6 @@ export async function saveUntitledModel(
   const savedVersion = sourceModel.getVersionId();
   const content = sourceModel.getValue();
 
-  // Determine workspace-relative path for writeFile. The agent joins every
-  // relPath under the workspace root, so a path outside it would be written
-  // to <root>/<absolute path> instead of where the user chose.
   const rootWithSep = workspace.rootPath.endsWith("/")
     ? workspace.rootPath
     : `${workspace.rootPath}/`;
@@ -124,7 +84,6 @@ export async function saveUntitledModel(
     filePath: chosenPath,
     origin: "workspace",
   };
-  // The target may already be open in a tab.
   const replacingOpenFile = getModelSnapshot(newInput) !== null;
 
   // biome-ignore lint/suspicious/noImplicitAnyLet: writeFileResult type narrows from unwrapIpcResult inside the try block; an explicit annotation would duplicate the IPC contract.
@@ -172,7 +131,6 @@ export async function saveUntitledModel(
 
   const { mtime, size } = writeFileResult;
 
-  // Acquire the new model. On failure keep the untitled tab open.
   try {
     await acquireModel(newInput);
   } catch (error) {
@@ -183,11 +141,8 @@ export async function saveUntitledModel(
     return "failed";
   }
 
-  // An open tab of the replaced file still holds its old content; load what
-  // was just written, as replacing the file in the dialog asked for.
   const targetReady = !replacingOpenFile || (await reloadModelFromDisk(newInput));
 
-  // Set savePoint on the new model's dirty tracker so it starts clean.
   const newResolved = getResolvedModel(newInput);
   if (newResolved && !replacingOpenFile) {
     markDirtyTrackerSaved({
@@ -207,8 +162,6 @@ export async function saveUntitledModel(
     return "cancelled";
   }
 
-  // The write saved a snapshot. Carry edits made after that snapshot onto the
-  // saved model as an undoable edit, leaving its disk baseline untouched.
   if (sourceModel.getVersionId() !== savedVersion) {
     if (!targetReady || !newResolved) {
       releaseModel(newInput);
@@ -230,19 +183,12 @@ export async function saveUntitledModel(
     }
   }
 
-  // Replace the untitled tab with the editor tab (tab id preserved).
   useTabsStore
     .getState()
     .replaceUntitledWithEditor(workspaceId, tabId, newInput, basename(chosenPath));
 
-  // Release the untitled model — must happen after tab replacement succeeds.
   releaseModel(untitledInput);
 
-  // Hand the new model over to the tab's editor, then drop the reference
-  // taken above; holding it forever kept the model alive after the tab
-  // closed, so reopening the file showed edits discarded with "Don't
-  // Save". Skip it if the entry was disposed and recreated meanwhile (a
-  // workspace close), since this reference died with the old entry.
   const heldModel = newResolved?.model ?? null;
   setTimeout(() => {
     if ((getResolvedModel(newInput)?.model ?? null) === heldModel) {

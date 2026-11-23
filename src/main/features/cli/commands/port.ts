@@ -1,7 +1,3 @@
-/**
- * nexus port list: the ports a workspace's dev servers listen on; nexus port
- * forward and unforward: an SSH workspace's ports on this machine.
- */
 import { type ListeningPort, portUrl } from "../../../../shared/pty/ports";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { ForwardError } from "../../pty/forwards";
@@ -12,7 +8,6 @@ import { type CliCommand, output } from "../registry";
 import { WORKSPACE_FLAG } from "./flags";
 import { workspaceTabs } from "./terminal";
 
-/** The ports the programs in a workspace's terminals listen on, as they are now. */
 export async function workspacePorts(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -24,15 +19,10 @@ export async function workspacePorts(
   }
 }
 
-/** ":5173 (node), :8787 (workerd)" */
 export function describePorts(ports: readonly ListeningPort[]): string {
   return ports.map((p) => `:${p.port} (${p.process})`).join(", ");
 }
 
-/**
- * Where each port opens on this machine: itself for a local workspace, its
- * forward's local end for an SSH one (none while it is not forwarded).
- */
 function localUrls(ctx: CliContext, workspace: WorkspaceMeta): (port: number) => string | null {
   if (workspace.location.kind !== "ssh") return portUrl;
   const forwards = ctx.services.forwards.list(workspace.id);
@@ -88,10 +78,6 @@ const portList: CliCommand = {
   },
 };
 
-/**
- * The SSH workspace's forwards of ports its terminals' programs do not
- * listen on, as a server started some other way: "\nAlso forwarded: …".
- */
 function forwardedOnly(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -108,7 +94,6 @@ function forwardedOnly(
   return others.length > 0 ? `\nAlso forwarded: ${others.join(", ")}.` : "";
 }
 
-/** A port number as given on the command line. */
 function portArg(text: string): number {
   const port = Number(text.replace(/^:/, ""));
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
@@ -117,7 +102,6 @@ function portArg(text: string): number {
   return port;
 }
 
-/** The SSH workspace a forward is asked of; a local one needs none. */
 function sshWorkspace(ctx: CliContext, flag: unknown): { workspace: WorkspaceMeta; host: string } {
   const workspace = resolveWorkspace(ctx, flag as string | undefined);
   if (workspace.location.kind !== "ssh") {
@@ -126,7 +110,6 @@ function sshWorkspace(ctx: CliContext, flag: unknown): { workspace: WorkspaceMet
   return { workspace, host: workspace.location.host };
 }
 
-/** A ForwardError in the CLI's words. */
 export function forwardFailed(error: unknown): never {
   if (error instanceof ForwardError) throw new CliError(error.message);
   throw error;

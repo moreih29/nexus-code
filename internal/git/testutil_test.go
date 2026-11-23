@@ -14,12 +14,6 @@ import (
 
 const gitFixtureEnv = "NEXUS_TEST_GIT_FIXTURE"
 
-// TestMain lets the test binary double as Git or the askpass helper on
-// Windows and Unix. Interactive calls use os.Executable() as GIT_ASKPASS.
-//
-// It also keeps the developer's global and system git config, such as their
-// own pull.rebase, out of every git command the tests run. Setting it here
-// rather than with t.Setenv lets those tests run in parallel.
 func TestMain(m *testing.M) {
 	switch os.Getenv(gitFixtureEnv) {
 	case "wait-delay":
@@ -34,9 +28,6 @@ func TestMain(m *testing.M) {
 	}
 	os.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	// No automatic maintenance either: git runs it in the background after
-	// a commit, and its lock files come and go in a template's .git while
-	// fromTemplate copies it.
 	os.Setenv("GIT_CONFIG_COUNT", "1")
 	os.Setenv("GIT_CONFIG_KEY_0", "maintenance.auto")
 	os.Setenv("GIT_CONFIG_VALUE_0", "false")
@@ -47,7 +38,6 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// setFakeGitExecutable exposes the test binary as Git on Windows and Unix.
 func setFakeGitExecutable(t *testing.T, fixture string) {
 	t.Helper()
 	exe, err := os.Executable()
@@ -62,7 +52,6 @@ func setFakeGitExecutable(t *testing.T, fixture string) {
 	}
 	path := filepath.Join(dir, name)
 	if err := os.Link(exe, path); err != nil {
-		// The test executable and TempDir can be on different filesystems.
 		data, err := os.ReadFile(exe)
 		if err != nil {
 			t.Fatal(err)
@@ -75,8 +64,6 @@ func setFakeGitExecutable(t *testing.T, fixture string) {
 	t.Setenv(gitFixtureEnv, fixture)
 }
 
-// runGit runs git in dir and returns its stdout. A non-zero exit fails the
-// test with git's stderr.
 func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -117,23 +104,16 @@ func writeDir(t *testing.T, dir string) {
 	}
 }
 
-// fixtureDir returns tests/fixtures/git/<name>. Go runs tests in the
-// package directory.
 func fixtureDir(name string) string {
 	return filepath.Join("..", "..", "tests", "fixtures", "git", name)
 }
 
-// templates holds the repositories below, each built once per test run on
-// first use. Tests get a copy, which costs far less than the git commands
-// that build one, on Windows above all.
 var templates = struct {
 	mu   sync.Mutex
 	root string
 	dirs map[string]string
 }{dirs: map[string]string{}}
 
-// fromTemplate returns a fresh copy of the template called name, which build
-// fills in on first use.
 func fromTemplate(t *testing.T, name string, build func(t *testing.T, dir string)) string {
 	t.Helper()
 	src := func() string {
@@ -187,8 +167,6 @@ func fromTemplate(t *testing.T, name string, build func(t *testing.T, dir string
 	return dst
 }
 
-// seedRepo makes dir a repository on main with README.md ("base\n")
-// committed.
 func seedRepo(t *testing.T, dir string) {
 	t.Helper()
 	runGit(t, dir, "init", "-b", "main")
@@ -197,20 +175,16 @@ func seedRepo(t *testing.T, dir string) {
 	writeFile(t, filepath.Join(dir, "README.md"), "base\n")
 	runGit(t, dir, "add", "README.md")
 	runGit(t, dir, "commit", "-m", "initial")
-	// Sample hooks are a dozen files every copy would carry.
 	if err := os.RemoveAll(filepath.Join(dir, ".git", "hooks")); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// newRepo returns a repository on main with README.md ("base\n") committed.
 func newRepo(t *testing.T) string {
 	t.Helper()
 	return fromTemplate(t, "repo", seedRepo)
 }
 
-// newConflictRepo returns newRepo checked out on main, with a feature branch
-// whose conflict.txt conflicts with main's when merged.
 func newConflictRepo(t *testing.T) string {
 	t.Helper()
 	return fromTemplate(t, "conflict", func(t *testing.T, dir string) {
@@ -226,9 +200,6 @@ func newConflictRepo(t *testing.T) string {
 	})
 }
 
-// newRemoteAndClient returns a bare remote and a clone of it that tracks its
-// main branch, both at newRepo's commit. With behind, the remote has one more
-// commit (adding remote.txt) that the client has not fetched.
 func newRemoteAndClient(t *testing.T, behind bool) (remote, client string) {
 	t.Helper()
 	name := "remote-synced"
@@ -262,12 +233,10 @@ func newRemoteAndClient(t *testing.T, behind bool) (remote, client string) {
 	})
 	remote = filepath.Join(dir, "remote")
 	client = filepath.Join(dir, "client")
-	// The copy still points at the template's remote.
 	runGit(t, client, "remote", "set-url", "origin", remote)
 	return remote, client
 }
 
-// mustJSON marshals a request fixture for the Git service tests.
 func mustJSON(t *testing.T, value any) json.RawMessage {
 	t.Helper()
 	raw, err := json.Marshal(value)

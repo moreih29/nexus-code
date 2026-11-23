@@ -1,15 +1,8 @@
-// src/renderer/state/stores/mounted-workspaces.ts — Workspaces whose panel is mounted.
-//
-// Every workspace activated in this session, and the tasks nexus starts
-// behind the user's view. A mounted panel stays (hidden while inactive), so
-// its terminals keep running; an unmounted one has none started.
-
 import { create } from "zustand";
 
 interface MountedWorkspacesState {
   ids: ReadonlySet<string>;
   mount(id: string): void;
-  /** Drops the workspaces that are gone. */
   keepOnly(alive: ReadonlySet<string>): void;
 }
 

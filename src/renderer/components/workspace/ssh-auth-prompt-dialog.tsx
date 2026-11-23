@@ -1,9 +1,3 @@
-/**
- * SshAuthPromptDialog presents remote SSH password and host-key prompts.
- *
- * The visual treatment intentionally follows the existing askpass modal: dark,
- * restrained chrome with the same background, border, and focus tokens.
- */
 import { ArrowBigUp } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,7 +11,6 @@ interface SshAuthPromptDialogProps {
   readonly prompt: SshAuthPrompt | null;
   readonly pendingMessage?: string | null;
   readonly busy?: boolean;
-  /** When true, shows reattach-context copy ("재연결을 위해 비밀번호를 다시 입력하세요"). */
   readonly isReattach?: boolean;
   readonly onCancel: () => void;
   readonly onSubmitPassword: (value: string) => void;
@@ -29,7 +22,6 @@ interface SshAuthPromptDialogContentProps {
   readonly passwordValue: string;
   readonly pendingMessage?: string | null;
   readonly busy?: boolean;
-  /** When true, shows reattach-context title. */
   readonly isReattach?: boolean;
   readonly onPasswordChange: (value: string) => void;
   readonly onCancel: () => void;
@@ -37,22 +29,16 @@ interface SshAuthPromptDialogContentProps {
   readonly onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
 }
 
-/** Copies a host-key fingerprint through the renderer clipboard helper. */
 export function copySshHostKeyFingerprint(fingerprint: string): void {
   copyText(fingerprint);
 }
 
-/** Returns the masked input type for password/passphrase prompts. */
 export function sshAuthPromptInputType(
   field: Extract<SshAuthPrompt, { kind: "password" }>["field"],
 ): "password" | "text" {
   return field === "password" || field === "passphrase" ? "password" : "text";
 }
 
-/**
- * Renders the dialog body separately so scenario tests can inspect markup.
- * Its header is the dialog's Radix Title, so it renders inside a Dialog root.
- */
 export function SshAuthPromptDialogContent({
   prompt,
   passwordValue,
@@ -76,12 +62,8 @@ export function SshAuthPromptDialogContent({
         : t("ssh.title_password")
     : t("ssh.title_host_key");
 
-  // Track Caps Lock state for the password input. onKeyUp is sufficient since
-  // getModifierState reflects the post-key state after each event.
   const [capsLockOn, setCapsLockOn] = useState(false);
 
-  // onKeyUp fires after each keystroke; getModifierState reflects the current
-  // Caps Lock state at that moment (post-key), making it sufficient for detection.
   function handleKeyUp(event: React.KeyboardEvent<HTMLInputElement>): void {
     setCapsLockOn(event.getModifierState("CapsLock"));
   }
@@ -116,7 +98,6 @@ export function SshAuthPromptDialogContent({
               className="w-full rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
               disabled={busy}
             />
-            {/* Caps Lock warning — icon + text for redundant encoding (not colour alone) */}
             {capsLockOn ? (
               <p
                 role="status"
@@ -149,7 +130,6 @@ export function SshAuthPromptDialogContent({
   );
 }
 
-/** Mounts SSH auth content in a Radix dialog with Escape cancel semantics. */
 export function SshAuthPromptDialog({
   prompt,
   pendingMessage = null,
@@ -201,7 +181,6 @@ export function SshAuthPromptDialog({
   );
 }
 
-/** Renders host-key details and the first tabbable Copy action. */
 function HostKeyPromptBody({
   prompt,
   busy,
@@ -243,7 +222,6 @@ function HostKeyPromptBody({
   );
 }
 
-/** Formats the remote identity line shown under the dialog title. */
 function formatHostLine(prompt: SshAuthPrompt): string {
   const userPrefix = prompt.username ? `${prompt.username}@` : "";
   const portSuffix = prompt.port ? `:${prompt.port}` : "";

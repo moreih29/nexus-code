@@ -1,13 +1,3 @@
-// A terminal of another device as this one watches it (terminal.watch):
-// its text when the watch begins, with its colors and styles as SGR escapes
-// (`ansi`; a device that keeps them back sends plain text) and its cursor
-// (where that device tells it), kept up with each terminal.update. A
-// missing update (a rev skipped), the device leaving and coming back (seen
-// to go or not: its new connection dropped the watch), or a watch that
-// fails starts the watch again; a slow read now and then tells
-// whether the terminal is still there. A device that does not serve the
-// watch (an older version) is read again and again instead.
-
 import { useEffect, useRef, useState } from "react";
 import type { TerminalCaret } from "../../../../packages/remote-protocol/src";
 import { createLogger } from "../../../shared/log/renderer";
@@ -26,7 +16,6 @@ export interface TerminalRef {
   tabId: string;
 }
 
-/** Gives each live connection its own input queue and closes it at the room event. */
 export function watchPeerTerminalTyping(
   target: TerminalRef,
   onTyping: (typing: TerminalTyping | null) => void,
@@ -59,8 +48,6 @@ export function watchPeerTerminalTyping(
     if (discarded) onFailure(new Error("Remote terminal connection changed with input waiting"));
   };
 
-  // Invalidate queued sends synchronously with the event. React may still show
-  // the previous input box while the connection change is being rendered.
   const off = ipcListen("remote", "roomChanged", (room) => {
     if (!live) return;
     heardRoom = true;
@@ -83,13 +70,11 @@ export function watchPeerTerminalTyping(
   };
 }
 
-/** A terminal's text, and its cursor where its device tells it and it shows. */
 export interface PeerScreen {
   text: string;
   caret?: TerminalCaret;
 }
 
-/** The screen from a read, a watch's start or an update: the cursor as it says, none if not. */
 function screenOf(text: string, caret: TerminalCaret | undefined): PeerScreen {
   return caret ? { text, caret } : { text };
 }
@@ -102,10 +87,8 @@ export function usePeerTerminal(
   const { deviceId, workspaceId, tabId } = ref;
   const room = useRemoteRoom();
   const online = room?.status === "online" && room.peers.some((p) => p.id === deviceId && p.online);
-  // Back in the room with a new connection, seen to go or not: the watch there was dropped.
   const rejoins = room?.peers.find((p) => p.id === deviceId)?.rejoins ?? 0;
   const [read, setRead] = useState<PeerRead<PeerScreen>>({ status: "loading" });
-  // Bumped to start the watch again.
   const [round, setRound] = useState(0);
   const watch = useRef<{ id: string; rev: number } | null>(null);
 
@@ -129,7 +112,6 @@ export function usePeerTerminal(
       );
       return false;
     };
-    // An older device: its text read now and every PEER_READ_MS.
     const readAgain = () => {
       void ipcCallResult("remote", "peerTerminal", { ...target, lines, ansi: true }).then(
         (result) => {
@@ -175,7 +157,6 @@ export function usePeerTerminal(
           return;
         }
         if (failed(result)) return;
-        // Not served there (an older version): read instead. Anything else: watched again soon.
         if (result.kind === "unsupported") readAgain();
         else retry = setTimeout(again, REWATCH_MS);
       },

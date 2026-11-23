@@ -10,8 +10,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// Tag mirrors src/shared/types/git.ts TagSchema.
-// Message and TaggerDate use pointers so they marshal to JSON null when absent.
 type Tag struct {
 	Name       string  `json:"name"`
 	SHA        string  `json:"sha"`
@@ -20,7 +18,6 @@ type Tag struct {
 	TaggerDate *int64  `json:"taggerDate"`
 }
 
-// RemoteTag mirrors src/shared/types/git.ts RemoteTagSchema.
 type RemoteTag struct {
 	Remote string `json:"remote"`
 	Name   string `json:"name"`
@@ -28,19 +25,16 @@ type RemoteTag struct {
 	Scope  string `json:"scope"`
 }
 
-// TagListParams carries optional cwd for tag list.
 type TagListParams struct {
 	Cwd string `json:"cwd,omitempty"`
 }
 
-// TagListRemoteParams carries cwd and remote name for remote tag listing.
 type TagListRemoteParams struct {
 	Cwd    string `json:"cwd,omitempty"`
 	Remote string `json:"remote"`
 	RunID  string `json:"runId,omitempty"`
 }
 
-// TagCreateParams carries tag creation options.
 type TagCreateParams struct {
 	Cwd     string `json:"cwd,omitempty"`
 	Name    string `json:"name"`
@@ -48,13 +42,11 @@ type TagCreateParams struct {
 	Message string `json:"message,omitempty"`
 }
 
-// TagDeleteParams carries cwd and tag name for local tag deletion.
 type TagDeleteParams struct {
 	Cwd  string `json:"cwd,omitempty"`
 	Name string `json:"name"`
 }
 
-// TagDeleteRemoteParams carries cwd, remote, and tag name for remote tag deletion.
 type TagDeleteRemoteParams struct {
 	Cwd    string `json:"cwd,omitempty"`
 	Remote string `json:"remote"`
@@ -62,7 +54,6 @@ type TagDeleteRemoteParams struct {
 	RunID  string `json:"runId,omitempty"`
 }
 
-// TagPushParams carries optional cwd and optional remote for tag push.
 type TagPushParams struct {
 	Cwd    string `json:"cwd,omitempty"`
 	Remote string `json:"remote,omitempty"`
@@ -75,7 +66,6 @@ const (
 	tagFormat    = "%(refname:short)\x1f%(objectname)\x1f%(*objectname)\x1f%(objecttype)\x1f%(taggerdate:unix)\x1f%(contents:subject)\x1e"
 )
 
-// TagList executes for-each-ref and returns parsed Tag records.
 func (s *Service) TagList(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p TagListParams
 	if len(raw) > 0 {
@@ -107,8 +97,6 @@ func (s *Service) TagList(ctx context.Context, raw json.RawMessage) (any, error)
 	return tags, nil
 }
 
-// TagListRemote executes ls-remote --tags --refs via the interactive (askpass)
-// path and returns RemoteTag records.
 func (s *Service) TagListRemote(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p TagListRemoteParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -148,8 +136,6 @@ func (s *Service) TagListRemote(ctx context.Context, raw json.RawMessage) (any, 
 	return tags, nil
 }
 
-// TagCreate creates a lightweight or annotated tag. It preflights the target ref
-// so bad refs surface as ref-not-found rather than a version-dependent message.
 func (s *Service) TagCreate(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p TagCreateParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -164,7 +150,6 @@ func (s *Service) TagCreate(ctx context.Context, raw json.RawMessage) (any, erro
 		return nil, proto.ProtocolError("git.tag.create cwd must not contain NUL")
 	}
 
-	// Preflight: verify target ref exists and surface as ref-not-found if not.
 	if err := s.assertTagTargetExists(ctx, p.Cwd, targetRef); err != nil {
 		return nil, err
 	}
@@ -201,7 +186,6 @@ func (s *Service) TagCreate(ctx context.Context, raw json.RawMessage) (any, erro
 	return nil, nil
 }
 
-// TagDelete deletes one local tag.
 func (s *Service) TagDelete(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p TagDeleteParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -240,7 +224,6 @@ func (s *Service) TagDelete(ctx context.Context, raw json.RawMessage) (any, erro
 	return nil, nil
 }
 
-// TagDeleteRemote deletes one tag from a remote using an interactive (askpass) push.
 func (s *Service) TagDeleteRemote(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p TagDeleteRemoteParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -289,8 +272,6 @@ func (s *Service) TagDeleteRemote(ctx context.Context, raw json.RawMessage) (any
 	return nil, nil
 }
 
-// TagPush pushes all local tags to the configured upstream or a named remote
-// using an interactive (askpass) path.
 func (s *Service) TagPush(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p TagPushParams
 	if len(raw) > 0 {
@@ -340,8 +321,6 @@ func (s *Service) TagPush(ctx context.Context, raw json.RawMessage) (any, error)
 	return nil, nil
 }
 
-// parseTagList parses for-each-ref output into Tag records.
-// Fields are separated by \x1f; records by \x1e.
 func parseTagList(stdout string) []Tag {
 	tags := make([]Tag, 0)
 	for _, rawRecord := range strings.Split(stdout, tagRecordSep) {
@@ -391,7 +370,6 @@ func parseTagList(stdout string) []Tag {
 	return tags
 }
 
-// parseRemoteTagList parses ls-remote --tags --refs output into RemoteTag records.
 func parseRemoteTagList(stdout string, remote string) []RemoteTag {
 	tags := make([]RemoteTag, 0)
 	for _, rawLine := range strings.Split(stdout, "\n") {
@@ -422,7 +400,6 @@ func parseRemoteTagList(stdout string, remote string) []RemoteTag {
 	return tags
 }
 
-// normalizeRequiredTagName validates and trims a tag name.
 func normalizeRequiredTagName(name string) (string, error) {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" || strings.HasPrefix(trimmed, "-") {
@@ -431,7 +408,6 @@ func normalizeRequiredTagName(name string) (string, error) {
 	return trimmed, nil
 }
 
-// normalizeRequiredRemoteName validates and trims a remote name.
 func normalizeRequiredRemoteName(name string) (string, error) {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" || strings.HasPrefix(trimmed, "-") || strings.ContainsAny(trimmed, " \t\r\n") {
@@ -440,7 +416,6 @@ func normalizeRequiredRemoteName(name string) (string, error) {
 	return trimmed, nil
 }
 
-// normalizeTagTargetRef resolves the tag target, defaulting to HEAD.
 func normalizeTagTargetRef(ref string) string {
 	trimmed := strings.TrimSpace(ref)
 	if trimmed == "" {
@@ -449,7 +424,6 @@ func normalizeTagTargetRef(ref string) string {
 	return trimmed
 }
 
-// parseTaggerDate converts Git's taggerdate unix field to epoch milliseconds.
 func parseTaggerDate(value string) *int64 {
 	if value == "" {
 		return nil
@@ -462,8 +436,6 @@ func parseTaggerDate(value string) *int64 {
 	return &ms
 }
 
-// assertTagTargetExists runs rev-parse to verify the target ref before tag creation.
-// Failures are remapped to ref-not-found.
 func (s *Service) assertTagTargetExists(ctx context.Context, cwd string, ref string) error {
 	args := []string{"rev-parse", "--verify", ref + "^{object}"}
 	cmd, err := s.command(ctx, args, cwd, nil, false)

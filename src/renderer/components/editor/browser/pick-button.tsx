@@ -1,18 +1,3 @@
-/**
- * PickButton — lets the user pick an element in the page and hands it to an
- * agent in the same workspace.
- *
- * A click puts the page in DevTools' inspect mode (main's cli.pickElement,
- * as nexus browser pick does): what is under the mouse is highlighted, and
- * the next click in the page picks that element instead of clicking it. Esc
- * or another click on the button ends the pick.
- *
- * The element's description is pasted into the prompt of the workspace's
- * agent terminal without Enter, so the user can add what they want done,
- * and that terminal is shown with the keyboard in it. With several agent
- * sessions a menu under the button asks which; with none the description
- * is copied to the clipboard instead.
- */
 import { SquareDashedMousePointer } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -43,7 +28,6 @@ interface PickButtonProps {
   workspaceId: string;
 }
 
-/** The workspace's agent sessions as they are now. */
 async function agentSessions(workspaceId: string): Promise<AgentSession[]> {
   const activity = await ipcCallResult("cli", "activity", {});
   return pickTargets({
@@ -61,17 +45,12 @@ async function agentSessions(workspaceId: string): Promise<AgentSession[]> {
   });
 }
 
-/**
- * Pastes `text` into the session's prompt and shows its terminal with the
- * keyboard in it. False when that terminal has not opened.
- */
 function pasteInto(session: AgentSession, text: string): boolean {
   const controller = getTerminalController(session.tabId);
   if (!controller?.input(pasteForTerminal(text, controller.bracketedPaste()), "paste")) {
     return false;
   }
   showTerminal(session);
-  // After the tab switch has shown the terminal.
   requestAnimationFrame(() => controller.focus());
   return true;
 }
@@ -86,7 +65,6 @@ export function PickButton({ tabId, workspaceId }: PickButtonProps) {
     void ipcCallResult("cli", "cancelPick", { tabId });
   };
 
-  // Esc while the app window has the keyboard; in the page, main catches it.
   useEffect(() => {
     if (!picking) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -96,7 +74,6 @@ export function PickButton({ tabId, workspaceId }: PickButtonProps) {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [picking, tabId]);
 
-  // A pick still going when the tab goes away ends with it.
   useEffect(
     () => () => {
       if (pickingRef.current) void ipcCallResult("cli", "cancelPick", { tabId });
@@ -161,7 +138,6 @@ export function PickButton({ tabId, workspaceId }: PickButtonProps) {
         >
           <SquareDashedMousePointer aria-hidden="true" />
         </IconButton>
-        {/* Anchors the menu under the button; the menu opens from code. */}
         <DropdownMenuTrigger>
           <span aria-hidden="true" className="absolute inset-0 pointer-events-none" />
         </DropdownMenuTrigger>

@@ -1,16 +1,3 @@
-/**
- * Defensive parsers that turn SQLite rows from per-workspace tables into the
- * typed shapes the rest of the main process consumes.
- *
- * Each parser is tolerant of partial / corrupted data: an unparseable row
- * falls back to the schema default rather than throwing, so a single bad
- * write never bricks workspace boot. Schema validation runs against the
- * shared zod schemas so any drift surfaces here before reaching the renderer.
- *
- * Helpers for "build a default panel state" also live here so the storage
- * module and tests have a single source of truth for the empty shape.
- */
-
 import {
   DEFAULT_GIT_PANEL_STATE,
   type GitExpandedGroups,
@@ -116,10 +103,6 @@ export function parseGitExpandedTreeNodes(
   }
 }
 
-/**
- * Parses the persisted commit option JSON, falling back to schema defaults
- * when the column or legacy key/value row is absent.
- */
 export function parseGitCommitOptions(
   workspaceId: string,
   raw: string | undefined,
@@ -142,10 +125,6 @@ export function parseGitCommitOptions(
   }
 }
 
-/**
- * Parses the persisted autofetch interval. The value may come from SQLite as
- * a number column or from a legacy key/value row as a numeric string.
- */
 export function parseGitAutofetchIntervalMin(
   workspaceId: string,
   raw: string | number | undefined,
@@ -168,10 +147,6 @@ export function parseGitAutofetchIntervalMin(
   }
 }
 
-/**
- * Parses the persisted manual-pause flag from SQLite integer or legacy string
- * storage while preserving the default for absent values.
- */
 export function parseGitAutofetchManualPaused(
   workspaceId: string,
   raw: string | number | undefined,
@@ -194,10 +169,6 @@ export function parseGitAutofetchManualPaused(
   }
 }
 
-/**
- * Parses the protected branch list JSON, defaulting to an empty list for fresh
- * workspaces and invalid persisted values.
- */
 export function parseGitProtectedBranches(
   workspaceId: string,
   raw: string | undefined,
@@ -220,10 +191,6 @@ export function parseGitProtectedBranches(
   }
 }
 
-/**
- * Parses the selected Source Control segment, defaulting to Changes for
- * workspaces saved before the History panel existed.
- */
 export function parseGitPanelSegment(
   workspaceId: string,
   raw: string | undefined,
@@ -243,10 +210,6 @@ export function parseGitPanelSegment(
   }
 }
 
-/**
- * Parses the last viewed History ref, preserving HEAD as the no-selection
- * default for older workspaces.
- */
 export function parseGitHistoryRef(
   workspaceId: string,
   raw: string | undefined,
@@ -266,7 +229,6 @@ export function parseGitHistoryRef(
   }
 }
 
-/** Parses the persisted history scope, defaulting legacy workspaces to single-ref history. */
 export function parseGitHistoryScope(
   workspaceId: string,
   raw: string | undefined,

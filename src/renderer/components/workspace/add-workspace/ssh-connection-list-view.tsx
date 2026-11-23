@@ -20,12 +20,6 @@ import { formatProfileSubtitle } from "./ssh-helpers";
 import type { SshBrowseSession, SshConnectionListViewProps } from "./types";
 import { useBrowseProgress } from "./use-browse-progress";
 
-// ---------------------------------------------------------------------------
-// SshConnectionListView — T4 implementation
-// SSH server list: saved profiles + always-last New Connection row.
-// Empty list shows EmptyState above the New Connection row.
-// ---------------------------------------------------------------------------
-
 export function SshConnectionListView({
   onNewConnection,
   onConnected,
@@ -36,8 +30,6 @@ export function SshConnectionListView({
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [errorId, setErrorId] = useState<string | null>(null);
   const [errorHuman, setErrorHuman] = useState<string | null>(null);
-  // Agent-bootstrap progress for the in-flight connect (keyed by a client-minted
-  // progressId, since no sessionId/workspaceId exists yet).
   const {
     progress: browseProgress,
     begin: beginProgress,
@@ -98,7 +90,6 @@ export function SshConnectionListView({
         presentError(result);
         return;
       }
-      // Update usage record
       await saveConnectionProfile({
         id: profile.id,
         host: profile.host,
@@ -137,9 +128,7 @@ export function SshConnectionListView({
       setProfiles((prev) =>
         prev.map((p) => (p.id === profile.id ? { ...p, favorite: !p.favorite } : p)),
       );
-    } catch {
-      // silent
-    }
+    } catch {}
   }
 
   async function removeProfile(profile: ConnectionProfile, event: React.MouseEvent): Promise<void> {
@@ -151,9 +140,7 @@ export function SshConnectionListView({
         setErrorId(null);
         setErrorHuman(null);
       }
-    } catch {
-      // silent
-    }
+    } catch {}
   }
 
   if (loading) {
@@ -168,7 +155,6 @@ export function SshConnectionListView({
 
   return (
     <div className="flex flex-col gap-1">
-      {/* Empty state — shown above New Connection row when no profiles */}
       {!hasContent ? (
         <EmptyState
           tone="status"
@@ -179,7 +165,6 @@ export function SshConnectionListView({
         />
       ) : null}
 
-      {/* Favorites section */}
       {favorites.length > 0 ? (
         <section aria-label={t("workspace.favorites")}>
           <div className="px-2 pb-1 pt-0">
@@ -205,7 +190,6 @@ export function SshConnectionListView({
         </section>
       ) : null}
 
-      {/* Recent section */}
       {recents.length > 0 ? (
         <section
           aria-label={t("workspace.recent")}
@@ -234,7 +218,6 @@ export function SshConnectionListView({
         </section>
       ) : null}
 
-      {/* New Connection action row — always last */}
       <div className={hasContent ? "mt-3 border-t border-border pt-3" : undefined}>
         <button
           type="button"
@@ -252,14 +235,9 @@ export function SshConnectionListView({
   );
 }
 
-// ---------------------------------------------------------------------------
-// ConnectionProfileRow — single SSH connection profile row
-// ---------------------------------------------------------------------------
-
 interface ConnectionProfileRowProps {
   readonly profile: ConnectionProfile;
   readonly connecting: boolean;
-  /** Live bootstrap progress for this row while connecting (null until events arrive). */
   readonly progress: SshBrowseProgressEvent | null;
   readonly disabled: boolean;
   readonly errorHuman: string | undefined;
@@ -286,14 +264,10 @@ function ConnectionProfileRow({
 
   return (
     <li>
-      {/* Row: primary connect-button + sibling action slot. The favorite/remove
-          buttons are siblings (not descendants) of the row button — nesting a
-          <button> inside a <button> is invalid HTML. */}
       <div
         className={[
           "group flex items-center rounded-(--radius-control) hover:bg-[var(--state-hover-bg)]",
           disabled ? "pointer-events-none opacity-50" : "",
-          // Error state: left border as redundant visual channel
           hasError ? "border-l-2 border-[var(--state-error-border)]" : "",
         ]
           .filter(Boolean)
@@ -311,7 +285,6 @@ function ConnectionProfileRow({
             .filter(Boolean)
             .join(" ")}
         >
-          {/* Leading icon: Server or connecting spinner */}
           {connecting ? (
             <span className="flex size-4 shrink-0 items-center justify-center">
               <LoaderCircle
@@ -323,9 +296,6 @@ function ConnectionProfileRow({
             <Server className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           )}
 
-          {/* Name + connection info. While connecting, the subtitle row is
-              replaced by the live bootstrap progress bar (phase label + bar)
-              once events arrive; until then it falls back to "연결 중…". */}
           <span className="min-w-0 flex-1">
             <span className="block truncate text-app-ui-sm text-foreground">{displayName}</span>
             {connecting ? (
@@ -350,7 +320,6 @@ function ConnectionProfileRow({
           </span>
         </button>
 
-        {/* Chevron + action buttons — siblings of the row button (see comment above) */}
         <span className="flex shrink-0 items-center gap-0.5 pr-2">
           <span className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
             <button
@@ -380,7 +349,6 @@ function ConnectionProfileRow({
         </span>
       </div>
 
-      {/* Per-row error strip — below the row button, redundant encoding: icon + border + color */}
       {hasError ? (
         <ErrorNotice
           message={errorHuman}

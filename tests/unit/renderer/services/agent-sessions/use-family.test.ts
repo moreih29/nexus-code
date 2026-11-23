@@ -1,8 +1,3 @@
-/**
- * The sessions tab's polling: one read at a time, none applied once stopped,
- * a worktree's changes kept through a failed read, and a family rebuilt to
- * the same kept as it was.
- */
 import { describe, expect, it } from "bun:test";
 import {
   mergeChanges,

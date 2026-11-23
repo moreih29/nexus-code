@@ -18,8 +18,6 @@ func (p *serverProcess) readLoop() {
 			}
 			if decodeErr != nil {
 				p.failInternal(decodeErr)
-				// Not inline: waitLoop reports the exit only after this
-				// reader has returned.
 				go p.forceClose()
 				return
 			}

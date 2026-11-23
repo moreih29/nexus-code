@@ -1,9 +1,3 @@
-/**
- * A command's card (/status, /goal…) tells of the conversation the tab had
- * when it ran: it closes as the tab goes on with another, from /new,
- * /resume or /clear. The real ipc client is spread under a spy, so later
- * files keep its other exports.
- */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
@@ -11,7 +5,6 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 const realIpc = await import("../../../../../src/renderer/ipc/client");
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ...realIpc,
-  // A Codex tab listens for its lines as it is made; none come here.
   ipcListen: () => () => {},
   ipcCallResult: (_channel: string, method: string, args: Record<string, unknown>) => {
     if (method === "start" || method === "codexStart") {

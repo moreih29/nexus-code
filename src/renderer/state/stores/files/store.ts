@@ -12,12 +12,10 @@ import {
 import type { FileSelection, FilesState, TreeNode, WorkspaceTree } from "./types";
 
 export const useFilesStore = create<FilesState>((set, get) => {
-  // Drop all workspace-keyed state when its workspace is removed.
   registerWorkspaceCleanup((id) => {
     get().closeAllForWorkspace(id);
   });
 
-  // Monotonic counter for requestRename. Held in a closure so it is accessed without set/get.
   let renameRequestCounter = 0;
 
   return {
@@ -30,15 +28,9 @@ export const useFilesStore = create<FilesState>((set, get) => {
       set({ pendingRenameRequest: { absPath, requestId: renameRequestCounter } });
     },
 
-    // -------------------------------------------------------------------------
-    // Selection reducers
-    // -------------------------------------------------------------------------
-
     setSingleSelection(workspaceId, path) {
       set((state) => {
         const cur = state.selection.get(workspaceId);
-        // No-op when paths already equals exactly {path} with focus/anchor on it
-        // (stable reference; matches the post-Fix shape of singleSelection).
         if (
           cur &&
           cur.focus === path &&
@@ -93,7 +85,6 @@ export const useFilesStore = create<FilesState>((set, get) => {
       set((state) => {
         const cur = state.selection.get(workspaceId);
         if (!cur) return state;
-        // Already in the canonical single-selection shape — no-op.
         if (
           cur.focus !== null &&
           cur.anchor === cur.focus &&
@@ -117,7 +108,6 @@ export const useFilesStore = create<FilesState>((set, get) => {
         const cur = state.selection.get(workspaceId);
         if (cur && cur.focus === path) return state;
         const next = new Map(state.selection);
-        // Preserve anchor and paths — only move the focus cursor.
         const existing = cur ?? emptySelection();
         next.set(workspaceId, { ...existing, focus: path });
         return { selection: next };
@@ -132,10 +122,6 @@ export const useFilesStore = create<FilesState>((set, get) => {
         return { selection: next };
       });
     },
-
-    // -------------------------------------------------------------------------
-    // Tree reducers (unchanged logic, preserved verbatim)
-    // -------------------------------------------------------------------------
 
     initTree(workspaceId, rootAbsPath, persistedRelPaths) {
       const existing = get().trees.get(workspaceId);
@@ -190,10 +176,6 @@ export const useFilesStore = create<FilesState>((set, get) => {
         if (!t) return state;
         const next = cloneTree(t);
 
-        // Keep an existing child node (and its loaded subtree) only when it
-        // is the same entry we listed last time. A path that reappears — or
-        // flips between file and dir — is a new entry; reusing the old node
-        // would resurrect a listing from before the deletion.
         const previousChildren = new Set(next.nodes.get(absPath)?.children ?? []);
         const childAbsPaths: string[] = [];
         for (const entry of sorted) {
@@ -216,7 +198,6 @@ export const useFilesStore = create<FilesState>((set, get) => {
           next.nodes.set(absPath, {
             ...parentNode,
             children: childAbsPaths,
-            // A late read may have started before this directory lost its watch.
             childrenLoaded: next.expanded.has(absPath),
           });
         }

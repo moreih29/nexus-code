@@ -1,10 +1,3 @@
-/**
- * nexus settings list/get/set/reset/open: the app's settings, as the
- * Settings dialog shows and changes them. They are the app's, not a
- * workspace's, so changing one needs no leave; what nexus itself may do is
- * left to the user.
- */
-
 import {
   type InstructionScope,
   workspaceInstructionTarget,
@@ -38,23 +31,18 @@ import { mayExecute } from "../sandbox";
 import { chatAgentFlag, checkedInstructions, readInstructionsFile } from "./chat";
 import { WORKSPACE_FLAG } from "./flags";
 
-/** The settings, or the one `key` names (none when it names none). */
 async function listSettings(ctx: CliContext, key?: string): Promise<CliSettingInfo[]> {
   return (await ctx.services.ui("settings.list", key === undefined ? {} : { key })).settings;
 }
 
-/** Its value as the list shows it: why it could not be read, when it could not. */
 function shownValue(setting: CliSettingInfo): string {
   if (setting.unavailable) return `unavailable: ${setting.unavailable}`;
   return `${oneLine(formatSettingValue(setting.value), VALUE_WIDTH)}${setting.changed ? " *" : ""}`;
 }
 
-/** A list of choices longer than this is left to --json. */
 const TAKES_WIDTH = 40;
-/** A value longer than this is cut in the list; settings get prints it whole. */
 const VALUE_WIDTH = 60;
 
-/** What it takes, as the list shows it. */
 function takes(setting: CliSettingInfo): string {
   if (setting.readOnly) return "(in Settings)";
   const shape = describeShape(setting);
@@ -88,7 +76,6 @@ const settingsGet: CliCommand = {
   },
 };
 
-/** What a change made, as the user would read it. */
 function changed(setting: CliSettingInfo) {
   const value = formatSettingValue(setting.value);
   return output(`${setting.key} is ${value === "" ? '""' : value}.`, setting);

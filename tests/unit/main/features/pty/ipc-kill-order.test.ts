@@ -1,10 +1,3 @@
-/**
- * ipc-kill-order.test.ts — a terminal closed while main still prepares its
- * spawn (a profile's environment, the workspace's agent) is killed after
- * that spawn, not before: sent first, the kill finds no session, and the
- * shell then starts with no tab to close it.
- */
-
 import { describe, expect, mock, test } from "bun:test";
 import type { PtyChannelOptions } from "../../../../../src/main/features/pty/ipc";
 import type {

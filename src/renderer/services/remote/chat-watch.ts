@@ -1,13 +1,3 @@
-/**
- * A chat another device of the account watches (chat.watch): its page
- * when the watch begins, then what changed since, as the tab's store
- * changes, at most UPDATES_PER_SECOND times a second. What changed is
- * found by the store's own objects: an item, call, task or subagent's
- * messages that is not the object sent last time is sent again. For a
- * watch that takes appends, an assistant item whose text only grew sends
- * the text it grew by instead.
- */
-
 import type {
   ChatAppend,
   ChatPage,
@@ -46,13 +36,10 @@ import {
 import { chatPanelOf } from "./chat-panel";
 import { cliProfileName } from "./profile-name";
 
-/** What a watch sends: an update but for its id and rev, which main gives it. */
 export type ChatChange = Omit<ChatUpdate, "watchId" | "rev">;
 
-/** How often a watched chat's changes are sent at most: a reply streams in at this pace. */
 export const UPDATES_PER_SECOND = 15;
 
-/** What a watch sent last: the window, by the store's objects, and the status and panel as sent. */
 export interface Sent {
   window: ChatWindow;
   status: string;
@@ -67,27 +54,16 @@ export function sentOf(source: ChatSource, start: number): Sent {
   };
 }
 
-/**
- * Where the window starts now: where it did, unless the conversation got
- * shorter than that (cleared, rewound), when it starts `limit` from the end.
- */
 export function windowStart(was: number, total: number, limit: number): number {
   return total < was ? Math.max(0, total - limit) : was;
 }
 
-/**
- * The text an assistant item's blocks grew by from `was` to `now`, as
- * appends to the item at `index`; null when anything else changed (a
- * block came or went, or one's text is not the old text and more), so
- * the whole item goes.
- */
 export function appendsOf(
   wasItem: ViewItem,
   nowItem: ViewItem,
   index: number,
 ): ChatAppend[] | null {
   if (wasItem.kind !== "assistant" || nowItem.kind !== "assistant") return null;
-  // The union's item of a kind not known yet keeps TypeScript from narrowing.
   const was = wasItem as ViewAssistantItem;
   const now = nowItem as ViewAssistantItem;
   if (
@@ -114,11 +90,6 @@ export function appendsOf(
   return appends.length > 0 ? appends : null;
 }
 
-/**
- * The text the reply being written grew by, block by block (none when it
- * did not); null when it is another reply, or a block came, went or
- * changed other than by growing, so the whole message goes.
- */
 export function streamAppendsOf(
   was: ViewStreaming | null,
   now: ViewStreaming | null,
@@ -136,11 +107,6 @@ export function streamAppendsOf(
   return appends;
 }
 
-/**
- * The status to send, and what its reply being written grew by: for a
- * watch that takes appends, a reply that only grew comes as streamAppends,
- * and the status without it, only when the rest of it changed.
- */
 function statusChange(
   was: string,
   now: string,
@@ -160,11 +126,6 @@ function statusChange(
   };
 }
 
-/**
- * What changed from `was` to `now`; null when nothing did. With
- * `appends`, an assistant item whose text only grew comes as appends, and
- * so does the reply being written.
- */
 export function changesOf(was: Sent, now: Sent, appends = false): ChatChange | null {
   const before = was.window;
   const after = now.window;
@@ -223,23 +184,14 @@ export function changesOf(was: Sent, now: Sent, appends = false): ChatChange | n
   };
 }
 
-// ---------------------------------------------------------------------------
-// The watches of this window
-// ---------------------------------------------------------------------------
-
 interface Watch {
   stop(): void;
 }
 
 const watches = new Map<string, Watch>();
 
-/** The tab's conversation as a watch reads it; null once the tab is gone. */
 type SourceOf = () => ChatSource | null;
 
-/**
- * A check to run on each change: `act` once each time `can` comes true,
- * not again until it has gone false and come back.
- */
 export function eachTimeItCan(can: () => boolean, act: () => void): () => void {
   let could = false;
   return () => {
@@ -249,11 +201,6 @@ export function eachTimeItCan(can: () => boolean, act: () => void): () => void {
   };
 }
 
-/**
- * Starts watching a chat for another device: its page now, then `push`
- * with each change, until stopChatWatch or the tab is gone (`onGone`);
- * a reply's growing text as appends when the watcher takes them.
- */
 export function startChatWatch(
   watchId: string,
   sourceOf: SourceOf,
@@ -262,9 +209,7 @@ export function startChatWatch(
   onGone: () => void,
   options: {
     appends?: boolean;
-    /** Each time the tab changes, before what changed is sent. */
     onChange?: () => void;
-    /** The plan usage's key of its profile, asked for while it is watched; null once it is gone. */
     usageKey?: () => string | null;
   } = {},
 ): ChatPage & { panel: ChatPanel } {
@@ -300,9 +245,7 @@ export function startChatWatch(
   };
   const offChat = useChatStore.subscribe(changed);
   const offTabs = useTabsStore.subscribe(changed);
-  // The plan's usage comes apart from the chat: its limits in the panel follow it.
   const offPlan = usePlanUsageStore.subscribe(changed);
-  // Shown on that device: its profile's usage is asked for as a tab shown here asks.
   const offAfar = options.usageKey ? watchPlanUsageAfar(watchId, options.usageKey) : () => {};
   const stop = () => {
     offChat();
@@ -320,12 +263,10 @@ export function stopChatWatch(watchId: string): void {
   watches.get(watchId)?.stop();
 }
 
-/** How many chats other devices watch here now. */
 export function watchCount(): number {
   return watches.size;
 }
 
-/** A chat tab's conversation as a watch reads it, by its ids; null once it is gone. */
 export function tabSource(
   workspaceId: string,
   tabId: string,
@@ -357,7 +298,6 @@ export function tabSource(
       ? {
           can: {
             rewind: true,
-            // A fork copies a session: one the tab has, or the one it copies itself.
             fork: Boolean(chat.model.sessionId ?? tab.props.sessionId ?? tab.props.fork?.sessionId),
             background: true,
             now: true,

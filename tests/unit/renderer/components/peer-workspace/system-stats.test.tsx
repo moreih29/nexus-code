@@ -71,11 +71,9 @@ test("asked again a while after each answer, until stopped or told never", async
   waits[1].next();
   await Promise.resolve();
   await Promise.resolve();
-  // "never": nothing to show, and no more asking.
   expect(told).toEqual([stats, null, null]);
   expect(waits).toHaveLength(2);
 
-  // Stopped while an answer is on its way, the ask is aborted and nothing told.
   const late: unknown[] = [];
   let signal: AbortSignal | undefined;
   const stop = pollStats(

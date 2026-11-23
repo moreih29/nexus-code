@@ -7,7 +7,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Darwin's fcntl.h defines O_SEARCH as O_EXEC | O_DIRECTORY.
 const previewDirOpenFlags = 0x40000000 | unix.O_DIRECTORY
 
 func previewFileStamp(file *os.File, info os.FileInfo, versioned bool) (previewStamp, bool) {

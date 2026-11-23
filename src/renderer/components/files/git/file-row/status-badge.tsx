@@ -1,13 +1,3 @@
-/**
- * GitStatusBadge renders the one-letter Source Control status signifier.
- *
- * Per design.md "almost monochromatic" mission, color is intentionally NOT the
- * primary signifier — the letter glyph (M / A / D / R / C / ? / T / !) is.
- * Active changes (M / T / A / ?) get full-emphasis foreground with semibold
- * weight; passive structural changes (R / C) use muted-foreground; only
- * destructive (D) and conflict (!) draw on Git's readable destructive text, with
- * conflict adding a subtle bg tint to differentiate at a glance.
- */
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 
@@ -34,7 +24,6 @@ function statusBadgeClass(code: string): string {
   }
 }
 
-/** The decoration each letter stands for, which names it. */
 const CODE_KIND: Record<string, string> = {
   M: "modified",
   T: "typeChanged",

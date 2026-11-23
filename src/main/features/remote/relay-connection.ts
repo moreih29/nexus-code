@@ -1,12 +1,3 @@
-/**
- * This device's socket to its account's room on the relay: connected with
- * a one-time ticket, kept up with backoff, and given up when the relay says
- * so: replaced by another connection of this device (4000), whose
- * reconnecting would push this one off in turn, or signed out (4001); or
- * when the ticket says the app is too old for the server (OutdatedError).
- * A heartbeat finds a socket that no longer reaches the relay and joins
- * the room again.
- */
 import type { IncomingMessage } from "node:http";
 import WebSocket from "ws";
 import {
@@ -22,43 +13,21 @@ import { retryAfterSeconds, SocketRetryAfter } from "./retry-after";
 
 const log = createLogger("remote-relay");
 
-/** Another connection of this device took its place in the room. */
 export const CLOSE_REPLACED = 4000;
-/** The device's sign-in ended: signed out, removed, or expired. */
 export const CLOSE_SIGNED_OUT = 4001;
-/** The relay closed a socket that exhausted its frame budget. */
 export const CLOSE_FLOODING = 4002;
 const FLOOD_RETRY_INITIAL_MS = 60_000;
 const FLOOD_RETRY_MAX_MS = 15 * 60_000;
 const FLOOD_RETRY_RESET_MS = 10 * 60_000;
 
-/**
- * How often a connection that was in the room tries again at once when it
- * is lost: the relay restarting the room (a deploy) drops every socket at
- * once, and coming back within a second keeps it out of sight. Lost again
- * sooner, it waits as any other loss does.
- */
 export const QUICK_RETRY_EVERY_MS = 30_000;
 
-/**
- * Most characters a frame from the relay may take: the most a device may
- * send, and the sender's id the relay adds. A longer one is not read.
- */
 export const MAX_DELIVERED_CHARS = MAX_FRAME_BYTES + 1024;
 
-/** A heartbeat, and the relay's answer to it: the runtime's own, which does not wake the room. */
 export const RELAY_PING = '{"t":"ping"}';
 export const RELAY_PONG = '{"t":"pong"}';
 
-/**
- * How often an open socket is asked whether it still reaches the relay. A
- * socket whose way there broke (the computer slept, or went to another
- * network) says nothing until something is sent on it, and stays "online"
- * while what is sent on it goes nowhere; and a connection quiet for long
- * may be cut on the way.
- */
 export const HEARTBEAT_EVERY_MS = 25_000;
-/** How long each heartbeat waits for a pong. */
 export const PONG_WAIT_MS = 10_000;
 const MAX_MISSED_PONGS = 2;
 export const SEND_BUFFER_STALL_MS = 8_000;
@@ -96,14 +65,6 @@ const SERVER_CLOSE_REASONS: ReadonlyMap<number, string> = new Map([
   [CLOSE_FLOODING, "flooding"],
 ]);
 
-/**
- * - connecting: asking for a ticket, or opening the socket;
- * - online: in the room;
- * - waiting: lost, trying again after a while;
- * - replaced: another connection of this device took its place: not tried again;
- * - outdated: the server no longer takes this app's version: not tried again;
- * - stopped: closed here.
- */
 export type RelayStatus = "connecting" | "online" | "waiting" | "replaced" | "outdated" | "stopped";
 
 type Socket = Pick<WebSocket, "send" | "close" | "readyState"> & {
@@ -118,55 +79,40 @@ type Socket = Pick<WebSocket, "send" | "close" | "readyState"> & {
 type UpgradeRefusal = Pick<IncomingMessage, "statusCode" | "headers" | "destroy">;
 
 export interface RelayConnectionDeps {
-  /**
-   * The socket's address, with a fresh ticket: ws(s)://server/relay?v=2&ticket=...
-   * SignedOutError and OutdatedError give up; any other failure tries again.
-   * The signal is aborted if this attempt is replaced or stopped.
-   */
   url(signal: AbortSignal): Promise<string>;
   onOpen(): void;
   onFrame(frame: ServerFrame): void;
   onStatus(status: RelayStatus): void;
-  /** The relay or the server says the sign-in ended. */
   onSignedOut(): void;
-  /** The socket to `url` closed before it opened: what it went to was not reached. */
   unreachable?(url: string): void;
   socket?: (url: string) => Socket;
   retryAfter?: SocketRetryAfter;
-  /** How long to wait before the `attempt`th try again, in ms. */
   backoff?: (attempt: number) => number;
   now?: () => number;
-  /** HEARTBEAT_EVERY_MS and PONG_WAIT_MS, unless given. */
   heartbeat?: { every: number; wait: number };
 }
 
-/** A socket and the origin it reached, stable for the life of this connection. */
 interface ActiveSocket {
   readonly socket: Socket;
   readonly origin: string;
   openedAt: number;
 }
 
-/** 1 s doubling to 30 s, give or take a fifth, so devices do not come back all at once. */
 export function defaultBackoff(attempt: number): number {
   const base = Math.min(30_000, 1000 * 2 ** attempt);
   return Math.round(base * (0.8 + Math.random() * 0.4));
 }
 
-/** Owns the current relay attempt from ticket acquisition through socket close. */
 export class RelayConnection {
   private connection: ActiveSocket | null = null;
-  /** The controller identifies the current attempt even before a socket exists. */
   private owner: AbortController | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private attempt = 0;
   private floodBackoffMs = 0;
   private running = false;
   private status: RelayStatus = "stopped";
-  /** When a lost connection last tried again at once. */
   private quickAt = Number.NEGATIVE_INFINITY;
   private beat: ReturnType<typeof setInterval> | null = null;
-  /** Running while a heartbeat waits for the relay to answer. */
   private cancelPong: (() => void) | null = null;
   private missedPongs = 0;
   private openTimer: ReturnType<typeof setTimeout> | null = null;
@@ -198,7 +144,6 @@ export class RelayConnection {
     this.set("stopped");
   }
 
-  /** Opens a new socket now in place of this one, as to go another way; nothing when stopped. */
   reconnect(): void {
     if (!this.running) return;
     this.clearTimer();
@@ -207,7 +152,6 @@ export class RelayConnection {
     void this.connect("route-change");
   }
 
-  /** Reopens a stalled connection with the same backoff as other socket losses. */
   recover(reason: RelayRecoveryReason): void {
     const { connection, owner } = this;
     if (!connection || !owner || this.status !== "online") return;
@@ -216,7 +160,6 @@ export class RelayConnection {
     else this.retry(owner, reason);
   }
 
-  /** Sends a frame while online; false when it cannot go (offline, or too big). */
   send(frame: ClientFrame): boolean {
     const connection = this.connection;
     if (this.status !== "online" || !connection) return false;
@@ -229,13 +172,11 @@ export class RelayConnection {
     return this.connection?.socket.bufferedAmount ?? 0;
   }
 
-  /** The route of the actual open socket, with identity stable across probes. */
   onlineRoute(): { readonly origin: string; readonly openedAt: number } | null {
     const connection = this.connection;
     return this.status === "online" && connection?.socket.readyState === 1 ? connection : null;
   }
 
-  /** Presence resets ordinary retries. Flooding history needs a sustained connection. */
   healthy(): void {
     this.attempt = 0;
   }
@@ -256,7 +197,6 @@ export class RelayConnection {
     return true;
   }
 
-  /** Checks drain progress independently of incoming frames and heartbeat responses. */
   private observeWriteBuffer(connection: ActiveSocket): void {
     const amount = connection.socket.bufferedAmount ?? 0;
     if (amount === 0) {
@@ -301,7 +241,6 @@ export class RelayConnection {
     );
   }
 
-  /** Gets a ticket and opens a socket only while this attempt owns the relay. */
   private async connect(reason: ConnectReason): Promise<void> {
     if (!this.running) return;
     this.clearTimer();
@@ -350,7 +289,6 @@ export class RelayConnection {
     }, SOCKET_OPEN_TIMEOUT_MS);
     this.openTimer.unref?.();
     socket.on("unexpected-response", (_request, response) => {
-      // With an unexpected-response listener, ws leaves cleanup to the caller.
       if (this.connection === connection && response.statusCode === 429) {
         this.retryAfter.pause(retryAfterSeconds(response.headers["retry-after"]) ?? 0);
         this.closeCurrent(connection, "upgrade-refused");
@@ -390,7 +328,6 @@ export class RelayConnection {
       const data = decoded;
       const isError =
         data !== null && typeof data === "object" && "t" in data && data.t === "error";
-      // Some relay errors carry only a code and an optional seq.
       const candidate = isError && !("message" in data) ? { ...data, message: "" } : data;
       const parsed = ServerFrameSchema.safeParse(candidate);
       if (parsed.success) {
@@ -435,15 +372,9 @@ export class RelayConnection {
         this.retry(owner, "socket-closed");
       }
     });
-    // An error is followed by a close, which decides what comes next.
     socket.addEventListener("error", () => {});
   }
 
-  /**
-   * Sends the relay a heartbeat while the socket is open; two consecutive
-   * misses let the socket go and join the room again, as a
-   * socket that closed does. Its own close may come long after, or never.
-   */
   private startHeartbeat(connection: ActiveSocket): void {
     this.stopHeartbeat();
     const { every, wait } = this.deps.heartbeat ?? {
@@ -484,7 +415,6 @@ export class RelayConnection {
     this.openTimer = null;
   }
 
-  /** Whether a connection lost from the room may try again at once (QUICK_RETRY_EVERY_MS). */
   private quickRetry(): boolean {
     if (!this.running) return false;
     const now = (this.deps.now ?? Date.now)();
@@ -500,7 +430,6 @@ export class RelayConnection {
     return true;
   }
 
-  /** Schedules backoff only for the attempt that reported the loss. */
   private retry(owner: AbortController, reason: ConnectReason, floodDelay?: number): void {
     if (!this.owns(owner)) return;
     const backoff = floodDelay ?? (this.deps.backoff ?? defaultBackoff)(this.attempt++);
@@ -526,7 +455,6 @@ export class RelayConnection {
     this.set(status);
   }
 
-  /** Invalidates the attempt and detaches its socket before closing it. */
   private drop(reason: LocalCloseReason = "user"): void {
     const owner = this.owner;
     this.owner = null;
@@ -547,12 +475,9 @@ export class RelayConnection {
     log.info(`Relay closing socket code=1000 reason=${reason}`);
     try {
       socket.close(1000, reason);
-    } catch {
-      // The socket may have closed while being detached.
-    }
+    } catch {}
   }
 
-  /** Whether pending work still belongs to the active relay attempt. */
   private owns(owner: AbortController): boolean {
     return this.running && this.owner === owner;
   }

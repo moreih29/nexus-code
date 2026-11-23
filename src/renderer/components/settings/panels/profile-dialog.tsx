@@ -1,11 +1,3 @@
-/**
- * The dialogs of Settings › Claude and Codex: adding or editing a profile
- * (its name, color, folder, what it shares with the default folder, more
- * variables), and signing it in on this machine, where the app makes its
- * folder and links first, then runs `claude auth login` or `codex login`
- * and shows its output, with a field for a code the browser gives.
- */
-
 import { Check, ChevronDown, ChevronRight, CircleAlert, Loader2 } from "lucide-react";
 import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -96,7 +88,6 @@ function envText(env: Record<string, string> | undefined): string {
     .join("\n");
 }
 
-/** KEY=value lines; null when one is not. */
 function parseEnv(text: string): Record<string, string> | null {
   const env: Record<string, string> = {};
   for (const raw of text.split("\n")) {
@@ -110,7 +101,6 @@ function parseEnv(text: string): Record<string, string> | null {
   return env;
 }
 
-/** Adds a profile (`profile` null), or edits one. */
 export function ProfileDialog({
   agent,
   profile,
@@ -120,7 +110,6 @@ export function ProfileDialog({
   agent: ChatAgent;
   profile: AgentProfile | null;
   onClose: () => void;
-  /** A new profile was saved: its sign-in comes next. */
   onCreated: (id: string) => void;
 }) {
   const { t } = useTranslation(["settings", "common"]);
@@ -185,8 +174,6 @@ export function ProfileDialog({
           : "profiles.dialog.folderTaken",
       )
     : null;
-  // A folder there already (one set up by hand) keeps what it links now,
-  // rather than losing a link the defaults leave out.
   const [existing, setExisting] = useState(false);
   useEffect(() => {
     if (profile !== null || shownDir.trim() === "" || dirError) {
@@ -219,7 +206,6 @@ export function ProfileDialog({
     connection.valid &&
     InstructionTextSchema.safeParse(instructions).success;
 
-  /** The profile's file is its own now (copied in the link's place): it is no longer in what the profile shares. */
   const unshared = async (file: string) => {
     if (!profile) return;
     const saved = profilesOf(useAgentProfilesStore.getState().config, agent).find(
@@ -250,7 +236,6 @@ export function ProfileDialog({
     if (!valid || saving) return;
     setSaving(true);
     setSaveError(undefined);
-    // The behavior file first, while the links are as they were read.
     if (profile !== null && !(await (behaviorRef.current?.save() ?? true))) {
       setSaving(false);
       return;
@@ -280,7 +265,6 @@ export function ProfileDialog({
       onCreated(next.id);
       return;
     }
-    // The links follow what it shares now.
     if (!isDefault) void ipcCallResult("agentProfiles", "prepare", { profileId: next.id });
     onClose();
   };
@@ -483,13 +467,8 @@ export function ProfileDialog({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Sign-in
-// ---------------------------------------------------------------------------
-
 type Prepared = { dir: string; linked: string[]; failed: string[] };
 
-/** Splits the output into text and https links, which open in the browser. */
 function Linkified({ text }: { text: string }) {
   const parts = text.split(/(https:\/\/[^\s"'<>]+)/g);
   return (
@@ -533,11 +512,6 @@ function Step({ state, children }: { state: "done" | "busy" | "failed"; children
   );
 }
 
-/**
- * Makes the profile's folder and links, then runs its sign-in here. A folder
- * signed in already is left as it is unless `again` asks to sign it in anew
- * (another account, or another organization of the same one).
- */
 export function LoginDialog({
   profileId,
   agent,
@@ -562,7 +536,6 @@ export function LoginDialog({
   const [exit, setExit] = useState<{ code: number | null } | null>(null);
   const [status, setStatus] = useState<AgentProfileStatus | undefined>(undefined);
   const [code, setCode] = useState("");
-  // Round 0 looks for a sign-in first; a later one signs in whatever it finds.
   const [round, setRound] = useState(again ? 1 : 0);
   const [already, setAlready] = useState(false);
   const loginRef = useRef<string | null>(null);
@@ -597,8 +570,6 @@ export function LoginDialog({
         );
         if (!live) return;
         setPrepared(ready);
-        // A folder signed in already (one the user made before) is not signed
-        // in again unless they ask to.
         if (round === 0) {
           const current = await refresh(profileId);
           if (!live) return;

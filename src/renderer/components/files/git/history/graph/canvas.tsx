@@ -1,6 +1,3 @@
-/**
- * Viewport-sized Canvas renderer for Git history lanes.
- */
 import type { VirtualItem } from "@tanstack/react-virtual";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -11,21 +8,14 @@ const DEFAULT_ROW_HEIGHT_PX = 24;
 const DEFAULT_LANE_WIDTH_PX = 16;
 const NODE_RADIUS_PX = 4;
 const MERGE_NODE_RADIUS_PX = 3;
-/** The ring of background around a node that keeps lines off it. */
 const NODE_GAP_PX = 2;
 const HEAD_RING_RADIUS_PX = 7;
 const HEAD_RING_WIDTH_PX = 1.5;
 const EDGE_WIDTH_PX = 1.75;
-/** How far along a row an S-curve between lanes keeps its vertical tangent. */
 const CURVE_BEND = 0.625;
 const LANE_COLOR_COUNT = 8;
-/**
- * Lane tokens step around the hue wheel; lines take them in this order so
- * neighbouring lines get far-apart hues, and the mainline gets the blue.
- */
 const LANE_COLOR_ORDER = [5, 0, 3, 6, 1, 4, 7, 2] as const;
 const DEFAULT_BACKGROUND = "#0d1117";
-/** How wide the fade is where the graph is cut off. */
 const EDGE_FADE_WIDTH_PX = 12;
 const MIN_CANVAS_SIZE_PX = 1;
 const DEFAULT_LANE_COLORS = [
@@ -57,7 +47,6 @@ export interface GraphCanvasProps {
   height?: number;
   viewportOffset?: number;
   pinToScrollOffset?: boolean;
-  /** Fades the graph out at its right edge, where lanes past its width are cut off. */
   fadeRightEdge?: boolean;
   redrawKey?: unknown;
   className?: string;
@@ -88,9 +77,7 @@ interface CanvasMetrics {
 
 interface EdgeLayout {
   fromLane: number;
-  /** The lane the line runs down in. */
   toLane: number;
-  /** The lane of the commit the line ends at, which it curves into one row above it. */
   joinLane: number;
   fromY: number;
   toY: number;
@@ -104,7 +91,6 @@ interface PreparedRow {
   y: number;
 }
 
-/** Renders the visual-only Git history graph; rows keep interaction and ARIA in DOM. */
 export function GraphCanvas({
   entries,
   laneState,
@@ -156,7 +142,6 @@ export function GraphCanvas({
     fadeRightEdge,
   };
 
-  /** Batches scroll and virtualizer churn into one Canvas redraw per animation frame. */
   const scheduleRedraw = useCallback((): void => {
     if (animationFrameRef.current !== null) return;
     animationFrameRef.current = window.requestAnimationFrame(() => {
@@ -209,7 +194,6 @@ export function GraphCanvas({
   );
 }
 
-/** Paints the current visible Git graph window into an already-mounted Canvas. */
 export function drawGraphCanvas(canvas: HTMLCanvasElement, inputs: GraphDrawInputs): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
@@ -233,7 +217,6 @@ export function drawGraphCanvas(canvas: HTMLCanvasElement, inputs: GraphDrawInpu
   if (inputs.fadeRightEdge) fadeOutRightEdge(ctx, metrics.cssWidth, metrics.cssHeight);
 }
 
-/** Erases the graph gradually toward its right edge, so cut-off lanes fade out. */
 function fadeOutRightEdge(ctx: CanvasRenderingContext2D, width: number, height: number): void {
   const fadeWidth = Math.min(EDGE_FADE_WIDTH_PX, width);
   const gradient = ctx.createLinearGradient(width - fadeWidth, 0, width, 0);
@@ -246,7 +229,6 @@ function fadeOutRightEdge(ctx: CanvasRenderingContext2D, width: number, height: 
   ctx.restore();
 }
 
-/** Builds a fast SHA-to-row lookup for edge endpoint resolution during redraws. */
 function buildCommitIndex(entries: readonly LogEntry[]): ReadonlyMap<string, number> {
   const index = new Map<string, number>();
   for (let rowIndex = 0; rowIndex < entries.length; rowIndex += 1) {
@@ -255,7 +237,6 @@ function buildCommitIndex(entries: readonly LogEntry[]): ReadonlyMap<string, num
   return index;
 }
 
-/** Synchronizes CSS pixels, backing-store pixels, DPR transform, and pinning. */
 function prepareCanvas(canvas: HTMLCanvasElement, inputs: GraphDrawInputs): CanvasMetrics {
   const scrollTop = getScrollTop(inputs.scrollElement) + inputs.viewportOffset;
   const cssWidth = Math.max(MIN_CANVAS_SIZE_PX, inputs.width ?? measureGraphWidth(inputs));
@@ -279,19 +260,16 @@ function prepareCanvas(canvas: HTMLCanvasElement, inputs: GraphDrawInputs): Canv
   return { cssWidth, cssHeight, scrollTop };
 }
 
-/** Returns the current scroll offset without assuming the virtualizer has rendered yet. */
 function getScrollTop(scrollElement: HTMLElement | null): number {
   if (!scrollElement) return 0;
   return Math.max(0, scrollElement.scrollTop);
 }
 
-/** Measures enough horizontal room for every referenced lane. */
 function measureGraphWidth(inputs: GraphDrawInputs): number {
   const laneCount = Math.max(1, getMaxLaneIndex(inputs.laneState) + 1);
   return laneCount * inputs.laneWidth;
 }
 
-/** Finds the rightmost lane referenced by commits, open lanes, or edges. */
 function getMaxLaneIndex(laneState: LaneState): number {
   let maxLane = laneState.openLanes.length - 1;
   for (const lane of laneState.laneByCommit.values()) {
@@ -303,7 +281,6 @@ function getMaxLaneIndex(laneState: LaneState): number {
   return maxLane;
 }
 
-/** Reads the browser DPR at paint time so DPR 1/2/3 all use matching backing stores. */
 function resolveDevicePixelRatio(canvas: HTMLCanvasElement): number {
   const view = canvas.ownerDocument.defaultView;
   const fallbackDpr = typeof window === "undefined" ? 1 : window.devicePixelRatio;
@@ -311,12 +288,10 @@ function resolveDevicePixelRatio(canvas: HTMLCanvasElement): number {
   return Number.isFinite(dpr) ? Math.max(1, dpr) : 1;
 }
 
-/** Resolves either direct virtual rows or a virtualizer-provided visible window. */
 function resolveVisibleRows(inputs: GraphDrawInputs): readonly GraphCanvasVisibleRow[] {
   return inputs.visibleRows ?? inputs.virtualizer?.getVirtualItems() ?? [];
 }
 
-/** Records the visible index window, including overscan rows supplied by the virtualizer. */
 function resolveVisibleIndexRange(
   visibleRows: readonly GraphCanvasVisibleRow[],
   entryCount: number,
@@ -335,7 +310,6 @@ function resolveVisibleIndexRange(
   return { first, last };
 }
 
-/** Keeps exact virtual row geometry available for visible rows. */
 function mapVisibleRows(
   visibleRows: readonly GraphCanvasVisibleRow[],
 ): ReadonlyMap<number, GraphCanvasVisibleRow> {
@@ -344,7 +318,6 @@ function mapVisibleRows(
   return rows;
 }
 
-/** Converts an entry row index into viewport-local Canvas coordinates. */
 function getRowCenterY(
   index: number,
   rowByIndex: ReadonlyMap<number, GraphCanvasVisibleRow>,
@@ -356,7 +329,6 @@ function getRowCenterY(
   return index * rowHeight - scrollTop + rowHeight / 2;
 }
 
-/** Prepares only graph edges whose row span intersects the visible virtual window. */
 function prepareVisibleEdges(
   inputs: GraphDrawInputs,
   rowByIndex: ReadonlyMap<number, GraphCanvasVisibleRow>,
@@ -378,8 +350,6 @@ function prepareVisibleEdges(
     if (endIndex < minIndex || startIndex > maxIndex) continue;
 
     const fromY = getRowCenterY(fromIndex, rowByIndex, inputs.rowHeight, metrics.scrollTop);
-    // A parent not loaded yet is past the last row; the line stops at that row's
-    // bottom rather than run on over what follows the list.
     const toY =
       getRowCenterY(resolvedToIndex, rowByIndex, inputs.rowHeight, metrics.scrollTop) -
       (toIndex === undefined ? inputs.rowHeight / 2 : 0);
@@ -398,7 +368,6 @@ function prepareVisibleEdges(
   return edges;
 }
 
-/** Allows edge paths to enter one row above/below the viewport for clean clipping. */
 function verticalSpanIntersectsViewport(
   fromY: number,
   toY: number,
@@ -410,7 +379,6 @@ function verticalSpanIntersectsViewport(
   return bottom >= 0 && top <= viewportHeight;
 }
 
-/** Prepares commit nodes for rows currently supplied by the virtualizer. */
 function prepareVisibleRows(
   inputs: GraphDrawInputs,
   rowByIndex: ReadonlyMap<number, GraphCanvasVisibleRow>,
@@ -432,7 +400,6 @@ function prepareVisibleRows(
   return rows;
 }
 
-/** Reads lane CSS custom properties on every redraw so theme changes are picked up. */
 function readLaneColors(canvas: HTMLCanvasElement): readonly string[] {
   const computedStyle = canvas.ownerDocument.defaultView?.getComputedStyle(canvas);
   return DEFAULT_LANE_COLORS.map((fallback, index) => {
@@ -441,10 +408,6 @@ function readLaneColors(canvas: HTMLCanvasElement): readonly string[] {
   });
 }
 
-/**
- * Reads the color behind the graph on every redraw, for the gap around each
- * node: the first opaque background up the tree, else the theme background.
- */
 function readBackground(canvas: HTMLCanvasElement): string {
   const view = canvas.ownerDocument.defaultView;
   for (let element = canvas.parentElement; element && view; element = element.parentElement) {
@@ -455,7 +418,6 @@ function readBackground(canvas: HTMLCanvasElement): string {
   return value || DEFAULT_BACKGROUND;
 }
 
-/** Whether a computed rgb()/rgba() color hides what is behind it. */
 function isOpaque(color: string): boolean {
   const match = /^rgba?\(([^)]*)\)$/.exec(color.trim());
   if (!match) return false;
@@ -463,7 +425,6 @@ function isOpaque(color: string): boolean {
   return alpha === undefined || Number.parseFloat(alpha) >= 1;
 }
 
-/** Draws parent and merge connections before nodes so circles mask line joins. */
 function drawEdges(
   ctx: CanvasRenderingContext2D,
   edges: readonly EdgeLayout[],
@@ -486,10 +447,6 @@ function drawEdges(
   ctx.restore();
 }
 
-/**
- * Draws one edge: out of its commit's lane into the lane it runs down in,
- * then into the lane of the commit it ends at, one row above that commit.
- */
 function drawEdgePath(
   ctx: CanvasRenderingContext2D,
   edge: EdgeLayout,
@@ -517,7 +474,6 @@ function drawEdgePath(
   if (joinX !== runX) curveBetweenLanes(ctx, runX, joinY, joinX, edge.toY);
 }
 
-/** Draws an S-curve from one lane to another, leaving and arriving vertically. */
 function curveBetweenLanes(
   ctx: CanvasRenderingContext2D,
   fromX: number,
@@ -529,10 +485,6 @@ function curveBetweenLanes(
   ctx.bezierCurveTo(fromX, fromY + bend, toX, toY - bend, toX, toY);
 }
 
-/**
- * Draws each commit as a dot in its line's color, with a ring of background
- * around it; merge commits get a smaller dot, and HEAD a ring around its dot.
- */
 function drawNodes(
   ctx: CanvasRenderingContext2D,
   rows: readonly PreparedRow[],
@@ -574,20 +526,14 @@ function drawNodes(
   ctx.restore();
 }
 
-/** Whether HEAD points at the commit. */
 function isHeadCommit(entry: LogEntry): boolean {
   return entry.refs?.some((ref) => ref.kind === "head" || ref.isHead) ?? false;
 }
 
-/** Computes the horizontal Canvas coordinate for a lane center. */
 function getLaneX(lane: number, laneWidth: number): number {
   return lane * laneWidth + laneWidth / 2;
 }
 
-/**
- * Picks a line's theme token. The mainline has the first to itself; the
- * other lines reuse the remaining seven cyclically when there are more.
- */
 function getLaneColor(laneColors: readonly string[], color: number): string {
   const order = color === MAINLINE_COLOR ? 0 : 1 + ((Math.abs(color) - 1) % (LANE_COLOR_COUNT - 1));
   const token = LANE_COLOR_ORDER[order] ?? LANE_COLOR_ORDER[0];

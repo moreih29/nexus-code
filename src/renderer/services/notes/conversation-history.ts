@@ -22,7 +22,6 @@ export function conversationHistoryKey(
   const root = toSlashPath(workspace.rootPath).replace(/\/+$/, "") || "/";
   const cwd = toSlashPath(link.cwd);
   if (!isWithinWorkspace(cwd, root)) return undefined;
-  // The directory is checked through the workspace's host (local, SSH or WSL).
   return [link.agent, workspace.id, link.cwd, relPath(cwd, root)];
 }
 

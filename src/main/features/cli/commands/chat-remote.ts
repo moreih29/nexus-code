@@ -1,11 +1,3 @@
-/**
- * nexus chat ... --device and tab close --device: a Claude or Codex tab of
- * another computer of the user's, read and driven through the remote's
- * room as chat read, send, wait, new, answer, interrupt and set drive this
- * computer's. What is sent there goes as an agent's (from), for that
- * computer's user to allow, the user's at a shell too (see agentSenderOf);
- * the output is the local commands'.
- */
 import {
   MAX_READ_ITEMS,
   MAX_WAIT_MS as MAX_REQUEST_WAIT_MS,
@@ -78,10 +70,8 @@ export async function peerChatTool(
 }
 
 const CHATS: readonly RemoteSession["kind"][] = ["claude", "codex"];
-/** Most items one chat read returns, across all its pages. */
 const MAX_ITEMS = 5_000;
 
-/** Where a remote tab is, as JSON names it. */
 function targetJson(peer: PeerTab) {
   return {
     tabId: peer.session.tabId,
@@ -98,22 +88,14 @@ function agentOf(session: RemoteSession): ChatAgent {
   return session.kind === "codex" ? "codex" : "claude";
 }
 
-/** A tab as the text names it: its title, id, and computer. */
 function named(peer: PeerTab): string {
   return `${peer.session.title} (${shortId(peer.session.tabId)}) on "${peer.device.name}"`;
 }
 
-/** Whether a failure is the other computer going offline (or this one leaving the room). */
 function wentAway(error: unknown): boolean {
   return error instanceof CliError && error.exitCode === 3;
 }
 
-/**
- * Waits on chats of another computer, as waitOnChats does here: until one
- * is done with its turn. Each chat.wait waits on the other computer, at
- * most its MAX_WAIT_MS; `after` (a chat.send's `at`) counts a message not
- * shown yet as work. The computer going away ends it with state offline.
- */
 export async function waitOnPeerChats(
   ctx: CliContext,
   peers: readonly PeerTab[],
@@ -165,8 +147,6 @@ export async function waitOnPeerChats(
     };
   };
   try {
-    // A zero timeout asks for one snapshot. Multiple tabs always use a short
-    // snapshot so a busy tab spends no part of another tab's wait.
     let first = true;
     while (!signal.aborted && (first || clock.now() < deadline)) {
       first = false;
@@ -177,7 +157,6 @@ export async function waitOnPeerChats(
       if (signal.aborted) break;
       const result = results.find((outcome) => outcome !== null);
       if (result) return result;
-      // A peer that replies early (including a snapshot) needs polling.
       const now = clock.now();
       const pause = Math.min(WAIT_POLL_MS, deadline - now);
       if (pause > 0 && (slice === 1 || now - asked < slice / 2)) await clock.sleep(pause);
@@ -196,7 +175,6 @@ export async function waitOnPeerChats(
   };
 }
 
-/** A wait's result as the command prints it: exit 3 when the computer went away, 124 when it ran out. */
 export function peerWaitOutput(
   text: string,
   json: Record<string, unknown>,
@@ -209,7 +187,6 @@ export function peerWaitOutput(
   );
 }
 
-/** chat send --device. */
 export async function sendToPeer(
   ctx: CliContext,
   device: CliDevice,
@@ -243,7 +220,6 @@ export async function sendToPeer(
     });
     attachments.push(attachmentId);
   }
-  // The agent there is told whether this one waits to read its answer, or is to be written back to.
   const from = { ...(await agentSenderOf(ctx)), waits: timeoutMs !== null };
   const { at, heldId, remoteControl } = await askDevice(ctx, device, "chat.send", {
     ...target(peer),
@@ -260,7 +236,6 @@ export async function sendToPeer(
   return peerWaitOutput(`${sent}\n${result.text}`, json, result);
 }
 
-/** chat wait --device: the first of the tabs to be done. */
 export async function waitOnPeer(
   ctx: CliContext,
   device: CliDevice,
@@ -288,18 +263,12 @@ export async function waitOnPeer(
   );
 }
 
-/** What chat read asks of a remote tab. */
 export interface PeerReadQuery {
   readonly messages?: number;
   readonly since?: number;
   readonly subagents: boolean;
 }
 
-/**
- * chat read --device: the tab's items as the other computer draws them,
- * told here as chat read tells this computer's, each entry numbered by its
- * item's place there; where it stands, as chat wait would say it now.
- */
 export async function readPeerChat(
   ctx: CliContext,
   device: CliDevice,
@@ -331,7 +300,6 @@ export async function readPeerChat(
   let page = await readPage(Math.min(query.messages ?? MAX_READ_ITEMS, MAX_READ_ITEMS));
   const { total } = page;
   const end = total - 1;
-  // A cursor past the end belongs to a conversation that was cleared or rewound.
   const since = query.since !== undefined && query.since <= end ? query.since : -1;
   const first = Math.max(since + 1, total - (query.messages ?? total));
   const stop = Math.min(total, first + MAX_ITEMS);
@@ -342,7 +310,6 @@ export async function readPeerChat(
     }
     return previous;
   };
-  // Start at the first batch of the requested range so its cursor can be resumed.
   if (stop < total) page = await readBefore(stop);
   while (page.start > first) {
     const before = await readBefore(page.start);
@@ -362,7 +329,6 @@ export async function readPeerChat(
   const now = await askDevice(ctx, device, "chat.wait", { ...target(peer), timeoutMs: 1 });
   const info: CliChatInfo = {
     agent: page.status.agent,
-    // A tab closed since it was listed reads as it was last.
     state: now.state === "closed" ? "idle" : now.state,
     ...(now.message ? { message: now.message } : {}),
     ...(peer.session.since !== undefined ? { since: peer.session.since } : {}),
@@ -371,7 +337,6 @@ export async function readPeerChat(
   return { peer, info, entries, end, ...(stop < total ? { nextSince: stop - 1 } : {}) };
 }
 
-/** chat new --device: a tab in a workspace of the other computer, sent the prompt if given. */
 export async function newPeerChat(
   ctx: CliContext,
   device: CliDevice,
@@ -427,7 +392,6 @@ export async function newPeerChat(
   return output(text, json);
 }
 
-/** chat interrupt --device. */
 export async function interruptPeer(
   ctx: CliContext,
   device: CliDevice,
@@ -446,10 +410,6 @@ export async function interruptPeer(
   return output(`Stopped the turn of ${named(peer)}.`, targetJson(peer));
 }
 
-/**
- * chat set --device: what the tab runs with and takes, or sets its model,
- * effort or mode as the other computer lets it.
- */
 export async function setPeerChat(
   ctx: CliContext,
   device: CliDevice,
@@ -516,13 +476,8 @@ export async function setPeerChat(
   return output(`${named(peer)} now runs with ${runs}.`, { ...targetJson(peer), ...choices });
 }
 
-/** The tools whose requests are a question or a plan for the user, not a tool to allow. */
 const USERS_TO_ANSWER = new Set(["AskUserQuestion", "ExitPlanMode"]);
 
-/**
- * chat answer --device: the permission request a Claude or Codex tab, or a
- * terminal's Claude Code, waits on there.
- */
 export async function answerPeer(
   ctx: CliContext,
   device: CliDevice,
@@ -572,7 +527,6 @@ export async function answerPeer(
   return done(request.displayName ?? request.toolName);
 }
 
-/** tab close --device: a chat or a terminal of the other computer; a running one only with --force. */
 export async function closePeerTab(
   ctx: CliContext,
   device: CliDevice,

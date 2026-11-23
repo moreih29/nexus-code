@@ -1,7 +1,3 @@
-// The tab bar's "New Claude conversation" and "New Codex conversation"
-// items: with more than the default profile, the item shows the profile the
-// workspace gives, and a submenu opens one with another profile.
-
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { profilesOf } from "../../../shared/agent-profiles/profiles";
@@ -42,7 +38,6 @@ export function NewChatMenuItems({
   );
   const Icon = agent === "claude" ? ClaudeIcon : CodexIcon;
   const choice = profiles.length > 1;
-  // What Settings last read of each sign-in is this machine's: a local workspace's.
   const local = workspace?.location.kind === "local";
 
   return (

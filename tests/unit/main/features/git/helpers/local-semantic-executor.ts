@@ -64,10 +64,6 @@ const CONFLICT_TYPES: Record<string, GitConflictType> = {
   UU: "both-modified",
 };
 
-/**
- * Stub metadata reader for tests that do not exercise addToGitignore.
- * Tests that need real metadata behavior should supply their own mock.
- */
 const stubMetadataReader: GitMetadataReader = {
   metadata: () => {
     throw new Error("stubMetadataReader.metadata not implemented in this test");
@@ -77,10 +73,6 @@ const stubMetadataReader: GitMetadataReader = {
   },
 };
 
-/**
- * Creates a GitRepository whose read-side operations use semantic executor
- * methods while write commands still execute through the local test git binary.
- */
 export function newLocalGitRepository(
   workspaceId: string,
   topLevel: string,
@@ -97,10 +89,8 @@ export function newLocalGitRepository(
   );
 }
 
-/** Exported for tests that directly instantiate GitRepository and need a stub. */
 export { stubMetadataReader };
 
-/** Test-only semantic executor backed by the local git binary. */
 export function localSemanticExecutor(bin: string, gitDirHint?: string): GitExecutor {
   const runLocal = (options: Omit<RunGitOptions, "bin"> & { readonly bin?: string }) =>
     runLocalGit(options, bin);
@@ -221,7 +211,6 @@ type RunLocal = (
   options: Omit<RunGitOptions, "bin"> & { readonly bin?: string },
 ) => Promise<RunGitResult>;
 
-/** Runs the local test git binary without using production fallback helpers. */
 function runLocalGit(
   options: Omit<RunGitOptions, "bin"> & { readonly bin?: string },
   defaultBin: string,
@@ -284,7 +273,6 @@ function runLocalGit(
   });
 }
 
-/** Streams stdout from the local test git binary. */
 async function* streamLocalGit(
   options: Omit<GitProcessOptions, "bin"> & { readonly bin?: string },
   defaultBin: string,
@@ -344,7 +332,6 @@ async function* streamLocalGit(
   }
 }
 
-/** Builds the prompt policy environment used by local unit-test git runs. */
 function localGitEnv(env: NodeJS.ProcessEnv | undefined, interactive: boolean): NodeJS.ProcessEnv {
   const merged: NodeJS.ProcessEnv = {
     ...process.env,
@@ -356,15 +343,12 @@ function localGitEnv(env: NodeJS.ProcessEnv | undefined, interactive: boolean): 
     merged.GIT_ASKPASS = env?.GIT_ASKPASS ?? "echo";
     merged.SSH_ASKPASS_REQUIRE = env?.SSH_ASKPASS_REQUIRE ?? "force";
     merged.SSH_ASKPASS = env?.SSH_ASKPASS ?? "echo";
-    // Prevent dev-shell overrides (e.g. GIT_EDITOR=true) from leaking into
-    // fake-git fixtures that log the editor value and assert it is empty.
     delete merged.GIT_EDITOR;
     delete merged.EDITOR;
   }
   return merged;
 }
 
-/** Wraps a local git process exit without reintroducing TS stderr classification. */
 function localGitExitError(
   args: readonly string[],
   stdout: string,
@@ -381,7 +365,6 @@ function localGitExitError(
   });
 }
 
-/** Reads non-empty stdout lines from a local git command. */
 async function readNonemptyLines(
   runLocal: RunLocal,
   cwd: string,
@@ -395,7 +378,6 @@ async function readNonemptyLines(
     .filter((line) => line.length > 0);
 }
 
-/** Counts non-empty stdout lines from a local git command. */
 async function countNonemptyLines(
   runLocal: RunLocal,
   cwd: string,
@@ -405,7 +387,6 @@ async function countNonemptyLines(
   return (await readNonemptyLines(runLocal, cwd, args, signal)).length;
 }
 
-/** Resolves `.git`, falling back to the constructor hint for narrow fake git fixtures. */
 async function resolveGitDir(
   runLocal: RunLocal,
   cwd: string,
@@ -416,15 +397,10 @@ async function resolveGitDir(
     const { stdout } = await runLocal({ cwd, args: ["rev-parse", "--absolute-git-dir"], signal });
     const gitDir = stdout.trim();
     if (gitDir.length > 0) return gitDir;
-  } catch {
-    // Fake git binaries in unit tests often implement only the commands under
-    // assertion. Fall back to the constructor-provided gitDir to keep the mock
-    // focused on the scenario rather than on semantic-status subcalls.
-  }
+  } catch {}
   return gitDirHint ?? path.join(cwd, ".git");
 }
 
-/** Parses enough porcelain-v2 status for GitRepository scenario tests. */
 function parseLocalPorcelainStatus(
   stdout: string,
 ): Pick<GitStatus, "branch" | "merge" | "staged" | "working" | "untracked"> {
@@ -496,26 +472,22 @@ function parseLocalPorcelainStatus(
   };
 }
 
-/** Parses an ordinary porcelain-v2 tracked record. */
 function parseOrdinaryRecord(record: string): GitStatusEntry {
   const fields = splitGitFields(record, 9);
   return statusEntry(fields[1] ?? "..", fields[8] ?? "");
 }
 
-/** Parses a rename/copy porcelain-v2 tracked record. */
 function parseRenameRecord(record: string, oldRelPath: string | undefined): GitStatusEntry {
   const fields = splitGitFields(record, 10);
   return statusEntry(fields[1] ?? "..", fields[9] ?? "", oldRelPath);
 }
 
-/** Parses an unmerged porcelain-v2 tracked record. */
 function parseUnmergedRecord(record: string): GitStatusEntry {
   const fields = splitGitFields(record, 11);
   const xy = fields[1] ?? "UU";
   return statusEntry(xy, fields[10] ?? "", undefined, CONFLICT_TYPES[xy] ?? "both-modified");
 }
 
-/** Adds a tracked entry to its staged/working/merge groups. */
 function addTrackedStatus(
   entry: GitStatusEntry,
   groups: Pick<GitStatus, "merge" | "staged" | "working">,
@@ -529,7 +501,6 @@ function addTrackedStatus(
   if (entry.xy[1] !== ".") groups.working.push(entry);
 }
 
-/** Builds one normalized status entry. */
 function statusEntry(
   xy: string,
   relPath: string,
@@ -539,7 +510,6 @@ function statusEntry(
   return oldRelPath ? { relPath, oldRelPath, xy, conflictType } : { relPath, xy, conflictType };
 }
 
-/** Splits fixed porcelain fields while preserving paths that contain spaces. */
 function splitGitFields(record: string, fieldCount: number): string[] {
   const fields: string[] = [];
   let offset = 0;
@@ -553,7 +523,6 @@ function splitGitFields(record: string, fieldCount: number): string[] {
   return fields;
 }
 
-/** Streams local git log output and parses records into semantic log chunks. */
 async function* streamLocalLog(
   bin: string,
   logArgs: GitLogOptions,
@@ -624,7 +593,6 @@ async function* streamLocalLog(
   return { count, hasMore };
 }
 
-/** Builds local git log argv for the test semantic executor. */
 function buildLocalLogArgs(args: GitLogOptions): string[] {
   const scope = args.scope ?? "ref";
   if (scope !== "ref" && args.skip !== undefined) {
@@ -650,7 +618,6 @@ function buildLocalLogArgs(args: GitLogOptions): string[] {
   return gitArgs;
 }
 
-/** Parses one custom-formatted git log record for local scenario tests. */
 function parseLogRecord(
   record: string,
   options: { readonly hasSource?: boolean } = {},
@@ -687,7 +654,6 @@ function parseLogRecord(
   };
 }
 
-/** Parses git log `%D` decorations into renderer ref chips. */
 function parseLogDecorations(decorations: string): LogEntryRef[] {
   const refs = new Map<string, LogEntryRef>();
 
@@ -718,7 +684,6 @@ function parseLogDecorations(decorations: string): LogEntryRef[] {
   return Array.from(refs.values());
 }
 
-/** Converts one decoration token into a normalized ref chip. */
 function parseDecorationRef(rawName: string, isHeadTarget: boolean): LogEntryRef | null {
   if (rawName.length === 0) return null;
   if (rawName === "HEAD") return { name: "HEAD", kind: "head", isHead: true };
@@ -742,7 +707,6 @@ function parseDecorationRef(rawName: string, isHeadTarget: boolean): LogEntryRef
   };
 }
 
-/** Normalizes full refnames to the short names shown by the renderer. */
 function normalizeDecoratedRefName(name: string, kind?: LogEntryRef["kind"]): string {
   const trimmed = name.trim();
   if (kind === "tag" && trimmed.startsWith("refs/tags/")) return trimmed.slice(10);
@@ -752,14 +716,12 @@ function normalizeDecoratedRefName(name: string, kind?: LogEntryRef["kind"]): st
   return trimmed;
 }
 
-/** Classifies short and full remote-tracking ref decorations. */
 function isDecoratedRemoteRef(rawName: string, normalizedName: string): boolean {
   if (rawName.startsWith("refs/remotes/")) return true;
   const firstSegment = normalizedName.split("/", 1)[0];
   return firstSegment === "origin" || firstSegment === "upstream";
 }
 
-/** Builds the `git show` argv used by the local commit-detail test executor. */
 function buildCommitDetailArgs(sha: string): string[] {
   const trimmed = sha.trim();
   if (trimmed.length === 0) throw new Error("Commit SHA is required.");
@@ -775,7 +737,6 @@ function buildCommitDetailArgs(sha: string): string[] {
   ];
 }
 
-/** Parses `git show --name-status -z` output into a commit detail. */
 function parseCommitDetailOutput(stdout: string): CommitDetail {
   const fields = stdout.split(DETAIL_FIELD_SEPARATOR);
   const [sha, parentsRaw, author, authorEmail, committerTs, subject, messageRaw] = fields;
@@ -796,7 +757,6 @@ function parseCommitDetailOutput(stdout: string): CommitDetail {
   };
 }
 
-/** Converts NUL-separated `--name-status` tokens into file changes. */
 function parseNameStatusTokens(tokens: readonly string[]): CommitFileChange[] {
   const files: CommitFileChange[] = [];
   for (let i = 0; i < tokens.length; ) {
@@ -818,12 +778,10 @@ function parseNameStatusTokens(tokens: readonly string[]): CommitFileChange[] {
   return files;
 }
 
-/** Removes separator newlines Git prints before name-status data. */
 function normalizeNameStatusToken(value: string | undefined): string {
   return (value ?? "").replace(/^(?:\r?\n)+/u, "");
 }
 
-/** Returns the commit body after the subject line. */
 function extractBody(message: string, subject: string): string {
   if (message.length === 0) return "";
   const lines = message.split(/\r?\n/);
@@ -834,7 +792,6 @@ function extractBody(message: string, subject: string): string {
   return lines.slice(1).join("\n").trim();
 }
 
-/** Splits a raw parent SHA field into individual parent SHAs. */
 function splitParents(raw: string | undefined): string[] {
   return (raw ?? "")
     .split(" ")
@@ -842,17 +799,14 @@ function splitParents(raw: string | undefined): string[] {
     .filter((parent) => parent.length > 0);
 }
 
-/** Removes only trailing newlines from a commit message. */
 function trimTrailingNewlines(value: string): string {
   return value.replace(/(?:\r?\n)+$/u, "");
 }
 
-/** Extracts a fallback subject from the first message line. */
 function firstMessageLine(message: string): string {
   return message.split(/\r?\n/, 1)[0] ?? "";
 }
 
-/** Converts a local Buffer stream into bounded UTF-8 text chunks. */
 async function* streamLocalText(
   chunks: AsyncIterable<Buffer>,
   signal?: AbortSignal,
@@ -900,31 +854,23 @@ async function* streamLocalText(
   return { bytes: totalBytes, truncated: false };
 }
 
-/** Copies Buffer bytes into a plain Uint8Array for stream schema checks. */
 function toPlainUint8Array(buffer: Buffer): Uint8Array {
   const out = new Uint8Array(buffer.byteLength);
   out.set(buffer);
   return out;
 }
 
-/** Throws the standard AbortError shape used by Git stream callers. */
 function throwIfAborted(signal?: AbortSignal): void {
   if (!signal?.aborted) return;
   throw createAbortError();
 }
 
-/** Creates the standard AbortError shape used by Git stream callers. */
 function createAbortError(): Error {
   const error = new Error("The operation was aborted");
   error.name = "AbortError";
   return error;
 }
 
-/**
- * Reads `.git` marker files to determine the current operation state.
- * Inlined here because git-operation-state.ts is production-only (Go-backed)
- * and has been removed; this test helper needs the real state for workflow tests.
- */
 async function readLocalGitOperationState(
   gitDir: string,
   conflictCount: number,

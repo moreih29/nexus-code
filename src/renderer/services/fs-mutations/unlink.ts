@@ -1,5 +1,3 @@
-/** Remove a file-like entry (regular file or symlink) via fs.unlink. */
-
 import i18next from "i18next";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { parentOf } from "@/state/stores/files";

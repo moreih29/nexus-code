@@ -10,19 +10,9 @@ const SshAuthPromptBaseSchema = z.object({
   host: z.string().min(1),
   port: PositiveIntegerSchema.check(z.lte(65_535)).optional(),
   username: z.string().min(1).optional(),
-  /**
-   * `true` when this prompt repeats a previously-failed authentication round
-   * (e.g. `Permission denied, please try again.` from sshd). Used by the
-   * dialog to surface an inline "Authentication failed" hint.
-   */
   retry: z.boolean().optional(),
 });
 
-/**
- * Main-to-renderer SSH authentication prompt payload. `promptId` is the
- * domain correlation key for renderer responses, independent from IPC
- * request/stream ids because the authentication flow is initiated by SSH.
- */
 export const SshAuthPromptSchema = z.discriminatedUnion("kind", [
   SshAuthPromptBaseSchema.extend({
     kind: z.literal("password"),
@@ -38,7 +28,6 @@ export const SshAuthPromptSchema = z.discriminatedUnion("kind", [
 ]);
 export type SshAuthPrompt = z.infer<typeof SshAuthPromptSchema>;
 
-/** Renderer-to-main response for an active SSH authentication prompt. */
 export const SshAuthRespondArgsSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("password"),

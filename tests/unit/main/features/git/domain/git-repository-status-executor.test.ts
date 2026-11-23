@@ -195,7 +195,6 @@ describe("AgentGitExecutor semantic streams", () => {
   });
 });
 
-/** Builds a schema-valid status snapshot and allows each test to vary the signal fields. */
 function cleanStatus(overrides: Partial<GitStatus> = {}): GitStatus {
   return {
     merge: [],
@@ -210,7 +209,6 @@ function cleanStatus(overrides: Partial<GitStatus> = {}): GitStatus {
   };
 }
 
-/** Drains an async generator while preserving its final return value. */
 async function drain<T, R>(
   generator: AsyncGenerator<T, R, unknown>,
 ): Promise<{ chunks: T[]; complete: R }> {
@@ -222,7 +220,6 @@ async function drain<T, R>(
   }
 }
 
-/** Minimal log entry for semantic stream tests. */
 function logEntry(sha: string) {
   return {
     sha,
@@ -249,7 +246,6 @@ function readStreamId(params: unknown): string {
 
 type EmitAgentEvent = (event: string, payload: unknown) => void;
 
-/** Creates the minimal agent-backed provider surface needed by AgentGitExecutor.status. */
 function fakeProvider(
   callAgentMethod: (method: string, params?: unknown) => Promise<unknown>,
 ): AgentBackedProvider {

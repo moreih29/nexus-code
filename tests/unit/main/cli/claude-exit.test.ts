@@ -1,8 +1,3 @@
-/**
- * ClaudeExitWatch — Claude Code that died without its SessionEnd hook: once
- * its tab goes quiet with the shell back in the foreground, running nothing,
- * its state is cleared.
- */
 import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import { ClaudeStatusBroker } from "../../../../src/main/features/claude/status";
 import { ClaudeExitWatch } from "../../../../src/main/features/cli/claude-exit";
@@ -19,7 +14,6 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-/** Advances the quiet timer and lets the foreground lookup settle. */
 async function advance(ms = QUIET_MS): Promise<void> {
   jest.advanceTimersByTime(ms);
   await Promise.resolve();
@@ -28,7 +22,6 @@ async function advance(ms = QUIET_MS): Promise<void> {
 
 type Front = { name: string; alone: boolean | undefined } | null;
 
-/** `name` in the foreground, alone in its process group unless told. */
 const front = (name: string, alone: boolean | undefined = true): Front => ({ name, alone });
 
 function setup(program: () => Front | Promise<Front>) {
@@ -111,8 +104,6 @@ test("a Claude started while the program was looked up keeps its state", async (
   print();
   await advance();
   expect(looked).toEqual(["w:t"]);
-  // The shell was in front when looked at; the wrapper then started Claude,
-  // whose SessionStart lands before the answer.
   broker.set(T.workspaceId, T.tabId, "idle", undefined, null);
   answer(front("bash"));
   await advance(0);
@@ -133,8 +124,6 @@ test("disposing a foreground lookup keeps its late answer from changing state", 
 });
 
 test("Claude started by a script keeps its state: the script's shell waits for it", async () => {
-  // `bash run.sh` that runs claude: the script's bash leads the group in
-  // front, with Claude in it, so the shell there is not alone.
   const { broker, looked, print } = setup(() => front("bash", false));
   broker.set(T.workspaceId, T.tabId, "running");
   print();

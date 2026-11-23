@@ -1,10 +1,3 @@
-/**
- * Claude and Codex tabs the app drives on its own, for a new task or the
- * nexus CLI: what each keeps of its conversation, as the tab's view keeps
- * it, and messages that start the conversation whether or not the tab is
- * ever shown.
- */
-
 import {
   type AgentProfiles,
   isDefaultProfileId,
@@ -56,7 +49,6 @@ function saveLiveAnswer(workspaceId: string, tabId: string, model: ChatModel): v
     .catch((error) => log.warn(`Live note card not updated: ${String(error)}`));
 }
 
-/** What a Claude tab keeps: the session to go on with, and its title. */
 export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks {
   const tabs = () => useTabsStore.getState();
   return {
@@ -81,7 +73,6 @@ export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks
       tabs().setProcessTitle(workspaceId, tabId, clipTitle(title));
       syncNoteLinks(workspaceId, tabId);
     },
-    // The user's own name for it, whole, as the tab's rename menu keeps one.
     onRename: (title) => tabs().renameTab(workspaceId, tabId, title),
     onProfile: (profileId) =>
       tabs().setChatProfile(
@@ -102,7 +93,6 @@ export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks
   };
 }
 
-/** What a Codex tab keeps: the thread to go on with, and its title. */
 export function codexTabHooks(workspaceId: string, tabId: string): CodexTabHooks {
   const tabs = () => useTabsStore.getState();
   return {
@@ -130,7 +120,6 @@ export function codexTabHooks(workspaceId: string, tabId: string): CodexTabHooks
   };
 }
 
-/** A running program can still use a profile that has been removed from Settings. */
 export function instructionProfileOf(
   config: AgentProfiles,
   agent: ChatAgent,
@@ -155,15 +144,10 @@ export function agentInstructionTarget(
   return { agent, profile, workspace, session };
 }
 
-/** A Claude or Codex tab's controller, and which agent it runs. */
 export type AgentTabController =
   | { readonly agent: "claude"; readonly controller: ChatController }
   | { readonly agent: "codex"; readonly controller: CodexController };
 
-/**
- * The controller of a Claude or Codex tab, made as its view makes it when
- * the view has not; null when the tab is neither, or gone.
- */
 export function agentTabController(workspaceId: string, tabId: string): AgentTabController | null {
   const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
   if (tab?.type === "claude") {
@@ -207,11 +191,6 @@ export function agentTabController(workspaceId: string, tabId: string): AgentTab
   return null;
 }
 
-/**
- * Starts the program of a new Claude or Codex tab and sends it `message`
- * when there is one, from the agent that asked for the tab (`from`) when
- * one did; shown or not, the conversation starts now.
- */
 export function startAgentTab(
   workspaceId: string,
   tabId: string,
@@ -224,11 +203,6 @@ export function startAgentTab(
   void sendFirstMessage(workspaceId, tabId, target, text, from).catch(() => {});
 }
 
-/**
- * Opens a new `agent` tab in `cwd`, in the workspace's active group, and
- * sends it `message` when there is one (see startAgentTab). Returns the
- * tab's id.
- */
 export function openAgentTab(
   workspaceId: string,
   agent: ChatAgent,

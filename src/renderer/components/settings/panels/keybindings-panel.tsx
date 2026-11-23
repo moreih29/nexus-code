@@ -1,35 +1,3 @@
-// src/renderer/components/settings/panels/keybindings-panel.tsx
-//
-// Keyboard Shortcuts panel — VSCode-style command table with inline
-// recording. Two sections:
-//
-//   - "Application" — commands the global dispatcher owns (KEYBINDINGS
-//     table). Rebinding recompiles the dispatcher and rebuilds the
-//     native menu's accelerator labels.
-//   - "Editor" — a curated set of Monaco editor commands (see
-//     shared/keybindings/editor-commands.ts). Rebinding reconciles
-//     Monaco's own keybinding service; these fire only while the editor
-//     has focus.
-//
-// Conflict model (VSCode-aligned): saving is NEVER blocked. A conflict
-// is a property of the effective TABLE, not of the recording moment, so
-// every row that collides with another command carries a persistent
-// badge — including conflicts created indirectly (resetting a command
-// onto a now-taken default, or the *other* side being rebound onto your
-// key). The "Conflicts only" filter and the header count surface them at
-// a glance. The live recorder additionally previews record-time warnings
-// (including shadow/system collisions with built-in keys) but only warns
-// — it does not refuse the save.
-//
-// `when` scopes are NOT editable — a recorded binding inherits the
-// command's default scope (see overrides.ts for the rationale).
-//
-// Recording grammar: commands whose DEFAULT binding is a chord record
-// two strokes; everything else records one. Esc cancels (bare Escape is
-// therefore not bindable — it is the universal dismiss key); Enter with
-// a complete capture saves (bare Enter is recordable only as the FIRST
-// stroke, which is fine — the only bare-Enter default is scope-gated).
-
 import { ChevronRight, Pencil, RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -60,9 +28,6 @@ import { isLinux, isMac } from "../../../utils/platform";
 import { Checkbox } from "../../ui/checkbox";
 import { SearchInput } from "../../ui/search-input";
 
-// `updates.check` is dispatched inside the main process from the menu —
-// the renderer registry has no handler for it, so a keybinding would be
-// a silent no-op. Excluded from the panel.
 type BindableCommandId = Exclude<CommandId, typeof COMMANDS.updatesCheck>;
 const BINDABLE_COMMANDS = ALL_COMMAND_IDS.filter(
   (id): id is BindableCommandId => id !== COMMANDS.updatesCheck,
@@ -73,12 +38,10 @@ type BindingKind = "primary" | "chord";
 interface Row {
   command: string;
   label: string;
-  /** Rendered label of the effective binding, or null when unbound. */
   bindingLabel: string | null;
   kind: BindingKind;
   when: string | undefined;
   overridden: boolean;
-  /** Command-vs-command collisions affecting this row (persistent). */
   conflicts: KeybindingConflict[];
 }
 
@@ -94,11 +57,6 @@ function bindingLabelFor(bindings: readonly KeybindingDecl[], command: CommandId
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Editor-command helpers (Monaco namespace)
-// ---------------------------------------------------------------------------
-
-/** Effective primary keystroke for one editor command (override → default). */
 function editorEffectivePrimary(
   overrides: readonly KeybindingOverride[],
   id: string,
@@ -106,10 +64,9 @@ function editorEffectivePrimary(
 ): string | null {
   const ov = overrides.find((o) => o.command === id);
   if (ov === undefined || ov.primary === undefined) return fallback ?? null;
-  return ov.primary; // string = replace, null = unbind
+  return ov.primary;
 }
 
-/** Synthetic binding list the conflict engine compares editor captures against. */
 function editorConflictBindings(overrides: readonly KeybindingOverride[]): ConflictBinding[] {
   const out: ConflictBinding[] = [];
   for (const c of EDITOR_COMMANDS) {
@@ -137,7 +94,6 @@ export function KeybindingsPanel() {
   const [conflictsOnly, setConflictsOnly] = useState(false);
   const modifiedOnlyId = useId();
   const conflictsOnlyId = useId();
-  // One recorder at a time across BOTH sections — keyed by command id.
   const [recordingFor, setRecordingFor] = useState<string | null>(null);
   const [confirmResetAll, setConfirmResetAll] = useState(false);
 
@@ -150,9 +106,6 @@ export function KeybindingsPanel() {
   const editorCommandLabel = (id: string): string =>
     t(`keybindings.editorCommand.${editorSlugById.get(id) ?? id}`);
 
-  // Persistent, table-wide conflict maps (command-vs-command) — recomputed
-  // whenever either effective table changes. App and editor namespaces are
-  // graded independently.
   const appConflicts = useMemo(
     () => detectTableConflicts(effectiveBindings, isMac()),
     [effectiveBindings],
@@ -168,9 +121,6 @@ export function KeybindingsPanel() {
 
   const conflictCount = appConflicts.size + editorConflicts.size;
 
-  // Sections default collapsed; an active search/filter force-expands the
-  // ones that have matches so results are never hidden behind a closed
-  // section.
   const filterActive = query.trim() !== "" || modifiedOnly || conflictsOnly;
 
   const matchesFilter = useCallback(
@@ -222,14 +172,11 @@ export function KeybindingsPanel() {
 
   return (
     <div ref={panelRef} className="flex flex-col gap-4">
-      {/* Toolbar: search + filters + reset all */}
       <div className="flex items-center gap-2">
         <SearchInput
           value={query}
           onChange={setQuery}
           onKeyDown={(event) => {
-            // ↓ or Enter goes to the first command found, to its edit
-            // button, as the other search boxes go to what they found.
             const go = event.key === "ArrowDown" || (event.key === "Enter" && query !== "");
             if (!go) return;
             const first = panelRef.current?.querySelector<HTMLElement>("[data-keybinding-edit]");
@@ -291,7 +238,6 @@ export function KeybindingsPanel() {
         </button>
       </div>
 
-      {/* Application commands */}
       <CommandSection
         heading={t("keybindings.section.app")}
         rows={appRows}
@@ -314,7 +260,6 @@ export function KeybindingsPanel() {
         onReset={resetCommand}
       />
 
-      {/* Editor (Monaco) commands */}
       <CommandSection
         heading={t("keybindings.section.editor")}
         description={t("keybindings.section.editorDescription")}
@@ -335,17 +280,11 @@ export function KeybindingsPanel() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Section + row
-// ---------------------------------------------------------------------------
-
 interface CommandSectionProps {
   heading: string;
   description?: string;
   rows: Row[];
-  /** Total conflicts in this section's namespace (shown on the collapsed summary). */
   conflictCount: number;
-  /** A search/filter is active — force-expand when this section has matches. */
   filterActive: boolean;
   conflictBindings: readonly ConflictBinding[];
   commandLabel: (id: string) => string;
@@ -371,13 +310,10 @@ function CommandSection({
   onReset,
 }: CommandSectionProps) {
   const { t } = useTranslation("settings");
-  // Default collapsed; the user can expand manually. An active filter with
-  // matches forces it open regardless, so search results are never hidden.
   const [userOpen, setUserOpen] = useState(false);
   const forceOpen = filterActive && rows.length > 0;
   const open = forceOpen || userOpen;
 
-  // Render the persistent conflict line for a row, naming the other side(s).
   const conflictLine = (conflicts: KeybindingConflict[]): string => {
     return conflicts
       .map((c) =>
@@ -392,8 +328,6 @@ function CommandSection({
     <details
       open={open}
       onToggle={(e) => {
-        // Ignore the programmatic toggle that fires when `forceOpen` drives
-        // the element — only persist genuine user clicks.
         if (!forceOpen) setUserOpen(e.currentTarget.open);
       }}
       className="flex flex-col gap-1.5"
@@ -402,7 +336,6 @@ function CommandSection({
         className={cn(
           "flex cursor-pointer select-none items-center gap-1.5 rounded-(--radius-control) px-1 py-1",
           "text-app-body text-foreground hover:bg-[var(--state-hover-bg)]",
-          // Replace the platform disclosure triangle with our own rotating chevron.
           "list-none [&::-webkit-details-marker]:hidden",
         )}
       >
@@ -515,10 +448,6 @@ function CommandSection({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Recorder
-// ---------------------------------------------------------------------------
-
 interface KeybindingRecorderProps {
   command: string;
   kind: BindingKind;
@@ -526,7 +455,6 @@ interface KeybindingRecorderProps {
   bindings: readonly ConflictBinding[];
   hasBinding: boolean;
   commandLabel: (id: string) => string;
-  /** value: [primary] for kind=primary, [leader, secondary] for chord. */
   onCommit: (value: readonly string[]) => void;
   onUnbind: () => void;
   onCancel: () => void;
@@ -556,9 +484,6 @@ function KeybindingRecorder({
   const needed = kind === "chord" ? 2 : 1;
   const complete = captured.length === needed;
 
-  // Record-time preview: includes shadow/system warnings against built-in
-  // keys (which the persistent table view omits). Informational only — a
-  // conflict never blocks the save (VSCode-aligned).
   const conflicts = useMemo(() => {
     if (!complete) return [];
     return detectConflicts({
@@ -575,7 +500,6 @@ function KeybindingRecorder({
   function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     e.preventDefault();
     e.stopPropagation();
-    // IME composition guard — same dual check as the dispatcher.
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (isModifierCode(e.nativeEvent.code)) return;
 
@@ -597,7 +521,6 @@ function KeybindingRecorder({
     setUnsupported(false);
     setCaptured((prev) => {
       if (kind === "primary") return [accel];
-      // chord: fill slots; a third stroke restarts the capture.
       if (prev.length === 0 || prev.length >= 2) return [accel];
       return [prev[0] as string, accel];
     });
@@ -618,8 +541,6 @@ function KeybindingRecorder({
       aria-label={t("keybindings.edit")}
       className="flex shrink-0 flex-col items-end gap-1"
       onBlur={(e) => {
-        // Cancel when focus leaves the recorder entirely (clicking one of
-        // the inline buttons keeps focus inside the container).
         if (containerRef.current && !containerRef.current.contains(e.relatedTarget as Node)) {
           onCancel();
         }

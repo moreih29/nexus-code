@@ -1,24 +1,4 @@
-/**
- * handlePaste — unit tests.
- *
- * Drives the real paste service against the real clipboard, active and files
- * stores, with an IPC spy standing in for the fs channel.
- *
- * Covers:
- *  - Target resolution: explicit dir → itself, file → its parent, no target →
- *    the tree focus, falling back to the root.
- *  - Cut: one rename per entry, clipboard cleared once something moved.
- *  - Copy: one copyFile per entry; pasting a folder onto itself makes a
- *    sibling copy instead of nesting it.
- *  - Summary toast only for N≥2; partial failure names the first failed item.
- *  - Cycle guard (cut), distinctParents, cross-workspace guard.
- */
-
 import { beforeEach, describe, expect, it, mock } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Shims
-// ---------------------------------------------------------------------------
 
 (globalThis as Record<string, unknown>).window = {
   ipc: {
@@ -28,15 +8,9 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
   },
 };
 
-// ---------------------------------------------------------------------------
-// IPC spy
-// ---------------------------------------------------------------------------
-
 type IpcCall = { channel: string; method: string; args: Record<string, unknown> };
 const ipcCalls: IpcCall[] = [];
-/** fromRelPath whose rename / copyFile fails with PERMISSION_DENIED. */
 let failFromRelPaths = new Set<string>();
-/** Names readdir reports per workspace-relative directory. */
 let dirNames: Record<string, string[]> = {};
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
@@ -67,20 +41,12 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   canUseIpcBridge: () => false,
 }));
 
-// ---------------------------------------------------------------------------
-// Toast spy
-// ---------------------------------------------------------------------------
-
 const toastCalls: { kind: string; message: string }[] = [];
 mock.module("../../../../../src/renderer/components/ui/toast", () => ({
   showToast: (input: { kind: string; message: string }) => {
     toastCalls.push(input);
   },
 }));
-
-// ---------------------------------------------------------------------------
-// Imports (after mocks)
-// ---------------------------------------------------------------------------
 
 import { handlePaste } from "../../../../../src/renderer/services/file-clipboard/paste";
 import {
@@ -89,10 +55,6 @@ import {
 } from "../../../../../src/renderer/services/file-clipboard/store";
 import { useActiveStore } from "../../../../../src/renderer/state/stores/active";
 import { useFilesStore } from "../../../../../src/renderer/state/stores/files";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 const WS = "ws-paste-test";
 const ROOT = "/repo";
@@ -126,10 +88,6 @@ beforeEach(() => {
   ]);
 });
 
-// ---------------------------------------------------------------------------
-// Cut
-// ---------------------------------------------------------------------------
-
 describe("handlePaste — cut", () => {
   it("moves every entry, clears the clipboard and summarizes", async () => {
     setClipboard("cut", ["a.ts", "b.ts"]);
@@ -160,10 +118,6 @@ describe("handlePaste — cut", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Copy
-// ---------------------------------------------------------------------------
-
 describe("handlePaste — copy", () => {
   it("copies every entry, keeps the clipboard and summarizes", async () => {
     setClipboard("copy", ["a.ts", "b.ts"]);
@@ -183,10 +137,6 @@ describe("handlePaste — copy", () => {
     expect(calls("copyFile").map((a) => a.toRelPath)).toEqual(["src copy"]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Partial failure
-// ---------------------------------------------------------------------------
 
 describe("handlePaste — partial failure", () => {
   it("names the first failed item and still clears a cut that moved something", async () => {
@@ -211,10 +161,6 @@ describe("handlePaste — partial failure", () => {
     expect(useFileClipboardStore.getState().kind).toBe("cut");
   });
 });
-
-// ---------------------------------------------------------------------------
-// Guards
-// ---------------------------------------------------------------------------
 
 describe("handlePaste — guards", () => {
   it("does nothing with an empty clipboard", async () => {

@@ -1,36 +1,9 @@
-/**
- * Inline "peek" of a single dirty-diff change — the small before/after panel
- * VSCode opens when you click a gutter marker, with its Stage Change and
- * Revert Change actions.
- *
- * Architecture mirrors VSCode's `ZoneWidget`: a **view zone** reserves the
- * vertical space at the change line, while the interactive chrome lives in a
- * separate **overlay widget** pinned to the editor viewport. The overlay is the
- * key detail — overlay widgets do NOT scroll horizontally with the content, so
- * the toolbar (prev / next / close) stays reachable at the viewport's right
- * edge even when the file is scrolled sideways. (A naive "put everything in the
- * view-zone DOM node" approach instead stretches to the full scroll width,
- * pushing the close button off-screen and swallowing button clicks.)
- *
- * The overlay's vertical position and height are slaved to the view zone via
- * its `onDomNodeTop` / `onComputedHeight` callbacks; its width / left are
- * recomputed from the editor layout on every layout change.
- *
- * Snippets, not whole documents, back the embedded diff editor: the live buffer
- * model is already attached to the host editor and cannot be reused here, and
- * copying full documents would be wasteful. Each peek is a snapshot — it does
- * not live-update while open; closing and reclicking re-snapshots.
- */
-
 import i18next from "i18next";
 import type * as Monaco from "monaco-editor";
 import type { DirtyChange } from "./types";
 
-/** Context lines shown around the change inside the peek. */
 const CONTEXT_LINES = 2;
-/** Header bar height in px (keep in sync with the injected CSS). */
 const HEADER_HEIGHT = 26;
-/** lucide SVG icon bodies (24x24 viewBox), rendered with currentColor stroke. */
 const ICONS = {
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
   chevronUp: '<path d="m18 15-6-6-6 6"/>',
@@ -60,11 +33,6 @@ export class DirtyDiffPeek {
   private state: PeekState | null = null;
   private readonly overlayId = "nexus-dirty-diff-peek";
 
-  /**
-   * @param onRevert  Reverts the shown change in the buffer. The peek shows
-   *   no revert button when the editor is read-only.
-   * @param onStage  Stages the shown change; no stage button without it.
-   */
   constructor(
     private readonly editor: Monaco.editor.IStandaloneCodeEditor,
     private readonly monaco: typeof Monaco,
@@ -72,16 +40,10 @@ export class DirtyDiffPeek {
     private readonly onStage?: (change: DirtyChange) => void,
   ) {}
 
-  /** Whether a peek is currently open. */
   get isOpen(): boolean {
     return this.viewZoneId !== null;
   }
 
-  /**
-   * Opens (or re-targets) the peek on `changes[index]`.
-   *
-   * @param originalText  Full baseline text (snippets are sliced from it).
-   */
   open(changes: DirtyChange[], index: number, originalText: string): void {
     const model = this.editor.getModel();
     if (!model || index < 0 || index >= changes.length) return;
@@ -101,14 +63,12 @@ export class DirtyDiffPeek {
     }
   }
 
-  /** Navigates to the next change, wrapping at the end. */
   next(): void {
     if (!this.state) return;
     this.state.index = (this.state.index + 1) % this.state.changes.length;
     this.update();
   }
 
-  /** Navigates to the previous change, wrapping at the start. */
   previous(): void {
     if (!this.state) return;
     const n = this.state.changes.length;
@@ -116,7 +76,6 @@ export class DirtyDiffPeek {
     this.update();
   }
 
-  /** Tears down the peek and all owned resources. */
   close(): void {
     if (this.viewZoneId !== null) {
       const zoneId = this.viewZoneId;
@@ -145,20 +104,16 @@ export class DirtyDiffPeek {
     this.close();
   }
 
-  // -------------------------------------------------------------------------
-
-  /** Builds the overlay widget, view zone, and embedded diff editor. */
   private create(): void {
     const state = this.state;
     if (!state) return;
     const change = state.changes[state.index];
     const { original, modified } = this.snippets(change);
 
-    // Overlay container — pinned to the viewport, positioned manually.
     this.container = document.createElement("div");
     this.container.className = "nexus-dirty-diff-peek";
     this.container.style.position = "absolute";
-    this.container.style.top = "-1000px"; // until the view zone reports its top
+    this.container.style.top = "-1000px";
     this.container.appendChild(this.buildHeader());
 
     this.body = document.createElement("div");
@@ -167,7 +122,6 @@ export class DirtyDiffPeek {
 
     const heightInPx = this.zoneHeight(original, modified);
 
-    // Empty spacer that reserves vertical room in the scroll content.
     const spacer = document.createElement("div");
     spacer.style.overflow = "hidden";
 
@@ -186,7 +140,6 @@ export class DirtyDiffPeek {
       });
     });
 
-    // Overlay widget hosts the interactive chrome above the spacer.
     this.overlay = {
       getId: () => this.overlayId,
       getDomNode: () => this.container as HTMLElement,
@@ -212,10 +165,8 @@ export class DirtyDiffPeek {
     this.updateLabel();
     this.revealChange(change);
 
-    // Keep width/left in sync with the viewport on layout changes.
     this.listeners.push(
       this.editor.onDidLayoutChange(() => this.applyHorizontalLayout()),
-      // Escape closes the peek when the host editor has focus.
       this.editor.onKeyDown((e) => {
         if (e.keyCode === this.monaco.KeyCode.Escape && this.isOpen) {
           e.stopPropagation();
@@ -225,7 +176,6 @@ export class DirtyDiffPeek {
     );
   }
 
-  /** Re-targets an already-open peek to the current change index. */
   private update(): void {
     const state = this.state;
     if (!state || this.viewZoneId === null) return;
@@ -235,8 +185,6 @@ export class DirtyDiffPeek {
     this.applyModels(original, modified, state.languageId);
     this.updateLabel();
 
-    // Recreate the spacer zone at the navigated change's anchor; the overlay
-    // follows via the new zone's onDomNodeTop / onComputedHeight callbacks.
     const heightInPx = this.zoneHeight(original, modified);
     const zoneId = this.viewZoneId;
     const spacer = document.createElement("div");
@@ -260,19 +208,11 @@ export class DirtyDiffPeek {
     this.revealChange(change);
   }
 
-  /**
-   * Scrolls the host editor so the navigated change is in view. Without this,
-   * navigating to a change outside the current viewport leaves the editor
-   * unscrolled and the viewport-pinned overlay ends up positioned off-screen
-   * (its top is slaved to the view zone, which is off-screen). Mirrors VSCode's
-   * `revealLineInCenterIfOutsideViewport` on quick-diff navigation.
-   */
   private revealChange(change: DirtyChange): void {
     const line = Math.max(1, change.modifiedStartLineNumber);
     this.editor.revealLineInCenterIfOutsideViewport(line, this.monaco.editor.ScrollType.Smooth);
   }
 
-  /** Pins the overlay to the editor viewport width / left edge. */
   private applyHorizontalLayout(): void {
     if (!this.container) return;
     const info = this.editor.getLayoutInfo();
@@ -285,10 +225,6 @@ export class DirtyDiffPeek {
   }
 
   private applyModels(original: string[], modified: string[], languageId: string): void {
-    // Recreate snippet models on every render — cheap, and avoids stale-content
-    // bugs from reusing a model across changes. The old ones are disposed only
-    // once the diff editor has let go of them: disposing a model it still
-    // shows throws.
     const previous = [this.originalModel, this.modifiedModel];
     this.originalModel = this.monaco.editor.createModel(original.join("\n"), languageId);
     this.modifiedModel = this.monaco.editor.createModel(modified.join("\n"), languageId);
@@ -342,8 +278,6 @@ export class DirtyDiffPeek {
       btn.title = title;
       btn.setAttribute("aria-label", title);
       btn.innerHTML = lucideSvg(icon);
-      // Use mousedown + preventDefault so the host editor never steals focus
-      // (which would otherwise swallow the following click).
       btn.addEventListener("mousedown", (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -391,7 +325,6 @@ export class DirtyDiffPeek {
   }
 }
 
-/** Wraps a lucide icon path in an SVG element string (stroke = currentColor). */
 function lucideSvg(pathMarkup: string): string {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"` +
@@ -400,19 +333,11 @@ function lucideSvg(pathMarkup: string): string {
   );
 }
 
-/** View-zone anchor: place the peek just below the change in the buffer. */
 function anchorFor(change: DirtyChange): number {
   if (change.type === "delete") return Math.max(0, change.modifiedStartLineNumber - 1);
   return change.modifiedEndLineNumber || change.modifiedStartLineNumber;
 }
 
-/**
- * Extracts the lines covering [start, end] (1-based inclusive) plus a few lines
- * of surrounding context. An empty range (end === 0) is the gap before line
- * `start`; it yields just the context around the gap, so both sides of the
- * peek share their context lines and only the change itself shows as added
- * or removed.
- */
 export function sliceSnippet(lines: readonly string[], start: number, end: number): string[] {
   const from = Math.max(0, start - 1 - CONTEXT_LINES);
   const to = Math.min(lines.length, (end === 0 ? start - 1 : end) + CONTEXT_LINES);

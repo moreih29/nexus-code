@@ -1,4 +1,3 @@
-/** The running app's signature: the hash of its designated requirement, as codesign tells it. */
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {

@@ -1,4 +1,3 @@
-/** A watched terminal's text: what changed, from where it first differs, and its end that fits. */
 import { describe, expect, test } from "bun:test";
 import {
   applyTextChange,
@@ -54,7 +53,6 @@ describe("a terminal's cursor as it moves", () => {
       text: "t",
       caret: { line: 0, column: 10 },
     });
-    // The left arrow: the text as it was.
     const moved = screenChange(was, { text: "$ git sta", caret: { line: 0, column: 8 } });
     expect(moved).toEqual({ start: 9, text: "", caret: { line: 0, column: 8 } });
     expect(applyTextChange(was.text, moved as NonNullable<typeof moved>)).toBe(was.text);
@@ -65,7 +63,6 @@ describe("a terminal's cursor as it moves", () => {
     const was = { text: "> ", caret: { line: 0, column: 2 } };
     expect(screenChange(was, { text: "> " })).toEqual({ start: 2, text: "" });
     expect(screenChange({ text: "> " }, { text: "> " })).toBeNull();
-    // A watch without the cursor sends as it did.
     expect(screenChange({ text: "a" }, { text: "ab" })).toEqual({ start: 1, text: "b" });
   });
 

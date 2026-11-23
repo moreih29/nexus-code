@@ -1,5 +1,3 @@
-// Claude tab IPC channel: renderer ↔ main ↔ the workspace's agent.
-
 import { ATTACH_FOLDER_LINK } from "../../../shared/chat/attach-errors";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
@@ -10,7 +8,6 @@ import { OAuthCallbacksClosedError } from "./oauth-callback";
 
 const c = ipcContract.chat.call;
 
-/** Surfaces a stale profile as a recoverable error at the IPC boundary. */
 function withProfileError<T>(run: (args: unknown) => Promise<IpcResult<T>>) {
   return async (args: unknown): Promise<IpcResult<T>> => {
     try {

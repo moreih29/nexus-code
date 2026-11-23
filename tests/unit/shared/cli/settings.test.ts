@@ -1,4 +1,3 @@
-/** How nexus settings set reads a typed value for each type of setting. */
 import { describe, expect, test } from "bun:test";
 import { parseSettingValue } from "../../../../src/shared/cli/settings";
 

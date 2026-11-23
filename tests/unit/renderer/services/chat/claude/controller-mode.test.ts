@@ -1,9 +1,3 @@
-/**
- * The permission mode a Claude tab's program goes on in when the app starts
- * one again in the tab (a restart, a rewind, another profile): the one the
- * program before had, not the settings' default a new conversation starts
- * in. The tab's first program starts as the settings say.
- */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { ChatLine } from "../../../../../../src/renderer/services/chat/model";
 
@@ -12,11 +6,8 @@ type Message = Record<string, unknown> & {
   request?: Record<string, unknown>;
 };
 const sent: Message[] = [];
-/** The tab whose program answers what it is asked. */
 let tab: { receive: (line: never) => void } | undefined;
-/** The mode the user's settings start a program in. */
 const SETTINGS_MODE = "bypassPermissions";
-/** While set, the program answers nothing until it settles. */
 let hold: Promise<void> | undefined;
 let rejectInitialize = false;
 let stops = 0;
@@ -24,17 +15,12 @@ let onInitialize: (() => void) | undefined;
 const recorded: ChatLine[] = [];
 let lineSeq = 0;
 
-/** Records the same line the fake agent can send live and replay. */
 function receive(dir: ChatLine["dir"], message: Message): void {
   const line = { seq: ++lineSeq, dir, message } as ChatLine;
   recorded.push(line);
   tab?.receive(line as never);
 }
 
-/**
- * The program's answer to a request, after the tab's log has the request:
- * the mode it starts in, the mode it switched to.
- */
 async function answer(message: Message): Promise<void> {
   receive("in", message);
   if (message.request?.subtype === "initialize") onInitialize?.();
@@ -136,7 +122,6 @@ test("a rejected Claude initialize cannot write the first prompt, and retry star
   expect(sent.filter((message) => message.type === "user")).toHaveLength(1);
 });
 
-/** A tab going on with a session, its first program started and in the settings' mode. */
 async function started(): Promise<Controller> {
   const c = new ChatController({
     workspaceId: "ws-mode",
@@ -151,7 +136,6 @@ async function started(): Promise<Controller> {
   return c;
 }
 
-/** Waits until the program is asked nothing more and its answers are in the model. */
 async function settle(): Promise<void> {
   let count = -1;
   while (count !== sent.length) {
@@ -160,7 +144,6 @@ async function settle(): Promise<void> {
   }
 }
 
-/** The modes the program was asked to switch to since the list was emptied. */
 function modesAsked(): unknown[] {
   return sent
     .filter((m) => m.type === "control_request" && m.request?.subtype === "set_permission_mode")
@@ -170,7 +153,6 @@ function modesAsked(): unknown[] {
 describe("the permission mode of a Claude tab's program started again", () => {
   test("a restart goes on in the mode the program before had", async () => {
     const c = await started();
-    // The tab's first program: the settings say.
     expect(modesAsked()).toEqual([]);
     expect(c.state.model.permissionMode).toBe(SETTINGS_MODE);
     await c.setPermissionMode("default");

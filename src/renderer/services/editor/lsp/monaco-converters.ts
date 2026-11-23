@@ -1,6 +1,3 @@
-// Pure, stateless converters between LSP types and Monaco types.
-// No module-level state — all functions accept monaco as a parameter.
-
 import type * as Monaco from "monaco-editor";
 import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
 import { workspaceUriFor } from "../../../../shared/fs/workspace-uri";
@@ -35,22 +32,6 @@ export function lspRangeToMonacoRange(range: Range): Monaco.IRange {
   };
 }
 
-/**
- * Convert an LSP Location (always `file://` from the server) into a Monaco
- * Location whose URI is the workspace-scoped cacheUri (`nexus-ws://…`).
- * The cacheUri is what Monaco model identity uses, so passing through
- * `file://` here would point at no model and the peek widget would
- * throw "Model not found" on click.
- *
- * `workspaceId` is the workspace from which the LSP request originated.
- * Cross-file navigation results inherit that workspace context — clicking
- * a definition that lives outside the workspace tree still opens a model
- * scoped to the requesting workspace, which matches how the user is
- * navigating from within that workspace.
- *
- * Non-file URIs (e.g. tsserver's volar virtual schemes) pass through
- * untranslated so Monaco can fall back to its own handlers.
- */
 export function lspLocationToMonacoLocation(
   monaco: typeof Monaco,
   location: Location,
@@ -64,8 +45,6 @@ export function lspLocationToMonacoLocation(
   };
 }
 
-// LSP numbers completion item kinds from 1 in an order of its own; Monaco's
-// enum lists the same kinds in another order, so they map by name.
 const LSP_COMPLETION_ITEM_KINDS = [
   "Text",
   "Method",
@@ -102,18 +81,11 @@ export function lspCompletionItemKindToMonacoKind(
   return monaco.languages.CompletionItemKind[name ?? "Text"];
 }
 
-// Editor commands a server may attach to a completion item; others are the
-// server's own and have no handler here.
 const COMPLETION_ITEM_EDITOR_COMMANDS = new Set([
   "editor.action.triggerSuggest",
   "editor.action.triggerParameterHints",
 ]);
 
-/**
- * An LSP completion item as Monaco takes it. The item replaces
- * `defaultRange`, the word before the cursor, unless it names a range of its
- * own that Monaco can use: one line, around the cursor.
- */
 export function lspCompletionItemToMonaco(
   monaco: typeof Monaco,
   item: CompletionItem,
@@ -149,7 +121,6 @@ export function lspCompletionItemToMonaco(
   };
 }
 
-/** What `completionItem/resolve` may fill in, as Monaco takes it. */
 export function lspCompletionItemDetails(
   item: CompletionItem,
 ): Pick<Monaco.languages.CompletionItem, "detail" | "documentation" | "additionalTextEdits"> {
@@ -286,7 +257,6 @@ export function hoverContentsToMarkdown(contents: MarkupContentOrString): Monaco
   return { value: contents.value.replace(MARKDOWN_PLAINTEXT_ESCAPE_PATTERN, "\\$1") };
 }
 
-/** A string documents a signature as plain text, unlike a legacy hover's. */
 function signatureDocumentation(
   documentation: MarkupContentOrString | undefined,
 ): string | Monaco.IMarkdownString | undefined {
@@ -303,7 +273,6 @@ export function lspSignatureHelpToMonaco(help: SignatureHelp): Monaco.languages.
         label: parameter.label,
         documentation: signatureDocumentation(parameter.documentation),
       })),
-      // Null: no parameter is being typed, so none is highlighted.
       ...(signature.activeParameter !== undefined
         ? { activeParameter: signature.activeParameter ?? -1 }
         : {}),
@@ -313,11 +282,6 @@ export function lspSignatureHelpToMonaco(help: SignatureHelp): Monaco.languages.
   };
 }
 
-/**
- * What Monaco shows, handed back to the server as it asks again, so the
- * overload the user picked stays. Documentation is left out: the server
- * only needs to know which signature and parameter.
- */
 export function monacoSignatureHelpToLsp(
   help: Monaco.languages.SignatureHelp,
 ): SignatureHelp | undefined {

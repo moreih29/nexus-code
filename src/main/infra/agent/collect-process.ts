@@ -1,7 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { createSshError } from "./pipe";
 
-/** Maximum combined output of one short transport command. */
 const MAX_COLLECTED_BYTES = 4 * 1024 * 1024;
 
 interface CollectProcessOptions {
@@ -11,7 +10,6 @@ interface CollectProcessOptions {
   readonly timeoutMs: number;
 }
 
-/** Collects one transport command and kills it on cancellation or deadline. */
 export function collectProcess(
   child: ChildProcessWithoutNullStreams,
   { name, input, signal, timeoutMs }: CollectProcessOptions,
@@ -26,7 +24,6 @@ export function collectProcess(
     }, timeoutMs);
     timer.unref?.();
 
-    /** Drops cancellation hooks once the caller has its result. */
     const cleanup = () => {
       settled = true;
       clearTimeout(timer);
@@ -34,7 +31,6 @@ export function collectProcess(
       stdout.length = 0;
       stderr.length = 0;
     };
-    /** Keeps the original transport error while terminating the child. */
     const stop = (error: unknown) => {
       if (settled) return;
       cleanup();
@@ -43,7 +39,6 @@ export function collectProcess(
     };
     const abort = () => stop(signal?.reason);
 
-    /** Collects output only while the command is within its shared byte budget. */
     const collect = (chunks: Buffer[], chunk: Buffer) => {
       if (settled) return;
       received += chunk.byteLength;
@@ -73,7 +68,6 @@ export function collectProcess(
       resolve(result);
     });
     child.stdin.on("error", (error: NodeJS.ErrnoException) => {
-      // A child closing its input can still report the cause on stderr.
       if (error.code !== "EPIPE" && error.code !== "ERR_STREAM_DESTROYED") stop(error);
     });
     if (signal?.aborted) {

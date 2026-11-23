@@ -1,11 +1,3 @@
-/**
- * Commit picker source for single-commit cherry-pick.
- *
- * Commits are immutable identities, so this source is separate from branch
- * and ref pickers. It starts on the current branch and exposes one explicit
- * "Pick from another branch…" row that lets the panel retarget the commit
- * list without enabling multi-pick or checkout side effects.
- */
 import i18next from "i18next";
 import type { LogEntry } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
@@ -30,7 +22,6 @@ export interface CreateCommitPickerSourceInput {
   requestBranch: () => void;
 }
 
-/** Builds the `git.commit-picker` PaletteSource. */
 export function createCommitPickerSource(
   input: CreateCommitPickerSourceInput,
 ): PaletteSource<CommitPickItem> {
@@ -71,7 +62,6 @@ export function createCommitPickerSource(
   };
 }
 
-/** Converts recent log entries into single-pick commit rows. */
 function commitItems(commits: readonly LogEntry[]): CommitPickItem[] {
   return commits.map((commit) => {
     const shortSha = commit.shortSha ?? commit.sha.slice(0, 7);
@@ -86,7 +76,6 @@ function commitItems(commits: readonly LogEntry[]): CommitPickItem[] {
   });
 }
 
-/** Case-insensitive query matcher across commit display fields. */
 function matchesCommitQuery(item: CommitPickItem, lowerQuery: string): boolean {
   if (lowerQuery.length === 0) return true;
   const sha = item.action.kind === "commit" ? item.action.sha : undefined;

@@ -23,7 +23,6 @@ const answer = (n: number, call?: string): ChatItem => ({
   ],
 });
 
-/** `turns` turns, each a message and `answers` answers. */
 function conversation(turns: number, answers: number): ChatItem[] {
   const items: ChatItem[] = [];
   for (let t = 0; t < turns; t++) {
@@ -40,7 +39,6 @@ describe("windowStart", () => {
   });
 
   test("a longer one renders its last messages, from where a turn begins", () => {
-    // 10 turns of 4 items: the last 10 start mid-turn (index 30), so the window goes back to the turn's message at 28.
     const items = conversation(10, 3);
     const start = windowStart(items, 10);
     expect(start).toBe(28);

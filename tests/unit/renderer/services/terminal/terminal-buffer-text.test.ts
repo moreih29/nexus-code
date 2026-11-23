@@ -1,7 +1,3 @@
-/**
- * bufferText — a terminal's buffer as the plain text `nexus terminal read`
- * prints.
- */
 import { expect, test } from "bun:test";
 import { bufferText } from "../../../../../src/renderer/services/terminal/controller";
 

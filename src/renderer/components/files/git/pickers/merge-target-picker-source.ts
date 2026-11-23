@@ -1,11 +1,3 @@
-/**
- * Merge target picker source.
- *
- * This deliberately stays separate from the checkout BranchPicker source:
- * merge targets are existing refs only, so the current branch and the
- * "Create new branch" row are both omitted before acceptance dispatches the
- * selected ref to the merge-options dialog.
- */
 import i18next from "i18next";
 import type { BranchList } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
@@ -26,7 +18,6 @@ export interface CreateMergeTargetPickerSourceInput {
   acceptTarget: (ref: string, item: MergeTargetPickItem) => void;
 }
 
-/** Builds the `git.merge-target-picker` PaletteSource. */
 export function createMergeTargetPickerSource(
   input: CreateMergeTargetPickerSourceInput,
 ): PaletteSource<MergeTargetPickItem> {
@@ -59,7 +50,6 @@ export function createMergeTargetPickerSource(
   };
 }
 
-/** Converts a branch list into selectable merge targets. */
 export function buildMergeTargetItems(
   branches: BranchList,
   currentBranch: string | null = branches.current?.current ?? null,
@@ -94,7 +84,6 @@ export function buildMergeTargetItems(
   return [...locals, ...remotes];
 }
 
-/** Case-insensitive query matcher for labels and full refs. */
 function matchesTargetQuery(item: MergeTargetPickItem, lowerQuery: string): boolean {
   if (lowerQuery.length === 0) return true;
   return [item.label, item.description, item.kindLabel, item.ref].some((value) =>

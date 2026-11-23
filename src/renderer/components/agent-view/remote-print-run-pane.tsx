@@ -1,11 +1,3 @@
-/**
- * A `claude -p` or `codex exec` run another computer's chat's session
- * started, in the pane a chat here shows its own in: read whole from that
- * computer (chat.run) while it shows; stopped there, and its ended session
- * gone on with in a tab of its own there (chat.resume), where that computer
- * lets this one control its chats.
- */
-
 import { useContext } from "react";
 import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
@@ -24,10 +16,8 @@ export function RemotePrintRunPane({
   controls,
 }: {
   target: RemoteTarget;
-  /** The run as the chat's agents list it, which stands for it till it is read. */
   row: AgentRun;
   visible: boolean;
-  /** That computer lets this one control its chats. */
   controls: boolean;
 }) {
   const { t } = useTranslation();

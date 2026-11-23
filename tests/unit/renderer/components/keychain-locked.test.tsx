@@ -1,4 +1,3 @@
-/** The settings' locked row: put off, it opens the keychain; refused in macOS, a restart asks again. */
 import { expect, test } from "bun:test";
 import i18next from "i18next";
 import type { ReactElement } from "react";

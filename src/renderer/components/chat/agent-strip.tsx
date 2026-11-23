@@ -1,8 +1,3 @@
-// The strip above a Claude tab's conversation: the main conversation, then
-// each agent the session runs, to switch the pane between them. Finished
-// agents fold under one button. The side panel's toggle sits at its end. A
-// Codex tab has it for the runs its commands start, and no panel.
-
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -14,10 +9,8 @@ import { IconButton } from "../ui/icon-button";
 
 interface AgentStripProps {
   agents: AgentRow[];
-  /** The agent the pane shows, by its Agent call; null for main. */
   shown: string | null;
   onShow: (toolUseId: string | null) => void;
-  /** The side panel's toggle; left out where the tab shows a summary instead. */
   panel?: { open: boolean; onToggle: () => void };
 }
 
@@ -26,7 +19,6 @@ export function AgentStrip({ agents, shown, onShow, panel }: AgentStripProps) {
   const [showFinished, setShowFinished] = useState(false);
   const running = agents.filter((a) => a.status === "running");
   const finished = agents.filter((a) => a.status !== "running");
-  // The one shown stays in the strip after it finishes.
   const visible = [...running, ...finished.filter((a) => showFinished || a.toolUseId === shown)];
   if (agents.length === 0 && !panel) return null;
   return (
@@ -114,10 +106,6 @@ function StripButton({
   );
 }
 
-/**
- * The state of the agent the pane shows, and how long it ran, as "완료 ·
- * 3분 12초": the time goes on while it runs.
- */
 export function ShownState({ agent }: { agent: AgentRow }) {
   const { t } = useTranslation();
   const running = agent.status === "running";
@@ -136,7 +124,6 @@ export function ShownState({ agent }: { agent: AgentRow }) {
   );
 }
 
-/** An agent's or a task's state as a small dot: it pulses while running. */
 export function StatusDot({ status }: { status: AgentStatus | string }) {
   const { t } = useTranslation();
   const known = ["running", "completed", "failed"].includes(status) ? status : "stopped";

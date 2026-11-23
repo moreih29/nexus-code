@@ -1,17 +1,9 @@
-/**
- * Unit tests for path-tree.ts — buildPathTree and collectDescendantLeafPaths.
- */
-
 import { describe, expect, it } from "bun:test";
 import {
   buildPathTree,
   collectDescendantLeafPaths,
   type PathTreeNode,
 } from "../../../../src/renderer/utils/path-tree";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function childrenOf(node: PathTreeNode, relPath: string): PathTreeNode[] {
   function find(n: PathTreeNode): PathTreeNode | undefined {
@@ -25,22 +17,16 @@ function childrenOf(node: PathTreeNode, relPath: string): PathTreeNode[] {
   return target?.children ?? [];
 }
 
-// ---------------------------------------------------------------------------
-// buildPathTree
-// ---------------------------------------------------------------------------
-
 describe("buildPathTree", () => {
   it("paths nested → dir 중첩 트리", () => {
     const root = buildPathTree(["src/utils/helper.ts", "src/index.ts", "README.md"]);
 
-    // Top level: src (dir), README.md (file) — dirs first.
     expect(root.children).toHaveLength(2);
     expect(root.children![0].name).toBe("src");
     expect(root.children![0].kind).toBe("dir");
     expect(root.children![1].name).toBe("README.md");
     expect(root.children![1].kind).toBe("file");
 
-    // src children: utils (dir), index.ts (file).
     const srcChildren = childrenOf(root, "src");
     expect(srcChildren).toHaveLength(2);
     expect(srcChildren[0].name).toBe("utils");
@@ -48,7 +34,6 @@ describe("buildPathTree", () => {
     expect(srcChildren[1].name).toBe("index.ts");
     expect(srcChildren[1].kind).toBe("file");
 
-    // utils children: helper.ts (file).
     const utilsChildren = childrenOf(root, "src/utils");
     expect(utilsChildren).toHaveLength(1);
     expect(utilsChildren[0].name).toBe("helper.ts");
@@ -62,10 +47,6 @@ describe("buildPathTree", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// collectDescendantLeafPaths
-// ---------------------------------------------------------------------------
-
 describe("collectDescendantLeafPaths", () => {
   it("file node → single element with its relPath", () => {
     const root = buildPathTree(["a.ts"]);
@@ -76,7 +57,6 @@ describe("collectDescendantLeafPaths", () => {
 
   it("dir node → all descendant leaf relPaths flat", () => {
     const root = buildPathTree(["src/utils/helper.ts", "src/index.ts", "README.md"]);
-    // src dir has index.ts and utils/helper.ts as descendants.
     const srcNode = root.children!.find((c) => c.relPath === "src")!;
     expect(srcNode.kind).toBe("dir");
     const paths = collectDescendantLeafPaths(srcNode);
@@ -90,7 +70,6 @@ describe("collectDescendantLeafPaths", () => {
   });
 
   it("dir with no children → empty array", () => {
-    // Manually construct a dir node with no children.
     const emptyDir: PathTreeNode = {
       name: "empty",
       relPath: "empty",

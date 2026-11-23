@@ -1,7 +1,3 @@
-/**
- * Ref chips render compact git decorations beside a commit subject and expose
- * branch/tag navigation without changing the row context-menu behavior.
- */
 import i18next from "i18next";
 import { GitBranch, Tag } from "lucide-react";
 import type React from "react";
@@ -38,7 +34,6 @@ export interface RefChipListProps {
   readonly onOpenMenu?: RefChipContextMenuHandler;
 }
 
-/** Renders one focusable ref decoration chip with a 14ch truncation cap. */
 export function RefChip({
   refInfo,
   currentRefName,
@@ -50,13 +45,11 @@ export function RefChip({
   const displayKind = refChipDisplayKind(refInfo, currentRefName);
   const showIconOnly = iconOnly && displayKind === "head";
 
-  /** Navigates to the chip ref without also selecting the commit row. */
   function handleClick(event: React.MouseEvent<HTMLButtonElement>): void {
     event.stopPropagation();
     onRefChange(refInfo.name);
   }
 
-  /** Keeps right-clicks on chips wired to the existing commit menu. */
   function handleContextMenu(event: React.MouseEvent<HTMLButtonElement>): void {
     event.preventDefault();
     event.stopPropagation();
@@ -78,7 +71,6 @@ export function RefChip({
   );
 }
 
-/** Renders prioritized visible ref chips plus a popover for the overflow. */
 export function RefChipList({
   refs,
   currentRefName,
@@ -115,7 +107,6 @@ export function RefChipList({
     );
   }
 
-  /** Forwards right-click on the overflow trigger to the commit menu. */
   function handleOverflowContextMenu(event: React.MouseEvent<HTMLButtonElement>): void {
     event.preventDefault();
     event.stopPropagation();
@@ -150,7 +141,6 @@ export function RefChipList({
               aria-label={i18next.t("files:git.refChip.showMoreRefs", {
                 count: overflowRefs.length,
               })}
-              // The row under it would select the commit too.
               onClick={(event) => event.stopPropagation()}
               onContextMenu={handleOverflowContextMenu}
             >
@@ -180,7 +170,6 @@ export function RefChipList({
   );
 }
 
-/** Sorts refs by the agreed display priority while preserving Git order ties. */
 export function sortRefsForDisplay(
   refs: readonly LogEntryRef[],
   currentRefName?: string,
@@ -195,7 +184,6 @@ export function sortRefsForDisplay(
     .map(({ refInfo }) => refInfo);
 }
 
-/** Maps schema refs into the five visual chip kinds used by the history row. */
 export function refChipDisplayKind(
   refInfo: LogEntryRef,
   currentRefName?: string,
@@ -207,7 +195,6 @@ export function refChipDisplayKind(
   return refInfo.kind;
 }
 
-/** Renders the icon/marker that differentiates the five chip display kinds. */
 function RefChipIcon({ displayKind }: { displayKind: RefChipDisplayKind }) {
   if (displayKind === "head") {
     return <span className="size-1.5 shrink-0 rounded-full bg-current" aria-hidden="true" />;
@@ -226,7 +213,6 @@ function RefChipIcon({ displayKind }: { displayKind: RefChipDisplayKind }) {
   );
 }
 
-/** Returns the restrained shape/fill treatment for one visual ref kind. */
 function refChipClassName(displayKind: RefChipDisplayKind, iconOnly = false): string {
   const baseClassName = cn(
     "inline-flex h-5 min-w-0 shrink-0 items-center border text-app-ui-sm leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
@@ -267,7 +253,6 @@ function refChipClassName(displayKind: RefChipDisplayKind, iconOnly = false): st
   );
 }
 
-/** Assigns secondary warm accent colors without making color the sole signal. */
 function refChipIconStyle(displayKind: RefChipDisplayKind): React.CSSProperties {
   if (displayKind === "current") return { color: "var(--color-git-lane-0)" };
   if (displayKind === "branch") return { color: "var(--color-git-lane-2)" };
@@ -275,7 +260,6 @@ function refChipIconStyle(displayKind: RefChipDisplayKind): React.CSSProperties 
   return { color: "var(--color-git-lane-6)" };
 }
 
-/** Builds the descriptive label screen readers hear for one chip. */
 function refChipAriaLabel(refInfo: LogEntryRef, displayKind: RefChipDisplayKind): string {
   const t = i18next.t.bind(i18next);
   if (displayKind === "head") return t("files:git.refChip.headRef");
@@ -286,12 +270,10 @@ function refChipAriaLabel(refInfo: LogEntryRef, displayKind: RefChipDisplayKind)
   return t("files:git.refChip.tag", { name: refInfo.name });
 }
 
-/** Gives stable keys to refs that may share a display name across namespaces. */
 function refChipKey(refInfo: LogEntryRef): string {
   return `${refInfo.kind}:${refInfo.name}`;
 }
 
-/** Converts display kind into sort priority for HEAD/current/local/remote/tag. */
 function refChipPriority(displayKind: RefChipDisplayKind): number {
   if (displayKind === "head") return 0;
   if (displayKind === "current") return 1;
@@ -300,7 +282,6 @@ function refChipPriority(displayKind: RefChipDisplayKind): number {
   return 4;
 }
 
-/** Adapts visible ref density to the measured history list width. */
 function visibleCountForBreakpoint(
   breakpoint: RefChipListBreakpoint | undefined,
   visibleCount: RefChipVisibleCount,

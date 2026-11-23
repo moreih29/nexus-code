@@ -1,9 +1,3 @@
-/**
- * Failures of dedicated agent git methods (push, pull, tag, stash, ...) reach
- * the IPC layer as the typed GitError, with the kind and hint the agent
- * classified, so the renderer can branch on them (non-fast-forward retry,
- * auth recovery) instead of receiving an unexpected error.
- */
 import { describe, expect, it, mock } from "bun:test";
 import { AgentGitExecutor } from "../../../../../../../src/main/features/git/bridge/agent-executor";
 import { GitError } from "../../../../../../../src/main/features/git/domain/error";
@@ -52,7 +46,6 @@ describe("AgentGitExecutor agent failures", () => {
   });
 
   it("gives a request failure without kind data the unknown kind", async () => {
-    // An agent that predates the error data, or a failure that is no git exit.
     const executor = makeExecutor(
       agentError("git askpass helper unavailable", { code: "server.request-failed" }),
     );

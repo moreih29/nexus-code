@@ -12,11 +12,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/filewatch"
 )
 
-// A watched directory that is deleted and recreated at the same path must be
-// watchable again. fsnotify drops the OS watch on delete but keeps its
-// channels open; if the service kept the stale entry, the second Watch call
-// would be a no-op and changes inside the recreated directory would never
-// be reported.
 func TestWatchRecreatedDirectoryIsWatchedAgain(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -71,11 +66,6 @@ func TestWatchRecreatedDirectoryIsWatchedAgain(t *testing.T) {
 	}
 }
 
-// fs.watch must keep working past Linux's per-user inotify instance limit
-// (128 by default). With one fsnotify.Watcher per directory, watch #114
-// failed with "too many open files".
-// Watching a file is the wrong kind of path, not a directory opened as a
-// file, so it must not report IS_DIRECTORY.
 func TestWatchFileReportsNotDirectory(t *testing.T) {
 	root := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("x"), 0o644))
@@ -113,7 +103,6 @@ func TestWatchManyDirectories(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(root, "d299", "a.txt"), []byte("x"), 0o644))
 	waitForChanges(t, changes, "d000/a.txt", "d299/a.txt")
 
-	// Unwatching one directory stops its events and leaves the rest alone.
 	if _, err := fsys.Unwatch(context.Background(), watchParams("d000")); err != nil {
 		t.Fatal(err)
 	}
@@ -124,10 +113,6 @@ func TestWatchManyDirectories(t *testing.T) {
 	}
 }
 
-// Collapsing a subdirectory unwatches it while its parent stays watched; the
-// parent must still report the subdirectory being deleted. (This is why
-// macOS keeps one kqueue watcher per directory: on a shared one, unwatching
-// the subdirectory also drops the parent's watch on it.)
 func TestWatchParentReportsUnwatchedSubdirectoryDeleted(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -151,10 +136,6 @@ func TestWatchParentReportsUnwatchedSubdirectoryDeleted(t *testing.T) {
 	waitForChanges(t, changes, "p/c")
 }
 
-// A symlinked directory is watchable like any other: the workspace root
-// itself may be a symlink, and fs.watch("") failed with IS_DIRECTORY there.
-// A symlinked directory and its target are watched side by side and report
-// changes under both paths.
 func TestWatchSymlinkedDirectory(t *testing.T) {
 	t.Parallel()
 	real := t.TempDir()
@@ -199,8 +180,6 @@ func collectChanges(fsys *Service) <-chan filewatch.FsChange {
 	return changes
 }
 
-// waitForChanges waits until every relPath in want has been reported and
-// returns every relPath seen up to then.
 func waitForChanges(t *testing.T, changes <-chan filewatch.FsChange, want ...string) map[string]bool {
 	t.Helper()
 	seen := make(map[string]bool)

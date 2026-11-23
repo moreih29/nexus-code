@@ -1,9 +1,3 @@
-/**
- * Settings the LSP host reads at each spawn and the stops they cause: the
- * workspace cap, a language's initializationOptions, and the restart of a
- * language's servers.
- */
-
 import { describe, expect, test } from "bun:test";
 import { startAgentLspHost } from "../../../../../src/main/features/lsp/agent-host";
 import type {
@@ -126,7 +120,6 @@ describe("LSP host settings", () => {
       },
     ]);
 
-    // The next document starts a new server.
     await open(host, WORKSPACE_A, "typescript", "a2.ts");
     expect(channel.spawns.filter((spawn) => spawn.languageId === "typescript")).toHaveLength(3);
   });

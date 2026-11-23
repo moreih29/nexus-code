@@ -1,6 +1,3 @@
-// The view each format with a preview opens in, its source or its preview:
-// a row for each, with the extensions it is for.
-
 import { useTranslation } from "react-i18next";
 import {
   builtInViewMode,

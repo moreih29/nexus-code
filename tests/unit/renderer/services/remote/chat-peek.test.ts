@@ -1,7 +1,3 @@
-/**
- * A chat's last turns at a glance (chat.peek), as an open tab's
- * conversation and the end of a history each give them.
- */
 import { describe, expect, test } from "bun:test";
 import {
   ChatPeekSchema,
@@ -180,7 +176,6 @@ describe("an open tab's peek", () => {
     expect(replies(9)).toEqual(["r2", "r3", "r4", "r5", "r6"]);
     expect(peekOfChat(source({ items })).more).toBe(true);
     expect(peekOfChat(source({ items: items.slice(0, 4) })).more).toBeUndefined();
-    // Its history has pages not read yet: more, though all it holds was sent.
     expect(
       peekOfChat(
         source(
@@ -213,7 +208,6 @@ describe("an open tab's peek", () => {
           items: [
             user("u1", text),
             said("a1", "Done."),
-            // One whose record the tab no longer keeps: told by the line before it.
             user("u2", relayedText({ ...sender, name: 'The "B" tab' }, "Again")),
             said("a2", "Again done."),
             user("u3", relayedText({ kind: "manager" }, "And you")),
@@ -405,7 +399,6 @@ describe("a Claude session's peek, from the end of its transcript", () => {
     ]);
     expect(tail.peek(undefined).more).toBe(true);
 
-    // Never more than PEEK_MORE_PAGES: what was read is told, cut at its start.
     const long = new ClaudeTail(page([rest[2]], 100, { cursor: "c100" }));
     for (let i = 1; i <= PEEK_MORE_PAGES; i++) {
       expect(long.cursor).toBe(`c${101 - i}`);

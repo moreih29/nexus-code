@@ -1,13 +1,3 @@
-/**
- * A chat as another device draws it: the conversation the serving device's
- * app already made of its program's log, trimmed of what only that app
- * uses. The shapes follow the desktop app's chat model, so its chat view can
- * draw a remote one as it draws its own; Claude Code's and Codex's own
- * formats stay on the serving device, which keeps up with their versions.
- *
- * An item or call of a kind this version does not know stays parseable
- * (UnknownItemSchema): a newer device may send more, and an older one skips it.
- */
 import { z } from "zod";
 import {
   NonnegativeIntegerSchema,
@@ -16,23 +6,19 @@ import {
   PositiveIntegerSchema,
 } from "./validation.js";
 
-/** An image a message or a tool result holds. Its bytes stay on the serving device in v1. */
 export const ImageRefSchema = z.object({
   mediaType: z.string(),
-  /** How many bytes the image takes. */
   bytes: NonnegativeIntegerSchema,
 });
 export type ImageRef = z.infer<typeof ImageRefSchema>;
 
 const at = NumberSchema.optional();
 
-/** A submission ID generated once by the sending client. */
 export const ClientNonceSchema = z
   .string()
   .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
 const ClientSubmission = {
   clientNonce: ClientNonceSchema.optional(),
-  /** Set by the host from the authenticated connection. */
   clientDeviceId: z.string().min(1).max(64).optional(),
 };
 
@@ -42,11 +28,8 @@ export const UserItemSchema = z.object({
   key: z.string(),
   text: z.string(),
   images: z.array(ImageRefSchema),
-  /** sent: written to the program; taken: the program read it. */
   state: z.enum(["sent", "taken"]),
-  /** Written during a turn and not read yet: it waits above the composer. */
   queued: z.boolean().optional(),
-  /** Codex turn boundary before this message. */
   forkable: z.boolean().optional(),
   rewindable: z.boolean().optional(),
   at,
@@ -63,7 +46,6 @@ export const AssistantItemSchema = z.object({
   key: z.string(),
   messageId: z.string(),
   blocks: z.array(AssistantBlockSchema),
-  /** Codex turn boundary after this answer. */
   forkable: z.boolean().optional(),
   at,
 });
@@ -72,17 +54,11 @@ export type ViewAssistantItem = z.infer<typeof AssistantItemSchema>;
 export const NoticeItemSchema = z.object({
   kind: z.literal("notice"),
   key: z.string(),
-  /** interrupted, exited, restarted, compacted, cleared, error…: a code the app names. */
   code: z.string(),
   detail: z.string().optional(),
   at,
 });
 
-/**
- * Where an agent that sent a message can be answered: its tab, on the
- * device `deviceId` (absent: the device this chat runs on). `nexus chat
- * send` takes it as it is.
- */
 export const ReplyAddressSchema = z.object({
   deviceId: z.string().optional(),
   workspaceId: z.string(),
@@ -90,7 +66,6 @@ export const ReplyAddressSchema = z.object({
 });
 export type ReplyAddress = z.infer<typeof ReplyAddressSchema>;
 
-/** A message the program took that the user did not write: another session's, a channel's. */
 export const ReceivedItemSchema = z.object({
   kind: z.literal("received"),
   key: z.string(),
@@ -98,9 +73,7 @@ export const ReceivedItemSchema = z.object({
     kind: z.string(),
     name: z.string().optional(),
     agent: z.string().optional(),
-    /** Sent from another device of the account: which one, as it names itself. */
     device: z.object({ id: z.string(), name: z.string() }).optional(),
-    /** Where the sender takes an answer. */
     replyTo: ReplyAddressSchema.optional(),
   }),
   text: z.string(),
@@ -129,7 +102,6 @@ export const ShellItemSchema = z.object({
   at,
 });
 
-/** The item kinds this version knows. */
 export const ITEM_KINDS: ReadonlySet<string> = new Set([
   "user",
   "assistant",
@@ -139,10 +111,6 @@ export const ITEM_KINDS: ReadonlySet<string> = new Set([
   "shell",
 ]);
 
-/**
- * An item of a kind this version does not know: kept so the list stays
- * whole, and not drawn. A known kind that does not fit its shape is no such item.
- */
 export const UnknownItemSchema = z.looseObject({
   kind: z.string().refine((kind) => !ITEM_KINDS.has(kind)),
   key: z.string(),
@@ -159,7 +127,6 @@ export const ViewItemSchema = z.union([
 ]);
 export type ViewItem = z.infer<typeof ViewItemSchema>;
 
-/** Most characters of a tool's result text sent; the rest is cut (`truncated`). */
 export const MAX_RESULT_TEXT = 64 * 1024;
 
 export const ViewToolCallSchema = z.object({
@@ -167,25 +134,20 @@ export const ViewToolCallSchema = z.object({
   name: z.string(),
   displayName: z.string().optional(),
   input: z.unknown().optional(),
-  /** streaming, running, done, error, denied, stopped. */
   status: z.string(),
   result: z
     .object({
       text: z.string(),
       isError: z.boolean(),
-      /** The program's structured result: a run's stdout, an edit's patch. */
       structured: z.unknown().optional(),
       images: z.array(ImageRefSchema),
-      /** The text was longer than MAX_RESULT_TEXT and is cut there. */
       truncated: z.boolean().optional(),
     })
     .optional(),
-  /** The agent call it runs under; null on the main thread. */
   parentToolUseId: z.string().nullable(),
 });
 export type ViewToolCall = z.infer<typeof ViewToolCallSchema>;
 
-/** A tool the program asks to run, which the user allows or denies. */
 export const ViewPermissionSchema = z.object({
   requestId: z.string(),
   toolName: z.string(),
@@ -194,20 +156,12 @@ export const ViewPermissionSchema = z.object({
   description: z.string().optional(),
   decisionReason: z.string().optional(),
   toolUseId: z.string().optional(),
-  /** A subagent's request. */
   agentId: z.string().optional(),
-  /** The call as the card previews it, when the input alone does not tell it. */
   preview: ViewToolCallSchema.optional(),
-  /**
-   * What "always allow" would add, one choice each, in the serving
-   * device's words ("Allow Bash(npm test:*) in this folder"): chat.answer
-   * picks them by index.
-   */
   suggestions: z.array(z.object({ label: z.string() })).optional(),
 });
 export type ViewPermission = z.infer<typeof ViewPermissionSchema>;
 
-/** A task the program runs beside the turn: a background run, a subagent. */
 export const ViewTaskSchema = z.object({
   taskId: z.string(),
   type: z.string(),
@@ -218,16 +172,10 @@ export const ViewTaskSchema = z.object({
   endedAt: NumberSchema.optional(),
   summary: z.string().optional(),
   activity: z.string().optional(),
-  /**
-   * The file its program writes a background run's output to, on that
-   * computer, as its chat there tells it: files.read reads it by this
-   * path, though it is outside the workspace's folders. Since 0.13.0.
-   */
   outputFile: z.string().max(4096).optional(),
 });
 export type ViewTask = z.infer<typeof ViewTaskSchema>;
 
-/** The reply being written: what the program streamed of its next message so far. */
 export const ViewStreamingSchema = z.object({
   messageId: z.string(),
   blocks: z.array(
@@ -240,39 +188,20 @@ export const ViewStreamingSchema = z.object({
 });
 export type ViewStreaming = z.infer<typeof ViewStreamingSchema>;
 
-/** Where a chat stands, apart from its messages. */
 export const ChatStatusSchema = z.object({
   agent: z.enum(["claude", "codex"]),
   title: z.string(),
-  /** The model it runs, as its program names it. */
   model: z.string().optional(),
   effort: z.string().optional(),
   permissionMode: z.string().optional(),
-  /** A turn is under way. */
   running: z.boolean(),
-  /** The turn was told to stop and has not yet (its stop button pressed). Since 0.13.0. */
   interrupting: z.boolean().optional(),
   process: z.enum(["none", "running", "exited"]),
-  /**
-   * Where its tab there stands with its program, as its banners tell it:
-   * starting, ready, held (waiting to start), ended (it exited; chat.restart
-   * starts it again), not-found (its session is gone) or failed (`error`
-   * says why; "old-version" for a program too old, `version` it); idle
-   * before it opens. Since 0.13.0.
-   */
   phase: z.string().optional(),
-  /** Revision of the process phase, including successive failures with the same details. */
   phaseRevision: NumberSchema.optional(),
-  /** Why it failed, or what was not found. Since 0.13.0. */
   error: z.string().optional(),
-  /** Its program's version, as it told it. Since 0.13.0. */
   version: z.string().optional(),
-  /**
-   * Its program needs a sign-in before a turn can run (a Codex chat's):
-   * signed in there, chat.checkSignIn asks it again. Since 0.13.0.
-   */
   signedOut: z.boolean().optional(),
-  /** How its program last exited: its code or signal, and the end of what it wrote to stderr. Since 0.13.0. */
   exit: z
     .object({
       code: NumberSchema.nullable(),
@@ -284,27 +213,15 @@ export const ChatStatusSchema = z.object({
     .object({
       startedAt: NumberSchema.optional(),
       outputTokens: NumberSchema,
-      /** The thinking it has done, as its program estimates it. Since 0.13.0. */
       thinkingTokens: NumberSchema.optional(),
-      /** requesting, compacting… */
       status: z.string().optional(),
-      /**
-       * The API failed and the program tries again: the try it is on, of
-       * how many, after how long a wait. Since 0.13.0.
-       */
       retry: z
         .object({
           attempt: NumberSchema,
           maxRetries: NumberSchema.optional(),
           delayMs: NumberSchema.optional(),
-          /** When the program said so, in Unix milliseconds: the wait ends `delayMs` after. Since 0.19.0. */
           at: NumberSchema.optional(),
-          /** The HTTP status of the error it tries again after; none when no answer came. Since 0.19.0. */
           status: NumberSchema.optional(),
-          /**
-           * Why: rate_limit, overloaded, server, connection, auth or other;
-           * another this version does not know reads as other. Since 0.19.0.
-           */
           reason: z.string().max(32).optional(),
         })
         .optional(),
@@ -315,145 +232,84 @@ export const ChatStatusSchema = z.object({
 });
 export type ChatStatus = z.infer<typeof ChatStatusSchema>;
 
-/** One step of the agent's to-do list. */
 export const ViewTodoSchema = z.object({
   content: z.string(),
-  /** pending, in_progress or completed. */
   status: z.string(),
 });
 
-/** A subagent the turn called (an Agent tool call). */
 export const ViewAgentRowSchema = z.object({
   toolUseId: z.string(),
   description: z.string(),
   prompt: z.string().optional(),
-  /** running, completed, failed or stopped. */
   status: z.string(),
   startedAt: NumberSchema.optional(),
   endedAt: NumberSchema.optional(),
 });
 
-/** A goal the chat works toward (/goal), and where it stands. */
 export const ViewGoalSchema = z.object({
   condition: z.string(),
-  /** active, paused, met or failed. */
   status: z.string(),
   setAt: NumberSchema.optional(),
-  /** How many checks found it unmet so far. */
   checks: NonnegativeIntegerSchema,
-  /** Once it ended: why. */
   reason: z.string().optional(),
-  /** The checks that found it unmet, oldest first, with what each said. Since 0.11.0. */
   checkReasons: z.array(z.object({ at: NumberSchema.optional(), reason: z.string() })).optional(),
-  /** A Codex goal: the seconds Codex worked toward it, as of `usedAt`. Since 0.11.0. */
   usedSeconds: NonnegativeNumberSchema.optional(),
   usedAt: NumberSchema.optional(),
-  /** The tokens it took so far, and a Codex goal's budget (null: none). Since 0.11.0. */
   tokens: NonnegativeIntegerSchema.optional(),
   tokenBudget: NonnegativeIntegerSchema.nullable().optional(),
-  /** Once it ended: how long it took, and when. Since 0.11.0. */
   durationMs: NonnegativeNumberSchema.optional(),
   endedAt: NumberSchema.optional(),
-  /** Once a Claude goal ended: the checks it took, the last that ended it too. Since 0.13.0. */
   iterations: NonnegativeIntegerSchema.optional(),
 });
 export type ViewGoal = z.infer<typeof ViewGoalSchema>;
 
-/**
- * A window of the plan's usage limits, as the desktop's line under the
- * composer shows it (since 0.10.0).
- */
 export const ViewUsageMeterSchema = z.object({
-  /**
-   * session (Claude's five hours), weekly (the week, every model),
-   * weekly_scoped (the week, one model: `scope`), window (a Codex window of
-   * `windowMins`); a kind this version does not know may come.
-   */
   kind: z.string(),
   scope: z.string().optional(),
   windowMins: PositiveIntegerSchema.optional(),
-  /** How much of it is spent, from 0 to 100. */
   percent: NumberSchema,
-  /** When it starts over, in Unix milliseconds. */
   resetsAt: NumberSchema.optional(),
 });
 export type ViewUsageMeter = z.infer<typeof ViewUsageMeterSchema>;
 
-/**
- * What the chat's side panel shows beside the conversation: the to-do
- * list, the tasks and subagents, the files it changed, the context it
- * fills, what it cost, and its goal.
- */
-/** The most of a held message's text the panel tells; chat.unqueue gives all of it. */
 export const MAX_HELD_TEXT = 500;
 
 export const ChatPanelSchema = z.object({
   todos: z.array(ViewTodoSchema),
-  /** Background runs and the like, by the program's task ids (chat.stopTask stops one). */
   tasks: z.array(ViewTaskSchema),
   agents: z.array(ViewAgentRowSchema),
   changedFiles: z.array(
     z.object({
-      /** Absolute, on the serving device, as the chat's tool calls name it. */
       path: z.string(),
       added: NonnegativeIntegerSchema.optional(),
       removed: NonnegativeIntegerSchema.optional(),
-      /** The chat made it: its first change wrote it new. Since 0.13.0. */
       created: z.boolean().optional(),
     }),
   ),
-  /** The context window: tokens in it, and how many it takes; null before the program said. */
   context: z
     .object({
       usedTokens: NonnegativeIntegerSchema,
       maxTokens: PositiveIntegerSchema,
-      /**
-       * What fills it, by kind (the system prompt, tools, messages), as a
-       * Claude chat's program tells it. Since 0.13.0.
-       */
       categories: z
         .array(z.object({ name: z.string().max(200), tokens: NonnegativeIntegerSchema }))
         .max(50)
         .optional(),
-      /** How many of its tokens are free, as a Claude chat's program tells it. Since 0.13.0. */
       freeTokens: NonnegativeIntegerSchema.optional(),
     })
     .nullable(),
-  /** What the conversation cost so far, in US dollars, when the program tells it. */
   costUsd: NonnegativeNumberSchema.optional(),
-  /**
-   * The plan's usage limits, for a profile signed in with a subscription:
-   * those the desktop shows (the session's and the week's first), none
-   * for one that pays by API key, whose cost `costUsd` tells. Since 0.10.0.
-   */
   planLimits: z.array(ViewUsageMeterSchema).optional(),
   goal: ViewGoalSchema.nullable(),
-  /**
-   * The program's own word on the plan's limit, as the desktop's banner
-   * over the composer shows it: allowed_warning when near, rejected when
-   * reached, until `resetsAt` (Unix milliseconds). Since 0.11.0.
-   */
   rateLimit: z
     .object({
       status: z.string(),
       resetsAt: NumberSchema.optional(),
-      /** five_hour, seven_day… as the program names the window. */
       kind: z.string().optional(),
     })
     .optional(),
-  /**
-   * A chat the plan's usage limit stopped, of a subscription's profile:
-   * whether and when its app goes on in it by itself. state: waiting (it
-   * sends the agent a message to go on at `at`), unknown (no reset time;
-   * nothing scheduled), cancelled (by the user), gave_up (the limit held
-   * after the most tries); another this version does not know reads as
-   * none. Times in Unix milliseconds. Since 0.19.0; one this version cannot
-   * read is left out, not the panel.
-   */
   limitResume: z
     .object({
       state: z.string().max(32),
-      /** Time of the turn result that hit the limit, in Unix milliseconds. */
       stopAt: NumberSchema.optional(),
       at: NumberSchema.optional(),
       resetsAt: NumberSchema.optional(),
@@ -461,7 +317,6 @@ export const ChatPanelSchema = z.object({
     })
     .optional()
     .catch(undefined),
-  /** The MCP servers the chat's program has, and how each stands (connected, failed…). Since 0.11.0. */
   mcp: z
     .array(
       z.object({
@@ -472,20 +327,13 @@ export const ChatPanelSchema = z.object({
       }),
     )
     .optional(),
-  /** What the chat's program runs as: its session's id, its version, the account it is signed in with. Since 0.11.0. */
   session: z
     .object({
       id: z.string().optional(),
       version: z.string().optional(),
-      /** As the desktop's panel shows it: email · organization · plan. */
       account: z.string().optional(),
     })
     .optional(),
-  /**
-   * Claude Code's Remote Control: whether its program can turn it on,
-   * whether it is on, and the session's address there while it is
-   * (chat.remoteControl turns it). Since 0.11.0.
-   */
   remoteControl: z
     .object({
       available: z.boolean(),
@@ -493,50 +341,22 @@ export const ChatPanelSchema = z.object({
       url: z.string().optional(),
     })
     .optional(),
-  /**
-   * Where the conversation went on in another profile: after the item
-   * whose key is `after`, in the profile named `profile` (profiles.list's
-   * name), at `at`. Since 0.11.0.
-   */
   moves: z.array(z.object({ after: z.string(), profile: z.string(), at: NumberSchema })).optional(),
-  /**
-   * What another device can do with the chat now: rewind it to before one
-   * of the user's messages (chat.rewind), fork it (chat.fork), send a
-   * running command or subagent to the background (chat.background).
-   * Absent before 0.11.0, which serves none of them; a Codex chat's comes
-   * from 0.13.0.
-   */
   can: z
     .object({
       rewind: z.boolean(),
       fork: z.boolean(),
       background: z.boolean(),
-      /** Send into the turn at once (chat.send `now`). Since 0.12.0. */
       now: z.boolean().optional(),
-      /** Take back an unread message (chat.withdraw). Since 0.12.0. */
       withdraw: z.boolean().optional(),
-      /** Have the unread messages read now (chat.hurry). Since 0.12.0. */
       hurry: z.boolean().optional(),
-      /**
-       * Move it to another profile while it works or waits on the user, its
-       * turn stopping (chat.profile `stop`), as its chip there does. Since 0.13.0.
-       */
       moveNow: z.boolean().optional(),
-      /** Work its MCP servers: sign in, connect again, turn on or off (chat.mcp). Since 0.13.0. */
       mcp: z.boolean().optional(),
-      /** Refresh Codex MCP inventory with chat.command (mcp refresh). */
       mcpStatus: z.boolean().optional(),
-      /** Correlates user submissions in chat.send, watch and read. */
       clientNonce: z.boolean().optional(),
-      /** Read and change its Claude Code settings, or a Codex chat's defaults (chat.config). Since 0.13.0. */
       config: z.boolean().optional(),
     })
     .optional(),
-  /**
-   * The messages held for after the turn (chat.send `after`), in the order
-   * they go: each's text cut to MAX_HELD_TEXT (`truncated`), and how many
-   * images and files it carries. Since 0.12.0.
-   */
   held: z
     .array(
       z.object({

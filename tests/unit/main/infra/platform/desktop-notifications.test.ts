@@ -19,7 +19,6 @@ beforeEach(() => {
 
 const warned = () => mainWarnMock.mock.calls.map(([msg]) => msg);
 
-/** A gate over D-Bus whose service answers when the test says, and whose clock it moves. */
 function gate(overDbus = true) {
   let clock = 0;
   const asked: Array<(answer: ServiceAnswer, detail?: string) => void> = [];
@@ -42,7 +41,6 @@ function gate(overDbus = true) {
     show,
     shown: () => shown,
     asked,
-    /** Answers the last question, and lets the gate take the answer. */
     answer: async (answer: ServiceAnswer, detail?: string) => {
       asked.at(-1)?.(answer, detail);
       await Promise.resolve();
@@ -89,7 +87,6 @@ describe("DesktopNotifications", () => {
     expect(g.show()).toBe(false);
     expect(g.asked).toHaveLength(1);
 
-    // The first after the while asks again, and goes no further itself.
     g.pass(1);
     expect(g.show()).toBe(false);
     expect(g.asked).toHaveLength(2);
@@ -129,7 +126,6 @@ describe("DesktopNotifications", () => {
     expect(g.show(SLOW_SHOW_MS + 1)).toBe(true);
     expect(g.show()).toBe(false);
 
-    // Nothing can tell the service answers again: they stay off, not holding the app every while.
     g.pass(OFF_FOR_MS);
     expect(g.show()).toBe(false);
     await g.answer("unknown");
@@ -161,7 +157,6 @@ describe("DesktopNotifications", () => {
 });
 
 describe("askNotificationService", () => {
-  /** A runner that ends each command as `ends` says, and records what it ran. */
   function runner(ends: Record<string, AskResult>) {
     const ran: string[] = [];
     const run: AskRunner = async (file, args, timeoutMs) => {

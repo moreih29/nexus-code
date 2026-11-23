@@ -1,4 +1,3 @@
-/** Markdown an agent writes, as a note's blocks; and where blocks go into a note. */
 import { describe, expect, test } from "bun:test";
 import { imagesOf, markdownToBlocks } from "../../../../src/shared/notes/from-markdown";
 import { hasBlocksAt, insertionIndex, withBlocks } from "../../../../src/shared/notes/insert";
@@ -93,7 +92,6 @@ describe("markdownToBlocks", () => {
       { type: "taskList", content: [todo("to do", false), todo("done", true)] },
       { type: "bulletList", content: [item("after")] },
     ]);
-    // An ordered list's numbers go on across the cut.
     expect(markdownToBlocks("4. four\n5. [ ] five\n6. six\n")).toEqual([
       { type: "orderedList", attrs: { start: 4 }, content: [item("four")] },
       { type: "taskList", content: [todo("five", false)] },

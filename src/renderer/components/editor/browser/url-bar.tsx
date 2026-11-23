@@ -1,19 +1,3 @@
-/**
- * UrlBar — controlled URL input for the browser tab toolbar.
- *
- * BEHAVIOR
- * --------
- * - Displays the current URL from BrowserRuntimeStore (or empty string for a
- *   new tab). Local input state tracks edits before submission.
- * - On focus: selects all text so the user can replace the current URL instantly.
- * - On Enter: classifies the input with `classifyUrl` and calls `onNavigate` or
- *   shows an inline blocked-scheme error.
- * - On Escape: restores the store's currentUrl and blurs.
- * - URL display syncs to runtime store whenever the input is NOT focused.
- *
- * The component is intentionally stateless with respect to navigation history —
- * it only reads from the runtime store and fires `onNavigate` upward.
- */
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { classifyUrl } from "@/services/browser/url-classifier";
@@ -21,15 +5,10 @@ import { cn } from "@/utils/cn";
 import { isImeComposing } from "@/utils/ime";
 
 interface UrlBarProps {
-  /** Current URL from the runtime store (kept in sync when not focused). */
   currentUrl: string;
-  /** Whether the browser is in a loading state (subtle visual indicator). */
   isLoading: boolean;
-  /** Called with the resolved URL when the user submits a valid navigation. */
   onNavigate: (url: string) => void;
-  /** Whether this input should be auto-focused on mount (new/empty tabs). */
   autoFocus?: boolean;
-  /** Imperative focus request counter — increments trigger focus+select. */
   focusToken?: number;
   className?: string;
 }
@@ -48,14 +27,12 @@ export function UrlBar({
   const [isFocused, setIsFocused] = useState(false);
   const [blockedError, setBlockedError] = useState<string | null>(null);
 
-  // Sync store URL → local value whenever NOT focused.
   useEffect(() => {
     if (!isFocused) {
       setLocalValue(currentUrl);
     }
   }, [currentUrl, isFocused]);
 
-  // Respond to external focus requests (e.g., ⌘L shortcut).
   useEffect(() => {
     if (focusToken === 0) return;
     const input = inputRef.current;
@@ -67,13 +44,11 @@ export function UrlBar({
   function handleFocus() {
     setIsFocused(true);
     setBlockedError(null);
-    // Select all on focus so the user can type a replacement immediately.
     inputRef.current?.select();
   }
 
   function handleBlur() {
     setIsFocused(false);
-    // Restore to the committed URL on blur without explicit submission.
     setLocalValue(currentUrl);
     setBlockedError(null);
   }
@@ -99,7 +74,6 @@ export function UrlBar({
     }
     if (e.key === "Escape") {
       e.preventDefault();
-      // Restore to committed URL and relinquish focus.
       setLocalValue(currentUrl);
       setBlockedError(null);
       inputRef.current?.blur();

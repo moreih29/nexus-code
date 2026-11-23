@@ -1,33 +1,16 @@
-// Submits a release's AppX to the Microsoft Store through the Store Developer
-// CLI (msstore), which has to be signed in already (`msstore reconfigure`).
-//
-//   bun run scripts/store-submit.ts --package-dir <dir> [--no-commit | --dry-run]
-//
-// The submission starts from the last published one, so the listing, pricing
-// and certification notes carry over. Only the package and each listing's
-// release notes ("What's new") change; the notes come from
-// build/store-release-notes.json, which has to name this version.
-//   --no-commit  uploads and updates the draft but does not submit it.
-//   --dry-run    changes nothing: reads the published submission and prints
-//                the release notes it would set.
-// MSSTORE names the CLI when it is not on PATH.
-
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { STORE_PRODUCT_ID } from "../src/main/features/updates/microsoft-store";
 
-/** NexusCode's Store product ID in Partner Center. */
 export const PRODUCT_ID = STORE_PRODUCT_ID;
 
-/** The Store caps each listing's release notes at this many characters. */
 export const RELEASE_NOTES_MAX_LENGTH = 1500;
 
 const ROOT_DIR = path.resolve(import.meta.dir, "..");
 const DEFAULT_NOTES_FILE = path.join(ROOT_DIR, "build", "store-release-notes.json");
 
-// The large files need more than the CLI's default of 100 seconds per request.
 const UPLOAD_TIMEOUT_SECONDS = "1800";
 
 interface StoreListing {
@@ -45,10 +28,6 @@ export interface StoreSubmission {
   readonly [key: string]: unknown;
 }
 
-/**
- * Reads the release notes for `version`: a JSON object with a "version" and
- * one string per listing locale, keyed like the submission's listings.
- */
 export function readReleaseNotes(file: string, version: string): Record<string, string> {
   const { version: notesVersion, ...notes } = JSON.parse(readFileSync(file, "utf8")) as Record<
     string,
@@ -73,7 +52,6 @@ export function readReleaseNotes(file: string, version: string): Record<string, 
   return notes as Record<string, string>;
 }
 
-/** Sets each listing's release notes; every listing needs notes, and every note a listing. */
 export function applyReleaseNotes(
   submission: StoreSubmission,
   notes: Readonly<Record<string, string>>,
@@ -103,7 +81,6 @@ export function applyReleaseNotes(
   };
 }
 
-/** Throws unless `fileName` is the one package the draft keeps. */
 export function checkDraftPackage(submission: StoreSubmission, fileName: string): void {
   const kept = (submission.ApplicationPackages ?? []).filter(
     (pkg) => pkg.FileStatus !== "PendingDelete",
@@ -114,7 +91,6 @@ export function checkDraftPackage(submission: StoreSubmission, fileName: string)
   }
 }
 
-/** The one AppX for `version` in `dir`. */
 export function findPackage(dir: string, version: string): string {
   const appxs = readdirSync(dir).filter((name) => name.toLowerCase().endsWith(".appx"));
   const matching = appxs.filter((name) => name.includes(`-${version}-`));
@@ -131,7 +107,6 @@ function msstore(args: readonly string[]): string {
   console.error(`> msstore ${args.join(" ")}`);
   const result = spawnSync(command, [...args], {
     encoding: "utf8",
-    // Progress goes to stderr; stdout carries the JSON some commands print.
     stdio: ["ignore", "pipe", "inherit"],
     maxBuffer: 64 * 1024 * 1024,
   });
@@ -171,17 +146,12 @@ export async function submitToStore(options: SubmitOptions): Promise<void> {
     return;
   }
 
-  // `publish` needs a project to find a publisher for. Pointed at this repo,
-  // its Electron support would run `npm install` here, so it gets a project
-  // of one package.json instead.
   const scratch = mkdtempSync(path.join(os.tmpdir(), "nexus-store-"));
   try {
     writeFileSync(
       path.join(scratch, "package.json"),
       `${JSON.stringify({ name: "nexuscode-store", private: true })}\n`,
     );
-    // Starts a draft from the last published submission, replacing a pending
-    // one, and swaps the package.
     msstore([
       "publish",
       scratch,
@@ -212,9 +182,6 @@ export async function submitToStore(options: SubmitOptions): Promise<void> {
       console.log(`Left ${packageName} in a draft submission, not submitted.`);
       return;
     }
-    // `submission publish` returns once the commit has started; the Store
-    // can still turn it down (CommitFailed). `poll` waits for the outcome
-    // and exits non-zero on that failure.
     msstore(["submission", "publish", PRODUCT_ID]);
     process.stdout.write(msstore(["submission", "poll", PRODUCT_ID]));
     console.log(`Submitted ${packageName} for certification.`);

@@ -1,4 +1,3 @@
-/** Every nexus command, in the order help lists them. */
 import type { CliCommand } from "../registry";
 import { agentCommands } from "./agent";
 import { agentContextCommands } from "./agent-context";

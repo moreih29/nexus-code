@@ -1,14 +1,3 @@
-// The agent view's list: every workspace's agents, grouped by their state
-// (waiting on the user, running, with a new result, idle, ended) or by the
-// workspace they run in, a workspace's tasks set in below it, in the
-// sidebar's order. A row shows its agent in a panel, by a click or dragged
-// where it should go; dragged among its workspace's rows, it takes the place
-// it is dropped on; ↑ and ↓ step between rows. The eye tells which already
-// are shown, and the pointer on a row lights up the panel it is in. The
-// search box finds agents by their title, last prompt or last answer, as
-// the agent list's does. The grouping and the folded groups are kept across
-// restarts.
-
 import { CheckCheck, GitBranch, Plus } from "lucide-react";
 import { type KeyboardEvent, memo, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -105,7 +94,6 @@ import { SidebarDropIndicator } from "./sidebar-drop";
 
 const GROUPINGS: readonly AgentListGrouping[] = ["status", "workspace"];
 
-// Memo: kept while hidden, it would render again with each of the app's.
 export const AgentSidebar = memo(function AgentSidebar({ shown }: { shown: boolean }) {
   const { t } = useTranslation();
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
@@ -121,7 +109,6 @@ export const AgentSidebar = memo(function AgentSidebar({ shown }: { shown: boole
   const listRef = useRef<HTMLDivElement>(null);
 
   return (
-    // The sidebar's shell and width, so switching views keeps the layout.
     <aside className="relative flex shrink-0 flex-col" style={{ width: sidebarWidth }}>
       <div
         className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-(--radius-island) island-surface"
@@ -166,8 +153,6 @@ export const AgentSidebar = memo(function AgentSidebar({ shown }: { shown: boole
             data-testid="agent-sidebar-search"
           />
         </div>
-        {/* ↑ ↓ step between the agents' rows, Home and End to the first and last;
-            ↑ on the first goes back to the search box. */}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: the keys come from the rows' own buttons */}
         <div
           ref={listRef}
@@ -205,7 +190,6 @@ export const AgentSidebar = memo(function AgentSidebar({ shown }: { shown: boole
   );
 });
 
-/** Moves the focus from one agent's row to the next or previous one in the list, as shown. */
 export function stepRows(event: KeyboardEvent<HTMLDivElement>, search: HTMLElement | null): void {
   const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
   if (!keys.includes(event.key)) return;
@@ -225,10 +209,6 @@ export function stepRows(event: KeyboardEvent<HTMLDivElement>, search: HTMLEleme
   target.focus();
 }
 
-/**
- * The search box's keys for the list under it: ↓ goes to the first agent
- * it lists, and Enter, with a query, opens that agent.
- */
 export function fromSearch(event: KeyboardEvent<HTMLInputElement>, list: HTMLElement | null): void {
   if (event.key !== "ArrowDown" && event.key !== "Enter") return;
   const first = list?.querySelector<HTMLElement>("[data-agent-row]");
@@ -246,11 +226,9 @@ export function fromSearch(event: KeyboardEvent<HTMLInputElement>, list: HTMLEle
 interface GroupsProps {
   agents: Agents;
   activity: ActivityByKey;
-  /** What the search box holds: only the agents it finds are listed, in groups that are open. */
   query: string;
 }
 
-/** What the list says when the search finds no agent. */
 function NoMatch() {
   const { t } = useTranslation();
   return (
@@ -269,12 +247,6 @@ function NoWorkspaces() {
   );
 }
 
-/**
- * Every agent by its state, the agent list's groups in its order: those
- * waiting on the user longest first, the latest first in the others. A row
- * tells the workspace it runs in; one with none shows as a dim line, so the
- * groups keep their places.
- */
 export function StatusGroups({
   agents,
   activity,
@@ -346,12 +318,10 @@ export function StatusGroups({
         const cards = group === "attention" ? consents : [];
         const count = rows.length + cards.length;
         if (count === 0) {
-          // A search tells only what it found.
           if (searching) return null;
           return (
             <section key={group} aria-label={label}>
               <h3 className="flex h-7 items-center gap-1.5 px-2 text-app-ui-sm text-muted-foreground opacity-60">
-                {/* No fold to open, its chevron's place kept so the groups stay in one column. */}
                 <span aria-hidden className="size-3.5 shrink-0" />
                 <StateGlyph state={GROUP_STATE[group]} still />
                 <span>{label}</span>
@@ -360,7 +330,6 @@ export function StatusGroups({
             </section>
           );
         }
-        // A search shows what it found, in folded groups too.
         const isFolded = !searching && folded.has(key);
         return (
           <section
@@ -484,7 +453,6 @@ export function StatusGroups({
 
 type LocalStatusTree = { kind: "local"; key: string; node: SessionTreeNode };
 
-/** Marks every new result of the group read, as the inbox's "Mark new results read" does. */
 function MarkAllRead({ onMark }: { onMark: () => void }) {
   const { t } = useTranslation();
   return (
@@ -494,7 +462,6 @@ function MarkAllRead({ onMark }: { onMark: () => void }) {
   );
 }
 
-/** Every workspace with its tasks and their agents, in the sidebar's order and the one dragged into. */
 export function WorkspaceGroups({ agents, activity, query }: GroupsProps) {
   const order = useAgentViewStore((s) => s.order);
   const folded = useAgentViewStore((s) => s.folded);
@@ -601,7 +568,6 @@ function FamilyGroup({
   return (
     <section
       aria-label={root.name}
-      // A space between workspaces, so each one's agents read as its own.
       className="mt-1 flex flex-col not-first:mt-3"
       data-testid="agent-sidebar-group"
       onDragLeave={(event) => leaveWorkspaceReorder(event)}
@@ -613,8 +579,6 @@ function FamilyGroup({
             className="flex h-7 min-w-0 items-center gap-1.5 rounded-(--radius-control) pr-1 pl-1 hover:bg-[var(--state-hover-bg)]"
             onDragOver={onReorder ? (event) => hoverWorkspaceReorder(event, root.id) : undefined}
           >
-            {/* While renaming, the name is a field and the fold button gives way to a plain row,
-                so a click in the field never folds the group. */}
             {rename.renaming ? (
               <div className="flex min-w-0 flex-1 items-center gap-1.5 self-stretch">
                 <FoldChevron folded={rootFolded} />
@@ -705,7 +669,6 @@ function FamilyGroup({
                 onReorder={roots.length > 1 ? onReorder : undefined}
               />
             ))}
-            {/* A conversation listed under its parent elsewhere still runs here. */}
             {worktree.isRoot && roots.length === 0 && hosted === 0 && (
               <p className="py-1 pl-7 text-app-micro text-muted-foreground">
                 {t("agentView.list.no_agents")}
@@ -754,8 +717,6 @@ function SessionBranch({
       renderRow={(branchNode, collapsed) => {
         const current = branchNode.session;
         const placed = agents.byKey.get(current.key);
-        // Its place once: by state, a family's root says where it runs; a
-        // child, and by workspace any row, only where its group does not.
         const told =
           (group !== undefined && branchNode.depth === 0) ||
           current.workspaceId !== rootWorkspaceId;
@@ -785,7 +746,6 @@ function SessionBranch({
   );
 }
 
-/** Where a remote workspace runs, with how its connection stands. */
 function WhereLabel({ workspace }: { workspace: WorkspaceMeta }) {
   const status = useWorkspacesStore((s) => selectWorkspaceConnectionStatus(s, workspace.id));
   const location = workspace.location;
@@ -805,12 +765,6 @@ function WhereLabel({ workspace }: { workspace: WorkspaceMeta }) {
   );
 }
 
-/**
- * The + that starts a Claude or Codex conversation in a workspace, shown in
- * a panel: with the profile the workspace gives, or, where there is more
- * than one, another picked from its submenu, as the tab bar's + does.
- */
-// Memo: a Radix menu for each workspace and task, which their list renders with each change of any agent's.
 const NewAgentMenu = memo(function NewAgentMenu({ workspace }: { workspace: WorkspaceMeta }) {
   const { t } = useTranslation();
   const start = (kind: "claude" | "codex", profileId?: string) => {
@@ -844,11 +798,6 @@ const NewAgentMenu = memo(function NewAgentMenu({ workspace }: { workspace: Work
   );
 });
 
-/**
- * Memoized, and reads its own conversation's facts (use-row-facts): a
- * chunk of a reply streaming in, here or in another tab, renders no row
- * whose facts it leaves as they were.
- */
 const AgentItem = memo(function AgentItem({
   session,
   run,
@@ -862,9 +811,7 @@ const AgentItem = memo(function AgentItem({
   counts,
 }: {
   session: AgentSession;
-  /** What its hooks report, when they do. */
   run: SessionActivity | undefined;
-  /** Where it runs, where its group does not tell. */
   place?: RowPlace;
   dragScope: string;
   draggable: boolean;
@@ -893,7 +840,6 @@ const AgentItem = memo(function AgentItem({
       data-session-key={key}
     >
       {where && <PanelMark where={where} testId="agent-sidebar-panel" />}
-      {/* The row as one button behind its content, so the subagents' buttons stay buttons. */}
       <button
         type="button"
         draggable={draggable}
@@ -954,10 +900,6 @@ const AgentItem = memo(function AgentItem({
   );
 });
 
-/**
- * Where a conversation of this computer runs, as its row tells it: a task's
- * branch, or a workspace by its color and name.
- */
 function placeOf({
   workspace,
   root,

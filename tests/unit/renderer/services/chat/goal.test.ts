@@ -1,8 +1,3 @@
-/**
- * A conversation's goal (/goal) as the tab reads it: Claude Code's stream
- * and transcript, and Codex's thread goal. The lines are as Claude Code
- * 2.1.319 and codex app-server 0.167.0 wrote them.
- */
 import { describe, expect, test } from "bun:test";
 import {
   historyModel,
@@ -33,7 +28,6 @@ const SET_AT = Date.parse("2026-11-10T13:52:27.989Z");
 let seq = 0;
 const out = (message: unknown, at = 1000): ChatLine => ({ seq: ++seq, dir: "out", message, at });
 
-/** /goal's output, a message Claude Code writes itself. */
 function goalOutput(text: string, args = GOAL): ChatLine {
   return out({
     type: "assistant",
@@ -51,7 +45,6 @@ function goalOutput(text: string, args = GOAL): ChatLine {
   });
 }
 
-/** A check that found the goal unmet, which Claude reads to go on. */
 function feedback(reason: string, condition = GOAL): ChatLine {
   return out({
     type: "user",
@@ -115,7 +108,6 @@ describe("a Claude goal in the stream", () => {
   });
 
   test("a feedback taken back as a message does not take one the user sent", () => {
-    // With --replay-user-messages a message the CLI took comes back as a replay.
     const set = goalOutput(`Goal set: ${GOAL}`);
     const sent: ChatLine = {
       seq: ++seq,
@@ -163,7 +155,6 @@ describe("a Claude goal in the stream", () => {
   });
 });
 
-/** A transcript's entries for a goal checked twice and met. */
 const TRANSCRIPT = [
   {
     type: "attachment",

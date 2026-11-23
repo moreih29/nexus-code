@@ -141,20 +141,12 @@ import { RemoteTerminalAsk } from "./remote-terminal-ask";
 import { RemoteTerminalScreen } from "./remote-terminal-screen";
 import { rateLimitOf, usageLineOf } from "./remote-usage";
 
-/** How many lines of a terminal are shown. */
 const TERMINAL_LINES = 2000;
 
-/** How long clearing a Claude goal waits for the turn it stopped to end, as a chat here does. */
 const GOAL_STOP_MS = 10_000;
 
-/**
- * The ended goal whose bar was closed, by each chat's session key: kept
- * while the app runs, as a chat here keeps it in its tab's state, so a
- * chat opened again or put back in sight does not show it again.
- */
 const closedGoals = new Map<string, string>();
 
-/** A Codex chat's changed files as a card, as /diff shows them: each opens its diff. */
 export function changesCard(
   changed: NonNullable<WatchedChat["panel"]>["changedFiles"],
   folder: string,
@@ -179,12 +171,6 @@ export function changesCard(
   };
 }
 
-/**
- * The id there of the profile the chat runs with, of its agent's profiles
- * its computer lists: by the chat's profile's name, or the only one where
- * the chat names none (a session names its profile only where there are
- * more than one).
- */
 async function peerProfileIdOf(target: RemoteTarget): Promise<string> {
   if (target.kind !== "claude" && target.kind !== "codex") {
     throw new Error("this chat's profile is not known here");
@@ -197,19 +183,11 @@ async function peerProfileIdOf(target: RemoteTarget): Promise<string> {
   return chatProfileIdThere(target.profile || undefined, result.value.profiles);
 }
 
-/**
- * Runs a command in a new terminal of the chat's computer, in the chat's
- * folder where that is in its workspace, and shows the terminal here, as a
- * chat here runs one in a terminal of its own: in the chat's profile, as
- * its program runs (a sign-in there is the profile's, not the default
- * folder's).
- */
 export function runInPeerTerminal(
   target: RemoteTarget,
   command: string,
   open: OpenRemoteSession = openRemoteSession,
 ): void {
-  // A folder outside its workspace is not one a terminal there opens in.
   const folder =
     target.cwd && target.cwd !== target.path && isUnder(target.cwd, target.path)
       ? target.cwd
@@ -252,13 +230,8 @@ function openPeerTerminal(
   });
 }
 
-/** What signs a Codex in on another computer: by a code shown in its terminal. */
 const CODEX_SIGN_IN = "codex login --device-auth";
 
-/**
- * The session in front of a panel, filling it below the panel's tabs. It
- * is read only while its tab is `visible`.
- */
 export function RemoteSessionPane({
   target,
   visible,
@@ -272,7 +245,6 @@ export function RemoteSessionPane({
   const controls = usePeerControls(target.deviceId, host === null);
   return (
     <RemoteSessionHostContext.Provider value={host}>
-      {/* Out of reach, nothing in it turns: a running call shows as it was, not as live. */}
       <div
         className={cn(
           "absolute inset-0 flex min-h-0 min-w-0 flex-col overflow-hidden",
@@ -325,10 +297,6 @@ function Waiting({
   );
 }
 
-/**
- * In place of the controls while the session cannot be reached: what is
- * shown is how it last was, and nothing sent from here would arrive.
- */
 export function Unreachable({
   reach,
   device,
@@ -363,10 +331,6 @@ export function Unreachable({
   );
 }
 
-/**
- * In place of the controls while the device lets this one only look: the
- * turn's status, and why there is nothing to send with.
- */
 function ViewOnly({
   model,
   device,
@@ -396,7 +360,6 @@ function ViewOnly({
   );
 }
 
-/** The mode a plan's approval sets (its setMode), of those another device's plan takes. */
 function planModeOf(
   updates: readonly unknown[] | undefined,
 ): "acceptEdits" | "default" | undefined {
@@ -407,11 +370,6 @@ function planModeOf(
   return undefined;
 }
 
-/**
- * The protocol's answer for the card's. An always-allow keeps the request's
- * suggestions it picked, by their index in the serving computer's list: all
- * of them when it picked none.
- */
 export function remoteAnswerOf(
   answer: PermissionAnswer,
   request: PermissionRequest,
@@ -426,7 +384,6 @@ export function remoteAnswerOf(
 } {
   switch (answer.kind) {
     case "allow": {
-      // A plan's approval: the mode it goes on in, as the card set it.
       const planMode =
         planModeOptions && request.toolName === "ExitPlanMode"
           ? planModeOf(answer.updatedPermissions)
@@ -464,7 +421,6 @@ function RemoteChat({
   target: RemoteTarget;
   visible: boolean;
   reach: PeerReach;
-  /** The device lets this one control its chats; else they are only shown. */
   controls: boolean;
 }) {
   const { deviceId, workspaceId, tabId } = target;
@@ -507,11 +463,6 @@ function RemoteChat({
   );
 }
 
-/**
- * The chat's goal for its bar. A computer before 0.11.0 tells no end time:
- * one that ended while shown took from when it was set until then; one
- * that had ended before has no time to tell.
- */
 function useRemoteGoal(
   view: ViewGoal | null | undefined,
   agent: "claude" | "codex",
@@ -534,7 +485,6 @@ function useRemoteGoal(
 
 const NO_CHANGES: readonly never[] = [];
 
-/** The chat, composer and side panel in the current pane. */
 function RemoteChatView({
   target,
   page,
@@ -548,7 +498,6 @@ function RemoteChatView({
   target: RemoteTarget;
   page: WatchedChat;
   model: ChatModel;
-  /** The chat's messages before those read so far. */
   older?: OlderMessages;
   visible: boolean;
   reach: PeerReach;
@@ -599,7 +548,6 @@ function RemoteChatView({
   const fontStyle = useChatFontStyle();
   const claude = target.kind !== "codex";
   const rootRef = useRef<HTMLDivElement>(null);
-  // Opened or picked, it takes the keyboard as a chat here does: its permission card, or its box.
   const sessionKey = remoteSessionKey(target);
   const focusKey = host?.focusKey ?? sessionKey;
   useEffect(
@@ -631,9 +579,6 @@ function RemoteChatView({
   useEffect(() => {
     if (place === "beside") setDrawerOpen(false);
   }, [place]);
-  // The drawer covers the composer, so it takes the keyboard while open, as
-  // a chat here's does: Escape closes it from there. Closed, the keyboard
-  // goes back to where it was, unless the user put it somewhere else.
   const drawerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const drawer = drawerRef.current;
@@ -646,7 +591,6 @@ function RemoteChatView({
       if (dropped && back?.isConnected) back.focus({ preventScroll: true });
     };
   }, [drawerOpen]);
-  // A bare /status, /context or /usage opens the panel; its section opens itself.
   const [panelAsk, setPanelAsk] = useState<RemotePanelAsk | null>(null);
   const askPanel = (part: RemotePanelPart, id?: string) =>
     setPanelAsk((prev) => ({ part, seq: (prev?.seq ?? 0) + 1, ...(id ? { id } : {}) }));
@@ -660,8 +604,6 @@ function RemoteChatView({
     }
   }, [panelAsk?.seq]);
 
-  // The pane shows main or one subagent's transcript, or a `claude -p` run
-  // its session started; input always goes to main.
   const runs = usePeerRuns({ deviceId, workspaceId, tabId }, visible && reach === "online");
   const runRows = useMemo(() => peerRunRows(runs), [runs]);
   const agents = useMemo(
@@ -678,7 +620,6 @@ function RemoteChatView({
     if (place !== "beside") setDrawerOpen(false);
   };
 
-  // ⌘[ and ⌘] step through main and the subagents, as in a chat here.
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
     if (event.key !== "[" && event.key !== "]") return;
@@ -689,8 +630,6 @@ function RemoteChatView({
     const step = event.key === "]" ? 1 : -1;
     setShownId(order[(at + step + order.length) % order.length] ?? null);
   };
-  // A task's end in the conversation shows the task: its agent's
-  // transcript, or its run in the side panel's background runs.
   const taskShower = useRef<NonNullable<MessageActions["taskShower"]>>(() => undefined);
   taskShower.current = (item) => {
     const toolUseId =
@@ -704,7 +643,6 @@ function RemoteChatView({
       ? () => askPanel("jobs", item.taskId)
       : undefined;
   };
-  // A call the side panel asked to see in the conversation, by its id; each ask its own seq.
   const [callAsk, setCallAsk] = useState<CallReveal | null>(null);
   const showCall = (toolUseId: string) => {
     showAgent(null);
@@ -724,11 +662,9 @@ function RemoteChatView({
     true,
   );
   const types = usePeerTypes(deviceId);
-  // Its terminal signs in the chat's profile from 0.13.1; one before signs in its default folder.
   const inProfile = usePeerSpeaks(deviceId, TERMINAL_PROFILE_SCHEMA);
   const hasCodexCommands = usePeerSpeaks(deviceId, "0.13.0");
 
-  // Rewind, fork and background, as a chat here's buttons, where its computer serves them (0.11.0).
   const running = model.running;
   const can = reachable ? page.panel?.can : undefined;
   const [rewinding, setRewinding] = useState<UserItem | null>(null);
@@ -738,7 +674,6 @@ function RemoteChatView({
   );
   const forkFrom = useRef<(itemKey?: string) => void>(() => undefined);
   forkFrom.current = (itemKey) => {
-    // A message of the user's comes back with its images.
     const from = itemKey
       ? model.items.find((i) => i.kind === "user" && (i.uuid ?? i.key) === itemKey)
       : undefined;
@@ -781,7 +716,6 @@ function RemoteChatView({
     [running, canFork, canRewind, canBackground, claude, asking, deviceId, workspaceId, tabId],
   );
 
-  // Where it went on in another of that computer's profiles, by its name there.
   const movedThere = page.panel?.moves;
   const moves = useMemo<ShownMove[] | undefined>(
     () =>
@@ -794,7 +728,6 @@ function RemoteChatView({
     [movedThere, t],
   );
 
-  // Its images, files and changes are read from that computer, shown in this app's quick look.
   const mediaAccess = usePeerChatAccess(deviceId);
   const loadImage = useMemo(
     () => peerImageLoader({ deviceId, workspaceId, tabId }, mediaAccess, visible),
@@ -804,19 +737,15 @@ function RemoteChatView({
     () => peerChatFiles({ deviceId, workspaceId }, mediaAccess, visible),
     [deviceId, workspaceId, mediaAccess, visible],
   );
-  // That computer's workspace, as the previews read it, at its folder there.
   const peerWorkspace = peerWorkspaceId(deviceId, workspaceId);
   useEffect(() => setPeerRoot(peerWorkspace, target.path), [peerWorkspace, target.path]);
-  // A file this chat changed is read again by the views showing it.
   usePeerChatFileChanges(peerWorkspace, page.panel?.changedFiles ?? NO_CHANGES, model.tools);
   const [look, setLook] = useState<QuickLookList | null>(null);
   const links = useRemoteLinks(target, { model }, files, setLook, host?.openFileBeside);
-  // A chat put out of sight takes its quick look with it.
   useEffect(() => {
     if (!visible) setLook(null);
   }, [visible]);
 
-  // The goal, as a chat here shows it over the composer; an ended one closed stays closed.
   const goal = useRemoteGoal(page.panel?.goal, claude ? "claude" : "codex");
   const [, goalClosed] = useReducer((n: number) => n + 1, 0);
   const closedGoal = closedGoals.get(sessionKey);
@@ -847,7 +776,6 @@ function RemoteChatView({
       );
       return;
     }
-    // Claude Code runs /goal clear once the turn ends, which the goal holds off: it stops first.
     if (runningNow.current) {
       await ipcCallResult("remote", "peerChatInterrupt", ref);
       const deadline = Date.now() + GOAL_STOP_MS;
@@ -886,8 +814,6 @@ function RemoteChatView({
         });
       }
     });
-  // As a Codex tab here signs in, in a terminal of its computer, shown here: by a code, as
-  // a browser here cannot reach a sign-in that waits there.
   const signInThere = () => runInPeerTerminal(target, CODEX_SIGN_IN, open);
   const panel = (
     <RemoteSidePanel
@@ -947,7 +873,6 @@ function RemoteChatView({
     <ImageLoaderContext.Provider value={loadImage}>
       <ChatFilesContext.Provider value={files}>
         <ChatLinksContext.Provider value={links}>
-          {/* The chat's font, as this app's own tabs take it. */}
           {/* biome-ignore lint/a11y/noStaticElementInteractions: ⌘[ and ⌘] step through the agents from anywhere in the chat */}
           <div
             ref={rootRef}
@@ -960,7 +885,6 @@ function RemoteChatView({
             <ChatPhaseBanner
               scope={bannerScope}
               status={page.status}
-              // A computer that tells its phase starts it again (chat.restart).
               {...(reachable && page.status.phase
                 ? { onRestart: () => told(ipcCallResult("remote", "peerChatRestart", ref)) }
                 : {})}
@@ -1106,7 +1030,6 @@ function RemoteChatView({
                     ref={drawerRef}
                     tabIndex={-1}
                     className={cn(
-                      // Below the strip, whose toggle closes it again.
                       "absolute right-0 bottom-0 z-20 border-l border-border bg-background outline-none",
                       place === "summary" ? "top-7 w-full" : "top-8 w-80",
                     )}
@@ -1152,7 +1075,6 @@ function RemoteChatView({
   );
 }
 
-/** Docked over the composer, so requests are seen wherever the chat is scrolled. */
 function RemoteRequestDock({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
@@ -1161,7 +1083,6 @@ function RemoteRequestDock({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** What the user answers, stops and writes to the chat with: this app's own card and composer. */
 function RemoteControls({
   target,
   model,
@@ -1179,12 +1100,10 @@ function RemoteControls({
   model: ChatModel;
   page: WatchedChat;
   visible: boolean;
-  /** A subagent's transcript is shown: input still goes to main. */
   toMain: boolean;
   onShowMain: () => void;
   goalBar?: React.ReactNode;
   consentCards: React.ReactNode;
-  /** A bare /status, /context or /usage shows the side panel's part, as a chat here's does. */
   onPanelPart?: (part: RemotePanelPart) => void;
 }) {
   const { t } = useTranslation();
@@ -1197,7 +1116,6 @@ function RemoteControls({
   const planModeOptions = agent === "claude" && peerTakesPlanMode;
   const folder = target.cwd ?? target.path;
   const types = usePeerTypes(deviceId);
-  // Shown where that computer serves chat.read; set where it serves chat.control.
   const readsChats = usePeerReadsChats(deviceId);
   const controls = usePeerControls(deviceId, host === null);
   const { deviceName, profile, workspaceName } = target;
@@ -1214,9 +1132,7 @@ function RemoteControls({
     ),
     [deviceId, workspaceId, tabId, deviceName, profile, workspaceName, controls],
   );
-  // Claude's commands run in a terminal there in the chat's profile from 0.13.1; not before.
   const inProfile = usePeerSpeaks(deviceId, TERMINAL_PROFILE_SCHEMA);
-  // A Codex chat's /resume and /config, which this pane runs, in its picker as in a Codex tab's.
   const configurable = page.panel?.can?.config === true;
   const paneCommands = useMemo(
     () =>
@@ -1253,13 +1169,11 @@ function RemoteControls({
           showToast({ kind: "info", message: t("agentView.remote.noChanges") });
           return undefined;
         }
-        // Keep Codex's /diff card, with a link to each file's diff.
         if (agent === "codex")
           return changesCard(changed, folder, t, (path) => links?.openChange(path));
         onPanelPart?.("changes");
         return undefined;
       },
-      // A computer before 0.13.0 does not run a Codex chat's /status: what this app shows of it.
       status: () =>
         codexStatusMarkdown(
           {
@@ -1276,7 +1190,6 @@ function RemoteControls({
         ? {
             terminal: {
               run: (line: string) => runInPeerTerminal(target, line, open),
-              // Its program started again, as the card a chat here shows after /login does.
               ...(page.status.phase
                 ? {
                     restart: () =>
@@ -1294,13 +1207,11 @@ function RemoteControls({
         : {}),
     },
     paneCommands,
-    // The tab /fork or /branch opened there shows, as a fork from a message's does.
     onOpened: (opened, draft) => {
       if (draft) putPeerDraft({ deviceId, workspaceId, tabId: opened }, draft);
       open({ ...target, tabId: opened, state: "idle" });
     },
   });
-  /** Runs a control; the watch shows what it did, and a refusal is told. */
   const control = async (sent: Promise<IpcResult<unknown>>) => {
     const result = await sent;
     if (!result.ok) onError(result.message);
@@ -1315,12 +1226,9 @@ function RemoteControls({
         ...remoteAnswerOf(given, request, planModeOptions),
       }),
     );
-  // /resume's list above the composer, with the words it was given, as a chat here shows it.
   const [resumeQuery, setResumeQuery] = useState<string | null>(null);
-  // Its Claude Code settings (/config), and the one a command opened them at, as a chat here has them.
   const [config, setConfig] = useState<{ focus?: string } | null>(null);
   const onCommand = (text: string): boolean => {
-    // Its settings (/config), where its computer serves them: a Codex chat's defaults, bare.
     const opened =
       page.panel?.can?.config !== true
         ? null
@@ -1350,7 +1258,6 @@ function RemoteControls({
     }
     return composer.onCommand(text);
   };
-  // A minute's clock, so a window that resets leaves the line while it shows.
   const now = useNow(visible, 60_000);
   const line = useMemo(() => usageLineOf(page.panel, now), [page.panel, now]);
   const bannerScope = ["remote-chat", deviceId, workspaceId, tabId, page.panel?.session?.id];
@@ -1396,7 +1303,6 @@ function RemoteControls({
           <StatusLine model={model} />
         </RemoteRequestDock>
       )}
-      {/* The serving app goes on in it by itself, as it tells (from 0.19.0). */}
       <LimitResumeView scope={bannerScope} record={page.panel?.limitResume} />
       {!showsLimitResume(page.panel?.limitResume) && (
         <RateLimitBanner scope={bannerScope} limit={limit} />
@@ -1415,10 +1321,8 @@ function RemoteControls({
           toMain
             ? t("chat.strip.input_to_main")
             : model.running
-              ? // During a turn, what each key does with the message, as a chat here says.
-                composerHint(t, true, target.kind === "codex" ? "codex" : "claude")
-              : // As a chat here says it, and which computer it goes to.
-                t("agentView.remote.placeholder", {
+              ? composerHint(t, true, target.kind === "codex" ? "codex" : "claude")
+              : t("agentView.remote.placeholder", {
                   device: target.deviceName,
                   ...composerKeys(),
                   ...(target.kind === "codex" ? { context: "codex" } : {}),
@@ -1479,11 +1383,6 @@ function RemoteControls({
   );
 }
 
-/**
- * Another computer's terminal: its screen, typed into where that computer
- * lets this one; and while its Claude Code asks for leave, the request,
- * to answer from here.
- */
 function RemoteTerminal({
   target,
   visible,
@@ -1503,9 +1402,7 @@ function RemoteTerminal({
     if (visible && read.status === "gone") forgetRemoteResult({ deviceId, workspaceId, tabId });
   }, [deviceId, read.status, tabId, visible, workspaceId]);
   const types = usePeerTypes(deviceId);
-  // The request answered here, kept out of sight until the list no longer says it waits.
   const [answered, setAnswered] = useState<string | null>(null);
-  // Its state and Claude Code's requests keep updating while the sidebar is hidden.
   const listed = usePeerSessions([deviceId], visible)[deviceId];
   const session =
     listed?.status === "ready"

@@ -5,7 +5,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/redact"
 )
 
-// Kind is the Go mirror of src/shared/types/git.ts GitErrorKindSchema.
 type Kind string
 
 const (
@@ -66,8 +65,6 @@ const (
 	KindUnknown                     Kind = "unknown"
 )
 
-// ActionHint is the JSON-friendly Go mirror of GitActionHintSchema. Only fields
-// used by the selected hint kind are populated.
 type ActionHint struct {
 	Kind            string   `json:"kind"`
 	Branch          string   `json:"branch,omitempty"`
@@ -76,10 +73,6 @@ type ActionHint struct {
 	Candidates      []string `json:"candidates,omitempty"`
 }
 
-// Failure is a git command that exited non-zero, classified from its stderr.
-// Dedicated methods (push, pull, tag, stash, ...) return it so the host can
-// rebuild its typed git error; git.run reports the same fields in its result
-// instead.
 type Failure struct {
 	Kind Kind
 	Msg  string
@@ -92,20 +85,15 @@ func (f Failure) ErrorData() any {
 	return failureData{ErrorKind: f.Kind, ErrorHint: f.Hint}
 }
 
-// failureData is the wire shape of Failure in an error frame's data, named
-// after the matching git.run result fields.
 type failureData struct {
 	ErrorKind Kind        `json:"errorKind"`
 	ErrorHint *ActionHint `json:"errorHint,omitempty"`
 }
 
-// classifiedFailure builds the Failure for a git exit already classified as
-// kind, with kind's recovery hint.
 func classifiedFailure(kind Kind, msg string) error {
 	return Failure{Kind: kind, Msg: redact.Credentials(msg), Hint: HintForKind(kind)}
 }
 
-// ClassifiedError is the external Go surface for git stderr classification.
 type ClassifiedError struct {
 	Kind    Kind        `json:"kind"`
 	Message string      `json:"message"`

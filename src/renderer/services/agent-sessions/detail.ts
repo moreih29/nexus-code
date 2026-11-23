@@ -1,13 +1,3 @@
-/**
- * What the agent list's detail panel tells of a conversation beside its
- * state: the calls it ran last, the subagents it runs, its to-do list, and
- * what it runs on (model, effort, permission mode, context, cost, the files
- * it changed). A chat tab tells it from its conversation, a terminal running
- * Claude from what its hooks report. A Claude tab's agents come from its
- * hooks too, which tell its `claude -p` runs beside its subagents; a Codex
- * tab's are the runs its commands start, told the same. Pure.
- */
-
 import type { AgentRun, SessionActivity } from "../../../shared/claude/activity";
 import type { ChatModel, ToolCall } from "../chat/model";
 import {
@@ -21,15 +11,9 @@ import { agentDescription, shortTarget } from "./agents";
 import { lastAnswer, lastPrompt } from "./codex-state";
 import { contextPercent, inputTarget } from "./rows";
 
-/** How many of the latest calls the panel lists. */
 export const STEPS_SHOWN = 6;
-/** How many subagents the panel lists, the latest. */
 export const AGENTS_SHOWN = 8;
 
-/**
- * Calls the panel tells elsewhere: the to-dos in their list, the subagents in
- * theirs, a question or a plan in its card.
- */
 const TOLD_ELSEWHERE = new Set([
   "TodoWrite",
   "TaskCreate",
@@ -43,13 +27,11 @@ const TOLD_ELSEWHERE = new Set([
 
 export type StepStatus = "running" | "done" | "failed" | "stopped";
 
-/** A call the conversation ran, as the panel lists it. */
 export interface DetailStep {
   readonly id: string;
   readonly name: string;
   readonly target: string | undefined;
   readonly status: StepStatus;
-  /** For a done edit: the lines it added and removed. */
   readonly added?: number;
   readonly removed?: number;
 }
@@ -58,13 +40,10 @@ export type DetailAgentStatus = "running" | "asking" | "done" | "failed" | "stop
 
 export interface DetailAgent {
   readonly id: string;
-  /** Its type, as "Explore"; absent when the conversation did not say. */
   readonly type: string | undefined;
   readonly description: string | undefined;
   readonly status: DetailAgentStatus;
-  /** A `claude -p` or `codex exec` run the session started, rather than a subagent. */
   readonly print: boolean;
-  /** A run's program: "codex" for a `codex exec` run. */
   readonly program?: "claude" | "codex";
 }
 
@@ -72,7 +51,6 @@ export type DetailTodoStatus = "pending" | "in_progress" | "completed";
 
 export interface DetailTodo {
   readonly id: string;
-  /** How it reads: while worked on, its active form when it has one. */
   readonly text: string;
   readonly status: DetailTodoStatus;
 }
@@ -81,19 +59,14 @@ export interface DetailFacts {
   readonly steps: readonly DetailStep[];
   readonly agents: readonly DetailAgent[];
   readonly todos: readonly DetailTodo[];
-  /** The model the conversation runs, as its program names it. */
   readonly model: string | undefined;
   readonly effort: string | undefined;
-  /** Its permission mode, by its program's own name for it. */
   readonly mode: string | undefined;
   readonly costUsd: number | undefined;
-  /** How full its context is, in percent. */
   readonly context: number | undefined;
-  /** The files it changed: how many, and their lines when it tells them. */
   readonly files:
     | { readonly count: number; readonly added?: number; readonly removed?: number }
     | undefined;
-  /** Its last prompt and the answer to it, when the conversation tells them itself. */
   readonly prompt: string | undefined;
   readonly answer: string | undefined;
 }
@@ -130,13 +103,6 @@ function todoStatus(status: string): DetailTodoStatus {
   return status === "completed" || status === "in_progress" ? status : "pending";
 }
 
-/**
- * What a Claude or Codex tab's conversation tells the panel. A tab opened
- * again shows its earlier conversation (`history`) until it is sent more.
- * The agents are those its hooks report (`activity`) once they report any:
- * its subagents and its `claude -p` and `codex exec` runs, which its
- * conversation does not tell.
- */
 export function chatDetailFacts(
   model: ChatModel,
   history?: ChatModel | null,
@@ -195,7 +161,6 @@ export function chatDetailFacts(
   };
 }
 
-/** What a terminal running Claude tells the panel, from its hooks. */
 export function hookDetailFacts(activity: SessionActivity | undefined): DetailFacts {
   if (!activity) return NO_DETAIL;
   const steps = activity.tools
@@ -219,8 +184,6 @@ export function hookDetailFacts(activity: SessionActivity | undefined): DetailFa
   const agents = hookAgents(activity.agents);
   const todos = activity.todos.map(
     (todo, index): DetailTodo => ({
-      // A TodoWrite list has no ids, and may say the same twice; it is
-      // replaced whole, never reordered.
       id: todo.id ?? String(index),
       text: todo.status === "in_progress" ? (todo.activeForm ?? todo.content) : todo.content,
       status: todo.status,
@@ -235,7 +198,6 @@ export function hookDetailFacts(activity: SessionActivity | undefined): DetailFa
   };
 }
 
-/** The agents a session's hooks report, the running ones first, then the ended, the latest first. */
 function hookAgents(agents: readonly AgentRun[]): DetailAgent[] {
   return agents.slice(0, AGENTS_SHOWN).map(
     (agent): DetailAgent => ({

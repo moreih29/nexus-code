@@ -81,7 +81,6 @@ test("Claude streaming resets the timer even for reasoning and approval suppress
 test("a retry tells its try, its reason and how long until it goes", () => {
   let model: ChatModel = emptyModel();
   model = applyLine(model, { seq: 1, at: 1_000, dir: "in", message: { type: "user" } });
-  // As Claude Code 2.1.325 writes a 429 it tries again after.
   model = applyLine(model, {
     seq: 2,
     at: 2_000,
@@ -99,7 +98,6 @@ test("a retry tells its try, its reason and how long until it goes", () => {
   const retry = model.turn?.retry;
   if (!retry) throw new Error("no retry");
   expect(retryText(retry, i18next.t, 2_500)).toBe("Retrying (2/10) · Rate limited (429) · in 5s");
-  // Once the wait is over, the try goes; a request no answer came to has no status.
   expect(retryText({ ...retry, status: undefined, reason: "connection" }, i18next.t, 7_000)).toBe(
     "Retrying (2/10) · Connection lost",
   );

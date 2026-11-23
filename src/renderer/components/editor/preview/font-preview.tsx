@@ -1,23 +1,11 @@
-// FontPreview — a font file set in sample text: its letters, digits and
-// punctuation, then a line of text, which can be typed over, at a range of
-// sizes. The font loads from the file's `nexus-workspace://` URL as a web
-// font of a family name of its own, so it never stands in for a font the app
-// uses, and is taken off the page with the preview. A character the font
-// lacks shows in the fallback font. A file changed on disk loads again.
-
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { EmptyState } from "../../ui/empty-state";
 import { useFileVersion, versionedUrl } from "./use-file-version";
 import { useWorkspaceFile } from "./use-workspace-file";
 
-/** The sizes the sample line is set at, in px. */
 const SIZES = [12, 16, 20, 24, 32, 48, 64, 96];
 
-/**
- * The line set at each size until one is typed. Latin, as most fonts cover
- * it: a character a font lacks would show in the fallback font instead.
- */
 const SAMPLE = "The quick brown fox jumps over the lazy dog";
 
 const CHARACTER_SETS = [
@@ -29,7 +17,6 @@ const CHARACTER_SETS = [
 
 interface FontPreviewProps {
   workspaceId: string;
-  /** Absolute path on the workspace filesystem. */
   filePath: string;
 }
 
@@ -106,12 +93,6 @@ function FontSpecimen({ url, workspaceId, relPath }: FontSpecimenProps) {
   );
 }
 
-/**
- * Loads `src` as a web font under a family name of its own: the name once
- * it loads, "failed" if it does not, null meanwhile. A version of the file
- * keeps showing until the next one loads, which then takes its place; the
- * font leaves the page with the preview.
- */
 function useLoadedFont(src: string): string | null | "failed" {
   const family = `nexus-font-preview-${useId().replace(/[^a-zA-Z0-9-]/g, "")}`;
   const [state, setState] = useState<"loading" | "loaded" | "failed">("loading");

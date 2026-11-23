@@ -8,22 +8,17 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// RemoteAddParams carries cwd, name, and url for remote add.
 type RemoteAddParams struct {
 	Cwd  string `json:"cwd,omitempty"`
 	Name string `json:"name"`
 	URL  string `json:"url"`
 }
 
-// RemoteRemoveParams carries cwd and name for remote remove.
 type RemoteRemoveParams struct {
 	Cwd  string `json:"cwd,omitempty"`
 	Name string `json:"name"`
 }
 
-// RemoteAdd executes `git remote add <name> <url>`. URL validation is
-// performed on the client (TS) side before the RPC is issued; Go passes
-// the URL directly to git and classifies any resulting errors.
 func (s *Service) RemoteAdd(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p RemoteAddParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -69,8 +64,6 @@ func (s *Service) RemoteAdd(ctx context.Context, raw json.RawMessage) (any, erro
 	return nil, nil
 }
 
-// RemoteRemove executes `git remote remove <name>`. "No such remote" errors are
-// classified as KindRemoteNotFound via the stderr classifier.
 func (s *Service) RemoteRemove(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p RemoteRemoveParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -103,8 +96,6 @@ func (s *Service) RemoteRemove(ctx context.Context, raw json.RawMessage) (any, e
 	if code != 0 {
 		stderrStr := stderr.String()
 		kind := Classify(stderrStr)
-		// Map both classified remote-not-found and "no such remote" stderr patterns
-		// to a stable error message matching the TS normalizeRemoteRemoveError behavior.
 		if kind == KindRemoteNotFound || isNoSuchRemoteStderr(stderrStr) {
 			return nil, classifiedFailure(KindRemoteNotFound, MessageForKind(KindRemoteNotFound, MessageContext{Args: args}))
 		}
@@ -114,8 +105,6 @@ func (s *Service) RemoteRemove(ctx context.Context, raw json.RawMessage) (any, e
 	return nil, nil
 }
 
-// isNoSuchRemoteStderr detects "No such remote" patterns not yet in the
-// Classify table, mirroring the TS normalizeRemoteRemoveError check.
 func isNoSuchRemoteStderr(stderr string) bool {
 	lower := strings.ToLower(stderr)
 	return strings.Contains(lower, "no such remote")

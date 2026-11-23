@@ -1,16 +1,10 @@
-/**
- * nexus workspace add and remove: folders put in the app's list from a
- * terminal, and workspaces taken out of it with the user's leave.
- */
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 import { API, APP, contextFor, type FakeApp, FIX, fakeApp, SHELL_TAB } from "./fake-services";
 
-/** A terminal of the "fix-login" worktree. */
 const IN_FIX = { workspaceId: FIX, tabId: "dddddddd-0000-4000-8000-000000000007" };
-/** A terminal of "api". */
 const IN_API = { workspaceId: API, tabId: "bbbbbbbb-0000-4000-8000-000000000003" };
 
 async function nexus(

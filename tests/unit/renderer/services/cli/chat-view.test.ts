@@ -1,7 +1,3 @@
-/**
- * A Claude or Codex tab as the nexus CLI tells it: where its conversation
- * stands, and its last messages.
- */
 import { describe, expect, it, test } from "bun:test";
 import { applyLine } from "../../../../../src/renderer/services/chat/claude/stream-model";
 import {
@@ -207,7 +203,6 @@ describe("chatInfoOf", () => {
 
 describe("chatEntriesOf", () => {
   it("tells what was said and the main thread's tools in order, each in its place", () => {
-    // Thinking is left out; the subagent's call (#3) keeps its place, hidden.
     expect(chatEntriesOf(chat(conversation), { messages: 10 }).entries).toEqual([
       { i: 0, role: "user", text: "Fix the login" },
       { i: 1, role: "agent", text: "Looking at the router." },
@@ -238,7 +233,6 @@ describe("chatEntriesOf", () => {
   });
 
   it("reads a conversation that now ends before the place from its start", () => {
-    // Cleared or rewound: what was #5 is gone, and a loop reading on would miss the rest.
     const cleared = chat({
       items: [{ kind: "user", key: "u9", text: "start over", images: [], state: "taken" }],
     });
@@ -278,7 +272,6 @@ describe("chatItemIndexOf", () => {
       queued: true,
     };
     const tab = chat({ ...conversation, items: [...(conversation.items ?? []), sent] });
-    // #0 the message, #1–#4 the answer (text, two calls, text), #5 the notice, #6 the new message.
     expect([0, 1, 3, 4, 5, 6, 7].map((i) => chatItemIndexOf(tab, i))).toEqual([
       0,
       1,

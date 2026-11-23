@@ -1,10 +1,3 @@
-/**
- * What the line under the composer asks Claude for: the context after each
- * turn, whoever began it and the tab shown or not, and the plan's usage,
- * for its limits alone, through the profile's store, which asks once for
- * all its tabs. The real ipc client is spread under a spy, so later files
- * keep its other exports.
- */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const sent: Record<string, unknown>[] = [];
@@ -33,7 +26,6 @@ type Controller = InstanceType<typeof ChatController>;
 let seq = 0;
 const live: Controller[] = [];
 
-/** A tab whose program runs, of a Claude Code `version`. */
 function running(version = "2.1.321"): Controller {
   const c = new ChatController({ workspaceId: "ws-usage", tabId: `t${++seq}`, cwd: "/p" }, {});
   useChatStore.getState().update(c.key, (prev) => ({
@@ -53,7 +45,6 @@ const result = (replay = false): ChatLine => ({
   ...(replay ? { replay: true } : {}),
 });
 
-/** A main-thread API call's start as it streams, which tells the context it sent; a subagent's with `parent`. */
 const callStart = (input: number, parent?: string): ChatLine => ({
   seq: ++seq,
   dir: "out",
@@ -68,7 +59,6 @@ const callStart = (input: number, parent?: string): ChatLine => ({
   },
 });
 
-/** The CLI's answer to the last get_context_usage written, its request as the log keeps it first. */
 function answerContext(c: Controller, body: Record<string, unknown> | null): void {
   const request = sent.findLast(
     (m) => (m.request as Record<string, unknown> | undefined)?.subtype === "get_context_usage",
@@ -98,7 +88,6 @@ const CONTEXT = {
   percentage: 1,
 };
 
-/** The control requests written so far, each as its subtype and what it was asked with. */
 function asked(): Record<string, unknown>[] {
   return sent
     .filter((message) => message.type === "control_request")
@@ -113,7 +102,6 @@ afterEach(() => {
 });
 
 const USAGE = { subtype: "get_usage", skip_behaviors: true };
-/** Lets the asks waiting on the program's initialize go out. */
 const settle = async () => {
   for (let i = 0; i < 4; i++) await Promise.resolve();
 };
@@ -174,7 +162,6 @@ describe("the line under the composer", () => {
     c.receive(callStart(5_000));
     c.flushNow();
     expect(asked()).toEqual([{ subtype: "get_context_usage" }]);
-    // Still unanswered: the next call asks nothing.
     c.receive(callStart(6_000));
     c.flushNow();
     expect(asked()).toHaveLength(1);
@@ -204,7 +191,6 @@ describe("the line under the composer", () => {
     c.receive(callStart(6_000));
     c.flushNow();
     expect(asked()).toEqual([{ subtype: "get_context_usage" }]);
-    // The turn's end asks as ever; failed too, the next turn's first call asks once more.
     c.receive(result());
     c.flushNow();
     answerContext(c, null);

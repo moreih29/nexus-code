@@ -43,10 +43,6 @@ export function CommandPalette<TItem extends PaletteItem>({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
-  // Counts openings (and closings) of the palette. accept() may wait for a
-  // debounced search to flush; a second Enter in that window, or Escape,
-  // must not run the source's action — a merge or rebase — twice or after
-  // the palette closed.
   const openingRef = useRef(0);
   const acceptedOpeningRef = useRef(-1);
   const titleId = useId();
@@ -94,17 +90,9 @@ export function CommandPalette<TItem extends PaletteItem>({
     };
   }, [open]);
 
-  // Document-level Escape handler. The frame's onKeyDown only fires when
-  // focus is inside the dialog (input/listbox); if the user clicked
-  // through the overlay onto the underlying app or otherwise lost focus,
-  // a `keydown` on the body would never reach the dialog handler. The
-  // capture-phase listener guarantees Escape closes the palette as long
-  // as it is open, matching the behavior users expect from Radix Dialog
-  // and from VS Code's quick-pick.
   useEffect(() => {
     if (!open) return;
     function handleDocumentKeyDown(event: KeyboardEvent): void {
-      // Escape while composing cancels the composition, not the palette.
       if (event.key !== "Escape" || isImeComposing(event)) return;
       event.preventDefault();
       event.stopPropagation();
@@ -138,7 +126,6 @@ export function CommandPalette<TItem extends PaletteItem>({
         ? activeSnapshot.items[activeSnapshot.activeIndex]
         : undefined;
     if (!item) {
-      // Nothing to accept yet; let a later Enter try again.
       acceptedOpeningRef.current = -1;
       return;
     }
@@ -147,9 +134,6 @@ export function CommandPalette<TItem extends PaletteItem>({
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>): void {
-    // The composing Enter of a Hangul query would accept and close, and the
-    // plain Enter that follows would land in the editor or terminal that
-    // gets focus back.
     if (isImeComposing(e)) return;
     const action = resolvePaletteKeyAction(
       {

@@ -23,7 +23,6 @@ test("numbers past what can be drawn are cut to it, not shown as told", () => {
     memUsed: GIB,
     memTotal: GIB,
   });
-  // No finite amount of memory: nothing to draw, rather than "Infinity%".
   expect(drawableStats({ cpu: 1, memUsed: 1, memTotal: Infinity })).toBeNull();
   const fine = { cpu: 23.4, memUsed: 12 * GIB, memTotal: 32 * GIB };
   expect(drawableStats(fine)).toEqual(fine);

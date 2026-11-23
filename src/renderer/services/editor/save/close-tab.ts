@@ -1,19 +1,3 @@
-// Single dispatcher for all tab-close paths.
-//
-// Previously, handleCloseTab (view.tsx) and closeTabById (context.ts) each
-// maintained their own switch on tab.type, causing the two paths to drift and
-// creating a Cmd+W bug. This module is the ONLY place that switches on
-// tab.type for close purposes; all call sites delegate here.
-//
-// Tab type routing:
-//   terminal    → closeTerminalWithConfirm (asks while a program runs)
-//   editor      → closeEditorWithConfirm (dirty-aware)
-//   untitled    → closeUntitledWithConfirm (dirty-aware, new)
-//   editor.diff → closeDiffWithConfirm (dirty-aware for the working-tree file it edits)
-//   git.commit / browser → closeTab (raw state op, no dirty)
-//   claude      → closeChatTab, then closeTab
-//   codex       → closeCodexTab, then closeTab
-
 import i18next from "i18next";
 import { showToast } from "@/components/ui/toast";
 import { closeChatTab } from "@/services/chat/claude/controller";
@@ -29,12 +13,6 @@ import {
   closeUntitledWithConfirm,
 } from "./close-handler";
 
-/**
- * Close any tab by id through the appropriate dirty-aware path.
- *
- * Returns the outcome so bulk-close callers (tabCloseOthers, tabCloseAll)
- * can honour a "cancelled" response and stop iterating.
- */
 export async function closeTabWithConfirm(
   workspaceId: string,
   tabId: string,
@@ -58,14 +36,11 @@ export async function closeTabWithConfirm(
     return closeDiffWithConfirm(workspaceId, tabId);
   }
 
-  // git.commit, browser, note (saved as it is typed) — no dirty state.
   if (tab.type === "git.commit" || tab.type === "browser" || tab.type === "note") {
     closeTab(workspaceId, tabId);
   }
 
   if (tab.type === "claude" || tab.type === "codex") {
-    // The layout write keeps the instructions with the conversation's ID, which
-    // may have arrived in the last turn just before the user closed the tab.
     if (tab.props.instructions !== undefined && !(await flushStatePersistence())) {
       showToast({ kind: "error", message: i18next.t("settings:instructions.saveFailed") });
       return "cancelled";

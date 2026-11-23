@@ -1,14 +1,3 @@
-/**
- * Aggregates the `open`/`mode` state for every secondary picker the git panel
- * mounts (branch, merge target, rebase target, commit, branch-create source,
- * stash, tag). Keeping these flags in a dedicated hook keeps the panel
- * component's top-level useState block focused on the data it actually
- * renders, not on picker plumbing.
- *
- * Variable names match the original inline `useState` bindings so the panel
- * can destructure without touching downstream call sites.
- */
-
 import { useState } from "react";
 import type { BranchPickerMode } from "../branch/picker";
 import type { StashPickerMode } from "./stash-picker-source";

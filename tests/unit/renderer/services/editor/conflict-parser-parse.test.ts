@@ -1,34 +1,13 @@
-/**
- * conflict-parser — parse aspect unit tests.
- *
- * Covers `parseConflictBlocks` and `hasConflictMarkers` across:
- *   - Single conflict block (2-way merge)
- *   - Multiple conflict blocks in the same file
- *   - diff3 base section (`|||||||` marker)
- *   - Empty content sections (adjacent markers)
- *   - No-trailing-newline files
- *   - Files without conflict markers (must return empty array / false)
- *   - Malformed / incomplete blocks (must be skipped gracefully)
- *
- * No Monaco or IPC dependencies — the parser is pure data.
- */
-
 import { describe, expect, test } from "bun:test";
 import {
   hasConflictMarkers,
   parseConflictBlocks,
 } from "../../../../../src/renderer/services/editor/conflict/conflict-parser";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Builds a minimal 2-way conflict block string. */
 function twoWayBlock(ours: string, theirs: string): string {
   return [`<<<<<<< HEAD`, ours, `=======`, theirs, `>>>>>>> branch`].join("\n");
 }
 
-/** Builds a diff3-style conflict block string. */
 function diff3Block(ours: string, base: string, theirs: string): string {
   return [
     `<<<<<<< HEAD`,
@@ -41,10 +20,6 @@ function diff3Block(ours: string, base: string, theirs: string): string {
   ].join("\n");
 }
 
-// ---------------------------------------------------------------------------
-// hasConflictMarkers
-// ---------------------------------------------------------------------------
-
 describe("hasConflictMarkers", () => {
   test.each([
     ["a file with a conflict block", twoWayBlock("a", "b"), true],
@@ -55,10 +30,6 @@ describe("hasConflictMarkers", () => {
     expect(hasConflictMarkers(text)).toBe(expected);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Block shapes
-// ---------------------------------------------------------------------------
 
 describe("parseConflictBlocks — block shape", () => {
   test("2-way block: every marker and section line", () => {
@@ -125,15 +96,10 @@ describe("parseConflictBlocks — block shape", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Empty content sections
-// ---------------------------------------------------------------------------
-
 describe("parseConflictBlocks — empty sections", () => {
   test("handles empty current side (markers adjacent)", () => {
     const text = ["<<<<<<< HEAD", "=======", "theirs", ">>>>>>> b"].join("\n");
     const [block] = parseConflictBlocks(text);
-    // current section startLine > endLine means zero lines (empty)
     expect(block.current.startLine).toBeGreaterThan(block.current.endLine);
   });
 
@@ -144,23 +110,14 @@ describe("parseConflictBlocks — empty sections", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// No-trailing-newline
-// ---------------------------------------------------------------------------
-
 describe("parseConflictBlocks — no trailing newline", () => {
   test("parses block correctly when file has no trailing newline", () => {
-    // Intentionally no `\n` at the end of the last marker.
     const text = "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> b";
     const blocks = parseConflictBlocks(text);
     expect(blocks).toHaveLength(1);
     expect(blocks[0].incomingMarkerLine).toBe(5);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Files without conflict markers
-// ---------------------------------------------------------------------------
 
 describe("parseConflictBlocks — no markers", () => {
   test("returns an empty array for a clean file or an empty string", () => {
@@ -169,14 +126,9 @@ describe("parseConflictBlocks — no markers", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Malformed / incomplete blocks
-// ---------------------------------------------------------------------------
-
 describe("parseConflictBlocks — malformed blocks", () => {
   test("skips block missing closing marker", () => {
     const text = "<<<<<<< HEAD\nours\n=======\ntheirs\n";
-    // No `>>>>>>>` — block is incomplete
     expect(parseConflictBlocks(text)).toHaveLength(0);
   });
 
@@ -186,16 +138,12 @@ describe("parseConflictBlocks — malformed blocks", () => {
   });
 
   test("complete block after malformed block is still parsed", () => {
-    // Incomplete block followed by a complete one.
     const text = [
       "<<<<<<< HEAD",
       "ours-bad",
-      // missing separator + >>>>>>>
       "normal code",
       twoWayBlock("ours-good", "theirs-good"),
     ].join("\n");
-    // The malformed block causes the parser to scan past it; only the
-    // complete block on lines 4-8 is found.
     const blocks = parseConflictBlocks(text);
     expect(blocks.map(({ index, blockRange }) => ({ index, blockRange }))).toEqual([
       { index: 0, blockRange: { startLine: 4, endLine: 8 } },

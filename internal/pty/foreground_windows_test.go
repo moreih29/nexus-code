@@ -15,33 +15,33 @@ import (
 func TestForegroundOfFollowsTheShellsNewestConsoleChild(t *testing.T) {
 	entries := []processEntry{
 		{pid: 10, parent: 1, name: "powershell"},
-		{pid: 11, parent: 10, name: "notepad"}, // a window program
-		{pid: 12, parent: 10, name: "old"},     // older than the shell
-		{pid: 13, parent: 10, name: "claude"},  // the newest console child
-		{pid: 14, parent: 10, name: "lazygit"}, // older than claude
-		{pid: 15, parent: 13, name: "bash"},    // claude's hook, not the shell's
-		{pid: 20, parent: 1, name: "bash"},     // Git Bash's launcher
-		{pid: 21, parent: 20, name: "bash"},    // the real bash
-		{pid: 22, parent: 21, name: "bash"},    // a script waiting for its program
-		{pid: 23, parent: 22, name: "claude"},  // the program
-		{pid: 30, parent: 1, name: "pwsh"},     // a shell running nothing
-		{pid: 40, parent: 1, name: "cmd"},      // a shell running a .cmd script
-		{pid: 41, parent: 40, name: "cmd"},     // the script's cmd
-		{pid: 42, parent: 41, name: "node"},    // the script's program
-		{pid: 50, parent: 1, name: "bash"},     // Git Bash's launcher
-		{pid: 51, parent: 50, name: "bash"},    // the real bash, which ran a script
-		{pid: 53, parent: 52, name: "bash"},    // the script, its fork's process gone
-		{pid: 54, parent: 53, name: "claude"},  // the program the script runs
-		{pid: 60, parent: 1, name: "bash"},     // Git Bash's launcher
-		{pid: 61, parent: 60, name: "bash"},    // the real bash, running nothing
-		{pid: 70, parent: 1, name: "pwsh"},     // a shell running an npm package's Codex
-		{pid: 71, parent: 70, name: "cmd"},     // the package's .cmd
-		{pid: 72, parent: 71, name: "node"},    // node on the package's script
-		{pid: 73, parent: 72, name: "codex"},   // Codex's own program
-		{pid: 74, parent: 73, name: "pwsh"},    // a command Codex runs
-		{pid: 80, parent: 1, name: "pwsh"},     // a shell running node
-		{pid: 81, parent: 80, name: "node"},    // a script, or an npm package's Claude
-		{pid: 82, parent: 81, name: "bash"},    // a command it runs
+		{pid: 11, parent: 10, name: "notepad"},
+		{pid: 12, parent: 10, name: "old"},
+		{pid: 13, parent: 10, name: "claude"},
+		{pid: 14, parent: 10, name: "lazygit"},
+		{pid: 15, parent: 13, name: "bash"},
+		{pid: 20, parent: 1, name: "bash"},
+		{pid: 21, parent: 20, name: "bash"},
+		{pid: 22, parent: 21, name: "bash"},
+		{pid: 23, parent: 22, name: "claude"},
+		{pid: 30, parent: 1, name: "pwsh"},
+		{pid: 40, parent: 1, name: "cmd"},
+		{pid: 41, parent: 40, name: "cmd"},
+		{pid: 42, parent: 41, name: "node"},
+		{pid: 50, parent: 1, name: "bash"},
+		{pid: 51, parent: 50, name: "bash"},
+		{pid: 53, parent: 52, name: "bash"},
+		{pid: 54, parent: 53, name: "claude"},
+		{pid: 60, parent: 1, name: "bash"},
+		{pid: 61, parent: 60, name: "bash"},
+		{pid: 70, parent: 1, name: "pwsh"},
+		{pid: 71, parent: 70, name: "cmd"},
+		{pid: 72, parent: 71, name: "node"},
+		{pid: 73, parent: 72, name: "codex"},
+		{pid: 74, parent: 73, name: "pwsh"},
+		{pid: 80, parent: 1, name: "pwsh"},
+		{pid: 81, parent: 80, name: "node"},
+		{pid: 82, parent: 81, name: "bash"},
 	}
 	details := map[uint32]processDetail{
 		10: {created: 100, console: true},
@@ -77,8 +77,6 @@ func TestForegroundOfFollowsTheShellsNewestConsoleChild(t *testing.T) {
 		d, ok := details[pid]
 		return d, ok
 	}
-	// The MSYS runtime's children: of the real bash, the script; the bash
-	// running nothing has none.
 	msys := func(pid uint32) []uint32 {
 		if pid == 51 {
 			return []uint32{53}
@@ -115,9 +113,6 @@ func TestMsysChildrenInReadsPsListing(t *testing.T) {
 	}
 }
 
-// TestGitBashReportsTheProgramItsScriptRuns runs a script in Git Bash, whose
-// fork and exec leave the script without a Windows parent, as the claude
-// and codex wrappers are run.
 func TestGitBashReportsTheProgramItsScriptRuns(t *testing.T) {
 	bash := filepath.Join(os.Getenv("ProgramFiles"), "Git", "bin", "bash.exe")
 	if _, err := os.Stat(bash); err != nil {
@@ -162,7 +157,6 @@ func TestGitBashReportsTheProgramItsScriptRuns(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// The shell gone before the temporary folder it works in is deleted.
 	write("\x03")
 	time.Sleep(500 * time.Millisecond)
 	write("exit\r")
@@ -200,7 +194,6 @@ func TestConsoleReportsTheProgramItsShellRuns(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
-	// About three seconds of ping, then the shell again.
 	write("ping -n 4 127.0.0.1\r")
 	waitForeground("ping")
 	waitForeground("cmd")

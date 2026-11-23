@@ -31,7 +31,6 @@ interface Preferences {
   write(value: VoiceNameSettings): void;
 }
 
-/** The keychain as the voices wait on it; always open where none asks first. */
 type VoicesKeychain = Pick<Keychain, "isOpen" | "unlock">;
 const ALWAYS_OPEN: VoicesKeychain = { isOpen: () => true, unlock: async () => true };
 
@@ -48,19 +47,12 @@ export class RememberedVoices {
     private readonly keychain: VoicesKeychain = ALWAYS_OPEN,
   ) {}
 
-  /** One at a time, in order. */
   private queue<T>(task: () => T | Promise<T>): Promise<T> {
     const next = this.pending.catch(() => {}).then(task);
     this.pending = next;
     return next;
   }
 
-  /**
-   * The people, read once. While the keychain is not open, a read in the
-   * background waits (null) and one for what the user does throws
-   * KeychainLockedError. A locked read is not kept as none, so nothing
-   * written after it drops the people sealed.
-   */
   private async load(user: boolean): Promise<RememberedVoice[] | null> {
     if (this.people) return this.people;
     if (this.file && !this.keychain.isOpen()) {
@@ -71,25 +63,15 @@ export class RememberedVoices {
     return this.people;
   }
 
-  /**
-   * For what the user does: opens a locked keychain before taking a place in
-   * line, since the reads the opening starts may be in it.
-   */
   private async opened(): Promise<void> {
     if (this.file && !this.keychain.isOpen()) await this.keychain.unlock();
   }
 
-  /** For what the user does: the people, the keychain opened first. */
   private async run<T>(task: (people: RememberedVoice[]) => T | Promise<T>): Promise<T> {
     await this.opened();
     return this.queue(async () => task((await this.load(true)) ?? []));
   }
 
-  /**
-   * For what the app does by itself: the people if they can be read without
-   * asking, null otherwise. A refusal meanwhile is none here, unless told to
-   * throw it (a read that waits for the next opening).
-   */
   private peek<T>(
     task: (people: RememberedVoice[] | null) => T | Promise<T>,
     refused: "none" | "throw" = "none",
@@ -138,7 +120,6 @@ export class RememberedVoices {
     );
   }
 
-  /** Agreeing opens a locked keychain, as remembering a voice will need it. */
   async consent(allowed: boolean): Promise<VoiceNameStatus> {
     if (allowed) await this.opened();
     return this.queue(async () => {
@@ -181,7 +162,6 @@ export class RememberedVoices {
     });
   }
 
-  /** Remembering a voice opens a locked keychain; false while it stays locked. */
   async learn({ revision, ...sample }: z.infer<typeof VoiceNameLearnArgsSchema>): Promise<boolean> {
     if (this.prefs.read().consent === "allowed") await this.opened();
     return this.queue(async () => {
@@ -226,7 +206,6 @@ export class RememberedVoices {
     if (people.length !== current.length) await this.save(current, true);
   }
 
-  /** Forgets voices not heard for a year; run once the keychain is open (Keychain.whenOpen). */
   prune(): Promise<void> {
     return this.peek(async (people) => {
       if (people) await this.sweep(people);
@@ -264,7 +243,6 @@ export function registerRememberedVoices(
     Date.now,
     keychain,
   );
-  // Once the keychain opens: the voices are read, pruned, and counted for the windows.
   const prune = () =>
     void keychain.whenOpen("voices", async () => {
       await voices.prune();
@@ -277,7 +255,6 @@ export function registerRememberedVoices(
   let consentPrompt: { owner: WebContents; done: Promise<void>; release: () => void } | undefined;
   let disposed = false;
 
-  /** The first saving window asks. Others wait for that choice or for its window to close. */
   async function claimConsent(
     owner?: WebContents,
   ): Promise<{ prompt: boolean; status: VoiceNameStatus }> {

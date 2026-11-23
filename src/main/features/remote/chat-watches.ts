@@ -1,10 +1,3 @@
-/**
- * The chats other devices of the account watch on this one (chat.watch):
- * the renderer, where the chat lives, tells main what changed, and main
- * numbers each change and sends it to the watching device as a
- * chat.update. A change too large for a frame is skipped, and an empty one
- * follows it, so the watcher sees a rev missing and watches again.
- */
 import { randomUUID } from "node:crypto";
 import {
   type ChatUpdate,
@@ -17,7 +10,6 @@ import { fitsInFrame, RpcFailure } from "./room";
 import { DEFAULT_READ_ITEMS, fitOversizeCodexChildren, fitPage } from "./serving/chat-details";
 import { fitsAsResult, tabOf, unavailable } from "./serving/common";
 
-/** Most chats one device may watch here at once; a new one beyond ends its oldest. */
 export const MAX_WATCHES_PER_DEVICE = 8;
 
 interface Watch {
@@ -42,7 +34,6 @@ export class ChatWatches {
     return services;
   }
 
-  /** Starts a watch for `from`: the chat's page now, of as many items as go in a frame. */
   async watch(
     from: string,
     { workspaceId, tabId, limit, appends }: RpcParams<"chat.watch">,
@@ -57,7 +48,6 @@ export class ChatWatches {
     let count = limit ?? DEFAULT_READ_ITEMS;
     for (;;) {
       const watchId = randomUUID();
-      // Known before the page comes back: a change may come first.
       this.watches.set(watchId, { from, rev: 0, total: 0 });
       const page = await services
         .ui("chat.watch", {
@@ -77,7 +67,6 @@ export class ChatWatches {
       if (fitsAsResult(result)) return result;
       const fittedChildren = fitOversizeCodexChildren(result);
       if (fittedChildren) return fittedChildren;
-      // One item too large as it is goes with less of it, and the watch stays.
       const fitted = page.items.length <= 1 ? fitPage(result) : null;
       if (fitted) return fitted;
       await this.end(watchId);
@@ -91,7 +80,6 @@ export class ChatWatches {
     }
   }
 
-  /** Ends a watch `from` started; another device's is not its to end. */
   async unwatch(
     from: string,
     { watchId }: RpcParams<"chat.unwatch">,
@@ -102,11 +90,9 @@ export class ChatWatches {
     return {};
   }
 
-  /** The renderer tells what changed: numbered and sent to the watcher. */
   async changed(watchId: string, change: Omit<ChatUpdate, "watchId" | "rev">): Promise<void> {
     const watch = this.watches.get(watchId);
     if (!watch) {
-      // A watch main ended, or one from before a restart: the renderer stops it.
       void this.deps
         .services()
         ?.ui("chat.unwatch", { watchId })
@@ -120,7 +106,6 @@ export class ChatWatches {
       await this.deps.notify(watch.from, update);
       return;
     }
-    // Skipped: the next rev shows the watcher one is missing, and it watches again.
     watch.rev += 1;
     await this.deps.notify(watch.from, {
       watchId,
@@ -133,24 +118,20 @@ export class ChatWatches {
     });
   }
 
-  /** The renderer found the chat gone. */
   ended(watchId: string): void {
     this.watches.delete(watchId);
   }
 
-  /** A device left the room: its watches end. */
   async dropDevice(deviceId: string): Promise<void> {
     for (const [id, watch] of [...this.watches]) {
       if (watch.from === deviceId) await this.end(id);
     }
   }
 
-  /** This device left the room: every watch ends. */
   async dropAll(): Promise<void> {
     for (const id of [...this.watches.keys()]) await this.end(id);
   }
 
-  /** The devices watching a chat here now. */
   watchers(): string[] {
     return [...new Set([...this.watches.values()].map((w) => w.from))];
   }

@@ -1,11 +1,3 @@
-/**
- * A page as nexus browser snapshot prints it: the accessibility tree, one
- * line per element, each element a ref ("e12") that browser click and fill
- * take. Built from Chromium's own tree (Accessibility.getFullAXTree), so
- * roles and names are what a screen reader would announce.
- */
-
-/** The part of a CDP Accessibility.AXNode that a snapshot reads. */
 export interface AxNode {
   readonly nodeId: string;
   readonly ignored: boolean;
@@ -21,7 +13,6 @@ export interface AxNode {
   readonly backendDOMNodeId?: number;
 }
 
-/** What a ref stands for. */
 export interface SnapshotRef {
   readonly backendNodeId: number;
   readonly role: string;
@@ -31,17 +22,14 @@ export interface SnapshotRef {
 export interface Snapshot {
   readonly text: string;
   readonly refs: ReadonlyMap<string, SnapshotRef>;
-  /** Lines left out past maxLines. */
   readonly omitted: number;
 }
 
 export interface SnapshotOptions {
   readonly maxLines: number;
-  /** Print only this element and what is inside it (a DOM backend node id). */
   readonly within?: number;
 }
 
-/** Roles that only group others; left out, their children taking their place, when unnamed. */
 const GROUPING_ROLES = new Set([
   "generic",
   "none",
@@ -52,18 +40,14 @@ const GROUPING_ROLES = new Set([
   "group",
 ]);
 
-/** The page itself, named by its title, which the snapshot's first line already gives. */
 const PAGE_ROLES = new Set(["RootWebArea", "WebArea"]);
 
-/** Roles whose insides say nothing the line itself does not. */
 const SKIPPED_ROLES = new Set(["MenuListPopup", "InlineTextBox", "LineBreak"]);
 
 const TEXT_ROLES = new Set(["StaticText", "text"]);
 
-/** Roles whose value is what was typed or chosen. */
 const VALUE_ROLES = new Set(["textbox", "searchbox", "combobox", "spinbutton", "slider"]);
 
-/** Text fields: what is inside them is their value, printed already. */
 const FIELD_ROLES = new Set(["textbox", "searchbox", "spinbutton"]);
 
 const MAX_NAME = 200;
@@ -74,7 +58,6 @@ function clean(value: unknown): string {
   return text.length > MAX_NAME ? `${text.slice(0, MAX_NAME - 1)}…` : text;
 }
 
-/** An element's role and name, as its snapshot line gives them. */
 export function roleAndName(node: AxNode): { role: string; name: string } {
   return {
     role: typeof node.role?.value === "string" ? node.role.value : "",
@@ -86,7 +69,6 @@ function property(node: AxNode, name: string): unknown {
   return node.properties?.find((p) => p.name === name)?.value.value;
 }
 
-/** The [..] marks after an element: its state and value. */
 function marks(node: AxNode, role: string): string {
   const out: string[] = [];
   const level = property(node, "level");
@@ -112,17 +94,13 @@ function marks(node: AxNode, role: string): string {
   return out.map((m) => ` [${m}]`).join("");
 }
 
-/** Prints the tree `nodes` make, numbering its elements e1, e2, ... */
 export function buildSnapshot(nodes: readonly AxNode[], options: SnapshotOptions): Snapshot {
   const byId = new Map(nodes.map((n) => [n.nodeId, n]));
   const refs = new Map<string, SnapshotRef>();
   const lines: string[] = [];
   let omitted = 0;
-  // The last line, when it is text, so the text that follows it joins it;
-  // index -1 when that line was left out.
   let textLine: { index: number; depth: number } | null = null;
 
-  /** Adds a line; false when it is past maxLines and left out. */
   const emit = (depth: number, line: string): boolean => {
     textLine = null;
     if (lines.length >= options.maxLines) {
@@ -154,13 +132,11 @@ export function buildSnapshot(nodes: readonly AxNode[], options: SnapshotOptions
     }
     if (SKIPPED_ROLES.has(role)) return;
     if (TEXT_ROLES.has(role)) {
-      // A button's or link's own text repeats its name.
       if (name !== "" && name !== parentName) emitText(depth, name);
       return;
     }
 
     let line = role + (name === "" ? "" : ` ${JSON.stringify(name)}`) + marks(node, role);
-    // Only the lines printed get refs, so the numbers have no gaps.
     if (node.backendDOMNodeId !== undefined && lines.length < options.maxLines) {
       const ref = `e${refs.size + 1}`;
       refs.set(ref, { backendNodeId: node.backendDOMNodeId, role, name });

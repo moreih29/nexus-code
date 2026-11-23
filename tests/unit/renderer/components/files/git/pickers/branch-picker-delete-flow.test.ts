@@ -1,7 +1,3 @@
-/**
- * BranchPicker delete flow tests cover the local force-warning retry and
- * remote delete routing without mounting Radix portal internals.
- */
 import { describe, expect, it, mock } from "bun:test";
 import type { Dispatch, SetStateAction } from "react";
 import {
@@ -133,9 +129,6 @@ describe("BranchPicker delete confirmation flow", () => {
   });
 });
 
-/**
- * Creates a tiny React setState-compatible holder for delete request tests.
- */
 function deleteState(initial: BranchDeleteRequest): {
   current: BranchDeleteRequest | null;
   set: Dispatch<SetStateAction<BranchDeleteRequest | null>>;

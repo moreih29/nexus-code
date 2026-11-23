@@ -1,7 +1,3 @@
-/**
- * Signing the app in to its NexusCode account: PKCE, the loopback the
- * browser comes back to, and the token traded for its code.
- */
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { SavedAccount } from "../../../../../src/main/features/remote/account";
 import {
@@ -33,13 +29,11 @@ const memoryStore = (initial: SavedAccount | null = null) => keptInMemory(initia
 const user = { id: "u1", email: "me@example.com", name: "Me" };
 const device = { id: "d1", name: "Mac", platform: "darwin" };
 
-/** A server that signs in whoever comes, and the requests it got. */
 function fakeServer(
   options: {
     tokenStatus?: number;
     tokenError?: string;
     tokenAccess?: string;
-    /** The refusal's body as sent, in place of its JSON. */
     tokenBody?: string;
     devicesStatus?: number;
     devicesError?: string;
@@ -84,11 +78,6 @@ function fakeServer(
   return { requests, fetchFn };
 }
 
-/**
- * A browser that goes through the sign-in and comes back, as told, and the
- * pages it was shown. Opening it does not wait for the page, which waits for
- * the sign-in to end.
- */
 function browser(back: (start: URL) => Record<string, string>) {
   const opened: URL[] = [];
   const pages: Promise<string>[] = [];
@@ -164,7 +153,6 @@ describe("the loopback", () => {
 describe("the way to the server", () => {
   const PROXY = "https://proxy.example";
   const saved = { server: SERVER, token: "tok", user, device };
-  /** The server, behind a proxy that fails as told. */
   function behind(proxy: (url: URL) => Error | null) {
     const server = fakeServer();
     const fetchFn = (async (input: URL | string, init?: RequestInit) => {
@@ -215,7 +203,6 @@ describe("the way to the server", () => {
     expect(await account.devices()).toHaveLength(1);
     expect(server.requests.map((r) => r.host)).toEqual(["localhost:8787", "localhost:8787"]);
     expect(account.route.base()).toBe(SERVER);
-    // After a while, the proxy is tried again.
     now = 5 * 60_000;
     expect(account.route.base()).toBe(PROXY);
   });
@@ -282,7 +269,6 @@ describe("the released app's server", () => {
   const DIRECT_HOST = "cloud.nexuscode.gradiendo.com";
   const FALLBACK_HOST = "nexus-cloud.moreih29.workers.dev";
   const saved = { server: RELEASED_SERVER, token: "tok", user, device };
-  /** The server at every address, with the hosts that cannot be reached. */
   function reachedAt(down: string[] = []) {
     const server = fakeServer();
     const fetchFn = (async (input: URL | string, init?: RequestInit) => {
@@ -346,11 +332,9 @@ describe("the released app's server", () => {
       now: () => now,
     });
     await account.restore();
-    // One request tries each way once, in order.
     expect(await account.devices()).toHaveLength(1);
     expect(asked).toEqual([PROXY_HOST, DIRECT_HOST, FALLBACK_HOST]);
     expect(server.requests.map((r) => [r.host, r.auth])).toEqual([[FALLBACK_HOST, "Bearer tok"]]);
-    // The next goes by the old name alone, until the others are tried again.
     await account.devices();
     expect(asked.slice(3)).toEqual([FALLBACK_HOST]);
     now = 5 * 60_000;
@@ -499,7 +483,6 @@ describe("the account", () => {
       [{ code: "c1" }, { tokenStatus: 409, tokenError: "too_many_devices" }, "too_many_devices"],
       [{ code: "c1" }, { tokenStatus: 409, tokenError: "conflict" }, "failed"],
       [{ code: "c1" }, { tokenStatus: 429, tokenError: "rate_limited" }, "rate_limited"],
-      // A code refused for the account says why as the callback does, suspended or not invited.
       [
         { code: "c1" },
         { tokenStatus: 403, tokenError: "not_invited", tokenAccess: "suspended" },
@@ -511,7 +494,6 @@ describe("the account", () => {
         { tokenStatus: 403, tokenError: "not_invited", tokenAccess: "future-status" },
         "failed",
       ],
-      // The signup states come with the callback alone.
       [
         { code: "c1" },
         { tokenStatus: 403, tokenError: "not_invited", tokenAccess: "pending" },
@@ -535,7 +517,6 @@ describe("the account", () => {
       accounts.push(account);
       expect(await account.signIn()).toEqual({ status: "signed-out", server: SERVER, failure });
       expect(store.value).toBeNull();
-      // The browser's page says the same, the trade's failures too.
       expect(await pages[0]).toBe(page(failure as PageOutcome, "en"));
     }
   });
@@ -560,11 +541,9 @@ describe("the account", () => {
       accounts.push(account);
       return { state: await account.signIn(), page: await pages[0] };
     };
-    // Traded in time: the page says signed in.
     const quick = await signIn(0);
     expect(quick.state.status).toBe("signed-in");
     expect(quick.page).toBe(page("signed-in", "en"));
-    // Not in time: the page leaves it to the app, and the sign-in goes on to the end.
     const slow = await signIn(150);
     expect(slow.state.status).toBe("signed-in");
     expect(slow.page).toBe(page("in-app", "en"));
@@ -576,7 +555,6 @@ describe("the account", () => {
     ["suspended", "suspended"],
     ["closed", "closed"],
     [undefined, "not_invited"],
-    // The server may add statuses: one the app does not know is a plain failure.
     ["future-status", "failed"],
   ] as const)("reports a not_invited callback with access %s as %s", async (access, failure) => {
     const store = memoryStore();
@@ -596,7 +574,6 @@ describe("the account", () => {
       status: "signed-out",
       server: SERVER,
       failure,
-      // A pending approval keeps its sign-in, the same to sign in again with.
       ...(failure === "pending_approval" ? { provider: "google" } : {}),
     });
     expect(store.value).toBeNull();
@@ -663,7 +640,6 @@ describe("the account", () => {
     };
     expect(await account.signIn("github")).toEqual(pending);
     expect(await account.signIn()).toEqual(pending);
-    // The browser's page names the sign-in too.
     expect(await pages[0]).toBe(page("pending_approval", "en", "github"));
     expect(await pages[0]).toContain("with the same GitHub account");
 
@@ -827,7 +803,6 @@ describe("the account", () => {
       store,
       openExternal,
       fetch: ((input: URL | string, init?: RequestInit) => {
-        // A long upload, sent with the token of the sign-in about to end.
         if (new URL(String(input)).pathname === "/voice/transcriptions") return answer.promise;
         return server.fetchFn(input, init);
       }) as typeof fetch,
@@ -841,7 +816,6 @@ describe("the account", () => {
     expect((await account.signIn()).status).toBe("signed-in");
     expect(store.value?.token).toBe("tok");
 
-    // The old token's refusal comes back only now.
     answer.resolve(Response.json(body, { status }));
     expect(await upload).toBeInstanceOf(SignedOutError);
     expect(account.state()).toEqual({ status: "signed-in", server: SERVER, user, device });

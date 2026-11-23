@@ -1,8 +1,3 @@
-// The Claude and Codex profiles and the rules that pick a workspace's
-// (shared/agent-profiles). appState in main is the authoritative store; each
-// window keeps a copy, and takes another window's edits as they are saved
-// (appState.agentProfilesChanged).
-
 import { create } from "zustand";
 import {
   type AgentProfile,
@@ -30,24 +25,17 @@ const log = createLogger("agent-profiles");
 
 interface AgentProfilesState {
   config: AgentProfiles;
-  /** This machine's home folder, once main has told it; "" until then. */
   home: string;
-  /** Each agent's default folder on this machine, once main has told it; "" until then. */
   defaultDirs: Record<ChatAgent, string>;
   hydrate(config: AgentProfiles | undefined): void;
   setHome(home: string, defaultDirs: Record<ChatAgent, string>): void;
-  /** Saves a whole new config, as every edit below does; settles once main has it. */
   save(config: AgentProfiles): Promise<void>;
   saveProfile(profile: AgentProfile): Promise<void>;
   removeProfile(id: string): void;
-  /** The agent's profile where no rule says; null = the default profile. */
   setDefault(agent: ChatAgent, profileId: string | null): void;
-  /** The target's rule gives the agent the profile; null leaves it to the next rule. */
   setRule(target: ProfileTarget, agent: ChatAgent, profileId: string | null): void;
   removeRule(ruleId: string): void;
-  /** Adds a rule for the target that sets no agent yet; none when it has one. */
   addRule(target: ProfileTarget): void;
-  /** As setRule, keeping the rule when it is left setting no agent. */
   setRuleKeep(target: ProfileTarget, agent: ChatAgent, profileId: string | null): void;
 }
 
@@ -101,13 +89,11 @@ export const useAgentProfilesStore = create<AgentProfilesState>((set, get) => ({
   },
 }));
 
-/** How this machine's paths compare. */
 export function matchOptions(): MatchOptions {
   const { home } = useAgentProfilesStore.getState();
   return { windows: isWindows(), ...(home ? { home } : {}) };
 }
 
-/** What the rules match a workspace by: itself, and the workspace its task was made from. */
 export function profileWorkspace(
   workspace: Pick<WorkspaceMeta, "id" | "location" | "task">,
   all: readonly Pick<WorkspaceMeta, "id" | "location">[],
@@ -121,7 +107,6 @@ export function profileWorkspace(
   };
 }
 
-/** The profile the agent runs with in the workspace, and why. */
 export function resolveWorkspaceProfile(
   agent: ChatAgent,
   workspace: Pick<WorkspaceMeta, "id" | "location" | "task">,
@@ -131,7 +116,6 @@ export function resolveWorkspaceProfile(
   return resolveProfile(config, agent, profileWorkspace(workspace, all), matchOptions());
 }
 
-/** "~/x" for a path in the home folder. */
 export function tildePath(path: string, home = useAgentProfilesStore.getState().home): string {
   if (!home) return path;
   const sep = isWindows() ? /[\\/]/ : /\//;
@@ -142,10 +126,6 @@ export function tildePath(path: string, home = useAgentProfilesStore.getState().
   return path;
 }
 
-/**
- * The folder the agent's default profile uses on this machine, as shown:
- * ~/.claude or ~/.codex, or the folder CLAUDE_CONFIG_DIR or CODEX_HOME names.
- */
 export function defaultFolderLabel(
   agent: ChatAgent,
   state: Pick<AgentProfilesState, "home" | "defaultDirs"> = useAgentProfilesStore.getState(),
@@ -154,7 +134,6 @@ export function defaultFolderLabel(
   return dir ? portableProfileDir(tildePath(dir, state.home)) : DEFAULT_PROFILE_DIR[agent];
 }
 
-/** Reads this machine's home folder, for "~/" paths, and the agents' default folders. */
 export async function loadProfilesHome(): Promise<void> {
   const result = await ipcCallResult("agentProfiles", "home", undefined);
   if (result.ok) {

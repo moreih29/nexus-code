@@ -1,14 +1,7 @@
-// Whether a Claude tab's session is also open in a terminal tab of the
-// workspace: two processes on one session each write their own turns to
-// it, and the conversation forks. The terminal's hooks tell its session
-// id (claude.activity); a terminal's Claude state changing is the cue to
-// look again, as when one starts or ends a session.
-
 import { useEffect, useState } from "react";
 import { ipcCallResult } from "../../ipc/client";
 import { EMPTY_TABS, useClaudeStatusStore } from "../../state/stores/claude-status";
 
-/** The terminal tab that runs `sessionId` too, null if absent, or undefined until checked. */
 export function useTerminalTwin(
   workspaceId: string,
   tabId: string,

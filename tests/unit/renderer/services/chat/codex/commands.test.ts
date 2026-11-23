@@ -40,7 +40,6 @@ describe("codex commands", () => {
     });
     expect(parseCodexCommand("/CLEAR")).toEqual({ name: "new", args: "" });
     expect(parseCodexCommand("/quit")).toEqual({ name: "exit", args: "" });
-    // Codex's terminal-only ones, and ordinary messages, go to Codex as typed.
     expect(parseCodexCommand("/theme")).toBeNull();
     expect(parseCodexCommand("please /compact")).toBeNull();
   });

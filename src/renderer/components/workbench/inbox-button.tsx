@@ -1,11 +1,3 @@
-// Inbox — the title bar's list of the agent sessions waiting on the user,
-// from every workspace: those that need an answer, a permission or a look at
-// an error, then those done and not looked at.
-//
-// The button counts the first kind; the second only lights a dot, since a
-// finished turn can wait. Picking a session shows its terminal with the
-// keyboard in it. The glyphs and words are the agent list's.
-
 import { Inbox } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -38,15 +30,12 @@ import { IconButton } from "../ui/icon-button";
 export function InboxButton() {
   const { t } = useTranslation();
   const inbox = useInbox();
-  // How long each has waited, ticking only while the list is shown.
   const [open, setOpen] = useState(false);
   const now = useNow(open);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const waiting = inbox.items.filter((item) => item.session.phase === "attention");
   const done = inbox.items.filter((item) => item.session.phase === "done");
   const nextShortcut = shortcutFor(COMMANDS.sessionNextWaiting);
-  // Set when a pick goes to a terminal, which then has the keyboard: the
-  // menu must not hand it back to this button as it closes.
   const wentToTerminal = useRef(false);
   const go = (session: AgentSession) => {
     wentToTerminal.current = true;
@@ -130,10 +119,6 @@ export function InboxButton() {
   );
 }
 
-/**
- * One session: its state, workspace, agent and how long it has waited, over
- * its last message or, without one, the last prompt it was given.
- */
 function InboxRow({
   item,
   workspaces,
@@ -168,7 +153,6 @@ function InboxRow({
   );
 }
 
-/** The workspace's name; a task's after its workspace's, as the title bar shows it. */
 function workspaceLabel(workspace: WorkspaceMeta, workspaces: readonly WorkspaceMeta[]): string {
   const parentId = workspace.task?.parentId;
   const parent = parentId ? workspaces.find((w) => w.id === parentId) : undefined;

@@ -67,7 +67,6 @@ export function createPeerHistory({ deviceId, workspaceId }: PeerWorkspace) {
     for (const commit of page) entries.set(commit.hash, commit);
     set({
       commits: [...entries.values()],
-      // A short page ends the list. Full pages consume their offsets even when rows overlap.
       nextSkip: page.length >= PAGE_SIZE ? skip + page.length : null,
       pending: false,
     });

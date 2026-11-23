@@ -1,9 +1,3 @@
-/**
- * What the title bar's update button shows, if anything: a newer version
- * the user did not skip, then the download, its check and the restart that
- * installs it, or the install that failed. Nothing otherwise. Pure.
- */
-
 import type { UpdateProgress, UpdateStatus } from "../../../shared/updates/status";
 
 export type UpdateButton =

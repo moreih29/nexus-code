@@ -1,8 +1,3 @@
-// Monaco TextModel reference counting.
-// Mirrors VSCode ITextModelService — models are owned by the cache, not by editor instances.
-// Framework-agnostic surface: acquire/release primitives, subscribeModel, isMonacoReady.
-// React binding lives in `./use-shared-model.ts`.
-
 import type * as Monaco from "monaco-editor";
 import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
 import { parseWorkspaceUri, workspaceUriFor } from "../../../../shared/fs/workspace-uri";
@@ -44,50 +39,16 @@ export interface ReleasedModelInfo {
 
 export type ModelReleaseSubscriber = (released: ReleasedModelInfo) => void;
 
-/**
- * Build the cacheUri that identifies a (workspace, file) pair in the model
- * cache and Monaco's model registry. The URI uses the `nexus-ws` scheme
- * with the workspaceId in the authority slot, so the SAME physical file
- * opened from two different workspaces produces two distinct cacheUris
- * (and therefore two independent ModelEntry / Monaco TextModel instances).
- *
- * Renderer-only. The main side translates back to a plain file:// URI at
- * the LSP server boundary — see workspace-uri.ts.
- */
 export function cacheUriFor(workspaceId: string, filePath: string): string {
   return workspaceUriFor(workspaceId, filePath);
 }
 
-/**
- * Inverse of `cacheUriFor`. Returns null when the URI is neither a
- * workspace-scoped cacheUri nor a plain file:// URI — defensive against
- * accidentally slicing unrelated strings. Callers that need the file
- * path of a tracked model should always use this rather than slicing
- * the prefix off inline; the prefix shape is owned here.
- *
- * Accepts both forms:
- *   - `nexus-ws://${workspaceId}${path}` (the canonical cacheUri after
- *     the cross-workspace cache-isolation work).
- *   - `file://${path}` (some upstream paths and historical call sites
- *     still produce file URIs; they round-trip cleanly to the same
- *     absolute path because the workspace prefix only adds routing
- *     context, not a different filesystem identity).
- *
- * Callers that also need the workspaceId should use `parseCacheUri`
- * instead — this helper drops it for the common "I just need the path"
- * call sites that already have workspaceId from another source.
- */
 export function cacheUriToFilePath(cacheUri: string): string | null {
   const workspaceParsed = parseWorkspaceUri(cacheUri);
   if (workspaceParsed) return workspaceParsed.absolutePath;
   return fileUriToAbsolutePath(cacheUri);
 }
 
-/**
- * Full parse of a cacheUri into its `(workspaceId, filePath)` pair. Use
- * this when both halves are needed (e.g. LSP cross-file navigation
- * routing the open back through the correct workspace).
- */
 export function parseCacheUri(cacheUri: string): { workspaceId: string; filePath: string } | null {
   const parsed = parseWorkspaceUri(cacheUri);
   return parsed ? { workspaceId: parsed.workspaceId, filePath: parsed.absolutePath } : null;
@@ -96,36 +57,22 @@ export function parseCacheUri(cacheUri: string): { workspaceId: string; filePath
 export function initializeModelCache(monaco: typeof Monaco): void {
   initializeMonacoSingleton(monaco);
 
-  // Evict external models tied to a workspace when that workspace closes.
-  // Registering by name (rather than an inline closure) makes this safe
-  // against double-init: the Set keeps a single reference.
   registerWorkspaceCleanup(forceDisposeExternalsForWorkspace);
 }
 
 const entries = new Map<string, ModelEntry>();
 const retainedByTabs = new Map<string, ModelEntry>();
 
-/**
- * External loads in flight by cacheUri. Their entry is registered only
- * after the read, so concurrent acquires of one external file must share
- * the load instead of each creating an entry (and a second Monaco model
- * for the same URI).
- */
 const pendingExternalLoads = new Map<string, Promise<ModelEntry>>();
 const releaseSubscribers = new Set<ModelReleaseSubscriber>();
 
 function cacheUriForInput(input: EditorInput): string {
   if (input.origin === "untitled") {
-    // Untitled buffers use the `untitled://` scheme for workspace isolation.
-    // `filePath` for untitled inputs holds the display name (e.g. "Untitled-1"),
-    // not an absolute file-system path. The resulting URI is the cacheUri AND
-    // the Monaco monacoUri — no separate translation step is needed.
     return `untitled://${input.workspaceId}/${input.filePath}`;
   }
   return cacheUriFor(input.workspaceId, input.filePath);
 }
 
-/** Whether an open tab still owns this editable buffer between view mounts. */
 function hasOpenBufferTab(entry: ModelEntry, tabs: Record<string, Tab> | undefined): boolean {
   if (!tabs) return false;
   const { filePath, workspaceId } = entry.input;
@@ -144,9 +91,6 @@ function hasOpenBufferTab(entry: ModelEntry, tabs: Record<string, Tab> | undefin
   });
 }
 
-// An open tab can own a buffer before its view mounts. Keep dirty buffers
-// until a view acquires them again or the last tab closes. Remote views also
-// retain clean buffers and their undo history when the connection expires.
 useTabsStore.subscribe((state, previous) => {
   for (const [cacheUri, entry] of retainedByTabs) {
     const { workspaceId } = entry.input;
@@ -168,18 +112,10 @@ function notifyReleased(released: ReleasedModelInfo): void {
   for (const subscriber of releaseSubscribers) {
     try {
       subscriber(released);
-    } catch {
-      // Release cleanup must not be blocked by secondary cache invalidators.
-    }
+    } catch {}
   }
 }
 
-/**
- * Subscribe to phase / model changes for a tracked entry. Returns a
- * no-op when the entry is unknown so callers don't need an extra
- * existence check. The unsubscribe returned removes the listener and
- * is idempotent.
- */
 export function subscribeModel(input: EditorInput, onChange: () => void): () => void {
   const entry = entries.get(cacheUriForInput(input));
   if (!entry) return () => {};
@@ -189,20 +125,11 @@ export function subscribeModel(input: EditorInput, onChange: () => void): () => 
   };
 }
 
-/**
- * Read the current snapshot for a tracked entry, or null when no entry
- * exists. Pure read — does not affect ref-counts.
- */
 export function getModelSnapshot(input: EditorInput): SharedModelState | null {
   const entry = entries.get(cacheUriForInput(input));
   return entry ? snapshot(entry) : null;
 }
 
-/**
- * Coerce an arbitrary thrown value to a FileErrorCode. Exposed for the
- * React binding so it can map a rejected acquire promise to the
- * `error` phase without re-implementing the heuristic.
- */
 export function toFileErrorCode(error: unknown): FileErrorCode {
   return errorCodeFromUnknown(error);
 }
@@ -218,11 +145,8 @@ export async function acquireModel(input: EditorInput): Promise<SharedModelState
         pendingExternalLoads.set(cacheUri, pending);
       }
       const loaded = await pending;
-      // The first acquirer to resume registers the entry; the rest reuse it.
       entry = entries.get(cacheUri) ?? loaded;
     } else if (input.origin === "untitled") {
-      // Untitled buffers: no fs IPC, no LSP registration, no fs-watcher.
-      // The model starts with empty content and is immediately ready.
       entry = createUntitledEntry(input, cacheUri, {
         requireMonaco,
         attachDirtyTracker,
@@ -240,7 +164,6 @@ export async function acquireModel(input: EditorInput): Promise<SharedModelState
     entry.origin === "workspace" &&
     selectIsWorkspaceOnline(useWorkspacesStore.getState(), input.workspaceId)
   ) {
-    // Changes made while the daemon was away may have had no watcher event.
     void reconcileIfStatChanged(entry);
   }
   try {
@@ -282,7 +205,6 @@ export function releaseModel(input: EditorInput): void {
   disposeReleasedEntry(cacheUri, entry);
 }
 
-/** Evict a model after its final view and tab owners are gone. */
 function disposeReleasedEntry(cacheUri: string, entry: ModelEntry): void {
   retainedByTabs.delete(cacheUri);
   entries.delete(cacheUri);
@@ -296,21 +218,14 @@ function disposeReleasedEntry(cacheUri: string, entry: ModelEntry): void {
   notifyReleased(released);
 }
 
-/**
- * Read-only view of a resolved model entry. Exposed for the save-service
- * (and similar consumers) so they can act on a tracked model without
- * having to peek at the entry map directly.
- */
 export interface ResolvedModelView {
   model: Monaco.editor.ITextModel;
   cacheUri: string;
-  /** Workspace-blind `file://` form used in LSP IPC payloads. */
   lspUri: string;
   workspaceId: string;
   filePath: string;
   languageId: string;
   readOnly: boolean;
-  /** The encoding the file was read or saved in, which a save writes in. */
   encoding: TextEncoding;
 }
 
@@ -329,15 +244,6 @@ export function getResolvedModel(input: EditorInput): ResolvedModelView | null {
   };
 }
 
-/**
- * Lightweight metadata view keyed by cacheUri (rather than EditorInput).
- * Exposed so consumers that hold only a monaco URI (e.g. an LSP provider
- * receiving a model from monaco) can recover the originating workspaceId
- * and origin without having to thread an EditorInput through.
- *
- * Returns null when the URI is not tracked. Read-only — does not affect
- * ref-counts.
- */
 export interface EntryMetadata {
   workspaceId: string;
   filePath: string;
@@ -356,16 +262,10 @@ export function getEntryMetadata(cacheUri: string): EntryMetadata | null {
   };
 }
 
-/**
- * The document version the LSP server last received for the model at
- * `cacheUri` (didOpen/didChange), or null when the URI is not tracked.
- * Differs from Monaco's version id after a rehydrate restarts it at 1.
- */
 export function getEntryLspVersion(cacheUri: string): number | null {
   return entries.get(cacheUri)?.version ?? null;
 }
 
-/** Rechecks a model for writes that landed before its directory watch started. */
 export async function reconcileWatchedModel(input: EditorInput): Promise<void> {
   const entry = entries.get(cacheUriForInput(input));
   if (entry?.origin !== "workspace") return;
@@ -373,10 +273,6 @@ export async function reconcileWatchedModel(input: EditorInput): Promise<void> {
   await reconcileIfStatChanged(entry);
 }
 
-/**
- * Ask to revert a buffer to disk, or reopen a clean buffer in `encoding`.
- * Returns true only when the requested disk result was applied.
- */
 export async function reloadModelFromDisk(
   input: EditorInput,
   encoding?: TextEncoding,
@@ -386,11 +282,6 @@ export async function reloadModelFromDisk(
   return entry ? reloadEntryFromDisk(entry, encoding, onReadFailure) : false;
 }
 
-/**
- * Clear the `diskDiverged` marker after a successful save so subsequent
- * saves (and the UI) see a clean state. Called by the save service after a
- * write that was preceded by an overwrite conflict-resolution.
- */
 export function clearDiskDiverged(input: EditorInput): void {
   const entry = entries.get(cacheUriForInput(input));
   if (!entry) return;
@@ -399,10 +290,6 @@ export function clearDiskDiverged(input: EditorInput): void {
   notifySubscribers(entry);
 }
 
-/**
- * Record that the file is now in `encoding`, after a save wrote it in that
- * one: later saves write in it too.
- */
 export function setModelEncoding(input: EditorInput, encoding: TextEncoding): void {
   const entry = entries.get(cacheUriForInput(input));
   if (!entry || entry.encoding === encoding) return;
@@ -410,49 +297,19 @@ export function setModelEncoding(input: EditorInput, encoding: TextEncoding): vo
   notifySubscribers(entry);
 }
 
-/**
- * Advance the entry's loaded-value baseline to `content` after a successful
- * save. `lastLoadedValue` records "what the buffer matched the last time it
- * was in sync with disk"; reconcileExternalChange compares the live buffer
- * against it to decide whether an fs/git event reflects the user's own write
- * (no-op) or a genuine external change. Without this update the baseline stays
- * frozen at the pre-edit content, so every post-save fs/git event makes
- * reconcile treat the file as externally diverged — a false positive.
- *
- * `content` is the exact text just written to disk (captured by the save
- * service before the write), so the baseline matches the on-disk state.
- */
 export function syncLoadedValueAfterSave(input: EditorInput, content: string): void {
   const entry = entries.get(cacheUriForInput(input));
   if (!entry) return;
   entry.lastLoadedValue = content;
-  // Reads started before the write may return the pre-save content.
   entry.diskReadSeq = (entry.diskReadSeq ?? 0) + 1;
 }
 
-/**
- * Whether `entry` belongs to `languageId`'s server. Main names servers by
- * preset id ("typescript"), which also covers JavaScript and JSX/TSX
- * models.
- */
 function entryUsesLspLanguage(entry: ModelEntry, languageId: string): boolean {
   return (
     entry.languageId === languageId || resolveLspPresetLanguageId(entry.languageId) === languageId
   );
 }
 
-/**
- * Mark tracked entries as no-longer-opened on the LSP side. The renderer's
- * LSP bridge calls this after receiving `lsp:workspaceReset` from main.
- *
- * When `languageId` is provided only entries for that language within the
- * workspace are reset; when omitted every entry for the workspace is reset
- * (backward-compatible, used by LRU full-workspace eviction).
- *
- * The function only flips bookkeeping fields — actual respawn is
- * lazy (next keystroke triggers rehydrate) and/or eager (workspace
- * activation calls `rehydrateLspForWorkspace`).
- */
 export function resetLspStateForWorkspace(workspaceId: string, languageId?: string): void {
   for (const entry of entries.values()) {
     if (entry.input.workspaceId !== workspaceId) continue;
@@ -460,61 +317,22 @@ export function resetLspStateForWorkspace(workspaceId: string, languageId?: stri
     if (entry.disposed) continue;
     entry.lspOpened = false;
     entry.lspNeedsRehydrate = true;
-    // Invalidate a rehydrate still in flight and the changes queued behind
-    // it: the server dropped the document they target.
     entry.lspRehydrating = false;
     entry.lspOpenEpoch = (entry.lspOpenEpoch ?? 0) + 1;
-    // Reset the open promise to a settled state so callers awaiting it
-    // immediately observe the new lspOpened flag and decide whether to
-    // re-issue didOpen.
     entry.didOpenPromise = Promise.resolve();
   }
 }
 
-/**
- * Eagerly re-issue didOpen for entries whose LSP server-side state was
- * dropped, or that loaded while their language was off. Called from the
- * renderer when the workspace becomes active again or a language is turned
- * on — without this, the user has to type before hover/completion start
- * working.
- *
- * When `languageId` is provided only entries for that language are
- * rehydrated; when omitted every eligible entry for the workspace is
- * rehydrated (backward-compatible, full-workspace path).
- *
- * Errors are swallowed per-entry so a single failed rehydrate doesn't
- * block the rest.
- */
 export function rehydrateLspForWorkspace(workspaceId: string, languageId?: string): void {
   for (const entry of entries.values()) {
     if (entry.input.workspaceId !== workspaceId) continue;
     if (languageId && !entryUsesLspLanguage(entry, languageId)) continue;
     if (entry.disposed || entry.lspOpened) continue;
-    // Skip entries whose initial didOpen is still in flight — only
-    // re-issue didOpen for entries the host evicted or that loaded while
-    // their language was off. Entries whose language is still off are
-    // skipped by `rehydrateEntry`.
     if (!entry.lspNeedsRehydrate) continue;
-    void rehydrateEntry(entry).catch(() => {
-      // rehydrateEntry already records lspDegraded on failure; we keep
-      // the loop running so unrelated entries still respawn.
-    });
+    void rehydrateEntry(entry).catch(() => {});
   }
 }
 
-/**
- * Force-dispose all external and untitled model entries associated with the
- * given workspaceId. Called when a workspace closes so externally-opened
- * read-only models and unsaved untitled buffers are not held in memory
- * indefinitely.
- *
- * This bypasses the normal refCount mechanism intentionally — the tabs
- * referencing these models are already removed by `closeAllForWorkspace` in
- * the tabs store, so there will be no further release() calls to drain them.
- *
- * Untitled buffers are disposed regardless of dirty state: the workspace
- * itself is gone, so there is no recovery path for any unsaved content.
- */
 export function forceDisposeExternalsForWorkspace(workspaceId: string): void {
   for (const [cacheUri, entry] of entries) {
     const isExternalForWorkspace =

@@ -1,4 +1,3 @@
-/** A notice's details open in place: the chevron follows the words and points down while folded. */
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { DetailsDisclosure } from "../../../../../src/renderer/components/ui/details-disclosure";

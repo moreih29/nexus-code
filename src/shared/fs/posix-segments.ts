@@ -3,7 +3,6 @@ interface SegmentPolicy {
   readonly leadingParents: "keep" | "discard";
 }
 
-/** Reduces POSIX path segments while leaving root and trailing-slash formatting to the caller. */
 export function reducePosixSegments(path: string, policy: SegmentPolicy): string[] {
   const segments: string[] = [];
   for (const part of path.split("/")) {

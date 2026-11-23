@@ -1,19 +1,3 @@
-/**
- * agent-host-lifecycle-degraded.test.ts
- *
- * Regression for the v0.6.0 LSP lifecycle bug: 56e411a added the `degraded`
- * / `degraded-recovered` / `ready` lifecycle events, but the LSP host's
- * lifecycle subscription only special-cased `reconnecting` and disposed every
- * server record for anything else. One spuriously late heartbeat (degraded
- * threshold = a single 5s interval) then silently killed every language
- * server on the channel.
- *
- * Observable: diagnostics routing. While server records are intact, an
- * `lsp.message` publishDiagnostics from the agent reaches the host's
- * "diagnostics" listeners; after disposeChannelServers the serverId is
- * unknown and the message is dropped.
- */
-
 import { afterEach, describe, expect, jest, test } from "bun:test";
 import { startAgentLspHost } from "../../../../../src/main/features/lsp/agent-host";
 import type {
@@ -103,7 +87,6 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-/** Boots a host with one spawned server and a diagnostics counter. */
 async function bootHostWithServer() {
   const channel = new LifecycleTestChannel();
   const host = startAgentLspHost({ getAgentChannel: async () => channel });
@@ -125,7 +108,6 @@ async function bootHostWithServer() {
   return { channel, host, emitted, resets, uri };
 }
 
-/** Steps fake time past the diagnostics debounce so each emit is leading-edge. */
 function stepPastDebounce(base: number, step: number): number {
   const next = base + 5_000 * step;
   jest.setSystemTime(new Date(next));
@@ -231,7 +213,6 @@ describe("LSP lifecycle: an agent restart takes its servers with it", () => {
     expect(resets).toEqual([
       { workspaceId: WORKSPACE_ID, languageId: "python", reason: "agent restarted" },
     ]);
-    // The new agent never ran the old server.
     expect(channel.calls).not.toContain("lsp.shutdown");
     host.dispose();
   });

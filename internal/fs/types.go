@@ -2,17 +2,12 @@ package fs
 
 import "encoding/json"
 
-// Wire types for the fs.* methods on the agent NDJSON channel. The TS side is
-// the zod source of truth; this file is the hand-maintained Go reflection.
-
-// DirEntry is the wire shape for one entry returned by fs.readdir.
 type DirEntry struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
 	Size *int64 `json:"size,omitempty"`
 }
 
-// StatResult is the wire shape returned by fs.stat.
 type StatResult struct {
 	Type      string `json:"type"`
 	Size      int64  `json:"size"`
@@ -20,14 +15,10 @@ type StatResult struct {
 	IsSymlink bool   `json:"isSymlink"`
 }
 
-// ReadFileResult is the wire shape for fs.readFile. A custom MarshalJSON
-// enforces the renderer's discriminated-union variants.
 type ReadFileResult struct {
 	Kind     string
 	Content  string
 	Encoding string
-	// Bytes is the file's text as it is on disk, for Encoding "bytes": text
-	// not in UTF-8, which the reader decodes. Content is empty then.
 	Bytes    []byte
 	Size     int64
 	IsBinary bool
@@ -35,23 +26,15 @@ type ReadFileResult struct {
 	Reason   string
 }
 
-// ReadAbsoluteParams — fs.readAbsolute request shape. The path is intentionally
-// not workspace-relative; it is interpreted on the machine where the agent runs.
 type ReadAbsoluteParams struct {
 	AbsolutePath string `json:"absolutePath"`
 }
 
-// ReadRangeParams — the range fs.readRange and fs.readAbsoluteRange read,
-// beside the path. Length is capped at MaxReadRangeLength.
 type ReadRangeParams struct {
 	Offset int64 `json:"offset"`
 	Length int64 `json:"length"`
 }
 
-// ReadBinaryResult is the wire shape for fs.readBinary. The "ok" variant
-// carries the file body as a base64 string so binary bytes survive the
-// JSON/NDJSON channel. Discriminated union with a "missing" variant on Kind,
-// matching the fs.readFile error-resolution pattern.
 type ReadBinaryResult struct {
 	Kind   string
 	Base64 string
@@ -60,7 +43,6 @@ type ReadBinaryResult struct {
 	Reason string
 }
 
-// MarshalJSON emits one of two object shapes based on Kind.
 func (r ReadBinaryResult) MarshalJSON() ([]byte, error) {
 	if r.Kind == "missing" {
 		return json.Marshal(struct {
@@ -76,7 +58,6 @@ func (r ReadBinaryResult) MarshalJSON() ([]byte, error) {
 	}{Kind: r.Kind, Base64: r.Base64, Size: r.Size, MTime: r.MTime})
 }
 
-// MarshalJSON emits one of two object shapes based on Kind.
 func (r ReadFileResult) MarshalJSON() ([]byte, error) {
 	if r.Kind == "missing" {
 		return json.Marshal(struct {
@@ -95,30 +76,19 @@ func (r ReadFileResult) MarshalJSON() ([]byte, error) {
 	}{Kind: r.Kind, Content: r.Content, Encoding: r.Encoding, Bytes: r.Bytes, Size: r.Size, IsBinary: r.IsBinary, MTime: r.MTime})
 }
 
-// ExpectedFileState mirrors the TS ExpectedFileStateSchema discriminated
-// union. Pointer fields are necessary because the "exists:true" variant
-// must serialize Size=0 as a valid value, while the "exists:false" variant
-// must omit MTime/Size entirely. omitempty on a pointer drops only nil.
 type ExpectedFileState struct {
 	Exists bool    `json:"exists"`
 	MTime  *string `json:"mtime,omitempty"`
 	Size   *int64  `json:"size,omitempty"`
 }
 
-// WriteFileParams — fs.writeFile request shape.
 type WriteFileParams struct {
-	RelPath string `json:"relPath"`
-	Content string `json:"content"`
-	// Bytes, when given, are written in place of Content: text in an
-	// encoding other than UTF-8, which a JSON string cannot carry.
+	RelPath  string             `json:"relPath"`
+	Content  string             `json:"content"`
 	Bytes    []byte             `json:"bytes,omitempty"`
 	Expected *ExpectedFileState `json:"expected,omitempty"`
 }
 
-// WriteFileResult mirrors the TS WriteFileResultSchema (kind: "ok" | "conflict").
-// MTime + Size populate the "ok" variant; Actual populates the "conflict"
-// variant. Pointer + omitempty keeps the wire shape a true discriminated
-// union rather than always-emitting-empty fields.
 type WriteFileResult struct {
 	Kind   string             `json:"kind"`
 	MTime  *string            `json:"mtime,omitempty"`
@@ -126,61 +96,43 @@ type WriteFileResult struct {
 	Actual *ExpectedFileState `json:"actual,omitempty"`
 }
 
-// CreateFileParams — fs.createFile request shape.
 type CreateFileParams struct {
 	RelPath string `json:"relPath"`
 }
 
-// MkdirParams — fs.mkdir request shape. Recursive defaults to false on
-// absence; the server treats omitted and explicit-false identically.
 type MkdirParams struct {
 	RelPath   string `json:"relPath"`
 	Recursive bool   `json:"recursive,omitempty"`
 }
 
-// ReaddirParams — fs.readdir options beside relPath.
 type ReaddirParams struct {
 	IncludeHidden bool `json:"includeHidden"`
 }
 
-// WatchParams — fs.watch / fs.unwatch request shape.
 type WatchParams struct {
 	RelPath string `json:"relPath"`
 }
 
-// UnlinkParams — fs.unlink request shape.
 type UnlinkParams struct {
 	RelPath string `json:"relPath"`
 }
 
-// RmdirParams — fs.rmdir request shape.
 type RmdirParams struct {
 	RelPath string `json:"relPath"`
 }
 
-// RenameParams — fs.rename request shape.
-//
-// Overwrite mirrors CopyFileParams: by default an existing destination is
-// rejected (ALREADY_EXISTS); with Overwrite=true the caller has already
-// obtained user confirmation, so the destination is removed first.
 type RenameParams struct {
 	FromRelPath string `json:"fromRelPath"`
 	ToRelPath   string `json:"toRelPath"`
 	Overwrite   bool   `json:"overwrite,omitempty"`
 }
 
-// CopyFileParams — fs.copyFile request shape.
-//
-// Overwrite is opt-in: by default the destination must not exist (O_EXCL
-// semantics). When the caller has obtained explicit user confirmation it may
-// set Overwrite=true to replace an existing destination.
 type CopyFileParams struct {
 	FromRelPath string `json:"fromRelPath"`
 	ToRelPath   string `json:"toRelPath"`
 	Overwrite   bool   `json:"overwrite,omitempty"`
 }
 
-// RemoveAllParams — fs.removeAll request shape.
 type RemoveAllParams struct {
 	RelPath string `json:"relPath"`
 }

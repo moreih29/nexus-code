@@ -1,23 +1,3 @@
-/**
- * Runs limit-resume: keeps in each Claude and Codex tab when to go on after
- * the plan's usage limit stopped it, and at that time sends the agent the
- * message to go on.
- *
- * - A tab's conversation is looked at as it changes (a turn ends, one
- *   starts), and every 30 seconds, as the window is shown again, and as the
- *   computer wakes or its screen is unlocked (system.woke): times are
- *   compared with the clock, so one that passed in sleep or while the app
- *   was closed comes due at once (the record is kept in the tab's layout).
- * - A stop with no reset told asks the plan's usage once (through a tab of
- *   the profile, or a program started to ask); with none there either, the
- *   tab only says so.
- * - At the time, the plan's usage is asked again: a limit that still holds
- *   puts it off to the reset it tells now, up to the configured attempt limit.
- * - Tabs of one profile go STAGGER_MS apart.
- * - A window that sends claims the message in localStorage, so another
- *   window with the same tab does not send it too.
- */
-
 import i18next from "i18next";
 import { type AgentProfile, profileOf } from "../../../shared/agent-profiles/profiles";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
@@ -45,18 +25,13 @@ import { chatKey, useChatStore } from "./store";
 import { sendToAgentTab } from "./transport/submission";
 
 const TICK_MS = 30_000;
-/** A claim older than this is another window's that is gone. */
 const CLAIM_MS = 2 * 60_000;
 const CLAIM_PREFIX = "nexus.limitResume:";
 const WINDOW_ID = crypto.randomUUID();
 
-/** Tabs whose message is on its way. */
 const firing = new Set<string>();
-/** The latest stop each tab had a record for, or let go, by chat key. */
 const handled = new Map<string, number>();
-/** Stops whose reset was asked of the plan's usage, by chat key and stop. */
 const asked = new Set<string>();
-/** When the next message of each profile may go, by plan usage key. */
 const nextSlot = new Map<string, number>();
 
 interface ChatTabRef {
@@ -109,7 +84,6 @@ function chatTabs(): ChatTabRef[] {
   return refs;
 }
 
-/** A plan's limits: a Claude account, or Codex signed in with ChatGPT rather than a key. */
 function isSubscription(profile: AgentProfile): boolean {
   return !profile.connection || profile.connection.method === "account";
 }
@@ -132,7 +106,6 @@ function planKeyOf(ref: ChatTabRef): string {
   return planUsageKeyFor(ref.agent, ref.workspaceId, ref.profileId);
 }
 
-/** Asks the plan's usage now, through a tab of the profile, or a program started to ask. */
 function askPlanUsage(ref: ChatTabRef): Promise<void> {
   const probe =
     ref.agent === "claude" ? ChatController.probePlanUsage : CodexController.probePlanUsage;
@@ -150,28 +123,24 @@ function askPlanUsage(ref: ChatTabRef): Promise<void> {
   });
 }
 
-/** Sends a tab the app's message, starting its program if it is not running. */
 async function sendAppMessage(workspaceId: string, tabId: string, text: string): Promise<void> {
   const target = agentTabController(workspaceId, tabId);
   if (!target) throw new Error("the tab is gone");
   await sendToAgentTab(workspaceId, tabId, target, text, { kind: "app" });
 }
 
-/** What the scheduler does past the stores; tests put in their own. */
 export const limitResumeIo = {
   askPlan: askPlanUsage,
   send: sendAppMessage,
   sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
 };
 
-/** When the plan's used-up limit resets, from usage heard since `since`. */
 function planResetSince(ref: ChatTabRef, since: number): number | undefined {
   const plan = usePlanUsageStore.getState().byKey[planKeyOf(ref)];
   if (plan?.fetchedAt === undefined || plan.fetchedAt < since) return undefined;
   return planBlockedUntil(plan, ref.agent);
 }
 
-/** Brings a tab's record up to its conversation; returns it as kept. */
 function reconcile(ref: ChatTabRef, now: number): LimitResume | undefined {
   const key = chatKey(ref.workspaceId, ref.tabId);
   const chat = useChatStore.getState().tabs[key];
@@ -199,10 +168,6 @@ function reconcile(ref: ChatTabRef, now: number): LimitResume | undefined {
   return ref.record;
 }
 
-/**
- * A stop with no reset told: the plan's usage, if it tells one, at once;
- * else asked once, for this stop.
- */
 function findReset(ref: ChatTabRef, record: LimitResume, now: number): void {
   const known = withResetTime(record, planResetSince(ref, record.stopAt), now, options());
   if (known !== record) {
@@ -228,20 +193,16 @@ function findReset(ref: ChatTabRef, record: LimitResume, now: number): void {
     });
 }
 
-/** Whether this window sends the message: none other claimed it. */
 function claim(ref: ChatTabRef, record: LimitResume): boolean {
   const id = `${CLAIM_PREFIX}${ref.workspaceId}:${ref.tabId}:${record.stopAt}:${record.tries}`;
   try {
     const [owner, at] = (localStorage.getItem(id) ?? "").split("|");
     if (owner && owner !== WINDOW_ID && Date.now() - Number(at) < CLAIM_MS) return false;
     localStorage.setItem(id, `${WINDOW_ID}|${Date.now()}`);
-  } catch {
-    // No storage: this window is the only one that can tell.
-  }
+  } catch {}
   return true;
 }
 
-/** Forgets claims of a day ago and more. */
 function sweepClaims(): void {
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
@@ -250,15 +211,9 @@ function sweepClaims(): void {
       const at = Number((localStorage.getItem(id) ?? "").split("|")[1]);
       if (!(Date.now() - at < 24 * 60 * 60_000)) localStorage.removeItem(id);
     }
-  } catch {
-    // Nothing kept to forget.
-  }
+  } catch {}
 }
 
-/**
- * Sends the tab the message to go on: at its time, once the plan's usage
- * says the limit no longer holds; or now, as the user asked (`now`).
- */
 async function fire(ref: ChatTabRef, now: boolean): Promise<void> {
   const key = chatKey(ref.workspaceId, ref.tabId);
   if (firing.has(key) || !ref.record) return;
@@ -288,7 +243,6 @@ async function fire(ref: ChatTabRef, now: boolean): Promise<void> {
         return;
       }
     }
-    // One profile's tabs a few seconds apart.
     const slot = Math.max(Date.now(), nextSlot.get(planKey) ?? 0);
     nextSlot.set(planKey, slot + STAGGER_MS);
     if (slot > Date.now()) await limitResumeIo.sleep(slot - Date.now());
@@ -317,7 +271,6 @@ async function fire(ref: ChatTabRef, now: boolean): Promise<void> {
   }
 }
 
-/** Looks at every chat tab: brings its record up, and sends where the time came. */
 export function tickLimitResume(now = Date.now()): void {
   for (const ref of chatTabs()) {
     const record = reconcile(ref, now);
@@ -325,13 +278,11 @@ export function tickLimitResume(now = Date.now()): void {
   }
 }
 
-/** Goes on in the tab now, as the user asked: the message is sent without waiting. */
 export function resumeLimitNow(workspaceId: string, tabId: string): Promise<void> {
   const ref = tabRef(workspaceId, tabId);
   return ref ? fire(ref, true) : Promise.resolve();
 }
 
-/** Calls off going on in the tab: it stays stopped, and says when the limit resets. */
 export function cancelLimitResume(workspaceId: string, tabId: string): void {
   const ref = tabRef(workspaceId, tabId);
   if (!ref?.record || ref.record.state === "sent") return;
@@ -341,7 +292,6 @@ export function cancelLimitResume(workspaceId: string, tabId: string): void {
 
 let stop: (() => void) | null = null;
 
-/** Starts looking at the tabs; the function it gives back stops. */
 export function startLimitResume(): () => void {
   stop?.();
   sweepClaims();
@@ -381,7 +331,6 @@ export function startLimitResume(): () => void {
   return stop;
 }
 
-/** For tests: forgets what was handled, asked and claimed in this window. */
 export function resetLimitResume(): void {
   stop?.();
   firing.clear();

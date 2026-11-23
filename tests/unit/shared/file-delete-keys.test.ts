@@ -1,8 +1,3 @@
-/**
- * The keys that delete the file tree's selection: ⌘⌫ on the Mac, as in
- * Finder; Delete on Windows and Linux, as in their file managers, where
- * Ctrl+Backspace still works too. The label names the platform's key.
- */
 import { describe, expect, it } from "bun:test";
 import { COMMANDS } from "../../../src/shared/keybindings/commands";
 import { findDisplayPrimary, KEYBINDINGS } from "../../../src/shared/keybindings/index";

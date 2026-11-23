@@ -1,7 +1,3 @@
-// What a Claude tab does with the files and addresses its conversation
-// names: where a path points, which kind of file it is, and whether an
-// address is the machine's own. Pure, for the tab and its tests.
-
 import { loopbackPort } from "../../../shared/pty/ports";
 import { isDocxFile } from "../editor/preview/docx";
 import { isFontFile } from "../editor/preview/font";
@@ -12,57 +8,31 @@ import { isImageFile, isPreviewable, previewEngineFor } from "../editor/preview/
 import { isSpreadsheetFile } from "../editor/preview/spreadsheet";
 import type { ResultEntry } from "./panel";
 
-/** A Windows path from its drive: `C:\…`, `C:/…`, or the drive itself. */
 const DRIVE_PATH = /^[A-Za-z]:([\\/]|$)/;
 
-/** A link to a Windows path, whose `\` a markdown link carries escaped (`C:%5C…`). */
 const DRIVE_LINK = /^[A-Za-z]:([\\/]|%5C|$)/i;
 
-/**
- * A Windows path written with `/`, as the app writes its paths there
- * (`C:\w\a.ts` → `C:/w/a.ts`); any other path as it is. Codex and Claude
- * write Windows paths with `\`.
- */
 export function slashWindowsPath(path: string): string {
   return DRIVE_PATH.test(path) ? path.replace(/\\/g, "/") : path;
 }
 
-/** A file a link names, and the line in it the link points at. */
 export interface FileLink {
-  /** The file's absolute path, as resolveFilePath gives it. */
   path: string;
-  /** The line, from 1, and its column when the link names one. */
   line?: number;
   column?: number;
-  /**
-   * The path with its `:12` kept, where a file name may hold a colon (not
-   * on Windows): a file of that name is the one meant, when there is one.
-   */
   literal?: string;
 }
 
-/** Where in a file to open it: a line, from 1, and maybe its column. */
 export type LineAt = Pick<FileLink, "line" | "column">;
 
-/** `:12` or `:12:5` ending a path, as Codex and compilers name a line. */
 const LINE_SUFFIX = /:(\d+)(?::(\d+))?$/;
 
-/** `#L12`, as GitHub names a line; of `#L12-L20`, the first. */
 const LINE_ANCHOR = /^#L(\d+)(?!\d)/i;
 
-/**
- * The absolute path a link or a reply names, against the session's folder:
- * a `file://` URL, an absolute path, or one relative to `cwd`. A line
- * (`:12`, `#L12`) or another anchor is left out. Null for a path from the
- * home folder, whose home the app does not know, and for anything else. A
- * Windows path (`C:\…`, or any path where the folder is one) comes back as
- * the app writes it, `C:/…`.
- */
 export function resolveFilePath(target: string, cwd: string): string | null {
   return resolveFileLink(target, cwd)?.path ?? null;
 }
 
-/** The file a link names, as resolveFilePath finds it, with the line it points at. */
 export function resolveFileLink(target: string, cwd: string): FileLink | null {
   const link = readLink(target, cwd);
   if (!link) return null;
@@ -73,11 +43,6 @@ export function resolveFileLink(target: string, cwd: string): FileLink | null {
   return { path: absolute, ...at, ...(literal ? { literal } : {}) };
 }
 
-/**
- * The path a link names from the session's folder, as written, without its
- * line: null for an absolute path, a Windows one, one from the home folder,
- * and anything that names no file.
- */
 export function relativeLinkPath(target: string, cwd: string): string | null {
   const link = readLink(target, cwd);
   if (!link || link.windows) return null;
@@ -85,16 +50,13 @@ export function relativeLinkPath(target: string, cwd: string): string | null {
   return path && !path.startsWith("/") && !path.startsWith("~") ? path : null;
 }
 
-/** A link as written: its path without the line, the line, and the path with it. */
 interface WrittenLink {
   path: string;
   at: Omit<FileLink, "path" | "literal">;
   written?: string;
-  /** A Windows path, or one from a Windows folder. */
   windows: boolean;
 }
 
-/** What a link writes of a file, as resolveFileLink reads it; null for an address. */
 function readLink(target: string, cwd: string): WrittenLink | null {
   let path = target.trim();
   if (!path) return null;
@@ -110,7 +72,6 @@ function readLink(target: string, cwd: string): WrittenLink | null {
     } catch {
       return null;
     }
-    // file:///C:/a.ts has the pathname /C:/a.ts.
     if (/^\/[A-Za-z]:\//.test(path)) {
       path = path.slice(1);
       windows = true;
@@ -130,11 +91,6 @@ function readLink(target: string, cwd: string): WrittenLink | null {
   return { path, at, ...(written !== undefined ? { written } : {}), windows };
 }
 
-/**
- * A path without the line ending it, and the path as written. Only what
- * reads as a file takes a line (`a.ts:12`, `src/Makefile:3`, a drive's
- * path), so `tel:123` stays a scheme.
- */
 function splitLine(
   path: string,
   drive: boolean,
@@ -146,14 +102,11 @@ function splitLine(
   return { path: rest, at, written: path };
 }
 
-/** A path made absolute against `cwd`; null for one from the home folder. */
 function absolutePath(path: string, windows: boolean, cwd: string): string | null {
   if (!path || path.startsWith("~")) return null;
   if (windows) {
     path = path.replace(/\\/g, "/");
     if (DRIVE_PATH.test(path)) return normalize(path);
-    // A network path (\\server\share\…) loses its leading "//" below, on purpose: looking a
-    // file up there would have Windows reach that server and offer it the user's credentials.
   }
   const joined = path.startsWith("/")
     ? path
@@ -169,9 +122,7 @@ function safeDecode(text: string): string {
   }
 }
 
-/** `.` and `..` resolved, repeated and trailing slashes dropped; a Windows drive kept in front. */
 function normalize(path: string): string {
-  // The drive letter is upper case, so `c:/a` and `C:/a` name one file.
   const drive = (/^[A-Za-z]:(?=\/|$)/.exec(path)?.[0] ?? "").toUpperCase();
   const out: string[] = [];
   for (const part of path.slice(drive.length).split("/")) {
@@ -182,7 +133,6 @@ function normalize(path: string): string {
   return `${drive}/${out.join("/")}`;
 }
 
-/** The session's results that are files, as absolute paths, each once. */
 export function resultFiles(results: ResultEntry[], cwd: string): string[] {
   const files: string[] = [];
   for (const result of results) {
@@ -193,7 +143,6 @@ export function resultFiles(results: ResultEntry[], cwd: string): string[] {
   return files;
 }
 
-/** Whether `path` is `root` or under it; under a Windows root, whatever the case. */
 export function isUnder(path: string, root: string): boolean {
   const windows = DRIVE_PATH.test(root);
   const fold = (p: string) => (windows ? slashWindowsPath(p).toLowerCase() : p);
@@ -202,10 +151,6 @@ export function isUnder(path: string, root: string): boolean {
   return base !== "" && (target === base || target.startsWith(`${base}/`));
 }
 
-/**
- * Whether an address is the machine's own, which the app's browser opens:
- * localhost and its subdomains, the loopback addresses, and 0.0.0.0.
- */
 export function isLocalAddress(url: string): boolean {
   return loopbackPort(url) !== null;
 }
@@ -228,7 +173,6 @@ export type FileKind =
 const CODE_EXT =
   /\.(c|cc|cpp|cs|css|go|h|hpp|java|js|jsx|kt|lua|m|mjs|cjs|php|pl|py|rb|rs|scss|sh|sql|swift|ts|tsx|vue|zsh)$/i;
 
-/** Which kind of file a path names, for its icon. */
 export function fileKind(path: string): FileKind {
   if (path.endsWith("/")) return "folder";
   if (isImageFile(path) || /\.svg$/i.test(path)) return "image";
@@ -248,7 +192,6 @@ export function fileKind(path: string): FileKind {
   return "text";
 }
 
-/** The last part of a path, without the folders. */
 export function baseName(path: string): string {
   const trimmed = path.replace(/\/+$/, "");
   return trimmed.slice(trimmed.lastIndexOf("/") + 1) || path;

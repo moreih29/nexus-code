@@ -1,10 +1,3 @@
-/**
- * Unit tests for injectHarnessTerminalEnv().
- *
- * T5 signature change: binDir moved into a required field of HarnessTerminalEnvContext.
- * Direct calls to getAgentBinDir() were removed, so this can be tested without an electron mock.
- */
-
 import { describe, expect, test } from "bun:test";
 import { injectHarnessTerminalEnv } from "../../../../../src/main/features/pty/harness-env";
 

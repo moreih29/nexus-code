@@ -65,13 +65,9 @@ describe("composer completion", () => {
 
   test("an @ typed into a sentence opens; a caret moved into a mention does not", () => {
     const text = "이 @파일 수정해 줘";
-    // caret right after "@", the "@" typed there
     expect(opens(text, 3, 2)).toBe(true);
-    // the same caret reached by a click or an arrow key
     expect(opens(text, 3, null)).toBe(false);
-    // typed elsewhere than this token
     expect(opens(text, 3, 9)).toBe(false);
-    // Moving to the end of an existing mention leaves the menu closed.
     expect(opens("이 @a.ts 줘", 7)).toBe(false);
     expect(opens("이 @Makefile")).toBe(false);
   });
@@ -106,18 +102,17 @@ describe("composer completion", () => {
   test("followTyped drops the token when the edit leaves it", () => {
     const typed = { start: 2, caret: 4 };
     const text = "이 @a파일";
-    expect(followTyped(text, "x이 @a파일", 1, typed)).toBeNull(); // before the @
-    expect(followTyped(text, "이 @a파일x", 6, typed)).toBeNull(); // after the caret
-    expect(followTyped(text, "이 a파일", 2, typed)).toBeNull(); // the @ erased
-    expect(followTyped(text, "이 @a파일", 1, typed)).toBeNull(); // caret moved in front
-    expect(followTyped(text, "이 @abc파일", 6, typed)).toEqual({ start: 2, caret: 6 }); // paste
+    expect(followTyped(text, "x이 @a파일", 1, typed)).toBeNull();
+    expect(followTyped(text, "이 @a파일x", 6, typed)).toBeNull();
+    expect(followTyped(text, "이 a파일", 2, typed)).toBeNull();
+    expect(followTyped(text, "이 @a파일", 1, typed)).toBeNull();
+    expect(followTyped(text, "이 @abc파일", 6, typed)).toEqual({ start: 2, caret: 6 });
   });
 
   test("a picked file gets a space before and after", () => {
     const text = "이거@src 다음 글";
     const completion = completionAt(text, 6, 2);
     expect(completion).not.toBeNull();
-    // caret before the space: the token ends at the caret
     const done = applyCompletion(text, completion!, { kind: "file", path: "src/a.ts" });
     expect(done.text).toBe("이거 @src/a.ts 다음 글");
     expect(done.caret).toBe("이거 @src/a.ts ".length);
@@ -151,7 +146,6 @@ describe("composer completion", () => {
     expect(done.text).toBe("이거 @src/");
     expect(done.caret).toBe(8);
     expect(done.open).toEqual({ start: 3, caret: 8 });
-    // and the next pick, from the open token, replaces it
     const next = completionAt(done.text, done.caret, done.open?.start)!;
     expect(next).toMatchObject({ start: 3, query: "src/" });
     expect(applyCompletion(done.text, next, { kind: "file", path: "src/a.ts" }).text).toBe(

@@ -1,21 +1,3 @@
-/**
- * Search panel — top-level container.
- *
- * Responsibilities:
- *  - Owns input value (local state) + regex-error state.
- *  - Validates regex via validateRegexPattern; suppresses startSearch on invalid.
- *  - Wires keyboard: Cmd/Ctrl+F → focus+select while panel is mounted
- *    (via useGlobalSearchHotkey).
- *  - Debounces search dispatch via useSearchDebounce.
- *  - Converts running status to delayed loader visibility via useLoaderDelay.
- *  - Loads and persists per-workspace view options (list/tree, compact folders)
- *    via the shared panel-view-options store.
- *  - Provides a live region (role=status) announcing result counts after
- *    the search settles.
- *  - Delegates rendering to SearchInput, SearchStatusHeader, SearchResultsList,
- *    and the inline empty/no-results/error states.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { revealEditorAt } from "@/services/editor/tabs";
@@ -42,22 +24,9 @@ import { validateRegexPattern } from "./validate-regex-pattern";
 
 interface SearchPanelProps {
   workspaceId: string;
-  /** Focuses the query input whenever it changes to a value above zero. */
   focusRequest?: number;
 }
 
-// Stable empty fallback for the `expandedDirs` selector below.
-//
-// Zustand v5 invokes React's `useSyncExternalStore` directly with no
-// equality-function adapter, so the selector return value is compared by
-// `Object.is`. A selector that builds `new Set()` (or `[]` / `{}`) inside
-// `??` produces a fresh reference on every read — `Object.is` reports a
-// change, React calls `forceStoreRerender`, the selector runs again, and
-// the snapshot keeps "drifting" → "Maximum update depth exceeded" with a
-// "getSnapshot should be cached" warning. Hoisting one shared instance
-// gives the selector a stable identity when the workspace has no entry.
-// Treated as read-only by convention (the store reducer never reaches for
-// this constant; it manufactures its own writable Set when needed).
 const EMPTY_EXPANDED_DIRS: ReadonlySet<string> = new Set<string>();
 
 export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps) {
@@ -65,8 +34,6 @@ export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps)
   const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
   const rootPath = workspace?.rootPath ?? "";
 
-  // Seeded from this workspace's session so switching back to it shows the
-  // query its results belong to.
   const [inputValue, setInputValue] = useState(
     () => useSearchStore.getState().sessions.get(workspaceId)?.query ?? "",
   );
@@ -90,7 +57,6 @@ export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps)
   const viewState = useViewOptions("search", workspaceId);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
-  /** Ref to the focus-first-row function exposed by SearchResultsList. */
   const firstRowFocusRef = useRef<(() => void) | null>(null);
   const { trigger, cancel } = useSearchDebounce(workspaceId);
   const showLoader = useLoaderDelay(session?.status);
@@ -100,16 +66,10 @@ export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps)
     if (focusRequest > 0) inputRef.current?.focus();
   }, [focusRequest]);
 
-  // Load persisted view options once per workspace mount.
   useEffect(() => {
     loadViewOptions("search", workspaceId);
   }, [workspaceId, loadViewOptions]);
 
-  // ---- Live region announce ----
-  //
-  // Announce "N results in M files" once the search settles (status=done).
-  // We track the previous status to detect the done transition rather than
-  // firing on every re-render.
   const [liveText, setLiveText] = useState("");
   const prevStatusRef = useRef<string | undefined>(undefined);
 
@@ -137,7 +97,6 @@ export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps)
   function handleChange(value: string) {
     setInputValue(value);
 
-    // Live regex validation.
     if (options.isRegExp && value) {
       const result = validateRegexPattern(value, true);
       setRegexError(result.valid ? null : result.error);
@@ -145,7 +104,6 @@ export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps)
       setRegexError(null);
     }
 
-    // Suppress debounced dispatch when regex is invalid.
     if (options.isRegExp && value) {
       const result = validateRegexPattern(value, true);
       if (!result.valid) {
@@ -158,25 +116,17 @@ export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps)
   }
 
   function handleEnter() {
-    // Drop the pending debounced run: it would restart the search Enter just
-    // started and clear its results and expanded state.
     cancel();
     runSearch(inputValue, options);
-    // flush is not used here because runSearch already calls startSearch
-    // directly and handles regex validation; trigger/flush are for the
-    // debounce path only.
   }
 
   function handleEsc() {
     if (inputValue) {
-      // First Esc: clear value AND drop the session — same semantics as the
-      // X button or backspacing to empty.
       setInputValue("");
       setRegexError(null);
       cancel();
       clearSearch(workspaceId);
     } else {
-      // Second Esc (empty value): blur.
       inputRef.current?.blur();
     }
   }
@@ -187,7 +137,6 @@ export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps)
     setOptions((prev) => {
       const next = { ...prev, [key]: !prev[key] };
 
-      // Re-validate regex with toggled state.
       if (key === "isRegExp") {
         if (next.isRegExp && inputValue) {
           const result = validateRegexPattern(inputValue, true);
@@ -197,7 +146,6 @@ export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps)
         }
       }
 
-      // Re-run search with updated options when value present and no error.
       if (inputValue) {
         const result = validateRegexPattern(inputValue, next.isRegExp);
         if (result.valid) {
@@ -210,7 +158,6 @@ export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps)
     });
   }
 
-  /** Arrow-down in the search input: blur input, focus first result row. */
   function handleInputArrowDown() {
     if (!shouldHandleArrowDown(session)) return;
     inputRef.current?.blur();
@@ -235,9 +182,6 @@ export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps)
     [rootPath, workspaceId],
   );
 
-  // ---- Render states ----
-
-  // isEmpty: no active search — no local input AND no session with a query.
   const hasActiveQuery = inputValue.length > 0 || (session != null && session.query.length > 0);
   const isEmpty = !hasActiveQuery;
   const isError = session?.status === "error";
@@ -246,7 +190,6 @@ export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps)
 
   return (
     <div className="flex flex-col h-full">
-      {/* Hidden live region for screen-reader result announcements */}
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         {liveText}
       </div>

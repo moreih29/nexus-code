@@ -1,17 +1,3 @@
-// The conversation a Codex tab shows, rebuilt from the lines of its
-// program's log: the JSON-RPC that `codex app-server` wrote (out), what the
-// app wrote it (in), and the agent's own lines (sys): the program's start
-// and exit, and the files the session changed as they were before it.
-//
-// It builds the model a Claude tab builds, so a Codex tab shows it with the
-// same list, rows and cards: a turn is an assistant message, an item of it
-// a block. Like applyLine it is a pure reducer, so the same lines give the
-// same view live and when a reloaded window replays the log.
-//
-// The app server is experimental and its protocol grows with each Codex
-// release (#159): methods and fields it does not know are left alone, and
-// every field is read as maybe absent.
-
 import { codexErrorStatus, codexRetryCount, codexTurnFailure, retryReasonOf } from "../api-errors";
 import { fileMention } from "../composer-input";
 import { CODEX_GOAL_STATUSES, type CodexGoal, type CodexGoalStatus } from "../goal";
@@ -62,24 +48,17 @@ import { matchesProfileForkSettings } from "./profile-fork";
 
 type Rec = Record<string, unknown>;
 
-/** The approval and sandbox presets a Codex tab offers, as Codex's own /approvals does. */
 export type CodexMode = "readOnly" | "auto" | "fullAccess";
 
 export const CODEX_MODES: readonly CodexMode[] = ["readOnly", "auto", "fullAccess"];
 
-/** A request of the server's the app has yet to answer: an approval, a question. */
-/** One of the plan's usage windows, as Codex reports it. */
 export interface CodexLimitWindow {
   usedPercent: number;
-  /** How long the window is, in minutes: 300 for the 5-hour one, 10080 for the week. */
   windowMins?: number;
-  /** When it starts over, in seconds since the epoch. */
   resetsAt?: number;
 }
 
-/** The plan's usage limits: a short window and a long one, when the plan has them. */
 export interface CodexRateLimits {
-  /** The bucket the windows are of, such as "codex", to keep other buckets' updates out. */
   limitId?: string;
   primary?: CodexLimitWindow;
   secondary?: CodexLimitWindow;
@@ -90,7 +69,6 @@ export interface CodexServerRequest {
   params: Rec;
 }
 
-/** A live command and whether its process can outlast the turn that started it. */
 interface LiveCommand {
   turnId: string;
   startedAt?: number;
@@ -98,11 +76,8 @@ interface LiveCommand {
 }
 
 export interface CodexModel extends ChatModel {
-  /** Keeps sequence-based item keys unique across the tab's agent logs. */
   logSeqOffset?: number;
-  /** The sandbox the program reports independently of its approval policy. */
   sandboxMode?: CodexMode | null;
-  /** The thread the program runs, once it started or resumed one. */
   threadId?: string;
   appServerVersion?: string;
   canonicalCwd?: string;
@@ -110,46 +85,25 @@ export interface CodexModel extends ChatModel {
     | { threadId: string; legacyTurns: string[] }
     | { threadId: string; pages: CodexForkPages };
   nativeTranscripts?: Record<string, ChatItem[]>;
-  /** The turn that runs, to steer or stop. */
   turnId?: string;
-  /** Log sequence of the current turn's last tool completion. */
   toolCompletedSeq?: number;
-  /** Commands observed starting in the live log, until their lifecycle settles. */
   liveCommands?: Record<string, LiveCommand>;
-  /** What the program is signed in with (its kind only); null when it is not. */
   account?: { type: string } | null;
-  /** The program needs a sign-in before a turn can run. */
   signedOut?: boolean;
-  /** The thread's context: the tokens of its last request, and the model's window. */
   tokens?: { used: number; window?: number };
-  /** The plan's usage limits; only a ChatGPT sign-in has them. */
   rateLimits?: CodexRateLimits;
-  /** The latest checklist the app-server reported for this thread. */
   plan?: { content: string; status: "pending" | "in_progress" | "completed" }[];
   mcpServers?: CodexMcpServer[];
-  /** Latest OAuth completion, used by the panel to refresh its inventory. */
   mcpLogin?: { seq: number; name: string; success: boolean; error?: string };
   threadName?: string;
   serviceTier?: string | null;
   collaborationPresets?: ReturnType<typeof collaborationPresetsOf>;
   collaborationMode?: CodexCollaborationMode;
   collaborationSettings?: Partial<Record<CodexCollaborationMode, CodexCollaborationSettings>>;
-  /**
-   * The turn a review (/review) runs in: the message that starts it there
-   * is Codex's own, which the review's notice tells.
-   */
   reviewTurn?: string;
-  /** The thread's goal (/goal), as the server last told it; null when it has none. */
   threadGoal?: CodexGoal | null;
-  /** Where the text an item streams goes: its message's key and the block's index. */
   blocks: Record<string, { key: string; index: number }>;
-  /** The server's requests waiting for an answer, by their JSON id. */
   requests: Record<string, CodexServerRequest>;
-  /**
-   * The files the session changed as they were before its first change,
-   * by path as the agent wrote it; null for a file it wrote new. Only the
-   * agent's, which it checked against the hashes in Codex's turn diff.
-   */
   originals: Record<string, string | null>;
 }
 
@@ -157,7 +111,6 @@ export function emptyCodexModel(): CodexModel {
   return { ...emptyModel(), blocks: {}, requests: {}, originals: {} };
 }
 
-/** Keeps the conversation when the agent loses its log and sequence counter. */
 export function loseCodexLog(prev: CodexModel): CodexModel {
   const draft = new Draft<CodexModel>({
     ...prev,
@@ -186,11 +139,6 @@ export function loseCodexLog(prev: CodexModel): CodexModel {
   return draft.next;
 }
 
-/**
- * The model a tab starts another thread with (/new, /resume): empty but
- * for what is the program's or the account's, shown on while the next
- * handshake reads it again: the models, the sign-in, the usage limits.
- */
 export function nextThreadModel(prev: CodexModel): CodexModel {
   const {
     lastSeq,
@@ -217,12 +165,10 @@ export function nextThreadModel(prev: CodexModel): CodexModel {
   };
 }
 
-/** A JSON-RPC id as a key, so the number 1 and the string "1" stay apart. */
 export function idKey(id: unknown): string | null {
   return typeof id === "string" || typeof id === "number" ? JSON.stringify(id) : null;
 }
 
-/** Requests the app makes on its own, whose errors are not the conversation's. */
 const QUIET_REQUESTS = new Set([
   "model/list",
   "account/read",
@@ -245,10 +191,8 @@ const QUIET_REQUESTS = new Set([
   "config/batchWrite",
 ]);
 
-/** Most of a running command's output a row keeps; the start goes first. */
 const MAX_LIVE_OUTPUT = 100_000;
 
-/** Applies one line to the model. Lines at or before lastSeq are skipped. */
 export function applyCodexLine(
   prev: CodexModel,
   line: ChatLine,
@@ -279,7 +223,6 @@ export function applyCodexLine(
       }
     }
     if (message.event === "start" || message.event === "exit") {
-      // A program's requests and turn end with it; the thread goes on.
       draft.next.requests = {};
       draft.next.sandboxMode = undefined;
       draft.next.blocks = {};
@@ -306,10 +249,6 @@ export function applyCodexLines(
 }
 
 type CodexDraft = Draft<CodexModel> & { readonly installedVersion?: string | null };
-
-// ---------------------------------------------------------------------------
-// What the app wrote: its requests, and its answers to the server's.
-// ---------------------------------------------------------------------------
 
 function applyIn(draft: CodexDraft, message: Rec, seq: number, at: number | undefined): void {
   const m = draft.next;
@@ -349,7 +288,6 @@ function applyIn(draft: CodexDraft, message: Rec, seq: number, at: number | unde
     }
     return;
   }
-  // The app answered a request of the server's.
   if (!key || !m.requests[key]) return;
   const { [key]: request, ...rest } = m.requests;
   m.requests = rest;
@@ -364,15 +302,10 @@ function applyIn(draft: CodexDraft, message: Rec, seq: number, at: number | unde
   }
 }
 
-/** The key of a message the app sent: by its client id, which the server's item echoes. */
 function userKey(params: Rec, seq: number): string {
   const clientId = str(params.clientUserMessageId);
   return clientId ? `u-${clientId}` : `u${seq}`;
 }
-
-// ---------------------------------------------------------------------------
-// What the server wrote: answers, notifications and requests of its own.
-// ---------------------------------------------------------------------------
 
 function applyOut(draft: CodexDraft, message: Rec, seq: number, at: number | undefined): void {
   const method = str(message.method);
@@ -413,13 +346,10 @@ function applyResponse(
         (item) => item.kind === "user" && item.state === "sent" && item.key === `u-${clientId}`,
       );
       if (clientId && index >= 0) draft.removeItem(index);
-      // A refused steer can be held by the app for the next turn.
       if (sent.subtype === "turn/steer") return;
     }
     if (sent.subtype === "thread/resume") {
-      // The tab keeps its conversation when resuming it fails.
       if (!m.items.some((i) => i.kind !== "notice")) return;
-      // The server's reason is for the log and the notice's tooltip.
       draft.push({
         kind: "notice",
         key: `n${seq}`,
@@ -497,7 +427,6 @@ function applyResponse(
         sent.request.includeTurns === true &&
         (!m.threadId || id === m.threadId)
       ) {
-        // Existing logs used a full thread/read to verify their historical forks.
         const turns = codexTurnIds(thread);
         m.forkSource = turns && { threadId: id, legacyTurns: turns };
       }
@@ -546,8 +475,6 @@ function applyResponse(
       )
         return;
       if (m.threadId === threadId && typeof sent.request.modelProvider !== "string") {
-        // A rewind replaces the displayed thread with its prefix copy. Keep
-        // the process, outstanding RPCs and workspace file snapshots.
         const fresh = nextThreadModel(m);
         Object.assign(m, fresh, {
           process: m.process,
@@ -617,7 +544,6 @@ function applyResponse(
       m.signedOut = m.account === null && result.requiresOpenaiAuth === true;
       return;
     case "account/rateLimits/read":
-      // A read with no windows leaves the last ones shown.
       m.rateLimits = rateLimitsOf(result.rateLimits) ?? m.rateLimits;
       return;
     case "thread/goal/get":
@@ -637,7 +563,6 @@ function parentThreadOf(thread: Rec): string | undefined {
   return str(thread.parentThreadId) ?? str(spawn?.parent_thread_id);
 }
 
-/** Translates a child turn's outcome without treating a still-active turn as ended. */
 function nativeTurnEnd(status: unknown): string | undefined {
   switch (status) {
     case "completed":
@@ -650,12 +575,10 @@ function nativeTurnEnd(status: unknown): string | undefined {
 
 export const THREAD_STATUS_CHANGED = "thread/status/changed";
 
-/** Recognizes the current notification and the spelling accepted by older app logs. */
 export function isThreadStatusChanged(method: string | undefined): boolean {
   return method === THREAD_STATUS_CHANGED || method === "thread/statusChanged";
 }
 
-/** Updates a known child from its own thread and turn events. */
 function applyNativeAgentNotification(
   m: CodexModel,
   id: string,
@@ -685,7 +608,6 @@ function applyNativeAgentNotification(
   if (status) applyNativeAgent(m, id, {}, status, undefined, at);
 }
 
-/** Merges discovery metadata or an explicit child lifecycle update into its row. */
 function applyNativeAgent(
   m: CodexModel,
   id: string,
@@ -698,8 +620,6 @@ function applyNativeAgent(
   const kind = str(rec(metadata.status)?.type);
   const lastTurn = Array.isArray(metadata.turns) ? rec(metadata.turns.at(-1)) : undefined;
   const previous = before?.status;
-  // An idle status says the turn ended. Its specific outcome can arrive
-  // separately and takes precedence over an idle snapshot.
   const nextStatus =
     status ??
     (kind === "active"
@@ -728,7 +648,6 @@ function applyNativeAgent(
   m.tasks = { ...m.tasks, [id]: next };
 }
 
-/** The items a thread/read answer's turns show as (includeTurns), as a tab would. */
 export function codexThreadItems(result: unknown): ChatItem[] {
   const thread = rec(rec(result)?.thread);
   if (!thread) return [];
@@ -740,7 +659,6 @@ export function codexThreadItems(result: unknown): ChatItem[] {
 function applyAgentTranscript(draft: CodexDraft, id: string, thread: Rec, seq: number): void {
   if (!Array.isArray(thread.turns)) return;
   const transcript = new Draft(emptyCodexModel());
-  // Suppress nested agent discovery here. The parent lists its direct children.
   applyThread(transcript, { thread }, seq, false);
   const prefix = `codex-child:${id}:`;
   const items = transcript.next.items.map(
@@ -769,10 +687,6 @@ function applyAgentTranscript(draft: CodexDraft, id: string, thread: Rec, seq: n
   }
 }
 
-/**
- * The goal the server told, after `prev`: one that completes as the tab
- * looks on says so until it is closed.
- */
 function nextGoal(
   prev: CodexGoal | null | undefined,
   raw: unknown,
@@ -801,7 +715,6 @@ function nextGoal(
   };
 }
 
-/** A started or resumed thread: its settings, and the turns it had when resumed. */
 function applyThread(draft: CodexDraft, result: Rec, seq: number, discoverAgents = true): void {
   const m = draft.next;
   const thread = rec(result.thread);
@@ -834,7 +747,6 @@ function applyThread(draft: CodexDraft, result: Rec, seq: number, discoverAgents
     const turn = rec(raw);
     const turnId = str(turn?.id);
     if (!turn || !turnId || !Array.isArray(turn.items)) return;
-    // A review's turn, whichever of its items is listed first.
     if (turn.items.some((item) => rec(item)?.type === "enteredReviewMode")) m.reviewTurn = turnId;
     const startedAt = num(turn.startedAt);
     const first = m.items.length;
@@ -847,17 +759,12 @@ function applyThread(draft: CodexDraft, result: Rec, seq: number, discoverAgents
   });
 }
 
-/**
- * A thread read whole as a conversation of its own, as a resumed tab shows
- * its turns: on a model no tab has, with nothing to fork, rewind or run.
- */
 export function codexThreadModel(thread: { id: string; turns: unknown[] }): CodexModel {
   const draft: CodexDraft = new Draft(emptyCodexModel());
   applyThread(draft, { thread }, 0, false);
   return draft.next;
 }
 
-/** Only the first input and the final answer can name whole-turn cuts. */
 function markHistoryBoundary(
   draft: CodexDraft,
   turnId: string,
@@ -886,12 +793,6 @@ function markHistoryBoundary(
   }
 }
 
-/**
- * A resumed turn's items in the order they started, as the turn showed
- * them live. The server lists them as they ended: a command left running
- * while Codex answered comes after the answer. Kept as listed when an
- * item does not say when it started.
- */
 function inStartOrder(raw: unknown[]): { item: Rec; i: number }[] {
   const items = raw.flatMap((value, i) => {
     const item = rec(value);
@@ -932,7 +833,6 @@ function rememberCollaborationEffort(m: CodexModel, effort: unknown) {
   }
 }
 
-/** The preset a sandbox reads as: its policy ({type}) or its mode ("read-only"). */
 export function modeOf(sandbox: unknown): CodexMode | undefined {
   const kind = typeof sandbox === "string" ? sandbox : str(rec(sandbox)?.type);
   switch (kind) {
@@ -949,13 +849,11 @@ export function modeOf(sandbox: unknown): CodexMode | undefined {
   return undefined;
 }
 
-/** The unrestricted preset disables both the sandbox and approval prompts. */
 function confirmedModeOf(sandbox: unknown, approvalPolicy: unknown): CodexMode | undefined {
   const mode = modeOf(sandbox);
   return mode === "fullAccess" && approvalPolicy !== "never" ? undefined : mode;
 }
 
-/** Thread notifications about the tab's own thread alone. */
 const OWN_THREAD_ONLY = new Set([
   "thread/tokenUsage/updated",
   "thread/settings/updated",
@@ -974,8 +872,6 @@ function applyNotification(
   const m = draft.next;
   const keySeq = (m.logSeqOffset ?? 0) + seq;
   const tag = String(keySeq);
-  // Another thread's (a subagent's) turns and items are not the tab's, nor
-  // its context's size and compactions.
   const threadId = str(params.threadId);
   const another = threadId && m.threadId && threadId !== m.threadId;
   if (another) {
@@ -1015,7 +911,6 @@ function applyNotification(
             : applyItem(draft, turnId, item, phase, tag, num(item.startedAtMs) ?? at);
         if (m.running && turnId === m.turnId) {
           noteTurnActivity(m, at);
-          // The model answered: a retry before it is over.
           if (item.type !== "userMessage") clearRetry(m);
           if (completed && toolRan && m.permissions.length === 0) {
             m.toolCompletedSeq = seq;
@@ -1128,8 +1023,6 @@ function applyNotification(
       return;
     }
     case "thread/started":
-      // A fork can announce its child before answering with the history.
-      // The correlated response is what selects and persists a thread.
       return;
     case "thread/name/updated":
       if (!params.threadId || params.threadId === m.threadId) {
@@ -1193,8 +1086,6 @@ function applyNotification(
       const error = rec(params.error);
       if (params.willRetry === true) {
         if (m.turn) {
-          // "Reconnecting... 2/5": Codex's own count, which starts again for
-          // each phase of its retries; without it, the app's.
           const told = codexRetryCount(str(error?.message));
           const status = codexErrorStatus(error?.codexErrorInfo);
           m.turn = {
@@ -1233,8 +1124,6 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
   if (status === "inProgress") return;
   const turnId = str(turn.id);
   if (turnId) {
-    // Some versions include a tool's final item here even when its
-    // individual completion notification did not reach the tab.
     for (const raw of Array.isArray(turn.items) ? turn.items : []) {
       const item = rec(raw);
       const id = str(item?.id);
@@ -1261,7 +1150,6 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
   clearInterrupt(m);
   m.toolCompletedSeq = undefined;
   if (!turnId || turnId === m.turnId) m.turnId = undefined;
-  // The turn's questions end with it.
   const ended = Object.entries(m.requests).filter(([, r]) => r.params.turnId === turnId);
   if (turnId && ended.length > 0) {
     const keys = new Set(ended.map(([key]) => key));
@@ -1290,7 +1178,6 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
   }
 }
 
-/** Projects a live command into the same job list the local and remote panels consume. */
 function setCommandJob(
   m: CodexModel,
   id: string,
@@ -1304,7 +1191,6 @@ function setCommandJob(
   const taskId = `codex-command:${id}`;
   const elapsed =
     startedAt !== undefined && endedAt !== undefined ? endedAt - startedAt : durationMs;
-  // A brief foreground command never reached the running panel.
   if (
     !m.tasks[taskId] &&
     status !== "running" &&
@@ -1326,13 +1212,11 @@ function setCommandJob(
   };
 }
 
-/** Drops the live tracking entry after its terminal row has been recorded. */
 function forgetCommand(m: CodexModel, id: string): void {
   const { [id]: _command, ...rest } = m.liveCommands ?? {};
   m.liveCommands = Object.keys(rest).length > 0 ? rest : undefined;
 }
 
-/** Applies a live command item without closing a still-running terminal on a partial update. */
 function applyCommandEvent(
   draft: CodexDraft,
   turnId: string,
@@ -1380,7 +1264,6 @@ function applyCommandEvent(
   return toolRan;
 }
 
-/** A terminal kept past its original turn does not block a later turn. */
 function markCommandBackground(draft: CodexDraft, tool: ToolCall): void {
   draft.setTool(tool.id, () => ({
     ...tool,
@@ -1388,7 +1271,6 @@ function markCommandBackground(draft: CodexDraft, tool: ToolCall): void {
   }));
 }
 
-/** Settles one turn's foreground commands, or all commands on program exit. */
 function settleCommands(draft: CodexDraft, at: number | undefined, turnId?: string): void {
   const m = draft.next;
   for (const [id, command] of Object.entries(m.liveCommands ?? {})) {
@@ -1405,8 +1287,6 @@ function settleCommands(draft: CodexDraft, at: number | undefined, turnId?: stri
   }
 }
 
-/** An error, once: the turn's failure repeats the error it was told. */
-/** A retry is over once the model answers. */
 function clearRetry(m: CodexModel): void {
   if (m.turn?.retry) m.turn = { ...m.turn, retry: undefined };
 }
@@ -1417,16 +1297,11 @@ function pushError(draft: CodexDraft, detail: string, key: string, at: number | 
   draft.push({ kind: "notice", key, code: "error", detail, at });
 }
 
-/** A compaction, once: the thread and its item both tell it. */
 function pushCompacted(draft: CodexDraft, key: string, at: number | undefined) {
   const last = draft.next.items.at(-1);
   if (last?.kind === "notice" && last.code === "compacted") return;
   draft.push({ kind: "notice", key, code: "compacted", at });
 }
-
-// ---------------------------------------------------------------------------
-// Items: the turn's messages, thinking and tool calls.
-// ---------------------------------------------------------------------------
 
 function applyItem(
   draft: CodexDraft,
@@ -1445,9 +1320,7 @@ function applyItem(
       if (m.items.some((i) => i.kind === "user" && i.uuid === id)) return;
       const clientId = str(item.clientId);
       if (clientId && takeUser(draft, `u-${clientId}`, id, turnId)) return;
-      // The instructions a review starts with, which the app did not write.
       if (m.reviewTurn === turnId) return;
-      // A message the app sent, told without its client id: the oldest not yet told.
       const index = m.items.findIndex(
         (i) => i.kind === "user" && i.key.startsWith("u-") && i.uuid === undefined,
       );
@@ -1461,7 +1334,6 @@ function applyItem(
         });
         return;
       }
-      // Not one the app sent: an earlier turn's, another client's.
       const { text, images } = userInputOf(item.content);
       draft.push({
         kind: "user",
@@ -1493,8 +1365,6 @@ function applyItem(
       }
       if (phase === "completed") pushCompacted(draft, `n${tag}`, at);
       return;
-    // A review (/review) is told as it starts; its findings come as Codex's
-    // message after it ends, which tells what the review's end item does.
     case "enteredReviewMode":
       m.reviewTurn = turnId;
       if (!m.items.some((i) => i.key === `r${id}`)) {
@@ -1548,18 +1418,15 @@ function applyNativeAgentItem(m: CodexModel, item: Rec, at: number | undefined):
   }
 }
 
-/** A tool call as an item tells it: what it knew before stays when the item leaves it out. */
 function mergeTool(prev: ToolCall | undefined, next: ToolCall): ToolCall {
   if (!prev) return next;
   return {
     ...next,
-    // A call the user declined stays declined.
     status: prev.status === "denied" && next.status !== "done" ? "denied" : next.status,
     result: next.result ?? prev.result,
   };
 }
 
-/** Makes a turn the running one; its item ids are only known to be unique within it. */
 function enterTurn(m: CodexModel, turnId: string): void {
   if (turnId !== m.turnId) {
     clearInterrupt(m);
@@ -1570,7 +1437,6 @@ function enterTurn(m: CodexModel, turnId: string): void {
   if (m.turn && m.turn.id !== turnId) m.turn = { ...m.turn, id: turnId };
 }
 
-/** Marks a message the app sent as taken by the server, in its turn; false when there is none. */
 function takeUser(
   draft: CodexDraft,
   key: string,
@@ -1592,7 +1458,6 @@ function takeUser(
   return false;
 }
 
-/** The turn's assistant message to add to: the last item, or a new one. */
 function assistantIndex(draft: CodexDraft, turnId: string, tag: string, at: number | undefined) {
   const items = draft.next.items;
   const last = items.at(-1);
@@ -1621,7 +1486,6 @@ function addBlock(
   return { key: item.key, index: item.blocks.length };
 }
 
-/** The text block an item streams into, made on its first text. */
 function textBlock(
   draft: CodexDraft,
   itemId: string,
@@ -1695,7 +1559,6 @@ function reasoningText(item: Rec): string {
   return (summary.length > 0 ? summary : parts(item.content)).join("\n\n");
 }
 
-/** The tool calls an item is: one for most, one for each file a patch changes. */
 export function codexItemTools(
   item: Rec,
   id: string,
@@ -1728,7 +1591,6 @@ export function codexItemTools(
         const path = str(change?.path);
         if (!change || !path) return [];
         const kind = str(rec(change.kind)?.type);
-        // A moved file's row names where it is now, and where it was.
         const movedTo = kind === "update" ? str(rec(change.kind)?.move_path) : undefined;
         const diff = str(change.diff) ?? "";
         const structuredPatch = hunksOf(movedTo ? withoutMoveTail(diff) : diff, kind);
@@ -1835,36 +1697,22 @@ function contentText(content: unknown): string {
     .join("\n");
 }
 
-/** A shell that runs the one script it is given, as Codex wraps a command in. */
 const SHELL_SCRIPT = /^(?:\S*\/)?(?:bash|zsh|sh) -l?c (.+)$/s;
 
-/**
- * PowerShell given one script, as Codex wraps a command in on Windows:
- * `"C:\\…\\powershell.exe" -Command '…'`, its path quoted as a shell word.
- */
 const POWERSHELL_SCRIPT =
   /^(?:"[^"]*[\\/]|[^\s"]*[\\/])?(?:powershell|pwsh)(?:\.exe)?"? -Command (.+)$/is;
 
-/**
- * The command a row shows: the script, without the `bash -lc '…'` or the
- * PowerShell Codex runs it in. Anything else is shown as it is.
- */
 export function shownCommand(command: string): string {
   const script = (SHELL_SCRIPT.exec(command) ?? POWERSHELL_SCRIPT.exec(command))?.[1];
   return (script === undefined ? null : shellWord(script)) ?? command;
 }
 
-/**
- * The shell a command runs in, as its row names it. Rows of every shell are
- * drawn as Claude's Bash rows are, so only the name tells them apart.
- */
 export function shellName(command: string): "PowerShell" | "Bash" | "Shell" {
   if (POWERSHELL_SCRIPT.test(command)) return "PowerShell";
   if (SHELL_SCRIPT.test(command)) return "Bash";
   return "Shell";
 }
 
-/** A shell-quoted string read as the one word it is; null when it is not one word. */
 function shellWord(text: string): string | null {
   let word = "";
   let i = 0;
@@ -1897,10 +1745,6 @@ function shellWord(text: string): string | null {
   return word;
 }
 
-/**
- * A change's patch as the rows show one: a unified diff's hunks, or a new
- * or deleted file's lines all added or all removed.
- */
 export function hunksOf(diff: string, kind: string | undefined): { lines: string[] }[] {
   const lines = diff.split("\n");
   if (lines.at(-1) === "") lines.pop();
@@ -1915,24 +1759,15 @@ export function hunksOf(diff: string, kind: string | undefined): { lines: string
       hunks.push({ lines: [] });
       continue;
     }
-    // The file headers before the first hunk, and "\ No newline at end of file".
     if (!line.startsWith("\\")) hunks.at(-1)?.lines.push(line);
   }
   return hunks;
 }
 
-/**
- * A moved file's diff without the line Codex ends it with, "Moved to:" and
- * the new path after a blank line. No line of a unified diff starts so.
- */
 function withoutMoveTail(diff: string): string {
   return diff.replace(/\n\nMoved to: [^\n]*$/, "");
 }
 
-/**
- * The originals of the files a list shows, by the list's own paths. A
- * Windows path matches whichever way its separators and case are written.
- */
 export function originalsFor(
   originals: Readonly<Record<string, string | null>>,
   files: readonly string[],
@@ -1947,12 +1782,10 @@ export function originalsFor(
   return found;
 }
 
-/** A path as the file it names: a Windows one with `/`, in lower case. */
 function pathKey(path: string): string {
   return /^[A-Za-z]:[\\/]/.test(path) ? path.replace(/\\/g, "/").toLowerCase() : path;
 }
 
-/** The file a patch's row changes, as an approval names it: "old → new" for a move. */
 function changedPathOf(tool: ToolCall): string {
   const input = rec(tool.input);
   const path = str(input?.file_path) ?? "";
@@ -1960,16 +1793,10 @@ function changedPathOf(tool: ToolCall): string {
   return from ? `${from} → ${path}` : path;
 }
 
-/** The ids of the tool calls an item is: itself, or one for each file it changes. */
 function toolIdsOf(m: CodexModel, itemId: string): string[] {
   return Object.keys(m.tools).filter((id) => id === itemId || id.startsWith(`${itemId}:`));
 }
 
-// ---------------------------------------------------------------------------
-// The server's requests: approvals and questions, shown as permission cards.
-// ---------------------------------------------------------------------------
-
-/** What allowing for the session adds, for the card to say. */
 const SESSION_SUGGESTION = { type: "session" };
 
 function applyServerRequest(draft: CodexDraft, key: string, method: string, params: Rec): void {
@@ -2014,7 +1841,6 @@ function permissionOf(
       const structuredPatch = tools.flatMap((t) => {
         const hunks = (rec(t.result?.structured)?.structuredPatch ?? []) as { lines: string[] }[];
         const moved = str(rec(t.input)?.moved_from) !== undefined;
-        // More than one file, or a moved one: each one's lines start with its path.
         if (tools.length === 1 && !moved) return hunks;
         if (hunks.length === 0) return moved ? [{ lines: [changedPathOf(t)] }] : [];
         return [{ lines: [changedPathOf(t), ...hunks[0].lines] }, ...hunks.slice(1)];
@@ -2078,7 +1904,6 @@ function permissionOf(
   return null;
 }
 
-/** What more access a turn asks for, in a line: the network, folders to write. */
 function describePermissions(permissions: Rec | null): string | undefined {
   if (!permissions) return undefined;
   const parts: string[] = [];
@@ -2092,19 +1917,10 @@ function describePermissions(permissions: Rec | null): string | undefined {
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Small readers.
-// ---------------------------------------------------------------------------
-
-/**
- * A message's text as its bubble and the tab's title show it: the prompt
- * /init sends reads as the command typed.
- */
 export function shownUserText(text: string): string {
   return text.trim() === CODEX_INIT_PROMPT.trim() ? "/init" : text;
 }
 
-/** A message's input as a bubble shows it: text, mentions as @paths, images. */
 function userInputOf(input: unknown): Pick<UserItem, "text" | "images"> {
   const texts: string[] = [];
   const mentions: string[] = [];
@@ -2138,7 +1954,6 @@ function dataImage(url: string | undefined): ImageBlock | null {
   return match ? { mediaType: match[1], data: match[2] } : null;
 }
 
-/** The models the picker lists, as the server describes them; hidden ones are left out. */
 export function codexModelsOf(data: unknown): ModelInfo[] {
   if (!Array.isArray(data)) return [];
   return data.flatMap((raw) => {
@@ -2199,7 +2014,6 @@ function limitWindowOf(raw: unknown): CodexLimitWindow | undefined {
   };
 }
 
-/** A RateLimitSnapshot's windows; undefined when it has none. */
 export function rateLimitsOf(raw: unknown): CodexRateLimits | undefined {
   const snapshot = rec(raw);
   const primary = limitWindowOf(snapshot?.primary);
@@ -2213,11 +2027,6 @@ export function rateLimitsOf(raw: unknown): CodexRateLimits | undefined {
   };
 }
 
-/**
- * A rolling update laid over what the tab knew: it may carry one window
- * only, and one it leaves out still holds. Another bucket's update (a
- * different limitId) is not the tab's.
- */
 export function mergeRateLimits(
   prev: CodexRateLimits | undefined,
   raw: unknown,
@@ -2235,7 +2044,6 @@ export function mergeRateLimits(
   };
 }
 
-/** An account as the tab keeps it: its kind, never who it is. */
 function accountOf(raw: unknown): { type: string } | null {
   const account = rec(raw);
   return account ? { type: str(account.type) ?? "unknown" } : null;

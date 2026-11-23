@@ -8,23 +8,16 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// respondHookParams 는 claude.respondHook dispatch 메서드의 요청 파라미터다.
 type respondHookParams struct {
 	HookID   string       `json:"hookId"`
 	Response HookResponse `json:"response"`
 }
 
-// Register 는 claude.respondHook 메서드를 dispatcher에 등록한다.
-//
-// main→agent 방향의 inbound 메서드로, main이 hook 결정(allow/deny/stdout)을
-// 완료했을 때 agent를 통해 대기 중인 hook 클라이언트에게 응답을 전달한다.
 func Register(d *dispatch.Dispatcher, srv *Server) {
 	d.Register("claude.respondHook", srv.respondHook)
 	d.Register("cli.respond", srv.respondCLI)
 }
 
-// respondHook 은 claude.respondHook dispatch 핸들러다.
-// hookId로 in-flight 연결을 찾아 응답을 write하고 연결을 닫는다.
 func (s *Server) respondHook(_ context.Context, raw json.RawMessage) (any, error) {
 	var p respondHookParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -39,13 +32,11 @@ func (s *Server) respondHook(_ context.Context, raw json.RawMessage) (any, error
 	return struct{}{}, nil
 }
 
-// respondCLIParams are the params of the cli.respond method.
 type respondCLIParams struct {
 	RequestID string          `json:"requestId"`
 	Response  json.RawMessage `json:"response"`
 }
 
-// respondCLI hands main's answer to the waiting CLI client.
 func (s *Server) respondCLI(_ context.Context, raw json.RawMessage) (any, error) {
 	var p respondCLIParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil || p.RequestID == "" || len(p.Response) == 0 {

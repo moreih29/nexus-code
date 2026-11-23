@@ -30,7 +30,6 @@ import { SESSIONS_POLL_MS } from "../session-watches";
 import { oneLine, unavailable, workspaceOf } from "./common";
 import { RENDERER_READ_MAX_MS, ReadBudget } from "./read-budget";
 
-/** A chat's state as the agent lists show it. */
 const CHAT_STATES: Record<CliChatState, SessionState> = {
   working: "running",
   asking: "needs-you",
@@ -38,11 +37,6 @@ const CHAT_STATES: Record<CliChatState, SessionState> = {
   error: "idle",
 };
 
-/**
- * A terminal agent's state: Claude Code's from its hooks (idle, running,
- * completed, needsInput, permissionPending, error), or another agent's
- * from the terminal's activity (busy, completed, quiet).
- */
 function terminalSessionState(state: string): SessionState {
   if (state === "needsInput" || state === "permissionPending") return "needs-you";
   if (state === "running" || state === "busy") return "running";
@@ -50,10 +44,6 @@ function terminalSessionState(state: string): SessionState {
   return "idle";
 }
 
-/**
- * The workspaces as the sidebar lists them: roots, pinned first and each
- * group in its own order, each followed by its task worktrees.
- */
 function ordered(workspaces: readonly WorkspaceMeta[]): WorkspaceMeta[] {
   const roots = workspaces.filter((w) => !w.task).sort(compareWorkspaceOrder);
   const out: WorkspaceMeta[] = [];
@@ -63,11 +53,6 @@ function ordered(workspaces: readonly WorkspaceMeta[]): WorkspaceMeta[] {
   return out;
 }
 
-/**
- * The agents a session runs that still run, as the agent list shows them
- * under its row: what each was asked to do on a line (a run told nothing
- * more, its prompt's start); none when there are none.
- */
 export function sessionAgents(agents: readonly AgentRun[]): RemoteSessionAgent[] | undefined {
   const live = agents.filter((agent) => agent.end === undefined).slice(0, MAX_SESSION_AGENTS);
   if (live.length === 0) return undefined;
@@ -103,11 +88,6 @@ const lastUnreadResults = new WeakMap<
   { startedAt: number; unread: UnreadResults }
 >();
 
-/**
- * The unread map a read started at `startedAt` gave, kept for the reads
- * after it; when it gave none, the last one kept, for a while. `readAt`:
- * when the read of the map used started.
- */
 function unreadResults(
   source: CliServices | SessionsRenderer | undefined,
   startedAt: number,
@@ -129,23 +109,11 @@ function unreadResults(
 interface Receipt {
   readonly upTo: number;
   readonly requestedAt: number;
-  /** When the renderer took it; Infinity until it answers. */
   takenAt: number;
 }
 
-/**
- * Pending receipts are dropped after this even if the renderer never answers;
- * a taken one is kept as long as an unread map read before it may be used.
- */
 const RECEIPT_MAX_AGE_MS = UNREAD_RESULTS_MAX_AGE_MS;
 
-/**
- * The read receipts other devices sent here (sessions.markSeen), by
- * workspace and tab, for a short while: an unread map read before the
- * renderer took one (a list being read as it came, a reused read, the map
- * kept when a read fails) must not list what it covers as a new result
- * again once the receipt is in.
- */
 const receipts = new WeakMap<SessionsRevision, Map<string, Receipt[]>>();
 
 const receiptKey = (workspaceId: string, tabId: string) => `${workspaceId}\0${tabId}`;
@@ -169,12 +137,6 @@ function liveReceipts(revisions: SessionsRevision): Map<string, Receipt[]> {
   return byTab;
 }
 
-/**
- * Keeps another device's receipts from now: the lists made while the
- * renderer takes them, and those after from unread maps read before,
- * leave what they cover read. `taken` once the renderer has; `failed`
- * when it did not, and the receipts count for nothing.
- */
 export function holdReceipts(
   services: CliServices,
   seen: RpcParams<"sessions.markSeen">["seen"],
@@ -203,10 +165,6 @@ export function holdReceipts(
   };
 }
 
-/**
- * Whether a receipt covers a tab's unread result at `since` in a map read
- * at `readAt`: one read once the renderer had taken it tells for itself.
- */
 function receiptCovers(
   byTab: ReadonlyMap<string, readonly Receipt[]> | undefined,
   workspaceId: string,
@@ -221,27 +179,21 @@ function receiptCovers(
   );
 }
 
-/**
- * Leave time for the next watch poll and its renderer read within ten seconds.
- */
 export const SESSIONS_REREAD_MS = 10_000 - SESSIONS_POLL_MS - RENDERER_READ_MAX_MS;
 
 interface RendererRead {
   readonly tabs: readonly (readonly CliSessionTab[] | undefined)[];
   readonly unread: UnreadResults | undefined;
-  /** When the read of `unread` started. */
   readonly unreadAt: number;
 }
 
 type SessionsSnapshot = CliUiOps["sessions.snapshot"]["result"];
 
-/** The last whole read keyed by the revision record for its window's webContents id. */
 const lastReads = new WeakMap<
   SessionsRenderer,
   { key: string; revision: number; readAt: number; read: RendererRead }
 >();
 
-/** Whether a read told every workspace's tabs, every chat's state and the unread map. */
 function wholeRead(snapshot: SessionsSnapshot, workspaces: number): boolean {
   return (
     snapshot.unread !== undefined &&
@@ -282,7 +234,6 @@ async function readSnapshot(
     const page = await ask(next);
     if (renderer?.closed) return undefined;
     if (!page || page.revision !== first.revision) {
-      // A split workspace only counts once every page of it was read at the same revision.
       workspaces.length = workspace;
       break;
     }
@@ -297,11 +248,6 @@ async function readSnapshot(
   return { revision: first.revision, workspaces, unread: first.unread };
 }
 
-/**
- * What the renderer tells of the workspaces within the budget: each one's
- * tabs (none for one that could not be read) and the unread map. The last
- * whole read stands until the renderer tells of a change or the cache expires.
- */
 async function readRenderer(
   services: CliServices,
   budget: ReadBudget,
@@ -328,7 +274,6 @@ async function readRenderer(
     unread,
     unreadAt: readAt,
   };
-  // A later request may have finished while this one was in flight.
   if (
     renderer &&
     !renderer.closed &&
@@ -368,7 +313,6 @@ function chatSession(
 ): { row: RemoteSession; waitingId?: string } | undefined {
   if (tab.type !== "claude" && tab.type !== "codex") return undefined;
   const info = tab.chat;
-  // The protocol has no unknown chat state. Leave the row out until it can be read.
   if (!info) return undefined;
   const row: RemoteSession = {
     workspaceId,
@@ -378,7 +322,6 @@ function chatSession(
     state: CHAT_STATES[info.state],
     ...(info.state === "error" ? { failed: true } : {}),
     ...(info.since !== undefined ? { since: info.since } : {}),
-    // The renderer put it on a line; one of only white space is an empty one.
     ...(info.message !== undefined ? { last: oneLine(info.message) } : {}),
     ...(info.profile ? { profile: info.profile } : {}),
     ...(info.cwd ? { cwd: info.cwd } : {}),
@@ -440,7 +383,6 @@ function terminalAsk(
   return status === "permissionPending" ? services.claudeAsks(workspaceId, tabId)[0] : undefined;
 }
 
-/** The workspaces and their sessions, using task Git facts from the cache. */
 export async function listSessions(
   services: CliServices,
   git?: WorkspaceGit,
@@ -448,7 +390,6 @@ export async function listSessions(
   return (await snapshotSessions(services, git)).list;
 }
 
-/** Returns the workspace and session snapshot with the requester's consents. */
 export async function serveSessionsList(
   services: CliServices,
   git: WorkspaceGit | undefined,
@@ -473,7 +414,6 @@ export async function reorderSessions(
   return {};
 }
 
-/** A snapshot whose renderer reads can also supply consent titles for each watcher. */
 export async function snapshotSessions(
   services: CliServices,
   git: WorkspaceGit | undefined,
@@ -482,11 +422,8 @@ export async function snapshotSessions(
   from?: string,
   includeWaitingIds = false,
 ) {
-  // Continuation pages share the original renderer read's deadline.
   const budget = new ReadBudget(services, method, from, RENDERER_READ_MAX_MS);
   const workspaces = ordered(services.listWorkspaces());
-  // Read Git facts with the workspace snapshot. Waiting for tabs first would
-  // let an old list recreate the cache entry for a workspace removed meanwhile.
   const listed: RemoteWorkspace[] = workspaces.map((w) => {
     const facts = w.task ? git?.(w) : undefined;
     return {
@@ -569,7 +506,6 @@ export async function snapshotSessions(
         const { workspaceId, tabId, kind } = row;
         const id = row.waiting.requestId ?? waitingIds.get(index);
         if (!id) return [];
-        // Terminal asks live in main and may have settled during the chat reads.
         if (
           kind === "terminal" &&
           terminalAsk(
@@ -589,7 +525,6 @@ export async function snapshotSessions(
     incompleteWorkspaces,
     waitingRequests,
     async forDevice(controls: ConsentControls): Promise<RpcResult<"sessions.list">> {
-      // Titles are optional. Reuse the bounded tab reads, even if some are missing.
       const consents = await remoteConsents(
         services,
         controls,
@@ -601,5 +536,4 @@ export async function snapshotSessions(
   };
 }
 
-/** A task's git facts as last looked at; none for a workspace that is no task, or not looked at yet. */
 export type WorkspaceGit = (workspace: WorkspaceMeta) => RemoteWorkspace["git"] | undefined;

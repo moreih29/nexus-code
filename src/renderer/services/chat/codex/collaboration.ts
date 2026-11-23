@@ -1,4 +1,3 @@
-/** Collaboration mode is independent of the thread's approval and sandbox presets. */
 export type CodexCollaborationMode = "plan" | "default";
 
 export interface CodexCollaborationSettings {

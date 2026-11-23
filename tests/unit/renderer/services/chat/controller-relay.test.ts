@@ -1,9 +1,3 @@
-/**
- * A message another agent sends a chat tab through the nexus command: its
- * agent reads a line before it that says who sent it, and the tab keeps who
- * did by the message's id before the message is written, so it never shows
- * as the user's. The real ipc client is spread under a spy.
- */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { RelayedMessage } from "../../../../../src/shared/chat/relay";
 
@@ -81,7 +75,6 @@ describe("a message another agent sends a Claude tab", () => {
     expect(records).toEqual([{ id: line.uuid, from: FROM, at: expect.any(Number) }]);
     expect(steps.indexOf("relayed")).toBeLessThan(steps.indexOf("send:user"));
     expect(titles).toEqual(["Run the tests."]);
-    // The user's own message is theirs: no line, no record.
     await c.send("Thanks");
     expect((written.at(-1) as { message: { content: string } }).message.content).toBe("Thanks");
     expect(records).toHaveLength(1);

@@ -1,7 +1,3 @@
-/**
- * The sessions tab's model: a workspace with its tasks and the agent
- * sessions in their terminals, each in a phase, and which one to show first.
- */
 import { describe, expect, it } from "bun:test";
 import {
   buildFamily,
@@ -224,7 +220,6 @@ describe("buildFamily", () => {
       estimated: false,
       since: 2_000,
     });
-    // Its view not shown since the app started: nothing tells it yet.
     expect(fresh).toMatchObject({ kind: "codex", state: "idle", phase: "idle" });
   });
 
@@ -288,9 +283,7 @@ describe("buildFamily", () => {
           [ROOT]: { done: terminal("done", "codex"), later: terminal("later", "codex") },
         },
         activity: new Map([
-          // Its prompt redrawn just after the notification.
           [`${ROOT}:done`, { lastOutputAt: NOW - 9_500, lastNotice: notice }],
-          // A turn since, which ended without one.
           [`${ROOT}:later`, { lastOutputAt: NOW - 5_000, lastNotice: notice }],
         ]),
       }),
@@ -322,7 +315,6 @@ describe("buildFamily", () => {
           [`${ROOT}:never`, done],
         ]),
         seenByWorkspace: {
-          // Looked at after the turn ended; before it ended; Claude's own state.
           [ROOT]: { seen: NOW - 1_000, before: NOW - 20_000, claude: NOW - 1_000 },
         },
       }),
@@ -332,7 +324,6 @@ describe("buildFamily", () => {
       ["seen", "quiet", "idle"],
       ["before", "completed", "done"],
       ["never", "completed", "done"],
-      // Claude's completed is cleared by markSeen in main, not here.
       ["claude", "completed", "done"],
     ]);
   });

@@ -1,9 +1,3 @@
-/**
- * A mode, model or effort the user picks shows at once, not when Claude
- * Code answers; one it refuses puts back what showed, unless something
- * changed it since. The real ipc client is spread under a spy, so later
- * files keep its other exports.
- */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 const sent: Record<string, unknown>[] = [];
@@ -48,7 +42,6 @@ function running(): Controller {
   return c;
 }
 
-/** Claude Code's answer to the last request the controller wrote. */
 function answer(c: Controller, error?: string): void {
   const request = sent.filter((m) => m.type === "control_request").at(-1);
   c.receive({
@@ -71,7 +64,6 @@ afterEach(() => {
 describe("a setting the user picks", () => {
   test("shows at once, before Claude Code answers", () => {
     const c = running();
-    // Left unanswered: the tab's closing ends them.
     c.setModel("claude-haiku-5-5").catch(() => {});
     c.setEffort("low").catch(() => {});
     c.setPermissionMode("plan").catch(() => {});
@@ -95,7 +87,6 @@ describe("a setting the user picks", () => {
     const c = running();
     const first = c.setModel("claude-haiku-5-5");
     c.setModel("claude-sonnet-5-5").catch(() => {});
-    // The first request's answer: the last written is the second, so answer by hand.
     const request = sent.filter((m) => m.type === "control_request")[0];
     c.receive({
       seq: ++seq,

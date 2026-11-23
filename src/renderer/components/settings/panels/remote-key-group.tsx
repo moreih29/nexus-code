@@ -1,11 +1,3 @@
-// src/renderer/components/settings/panels/remote-key-group.tsx
-//
-// The account password, on the Remote page: what the account's devices
-// seal what they send each other with is the account key, which the server
-// keeps locked with this password. Here the first device sets it, another
-// types it to take the key, and a device holding the key changes it, or
-// resets it when it is forgotten or a device was lost.
-
 import { type FormEvent, useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -28,7 +20,6 @@ const inputClass = cn(
   "focus-visible:ring-1 focus-visible:ring-ring",
 );
 
-/** The account key's state from main, kept up as it changes. */
 export function useAccountKey(): AccountKeyState | null {
   const [state, setState] = useState<AccountKeyState | null>(null);
   useEffect(() => {
@@ -50,7 +41,6 @@ type Mode = "idle" | "change" | "reset";
 export function AccountKeyGroup({ state }: { state: AccountKeyState }) {
   const { t } = useTranslation("settings");
   const [mode, setMode] = useState<Mode>("idle");
-  // A state that changed (a flow done, a reset elsewhere) closes the form it no longer fits.
   const [seen, setSeen] = useState(state.status);
   if (seen !== state.status) {
     setSeen(state.status);
@@ -139,7 +129,6 @@ const FIELDS: Record<FormKind, readonly Field[]> = {
 
 const EMPTY: Record<Field, string> = { password: "", current: "", next: "", confirm: "" };
 
-/** Sends the form's flow to main: the new state, or its KeyFailure as the kind. */
 function send(kind: FormKind, values: Record<Field, string>) {
   switch (kind) {
     case "create":
@@ -156,7 +145,6 @@ function send(kind: FormKind, values: Record<Field, string>) {
   }
 }
 
-/** What a key flow's failure says, as the forms and dialogs tell it. */
 export function keyFailureText(
   t: (key: string, options?: Record<string, unknown>) => string,
   kind: string,
@@ -164,11 +152,6 @@ export function keyFailureText(
   return t(`remote.key.failure.${failureOf(kind)}`, { count: MIN_PASSWORD_LENGTH });
 }
 
-/**
- * A reset asked for without the password, which waits: when it comes into
- * place, and, from another device, a way to call it off with the password
- * or to remove the device that asked.
- */
 function PendingResetNotice({
   reset,
 }: {
@@ -214,7 +197,6 @@ function PendingResetNotice({
     setError(null);
     const result = await ipcCallResult("remote", "removeDevice", { id: reset.deviceId });
     if (result.ok) return;
-    // It holds the key: removed with the password, which changes the key.
     if (result.kind === "needs-password") {
       setRequest({
         title: t("remote.key.pendingReset.removeHolderTitle", { name: device }),
@@ -228,7 +210,6 @@ function PendingResetNotice({
           });
           return again.ok || again.kind === "not-found" ? null : keyFailureText(t, again.kind);
         },
-        // An owner who forgot the password can still stop the reset: the device keeps the key.
         withoutPassword: {
           label: t("remote.key.pendingReset.removeKeepKey"),
           run: async () => {
@@ -287,7 +268,6 @@ export function PasswordForm({
 }: {
   kind: FormKind;
   onCancel?: () => void;
-  /** Told once the flow went through: a change keeps the state as it was, so nothing else closes the form. */
   onDone?: () => void;
   onForgot?: () => void;
 }) {

@@ -1,14 +1,3 @@
-/**
- * NavControls — Back / Forward / Reload buttons for the browser tab toolbar.
- *
- * Disabled states are derived from the BrowserRuntimeStore:
- *   - Back button  → disabled when `canGoBack` is false
- *   - Forward button → disabled when `canGoForward` is false
- *   - Reload button → always enabled (v1 does not implement stop)
- *
- * All actions are fire-and-forget IPC calls; errors are silently swallowed at
- * this layer (the WebContents error event will update the runtime store).
- */
 import { ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { IconButton } from "@/components/ui/icon-button";
@@ -19,7 +8,6 @@ interface NavControlsProps {
   tabId: string;
   canGoBack: boolean;
   canGoForward: boolean;
-  /** When true, renders the button group in a dimmed state (no pointer events). */
   disabled?: boolean;
 }
 

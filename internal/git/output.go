@@ -19,7 +19,6 @@ const (
 
 var errGitOutputLimit = errors.New("git stdout budget exceeded")
 
-// stdoutBudget bounds the caller's requested stdout budget.
 func stdoutBudget(requested int64) int64 {
 	if requested <= 0 {
 		return defaultStdoutCapBytes
@@ -27,7 +26,6 @@ func stdoutBudget(requested int64) int64 {
 	return min(requested, maxStdoutCapBytes)
 }
 
-// tailBuffer retains the newest output without reallocating on each write.
 type tailBuffer struct {
 	data     []byte
 	start    int
@@ -54,13 +52,10 @@ func (b *tailBuffer) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-// String reconstructs the tail in chronological order.
 func (b *tailBuffer) String() string {
 	return string(b.data[b.start:]) + string(b.data[:b.start])
 }
 
-// gitStderr bounds and masks diagnostics. When the cap splits a line, its
-// remaining suffix can contain a credential whose key was already evicted.
 type gitStderr struct{ tailBuffer }
 
 func (b *gitStderr) String() string {
@@ -72,9 +67,6 @@ func (b *gitStderr) String() string {
 	return redact.Credentials(s)
 }
 
-// startGitOutput makes stdout an exec-managed pipe so Wait can reap Git and
-// enforce WaitDelay while the caller still reads. finish must be called even
-// if the caller stops reading early.
 func startGitOutput(ctx context.Context, cmd *exec.Cmd) (stdout io.Reader, finish func() error, err error) {
 	reader, writer := io.Pipe()
 	cmd.Stdout = writer
@@ -97,7 +89,6 @@ func startGitOutput(ctx context.Context, cmd *exec.Cmd) (stdout io.Reader, finis
 	}, nil
 }
 
-// runCapturedCommand bounds commands whose stdout is parsed as one value.
 func runCapturedCommand(ctx context.Context, cmd *exec.Cmd) (string, string, int, error) {
 	stdout := cappedBuffer{cap: defaultStdoutCapBytes}
 	var stderr gitStderr
@@ -114,7 +105,6 @@ func runCapturedCommand(ctx context.Context, cmd *exec.Cmd) (string, string, int
 	return stdout.String(), stderr.String(), code, err
 }
 
-// outputLimitFailure identifies a result that could not be captured in full.
 func outputLimitFailure(limit int64) error {
 	return classifiedFailure(KindOutputTooLarge, MessageForKind(KindOutputTooLarge, MessageContext{LimitBytes: limit}))
 }

@@ -34,9 +34,6 @@ export const mockIpcMain = {
 
 export const mockGetAllWebContents = mock(() => Array.from(allWebContents));
 
-// Spread over the preload's electron stub: this mock stays for the rest of the
-// run (it is not made by a test file; see tests/scoped-module-mocks.ts), so
-// leaving out `app` and the rest would take them from every later test file.
 const preloadElectron = await import("electron");
 
 mock.module("electron", () => ({
@@ -166,9 +163,6 @@ export function resetInMemoryIpc(): void {
   mockIpcMain.on.mockClear();
   mockGetAllWebContents.mockClear();
   nextWebContentsId = 1;
-  // Assign undefined rather than `delete` — tests/setup.ts installs a
-  // non-configurable `window` accessor (matchMedia injection point) that
-  // cannot be deleted.
   (globalThis as { window?: unknown }).window = undefined;
 }
 
@@ -217,8 +211,6 @@ export function createIpcPair(): InMemoryIpcPair {
 }
 
 export function installWindowForPair(pair: InMemoryIpcPair): void {
-  // Assign through the non-configurable `window` accessor installed by
-  // tests/setup.ts rather than redefining the property (which would throw).
   (globalThis as { window?: unknown }).window = pair.window;
 }
 

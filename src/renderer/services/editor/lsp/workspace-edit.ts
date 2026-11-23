@@ -1,6 +1,3 @@
-// Workspace edit application — batches LSP text edits and applies them to Monaco models.
-// No module-level state — monaco instance is passed as a parameter.
-
 import type * as Monaco from "monaco-editor";
 import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
 import { workspaceUriFor } from "../../../../shared/fs/workspace-uri";
@@ -31,18 +28,8 @@ type ModelEditBatch = {
   edits: TextEdit[];
 };
 
-/** Where the edit's `file://` URIs and document versions resolve. */
 export interface WorkspaceEditTarget {
-  /**
-   * Workspace of the server that sent the edit. Its models are keyed by
-   * `nexus-ws://` workspace URIs, so each `file://` URI is mapped to that
-   * form first.
-   */
   workspaceId?: string;
-  /**
-   * The document version the server knows for `model` (the one the last
-   * didOpen/didChange carried). Falls back to Monaco's version id.
-   */
   lspVersionOf?: (model: Monaco.editor.ITextModel) => number | undefined;
 }
 

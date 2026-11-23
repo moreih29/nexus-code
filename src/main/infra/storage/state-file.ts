@@ -2,8 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import type { AppState } from "../../../shared/types/app-state";
 
-// flushNow cancels a preparing worker or waits for its rename to finish before
-// publishing the latest snapshot.
 export const PREPARING = 0;
 export const RENAMING = 1;
 export const FINISHED = 2;
@@ -21,7 +19,6 @@ export function writeStateFile(
     const fd = fs.openSync(tmpPath, "w");
     try {
       fs.writeFileSync(fd, json, "utf8");
-      // The destination is replaced only after the complete file is synced.
       fs.fsyncSync(fd);
     } finally {
       fs.closeSync(fd);

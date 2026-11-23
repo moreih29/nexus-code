@@ -1,6 +1,3 @@
-// The workspace's context menu: pin, rename, color, profile and, where it applies, dismiss.
-// The workbench sidebar and the agent view's workspace header share it.
-
 import { useTranslation } from "react-i18next";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { WorkspaceColor } from "../../../shared/types/workspace-color";
@@ -28,7 +25,6 @@ export function WorkspaceMenuContent({
   onTogglePin: () => void;
   onRename: () => void;
   onColor: (color: WorkspaceColor) => void;
-  /** The notification reset, for a list that shows notifications. */
   dismiss?: { disabled: boolean; onSelect: () => void };
 }) {
   const { t } = useTranslation();

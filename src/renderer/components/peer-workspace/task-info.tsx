@@ -1,19 +1,10 @@
-/**
- * A worktree's facts on another computer, unfolded under its header in the
- * agent list's task view: its folder and the first of its changed files,
- * as the local list draws them. The files are what git.status tells, read
- * only while unfolded and in reach. Lines added and deleted, and how far a
- * task is from its workspace's branch, are not told by that computer.
- */
 import { useEffect, useState } from "react";
 import type { RemoteWorkspace } from "../../../../packages/remote-protocol/src/rpc";
 import { type PeerGitFile, readPeerGitStatus } from "../../services/remote/peer-git-status";
 import { TaskInfoLines } from "../agent-list/task-info";
 
-/** How many changed files show before "N more", as locally. */
 const FILES_SHOWN = 5;
 
-/** A file's letter as the local list tells it: the staged state, else the working one. */
 export function peerChangeCode({ staged, unstaged }: PeerGitFile): string {
   return staged ?? unstaged ?? "M";
 }
@@ -27,7 +18,6 @@ export function PeerTaskInfo({
 }: {
   deviceId: string;
   workspace: RemoteWorkspace;
-  /** In reach, and that computer serves git. */
   canRead: boolean;
   onOpenFile: (file: PeerGitFile) => void;
   onShowChanges: () => void;

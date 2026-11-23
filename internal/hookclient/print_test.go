@@ -8,11 +8,8 @@ import (
 	"time"
 )
 
-// The runs' tests wait for what the transcript says; looking for it more
-// often than the app does only makes them wait less.
 func init() { printTranscriptPoll = 20 * time.Millisecond }
 
-// sessionA is a session id, as claude makes them.
 const sessionA = "8f7b63e3-a0e6-4b44-af95-03c2697fe716"
 
 func TestDescribePrintRun(t *testing.T) {
@@ -109,8 +106,6 @@ func TestDescribePrintRun(t *testing.T) {
 	})
 }
 
-// streamLines is a stream-json run's output as Claude Code 2.1.316 prints
-// it, cut to the fields read.
 var streamLines = []string{
 	`{"type":"system","subtype":"ui_invalidate","event":"ui.render"}`,
 	`{"type":"system","subtype":"init","cwd":"/repo","session_id":"s1","tools":["Bash"],"model":"glm-4.6"}`,
@@ -164,8 +159,6 @@ func TestPrintWatch_TellsTheRunsToolsAndAnswer(t *testing.T) {
 	}
 }
 
-// transcriptLines are a run's transcript as Claude Code 2.1.316 writes it,
-// cut to the fields read: a message a line, each with its directory.
 var transcriptLines = []string{
 	`{"type":"queue-operation","operation":"enqueue","content":"review it"}`,
 	`{"type":"user","message":{"role":"user","content":"review it"},"cwd":"/repo"}`,
@@ -187,10 +180,8 @@ func TestPrintWatch_ReadsATranscript(t *testing.T) {
 		watch.line([]byte(line))
 	}
 	want := []toldFrame{
-		// Its prompt, which the run's arguments did not tell.
 		{"print-init", map[string]any{"prompt": "review it"}},
 		{"print-init", map[string]any{"model": "glm-4.6", "cwd": "/repo"}},
-		// What claude wrote, not the message Claude Code made up.
 		{"print-text", map[string]any{"text": "Looking."}},
 		{"print-tool-use", map[string]any{
 			"tool_use_id": "toolu_1",
@@ -208,7 +199,6 @@ func TestPrintWatch_ReadsATranscript(t *testing.T) {
 	if !reflect.DeepEqual(told, want) {
 		t.Fatalf("told:\n%#v\nwant:\n%#v", told, want)
 	}
-	// Its answer is what claude wrote after its last tool.
 	if watch.reply != "It is fine.\nShip it." || watch.answer != "" {
 		t.Fatalf("reply = %q, answer = %q", watch.reply, watch.answer)
 	}
@@ -232,7 +222,6 @@ func TestPrintWatch_TellsThePromptOnceAndNotAMetaMessage(t *testing.T) {
 		t.Fatalf("prompts = %#v", prompts)
 	}
 
-	// One its arguments told is not told again.
 	prompts = nil
 	known := &printWatch{tell: watch.tell, promptTold: true}
 	known.line([]byte(`{"type":"user","message":{"role":"user","content":"review it"}}`))

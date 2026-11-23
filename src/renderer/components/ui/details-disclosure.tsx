@@ -1,11 +1,3 @@
-/**
- * DetailsDisclosure — a collapsed "Details" toggle over raw diagnostic text.
- *
- * Banners and toasts lead with a short message; the full output behind it
- * (a git stderr dump, for one) stays one click away instead of pushing the
- * surface's other content aside. The text keeps its line breaks and scrolls
- * once it outgrows a few lines.
- */
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";

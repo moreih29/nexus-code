@@ -7,7 +7,6 @@ import (
 	"strings"
 )
 
-// ExpandProfileDir resolves "~" and "~/…" against home and cleans the path.
 func ExpandProfileDir(dir, home string) string {
 	dir = strings.TrimSpace(dir)
 	switch {
@@ -21,8 +20,6 @@ func ExpandProfileDir(dir, home string) string {
 		}
 		rest := dir[2:]
 		if dir[1] == '\\' && runtime.GOOS != "windows" {
-			// A folder picked on Windows ("~\.claude\work"), on a host
-			// whose separator is "/".
 			rest = strings.ReplaceAll(rest, `\`, "/")
 		}
 		dir = filepath.Join(home, rest)
@@ -30,8 +27,6 @@ func ExpandProfileDir(dir, home string) string {
 	return filepath.Clean(dir)
 }
 
-// ProfileEnvDir expands an explicit provider config directory on the host
-// that will run the CLI. Other environment variables keep their exact values.
 func ProfileEnvDir(key, value string) string {
 	if runtime.GOOS == "windows" {
 		key = strings.ToUpper(key)

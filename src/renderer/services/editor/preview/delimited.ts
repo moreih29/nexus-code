@@ -1,32 +1,17 @@
-/**
- * Comma- and tab-separated values, for the table preview of .csv and .tsv
- * files: rows of fields as RFC 4180 reads them, quotes and all.
- */
-
 export interface DelimitedTable {
-  /** Every row, the header first; rows may differ in length. */
   readonly rows: readonly (readonly string[])[];
-  /** The widest row's number of fields. */
   readonly columns: number;
 }
 
-/** The delimiter of a file by its extension: tab for .tsv and .tab, comma otherwise. */
 export function delimiterFor(filePath: string): "," | "\t" {
   return /\.(tsv|tab)$/i.test(filePath) ? "\t" : ",";
 }
 
-/**
- * Reads `text` as delimited values. A field in double quotes may hold the
- * delimiter, line breaks, and "" for a quote. A line break ends a row:
- * \n, \r\n or \r. The last line's break is not a row of its own, and a
- * byte order mark is dropped.
- */
 export function parseDelimited(text: string, delimiter: string): DelimitedTable {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
   let quoted = false;
-  /** Whether the row being read has anything yet, an empty quoted field included. */
   let started = false;
   let columns = 0;
   const endRow = () => {
@@ -67,11 +52,6 @@ export function parseDelimited(text: string, delimiter: string): DelimitedTable 
   return { rows, columns };
 }
 
-/**
- * How wide each column shows, in characters: its widest field among the
- * first `sample` rows, the header included, within `min` and `max`. Widths
- * stay as the table scrolls, rather than following the rows in view.
- */
 export function columnWidths(
   table: DelimitedTable,
   { sample = 1000, min = 4, max = 40 }: { sample?: number; min?: number; max?: number } = {},
@@ -86,7 +66,6 @@ export function columnWidths(
   return widths;
 }
 
-/** Columns a field takes in one line: wide (CJK, Hangul) characters take two. */
 export function displayWidth(text: string): number {
   let width = 0;
   for (const char of text) {

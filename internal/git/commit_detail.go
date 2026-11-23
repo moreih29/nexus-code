@@ -37,7 +37,6 @@ type CommitDetail struct {
 	Files       []CommitFileChange `json:"files"`
 }
 
-// CommitDetail returns metadata and first-parent file changes for one commit.
 func (s *Service) CommitDetail(ctx context.Context, raw json.RawMessage) (any, error) {
 	params, err := parseCommitDetailParams(raw)
 	if err != nil {
@@ -108,7 +107,6 @@ func commitDetailGitError(stderr string) error {
 	return proto.CodedError{Code: proto.CodeRequestFailed, Msg: message}
 }
 
-// ParseCommitDetail converts NUL-separated git show output into CommitDetail.
 func ParseCommitDetail(stdout []byte) (CommitDetail, error) {
 	fields := strings.Split(string(stdout), commitDetailFieldSeparator)
 	if len(fields) < commitDetailHeaderFields {

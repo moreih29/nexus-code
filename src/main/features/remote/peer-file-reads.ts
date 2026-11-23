@@ -21,8 +21,6 @@ interface OpenBytes {
   read(offset: number, length: number): Promise<Bytes>;
 }
 
-// Count strings conservatively as UTF-16, including base64, and bound the
-// number of entries separately so small and empty reads also cost space.
 const CACHE_BYTES = 32 * 1024 * 1024;
 const CACHE_ENTRIES = 256;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
@@ -75,7 +73,6 @@ function costOf(result: Content): number {
   return 2 * (payload.length + result.path.length + (result.version?.length ?? 0));
 }
 
-/** The outgoing desktop file reads, scoped to the peer's current room connection. */
 export class PeerFileReads {
   private readonly entries = new Map<string, Entry>();
   private readonly flights = new Map<string, Flight>();
@@ -158,7 +155,6 @@ export class PeerFileReads {
     return this.piece(this.scope(peer, path), shape, signal);
   }
 
-  /** Fresh authorization for one response. Subsequent pieces must belong to its generation. */
   async openBytes(
     peer: PeerWorkspace,
     path: string,
@@ -168,7 +164,6 @@ export class PeerFileReads {
     required?: string,
   ): Promise<OpenBytes> {
     const scope = this.scope(peer, path);
-    // Suffix ranges start with size only on hosts that understand a zero-length read.
     if (length === 0 && !scope.versioned) length = MAX_BYTES_CHUNK;
     const first = bytesOf(
       await this.piece(scope, { as: "bytes", offset, length }, signal, required),
@@ -196,7 +191,6 @@ export class PeerFileReads {
     };
   }
 
-  /** At most a PDF span or a cacheable whole file. Larger whole files keep the chunked renderer path. */
   async readBytes(
     peer: PeerWorkspace,
     path: string,
@@ -215,7 +209,6 @@ export class PeerFileReads {
     if (assembleWhole) this.wholeReads++;
     if (multiPiece) this.spanReads++;
     try {
-      // Old hosts can fetch a span in parallel, as they did before versioned reads.
       if (!scope.versioned && multiPiece) {
         const reads = await Promise.all(
           this.slices(offset, offset + length).map(async ([at, count]) =>
@@ -278,8 +271,6 @@ export class PeerFileReads {
     throwIfAborted(scope.signal);
     const { as, offset, length, maxBytes } = shape;
     const key = JSON.stringify([scope.file, as, offset, length, maxBytes]);
-    // A versionless opener (including a host that temporarily cannot stamp
-    // a recent write) keeps the size-only fallback for this response.
     const versioned = scope.versioned && (!authorized || required !== undefined);
     const cached = versioned ? this.lookup(scope.file, key, shape, required) : undefined;
     if (required && !scope.versioned) throw changed();
@@ -384,8 +375,6 @@ export class PeerFileReads {
     }
     if (shape.length === 0) return;
     const cost = costOf(result) + 2 * (file.length + key.length);
-    // A large PDF or video can reuse its opening prefix. Retain at most two
-    // standard chunks, so sequential playback cannot displace other files.
     const openingChunk =
       result.kind === "bytes" && (shape.offset === 0 || shape.offset === MAX_BYTES_CHUNK);
     if ((result.size > this.limits.fileBytes && !openingChunk) || cost > this.limits.bytes) return;

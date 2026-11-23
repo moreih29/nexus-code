@@ -5,10 +5,6 @@ import {
   WorkspaceLayoutSnapshotSchema,
 } from "../../../../src/shared/types/layout";
 
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
-
 const LEAF_ID = "11111111-1111-4111-a111-111111111111";
 const SPLIT_ID = "22222222-2222-4222-a222-222222222222";
 const INNER_LEAF_ID = "33333333-3333-4333-a333-333333333333";
@@ -32,20 +28,12 @@ const validSplit = {
   second: { kind: "leaf" as const, id: INNER_LEAF2_ID, tabIds: [], activeTabId: null },
 };
 
-// ---------------------------------------------------------------------------
-// SerializedLeafSchema
-// ---------------------------------------------------------------------------
-
 describe("SerializedLeafSchema", () => {
   it("accepts null activeTabId", () => {
     const result = SerializedLeafSchema.safeParse({ ...validLeaf, activeTabId: null });
     expect(result.success).toBe(true);
   });
 });
-
-// ---------------------------------------------------------------------------
-// WorkspaceLayoutSnapshot
-// ---------------------------------------------------------------------------
 
 describe("WorkspaceLayoutSnapshotSchema", () => {
   const snapshot = {
@@ -96,10 +84,6 @@ describe("WorkspaceLayoutSnapshotSchema", () => {
     ).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// AppStateSchema backward-compat
-// ---------------------------------------------------------------------------
 
 describe("AppStateSchema — backward-compat", () => {
   it("parses an AppState without layoutByWorkspace (legacy)", () => {

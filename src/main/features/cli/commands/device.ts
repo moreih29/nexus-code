@@ -1,7 +1,3 @@
-/**
- * nexus device list: the user's computers in their account's remote room,
- * which --device names; and the sessions of the others, for session list.
- */
 import type { RemoteSession, RemoteWorkspace } from "../../../../../packages/remote-protocol/src";
 import { MAX_DEVICE_ALIAS } from "../../../../shared/remote/account";
 import { CliUsageError, exactArgs } from "../args";
@@ -10,7 +6,6 @@ import { ago, oneLine, table } from "../format";
 import { type CliCommand, output } from "../registry";
 import { deviceRef, listDevices, offline, peerSessions, pickDevice } from "../remote";
 
-/** How long session list waits on the other computers for its closing hint. */
 const HINT_MS = 3_000;
 
 const deviceList: CliCommand = {
@@ -26,7 +21,6 @@ const deviceList: CliCommand = {
     "down (AGENTS yes: it takes requests from agents; -: it does not, or it is offline).",
   async run(ctx, { positionals }) {
     exactArgs(positionals);
-    // This computer, those online, then those offline, the latest seen first.
     const rank = (d: CliDevice) => (d.self ? 0 : d.online ? 1 : 2);
     const devices = (await listDevices(ctx)).sort(
       (a, b) =>
@@ -89,12 +83,10 @@ const deviceAlias: CliCommand = {
 
 export const deviceCommands: CliCommand[] = [deviceList, deviceAlias];
 
-/** Whether a session of another device is an agent's, as session list lists them here. */
 function isAgentRow(session: RemoteSession): boolean {
   return session.kind !== "terminal" || session.state !== "idle" || session.last !== undefined;
 }
 
-/** A row of session list for a session of another device, and its JSON. */
 export interface PeerSessionRow {
   readonly cells: string[];
   readonly json: object;
@@ -138,11 +130,6 @@ function peerRow(
   };
 }
 
-/**
- * The agent sessions of `devices` for session list, a row each; an offline
- * device, or one that does not answer, is a line saying so instead of
- * failing the list.
- */
 export async function peerSessionRows(
   ctx: CliContext,
   devices: readonly CliDevice[],
@@ -172,11 +159,6 @@ export async function peerSessionRows(
   return { rows, notes };
 }
 
-/**
- * The hint session list ends with when the other computers have agent
- * sessions: "+ 5 sessions on 1 other computer: ...". Empty when this
- * computer is not in the room or they have none; they get a moment to say.
- */
 export async function otherSessionsHint(ctx: CliContext): Promise<string> {
   if (!ctx.services.remote.inRoom()) return "";
   const counted = (async () => {

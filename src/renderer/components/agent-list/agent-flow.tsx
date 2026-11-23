@@ -1,8 +1,3 @@
-// What an agent a session runs did, as its session's own turn reads in its
-// tab: what it was asked on the right, then what it wrote and the tools it
-// ran, in order, and its answer last. Shown for a subagent, a `claude -p`
-// run and a `codex exec` run alike, in the agent list and in a tab's pane.
-
 import i18next from "i18next";
 import { Ban, Check, LoaderCircle, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -22,10 +17,8 @@ import { ToolRunLine } from "../chat/tool-run-line";
 import { elapsedLabel } from "./agent-status";
 import { FoldToggle, useFold } from "./fold";
 
-/** How many of the latest steps show before the earlier ones are opened. */
 const STEPS_SHOWN = 20;
 
-/** How many lines of the request show before it is opened. */
 const PROMPT_LINES = 6;
 
 export function AgentFlow({
@@ -34,14 +27,11 @@ export function AgentFlow({
   renderText = plainText,
 }: {
   agent: AgentRun;
-  /** For the seconds a running tool counts. */
   now: number;
-  /** How what it wrote reads: as is, or as markdown in a tab. */
   renderText?: (text: string) => ReactNode;
 }) {
   const { t } = useTranslation();
   const [all, setAll] = useState(false);
-  // A subagent's tools are its hooks'; a run tells them once it is read.
   const told = agent.kind === "subagent" || agent.toolsTold;
   const steps = agentFlow(agent.tools, runMessages(agent));
   const hidden = all ? 0 : Math.max(0, steps.length - STEPS_SHOWN);
@@ -102,7 +92,6 @@ export function AgentFlow({
   );
 }
 
-/** How many tools the agent ran, and how many failed. */
 export function toolCount(agent: AgentRun): string {
   return agent.failedCount > 0
     ? i18next.t("common:agentList.agents.tools_failed", {
@@ -120,7 +109,6 @@ function plainText(text: string): ReactNode {
   );
 }
 
-/** What it was asked, on the right as a request in its tab, folded when long. */
 function PromptBubble({ text }: { text: string }) {
   const fold = useFold<HTMLParagraphElement>(text, PROMPT_LINES);
   return (
@@ -139,12 +127,10 @@ function PromptBubble({ text }: { text: string }) {
   );
 }
 
-/** A tool folds into a run as a call does in the main conversation; what it wrote ends one. */
 function stepPart(step: FlowEntry): RunPart {
   return "tool" in step && !isLoneTool(step.tool.name) ? "call" : "end";
 }
 
-/** Tools it ran in a row, as one line that opens to show each, as the main conversation's runs. */
 function StepRun({ steps, now }: { steps: readonly FlowEntry[]; now: number }) {
   const [open, setOpen] = useState(false);
   const tools = steps.flatMap((step) => ("tool" in step ? [step.tool] : []));
@@ -162,7 +148,6 @@ function StepRun({ steps, now }: { steps: readonly FlowEntry[]; now: number }) {
   );
 }
 
-/** A tool as a run's line counts it; a file tool's target is its file. */
 function runCallOf(tool: ToolRun): RunCall {
   return {
     name: tool.name,
@@ -177,7 +162,6 @@ function runCallOf(tool: ToolRun): RunCall {
   };
 }
 
-/** A tool it ran, as a call reads in its tab: how it went, its name and what it worked on. */
 function ToolStep({ tool, now }: { tool: ToolRun; now: number }) {
   const { t } = useTranslation();
   const running = tool.end === undefined;

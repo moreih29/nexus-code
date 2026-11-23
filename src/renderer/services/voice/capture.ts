@@ -1,14 +1,5 @@
-/**
- * The microphone, captured for voice input: getUserMedia, then an
- * AudioContext at the rate the server asked for (Chromium resamples the
- * microphone to it), then an AudioWorklet that hands over FRAME_MS of
- * samples at a time, sent on as PCM 16-bit little-endian. Silence is sent
- * too: the server ends a session that hears nothing for a while.
- */
-
 import { frameSamples, pcm16Of } from "./pcm";
 
-/** Why the microphone could not be captured. */
 export type CaptureFailure = "denied" | "no-microphone" | "failed";
 
 export class CaptureError extends Error {
@@ -21,19 +12,12 @@ export class CaptureError extends Error {
 }
 
 export interface Capture {
-  /** How loud the last frame was, 0 to 1. */
   level(): number;
   stop(): void;
 }
 
-/**
- * The worklet that collects `frame` samples of the first channel, then posts
- * them: a file of the app's own, which Vite serves and builds next to the
- * renderer (new URL(…, import.meta.url)).
- */
 const WORKLET_URL = new URL("./frame-collector.worklet.js", import.meta.url).href;
 
-/** Asks for the microphone; the stream, or why not. */
 export async function openMicrophone(): Promise<MediaStream> {
   try {
     return await navigator.mediaDevices.getUserMedia({
@@ -57,12 +41,6 @@ export async function openMicrophone(): Promise<MediaStream> {
   }
 }
 
-/**
- * Captures `stream` at `sampleRate`, handing each frame to `onFrame`, and
- * its samples as they are to `onSamples` (a note's voice prints).
- * Stopping it (or failing) stops the stream's tracks too, unless
- * `keepStream`: a note's recording goes on with the stream in a new session.
- */
 export async function startCapture(
   stream: MediaStream,
   sampleRate: number,

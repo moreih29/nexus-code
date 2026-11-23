@@ -31,7 +31,6 @@ import { listedRemoteTarget } from "../../../../../src/renderer/state/stores/rem
 import { ipcOk } from "../../../../../src/shared/ipc/result";
 import type { RoomPeer } from "../../../../../src/shared/remote/room";
 
-// Render current client snapshots for hooks backed by the running workbench.
 function clientSnapshots() {
   const useStore = React.useSyncExternalStore;
   return spyOn(React, "useSyncExternalStore").mockImplementation((subscribe, getSnapshot) =>
@@ -111,7 +110,6 @@ test("the workspace plus is the local tab bar's, with the agent list wherever th
     );
   try {
     expect(render()).not.toContain('data-testid="remote-new-menu"');
-    // Its menu lists the new sessions that computer lets this one open, then the agent list.
     for (const serves of [
       [],
       ["chat.read", "terminal.read"],
@@ -298,8 +296,6 @@ test("terminal input in both views follows terminal.control even while a typing 
     onTyping(typing);
     return () => {};
   });
-  // Commit the first layout effect (the terminal's typing subscription) once
-  // per SSR render so the real screen sees a populated input queue.
   const layoutEffect = React.useLayoutEffect;
   let subscribed = false;
   const commitTyping = spyOn(React, "useLayoutEffect").mockImplementation((effect, deps) => {

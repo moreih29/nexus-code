@@ -201,12 +201,6 @@ import { AsyncQueue, createAbortError, normalizeAgentGitError, throwIfAborted } 
 
 type ProviderSource = AgentBackedProvider | (() => AgentBackedProvider);
 
-/**
- * Agent call options for requests that may prompt for credentials. The
- * default 30 s request timeout would fail a push while the user types a
- * password, or a push that is simply slow; these requests can be cancelled
- * instead, so only a generous backstop remains.
- */
 const INTERACTIVE_CALL_OPTIONS = { timeoutMs: 10 * 60_000 } as const;
 
 export interface AgentGitExecutorOptions {
@@ -219,12 +213,6 @@ export interface GitMetadataResult {
   readonly lastFetchedAt: number | null;
 }
 
-/**
- * Workspace-bound Git executor backed by the same agent channel as fs/search.
- *
- * Electron keeps parsing, queueing, and UI orchestration in TS, while all real
- * git process execution happens inside the Go agent on the workspace host.
- */
 export class AgentGitExecutor implements GitExecutor {
   constructor(
     private readonly source: ProviderSource,
@@ -244,8 +232,6 @@ export class AgentGitExecutor implements GitExecutor {
       if (isAgentGitFailure(result)) throw gitErrorFromAgent(result, options.args);
       return result;
     };
-    // An interactive run checks its result inside the run, so a failure
-    // after a dismissed credential prompt reads as the cancel it is.
     return params.interactive
       ? await this.withInteractiveRun(options.signal, runChecked)
       : await runChecked(this.provider());
@@ -264,11 +250,6 @@ export class AgentGitExecutor implements GitExecutor {
       queue.push(Buffer.from(parsed.data.chunk, "base64"));
     });
 
-    // Idempotent gate so the abort handler (when the consumer is parked at
-    // `yield`) and the natural `finally` path converge on the same teardown
-    // exactly once — without it, an aborted-and-skipped `.return()` leaves
-    // `unsubscribe` permanently attached to the channel, the same shape that
-    // 53781ae fixed in `streamAgentEvents`.
     let tornDown = false;
     const tearDown = (): void => {
       if (tornDown) return;
@@ -903,11 +884,6 @@ export class AgentGitExecutor implements GitExecutor {
     }
   }
 
-  /**
-   * Runs one agent request that may prompt for credentials under a fresh run
-   * id: its prompts reach the renderer, an abort kills its git through
-   * `git.cancel`, and a prompt still open when it ends is closed.
-   */
   private async withInteractiveRun<T>(
     signal: AbortSignal | undefined,
     call: (provider: AgentBackedProvider, runId: string) => Promise<T>,
@@ -933,13 +909,8 @@ export class AgentGitExecutor implements GitExecutor {
       throwIfAborted(signal);
       return result;
     } catch (error) {
-      // A timed-out or lost request may leave its git running on the agent;
-      // a run that already ended ignores the cancel.
       cancel();
-      // The cancelled git surfaces as an agent error; report the abort.
       throwIfAborted(signal);
-      // Git failed for want of the credential the user declined to give:
-      // report that cancel rather than git's stderr about the prompt.
       if (promptDismissed) throw createAbortError();
       throw error;
     } finally {
@@ -948,12 +919,6 @@ export class AgentGitExecutor implements GitExecutor {
     }
   }
 
-  /**
-   * Shows the credential prompts of one run (or stream) while it is in
-   * flight, calling `onDismiss` when the user cancels one. The returned
-   * function stops listening and closes the prompts the run left open: its
-   * git has ended, so they can no longer be answered.
-   */
   private wireAskpass(
     provider: AgentBackedProvider,
     runId: string,
@@ -966,8 +931,6 @@ export class AgentGitExecutor implements GitExecutor {
     const unsubscribe = provider.onAgentEvent(GIT_ASKPASS_REQUEST_EVENT, (payload) => {
       const parsed = AgentGitAskpassRequestPayloadSchema.safeParse(payload);
       if (!parsed.success) return;
-      // Another request's prompt; an untagged one comes from an agent that
-      // predates run ids.
       if (parsed.data.runId !== undefined && parsed.data.runId !== runId) return;
       opened.push(parsed.data.requestId);
       manager.openAgentAskpassPrompt(
@@ -1019,12 +982,6 @@ export class AgentGitExecutor implements GitExecutor {
       const chunk = parseEvent(payload);
       if (chunk) queue.push(chunk);
     });
-    // Idempotent teardown — runs on EITHER abort or the generator's normal
-    // finally, whichever fires first. Without this gate, an aborted stream
-    // whose generator never gets .return()'d by the consumer leaves its
-    // onAgentEvent listener attached to the workspace channel, accumulating
-    // listeners across workspace switches / auto-refresh cycles and turning
-    // every subsequent batch emit into an N-fold fan-out.
     let tornDown = false;
     const tearDown = (): void => {
       if (tornDown) return;
@@ -1043,9 +1000,6 @@ export class AgentGitExecutor implements GitExecutor {
     complete.catch(() => {});
 
     const abort = (): void => {
-      // Cancel the in-flight RPC first so the agent can stop work, then
-      // tear down the listener so a stream the consumer never resumes does
-      // not leak its subscription.
       queue.fail(createAbortError());
       tearDown();
     };
@@ -1067,10 +1021,6 @@ export class AgentGitExecutor implements GitExecutor {
   }
 }
 
-/**
- * Calls one dedicated agent git method, rethrowing its failure as the typed
- * GitError the IPC layer and the renderer branch on.
- */
 async function callGit(
   provider: AgentBackedProvider,
   method: string,

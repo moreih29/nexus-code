@@ -1,7 +1,3 @@
-/**
- * createUpdateInstaller — the steps of an in-place update over a fake backend
- * that plays electron-updater and Squirrel.Mac.
- */
 import { describe, expect, it } from "bun:test";
 import {
   createUpdateInstaller,

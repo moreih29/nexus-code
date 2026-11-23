@@ -265,7 +265,6 @@ function profileConnection(agent: ChatAgent, flags: FlagValues): ProfileConnecti
   return parsed.data;
 }
 
-/** Store a home-relative path when possible so it can also be used on other workspace hosts. */
 function profileDir(ctx: CliContext, input: string, home: string, windows: boolean): string {
   const dir = portableProfileDir(input);
   if (!dir || /\p{Cc}/u.test(dir)) throw new CliUsageError("Give a valid folder with --dir");

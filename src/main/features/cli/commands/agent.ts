@@ -1,9 +1,3 @@
-/**
- * nexus agent ...: the agents of a Claude Code session, as its hooks tell
- * them: its subagents and the `claude -p` and `codex exec` runs it starts
- * (hookclient's print-run and exec-run), as a Codex tab's commands start
- * them too. A session follows them, waits for one, and stops a run.
- */
 import type { AgentRun, ToolRun } from "../../../../shared/claude/activity";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
 import { type CliContext, CliError, mayChange, pick, resolveWorkspace, shortId } from "../context";
@@ -34,11 +28,9 @@ const AGENT_DETAILS =
 interface Session {
   workspaceId: string;
   tabId: string;
-  /** How messages name the terminal when it is not the caller's. */
   title?: string;
 }
 
-/** The terminal whose session a command looks at: the caller's, or --tab's. */
 async function sessionOf(ctx: CliContext, flags: ParsedArgs["flags"]): Promise<Session> {
   const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
   if (flags.tab === undefined) {
@@ -53,7 +45,6 @@ function agentsOf(ctx: CliContext, session: Session): readonly AgentRun[] {
   return ctx.services.claudeAgents.list(session.workspaceId, session.tabId);
 }
 
-/** The id an agent is shown by: a run's Claude session id once known. */
 export function agentId(agent: AgentRun): string {
   if (agent.kind === "subagent") return agent.id;
   return agent.sessionId ?? agent.id.replace(/^print-/, "");
@@ -64,7 +55,6 @@ function agentKind(agent: AgentRun): string {
   return agent.program === "codex" ? "codex exec" : "claude -p";
 }
 
-/** The agent `selector` names among the session's: an id, or a unique prefix. */
 function findAgent(agents: readonly AgentRun[], selector: string, session: Session): AgentRun {
   const exact = agents.find((a) => a.id === selector || a.sessionId === selector);
   if (exact) return exact;
@@ -82,7 +72,6 @@ function isRunning(agent: AgentRun): boolean {
   return agent.end === undefined;
 }
 
-/** The tool it runs now, the latest one started. */
 function runningTool(agent: AgentRun): ToolRun | undefined {
   return [...agent.tools].reverse().find((t) => t.end === undefined && t.background !== true);
 }
@@ -97,7 +86,6 @@ function stateText(agent: AgentRun): string {
   return `${state}${exit}`;
 }
 
-/** Its tools in a few words: how many ran and failed; "?" when a run does not tell them. */
 function toolCount(agent: AgentRun): string {
   if (agent.kind === "print" && agent.toolsTold !== true) return "?";
   return agent.failedCount > 0
@@ -142,7 +130,6 @@ const agentList: CliCommand = {
   },
 };
 
-/** What `nexus agent show` and `wait` print of an agent. */
 function describeAgent(agent: AgentRun, now: number): string {
   const lines = [`${agentKind(agent)} ${agentId(agent)}`];
   const field = (name: string, value: string | undefined) => {
@@ -187,7 +174,6 @@ function describeAgent(agent: AgentRun, now: number): string {
       lines.push(`  ${how.padEnd(10)} ${oneLine(toolLine(tool), 100)}${error}`);
     }
   }
-  // What it wrote between its tools; its answer is told on its own.
   const messages = agent.messages ?? [];
   const said =
     messages.length > 0 && messages[messages.length - 1]?.text === agent.answer

@@ -105,7 +105,6 @@ func TestReadBinaryReturnsBase64ForBinaryAndUtf8AndMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Binary file — base64 round-trips the exact bytes.
 	readAny, err := fsys.ReadBinary(context.Background(), json.RawMessage(`{"relPath":"logo.png"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +121,6 @@ func TestReadBinaryReturnsBase64ForBinaryAndUtf8AndMissing(t *testing.T) {
 		t.Fatalf("round-trip mismatch: %x vs %x", decoded, binBytes)
 	}
 
-	// Text file — readBinary doesn't care about content shape, just bytes.
 	readAny, err = fsys.ReadBinary(context.Background(), json.RawMessage(`{"relPath":"notes.txt"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +134,6 @@ func TestReadBinaryReturnsBase64ForBinaryAndUtf8AndMissing(t *testing.T) {
 		t.Fatalf("text round-trip: %q (err=%v)", decoded, err)
 	}
 
-	// Missing file resolves rather than errors, matching fs.readFile.
 	readAny, err = fsys.ReadBinary(context.Background(), json.RawMessage(`{"relPath":"absent.png"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -250,9 +247,6 @@ func strconvQuote(s string) string {
 	return string(b)
 }
 
-// The size cap must hold for what a read actually consumes. A symlink's own
-// Lstat size is a few bytes, so a link to a device or to an oversized file
-// used to be read without bound.
 func TestReadFollowsSymlinkWithinSizeCap(t *testing.T) {
 	root := t.TempDir()
 	big := filepath.Join(t.TempDir(), "big.bin")
@@ -278,8 +272,6 @@ func TestReadFollowsSymlinkWithinSizeCap(t *testing.T) {
 	}
 }
 
-// TestReadFollowsSymlinkToDevice reads a link to an endless device as an
-// empty binary file instead of reading the device without bound.
 func TestReadFollowsSymlinkToDevice(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows has no /dev/zero")

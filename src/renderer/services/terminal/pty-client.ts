@@ -8,12 +8,10 @@ import type { PtyClient, PtyClientOptions, SpawnedSession, TerminalDimensions } 
 const pendingAckBytesBySessionKey = new Map<string, number>();
 const liveSessions = new Set<string>();
 const spawnPromisesBySessionKey = new Map<string, Promise<SpawnedSession>>();
-/** Input waiting for the session's write in flight; present while one is. */
 interface InputQueue {
   pending: string;
 }
 const queuedInputBySessionKey = new Map<string, InputQueue>();
-/** Input to type once the session's shell is ready; see `queueStartupInput`. */
 const startupInputBySessionKey = new Map<string, StartupInput>();
 const textEncoder = new TextEncoder();
 
@@ -31,7 +29,6 @@ function ackData(workspaceId: string, tabId: string, chunk: string): void {
   }
 
   pendingAckBytesBySessionKey.set(key, 0);
-  // Fire-and-forget: ack is a flow-control notification; terminal still works without it.
   void ipcCallResult("pty", "ack", { workspaceId, tabId, bytesConsumed: pending });
 }
 
@@ -79,14 +76,6 @@ export function spawnSession(
   return promise;
 }
 
-/**
- * Sends a session's input one write at a time. The agent handles each request
- * on a goroutine of its own, so two writes sent back to back can reach the PTY
- * in either order. An IME that commits a syllable on Enter sends the syllable
- * and the Enter within a millisecond, and the command sometimes ran without
- * the syllable. Input that arrives while a write is in flight goes out in the
- * next one.
- */
 export function writeSession(workspaceId: string, tabId: string, data: string): void {
   const key = sessionKey(workspaceId, tabId);
   const queued = queuedInputBySessionKey.get(key);
@@ -99,7 +88,6 @@ export function writeSession(workspaceId: string, tabId: string, data: string): 
   void sendInput(key, queue, workspaceId, tabId, data);
 }
 
-/** Drain a write queue only while it still belongs to the current session. */
 async function sendInput(
   key: string,
   queue: InputQueue,
@@ -140,28 +128,16 @@ async function sendInput(
 }
 
 interface StartupInput {
-  /** Builds the input for the shell that started; a remote shell has no path. */
   readonly build: (shellPath: string | undefined) => string;
-  /** The shell printed something and has been quiet since. */
   quiet: boolean;
   quietTimer?: ReturnType<typeof setTimeout>;
   maxWaitTimer?: ReturnType<typeof setTimeout>;
-  /** Types the input; set once the session has started. */
   write?: () => void;
 }
 
-/** How long a new shell stays quiet after printing before it counts as ready. */
 export const STARTUP_INPUT_QUIET_MS = 300;
-/** The longest startup input waits for a shell that keeps printing, or never does. */
 export const STARTUP_INPUT_MAX_WAIT_MS = 5000;
 
-/**
- * Types input into a tab's shell once the shell is ready, such as a command a
- * new terminal runs. The tab's session must not have started yet. Ready is a
- * guess: the shell printed something, its prompt, and then went quiet. Input
- * typed earlier would still run, since the shell reads it when it gets there,
- * but the terminal would show it twice, before the prompt and after it.
- */
 export function queueStartupInput(
   workspaceId: string,
   tabId: string,
@@ -212,20 +188,14 @@ export function resizeSession(
   tabId: string,
   { cols, rows }: TerminalDimensions,
 ): void {
-  // Fire-and-forget: resize notification; terminal adapts at next draw.
   void ipcCallResult("pty", "resize", { workspaceId, tabId, cols, rows });
 }
 
 export function killSession(workspaceId: string, tabId: string): void {
   forgetSession(workspaceId, tabId);
-  // Fire-and-forget: kill is a best-effort cleanup; PTY exits independently.
   void ipcCallResult("pty", "kill", { workspaceId, tabId });
 }
 
-/**
- * Drops the bookkeeping for a session that has ended, so the next spawn for
- * the tab reaches main instead of being taken for a session still live.
- */
 export function forgetSession(workspaceId: string, tabId: string): void {
   const key = sessionKey(workspaceId, tabId);
   liveSessions.delete(key);

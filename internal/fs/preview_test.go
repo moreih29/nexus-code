@@ -60,7 +60,6 @@ func TestPreviewPinsSameFileAcrossRangesAndDetectsSameSizeEdits(t *testing.T) {
 		t.Fatalf("first read: %+v %v", first, err)
 	}
 	if first.Version == "" {
-		// Filesystems without dependable change metadata still return bytes.
 		t.Skip("filesystem does not issue preview versions")
 	}
 	unchanged, err := previewRequest(t, s, previewParams{
@@ -179,8 +178,6 @@ func TestPreviewFolderGrantAcceptsAnotherSpellingOfTheAuthorizedFile(t *testing.
 	putPreviewFile(t, file, "readme")
 	other := filepath.Join(dir, "other.md")
 	putPreviewFile(t, other, "other")
-	// The caller resolves names to their on-disk case; the request may spell
-	// the path otherwise on a case-insensitive file system.
 	respelled := filepath.Join(root, "proj", "readme.md")
 	if _, err := os.Stat(respelled); err != nil {
 		t.Skip("file system is case-sensitive")

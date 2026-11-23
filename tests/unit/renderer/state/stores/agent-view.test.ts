@@ -1,8 +1,3 @@
-/**
- * The agent view's store: what was stored comes back with only the agents
- * whose tabs still exist, and a change is stored once things settle, never
- * before what was stored came back.
- */
 import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
 import { remoteFileKey } from "../../../../../src/shared/fs/remote-file-key";
 import { type IpcResult, ipcOk } from "../../../../../src/shared/ipc/result";
@@ -53,7 +48,6 @@ const SIGNED_IN = {
 };
 const PEER_ORDER_ACCOUNT = JSON.stringify([SIGNED_IN.server, SIGNED_IN.user.id]);
 
-/** Past the store's wait before it stores a change. */
 const settle = () => jest.advanceTimersByTime(400);
 
 describe("agent view store", () => {

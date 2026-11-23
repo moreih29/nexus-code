@@ -24,8 +24,6 @@ function startsRecordedTurn(item: ChatItem): boolean {
 }
 
 function recordedTurnItems(items: ChatItem[], answerIndex: number): ChatItem[] | undefined {
-  // A Claude transcript does not have turn IDs. An accepted prompt or a
-  // notification that woke it marks the start, if the loaded pages reach it.
   let start = answerIndex;
   while (start > 0 && !startsRecordedTurn(items[start - 1])) start--;
   if (start === 0) return;
@@ -76,7 +74,6 @@ function modelAnswer(
   }
 }
 
-/** The answer from the turn that just ended, if it produced one. */
 export function liveAnswerOf(model: ChatModel): NoteLastAnswer | undefined {
   const result = model.lastResult;
   if (!result?.turnId || model.running) return;

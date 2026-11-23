@@ -1,10 +1,3 @@
-/**
- * Waiting on a chat or a terminal for another device (chat.wait,
- * terminal.wait), as `nexus chat wait` and `nexus terminal wait` do; a
- * request waits at most MAX_WAIT_MS, and the device asks again while it is
- * not done. What tells a turn from before the device's own input is its
- * `after` (the input's `at`), so each request starts afresh.
- */
 import {
   MAX_WAIT_MS,
   RpcErrorCode,
@@ -16,13 +9,8 @@ import { DEFAULT_QUIET_MS, WAIT_POLL_MS, type WaitTarget, waitOnTerminal } from 
 import { RpcFailure } from "./room";
 import { fitsAsResult, unavailable, workspaceOf } from "./serving/common";
 
-/**
- * After a chat.send, how long a chat that shows nothing newer than the
- * message counts as working: the message is still on its way into the turn.
- */
 export const SEND_GRACE_MS = 10_000;
 
-/** A message cut, from its end, to what goes in a frame beside `rest`. */
 function fitting(message: string, rest: Record<string, unknown>): string {
   let text = message;
   while (text !== "" && !fitsAsResult({ ...rest, message: text })) {
@@ -38,7 +26,6 @@ async function tabsOf(services: CliServices, workspaceId: string) {
   return (await services.ui("tabs.list", { workspaceId }).catch(unavailable)).tabs;
 }
 
-/** Waits until the chat is done with its turn: asking, idle, on an error, or closed. */
 export async function waitOnChat(
   services: CliServices,
   { workspaceId, tabId, timeoutMs, after }: RpcParams<"chat.wait">,
@@ -63,7 +50,6 @@ export async function waitOnChat(
       })
       .catch(unavailable);
     const now = clock.now();
-    // A turn that has not shown the message yet is still to come.
     const unseen =
       !info.trackedSubmission &&
       after !== undefined &&
@@ -78,11 +64,6 @@ export async function waitOnChat(
   }
 }
 
-/**
- * Waits until the terminal is idle (its agent done with its turn, its shell
- * back at the prompt, or quiet), has exited, or shows a line matching
- * `match`.
- */
 export async function waitOnTerminalFor(
   services: CliServices,
   { workspaceId, tabId, timeoutMs, after, exit, match, quietMs }: RpcParams<"terminal.wait">,
@@ -105,7 +86,6 @@ export async function waitOnTerminalFor(
     }
   }
   const now = services.clock.now();
-  // From the input on, so a turn it started counts however long ago; this request waits `limit`.
   const startedAt = after !== undefined && after <= now ? after : now;
   const limit = Math.min(timeoutMs ?? MAX_WAIT_MS, MAX_WAIT_MS);
   const result = await waitOnTerminal({ services }, workspace, tab, {

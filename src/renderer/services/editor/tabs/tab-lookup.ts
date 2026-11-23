@@ -1,10 +1,3 @@
-/**
- * Read-only lookup helpers over the tabs/layout stores. Used by
- * `openOrRevealEditor` (preview-slot reuse, reveal-if-opened) and by
- * cross-cutting features (DnD destination matching) that need to ask
- * "is this file already open in this group?" without mutating state.
- */
-
 import { Grid } from "@/engine";
 import { useLayoutStore } from "@/state/stores/layout";
 import type { Tab } from "@/state/stores/tabs";
@@ -24,11 +17,6 @@ function getLeafAndTabs(
   return { leaf, tabsById };
 }
 
-/**
- * Find an editor tab anywhere in the workspace's layout. Prefers the
- * active group, then falls back to scanning every leaf. `accept` limits
- * the lookup when the caller is looking for a particular set of tabs.
- */
 export function findEditorTab(
   workspaceId: string,
   filePath: string,
@@ -59,11 +47,6 @@ export function findEditorTab(
   return { groupId: found.leaf.id, tabId: found.tabId };
 }
 
-/**
- * Search for an editor tab with the given filePath only within the specified
- * group (leaf). Returns null when the group does not exist or has no matching
- * tab.
- */
 export function findEditorTabInGroup(
   workspaceId: string,
   groupId: string,
@@ -86,10 +69,6 @@ export function findEditorTabInGroup(
   return { groupId: leaf.id, tabId };
 }
 
-/**
- * Find the preview slot (the single isPreview=true editor tab) in a group.
- * Returns null when none exists.
- */
 export function findPreviewTabInGroup(
   workspaceId: string,
   groupId: string,

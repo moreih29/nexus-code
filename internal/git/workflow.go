@@ -9,40 +9,30 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// ---------------------------------------------------------------------------
-// Workflow RPC types
-// ---------------------------------------------------------------------------
-
-// WorkflowMergeParams carries the parameters for git.workflow.merge.
 type WorkflowMergeParams struct {
 	Cwd    string `json:"cwd"`
 	Branch string `json:"branch"`
 	Mode   string `json:"mode,omitempty"`
 }
 
-// WorkflowRebaseParams carries the parameters for git.workflow.rebase.
 type WorkflowRebaseParams struct {
 	Cwd  string `json:"cwd"`
 	Onto string `json:"onto"`
 }
 
-// WorkflowCherryPickParams carries the parameters for git.workflow.cherryPick.
 type WorkflowCherryPickParams struct {
 	Cwd string `json:"cwd"`
 	Sha string `json:"sha"`
 }
 
-// WorkflowAbortParams carries the parameters for git.workflow.abort.
 type WorkflowAbortParams struct {
 	Cwd string `json:"cwd"`
 }
 
-// WorkflowContinueParams carries the parameters for git.workflow.continue.
 type WorkflowContinueParams struct {
 	Cwd string `json:"cwd"`
 }
 
-// WorkflowResult is the envelope returned by merge/cherry-pick operations.
 type WorkflowResult struct {
 	Result        string `json:"result"`
 	ConflictCount int    `json:"conflictCount,omitempty"`
@@ -51,13 +41,6 @@ type WorkflowResult struct {
 	TotalCount    *int   `json:"totalCount,omitempty"`
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers for reading status and operation-state without RPC
-// ---------------------------------------------------------------------------
-
-// statusCore runs git status porcelain-v2 in cwd and returns the parsed result.
-// It intentionally omits remotes/stash/tag subcalls that the external Status
-// RPC includes; workflow operations only need the merge list and operation-state.
 func (s *Service) statusCore(ctx context.Context, cwd string) (GitStatus, error) {
 	args := []string{"status", "--porcelain=v2", "-z", "-b", "--untracked-files=all", "--renames"}
 	stdout, err := s.statusGitOutput(ctx, cwd, args...)
@@ -68,7 +51,6 @@ func (s *Service) statusCore(ctx context.Context, cwd string) (GitStatus, error)
 	if err != nil {
 		return GitStatus{}, proto.CodedError{Code: proto.CodeRequestFailed, Msg: err.Error()}
 	}
-	// Attach operation state so callers can read conflictCount from operationState.
 	gitDir, err := s.resolveGitDirFromCwd(ctx, cwd)
 	if err != nil {
 		return GitStatus{}, err
@@ -81,7 +63,6 @@ func (s *Service) statusCore(ctx context.Context, cwd string) (GitStatus, error)
 	return status, nil
 }
 
-// resolveGitDirFromCwd asks git for the absolute git dir for a given cwd.
 func (s *Service) resolveGitDirFromCwd(ctx context.Context, cwd string) (string, error) {
 	out, err := s.statusGitOutput(ctx, cwd, "rev-parse", "--absolute-git-dir")
 	if err != nil {
@@ -90,19 +71,10 @@ func (s *Service) resolveGitDirFromCwd(ctx context.Context, cwd string) (string,
 	return strings.TrimSpace(string(out)), nil
 }
 
-// runWorkflowGit runs a git command in cwd and returns stdout+stderr+code.
 func (s *Service) runWorkflowGit(ctx context.Context, cwd string, args []string) (string, string, int, error) {
 	return s.capture(ctx, cwd, args, false)
 }
 
-// ---------------------------------------------------------------------------
-// Conflict detection helpers
-// ---------------------------------------------------------------------------
-
-// isConflictExit returns true when the exit code + combined output indicate
-// that a git operation paused due to conflicts rather than truly failing.
-// Git reports conflict details on stdout (not stderr) for merge and cherry-pick,
-// so both streams must be checked.
 func isConflictExit(code int, stdout, stderr string) bool {
 	if code == 0 {
 		return false
@@ -116,13 +88,6 @@ func isConflictExit(code int, stdout, stderr string) bool {
 		strings.Contains(combined, "automatic merge failed")
 }
 
-// ---------------------------------------------------------------------------
-// WorkflowMerge — git.workflow.merge
-// ---------------------------------------------------------------------------
-
-// WorkflowMerge starts a merge and returns a clean/conflicts result envelope.
-// Conflicts are returned as a success payload so the caller can render conflict
-// UI without treating them as transport failures.
 func (s *Service) WorkflowMerge(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p WorkflowMergeParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -132,7 +97,6 @@ func (s *Service) WorkflowMerge(ctx context.Context, raw json.RawMessage) (any, 
 		return nil, proto.ProtocolError("git.workflow.merge branch is required")
 	}
 
-	// Check for already-in-progress operation before starting.
 	status, err := s.statusCore(ctx, p.Cwd)
 	if err != nil {
 		return nil, err
@@ -156,7 +120,6 @@ func (s *Service) WorkflowMerge(ctx context.Context, raw json.RawMessage) (any, 
 		return nil, workflowGitError(args, stderr, code)
 	}
 
-	// Re-read status to get conflict count.
 	refreshed, err := s.statusCore(ctx, p.Cwd)
 	if err != nil {
 		return nil, err
@@ -167,7 +130,6 @@ func (s *Service) WorkflowMerge(ctx context.Context, raw json.RawMessage) (any, 
 	return WorkflowResult{Result: "conflicts", ConflictCount: len(refreshed.Merge)}, nil
 }
 
-// buildMergeArgs constructs the git merge argv for the requested mode.
 func buildMergeArgs(branch, mode string) []string {
 	switch mode {
 	case "no-ff":
@@ -178,16 +140,11 @@ func buildMergeArgs(branch, mode string) []string {
 		return []string{"merge", "--no-commit", branch}
 	case "ff-only":
 		return []string{"merge", "--ff-only", branch}
-	default: // "default" or ""
+	default:
 		return []string{"merge", "--no-edit", branch}
 	}
 }
 
-// ---------------------------------------------------------------------------
-// WorkflowRebase — git.workflow.rebase
-// ---------------------------------------------------------------------------
-
-// WorkflowRebase starts a non-interactive rebase and returns progress counters.
 func (s *Service) WorkflowRebase(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p WorkflowRebaseParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -206,7 +163,6 @@ func (s *Service) WorkflowRebase(ctx context.Context, raw json.RawMessage) (any,
 		return nil, workflowAlreadyInProgressError(kind)
 	}
 
-	// Count commits to replay so we can report totalCount on clean completion.
 	totalCount := s.countRebaseCommits(ctx, p.Cwd, onto)
 
 	_, stderr, code, runErr := s.runWorkflowGit(ctx, p.Cwd, []string{"rebase", onto})
@@ -257,7 +213,6 @@ func (s *Service) WorkflowRebase(ctx context.Context, raw json.RawMessage) (any,
 	return nil, workflowGitError([]string{"rebase", onto}, stderr, code)
 }
 
-// countRebaseCommits counts how many commits would be replayed.
 func (s *Service) countRebaseCommits(ctx context.Context, cwd, onto string) int {
 	out, err := s.statusGitOutput(ctx, cwd, "rev-list", "--count", onto+"..HEAD")
 	if err != nil {
@@ -270,12 +225,6 @@ func (s *Service) countRebaseCommits(ctx context.Context, cwd, onto string) int 
 	return n
 }
 
-// ---------------------------------------------------------------------------
-// WorkflowCherryPick — git.workflow.cherryPick
-// ---------------------------------------------------------------------------
-
-// WorkflowCherryPick cherry-picks one commit and returns a conflict envelope
-// instead of an error when the pick produces conflicts.
 func (s *Service) WorkflowCherryPick(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p WorkflowCherryPickParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -318,12 +267,6 @@ func (s *Service) WorkflowCherryPick(ctx context.Context, raw json.RawMessage) (
 	return WorkflowResult{Result: "conflicts", ConflictCount: len(refreshed.Merge)}, nil
 }
 
-// ---------------------------------------------------------------------------
-// WorkflowAbort — git.workflow.abort
-// ---------------------------------------------------------------------------
-
-// WorkflowAbort aborts the currently-active workflow operation by detecting
-// which operation marker files exist in the git dir.
 func (s *Service) WorkflowAbort(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p WorkflowAbortParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -350,7 +293,6 @@ func (s *Service) WorkflowAbort(ctx context.Context, raw json.RawMessage) (any, 
 	return nil, nil
 }
 
-// abortArgs builds the --abort argv for the given operation kind.
 func abortArgs(kind string) []string {
 	switch kind {
 	case "merge":
@@ -366,11 +308,6 @@ func abortArgs(kind string) []string {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// WorkflowContinue — git.workflow.continue
-// ---------------------------------------------------------------------------
-
-// WorkflowContinue continues the currently-active workflow operation.
 func (s *Service) WorkflowContinue(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p WorkflowContinueParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil {
@@ -403,7 +340,6 @@ func (s *Service) WorkflowContinue(ctx context.Context, raw json.RawMessage) (an
 		if !isConflictExit(code, contStdout, stderr) {
 			return nil, workflowGitError(args, stderr, code)
 		}
-		// Hit another conflict on continue.
 		refreshed, err := s.statusCore(ctx, p.Cwd)
 		if err != nil {
 			return nil, err
@@ -421,7 +357,6 @@ func (s *Service) WorkflowContinue(ctx context.Context, raw json.RawMessage) (an
 		return nil, workflowGitError(args, stderr, code)
 	}
 
-	// Successful continue — check if the operation is complete.
 	refreshed, err := s.statusCore(ctx, p.Cwd)
 	if err != nil {
 		return nil, err
@@ -429,7 +364,6 @@ func (s *Service) WorkflowContinue(ctx context.Context, raw json.RawMessage) (an
 	return continueResult(refreshed.OperationState), nil
 }
 
-// continueArgs builds the --continue argv for the given operation kind.
 func continueArgs(kind string) []string {
 	switch kind {
 	case "merge":
@@ -445,7 +379,6 @@ func continueArgs(kind string) []string {
 	}
 }
 
-// continueResult converts the post-continue operation state to a result envelope.
 func continueResult(opState map[string]any) WorkflowResult {
 	kind := operationKind(opState)
 	if kind == "none" {
@@ -461,11 +394,6 @@ func continueResult(opState map[string]any) WorkflowResult {
 	return WorkflowResult{Result: "clean", ConflictCount: 0}
 }
 
-// ---------------------------------------------------------------------------
-// Shared utilities
-// ---------------------------------------------------------------------------
-
-// operationKind extracts the "kind" string from an operation state map.
 func operationKind(state map[string]any) string {
 	if state == nil {
 		return "none"
@@ -477,8 +405,6 @@ func operationKind(state map[string]any) string {
 	return kind
 }
 
-// workflowAlreadyInProgressError maps an active operation kind to the correct
-// typed error message the TS classifier recognizes.
 func workflowAlreadyInProgressError(kind string) error {
 	switch kind {
 	case "merge":
@@ -494,13 +420,10 @@ func workflowAlreadyInProgressError(kind string) error {
 	}
 }
 
-// workflowGitError builds an error from a non-conflict non-zero git exit.
-// Delegates to the shared gitError helper in run.go.
 func workflowGitError(args []string, stderr string, code int) error {
 	return gitError(args, stderr, code)
 }
 
-// toInt coerces a json.Number or float64 from an unmarshalled map to int.
 func toInt(v any) int {
 	switch x := v.(type) {
 	case int:

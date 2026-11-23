@@ -1,11 +1,3 @@
-/**
- * A small XML reader for the parts of an Office file: a stream of element
- * starts, ends and text, as the file has them. Names lose their namespace
- * prefix; attribute names keep theirs. Entities are decoded, CDATA is
- * text, and the declaration, comments and processing instructions are
- * skipped. It does not check that the XML is well formed.
- */
-
 export interface XmlHandlers {
   start?(name: string, attrs: Readonly<Record<string, string>>, empty: boolean): void;
   end?(name: string): void;
@@ -51,13 +43,11 @@ export function scanXml(xml: string, on: XmlHandlers): void {
   }
 }
 
-/** Where `token` starts after `from`, or the end of `xml` when it never does. */
 function endOf(xml: string, token: string, from: number): number {
   const at = xml.indexOf(token, from);
   return at === -1 ? xml.length : at;
 }
 
-/** The `>` closing the tag at `lt`, past any in quoted attribute values. */
 function tagEnd(xml: string, lt: number): number {
   let quote = "";
   for (let i = lt + 1; i < xml.length; i++) {

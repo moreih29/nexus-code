@@ -32,9 +32,6 @@ export function useSplitSash({ workspaceId, split }: UseSplitSashOptions): UseSp
 
   const isHorizontal = split.orientation === "horizontal";
 
-  // Always reads the live container size at the moment of use. Returning 0
-  // (instead of a fallback like 1) makes "not yet measurable" explicit so the
-  // sash handle can no-op rather than divide by a fake value.
   function getContainerSize(): number {
     const el = containerRef.current;
     if (!el) return 0;

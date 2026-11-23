@@ -1,8 +1,3 @@
-/**
- * folders.list: another device going through this one's folders to add a
- * workspace: folders only, hidden ones on asking, by name, and the paths
- * it may not read or that are none.
- */
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
@@ -41,9 +36,7 @@ describe("listing folders", () => {
     const root = await tree();
     for (const dir of ["beta", "Alpha", ".git", "gamma"]) await mkdir(join(root, dir));
     await writeFile(join(root, "notes.txt"), "x");
-    // A junction needs no privilege on Windows; elsewhere the type is ignored.
     await symlink(join(root, "gamma"), join(root, "delta"), "junction");
-    // A link to a file there needs one (or Developer Mode), so none is made.
     if (process.platform !== "win32") {
       await symlink(join(root, "notes.txt"), join(root, "file-link"));
     }
@@ -121,7 +114,6 @@ describe("listing folders", () => {
     async () => {
       const root = await tree();
       for (const dir of ["shown", "숨김", "target"]) await mkdir(join(root, dir));
-      // A junction is told by its own attribute, not its target's.
       await symlink(join(root, "target"), join(root, "옛 이름"), "junction");
       const attrib = (args: string[]) => execFileSync("attrib", args, { windowsHide: true });
       attrib(["+h", join(root, "숨김")]);
@@ -167,7 +159,6 @@ describe("a folder another device may add", () => {
     expect(refusedFolder("/etc/nginx", "/home/me", "linux")).toBe("a system folder");
     expect(refusedFolder("/home", "/home/me", "linux")).toBe("a folder that holds the home folder");
     expect(refusedFolder("/srv/site", "/home/me", "linux")).toBeUndefined();
-    // Linux names differ by case.
     expect(refusedFolder("/home/ME", "/home/me", "linux")).toBeUndefined();
   });
 });

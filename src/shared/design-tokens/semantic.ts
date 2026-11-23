@@ -1,23 +1,4 @@
-// semantic.ts — SemanticKey vocabulary + empty-key contract.
-//
-// This file defines ONLY types. It holds no color values.
-// Every SemanticKey entry corresponds 1:1 with design.md §10 Region Semantics.
-//
-// SEALED constants (--shadow-*, --radius) are NOT in SemanticKey —
-// they are managed in component.ts so themes cannot override them.
-//
-// Consumers:
-//   themes/*.ts     → must satisfy Record<SemanticKey, string> (TS2741 on miss)
-//   component.ts    → buildShadcnVars() maps SemanticKey → shadcn var names
-//   generate-theme-css.ts → emits SemanticKey tokens as CSS custom properties
-
-// ---------------------------------------------------------------------------
-// SemanticKey — flat string union, region.element.role naming convention
-// design.md §10 vocabulary freeze (1:1 correspondence required)
-// ---------------------------------------------------------------------------
-
 export type SemanticKey =
-  // --- Global Surface (Islands 3-tier: backdrop / island / floating, 10 keys) ---
   | "surface.backdrop.bg"
   | "surface.backdrop.fg"
   | "surface.island.bg"
@@ -28,8 +9,6 @@ export type SemanticKey =
   | "surface.floating.fg"
   | "surface.floating.border"
   | "surface.floating.scrim"
-
-  // --- Global State (17 keys) ---
   | "state.hover.bg"
   | "state.active.bg"
   | "state.selected.bg"
@@ -47,21 +26,15 @@ export type SemanticKey =
   | "state.loading.indicator"
   | "state.drag.indicator"
   | "state.drop.target.bg"
-
-  // --- Global Scrollbar (3 keys) ---
   | "scrollbar.thumb.bg"
   | "scrollbar.thumb.hover.bg"
   | "scrollbar.track.bg"
-
-  // --- Global Feedback (6 keys) ---
   | "feedback.success.fg"
   | "feedback.success.border"
   | "feedback.success.bg"
   | "feedback.info.fg"
   | "feedback.info.border"
   | "feedback.info.bg"
-
-  // --- IDE Region: editor (9 keys) ---
   | "editor.text.default"
   | "editor.text.muted"
   | "editor.gutter.bg"
@@ -71,8 +44,6 @@ export type SemanticKey =
   | "editor.cursor.color"
   | "editor.find.highlight"
   | "editor.indent.guide"
-
-  // --- IDE Region: sidebar (10 keys) ---
   | "sidebar.bg"
   | "sidebar.fg"
   | "sidebar.item.hover.bg"
@@ -82,8 +53,6 @@ export type SemanticKey =
   | "sidebar.icon.fg"
   | "sidebar.badge.bg"
   | "sidebar.badge.fg"
-
-  // --- IDE Region: tab (11 keys) ---
   | "tab.bar.bg"
   | "tab.active.bg"
   | "tab.active.fg"
@@ -92,12 +61,9 @@ export type SemanticKey =
   | "tab.inactive.fg"
   | "tab.hover.bg"
   | "tab.modified.dot"
-  // Claude status indicators (issue #5 — designer decision)
-  | "tab.claude.running.fg" // loader glyph color in running state (info/accent hue)
-  | "tab.claude.attention.fg" // needsInput glyph color — info hue, visually distinct from SSH connecting yellow
-  | "tab.attention.indicator" // inactive tab left 2px bar — info/warning/error, dynamic per state at component level
-
-  // --- IDE Region: panel (7 keys) ---
+  | "tab.claude.running.fg"
+  | "tab.claude.attention.fg"
+  | "tab.attention.indicator"
   | "panel.bg"
   | "panel.fg"
   | "panel.header.bg"
@@ -105,15 +71,11 @@ export type SemanticKey =
   | "panel.tab.active.fg"
   | "panel.tab.inactive.fg"
   | "panel.border"
-
-  // --- IDE Region: terminal (5 keys) ---
   | "terminal.bg"
   | "terminal.fg"
   | "terminal.cursor.color"
   | "terminal.cursor.accent"
   | "terminal.selection.bg"
-
-  // --- IDE Region: diff (8 keys) ---
   | "diff.added.bg"
   | "diff.added.fg"
   | "diff.added.gutter"
@@ -122,8 +84,6 @@ export type SemanticKey =
   | "diff.deleted.gutter"
   | "diff.modified.bg"
   | "diff.unchanged.fg"
-
-  // --- IDE Region: git (21 keys) ---
   | "git.lane.0"
   | "git.lane.1"
   | "git.lane.2"
@@ -146,8 +106,6 @@ export type SemanticKey =
   | "git.status.conflict.fg"
   | "git.status.renamed.fg"
   | "git.status.ignored.fg"
-
-  // --- IDE Region: status bar (11 keys) ---
   | "status.bar.bg"
   | "status.bar.fg"
   | "status.bar.item.hover.bg"
@@ -155,15 +113,10 @@ export type SemanticKey =
   | "status.bar.error.fg"
   | "status.bar.warning.bg"
   | "status.bar.warning.fg"
-  // Branch changes segment — count chips next to the branch indicator.
-  // Each maps to the same semantic hue as the editor's git gutter so a file
-  // marked "modified" in the diff reads the same color in the status bar.
-  | "status.bar.added.fg" // `+N` staged
-  | "status.bar.modified.fg" // `~N` working (unstaged modify/delete)
-  | "status.bar.untracked.fg" // `?N` untracked (new file)
-  | "status.bar.conflict.fg" // `!N` merge conflict (priority — rendered first)
-
-  // --- terminal.ansi.* 16 ANSI palette keys ---
+  | "status.bar.added.fg"
+  | "status.bar.modified.fg"
+  | "status.bar.untracked.fg"
+  | "status.bar.conflict.fg"
   | "terminal.ansi.black"
   | "terminal.ansi.red"
   | "terminal.ansi.green"
@@ -180,10 +133,5 @@ export type SemanticKey =
   | "terminal.ansi.brightMagenta"
   | "terminal.ansi.brightCyan"
   | "terminal.ansi.brightWhite";
-
-// ---------------------------------------------------------------------------
-// SemanticTokenSet — the complete filled token map that themes must satisfy.
-// Record<SemanticKey, string> causes TS2741 at compile-time if any key is missing.
-// ---------------------------------------------------------------------------
 
 export type SemanticTokenSet = Record<SemanticKey, string>;

@@ -10,7 +10,6 @@ import {
 const AT = Date.parse("2026-11-10T12:00:00Z");
 const DAY = 24 * 60 * 60 * 1000;
 
-/** A view in a word per part: what shows of each, what is counted, and the profile. */
 function said(view: UsageView): string {
   const parts: string[] = [];
   if (view.context) {

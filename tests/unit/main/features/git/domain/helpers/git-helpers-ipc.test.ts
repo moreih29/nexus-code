@@ -1,7 +1,3 @@
-/**
- * Git helper IPC tests cover the real socket protocol used by askpass/editor
- * helpers plus pure launcher/path security seams.
- */
 import { afterEach, describe, expect, it, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -177,28 +173,18 @@ describe("Git helper socket flows", () => {
   });
 });
 
-/**
- * Creates a tracked temporary directory for each test.
- */
 function makeTmpDir(prefix: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   tmpRoots.push(dir);
   return dir;
 }
 
-/** Windows file systems keep no POSIX mode bits to assert on. */
 const HAS_POSIX_MODES = process.platform !== "win32";
 
-/**
- * Returns POSIX mode bits for permission assertions.
- */
 function modeOf(targetPath: string): number {
   return fs.statSync(targetPath).mode & 0o777;
 }
 
-/**
- * Runs a helper script in the current JavaScript runtime and captures output.
- */
 function runNodeHelper(
   scriptPath: string,
   args: readonly string[],
@@ -224,7 +210,6 @@ function runNodeHelper(
   });
 }
 
-/** Talks to the helper manager over the same JSON-line socket as the editor helper. */
 async function helperRequest(socketPath: string, line: string): Promise<unknown> {
   const client = net.createConnection(socketPath);
   let reply = "";

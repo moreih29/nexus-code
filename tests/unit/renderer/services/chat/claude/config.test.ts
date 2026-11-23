@@ -12,7 +12,6 @@ import {
 } from "../../../../../../src/renderer/services/chat/claude/config";
 import { remoteAtStartup } from "../../../../../../src/renderer/services/chat/claude/settings-defaults";
 
-// A bare /config's answer, as `claude -p --output-format json "/config"` gives it (2.1.321, cut).
 const USAGE = [
   "Usage: /config key=value [key=value ...]",
   "  autoCompact=true|false",
@@ -96,7 +95,6 @@ describe("the keys /config lists", () => {
       kind: "choice",
       options: ["a", "b"],
     });
-    // Without the CLI's list, the table.
     expect(configKeysOf(null).length).toBeGreaterThan(30);
   });
 

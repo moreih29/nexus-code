@@ -1,24 +1,3 @@
-/**
- * Claude Code's hooks and Codex's --no-daemon in a local Windows terminal.
- *
- * On macOS and Linux the claude wrapper (scripts/assets/claude-wrapper.sh),
- * first on PATH, runs `claude` with the app's hooks, which report Claude's
- * status to the tab, and the codex wrapper (shared/codex/wrapper.ts) runs
- * `codex` with --no-daemon. Of the Windows shells only bash runs those
- * scripts, so each shell gets its `claude` and `codex` its own way:
- *
- * - Git Bash: the wrappers themselves, copied to ~/.nexus-code/bin, which
- *   the agent puts first on PATH in place of the nexus launchers' directory.
- * - PowerShell: `claude` and `codex` functions, defined as the shell starts.
- * - cmd: a Claude doskey macro and a codex.cmd launcher on PATH.
- *
- * The last two hand claude the wrapper's hooks, kept in
- * ~/.nexus-code/claude-settings.json. Claude Code runs hook commands in Git
- * Bash on Windows too, so the wrapper's commands work as they are. Those
- * shells must not have ~/.nexus-code/bin on PATH: PowerShell takes a
- * wrapper there, a file without an extension, for the program.
- */
-
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -37,20 +16,12 @@ import { binDir, ensureDir, root } from "../../infra/agent/runtimeDirs";
 
 const log = createLogger("pty");
 
-/** Where `installWindowsAgentFiles` put the wrappers and the hooks. */
 export interface WindowsAgentFiles {
-  /** The directory of the wrapper copies, for Git Bash's PATH. */
   readonly binDir: string;
-  /** The hooks settings file PowerShell and cmd pass to claude, if written. */
   readonly settingsPath?: string;
-  /** The directory containing codex.cmd, added to cmd's PATH. */
   readonly cmdLauncherDir?: string;
 }
 
-/**
- * The settings JSON the wrapper writes for claude, read from the wrapper's
- * text, or null when it has none.
- */
 export function wrapperHooksSettings(wrapper: string): string | null {
   const match = /<<'SETTINGS_EOF'\r?\n([\s\S]*?)\r?\nSETTINGS_EOF\r?\n/.exec(wrapper);
   if (!match?.[1]) return null;
@@ -64,13 +35,6 @@ export function wrapperHooksSettings(wrapper: string): string | null {
 
 let installing: Promise<WindowsAgentFiles | null> | undefined;
 
-/**
- * Copies the wrappers to ~/.nexus-code/bin and writes claude's hooks to
- * ~/.nexus-code/claude-settings.json, caching a complete install. The copies
- * keep Git Bash off the MSIX package's files, which a process outside the
- * package may not use. Null when the directory can't be written; the
- * terminals then run claude and codex as they are.
- */
 export function installWindowsAgentFiles(): Promise<WindowsAgentFiles | null> {
   installing ??= installFiles().then(
     (files) => {
@@ -85,7 +49,6 @@ export function installWindowsAgentFiles(): Promise<WindowsAgentFiles | null> {
   return installing;
 }
 
-/** Returns the usable parts of this attempt even when another part fails. */
 async function installFiles(): Promise<WindowsAgentFiles | null> {
   const dir = binDir();
   try {
@@ -102,7 +65,6 @@ async function installFiles(): Promise<WindowsAgentFiles | null> {
   return { binDir: dir, settingsPath, cmdLauncherDir };
 }
 
-/** Copies the claude wrapper to `dir` and writes its hooks; their file, if written. */
 async function installClaudeFiles(dir: string): Promise<string | undefined> {
   try {
     const wrapper = await fs.readFile(path.join(getAgentBinDir(), "claude"), "utf8");
@@ -118,7 +80,6 @@ async function installClaudeFiles(dir: string): Promise<string | undefined> {
   }
 }
 
-/** Installs the launcher in a directory used only by cmd terminals. */
 async function installCmdLauncher(dir: string): Promise<string | undefined> {
   try {
     await ensureDir(dir);
@@ -132,15 +93,6 @@ async function installCmdLauncher(dir: string): Promise<string | undefined> {
   }
 }
 
-/**
- * PowerShell's `claude`: the first claude program on PATH, with the hooks
- * when their file is there, and any pipeline input passed on. It carries
- * the wrapper's marks while it runs: the tab's id, so a claude started
- * inside its session, by its Bash tool through the wrapper, goes without
- * the tab's hooks, and whether it is a `claude -p` run, whose permission
- * requests no dialog answers. (PowerShell keeps `--` from a function's
- * arguments.)
- */
 const POWERSHELL_CLAUDE = `function global:claude {
   $real = Get-Command -Name claude -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $real) { Write-Error 'claude: command not found'; return }
@@ -158,11 +110,6 @@ const POWERSHELL_CLAUDE = `function global:claude {
   }
 }`;
 
-/**
- * PowerShell's `codex`: the codex PowerShell would run, with --no-daemon
- * when it has the option and the command can do without the shared server
- * (see shared/codex/wrapper.ts).
- */
 const POWERSHELL_CODEX = `function global:codex {
   $real = Get-Command -Name codex -CommandType Application, ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $real) { Write-Error 'codex: command not found'; return }
@@ -174,25 +121,12 @@ const POWERSHELL_CODEX = `function global:codex {
 }`;
 
 export interface WindowsShellShimInput {
-  /** The shell program the terminal starts. */
   shell: string;
-  /**
-   * The terminal's environment, with the app's NEXUS_* variables:
-   * NEXUS_WRAPPER_SELF_DIR is the nexus launchers' directory.
-   */
   env: Record<string, string>;
-  /** The shell's arguments. */
   args?: string[];
-  /** The hooks settings file; without one, no shell gets hooks. */
   settingsPath?: string;
-  /** The directory of the wrappers' copies, which Git Bash runs as `claude` and `codex`. */
   wrapperDir?: string;
-  /**
-   * Installs PowerShell's codex function and enables the cmd launcher when
-   * its directory is available.
-   */
   codex?: { readonly cmdLauncherDir?: string };
-  /** The ORIGINAL_PATH the shell inherits from the app, if any. */
   originalPath?: string;
 }
 
@@ -201,20 +135,8 @@ export interface WindowsShellShimOutput {
   args?: string[];
 }
 
-/**
- * The environment and arguments that give the terminal's shell its claude
- * with hooks and its codex with --no-daemon. Every shell keeps the nexus
- * launchers first on PATH, but Git Bash has the wrappers' directory there
- * instead, which has a launcher of its own. A shell started with its own
- * command keeps it and gets neither.
- */
 export function applyWindowsShellShim(input: WindowsShellShimInput): WindowsShellShimOutput {
   const shimmed = shimShell(input);
-  // Git Bash's login profile builds PATH from ORIGINAL_PATH when it is set,
-  // as it is in an app started from Git Bash, and would drop the directory
-  // the agent puts first on PATH. It goes first there too, for the terminal's
-  // Git Bash and for one started from PowerShell or cmd, such as Claude
-  // Code's Bash tool.
   const first = shimmed.env.NEXUS_WRAPPER_SELF_DIR;
   if (!input.originalPath || first === undefined) return shimmed;
   return { ...shimmed, env: { ...shimmed.env, ORIGINAL_PATH: `${first};${input.originalPath}` } };
@@ -224,8 +146,6 @@ function shimShell(input: WindowsShellShimInput): WindowsShellShimOutput {
   const { shell, args, settingsPath, wrapperDir, codex } = input;
   const name = path.win32.basename(shell).toLowerCase();
   const isBash = name === "bash.exe" || name === "bash";
-  // WSL's bash in System32 starts a Linux shell, where a Windows directory
-  // on PATH is of no use.
   if (isBash && /[\\/]system32[\\/]/i.test(shell)) {
     const { NEXUS_WRAPPER_SELF_DIR: _launcherDir, ...env } = input.env;
     return { env, args };
@@ -252,14 +172,6 @@ function shimShell(input: WindowsShellShimInput): WindowsShellShimOutput {
       ? { ...env, NEXUS_CMD_CODEX_DIR: codex.cmdLauncherDir }
       : env;
     if (settingsPath === undefined) return { env: cmdEnv, args };
-    // cmd expands the variable in the /k command. Written out, the quotes around the path would reach
-    // cmd escaped for a program, which cmd doesn't read. Inside a macro,
-    // claude is the program on PATH, and its `-p` mark is left to the
-    // hook client (internal/hookclient). claude carries the tab's mark
-    // while it runs, as PowerShell's does: the escaped `&` joins the
-    // commands of the macro, and its %NEXUS_TAB_ID% is expanded as it runs.
-    // cmd expands a macro only as a line's first word: `cd x & claude` or a
-    // .bat's claude runs without the settings, its hooks and all (docs/CLI.md).
     const macro = `doskey claude=set "NEXUS_CLAUDE_TAB_ID=%NEXUS_TAB_ID%" ^& claude --settings "${settingsPath}" $* ^& set "NEXUS_CLAUDE_TAB_ID="`;
     return {
       env: { ...cmdEnv, NEXUS_CMD_INIT: macro },
@@ -273,12 +185,6 @@ function shimShell(input: WindowsShellShimInput): WindowsShellShimOutput {
   return { env, args };
 }
 
-/**
- * Whether a PowerShell argument gives the shell something to run: a script
- * (any argument that isn't a switch) or a -Command, -File or
- * -EncodedCommand switch, which PowerShell takes by any prefix (and the last
- * as -ec).
- */
 function isPowerShellCommand(arg: string): boolean {
   if (!arg.startsWith("-")) return true;
   const name = arg.replace(/^-+/, "").split(":")[0]?.toLowerCase() ?? "";

@@ -10,24 +10,9 @@ import {
   WriteFileResultSchema,
 } from "./types";
 
-/**
- * NDJSON method signatures for fs.* operations on the agent.
- *
- * The Electron main process binds one agent child per workspace, so workspace
- * identity is NOT part of any params here — the server's working root is fixed
- * at process start.
- */
-
-/** Workspace-relative path. Empty strings are rejected. */
 const RelPathSchema = z.string().min(1);
 
-/** Agent-host absolute path used for read-only external references. */
 const AbsolutePathSchema = z.string().min(1);
-
-// ---------------------------------------------------------------------------
-// fs.readAbsolute — read an absolute path on the agent host.
-// Used for LSP/external references outside the workspace root.
-// ---------------------------------------------------------------------------
 
 export const FS_READ_ABSOLUTE_METHOD = "fs.readAbsolute" as const;
 
@@ -37,20 +22,7 @@ export type FsReadAbsoluteParams = z.infer<typeof FsReadAbsoluteParamsSchema>;
 export const FsReadAbsoluteResultSchema = FileReadResultSchema;
 export type FsReadAbsoluteResult = z.infer<typeof FsReadAbsoluteResultSchema>;
 
-// ---------------------------------------------------------------------------
-// fs.readAbsoluteBinary — an absolute path's bytes on the agent host, as
-// base64. The app reads with it only files a Claude tab links outside the
-// workspace (see outside-grants), to preview them.
-// ---------------------------------------------------------------------------
-
 export const FS_READ_ABSOLUTE_BINARY_METHOD = "fs.readAbsoluteBinary" as const;
-
-// ---------------------------------------------------------------------------
-// fs.readBinary — read a workspace-relative file as base64-encoded bytes.
-// Companion to fs.readFile for binary content (images, archives, etc.) that
-// cannot be transported as a UTF-8 content string. Used by the
-// nexus-workspace:// custom protocol to serve images from SSH workspaces.
-// ---------------------------------------------------------------------------
 
 export const FS_READ_BINARY_METHOD = "fs.readBinary" as const;
 
@@ -59,15 +31,6 @@ export type FsReadBinaryParams = z.infer<typeof FsReadBinaryParamsSchema>;
 
 export const FsReadBinaryResultSchema = FileReadBinaryResultSchema;
 export type FsReadBinaryResult = z.infer<typeof FsReadBinaryResultSchema>;
-
-// ---------------------------------------------------------------------------
-// fs.readRange — `length` bytes of a workspace-relative file from `offset`,
-// as base64, with the file's size in `sizeBytes`. One call returns at most
-// READ_RANGE_MAX_BYTES, fewer at the end of the file, so the previews read a
-// large file in pieces that leave room on the channel for other calls.
-// fs.readAbsoluteRange is the same for a file a Claude tab links outside the
-// workspace, as fs.readAbsoluteBinary is for fs.readBinary.
-// ---------------------------------------------------------------------------
 
 export const FS_READ_RANGE_METHOD = "fs.readRange" as const;
 export const FS_READ_ABSOLUTE_RANGE_METHOD = "fs.readAbsoluteRange" as const;
@@ -112,21 +75,11 @@ export const FsPreviewResultSchema = z.discriminatedUnion("kind", [
 ]);
 export type FsPreviewResult = z.infer<typeof FsPreviewResultSchema>;
 
-// ---------------------------------------------------------------------------
-// fs.writeFile — atomic overwrite with optional optimistic-concurrency check.
-// ---------------------------------------------------------------------------
-
 export const FS_WRITE_FILE_METHOD = "fs.writeFile" as const;
 
-/**
- * `expected` carries the file state the writer last observed. When the
- * actual state diverges, the server returns `{ kind: "conflict", actual }`
- * instead of overwriting.
- */
 export const FsWriteFileParamsSchema = z.object({
   relPath: RelPathSchema,
   content: z.string(),
-  // Base64 bytes written in place of `content`: text in another encoding.
   bytes: z.string().optional(),
   expected: ExpectedFileStateSchema.optional(),
 });
@@ -135,22 +88,10 @@ export type FsWriteFileParams = z.infer<typeof FsWriteFileParamsSchema>;
 export const FsWriteFileResultSchema = WriteFileResultSchema;
 export type FsWriteFileResult = z.infer<typeof FsWriteFileResultSchema>;
 
-// ---------------------------------------------------------------------------
-// fs.createFile — create empty file with O_EXCL semantics.
-// Fails with ALREADY_EXISTS when the path is taken; the renderer relies
-// on that to avoid silently overwriting hidden/filtered-out files.
-// ---------------------------------------------------------------------------
-
 export const FS_CREATE_FILE_METHOD = "fs.createFile" as const;
 
 export const FsCreateFileParamsSchema = z.object({ relPath: RelPathSchema });
 export type FsCreateFileParams = z.infer<typeof FsCreateFileParamsSchema>;
-
-// ---------------------------------------------------------------------------
-// fs.mkdir — create a directory. Recursive is opt-in; when false (default),
-// a missing parent surfaces as NOT_FOUND so the renderer can surface the
-// real problem instead of silently materializing several segments.
-// ---------------------------------------------------------------------------
 
 export const FS_MKDIR_METHOD = "fs.mkdir" as const;
 
@@ -160,32 +101,15 @@ export const FsMkdirParamsSchema = z.object({
 });
 export type FsMkdirParams = z.infer<typeof FsMkdirParamsSchema>;
 
-// ---------------------------------------------------------------------------
-// fs.unlink — remove a file or symlink. Directories are refused with
-// IS_DIRECTORY so callers explicitly choose rmdir for empty dirs or a
-// higher-level recursive-delete flow.
-// ---------------------------------------------------------------------------
-
 export const FS_UNLINK_METHOD = "fs.unlink" as const;
 
 export const FsUnlinkParamsSchema = z.object({ relPath: RelPathSchema });
 export type FsUnlinkParams = z.infer<typeof FsUnlinkParamsSchema>;
 
-// ---------------------------------------------------------------------------
-// fs.rmdir — remove an empty directory. Non-empty dirs fail with NOT_EMPTY
-// so the renderer can confirm before any destructive recursive operation.
-// ---------------------------------------------------------------------------
-
 export const FS_RMDIR_METHOD = "fs.rmdir" as const;
 
 export const FsRmdirParamsSchema = z.object({ relPath: RelPathSchema });
 export type FsRmdirParams = z.infer<typeof FsRmdirParamsSchema>;
-
-// ---------------------------------------------------------------------------
-// fs.rename — move/rename within the bound workspace. Cross-workspace
-// moves are not supported here; the channel is per-workspace, and any
-// cross-workspace flow belongs to higher-level orchestration.
-// ---------------------------------------------------------------------------
 
 export const FS_RENAME_METHOD = "fs.rename" as const;
 
@@ -196,13 +120,6 @@ export const FsRenameParamsSchema = z.object({
 });
 export type FsRenameParams = z.infer<typeof FsRenameParamsSchema>;
 
-// ---------------------------------------------------------------------------
-// fs.copyFile — copy a file within the bound workspace. Both paths must
-// be workspace-relative. Fails with ALREADY_EXISTS when the destination
-// exists unless `overwrite` is set — the renderer obtains user confirmation
-// before retrying with overwrite=true.
-// ---------------------------------------------------------------------------
-
 export const FS_COPY_FILE_METHOD = "fs.copyFile" as const;
 
 export const FsCopyFileParamsSchema = z.object({
@@ -211,12 +128,6 @@ export const FsCopyFileParamsSchema = z.object({
   overwrite: z.boolean().optional(),
 });
 export type FsCopyFileParams = z.infer<typeof FsCopyFileParamsSchema>;
-
-// ---------------------------------------------------------------------------
-// fs.removeAll — recursively remove a file or directory. Unlike rmdir,
-// this does NOT require the target to be empty — it removes everything at
-// the given path, including non-empty directories.
-// ---------------------------------------------------------------------------
 
 export const FS_REMOVE_ALL_METHOD = "fs.removeAll" as const;
 

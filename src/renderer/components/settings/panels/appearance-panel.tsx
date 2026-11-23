@@ -1,35 +1,3 @@
-// src/renderer/components/settings/panels/appearance-panel.tsx
-//
-// Three groups: language and icon theme; the theme, a card each; the window
-// (opacity, inactive panel dimming), a slider each.
-//
-// Language picker: endonym labels (English / 한국어), live via
-// useLanguageStore.setPreference. Reset omitted — language has no meaningful
-// "default" (it follows OS locale on first boot, but the user's explicit pick
-// is the new baseline). Matching the reset pattern with an arbitrary fallback
-// to "en" would be a false affordance.
-//
-// Icon theme picker: "minimal" | "material". Option display names are proper
-// nouns and are not translated. Default is "minimal"; reset restores that.
-//
-// Theme picker: each ThemeSource produces one card showing the theme's
-// dominant colors (surfaces, accent, five syntax roles) and a few words on
-// it, so users select by visual identity, not just by name. Selection commits
-// immediately — the resolved theme is applied via the [data-theme] attribute
-// by useThemeEffect.
-//
-// Window opacity applies immediately via --window-opacity CSS var; the macOS
-// BrowserWindow is created with `transparent: true` unconditionally, and the
-// Windows 11 one with a system backdrop, so no restart is needed there. A Linux
-// window opens transparent only while the saved opacity is under 100%, so
-// lowering it there shows through after a restart; the row says so.
-// Windows before 11 22H2 has no backdrop, so nothing shows through its
-// window: the slider is off there and the row says why.
-//
-// Design seal: semantic tokens only on the chrome surrounding the cards.
-// The card swatches intentionally use raw theme colors (the swatches ARE the
-// theme preview — that's the whole point of this picker).
-
 import { RadioGroup, Slider } from "radix-ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -55,30 +23,17 @@ import { SettingsGroup, SettingsPage, SettingsRow } from "../section";
 import type { SegmentedOption } from "../segmented-control";
 import { SegmentedControl } from "../segmented-control";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 const OPACITY_MIN = 0;
 const OPACITY_MAX = 1.0;
 const OPACITY_STEP = 0.05;
 
-// Inactive-panel dim — multiplier on each theme's tuned veil alpha. 1 (100%) =
-// theme default, 0 = no dim, 2 (200%) = double. Slider steps in 5% increments.
 const DIM_STEP = 0.05;
-
-// Language options — endonym labels, fixed regardless of the active UI locale.
-// Rule: label is the language's own native name; never translated. A
-// SegmentedControl while there are few; past four, a Select would fit better.
 
 const LANGUAGE_OPTIONS: SegmentedOption<SupportedLanguage>[] = [
   { value: "en", label: "English" },
   { value: "ko", label: "한국어" },
 ];
 
-// Icon theme options — "Minimal" and "Material" are proper nouns and are NOT
-// translated; only the section label is localised. Exactly 2 options →
-// always SegmentedControl.
 const DEFAULT_ICON_THEME: IconTheme = "minimal";
 
 const ICON_THEME_OPTIONS: SegmentedOption<IconTheme>[] = [
@@ -86,10 +41,6 @@ const ICON_THEME_OPTIONS: SegmentedOption<IconTheme>[] = [
   { value: "material", label: "Material" },
 ];
 
-/**
- * Whether a lowered window opacity shows through only after a restart: in a
- * Linux window not created transparent (main/features/window).
- */
 export function opacityAppliesAfterRestart(
   host: Window["host"] | undefined,
   opacity: number,
@@ -97,17 +48,9 @@ export function opacityAppliesAfterRestart(
   return host?.platform === "linux" && host.transparentWindow !== true && opacity < 1;
 }
 
-/**
- * Whether the window opacity has no effect: in a Windows window without a
- * system backdrop (main/features/window).
- */
 export function opacityHasNoEffect(host: Window["host"] | undefined): boolean {
   return host?.opaqueWindow === true;
 }
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export function AppearancePanel() {
   const { t } = useTranslation("settings");
@@ -127,12 +70,9 @@ export function AppearancePanel() {
   const dim = useInactivePanelDimStore((s) => s.dim);
   const setDim = useInactivePanelDimStore((s) => s.setDim);
 
-  // Local preview — updated on every drag tick for real-time value label.
   const [localOpacity, setLocalOpacity] = useState<number>(opacity);
   const [localDim, setLocalDim] = useState<number>(dim);
 
-  // Keep local preview in sync when the store changes outside this component
-  // (e.g. hydration, external restore, dialog re-open with fresh store value).
   useEffect(() => {
     setLocalOpacity(opacity);
   }, [opacity]);
@@ -152,10 +92,6 @@ export function AppearancePanel() {
   return (
     <SettingsPage>
       <SettingsGroup>
-        {/* Language — endonym labels, never translated. No reset: the boot
-            value follows navigator.language, an OS approximation rather than
-            a product default, so a reset falling back to "en" would be a
-            false affordance (plan#65 issue8). */}
         <SettingsRow label={languageLabel}>
           <SegmentedControl
             options={LANGUAGE_OPTIONS}
@@ -165,8 +101,6 @@ export function AppearancePanel() {
           />
         </SettingsRow>
 
-        {/* Icon theme — "Minimal" and "Material" are proper nouns and are
-            not translated; only the label and reset tooltip are localised. */}
         <SettingsRow
           label={t("appearance.iconTheme")}
           dirty={iconThemeDirty}
@@ -220,17 +154,12 @@ export function AppearancePanel() {
             disabled={opacityUnsupported}
             onPreview={(value) => {
               setLocalOpacity(value);
-              // Preview live; each persisted write rewrites the whole app
-              // state file on the main process, so save once on commit.
               setOpacity(value, { persist: false });
             }}
             onCommit={(value) => setOpacity(value)}
           />
         </SettingsRow>
 
-        {/* Inactive panel dimming — multiplier on the theme's veil alpha.
-            100% = theme default, 0% = no dim, up to 200% = double. Applies
-            immediately via --inactive-panel-dim CSS var (no restart). */}
         <SettingsRow
           label={t("appearance.inactivePanelDim")}
           dirty={dimDirty}
@@ -254,10 +183,6 @@ export function AppearancePanel() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// PercentSlider — a slider with its value in percent beside it
-// ---------------------------------------------------------------------------
-
 interface PercentSliderProps {
   label: string;
   min: number;
@@ -265,9 +190,7 @@ interface PercentSliderProps {
   step: number;
   value: number;
   disabled?: boolean;
-  /** Every drag tick: shown at once, not saved. */
   onPreview: (value: number) => void;
-  /** Where the drag ends: saved. */
   onCommit: (value: number) => void;
 }
 
@@ -316,14 +239,6 @@ function PercentSlider({
   );
 }
 
-// ---------------------------------------------------------------------------
-// ThemeCard — visual preview + name. Click anywhere on the card to select.
-//
-// The card itself paints with the theme's own surface colors so each card is
-// a faithful preview of "what the app will look like if I pick this": its
-// chrome and syntax colours in one row of swatches, and a few words on it.
-// ---------------------------------------------------------------------------
-
 interface ThemeCardProps {
   source: ThemeSource;
   selected: boolean;
@@ -331,7 +246,6 @@ interface ThemeCardProps {
 
 function ThemeCard({ source, selected }: ThemeCardProps) {
   const { t } = useTranslation("settings");
-  // Surface chrome first, then the syntax accents.
   const swatches = [
     { value: source.bg.primary, label: "background" },
     { value: source.bg.secondary, label: "panel" },
@@ -356,10 +270,8 @@ function ThemeCard({ source, selected }: ThemeCardProps) {
           ? "border-[var(--state-selected-indicator)] ring-1 ring-[var(--state-selected-indicator)]"
           : "border-border hover:border-[var(--surface-floating-border)]",
       )}
-      // The card paints with the theme's own surface so it previews itself.
       style={{ background: source.bg.primary, color: source.fg.primary }}
     >
-      {/* Header — name, base tag */}
       <div
         className="flex items-center justify-between gap-2 px-3 py-2"
         style={{ background: source.bg.secondary, color: source.fg.primary }}

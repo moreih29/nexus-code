@@ -1,8 +1,3 @@
-/**
- * The calls the renderer makes on another computer's sessions through main
- * (remote.peer*): each takes the device and the protocol method's own
- * params, and answers as the method does. Main sends them on as they are.
- */
 import { describe, expect, it } from "bun:test";
 import { RPC_METHODS } from "../../../../packages/remote-protocol/src/rpc";
 import { ipcContract } from "../../../../src/shared/ipc/contract";
@@ -61,7 +56,6 @@ describe("remote peer calls for the agent view's list", () => {
     expect(
       c.peerConsentAnswer.args.safeParse({ deviceId: "d2", id: "c1", answer: "always" }).success,
     ).toBe(false);
-    // Always for one device: none goes without it.
     expect(c.peerConsentAnswer.args.safeParse({ id: "c1", answer: "once" }).success).toBe(false);
   });
 });

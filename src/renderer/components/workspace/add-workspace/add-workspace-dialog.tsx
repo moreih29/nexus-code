@@ -15,19 +15,11 @@ import { SshNewConnectionView } from "./ssh-new-connection-view";
 import type { ModalView, SshBrowseSession, SshConfigHost, WslBrowseSession } from "./types";
 import { WslDistroListView } from "./wsl-distro-list-view";
 
-// ---------------------------------------------------------------------------
-// Dialog props
-// ---------------------------------------------------------------------------
-
 export interface AddWorkspaceDialogProps {
   readonly open: boolean;
   readonly onClose: () => void;
   readonly onWorkspaceCreated: (meta: WorkspaceMeta) => void | Promise<void>;
 }
-
-// ---------------------------------------------------------------------------
-// Root dialog component
-// ---------------------------------------------------------------------------
 
 export function AddWorkspaceDialog({
   open,
@@ -35,33 +27,25 @@ export function AddWorkspaceDialog({
   onWorkspaceCreated,
 }: AddWorkspaceDialogProps): React.JSX.Element {
   const { t } = useTranslation();
-  // View state machine
   const [view, setView] = useState<ModalView>("main-list");
 
-  // SSH or WSL browse session — passed to directory picker
   const [browseSession, setBrowseSession] = useState<SshBrowseSession | WslBrowseSession | null>(
     null,
   );
 
-  // SSH config hosts — for new connection form combobox
   const [configHosts, setConfigHosts] = useState<SshConfigHost[]>([]);
   const [configHostsLoading, setConfigHostsLoading] = useState(false);
 
-  // Prefill profile — set when user clicks "Open connection settings" from reconnect failure
   const [prefillProfile, setPrefillProfile] = useState<ConnectionProfile | null>(null);
 
-  // Footer primary button state — lifted from form views
   type ConnectPhase = "idle" | "connecting" | "error";
   const [connectPhase, setConnectPhase] = useState<ConnectPhase>("idle");
   const [connectDisabled, setConnectDisabled] = useState(true);
   const [addPhase, setAddPhase] = useState<"idle" | "creating">("idle");
   const [addDisabled, setAddDisabled] = useState(false);
-  // Imperative handle to the directory picker — the footer "Add workspace"
-  // button lives here in the shell and drives the picker's action through it.
   const pickerRef = useRef<SshDirectoryPickerHandle>(null);
   const cancelConnectRef = useRef<(() => void) | null>(null);
 
-  // Open effect — reset + load SSH config hosts
   useEffect(() => {
     if (!open) return;
 
@@ -93,14 +77,11 @@ export function AddWorkspaceDialog({
     };
   }, [open]);
 
-  // Handlers
-
   function closeAndAbort(): void {
     cancelConnectRef.current?.();
     onClose();
   }
 
-  // Connect success callback — from SshNewConnectionView
   function handleConnected(session: SshBrowseSession): void {
     setBrowseSession(session);
     setConnectPhase("idle");
@@ -110,7 +91,6 @@ export function AddWorkspaceDialog({
     setView("ssh-directory-picker");
   }
 
-  // A WSL distribution's agent is up — from WslDistroListView
   function handleWslConnected(session: WslBrowseSession): void {
     setBrowseSession(session);
     setAddPhase("idle");
@@ -118,7 +98,6 @@ export function AddWorkspaceDialog({
     setView("wsl-directory-picker");
   }
 
-  // Go from connection list to new connection form (no prefill)
   function handleNewConnection(): void {
     setPrefillProfile(null);
     setConnectPhase("idle");
@@ -126,12 +105,7 @@ export function AddWorkspaceDialog({
     setView("ssh-new-connection");
   }
 
-  // Navigate to new-connection form with a prefilled profile
-  // Used when SSH reconnect fails and user clicks "Open connection settings"
   function handleNewConnectionPrefill(profileId: string): void {
-    // Load profile from already-fetched configHosts won't help here;
-    // the profile is loaded by LocalListView inline and passed back as an id.
-    // We fetch it once here so we can pass the full object to SshNewConnectionView.
     fetchConnectionProfiles()
       .then((profiles) => {
         const profile = profiles.find((p) => p.id === profileId) ?? null;
@@ -141,7 +115,6 @@ export function AddWorkspaceDialog({
         setView("ssh-new-connection");
       })
       .catch(() => {
-        // Fall through with no prefill
         setPrefillProfile(null);
         setConnectPhase("idle");
         setConnectDisabled(true);
@@ -149,7 +122,6 @@ export function AddWorkspaceDialog({
       });
   }
 
-  // Back — one step back in the view stack
   function handleBack(): void {
     if (view === "ssh-server-list") {
       setView("main-list");
@@ -166,11 +138,8 @@ export function AddWorkspaceDialog({
     }
   }
 
-  // ← Back is visible on every SSH and WSL view; main-list is the root (no Back).
-  // From ssh-server-list or wsl-distro-list it returns to the initial local/main view.
   const showBack = view !== "main-list";
 
-  // Footer primary slot — only on form views
   let primarySlot: React.ReactNode = null;
   if (view === "ssh-new-connection") {
     const isConnecting = connectPhase === "connecting";
@@ -221,17 +190,11 @@ export function AddWorkspaceDialog({
       size="lg"
       padded={false}
       className="flex flex-col overflow-hidden"
-      // Definite height (not min/max) so the flex chain down to the directory
-      // picker's list resolves — the list box gets a real height and scrolls
-      // internally. A fixed height also removes the resize jump between views.
       contentStyle={{ height: "min(640px, 90vh)" }}
     >
       <div className="flex min-h-0 flex-1 flex-col">
-        {/* Fixed header */}
         <AddWorkspaceHeader view={view} showBack={showBack} onBack={handleBack} />
 
-        {/* Scrollable body — flex column so a view can fill the height
-            (the directory picker grows its list into the available space). */}
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-4">
           <ViewBody
             view={view}
@@ -261,16 +224,11 @@ export function AddWorkspaceDialog({
           />
         </div>
 
-        {/* Fixed footer — only rendered when there's a primary action */}
         {primarySlot ? <DialogFooter primarySlot={primarySlot} /> : null}
       </div>
     </Dialog>
   );
 }
-
-// ---------------------------------------------------------------------------
-// AddWorkspaceHeader
-// ---------------------------------------------------------------------------
 
 interface AddWorkspaceHeaderProps {
   readonly view: ModalView;
@@ -278,12 +236,6 @@ interface AddWorkspaceHeaderProps {
   readonly onBack: () => void;
 }
 
-/**
- * ← Back on the views below the first (intra-dialog navigation), the title
- * with what the view is for, and × on the right: the dialog has no Cancel
- * button, so × is its visible way out besides Esc and an outside click. On
- * the first view the title starts at the body's edge.
- */
 function AddWorkspaceHeader({
   view,
   showBack,
@@ -306,10 +258,6 @@ function AddWorkspaceHeader({
     />
   );
 }
-
-// ---------------------------------------------------------------------------
-// ViewBody — view routing + FadeView
-// ---------------------------------------------------------------------------
 
 interface ViewBodyProps {
   readonly cancelConnectRef: React.RefObject<(() => void) | null>;
@@ -371,7 +319,6 @@ function ViewBody(props: ViewBodyProps): React.JSX.Element {
     );
   }
 
-  // wsl-distro-list, and the WSL picker's fallback when its session is gone
   if (
     view === "wsl-distro-list" ||
     (view === "wsl-directory-picker" && !(browseSession && "distro" in browseSession))
@@ -388,9 +335,7 @@ function ViewBody(props: ViewBodyProps): React.JSX.Element {
       <FadeView viewKey="ssh-server-list">
         <SshConnectionListView
           onNewConnection={onNewConnection}
-          onConnectProfile={() => {
-            // Connection list view handles connect internally via onConnected
-          }}
+          onConnectProfile={() => {}}
           onConnected={onConnected}
           onSshViewChange={onViewChange}
         />
@@ -413,7 +358,6 @@ function ViewBody(props: ViewBodyProps): React.JSX.Element {
     );
   }
 
-  // ssh-directory-picker — guard: if session is null, fall back to server list
   if (!browseSession) {
     return (
       <FadeView viewKey="ssh-server-list">
@@ -442,19 +386,8 @@ function ViewBody(props: ViewBodyProps): React.JSX.Element {
   );
 }
 
-// ---------------------------------------------------------------------------
-// FadeView — opacity transition respecting prefers-reduced-motion
-// ---------------------------------------------------------------------------
-
 interface FadeViewProps {
   readonly viewKey: string;
-  /**
-   * Lock the view to the dialog body's height (adds min-h-0 so the flex child
-   * is constrained, not content-sized). The view then owns its own internal
-   * scrolling — used by the directory picker so its path bar stays pinned and
-   * only the folder list scrolls. Default false: the view grows to its content
-   * and the dialog body scrolls as a whole.
-   */
   readonly fill?: boolean;
   readonly children: React.ReactNode;
 }
@@ -496,12 +429,7 @@ function FadeView({ viewKey, fill = false, children }: FadeViewProps): React.JSX
   );
 }
 
-// ---------------------------------------------------------------------------
-// DialogFooter — fixed, primary action only
-// ---------------------------------------------------------------------------
-
 interface DialogFooterProps {
-  /** Primary slot — rendered only when non-null. */
   readonly primarySlot: React.ReactNode;
 }
 
@@ -510,10 +438,6 @@ function DialogFooter({ primarySlot }: DialogFooterProps): React.JSX.Element {
     <div className="flex h-14 shrink-0 items-center justify-end gap-2 px-4">{primarySlot}</div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function viewSubtitle(view: ModalView, t: (key: string) => string): string {
   if (view === "main-list") return t("workspace.add_subtitle_main");

@@ -38,11 +38,6 @@ type previewResult struct {
 	Version string `json:"version,omitempty"`
 }
 
-// sameResolvedFile reports whether the path this agent resolved is the file
-// the caller authorized. Spellings of one file differ with the host's file
-// system: on a case-insensitive one the caller's canonical name carries the
-// on-disk case, which EvalSymlinks does not restore. A retargeted link still
-// ends at another file.
 func sameResolvedFile(real, expected string) bool {
 	if real == expected {
 		return true
@@ -66,11 +61,6 @@ var previewKey = sync.OnceValues(func() ([32]byte, error) {
 	return key, err
 })
 
-// ReadPreview makes the access check, version comparison and any byte read
-// on the same open file. Its path policy is narrower than the editor's range
-// reader: workspace paths cannot follow links. For a granted folder, the
-// caller supplies the canonical path it authorized. An explicit file grant
-// permits following that filename as usual.
 func (s *Service) ReadPreview(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p previewParams
 	if json.Unmarshal(raw, &p) != nil || (p.RelPath == "") == (p.AbsolutePath == "") ||
@@ -152,9 +142,6 @@ func (s *Service) ReadPreview(ctx context.Context, raw json.RawMessage) (any, er
 			return nil, changed
 		}
 		if pinned := previewProofFor(p.RequireVersion); len(pinned) > 0 && length > 0 {
-			// Compare every touched block with the original file's proof. An
-			// unrelated mapped write need not update ctime; the bytes returned
-			// here still match the version the caller is assembling.
 			buf, err = readProvenPreviewRange(file, before.Size(), p.Offset, length, pinned)
 			version = p.RequireVersion
 		} else {
@@ -190,9 +177,6 @@ func (s *Service) ReadPreview(ctx context.Context, raw json.RawMessage) (any, er
 		return nil, err
 	}
 
-	// Confirm the name still resolves per its grant and to the file we opened.
-	// Together with a handle-relative, no-link open this also covers replacement
-	// or a link being swapped in between path resolution and open.
 	currentReal, err := resolve()
 	if err != nil {
 		return nil, mapPathError(err, abs)
@@ -264,8 +248,6 @@ func (s *Service) previewWorkspacePath(abs string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Treat a symlink to the workspace root as the configured root. Links
-	// within that root, including links that stay inside it, are forbidden.
 	current := root
 	for _, part := range strings.Split(rel, string(os.PathSeparator)) {
 		current = filepath.Join(current, part)

@@ -1,38 +1,19 @@
-/**
- * Claude Code that dies without its SessionEnd hook (a crash, SIGKILL, the
- * OOM killer) leaves its state behind: the tab reads as running for good and
- * nexus terminal wait on it never returns. When
- * a Claude tab's output goes quiet, as it does once the shell has printed its
- * prompt, the program in its foreground is looked at: the shell back there,
- * running nothing, means Claude is gone, and its state is cleared as
- * SessionEnd clears it.
- */
 import { isLoginShell } from "../../../shared/pty/login-shell";
 import { BUSY_WINDOW_MS } from "../../../shared/sessions/agent-state";
 import type { ActivitySource } from "./activity";
 
-/**
- * The program in a terminal's foreground, or null when it cannot be told,
- * and whether it is alone in its process group: a shell that is not waits
- * for a program it runs. `alone` is undefined from an agent that does not
- * tell.
- */
 export type ForegroundGroupLookup = (
   workspaceId: string,
   tabId: string,
 ) => Promise<{ name: string; alone: boolean | undefined } | null>;
 
-/** Claude Code's state per terminal, as the hooks' broker keeps it. */
 export interface ClaudeEntries {
-  /** Returns the same entry until a hook or a clear replaces it. */
   get(workspaceId: string, tabId: string): { since: number } | null;
   clear(workspaceId: string, tabId: string): void;
 }
 
 export class ClaudeExitWatch {
-  /** When each Claude tab last printed. */
   private readonly lastOutputAt = new Map<string, number>();
-  /** Each Claude tab's timer for its output going quiet. */
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly lookups = new Map<string, symbol>();
   private readonly disposers: Array<() => void> = [];
@@ -51,7 +32,6 @@ export class ClaudeExitWatch {
           tabId: string;
           replay?: boolean;
         };
-        // Replayed output is old output shown again; tabs without Claude have nothing to clear.
         if (replay || !claude.get(workspaceId, tabId)) return;
         this.output(workspaceId, tabId);
       }),
@@ -75,7 +55,6 @@ export class ClaudeExitWatch {
     if (!this.timers.has(key)) this.arm(workspaceId, tabId, this.quietMs);
   }
 
-  /** Looks once output has been quiet for quietMs, not on every chunk. */
   private arm(workspaceId: string, tabId: string, delay: number): void {
     const key = `${workspaceId}:${tabId}`;
     this.timers.set(
@@ -106,8 +85,6 @@ export class ClaudeExitWatch {
     }
     if (this.lookups.get(key) !== lookup) return;
     this.lookups.delete(key);
-    // Claude, or a program it runs: Claude Code installed with npm is "node".
-    // A shell not alone is a script's, waiting for the Claude it started.
     if (front === null || !isLoginShell(front.name) || front.alone === false) return;
     if (this.claude.get(workspaceId, tabId) === entry) this.claude.clear(workspaceId, tabId);
   }

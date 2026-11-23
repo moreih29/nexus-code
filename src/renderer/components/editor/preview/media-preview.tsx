@@ -1,14 +1,3 @@
-// MediaPreview — plays an audio or video file in the editor panel, in the
-// browser's own <audio> or <video> controls, from the file's
-// `nexus-workspace://` URL. The protocol serves byte ranges, so a file plays
-// as it loads and seeks without being read whole first, for local and SSH
-// workspaces alike.
-//
-// A file changed on disk (or on another computer) is loaded again while
-// the player is stopped or ended, and playback goes back to where it was.
-// While it plays it is not cut off: a bar says the file changed, and loads
-// it again, at the same place, when asked.
-
 import { type SyntheticEvent, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useBannerDismissal } from "../../../hooks/use-banner-dismissal";
@@ -24,11 +13,8 @@ import { EmptyState } from "../../ui/empty-state";
 import { useFileVersion, versionedUrl } from "./use-file-version";
 import { useWorkspaceFile } from "./use-workspace-file";
 
-/** What a file holds once its metadata loads. */
 export interface MediaInfo {
-  /** Its length in seconds; not finite for a stream of unknown length. */
   readonly duration: number;
-  /** A video's frame size in pixels; 0 for audio. */
   readonly width: number;
   readonly height: number;
 }
@@ -36,7 +22,6 @@ export interface MediaInfo {
 interface MediaPreviewProps {
   workspaceId: string;
   tabId?: string | undefined;
-  /** Absolute path on the workspace filesystem. */
   filePath: string;
   kind: MediaKind;
   onInfo?: (info: MediaInfo) => void;
@@ -84,28 +69,19 @@ function MediaPlayer({ url, workspaceId, tabId, relPath, kind, onInfo }: MediaPl
   const latest = useFileVersion(workspaceId, relPath);
   const [playing, setPlaying] = useState(false);
   const [shown, setShown] = useState(latest);
-  /** Whether the next load is one the user asked for during playback, which goes on playing. */
   const resumePlay = useRef(false);
-  // While it plays the shown version stays; once it stops, the latest loads.
   const next = nextShownVersion(shown, latest, playing);
   if (next !== shown) setShown(next);
   const pending = changePending(shown, latest);
   const notice = useBannerDismissal(["media-changed", workspaceId, tabId, relPath], [latest]);
   const src = versionedUrl(url, shown);
   const [failed, setFailed] = useState(false);
-  // A failure (a format it cannot play, the file missing mid-write) is
-  // tried again once the file changes.
   const [trackedSrc, setTrackedSrc] = useState(src);
   if (trackedSrc !== src) {
     setTrackedSrc(src);
     setFailed(false);
   }
-  /** Where playback is, as the player last told it. */
   const position = useRef(0);
-  /**
-   * Where to go back to once a changed file loads. Loading it moves the
-   * player to the start first, which `position` must not take.
-   */
   const resumeAt = useRef<number | null>(null);
   const loadedSrc = useRef(src);
   useLayoutEffect(() => {

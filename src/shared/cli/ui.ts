@@ -1,11 +1,3 @@
-import type { NoteStorageEntry } from "../notes/types";
-import type { UpdateProgress, UpdateStatus } from "../updates/status";
-/**
- * What the nexus CLI asks of the renderer, which owns the tabs, the layout
- * and the terminals' screens. Main sends "cli.uiRequest" to the active
- * window and the renderer answers with "cli.uiRespond".
- */
-
 import { z } from "zod";
 import type {
   ChatCommand,
@@ -21,38 +13,27 @@ import type { ChatPanel, ViewToolCall } from "../../../packages/remote-protocol/
 import type { InstructionScope } from "../chat/instructions";
 import type { RelaySender, TerminalOpener } from "../chat/relay";
 import type { ParticipantCount } from "../notes/transcript";
+import type { NoteStorageEntry } from "../notes/types";
 import type { ChatAgent } from "../sessions/task-agent";
+import type { UpdateProgress, UpdateStatus } from "../updates/status";
 import type { SettingsPage } from "./settings";
 
-/** A refresh may start a provider CLI and wait for its usage request. */
 export const PROFILE_USAGE_REFRESH_TIMEOUT_MS = 120_000;
 
-/** One tab as the CLI lists it. */
-/** A shell a terminal can run. */
-/** A conversation of the past, as chat.history lists it. */
 export interface CliPastSession {
   sessionId: string;
   title: string;
-  /** When it last changed, in Unix milliseconds. */
   at: number;
-  /** Its log's size in bytes, when known. */
   bytes?: number;
-  /** The folder it ran in. */
   cwd: string;
-  /** The profile that keeps it. */
   profile: string;
-  /** Its first prompt, when its title is not. */
   firstPrompt?: string;
-  /** The git branch it ran on. */
   gitBranch?: string;
-  /** The tab it is open in now. */
   tabId?: string;
 }
 
-/** An image of a chat, small enough to send. */
 export interface CliChatImage {
   mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
-  /** Base64. */
   data: string;
   width?: number;
   height?: number;
@@ -60,11 +41,9 @@ export interface CliChatImage {
 
 export interface CliShellInfo {
   name: string;
-  /** "detected" for one found on this machine, "custom" for one added in the settings. */
   kind: "detected" | "custom";
   id: string;
   path: string;
-  /** What a new terminal runs when no shell is named. */
   isDefault: boolean;
 }
 
@@ -72,49 +51,24 @@ export interface CliTabInfo {
   readonly id: string;
   readonly type: string;
   readonly title: string;
-  /** The group (editor split) the tab is in. */
   readonly groupId: string;
-  /** Whether it is the tab its group shows. */
   readonly shown: boolean;
-  /** The current Claude or Codex session, on an internal lookup. */
   readonly session?: string;
-  /** A terminal's starting directory. */
   readonly cwd?: string;
-  /** An editor's file. */
   readonly filePath?: string;
-  /** A browser tab's page. */
   readonly url?: string;
-  /** A terminal whose process has ended. */
   readonly dead?: boolean;
-  /**
-   * A terminal not started yet: its workspace has not been opened since the
-   * app started, so it has nothing to read or watch.
-   */
   readonly unstarted?: boolean;
-  /** The agent that opened this terminal or chat tab. */
   readonly openedBy?: TerminalOpener;
-  /** An editor, diff or untitled buffer with changes not saved. */
   readonly unsaved?: boolean;
-  /** Pinned to the front of its group. */
   readonly pinned?: boolean;
 }
 
-/** Where a tab the CLI opens goes. */
 export interface CliPlacement {
-  /** Open it behind the tab its group shows instead of showing it. */
   readonly background: boolean;
-  /**
-   * The terminal the command ran in. A tab that is shown goes in another
-   * group than this one's, so the terminal stays in view.
-   */
   readonly besideTabId?: string;
 }
 
-/**
- * A tab as the remote sessions' list reads it (sessions.snapshot): what
- * tabs.list tells of it that the list uses, and a Claude or Codex tab's
- * state with it.
- */
 export interface CliSessionTab {
   readonly id: string;
   readonly type: string;
@@ -122,15 +76,9 @@ export interface CliSessionTab {
   readonly dead?: boolean;
   readonly unstarted?: boolean;
   readonly openedBy?: TerminalOpener;
-  /** A Claude or Codex tab's state; none when it could not be read. */
   readonly chat?: CliSessionChat;
 }
 
-/**
- * A chat's state as chat.state tells it with `peek` and `includeWaitingId`,
- * only what the remote sessions' list uses, its texts already on one line
- * (oneLine) so a long answer does not cross to main every second.
- */
 export interface CliSessionChat {
   readonly state: CliChatState;
   readonly since?: number;
@@ -142,25 +90,17 @@ export interface CliSessionChat {
   readonly waitingId?: string;
 }
 
-/** Where to continue a bounded sessions.snapshot reply. */
 export interface CliSessionsSnapshotCursor {
   readonly workspace: number;
   readonly tab: number;
 }
 
-/** What an editor tab shows of a file with a preview (Markdown, HTML, ...). */
 export type CliEditorView = "source" | "preview";
 
-/** How `terminal.input` types its text: as one paste, or as keystrokes. */
 export type CliInputMode = "paste" | "keys";
 
-/** What `browser.navigate` does. */
 export type CliBrowserAction = "goto" | "back" | "forward" | "reload";
 
-/**
- * A workspace's editor area: groups of tabs, split in two again and again.
- * A split's `ratio` is its first part's share, from 0 to 1.
- */
 export type CliLayoutNode =
   | {
       readonly kind: "group";
@@ -171,22 +111,17 @@ export type CliLayoutNode =
   | {
       readonly kind: "split";
       readonly id: string;
-      /** Side by side, or one above the other. */
       readonly direction: "columns" | "rows";
       readonly ratio: number;
       readonly first: CliLayoutNode;
       readonly second: CliLayoutNode;
     };
 
-/** Which side of a group a split puts the new group on. */
 export type CliSplitSide = "left" | "right" | "up" | "down";
 
-/** What the window shows: the agent view, or the workspaces. */
 export type CliView = "agents" | "workspaces";
 
-/** A session the agent view holds: a Claude or Codex tab, or a terminal. */
 export interface CliViewAgent {
-  /** "<workspace id>:<tab id>", as the agent view's panels list it. */
   readonly key: string;
   readonly workspaceId: string;
   readonly tabId: string;
@@ -194,7 +129,6 @@ export interface CliViewAgent {
   readonly type: string;
 }
 
-/** A file or a peer session held by an agent view panel. */
 export type CliViewHeldTab = {
   readonly key: string;
   readonly workspaceId: string;
@@ -205,10 +139,8 @@ export type CliViewHeldTab = {
   | { readonly kind: "remote-session"; readonly device: string; readonly path?: string }
 );
 
-/** How the agent view's list groups its agents: by their state, or by their workspace. */
 export type CliAgentGrouping = "status" | "workspace";
 
-/** The agent view and its panels. A panel's tabIds are keys in agents or held. */
 export interface CliAgentView {
   readonly view: CliView;
   readonly grouping: CliAgentGrouping;
@@ -218,10 +150,8 @@ export interface CliAgentView {
   readonly held: readonly CliViewHeldTab[];
 }
 
-/** The columns left of the editor area: the workspace list, and the files panel. */
 export type CliPanel = "sidebar" | "files";
 
-/** What the files panel shows: the file tree, search, git, or the agent list. */
 export type CliFilesMode = "tree" | "search" | "git" | "agents" | "notes";
 
 export interface CliPanels {
@@ -233,7 +163,6 @@ export interface CliPanels {
   };
 }
 
-/** A problem a language server reports in a file open in the editor. */
 export interface CliProblem {
   readonly filePath: string;
   readonly line: number;
@@ -244,43 +173,27 @@ export interface CliProblem {
   readonly code?: string;
 }
 
-/** An app setting as nexus settings shows it; see ./settings. */
 export interface CliSettingInfo {
-  /** Its name, as "editor.fontSize". */
   readonly key: string;
   readonly summary: string;
   readonly type: CliSettingType;
-  /** What a "choice" takes. */
   readonly choices?: readonly string[];
-  /** The range of an "integer" or a "number". */
   readonly min?: number;
   readonly max?: number;
-  /** What it is now: its default when it was never changed. */
   readonly value: CliSettingValue;
-  /** Whether it was changed from its default. */
   readonly changed: boolean;
-  /** One only the user changes, in Settings. */
   readonly readOnly?: boolean;
-  /** Why it could not be read now (as the account's, signed out); `value` is empty then. */
   readonly unavailable?: string;
 }
 
 export type CliSettingType = "boolean" | "integer" | "number" | "choice" | "text";
 export type CliSettingValue = string | number | boolean;
 
-/** The note recorder as nexus note record tells it. */
 export interface CliRecorder {
-  /** idle, starting, recording, pausing, paused or stopping. */
   readonly phase: string;
-  /** The note it records into, when it records. */
   readonly workspaceId?: string;
   readonly noteId?: string;
-  /** How long it has recorded. */
   readonly elapsedMs?: number;
-  /**
-   * Whether recording can start here: ready, signed-out (no NexusCode
-   * sign-in) or unavailable (the server signed in to has no voice).
-   */
   readonly voice: "unknown" | "signed-out" | "unavailable" | "ready";
 }
 
@@ -294,7 +207,6 @@ export type CliVoiceSuggestionAction =
   | { op: "list" }
   | { op: "accept" | "reject"; speaker: string; name: string };
 
-/** What nexus asks the user's leave for, in a workspace other than its terminal's own. */
 export type CliChangeKind =
   | "open"
   | "diff"
@@ -353,21 +265,12 @@ export type CliChangeKind =
 
 export interface CliChange extends Pick<RemoteConsent["change"], "instructionEdit" | "profileAdd"> {
   readonly kind: CliChangeKind;
-  /** The file, tab title or URL it is about, if any. */
   readonly detail?: string;
-  /**
-   * What it would run or say, whole and shown as it is: the command a
-   * permission answer lets run or a new terminal runs, what is typed, the
-   * message or the prompt.
-   */
   readonly body?: string;
-  /** This approval applies to this single request. */
   readonly eachTime?: boolean;
-  /** This change requires terminal control. */
   readonly terminal?: boolean;
 }
 
-/** Whether a change is a terminal's: typed into, opened, or closed with the rest. */
 export function isTerminalChange(change: CliChange): boolean {
   return (
     change.kind === "terminalInput" ||
@@ -377,73 +280,40 @@ export function isTerminalChange(change: CliChange): boolean {
   );
 }
 
-/** What a Claude or Codex tab runs with: those given of its model, effort and permission mode. */
 export interface CliChatSettings {
   readonly model?: string;
   readonly effort?: string;
   readonly mode?: string;
 }
 
-/** What a Claude or Codex tab runs with, and what it may be set to. */
 export interface CliChatChoices {
   readonly agent: ChatAgent;
-  /** The model it runs, as its list names it; null before it says. */
   readonly model: string | null;
   readonly effort: string | null;
   readonly mode: string;
-  /** The models it offers: the name to give, and the one shown. */
   readonly models: readonly { readonly value: string; readonly name: string }[];
-  /** The effort levels its model takes; none when it takes none. */
   readonly efforts: readonly string[];
-  /** Why the mode that lets everything run cannot be picked here (a policy), when it cannot. */
   readonly dangerousBlocked?: string;
 }
 
 export type CliConsentAnswer = "once" | "session" | "deny" | "timeout";
 
-/**
- * Where a Claude or Codex tab's conversation stands: working on a turn (or a
- * message sent it has yet to take), asking the user (a permission or a
- * question), idle between turns, or stopped on an error.
- */
 export type CliChatState = "working" | "asking" | "idle" | "error";
 
-/** A Claude or Codex tab as the CLI tells it. */
 export interface CliChatInfo {
   readonly agent: ChatAgent;
   readonly state: CliChatState;
-  /** Its last answer; when asking, what it asks; on an error, what went wrong. */
   readonly message?: string;
-  /** When its turn began while working; else when it last said or did something. */
   readonly since?: number;
-  /** When asking to run a tool: the request, whole. */
   readonly request?: CliChatRequest;
-  /** When asking: what for (a tool to allow, a question, a plan to approve), in a line. */
   readonly waiting?: CliChatWaiting;
-  /** The agent profile it runs with, by name, where the agent has more than the default. */
   readonly profile?: string;
-  /** The goal it works toward (/goal), while it shows one. */
   readonly goal?: CliChatGoal;
-  /** The folder it runs in, when it is not its workspace's. */
   readonly cwd?: string;
-  /**
-   * On an error from the API, what it needs: usage_limit (the plan's usage
-   * limit; it goes on once the limit resets), transient (an overloaded or
-   * failing server, a rate limit, a dropped connection that outlasted the
-   * program's retries; a message to go on may help), auth (a new sign-in
-   * or key), request (the API refused the request itself), other.
-   */
   readonly failure?: "usage_limit" | "transient" | "auth" | "request" | "other";
-  /** Stopped at the plan's usage limit: whether and when the app goes on in it. */
   readonly limitResume?: CliLimitResume;
 }
 
-/**
- * Going on in a tab the plan's usage limit stopped: waiting (the app sends
- * it a message to go on at `at`), unknown (no reset time, nothing
- * scheduled), cancelled (by the user), gave_up (the limit held after the
- * most tries). Times in Unix ms.
- */
 export interface CliLimitResume {
   readonly state: "waiting" | "unknown" | "cancelled" | "gave_up";
   readonly at?: number;
@@ -451,55 +321,33 @@ export interface CliLimitResume {
   readonly tries?: number;
 }
 
-/** What a tab asks the user for. */
 export interface CliChatWaiting {
   readonly kind: "permission" | "question" | "plan";
-  /** The question, the plan's start, or the tool and what it works on. */
   readonly text: string;
 }
 
-/** A tab's goal (/goal) as the CLI tells it. */
 export interface CliChatGoal {
   readonly objective: string;
-  /** active, paused, blocked, usageLimited, budgetLimited, met or failed. */
   readonly status: string;
-  /** What the last check said of it, once it ended. */
   readonly reason?: string;
 }
 
-/** A tool's permission request a tab waits on. */
 export interface CliChatRequest {
-  /** Its id: an answer goes to this request and no other. */
   readonly id: string;
   readonly tool: string;
-  /** What it would run or work on, in full: the command, or the tool's input as JSON. */
   readonly input: string;
 }
 
-/** One message of a conversation as chat read prints it. */
 export interface CliChatEntry {
-  /**
-   * Its place in the whole conversation, from 0, subagents' tool calls
-   * counted: a later read can start after it, and chat tool names a call by it.
-   */
   readonly i: number;
-  /** Who said it: the user, the agent, a tool the agent ran, or the app. */
   readonly role: "user" | "agent" | "tool" | "notice";
   readonly text: string;
-  /** A tool call's id. */
   readonly toolUseId?: string;
-  /**
-   * A tool call's: streaming, running, done, error, denied or stopped. A
-   * message sent during a turn that the agent has not read yet: unread.
-   */
   readonly status?: string;
-  /** A subagent's tool call: the id of the Agent call it runs under. */
   readonly parentToolUseId?: string;
-  /** A message another agent sent through the nexus command: who did. */
   readonly from?: RelaySender;
 }
 
-/** A tool call whole, as chat tool prints it: what it was given and what came back. */
 export interface CliChatTool {
   readonly i: number;
   readonly toolUseId: string;
@@ -510,75 +358,46 @@ export interface CliChatTool {
   readonly parentToolUseId?: string;
 }
 
-/**
- * A session's state changing, as nexus events tells it: a terminal's agent,
- * or a Claude or Codex tab. `from` is null for a session that just appeared;
- * `to` is "closed" for one whose tab went.
- */
 export interface CliSessionEvent {
-  /** Counts up from 1 while the app runs; nexus events --since takes it. */
   readonly seq: number;
   readonly at: number;
   readonly workspaceId: string;
   readonly tabId: string;
   readonly title: string;
-  /** The tab: a terminal, or a Claude or Codex tab. */
   readonly kind: "terminal" | "claude" | "codex";
   readonly agent?: string;
   readonly from: string | null;
   readonly to: string;
-  /** attention (waits on the user), running, done (a finished turn) or idle; closed. */
   readonly phase: string;
-  /** Its last answer or question, or what went wrong. */
   readonly message?: string;
-  /**
-   * A Claude or Codex tab's goal (/goal), when it was set or its status
-   * changed: `from` is its status before, null for a goal just set. Such a
-   * change alone leaves `from` and `to` the same.
-   */
   readonly goal?: CliSessionGoal;
 }
 
-/** A goal's change, as nexus events tells it. */
 export interface CliSessionGoal {
   readonly objective: string;
   readonly from: string | null;
   readonly status: string;
 }
 
-/** What a new task starts with: an agent's tab, or a terminal running a command ("" for none). */
 export type CliTaskStart = { readonly agent: ChatAgent } | { readonly command: string };
 
-/** The operations, with what each takes and gives. */
 export interface CliUiOps {
-  /** The tabs of a workspace in layout order, or with sidebar sessions first in their order. */
   "tabs.list": {
     args: { workspaceId: string; agentOrder?: true; includeSession?: true };
     result: { tabs: CliTabInfo[] };
   };
-  /** The text of a terminal: its last `lines` lines, scrollback included. */
   "terminal.read": {
-    /** `ansi`: with the colors and styles as SGR escapes, and the cursor, for another device. */
     args: { workspaceId: string; tabId: string; lines: number; ansi?: boolean };
     result: { text: string; caret?: TerminalCaret };
   };
-  /**
-   * Starts watching a terminal for another device: its text now, then
-   * what changes, told to main (remote.terminalChanged) under `watchId`.
-   */
   "terminal.watch": {
     args: { workspaceId: string; tabId: string; watchId: string; lines: number; ansi?: boolean };
     result: { text: string; caret?: TerminalCaret };
   };
-  /** Stops a watch terminal.watch started; nothing when there is none. */
   "terminal.unwatch": {
     args: { watchId: string };
     result: Record<string, never>;
   };
-  /**
-   * Opens a file of the workspace, or shows its tab, at a line if given;
-   * with `view`, showing its source or its preview, as the tab's switch does.
-   */
   "editor.open": {
     args: {
       workspaceId: string;
@@ -590,25 +409,18 @@ export interface CliUiOps {
     };
     result: { tabId: string };
   };
-  /**
-   * Opens the tab of the commit `rev` names (a sha or a prefix of one, a
-   * branch, a tag, HEAD~2), showing its message and the files it changed.
-   */
   "commit.open": {
     args: { workspaceId: string; rev: string; placement: CliPlacement };
     result: { tabId: string; sha: string; subject: string };
   };
-  /** Saves the file of an editor or diff tab; `saved` is false when it had no changes. */
   "tab.save": {
     args: { workspaceId: string; tabId: string };
     result: { filePath: string; saved: boolean };
   };
-  /** Drops an editor or diff tab's unsaved changes for what is on disk. */
   "tab.revert": {
     args: { workspaceId: string; tabId: string };
     result: { filePath: string; reverted: boolean };
   };
-  /** Opens a file's changes between two refs (HEAD, INDEX, WORKING or a commit). */
   "diff.open": {
     args: {
       workspaceId: string;
@@ -619,24 +431,19 @@ export interface CliUiOps {
     };
     result: { tabId: string };
   };
-  /** Opens a terminal, renamed to `title` and typing `command` once its shell starts. */
   "terminal.open": {
     args: {
       workspaceId: string;
       cwd: string;
       title?: string;
       command?: string;
-      /** A shell of this machine's, by its name, id or program (see "terminal.shells"). */
       shell?: string;
-      /** An agent profile, by id: the shell runs with what a chat of it runs with. */
       profile?: string;
-      /** The agent opening it, kept with the tab: absent when the user does. */
       openedBy?: TerminalOpener;
       placement: CliPlacement;
     };
     result: { tabId: string };
   };
-  /** The shells a terminal of a local workspace can run, as "New terminal with" lists them. */
   "terminal.reopen": {
     args: { workspaceId: string; tabId: string };
     result: Record<string, never>;
@@ -645,45 +452,28 @@ export interface CliUiOps {
     args: Record<string, never>;
     result: { shells: CliShellInfo[] };
   };
-  /**
-   * Types into a terminal: pasted, as the app's paste does, or as keys; then
-   * Enter if asked.
-   */
   "terminal.input": {
     args: { workspaceId: string; tabId: string; text: string; mode: CliInputMode; enter: boolean };
     result: Record<string, never>;
   };
-  /**
-   * Shows a tab, and its workspace if another one is shown. While the agent
-   * view is shown, a session shows there instead, beside `caller` when a
-   * panel shows it.
-   */
   "tab.show": {
     args: { workspaceId: string; tabId: string; caller?: { workspaceId: string; tabId: string } };
     result: Record<string, never>;
   };
-  /**
-   * Closes a tab. Refuses one with unsaved changes, and a terminal running a
-   * program unless `force`.
-   */
   "tab.close": {
     args: { workspaceId: string; tabId: string; force: boolean };
     result: Record<string, never>;
   };
-  /** The live chat conversation or terminal session a sandbox grant can be bound to. */
   "tab.sandboxSession": {
     args: { workspaceId: string; tabId: string };
     result: string | null;
   };
-  /** Opens a browser tab on a URL or an address such as localhost:3000. */
   "browser.open": {
     args: { workspaceId: string; url: string; placement: CliPlacement };
     result: { tabId: string; url: string };
   };
-  /** Moves a browser tab: to a URL, back, forward, or reloads it. */
   "browser.navigate": {
     args: { workspaceId: string; tabId: string; action: CliBrowserAction; url?: string };
-    /** Where "goto" went. */
     result: { url?: string };
   };
   "browser.permissions": {
@@ -697,7 +487,6 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string };
     result: Record<string, never>;
   };
-  /** A workspace's editor area and its active group. */
   "layout.get": {
     args: { workspaceId: string };
     result: { root: CliLayoutNode; activeGroupId: string };
@@ -706,30 +495,22 @@ export interface CliUiOps {
     args: { workspaceId: string; groupId: string };
     result: Record<string, never>;
   };
-  /** Moves a tab into a new group on a side of `groupId`, its own group or another. */
   "layout.split": {
     args: { workspaceId: string; tabId: string; groupId: string; side: CliSplitSide };
     result: { groupId: string };
   };
-  /** Sets the share of the first part of splits, by split id. */
   "layout.ratios": {
     args: { workspaceId: string; ratios: { splitId: string; ratio: number }[] };
     result: Record<string, never>;
   };
-  /** Moves a tab into another group, or within its own, before the tab at `index`. */
   "tab.move": {
     args: { workspaceId: string; tabId: string; groupId: string; index?: number };
     result: Record<string, never>;
   };
-  /**
-   * Closes a group and its tabs. Refuses one holding unsaved changes, and a
-   * terminal running a program unless `force`.
-   */
   "group.close": {
     args: { workspaceId: string; groupId: string; force: boolean };
     result: { closed: number };
   };
-  /** Names a tab; "" gives it back the name the app chooses. */
   "tab.rename": {
     args: { workspaceId: string; tabId: string; title: string };
     result: { title: string };
@@ -738,12 +519,10 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string; pinned: boolean };
     result: Record<string, never>;
   };
-  /** The panels beside the editor area, and the files panel's mode in a workspace. */
   "panels.get": {
     args: { workspaceId: string };
     result: CliPanels;
   };
-  /** Shows, hides or resizes a panel, or sets the files panel's mode in a workspace. */
   "panels.set": {
     args: {
       workspaceId: string;
@@ -754,33 +533,22 @@ export interface CliUiOps {
     };
     result: CliPanels;
   };
-  /** Shows a file or folder in the files panel's tree, unfolding the folders above it. */
   "files.reveal": {
     args: { workspaceId: string; filePath: string };
     result: Record<string, never>;
   };
-  /** The problems language servers report in a workspace's files open in the editor. */
   "problems.list": {
     args: { workspaceId: string };
     result: { problems: CliProblem[] };
   };
-  /** The window's view, and the agent view's panels and the sessions they hold. */
   "agentView.get": {
     args: Record<string, never>;
     result: CliAgentView;
   };
-  /** Shows the agent view or the workspaces, as the title bar's toggle does. */
   "agentView.show": {
     args: { view: CliView };
     result: Record<string, never>;
   };
-  /**
-   * Puts a session in the agent view: with `side`, into a new panel on that
-   * side of `panelId`; with `panelId`, into that panel (at `index` of its
-   * tabs); else in front of the panel holding it, or of the active one.
-   * With `show`, the window shows the agent view and that panel becomes
-   * the active one; otherwise the active panel stays.
-   */
   "agentView.place": {
     args: ({ workspaceId: string; tabId: string } | { key: string }) & {
       panelId?: string;
@@ -790,58 +558,42 @@ export interface CliUiOps {
     };
     result: { panelId: string };
   };
-  /** Opens a workspace file in an agent panel. */
   "agentView.openFile": {
     args: { workspaceId: string; filePath: string; panelId?: string };
     result: { key: string; tabId: string; panelId: string };
   };
-  /** Takes a tab out of the agent view; local tabs go on in their workspace. */
   "agentView.remove": {
     args: { workspaceId: string; tabId: string } | { key: string };
     result: Record<string, never>;
   };
-  /** Closes a panel, taking its sessions out of the view; the only one is emptied. */
   "agentView.close": {
     args: { panelId: string };
     result: { removed: number };
   };
-  /** Sets the share of the first part of the agent view's splits, by split id. */
   "agentView.ratios": {
     args: { ratios: { splitId: string; ratio: number }[] };
     result: Record<string, never>;
   };
-  /** Makes a panel the active one, the keyboard in it while the view is shown. */
   "agentView.focus": {
     args: { panelId: string };
     result: Record<string, never>;
   };
-  /** Groups the agent view's list by the agents' state or by their workspace, as its switch does. */
   "agentView.group": {
     args: { grouping: CliAgentGrouping };
     result: Record<string, never>;
   };
-  /** Reorders the named slots in the workspace's agent sidebar. */
   "agentView.reorderSessions": {
     args: { workspaceId: string; tabIds: string[] };
     result: { found: boolean };
   };
-  /** The folders a workspace's Claude tabs were given beside its own (/add-dir), absolute. */
   "workspace.folders": {
     args: { workspaceId: string };
     result: { folders: string[] };
   };
-  /** Shows a workspace, as clicking it in the sidebar does. */
   "workspace.show": {
     args: { workspaceId: string };
     result: Record<string, never>;
   };
-  /**
-   * Makes a task of `parentId`, as New Task does: its worktree, branch and
-   * one tab, `start` (the task agent when absent): an agent's tab sent
-   * `prompt`, or a terminal running the command with `prompt`. A plain
-   * shell (an empty command) has no tab until the task is shown, when its
-   * panel opens one. Shown if `show`, else started behind the user's view.
-   */
   "task.create": {
     args: {
       parentId: string;
@@ -851,22 +603,11 @@ export interface CliUiOps {
       show: boolean;
       allowTerminal?: boolean;
       openedBy?: TerminalOpener;
-      /** The tab that ran the local command to make the worktree. */
       createdBy?: { workspaceId: string; tabId: string };
-      /** The agent that sends the prompt, as the task's tab shows it; none for the user. */
       from?: RelaySender;
     };
-    /**
-     * `start` is what its tab runs: an agent, or a command ("" for a plain
-     * shell, which has no tab yet).
-     */
     result: { workspaceId: string; tabId?: string; start: CliTaskStart };
   };
-  /**
-   * Opens a Claude or Codex tab in `cwd` and sends it `prompt` when there is
-   * one. With `settings`, its program starts and is set to them first; when
-   * that fails, `error` says why and nothing is sent.
-   */
   "chat.open": {
     args: {
       workspaceId: string;
@@ -875,18 +616,11 @@ export interface CliUiOps {
       prompt: string;
       placement: CliPlacement;
       settings?: CliChatSettings;
-      /** The agent profile to run with, by name or id; absent = the workspace's. */
       profile?: string;
       instructions?: string;
       openedBy?: TerminalOpener;
-      /** The agent that sends the prompt, as the tab shows it; none for the user. */
       from?: RelaySender;
-      /**
-       * The user opens it, from another device (the remote): `settings` may
-       * take the mode that lets everything run, unless a policy keeps it off.
-       */
       user?: boolean;
-      /** Main verified that a local caller may grant the unrestricted mode. */
       allowDangerousMode?: boolean;
     };
     result: { tabId: string; error?: string };
@@ -895,7 +629,6 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string; text?: string };
     result: Required<RpcResult<"chat.instructions">>;
   };
-  /** The agent profiles a new chat may run with, of one agent or both. */
   "chat.profiles": {
     args: { agent?: ChatAgent; workspaceId?: string };
     result: {
@@ -913,28 +646,18 @@ export interface CliUiOps {
     args: Omit<RpcParams<"profiles.usage">, "from">;
     result: RpcResult<"profiles.usage">;
   };
-  /** Stops the turn a Claude or Codex tab is working on, as its stop button does. */
   "chat.interrupt": {
     args: { workspaceId: string; tabId: string };
     result: Record<string, never>;
   };
-  /**
-   * Starts a Claude or Codex tab's program again, as its ended or failed
-   * banner does, or as the card after /login does while it runs.
-   */
   "chat.restart": {
     args: { workspaceId: string; tabId: string };
     result: Record<string, never>;
   };
-  /**
-   * Asks a Codex tab's program again whether it is signed in, as its
-   * signed-out banner's "check again" does; whether it still is not.
-   */
   "chat.checkSignIn": {
     args: { workspaceId: string; tabId: string };
     result: { signedOut: boolean };
   };
-  /** Live sandbox policy and the next turn's pick, without starting a program. */
   "chat.sandbox": {
     args: { workspaceId: string; tabId: string };
     result:
@@ -942,65 +665,35 @@ export interface CliUiOps {
       | { agent: "claude"; enabled: boolean }
       | null;
   };
-  /** The caller's confirmed live permission mode, without starting its program. */
   "chat.mode": {
     args: { workspaceId: string; tabId: string };
     result: { agent: ChatAgent; mode?: string } | null;
   };
-  /**
-   * The files outside the workspace that its Claude and Codex tabs name,
-   * absolute: what their tools took or wrote, what their replies link, and
-   * what their background jobs write their output to. What each tab lets
-   * its previews read there.
-   */
   "chat.outsideFiles": {
     args: { workspaceId: string };
     result: { files: string[] };
   };
-  /**
-   * Sets a Claude or Codex tab's model, effort and permission mode, as its
-   * composer's chips do, those given only; tells what it runs with then and
-   * what it takes. Its program is started if it was not.
-   */
   "chat.settings": {
     args: {
       workspaceId: string;
       tabId: string;
       settings: CliChatSettings;
-      /** Mode used to authorize this change. */
       expectedMode?: string;
-      /**
-       * The user sets them, from another device (the remote): the mode that
-       * lets everything run too, unless a policy keeps it off.
-       */
       user?: boolean;
-      /** Main verified that a local caller may grant the unrestricted mode. */
       allowDangerousMode?: boolean;
     };
     result: CliChatChoices;
   };
-  /**
-   * The conversations of the past in a workspace's folder that a new tab
-   * can go on with: Claude Code's sessions in each Claude profile, or the
-   * threads a Codex tab's Codex keeps; newest first, those whose title or
-   * first prompt has every word of `query`.
-   */
   "chat.history": {
     args: {
       workspaceId: string;
       agent: ChatAgent;
       query?: string;
       limit?: number;
-      /** Peer history picker requests may reuse a recent catalog while the query changes. */
       peer?: boolean;
     };
     result: { sessions: CliPastSession[] };
   };
-  /**
-   * Goes on with a conversation of the past in a new tab, behind what the
-   * window shows; the tab that has it open already, if one does. With
-   * `tabId`, a tab of the agent's with no conversation yet, in that tab.
-   */
   "chat.resume": {
     args: {
       workspaceId: string;
@@ -1012,40 +705,18 @@ export interface CliUiOps {
     };
     result: { tabId: string };
   };
-  /**
-   * A Claude or Codex tab's slash commands that another device may use: the
-   * agent's own, the model and effort chat.settings sets, and the app's own
-   * that change the conversation. Its program is started if it was not.
-   */
   "chat.commands": {
     args: { workspaceId: string; tabId: string };
     result: { commands: ChatCommand[] };
   };
-  /**
-   * What an @ in a Claude or Codex tab's composer may name for `query`, as
-   * its agent suggests it there; none while its program does not run.
-   */
   "chat.fileSuggestions": {
     args: { workspaceId: string; tabId: string; query: string };
     result: { paths: string[] };
   };
-  /**
-   * Runs one of the app's own commands in a Claude or Codex tab as its
-   * composer runs it typed, for the user on another device; what it said,
-   * and the tab it opened, when it opened one.
-   */
   "chat.command": {
     args: { workspaceId: string; tabId: string; name: string; args?: string };
-    /** card: the message is its card's, not a toast's. */
     result: { message?: string; card?: boolean; tabId?: string };
   };
-  /**
-   * Has a Claude or Codex tab run with another agent profile (by name or id),
-   * as its profile chip does: its conversation goes on in that profile, or,
-   * `fresh`, a new one starts there. `dryRun` only checks that it can.
-   * Refused while it works or asks the user, unless `stop`: its turn stops
-   * then, as its chip's choice there stops it.
-   */
   "chat.profile": {
     args: {
       workspaceId: string;
@@ -1055,13 +726,8 @@ export interface CliUiOps {
       dryRun?: boolean;
       stop?: boolean;
     };
-    /** The profiles by name: the one it ran with, the one it runs with now. */
     result: { from: string; to: string };
   };
-  /**
-   * Where a Claude or Codex tab's conversation stands; its program is opened
-   * if it was not, unless `peek`, which tells such a tab idle.
-   */
   "chat.state": {
     args: {
       workspaceId: string;
@@ -1073,12 +739,6 @@ export interface CliUiOps {
     };
     result: CliChatInfo & { trackedSubmission?: boolean; waitingId?: string };
   };
-  /**
-   * A Claude or Codex tab's messages, and where it stands: those after
-   * `since` (an entry's i), the last `messages` of them; all when neither.
-   * Subagents' tool calls only with `subagents`. A conversation that now
-   * ends before `since`, cleared or rewound since, is read from its start.
-   */
   "chat.read": {
     args: {
       workspaceId: string;
@@ -1087,44 +747,20 @@ export interface CliUiOps {
       since?: number;
       subagents?: boolean;
     };
-    /** `end`: the i of the conversation's last entry, -1 when it has none. */
     result: CliChatInfo & { entries: CliChatEntry[]; end: number };
   };
-  /**
-   * A Claude or Codex tab's conversation as another device of the account
-   * draws it (the remote's chat.read): the last `limit` items, or those
-   * before `before`, with the tool calls they name and where it stands.
-   */
   "chat.page": {
     args: { workspaceId: string; tabId: string; before?: number; limit?: number };
     result: ChatPage;
   };
-  /**
-   * A Claude or Codex tab's last turns at a glance (the remote's
-   * chat.peek): from the tab's conversation when it is open, else from the
-   * end of its history as its agent keeps it. Opens no tab, and starts no
-   * program.
-   */
   "chat.peek": {
     args: { workspaceId: string; tabId: string; turns?: number };
     result: ChatPeek;
   };
-  /**
-   * One of a Claude or Codex tab's `claude -p` or `codex exec` runs as
-   * another device draws it (the remote's chat.runRead): a page of the
-   * run's own session, read by the run's id as main knows it; null when
-   * the run keeps no session to read.
-   */
   "chat.runPage": {
     args: { workspaceId: string; tabId: string; runId: string; before?: number; limit?: number };
     result: ChatPage | null;
   };
-  /**
-   * Starts telling main what changes in a Claude or Codex tab's
-   * conversation, for another device watching it (the remote's chat.watch):
-   * its page now, then remote.chatChanged with `watchId` as it changes;
-   * with `appends`, text added to an assistant's block as appends.
-   */
   "chat.watch": {
     args: {
       workspaceId: string;
@@ -1135,36 +771,22 @@ export interface CliUiOps {
     };
     result: ChatPage & { panel?: ChatPanel };
   };
-  /**
-   * Renames a Claude or Codex tab, as its tab's rename does; a Claude tab's
-   * running program names its session so too. The title it shows then.
-   */
   "chat.rename": {
     args: { workspaceId: string; tabId: string; title: string };
     result: { title: string };
   };
-  /**
-   * A page of a chat on another device (its chat.read) as chat read tells
-   * it here: each item's entries, numbered by the item's index there.
-   */
   "chat.pageEntries": {
     args: { page: ChatPage; subagents?: boolean };
     result: { entries: CliChatEntry[] };
   };
-  /** What a Claude or Codex tab's side panel shows now. */
   "chat.panel": {
     args: { workspaceId: string; tabId: string };
     result: ChatPanel;
   };
-  /** Stops one of a Claude tab's tasks (a background run), by its id, as the panel's stop button does. */
   "chat.stopTask": {
     args: { workspaceId: string; tabId: string; taskId: string };
     result: Record<string, never>;
   };
-  /**
-   * What rewinding a Claude tab to before one of the user's messages (by
-   * its item's key) would undo in the files, as its rewind dialog shows.
-   */
   "chat.rewindPreview": {
     args: { workspaceId: string; tabId: string; itemKey: string };
     result: {
@@ -1175,34 +797,18 @@ export interface CliUiOps {
       deletions: number;
     };
   };
-  /**
-   * Rewinds a Claude tab to before one of the user's messages, by its
-   * item's key: the conversation, and with `files` the files too.
-   */
   "chat.rewind": {
     args: { workspaceId: string; tabId: string; itemKey: string; files: boolean };
     result: Record<string, never>;
   };
-  /**
-   * Forks a Claude tab into a new one behind what the window shows: from a
-   * user's message (by its item's key), the conversation before it, the
-   * message as `draft` for the asking device; from an answer, up to it;
-   * with no item, all of it.
-   */
   "chat.fork": {
     args: { workspaceId: string; tabId: string; itemKey?: string; openedBy?: TerminalOpener };
     result: { tabId: string; draft?: string };
   };
-  /** Sends a Claude tab's running command or subagent to the background, by its call's id. */
   "chat.background": {
     args: { workspaceId: string; tabId: string; toolUseId: string };
     result: Record<string, never>;
   };
-  /**
-   * Works a Claude tab's MCP server as its panel does, for another device:
-   * connects it again, turns it on or off, or signs in with that device's
-   * browser (`signIn` gives the page, `signedIn` finishes it).
-   */
   "chat.mcp": {
     args: {
       workspaceId: string;
@@ -1214,11 +820,6 @@ export interface CliUiOps {
     };
     result: { authUrl?: string; back?: boolean };
   };
-  /**
-   * A Claude tab's Claude Code settings (/config) for another device, as
-   * its settings dialog has them: what they are now, or (`set`) the
-   * changes saved as the dialog saves them.
-   */
   "chat.config": {
     args: {
       workspaceId: string;
@@ -1227,23 +828,14 @@ export interface CliUiOps {
     };
     result: { config?: ChatConfig };
   };
-  /** Turns a Claude tab's Remote Control on or off, as its panel's switch does. */
   "chat.remoteControl": {
     args: { workspaceId: string; tabId: string; enabled?: boolean };
     result: { enabled: boolean; url?: string };
   };
-  /** Stops a watch chat.watch started; nothing when there is none. */
   "chat.unwatch": {
     args: { watchId: string };
     result: Record<string, never>;
   };
-  /**
-   * An image of a Claude or Codex tab: a user message's, by its item's key,
-   * a tool result's, by its call's id, or a message's held for after the
-   * turn, by its id; at its index there. Made smaller
-   * when its base64 would take over `maxChars`, or its longer side over
-   * `maxEdge` pixels.
-   */
   "chat.image": {
     args: {
       workspaceId: string;
@@ -1259,32 +851,18 @@ export interface CliUiOps {
     };
     result: CliChatImage & { version?: string; notModified?: true };
   };
-  /**
-   * A tool call of a Claude or Codex tab as another device reads it, by its
-   * id: a subagent's too, its result's text cut at `maxText` characters.
-   */
   "chat.toolCall": {
     args: { workspaceId: string; tabId: string; toolUseId: string; maxText: number };
     result: ViewToolCall;
   };
-  /**
-   * A file a Claude or Codex tab's session changed as it was before its
-   * first change (null for one it wrote new); `found` false when it is not kept.
-   */
   "chat.original": {
     args: { workspaceId: string; tabId: string; path: string };
     result: { found: boolean; before: string | null };
   };
-  /** A tool call of a Claude or Codex tab whole, named by its entry's i or its id. */
   "chat.tool": {
     args: { workspaceId: string; tabId: string; ref: string };
     result: CliChatTool;
   };
-  /**
-   * The sessions' state changes after `since`, the first `limit` of them
-   * (`more` when some were left out); with no `since`, the last `limit`.
-   * `cursor`: the seq of the latest one there is.
-   */
   "events.read": {
     args: { since?: number; limit: number };
     result: { events: CliSessionEvent[]; cursor: number; more: boolean };
@@ -1293,16 +871,6 @@ export interface CliUiOps {
     args: Record<string, never>;
     result: { unread: Record<string, Record<string, number>> };
   };
-  /**
-   * What the remote sessions' list reads of the renderer:
-   * each of `workspaceIds`' tabs as tabs.list lists them with `agentOrder`
-   * (none for a workspace that could not be read), each chat's state with
-   * its tab, and sessions.results' map (none when it could not be read).
-   * `revision`: the renderer's count of changes it was read at; while it
-   * tells main no higher one (cli.sessionsChanged), a read again would
-   * tell the same. Large lists continue from `next`, with the unread map
-   * only on the first page.
-   */
   "sessions.snapshot": {
     args: { workspaceIds: string[]; cursor?: CliSessionsSnapshotCursor };
     result: {
@@ -1316,55 +884,27 @@ export interface CliUiOps {
     args: RpcParams<"sessions.markSeen">;
     result: RpcResult<"sessions.markSeen">;
   };
-  /**
-   * Sends a Claude or Codex tab a message, as its composer does: during a
-   * turn, the agent reads it after the tool it runs.
-   */
   "chat.send": {
-    /**
-     * `from`: the agent that sends it, as the tab shows it; none for the user.
-     * `user`: the user sends it (from another computer of theirs), so it goes
-     * even while the tab asks them something, as its composer's would.
-     */
     args: {
       workspaceId: string;
       tabId: string;
       text: string;
       from?: RelaySender;
       user?: boolean;
-      /** Images with it, as the composer's pasted ones go (base64). */
       images?: { mediaType: string; data: string }[];
-      /**
-       * Files with it, as the composer's dropped ones go: each written where
-       * the agent reads it, its path's mention after the text (base64).
-       */
       files?: { name: string; data: string }[];
-      /**
-       * During a turn, as the composer's keys: next (↩, the default), now
-       * (⌘↩, Claude's alone), after the turn (⌘⇧↩, held by the tab).
-       */
       when?: "next" | "now" | "after";
-      /**
-       * The user's other computer it comes from: held for after the turn, it
-       * is dropped if control from other computers is turned off first.
-       */
       device?: string;
-      /** User submission metadata supplied by the serving process. */
       submission?: { clientNonce: string; clientDeviceId: string };
-      /** Tracks this specific message for `send --wait`. */
       wait?: { receiptAt?: number };
     };
-    /** `heldId`: the message's id while the tab holds it for after the turn. */
     result: { heldId?: string; itemKey?: string; rejected?: string; submissionId?: string };
   };
-  /** Takes back a message the tab holds for after the turn, with its whole text. */
   "chat.unqueue": {
     args: { workspaceId: string; tabId: string; id: string };
     result: { text: string };
   };
-  /** Changes the text of a message the tab holds for after the turn, its images kept. */
   "chat.editHeld": {
-    /** `device`: the user's other computer that changes it, whose it is then. */
     args: {
       workspaceId: string;
       tabId: string;
@@ -1375,57 +915,34 @@ export interface CliUiOps {
     };
     result: Record<string, never>;
   };
-  /**
-   * Drops the messages the tabs hold that came from other computers, as
-   * control from them is turned off: all of them, or only their agents'.
-   */
   "chat.dropHeld": {
     args: { agentsOnly?: boolean };
     result: { dropped: number };
   };
-  /** Takes back a message of the user's a Claude tab has not read: false once it was read. */
   "chat.withdraw": {
     args: { workspaceId: string; tabId: string; itemKey: string };
     result: { withdrawn: boolean };
   };
-  /** Has a Claude tab read its unread messages now (⌘↩ on an empty composer). */
   "chat.hurry": {
     args: { workspaceId: string; tabId: string };
     result: Record<string, never>;
   };
-  /**
-   * The item of a Claude or Codex tab's conversation that an entry is part
-   * of, by the entry's i as chat.read numbers it: the item's key, which
-   * chat.rewind, chat.fork and chat.withdraw take, and its kind.
-   */
   "chat.export": {
     args: { workspaceId: string; tabId: string };
     result: { markdown: string };
   };
   "chat.entryItem": {
     args: { workspaceId: string; tabId: string; i: number };
-    /** `text`: a message of the user's, its text. */
     result: { itemKey: string; kind: string; text?: string };
   };
-  /**
-   * Removes a task, as Delete Task does. Refuses one with unsaved files, and
-   * a worktree with changes unless `force`. A `deleteBranch` of "merged"
-   * deletes the branch only if git finds it merged.
-   */
   "task.remove": {
     args: { taskId: string; force: boolean; deleteBranch: boolean | "merged" };
     result: Record<string, never>;
   };
-  /** Shows a note to the user: its workspace, and its tab in front. */
   "note.show": {
     args: { workspaceId: string; noteId: string; title?: string };
     result: Record<string, never>;
   };
-  /**
-   * The note recorder: what it records and whether it can (status); or it
-   * starts recording into a note, the note shown (or goes on with its paused
-   * recording), pauses, goes on, or stops. One note records at a time.
-   */
   "note.recorder": {
     args: {
       action: "status" | "start" | "pause" | "resume" | "stop";
@@ -1489,7 +1006,6 @@ export interface CliUiOps {
     args: { action: { op: "list" } | { op: "delete"; name?: string } };
     result: { names: string[] };
   };
-  /** The persistent instruction layers that apply when starting a new chat. */
   "settings.instructions": {
     args: { workspaceId: string; agent: ChatAgent; profileId?: string };
     result: RpcResult<"settings.instructions">;
@@ -1510,58 +1026,33 @@ export interface CliUiOps {
     args: { scope: InstructionScope; text: string };
     result: Record<string, never>;
   };
-  /** The app's settings that nexus settings reads and changes; with `key`, that one alone. */
   "settings.list": {
     args: { key?: string };
     result: { settings: CliSettingInfo[] };
   };
-  /**
-   * Changes a setting, as Settings does, to `value` as typed (as "14" or
-   * "on"), or back to its default when null.
-   */
   "settings.set": {
     args: { key: string; value: string | null };
     result: { setting: CliSettingInfo };
   };
-  /** Opens the Settings dialog for the user: at `page`, or where it was left. */
   "settings.open": {
     args: { page?: SettingsPage };
     result: Record<string, never>;
   };
-  /**
-   * Removes a workspace from the app with its tasks, as Remove Workspace
-   * does; their folders stay. Refuses one with unsaved files.
-   */
   "workspace.remove": {
     args: { workspaceId: string };
     result: Record<string, never>;
   };
-  /**
-   * Answers the permission request a Claude or Codex tab waits on, if it
-   * still asks what `expect` says (chat.state's message): a tool's, not a
-   * question or a plan, which only the user answers.
-   */
   "chat.answer": {
     args: {
       workspaceId: string;
       tabId: string;
       decision: "allow" | "deny";
-      /** With deny: what to tell the agent. */
       message?: string;
-      /** The request's id (CliChatRequest): main allowed an answer to it, not to another. */
       expect: string;
-      /** Only tool permission requests may be answered by an agent. */
       byAgent?: true;
-      /** With allow: the input the tool runs with, as the user filled it (a question's answers). */
       updatedInput?: Record<string, unknown>;
-      /** With deny: stop the turn too. */
       stop?: boolean;
-      /**
-       * With allow: the request's "always allow" suggestions to keep from
-       * now on, by their index as chat.read words them; the user only.
-       */
       always?: number[];
-      /** With allow of a plan: the mode the chat goes on in, as the plan card's approvals set it. */
       planMode?: "acceptEdits" | "default";
     };
     result: Record<string, never>;
@@ -1574,18 +1065,12 @@ export interface CliUiOps {
       change: CliChange;
       timeoutMs?: number;
       fromDevice?: string;
-      /** That computer's id, told to the other computers that list the request. */
       fromDeviceId?: string;
       fromName?: string;
       id?: string;
     };
     result: { answer: CliConsentAnswer };
   };
-  /**
-   * Answers a consent prompt (consent.ask's `id`) as the user would, from
-   * another device of theirs (`by`, its name): the prompt closes, and the
-   * user is told where it was answered. `settled` false when it no longer waits.
-   */
   "consent.settle": {
     args: { id: string; answer: "once" | "session" | "deny"; by?: string };
     result: { settled: boolean };

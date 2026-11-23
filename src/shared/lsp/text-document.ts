@@ -61,12 +61,6 @@ export type TextDocumentContentChangeEvent = z.infer<typeof TextDocumentContentC
 export const ServerCapabilitiesSchema = z.record(z.string(), z.unknown());
 export type ServerCapabilities = z.infer<typeof ServerCapabilitiesSchema>;
 
-// Renderer → main IPC argument shape for position-scoped LSP requests
-// (hover / definition / completion / documentHighlight). `workspaceId`
-// scopes the request to a specific workspace's LSP server — the same
-// physical file URI can be open in multiple workspaces, and routing
-// purely by URI would conflate them. The renderer extracts workspaceId
-// from the model's cacheUri (see workspace-uri.ts).
 export const TextDocumentPositionArgsSchema = z.object({
   workspaceId: z.string(),
   uri: DocumentUriSchema,

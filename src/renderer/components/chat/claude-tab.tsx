@@ -1,7 +1,3 @@
-// A Claude tab: one Claude Code session run headless by the workspace's
-// agent, shown as a conversation. The program outlives the window and the
-// connection, so the view only reads what its controller has.
-
 import { ArrowLeft } from "lucide-react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -129,7 +125,6 @@ interface ClaudeTabViewProps {
   isVisible: boolean;
 }
 
-/** The parts a bare command asks for that are in the side panel. */
 const PANEL_PARTS: ReadonlySet<RevealPart> = new Set(["context", "usage", "mcp", "status", "jobs"]);
 
 export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTabViewProps) {
@@ -164,13 +159,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       ),
     [workspaceId, tabId],
   );
-  // Followed while shown: a tab in the background draws nothing per chunk
-  // of a streaming reply, and shows the latest when it comes to the front.
   const state = useChatTab(workspaceId, tabId, isVisible);
   const bannerScope = ["chat", workspaceId, tabId, state.model.sessionId];
-  // For the side panel and the composer, which show nothing of a streaming
-  // reply's text: the same state while only that changes, so they and what
-  // they hold do not render for each chunk of it.
   const steady = useStateBesideStream(state);
   const modelCatalogKey =
     isVisible && !steady.model.init?.models.length ? controller.modelCatalogKey : undefined;
@@ -179,16 +169,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   );
   const goal = useTabGoal(workspaceId, tabId);
 
-  // The line under the composer: the context and the plan's usage when the
-  // tab is shown or its program comes up. The controller asks again after
-  // each turn by itself, and the profile's store says when the usage is due.
   const lineReady = state.phase === "ready" && state.model.process === "running";
   useEffect(() => {
     if (isVisible && lineReady) controller.refreshUsageLine();
   }, [controller, isVisible, lineReady]);
 
-  // Opened the first time the tab is shown, so restored tabs in the
-  // background start nothing until they are looked at.
   const opened = useRef(false);
   useEffect(() => {
     if (!isVisible || opened.current) return;
@@ -197,8 +182,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     pruneAttachmentsOnce(workspaceId);
   }, [isVisible, controller, workspaceId]);
 
-  // A name the user gives the tab names its session too, as /rename does,
-  // and every session the tab has after it.
   const customTitle = useTabsStore((s) => s.byWorkspace[workspaceId]?.[tabId]?.customTitle);
   const named = useRef(customTitle);
   useEffect(() => {
@@ -209,7 +192,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   }, [customTitle, controller]);
 
   const [resumeError, setResumeError] = useState<string | null>(null);
-  // Under the empty conversation a failure shows there; from /resume, as a toast.
   const resumeSession = (
     sessionId: string,
     profileId?: string,
@@ -218,7 +200,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     setResumeError(null);
     void controller.resumeSession(sessionId, profileId).catch((err: Error) => fail(err.message));
   };
-  // What the tab has going decides what another profile offers.
   const tabUse: TabUse = state.model.running
     ? "running"
     : (state.history?.items.length ?? 0) > 0 || state.model.items.length > 0
@@ -255,13 +236,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   ) {
     setRewinding(null);
   }
-  // Kept while what it says holds, so the conversation's messages do not
-  // all render each time the tab does.
   const running = state.model.running;
   const canFork = controller.forkPoint("", { before: false }) !== null;
   const asking = state.model.permissions;
   const unverifiedStart = controller.unverifiedHistoryStart();
-  // Set below, where the agents are known; read when a row renders.
   const taskShower = useRef<NonNullable<MessageActions["taskShower"]>>(() => undefined);
   const actions = useMemo<MessageActions>(
     () => ({
@@ -286,11 +264,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     [running, canFork, controller, workspaceId, props.cwd, asking, unverifiedStart],
   );
 
-  // Where the side panel goes follows the tab's width.
   const rootRef = useRef<HTMLDivElement>(null);
   const fontStyle = useChatFontStyle();
-  // Brought to the front (its tab picked, the inbox, the agent view), it
-  // takes the keyboard.
   useEffect(() => registerTabFocusTarget(tabId, () => focusChatTab(rootRef.current)), [tabId]);
   const [place, setPlace] = useState<PanelPlace>("beside");
   useLayoutEffect(() => {
@@ -311,17 +286,12 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       setBesideOpen(!besideOpen);
     } else setDrawerOpen((v) => !v);
   };
-  // ⌘⇧] toggles it too, while this tab is in front.
   const togglePanelRef = useRef(togglePanel);
   togglePanelRef.current = togglePanel;
   useEffect(() => registerPanelToggle(tabId, () => togglePanelRef.current()), [tabId]);
   useEffect(() => {
     if (place === "beside") setDrawerOpen(false);
   }, [place]);
-  // The drawer covers the composer, so it takes the keyboard while open:
-  // Escape closes it from there. Closed, the keyboard goes back to where it
-  // was (the composer a bare /context was typed in), unless the user has
-  // put it somewhere else meanwhile.
   const drawerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const drawer = drawerRef.current;
@@ -334,7 +304,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       if (dropped && back?.isConnected) back.focus({ preventScroll: true });
     };
   }, [drawerOpen]);
-  // A bare /context, /usage or /mcp, or /status, opens the panel; its section opens itself.
   const reveal = state.reveal;
   // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once, where the panel then is
   useEffect(() => {
@@ -346,11 +315,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     }
   }, [reveal?.seq]);
 
-  // The pane shows main or one agent's transcript, or a `claude -p` run the
-  // session started; input always goes to main.
   const printRuns = usePrintRuns(workspaceId, tabId, isVisible);
   const runRows = useMemo(() => printRunRows(printRuns), [printRuns]);
-  // Its history's subagents too, which ended: a conversation resumed shows them.
   const pastHistory = state.history;
   const pastModel = useMemo(
     () => (pastHistory ? historyForDisplay(pastHistory) : null),
@@ -371,8 +337,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   useEffect(() => {
     if (shownId && !shown) setShownId(null);
   }, [shownId, shown]);
-  // What the shown subagent wrote: its messages as the program's log has
-  // them, else as the history read from its file.
   const pastAgentItems = pastModel?.agentItems;
   const shownWrote = shown
     ? (agentItems[shown.toolUseId] ?? pastAgentItems?.[shown.toolUseId])
@@ -387,8 +351,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         : undefined,
     [shown, shownWrote],
   );
-  // One that ended with none of its messages here, as a conversation read
-  // from its transcript has it, is read from the file Claude Code keeps it in.
   const unread =
     shown && !shown.run && shown.status !== "running" && !shownWrote ? shown.toolUseId : null;
   useEffect(() => {
@@ -400,9 +362,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     dropAgentAsk(tabId);
   };
   useAgentAsk(tabId, agents, showAgent);
-  // A task's end in the conversation shows the task: an agent's transcript,
-  // a job in the side panel. One the tab no longer knows (a conversation
-  // resumed) has nothing to show.
   taskShower.current = (item) => {
     const task = state.model.tasks[item.taskId];
     const toolUseId = task?.toolUseId ?? item.toolUseId;
@@ -413,7 +372,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       ? () => revealPart(controller.key, "jobs", item.taskId)
       : undefined;
   };
-  // A call the side panel asked to see in the conversation, by its id; each ask its own seq.
   const [callAsk, setCallAsk] = useState<CallReveal | null>(null);
   const showCall = (toolUseId: string) => {
     showAgent(null);
@@ -430,13 +388,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     setShownId(order[(at + step + order.length) % order.length]);
   };
 
-  // What the conversation links opens over the tab, or beside it.
   const [look, setLook] = useState<QuickLookList | null>(null);
-  // A tab put out of sight takes its quick look with it.
   useEffect(() => {
     if (!isVisible) setLook(null);
   }, [isVisible]);
-  // The previews may read what the tab links outside the workspace, while it is open.
   const [looked, setLooked] = useState<readonly string[]>([]);
   const history = state.history;
   const { items: liveItems, tools: liveTools, tasks } = state.model;
@@ -444,12 +399,9 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     () => jobToolStatuses({ tasks, tools: liveTools, running }),
     [tasks, liveTools, running],
   );
-  // Taken from the parts it reads, so a line that changes none of them (a
-  // usage report, a turn's end) does not walk the whole session again.
   const outside = useMemo(() => {
     const items = history ? [...history.items, ...liveItems] : liveItems;
     const tools = history ? { ...history.tools, ...liveTools } : liveTools;
-    // The side panel shows the end of each job's output, from where the CLI writes it.
     return outsideLinksOf(items, tools, props.cwd, rootPath, [
       ...looked,
       ...jobOutputFiles({ tasks }, tools),
@@ -462,8 +414,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     () => () => grantOutside(workspaceId, tabId, { files: [], dirs: [] }),
     [workspaceId, tabId],
   );
-  // The agent removes a tab's attached files as it closes: in a conversation gone on in a new
-  // tab, their chips only name them.
   const attached = useMemo(
     () => attachedImagesIn(history ? [...history.items, ...liveItems] : liveItems, props.cwd),
     [history, liveItems, props.cwd],
@@ -474,12 +424,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   // biome-ignore lint/correctness/useExhaustiveDependencies: the tab's state is read from `latest` when a link is followed
   const links = useMemo<LocalChatLinks>(() => {
     const cwd = props.cwd;
-    // Wide enough to share with a new group beside it.
     const split = () => latest.current.place === "beside";
-    /**
-     * The file a link names, and where in it, once it is known which file
-     * that is: from the tab's folder, or from where the agent's shell went.
-     */
     const follow = (target: string, then: (link: FileLink) => void) => {
       const { state, rootPath } = latest.current;
       const { history, model } = state;
@@ -488,20 +433,17 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         (link) => link && then(link),
       );
     };
-    /** Lets the previews read a file outside the workspace the tab grants none of yet. */
     const grant = (path: string) => {
       const { rootPath, outside } = latest.current;
       if (isUnder(path, rootPath) || outside.files.includes(path)) return;
       setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
     };
-    /** Quick look over the conversation's images, at `target`; `alone` when it is not among them. */
     const lookAt = (target: ShownImage, alone?: () => QuickLookList) => {
       const { state, rootPath } = latest.current;
       const { history, model } = state;
       const items = history ? [...history.items, ...model.items] : model.items;
       const tools = history ? { ...history.tools, ...model.tools } : model.tools;
       const shown = imagesOf(items, tools, cwd, model.agentItems);
-      // The last read of a file a panel holds selects the panel; an earlier one shows as it was read.
       const held = target.image ? latestReadFile(shown, target) : undefined;
       if (held && showHeldLocalFile(workspaceId, held)) {
         setLook(null);
@@ -509,7 +451,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       }
       void lookAtImage(shown, target, (files) => filesThere(workspaceId, rootPath, files)).then(
         (look) => {
-          // What shows from its data opens its file by path (as a tab, beside, in Finder): let that read it.
           for (const path of Object.values(look?.paths ?? {})) grant(path);
           const list = look ?? alone?.();
           if (list) setLook(list);
@@ -525,7 +466,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
             setLook(null);
             return;
           }
-          // An image steps through the conversation's images; any other file shows alone.
           if (fileKind(path) === "image") {
             lookAt({ file: path });
             return;
@@ -564,11 +504,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       openUrl(url, other = false) {
         const local = isLocalAddress(url);
         if (local !== other) {
-          // An SSH session's own address is the host's: the app's browser
-          // opens it through the workspace's forward of its port.
           openBrowserBeside(workspaceId, tabId, url, { split: split() });
         } else if (local) {
-          // In the system browser, at the forward's end here.
           void localUrlFor(workspaceId, url).then((here) => {
             if (here) window.open(here, "_blank", "noopener,noreferrer");
           });
@@ -579,12 +516,9 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     };
   }, [workspaceId, tabId, goneAttached]);
 
-  // Claude Code's settings (/config), and the one a command opened them at.
   const [config, setConfig] = useState<{ focus?: string } | null>(null);
-  // /resume's list above the composer, with the words it was given.
   const [resumeQuery, setResumeQuery] = useState<string | null>(null);
 
-  /** Runs a message that is one of the tab's own commands (/copy, /btw…); false for one to send. */
   const runCommand = (text: string): boolean => {
     const opened = configCommandOf(text);
     if (opened) {
@@ -636,8 +570,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       });
     }
   };
-  // The same functions throughout, for the memoized side panel and
-  // composer; each call runs what the latest render made.
   const stable = useStableHandlers({
     stopRun: (agentId: string) => void stopPrintRun(workspaceId, tabId, agentId),
     background: (toolUseId: string) => backgroundCall(controller, toolUseId),
@@ -666,8 +598,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     />
   );
   const permissions = state.model.permissions;
-  // Made again only when what it shows changes, so the composer it goes in
-  // need not render.
   const { contextUsage, usage } = state.model;
   const usageLine = useMemo(
     () => (
@@ -729,7 +659,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
                 open={drawerOpen}
                 onToggle={togglePanel}
               />
-              {/* Too narrow for the agents' strip: the way back from one's transcript. */}
               {shown && (
                 <div className="flex h-7 shrink-0 items-center gap-2 border-b border-border px-2 text-app-ui-sm">
                   <button
@@ -827,7 +756,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               }
             />
           )}
-          {/* Docked over the composer, so a request is seen wherever the list is scrolled. */}
           {(permissions.length > 0 || state.model.running || goal) && (
             <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
               <div className="mx-auto flex max-w-[860px] flex-col gap-2">
@@ -943,7 +871,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               ref={drawerRef}
               tabIndex={-1}
               className={cn(
-                // Below the strip, whose toggle closes it again.
                 "absolute right-0 bottom-0 z-20 border-l border-border bg-background outline-none",
                 place === "summary" ? "top-7 w-full" : "top-8 w-80",
               )}
@@ -1008,18 +935,12 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   );
 }
 
-/** Sends a call the turn waits on to the background, as Ctrl+B does in the terminal. */
 function backgroundCall(controller: ChatController, toolUseId: string): void {
   controller
     .backgroundTool(toolUseId)
     .catch((err: Error) => showToast({ kind: "error", message: err.message }));
 }
 
-/**
- * Opens a new Claude tab from a message: one of Claude's keeps the
- * conversation up to it; one of the user's keeps what came before it and
- * puts the message in the new tab's composer.
- */
 function forkFrom(
   controller: ChatController,
   workspaceId: string,
@@ -1041,7 +962,6 @@ function forkFrom(
   }
 }
 
-/** Warns that the session is open in a terminal tab too, where going on forks it. */
 const TwinBanner = memo(function TwinBanner({
   workspaceId,
   tabId,

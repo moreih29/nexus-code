@@ -54,14 +54,12 @@ export function checklistTasks(
   return positions;
 }
 
-/** Tracks rows through editor transactions while tasks are started in checklist order. */
 export async function assignNoteTaskBatch(
   editor: Editor,
   positions: readonly number[],
   assign: (pos: number) => Promise<{ linked: boolean }>,
   outcome: (pos: number, result: NoteTaskBatchOutcome) => void,
 ) {
-  // Track inside each row so changing its markup does not delete the anchor.
   const anchors = positions.slice(0, NOTE_TASK_BATCH_LIMIT).map((pos) => ({ at: pos + 1 }));
   const map = ({ transaction }: { transaction: Editor["state"]["tr"] }) => {
     for (const anchor of anchors) {
@@ -141,7 +139,6 @@ export function canMakeTask(
   );
 }
 
-/** Tracks the selected item across edits while creating the worktree and the link. */
 function trackTask(editor: Editor, pos: number) {
   let at: number | undefined = pos;
   const before = editor.state.doc.nodeAt(pos)?.attrs.nexusLink;
@@ -156,7 +153,6 @@ function trackTask(editor: Editor, pos: number) {
       if (at === undefined || editor.isDestroyed) return false;
       const node = editor.state.doc.nodeAt(at);
       if (node?.type.name !== "taskItem" || node.attrs.nexusLink !== expected) return false;
-      // A markup change preserves the node. Keep its position when mapping this transaction.
       const pos = at;
       editor.view.dispatch(
         editor.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, nexusLink: linkId }),
@@ -293,7 +289,6 @@ export async function assignNoteTask(
   }
 }
 
-/** Detect when the git panel has not loaded its repository information yet. */
 export async function taskRepoKind(workspaceId: string) {
   const result = await ipcCallResult("git", "getRepoInfo", { workspaceId });
   return result.ok ? result.value.kind : undefined;

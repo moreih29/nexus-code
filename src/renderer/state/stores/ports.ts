@@ -1,8 +1,3 @@
-// The TCP ports the programs in each workspace's terminals listen on,
-// mirrored from main (pty:ports), and the SSH workspaces' ports forwarded to
-// this machine (pty:forwards). The status bar and the task switcher show
-// them.
-
 import { create } from "zustand";
 import type {
   ListeningPort,
@@ -11,17 +6,11 @@ import type {
   WorkspacePorts,
 } from "../../../shared/pty/ports";
 
-/** A stable empty list, so a workspace without ports keeps its selection. */
 export const NO_PORTS: readonly ListeningPort[] = [];
 
 interface PortsState {
   byWorkspace: Record<string, readonly ListeningPort[]>;
-  /**
-   * The workspaces a change has come for: main's ports at launch, asked
-   * before it came, are older for them.
-   */
   changed: Record<string, true>;
-  /** Main's ports at launch, for the workspaces no change has come for since. */
   hydrate(entries: WorkspacePorts[]): void;
   set(entry: WorkspacePorts): void;
 }
@@ -57,13 +46,10 @@ export const usePortsStore = create<PortsState>((set) => ({
   },
 }));
 
-/** A stable empty list, for a workspace with no forwards. */
 export const NO_FORWARDS: readonly PortForward[] = [];
 
 interface ForwardsState {
-  /** The SSH workspaces' ports forwarded to this machine, mirrored from main (pty:forwards). */
   byWorkspace: Record<string, readonly PortForward[]>;
-  /** The workspaces a change has come for, which main's forwards at launch are older for. */
   changed: Record<string, true>;
   hydrate(entries: WorkspaceForwards[]): void;
   set(entry: WorkspaceForwards): void;

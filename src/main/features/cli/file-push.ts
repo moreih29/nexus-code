@@ -149,7 +149,6 @@ async function sendFile(
       await file.close();
     } finally {
       if (uploadId) {
-        // The transfer signal may already be cancelled. Still give the host a chance to clean up.
         await peer("files.write.abort", { uploadId }, AbortSignal.timeout(5000)).catch(() => {});
       }
     }
@@ -182,8 +181,6 @@ export async function push(
       );
     const sources = anywhere && options.recursive ? await inspectSources() : undefined;
     const writeTarget = sources?.some(({ info }) => info.isDirectory()) === true;
-    // Use the caller's path spelling to compose children. In workspace mode
-    // the host's listing may return a differently spelled absolute root.
     const directory = await remoteDirectory(peer, options.remotePath, signal, writeTarget);
     if (!directory && options.localPaths.length > 1) {
       throw new CliError(

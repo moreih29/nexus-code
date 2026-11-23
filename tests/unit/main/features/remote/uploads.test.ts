@@ -1,4 +1,3 @@
-/** Files another device sends a piece at a time: in order, the size it said, its own, for a while. */
 import { describe, expect, test } from "bun:test";
 import { MAX_BYTES_CHUNK, MAX_UPLOAD_BYTES } from "../../../../../packages/remote-protocol/src";
 import {
@@ -36,9 +35,7 @@ function kit() {
     tick: (ms: number) => {
       clock += ms;
     },
-    /** In how long each sweep set now is due. */
     due: () => [...timers].map((t) => t.ms),
-    /** Runs the sweeps set now, as their time came. */
     sweep: () => {
       for (const timer of [...timers]) {
         timers.delete(timer);
@@ -59,7 +56,6 @@ describe("an uploaded file", () => {
     expect(attachments.find("d", "w", "t", [attachmentId])).toEqual([
       { kind: "file", name: "data.csv", data: b64(text) },
     ]);
-    // It is done: its id is no more.
     expect(() => uploads.end("d", id)).toThrow("no upload");
   });
 
@@ -82,7 +78,6 @@ describe("an uploaded file", () => {
       data: b64(png),
     });
     expect(send("shot", png, "image/png")).toMatchObject({ kind: "image" });
-    // Its type says JPEG, its bytes a PNG: a file, as it is.
     expect(send("shot.jpg", png, "image/jpeg")).toMatchObject({ kind: "file", name: "shot.jpg" });
     const big = Buffer.concat([png, Buffer.alloc(MAX_UPLOAD_IMAGE_BYTES)]);
     expect(send("big.png", big, "image/png")).toMatchObject({ kind: "file", name: "big.png" });
@@ -145,13 +140,11 @@ describe("an uploaded file", () => {
     expect(due()).toEqual([ATTACHMENT_TTL_MS]);
     tick(1000);
     uploads.chunk("d", id, 0, b64(Buffer.alloc(4)));
-    // A piece came: it is kept past the first time up, till that long after the piece.
     tick(ATTACHMENT_TTL_MS - 1000);
     sweep();
     expect(due()).toEqual([1000]);
     tick(1000);
     sweep();
-    // None under way: its pieces are gone, and no sweep is set.
     expect(due()).toEqual([]);
     expect(() => uploads.end("d", id)).toThrow("no upload");
   });

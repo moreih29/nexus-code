@@ -3,7 +3,6 @@ import { type IpcErrResult, ipcErr } from "../../../shared/ipc/result";
 
 export type FsIpcErrorResult = IpcErrResult<"fs-error">;
 
-/** Envelopes filesystem failures while preserving the agent's code and message. */
 export function fsCallError(error: unknown): FsIpcErrorResult | undefined {
   if (!(error instanceof Error)) return;
   const { message } = error;

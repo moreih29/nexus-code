@@ -36,8 +36,6 @@ export function profileForkSettings(
     throw new Error("Codex did not resolve the destination profile's permissions");
   }
 
-  // Keep a deliberate read-only restriction when it narrows a simple
-  // sandbox. A named or managed permissions profile is kept intact.
   const keepReadOnly =
     chosen.readOnly &&
     !policyId &&
@@ -90,7 +88,6 @@ function sameApprovalPolicy(actual: unknown, expected: unknown): boolean {
   );
 }
 
-/** A cross-profile fork must report the destination's permissions before the tab takes it. */
 export function matchesProfileForkSettings(
   request: Record<string, unknown>,
   response: Record<string, unknown>,

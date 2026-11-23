@@ -35,10 +35,6 @@ type CancelParams struct {
 	StreamID string `json:"streamId"`
 }
 
-// Stream executes one git command and emits stdout chunks as git.streamChunk
-// events. When streamStderr is true, stderr is emitted instead while still
-// being buffered for final classification. The final response carries stderr
-// and the exit code.
 func (s *Service) Stream(ctx context.Context, raw json.RawMessage) (any, error) {
 	var params StreamParams
 	if len(raw) == 0 || json.Unmarshal(raw, &params) != nil {
@@ -51,8 +47,6 @@ func (s *Service) Stream(ctx context.Context, raw json.RawMessage) (any, error) 
 		return nil, err
 	}
 
-	// The stream id doubles as the run id, so git.cancel and askpass routing
-	// work as for git.run.
 	streamCtx, cancel, err := s.startRun(ctx, params.StreamID)
 	if err != nil {
 		return nil, err
@@ -78,9 +72,6 @@ func (s *Service) Stream(ctx context.Context, raw json.RawMessage) (any, error) 
 	limit := stdoutBudget(params.StdoutCapBytes)
 	readErr := s.emitStreamChunks(streamCtx, params.StreamID, stdout, limit)
 	if readErr != nil {
-		// Nobody reads stdout any more (the event sink failed or the stream
-		// was cancelled): kill git first, or it blocks on a full pipe and
-		// Wait never returns.
 		cancel()
 	}
 	waitErr := finish()
@@ -127,7 +118,6 @@ func (s *Service) streamCommandStderr(streamCtx context.Context, cancel context.
 	return buildRunResult("", stderr.String(), code, params.Args), nil
 }
 
-// Cancel stops an in-flight git.stream request.
 func (s *Service) Cancel(ctx context.Context, raw json.RawMessage) (any, error) {
 	var params CancelParams
 	if len(raw) == 0 || json.Unmarshal(raw, &params) != nil {
@@ -189,8 +179,6 @@ func (s *Service) emitStreamChunks(ctx context.Context, streamID string, stdout 
 	}
 }
 
-// stderrStream masks complete diagnostic lines so a secret split across
-// reads never reaches a stream event. Git progress also delimits with CR.
 type stderrStream struct {
 	output    streamChunkWriter
 	pending   []byte
@@ -224,7 +212,6 @@ func (s *stderrStream) Write(p []byte) (int, error) {
 	return written, nil
 }
 
-// flush emits one masked line or an explicit diagnostic for an oversized line.
 func (s *stderrStream) flush() error {
 	line := redact.Credentials(string(s.pending))
 	if s.oversized {

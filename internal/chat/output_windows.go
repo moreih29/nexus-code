@@ -11,7 +11,6 @@ import (
 var procMultiByteToWideChar = windows.NewLazySystemDLL("kernel32.dll").NewProc("MultiByteToWideChar")
 var procGetOEMCP = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetOEMCP")
 
-// decodeLegacyCodePage reads b as the OEM code page, then the ANSI one.
 func decodeLegacyCodePage(b []byte) (string, bool) {
 	if len(b) == 0 {
 		return "", false
@@ -32,7 +31,6 @@ func multiByteToUTF8(page uint32, b []byte) (string, bool) {
 	if len(b) > 1<<30 {
 		return "", false
 	}
-	// Flags 0 keeps best-fit mapping; invalid sequences become U+FFFD.
 	n, _, _ := procMultiByteToWideChar.Call(uintptr(page), 0,
 		uintptr(unsafe.Pointer(&b[0])), uintptr(len(b)), 0, 0)
 	if n == 0 {

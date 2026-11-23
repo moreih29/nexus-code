@@ -1,6 +1,3 @@
-/**
- * Log stream handler — wraps GitRepository.log for cancellable IPC streams.
- */
 import type {
   InferArgs,
   InferComplete,
@@ -20,10 +17,6 @@ type LogStreamHandler = (
   ctx: StreamContext,
 ) => AsyncGenerator<LogStreamProgress, LogStreamComplete, unknown>;
 
-/**
- * Builds the log stream handler. The router validates stream args/progress and
- * owns cancellation; this handler passes ctx.signal into repository streaming.
- */
 export function logStream(registry: GitRegistry): LogStreamHandler {
   return async function* (
     { workspaceId, ref, scope, afterSha, grep, skip, limit }: LogStreamArgs,

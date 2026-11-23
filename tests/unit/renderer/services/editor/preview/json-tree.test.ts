@@ -6,7 +6,6 @@ import {
   parseJson,
 } from "../../../../../../src/renderer/services/editor/preview/json-tree";
 
-/** The plain value `value` stands for, numbers as numbers. */
 function plain(value: JsonValue): unknown {
   switch (value.kind) {
     case "object":

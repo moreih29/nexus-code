@@ -1,9 +1,3 @@
-/**
- * Language server status → store, and the toasts a status calls for: a
- * server that is not installed, one that gave up after failing again and
- * again, and the first time the workspace cap stops a workspace's servers.
- */
-
 import i18next from "i18next";
 import { isBuiltinLspPresetLanguageId, resolveLspPreset } from "../../../shared/lsp/config";
 import type { LspServerStatus } from "../../../shared/lsp/status";
@@ -20,22 +14,10 @@ import { registerWorkspaceCleanup } from "../workspace-cleanup";
 
 let unlisten: (() => void) | null = null;
 let unregisterCleanup: (() => void) | null = null;
-/** The cap is explained once a session; the status bar says it after. */
 let evictionExplained = false;
-/**
- * Languages whose missing server was reported, so each workspace that
- * opens a file of the language does not report it again. Cleared once the
- * server runs.
- */
 const missingReported = new Set<string>();
-/**
- * The toast saying a server is missing or gave up, by lspStatusKey: taken
- * down once the server runs, however it was started again, or once its
- * workspace is removed.
- */
 const failureToasts = new Map<string, { id: number; languageId: string; missing: boolean }>();
 
-/** Safe to call more than once — the previous listener is removed first. */
 export function initLspStatusSync(): void {
   unlisten?.();
   unregisterCleanup?.();
@@ -43,8 +25,6 @@ export function initLspStatusSync(): void {
     const store = useLspStatusStore.getState();
     const previous = store.statuses[lspStatusKey(status.workspaceId, status.languageId)];
     if (status.state !== "running") clearProgressFor(status.workspaceId, status.languageId);
-    // A server stopped for idling comes back with the next edit; one turned
-    // off or given up on does not, and its errors would stay on screen.
     if (status.state === "failed" || (status.state === "stopped" && status.stopReason === "off")) {
       clearLspDiagnostics(status.workspaceId, status.languageId);
     }
@@ -60,10 +40,6 @@ export function initLspStatusSync(): void {
   });
 }
 
-/**
- * A removed workspace's toasts go with it. The missing server one reported
- * may then be reported by another workspace that lacks it too.
- */
 function dismissWorkspaceToasts(workspaceId: string): void {
   const prefix = lspStatusKey(workspaceId, "");
   for (const [key, toast] of failureToasts) {
@@ -74,11 +50,6 @@ function dismissWorkspaceToasts(workspaceId: string): void {
   }
 }
 
-/**
- * Takes down the toast about a server once its status popover opens: the
- * popover says the same and offers the same actions, which the toast would
- * cover.
- */
 export function dismissLspFailureToast(workspaceId: string, languageId: string): void {
   const key = lspStatusKey(workspaceId, languageId);
   const toast = failureToasts.get(key);
@@ -111,7 +82,6 @@ function notify(status: LspServerStatus, previous: LspServerStatus | undefined):
       const install = resolveLspPreset(languageId)?.install;
       const toast = showToast({
         kind: "warning",
-        // The install command in plain sight: details stay collapsed.
         message: [
           i18next.t("lsp.notFound", { language, binary: status.missingBinary }),
           install ? i18next.t("lsp.installHint", { command: install }) : "",

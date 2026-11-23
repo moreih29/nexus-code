@@ -1,8 +1,3 @@
-// Capability negotiation reads the server's initialize result and decides
-// whether each text-document lifecycle notification is worth sending. The
-// helpers here are intentionally pure functions so the host class only
-// needs to ask "should I send this?" and not duplicate the schema dance.
-
 import {
   type ServerCapabilities,
   TextDocumentSyncKind,

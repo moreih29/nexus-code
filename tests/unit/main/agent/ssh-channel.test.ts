@@ -317,7 +317,6 @@ describe("createSshChannel", () => {
   it("rejects ready frames with mismatched protocol major versions", async () => {
     const { channel, child } = makeChannel();
 
-    // Protocol major "3" does not match the expected major "2" → mismatch.
     child.stdout.emitData(
       `${JSON.stringify({ type: "ready", protocolVersion: "3", serverVersion: "0.1.0" })}\n`,
     );

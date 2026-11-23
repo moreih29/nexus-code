@@ -32,11 +32,9 @@ class FakeSocket extends EventEmitter {
     this.readyState = 3;
     this.emit("close", 1006);
   }
-  /** The server says something. */
   say(message: object) {
     this.emit("message", Buffer.from(JSON.stringify(message)), false);
   }
-  /** The server refuses the upgrade. */
   refuse(statusCode: number, body: object, retryAfter?: string) {
     const response = Object.assign(new EventEmitter(), {
       statusCode,
@@ -89,7 +87,6 @@ function setup(options: {
       return socket as unknown as VoiceSocket;
     },
   });
-  /** Waits for the next socket a start opens. */
   let seen = 0;
   const socket = async () => {
     for (let i = 0; i < 20 && sockets.length <= seen; i++) await Promise.resolve();
@@ -124,7 +121,6 @@ describe("voice input's socket", () => {
     s.say({ t: "partial", text: "hello" });
     s.say({ t: "final", text: "hello world" });
     voice.stop(result.id);
-    // Audio after the stop is not sent.
     voice.audio(result.id, new Uint8Array([3, 0]));
     s.say({ t: "done", seconds: 2 });
     s.close(1000);
@@ -135,7 +131,6 @@ describe("voice input's socket", () => {
       { t: "done", seconds: 2 },
       { t: "closed", code: 1000 },
     ]);
-    // Closed, another may start.
     const again = voice.start("en");
     (await socket()).say({ t: "ready", format: "pcm_s16le", sampleRate: 24000, maxSeconds: 10 });
     expect((await again).status).toBe("ready");
@@ -267,7 +262,6 @@ describe("voice input's socket", () => {
       },
     });
     expect(await refused.voice.start("ko")).toMatchObject({ status: "failed", reason: "failed" });
-    // A server that no longer takes this version: only an update helps.
     const outdated = setup({
       request: async () => {
         throw new ServerError(400, "unsupported_version", "POST /relay/ticket");
@@ -364,7 +358,6 @@ describe("a note's recording", () => {
     });
     for (const [status, code, reason] of [
       [403, undefined, "expired"],
-      // Over the month's minutes, or too many under way: the token stays good for later.
       [403, "quota_exceeded", "quota"],
       [429, "too_many_transcriptions", "busy"],
       [413, undefined, "too-big"],

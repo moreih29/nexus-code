@@ -1,10 +1,3 @@
-/**
- * SSH/SFTP transport helpers used by the bootstrap orchestrator. These keep
- * one place responsible for shelling out to `ssh`/`sftp`, framing commands,
- * uploading and verifying files, and quoting arbitrary strings into safe
- * shell or sftp tokens.
- */
-
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -19,11 +12,6 @@ import {
   type SshBootstrapRunnerResult,
 } from "./types";
 
-/**
- * Spawns one transport command and collects its stdout/stderr. The bootstrap
- * orchestrator uses this only as a fallback when the caller does not inject
- * a runner; tests inject a mock runner instead.
- */
 export async function defaultRunner(
   command: string,
   args: string[],
@@ -47,7 +35,6 @@ export async function defaultRunner(
   return { stdout: stdout.toString("utf8"), stderr: err };
 }
 
-/** Runs one remote command through ssh with the standard transport args. */
 export async function runSsh(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -61,7 +48,6 @@ export async function runSsh(
   );
 }
 
-/** Builds the sftp command line for batch-mode interactive uploads. */
 export function buildSftpArgs(options: EnsureRemoteAgentOptions): string[] {
   const args: string[] = [];
   if (options.port !== undefined) args.push("-P", String(options.port));
@@ -71,10 +57,7 @@ export function buildSftpArgs(options: EnsureRemoteAgentOptions): string[] {
   return args;
 }
 
-/** Builds the ssh transport args shared by every remote command we run. */
 export function buildSshTransportArgs(options: EnsureRemoteAgentOptions): string[] {
-  // Keepalive so a bootstrap command over a dead connection fails fast (~45s)
-  // rather than hanging on the kernel's default TCP timeout.
   const args = [
     "-o",
     "BatchMode=yes",
@@ -89,7 +72,6 @@ export function buildSshTransportArgs(options: EnsureRemoteAgentOptions): string
   return args;
 }
 
-/** Uploads a local file to a remote path, retries once, and verifies sha256. */
 export async function uploadAndVerifyFile(args: {
   readonly options: EnsureRemoteAgentOptions;
   readonly runner: SshBootstrapRunner;
@@ -107,19 +89,6 @@ export async function uploadAndVerifyFile(args: {
     args.runner,
     `mkdir -p ${quoteShellArg(remoteDir)} && chmod 755 ${args.remoteAgentRoot} ${quoteShellArg(remoteDir)}`,
   );
-  // Best-effort sweep of *stale* `.tmp.<rand>` files left by earlier interrupted
-  // installs (a connection dropped after upload-to-temp but before the rename,
-  // or before our per-attempt rm could run over the now-dead connection).
-  //
-  // `-mmin +5` is critical for multi-workspace / multi-user hosts: several
-  // bootstraps can run against the same shared binary path concurrently (each
-  // writes its own `.tmp.<rand>`), so we must NEVER delete a temp file that a
-  // concurrent upload is still writing. A genuine orphan is minutes old; an
-  // in-flight upload is seconds old, so the age filter leaves it untouched.
-  //
-  // `find -delete` (not a shell glob) makes an empty match a clean no-op under
-  // any login shell — zsh aborts on an unmatched glob, find does not. The
-  // pattern is single-quoted so the login shell passes it to find verbatim.
   await runSsh(
     args.options,
     args.runner,
@@ -133,12 +102,6 @@ export async function uploadAndVerifyFile(args: {
   const progressName = args.progressName ?? path.basename(args.remotePath);
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    // Upload to a unique temp path in the same directory, then atomically
-    // rename it into place. `mv -f` over a file that a lingering OLD agent is
-    // still executing succeeds — the running process keeps the old inode while
-    // the name is repointed to the new one — so a stale remote agent never
-    // blocks reinstall with ETXTBSY ("Text file busy"). Same-dir rename keeps
-    // it on one filesystem, so the swap is atomic with no missing-file window.
     const tmpRemotePath = `${args.remotePath}.tmp.${randomBytes(6).toString("hex")}`;
     try {
       args.onProgress?.({
@@ -150,15 +113,6 @@ export async function uploadAndVerifyFile(args: {
       await uploadFile(args.options, args.runner, args.localPath, tmpRemotePath, payload, {
         executable: args.executable,
       });
-      // `sftp` exits 0 even when an individual `put` fails (a failed transfer
-      // is reported on stderr but never sets a nonzero exit code), so a
-      // transient upload error is invisible to uploadFile() — the temp file
-      // may be missing or truncated. The `mv` below would then throw
-      // ("no such file"), aborting the whole bootstrap. We therefore treat the
-      // entire upload→rename→verify sequence as one fallible attempt: any
-      // failure (missing temp, rename error, or sha mismatch) retries the full
-      // upload instead of propagating, restoring the pre-atomic-install
-      // resilience where the sha check alone gated correctness.
       await runSsh(
         args.options,
         args.runner,
@@ -180,9 +134,6 @@ export async function uploadAndVerifyFile(args: {
     } catch (error) {
       lastError = error;
     }
-    // Best-effort: drop a temp file orphaned by a failed attempt so retries
-    // (and future bootstraps) never accumulate `.tmp.<rand>` litter alongside
-    // the installed binary.
     await runSsh(args.options, args.runner, `rm -f ${quoteShellArg(tmpRemotePath)}`).catch(
       () => undefined,
     );
@@ -193,7 +144,6 @@ export async function uploadAndVerifyFile(args: {
   );
 }
 
-/** sftp put with cat-pipe fallback when sftp is unavailable on the remote. */
 async function uploadFile(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -220,7 +170,6 @@ async function uploadFile(
   }
 }
 
-/** Computes the remote file's sha256 using whichever tool is available. */
 export async function remoteSha256(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
@@ -234,32 +183,15 @@ export async function remoteSha256(
   return result.stdout.trim();
 }
 
-/** Computes a sha256 hex digest for a local buffer. */
 export function sha256(payload: Buffer): string {
   return createHash("sha256").update(payload).digest("hex");
 }
 
-/**
- * Single-quotes a shell argument when it contains unsafe characters; passes
- * obviously safe alphanumeric/path-only values through unchanged.
- */
 export function quoteShellArg(value: string): string {
   if (/^[A-Za-z0-9_@%+=:,./~*-]+$/.test(value)) return value;
   return singleQuoteShellArg(value);
 }
 
-/**
- * The sftp command parser treats whitespace as an argument separator, so a path that contains
- * whitespace or special characters must be wrapped in quotes (this is sftp's own parser,
- * separate from shell quoting). If a path with spaces is passed unquoted to sftp `put`, only the first token is
- * taken as the argument, so the wrong file is uploaded or the sha256 check fails — a regression that appeared at
- * `/Applications/Nexus Code.app/...` when `productName` was
- * `Nexus Code`, caught here as a safety net.
- *
- * OpenSSH sftp treats an argument wrapped in double quotes (`"`) as a single token.
- * A `"` inside the path is rejected because there is no standard way to escape it safely — in practice
- * a `"` almost never appears in an ordinary macOS/Linux path.
- */
 export function sftpQuotePath(value: string): string {
   if (value.includes('"')) {
     throw new Error(
@@ -269,17 +201,11 @@ export function sftpQuotePath(value: string): string {
   return `"${value}"`;
 }
 
-/**
- * Strips `~/` (sftp interprets it as a literal filename) then sftp-quotes the
- * result so that paths containing spaces — e.g. `/Applications/Nexus Code.app`
- * inside a packaged build — survive the sftp tokenizer intact.
- */
 export function sftpRemotePath(value: string): string {
   const stripped = value.startsWith("~/") ? value.slice(2) : value;
   return sftpQuotePath(stripped);
 }
 
-/** Always single-quotes the value, escaping embedded quotes safely. */
 export function singleQuoteShellArg(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }

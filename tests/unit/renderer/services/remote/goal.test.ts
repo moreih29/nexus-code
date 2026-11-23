@@ -23,7 +23,6 @@ describe("another computer's chat's goal", () => {
       "claude",
     );
     expect(met).toMatchObject({ ended: true, status: "met", reason: "They do" });
-    // The same goal, ended: closed, it stays closed.
     expect(met.key).toBe(goal.key);
   });
 

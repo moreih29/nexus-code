@@ -1,16 +1,3 @@
-/**
- * Aggregates the `open`/`request` state for every dialog the git panel mounts
- * (discard, branchCreate, mergeOptions, publish, emptyCommit, stashGroup,
- * addRemote, removeRemote, forcePush, contextBanner).
- *
- * Mirrors the useGitPanelPickers pattern: all state lives here so the panel
- * component's top-level useState block stays focused on data it actually
- * renders, not on dialog plumbing.
- *
- * Variable names match the original inline `useState` bindings so the panel
- * can destructure without touching downstream call sites.
- */
-
 import { useState } from "react";
 import type { BranchList } from "../../../../../shared/git/types";
 import type { GitPushOptions } from "../../../../state/stores/git";

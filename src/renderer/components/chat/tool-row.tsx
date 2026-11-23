@@ -1,6 +1,3 @@
-// One tool call as a row under its turn: what ran and how it ended, folded
-// by default. Open, an edit shows its patch and a command its output.
-
 import { Ban, Check, CircleStop, Layers2, LoaderCircle, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -20,35 +17,25 @@ import { Highlighted, highlightCode, languageOf } from "./code-highlight";
 interface ToolRowProps {
   tool: ToolCall | undefined;
   toolUseId: string;
-  /** Every tool call the tab knows, for an Agent call's own calls. */
   tools: Record<string, ToolCall>;
   toolStatuses: ToolRowStatuses;
   cwd: string;
-  /** Sends a running command or subagent to the background, as Ctrl+B does in the terminal. */
   onBackground?: (toolUseId: string) => void;
 }
 
-/** Tools that run a subagent, whose calls are listed under them. */
 const AGENT_TOOLS = new Set(["Agent", "Task"]);
 
-/** Tools that run commands, and those that change files: each family has its hue. */
 const COMMAND_TOOLS = new Set(["Bash", "BashOutput", "KillShell", "KillBash", "PowerShell"]);
 const EDIT_TOOLS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit", "Delete"]);
 
-/** A tool's name in its family's syntax hue, so commands, edits and the rest read apart. */
 export function toolTint(name: string): string {
   if (COMMAND_TOOLS.has(name)) return "text-[var(--syntax-function)]";
   if (EDIT_TOOLS.has(name)) return "text-[var(--syntax-type)]";
   return "text-[var(--syntax-constant)]";
 }
 
-/**
- * What sends a running call to the background, here and in the side panel:
- * a layer put behind, not an arrow down, which reads as a download.
- */
 export const BackgroundIcon = Layers2;
 
-/** The label for a job running beside the turn, in the conversation and the panel. */
 export function BackgroundBadge({ testId }: { testId?: string }) {
   const { t } = useTranslation();
   return (
@@ -61,7 +48,6 @@ export function BackgroundBadge({ testId }: { testId?: string }) {
   );
 }
 
-/** Longest output an open row shows; the rest is cut. */
 const MAX_OUTPUT_CHARS = 20_000;
 
 export function ToolRow({ tool, toolUseId, tools, toolStatuses, cwd, onBackground }: ToolRowProps) {
@@ -117,7 +103,6 @@ export function ToolRow({ tool, toolUseId, tools, toolStatuses, cwd, onBackgroun
           )}
           <ToggleChevron open={open} />
         </button>
-        {/* Beside the line, not in it: a thumbnail opens its image, not the call. */}
         <ToolThumbs calls={[tool]} />
         {backgroundable && (
           <button
@@ -150,10 +135,6 @@ export function ToolRow({ tool, toolUseId, tools, toolStatuses, cwd, onBackgroun
   );
 }
 
-/**
- * Whether a command runs outside the sandbox: Claude retries one the
- * sandbox stopped with `dangerouslyDisableSandbox`, which asks again.
- */
 export function isUnsandboxed(input: unknown): boolean {
   return (
     typeof input === "object" &&
@@ -182,7 +163,6 @@ function StatusIcon({ status }: { status: ToolRowStatus }) {
   }
 }
 
-/** A call's input and result: an edit's patch, a command's output. */
 export function ToolDetail({ tool, className }: { tool: ToolCall; className?: string }) {
   const { t } = useTranslation();
   const input = (tool.input ?? {}) as Record<string, unknown>;
@@ -269,10 +249,8 @@ function prefix(text: string, mark: string): string[] {
   return text.split("\n").map((line) => `${mark}${line}`);
 }
 
-/** Lines past this many in a patch are shown without syntax colors. */
 const MAX_HIGHLIGHTED_LINES = 2_000;
 
-/** A patch's hunks, each line marked and tinted as added or removed, its code highlighted. */
 export function PatchView({
   hunks,
   language,
@@ -280,7 +258,6 @@ export function PatchView({
 }: {
   hunks: readonly Hunk[];
   language?: string;
-  /** Its size and scrolling: a tool row's box by default. */
   className?: string;
 }) {
   let budget = MAX_HIGHLIGHTED_LINES;
@@ -325,10 +302,6 @@ export function PatchView({
   );
 }
 
-/**
- * A Read result's lines, each `N\t…` (`N→…` from older versions): their
- * numbers and their code apart. Null for text that is not all such lines.
- */
 export function numberedLines(text: string): { numbers: string[]; code: string } | null {
   const lines = text.split("\n");
   if (lines.at(-1) === "") lines.pop();
@@ -344,9 +317,7 @@ export function numberedLines(text: string): { numbers: string[]; code: string }
   return { numbers, code: code.join("\n") };
 }
 
-/** A file as Read gave it: its line numbers in a gutter, its code in the file's colors. */
 function NumberedView({ text, language }: { text: string; language?: string }) {
-  // Cut at a line's end, as Pre cuts at MAX_OUTPUT_CHARS.
   const cut = text.length > MAX_OUTPUT_CHARS ? text.lastIndexOf("\n", MAX_OUTPUT_CHARS) : -1;
   const shown = cut > 0 ? text.slice(0, cut) : text;
   const lines = numberedLines(shown);
@@ -385,7 +356,6 @@ function Pre({
   );
 }
 
-/** The one line a tool call is known by: its command, file or query. */
 export function toolSummary(tool: ToolCall, cwd: string): string {
   const input = (tool.input ?? {}) as Record<string, unknown>;
   const pick = (...keys: string[]) => {
@@ -396,7 +366,6 @@ export function toolSummary(tool: ToolCall, cwd: string): string {
     return "";
   };
   const path = pick("file_path", "notebook_path", "path");
-  // A file Codex moved: where it was, then where it is.
   const from = pick("moved_from");
   if (path && from) return `${relativeTo(from, cwd)} → ${relativeTo(path, cwd)}`;
   if (path) return relativeTo(path, cwd);

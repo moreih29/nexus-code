@@ -51,7 +51,6 @@ func TestRegisterOrderedMarksOnlyThatMethod(t *testing.T) {
 	if res := d.Dispatch(context.Background(), proto.Request{ID: "1", Method: "ordered"}); res.Result != "ok" {
 		t.Fatalf("ordered method not dispatched: %#v", res)
 	}
-	// A later plain registration replaces the ordered one entirely.
 	d.Register("ordered", handler)
 	if d.Ordered("ordered") {
 		t.Fatal("re-registering with Register kept the method ordered")

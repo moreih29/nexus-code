@@ -1,11 +1,3 @@
-/**
- * StashPickerSource — Quick-pick PaletteSource for stash stack operations.
- *
- * The picker opens with the full stash list (`searchOnEmptyQuery`).
- *
- *   - "apply" mode (default): Enter → apply selected stash.
- *   - "drop" mode:            Enter → request drop confirmation for selected stash.
- */
 import i18next from "i18next";
 import type { StashEntry } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
@@ -22,13 +14,9 @@ export interface CreateStashPickerSourceInput {
   mode?: StashPickerMode;
   listStashes: (workspaceId: string, signal?: AbortSignal) => Promise<StashEntry[] | undefined>;
   applyStash: (workspaceId: string, index: number) => Promise<boolean>;
-  /** Called in drop mode when the user selects a stash; caller shows confirm dialog. */
   requestDrop?: (item: StashPickItem) => void;
 }
 
-/**
- * Builds the stash picker source consumed by CommandPalette.
- */
 export function createStashPickerSource(
   input: CreateStashPickerSourceInput,
 ): PaletteSource<StashPickItem> {
@@ -67,9 +55,6 @@ export function createStashPickerSource(
   };
 }
 
-/**
- * Converts a stash entry into the palette row shape.
- */
 function stashToItem(stash: StashEntry): StashPickItem {
   const t = i18next.t.bind(i18next);
   const subject = stash.message.trim() || t("files:git.stashPicker.noMessage");
@@ -84,9 +69,6 @@ function stashToItem(stash: StashEntry): StashPickItem {
   };
 }
 
-/**
- * Case-insensitive match against label, stash subject, branch, and SHA.
- */
 function matchesStashQuery(item: StashPickItem, lowerQuery: string): boolean {
   if (lowerQuery.length === 0) return true;
   return [item.label, item.stash.message, item.stash.branch ?? "", item.stash.sha].some((value) =>

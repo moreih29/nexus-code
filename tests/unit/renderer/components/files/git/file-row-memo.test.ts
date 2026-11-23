@@ -1,7 +1,3 @@
-/**
- * A changed file's row in the Source Control panel renders only for its own
- * file, and its menu, shared by all rows, does what the row's own did.
- */
 import { describe, expect, mock, test } from "bun:test";
 import {
   type GitFileActions,

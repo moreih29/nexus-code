@@ -2,23 +2,17 @@ import { useMemo } from "react";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { type Tab, useTabsStore } from "../../state/stores/tabs";
 
-/** A session as a tab's list shows it: a Claude session, or a Codex thread. */
 export interface ListedSession {
   sessionId: string;
   title: string;
   firstPrompt?: string;
   gitBranch?: string;
-  /** Milliseconds since the epoch. */
   lastModified: number;
-  /** Bytes its transcript takes, when known. */
   size?: number;
-  /** Its transcript's path on the workspace's host, when the list gives it (a Codex thread's). */
   path?: string;
-  /** The profile that keeps it. */
   profileId: string;
 }
 
-/** Whether a session's title or first prompt has every word of `query` (any case); any for none. */
 export function sessionMatches(
   session: Pick<ListedSession, "title" | "firstPrompt">,
   query: string | undefined,
@@ -29,7 +23,6 @@ export function sessionMatches(
   return words.every((word) => text.includes(word));
 }
 
-/** The sessions with the sizes of their transcripts, where their paths are known. */
 export async function withTranscriptSizes<T extends Pick<ListedSession, "path" | "size">>(
   workspaceId: string,
   sessions: readonly T[],
@@ -43,7 +36,6 @@ export async function withTranscriptSizes<T extends Pick<ListedSession, "path" |
   });
 }
 
-/** The workspace's Claude tabs by the session each has open, but `exceptTabId`. */
 export function sessionTabs(
   tabs: Readonly<Record<string, Tab>> | undefined,
   exceptTabId: string,
@@ -61,7 +53,6 @@ export function useSessionTabs(workspaceId: string, exceptTabId: string): Map<st
   return useMemo(() => sessionTabs(tabs, exceptTabId), [tabs, exceptTabId]);
 }
 
-/** The workspace's Codex tabs by the thread each has open, but `exceptTabId`. */
 export function useCodexThreadTabs(workspaceId: string, exceptTabId: string): Map<string, string> {
   const tabs = useTabsStore((s) => s.byWorkspace[workspaceId]);
   return useMemo(() => {

@@ -3,24 +3,13 @@ import type { LayoutLeaf, LayoutNode, LayoutSplit } from "@/state/stores/layout"
 import { LeafPane } from "./leaf-pane";
 import { SplitPane } from "./split-pane";
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
 interface LayoutTreeProps {
   workspaceId: string;
   root: LayoutNode;
   onActivateGroup: (groupId: string) => void;
-  /** Root path used by GroupView when creating new terminal tabs. */
   workspaceRootPath: string;
 }
 
-// ---------------------------------------------------------------------------
-// LayoutTree
-// ---------------------------------------------------------------------------
-
-// Memoized: the groups and their tab bars render for the layout and their
-// own stores, not each time the workspace's panel does.
 export const LayoutTree = memo(function LayoutTree({
   workspaceId,
   root,
@@ -38,14 +27,9 @@ export const LayoutTree = memo(function LayoutTree({
   );
 });
 
-// ---------------------------------------------------------------------------
-// Internal recursive renderer
-// ---------------------------------------------------------------------------
-
 interface LayoutNodeProps {
   workspaceId: string;
   node: LayoutNode;
-  /** The root of the full tree — used to detect sole-leaf case. */
   rootNode: LayoutNode;
   onActivateGroup: (groupId: string) => void;
   workspaceRootPath: string;

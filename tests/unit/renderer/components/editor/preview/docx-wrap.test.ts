@@ -14,7 +14,6 @@ function stylesXml(defaults: string, styles: string): string {
   ].join("");
 }
 
-/** As Korean Word's Normal template writes its paragraph defaults. */
 const KOREAN_DEFAULTS =
   '<w:pPr><w:widowControl w:val="0"/><w:wordWrap w:val="0"/><w:autoSpaceDE w:val="0"/><w:jc w:val="both"/></w:pPr>';
 

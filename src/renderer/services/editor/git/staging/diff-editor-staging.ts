@@ -1,21 +1,8 @@
-/**
- * Stage and unstage actions on a Source Control diff — the "Stage" action of
- * VSCode's diff editor gutter and its "Stage Selected Ranges", with their
- * unstage counterparts on a diff of staged changes.
- *
- * Each change the diff shows gets a glyph by its first line in the modified
- * editor's glyph margin; clicking it stages (or unstages) that change. The
- * modified editor's context menu does the same for the lines its selections
- * cover. The glyphs follow the diff editor's own changes, so they sit on what
- * the diff shows; staging re-reads the index (see stage-lines.ts).
- */
-
 import i18next from "i18next";
 import type * as Monaco from "monaco-editor";
 import { type LineRange, lineChangeOfMonaco, selectedLineRange } from "./line-changes";
 import { stageLines, unstageLines } from "./stage-lines";
 
-/** What a diff stages: working changes into the index, or staged ones out of it. */
 export type DiffStaging =
   | { kind: "stage"; workspaceId: string; relPath: string }
   | { kind: "unstage"; workspaceId: string; relPath: string; headRelPath: string };
@@ -33,7 +20,6 @@ function injectStyles(): void {
   document.head.appendChild(style);
 }
 
-/** Adds the staging glyphs and context-menu action to `diffEditor` until disposed. */
 export function installDiffStaging(
   diffEditor: Monaco.editor.IStandaloneDiffEditor,
   monaco: typeof Monaco,
@@ -54,7 +40,6 @@ export function installDiffStaging(
   const paint = () => {
     changes = (diffEditor.getLineChanges() ?? []).map((change) => {
       const lines = lineChangeOfMonaco(change).modified;
-      // A deletion has no lines of its own; mark the line above its gap.
       const deletion = lines.startLineNumber === lines.endLineNumberExclusive;
       return {
         anchor: deletion ? Math.max(1, lines.startLineNumber - 1) : lines.startLineNumber,

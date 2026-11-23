@@ -1,4 +1,3 @@
-/** Whether an agent on another computer may do what it asks here. */
 import { describe, expect, test } from "bun:test";
 import path from "node:path";
 import type { CliServices } from "../../../../../src/main/features/cli/context";
@@ -163,7 +162,6 @@ describe("an agent's request from another computer", () => {
       code: 1003,
       message: "too many messages from that agent",
     });
-    // Another agent of that computer has its own share.
     await g.check(services, send({ tabId: "other" }));
     later(60_000);
     await g.check(services, send());
@@ -176,7 +174,6 @@ describe("an agent's request from another computer", () => {
       code: 1003,
       message: "too many messages from that device",
     });
-    // Another computer has its own share.
     await g.check(services, { ...send(), device: { id: "dev-2", name: "Mini" } });
     later(60_000);
     await g.check(services, send({ tabId: "fresh" }));
@@ -201,11 +198,9 @@ describe("an agent's request from another computer", () => {
       code: 1003,
       message: expect.stringContaining("prompts waiting already"),
     });
-    // Another computer's agent is asked about.
     const other = g.check(services, { ...send(), device: { id: "dev-2", name: "Mini" } });
     await Bun.sleep(0);
     expect(answers).toHaveLength(4);
-    // One answered, one more may wait.
     answers[0]?.("deny");
     await expect(waiting[0]).rejects.toMatchObject({ code: 1002 });
     const next = g.check(services, send({ tabId: "t4" }));
@@ -220,7 +215,6 @@ describe("an agent's request from another computer", () => {
     await g.check(services, send());
     expect(asked[0]).toMatchObject({
       fromDevice: "MacBook",
-      // Told to the computers that list the prompt, that one included.
       fromDeviceId: "dev-1",
       fromName: "Fix build",
       fromWorkspaceId: "bw",
@@ -250,7 +244,6 @@ describe("an agent's request from another computer", () => {
       method: "chat.close" as const,
       params: { workspaceId: "w1", tabId: "t1", from },
     });
-    // What it sends or runs there too.
     await g.check(services, send());
     await g.check(services, {
       device,
@@ -258,7 +251,6 @@ describe("an agent's request from another computer", () => {
       params: { workspaceId: "w1", command: "make deploy", from },
     });
     expect(asked).toHaveLength(1);
-    // Another workspace here is asked about again.
     await g.check(services, interrupt("w2"));
     expect(asked.map((a) => a.toWorkspaceId)).toEqual(["w1", "w2"]);
   });
@@ -365,7 +357,6 @@ test("the sender a chat keeps: who, and on which computer", () => {
     tabId: "bt",
     device,
   });
-  // Whether it waits to read the answer, as a device of 0.13.0 or later tells it.
   expect(relaySenderOf({ ...from, waits: false }, device)).toMatchObject({ waits: false });
   expect(relaySenderOf({ ...from, waits: true }, device)).toMatchObject({ waits: true });
   const ids = { workspaceId: "w".repeat(64), tabId: "t".repeat(64) };

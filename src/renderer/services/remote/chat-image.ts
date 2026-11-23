@@ -1,13 +1,3 @@
-/**
- * An image of a chat as another device asks for it (chat.image): a user
- * message's, a tool result's or a message's held for after the turn, sent
- * as it is when it fits in a frame and is of a type the other device
- * takes, else drawn smaller as a JPEG till it fits; drawn smaller too when it is wider or taller than the device
- * asked for (a thumbnail). Not one whose header says it is huge, or tells
- * no size: drawing it would decode all of it, here or there (a
- * decompression bomb).
- */
-
 import type { CliChatImage } from "../../../shared/cli/ui";
 import { decodable, pixelSizeOf } from "../../../shared/remote/image-size";
 import type { ImageBlock } from "../chat/model";
@@ -26,10 +16,8 @@ const SENT_AS_IS: ReadonlySet<string> = new Set([
   "image/webp",
 ]);
 
-/** How many times an image is drawn smaller before it is given up on. */
 const MAX_TRIES = 6;
 
-/** The image the ref names in the tab's conversation; null when there is none. */
 export function imageOf(source: ChatSource, ref: ChatImageRef): ImageBlock | null {
   if (ref.kind === "held") {
     return source.chat.queue.find((q) => q.id === ref.id)?.images[ref.index] ?? null;
@@ -42,10 +30,8 @@ export function imageOf(source: ChatSource, ref: ChatImageRef): ImageBlock | nul
   return tools[ref.toolUseId]?.result?.images[ref.index] ?? null;
 }
 
-/** The image drawn at `scale` of its size, as a JPEG. */
 export type Shrink = (image: ImageBlock, scale: number) => Promise<Required<CliChatImage>>;
 
-/** What an image is fitted to: its base64's length, and its longer side's pixels when asked. */
 export interface ImageLimits {
   maxChars: number;
   maxEdge?: number;
@@ -63,10 +49,6 @@ function planImageFit(image: ImageBlock, { maxChars, maxEdge }: ImageLimits) {
   return { size, scale, sendAsIs };
 }
 
-/**
- * The image, as it is or drawn smaller: its base64 at most `maxChars`, its
- * longer side at most `maxEdge` pixels. Its size in pixels goes with it.
- */
 export async function fitImage(
   image: ImageBlock,
   limits: ImageLimits,
@@ -82,9 +64,6 @@ export async function fitImage(
       height: plan.size.height,
     };
   }
-  // A JPEG may take far less than the PNG it was. Then smaller as its
-  // base64 grows with the pixels, by the square root of the share to lose,
-  // and a little more.
   let scale = plan.scale;
   for (let tries = 0; tries < MAX_TRIES; tries++) {
     const shrunk = await shrink(image, scale);
@@ -94,7 +73,6 @@ export async function fitImage(
   throw new UiRequestError("the image would not get small enough to send");
 }
 
-/** Hash the source bytes and requested representation before decoding or resizing. */
 export async function readChatImage(
   image: ImageBlock,
   limits: ImageLimits & { versioned?: true; ifVersion?: string },
@@ -146,7 +124,6 @@ const shrinkOnCanvas: Shrink = async (image, scale) => {
   const canvas = new OffscreenCanvas(width, height);
   const context = canvas.getContext("2d");
   if (!context) throw new UiRequestError("no canvas to draw the image on");
-  // A JPEG has no transparency: what was clear shows white, as on a page.
   context.fillStyle = "#fff";
   context.fillRect(0, 0, width, height);
   context.drawImage(bitmap, 0, 0, width, height);

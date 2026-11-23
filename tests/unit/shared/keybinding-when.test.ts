@@ -35,14 +35,12 @@ describe("parseWhen / evaluateWhen", () => {
   });
 
   it("respects AND precedence over OR (a || b && c)", () => {
-    // a || (b && c)
     expect(ev("a || b && c", { a: false, b: true, c: true })).toBe(true);
     expect(ev("a || b && c", { a: false, b: true, c: false })).toBe(false);
     expect(ev("a || b && c", { a: true, b: false, c: false })).toBe(true);
   });
 
   it("respects parentheses to override precedence", () => {
-    // (a || b) && c
     expect(ev("(a || b) && c", { a: true, b: false, c: false })).toBe(false);
     expect(ev("(a || b) && c", { a: true, b: false, c: true })).toBe(true);
   });
@@ -52,8 +50,6 @@ describe("parseWhen / evaluateWhen", () => {
   });
 
   it("supports dotted identifiers", () => {
-    // VSCode uses keys like "editorTextFocus" but also "editorLangId == typescript".
-    // We don't support comparison yet but dotted names are valid identifiers.
     expect(ev("ui.fileTree.focused", { "ui.fileTree.focused": true })).toBe(true);
   });
 

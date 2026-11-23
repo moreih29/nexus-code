@@ -61,7 +61,6 @@ export function PeerGitPanel({ rejoin, ...props }: PeerGitPanelProps) {
       className="flex min-h-0 flex-1 flex-col"
       aria-label={t("files:git.panel.header.title")}
     >
-      {/* The local panel's title row; nothing is staged or committed from here. */}
       <GitHeaderBar
         disabled={!props.canRead || upgrade}
         hasChanges={(gitStatus?.files.length ?? 0) > 0}
@@ -130,13 +129,11 @@ function PeerGitChanges({
         : gitError
           ? t("peerWorkspace.connectionUnavailable")
           : null;
-  // The local panel's groups, folded as the user folds them while the workspace is shown.
   const [folded, setFolded] = useState<ReadonlySet<PeerGitGroupKey>>(() => new Set());
   const [menu, setMenu] = useState<PeerGitMenu | null>(null);
   const groups = useMemo(() => (gitStatus ? peerGitEntries(gitStatus.files) : null), [gitStatus]);
   const workspaceRoot = target.workspace.path;
   const topLevel = gitStatus?.topLevel;
-  // The local rows' actions, only those that look: nothing is staged, discarded or resolved.
   const actions = useMemo<GitGroupActions>(() => {
     const fileOf = (entry: GitStatusEntry) => groups?.files.get(entry.relPath);
     const absolute = (entry: GitStatusEntry) =>
@@ -267,7 +264,6 @@ function PeerGitChanges({
   );
 }
 
-/** The tree view's open folders, per group, as the header's toggle opens and closes them all. */
 interface PeerGitTrees {
   viewMode: ViewMode;
   expandedTreeNodes: GitExpandedTreeNodes;
@@ -280,15 +276,10 @@ interface PeerGitMenu {
   point: GitContextMenuPoint;
 }
 
-/** The side a group's comparison shows. */
 const PEER_GIT_SIDE = Object.fromEntries(
   PEER_GIT_GROUPS.map(({ key, side }) => [key, side]),
 ) as Record<PeerGitGroupKey, PeerGitSide>;
 
-/**
- * The changes as the local panel's entries: the path Git reports (from the
- * repository's root, as locally), its old path, and the two status letters.
- */
 export function peerGitEntries(files: readonly PeerGitFile[]): {
   entries: Record<PeerGitGroupKey, GitStatusEntry[]>;
   files: ReadonlyMap<string, PeerGitFile>;
@@ -311,7 +302,6 @@ export function peerGitEntries(files: readonly PeerGitFile[]): {
   };
 }
 
-/** Every folder of each group's files, the tree view's "expand all". */
 export function allPeerGitTrees(
   entries: Record<PeerGitGroupKey, GitStatusEntry[]>,
 ): GitExpandedTreeNodes {
@@ -325,7 +315,6 @@ export function allPeerGitTrees(
 
 function noop(): void {}
 
-/** The menu's actions before any row opened it, while it shows nothing. */
 const CLOSED_MENU: GitFileContextMenuActions = {
   openFile: noop,
   openChanges: noop,

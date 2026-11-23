@@ -1,4 +1,3 @@
-/** A workspace's files searched from another device: by name, and for text, in its agent. */
 import { describe, expect, jest, test } from "bun:test";
 import type { FsProvider } from "../../../../../src/main/features/fs/bridge/provider";
 import { findFiles, searchFiles } from "../../../../../src/main/features/remote/search";
@@ -9,11 +8,6 @@ interface Call {
   params: Record<string, unknown>;
 }
 
-/**
- * An agent that answers search.files with `found`, and search.text by
- * sending `batches` as progress then answering, or never answering when
- * `hang`.
- */
 function fakeAgent(
   options: {
     found?: { files: string[]; truncated: boolean } | Error;
@@ -45,7 +39,6 @@ function fakeAgent(
       if (method === "search.cancel") return {};
       if (options.fail) throw options.fail;
       const searchId = params.searchId as string;
-      // Another search's progress is not this one's.
       emit("search.progress", {
         searchId: "other",
         batch: [{ relPath: "other.ts", matches: [] }],
@@ -151,7 +144,6 @@ describe("searching files for text", () => {
       maxResults: 201,
       maxFileSize: expect.any(Number),
     });
-    // Answered: nothing left to cancel.
     expect(calls.map((c) => c.method)).toEqual(["search.text"]);
   });
 

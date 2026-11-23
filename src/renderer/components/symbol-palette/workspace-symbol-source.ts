@@ -20,15 +20,9 @@ interface CreateWorkspaceSymbolPaletteSourceInput {
   workspaceId: string;
   workspaceRoot: string;
   search?: typeof searchWorkspaceSymbols;
-  /**
-   * Editor open + selection seam — defaults to `revealEditorAt`. Tests
-   * inject a stub to assert the open + selection arguments without
-   * touching the real tab/registry stores.
-   */
   openEditor?: typeof revealEditorAt;
 }
 
-/** LSP SymbolKind (0-based, as Monaco numbers it) → common:palette.symbol_kind key. */
 const SYMBOL_KIND_KEYS: Record<number, string> = {
   0: "file",
   1: "module",

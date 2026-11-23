@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { decodeEntities, scanXml } from "../../../../../src/renderer/services/editor/preview/xml";
 
-/** What the scanner reports, in order, as short strings. */
 function scan(xml: string): string[] {
   const events: string[] = [];
   scanXml(xml, {

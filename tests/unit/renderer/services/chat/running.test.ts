@@ -54,16 +54,11 @@ describe("canBackground", () => {
 
 describe("activityOf", () => {
   const tools: Record<string, ToolCall> = {
-    // A subagent the turn waits on, and one it started in the background.
     sync: call("sync", "Agent", { description: "write tests" }),
     async: call("async", "Agent", { run_in_background: true }, { status: "done" }),
-    // A command the turn waits on, with no task yet.
     fg: call("fg", "Bash", { command: "bun run test:e2e\n--bail", description: "" }),
-    // One the user is asked about first.
     asked: call("asked", "Bash", { command: "rm -rf build", description: "Clean the build" }),
-    // A command started in the background: its job tells it.
     bg: call("bg", "Bash", { command: "bun dev", run_in_background: true }),
-    // One just sent to the background: its call has not ended yet.
     sent: call("sent", "Bash", { command: "make" }),
   };
   const items = [said(100, "sync", "async"), said(200, "fg", "asked"), said(300, "bg", "sent")];
@@ -115,7 +110,6 @@ describe("activityOf", () => {
     });
     expect(byKey.get("call:asked")).toMatchObject({ waited: true, description: "Clean the build" });
     expect(byKey.get("call:asked")?.foreground).toBeUndefined();
-    // Its job and its call are one row.
     expect(byKey.get("job:j-sent")).toMatchObject({ waited: true, foreground: "sent" });
     expect(activity.running.some((row) => row.key === "call:sent")).toBe(false);
   });
@@ -226,7 +220,6 @@ describe("heldBack", () => {
     const { shown, nextAt } = heldBack(activity.running, now);
     expect(shown.map((row) => row.key).sort()).toEqual(["call:old", "job:j1", "sub"]);
     expect(nextAt).toBe(now - 1_000 + WAITED_CALL_DELAY_MS);
-    // Once due, it shows, and nothing waits.
     const later = heldBack(activity.running, now + 2_000);
     expect(later.shown).toBe(activity.running);
     expect(later.nextAt).toBeUndefined();

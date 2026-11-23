@@ -1,7 +1,3 @@
-/**
- * The window's side of the keychain: the question before it is read (after
- * the release notes close), and the toast while macOS asks.
- */
 import { beforeEach, expect, mock, test } from "bun:test";
 import type { KeychainStatus } from "../../../../src/shared/keychain";
 
@@ -33,7 +29,6 @@ mock.module("../../../../src/renderer/components/ui/confirm-dialog", () => ({
     if (signal) signals.push(signal);
     return new Promise<boolean>((resolve) => {
       confirm = resolve;
-      // Closed without an answer, as the dialog does.
       signal?.addEventListener("abort", () => resolve(false));
     });
   },

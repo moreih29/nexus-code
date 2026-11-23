@@ -1,4 +1,3 @@
-// Side-effect import: registers the workspace:removed subscription on module load.
 import "./subscriber";
 
 export { useLayoutStore } from "./store";

@@ -1,24 +1,3 @@
-/**
- * Shared per-(workspace × panelKind) view options store.
- *
- * Both the git panel and the search panel need the same view options
- * (currently: viewMode) with the same IPC persistence semantics. This store
- * centralises that logic rather than duplicating it in each panel's store.
- *
- * State shape:
- *   entries: Map<`${PanelKind}:${workspaceId}`, { viewMode }>
- *
- * Actions:
- *   loadViewOptions(panelKind, workspaceId) — seed from IPC; skips if loaded.
- *   setViewMode(panelKind, workspaceId, next) — update + debounced persist.
- *   closeForWorkspace(workspaceId) — cancel timers and drop entries.
- *
- * Selectors:
- *   useViewOptions(panelKind, workspaceId) — returns entry with stable EMPTY
- *     fallback per PanelKind (avoids React getSnapshot warning).
- *   usePanelViewOptionsStore — raw zustand store access.
- */
-
 import { create } from "zustand";
 import { createLogger } from "../../../../shared/log/renderer";
 import type { PanelKind, ViewMode } from "../../../../shared/types/panel";
@@ -28,10 +7,6 @@ import { registerWorkspaceCleanup } from "../../workspace-cleanup";
 import { cancelViewOptionsSave, scheduleViewOptionsSave } from "./io";
 
 const log = createLogger("panel-view-options");
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export interface PanelViewEntry {
   viewMode: ViewMode;
@@ -44,31 +19,14 @@ interface PanelViewOptionsState {
   closeForWorkspace: (workspaceId: string) => void;
 }
 
-// ---------------------------------------------------------------------------
-// Stable empty-fallback sentinels — one per PanelKind.
-//
-// Returning a fresh object from a useSyncExternalStore selector triggers
-// React's "getSnapshot should be cached" warning and can cause infinite
-// re-renders. We reuse frozen fallbacks per PanelKind so that consumers
-// that haven't yet called loadViewOptions see a stable reference.
-// ---------------------------------------------------------------------------
-
 const EMPTY_FALLBACKS: Record<PanelKind, Readonly<PanelViewEntry>> = {
   git: Object.freeze({ ...DEFAULT_VIEW_OPTIONS_BY_PANEL.git }),
   search: Object.freeze({ ...DEFAULT_VIEW_OPTIONS_BY_PANEL.search }),
 };
 
-// ---------------------------------------------------------------------------
-// Key helper
-// ---------------------------------------------------------------------------
-
 function entryKey(panelKind: PanelKind, workspaceId: string): string {
   return `${panelKind}:${workspaceId}`;
 }
-
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
 
 export const usePanelViewOptionsStore = create<PanelViewOptionsState>((set, get) => ({
   entries: new Map(),
@@ -77,7 +35,6 @@ export const usePanelViewOptionsStore = create<PanelViewOptionsState>((set, get)
     const key = entryKey(panelKind, workspaceId);
     if (get().entries.has(key)) return;
 
-    // Seed defaults immediately so components render without waiting for IPC.
     const defaults = { ...DEFAULT_VIEW_OPTIONS_BY_PANEL[panelKind] };
     set((state) => {
       const next = new Map(state.entries);
@@ -132,16 +89,6 @@ registerWorkspaceCleanup((workspaceId) => {
   usePanelViewOptionsStore.getState().closeForWorkspace(workspaceId);
 });
 
-// ---------------------------------------------------------------------------
-// Selector helper
-// ---------------------------------------------------------------------------
-
-/**
- * Subscribe to the view options for a (panelKind, workspaceId) pair.
- * Returns the per-panel stable EMPTY fallback when no entry exists yet
- * (before loadViewOptions has been called) so callers always get a valid
- * reference without needing to null-check.
- */
 export function useViewOptions(panelKind: PanelKind, workspaceId: string): PanelViewEntry {
   return usePanelViewOptionsStore(
     (s) => s.entries.get(entryKey(panelKind, workspaceId)) ?? EMPTY_FALLBACKS[panelKind],

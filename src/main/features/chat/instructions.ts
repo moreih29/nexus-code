@@ -45,11 +45,9 @@ export interface ClaudeInstructionHook {
 
 interface ForkInstructions {
   sessionId: string;
-  /** Null when the copied history may omit the source's latest block. */
   digest: string | null;
 }
 
-/** The id Claude uses for a resume, including when a profile supplies a transcript path. */
 export function claudeResumeId(resume: string | undefined): string | undefined {
   return instructionSessionId(
     resume
@@ -63,7 +61,6 @@ export function instructionSessionId(value: unknown): string | undefined {
   return claudeSessionId.safeParse(value).data;
 }
 
-/** Carry the startup baseline and any fork snapshot across a desktop reconnect. */
 export function claudeInstructionLaunch(text: string, fork?: ForkInstructions): string {
   return [randomUUID(), digest(text), ...(fork ? [fork.sessionId, fork.digest ?? ""] : [])].join(
     ":",
@@ -88,7 +85,6 @@ export function claudeInstructionUpdate(
   current: string,
   restoring: boolean,
 ): { text: string; digest: string } | undefined {
-  // A fork with unknown instructions sends its replacement with the first prompt.
   if (restoring && previous === null) return undefined;
   const next = digest(current);
   const last = previous === undefined ? systemDigest : previous;

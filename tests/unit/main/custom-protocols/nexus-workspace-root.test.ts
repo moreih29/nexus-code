@@ -1,6 +1,3 @@
-// The workspace root a local file of nexus-workspace:// must stay inside,
-// however the root was saved: Windows roots can hold "/" (C:/repo).
-
 import { afterAll, describe, expect, mock, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";

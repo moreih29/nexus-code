@@ -1,8 +1,3 @@
-/**
- * A read receipt another device sends (sessions.markSeen) leaves its result
- * read in every list made after it comes, even one from an unread map read
- * before the renderer took it.
- */
 import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import type { CliServices } from "../../../../../src/main/features/cli/context";
 import { serveWith } from "../../../../../src/main/features/remote/serve";
@@ -14,7 +9,6 @@ type Unread = Record<string, Record<string, number>>;
 
 function host() {
   let revision = 10;
-  /** The renderer's unread map now; markSeen takes what it covers out. */
   let unread: Unread | undefined = { w1: { t1: 50, t2: 70 } };
   let snapshotGate: Promise<void> | undefined;
   let markSeenGate: Promise<void> | undefined;
@@ -34,7 +28,6 @@ function host() {
     ) => {
       if (op === "sessions.snapshot") {
         reads++;
-        // What the renderer has when it takes the request, sent once the test lets it.
         const at = revision;
         const map = unread && structuredClone(unread);
         await snapshotGate;
@@ -66,7 +59,6 @@ function host() {
             delete unread?.[workspaceId]?.[tabId];
             marked++;
           }
-          // The renderer counts the change; main hears of it a little later.
           revision++;
           return { marked };
         };
@@ -89,7 +81,6 @@ function host() {
         method: "sessions.markSeen",
         params: { seen: [{ workspaceId: "w1", tabId, upTo }] },
       }),
-    /** The renderer's sessionsChanged reaches main. */
     told: () => revisions.saw(revision),
     holdSnapshot() {
       const gate = Promise.withResolvers<void>();
@@ -115,7 +106,6 @@ function host() {
       markSeenTimeout = timeout.promise;
       return () => timeout.reject(new Error("NexusCode's window did not answer"));
     },
-    /** The renderer's unread map now, as when a result came back or was not taken. */
     setUnread: (next: Unread | undefined) => {
       unread = next;
     },
@@ -137,7 +127,6 @@ test("a list read before a receipt and made after it leaves the result read", as
   const app = host();
   const release = app.holdSnapshot();
   const list = states(app.services);
-  // The phone marks t1 read while the renderer's answer, from before, is on its way.
   expect(await app.markSeen("t1", 50)).toEqual({ marked: 1 });
   release();
   expect(await list).toEqual({ t1: "idle", t2: "new-result" });
@@ -180,7 +169,6 @@ test("a receipt covers only up to its time, and a map read after the renderer to
   await app.markSeen("t1", 49);
   release();
   expect(await list).toEqual({ t1: "new-result", t2: "new-result" });
-  // The renderer took it and still lists the result (as one at upTo it did not mark).
   await app.markSeen("t2", 70);
   jest.advanceTimersByTime(1);
   app.told();
@@ -206,7 +194,6 @@ test("a receipt counts for a while only", async () => {
   app.setUnread(undefined);
   expect(await states(app.services)).toEqual({ t1: "idle", t2: "new-result" });
   jest.advanceTimersByTime(30_000);
-  // The kept map is gone too: the rows read as their chats tell.
   expect(await states(app.services)).toEqual({ t1: "idle", t2: "idle" });
 });
 

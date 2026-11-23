@@ -42,7 +42,6 @@ const update = { workspaceId: id, noteId, recordedMs: 0, paused: false };
 beforeEach(resetInMemoryIpc);
 afterEach(resetInMemoryIpc);
 
-/** Registers the notes channel for a single workspace without reaching disk. */
 async function setupNotes() {
   await setupInMemoryRouter();
   return registerNotesChannel({
@@ -194,7 +193,6 @@ test("a task's linked chat reports into the parent's note and broadcasts link ch
     } as const;
     expect(await notes.reportLine({ ...tab, agent: "codex" }, noteId, report)).toBe(true);
     const reportedAt = (await notes.store.read(parent, noteId)).updatedAt;
-    // A closing editor flushes the draft it captured before receiving lineReported.
     const draft = {
       ...open.doc,
       type: "doc" as const,
@@ -220,7 +218,6 @@ test("a task's linked chat reports into the parent's note and broadcasts link ch
         { attrs: { nexusOrigin: `report:${linkId}` }, content: [{ type: "text", text: "Passed" }] },
       ],
     });
-    // Once the editor has seen the report, it may uncheck the item and delete the paragraph.
     expect(
       await ipc.call("notes", "save", {
         workspaceId: id,

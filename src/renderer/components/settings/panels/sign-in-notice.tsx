@@ -1,11 +1,3 @@
-// src/renderer/components/settings/panels/sign-in-notice.tsx
-//
-// Why the last sign-in did not finish, as a notice: what happened, the line
-// saying the server takes approved accounts only when that is why, what to
-// do, and its buttons. Settings › Remote shows it whole; the Other computers
-// list, narrow, shows the title and one line under it. The browser's page
-// after the sign-in (main's loopback) says the same words.
-
 import { CircleAlert, Clock, Info } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -20,10 +12,8 @@ import {
 } from "../../../../shared/remote/account";
 import { bannerColorClass } from "../../ui/banner";
 
-/** A failure the notice tells; a sign-in the user cancelled in the app goes unsaid. */
 export type ShownSignInFailure = Exclude<SignInFailure, "cancelled">;
 
-// The error tone tints the whole box (and so its icon); the others say theirs by the icon.
 const ICON_TONE: Record<SignInFailureTone, string> = {
   info: "text-[var(--state-info-fg)]",
   warning: "text-[var(--state-warning-fg)]",
@@ -38,9 +28,7 @@ export function SignInNotice({
   dismiss,
 }: {
   failure: ShownSignInFailure;
-  /** The sign-in a pending approval is for: its body names it, to sign in again with. */
   provider?: SignInProvider;
-  /** The narrow list's: the title and one line, the approved-only line when there is one. */
   compact?: boolean;
   actions?: ReactNode;
   dismiss?: ReactNode;

@@ -1,9 +1,3 @@
-/**
- * BranchPicker — VS Code-style branch quick-pick. Switch mode matches the
- * `git.checkout` command; branch action modes reuse the same list chrome while
- * narrowing filter and accept behavior for rename/delete flows.
- */
-
 import i18next from "i18next";
 import { AlertDialog as RadixAlertDialog } from "radix-ui";
 import type React from "react";
@@ -199,9 +193,6 @@ export interface ConfirmDeleteDeps {
   setDeleteRequest: Dispatch<SetStateAction<BranchDeleteRequest | null>>;
 }
 
-/**
- * Describes the shortcut footer for each branch picker mode.
- */
 function defaultFooterForMode(mode: Exclude<BranchPickerMode, "checkout">): string {
   const t = i18next.t.bind(i18next);
   switch (mode) {
@@ -218,9 +209,6 @@ function defaultFooterForMode(mode: Exclude<BranchPickerMode, "checkout">): stri
   }
 }
 
-/**
- * Converts a branch picker row into the correct local or remote delete request.
- */
 function branchDeleteRequestFromItem(item: BranchPickItem): BranchDeleteRequest | null {
   if (item.current) return null;
   if (item.action.kind === "checkout") {
@@ -234,10 +222,6 @@ function branchDeleteRequestFromItem(item: BranchPickItem): BranchDeleteRequest 
   return null;
 }
 
-/**
- * Runs a local/remote delete request and upgrades unmerged local failures into
- * the explicit force-delete confirmation step.
- */
 export async function confirmBranchDelete(
   request: BranchDeleteRequest,
   deps: ConfirmDeleteDeps,
@@ -262,10 +246,6 @@ export async function confirmBranchDelete(
   }
 }
 
-/**
- * Dialog for local and remote branch deletion. Local unmerged branches get an
- * explicit second step before retrying with force.
- */
 function BranchDeleteConfirmDialog({
   request,
   busy,
@@ -335,10 +315,6 @@ export interface BranchDeleteDialogView {
   forceWarning: boolean;
 }
 
-/**
- * Builds the delete modal copy so the warning step can be unit-tested without
- * mounting Radix portal internals.
- */
 export function buildBranchDeleteDialogView(
   request: BranchDeleteRequest | null,
 ): BranchDeleteDialogView {
@@ -373,9 +349,6 @@ export function buildBranchDeleteDialogView(
   };
 }
 
-/**
- * Splits a remote ref into remote name and remote branch path.
- */
 function splitRemoteRef(remoteRef: string): { remote: string; name: string } | null {
   const slash = remoteRef.indexOf("/");
   if (slash <= 0 || slash === remoteRef.length - 1) return null;

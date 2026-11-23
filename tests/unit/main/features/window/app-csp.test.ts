@@ -14,7 +14,6 @@ const INDEX = path.resolve("/app/out/renderer/index.html");
 const INDEX_URL = pathToFileURL(INDEX).href;
 const DEV = "http://localhost:41234";
 
-/** The policy's directives, by name. */
 function directives(policy: string): Map<string, string[]> {
   return new Map(
     policy.split(";").map((part) => {

@@ -1,9 +1,3 @@
-/**
- * A workspace's notes for the account's other devices: which there are
- * (notes.list), and a photo put at the end of one (notes.attach), as a
- * phone gives the note a meeting is recorded into a picture of the
- * whiteboard. The note it records into is in the sessions' list.
- */
 import {
   MAX_ATTACHMENT_BYTES,
   MAX_LISTED_NOTES,
@@ -18,7 +12,6 @@ import { noteMarkdown } from "../notes/store";
 import { RpcFailure } from "./room";
 import { fitsAsResult, workspaceOf } from "./serving/common";
 
-/** The image files a note keeps a photo as, by the type it came as. */
 const EXTENSIONS = {
   "image/png": "png",
   "image/jpeg": "jpg",
@@ -28,11 +21,8 @@ const EXTENSIONS = {
 
 export type NotePhotoExtension = (typeof EXTENSIONS)[keyof typeof EXTENSIONS];
 
-/** The app's notes, as the remote serves them. */
 export interface RemoteNotes {
-  /** The workspace's notes, the last changed first. */
   list(workspaceId: string): Promise<readonly { id: string; title: string; updatedAt: number }[]>;
-  /** Puts a photo at the end of the note: where the note keeps it. */
   attach(
     workspaceId: string,
     noteId: string,
@@ -40,11 +30,9 @@ export interface RemoteNotes {
     ext: NotePhotoExtension,
     name?: string,
   ): Promise<{ src: string }>;
-  /** The note it records into, while it records. */
   recording(): RemoteRecording | undefined;
 }
 
-/** A note's failure as the remote tells it: no such note, a bad request, or not now. */
 function failure(error: unknown): never {
   const message = error instanceof Error ? error.message : String(error);
   const code = (error as { code?: unknown } | null)?.code;
@@ -55,7 +43,6 @@ function failure(error: unknown): never {
   throw new RpcFailure(RpcErrorCode.Unavailable, message);
 }
 
-/** Whether the bytes start as an image of the type says. */
 export function looksLike(bytes: Uint8Array, mediaType: keyof typeof EXTENSIONS): boolean {
   const ascii = (from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to));
   switch (mediaType) {
@@ -82,7 +69,6 @@ export async function listNotes(
   };
 }
 
-/** The one item a selector names, as pick finds it; none, or several, is NotFound. */
 function picked<T>(
   items: readonly T[],
   selector: string,
@@ -177,14 +163,8 @@ export async function noteTranscript(
   return result;
 }
 
-/** Most photos one device may put into notes here a minute; more are Unavailable. */
 export const MAX_PHOTOS_PER_MINUTE = 30;
 
-/**
- * How many photos each device put into notes within the last minute: a
- * photo is small, but a device sending them without end would fill the
- * disk a note at a time.
- */
 export class PhotoQuota {
   private readonly recent = new Map<string, number[]>();
 
@@ -193,7 +173,6 @@ export class PhotoQuota {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /** Counts a photo of `deviceId`'s; Unavailable past the minute's share. */
   take(deviceId: string): void {
     const now = this.now();
     for (const [id, times] of this.recent) {

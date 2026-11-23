@@ -4,7 +4,6 @@ package chat
 
 import "golang.org/x/sys/unix"
 
-// parents maps each process to its parent, as the kernel lists them.
 func parents() map[int]int {
 	procs, err := unix.SysctlKinfoProcSlice("kern.proc.all")
 	if err != nil {
@@ -17,7 +16,6 @@ func parents() map[int]int {
 	return table
 }
 
-// processStart identifies a process by its kernel start timestamp.
 func processStart(pid int) uint64 {
 	p, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
 	if err != nil {

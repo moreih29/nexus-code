@@ -4,7 +4,6 @@ import type { TimerScheduler } from "../../../../../src/shared/util/timer-schedu
 
 const HOUR = 60 * 60 * 1000;
 
-/** A clock and timers moved by hand. */
 function fakeTime() {
   let now = 0;
   let nextId = 0;
@@ -22,7 +21,6 @@ function fakeTime() {
   return {
     timer,
     now: () => now,
-    /** Moves the clock on, running each timer due at its time. */
     advance(ms: number) {
       const until = now + ms;
       for (;;) {
@@ -37,7 +35,6 @@ function fakeTime() {
       }
       now = until;
     },
-    /** Moves the clock on without the timers, as sleep does. */
     sleep(ms: number) {
       now += ms;
       for (const t of timers.values()) t.at += ms;
@@ -93,7 +90,6 @@ describe("createAutoCheck", () => {
     time.sleep(5 * HOUR);
     auto.resume();
     expect(checks()).toBe(2);
-    // The next is an interval from that check, not from the timer slept through.
     time.advance(4 * HOUR - 1);
     expect(checks()).toBe(2);
     time.advance(1);

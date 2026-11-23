@@ -1,6 +1,3 @@
-// The editor surface of a presentation: the breadcrumb toolbar the other
-// editors have, and its slides below. Presentations are not editable.
-
 import type { ReactNode } from "react";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { PptxPreview } from "../../editor/preview/pptx-preview";

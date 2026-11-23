@@ -41,7 +41,6 @@ function checkFileControl(
   }
 }
 
-/** Validates and serves the start of a write or directory creation. */
 export async function serveFileDestination(
   s: CliServices,
   request: RemoteServeRequest,
@@ -116,7 +115,6 @@ export async function serveFileDestination(
   );
 }
 
-/** Lists or reads a file with the request's workspace and access checks. */
 export async function serveFileRead(
   s: CliServices,
   request: RemoteServeRequest,
@@ -239,7 +237,6 @@ export async function serveFileRead(
   return result;
 }
 
-/** Serves a search within the requesting device's concurrency allowance. */
 export async function serveFileSearch(
   s: CliServices,
   request: RemoteServeRequest,
@@ -254,7 +251,6 @@ export async function serveFileSearch(
   if (!workspaceOf(s, workspaceId)) {
     throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
   }
-  // Each runs through a workspace's files on its host: a device runs a few at once, no more.
   const running = searching.get(from) ?? 0;
   if (running >= MAX_SEARCHES_PER_DEVICE) {
     throw new RpcFailure(
@@ -275,5 +271,4 @@ export async function serveFileSearch(
   }
 }
 
-/** Most files.find and files.search one device may have running here at once. */
 export const MAX_SEARCHES_PER_DEVICE = 2;

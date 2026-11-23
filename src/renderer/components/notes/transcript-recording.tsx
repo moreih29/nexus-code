@@ -1,11 +1,3 @@
-/**
- * A recording's heading in the transcript: when it was made and how long it
- * runs, how far its second pass is, its menu, and its people. A person's
- * chip shows only what they said (and back to everyone, clicked again); the
- * pencil in a picked chip names them, which names each of their voices.
- * The person picked is also shown above the lines (`PickedSpeaker`), where
- * it stays as the recording scrolls away.
- */
 import {
   Check,
   Ear,
@@ -87,12 +79,9 @@ export const RecordingHeading = memo(function RecordingHeading({
   live: boolean;
   summarizing: boolean;
   onRerun: (recordingId: string) => void;
-  /** The note's first recording: no room above it. */
   first: boolean;
-  /** The person of this recording whose lines alone are shown, if one is. */
   picked: string | null;
   suggestions: readonly VoiceNameSuggestion[];
-  /** Shows only `person`'s lines, or everyone's again when they already are. */
   onPick: (recordingId: string, person: string) => void;
   onRename: (recordingId: string, keys: readonly string[]) => void;
   onAccept: (recordingId: string, suggestions: readonly VoiceNameSuggestion[]) => void;
@@ -498,10 +487,6 @@ function SpeakerChip({
   );
 }
 
-/**
- * The person the transcript shows alone, above its lines: their chip in the
- * recording scrolls away with it, this one stays. Clicked, everyone again.
- */
 export function PickedSpeaker({
   name,
   color,

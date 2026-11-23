@@ -1,9 +1,3 @@
-/**
- * Another device reading a Claude chat not open here sees its conversation
- * once the transcript is read, without waiting for the program started on
- * it to be ready. The real ipc client is spread under a spy, so later
- * files keep its other exports.
- */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -81,7 +75,6 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
       });
     }
     if (method === "start") {
-      // The program takes its time: answered only when the test says.
       return new Promise((resolve) => {
         releaseStart = () => {
           started = true;
@@ -596,7 +589,6 @@ test("the tail and previous pages reconstruct the full history while live output
 
   const expected = historyModel(completeLines);
   const actual = controller.state.history;
-  // File offsets give the private pages stable row keys when a prefix is added.
   const content = (model: ReturnType<typeof historyModel> | null) =>
     model?.items.map(({ key: _key, ...item }) => item);
   expect(content(actual)).toEqual(content(expected));

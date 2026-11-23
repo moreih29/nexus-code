@@ -7,7 +7,6 @@ type RendererContents = Pick<
   "id" | "isDestroyed" | "once" | "removeListener" | "send"
 >;
 
-/** Each window owns its revision and the lifetime of its cached reads. */
 export class SessionsRevisions implements SessionsRevision {
   private readonly windows = new Map<number, { renderer: SessionsRenderer; close: () => void }>();
 

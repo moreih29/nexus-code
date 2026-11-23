@@ -1,8 +1,3 @@
-/**
- * The title bar's inbox: the sessions of every workspace waiting on the
- * user, permissions first, longest waiting first, then the ones done and
- * not looked at since; and stepping through them.
- */
 import { describe, expect, it, test } from "bun:test";
 import {
   acknowledgedResults,
@@ -61,11 +56,6 @@ const workspaces = [
   workspace(TASK, { parentId: APP, branch: "task/fix-login", worktreePath: "/w/t" }),
 ];
 
-/**
- * app: a1 waits on a permission since 3_000, a2 asks a question since 1_000,
- * a3 finished at 2_000, a4 runs. fix-login: t1 errored at 4_000, t2 is
- * Codex, which notified at 5_000 and has been quiet since.
- */
 function input(overrides: Partial<InboxInput> = {}): InboxInput {
   return {
     workspaces,

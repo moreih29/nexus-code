@@ -1,8 +1,3 @@
-/**
- * ⌘⇧] (Ctrl+Shift+] off the Mac) opens and closes the side panel of the chat
- * in front, from its box too. Only while a chat with a panel is in front:
- * elsewhere the key stays with what has the keyboard.
- */
 import { describe, expect, it } from "bun:test";
 import { COMMANDS } from "../../../src/shared/keybindings/commands";
 import { KEYBINDINGS } from "../../../src/shared/keybindings/index";
@@ -12,7 +7,6 @@ import {
 } from "../../../src/shared/keybindings/keybinding-parse";
 import { evaluateWhen, parseWhen } from "../../../src/shared/keybindings/keybinding-when";
 
-/** Default commands a keystroke runs with the given context keys set. */
 function commandsFor(
   state: { code: string; meta?: boolean; ctrl?: boolean; shift?: boolean; alt?: boolean },
   isMac: boolean,

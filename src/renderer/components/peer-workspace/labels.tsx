@@ -1,10 +1,6 @@
 import { Lock } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-/**
- * That a workspace on another computer is only looked at. Compact, only its
- * lock, where a narrow title row would otherwise cut its title short.
- */
 export function PeerReadOnlyBadge({ compact = false }: { compact?: boolean }) {
   const { t } = useTranslation();
   if (compact) {

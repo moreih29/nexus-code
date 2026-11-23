@@ -4,18 +4,12 @@ import type { AppState } from "../../../shared/types/app-state";
 import type { SerializedTab } from "../../../shared/types/layout";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 
-/** Recognize absolute paths in the formats Open File stores. */
 function pathStyle(path: string): "posix" | "drive" | null {
   if (path.split("/").some((part) => part === "." || part === "..")) return null;
   if (/^[A-Z]:\//.test(path)) return "drive";
   return path.startsWith("/") && !path.startsWith("//") ? "posix" : null;
 }
 
-/**
- * Restore a legacy file tab using Open File's containment check. A remote
- * or ambiguous path cannot establish that the file is safe to route to the
- * local external loader. Omit it so the user can reopen it explicitly.
- */
 function restoreTabOrigin(tab: SerializedTab, workspace: WorkspaceMeta): SerializedTab | null {
   if (tab.type !== "editor" || tab.props.origin !== undefined) return tab;
   const filePath = toSlashPath(tab.props.filePath);
@@ -32,7 +26,6 @@ function restoreTabOrigin(tab: SerializedTab, workspace: WorkspaceMeta): Seriali
   return { ...tab, props: { ...tab.props, filePath, origin: "external" } };
 }
 
-/** Restore layouts for surviving workspaces and upgrade origin-less records. */
 export function restoreLayoutOrigins(
   state: Readonly<AppState>,
   workspaces: WorkspaceMeta[],

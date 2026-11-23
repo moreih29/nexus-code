@@ -1,9 +1,3 @@
-// The status bar of a workspace on another computer: the local bar's parts
-// for what that computer tells. Its name and that the workspace is only
-// looked at lead; then the branch, ahead and behind its upstream (or "no
-// git"), and the changes by state, which open Source Control. On the right,
-// how busy its host is, where that computer tells and the bar has room.
-
 import { GitBranch, Lock } from "lucide-react";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -33,17 +27,13 @@ export function PeerStatusBar({
   active = false,
 }: {
   target: PeerWorkspaceTarget;
-  /** The last status read; none until the first, or where git cannot be read. */
   status: PeerGitStatus | undefined;
   gitError: string | undefined;
-  /** That computer, as the room has it: what it serves. */
   peer?: RoomPeer;
-  /** The workspace is shown and that computer can be reached: its host's numbers are asked. */
   active?: boolean;
 }) {
   const { t } = useTranslation();
   const id = peerTargetId(target);
-  // A narrow bar leaves the host's numbers out, as locally.
   const barRef = useRef<HTMLDivElement>(null);
   const roomForStats = useWiderThan(barRef, STATS_MIN_WIDTH);
   const branch = status

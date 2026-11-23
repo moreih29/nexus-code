@@ -12,9 +12,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// CopyFile implements fs.copyFile with O_EXCL semantics: the source must exist
-// and the destination must not. Regular files, directories (recursive), and
-// symlinks (link preserved) are all supported.
 func (s *Service) CopyFile(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p CopyFileParams
 	if err := json.Unmarshal(raw, &p); err != nil {
@@ -36,13 +33,11 @@ func (s *Service) CopyFile(ctx context.Context, raw json.RawMessage) (any, error
 		return nil, err
 	}
 
-	// Source must exist.
 	srcInfo, err := os.Lstat(srcAbs)
 	if err != nil {
 		return nil, mapWriteError(err, srcAbs)
 	}
 
-	// Keep the old destination until the replacement has fully succeeded.
 	backup := ""
 	if _, err := os.Lstat(dstAbs); err == nil {
 		if !p.Overwrite {
@@ -75,8 +70,6 @@ func (s *Service) CopyFile(ctx context.Context, raw json.RawMessage) (any, error
 	return struct{}{}, nil
 }
 
-// rollbackCopy removes only the path created by this copy. A destination
-// that appeared before creation succeeded belongs to another operation.
 func rollbackCopy(dst, backup string, created bool) error {
 	if created {
 		if err := os.RemoveAll(dst); err != nil {
@@ -94,8 +87,6 @@ func rollbackCopy(dst, backup string, created bool) error {
 	return os.Rename(backup, dst)
 }
 
-// copyPath reports whether this operation owns the destination, including
-// on error, so a failed attempt can remove its partial copy safely.
 func copyPath(ctx context.Context, src, dst string, info os.FileInfo) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
@@ -115,7 +106,6 @@ func copyPath(ctx context.Context, src, dst string, info os.FileInfo) (bool, err
 	}
 }
 
-// copyDirEntries copies each child into the directory owned by this copy.
 func copyDirEntries(ctx context.Context, src, dst string) error {
 	entries, err := os.ReadDir(src)
 	if err != nil {
@@ -137,7 +127,6 @@ func copyDirEntries(ctx context.Context, src, dst string) error {
 	return nil
 }
 
-// copySymlink preserves the original link target or uses the platform fallback.
 func copySymlink(ctx context.Context, src, dst string) (bool, error) {
 	target, err := os.Readlink(src)
 	if err != nil {
@@ -149,8 +138,6 @@ func copySymlink(ctx context.Context, src, dst string) (bool, error) {
 	return true, nil
 }
 
-// copyFileContents keeps the permission bits and checks cancellation
-// between chunks. Wrapping the reader avoids an uncancellable file fast path.
 func copyFileContents(ctx context.Context, src, dst string, srcInfo os.FileInfo) (bool, error) {
 	in, err := os.Open(src)
 	if err != nil {
@@ -181,7 +168,6 @@ type copyReader struct {
 	src io.Reader
 }
 
-// Read checks cancellation before io.Copy reads the next block.
 func (r copyReader) Read(p []byte) (int, error) {
 	if err := r.ctx.Err(); err != nil {
 		return 0, err

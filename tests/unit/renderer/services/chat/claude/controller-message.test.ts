@@ -12,7 +12,6 @@ describe("userMessageOf", () => {
       parent_tool_use_id: null,
       session_id: "",
     });
-    // What Claude's echo names, and what takes the message back.
     expect(uuid).toMatch(UUID);
     expect(userMessageOf("hi", []).uuid).not.toBe(uuid);
   });
@@ -32,7 +31,6 @@ describe("userMessageOf", () => {
     const line = userMessageOf("stop and look at this", [], true);
     expect(line.priority).toBe("now");
     expect(line.origin).toEqual({ kind: "human" });
-    // Without one, Claude Code leaves the message for after the tool.
     expect(line.uuid).toMatch(UUID);
   });
 });

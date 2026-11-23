@@ -1,8 +1,3 @@
-/**
- * LSP signature help as Monaco shows it, and what Monaco shows handed back
- * to the server as it asks again.
- */
-
 import { expect, test } from "bun:test";
 import {
   lspSignatureHelpToMonaco,
@@ -32,7 +27,6 @@ test("a signature keeps its parameters, plain and markdown documentation", () =>
         documentation: { value: "Sends a **GET** request." },
         parameters: [
           { label: [4, 12], documentation: undefined },
-          // A plain string stays plain text.
           { label: "params: dict | None = None", documentation: "Query *string*." },
         ],
       },

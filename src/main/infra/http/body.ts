@@ -1,7 +1,6 @@
 export const API_RESPONSE_MAX_BYTES = 8 * 1024 * 1024;
 export const RESPONSE_TOO_LARGE = "response-too-large";
 
-/** Identifies a remote response that exceeded the caller's byte ceiling. */
 export class ResponseTooLargeError extends Error {
   readonly code = RESPONSE_TOO_LARGE;
 
@@ -10,7 +9,6 @@ export class ResponseTooLargeError extends Error {
   }
 }
 
-/** Reads a fetch body as UTF-8, cancelling it as soon as its decoded bytes exceed the budget. */
 export async function readResponseText(
   response: Response,
   maxBytes = API_RESPONSE_MAX_BYTES,

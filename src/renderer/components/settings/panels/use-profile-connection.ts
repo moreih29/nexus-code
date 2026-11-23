@@ -95,9 +95,7 @@ export function useProfileConnection(agent: ChatAgent, profile: AgentProfile | n
     setKeyEdit(value === undefined ? undefined : { target, value });
   const keyStatus =
     savedKey?.target === target && savedKey?.profileId === profileId ? savedKey?.status : undefined;
-  // Read again once the keychain opens: locked, the saved key does not show.
   const keychainOpen = useKeychain((s) => s.status?.state === "open");
-  // An API-key profile kept as it was saves while the keychain is locked: its key stays.
   const keysLocked = useKeychain((s) => keychainLocked(s.status, "profileKeys"));
   const keptLockedKey = key === undefined && original?.method === "api-key" && keysLocked;
   // biome-ignore lint/correctness/useExhaustiveDependencies: the keychain opening asks again
@@ -139,7 +137,6 @@ export function useProfileConnection(agent: ChatAgent, profile: AgentProfile | n
     [method, address, agent, auth, preset, profileId, key, keyValid, headers, query],
   );
 
-  // Wait until the address field is confirmed before sending a draft key to it.
   const discoveryProbe = probe?.baseUrl === discoveryAddress ? probe : undefined;
   const [discovery, setDiscovery] = useState<ConnectionModelsResult>();
   const [looking, setLooking] = useState(false);

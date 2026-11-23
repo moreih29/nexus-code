@@ -109,7 +109,6 @@ describe("browser visibility IPC", () => {
         }) as unknown as BrowserWindow,
     );
     pair = createIpcPair();
-    // Keep the app renderer's ID distinct from other tests' excluded page IDs.
     Object.defineProperty(pair.sender, "id", { value: nextContentsId++ });
     await call("create", createArgs);
     page = registry.get(tabId)!.view as unknown as FakeWebContentsView;

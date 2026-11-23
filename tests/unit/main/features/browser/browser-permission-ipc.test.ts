@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { isLoadableFaviconUrl } from "../../../../../src/main/features/browser/ipc";
 
-// Regression: the tab bar loads page-supplied favicons from the app's own
-// session, so a page could point it at file:// or nexus-workspace://.
 describe("isLoadableFaviconUrl", () => {
   test("accepts web and inline image favicons", () => {
     expect(isLoadableFaviconUrl("https://example.com/favicon.ico")).toBe(true);

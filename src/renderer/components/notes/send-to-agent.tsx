@@ -1,6 +1,3 @@
-/**
- * "To an agent": sends a message and how to read the note to a Claude or Codex chat.
- */
 import i18next from "i18next";
 import { Send } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -29,7 +26,6 @@ import { Button } from "../ui/button";
 import { Popover } from "../ui/popover";
 import { showToast } from "../ui/toast";
 
-/** The first message the chat gets. */
 export function agentPrompt(message: string, title: string, noteId: string): string {
   return i18next.t("notes:agent.prompt", {
     message: message.trim() || i18next.t("notes:agent.defaultMessage"),
@@ -79,9 +75,7 @@ export function SendToAgent({
   workspaceId: string;
   cwd: string;
   noteId: string;
-  /** The note's title as it is now. */
   title: () => string;
-  /** Saves what is not saved yet, so the agent reads the note as it is. */
   beforeSend: () => Promise<boolean>;
   trigger: ReactNode;
 }) {
@@ -133,7 +127,6 @@ export function SendToAgent({
           { ...tabLinkTarget(targetWorkspace, current), agent: current.type, kind: "note" },
           choice.linkId ?? true,
         );
-        // A session can arrive while the first link for the tab is being saved.
         const updated = useTabsStore.getState().byWorkspace[targetWorkspace]?.[tabId];
         if (
           entry.link.workspaceId === targetWorkspace &&
@@ -158,7 +151,6 @@ export function SendToAgent({
       const target =
         tab?.type === agent ? tabLinkTarget(workspaceId, tab) : { workspaceId, tabId, cwd };
       try {
-        // Make the link available to the agent's startup context.
         await notesApi.addLink(workspaceId, noteId, {
           ...target,
           title: titleOf(prompt),

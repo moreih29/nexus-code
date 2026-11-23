@@ -1,18 +1,4 @@
 #!/usr/bin/env bun
-// Scans src/ for Tailwind v3.3-style `[--my-var]` shorthand (square brackets
-// without `var()`). Tailwind v4 dropped this shorthand and the offending
-// classes silently produce no CSS rule, so the visual effect is missing
-// without any compile-time warning.
-//
-// This script fails the build with a list of offenders. Use one of these
-// canonical Tailwind v4 forms instead:
-//
-//   bg-X            -- auto-utility generated from a @theme token
-//   bg-(--X)        -- Tailwind v4 CSS-variable shortcut
-//   bg-[var(--X)]   -- explicit var() reference
-//
-// Run: bun run scripts/check-tailwind-syntax.ts
-// Wired into package.json scripts: lint, check:ci
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative } from "node:path";
@@ -22,10 +8,6 @@ const SCAN_EXTENSIONS = new Set([".ts", ".tsx", ".css"]);
 const SKIP_DIR_NAMES = new Set(["node_modules", "dist", "out"]);
 const SKIP_FILE_SUBSTRINGS = [".generated."];
 
-// Matches a Tailwind utility followed by an arbitrary value that starts with
-// `--` (e.g. `bg-[--color-foo]`, `text-[--muted-foreground]`,
-// `border-l-[--color-mist-border]`). Does NOT match `bg-[var(--foo)]` or
-// `bg-(--foo)`, which are the canonical forms.
 const PATTERN = /[\w-]+-\[--[\w-]+\]/g;
 
 interface Violation {

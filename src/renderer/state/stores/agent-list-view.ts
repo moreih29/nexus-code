@@ -1,10 +1,3 @@
-/**
- * The view each agent list shows: a default from Settings, and the view
- * each workspace's tab was last switched to, keyed by the workspace its
- * tasks belong to. Both persist in AppState; a workspace's own choice
- * outlasts a later change of the default.
- */
-
 import { create } from "zustand";
 import {
   type AgentListView,
@@ -19,7 +12,6 @@ import { registerWorkspaceCleanup } from "../workspace-cleanup";
 const log = createLogger("agent-list-view");
 
 interface AgentListViewState {
-  /** The default from Settings; undefined = DEFAULT_AGENT_LIST_VIEW. */
   defaultView: AgentListView | undefined;
   byWorkspace: Readonly<Record<string, AgentListView>>;
   hydrate(
@@ -69,7 +61,6 @@ export const useAgentListViewStore = create<AgentListViewState>((set, get) => {
   };
 });
 
-/** The view a workspace's agent list shows. */
 export function selectAgentListView(state: AgentListViewState, workspaceId: string): AgentListView {
   return state.byWorkspace[workspaceId] ?? state.defaultView ?? DEFAULT_AGENT_LIST_VIEW;
 }

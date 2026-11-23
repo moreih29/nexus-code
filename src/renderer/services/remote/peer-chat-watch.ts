@@ -23,7 +23,6 @@ async function waitForPrevious(previous: Promise<void>): Promise<void> {
   }
 }
 
-/** Give the previous watch time to close before a new view reads the same chat. */
 export function watchPeerChat(
   ref: ChatRef,
   limit: number | undefined,

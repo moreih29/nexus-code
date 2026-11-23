@@ -1,9 +1,3 @@
-/**
- * Another computer's changed files in the local Source Control's groups:
- * conflicts, staged, changed and untracked. A file staged and changed again
- * is in both, as locally; a conflict only in its own.
- */
-
 import {
   isPeerGitConflict,
   type PeerGitFile,
@@ -13,7 +7,6 @@ import type { ChangeCounts } from "../workbench/status-bar-items";
 
 export type PeerGitGroupKey = "merge" | "staged" | "working" | "untracked";
 
-/** The groups in the local panel's order, with the side each one's comparison shows. */
 export const PEER_GIT_GROUPS: readonly { key: PeerGitGroupKey; side: PeerGitSide }[] = [
   { key: "merge", side: "unstaged" },
   { key: "staged", side: "staged" },

@@ -26,7 +26,6 @@ export function RemoteFilePane({ file }: { file: RemoteFileRef }) {
   const pane = useRef<HTMLDivElement>(null);
   useEffect(() => registerTabFocusTarget(key, () => pane.current?.focus()), [key]);
 
-  // Recover a comparison after restart from the peer rather than storing file contents.
   const connection = files.connection;
   useEffect(() => {
     if (connection === null || before !== undefined || !compareFrom) return;

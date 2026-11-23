@@ -1,4 +1,3 @@
-/** A chat's side panel as another device reads it, and a watch sending it as it changes. */
 import { describe, expect, test } from "bun:test";
 import { ChatPanelSchema, MAX_HELD_TEXT } from "../../../../../packages/remote-protocol/src";
 import type { ChatModel, ToolCall } from "../../../../../src/renderer/services/chat/model";
@@ -199,7 +198,6 @@ describe("a chat's side panel", () => {
       session: { id: "s-1", version: "2.9.0", account: "a@example.com · max" },
       remoteControl: { available: true, enabled: true, url: "https://claude.ai/code/s-1" },
     });
-    // A Codex chat's panel has none of them.
     const codex = chatPanelOf(source({ sessionId: "x" }, "codex"));
     for (const key of ["rateLimit", "mcp", "session", "remoteControl", "can"]) {
       expect(codex).not.toHaveProperty(key);
@@ -330,16 +328,13 @@ describe("a chat's side panel", () => {
       { kind: "weekly", percent: 41, resetsAt: Date.parse("2026-11-19T01:00:00Z") },
       { kind: "weekly_scoped", scope: "Opus", percent: 12 },
     ]);
-    // The profile's, as this app last heard it, before what the program last told the tab.
     const plan = {
       rate_limits: { limits: [{ kind: "session", percent: 80, is_active: true }] },
     };
     expect(planLimitsOf({ ...source({ usage }), plan: { claude: plan } }, now)).toEqual([
       { kind: "session", percent: 80 },
     ]);
-    // A window that started over since is left out till the next answer.
     expect(planLimitsOf(source({ usage }), Date.parse("2026-11-15T11:00:00Z"))).toHaveLength(2);
-    // Paid by API key: no limits, and the cost tells it.
     const byKey = chatPanelOf(source({ costUsd: 0.42 }), now);
     expect(byKey).not.toHaveProperty("planLimits");
     expect(byKey.costUsd).toBe(0.42);

@@ -1,23 +1,3 @@
-// What each Claude Code session is doing, as its hooks tell it: the tools
-// its turn runs, its todo list, and the subagents working beside it, each
-// with the tools it runs. The agent list reads it (claude.activity).
-//
-// A subagent is told twice: the Agent tool call that starts it (what it was
-// asked, PreToolUse) and its own start (its id, SubagentStart). Claude Code
-// 2.1 gives the id in the Agent tool's answer of a background agent, which
-// comes before the agent starts; a foreground agent starts before the tool
-// answers, and is matched to the oldest call for its type.
-//
-// A `claude -p` run started inside the session, as by a script its Bash tool
-// runs, has no hooks: the agent runs it and tells of it (hookclient's
-// print-run), and it is one of the session's agents. So is a `codex exec`
-// run (hookclient's exec-run), told the same, as codex's. A run tells what
-// it writes between its tools as messages, kept the latest. One killed before
-// it tells its end is told gone by the agent, and reads stopped. A run that
-// goes on an ended run's session (`claude -p --resume <id>`, `codex exec
-// resume <id>`) is that run going on. While a run goes on, the app holds its
-// watch, whose answer stops it.
-
 import {
   ACTIVITY_TEXT_MAX_CHARS,
   AGENT_MESSAGES_KEPT,
@@ -31,16 +11,11 @@ import {
   type ToolRun,
 } from "../../../shared/claude/activity";
 
-/** The tools that start a subagent: "Agent", "Task" before Claude Code 2.1. */
 const AGENT_TOOLS = new Set(["Agent", "Task"]);
 const STOP_TASK_TOOLS = new Set(["TaskStop", "KillShell", "KillBash"]);
-/** How many Agent tool calls wait for their agent at most; a call whose agent never starts is dropped. */
 const AGENT_CALLS_KEPT = 16;
-/** Bounds the task links kept while stream lines and async hooks arrive. */
 const TASK_LINKS_KEPT = 128;
-/** The tools that run a command, which may start a `claude -p` run. */
 const COMMAND_TOOLS = new Set(["Bash", "PowerShell"]);
-/** The tools that write files, and the field naming the file. */
 const WRITING_TOOLS: Readonly<Record<string, string>> = {
   Edit: "file_path",
   MultiEdit: "file_path",
@@ -48,7 +23,6 @@ const WRITING_TOOLS: Readonly<Record<string, string>> = {
   NotebookEdit: "notebook_path",
 };
 
-/** An Agent tool call whose agent has not started yet. */
 interface AgentCall {
   readonly type: string;
   readonly description?: string;
@@ -70,25 +44,15 @@ interface TaskLink {
 
 interface AgentEntry extends Omit<AgentRun, "tools"> {
   tools: ToolRun[];
-  /** The call its open permission dialog is for, as callKey gives it. */
   asking?: string;
-  /** A `claude -p` run's directory, which its tools' paths are told from. */
   cwd?: string;
-  /**
-   * Where a `claude -p` or `codex exec` run keeps its session, on the host
-   * it ran on: its CLAUDE_CONFIG_DIR or CODEX_HOME, as its start told it.
-   * Main reads its transcript from there; never told to the renderer.
-   */
   home?: string;
-  /** The hook a running `claude -p` run holds open, whose answer stops it. */
   watch?: string;
-  /** The ids of the messages a subagent wrote that it has: each is kept once. */
   said?: Set<string>;
   launchToolUseId?: string;
   outputFile?: string;
 }
 
-/** A message a subagent wrote, as hookclient read it from its transcript. */
 export interface SaidMessage {
   id: string;
   text: string;
@@ -106,28 +70,20 @@ interface SessionEntry {
   files: string[];
   todos: Todo[];
   agents: Map<string, AgentEntry>;
-  /** Agent tool calls not matched to their agent yet, oldest first. */
   calls: AgentCall[];
-  /** Agent tool calls whose agent's id the tool's answer told. */
   callsByAgent: Map<string, AgentCall>;
   taskLinks: Map<string, TaskLink>;
-  /** The `claude -p` runs that went on an earlier run, by run id: that run's agent id. */
   runs: Map<string, string>;
 }
 
-/** Where a `claude -p` or `codex exec` run keeps its session, as main reads it. */
 export interface PrintRunSource {
   program: "claude" | "codex";
   running: boolean;
-  /** The run's session (claude) or thread (codex), once it told it. */
   sessionId?: string;
-  /** Its CLAUDE_CONFIG_DIR or CODEX_HOME on the host it ran on; none when it keeps no session. */
   home?: string;
-  /** The folder it ran in. */
   cwd?: string;
 }
 
-/** Called as an agent starts, changes state and ends. */
 export type AgentListener = (workspaceId: string, tabId: string, agent: AgentRun) => void;
 
 type Payload = Record<string, unknown>;
@@ -138,11 +94,6 @@ export class SessionActivityLog {
 
   constructor(private readonly now: () => number = Date.now) {}
 
-  /**
-   * Records what a Claude Code hook of the session in `tabId` tells; with
-   * what the subagent of its call wrote so far, the latest of it, as
-   * hookclient read it from the subagent's transcript.
-   */
   noteHook(
     workspaceId: string,
     tabId: string,
@@ -157,14 +108,12 @@ export class SessionActivityLog {
       return;
     }
     if (subcommand === "session-start") {
-      // Compaction starts no session: the turn goes on after it.
       if (p.source !== "compact") this.drop(key);
     }
     const session = this.sessionOf(workspaceId, tabId);
     if (typeof p.cwd === "string" && p.cwd !== "") session.cwd = p.cwd;
     if (typeof p.session_id === "string" && p.session_id !== "") session.sessionId = p.session_id;
     const agentId = typeof p.agent_id === "string" && p.agent_id !== "" ? p.agent_id : undefined;
-    // What the subagent wrote before the call, before the call itself.
     if (agentId && agentMessages && agentMessages.length > 0) {
       this.saidBy(this.agentOf(session, agentId, p), agentMessages);
     }
@@ -180,7 +129,6 @@ export class SessionActivityLog {
         break;
       case "stop":
       case "stop-failure":
-        // A tool the turn left without an end was interrupted.
         this.endOpenTools(session.tools);
         break;
       case "pre-tool-use":
@@ -212,7 +160,6 @@ export class SessionActivityLog {
     }
   }
 
-  /** Correlates a stream task with its subagent through the Agent call or output file. */
   noteTask(workspaceId: string, tabId: string, message: Payload): void {
     const taskId = text(message.task_id);
     const type = text(message.task_type);
@@ -242,7 +189,6 @@ export class SessionActivityLog {
     });
   }
 
-  /** Keeps a recent task update and applies it when its Agent result is known. */
   private rememberTask(session: SessionEntry, taskId: string, link: TaskLink): void {
     session.taskLinks.delete(taskId);
     session.taskLinks.set(taskId, link);
@@ -258,14 +204,6 @@ export class SessionActivityLog {
     }
   }
 
-  /**
-   * Records what a `claude -p` run started inside the session in `tabId`
-   * tells of itself (hookclient's print-run): its start, claude's start, the
-   * tools it runs and how they end, what it writes between them, and its
-   * own end; or that it is gone,
-   * told by the agent once its watch closed, which ends one that told no
-   * end as stopped.
-   */
   notePrint(workspaceId: string, tabId: string, frame: string, payload: unknown): void {
     const p = record(payload);
     const id = text(p.run_id);
@@ -288,9 +226,7 @@ export class SessionActivityLog {
         run.endpoint = text(p.endpoint) ?? run.endpoint;
         run.cwd = text(p.cwd) ?? run.cwd;
         run.sessionId ??= text(p.session_id);
-        // Told from the transcript when its arguments did not tell it.
         run.prompt = text(p.prompt) ?? run.prompt;
-        // A run that tells its tools in its transcript tells it once it is found.
         if (p.tools_told === true) run.toolsTold = true;
         break;
       }
@@ -317,9 +253,6 @@ export class SessionActivityLog {
         const tool = run.tools.find((tool) => tool.id === toolId);
         if (!tool || tool.end !== undefined) break;
         tool.end = this.now();
-        // A tool told only once it ended (a codex rollout's) tells how long it
-        // took; it still starts after what the run told before it, as a
-        // rollout read at once tells all of it at the same time.
         const took = p.duration_ms;
         if (typeof took === "number" && took > 0) {
           tool.start = Math.max(Math.min(tool.start, tool.end - took), toldBefore(run, tool));
@@ -350,7 +283,6 @@ export class SessionActivityLog {
         run.end = this.now();
         run.watch = undefined;
         this.endOpenTools(run.tools);
-        // Stopped by a signal, as with the turn that ran it.
         const state =
           text(p.signal) !== undefined ? "stopped" : run.exitCode === 0 ? "completed" : "failed";
         this.setAgentState(session, run, state, true);
@@ -364,30 +296,17 @@ export class SessionActivityLog {
     }
   }
 
-  /**
-   * A `claude -p` run of the session in `tabId` holds its watch open
-   * (hookclient's print-run): the hook `hookId`, whose answer stops it.
-   */
   notePrintWatch(workspaceId: string, tabId: string, runId: string, hookId: string): void {
     const session = this.sessions.get(`${workspaceId}:${tabId}`);
     const run = session && this.printRunOf(session, runId);
     if (run !== undefined && run.end === undefined) run.watch = hookId;
   }
 
-  /**
-   * The watch of the session's running `claude -p` run `agentId`, whose
-   * answer stops it; undefined for a subagent, or a run over or not watched.
-   */
   printWatch(workspaceId: string, tabId: string, agentId: string): string | undefined {
     const agent = this.sessions.get(`${workspaceId}:${tabId}`)?.agents.get(agentId);
     return agent?.kind === "print" && agent.end === undefined ? agent.watch : undefined;
   }
 
-  /**
-   * Where the session's `claude -p` or `codex exec` run `runId` keeps its
-   * transcript, for main to read it: only a run of that tab's session,
-   * undefined for any other.
-   */
   printRunSource(workspaceId: string, tabId: string, runId: string): PrintRunSource | undefined {
     const agent = this.sessions.get(`${workspaceId}:${tabId}`)?.agents.get(runId);
     if (agent?.kind !== "print") return undefined;
@@ -400,12 +319,6 @@ export class SessionActivityLog {
     };
   }
 
-  /**
-   * The user answered a permission request of the session's turn, or of
-   * `agentId`, from the app, for the call to `tool` on `target`: the agent
-   * goes on, with the call or past it, and a denied call never runs. No hook
-   * tells either.
-   */
   noteAnswered(
     workspaceId: string,
     tabId: string,
@@ -432,22 +345,16 @@ export class SessionActivityLog {
     this.setAgentState(session, agent, "running");
   }
 
-  /**
-   * The session's turn is over though no hook said so, as when the user
-   * interrupts it: a tool it left running was stopped with it.
-   */
   noteTurnOver(workspaceId: string, tabId: string): void {
     const session = this.sessions.get(`${workspaceId}:${tabId}`);
     if (session) this.endOpenTools(session.tools);
   }
 
-  /** What the session in `tabId` is doing, or null when no hook told anything. */
   get(workspaceId: string, tabId: string): SessionActivity | null {
     const session = this.sessions.get(`${workspaceId}:${tabId}`);
     return session ? snapshotOf(session) : null;
   }
 
-  /** What the sessions of `workspaceIds` are doing. */
   list(workspaceIds: readonly string[]): SessionActivity[] {
     const wanted = new Set(workspaceIds);
     return [...this.sessions.values()]
@@ -455,19 +362,16 @@ export class SessionActivityLog {
       .map(snapshotOf);
   }
 
-  /** Forgets the session in a terminal that ended. */
   clear(workspaceId: string, tabId: string): void {
     this.drop(`${workspaceId}:${tabId}`);
   }
 
-  /** Forgets the sessions of a workspace, as its Claude states are cleared. */
   clearWorkspace(workspaceId: string): void {
     for (const [key, session] of this.sessions) {
       if (session.workspaceId === workspaceId) this.drop(key);
     }
   }
 
-  /** Calls `listener` as agents start, change state and end; the returned function stops it. */
   onAgentChange(listener: AgentListener): () => void {
     this.listeners.add(listener);
     return () => {
@@ -498,7 +402,6 @@ export class SessionActivityLog {
     return session;
   }
 
-  /** Keeps what a subagent wrote that was not kept yet, as of now. */
   private saidBy(agent: AgentEntry, said: readonly SaidMessage[]): void {
     if (agent.end !== undefined) return;
     agent.said ??= new Set();
@@ -514,10 +417,6 @@ export class SessionActivityLog {
     }
   }
 
-  /**
-   * The agent `agentId`, started now if no hook told of it yet: its
-   * SubagentStart, or, when that never came, the first hook it ran.
-   */
   private agentOf(session: SessionEntry, agentId: string, p: Payload): AgentEntry {
     const known = session.agents.get(agentId);
     if (known) return known;
@@ -547,15 +446,10 @@ export class SessionActivityLog {
     return agent;
   }
 
-  /**
-   * A `claude -p` run started, by the command the session (or one of its
-   * subagents) runs now: what that command was said to do tells the run.
-   */
   private printStarted(session: SessionEntry, id: string, p: Payload): void {
     const command = latest(
       [session.tools, ...[...session.agents.values()].map((agent) => agent.tools)]
         .flat()
-        // A command left in the background answers as it starts, before the run tells of it.
         .filter(
           (tool) => COMMAND_TOOLS.has(tool.name) && (tool.end === undefined || tool.background),
         ),
@@ -582,13 +476,11 @@ export class SessionActivityLog {
     this.emit(session, run);
   }
 
-  /** The `claude -p` run `runId` is, as itself or as the earlier run it went on. */
   private printRunOf(session: SessionEntry, runId: string): AgentEntry | undefined {
     const run = session.agents.get(session.runs.get(runId) ?? runId);
     return run?.kind === "print" ? run : undefined;
   }
 
-  /** The latest ended `claude -p` run of the Claude session `sessionId`. */
   private endedPrintOf(
     session: SessionEntry,
     sessionId: string | undefined,
@@ -603,10 +495,6 @@ export class SessionActivityLog {
     );
   }
 
-  /**
-   * A `claude -p` run `runId` went on the Claude session of the ended run
-   * `run`: that run goes on, asked anew, its tools kept.
-   */
   private printResumed(session: SessionEntry, run: AgentEntry, runId: string, p: Payload): void {
     session.runs.set(runId, run.id);
     const prompt = text(p.prompt);
@@ -639,7 +527,6 @@ export class SessionActivityLog {
       const agent = this.agentOf(session, agentId, p);
       push(agent.tools, run, AGENT_TOOLS_KEPT);
       agent.toolCount++;
-      // An agent that goes on to another call is past its dialog.
       if (agent.state === "permissionPending" && agent.asking !== callKey(p)) {
         agent.asking = undefined;
         this.setAgentState(session, agent, "running");
@@ -647,7 +534,6 @@ export class SessionActivityLog {
     } else {
       push(session.tools, run, SESSION_TOOLS_KEPT);
       session.toolCount++;
-      // A subagent keeps its own todo list; the task list is the session's.
       if (name === "TodoWrite") session.todos = todosOf(input.todos) ?? session.todos;
     }
     if (name === "TaskUpdate") session.todos = updateTodo(session.todos, input);
@@ -691,7 +577,6 @@ export class SessionActivityLog {
     if (name === undefined) return;
     const input = record(p.tool_input);
     if (failed) {
-      // An agent the tool failed to start never will.
       if (AGENT_TOOLS.has(name)) {
         const type = text(input.subagent_type) ?? "general-purpose";
         const description = text(input.description);
@@ -734,10 +619,6 @@ export class SessionActivityLog {
     }
   }
 
-  /**
-   * The Agent tool answered: a background agent's answer names it, before
-   * it starts. Its call is kept for it by that id.
-   */
   private agentToolAnswered(
     session: SessionEntry,
     input: Payload,
@@ -751,7 +632,6 @@ export class SessionActivityLog {
     const outputFile = text(response.outputFile);
     const started = session.agents.get(agentId);
     if (started) {
-      // A foreground agent the user sent to the background.
       if (background) started.background = true;
       if (model !== undefined) started.model = model;
       if (toolUseId) started.launchToolUseId = toolUseId;
@@ -777,7 +657,6 @@ export class SessionActivityLog {
     }
   }
 
-  /** Applies an end received before the Agent tool result or SubagentStart. */
   private finishKnownTask(session: SessionEntry, agent: AgentEntry): void {
     for (const [id, link] of session.taskLinks) {
       if (!link.state || !matchesTask(agent, id, link)) continue;
@@ -808,11 +687,6 @@ export class SessionActivityLog {
     for (const tool of tools) if (tool.end === undefined && !tool.background) tool.end = now;
   }
 
-  /**
-   * A new turn: a foreground agent of the last one that told no end was
-   * stopped with it, as by an interrupt. A `claude -p` run tells its own
-   * end, and may outlive the command that started it.
-   */
   private endForegroundAgents(session: SessionEntry): void {
     for (const agent of session.agents.values()) {
       if (agent.end === undefined && !agent.background && agent.kind !== "print") {
@@ -822,7 +696,6 @@ export class SessionActivityLog {
     this.pruneAgents(session);
   }
 
-  /** Forgets a session; the agents it still ran stopped with it. */
   private drop(key: string): void {
     const session = this.sessions.get(key);
     if (!session) return;
@@ -836,7 +709,6 @@ export class SessionActivityLog {
     this.finishAgent(session, agent, "stopped");
   }
 
-  /** Ends a run once, so a late completion hook cannot undo a stop. */
   private finishAgent(session: SessionEntry, agent: AgentEntry, state: TaskEnd): void {
     if (agent.end !== undefined) return;
     agent.end = this.now();
@@ -846,7 +718,6 @@ export class SessionActivityLog {
     this.setAgentState(session, agent, state, true);
   }
 
-  /** Keeps the running agents and the latest ended ones. */
   private pruneAgents(session: SessionEntry): void {
     const ended = [...session.agents.values()]
       .filter((agent) => agent.end !== undefined)
@@ -858,7 +729,6 @@ export class SessionActivityLog {
   }
 }
 
-/** Matches explicit IDs first, with an equal ID fallback for older background agents. */
 function matchesTask(agent: AgentEntry, taskId: string, link: TaskLink): boolean {
   if (agent.kind !== "subagent") return false;
   if (agent.launchToolUseId && link.toolUseId) return agent.launchToolUseId === link.toolUseId;
@@ -866,7 +736,6 @@ function matchesTask(agent: AgentEntry, taskId: string, link: TaskLink): boolean
   return agent.background === true && agent.id === taskId;
 }
 
-/** Normalizes the terminal statuses reported by current and older Claude builds. */
 function taskEndOf(status: unknown): TaskEnd | undefined {
   if (status === "completed" || status === "failed" || status === "stopped") return status;
   return status === "killed" ? "stopped" : undefined;
@@ -912,10 +781,6 @@ function agentRunOf(agent: AgentEntry): AgentRun {
   };
 }
 
-/**
- * What a tool works on, for a line about it: a command, a path relative to
- * the session's directory, a pattern, a URL, an agent's task.
- */
 export function describeTool(
   name: string,
   input: Payload,
@@ -983,7 +848,6 @@ export function describeTool(
   return { ...optional("target", target), ...optional("note", note) };
 }
 
-/** The todos a TodoWrite call sets, or undefined for an input not a list. */
 function todosOf(value: unknown): Todo[] | undefined {
   if (!Array.isArray(value)) return undefined;
   return value.flatMap((item): Todo[] => {
@@ -996,7 +860,6 @@ function todosOf(value: unknown): Todo[] | undefined {
   });
 }
 
-/** The todo list after a TaskUpdate call. */
 function updateTodo(todos: Todo[], input: Payload): Todo[] {
   const id = text(input.taskId);
   if (id === undefined) return todos;
@@ -1016,10 +879,6 @@ function todoStatus(value: unknown): Todo["status"] | undefined {
     : undefined;
 }
 
-/**
- * Takes the oldest call for an agent of `type`, the one with `description`
- * when told; any call when none is for that type.
- */
 function takeCall(calls: AgentCall[], type: string, description?: string): AgentCall | undefined {
   const index = [
     (c: AgentCall) =>
@@ -1033,12 +892,10 @@ function takeCall(calls: AgentCall[], type: string, description?: string): Agent
   return calls.splice(index, 1)[0];
 }
 
-/** A tool call as PermissionRequest and the tool hooks all describe it: its name and input. */
 function callKey(p: Payload): string {
   return `${text(p.tool_name) ?? ""}\0${JSON.stringify(p.tool_input ?? null)}`;
 }
 
-/** `path` relative to `cwd` when under it. */
 function relative(path: string, cwd: string | undefined): string {
   if (!cwd) return path;
   for (const sep of ["/", "\\"]) {
@@ -1048,7 +905,6 @@ function relative(path: string, cwd: string | undefined): string {
   return path;
 }
 
-/** The tool run started last. */
 function latest(tools: readonly ToolRun[]): ToolRun | undefined {
   return tools.reduce<ToolRun | undefined>(
     (last, tool) => (last === undefined || tool.start >= last.start ? tool : last),
@@ -1056,7 +912,6 @@ function latest(tools: readonly ToolRun[]): ToolRun | undefined {
   );
 }
 
-/** The item of `items` latest by `when`. */
 function latestBy<T>(items: readonly T[], when: (item: T) => number): T | undefined {
   return items.reduce<T | undefined>(
     (last, item) => (last === undefined || when(item) >= when(last) ? item : last),
@@ -1064,7 +919,6 @@ function latestBy<T>(items: readonly T[], when: (item: T) => number): T | undefi
   );
 }
 
-/** When the run last told something before the tool: a message or a tool. */
 function toldBefore(run: Pick<AgentEntry, "messages" | "tools">, tool: ToolRun): number {
   let at = 0;
   for (const message of run.messages ?? []) {
@@ -1088,7 +942,6 @@ function record(value: unknown): Payload {
     : {};
 }
 
-/** A non-empty string, trimmed and cut to ACTIVITY_TEXT_MAX_CHARS. */
 function text(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -1098,13 +951,8 @@ function text(value: unknown): string | undefined {
     : trimmed;
 }
 
-/** The longest folder path a run's home is taken as. */
 const HOME_MAX_CHARS = 4096;
 
-/**
- * Where a run keeps its session, as it told it: whole, since a path cut or
- * trimmed is another folder. None for one too long to be a path.
- */
 function homeOf(value: unknown): string | undefined {
   if (typeof value !== "string" || value === "" || value.length > HOME_MAX_CHARS) return undefined;
   return value;
@@ -1117,7 +965,6 @@ function firstLine(value: string | undefined): string | undefined {
     ?.trim();
 }
 
-/** The first string field of a tool's input, as an MCP tool's. */
 function firstText(input: Payload): string | undefined {
   for (const value of Object.values(input)) {
     const found = text(value);

@@ -1,13 +1,3 @@
-/**
- * Helpers used by the `GitRepository` class but kept outside it so the class
- * body stays focused on the queued public API. None of these allocate IO of
- * their own — argv builders return strings, output parsers operate on
- * already-captured stdout/stderr, and the discard planner produces sets the
- * caller turns into Git commands.
- *
- * Anything that needs to await the git executor or stream stdout lives on the class.
- */
-
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -25,9 +15,6 @@ import type {
 import { GitError } from "./error";
 import type { CommitCommandOptions, DiscardOptions, DiscardPathsets } from "./repository";
 
-/**
- * Builds `git diff` arguments from the shared diff spec union.
- */
 export function buildDiffArgs(spec: DiffSpec): string[] {
   const args = ["diff", "--no-ext-diff"];
 
@@ -48,9 +35,6 @@ export function buildDiffArgs(spec: DiffSpec): string[] {
   return args;
 }
 
-/**
- * Returns every path needed to show a rename-aware diff.
- */
 function collectDiffPathspecs(spec: DiffSpec): string[] {
   const paths = new Set<string>();
   if (spec.oldRelPath) paths.add(spec.oldRelPath);
@@ -58,10 +42,6 @@ function collectDiffPathspecs(spec: DiffSpec): string[] {
   return Array.from(paths);
 }
 
-/**
- * Builds the commit-family argv, keeping option flags before the message so
- * `--amend`, `--allow-empty`, signing, signoff, and hook-skipping compose.
- */
 export function buildCommitArgs(
   message: string | undefined,
   options: CommitCommandOptions,
@@ -85,9 +65,6 @@ export function buildCommitArgs(
   return args;
 }
 
-/**
- * Converts branch command stdout into non-empty branch names.
- */
 export function parseBranchLines(stdout: string): string[] {
   return stdout
     .split(/\r?\n/)
@@ -95,9 +72,6 @@ export function parseBranchLines(stdout: string): string[] {
     .filter((line) => line.length > 0);
 }
 
-/**
- * Reads `.git/FETCH_HEAD` mtime so external terminal fetches update the chip.
- */
 export async function readFetchHeadMtime(gitDir: string): Promise<number | null> {
   try {
     const stat = await fs.stat(path.join(gitDir, "FETCH_HEAD"));
@@ -108,20 +82,12 @@ export async function readFetchHeadMtime(gitDir: string): Promise<number | null>
   }
 }
 
-/**
- * Identifies a missing FETCH_HEAD without suppressing other filesystem errors.
- */
 function isEnoent(error: unknown): boolean {
   return (
     typeof error === "object" && error !== null && (error as { code?: string }).code === "ENOENT"
   );
 }
 
-/**
- * Copies the stable, renderer-facing subset of a pull GitError into the sync
- * envelope. The full Error instance stays main-process-only; sync needs only
- * enough detail to preserve the existing inline banner copy.
- */
 export function gitSyncErrorFromGitError(error: GitError): GitSyncError {
   return {
     kind: error.kind,
@@ -130,9 +96,6 @@ export function gitSyncErrorFromGitError(error: GitError): GitSyncError {
   };
 }
 
-/**
- * Computes the git commands needed to discard selected status entries.
- */
 export function collectDiscardPathsets(
   status: GitStatus,
   relPaths: readonly string[],
@@ -202,24 +165,12 @@ export function collectDiscardPathsets(
   };
 }
 
-/**
- * Matches a row by new or old path so rename rows can be selected once.
- */
 function entryIsSelected(entry: GitStatusEntry, selected: Set<string>): boolean {
   return selected.has(entry.relPath) || (entry.oldRelPath ? selected.has(entry.oldRelPath) : false);
 }
 
-/**
- * Keeps queue tails non-rejecting without allocating inline callbacks repeatedly.
- */
 export function noop(): void {}
 
-/**
- * Throws when the repository has no commits yet (`git init` without a
- * commit). Used by `push --publish` to fail fast before building a `-u <remote>
- * <branch>` argv with no branch name; the operation could only fail
- * downstream anyway, but doing it here gives the renderer a typed hint.
- */
 export function assertHasHead(branch: BranchInfo | null): void {
   if (branch && !branch.isUnborn) return;
   throw new GitError("no-head", "Repository has no commits yet — make an initial commit first.", {
@@ -227,26 +178,10 @@ export function assertHasHead(branch: BranchInfo | null): void {
   });
 }
 
-/**
- * Resolution emitted by `resolveCheckoutTarget` so the caller can dispatch
- * to the right git command without a second round of branch lookup.
- */
 export type CheckoutResolution =
   | { kind: "local"; ref: string }
   | { kind: "track"; remoteRef: string };
 
-/**
- * Decides how to run a checkout when the user supplies a bare ref. If the
- * ref matches a local branch, the caller runs `git checkout <ref>`; if it
- * is unique to one remote (`<remote>/<ref>`), the caller runs `git checkout
- * --track <remoteRef>` so a tracking branch lands deterministically. When
- * the ref is missing entirely or appears under multiple remotes, this
- * throws a `no-such-ref` error with a hint that lets the renderer offer
- * either "Checkout origin/<ref>" or a remote chooser.
- *
- * The function does not match against tags or commit-ish — those still go
- * through `git` directly and surface as `missing` if not resolvable.
- */
 export function resolveCheckoutTarget(ref: string, list: BranchList): CheckoutResolution {
   const trimmed = ref.trim();
   if (trimmed.length === 0) {
@@ -275,11 +210,6 @@ export function resolveCheckoutTarget(ref: string, list: BranchList): CheckoutRe
   throw new GitError("no-such-ref", `Branch '${trimmed}' does not exist locally or on any remote.`);
 }
 
-/**
- * Strips the `<remote>/` segment from a `git branch --remotes` short ref.
- * Mirrors the helper in branch-picker-source.ts; duplicated here to keep
- * this module main-process pure (no renderer imports).
- */
 function stripRemotePrefix(remoteRef: string): string {
   const slash = remoteRef.indexOf("/");
   return slash >= 0 ? remoteRef.slice(slash + 1) : remoteRef;

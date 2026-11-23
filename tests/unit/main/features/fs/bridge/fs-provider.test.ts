@@ -3,9 +3,6 @@ import { createFsProvider } from "../../../../../../src/main/features/fs/bridge/
 import type { SshChannel } from "../../../../../../src/main/infra/agent/ssh/channel";
 import type { WorkspaceMeta } from "../../../../../../src/shared/types/workspace";
 
-/**
- * Builds workspace metadata for fs provider factory tests.
- */
 function makeMeta(location: WorkspaceMeta["location"]): WorkspaceMeta {
   return {
     id: "123e4567-e89b-12d3-a456-426614174000",

@@ -1,6 +1,5 @@
 import { agentTabController } from "../chat/agent-tab";
 
-/** Sends as the user with the same controls as the chat composer. */
 export async function sendToConversation(
   workspaceId: string,
   tabId: string,

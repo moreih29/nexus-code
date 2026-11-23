@@ -1,17 +1,3 @@
-/**
- * conflict-parser — accept-action aspect unit tests.
- *
- * Verifies that `acceptCurrent`, `acceptIncoming`, and `acceptBoth` produce
- * the correct output text for:
- *   - 2-way conflict (no base section)
- *   - diff3 conflict (with ||||||| base section)
- *   - Multiple blocks (action applies only to the targeted block)
- *   - No-trailing-newline files
- *   - Empty current / incoming sections
- *
- * No Monaco or IPC dependencies — the accept functions are pure string transforms.
- */
-
 import { describe, expect, test } from "bun:test";
 import {
   acceptBoth,
@@ -19,10 +5,6 @@ import {
   acceptIncoming,
   parseConflictBlocks,
 } from "../../../../../src/renderer/services/editor/conflict/conflict-parser";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function twoWayText(ours: string[], theirs: string[]): string {
   return ["<<<<<<< HEAD", ...ours, "=======", ...theirs, ">>>>>>> branch"].join("\n");
@@ -40,16 +22,11 @@ function diff3Text(ours: string[], base: string[], theirs: string[]): string {
   ].join("\n");
 }
 
-/** Parses the first block from text (asserts existence). */
 function firstBlock(text: string) {
   const blocks = parseConflictBlocks(text);
   if (blocks.length === 0) throw new Error("No conflict blocks found in test fixture");
   return blocks[0];
 }
-
-// ---------------------------------------------------------------------------
-// diff3 base — acceptCurrent discards base
-// ---------------------------------------------------------------------------
 
 describe("acceptCurrent — diff3", () => {
   const text = diff3Text(["ours content"], ["base content"], ["theirs content"]);
@@ -86,10 +63,6 @@ describe("acceptBoth — diff3", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Multiple blocks — action targets only the specified block
-// ---------------------------------------------------------------------------
-
 describe("accept actions — multiple blocks", () => {
   const prefix = "prefix line";
   const block0Text = twoWayText(["ours-0"], ["theirs-0"]);
@@ -111,12 +84,7 @@ describe("accept actions — multiple blocks", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// No-trailing-newline
-// ---------------------------------------------------------------------------
-
 describe("accept actions — no trailing newline", () => {
-  // File without trailing newline.
   const text = "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> b";
   const block = firstBlock(text);
 
@@ -131,16 +99,11 @@ describe("accept actions — no trailing newline", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Empty sections
-// ---------------------------------------------------------------------------
-
 describe("accept actions — empty sections", () => {
   test("acceptCurrent with empty current returns empty string for that block", () => {
     const text = ["<<<<<<< HEAD", "=======", "theirs", ">>>>>>> b"].join("\n");
     const block = firstBlock(text);
     const result = acceptCurrent(text, block);
-    // The current section is empty — result should have nothing from the block.
     expect(result).not.toContain("theirs");
     expect(result).not.toContain("<<<<<<<");
     expect(result).not.toContain("=======");
@@ -164,10 +127,6 @@ describe("accept actions — empty sections", () => {
     expect(result).toBe("theirs");
   });
 });
-
-// ---------------------------------------------------------------------------
-// Surrounding context preservation
-// ---------------------------------------------------------------------------
 
 describe("accept actions — context preservation", () => {
   const text = ["before line", twoWayText(["ours"], ["theirs"]), "after line"].join("\n");

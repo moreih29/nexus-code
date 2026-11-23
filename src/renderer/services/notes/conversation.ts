@@ -29,7 +29,6 @@ export function conversationTitle(savedTitle: string, target: ConversationResolu
   return savedTitle;
 }
 
-/** Tasks use the location of the workspace that owns their notes. */
 export function noteLocation(
   workspace: WorkspaceMeta,
   workspaces: readonly WorkspaceMeta[],
@@ -50,7 +49,6 @@ export function tabLinkTarget(workspaceId: string, tab: ConversationTab): NoteLi
   };
 }
 
-/** A replaced workspace can still resume a conversation if it has the same folder. */
 export function historyWorkspace(
   link: NoteLink,
   stores: ConversationStores,
@@ -134,9 +132,7 @@ function targetRank(target: ConversationResolution): number {
   return target.kind === "resume" ? 1 : 0;
 }
 
-/** Conversation lists share a chip while task and card widgets keep their own link IDs. */
 export function latestConversations<Row extends ResolvedNoteLink>(rows: readonly Row[]) {
-  // Prefer a target we can open. For equivalent targets, the newest link represents the group.
   const candidates = rows
     .map((row, index) => ({ row, index }))
     .reverse()
@@ -164,7 +160,6 @@ export function latestConversations<Row extends ResolvedNoteLink>(rows: readonly
       ...row,
       key: rows[index].entry.id,
       result,
-      // Every link the one chip stands for, so removing it removes them all.
       linkIds: links.map((link) => link.entry.id),
     }));
 }

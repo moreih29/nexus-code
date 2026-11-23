@@ -1,22 +1,8 @@
-/**
- * Splits a nexus command line into positional arguments and flags.
- *
- * `--name value`, `--name=value` and bare `--name` (true) are flags; `-h` is
- * `--help`; `--` ends the flags. Everything else is positional, in order.
- * A value that starts with `--` is given as `--name=--value`.
- * Which flags take a value is the command's to say, so a bare flag followed
- * by a word is told apart by the spec.
- */
-
-/** How a command reads one flag. */
 export interface FlagSpec {
   readonly type: "string" | "number" | "boolean";
   readonly description: string;
-  /** A short name for the value in help, such as "N" or "URL". */
   readonly value?: string;
-  /** A single-letter alias, spelled with one dash. */
   readonly short?: string;
-  /** A string flag that may be given again: its values, in order, as a list. */
   readonly repeat?: boolean;
 }
 
@@ -27,10 +13,8 @@ export interface ParsedArgs {
   readonly flags: FlagValues;
 }
 
-/** A command line the command cannot take; its message is shown as is. */
 export class CliUsageError extends Error {}
 
-/** Flags every command takes. */
 export const GLOBAL_FLAGS: Record<string, FlagSpec> = {
   json: { type: "boolean", description: "Print JSON instead of text" },
   jsonl: {
@@ -40,10 +24,6 @@ export const GLOBAL_FLAGS: Record<string, FlagSpec> = {
   help: { type: "boolean", description: "Show help" },
 };
 
-/**
- * Parses `argv` against the flags a command takes. An unknown flag, or a
- * missing or malformed value, is a CliUsageError.
- */
 export function parseArgs(argv: readonly string[], specs: Record<string, FlagSpec>): ParsedArgs {
   const all = { ...GLOBAL_FLAGS, ...specs };
   const positionals: string[] = [];
@@ -80,11 +60,7 @@ export function parseArgs(argv: readonly string[], specs: Record<string, FlagSpe
       continue;
     }
     if (raw === undefined) {
-      // A flag where the value should be is a value gone missing, not the
-      // value: PowerShell 5.1 drops `--name ''`, leaving `--name --json`.
       if (i >= argv.length || (argv[i] as string).startsWith("--")) {
-        // `--since #3`: the shell took "#3" for a comment. `--command ""`:
-        // PowerShell 5.1 passes no empty argument.
         const hint =
           spec.type === "number"
             ? " (a number alone: a shell drops a # and what follows)"
@@ -110,10 +86,6 @@ export function parseArgs(argv: readonly string[], specs: Record<string, FlagSpe
   return { positionals, flags };
 }
 
-/**
- * Reads a duration such as "90s", "5m", "1h" or "1500ms"; a bare number is
- * seconds. Returns milliseconds.
- */
 export function parseDuration(text: string, flag: string): number {
   const match = /^(\d+(?:\.\d+)?)(ms|s|m|h)?$/.exec(text.trim());
   if (!match)
@@ -124,7 +96,6 @@ export function parseDuration(text: string, flag: string): number {
   return Math.round(value * factor);
 }
 
-/** The positionals of a command that takes exactly `names`, in order. */
 export function exactArgs(positionals: readonly string[], ...names: string[]): string[] {
   if (positionals.length < names.length) {
     throw new CliUsageError(`missing <${names[positionals.length]}>`);

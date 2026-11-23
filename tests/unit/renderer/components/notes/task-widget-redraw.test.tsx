@@ -10,10 +10,6 @@ import { useWorkspacesStore } from "../../../../../src/renderer/state/stores/wor
 import type { WorkspaceMeta } from "../../../../../src/shared/types/workspace";
 import { withTestDom } from "../../../../helpers/test-dom";
 
-/**
- * Domino has neither `dataset` nor `append`; the editor's widgets and TaskItem use both.
- * Domino's prototypes are shared by every test file, so each new element gets its own.
- */
 function bridgeDom() {
   const attr = (key: string) => `data-${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
   const create = document.createElement.bind(document);
@@ -90,7 +86,6 @@ test("the task widget is filled again when the editor redraws it without a trans
 
         let transactions = 0;
         editor.on("transaction", () => transactions++);
-        // A new node view set makes ProseMirror rebuild the document DOM, widgets included.
         await act(async () => {
           editor.view.setProps({
             nodeViews: { ...editor.view.props.nodeViews, paragraph: undefined as never },

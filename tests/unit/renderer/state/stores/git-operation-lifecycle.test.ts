@@ -1,21 +1,4 @@
-/**
- * Characterization tests for the git store's operation lifecycle.
- *
- * These tests pin the concurrent-operation, failOperation-ignores-abort
- * and overlapping-failure behaviours.
- *
- * Scenarios:
- *   (1) concurrent operations: a second operation does not abort the first;
- *       inFlightOp shows the newest operation still running
- *   (2) failOperation ignores aborted operations (AbortError)
- *   (3) an operation that fails after another finished records its error
- */
-
 import { beforeEach, describe, expect, it, mock } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Mocks — must be registered before any module import that uses ipc/client
-// ---------------------------------------------------------------------------
 
 type IpcImpl = (channel: string, method: string, args: Record<string, unknown>) => Promise<unknown>;
 
@@ -36,8 +19,6 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
       opts?: { signal?: AbortSignal },
     ) => {
       ipcCalls.push({ channel, method, args, signal: opts?.signal });
-      // ipcImpl may throw or return a value; if it throws, propagate so the store
-      // catch path (gitStoreErrorFromUnknown) handles it as before.
       const value = await ipcImpl(channel, method, args);
       return { ok: true, value };
     },
@@ -51,10 +32,6 @@ mock.module("../../../../../src/renderer/state/workspace-cleanup", () => ({
   registerWorkspaceCleanup: mock(() => () => {}),
 }));
 
-// ---------------------------------------------------------------------------
-// Imports — after mocks
-// ---------------------------------------------------------------------------
-
 import type { GitSession } from "../../../../../src/renderer/state/stores/git";
 import { useGitStore } from "../../../../../src/renderer/state/stores/git";
 import {
@@ -62,10 +39,6 @@ import {
   DEFAULT_REPO_CAPABILITIES,
   type GitStatus,
 } from "../../../../../src/shared/git/types";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 const WS = "00000000-0000-0000-0000-000000000099";
 
@@ -138,14 +111,6 @@ function gitError(
   return err;
 }
 
-// ---------------------------------------------------------------------------
-// (1) concurrent operations
-//
-// Main queues git commands per repository, so a second operation must not
-// abort the first: aborting dropped a queued stage, or killed a commit or
-// push mid-write. inFlightOp shows the newest operation still running.
-// ---------------------------------------------------------------------------
-
 describe("git operation lifecycle — concurrent operations", () => {
   beforeEach(() => {
     resetStore();
@@ -174,7 +139,6 @@ describe("git operation lifecycle — concurrent operations", () => {
     const op2 = useGitStore.getState().fetch(WS, "upstream");
     expect(ipcCalls.map((c) => c.signal?.aborted)).toEqual([false, false]);
 
-    // op2 finishes first; op1 is still running.
     resolveOp2();
     await op2;
     expect(useGitStore.getState().sessions.get(WS)?.inFlightOp?.kind).toBe("fetch");
@@ -223,13 +187,6 @@ describe("git operation lifecycle — concurrent operations", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// (2) failOperation ignores AbortError (intentional abort)
-//
-// When an operation is aborted via its signal and throws an AbortError,
-// failOperation must NOT record a lastError on the session.
-// ---------------------------------------------------------------------------
-
 describe("git operation lifecycle — failOperation ignores AbortError", () => {
   beforeEach(() => {
     resetStore();
@@ -254,10 +211,6 @@ describe("git operation lifecycle — failOperation ignores AbortError", () => {
     expect(useGitStore.getState().sessions.get(WS)?.lastError).toBeNull();
   });
 });
-
-// ---------------------------------------------------------------------------
-// (3) an operation that fails after another one finished still reports
-// ---------------------------------------------------------------------------
 
 describe("git operation lifecycle — overlapping failure", () => {
   beforeEach(() => {

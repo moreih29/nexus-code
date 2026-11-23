@@ -15,7 +15,6 @@ import { authenticateSsh2Master, usesSsh2Client } from "./ssh2";
 const PASSWORD_PROMPT_PATTERN = /([^\r\n]*?(?:password|passphrase)\s*(?:for [^:]+)?\s*:)\s*$/i;
 const HOST_KEY_PROMPT_PATTERN =
   /Are you sure you want to continue connecting \(yes\/no(?:\/\[fingerprint\])?\)\?/i;
-// OpenSSH 10 puts a colon after "is": "ED25519 key fingerprint is: SHA256:…".
 const FINGERPRINT_PATTERN = /([A-Z0-9]+) key fingerprint is:? (SHA256:[^\s.]+)/i;
 const DEFAULT_AUTH_TIMEOUT_MS = 30_000;
 
@@ -38,12 +37,6 @@ export interface AuthenticateSshControlMasterDependencies {
   readonly signal?: AbortSignal;
 }
 
-/**
- * Runs OpenSSH in a PTY long enough to satisfy interactive password and host-key
- * prompts, leaving behind a reusable ControlMaster socket for batch channels.
- * Where the ssh2 client stands in for OpenSSH, it opens the shared connection
- * instead (ssh2/index.ts).
- */
 export function authenticateSshControlMaster(
   options: Omit<SshMasterOptions, "remoteCommand">,
   promptHandler: SshAuthPromptHandler,
@@ -85,9 +78,6 @@ export function authenticateSshControlMaster(
       buffer = trimAuthBuffer(buffer + chunk);
       void maybeHandlePrompt();
     });
-    // Bounds how long SSH may go without reaching a prompt or exiting. It is
-    // paused while a prompt waits on the user, so typing a password or
-    // reading a host-key fingerprint does not count against it.
     let authTimer: ReturnType<typeof setTimeout> | null = null;
     armAuthTimer();
     const exitDisposable = ptyProcess.onExit(({ exitCode }) => {
@@ -171,7 +161,6 @@ export function authenticateSshControlMaster(
   });
 }
 
-/** Converts buffered OpenSSH PTY text into the next renderer prompt, if any. */
 function promptFromBuffer(
   buffer: string,
   options: Omit<SshMasterOptions, "remoteCommand">,
@@ -211,12 +200,6 @@ function trimAuthBuffer(value: string): string {
   return value.length > 8_192 ? value.slice(-8_192) : value;
 }
 
-/**
- * Classifies a non-zero OpenSSH PTY exit from its terminal output. OpenSSH
- * collapses almost every failure into exit code 255, so the real cause only
- * shows in the text — without this, a "Connection refused" is mislabelled as
- * an authentication failure.
- */
 function classifyPtyExit(buffer: string): SshErrorCode {
   if (
     /connection refused|connection timed out|could not resolve hostname|name or service not known|no route to host|network is unreachable|operation timed out/i.test(
@@ -228,13 +211,10 @@ function classifyPtyExit(buffer: string): SshErrorCode {
   if (/host key verification failed|remote host identification has changed/i.test(buffer)) {
     return "ssh.connect-failed";
   }
-  // Permission denied / too many auth failures / no prompt answered — treat as
-  // an authentication failure (also the conservative default).
   return "ssh.auth-failed";
 }
 
 function defaultSpawnPty(command: string, args: string[], options: Parameters<SpawnPty>[2]): IPty {
-  // node-pty is a native runtime dependency and must stay external to Vite.
   const pty = require("node-pty") as typeof import("node-pty");
   return pty.spawn(command, args, options);
 }

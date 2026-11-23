@@ -1,6 +1,3 @@
-/**
- * Scenario fixture tests for pure Git history lane assignment.
- */
 import { describe, expect, it } from "bun:test";
 import {
   initialLaneState,
@@ -62,7 +59,6 @@ function expectLaneState(
 
 describe("reduceLanes — streaming and safety regressions", () => {
   it("keeps page 1 lanes open and closes them when page 2 delivers the parent", () => {
-    // Page 1 paints A and leaves B open; page 2 later resolves B as a root.
     const page1 = reduceLanes(initialLaneState(), [c("A", ["B"])]);
     expectLaneState(page1, {
       laneByCommit: [["A", 0]],

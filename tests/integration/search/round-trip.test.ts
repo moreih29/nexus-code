@@ -16,8 +16,6 @@ import {
   waitFor,
 } from "../../helpers/ipc-pair";
 
-// Re-establish the electron mock in case a sibling test file in the same bun
-// worker has overwritten it (mock.module persists across files in a worker).
 mock.module("electron", () => ({
   ipcMain: mockIpcMain,
   webContents: { getAllWebContents: mockGetAllWebContents },

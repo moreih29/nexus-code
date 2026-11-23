@@ -1,8 +1,3 @@
-/**
- * Pure tests for the user-override layer: schema validation, the
- * defaults+delta merge, the conflict engine, and the recorder's
- * event→accelerator reverse function.
- */
 import { describe, expect, it } from "bun:test";
 import { detectConflicts } from "../../../src/shared/keybindings/conflicts";
 import type { KeybindingDecl } from "../../../src/shared/keybindings/index";
@@ -51,8 +46,6 @@ describe("KeybindingOverridesSchema", () => {
   });
 
   it("accepts unknown command ids (version-skew tolerance)", () => {
-    // Unknown ids must validate — they are dropped at APPLY time, not
-    // parse time, so a stale state.json never fails wholesale.
     const parsed = KeybindingOverridesSchema.parse([
       { command: "future.command", primary: "CmdOrCtrl+9" },
     ]);
@@ -76,7 +69,6 @@ describe("applyKeybindingOverrides", () => {
     expect(tabClose).toHaveLength(1);
     expect(tabClose[0]?.primary).toBe("CmdOrCtrl+Shift+X");
     expect(tabClose[0]?.when).toBe("!terminalFocus || isMac");
-    // position preserved: still first in the table
     expect(out[0]?.command).toBe("tab.close");
   });
 
@@ -126,15 +118,11 @@ describe("applyKeybindingOverrides", () => {
       KNOWN,
     );
     const decls = out.filter((b) => b.command === "tab.closeAll");
-    // default chord retained + appended primary decl
     expect(decls.some((d) => d.chord !== undefined)).toBe(true);
     expect(decls.some((d) => d.primary === "CmdOrCtrl+9")).toBe(true);
   });
 
   it("gives a command declared per platform one replacement for every platform", () => {
-    // The scope of the first declaration (`!isLinux`) only says which
-    // platforms that default is for; inheriting it would leave the user's
-    // key dead on Linux, where the Linux default is dropped with the rest.
     const defaults: readonly KeybindingDecl[] = [
       { command: "session.next" as never, primary: "CmdOrCtrl+Shift+U", when: "!isLinux" },
       { command: "session.next" as never, primary: "Ctrl+Shift+J", when: "isLinux" },
@@ -171,7 +159,6 @@ describe("applyKeybindingOverrides", () => {
       { command: "pane.move" as never, chord: ["CmdOrCtrl+K", "M"], when: "isMac || isWindows" },
       { command: "pane.move" as never, primary: "Alt+N" },
     ]);
-    // A binding added beside the defaults doesn't take their platform either.
     const chordOnly: readonly KeybindingDecl[] = [
       { command: "pane.move" as never, chord: ["CmdOrCtrl+K", "M"], when: "!isMac" },
     ];
@@ -240,17 +227,12 @@ describe("findReservedKey", () => {
   });
 
   it("flags shell keys via the platform-resolved form", () => {
-    // CmdOrCtrl+R IS Ctrl+R on Win/Linux → terminal reservation hits…
     expect(findReservedKey("CmdOrCtrl+R", false)?.source).toBe("terminal");
-    // …but on Mac it's ⌘R, which no built-in owns.
     expect(findReservedKey("CmdOrCtrl+R", true)).toBeUndefined();
   });
 
   it("flags macOS system keys only on Mac", () => {
     expect(findReservedKey("Cmd+Q", true)?.source).toBe("system");
-    // On Win/Linux the mac-only system entry is skipped — but Cmd+Q
-    // normalizes to Ctrl+Q there, which the shell owns (XON). The
-    // platform filter correctly degrades the hit, not the protection.
     expect(findReservedKey("Cmd+Q", false)?.source).toBe("terminal");
   });
 });
@@ -261,7 +243,7 @@ describe("detectConflicts", () => {
   it("blocks a duplicate keystroke when either side is unscoped", () => {
     const conflicts = detectConflicts({
       command: "file.save" as never,
-      primary: "CmdOrCtrl+E", // file.open's key, file.open is unscoped
+      primary: "CmdOrCtrl+E",
       bindings: DEFAULTS,
       isMac,
     });

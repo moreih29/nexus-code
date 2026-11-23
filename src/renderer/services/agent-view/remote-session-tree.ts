@@ -66,7 +66,6 @@ export function remoteSessionTree(
   const roots = sessionTree(rows).map((node): SessionTreeNode => {
     const opener = byKey.get(node.session.key)?.openedBy;
     if (!opener || opener.device || node.session.parent?.tabId) return node;
-    // A hidden or ambiguous parent is still in the listing.
     return { ...node, parentClosed: rowsByTab.has(opener.tabId) ? undefined : true };
   });
   return { byKey, roots: searchSessionTree(roots, query) };

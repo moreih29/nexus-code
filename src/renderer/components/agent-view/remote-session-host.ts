@@ -4,7 +4,6 @@ import type { FileLookOptions } from "../chat/file-look";
 
 export type OpenRemoteFileBeside = (path: string, options: FileLookOptions) => boolean;
 
-/** Placement and tab actions when the session pane is hosted outside the agent view. */
 export interface RemoteSessionHost {
   focusKey: string;
   openSession: OpenRemoteSession;

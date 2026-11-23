@@ -24,11 +24,6 @@ func TestErrorResponseCarriesErrorData(t *testing.T) {
 }
 
 func TestSuccessCoercesNilResultToExplicitNull(t *testing.T) {
-	// Handlers that return (nil, nil) must still produce a frame the client
-	// can route. Without coercion `omitempty` drops the result key and the
-	// TS pipe's parseFrame rejects the resulting `{"id":"x"}` as malformed,
-	// tearing the channel down. The coercion in Success keeps the wire
-	// frame as `{"id":"x","result":null}`.
 	line, err := MarshalFrame(Success("r-46", nil))
 	if err != nil {
 		t.Fatalf("MarshalFrame() error = %v", err)
@@ -39,7 +34,6 @@ func TestSuccessCoercesNilResultToExplicitNull(t *testing.T) {
 }
 
 func TestReadyFrameNilMethodsCoercedToEmptySlice(t *testing.T) {
-	// nil methods는 빈 슬라이스로 변환되어 JSON "methods":[] 로 직렬화된다.
 	f := Ready(nil, 0, 0, 0, nil)
 	if f.Methods == nil {
 		t.Fatal("Ready(nil, 0, 0, 0, nil).Methods must not be nil — want empty slice")

@@ -1,8 +1,3 @@
-/**
- * Autofetch interval picker for GitMoreMenu, with the last-fetched caption
- * rendered as a non-interactive footer so the user can sanity-check that
- * cron is actually firing.
- */
 import { useTranslation } from "react-i18next";
 import type { GitAutofetchIntervalMin } from "../../../../../shared/git/types";
 import {

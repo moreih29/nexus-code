@@ -1,15 +1,3 @@
-/**
- * A pairing through a QR code (packages/remote-protocol's ACCOUNT_KEYS.md,
- * "Pairing"), as a desktop does it: it shows the code, and another device
- * scans it, as desktops have no camera as a rule.
- *
- * - Holding the account key, it gives it: a new device that scanned the
- *   code asks for it (pair-request), the user allows it here, and this
- *   device sends it (pair-key), over the room.
- * - Without it, it takes it: a device holding the key (a phone) scans the
- *   code and sends it (pair-key). This device joins the room on a socket
- *   of its own for that, as it has no room key yet.
- */
 import {
   type Delivered,
   PAIR_KID,
@@ -22,19 +10,15 @@ import type { PairingState } from "../../../shared/remote/pairing";
 import { newPairSecret, openPair, type PairRouting, pairKeyOf, sealPair } from "./device-key";
 import type { RelayConnectionDeps, RelayStopReason } from "./relay-connection";
 
-/** How long the user has to answer a device that asks for the key. */
 const ASK_MS = 60_000;
 
 type Seal = (routing: PairRouting) => Promise<{ nonce: string; box: string }>;
 
-/** The room of a device that holds the key, as a pairing uses it. */
 export interface PairingRoom {
   sendPair(to: string, seal: Seal): Promise<boolean>;
-  /** A device in the room, by its name there. */
   deviceName(id: string): string | undefined;
 }
 
-/** A socket to the room of a device that does not hold the key yet. */
 export interface PairingSocket {
   start(): void;
   stop(reason?: RelayStopReason): void;
@@ -49,21 +33,14 @@ export interface PairingSocket {
 }
 
 export interface PairingDeps {
-  /** This device and its account, while signed in. */
   self(): { userId: string; deviceId: string } | null;
-  /** Whether this device holds the account's key now. */
   holdsKey(): boolean;
-  /** The account key to hand over: its version and bytes. */
   key(): { kid: number; key: Uint8Array } | null;
-  /** Takes the key a device handed over. */
   adopt(kid: number, key: Uint8Array): Promise<unknown>;
-  /** The room, while this device holds the key and is in it. */
   room(): PairingRoom | null;
-  /** Opens a socket to the room for a device without the key. */
   connect(
     handlers: Pick<RelayConnectionDeps, "onOpen" | "onFrame" | "onStatus" | "onSignedOut">,
   ): PairingSocket;
-  /** The QR code of `text`, as an image's data URL. */
   qr(text: string): Promise<string>;
   onChange(state: PairingState): void;
   readonly now?: () => number;
@@ -75,7 +52,6 @@ interface Showing {
   readonly deviceId: string;
   readonly giving: boolean;
   readonly expiresAt: number;
-  /** The device whose pair-request the user is asked about. */
   asked?: string;
   readonly socket: PairingSocket | null;
   seq: number;
@@ -92,10 +68,6 @@ export class Pairing {
     return this.state;
   }
 
-  /**
-   * Shows a new code: to give the key when this device holds it, to take it
-   * when it does not. A code shown before is dropped.
-   */
   async start(): Promise<PairingState> {
     this.drop();
     const self = this.deps.self();
@@ -133,13 +105,11 @@ export class Pairing {
     return this.set({ status: "showing", uri, qr, expiresAt, giving });
   }
 
-  /** Stops showing the code, or waiting on the user's answer. */
   stop(): PairingState {
     this.drop();
     return this.set({ status: "idle" });
   }
 
-  /** The user's answer to the device that asked for the key. */
   async answer(allow: boolean): Promise<PairingState> {
     const showing = this.showing;
     const to = showing?.asked;
@@ -164,7 +134,6 @@ export class Pairing {
     return this.set({ status: "done", ...(name ? { deviceName: name } : {}) });
   }
 
-  /** A pairing frame the room took for this device (holding the key). */
   onRoomFrame(frame: Delivered): void {
     void this.take(frame);
   }
@@ -182,13 +151,10 @@ export class Pairing {
     const message = await openPair(key, frame);
     if (!message || this.showing !== showing) return;
     if (showing.giving ? message.t === "pair-key" : message.t === "pair-request") {
-      // Both hold the key, or neither does: the device is told at once, and
-      // the code stays up for one that can pair.
       await this.send(showing, frame.from, { t: "pair-refused", v: 1 });
       return;
     }
     if (showing.giving && message.t === "pair-request") {
-      // The code is spent: the user is asked about this device alone.
       showing.asked = frame.from;
       clearTimeout(showing.timer);
       const expiresAt = this.now() + ASK_MS;

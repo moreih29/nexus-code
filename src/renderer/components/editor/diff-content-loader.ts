@@ -12,12 +12,6 @@ import { EMPTY_TREE } from "./diff-refs";
 
 const RELOAD_DEBOUNCE_MS = 120;
 
-/**
- * Minimum duration (ms) a "refreshing" status must persist before the UI
- * indicator becomes visible.  Fast background reloads complete well under this
- * threshold and are therefore silent.  Exposed for the component and for unit
- * tests.
- */
 export const REFRESHING_INDICATOR_DELAY_MS = 400;
 
 type DiffSideName = "left" | "right";
@@ -70,14 +64,7 @@ interface SideRefs<T> {
   right: T;
 }
 
-/**
- * Fetches both sides of a source-control diff and refreshes them from IPC hints.
- */
 export function useDiffContent(payload: DiffTabPayload): UseDiffContentResult {
-  // Keyed on the fields, not the object: the tab host spreads `tab.props`
-  // into a fresh payload on every render, and an identity dependency made
-  // every open diff tab abort and refetch both sides on each tab switch,
-  // split focus or terminal title update.
   const { workspaceId, relPath, leftRef, rightRef, oldRelPath } = payload;
   const requestPair = useMemo(
     () => buildRequests({ workspaceId, relPath, leftRef, rightRef, oldRelPath }),
@@ -198,9 +185,6 @@ export function useDiffContent(payload: DiffTabPayload): UseDiffContentResult {
   };
 }
 
-/**
- * Chooses the fetch source and path for each side of the diff.
- */
 function buildRequests(payload: DiffTabPayload): SideRefs<DiffSideRequest> {
   return {
     left: {
@@ -220,13 +204,6 @@ function buildRequests(payload: DiffTabPayload): SideRefs<DiffSideRequest> {
   };
 }
 
-/**
- * Reads one side through the correct IPC channel.
- * When ref is EMPTY_TREE (unborn repository left side), no IPC call is issued
- * and empty content is returned immediately — BranchInfo.isUnborn=true origin.
- *
- * Exported for unit testing of the EMPTY_TREE short-circuit path.
- */
 export async function readSideContent(
   request: DiffSideRequest,
   signal: AbortSignal,
@@ -261,9 +238,6 @@ export async function readSideContent(
         );
 
   if (result.kind === "missing") {
-    // "missing" covers both absent-at-ref files and unmerged (conflict) files
-    // whose stage-0 index entry does not exist. In both cases render an empty
-    // placeholder so the diff tab stays alive without IPC console errors.
     return {
       content: "",
       encoding: "utf8",
@@ -285,9 +259,6 @@ export async function readSideContent(
   };
 }
 
-/**
- * Builds a loading state while preserving the last displayable side content.
- */
 function loadingState(
   request: DiffSideRequest,
   previous?: DiffSideReadyState,
@@ -295,19 +266,12 @@ function loadingState(
   return { phase: "loading", request, ...(previous ? { previous } : {}) };
 }
 
-/**
- * Returns content that can stay visible while a newer request is in flight.
- */
 export function readyContentFor(state: DiffSideState): DiffSideReadyState | undefined {
   if (state.phase === "ready") return state;
   if (state.phase === "loading") return state.previous;
   return undefined;
 }
 
-/**
- * Computes the aggregate loading state for the diff view shell.
- * Exported so tests can verify the transition logic directly.
- */
 export function computeStatus(left: DiffSideState, right: DiffSideState): DiffContentStatus {
   if (left.phase === "error" || right.phase === "error") return "error";
   if (left.phase === "loading" || right.phase === "loading") {
@@ -316,9 +280,6 @@ export function computeStatus(left: DiffSideState, right: DiffSideState): DiffCo
   return "ready";
 }
 
-/**
- * Cancels in-flight fetches and invalidates version tokens on unmount.
- */
 function disposeSideEffects(
   versions: SideRefs<number>,
   controllers: SideRefs<AbortController | null>,
@@ -336,11 +297,6 @@ function disposeSideEffects(
   }
 }
 
-/**
- * Maps not-found reads to an empty side so added/deleted files can still diff.
- * Prefers the typed GitError kind ("missing") when the main process classified
- * the failure; falls back to a regex on the message for non-Git error shapes.
- */
 function isMissingContentError(error: unknown): boolean {
   if (hasFsErrorCode(error, FS_ERROR.NOT_FOUND)) return true;
   if (isRecord(error) && error.kind === "missing") return true;
@@ -350,19 +306,12 @@ function isMissingContentError(error: unknown): boolean {
   );
 }
 
-/**
- * Detects read-size failures from fs.readFile and git.getFileContent.
- */
 function isTooLargeError(error: unknown): boolean {
   if (hasFsErrorCode(error, FS_ERROR.TOO_LARGE)) return true;
   const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
   return /output exceeded .+ limit|too large/i.test(message);
 }
 
-/**
- * Extracts a renderer-visible error message from unknown rejection payloads;
- * an fs failure reads as its localized phrase, not its code and path.
- */
 function errorMessage(error: unknown): string {
   if (error instanceof Error || typeof error === "string") return fsErrorReason(error);
   return i18next.t("editor.diff_load_failed");

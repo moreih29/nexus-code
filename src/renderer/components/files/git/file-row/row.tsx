@@ -1,12 +1,3 @@
-/**
- * GitFileRow renders a changed file with RTL front-truncation and inline actions.
- *
- * Memoized: a panel lists every untracked file, as many as there are, so a
- * row renders only when its own file changes, compared by value, since each
- * status refresh brings new entries for the same files. Its actions come
- * from the panel as one object that keeps its identity, and its context
- * menu is the one the panel shares among its rows.
- */
 import { Check, Minus, Plus, Trash2 } from "lucide-react";
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
@@ -21,17 +12,11 @@ import {
 } from "./file-context-menu";
 import { GitStatusBadge } from "./status-badge";
 
-/** What a file's row does, for any row: the panel gives one, which keeps its identity. */
 export interface GitFileActions {
   readonly stage: (paths: string[]) => void;
   readonly unstage: (paths: string[]) => void;
   readonly discard: (paths: string[], description: string, source: GitExpandedGroupKey) => void;
   readonly markResolved: (entry: GitStatusEntry) => void;
-  /**
-   * Diff-open behavior decided by the caller. When `opts` is not given it is
-   * the preview (temporary) slot reuse flow — the same pattern as a file tree
-   * single-click. On double-click `{ preview: false }` promotes to permanent.
-   */
   readonly openDiff: (
     entry: GitStatusEntry,
     groupKey: GitExpandedGroupKey,
@@ -42,12 +27,7 @@ export interface GitFileActions {
   readonly copyPath: (entry: GitStatusEntry) => void;
   readonly copyRelativePath: (entry: GitStatusEntry) => void;
   readonly addToGitignore: (entry: GitStatusEntry) => void;
-  /**
-   * Only looks: no staging, discarding or resolving from a row, its group
-   * or its menu. A workspace on another computer's Source Control is.
-   */
   readonly readOnly?: boolean;
-  /** Opens the panel's file menu for the row at `point`. */
   readonly openMenu: (
     entry: GitStatusEntry,
     groupKey: GitExpandedGroupKey,
@@ -55,12 +35,10 @@ export interface GitFileActions {
   ) => void;
 }
 
-/** A conflicted file's row has no stage toggle; a staged one's unstages. */
 function canStageIn(groupKey: GitExpandedGroupKey): boolean {
   return groupKey !== "staged" && groupKey !== "merge";
 }
 
-/** What the file menu does for the row of `entry` in `groupKey`. */
 export function gitFileMenuActions(
   entry: GitStatusEntry,
   groupKey: GitExpandedGroupKey,
@@ -94,7 +72,6 @@ export interface GitFileRowProps {
   actions: GitFileActions;
 }
 
-/** Every field of an entry: one added to the type fails to compile here until compared. */
 const ENTRY_FIELDS = {
   relPath: true,
   oldRelPath: true,
@@ -103,7 +80,6 @@ const ENTRY_FIELDS = {
 } as const satisfies Record<keyof GitStatusEntry, true>;
 const ENTRY_KEYS = Object.keys(ENTRY_FIELDS) as (keyof GitStatusEntry)[];
 
-/** A row shows nothing but its entry's fields, so an equal entry renders the same row. */
 export function sameGitFileRow(prev: GitFileRowProps, next: GitFileRowProps): boolean {
   return (
     prev.groupKey === next.groupKey &&
@@ -150,9 +126,6 @@ export const GitFileRow = memo(function GitFileRow({ groupKey, entry, actions }:
         style={{ height: ROW_HEIGHT_PX }}
         title={pathLabel}
         aria-label={t("git.fileRow.openDiff", { path: pathLabel })}
-        // single click — delegates to the preview (temporary slot) flow. On a double-click
-        // onClick fires first and opens the preview, which is promoted right after, so no
-        // separate handling is needed.
         onClick={() => onOpenDiff()}
         onDoubleClick={() => onOpenDiff({ preview: false })}
         onContextMenu={(event) => {

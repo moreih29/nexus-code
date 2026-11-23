@@ -1,9 +1,3 @@
-// The list over the composer that completes a `/` command or an `@` file.
-// The composer keeps the keys (↑ ↓ to move, ↩ or tab to pick, esc to
-// close); a click picks without taking the focus from the message box. A
-// command that matches nothing says so, as the app's other pickers do; a
-// file search, answered later, shows only what it found.
-
 import { FileText, Folder, NotebookPen, Slash } from "lucide-react";
 import { Fragment, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,9 +7,7 @@ import { cn } from "../../utils/cn";
 export interface CompletionItem {
   key: string;
   label: string;
-  /** Beside the label: a command's arguments. */
   hint?: string;
-  /** Under it: a command's description. */
   detail?: string;
   icon: "command" | "file" | "folder" | "note";
   note?: NoteChoice;
@@ -24,7 +16,6 @@ export interface CompletionItem {
 interface CompletionMenuProps {
   kind: "command" | "file";
   items: CompletionItem[];
-  /** The program has not listed its commands yet: none matching says nothing so far. */
   listing?: boolean;
   active: number;
   onPick: (index: number) => void;
@@ -91,7 +82,6 @@ export function CompletionMenu({
               aria-selected={i === active}
               data-index={i}
               tabIndex={-1}
-              // The message box keeps the focus, and with it the caret.
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => onPick(i)}
               onMouseMove={() => i !== active && onHover(i)}

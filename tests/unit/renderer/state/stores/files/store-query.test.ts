@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
-// ---------------------------------------------------------------------------
-// Shims — must run before any store import
-// ---------------------------------------------------------------------------
-
 (globalThis as Record<string, unknown>).window = {
   ipc: {
     call: () => Promise.resolve(null),
@@ -11,10 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
     off: () => {},
   },
 };
-
-// ---------------------------------------------------------------------------
-// Mock ipcCallResult before importing the store
-// ---------------------------------------------------------------------------
 
 const mockIpcCallResult = mock((_channel: string, _method: string, _args: unknown) =>
   Promise.resolve({ ok: true as const, value: [] }),
@@ -27,10 +19,6 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ipcListen: mockIpcListen,
 }));
 
-// ---------------------------------------------------------------------------
-// Imports after mocks
-// ---------------------------------------------------------------------------
-
 import {
   __cancelPendingSavesForTests,
   ensureRoot,
@@ -39,19 +27,10 @@ import {
 import { handleFsChanged, useFilesStore } from "../../../../../../src/renderer/state/stores/files";
 import type { DirEntry } from "../../../../../../src/shared/fs/types";
 
-// Expanded-folder saves must be canceled before the file's IPC mock is restored.
 afterEach(__cancelPendingSavesForTests);
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 
 const WS_ID = "00000000-0000-0000-0000-000000000001";
 const ROOT = "/workspace/project";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function dirEntry(name: string, type: DirEntry["type"] = "file"): DirEntry {
   return { name, type };
@@ -74,10 +53,6 @@ function setupReaddir(responses: Map<string, DirEntry[]>) {
     },
   );
 }
-
-// ---------------------------------------------------------------------------
-// Scenario 7: fs.changed handler — reload expanded dirs, mark stale collapsed
-// ---------------------------------------------------------------------------
 
 describe("Scenario 7: fs.changed handler", () => {
   beforeEach(resetStore);

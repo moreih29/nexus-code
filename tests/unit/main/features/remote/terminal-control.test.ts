@@ -1,4 +1,3 @@
-/** A terminal's controls as another device uses them, and the answer to its Claude Code's request. */
 import { describe, expect, test } from "bun:test";
 import { RpcErrorCode } from "../../../../../packages/remote-protocol/src";
 import type { CliServices } from "../../../../../src/main/features/cli/context";
@@ -161,7 +160,6 @@ describe("a terminal's shells, opening, renaming and closing", () => {
     await openTerminal(s, { workspaceId: "w1", command: "codex login", profile: "work" });
     await openTerminal(s, { workspaceId: "w1", command: "codex login", profile: "codex-default" });
     expect(opened()).toEqual(["codex-ab12", "codex-ab12", "codex-default"]);
-    // Never the default folder in place of one it has not, or of a name two profiles have.
     await expect(
       openTerminal(s, { workspaceId: "w1", command: "codex login", profile: "Gone" }),
     ).rejects.toMatchObject({ code: RpcErrorCode.InvalidParams });

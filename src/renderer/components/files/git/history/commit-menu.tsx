@@ -1,7 +1,3 @@
-/**
- * Commit context menu shared by History rows, row toolbar buttons, and the
- * detail toolbar. Mixed and hard reset are intentionally not present.
- */
 import i18next from "i18next";
 import { AlertDialog as RadixAlertDialog } from "radix-ui";
 import { useState } from "react";
@@ -47,7 +43,6 @@ export type HistoryCommitConfirmRequest =
   | { kind: "checkout"; sha: string; shortSha: string }
   | { kind: "reset-soft"; sha: string; shortSha: string };
 
-/** Renders the commit menu at its point and owns its confirm dialogs. */
 export function HistoryCommitMenu({ target, actions, onClose }: HistoryCommitMenuProps) {
   const [confirm, setConfirm] = useState<HistoryCommitConfirmRequest | null>(null);
 
@@ -91,10 +86,6 @@ export function HistoryCommitMenu({ target, actions, onClose }: HistoryCommitMen
   );
 }
 
-/**
- * Builds the menu model. Tests assert this list so mixed/hard reset cannot
- * accidentally appear when the UI grows.
- */
 export function buildHistoryCommitMenuItems(
   entry: LogEntry,
   detail: CommitDetail | null | undefined,
@@ -140,14 +131,12 @@ export function buildHistoryCommitMenuItems(
   ];
 }
 
-/** Builds a stable separator key from neighboring labels. */
 function separatorKey(items: readonly HistoryCommitMenuSpec[], index: number): string {
   const before = closestMenuLabel(items, index, -1) ?? "start";
   const after = closestMenuLabel(items, index, 1) ?? "end";
   return `separator:${before}:${after}`;
 }
 
-/** Finds the nearest item label before or after a separator. */
 function closestMenuLabel(
   items: readonly HistoryCommitMenuSpec[],
   index: number,
@@ -160,7 +149,6 @@ function closestMenuLabel(
   return null;
 }
 
-/** Renders the detached checkout and soft-reset confirmations. */
 function HistoryCommitConfirmDialog({
   request,
   onCancel,

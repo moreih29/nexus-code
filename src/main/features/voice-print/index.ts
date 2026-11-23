@@ -1,33 +1,16 @@
-/**
- * Voice prints of a note's lines, which tell its voices apart
- * (src/shared/notes/voices.ts): the model runs in a utility process
- * (host.ts), started when a recording first asks and ended a while after
- * the last ask, so the app holds no model while nothing records.
- *
- * The model is 3D-Speaker's CAM++ (iic/speech_campplus_sv_zh_en_16k-common_advanced,
- * Apache License 2.0), as sherpa-onnx exports it. On Apple silicon the app
- * ships it quantized to 8 bits, which runs fastest there; elsewhere at full
- * precision, since x64 processors run the 8-bit one many times slower
- * (scripts/voice-print-model.ts fetches it for a build).
- */
 import fs from "node:fs";
 import path from "node:path";
 import { MAX_VOICE_PRINT_SAMPLES as MAX_SAMPLES } from "../../../shared/types/notes";
 
-/** The 8-bit model, kept in the repository (resources/voice-print). */
 export const INT8_MODEL = "campp-zh-en-int8.onnx";
-/** The full-precision model, fetched for a build (dist/voice-print). */
 export const FULL_MODEL = "campp-zh-en.onnx";
-/** How long the model stays loaded after the last ask. */
 export const IDLE_MS = 3 * 60_000;
-/** How long an ask may take before it is given up (the model loads on the first). */
 const ASK_TIMEOUT_MS = 30_000;
 
 function electronApp(): typeof import("electron").app {
   return (require("electron") as typeof import("electron")).app;
 }
 
-/** The model this machine runs: its path, or null when the app has none (a build without it). */
 export function voicePrintModel(
   places: readonly string[],
   platform = process.platform,
@@ -44,7 +27,6 @@ export function voicePrintModel(
   return null;
 }
 
-/** Where the models are: the app's resources, or the repository's folders in development. */
 function modelPlaces(): string[] {
   const app = electronApp();
   if (app.isPackaged) return [path.join(process.resourcesPath, "voice-print")];
@@ -66,7 +48,6 @@ export class VoicePrints {
 
   constructor(private readonly hostPath: string) {}
 
-  /** The voice print of 16 kHz audio (its first 10 s); null if it could not be had. */
   vector(audio: Float32Array): Promise<number[] | null> {
     this.model ??= voicePrintModel(modelPlaces());
     if (!this.model) return Promise.resolve(null);
@@ -122,7 +103,6 @@ export class VoicePrints {
     }
   }
 
-  /** Ends the model's process; the next ask starts it again. */
   stop(): void {
     if (this.idle) clearTimeout(this.idle);
     this.idle = null;

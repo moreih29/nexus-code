@@ -1,14 +1,3 @@
-/**
- * Banner — unified surface-level notice primitive (design.md §7 feedback states).
- *
- * Two display modes:
- *   "inline" — padded box inside a panel; variable height; used for operation notices.
- *   "bar"    — h-6 full-width status bar above editor/workspace; fixed height.
- *
- * Variant drives icon + destructive styling: info/warning/success share the
- * same muted chrome and say which they are by the icon, drawn in the theme's
- * hue for it; only "error" tints the whole box.
- */
 import { CheckCircle2, CircleAlert, Info, X } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { Button } from "./button";
@@ -56,11 +45,6 @@ export function BannerDismissButton({
   );
 }
 
-/**
- * Returns the Tailwind class tuple for a given variant's color treatment.
- * Exported so specialized banners (OperationBanner) can share the same color
- * logic without duplicating the class strings.
- */
 export function bannerColorClass(variant: BannerVariant): string {
   if (variant === "error") return "border-destructive/60 bg-destructive/10 git-destructive-text";
   return "border-border bg-muted text-foreground";
@@ -84,10 +68,6 @@ function BannerIcon({ variant, className }: { variant: BannerVariant; className?
   return <Info className={cn(className, "text-[var(--state-info-fg)]")} aria-hidden="true" />;
 }
 
-/**
- * Inline display — padded notice box inside a panel scroll area.
- * Geometry: mx-2 my-1, rounded-(--radius-raised), border, variable height.
- */
 function InlineBanner({
   variant = "info",
   message,
@@ -110,10 +90,6 @@ function InlineBanner({
     >
       <div className="flex items-start gap-2">
         <BannerIcon variant={variant} className="mt-0.5 size-3.5 shrink-0" />
-        {/* A long error (e.g. a full git stderr dump) must not push the
-            panel's other controls off screen: the message is capped and
-            scrolls, and details stay collapsed behind a toggle. Actions live
-            in their own row below so the message keeps the full banner width. */}
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <p className="app-scrollbar max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-foreground">
             {message}
@@ -144,11 +120,6 @@ function InlineBanner({
   );
 }
 
-/**
- * Bar display — fixed h-6 full-width status strip, border-b, horizontal layout.
- * Used by ReadOnlyBanner, ConflictResolvedBanner, DeadTerminalBanner, and
- * WorkspaceTerminalStatusBanner as the shared editor/terminal status bar geometry.
- */
 function BarBanner({
   variant = "info",
   message,
@@ -188,9 +159,6 @@ function BarBanner({
   );
 }
 
-/**
- * Banner — routes to InlineBanner or BarBanner based on display prop.
- */
 export function Banner({ display = "inline", ...props }: BannerProps) {
   if (display === "bar") return <BarBanner {...props} />;
   return <InlineBanner {...props} />;

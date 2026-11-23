@@ -1,13 +1,3 @@
-// PptxPreview — a .pptx presentation, read-only: its slides one after
-// another, each with its number above and its speaker notes below.
-//
-// pptxtojson reads the file; slide-dom draws each slide as the file places
-// its text, shapes, pictures and tables, on the slide's layout. Charts,
-// video and audio are marked where they sit, not drawn. Slides wider than
-// the panel shrink to its width. The slides are drawn into a shadow root,
-// so the app's styles do not reach them. A file changed on disk is drawn
-// again at the same place.
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
@@ -22,11 +12,8 @@ import { useWorkspaceFile } from "./use-workspace-file";
 
 const log = createLogger("pptx-preview");
 
-/** Space beside the slides, in px, as SLIDE_STYLE pads them. */
 const DECK_GUTTER_PX = 16;
-/** The smallest slides are shrunk to fit a narrow panel. */
 const MIN_ZOOM = 0.2;
-/** CSS px in a point. */
 const PX_PER_PT = 4 / 3;
 
 type Status =
@@ -35,7 +22,6 @@ type Status =
 
 interface PptxPreviewProps {
   workspaceId: string;
-  /** Absolute path on the workspace filesystem. */
   filePath: string;
 }
 
@@ -51,16 +37,9 @@ function PptxDocument({ workspaceId, relPath }: { workspaceId: string; relPath: 
   const hostRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<Status>({ kind: "loading" });
-  /** A slide's width at actual size, in px; 0 before the deck is drawn. */
   const slideWidth = useRef(0);
 
-  /** The zoom the slides are drawn at; 0 before the first fit. */
   const zoomRef = useRef(0);
-  /**
-   * Slides wider than the panel shrink to its width. A tab not shown sits
-   * in a box of no size, which is not fitted to; a panel that changes
-   * width keeps the same place in the deck.
-   */
   const fit = useCallback(() => {
     const host = hostRef.current;
     const container = scrollRef.current;
@@ -70,7 +49,6 @@ function PptxDocument({ workspaceId, relPath }: { workspaceId: string; relPath: 
     const before = zoomRef.current;
     if (zoom === before) return;
     zoomRef.current = zoom;
-    // Read before the slides shrink, which would clamp it.
     const top = container.scrollTop;
     host.style.setProperty("--slide-zoom", String(zoom));
     if (before > 0) container.scrollTop = top * (zoom / before);
@@ -84,7 +62,6 @@ function PptxDocument({ workspaceId, relPath }: { workspaceId: string; relPath: 
     return () => observer.disconnect();
   }, [fit]);
 
-  // `version` is when to read the file again; the read itself goes by path.
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
     let cancelled = false;

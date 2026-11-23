@@ -1,10 +1,3 @@
-/**
- * What another computer's chat's links and images open, as a chat here's
- * do: a file the conversation names, an image, or a file it changed, read
- * from that computer and shown in this app's quick look; an address in the
- * system browser, unless it is that computer's own.
- */
-
 import i18next from "i18next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { remoteFileKey } from "../../../shared/fs/remote-file-key";
@@ -39,17 +32,10 @@ import type { OpenRemoteFileBeside } from "./remote-session-host";
 
 const t = (key: string, options?: Record<string, unknown>) => String(i18next.t(key, options));
 
-/** What a remote chat's links read of its conversation when one is followed. */
 export interface RemoteLinkSource {
   model: Pick<ChatModel, "items" | "tools" | "agentItems">;
 }
 
-/**
- * The links of another computer's chat, as a chat here's: a file, an
- * image or a change in quick look, which reads that computer's files
- * through the room (as its peer workspace). A file held by a panel is
- * selected there. Images can be stepped through in the conversation.
- */
 export function useRemoteLinks(
   target: RemoteTarget,
   source: RemoteLinkSource,
@@ -62,8 +48,6 @@ export function useRemoteLinks(
   const cwd = target.cwd ?? target.path;
   const latest = useRef(source);
   latest.current = source;
-  // The attached images that computer wrote, as a chat there shows them: one it
-  // no longer keeps is a plain chip, as in a chat here (attachedOpens).
   const items = source.model.items;
   const written = useMemo(
     () => attachedImagesIn(items, cwd).filter((file) => attachShaped(peerWorkspace, file)),
@@ -72,7 +56,6 @@ export function useRemoteLinks(
   const gone = useGoneAttachments(files, written);
   return useMemo<ChatLinks & { openBeside: OpenRemoteFileBeside }>(() => {
     const where = { deviceId, workspaceId: peerWorkspace };
-    // Each look its own: one that comes after another was opened does not replace it.
     let opened = 0;
     const show = (look: Promise<QuickLookList | null>) => {
       const mine = ++opened;
@@ -80,15 +63,11 @@ export function useRemoteLinks(
         if (list && opened === mine) setLook(list);
       });
     };
-    /** Quick look over the conversation's images, at `target`; `alone` when it is not among them. */
     const lookAt = (image: ShownImage, alone?: () => QuickLookList) => {
       const { model } = latest.current;
-      // That computer serves only the attached files its agent wrote for a message; others
-      // wait on a lookup, as an image only named does.
       const shown = imagesOf(model.items, model.tools, cwd, model.agentItems, (file) =>
         attachShaped(peerWorkspace, file),
       );
-      // The last read of a file a panel holds selects the panel; an earlier one shows as it was read.
       const held = image.image ? latestReadFile(shown, image) : undefined;
       if (held) {
         opened++;
@@ -119,7 +98,6 @@ export function useRemoteLinks(
         ...(line ? { at: { path, line, ...(column ? { column } : {}) } } : {}),
       });
     };
-    /** A file a reply names: from the chat's folder, or from where the agent's shell went there. */
     const openFile = (written: string) => {
       const places = linkPlaces(written, linkPlaceIndex(latest.current.model.tools, cwd));
       void findLinkPlace(places, (paths) => files.there(paths)).then(
@@ -186,7 +164,6 @@ export function useRemoteLinks(
           show(readRemoteFileBefore(file, tabId, workspaceRoot).then(list, () => list(undefined)));
       },
       openUrl(url) {
-        // That computer's own address is not this one's to open.
         if (isLocalAddress(url)) {
           showToast({
             kind: "info",
@@ -214,11 +191,6 @@ export function useRemoteLinks(
 
 const NONE: ReadonlySet<string> = new Set();
 
-/**
- * Which of `paths`, attached files that computer serves by their names, it
- * says are gone (ChatFiles.gone): pruned there, or their conversation
- * deleted. Looked up again as the files or the connection change.
- */
 function useGoneAttachments(files: ChatFiles, paths: readonly string[]): ReadonlySet<string> {
   const key = paths.join("\n");
   const [gone, setGone] = useState<ReadonlySet<string>>(NONE);

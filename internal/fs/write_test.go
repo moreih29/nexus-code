@@ -16,8 +16,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// TestWriteFile_ExistingMatch_OK — overwrite when the caller's expected
-// mtime+size match the on-disk state.
 func TestWriteFile_ExistingMatch_OK(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "a.txt")
@@ -39,9 +37,6 @@ func TestWriteFile_ExistingMatch_OK(t *testing.T) {
 	}
 }
 
-// TestWriteFile_ExpectedFalse_ButExists_Conflict — caller said "this is a
-// new file" but the target already exists. The actual state must be the
-// "exists:true" variant so the renderer can decide whether to reload.
 func TestWriteFile_ExpectedFalse_ButExists_Conflict(t *testing.T) {
 	root := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("v1"), 0o644))
@@ -59,8 +54,6 @@ func TestWriteFile_ExpectedFalse_ButExists_Conflict(t *testing.T) {
 	}
 }
 
-// TestWriteFile_ExpectedTrue_ButMissing_Conflict — caller said the file
-// existed but it's gone now. The actual variant must be exists:false.
 func TestWriteFile_ExpectedTrue_ButMissing_Conflict(t *testing.T) {
 	root := t.TempDir()
 	mt := "2020-01-01T00:00:00.000Z"
@@ -80,14 +73,11 @@ func TestWriteFile_ExpectedTrue_ButMissing_Conflict(t *testing.T) {
 	if res.Actual == nil || res.Actual.Exists {
 		t.Fatalf("expected actual.exists=false, got %+v", res.Actual)
 	}
-	// Ghost file must not have been created.
 	if _, err := os.Stat(filepath.Join(root, "ghost.txt")); !os.IsNotExist(err) {
 		t.Fatalf("conflict path should not create file: %v", err)
 	}
 }
 
-// TestWriteFile_Directory_Refused — writing onto a directory must return
-// IS_DIRECTORY rather than silently replacing it via atomic rename.
 func TestWriteFile_Directory_Refused(t *testing.T) {
 	root := t.TempDir()
 	must(t, os.Mkdir(filepath.Join(root, "d"), 0o755))
@@ -104,8 +94,6 @@ func TestWriteFile_Directory_Refused(t *testing.T) {
 	}
 }
 
-// TestWriteFile_OutOfWorkspace_Refused — paths escaping the root must
-// be rejected by Resolve before any filesystem work happens.
 func TestWriteFile_OutOfWorkspace_Refused(t *testing.T) {
 	root := t.TempDir()
 	_, err := mustFS(t, root).WriteFile(context.Background(), mustJSON(t, map[string]any{
@@ -120,9 +108,6 @@ func TestWriteFile_OutOfWorkspace_Refused(t *testing.T) {
 	}
 }
 
-// TestWriteFile_AtomicNoTmpResidue — after a successful write, the
-// directory must contain only the target file. Catches a regression
-// where the tmp file is left behind on a successful rename.
 func TestWriteFile_AtomicNoTmpResidue(t *testing.T) {
 	root := t.TempDir()
 	res := callWrite(t, mustFS(t, root), map[string]any{
@@ -283,9 +268,6 @@ func TestRenameTargetExistsRejects(t *testing.T) {
 	}
 }
 
-// TestRenameOverwriteReplacesExisting — with overwrite=true an existing
-// destination is replaced by the rename. Used by the move flow after the
-// user confirms a replace.
 func TestRenameOverwriteReplacesExisting(t *testing.T) {
 	root := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(root, "src.txt"), []byte("new"), 0o644))
@@ -305,8 +287,6 @@ func TestRenameOverwriteReplacesExisting(t *testing.T) {
 	}
 }
 
-// TestRenameOverwriteReplacesNonEmptyDir — rename overwrite must clear a
-// pre-existing destination directory tree, not refuse it.
 func TestRenameOverwriteReplacesNonEmptyDir(t *testing.T) {
 	root := t.TempDir()
 	srcDir := filepath.Join(root, "src-dir")
@@ -333,9 +313,6 @@ func TestRenameOverwriteReplacesNonEmptyDir(t *testing.T) {
 	}
 }
 
-// TestRenameOverwriteKeepsDestinationOnFailure — the destination used to be
-// deleted before the rename was attempted, so a vanished source or a
-// cross-device move lost it. It must survive any failed rename.
 func TestRenameOverwriteKeepsDestinationOnFailure(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -373,9 +350,6 @@ func TestRenameOverwriteKeepsDestinationOnFailure(t *testing.T) {
 	}
 }
 
-// TestRenameCaseOnly — on a case-insensitive volume "Foo" and "foo" are the
-// same entry: it is renamed, neither refused as taken nor, when overwriting,
-// deleted first.
 func TestRenameCaseOnly(t *testing.T) {
 	for _, overwrite := range []bool{false, true} {
 		t.Run(fmt.Sprintf("overwrite=%v", overwrite), func(t *testing.T) {
@@ -402,8 +376,6 @@ func TestRenameCaseOnly(t *testing.T) {
 	}
 }
 
-// TestRenameOntoHardLinkStillRefused — a second name of the same file is
-// another entry, taken like any other.
 func TestRenameOntoHardLinkStillRefused(t *testing.T) {
 	root := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("payload"), 0o644))
@@ -453,15 +425,11 @@ func TestCopyFileTargetAlreadyExists(t *testing.T) {
 		"toRelPath":   "dst.txt",
 	}))
 	assertFSError(t, err, CodeAlreadyExists)
-	// Target must be unchanged.
 	if got, readErr := os.ReadFile(filepath.Join(root, "dst.txt")); readErr != nil || string(got) != "dst" {
 		t.Fatalf("target should remain unchanged: bytes=%q err=%v", got, readErr)
 	}
 }
 
-// TestCopyFileOverwriteReplacesExisting — with overwrite=true an existing
-// destination is replaced rather than rejected (the renderer sets this only
-// after the user confirms a replace).
 func TestCopyFileOverwriteReplacesExisting(t *testing.T) {
 	root := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(root, "src.txt"), []byte("new"), 0o644))
@@ -478,8 +446,6 @@ func TestCopyFileOverwriteReplacesExisting(t *testing.T) {
 	}
 }
 
-// TestCopyFileOverwriteReplacesNonEmptyDir — overwrite must clear a pre-existing
-// destination directory tree before copying (os.RemoveAll semantics), not merge.
 func TestCopyFileOverwriteReplacesNonEmptyDir(t *testing.T) {
 	root := t.TempDir()
 	srcDir := filepath.Join(root, "src-dir")
@@ -505,9 +471,6 @@ func TestCopyFileOverwriteReplacesNonEmptyDir(t *testing.T) {
 	assertNoTmpResidue(t, root)
 }
 
-// TestCopyFileOverwriteKeepsDestinationOnFailure — a copy that fails part
-// way must leave the confirmed-to-be-replaced destination as it was rather
-// than deleted or half-overwritten.
 func TestCopyFileOverwriteKeepsDestinationOnFailure(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows ignores the mode bits that make the source unreadable")
@@ -539,8 +502,6 @@ func TestCopyFileOverwriteKeepsDestinationOnFailure(t *testing.T) {
 	assertNoTmpResidue(t, root)
 }
 
-// TestCopyFileLeavesNothingOnFailure — a copy that fails part way, to a
-// destination nothing was at, takes away the part it copied.
 func TestCopyFileLeavesNothingOnFailure(t *testing.T) {
 	root := t.TempDir()
 	srcDir := filepath.Join(root, "src-dir")
@@ -575,7 +536,6 @@ func TestCopyFileSymlink(t *testing.T) {
 		"toRelPath":   "link-copy.txt",
 	})
 
-	// The destination must be a symlink pointing to the same target.
 	dstLink := filepath.Join(root, "link-copy.txt")
 	info, err := os.Lstat(dstLink)
 	must(t, err)
@@ -587,11 +547,9 @@ func TestCopyFileSymlink(t *testing.T) {
 	if linkTarget != "target.txt" {
 		t.Fatalf("symlink target mismatch: got %s, want target.txt", linkTarget)
 	}
-	// Following the link should reach the content.
 	if got, err := os.ReadFile(dstLink); err != nil || string(got) != "target-content" {
 		t.Fatalf("following copied symlink failed: bytes=%q err=%v", got, err)
 	}
-	// Source symlink must remain intact.
 	if infoSrc, err := os.Lstat(link); err != nil || infoSrc.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("source symlink should remain: err=%v", err)
 	}
@@ -611,18 +569,12 @@ func TestRemoveAllFileRejects(t *testing.T) {
 	}
 }
 
-// TestRemoveAllMissingIsNoop — removeAll on a path that no longer exists must
-// succeed silently (matches stdlib os.RemoveAll). The renderer relies on this
-// to avoid logging "Error occurred in handler" when a stale row's delete races
-// with a tree refresh.
 func TestRemoveAllMissingIsNoop(t *testing.T) {
 	root := t.TempDir()
 	dispatchOK(t, mustFS(t, root), "fs.removeAll", map[string]any{
 		"relPath": "never-existed",
 	})
 }
-
-// --- helpers -----------------------------------------------------------
 
 func mustFS(t *testing.T, root string) *Service {
 	t.Helper()
@@ -673,8 +625,6 @@ func assertFSError(t *testing.T, err error, code string) {
 	}
 }
 
-// A save replaces the file through a temp file and rename; the replacement
-// must keep the original permission bits instead of the temp file's default.
 func TestWriteFile_PreservesMode(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows keeps no POSIX mode bits")
@@ -697,8 +647,6 @@ func TestWriteFile_PreservesMode(t *testing.T) {
 	}
 }
 
-// A file with other hard links is written in place so every link sees the
-// new content; a rename would leave the other links on the old inode.
 func TestWriteFile_HardLinkWrittenInPlace(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "a.txt")

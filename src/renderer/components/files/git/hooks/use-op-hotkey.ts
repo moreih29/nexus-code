@@ -5,10 +5,6 @@ interface UseGitOpHotkeyOptions {
   onCommit: () => void;
 }
 
-/**
- * Scoped Source Control keyboard router for operations that should only fire
- * while focus is inside the mounted GitPanel.
- */
 export function useGitOpHotkey({
   disabled = false,
   onCommit,

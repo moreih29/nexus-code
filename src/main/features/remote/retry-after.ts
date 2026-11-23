@@ -1,4 +1,3 @@
-/** Retry-After is a delay in seconds or an HTTP date. */
 export function retryAfterSeconds(header: string | null | undefined): number | undefined {
   const value = header?.trim();
   if (!value) return undefined;
@@ -10,7 +9,6 @@ export function retryAfterSeconds(header: string | null | undefined): number | u
 
 const MAX_SOCKET_RETRY_MS = 5 * 60_000;
 
-/** A server-requested pause shared by ticket requests and socket upgrades. */
 export class SocketRetryAfter {
   private until = 0;
 

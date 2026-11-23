@@ -2,7 +2,6 @@ import type { Virtualizer } from "@tanstack/react-virtual";
 import type { ReactNode } from "react";
 import { ROW_HEIGHT_PX } from "./metrics";
 
-/** Places the visible file tree rows. Each tree supplies its own row behavior. */
 export function FileTreeVirtualBody({
   virtualizer,
   renderRow,

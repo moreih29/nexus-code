@@ -49,7 +49,6 @@ describe("typedChunks", () => {
   });
 });
 
-/** A terminal whose agent shows each piece when the test says so. */
 function slowTerminal() {
   const log: string[] = [];
   let show: ((shown: boolean) => void) | null = null;
@@ -75,7 +74,6 @@ describe("typeText", () => {
     const { log, target, redraw } = slowTerminal();
     const typing = typeText(target, "x".repeat(150));
     await Bun.sleep(30);
-    // A busy agent: the second piece waits, so the two never come as one read.
     expect(log).toEqual(["wait", "write 64"]);
     await redraw();
     expect(log).toEqual(["wait", "write 64", "wait", "write 64"]);

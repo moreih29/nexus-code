@@ -69,11 +69,6 @@ export const GIT_STAGE_CONTENT_METHOD = "git.stageContent";
 
 const GitEnvSchema = z.record(z.string(), z.string());
 
-/**
- * Id of a request that may prompt for credentials. `git.cancel` with the id
- * stops the request, and the agent tags the request's askpass prompts with
- * it so each caller answers only its own.
- */
 const AgentGitRunIdSchema = z.string().min(1).optional();
 
 export const AgentGitRunParamsSchema = z.object({
@@ -96,17 +91,8 @@ export const AgentGitRunResultSchema = z.object({
 });
 export type AgentGitRunResult = z.infer<typeof AgentGitRunResultSchema>;
 
-/**
- * Error code of an agent request whose handler failed; mirrors Go
- * proto.CodeRequestFailed.
- */
 export const AGENT_REQUEST_FAILED_CODE = "server.request-failed";
 
-/**
- * Error data of a dedicated git method (push, pull, tag, stash, ...) whose
- * git exited non-zero: the classified kind and hint git.run reports in its
- * result.
- */
 export const AgentGitFailureDataSchema = z.object({
   errorKind: GitErrorKindSchema,
   errorHint: GitActionHintSchema.optional(),
@@ -114,7 +100,6 @@ export const AgentGitFailureDataSchema = z.object({
 
 export const AgentGitStreamParamsSchema = AgentGitRunParamsSchema.omit({
   stdoutCapBytes: true,
-  // The stream id serves as the run id.
   runId: true,
 }).extend({
   streamId: z.string().min(1),
@@ -136,7 +121,6 @@ export type AgentGitCancelParams = z.infer<typeof AgentGitCancelParamsSchema>;
 export const AgentGitAskpassRequestPayloadSchema = z.object({
   requestId: z.string().min(1),
   prompt: z.string(),
-  /** Run id (or stream id) of the request whose git asked. */
   runId: z.string().min(1).optional(),
 });
 export type AgentGitAskpassRequestPayload = z.infer<typeof AgentGitAskpassRequestPayloadSchema>;
@@ -144,7 +128,6 @@ export type AgentGitAskpassRequestPayload = z.infer<typeof AgentGitAskpassReques
 export const AgentGitAskpassRespondParamsSchema = z.object({
   requestId: z.string().min(1),
   secret: z.string(),
-  /** The user dismissed the prompt: the helper fails instead of answering. */
   cancelled: z.boolean().optional(),
 });
 export type AgentGitAskpassRespondParams = z.infer<typeof AgentGitAskpassRespondParamsSchema>;
@@ -179,7 +162,6 @@ export type AgentGitAddToGitignoreParams = z.infer<typeof AgentGitAddToGitignore
 
 export const AgentGitAddToGitignoreResultSchema = GitIgnoreAppendResultSchema;
 
-/** Stages `content` as `relPath`'s index version; the working tree is untouched. */
 export const AgentGitStageContentParamsSchema = z.object({
   cwd: z.string().min(1).optional(),
   relPath: z.string().min(1),
@@ -307,10 +289,6 @@ export type AgentGitChangeStatsParams = z.infer<typeof AgentGitChangeStatsParams
 
 export const AgentGitChangeStatsResultSchema = GitChangeStatsSchema;
 
-// ---------------------------------------------------------------------------
-// git.stash.* — typed RPC wrappers (reference pattern for tag/remote/branch-ops)
-// ---------------------------------------------------------------------------
-
 export const GIT_STASH_LIST_METHOD = "git.stash.list";
 export const GIT_STASH_APPLY_METHOD = "git.stash.apply";
 export const GIT_STASH_DROP_METHOD = "git.stash.drop";
@@ -333,7 +311,6 @@ export const AgentGitStashApplyParamsSchema = z.object({
 });
 export type AgentGitStashApplyParams = z.infer<typeof AgentGitStashApplyParamsSchema>;
 
-/** Go returns errorKind in the result body (not as a thrown error) for apply/pop. */
 export const AgentGitStashApplyResultSchema = z.object({
   errorKind: GitErrorKindSchema.optional(),
   errorMessage: z.string().optional(),
@@ -373,9 +350,6 @@ export const AgentGitStashGroupParamsSchema = z.object({
   paths: z.array(z.string().min(1)).min(1),
 });
 export type AgentGitStashGroupParams = z.infer<typeof AgentGitStashGroupParamsSchema>;
-
-// git.tag.* — typed RPC wrappers
-// ---------------------------------------------------------------------------
 
 export const GIT_TAG_LIST_METHOD = "git.tag.list";
 export const GIT_TAG_LIST_REMOTE_METHOD = "git.tag.listRemote";
@@ -431,9 +405,6 @@ export const AgentGitTagPushParamsSchema = z.object({
 });
 export type AgentGitTagPushParams = z.infer<typeof AgentGitTagPushParamsSchema>;
 
-// git.remote.* — typed RPC wrappers
-// ---------------------------------------------------------------------------
-
 export const GIT_REMOTE_ADD_METHOD = "git.remote.add";
 export const GIT_REMOTE_REMOVE_METHOD = "git.remote.remove";
 
@@ -449,9 +420,6 @@ export const AgentGitRemoteRemoveParamsSchema = z.object({
   name: z.string().min(1),
 });
 export type AgentGitRemoteRemoveParams = z.infer<typeof AgentGitRemoteRemoveParamsSchema>;
-
-// git.workflow.* + git.conflict.* — typed RPC wrappers
-// ---------------------------------------------------------------------------
 
 export const GIT_WORKFLOW_MERGE_METHOD = "git.workflow.merge";
 export const GIT_WORKFLOW_REBASE_METHOD = "git.workflow.rebase";
@@ -518,10 +486,6 @@ export type AgentGitConflictMarkResolvedResult = z.infer<
   typeof AgentGitConflictMarkResolvedResultSchema
 >;
 
-// ---------------------------------------------------------------------------
-// git.branch.* — typed RPC wrappers for branch management operations
-// ---------------------------------------------------------------------------
-
 export const GIT_BRANCH_CREATE_METHOD = "git.branch.create";
 export const GIT_BRANCH_DELETE_METHOD = "git.branch.delete";
 export const GIT_BRANCH_DELETE_REMOTE_METHOD = "git.branch.deleteRemote";
@@ -544,7 +508,6 @@ export const AgentGitBranchDeleteParamsSchema = z.object({
 });
 export type AgentGitBranchDeleteParams = z.infer<typeof AgentGitBranchDeleteParamsSchema>;
 
-/** Go returns errorKind in the result body (not as a thrown error) for branch delete. */
 export const AgentGitBranchDeleteResultSchema = z.object({
   errorKind: GitErrorKindSchema.optional(),
   errorMessage: z.string().optional(),
@@ -572,7 +535,6 @@ export type AgentGitBranchRenameParams = z.infer<typeof AgentGitBranchRenamePara
 export const AgentGitBranchSetUpstreamParamsSchema = z.object({
   cwd: z.string().min(1).optional(),
   branch: z.string().min(1),
-  /** null unsets the upstream; a string sets it to the given remote/ref. */
   upstream: z.string().min(1).nullable(),
 });
 export type AgentGitBranchSetUpstreamParams = z.infer<typeof AgentGitBranchSetUpstreamParamsSchema>;
@@ -592,10 +554,6 @@ export const AgentGitBranchFastForwardResultSchema = z.object({
   toSha: z.string(),
 });
 export type AgentGitBranchFastForwardResult = z.infer<typeof AgentGitBranchFastForwardResultSchema>;
-
-// ---------------------------------------------------------------------------
-// git.pull / git.push — typed RPC wrappers
-// ---------------------------------------------------------------------------
 
 export const GIT_PULL_METHOD = "git.pull";
 export const GIT_PUSH_METHOD = "git.push";
@@ -635,14 +593,9 @@ export const AgentGitPushResultSchema = z.object({
 });
 export type AgentGitPushResult = z.infer<typeof AgentGitPushResultSchema>;
 
-// ---------------------------------------------------------------------------
-// git.info / git.detect — binary info and repository detection typed RPCs
-// ---------------------------------------------------------------------------
-
 export const GIT_INFO_METHOD = "git.info";
 export const GIT_DETECT_METHOD = "git.detect";
 
-/** Schema for the git.info RPC result. Null when git is unavailable. */
 export const AgentGitInfoResultSchema = z
   .object({
     binaryPath: z.string().min(1),
@@ -656,6 +609,5 @@ export const AgentGitDetectParamsSchema = z.object({
 });
 export type AgentGitDetectParams = z.infer<typeof AgentGitDetectParamsSchema>;
 
-/** Schema for the git.detect RPC result. Mirrors RepoInfoSchema (repo | non-repo). */
 export const AgentGitDetectResultSchema = RepoInfoSchema as z.ZodType<RepoInfo>;
 export type AgentGitDetectResult = RepoInfo;

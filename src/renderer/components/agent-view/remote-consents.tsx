@@ -23,7 +23,6 @@ import {
 } from "../cli/consent-dialog";
 import { Button } from "../ui/button";
 
-/** How long a prompt found answered or over still shows, saying so. */
 const GONE_SHOWN_MS = 1500;
 
 const consentChanges = createListenerBus();
@@ -31,7 +30,6 @@ let settledConsents: ReadonlySet<string> = new Set();
 const settledSnapshot = () => settledConsents;
 const consentKey = (deviceId: string, id: string) => JSON.stringify([deviceId, id]);
 
-/** Leaves answered prompts out of every view, including one still showing an older list. */
 export function usePeerConsents(
   deviceId: string,
   consents: readonly RemoteConsent[] | undefined,
@@ -45,7 +43,6 @@ export function useConsentIsPending() {
   return (deviceId: string, id: string) => !settled.has(consentKey(deviceId, id));
 }
 
-/** Matches the agent that asked on the serving device, using its workspace and tab. */
 export function consentFromChat(
   { from }: RemoteConsent,
   { workspaceId, tabId }: { workspaceId: string; tabId: string },
@@ -86,7 +83,6 @@ export function PeerConsentCard({
   );
 }
 
-/** What the agent asks to do, as the prompt here words it; a kind this app does not know, by its name. */
 export function consentActionOf(t: TFunction<"settings">, change: RemoteConsent["change"]): string {
   const key = `agentCli.consent.action.${change.kind}`;
   return i18next.exists(key, { ns: "settings" })
@@ -96,11 +92,6 @@ export function consentActionOf(t: TFunction<"settings">, change: RemoteConsent[
     : t("agentCli.consent.action_other", { kind: change.kind });
 }
 
-/**
- * Who asks to do what, and where (`to`, the workspace there it would
- * change), as the prompt here says it: an agent of another computer by
- * that computer, the agent manager as itself, else a tab of a workspace.
- */
 export function consentSentenceOf(
   t: TFunction<"settings">,
   consent: RemoteConsent,
@@ -140,15 +131,10 @@ export function RemoteConsentCard({
   onSettled,
 }: {
   consent: RemoteConsent;
-  /** The computer that asks the user. */
   device: string;
-  /** The name of its workspace the prompt would change. */
   workspaceName: string;
-  /** The serving computer's sessions, which identify the asking tab. */
   sessions?: readonly RemoteSession[] | undefined;
-  /** Sends the answer there. */
   onAnswer: (answer: ConsentAnswer) => Promise<IpcResult<unknown>>;
-  /** Answered here, or found answered there: every view leaves it out. */
   onSettled: () => void;
 }) {
   const { t } = useTranslation("settings");
@@ -205,7 +191,6 @@ export function RemoteConsentCard({
         {consentSentenceOf(t, consent, workspaceName, sessions)}
       </p>
       {body && (
-        // What an answer lets run, whole: its first line can hide the rest.
         <pre className="app-scrollbar max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-(--radius-control) bg-muted px-2 py-1.5 font-mono text-app-ui-sm text-foreground">
           {body}
         </pre>

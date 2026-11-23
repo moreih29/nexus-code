@@ -1,13 +1,3 @@
-/**
- * The sessions' list other devices of the account watch on this one
- * (sessions.watch): while any watches, the list is made again every
- * SESSIONS_POLL_MS here, where it is cheap, and sent to each watcher as a
- * sessions.update when it is not what that watcher was sent last. The
- * watcher no longer asks over the network every few seconds, and sees a
- * change within a second. The consent prompts waiting on the user go with
- * it, as that watcher may answer them.
- */
-
 import { randomUUID } from "node:crypto";
 import {
   type RemoteSession,
@@ -23,10 +13,8 @@ import { fitSessionReply, fitSessionUpdate, type OpenerDetail } from "./session-
 
 const log = createLogger("remote-session-watches");
 
-/** How often the list is made again while watched. */
 export const SESSIONS_POLL_MS = 1000;
 
-/** Most lists one device may watch here at once; a new one beyond ends its oldest. */
 export const MAX_SESSION_WATCHES_PER_DEVICE = 2;
 
 type SessionsList = RpcResult<"sessions.list">;
@@ -34,18 +22,11 @@ type SessionRows = ReadonlyMap<string, readonly RemoteSession[]>;
 
 interface Watch {
   from: string;
-  /** The list as last sent, as compared (sameness). */
   sent: string;
-  /** Keep reductions for this watch to avoid showing and hiding opener details. */
   detail: OpenerDetail;
-  /** Fully read session rows in the last list, including workspaces with zero sessions. */
   rows: SessionRows;
 }
 
-/**
- * A list as compared with the one sent last: a prompt's time left goes
- * down by itself, and is no change to send.
- */
 function sameness(list: SessionsList): string {
   return JSON.stringify(list, (key, value) => (key === "expiresInMs" ? undefined : value));
 }
@@ -75,7 +56,6 @@ function withPreviousRows(
 }
 
 export interface SessionWatchesDeps {
-  /** Reads the list once, then adds the consents for each device it is sent to. */
   snapshot(from?: string): Promise<{
     list: SessionsList;
     incompleteWorkspaces: ReadonlySet<string>;
@@ -92,15 +72,12 @@ export class SessionWatches {
 
   constructor(private readonly deps: SessionWatchesDeps) {}
 
-  /** Starts a watch for `from`: the list now. */
   async watch(from: string, id: RpcRequest["id"] = 0): Promise<RpcResult<"sessions.watch">> {
     const snapshot = await this.deps.snapshot(from);
     const list = await snapshot.forDevice(from);
     const watchId = randomUUID();
     const first = { ...list, watchId };
     const fitted = fitSessionReply(first, id);
-    // The room returns its usual oversized reply error. There is no watch
-    // to retain when its ID cannot reach the caller.
     if (!fitted) return first;
 
     const mine = [...this.watches].filter(([, w]) => w.from === from);
@@ -118,7 +95,6 @@ export class SessionWatches {
     return fitted.list;
   }
 
-  /** Ends a watch `from` started; another device's is not its to end. */
   unwatch(from: string, { watchId }: RpcParams<"sessions.unwatch">): RpcResult<"sessions.unwatch"> {
     const watch = this.watches.get(watchId);
     if (!watch || watch.from !== from) throw new RpcFailure(RpcErrorCode.NotFound, "no such watch");
@@ -127,7 +103,6 @@ export class SessionWatches {
     return {};
   }
 
-  /** A device left the room: its watches end. */
   dropDevice(deviceId: string): void {
     for (const [id, watch] of [...this.watches]) {
       if (watch.from === deviceId) this.watches.delete(id);
@@ -135,18 +110,15 @@ export class SessionWatches {
     this.schedule();
   }
 
-  /** This device left the room: every watch ends. */
   dropAll(): void {
     this.watches.clear();
     this.schedule();
   }
 
-  /** The devices watching the list here now. */
   watchers(): string[] {
     return [...new Set([...this.watches.values()].map((w) => w.from))];
   }
 
-  /** Makes the list again and sends it where it changed; also for tests. */
   async poll(): Promise<void> {
     if (this.polling || this.watches.size === 0) return;
     this.polling = true;
@@ -155,7 +127,6 @@ export class SessionWatches {
       const snapshot = await this.deps.snapshot();
       const incomplete = snapshot.incompleteWorkspaces;
       const currentRows = rowsByWorkspace(snapshot.list, incomplete);
-      // Each device's own list: the prompts it may answer differ.
       const lists = new Map<string, SessionsList>();
       for (const [watchId, watch] of watches) {
         const rows = withPreviousRows(currentRows, incomplete, watch.rows);
@@ -186,7 +157,6 @@ export class SessionWatches {
     }
   }
 
-  /** Polls while anything watches, and not otherwise. */
   private schedule(): void {
     if (this.watches.size > 0 && !this.timer) {
       this.timer = setInterval(() => void this.poll(), this.deps.pollMs ?? SESSIONS_POLL_MS);

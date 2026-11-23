@@ -18,7 +18,6 @@ export function useChatNotes() {
   return useContext(ChatNotes);
 }
 
-/** Mounted by this device's chat tabs. Peer panes have no notes scope. */
 export function ChatNotesProvider({
   workspaceId,
   tabId,

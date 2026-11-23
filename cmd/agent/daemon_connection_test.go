@@ -21,8 +21,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// dialerProcess is an `agent --dial` run as the SSH session runs it, its
-// stdin and stdout pipes held by the test.
 type dialerProcess struct {
 	cmd    *exec.Cmd
 	stdin  *os.File
@@ -66,7 +64,6 @@ func startDialer(t *testing.T, bin, sock string) *dialerProcess {
 	return d
 }
 
-// nextLine reads the dialer's next stdout line, or fails the test.
 func (d *dialerProcess) nextLine(t *testing.T) string {
 	t.Helper()
 	_ = d.stdout.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -76,8 +73,6 @@ func (d *dialerProcess) nextLine(t *testing.T) string {
 	return d.lines.Text()
 }
 
-// exitCode waits for the dialer to end and returns its exit code, or fails
-// the test when it is still running after within.
 func (d *dialerProcess) exitCode(t *testing.T, within time.Duration) int {
 	t.Helper()
 	select {
@@ -97,14 +92,11 @@ func (d *dialerProcess) exitCode(t *testing.T, within time.Duration) int {
 	}
 }
 
-// daemonLog is what the daemon of root wrote to its run log so far.
 func daemonLog(runDir, root string) string {
 	data, _ := os.ReadFile(filepath.Join(runDir, agentrun.WsID(root, proto.ServerVersion)+".log"))
 	return string(data)
 }
 
-// waitForUnreadOutput observes pending data without consuming it, so the
-// connection really closes with unread bytes.
 func waitForUnreadOutput(t *testing.T, conn net.Conn) {
 	t.Helper()
 	raw, err := conn.(*net.UnixConn).SyscallConn()
@@ -127,8 +119,6 @@ func waitForUnreadOutput(t *testing.T, conn net.Conn) {
 	}
 }
 
-// waitForDialerLog waits for the daemon to record its disconnect decision
-// before another connection can turn that decision into a takeover.
 func waitForDialerLog(t *testing.T, runDir, root string, matches func(string) bool) {
 	t.Helper()
 	deadline := time.NewTimer(3 * time.Second)
@@ -147,10 +137,6 @@ func waitForDialerLog(t *testing.T, runDir, root string, matches func(string) bo
 	}
 }
 
-// A connection that ends with a reset rather than a close is a dialer gone
-// mid-output: the SSH session ended under it while the daemon still wrote, and
-// Linux reports a socket closed with unread data as reset. That is a dialer
-// leaving like any other; the daemon keeps its terminals for the next one.
 func TestDaemonSurvivesAResetConnection(t *testing.T) {
 	t.Parallel()
 	bin := agentBinary(t)
@@ -189,9 +175,6 @@ func TestDaemonSurvivesAResetConnection(t *testing.T) {
 	_, _ = next.Write([]byte(`{"id":"bye","method":"agent.shutdown"}` + "\n"))
 }
 
-// A dialer whose output closed — the SSH session ending under it — still
-// reads what the daemon sends until the daemon closes, so it leaves no unread
-// data that turns its close into a reset.
 func TestDialerWithItsOutputClosedLeavesTheDaemonCleanly(t *testing.T) {
 	t.Parallel()
 	bin := agentBinary(t)
@@ -217,7 +200,6 @@ func TestDialerWithItsOutputClosedLeavesTheDaemonCleanly(t *testing.T) {
 	for !strings.Contains(dialer.nextLine(t), `"event":"pty.data"`) {
 	}
 	_ = dialer.stdout.Close()
-	// The ping reply still has to be drained after the output pipe closes.
 	if _, err := dialer.stdin.Write([]byte(`{"id":"p","method":"ping"}` + "\n")); err != nil {
 		t.Fatal(err)
 	}
@@ -234,9 +216,6 @@ func TestDialerWithItsOutputClosedLeavesTheDaemonCleanly(t *testing.T) {
 	}
 }
 
-// A dialer whose daemon went away — killed, crashed, or exited — ends at
-// once and not as a clean exit, so the app reconnects (and starts a new
-// daemon) instead of taking the workspace for closed.
 func TestDialerEndsWhenItsDaemonGoes(t *testing.T) {
 	t.Parallel()
 	bin := agentBinary(t)
@@ -255,9 +234,6 @@ func TestDialerEndsWhenItsDaemonGoes(t *testing.T) {
 	}
 }
 
-// A dialer that another one took the daemon from is told so before its
-// connection closes: the app must not reconnect it, or two workspaces on one
-// remote folder would take the daemon from each other without end.
 func TestDialerTakenOverIsToldSo(t *testing.T) {
 	t.Parallel()
 	bin := agentBinary(t)
@@ -287,8 +263,6 @@ func TestDialerTakenOverIsToldSo(t *testing.T) {
 	}
 }
 
-// A dialer whose app closed its side ends cleanly, and the daemon waits for
-// the next one.
 func TestDialerEndsCleanlyWhenTheAppCloses(t *testing.T) {
 	t.Parallel()
 	bin := agentBinary(t)
@@ -310,9 +284,6 @@ func TestDialerEndsCleanlyWhenTheAppCloses(t *testing.T) {
 	}
 }
 
-// Each dialer's first frame is Ready, even while a terminal pours out
-// output: the client takes the first frame it gets for the handshake, and an
-// event ahead of Ready reads as an agent without an epoch.
 func TestDaemonGreetsEachDialerWithReadyFirst(t *testing.T) {
 	t.Parallel()
 	bin := agentBinary(t)

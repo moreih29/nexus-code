@@ -14,9 +14,6 @@ import (
 const printChildArg = "--print-child"
 const printWatcherArg = "--print-child-watch"
 
-// preparePrintChild passes a pipe whose writer belongs only to the recorder.
-// The bootstrap arms the watcher before replacing itself with Claude, so the
-// recorder keeps the real child's PID, wait status and terminal process group.
 func preparePrintChild(cmd *exec.Cmd) (func(), error) {
 	if cmd.Err != nil {
 		return nil, cmd.Err
@@ -38,7 +35,6 @@ func preparePrintChild(cmd *exec.Cmd) (func(), error) {
 	}, nil
 }
 
-// PrintChildHelper handles the private child bootstrap and watcher commands.
 func PrintChildHelper(args []string) (int, bool) {
 	if len(args) == 0 {
 		return 0, false
@@ -70,8 +66,6 @@ func PrintChildHelper(args []string) (int, bool) {
 	return 0, true
 }
 
-// execWatchedPrintChild waits for the watcher to arm before exec'ing Claude.
-// Only the watcher leaves the terminal session and its foreground signals.
 func execWatchedPrintChild(path string, args []string) error {
 	parent := os.NewFile(3, "print recorder lifetime")
 	defer parent.Close()
@@ -102,8 +96,6 @@ func execWatchedPrintChild(path string, args []string) error {
 	return syscall.Exec(path, args, os.Environ())
 }
 
-// watchPrintChild waits for the recorder's pipe to close or for Claude to
-// exit. The process filter keeps the watcher from outliving a completed run.
 func watchPrintChild(pid int) error {
 	if os.Getppid() != pid {
 		return nil

@@ -1,15 +1,5 @@
 package hookclient
 
-// A `codex exec` run that prints text tells its tools and what it writes in
-// its rollout: codex writes each item of the session as it completes to
-// <codex home>/sessions/YYYY/MM/DD/rollout-<time>-<session id>.jsonl, a
-// line each. Once the run's header tells its session, exec-run follows that
-// file beside the run, as print-run follows a `claude -p` run's transcript
-// (print_transcript.go); a run that goes on a session, from where it was.
-//
-// An item is written once it completed, so each tool is told as it ends,
-// with how long it took.
-
 import (
 	"encoding/json"
 	"os"
@@ -19,22 +9,14 @@ import (
 	"time"
 )
 
-// codexRollout follows a run's rollout.
 type codexRollout struct {
-	// sessions is codex's directory of sessions, by day.
-	sessions string
-	// ids gets the run's session id, once it is known.
-	ids chan string
-	// id is the session id, once the follower got it.
-	id string
-	// from is where in it the run's part starts: its end before the run,
-	// for a run that goes on a session.
+	sessions   string
+	ids        chan string
+	id         string
 	from       int64
 	stop, done chan struct{}
 }
 
-// newCodexRollout is the rollout of a run whose session is told later
-// (know); nil when codex's directory is not known.
 func newCodexRollout() *codexRollout {
 	dir := os.Getenv("CODEX_HOME")
 	if dir == "" {
@@ -52,7 +34,6 @@ func newCodexRollout() *codexRollout {
 	}
 }
 
-// know tells the rollout the run's session id; the first one told counts.
 func (r *codexRollout) know(id string) {
 	select {
 	case r.ids <- id:
@@ -60,8 +41,6 @@ func (r *codexRollout) know(id string) {
 	}
 }
 
-// startAtEnd has the session's rollout followed from where it is now: a
-// run that goes on a session adds to its rollout. Called before follow.
 func (r *codexRollout) startAtEnd(id string) {
 	if path := r.path(id); path != "" {
 		if info, err := os.Stat(path); err == nil {
@@ -71,7 +50,6 @@ func (r *codexRollout) startAtEnd(id string) {
 	r.know(id)
 }
 
-// path is where the session's rollout is; empty when it is not there yet.
 func (r *codexRollout) path(id string) string {
 	matches, _ := filepath.Glob(filepath.Join(r.sessions, "*", "*", "*", "rollout-*-"+id+".jsonl"))
 	if len(matches) == 0 {
@@ -81,7 +59,6 @@ func (r *codexRollout) path(id string) string {
 	return matches[len(matches)-1]
 }
 
-// open opens the rollout, once the session is known and codex made it.
 func (r *codexRollout) open() *os.File {
 	if r.id == "" {
 		select {
@@ -101,14 +78,10 @@ func (r *codexRollout) open() *os.File {
 	return file
 }
 
-// follow hands each line written to the rollout to `line` as it comes, once
-// it is found, which it tells `found` of, until the run's end.
 func (r *codexRollout) follow(line func([]byte), found func()) {
 	followFile(r.open, r.from, line, found, r.stop, r.done)
 }
 
-// end reads the rest of the rollout once the run is over, and waits up to
-// `wait` for it: false when it did not finish.
 func (r *codexRollout) end(wait time.Duration) bool {
 	close(r.stop)
 	timer := time.NewTimer(wait)
@@ -121,8 +94,6 @@ func (r *codexRollout) end(wait time.Duration) bool {
 	}
 }
 
-// rolloutLine is a line of a rollout, cut to what is read: an item that
-// completed, and when it started and ended.
 type rolloutLine struct {
 	Type    string `json:"type"`
 	Payload struct {
@@ -133,7 +104,6 @@ type rolloutLine struct {
 	} `json:"payload"`
 }
 
-// rolloutItem is an item as a rollout writes it, as codex 0.166 does.
 type rolloutItem struct {
 	Type    string `json:"type"`
 	ID      string `json:"id"`
@@ -157,8 +127,6 @@ type rolloutItem struct {
 	} `json:"error"`
 }
 
-// rolloutLine reads a line of the run's rollout: an item that completed is
-// told as `codex exec --json` tells it, a tool with how long it took.
 func (w *codexWatch) rolloutLine(b []byte) {
 	var line rolloutLine
 	if json.Unmarshal(b, &line) != nil ||
@@ -180,8 +148,6 @@ func (w *codexWatch) rolloutLine(b []byte) {
 	w.completed(item, took)
 }
 
-// eventItemOf is a rollout's item as `codex exec --json` prints it; false
-// for one it does not tell, as the user's message or reasoning.
 func eventItemOf(raw rolloutItem) (codexItem, bool) {
 	item := codexItem{ID: raw.ID, Status: raw.Status}
 	switch raw.Type {
@@ -224,8 +190,6 @@ func eventItemOf(raw rolloutItem) (codexItem, bool) {
 	return item, true
 }
 
-// argvCommand is a command a rollout gives as its arguments, as
-// `codex exec --json` prints it: the shell's script, else the words.
 func argvCommand(argv []string) string {
 	if len(argv) == 3 && (argv[1] == "-lc" || argv[1] == "-c") {
 		switch strings.TrimSuffix(strings.ToLower(filepath.Base(argv[0])), ".exe") {

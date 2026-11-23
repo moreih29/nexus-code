@@ -1,9 +1,3 @@
-/**
- * A fake renderer's sessions.snapshot, made of its answers to the requests
- * the sessions' list made one by one before: tabs.list with agentOrder,
- * chat.state with peek and includeWaitingId, sessions.results. The app's
- * renderer answers it the same way (services/cli/ui-requests.ts).
- */
 import type { SessionsRenderer, SessionsRevision } from "../../src/main/features/cli/context";
 import { snapshotTab } from "../../src/renderer/services/cli/sessions-snapshot";
 import type { CliSessionTab } from "../../src/shared/cli/ui";
@@ -27,7 +21,6 @@ export function testSessionsRevision(snapshot: SessionsRenderer["snapshot"]): Se
   return { current: () => renderer, saw: renderer.saw };
 }
 
-/** `revision`: the renderer's count of changes, which a snapshot tells. */
 export function withSessionsSnapshot<T extends Ui>(ui: T, revision: () => number = () => 0): T {
   return (async (op: string, args: Record<string, unknown>, timeoutMs?: number) => {
     if (op !== "sessions.snapshot") return ui(op, args, timeoutMs);

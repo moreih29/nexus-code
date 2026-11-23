@@ -110,7 +110,6 @@ test("a workspace's row tells its tasks, its pin, and where its sessions stand, 
   const [pinnedRow, regularRow] = html.split("Project docs");
   expect(pinnedRow).toContain("1 task");
   expect(pinnedRow).toContain('aria-label="Pinned"');
-  // The task's permission ask is the row's state; the latest message its line.
   expect(pinnedRow).toContain("border-l-[var(--state-warning-fg)]");
   expect(pinnedRow).toContain("Done with the fix");
   expect(regularRow).not.toContain('aria-label="Pinned"');

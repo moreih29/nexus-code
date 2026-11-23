@@ -1,16 +1,3 @@
-// The agent view's list, below this computer's agents: the account's other
-// computers in the room, each with its workspaces' sessions in the order
-// its own sidebar shows them. A computer folds, and the search box finds
-// sessions by their title or last line. A terminal with only its shell is
-// out of sight until the user opens its workspace's terminals chip or
-// searches for it. Quiet worktrees wait behind their parent's own chip.
-//
-// Where the computer lets this one control its chats or terminals, a
-// workspace's heading has a + to open one there, and a session's row a
-// right-click menu to rename or close it; a workspace with none listed
-// shows for its +, as one of this computer's does. The computer's consent
-// prompts come first in its group, to answer from here.
-
 import i18next from "i18next";
 import {
   ChevronDown,
@@ -141,7 +128,6 @@ const PLATFORMS = new Map([
   ["win32", "Windows"],
   ["linux", "Linux"],
 ]);
-// Allow a watch that had already started reading to finish and read again.
 const ORDER_CONFIRM_MS = 18_000;
 const tabIdOf = (session: RemoteSession) => session.tabId;
 
@@ -153,12 +139,6 @@ export { GROUP_OF } from "../../services/agent-view/remote-session-tree";
 
 export const FAILURE_SCHEMA = "0.22.0";
 
-/**
- * Whether the list shows a session without being asked: a chat, or a
- * terminal running an agent. A computer of an older protocol names no
- * terminal's agent; one that waits on the user, works, or said something
- * runs one.
- */
 export function listedByDefault(session: RemoteSession): boolean {
   if (session.state === "ended") return false;
   if (session.kind !== "terminal") return true;
@@ -175,11 +155,6 @@ function isEndedTerminal({ kind, state }: Pick<RemoteSession, "kind" | "state">)
   return kind === "terminal" && state === "ended";
 }
 
-/**
- * The sessions the list shows: those it shows unasked, a terminal in a
- * panel too, and those a search finds; and by workspace, its terminals with
- * only their shell, which wait behind its heading's chip (none searched).
- */
 export function listedSessions(
   sessions: readonly RemoteSession[],
   query: string,
@@ -278,7 +253,6 @@ export function statusGroups(
   return { groups, consents };
 }
 
-/** The eligible workspace groups in the peer's order, with quiet worktrees behind their parents. */
 export function workspaceGroups(
   list: SessionsList | null,
   {
@@ -316,8 +290,6 @@ export function workspaceGroups(
   const byWorkspace = new Map<string, RemoteSession[]>(
     [...workspaces.keys()].map((id) => [id, []]),
   );
-  // Worktrees that hold a child listed under its parent elsewhere: a quiet
-  // worktree behind its parent's chip, since the child shows only there.
   const hosts = new Set<string>();
   for (const root of roots) {
     for (const child of treeSessions(root.children)) {
@@ -328,7 +300,6 @@ export function workspaceGroups(
         hosts.add(child.workspaceId);
     }
   }
-  // Keep the host's root order. A search can still find a terminal with only its shell.
   const shownRoots = new Set(branches.keys());
   const panelShells = new Set(listed.filter((session) => !listedByDefault(session)).map(keyOf));
   for (const session of sessions) {
@@ -437,10 +408,8 @@ export function RemoteSessions({
   );
 }
 
-/** The sign-in failures the list says, as Remote settings does: the account was not let in. */
 const NOTICE_FAILURES: readonly ShownSignInFailure[] = [...SIGNUP_FAILURES, "not_invited"];
 
-/** Opens Settings › Remote, where the sign-in is. */
 function SignInLink() {
   const { t } = useTranslation();
   return (
@@ -473,7 +442,6 @@ function AccountRemoteSessions({
 }) {
   const { t } = useTranslation(["common", "settings"]);
   const room = useRemoteRoom();
-  // Keep brief relay and peer drops off the screen while watching the real room.
   const seen = useShownRoom(room);
   const roomStatus = seen?.status;
   const outdated = roomStatus === "outdated";
@@ -512,7 +480,6 @@ function AccountRemoteSessions({
     connected && (roomOnline || (seen?.peers.length ?? 0) > 0)
       ? seen
       : (lastOnline.current ?? seen);
-  // Searching, an offline computer has no sessions to find.
   const searching = query.trim() !== "";
   const away = searching ? [] : orderPeers(offlinePeers(displayedRoom), peerOrder);
   const online = servingPeers(room);
@@ -679,7 +646,6 @@ function AccountRemoteSessions({
   );
 }
 
-/** A computer of the account out of the room: greyed, its sessions out of reach until it is back. */
 export function OfflinePeer({ peer }: { peer: RoomPeer }) {
   const { t } = useTranslation();
   return (
@@ -721,11 +687,8 @@ export function PeerGroup({
   const workspaceFoldKey = (id: string) => boundedPeerFoldKey(`peer-ws:${peer.id}:${id}`);
   const reorderingRow = useSessionReordering(peer.id);
   const searching = query.trim() !== "";
-  // The workspaces whose terminals with only their shell are shown, each
-  // asked for on its own; not kept.
   const [terminalsIn, setTerminalsIn] = useState<ReadonlySet<string>>(() => new Set());
   const [worktreesIn, setWorktreesIn] = useState<ReadonlySet<string>>(() => new Set());
-  // The session being renamed, while the dialog asks its new title.
   const [renaming, setRenaming] = useState<PeerSessionRef | null>(null);
   const [renameBusy, setRenameBusy] = useState(false);
   const [pendingOrders, setPendingOrders] = useState<ReadonlyMap<string, readonly string[]>>(
@@ -748,7 +711,6 @@ export function PeerGroup({
         }
       : rawList;
   const root = useAgentViewStore((s) => s.root);
-  // Where it lets this one open chats or terminals there, each workspace's heading has a +.
   const opens = peerServes(peer, "chat.control") || peerServes(peer, "terminal.control");
   const canReorder = !searching && peerServes(peer, "sessions.reorder");
   const ids = new Set([
@@ -819,7 +781,6 @@ export function PeerGroup({
           return next;
         });
       void reorderPeerSessions(peer.id, workspaceId, tabIds, preview).then((ok) => {
-        // A later edit on the host can supersede a successful reorder before a watch sees it.
         if (ok) setTimeout(() => preview(undefined), ORDER_CONFIRM_MS);
       });
     };
@@ -857,7 +818,6 @@ export function PeerGroup({
       kind: session.kind,
       title: remoteDisplayName(session.title),
     };
-    // Renamed and closed as it is controlled: a chat with the chats, a terminal with the terminals.
     const controls = peerServes(
       peer,
       session.kind === "terminal" ? "terminal.control" : "chat.control",
@@ -925,7 +885,6 @@ export function PeerGroup({
             </p>
           ) : (
             <>
-              {/* What waits on the user there comes first: it runs out. */}
               {consents.length > 0 && (
                 <div className="flex flex-col gap-1.5 px-1 py-1" data-testid="remote-consents">
                   {consents.map((consent) => (
@@ -961,9 +920,6 @@ export function PeerGroup({
                   const unfolded = terminalsIn.has(workspaceId);
                   const workspace = workspaces.get(workspaceId);
                   const worktreeCount = worktreeCounts.get(workspaceId);
-                  // A task hangs from a line under its workspace's folder, where
-                  // that is listed (the computer lists a workspace's tasks right
-                  // after it), so its rows read as its own, as the phone shows them.
                   const parent = workspace?.parentId;
                   const hung = parent !== undefined && workspaces.has(parent) && headed.has(parent);
                   const workspaceFolded = foldedWorkspaces.has(workspaceId);
@@ -1100,16 +1056,13 @@ export function OpenRemoteSessionRow({
   onOpenSession,
   ...buttonProps
 }: {
-  /** In one line, as the agent list's task view rows are. */
   compact?: boolean;
   session: RemoteSession;
   peer: RoomPeer;
   workspace?: RemoteWorkspace;
   reorder?: SessionReorder;
   resultFeed?: RemoteResults;
-  /** By state: a family's root tells its computer and where it runs. */
   showContext?: boolean;
-  /** Its place in its family's tree, where it is in one. */
   tree?: RemoteRowTree;
   onOpenSession?: OpenRemoteSession;
 } & Omit<ComponentProps<"button">, "type" | "onClick" | "children" | "title">) {
@@ -1118,8 +1071,6 @@ export function OpenRemoteSessionRow({
       ? undefined
       : panelPlaceOf(s.root, remoteSessionKey({ deviceId: peer.id, ...session })),
   );
-  // Its computer and place once: a child runs on its parent's computer, and
-  // tells its place only where its family's root does not run.
   const top = showContext && (tree === undefined || tree.depth === 0);
   const placed = top ? workspace : tree?.elsewhere;
   return (
@@ -1151,18 +1102,12 @@ export function OpenRemoteSessionRow({
   );
 }
 
-/** Where another computer's session runs: a task's branch, or a workspace's folder. */
 export function remotePlace(workspace: RemoteWorkspace): RowPlace {
   return workspace.parentId !== undefined
     ? { kind: "branch", name: remoteDisplayName(workspace.git?.branch ?? workspace.name) }
     : { kind: "workspace", name: remoteDisplayName(workspace.name) };
 }
 
-/**
- * A session's row with its right-click menu: renaming it there, and
- * closing it. Each runs once the menu has let go of the keyboard, for the
- * dialog it opens to take it.
- */
 export function SessionMenu({
   onRename,
   onClose,
@@ -1188,7 +1133,6 @@ export function SessionMenu({
   );
 }
 
-/** The right-click menu of another computer's session: rename, then close, as a tab's here. */
 export function remoteSessionMenu(actions: { rename(): void; close(): void }): MenuItemSpec[] {
   return [
     { kind: "item", label: i18next.t("tabBar.rename_tab_menu"), onSelect: actions.rename },
@@ -1199,7 +1143,6 @@ export function remoteSessionMenu(actions: { rename(): void; close(): void }): M
 
 type WorkspaceDisclosure = { count: number; open: boolean; toggle(): void };
 
-/** A workspace's heading, with its git status, disclosures, and new-session menu. */
 function WorkspaceHeading({
   name,
   workspace,
@@ -1230,8 +1173,6 @@ function WorkspaceHeading({
         .filter(Boolean)
         .join(" ")
     : "";
-  // The fold's chevron leads, as a tree's does; a heading that cannot fold
-  // keeps its place, so the folders stay in one column.
   const title = (
     <>
       {fold ? (
@@ -1241,7 +1182,6 @@ function WorkspaceHeading({
       )}
       <Icon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
       <span className="min-w-0 truncate font-semibold text-app-micro text-foreground">{name}</span>
-      {/* The git status takes the space left by the name and controls. */}
       {stands && (
         <span className="w-0 grow truncate font-mono text-app-micro text-muted-foreground">
           {stands}
@@ -1257,7 +1197,6 @@ function WorkspaceHeading({
       className="flex min-w-0 items-center gap-1.5 px-2 pt-1.5 pb-0.5"
       data-testid="remote-workspace"
     >
-      {/* The whole heading up to its chips folds it; the chips and the menu stay buttons of their own. */}
       {fold ? (
         <button
           type="button"
@@ -1339,11 +1278,6 @@ function DisclosureChip({
   );
 }
 
-/**
- * A workspace's terminals with only their shell, asked for: right under its
- * heading, set in past a tree's line that comes down from the heading's icon
- * and branches to each, so whose they are reads at once.
- */
 export function HungTerminals({ rows }: { rows: { key: string; row: ReactNode }[] }) {
   return (
     <div className="flex flex-col" data-testid="remote-hung-terminals">
@@ -1355,7 +1289,6 @@ export function HungTerminals({ rows }: { rows: { key: string; row: ReactNode }[
               aria-hidden
               className={cn(
                 "pointer-events-none absolute left-3.5 border-border border-l",
-                // The first comes up to the icon, past the heading's space under it.
                 i === 0 ? "-top-1" : "top-0",
                 last ? "bottom-1/2 w-2.5 rounded-bl-sm border-b" : "bottom-0",
               )}
@@ -1374,10 +1307,6 @@ export function HungTerminals({ rows }: { rows: { key: string; row: ReactNode }[
   );
 }
 
-/**
- * Another computer's session's agents as this computer's rows read them:
- * what it tells of each, with no tools (nothing opens from them).
- */
 export function agentRunsOf(agents: readonly RemoteSessionAgent[] | undefined): AgentRun[] {
   return (agents ?? []).map((agent) => ({
     id: agent.id,
@@ -1393,13 +1322,6 @@ export function agentRunsOf(agents: readonly RemoteSessionAgent[] | undefined): 
   }));
 }
 
-/**
- * A session's row: its kind, title and state, and what it waits on the
- * user for or last said, in the two lines every conversation's row has.
- * What else a button takes (a menu's trigger's props) goes to the button
- * behind the row's content, so the chips in it stay buttons.
- */
-/** A terminal's mark is dimmed, as the local list's is. */
 const MARK_TINT: Partial<Record<RemoteSession["kind"], string>> = {
   terminal: "text-muted-foreground",
 };
@@ -1419,14 +1341,11 @@ export function RemoteSessionRow({
   ...rest
 }: {
   session: RemoteSession;
-  /** In one line, as the agent list's task view rows are. */
   compact?: boolean;
-  /** Where the agent view's panels have it, which its mark tells; none where they do not. */
   where?: PanelPlace | null;
   deviceId?: string;
   onReorder?: SessionReorder;
   onOpen?: () => void;
-  /** The computer it runs on, where the list does not tell. */
   device?: string;
   place?: RowPlace;
   parent?: ReactNode;
@@ -1452,7 +1371,6 @@ export function RemoteSessionRow({
   const sign = session.failed ? (
     <FailureLabel />
   ) : session.state === "needs-you" ? (
-    // What for, as the computer tells it since 0.25; the attention glyph before.
     <WaitSign
       kind={session.waiting?.kind}
       label={session.waiting ? `${state} · ${t(`agentList.wait.${session.waiting.kind}`)}` : state}
@@ -1520,7 +1438,6 @@ export function RemoteSessionRow({
         aria-label={title}
         className={cn(
           "absolute inset-0 rounded-(--radius-raised) outline-none focus-visible:ring-1 focus-visible:ring-ring",
-          // Its right-click menu open.
           "data-[state=open]:bg-[var(--state-hover-bg)]",
         )}
         title={session.last ? `${title}\n${session.last}` : title}
@@ -1556,7 +1473,6 @@ export function RemoteSessionRow({
   );
 }
 
-/** The computer a tab's session runs on, as a chip. */
 export function DeviceChip({ name, className }: { name: string; className?: string }) {
   return (
     <span
@@ -1571,11 +1487,6 @@ export function DeviceChip({ name, className }: { name: string; className?: stri
   );
 }
 
-/**
- * A tab's face for another computer's session: the computer (unless the
- * panel shows it once for all), the kind of session, its title, and its
- * state while it is active or its terminal has ended.
- */
 export function RemoteTabLabel({
   target,
   showDevice = true,
@@ -1595,11 +1506,6 @@ export function RemoteTabLabel({
   );
 }
 
-/**
- * Another computer's session's state on its tab, while it is active or its
- * terminal has ended; nothing while it is idle. A workspace on another
- * computer marks its session tabs with it too.
- */
 export function RemoteStateGlyph({ target }: { target: Pick<RemoteTarget, "kind" | "state"> }) {
   const { t } = useTranslation();
   const { state } = target;

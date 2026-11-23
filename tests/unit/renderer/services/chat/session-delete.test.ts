@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// ---------------------------------------------------------------------------
-// The IPC bridge, answered here (installed before the module is imported)
-// ---------------------------------------------------------------------------
-
 const ipcCalls: Array<{ channel: string; method: string; args: unknown }> = [];
 let answer: (method: string, args: unknown) => unknown = () => undefined;
 

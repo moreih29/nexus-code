@@ -1,4 +1,3 @@
-/** Defers a saved connection change until a tab and its background work are idle. */
 export class ConnectionRestart {
   private requested?: string;
   private timer?: ReturnType<typeof setTimeout>;
@@ -18,7 +17,6 @@ export class ConnectionRestart {
     this.schedule(0);
   }
 
-  /** A send that arrives at the same time may wait for the new program. */
   whenIdle(): Promise<boolean> | undefined {
     if (this.active || !this.requested) return this.active;
     const profileId = this.requested;
@@ -47,7 +45,6 @@ export class ConnectionRestart {
     return this.active;
   }
 
-  /** Includes another edit saved while a program was being replaced. */
   async wait(restart: Promise<boolean>): Promise<boolean> {
     let current: Promise<boolean> | undefined = restart;
     while (current) {

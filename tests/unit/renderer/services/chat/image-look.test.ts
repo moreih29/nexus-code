@@ -189,8 +189,6 @@ describe("the files a look opens by path", () => {
 });
 
 describe("images the chat shows in full, with no data", () => {
-  // A conversation as one had it: 10 images read, a mockup read then sent
-  // with one never read (outside the workspace), then 3 sent from inside it.
   const before = Array.from({ length: 10 }, (_, i) => ({
     file: `/ws/shot-${i}.png`,
     image: block(`s${i}`),
@@ -205,7 +203,6 @@ describe("images the chat shows in full, with no data", () => {
     { file: "/ws/ws-a2.png", image: block("ws-a2") },
     { file: "/ws/mix.png", placed: true as const },
   ];
-  // Nothing found at the moment: a lookup refused, as one the files' host is too busy for.
   const none = async () => new Set<string>();
 
   it("keeps a placed file a step away though no lookup finds it", () => {
@@ -250,7 +247,6 @@ describe("images the chat shows in full, with no data", () => {
       return new Set<string>();
     });
     expect(asked).toEqual([["/tmp/named.png"]]);
-    // One only named, and not found, is still left out.
     expect(look?.files).toHaveLength(15);
     expect(
       await lookAtImage(shown, { file: tree }, async () => {

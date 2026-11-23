@@ -23,8 +23,6 @@ import {
 import { TranscriptPages } from "../../../../../../src/renderer/services/chat/claude/transcript-pages";
 import { emptyModel } from "../../../../../../src/renderer/services/chat/model";
 
-// A transcript's entries as Claude Code writes them: bookkeeping between
-// the messages, which have uuids.
 const ENTRIES = [
   { type: "session-owner" },
   { type: "user", uuid: "u1", message: { role: "user", content: "one" } },
@@ -85,7 +83,6 @@ test("transcript reconstruction agrees with replay for a mixed conversation and 
     { type: "ai-title", aiTitle: "Generated title" },
   ];
 
-  // Keep the general log reducer as the reference for the transcript path.
   const cuts: (HistoryCut | undefined)[] = [
     undefined,
     { upTo: "queued-user" },
@@ -295,7 +292,6 @@ describe("chat history cuts", () => {
     const keys = all.items.map((item) => item.key);
     expect(new Set(keys).size).toBe(keys.length);
     expect(keys.slice(before.items.length)).toEqual(before.items.map((item) => `${item.key}~2`));
-    // What before has, and what after has alone, keep their keys and items.
     expect(all.items.slice(0, before.items.length)).toEqual(before.items);
     const third = joinHistory(all, after);
     expect(third.items.slice(all.items.length).map((item) => item.key)).toEqual(
@@ -308,7 +304,6 @@ describe("chat history cuts", () => {
     expect(texts(modelBefore(all, "u2"))).toEqual(["user:one", "assistant:first"]);
     expect(uuidBefore(all, "u2")).toBe("a1");
     expect(uuidBefore(all, "a1")).toBe("u1");
-    // The first message has nothing before it: a rewind there starts over.
     expect(uuidBefore(all, "u1")).toBeUndefined();
     expect(modelBefore(all, "u1").items).toEqual([]);
   });
@@ -342,9 +337,6 @@ describe("sessionTitleOf", () => {
   });
 });
 
-// A subagent's file as Claude Code 2.1 keeps it beside its session
-// (subagents/agent-<id>.jsonl): its prompt, its replies and its tools'
-// results, with the requests it logged between them.
 const SUBAGENT = [
   {
     parentUuid: null,
@@ -434,7 +426,6 @@ describe("a subagent's file", () => {
     expect(joined.items).toBe(history.items);
     expect(joined.agentItems.toolu_agent).toBe(log.items);
     expect(joined.tools.read1).toBe(log.tools.read1);
-    // A tab with no history has one for it.
     const alone = withSubagentLog(null, "toolu_agent", log);
     expect(alone.items).toEqual([]);
     expect(alone.agentItems.toolu_agent).toBe(log.items);

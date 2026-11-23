@@ -79,7 +79,6 @@ describe("shownNoteText", () => {
 
 describe("titleOf", () => {
   test("a first message with a note mention keeps the quoted text as written", () => {
-    // Not a path, which a title shortens to its last part.
     const first = `${String.raw`"tab\new line\temp"`} 확인해 줘`;
     expect(titleOf(`${first}\n\n${mention}`)).toBe(first);
   });

@@ -1,7 +1,3 @@
-// The editor surface of a font file: the breadcrumb toolbar the other
-// editors have, and the font set in sample text below. Fonts are not
-// editable.
-
 import type { ReactNode } from "react";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { FontPreview } from "../../editor/preview/font-preview";

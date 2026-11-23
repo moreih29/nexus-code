@@ -1,11 +1,3 @@
-/**
- * Rebase target picker source.
- *
- * Rebase targets are existing refs only. Keeping this source separate from
- * BranchPicker prevents checkout/create shortcuts from leaking into the
- * workflow picker and guarantees the current branch is not offered as the
- * branch to rebase onto.
- */
 import i18next from "i18next";
 import type { BranchList } from "../../../../../shared/git/types";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
@@ -24,7 +16,6 @@ export interface CreateRebaseTargetPickerSourceInput {
   acceptTarget: (ref: string, item: RebaseTargetPickItem) => void;
 }
 
-/** Builds the `git.rebase-target-picker` PaletteSource. */
 export function createRebaseTargetPickerSource(
   input: CreateRebaseTargetPickerSourceInput,
 ): PaletteSource<RebaseTargetPickItem> {
@@ -55,7 +46,6 @@ export function createRebaseTargetPickerSource(
   };
 }
 
-/** Converts a branch list into selectable rebase targets. */
 export function buildRebaseTargetItems(
   branches: BranchList,
   currentBranch: string | null = branches.current?.current ?? null,
@@ -90,7 +80,6 @@ export function buildRebaseTargetItems(
   return [...locals, ...remotes];
 }
 
-/** Case-insensitive query matcher for labels and full refs. */
 function matchesTargetQuery(item: RebaseTargetPickItem, lowerQuery: string): boolean {
   if (lowerQuery.length === 0) return true;
   return [item.label, item.description, item.kindLabel, item.ref].some((value) =>

@@ -1,26 +1,4 @@
-/**
- * Unit tests for installPermissionHandler — full-deps path.
- *
- * Verifies that setPermissionCheckHandler returns:
- *   - true  when evaluatePermission resolves to 'allow'
- *   - false when evaluatePermission resolves to 'ask'
- *   - false when evaluatePermission resolves to 'block'
- *
- * Also verifies that safeGetOrigin denies opaque/"null"/empty origins.
- *
- * DI-first approach: a fake session captures the registered handlers
- * without any mock.module call.  The electron leaf mock is only needed
- * because security.ts has a top-level `import type { WebContents, ... }`
- * that Bun resolves at import time.
- */
-
 import { mock as bunMock, describe, expect, mock, test } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Electron leaf mock — required before importing security.ts.
-// Only WebContentsView is needed (imported transitively via registry); the
-// rest of the module is unused in these tests.
-// ---------------------------------------------------------------------------
 
 bunMock.module("electron", () => ({
   WebContentsView: class {},
@@ -29,10 +7,6 @@ bunMock.module("electron", () => ({
 const { installPermissionHandler } = await import(
   "../../../../../src/main/features/browser/security"
 );
-
-// ---------------------------------------------------------------------------
-// Fake helpers
-// ---------------------------------------------------------------------------
 
 type PermissionSource = {
   isMainFrame?: boolean;
@@ -74,10 +48,6 @@ function makeFakeSession(): FakeSession {
   };
 }
 
-/**
- * Builds a fake WebContents whose getURL() returns `url`.
- * Used to drive safeGetOrigin inside the installed handler.
- */
 function makeFakeWebContents(url: string): unknown {
   return {
     getURL: () => url,
@@ -85,18 +55,7 @@ function makeFakeWebContents(url: string): unknown {
   };
 }
 
-/**
- * Constructs a minimal PermissionHandlerDeps that forces evaluatePermission
- * to the desired outcome for the given permission string.
- *
- * The prompt manager is wired but not needed for check-handler tests because
- * the check handler never calls promptManager.
- */
 function makeDepsForDecision(decision: "allow" | "ask" | "block") {
-  // decision mapping:
-  //   allow  → globalAllowed=true  + prompt-class permission (geolocation)
-  //   ask    → globalAllowed=false + remembered=null + prompt-class (geolocation)
-  //   block  → use a truly blocked permission ("unknown")
   const fakePromptManager = {
     handlePermissionRequest: mock(() => {}),
     disposeByWebContents: mock(() => {}),
@@ -118,7 +77,6 @@ function makeDepsForDecision(decision: "allow" | "ask" | "block") {
     };
   }
 
-  // decision === 'block': use remembered='block' so geolocation→block
   return {
     getGlobalGrant: () => false,
     getRemembered: () => "block" as "allow" | "block" | null,
@@ -127,11 +85,7 @@ function makeDepsForDecision(decision: "allow" | "ask" | "block") {
 }
 
 const ATTRIBUTABLE_ORIGIN_URL = "https://example.com/page";
-const PROMPT_PERMISSION = "geolocation"; // classifies as 'prompt'
-
-// ---------------------------------------------------------------------------
-// 1. setPermissionCheckHandler — full-deps path: allow → true
-// ---------------------------------------------------------------------------
+const PROMPT_PERMISSION = "geolocation";
 
 describe("installPermissionHandler (full-deps) — check handler", () => {
   test("allow decision → check handler returns true", () => {
@@ -187,17 +141,9 @@ describe("installPermissionHandler (full-deps) — check handler", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 2. safeGetOrigin — opaque/"null"/empty origin deny
-//
-// These are exercised through the check handler: origins that safeGetOrigin
-// maps to null cause the handler to return false unconditionally.
-// ---------------------------------------------------------------------------
-
 describe("installPermissionHandler (full-deps) — opaque origin deny", () => {
   function installAndCheck(url: string, permission: string): boolean {
     const session = makeFakeSession();
-    // Use allow-everything deps so that the only deny path is safeGetOrigin.
     const deps = makeDepsForDecision("allow");
     installPermissionHandler(
       session as unknown as import("electron").Session,
@@ -208,30 +154,21 @@ describe("installPermissionHandler (full-deps) — opaque origin deny", () => {
   }
 
   test("about:blank URL → origin 'null' → denied (false)", () => {
-    // new URL("about:blank").origin === "null" (opaque)
     expect(installAndCheck("about:blank", PROMPT_PERMISSION)).toBe(false);
   });
 
   test("data: URL → origin 'null' → denied (false)", () => {
-    // new URL("data:text/html,hi").origin === "null" (opaque)
     expect(installAndCheck("data:text/html,hi", PROMPT_PERMISSION)).toBe(false);
   });
 
   test("empty URL → denied (false)", () => {
-    // getURL() returning '' → safeGetOrigin returns null
     expect(installAndCheck("", PROMPT_PERMISSION)).toBe(false);
   });
 
   test("https:// URL → attributable origin → NOT denied by safeGetOrigin", () => {
-    // With allow deps this should return true; confirms the guard only fires
-    // for opaque/empty origins.
     expect(installAndCheck(ATTRIBUTABLE_ORIGIN_URL, PROMPT_PERMISSION)).toBe(true);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Request handler — pending prompts end with the page that asked
-// ---------------------------------------------------------------------------
 
 describe("installPermissionHandler (full-deps) — prompt lifetime", () => {
   function makeTrackedWebContents(id: number) {
@@ -304,8 +241,6 @@ describe("installPermissionHandler (full-deps) — prompt lifetime", () => {
     expect(deps.promptManager.handlePermissionRequest).not.toHaveBeenCalled();
   });
 
-  // Regression: only registry.destroy() released prompts, so a popup that
-  // closed or a tab that navigated away left its modal up for good.
   test("disposes the page's prompts when its main frame navigates or it is destroyed", () => {
     const session = makeFakeSession();
     const deps = makeDepsForDecision("ask");

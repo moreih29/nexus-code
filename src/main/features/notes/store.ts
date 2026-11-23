@@ -1,19 +1,3 @@
-/**
- * Notes on disk, under the app's data folder:
- *
- *   notes/<location dir>/location.json        where the workspace's folder is
- *   notes/<location dir>/<note id>/note.json  the note (its editor document)
- *   notes/<location dir>/<note id>/note.md    the same as Markdown, for agents
- *   notes/<location dir>/<note id>/links.json the note's linked conversations
- *   notes/<location dir>/<note id>/sketches/  <sketch id>.excalidraw and .svg
- *   notes/<location dir>/<note id>/materials/ files put into the note
- *   notes/<location dir>/<note id>/screens/   pasted images
- *   notes/<location dir>/<note id>/recordings/ the audio of its recordings
- *   notes/<location dir>/<note id>/transcript.json, .md  what was said in them
- *
- * The location dir is a hash of the location's key, so a workspace's notes
- * are found again from its folder whatever the workspace's id.
- */
 import { createHash, randomBytes } from "node:crypto";
 import { promises as fs, constants as fsConstants } from "node:fs";
 import * as path from "node:path";
@@ -180,7 +164,6 @@ function newerLiveAnswer(
   return { ...incoming, at };
 }
 
-/** How long a file the note does not use is kept: one just written may be about to be. */
 export const PRUNE_AFTER_MS = 10 * 60 * 1000;
 
 export class NoteError extends Error {
@@ -211,21 +194,15 @@ interface SavedLineReport {
 }
 
 export class NotesStore {
-  /** Serializes document updates by note folder. */
   private readonly documentTurns = new Map<string, Promise<void>>();
-  /** Card revisions used to merge renderer snapshots still in flight. */
   private readonly savedCards = new Map<string, Map<string, number>>();
-  /** Latest report per link for merging renderer snapshots still in flight. */
   private readonly savedReports = new Map<string, Map<string, SavedLineReport>>();
   private readonly transcriptTurns = new Map<string, Promise<void>>();
-  /** Serializes index construction, link edits and deletions for a location. */
   private readonly linkTurns = new Map<string, Promise<void>>();
   private readonly linkIndexes = new Map<string, LinkIndex>();
 
   constructor(
-    /** The notes folder: <app data>/notes. */
     readonly root: string,
-    /** Moves a folder or file somewhere it can be got back from (the Trash); deletes it if not given. */
     private readonly trash?: (dir: string) => Promise<void>,
   ) {}
 
@@ -397,7 +374,6 @@ export class NotesStore {
     });
   }
 
-  /** Rechecks ownership in the link queue before writing either file. */
   async reportLine(
     location: NoteLocation,
     tab: NoteConversation,
@@ -478,7 +454,6 @@ export class NotesStore {
     });
   }
 
-  /** A fresh main process has no live runs, including for notes in closed workspaces. */
   async recoverSummaries(
     recovered: (
       locationKey: string,
@@ -703,7 +678,6 @@ export class NotesStore {
     });
   }
 
-  /** A chat can receive its session while its note is closed, even after an app restart. */
   async updateLinksForTab(
     location: NoteLocation,
     { agent, ...tab }: NoteLinkTarget & Pick<NoteLink, "agent">,
@@ -759,7 +733,6 @@ export class NotesStore {
     if (index) indexNote(index, noteId, Object.values(file.conversations));
   }
 
-  /** Copies a file into the note's materials/, under a name not taken yet. */
   async addFile(location: NoteLocation, id: string, source: string): Promise<NoteAsset> {
     const stat = await fs.stat(source).catch(() => null);
     if (!stat?.isFile()) throw new NoteError("bad-request", `not a file: ${source}`);
@@ -771,7 +744,6 @@ export class NotesStore {
     return { src: `${NOTE_DIRS.files}/${name}`, name, size: stat.size };
   }
 
-  /** Writes a pasted image into the note's screens/. */
   async addImage(
     location: NoteLocation,
     id: string,
@@ -790,12 +762,6 @@ export class NotesStore {
     return { src: `${NOTE_DIRS.images}/${file}`, name: file, size: bytes.byteLength };
   }
 
-  /**
-   * Writes a photo sent from another device into the note's screens/, and
-   * puts it at the end of the note's document, so the note has it whether
-   * or not it is open anywhere (an open editor puts the same block in its
-   * copy, NotesFeature's photoAdded).
-   */
   async addPhoto(
     location: NoteLocation,
     id: string,
@@ -803,19 +769,12 @@ export class NotesStore {
     ext: string,
     name?: string,
   ): Promise<NoteAsset> {
-    // A note that is not there gets no file either.
     await this.read(location, id);
     const asset = await this.addImage(location, id, bytes, ext, name ?? `photo-${stamp()}`);
     await this.appendBlocks(location, id, [imageBlock(asset)]);
     return asset;
   }
 
-  /**
-   * Puts blocks into the note's document: at its end, or at the end of the
-   * part under the heading `under` names (insertionIndex). Blocks that come
-   * at once go in one after another: each reads the note as the one before
-   * left it. A NoteError when `under` names no heading.
-   */
   async appendBlocks(
     location: NoteLocation,
     id: string,
@@ -831,7 +790,6 @@ export class NotesStore {
     });
   }
 
-  /** Removes only the top-level blocks that still carry this origin. */
   async removeBlocksByOrigin(location: NoteLocation, id: string, origin: string): Promise<number> {
     const dir = this.noteDir(location, id);
     return this.queueWrite(this.documentTurns, dir, async () => {
@@ -848,7 +806,6 @@ export class NotesStore {
     });
   }
 
-  /** Writes a file's bytes into the note's materials/, under a name not taken yet. */
   async addFileBytes(
     location: NoteLocation,
     id: string,
@@ -863,7 +820,6 @@ export class NotesStore {
     return { src: `${NOTE_DIRS.files}/${file}`, name: file, size: bytes.byteLength };
   }
 
-  /** Writes a sketch's scene and its picture; a new sketch gets an id. */
   async saveSketch(
     location: NoteLocation,
     id: string,
@@ -883,18 +839,15 @@ export class NotesStore {
     };
   }
 
-  /** The note's recordings and their words; an empty transcript when it has none. */
   async readTranscript(location: NoteLocation, id: string): Promise<TranscriptFile> {
     return readTranscript(this.noteDir(location, id));
   }
 
-  /** Writes transcript.json, and transcript.md (with the note's title) beside it. */
   async saveTranscript(location: NoteLocation, id: string, file: TranscriptFile): Promise<void> {
     const dir = this.noteDir(location, id);
     await this.queueWrite(this.transcriptTurns, dir, () => this.writeTranscript(dir, id, file));
   }
 
-  /** Applies only changed recordings to the latest file, across all windows and aliases. */
   async editTranscript(
     location: NoteLocation,
     id: string,
@@ -960,7 +913,6 @@ export class NotesStore {
     return present.every(Boolean);
   }
 
-  /** Adds a piece of a take's audio to the end of its file, which the first piece makes. */
   async appendAudio(
     location: NoteLocation,
     id: string,
@@ -975,10 +927,6 @@ export class NotesStore {
     await fs.appendFile(path.join(dir, file), audio);
   }
 
-  /**
-   * Moves a recording's audio to the Trash; its words stay, unless `text`
-   * says they go too. The transcript as it is after.
-   */
   async removeRecording(
     location: NoteLocation,
     id: string,
@@ -1005,13 +953,6 @@ export class NotesStore {
     });
   }
 
-  /**
-   * Clears away, to the Trash, the files in a note's folder its document no
-   * longer uses: a sketch, image or file whose block was deleted. Run as a
-   * note opens, when no undo can bring such a block back. A file written in
-   * the last PRUNE_AFTER_MS stays (another tab of the note may be about to
-   * use it). Returns what it cleared, by place in the folder.
-   */
   async prune(location: NoteLocation, id: string, now = Date.now()): Promise<string[]> {
     const dir = this.noteDir(location, id);
     const note = await readNote(dir).catch(() => {
@@ -1032,7 +973,6 @@ export class NotesStore {
     return unused;
   }
 
-  /** A file in the note's folder, by its path there; never outside it. */
   assetPath(location: NoteLocation, id: string, src: string): string {
     const dir = this.noteDir(location, id);
     const full = path.resolve(dir, src);
@@ -1047,7 +987,6 @@ export class NotesStore {
     });
   }
 
-  /** Every location with notes, and what they take. */
   async storage(): Promise<NoteStorageEntry[]> {
     const out: NoteStorageEntry[] = [];
     for (const name of await readdirSafe(this.root)) {
@@ -1084,7 +1023,6 @@ export class NotesStore {
     return out.sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
-  /** Removes every note of a location (by its key). */
   async removeLocation(key: string): Promise<void> {
     const dir = path.join(this.root, locationDirName(key));
     await this.queueWrite(this.linkTurns, key, async () => {
@@ -1110,9 +1048,7 @@ export class NotesStore {
       try {
         await this.trash(dir);
         return;
-      } catch {
-        // No Trash (a Linux without one): delete it.
-      }
+      } catch {}
     }
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -1188,7 +1124,6 @@ function compactSummaries(file: LinksFile, summaries = summariesOf(file)): void 
       keep.push(entry);
       history.delete(id);
     } else {
-      // A compact marker still prevents automatic retries of an evicted summary.
       history.add(id);
     }
   }
@@ -1231,7 +1166,6 @@ function patchLink(file: LinksFile, id: string, patch: NoteLinkPatch): boolean {
   return true;
 }
 
-/** What a note has in it, counted from its document. */
 export function countsOf(doc: DocNode): NoteCounts {
   const counts: NoteCounts = { sketches: 0, files: 0, images: 0, todos: 0, todosDone: 0 };
   const walk = (n: DocNode) => {
@@ -1248,7 +1182,6 @@ export function countsOf(doc: DocNode): NoteCounts {
   return counts;
 }
 
-/** The files a document uses, by place in its note's folder. */
 export function assetsOf(doc: DocNode): Set<string> {
   const used = new Set<string>();
   const walk = (n: DocNode) => {
@@ -1267,7 +1200,6 @@ export function assetsOf(doc: DocNode): Set<string> {
   return used;
 }
 
-/** The first words of a document's text. */
 export function excerptOf(doc: DocNode, max = 120): string {
   const parts: string[] = [];
   let length = 0;
@@ -1315,7 +1247,6 @@ async function readTranscript(dir: string): Promise<TranscriptFile> {
   return parsed.success ? parsed.data : EMPTY_TRANSCRIPT;
 }
 
-/** What a note's recordings add up to; nothing for a note with none. */
 async function recordingSummary(dir: string): Promise<NoteRecordingSummary | undefined> {
   const file = await readTranscript(dir);
   if (!file.recordings.length) return undefined;
@@ -1326,7 +1257,6 @@ async function recordingSummary(dir: string): Promise<NoteRecordingSummary | und
   };
 }
 
-/** The note as Markdown: its title, then its body. */
 export function noteMarkdown(note: Pick<NoteFile, "title" | "doc">): string {
   const body = docToMarkdown(note.doc);
   const title = escapeText(note.title.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu, " ").trim());
@@ -1395,7 +1325,6 @@ async function sizeOf(p: string): Promise<number> {
   return total;
 }
 
-/** A file name with no folders or characters a file system refuses. */
 export function safeName(name: string): string {
   const cleaned = name
     // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what it takes out
@@ -1403,21 +1332,13 @@ export function safeName(name: string): string {
     .replace(/^\.+/, "")
     .trim()
     .slice(0, 180)
-    // Windows ignores a name's trailing dots and spaces.
     .replace(/[. ]+$/, "");
   if (!cleaned) return "file";
-  // Names Windows keeps for devices, with any extension: "con.png" cannot be a file there.
   return /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/i.test(cleaned)
     ? `_${cleaned}`
     : cleaned;
 }
 
-/**
- * Makes a file in `dir` under `name`, or `name (2)`, `name (3)`… whichever
- * is free, with `create`, which fails with EEXIST where one is there (it
- * creates exclusively): two at once never take the same name, nor does one
- * write over a file of the same name.
- */
 async function claimFree(
   dir: string,
   name: string,

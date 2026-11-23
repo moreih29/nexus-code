@@ -8,7 +8,6 @@ export interface ModelPickerContext {
   readonly defaultLabel?: string;
 }
 
-/** The model and choices shown by a tab's composer and served to its clients. */
 export function modelPickerOf(
   agent: ChatAgent,
   model: Pick<ChatModel, "init" | "model" | "chosenModel">,
@@ -22,7 +21,6 @@ export function modelPickerOf(
   const reportedId = model.model === "default" ? (profileDefault ?? model.model) : model.model;
   const value = currentEntry?.value ?? reportedId ?? profileDefault;
   const name = value ? (agent === "claude" ? claudeModelLabel(value) : value) : undefined;
-  // An old Claude log can still name its current model after losing the list.
   const fallback: ModelInfo | undefined =
     agent === "claude" && models.length === 0 && value ? { value, displayName: name } : undefined;
   const current = currentEntry ?? fallback;

@@ -1,24 +1,3 @@
-/**
- * Container-level drag-and-drop target for the file-tree.
- *
- * Uses native capture-phase event listeners on the tree's scroll container so
- * drop detection works even when virtualized rows unmount during scroll. The
- * pattern mirrors `useTabBarDropTarget` and `useDropTarget` from the workspace
- * DnD system.
- *
- * Target resolution (VSCode parity):
- *   - cursor over a directory row     → that directory
- *   - cursor over a file/symlink row  → that file's parent directory
- *   - cursor over empty space         → the workspace root
- *
- * Behaviour:
- *   - dragover: resolve the drop directory, highlight its row (or the whole
- *     tree for a root drop) via `data-file-tree-dnd-target`, set dropEffect.
- *   - drop:   parse `MIME_FILE` payload, determine move vs copy (modifier key),
- *     then `movePath` (move) or `copyPathWithAutoRename` (copy).
- *   - dragleave / dragend / drop: clear target highlight.
- */
-
 import i18next from "i18next";
 import { type RefObject, useEffect } from "react";
 import { showToast } from "@/components/ui/toast";
@@ -38,50 +17,30 @@ import { MIME_FILE } from "../../../types/workbench-dnd";
 import { isMac } from "../../../utils/platform";
 import { parseFileDragPayload } from "../../../utils/workbench-dnd-payload";
 
-/**
- * Delay (ms) before a closed directory under the cursor auto-expands
- * during a drag. VSCode uses 500ms in its tree.ts; we match that — long
- * enough that a casual fly-over doesn't expand every folder, short
- * enough that an intentional pause feels responsive.
- */
 const log = createLogger("dnd-drop");
 
 const DRAG_EXPAND_DELAY_MS = 500;
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 interface UseFileTreeDropTargetOptions {
-  /** The tree's scroll-container ref — stable across renders, ref={} target. */
   containerRef: RefObject<HTMLDivElement | null>;
   workspaceId: string;
   workspaceRootPath: string;
 }
 
 interface DropTarget {
-  /** Absolute path of the directory the drop resolves into. */
   dir: string;
-  /** Element to highlight — the directory's row, or the tree for a root drop. */
   highlightEl: HTMLElement;
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function isCopyModifier(e: DragEvent): boolean {
   return isMac() ? e.altKey : e.ctrlKey;
 }
 
-/** Parse a FileDragPayload from a DragEvent's dataTransfer. Delegates to the
- *  shared payload.ts parser so ad-hoc validation is not duplicated here. */
 function parseFilePayload(e: DragEvent) {
   if (!e.dataTransfer) return null;
   return parseFileDragPayload(e.dataTransfer);
 }
 
-/** Locate the rendered row element for an absolute path, if currently mounted. */
 function findRowByPath(treeEl: HTMLElement, absPath: string): HTMLElement | null {
   const rows = treeEl.querySelectorAll<HTMLElement>('[role="treeitem"][data-file-tree-row-path]');
   for (const row of rows) {
@@ -90,11 +49,6 @@ function findRowByPath(treeEl: HTMLElement, absPath: string): HTMLElement | null
   return null;
 }
 
-/**
- * Resolve the directory a drop at (x, y) targets, and the element to
- * highlight. A directory row targets itself; a file row targets its parent;
- * empty space targets the workspace root (highlighting the whole tree).
- */
 function resolveDropTarget(
   x: number,
   y: number,
@@ -111,7 +65,6 @@ function resolveDropTarget(
         if (type === "dir") {
           return { dir: path, highlightEl: treeitem };
         }
-        // File / symlink row → drop into its parent directory.
         const parent = parentOf(path, rootPath);
         return { dir: parent, highlightEl: findRowByPath(treeEl, parent) ?? treeEl };
       }
@@ -119,7 +72,6 @@ function resolveDropTarget(
     }
     el = (el as HTMLElement).parentElement;
   }
-  // Empty space → workspace root; highlight the whole tree.
   return { dir: rootPath, highlightEl: findRowByPath(treeEl, rootPath) ?? treeEl };
 }
 
@@ -141,16 +93,6 @@ function setTargetHighlight(el: HTMLElement): void {
   currentTarget = el;
 }
 
-// ---------------------------------------------------------------------------
-// Drag-over auto-expand (VSCode parity)
-//
-// When the cursor lingers over a CLOSED directory row during a drag, we
-// expand it after `DRAG_EXPAND_DELAY_MS` so the user can drill into deep
-// targets without releasing the drag. The state is module-scoped (mirroring
-// `currentTarget` above) because there is one drag at a time per browser
-// window. Every drag-leave / drag-end / drop site clears it.
-// ---------------------------------------------------------------------------
-
 let expandHoverPath: string | null = null;
 let expandHoverTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -162,11 +104,6 @@ function clearExpandHover(): void {
   expandHoverPath = null;
 }
 
-/**
- * Schedule an auto-expand of `absPath` if the cursor stays over it long
- * enough. No-op when the path is already the scheduled target, when it
- * is already expanded, or when the workspace state has no record of it.
- */
 function scheduleExpandHover(workspaceId: string, absPath: string): void {
   if (expandHoverPath === absPath) return;
   clearExpandHover();
@@ -175,12 +112,10 @@ function scheduleExpandHover(workspaceId: string, absPath: string): void {
   if (!tree) return;
   const node = tree.nodes.get(absPath);
   if (!node || node.type !== "dir") return;
-  // Already expanded — nothing to do.
   if (tree.expanded.has(absPath)) return;
 
   expandHoverPath = absPath;
   expandHoverTimer = setTimeout(() => {
-    // Re-check on fire — the user may have collapsed/moved during the wait.
     const currentTree = useFilesStore.getState().trees.get(workspaceId);
     const currentNode = currentTree?.nodes.get(absPath);
     if (currentNode?.type === "dir" && !currentTree?.expanded.has(absPath)) {
@@ -191,22 +126,14 @@ function scheduleExpandHover(workspaceId: string, absPath: string): void {
   }, DRAG_EXPAND_DELAY_MS);
 }
 
-// ---------------------------------------------------------------------------
-// Drop
-// ---------------------------------------------------------------------------
-
 export interface DropFilePathsInput {
   workspaceId: string;
   workspaceRootPath: string;
-  /** Absolute paths from the drag payload, already reduced to distinct parents. */
   filePaths: readonly string[];
-  /** Absolute path of the directory the drop resolved into. */
   dir: string;
-  /** True for a copy (modifier held), false for a move. */
   copy: boolean;
 }
 
-/** Move or copy dropped paths into `dir`, then summarize a multi-item result. */
 export async function dropFilePaths({
   workspaceId,
   workspaceRootPath,
@@ -214,10 +141,8 @@ export async function dropFilePaths({
   dir,
   copy,
 }: DropFilePathsInput): Promise<void> {
-  // Self-drop guard: all paths already in the target dir, move only.
   if (!copy && filePaths.every((p) => parentOf(p, workspaceRootPath) === dir)) return;
 
-  // Cycle guard: dropping a folder into itself or a descendant is invalid.
   const hasCycle = filePaths.some((p) => dir === p || dir.startsWith(`${p}/`));
   if (hasCycle) {
     showToast({
@@ -227,13 +152,11 @@ export async function dropFilePaths({
     return;
   }
 
-  // Per-path loop: move or copy each entry.
   let attempted = 0;
   let successCount = 0;
   let firstFailure: BatchFailure | null = null;
 
   for (const srcAbsPath of filePaths) {
-    // Skip self-drops for individual paths within a multi-selection.
     if (!copy && parentOf(srcAbsPath, workspaceRootPath) === dir) continue;
     attempted += 1;
 
@@ -268,19 +191,14 @@ export async function dropFilePaths({
     if (ok) {
       successCount += 1;
     } else if (firstFailure === null) {
-      // per-item helpers already showed their own toast; record for summary.
       firstFailure = reportedFailure(srcAbsPath);
     }
   }
 
-  // Refresh the target directory once after all moves/copies.
   if (successCount > 0) {
     await loadChildren(workspaceId, dir);
   }
 
-  // Result toast: silent for N=1 (per-item helper already surfaced errors);
-  // summarize for N≥2. Items already in the target folder were skipped,
-  // not attempted, so they count toward neither.
   const total = attempted;
   if (total >= 2) {
     if (firstFailure === null) {
@@ -306,10 +224,6 @@ export async function dropFilePaths({
   }
 }
 
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
-
 export function useFileTreeDropTarget({
   containerRef,
   workspaceId: wsId,
@@ -320,18 +234,12 @@ export function useFileTreeDropTarget({
     if (!el) return;
 
     const handleDragOver = (e: DragEvent): void => {
-      // Only handle our own file MIME.
       if (!e.dataTransfer?.types.includes(MIME_FILE)) return;
       e.preventDefault();
 
       const copy = isCopyModifier(e);
       const { dir, highlightEl } = resolveDropTarget(e.clientX, e.clientY, el, rootPath);
 
-      // Self-drop is a no-op for moves only — a copy into the same folder is
-      // valid (it produces a "… copy" via auto-rename). Payload may be absent
-      // during dragover (some browsers withhold getData), so only skip when we
-      // can positively confirm the same-parent move.
-      // Phase E: check that ALL paths are already in the same dir (every).
       if (!copy) {
         const payload = parseFilePayload(e);
         if (payload?.filePaths.every((p) => parentOf(p, rootPath) === dir)) {
@@ -345,9 +253,6 @@ export function useFileTreeDropTarget({
       setTargetHighlight(highlightEl);
       e.dataTransfer.dropEffect = copy ? "copy" : "move";
 
-      // Auto-expand the hovered closed folder after a short dwell. Files
-      // (where `dir` is the parent) get clearExpandHover so the timer
-      // doesn't fire on a passing file row.
       const targetIsDirRow = highlightEl.getAttribute("data-file-tree-row-type") === "dir";
       if (targetIsDirRow) {
         scheduleExpandHover(wsId, dir);

@@ -1,9 +1,3 @@
-/**
- * Agent stdout arrives in arbitrary chunks (64 KiB locally, smaller over
- * SSH). A frame's multi-byte UTF-8 characters — Go emits non-ASCII as raw
- * UTF-8 inside JSON strings — must survive a chunk boundary falling in the
- * middle of one, and lines spread over many chunks must be reassembled.
- */
 import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
@@ -55,7 +49,6 @@ describe("createNdjsonPipe UTF-8 chunking", () => {
     const result = pipe.call("fs.readFile");
     const bytes = Buffer.from(`${JSON.stringify({ id: lastRequestId(), result: { content } })}\n`);
 
-    // One byte per chunk splits every multi-byte character.
     for (let i = 0; i < bytes.length; i++) {
       stdout.emit("data", bytes.subarray(i, i + 1));
     }

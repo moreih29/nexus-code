@@ -1,18 +1,3 @@
-// diagnostic-popover.tsx — the status-bar popover's list of the workspace's
-// errors or warnings, grouped by file. Clicking an item opens the file at
-// the diagnostic's range and dismisses the popover.
-//
-// Why not pre-store the marker details in the diagnostics store?
-//   The store tracks counts only — keeping the full marker arrays in
-//   Zustand would re-render every status bar on every keystroke as an LSP
-//   streams diagnostics. The popover is a transient surface, so it reads
-//   markers directly from Monaco on mount and subscribes to
-//   onDidChangeMarkers while it is open. Closing the popover unhooks the
-//   subscription.
-//
-// The trigger button, open state and panel live in status-bar.tsx; this
-// file owns what the panel lists and the data-shape used inside it.
-
 import { AlertTriangle, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -25,15 +10,7 @@ import { requireMonaco } from "../../services/editor/runtime/monaco-singleton";
 import { revealEditorAt } from "../../services/editor/tabs/reveal-editor-at";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
 export type DiagnosticKind = "error" | "warning";
-
-// ---------------------------------------------------------------------------
-// Marker reader — pulls markers directly from Monaco
-// ---------------------------------------------------------------------------
 
 interface MarkerItem {
   filePath: string;
@@ -65,8 +42,6 @@ function readMarkers(workspaceId: string, kind: DiagnosticKind): MarkerItem[] {
       source: m.source,
     });
   }
-  // Sort: file path A→Z, then by line, then by column. Stable grouping for
-  // the rendered list below.
   items.sort(
     (a, b) =>
       a.filePath.localeCompare(b.filePath) ||
@@ -76,16 +51,9 @@ function readMarkers(workspaceId: string, kind: DiagnosticKind): MarkerItem[] {
   return items;
 }
 
-/**
- * Reads markers for the workspace + kind, and re-reads whenever Monaco
- * emits onDidChangeMarkers. The subscription is only installed while this
- * hook is mounted — the popover unmounts on close, so the listener is
- * scoped to the popover's lifetime.
- */
 function useWorkspaceMarkers(workspaceId: string, kind: DiagnosticKind): MarkerItem[] {
   const [markers, setMarkers] = useState<MarkerItem[]>(() => readMarkers(workspaceId, kind));
   useEffect(() => {
-    // Read once on (re-)mount in case markers changed between render and effect.
     setMarkers(readMarkers(workspaceId, kind));
     const monaco = requireMonaco();
     const sub = monaco.editor.onDidChangeMarkers(() => {
@@ -96,14 +64,9 @@ function useWorkspaceMarkers(workspaceId: string, kind: DiagnosticKind): MarkerI
   return markers;
 }
 
-// ---------------------------------------------------------------------------
-// Grouping helpers
-// ---------------------------------------------------------------------------
-
 interface FileGroup {
   filePath: string;
   basename: string;
-  /** Path relative to workspace root, without the basename. "" when at root. */
   relativeDir: string;
   items: MarkerItem[];
 }
@@ -136,16 +99,11 @@ function relativeDirOf(filePath: string, workspaceRoot: string | null): string {
   if (lastSlash < 0) return "";
   const dir = filePath.slice(0, lastSlash);
   if (!workspaceRoot) return dir;
-  // Normalize trailing slash so "/root" matches "/root/foo".
   const root = workspaceRoot.endsWith("/") ? workspaceRoot.slice(0, -1) : workspaceRoot;
   if (dir === root) return "";
   if (dir.startsWith(`${root}/`)) return dir.slice(root.length + 1);
-  return dir; // outside the workspace — show absolute
+  return dir;
 }
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 interface DiagnosticListProps {
   workspaceId: string;
@@ -167,9 +125,6 @@ export function DiagnosticList({
 
   const groups = useMemo(() => buildGroups(markers, workspaceRoot), [markers, workspaceRoot]);
 
-  // Auto-dismiss when the underlying list goes empty (e.g. the LSP cleared
-  // all diagnostics while the popover was open). The trigger button itself
-  // becomes disabled when count drops to zero in the status bar.
   useEffect(() => {
     if (markers.length === 0) onClose();
   }, [markers.length, onClose]);
@@ -191,10 +146,6 @@ export function DiagnosticList({
     />
   ));
 }
-
-// ---------------------------------------------------------------------------
-// File group + row
-// ---------------------------------------------------------------------------
 
 function DiagnosticFileGroup({
   group,

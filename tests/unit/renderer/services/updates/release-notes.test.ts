@@ -30,7 +30,6 @@ describe("newsVersionOf", () => {
   it("offers the running version's notes once an update brought it", () => {
     expect(newsVersionOf("1.0.0", "1.1.0")).toBe("1.1.0");
     expect(newsVersionOf("1.1.0", "1.1.0")).toBeNull();
-    // Gone back to an older version: nothing new.
     expect(newsVersionOf("1.2.0", "1.1.0")).toBeNull();
   });
 

@@ -1,7 +1,3 @@
-/**
- * Per-workspace registry for lazy Git repository detection. It owns cached
- * RepoInfo state and the GitRepository instance for each workspaceId.
- */
 import {
   DEFAULT_GIT_OPERATION_STATE,
   DEFAULT_REPO_CAPABILITIES,
@@ -17,7 +13,6 @@ import type { GitHelpersIpcManager } from "./helpers/ipc";
 import { GitRepository } from "./repository";
 import type { StatusCoalescer } from "./status-coalescer";
 
-/** Minimal binary descriptor — path + version carried from agent info. */
 export interface GitBinaryInfo {
   readonly path: string;
   readonly version: string;
@@ -29,11 +24,6 @@ export interface GitRegistryOptions {
   readonly askpassManager?: GitHelpersIpcManager;
 }
 
-/**
- * Keeps repository detection and repository instance ownership in one place so
- * IPC handlers, watchers, and future coalescers share the same per-workspace
- * cache.
- */
 export class GitRegistry {
   private readonly workspaceManager: WorkspaceManager;
   private readonly broadcast: BroadcastFn;
@@ -41,11 +31,6 @@ export class GitRegistry {
   private readonly repoInfos = new Map<string, RepoInfo>();
   private readonly repositories = new Map<string, GitRepository>();
   private readonly detections = new Map<string, Promise<GitRepository | null>>();
-  /**
-   * Cancellation handle for the in-flight detection per workspace. dispose()
-   * aborts this so the agent-side `detect` request stops early instead of
-   * running to completion against a workspace that no longer exists.
-   */
   private readonly detectionAborts = new Map<string, AbortController>();
   private readonly generations = new Map<string, number>();
   private readonly onRepoInfoChanged?: (workspaceId: string, info: RepoInfo) => void;
@@ -66,17 +51,7 @@ export class GitRegistry {
     this.askpassManager = options.askpassManager;
   }
 
-  /**
-   * Returns the cached repository or detects it once. Non-repositories and
-   * hosts without Git cache their `non-repo` / `git-missing` result and
-   * return null.
-   */
   async getOrDetect(workspaceId: string, signal?: AbortSignal): Promise<GitRepository | null> {
-    // Wait for the workspace's fs provider to wire up before reaching for
-    // the agent executor. Without this, detection requests that arrive
-    // during the bootstrap window throw "workspace agent provider is not
-    // available" — see getRepoInfo() for the user-visible symptom and
-    // tryGetAgentExecutor() for the sync fallback path.
     await this.workspaceManager.getFs(workspaceId);
     const executor = this.getAgentExecutor(workspaceId);
     this.resolveWorkspaceRoot(workspaceId, "Git repository detection", executor);
@@ -96,21 +71,6 @@ export class GitRegistry {
     return this.startDetection(workspaceId, signal);
   }
 
-  /**
-   * Returns the current cached info without importing renderer-side state.
-   *
-   * Tolerates the workspace-bootstrap race: when the fs provider has not
-   * been wired yet (channel still spawning, SSH still handshaking) we
-   * report `{ kind: "detecting" }` instead of throwing. The renderer
-   * already paints that as a loading skeleton, and the real info arrives
-   * once `startDetection` (async, awaits readiness) completes and emits
-   * `onRepoInfoChanged`.
-   *
-   * Prior to this guard, calling getRepoInfo within the bootstrap window
-   * surfaced "workspace agent provider is not available" via the IPC
-   * channel — a transient error that looked like a real failure to the
-   * user even though the workspace was simply not yet wired.
-   */
   getRepoInfo(workspaceId: string): RepoInfo {
     const executor = this.tryGetAgentExecutor(workspaceId);
     if (!executor) return { kind: "detecting" };
@@ -119,14 +79,9 @@ export class GitRegistry {
     if (!this.bin && !executor) return { kind: "non-repo" };
     const cachedInfo = this.repoInfos.get(workspaceId);
     if (cachedInfo) return cachedInfo;
-    // Both an in-flight detection and a never-started workspace report as
-    // "detecting" so the renderer renders the same skeleton in both cases.
     return { kind: "detecting" };
   }
 
-  /**
-   * Initializes a repository at the workspace root, then re-runs detection.
-   */
   async reinit(workspaceId: string, signal?: AbortSignal): Promise<RepoInfo> {
     await this.workspaceManager.getFs(workspaceId);
     const executor = this.getAgentExecutor(workspaceId);
@@ -143,9 +98,6 @@ export class GitRegistry {
     return this.refreshDetection(workspaceId, signal);
   }
 
-  /**
-   * Forces repository detection to run again and updates the cached state.
-   */
   async refreshDetection(workspaceId: string, signal?: AbortSignal): Promise<RepoInfo> {
     await this.workspaceManager.getFs(workspaceId);
     const executor = this.getAgentExecutor(workspaceId);
@@ -160,19 +112,6 @@ export class GitRegistry {
     return this.repoInfos.get(workspaceId) ?? { kind: "non-repo" };
   }
 
-  /**
-   * Refreshes status through the repository queue and broadcasts the result.
-   *
-   * `markRecentlyRefreshed` is called BOTH at entry and after the broadcast.
-   * `git status` itself can rewrite `.git/index` (racy index stat cache),
-   * which the Go-side `.git` watcher then reports back as a change. Without
-   * the up-front mark, the watcher event arrives ~300 ms later (agent
-   * debounce) and slips past the coalescer's suppression window — the
-   * coalescer schedules another refresh, that refresh writes the index
-   * again, and the loop never settles. Marking on entry guarantees the
-   * suppression window already covers the self-induced watcher event by
-   * the time the agent delivers it.
-   */
   async refreshStatus(workspaceId: string, signal?: AbortSignal): Promise<GitStatus> {
     this.coalescer?.markRecentlyRefreshed(workspaceId);
     const repo = await this.getOrDetect(workspaceId, signal);
@@ -182,9 +121,6 @@ export class GitRegistry {
     return status;
   }
 
-  /**
-   * Aborts queued repository work and removes all registry cache for a workspace.
-   */
   dispose(workspaceId: string): void {
     this.bumpGeneration(workspaceId);
     this.disposeRepository(workspaceId);
@@ -197,9 +133,6 @@ export class GitRegistry {
     this.detections.delete(workspaceId);
   }
 
-  /**
-   * Disposes every known workspace cache owned by the registry.
-   */
   disposeAll(): void {
     const workspaceIds = new Set<string>([
       ...this.repoInfos.keys(),
@@ -212,21 +145,10 @@ export class GitRegistry {
     }
   }
 
-  /**
-   * Increments the per-workspace token used to ignore stale detections and to
-   * mark explicit git mutations that should not rely on watcher coalescing.
-   */
   bumpGeneration(workspaceId: string): void {
     this.generations.set(workspaceId, this.currentGeneration(workspaceId) + 1);
   }
 
-  /**
-   * Starts the one in-flight detection promise allowed per workspaceId.
-   *
-   * A workspace-scoped AbortController is created and chained with the
-   * caller's signal so dispose() can abort the underlying agent call rather
-   * than just dropping the result on the floor.
-   */
   private startDetection(workspaceId: string, signal?: AbortSignal): Promise<GitRepository | null> {
     const executor = this.getAgentExecutor(workspaceId);
     const bin = this.requireGitBinary(["rev-parse", "--show-toplevel", "--git-dir"], executor);
@@ -264,10 +186,6 @@ export class GitRegistry {
     return detection;
   }
 
-  /**
-   * Runs Git detection and commits the result only if the workspace was not
-   * disposed while detection was in flight.
-   */
   private async detectWorkspace(
     workspaceId: string,
     bin: GitBinaryInfo,
@@ -294,8 +212,6 @@ export class GitRegistry {
       this.setRepoInfo(workspaceId, info);
       return null;
     } catch (error) {
-      // Kept per workspace: an SSH host without Git says nothing about the
-      // local one or another host.
       if (error instanceof GitError && error.kind === "git-missing") {
         this.disposeRepository(workspaceId);
         this.setRepoInfo(workspaceId, { kind: "git-missing" });
@@ -304,9 +220,6 @@ export class GitRegistry {
     }
   }
 
-  /**
-   * Installs or replaces the repository instance for a detected repo.
-   */
   private cacheRepository(
     workspaceId: string,
     info: RepoInfo & { kind: "repo" },
@@ -333,26 +246,17 @@ export class GitRegistry {
     return repo;
   }
 
-  /**
-   * Records a detecting state and notifies listeners only on state change.
-   */
   private setDetecting(workspaceId: string): void {
     if (this.repoInfos.get(workspaceId)?.kind === "detecting") return;
     this.setRepoInfo(workspaceId, { kind: "detecting" });
   }
 
-  /**
-   * Updates RepoInfo cache and broadcasts the new value.
-   */
   private setRepoInfo(workspaceId: string, info: RepoInfo): void {
     this.repoInfos.set(workspaceId, info);
     this.broadcast("git", "repoInfoChanged", { workspaceId, info });
     this.onRepoInfoChanged?.(workspaceId, info);
   }
 
-  /**
-   * Disposes and removes the repository object without touching RepoInfo.
-   */
   private disposeRepository(workspaceId: string): void {
     const repo = this.repositories.get(workspaceId);
     if (repo) {
@@ -361,9 +265,6 @@ export class GitRegistry {
     }
   }
 
-  /**
-   * Looks up a local workspace root through WorkspaceManager's public list().
-   */
   private resolveWorkspaceRoot(
     workspaceId: string,
     operation: string,
@@ -376,9 +277,6 @@ export class GitRegistry {
     return workspace.location.rootPath;
   }
 
-  /**
-   * Returns the process Git binary or throws the typed missing-Git error.
-   */
   private requireGitBinary(argv: readonly string[], executor?: AgentGitExecutor): GitBinaryInfo {
     if (executor) return this.bin ?? { path: "git", version: "agent" };
     if (this.bin) return this.bin;
@@ -393,14 +291,6 @@ export class GitRegistry {
     return executor;
   }
 
-  /**
-   * Like `getAgentExecutor` but returns null instead of throwing when the
-   * workspace's fs provider has not yet been wired. Synchronous callers
-   * use this to fall back to a "detecting" state during the bootstrap
-   * window; async callers should `await workspaceManager.getFs(id)`
-   * first and then use the throwing variant (which is then guaranteed
-   * to succeed).
-   */
   private tryGetAgentExecutor(workspaceId: string): AgentGitExecutor | null {
     const provider = this.workspaceManager.requireContext(workspaceId).fs;
     if (!isAgentBackedProvider(provider) || provider.isAgentAvailable?.() === false) {
@@ -410,11 +300,6 @@ export class GitRegistry {
       () => {
         const current = this.workspaceManager.requireContext(workspaceId).fs;
         if (!isAgentBackedProvider(current) || current.isAgentAvailable?.() === false) {
-          // The inner closure still throws — by the time we reach the
-          // closure we have already produced an executor, which means
-          // the caller is in the middle of running a request. A provider
-          // disappearing mid-request (e.g., workspace closed) is a hard
-          // error and should surface, not silently no-op.
           throw new Error("workspace agent provider is not available");
         }
         return current;
@@ -423,17 +308,11 @@ export class GitRegistry {
     );
   }
 
-  /**
-   * Reads the stale-detection guard token for a workspace.
-   */
   private currentGeneration(workspaceId: string): number {
     return this.generations.get(workspaceId) ?? 0;
   }
 }
 
-/**
- * Builds the empty status shape used for non-repository workspaces.
- */
 function createEmptyGitStatus(): GitStatus {
   return {
     merge: [],

@@ -1,12 +1,3 @@
-/**
- * Settings › Profiles by workspace: which Claude and Codex profile each
- * workspace runs with. A default for each agent, then rules for a folder
- * (and every folder in it), an SSH host or one workspace; a workspace's own
- * rule beats the deepest folder it is in, which beats its SSH host. A rule
- * may set one agent and leave the other to the next. The result for every
- * workspace shows under the rules.
- */
-
 import { ChevronDown, Folder, Globe, Monitor, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";

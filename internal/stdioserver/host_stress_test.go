@@ -1,9 +1,3 @@
-// Package stdioserver — shutdown and concurrent-write tests.
-//
-// drainAndExit stops taking new requests and exits once in-flight handlers
-// finish, or after forceExitAfter when one is stuck: a congested pipe must
-// not keep the agent from shutting down. WriteFrame must keep each frame
-// whole when 1,000 handlers write at once.
 package stdioserver
 
 import (
@@ -18,9 +12,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// TestDrainAndExitAcceptsNoNewWorkAfterTermination covers the clean path:
-// with no handler in flight, drainAndExit stops accepting new requests and
-// hands its code to the exit func the daemon installs with SetExitFunc.
 func TestDrainAndExitAcceptsNoNewWorkAfterTermination(t *testing.T) {
 	host := New(dispatch.New(), io.NopCloser(strings_reader("")), io.Discard, slog.Default())
 	exited := make(chan int, 1)
@@ -40,9 +31,6 @@ func TestDrainAndExitAcceptsNoNewWorkAfterTermination(t *testing.T) {
 	}
 }
 
-// TestWriteFrameWithPendingGoroutines verifies that 1,000 concurrent
-// WriteFrame calls on a non-blocking writer complete without data races or
-// frame corruption. Each frame must be a complete, valid NDJSON line.
 func TestWriteFrameWithPendingGoroutines(t *testing.T) {
 	const pendingHandlers = 1_000
 
@@ -70,7 +58,6 @@ func TestWriteFrameWithPendingGoroutines(t *testing.T) {
 		t.Errorf("expected %d frames written, got %d", pendingHandlers, written.Load())
 	}
 
-	// Verify no partial lines (each frame must end with \n).
 	data := buf.bytes()
 	if len(data) == 0 {
 		t.Fatal("no data written")
@@ -89,7 +76,6 @@ func TestWriteFrameWithPendingGoroutines(t *testing.T) {
 	}
 }
 
-// safeBuffer is an io.Writer that accumulates bytes without data races.
 type safeBuffer struct {
 	mu  sync.Mutex
 	buf []byte
@@ -108,8 +94,6 @@ func (b *safeBuffer) bytes() []byte {
 	return append([]byte(nil), b.buf...)
 }
 
-// strings_reader returns an io.Reader over a constant string.
-// Avoids importing "strings" just for the Reader type.
 func strings_reader(s string) io.Reader {
 	return &constReader{s: []byte(s)}
 }
@@ -128,10 +112,6 @@ func (r *constReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// When a handler outlives the drain deadline, both the force timer and the
-// select's own deadline fire. The exit func must still run once — the
-// daemon's closes a channel and panics on a second call — and the host
-// context must be cancelled so the stuck handler can unwind.
 func TestDrainAndExitCallsExitOnceWhenHandlerIsStuck(t *testing.T) {
 	t.Parallel()
 	host := New(dispatch.New(), io.NopCloser(strings_reader("")), io.Discard, slog.Default())
@@ -143,7 +123,7 @@ func TestDrainAndExitCallsExitOnceWhenHandlerIsStuck(t *testing.T) {
 		}
 	})
 
-	host.wg.Add(1) // a handler that never finishes
+	host.wg.Add(1)
 	defer host.wg.Done()
 
 	host.drainAndExit(0)
@@ -152,7 +132,7 @@ func TestDrainAndExitCallsExitOnceWhenHandlerIsStuck(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("exit func was not called")
 	}
-	time.Sleep(4 * forceExitAfter) // let any second timer fire
+	time.Sleep(4 * forceExitAfter)
 	if n := exits.Load(); n != 1 {
 		t.Fatalf("exit func called %d times, want 1", n)
 	}
@@ -161,9 +141,6 @@ func TestDrainAndExitCallsExitOnceWhenHandlerIsStuck(t *testing.T) {
 	}
 }
 
-// A handler that outlives the drain deadline does not keep the shutdown
-// hooks from running: they are what kills the terminals and removes the
-// hook socket, and an exit without them left both behind.
 func TestDrainThatGivesUpStillRunsShutdownHooks(t *testing.T) {
 	t.Parallel()
 	host := New(dispatch.New(), io.NopCloser(strings_reader("")), io.Discard, slog.Default())
@@ -172,7 +149,7 @@ func TestDrainThatGivesUpStillRunsShutdownHooks(t *testing.T) {
 	hooked := make(chan struct{})
 	host.RegisterShutdownHook(func() { close(hooked) })
 
-	host.wg.Add(1) // a handler that never finishes
+	host.wg.Add(1)
 	defer host.wg.Done()
 
 	go host.drainAndExit(0)
@@ -188,7 +165,6 @@ func TestDrainThatGivesUpStillRunsShutdownHooks(t *testing.T) {
 	}
 }
 
-// A shutdown hook that hangs cannot hold the exit off for good.
 func TestHungShutdownHookDoesNotHoldTheExit(t *testing.T) {
 	t.Parallel()
 	host := New(dispatch.New(), io.NopCloser(strings_reader("")), io.Discard, slog.Default())

@@ -92,7 +92,6 @@ describe("tools", () => {
     hook("user-prompt-submit", { prompt: "next" });
     const { tools, toolCount, turnStart } = activity();
     expect(tools[0]?.end).toBe(5_000);
-    // A background command goes on.
     expect(tools[1]?.end).toBeUndefined();
     expect(tools[1]?.background).toBe(true);
     expect(toolCount).toBe(0);
@@ -214,7 +213,6 @@ describe("agents", () => {
       toolCount: 1,
     });
     expect(agent?.tools[0]?.target).toBe('"hook" · src');
-    // The agent's tools are not the session's.
     expect(activity().tools.map((tool) => tool.id)).toEqual(["t1"]);
 
     clock = 9_000;
@@ -240,7 +238,6 @@ describe("agents", () => {
       { id: "u1:0", text: " Listing first. " },
     ]);
     clock = 3_000;
-    // Each message is kept once, as of when it came.
     said("post-tool-use", { tool_name: "Bash", tool_use_id: "b1" }, [
       { id: "u1:0", text: "Listing first." },
       { id: "u5:0", text: "Two files." },
@@ -251,7 +248,6 @@ describe("agents", () => {
       { at: 3_000, text: "Two files." },
     ]);
     expect(activity().agents[0]?.tools[0]?.start).toBe(2_000);
-    // None is kept from a hook of the session's own call, or once it ended.
     log.noteHook(WS, TAB, "pre-tool-use", { cwd: CWD, tool_name: "Read" }, [
       { id: "x", text: "Not the subagent's." },
     ]);
@@ -266,7 +262,6 @@ describe("agents", () => {
       "Two files.",
       "Done.",
     ]);
-    // What the app keeps of the agent tells only its messages.
     expect(activity().agents[0]).not.toHaveProperty("said");
   });
 
@@ -315,7 +310,6 @@ describe("agents", () => {
     hook("subagent-start", { agent_id: "a1", agent_type: "general-purpose" });
     const call = { tool_name: "Bash", tool_input: { command: "rm x" } };
     hook("permission-request", { agent_id: "a1", ...call });
-    // Its PreToolUse runs async, and may come after.
     hook("pre-tool-use", { agent_id: "a1", tool_use_id: "b1", ...call });
     expect(activity().agents[0]?.state).toBe("permissionPending");
     hook("post-tool-use", { agent_id: "a1", tool_use_id: "b1", ...call });
@@ -460,7 +454,6 @@ describe("`claude -p` runs", () => {
         toolsTold: true,
       },
     ]);
-    // The run's tools are its own, not the session's.
     expect(activity().tools.map((tool) => tool.id)).toEqual(["t1"]);
   });
 
@@ -490,7 +483,6 @@ describe("`claude -p` runs", () => {
     print("print-text", { text: "  Looking at the tests.  " });
     print("print-text", { text: "   " });
     clock = 5_000;
-    // A codex rollout tells a command once it ended, with how long it took.
     print("print-tool-use", {
       tool_use_id: "c1",
       tool_name: "Bash",
@@ -499,7 +491,6 @@ describe("`claude -p` runs", () => {
     print("print-tool-result", { tool_use_id: "c1", is_error: false, duration_ms: 1_500 });
     expect(activity().agents[0]?.messages).toEqual([{ at: 2_000, text: "Looking at the tests." }]);
     expect(activity().agents[0]?.tools[0]).toMatchObject({ start: 3_500, end: 5_000 });
-    // Read at once, a rollout's tool still starts after what came before it.
     clock = 6_000;
     print("print-text", { text: "Now the build." });
     clock = 6_010;
@@ -528,7 +519,6 @@ describe("`claude -p` runs", () => {
       answer: "Done.",
     });
     expect(activity().agents[0]?.tools[0]?.end).toBe(4_000);
-    // Told once: a late frame changes nothing.
     print("print-tool-use", { tool_use_id: "u2", tool_name: "Read", tool_input: {} });
     expect(activity().agents[0]?.toolCount).toBe(1);
     expect(changes.map((change) => change.state)).toEqual(["running", "completed"]);
@@ -657,7 +647,6 @@ describe("`claude -p` runs", () => {
     expect(log.printWatch(WS, TAB, "p1")).toBe("hook-7");
     print("print-end", { exit_code: 0 });
     expect(log.printWatch(WS, TAB, "p1")).toBeUndefined();
-    // A subagent has none.
     hook("subagent-start", { agent_id: "a1", agent_type: "Explore" });
     expect(log.printWatch(WS, TAB, "a1")).toBeUndefined();
   });
@@ -681,10 +670,8 @@ describe("`claude -p` runs", () => {
       home: "/home/u/.claude-work",
       cwd: "/repo",
     });
-    // The renderer is never told it.
     expect(JSON.stringify(activity().agents)).not.toContain(".claude-work");
     expect(JSON.stringify(changes)).not.toContain(".claude-work");
-    // Another tab's, another workspace's, an unknown run and a subagent have none.
     expect(log.printRunSource(WS, "tab-2", "p1")).toBeUndefined();
     expect(log.printRunSource("ws-2", TAB, "p1")).toBeUndefined();
     expect(log.printRunSource(WS, TAB, "p9")).toBeUndefined();
@@ -705,7 +692,6 @@ describe("`claude -p` runs", () => {
       home: "/b",
     });
     expect(log.printRunSource(WS, TAB, "p1")).toMatchObject({ home: "/b", running: true });
-    // The later run is the earlier one's: it has no row of its own.
     expect(log.printRunSource(WS, TAB, "p2")).toBeUndefined();
   });
 

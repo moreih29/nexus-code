@@ -1,6 +1,3 @@
-// Calls in a row as one line that says what they did, and opens to show
-// each: the main conversation's runs and an agent's own turn alike.
-
 import { Check, LoaderCircle } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,13 +5,8 @@ import { cn } from "@/utils/cn";
 import type { RunTally } from "../../services/chat/tool-runs";
 import { ToggleChevron } from "../ui/toggle-chevron";
 
-/** The kinds of call a run's line counts, in its order. */
 const RUN_KINDS = ["commands", "reads", "edits", "searches", "others"] as const;
 
-/**
- * The run's line, and under it the rows its owner gives: each call while
- * open, the calls still going while folded.
- */
 export function ToolRunLine({
   tally,
   running,
@@ -27,9 +19,7 @@ export function ToolRunLine({
   running: boolean;
   open: boolean;
   onToggle: () => void;
-  /** Beside the line, not in it, as a call's thumbnails. */
   beside?: ReactNode;
-  /** The rows under the line; none leaves it a line alone. */
   children?: ReactNode;
 }) {
   const { t } = useTranslation();
@@ -48,7 +38,6 @@ export function ToolRunLine({
           {running ? (
             <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--state-loading-indicator)]" />
           ) : (
-            // A run some calls of which failed is not all green.
             <Check
               className={cn(
                 "size-3.5 shrink-0",

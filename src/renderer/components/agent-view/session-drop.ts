@@ -15,7 +15,6 @@ interface SessionDrag {
   deviceId?: string;
 }
 
-// Dragover can read the payload's type only, so keep the row's scope while dragging.
 let source: SessionDrag | null = null;
 let reordering: SessionDrag | null = null;
 const dragChanges = createListenerBus();
@@ -39,7 +38,6 @@ function sourceIn(event: DragEvent<HTMLElement>, workspaceId: string, deviceId?:
     : null;
 }
 
-/** Hovering a workspace heading also reveals targets when only the dragged row remains. */
 export function hoverWorkspaceReorder(
   event: DragEvent<HTMLElement>,
   workspaceId: string,
@@ -82,7 +80,6 @@ export function endSessionDrag(): void {
   showReordering(null);
 }
 
-/** A row accepts another row from the same device and workspace. */
 function sessionDropEdge(event: DragEvent<HTMLElement>, row: SessionDrag): DropEdge | null {
   const moved = sourceIn(event, row.workspaceId, row.deviceId);
   return moved && row.key !== moved.key ? sidebarDropEdge(event) : null;

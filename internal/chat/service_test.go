@@ -21,8 +21,6 @@ import (
 	"time"
 )
 
-// TestFakeProgramHelper is the program the tests run: a stand-in for
-// `claude -p` that answers each line it reads.
 func TestFakeProgramHelper(t *testing.T) {
 	if os.Getenv("NEXUS_CHAT_FAKE") != "1" {
 		return
@@ -48,7 +46,6 @@ func TestFakeProgramHelper(t *testing.T) {
 		case "hang":
 			time.Sleep(time.Hour)
 		case "linger":
-			// Outlast a stop's polite ask, to be killed after its grace.
 			signal.Ignore(syscall.SIGTERM)
 			fmt.Println(`{"type":"lingering"}`)
 			continue
@@ -56,7 +53,6 @@ func TestFakeProgramHelper(t *testing.T) {
 			fmt.Println(os.Getenv("NEXUS_CHAT_FAKE_LINE"))
 			continue
 		case "leave":
-			// Exit, leaving a child that holds the input and both outputs.
 			child := exec.Command(os.Args[0], "-test.run=^TestFakeChildHelper$")
 			child.Env = append(os.Environ(), "NEXUS_CHAT_CHILD=1")
 			child.Stdin, child.Stdout, child.Stderr = os.Stdin, os.Stdout, os.Stderr
@@ -66,13 +62,11 @@ func TestFakeProgramHelper(t *testing.T) {
 			}
 			os.Exit(0)
 		case "spawn":
-			// Start a child that runs until it is ended, and tell its pid.
 			child := exec.Command(os.Args[0], "-test.run=^TestFakeSleeperHelper$")
 			child.Env = append(os.Environ(), "NEXUS_CHAT_SLEEPER=1")
 			if os.Getenv("NEXUS_CHAT_RESIST_TERM") == "1" {
 				child.Stdout = os.Stdout
 			}
-			// As Claude and Codex start each command, out of the program's group.
 			if os.Getenv("NEXUS_CHAT_OWN_SESSION") == "1" {
 				ownSession(child)
 			}
@@ -90,9 +84,6 @@ func TestFakeProgramHelper(t *testing.T) {
 	os.Exit(0)
 }
 
-// TestFakeChildHelper is the child the fake program leaves behind: like
-// node under npm's codex.cmd, it reads its input until it closes, and
-// marks the file NEXUS_CHAT_MARKER names when it does.
 func TestFakeChildHelper(t *testing.T) {
 	if os.Getenv("NEXUS_CHAT_CHILD") != "1" {
 		return
@@ -103,8 +94,6 @@ func TestFakeChildHelper(t *testing.T) {
 	os.Exit(0)
 }
 
-// TestFakeSleeperHelper is a command the fake program runs that does not
-// end by itself, as a build or a server Claude starts.
 func TestFakeSleeperHelper(t *testing.T) {
 	if os.Getenv("NEXUS_CHAT_SLEEPER") != "1" {
 		return
@@ -141,7 +130,6 @@ func (r *recorder) sink(event string, payload any) error {
 	return nil
 }
 
-// waitFor waits until check holds for the recorded events.
 func (r *recorder) waitFor(t *testing.T, what string, check func(lines []LinePayload, exits []ExitPayload) bool) {
 	t.Helper()
 	deadline := time.After(10 * time.Second)
@@ -186,7 +174,6 @@ func hasOut(lines []LinePayload, text string) bool {
 	return false
 }
 
-// childPid starts a command under the tab's fake program and returns its pid.
 func childPid(t *testing.T, service *Service, rec *recorder) int {
 	t.Helper()
 	if err := send(t, service, "tab", "spawn"); err != nil {
@@ -308,7 +295,6 @@ func TestSendLogsAConfirmedInputBeforeEarlyOutput(t *testing.T) {
 			if !bytes.Contains(data, []byte("hello")) {
 				return len(data), nil
 			}
-			// Simulates output the CLI produced before Write returned.
 			sess.addOutput(sess.proc, []byte(`{"type":"result"}`))
 			close(reading)
 			<-unblock
@@ -452,7 +438,6 @@ func TestReplayAfterSeqSendsOnlyNewerLines(t *testing.T) {
 		t.Fatalf("lastSeq %d, last replayed %d", got, last)
 	}
 
-	// Nothing newer: the answer names the seq the client already has.
 	params, _ = json.Marshal(ReplayParams{WorkspaceID: "ws", TabID: "tab", AfterSeq: last + 100})
 	result, err = service.Replay(context.Background(), params)
 	if err != nil {
@@ -500,7 +485,6 @@ func TestExitIsReportedAndLogKept(t *testing.T) {
 		t.Fatalf("last replayed line = %s", describe(lines[len(lines)-1:]))
 	}
 
-	// Started again, the tab goes on in the same log.
 	again := startFake(t, service, "tab", nil)
 	if again.Attached {
 		t.Fatal("start after exit attached")
@@ -514,9 +498,6 @@ func TestExitIsReportedAndLogKept(t *testing.T) {
 	}
 }
 
-// A program that exits leaving a child holding its outputs, as npm's
-// codex.cmd leaves node, is told as ended, and its input is closed so
-// the child, which waits for that, ends too.
 func TestExitIsReportedWhenAChildHoldsTheOutputs(t *testing.T) {
 	service := New()
 	rec := newRecorder()
@@ -531,8 +512,6 @@ func TestExitIsReportedWhenAChildHoldsTheOutputs(t *testing.T) {
 	rec.waitFor(t, "the exit", func(_ []LinePayload, exits []ExitPayload) bool {
 		return len(exits) == 1
 	})
-	// On Windows the program's job ends the child as the program exits,
-	// before its input is closed (TestExitEndsTheCommandsTheProgramLeft).
 	if runtime.GOOS != "windows" {
 		deadline := time.Now().Add(10 * time.Second)
 		for {
@@ -868,7 +847,6 @@ func TestAClosedTabsProgramSendsNothingToTheTabsNext(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("signals")
 	}
-	// The old program ignores the stop, so it ends only when killed.
 	defer func(grace time.Duration) { stopGrace = grace }(stopGrace)
 	stopGrace = 100 * time.Millisecond
 	service := New()
@@ -887,7 +865,6 @@ func TestAClosedTabsProgramSendsNothingToTheTabsNext(t *testing.T) {
 	}
 	rec.reset()
 
-	// The tab opens again: a new program in the tab it closed.
 	startFake(t, service, "tab", nil)
 	_ = send(t, service, "tab", "hello")
 	rec.waitFor(t, "the new program's answer", func(lines []LinePayload, _ []ExitPayload) bool {
@@ -914,8 +891,6 @@ func TestAClosedTabsProgramSendsNothingToTheTabsNext(t *testing.T) {
 	}
 }
 
-// TestCanceledSendDoesNotWaitForEarlierWrites verifies a queued send can
-// leave without writing or consuming an input sequence number.
 func TestCanceledSendDoesNotWaitForEarlierWrites(t *testing.T) {
 	s := New()
 	sess, err := s.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
@@ -952,8 +927,6 @@ func TestCanceledSendDoesNotWaitForEarlierWrites(t *testing.T) {
 	}
 }
 
-// TestReplayCannotFollowAReplacedConnection changes sinks while the first
-// old frame is still being delivered.
 func TestReplayCannotFollowAReplacedConnection(t *testing.T) {
 	s := New()
 	sess, err := s.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
@@ -1007,8 +980,6 @@ func TestReplayCannotFollowAReplacedConnection(t *testing.T) {
 	}
 }
 
-// TestReplayStopsWhenItsConnectionCancels keeps the sink installed while
-// canceling the host after its first frame.
 func TestReplayStopsWhenItsConnectionCancels(t *testing.T) {
 	s := New()
 	sess, err := s.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
@@ -1030,7 +1001,6 @@ func TestReplayStopsWhenItsConnectionCancels(t *testing.T) {
 	}
 }
 
-// TestChatStderrTailMasksCredentials checks what exit events and logs will see.
 func TestChatStderrTailMasksCredentials(t *testing.T) {
 	p := &process{}
 	p.readStderr(strings.NewReader("connection to https://example:fake-pass@host.test failed\nAuthorization: Bearer fake-auth\nAPP_SECRET=fake-env\n"))

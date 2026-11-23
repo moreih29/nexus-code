@@ -1,8 +1,3 @@
-/**
- * Branch operation handlers — local/remote delete, rename, upstream,
- * fast-forward, and create-from-ref.
- */
-
 import type { GitFastForwardResult } from "../../../../shared/git/types";
 import { ipcContract } from "../../../../shared/ipc/contract";
 import type { CallContext } from "../../../infra/ipc-router";
@@ -11,15 +6,6 @@ import { withRepo } from "./git-result";
 
 const c = ipcContract.git.call;
 
-/**
- * Builds the createBranch handler. Optional fromRef and checkout flow through
- * GitRepository so branch creation, create-from-ref, and create-and-checkout
- * share one queued implementation.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object so the router stays log-silent. The renderer's ipcCallResult path
- * receives this as an IpcErrResult and unwrapGitResult converts it to a thrown Error.
- */
 export function createBranchHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -33,12 +19,6 @@ export function createBranchHandler(
   );
 }
 
-/**
- * Builds the local branch delete handler.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see createBranchHandler for rationale.
- */
 export function deleteBranchHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -52,13 +32,6 @@ export function deleteBranchHandler(
   );
 }
 
-/**
- * Builds the remote branch delete handler. Kept separate from local deletion
- * because it is irreversible from the local reflog and may require askpass.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see createBranchHandler for rationale.
- */
 export function deleteRemoteBranchHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -72,12 +45,6 @@ export function deleteRemoteBranchHandler(
   );
 }
 
-/**
- * Builds the local branch rename handler.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see createBranchHandler for rationale.
- */
 export function renameBranchHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -87,12 +54,6 @@ export function renameBranchHandler(
   });
 }
 
-/**
- * Builds the upstream set/unset handler.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see createBranchHandler for rationale.
- */
 export function setUpstreamHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -106,13 +67,6 @@ export function setUpstreamHandler(
   );
 }
 
-/**
- * Builds the fast-forward handler. Even an advanced:false no-op refreshes
- * status so FETCH_HEAD and ahead/behind metadata are fresh.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see createBranchHandler for rationale.
- */
 export function fastForwardBranchHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {

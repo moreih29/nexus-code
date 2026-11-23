@@ -1,9 +1,3 @@
-/**
- * claude.hook events are relayed only for the workspace whose agent channel
- * they arrived on. Regression: the payload's own workspaceId was trusted, so
- * anything reaching an SSH host's hook server could drive another
- * workspace's Claude status and notifications.
- */
 import { describe, expect, test } from "bun:test";
 import { startAgentPtyHost } from "../../../../../src/main/features/pty/agent-host";
 import type {
@@ -74,9 +68,6 @@ describe("AgentPtyHost claude.hook relay", () => {
     expect(relayed).toEqual([own]);
   });
 
-  // Regression: a channel was subscribed only at a PTY call, so the hooks of
-  // a workspace whose terminals had not run yet (a Claude tab's, or any
-  // after a reconnect to a new agent) went unanswered until they timed out.
   test("relays hooks once the workspace's agent is ready, before any terminal", async () => {
     const first = new FakeAgentChannel();
     const second = new FakeAgentChannel();
@@ -108,7 +99,6 @@ describe("AgentPtyHost claude.hook relay", () => {
     ready?.(WORKSPACE_ID);
     await Bun.sleep(0);
     first.emit("claude.hook", hook("h1"));
-    // A new agent after a reconnect.
     channel = second;
     ready?.(WORKSPACE_ID);
     await Bun.sleep(0);

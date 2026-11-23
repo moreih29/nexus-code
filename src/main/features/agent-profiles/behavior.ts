@@ -1,12 +1,3 @@
-/**
- * Reads and writes a profile's behavior settings in the agent's own config
- * file in the profile's folder: settings.json (Claude), config.toml (Codex).
- * It is the file the agent reads and its own /config writes, so both always
- * show the same values. Only the keys the user changed are touched; a file
- * that does not parse is never overwritten; a file the folder shares with
- * the default folder (a link) is written through the link.
- */
-
 import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -29,7 +20,6 @@ function versionOf(text: string | null): string {
   return text === null ? MISSING : createHash("sha1").update(text).digest("hex");
 }
 
-/** The behavior file of the profile, in its folder (the default folder's for the default profile). */
 export function behaviorFilePath(profile: AgentProfile): string {
   return path.join(localProfileDir(profile), BEHAVIOR_FILE[profile.agent]);
 }
@@ -43,7 +33,6 @@ async function readText(file: string): Promise<string | null> {
   }
 }
 
-/** Whether the profile's file is the default folder's own: a link to it, symbolic or hard. */
 async function sharedWithDefault(profile: AgentProfile, file: string): Promise<boolean> {
   if (profile.dir.trim() === "") return false;
   const theirs = path.join(localDefaultDir(profile.agent), BEHAVIOR_FILE[profile.agent]);
@@ -60,17 +49,12 @@ async function sharedWithDefault(profile: AgentProfile, file: string): Promise<b
   return a === b;
 }
 
-// ---------------------------------------------------------------------------
-// JSON (settings.json)
-// ---------------------------------------------------------------------------
-
 type JsonObject = Record<string, unknown>;
 
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** The parsed settings.json; throws with the reason when it is not a JSON object. */
 function parseJson(text: string): JsonObject {
   if (text.trim() === "") return {};
   const parsed: unknown = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
@@ -78,7 +62,6 @@ function parseJson(text: string): JsonObject {
   return parsed;
 }
 
-/** The indent the file uses, to write it back the same way. */
 function jsonIndent(text: string): string | number {
   const match = /^[ \t]+(?=")/m.exec(text);
   return match ? match[0] : 2;
@@ -117,7 +100,6 @@ function jsonSet(
   const holder = parents[parents.length - 1] as JsonObject;
   if (value === undefined) delete holder[last];
   else holder[last] = value;
-  // A table this emptied goes too.
   for (let n = parents.length - 1; n > 0; n--) {
     if (Object.keys(parents[n] as JsonObject).length > 0) break;
     delete (parents[n - 1] as JsonObject)[keys[n - 1] as string];
@@ -125,7 +107,6 @@ function jsonSet(
   return true;
 }
 
-/** Commit and PR attribution: off when both texts are empty (or the legacy includeCoAuthoredBy is false). */
 function readAttribution(root: JsonObject): BehaviorValue | undefined | "unsupported" {
   const attr = root.attribution;
   if (attr !== undefined && !isObject(attr)) return "unsupported";
@@ -157,10 +138,6 @@ function matches(field: BehaviorField, value: unknown): value is BehaviorValue {
   if (field.kind === "int") return typeof value === "number" && Number.isInteger(value);
   return typeof value === "string";
 }
-
-// ---------------------------------------------------------------------------
-// Reading
-// ---------------------------------------------------------------------------
 
 function fieldsOf(agent: AgentProfile["agent"]): readonly BehaviorField[] {
   return BEHAVIOR_FIELDS.filter((f) => f.agent === agent);
@@ -195,7 +172,6 @@ function readFields(
   return { values, unsupported };
 }
 
-/** The names of the output styles in the folder's output-styles: a `name:` in the front matter, else the file's name. */
 async function readOutputStyles(profile: AgentProfile): Promise<string[]> {
   if (profile.agent !== "claude") return [];
   const dir = path.join(localProfileDir(profile), "output-styles");
@@ -213,7 +189,6 @@ async function readOutputStyles(profile: AgentProfile): Promise<string[]> {
   return names;
 }
 
-/** The profile's file as it is now. `prepare` first makes the folder and its links, for a profile that has them. */
 export async function readBehavior(
   profile: AgentProfile,
   opts: { prepare?: boolean } = {},
@@ -241,11 +216,6 @@ export async function readBehavior(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Writing
-// ---------------------------------------------------------------------------
-
-/** What a change means for the file: the value to write, or undefined to remove the key. */
 function normalize(field: BehaviorField, value: BehaviorValue | null): BehaviorValue | undefined {
   if (value === null) return undefined;
   if (!matches(field, value)) throw new Error(`${field.id}: not a ${field.kind}`);
@@ -255,11 +225,6 @@ function normalize(field: BehaviorField, value: BehaviorValue | null): BehaviorV
   return value;
 }
 
-/**
- * Where a write to `file` goes: through a symbolic link to the file it leads
- * to, so the link stays; a hard link is written in place, as a new file
- * would take it off the other name.
- */
 async function writeTarget(
   file: string,
 ): Promise<{ target: string; inPlace: boolean; mode: number }> {
@@ -267,7 +232,6 @@ async function writeTarget(
   const link = await fs.lstat(file).catch(() => null);
   if (link?.isSymbolicLink()) {
     target = await fs.realpath(file).catch(async () => {
-      // A link to a file that is not there yet: the file it names.
       return path.resolve(path.dirname(file), await fs.readlink(file));
     });
   }
@@ -312,10 +276,6 @@ function applyJson(
   return { text: text === "" || text.endsWith("\n") ? `${body}\n` : body };
 }
 
-/**
- * Writes the changes (a field's new value, or null for its default) into the
- * file, if the file is still what `version` was read from.
- */
 export async function writeBehavior(
   profile: AgentProfile,
   version: string,
@@ -325,13 +285,11 @@ export async function writeBehavior(
   for (const [id, value] of Object.entries(changes)) {
     const field = fieldsOf(profile.agent).find((f) => f.id === id);
     if (!field) throw new Error(`unknown field ${id}`);
-    // The attribution switch is its own off/on: its default is "on", written as no key.
     fields.set(
       field,
       field.id === "attribution" ? (value === null ? true : value) : normalize(field, value),
     );
   }
-  // A shared file not linked yet is linked first, so the write goes to the shared one.
   if (profile.dir.trim() !== "") await prepareLocalProfile(profile).catch(() => {});
   const file = behaviorFilePath(profile);
   const text = await readText(file);
@@ -364,11 +322,6 @@ export async function writeBehavior(
   return { status: "saved", version: versionOf(next === current ? text : next) };
 }
 
-/**
- * Makes the profile's file its own: the content now (through the link) is
- * copied to a file of the profile's folder in the link's place. The default
- * folder's file is not touched. No-op when the file is not shared.
- */
 export async function unshareBehaviorFile(profile: AgentProfile): Promise<{ path: string }> {
   const file = behaviorFilePath(profile);
   if (!(await sharedWithDefault(profile, file))) return { path: file };
@@ -377,7 +330,6 @@ export async function unshareBehaviorFile(profile: AgentProfile): Promise<{ path
   const temp = `${file}.${randomUUID().slice(0, 8)}.tmp`;
   try {
     await fs.writeFile(temp, text, { mode });
-    // Renaming over the name replaces the link itself, not the file it leads to.
     await fs.rename(temp, file);
   } catch (error) {
     await fs.rm(temp, { force: true }).catch(() => {});

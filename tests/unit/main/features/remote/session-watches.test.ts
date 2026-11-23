@@ -32,7 +32,6 @@ function setup() {
       sent.push({ to, update });
       return true;
     },
-    // Polled by the test, not the clock.
     pollMs: 60_000,
   });
   made.push(watches);
@@ -82,7 +81,6 @@ describe("watching the sessions' list", () => {
     left = 30_000;
     await watches.poll();
     expect(sent).toHaveLength(0);
-    // The user turned the chats' controls off: the phone may no longer answer.
     answerable = false;
     await watches.poll();
     expect(sent.map((s) => s.to)).toEqual(["phone"]);
@@ -108,7 +106,6 @@ describe("watching the sessions' list", () => {
     const { watches, sent, set } = setup();
     await watches.watch("phone");
     set(listOf("second"));
-    // The laptop starts on the second list: it has nothing new to be sent.
     await watches.watch("laptop");
     await watches.poll();
     expect(sent.map((s) => s.to)).toEqual(["phone"]);
@@ -162,7 +159,6 @@ describe("watching the sessions' list", () => {
     await watches.poll();
     expect(sent).toHaveLength(0);
 
-    // A complete read of an empty workspace establishes a baseline without sending an update.
     set(empty);
     await watches.poll();
     expect(sent).toHaveLength(0);

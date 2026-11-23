@@ -1,9 +1,3 @@
-/**
- * The notes view of a workspace on another computer: the local view's title
- * row, search and rows, to read only. Its list is what notes.list tells
- * (title and time), read when shown, on reconnecting, and now and then
- * while shown.
- */
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -23,7 +17,6 @@ export function PeerNotesPanel({
   rejoin,
 }: {
   target: PeerWorkspaceTarget;
-  /** Shown, in reach, and that computer serves its notes. */
   canRead: boolean;
   rejoin: number;
 }) {
@@ -47,7 +40,6 @@ export function PeerNotesPanel({
       void listPeerNotes({ deviceId, workspaceId }, signal).then(
         (result) => {
           if (signal.aborted) return;
-          // A failed later read keeps the list last seen, as the other views do.
           if (result.ok) setNotes(result.value.notes);
           setError(!result.ok);
         },

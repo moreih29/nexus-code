@@ -70,7 +70,7 @@ describe("promote-on-dirty policy", () => {
       loadedSize: 0,
     });
 
-    model.edit(2); // clean → dirty
+    model.edit(2);
 
     const tabs = tabsStoreMod.useTabsStore.getState().byWorkspace;
     expect(tabs[WS][tab.id].isPreview).toBe(false);
@@ -109,7 +109,6 @@ describe("promoteAllPreviewTabsForFile (explicit-save helper)", () => {
 
     const tabs = tabsStoreMod.useTabsStore.getState().byWorkspace[WS];
     expect(tabs[working.id].isPreview).toBe(false);
-    // A staged diff shows the index, not the file being edited.
     expect(tabs[staged.id].isPreview).toBe(true);
     expect(tabsStoreMod.useTabsStore.getState().byWorkspace[OTHER_WS][other.id].isPreview).toBe(
       true,

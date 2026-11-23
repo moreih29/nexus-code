@@ -1,8 +1,3 @@
-/**
- * A Codex tab's state for the sessions tab and the inbox, read from its
- * conversation: what waits on the user, what runs, and a turn that ended
- * while the user looked elsewhere.
- */
 import { describe, expect, it } from "bun:test";
 import { codexStateOf } from "../../../../../src/renderer/services/agent-sessions/codex-state";
 import type { ChatModel } from "../../../../../src/renderer/services/chat/model";

@@ -1,5 +1,3 @@
-// Reading a workspace file a part at a time over fs.readRange.
-
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   type FilePart,
@@ -16,7 +14,6 @@ let mtimeAt: (offset: number) => string = () => "t1";
 let missing = false;
 const reads: Array<{ offset: number; length: number }> = [];
 
-/** fs.readRange over `file`: at most one piece, with the file's size. */
 async function read(offset: number, length: number): Promise<FilePart | null> {
   reads.push({ offset, length });
   if (missing) return null;

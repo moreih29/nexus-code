@@ -13,9 +13,6 @@ import (
 	"time"
 )
 
-// The other PTY tests run /bin/sh scripts; these drive cmd.exe in a Windows
-// pseudoconsole through the same service calls.
-
 type consoleRecorder struct {
 	mu     sync.Mutex
 	output strings.Builder
@@ -35,7 +32,6 @@ func newConsoleService(t *testing.T) (*Service, *consoleRecorder) {
 			if err != nil {
 				return err
 			}
-			// Unacked, as the output here stays far below the high watermark.
 			rec.output.Write(chunk)
 		case ExitPayload:
 			rec.exit = &p
@@ -69,7 +65,6 @@ func spawnConsole(t *testing.T, svc *Service, tabID string, args ...string) {
 	}
 }
 
-// waitFor polls until cond holds over the recorder, failing after timeout.
 func (r *consoleRecorder) waitFor(t *testing.T, what string, cond func(output string, exit *ExitPayload) bool) {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
@@ -89,7 +84,6 @@ func (r *consoleRecorder) waitFor(t *testing.T, what string, cond func(output st
 
 func TestConsoleRunsCommandAndReportsExitCode(t *testing.T) {
 	svc, rec := newConsoleService(t)
-	// The pause gives the console time to render the echo before cmd exits.
 	spawnConsole(t, svc, "echo", "/c", "echo nexus-conpty-sentinel & ping -n 2 127.0.0.1 >nul & exit 7")
 
 	rec.waitFor(t, "exit", func(_ string, exit *ExitPayload) bool { return exit != nil })
@@ -115,7 +109,6 @@ func TestConsoleTakesInputAndResizes(t *testing.T) {
 	if _, err := svc.Write(context.Background(), write); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	// The typed line echoes back verbatim; only its expansion proves cmd ran it.
 	drive := os.Getenv("COMSPEC")[:1]
 	rec.waitFor(t, "command output", func(output string, _ *ExitPayload) bool {
 		return strings.Contains(output, "typed-"+drive+"-input")
@@ -133,8 +126,6 @@ func TestConsoleTakesInputAndResizes(t *testing.T) {
 	}
 }
 
-// Ctrl+C stops the program the shell runs, also when the test itself was
-// started ignoring it, as a process in a new process group is.
 func TestConsoleCtrlCStopsTheProgram(t *testing.T) {
 	svc, rec := newConsoleService(t)
 	spawnConsole(t, svc, "ctrl-c")
@@ -149,7 +140,6 @@ func TestConsoleCtrlCStopsTheProgram(t *testing.T) {
 	time.Sleep(time.Second)
 	write("\x03")
 	drive := os.Getenv("COMSPEC")[:1]
-	// Well before ping's 30 seconds are up.
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		rec.mu.Lock()
@@ -178,8 +168,6 @@ func TestConsoleKillEndsShell(t *testing.T) {
 	rec.waitFor(t, "exit", func(_ string, exit *ExitPayload) bool { return exit != nil })
 }
 
-// An override of PATH replaces the inherited Path instead of adding a second
-// entry that differs only in case.
 func TestMergeEnvOverridesPathWhateverItsCase(t *testing.T) {
 	t.Setenv("Path", `C:\Windows`)
 
@@ -196,8 +184,6 @@ func TestMergeEnvOverridesPathWhateverItsCase(t *testing.T) {
 	}
 }
 
-// TestMergeEnvKeepsBothCmdLaunchers verifies codex.cmd takes precedence
-// while nexus.exe stays on PATH and the directory names stay intact.
 func TestMergeEnvKeepsBothCmdLaunchers(t *testing.T) {
 	t.Setenv("Path", `C:\Windows`)
 	env := mergeEnv(map[string]string{

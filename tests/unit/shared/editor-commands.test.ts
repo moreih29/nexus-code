@@ -20,9 +20,6 @@ describe("editor command catalog", () => {
 });
 
 describe("conflict engine over editor (string-id) bindings", () => {
-  // The engine was generalized to plain string command ids so editor
-  // (Monaco) commands reuse it. A capture colliding with another editor
-  // command's key (both unscoped) is blocking.
   const bindings = [
     { command: "editor.action.moveLinesUpAction", primary: "Alt+Up" },
     { command: "editor.action.moveLinesDownAction", primary: "Alt+Down" },
@@ -31,7 +28,7 @@ describe("conflict engine over editor (string-id) bindings", () => {
   test("same keystroke as another editor command → blocking", () => {
     const conflicts = detectConflicts({
       command: "editor.action.moveLinesDownAction",
-      primary: "Alt+Up", // collides with moveLinesUp
+      primary: "Alt+Up",
       bindings,
       isMac: true,
     });
@@ -49,7 +46,6 @@ describe("conflict engine over editor (string-id) bindings", () => {
       bindings,
       isMac: true,
     });
-    // No blocking against itself; may still flag a reserved/shadow entry.
     expect(conflicts.some((c) => c.kind === "blocking")).toBe(false);
   });
 });

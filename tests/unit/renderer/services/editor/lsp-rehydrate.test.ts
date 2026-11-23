@@ -1,11 +1,3 @@
-/**
- * LSP rehydrate after an eviction: keystrokes typed while the server
- * restarts must produce one didOpen, and only changes made after its text
- * snapshot may follow as didChange. A file that loaded while its language
- * was off is opened once the language is turned on. Once a file is open,
- * each change goes out before its handler returns, and in order.
- */
-
 import { expect, test } from "bun:test";
 import {
   attachLspBridge,
@@ -43,15 +35,12 @@ function setup(opts: { evicted: boolean; enabledAtAttach?: boolean } = { evicted
     version: 57,
     lastLoadedValue: "abc",
     lspOpened: false,
-    // The workspace was evicted by the host's LRU.
     lspNeedsRehydrate: opts.evicted,
     didOpenPromise: opts.evicted ? Promise.resolve() : undefined,
     disposed: false,
   } as unknown as ModelEntry;
   const sent: string[] = [];
   const resolvers: Array<() => void> = [];
-  // Off while attaching, unless asked: an evicted entry was opened before
-  // the eviction, and the other entry loads with its language off.
   let enabled = opts.enabledAtAttach === true;
   const deps = {
     isLspLanguage: () => true,
@@ -87,7 +76,6 @@ function setup(opts: { evicted: boolean; enabledAtAttach?: boolean } = { evicted
     deps,
     sent,
     type(nextValue, change) {
-      // Monaco fires the event after the model already holds the edit.
       value = nextValue;
       listener?.({ changes: [change] });
     },
@@ -114,7 +102,6 @@ test("keystrokes during a rehydrate send one didOpen and only later changes", as
 test("an eviction during a rehydrate keeps the stale open from marking the entry open", async () => {
   const h = setup();
   h.type("abcX", "+X");
-  // Same bookkeeping as resetLspStateForWorkspace.
   h.entry.lspOpened = false;
   h.entry.lspNeedsRehydrate = true;
   h.entry.lspRehydrating = false;
@@ -166,15 +153,12 @@ test("an open file sends each change before its handler returns", async () => {
   const h = setup({ evicted: false, enabledAtAttach: true });
   await h.resolveOpens();
   h.type("abcX", "+X");
-  // Not awaited: a completion request Monaco makes for the same keystroke
-  // goes out right after the handler, and must follow the change.
   expect(h.sent).toEqual(["providers typescript", "didOpen v57 abc", "didChange v58 +X"]);
 });
 
 test("a change typed while an earlier one waits for the open queues behind it", async () => {
   const h = setup({ evicted: false, enabledAtAttach: true });
   h.type("abcX", "+X");
-  // The open has landed, but the first change has not been sent yet.
   h.entry.lspOpened = true;
   h.type("abcXY", "+Y");
   expect(h.sent).toEqual(["providers typescript", "didOpen v57 abc"]);

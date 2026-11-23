@@ -11,8 +11,6 @@ import (
 	"testing"
 )
 
-// TestGitProbeSkipsTheMacStubWithoutDeveloperTools simulates xcode-select on
-// a fresh Mac. The probe must report Git missing before launching the stub.
 func TestGitProbeSkipsTheMacStubWithoutDeveloperTools(t *testing.T) {
 	ctx := context.Background()
 	for _, args := range [][]string{{"--version"}, {"rev-parse", "--show-toplevel"}} {
@@ -33,8 +31,6 @@ func TestGitProbeSkipsTheMacStubWithoutDeveloperTools(t *testing.T) {
 	}
 }
 
-// TestGitProbePreservesRepoErrors verifies that an installed Git's errors
-// still reach Detect, including on a Mac using a third-party Git binary.
 func TestGitProbePreservesRepoErrors(t *testing.T) {
 	ctx := context.Background()
 	notRepo := errors.New("not a git repository")
@@ -58,10 +54,6 @@ func TestGitProbePreservesRepoErrors(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// git.info tests
-// ---------------------------------------------------------------------------
-
 func TestParseGitVersionOutput_Valid(t *testing.T) {
 	cases := []struct {
 		input string
@@ -82,14 +74,8 @@ func TestParseGitVersionOutput_Valid(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// git.detect tests
-// ---------------------------------------------------------------------------
-
 func TestServiceDetect_GitMissing(t *testing.T) {
 	root := t.TempDir()
-	// A PATH with no git on it, as on a PC that never installed Git, nor
-	// in Git's Windows install locations.
 	t.Setenv("PATH", t.TempDir())
 	for _, key := range []string{"ProgramW6432", "ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"} {
 		t.Setenv(key, t.TempDir())
@@ -116,7 +102,6 @@ func TestServiceDetect_Subdir(t *testing.T) {
 	root := t.TempDir()
 	runGit(t, root, "init", "-b", "main")
 
-	// Create a subdirectory inside the repo.
 	subdir := filepath.Join(root, "src", "components")
 	writeDir(t, subdir)
 
@@ -134,8 +119,6 @@ func TestServiceDetect_Subdir(t *testing.T) {
 	if dr.Kind != "repo" {
 		t.Errorf("expected kind=repo from subdir, got %q", dr.Kind)
 	}
-	// TopLevel should be the repo root, not the subdir. Use EvalSymlinks to
-	// handle macOS which resolves /var -> /private/var in TempDir.
 	wantTopLevel, _ := filepath.EvalSymlinks(root)
 	gotTopLevel, _ := filepath.EvalSymlinks(dr.TopLevel)
 	if filepath.Clean(gotTopLevel) != filepath.Clean(wantTopLevel) {
@@ -143,8 +126,6 @@ func TestServiceDetect_Subdir(t *testing.T) {
 	}
 }
 
-// symlinkedRepo creates a repository with a src/components subdirectory and
-// returns its path through a symlink, as git would not report it.
 func symlinkedRepo(t *testing.T) (real string, link string) {
 	t.Helper()
 	base := t.TempDir()
@@ -194,8 +175,6 @@ func TestServiceDetect_KeepsGitRootForSymlinkIntoTree(t *testing.T) {
 		t.Fatalf("symlink: %v", err)
 	}
 
-	// Walking up from the link leaves the repository, so only git's own
-	// spelling of the root names it.
 	dr := detect(t, New(intoTree), intoTree)
 	want, _ := filepath.EvalSymlinks(real)
 	if dr.TopLevel != want {
@@ -243,7 +222,6 @@ func TestParseRevParseLines(t *testing.T) {
 	}
 }
 
-// jsonEscapePath escapes backslashes in Windows paths for JSON embedding.
 func jsonEscapePath(p string) string {
 	return strings.ReplaceAll(p, `\`, `\\`)
 }

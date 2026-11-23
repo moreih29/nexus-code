@@ -1,35 +1,3 @@
-/**
- * The plan's usage, once per profile: one store every tab of a profile, the
- * agent list and the side panel read, filled by one request at a time.
- *
- * Before, each Claude and Codex tab asked for its own and kept what it heard:
- * tabs of one profile told different numbers, and several asking at once
- * met Anthropic's rate limit, whose answers (limits left out) wiped a tab's
- * meters. Now:
- *
- *   - A profile is its agent, the host its program runs on (a profile's
- *     folder is resolved there), and its id.
- *   - Tabs register as sources; an ask goes through one that can make it,
- *     an idle one before a busy one, hidden or not. Asks while one is out
- *     share it.
- *   - Every minute, while the window is shown, each profile one of whose
- *     tabs can ask is asked: its tabs show its usage as it goes, whether or
- *     not they have a turn (an empty one too), and once shown again the
- *     window asks at once. A tab asks too as it is shown or its program
- *     comes up, and after each turn. A chat another device watches is shown
- *     there: its profile is asked as it starts to be watched, and each
- *     minute while it is, the window hidden or not.
- *   - After an answer, none for 50 seconds (Claude Code keeps its own
- *     snapshot for a minute); after a failure, 2, 4, 8, then 15 minutes, and
- *     the last good numbers stay. A profile without plan limits (an API key)
- *     is asked again after half an hour.
- *   - Codex's pushes (`account/rateLimits/updated`, after a turn) are taken
- *     in for every tab of the profile, and count as an answer.
- *   - An answer that shows what the store has (the same limits, resets to
- *     the minute) leaves it as it was, so nothing that shows it is drawn
- *     again.
- */
-
 import { create } from "zustand";
 import { defaultProfileId } from "../../../shared/agent-profiles/profiles";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
@@ -38,44 +6,28 @@ import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { type CodexRateLimits, mergeRateLimits, rateLimitsOf } from "./codex/model";
 import { usageLimitsOf } from "./panel";
 
-/** Every profile one of whose tabs can ask is asked this often, the window shown. */
 export const POLL_MS = 60_000;
-/** No ask for this long after an answer: a little less than POLL_MS, so each tick asks. */
 export const FRESH_MS = 50_000;
-/** An ask the user made (the side panel opened) waits this long since the last. */
 export const FORCED_GAP_MS = 30_000;
-/** A profile without plan limits is asked again after this. */
 export const UNAVAILABLE_MS = 30 * 60_000;
-/** After failures in a row: 2, 4, 8 minutes, then 15. */
 const BACKOFF_MS = [2 * 60_000, 4 * 60_000, 8 * 60_000, 15 * 60_000];
 
 export interface PlanUsage {
-  /** Claude: get_usage's answer, as the usage line and side panel read it. */
   claude?: Record<string, unknown>;
-  /** Codex: the windows of the profile's bucket. */
   codex?: CodexRateLimits;
-  /** A push may refresh only one of the Codex windows. */
   codexFetchedAt?: Partial<Record<"primary" | "secondary", number>>;
-  /** When the numbers were heard. */
   fetchedAt?: number;
-  /** The profile has no plan limits (signed in with an API key). */
   unavailable?: boolean;
   failures: number;
-  /** No ask before this, unless the user asks. */
   nextAt: number;
   lastAttemptAt: number;
 }
 
-/** A tab that can ask its program for the plan's usage. */
 export interface PlanUsageSource {
   readonly agent: ChatAgent;
-  /** The profile it asks for; a getter, as a tab can take up another profile's session. */
   usageKey(): string;
-  /** Whether its program can be asked now. */
   ready(): boolean;
-  /** Whether its program is in a turn: an idle one is asked first. */
   busy(): boolean;
-  /** Asks, and gives back the answer as it came. */
   fetchUsage(): Promise<unknown>;
 }
 
@@ -86,14 +38,11 @@ interface PlanUsageState {
 export const usePlanUsageStore = create<PlanUsageState>(() => ({ byKey: {} }));
 
 const sources = new Set<PlanUsageSource>();
-/** The profiles of the chats other devices watch, by each watch: shown there. */
 const watchedAfar = new Map<string, () => string | null>();
 const inflight = new Map<string, Promise<void>>();
 let clock: () => number = () => Date.now();
-/** Stops the minute's asks; set while any tab is a source. */
 let stopPoll: (() => void) | null = null;
 
-/** The profile's key: its agent, the host its program runs on, its id. */
 export function planUsageKey(
   agent: ChatAgent,
   location: WorkspaceLocation | undefined,
@@ -108,7 +57,6 @@ function hostKey(location: WorkspaceLocation | undefined): string {
   return `ssh:${location.user ?? ""}@${location.host}:${location.port ?? 22}`;
 }
 
-/** The key of a tab of `workspaceId`'s, from the workspaces store as it is now. */
 export function planUsageKeyFor(
   agent: ChatAgent,
   workspaceId: string,
@@ -120,10 +68,6 @@ export function planUsageKeyFor(
   return planUsageKey(agent, location, profileId);
 }
 
-/**
- * Adds a tab as a source; the function it gives back takes it away. The
- * minute's asks run while there is one.
- */
 export function registerPlanSource(source: PlanUsageSource): () => void {
   sources.add(source);
   startPoll();
@@ -136,10 +80,6 @@ export function registerPlanSource(source: PlanUsageSource): () => void {
 const windowShown = (): boolean =>
   typeof document === "undefined" || document.visibilityState !== "hidden";
 
-/**
- * Asks for each profile one of whose tabs can ask, if it is time; while
- * the window is hidden, only those another device shows a chat of.
- */
 export function pollPlanUsage(): void {
   const shown = windowShown();
   const afar = new Set<string>();
@@ -156,12 +96,6 @@ export function pollPlanUsage(): void {
   for (const key of keys) void wantPlanUsage(key);
 }
 
-/**
- * A chat another device watches (by its watch), whose profile `keyOf`
- * tells (null once its tab is gone): asked for now, as a tab is as it
- * shows, and each minute while it is watched. The function it gives back
- * stops it.
- */
 export function watchPlanUsageAfar(watchId: string, keyOf: () => string | null): () => void {
   watchedAfar.set(watchId, keyOf);
   const key = keyOf();
@@ -174,7 +108,6 @@ export function watchPlanUsageAfar(watchId: string, keyOf: () => string | null):
 function startPoll(): void {
   if (stopPoll) return;
   const timer = setInterval(pollPlanUsage, POLL_MS);
-  // Shown again: what went by while it was hidden is asked at once.
   const onShown = () => {
     if (windowShown()) pollPlanUsage();
   };
@@ -203,23 +136,16 @@ function patch(key: string, change: (entry: PlanUsage) => PlanUsage): void {
   }));
 }
 
-/** Whether an ask may go out now: none while one is out, and none too soon. */
 export function mayAsk(entry: PlanUsage, now: number, force: boolean): boolean {
   if (now >= entry.nextAt) return true;
-  // The user's ask goes past the wait after an answer, not past a failure's.
   return force && entry.failures === 0 && now - entry.lastAttemptAt >= FORCED_GAP_MS;
 }
 
-/** How long to wait after `failures` failures in a row, give or take a tenth. */
 export function backoffMs(failures: number, jitter: number = Math.random()): number {
   const base = BACKOFF_MS[Math.min(failures, BACKOFF_MS.length) - 1] ?? BACKOFF_MS[0];
   return Math.round(base * (0.9 + 0.2 * jitter));
 }
 
-/**
- * Asks for the profile's usage, if it is time: through one of its tabs that
- * can, an idle one first. Asks while one is out wait for it.
- */
 export function wantPlanUsage(
   key: string,
   {
@@ -240,8 +166,6 @@ export function wantPlanUsage(
     .then(
       (answer) => takeAnswer(key, requester.agent, answer, clock()),
       (err: unknown) => {
-        // The tab closed, or its program stopped, while it asked: no failure
-        // of the profile's, and the next tab that can asks at once.
         if (source && (!sources.has(source) || !source.ready())) {
           patch(key, (entry) => ({ ...entry, lastAttemptAt: 0 }));
         } else if (requester.agent === "codex" && isNoChatGpt(err)) {
@@ -273,13 +197,10 @@ function takeAnswer(key: string, agent: ChatAgent, answer: unknown, at: number):
       ingestClaudeUsage(key, body, at);
       return;
     }
-    // An API key's profile has no plan limits to tell.
     if (body?.rate_limits_available === false) {
       takeUnavailable(key, at);
       return;
     }
-    // The usage endpoint failed (a 429 among them), and Claude Code answered
-    // with no limits: a failure, whose last good numbers stay.
     takeFailure(key, at);
     return;
   }
@@ -288,7 +209,6 @@ function takeAnswer(key: string, agent: ChatAgent, answer: unknown, at: number):
   else takeFailure(key, at);
 }
 
-/** Codex without a ChatGPT sign-in errs ("chatgpt authentication required"): it has no limits, which is no failure. */
 function isNoChatGpt(err: unknown): boolean {
   return err instanceof Error && /chatgpt/i.test(err.message);
 }
@@ -309,16 +229,10 @@ function takeUnavailable(key: string, at: number): void {
   }));
 }
 
-/** `next`, or `kept` when it tells the same: an answer that changed nothing redraws nothing. */
 function sameOr<T>(kept: T | undefined, next: T): T {
   return kept !== undefined && JSON.stringify(kept) === JSON.stringify(next) ? kept : next;
 }
 
-/**
- * What of a Claude answer is shown: its limits, each reset to the minute.
- * Each answer tells a reset to the microsecond, a little differently, and
- * how long the session ran, which nothing shows.
- */
 function claudeShown(body: Record<string, unknown>): string {
   return JSON.stringify(
     usageLimitsOf(body).map((limit) => ({
@@ -328,7 +242,6 @@ function claudeShown(body: Record<string, unknown>): string {
   );
 }
 
-/** `body`, or `kept` when it shows the same. */
 function sameClaude(
   kept: Record<string, unknown> | undefined,
   body: Record<string, unknown>,
@@ -336,7 +249,6 @@ function sameClaude(
   return kept !== undefined && claudeShown(kept) === claudeShown(body) ? kept : body;
 }
 
-/** A Claude answer with the plan's limits. An older one than the store has is left out. */
 export function ingestClaudeUsage(key: string, body: Record<string, unknown>, at: number): void {
   patch(key, (entry) =>
     entry.fetchedAt !== undefined && at < entry.fetchedAt
@@ -352,7 +264,6 @@ export function ingestClaudeUsage(key: string, body: Record<string, unknown>, at
   );
 }
 
-/** Codex windows read whole. An older read than the store has is left out. */
 export function ingestCodexLimits(key: string, limits: CodexRateLimits, at: number): void {
   patch(key, (entry) =>
     entry.fetchedAt !== undefined && at < entry.fetchedAt
@@ -372,7 +283,6 @@ export function ingestCodexLimits(key: string, limits: CodexRateLimits, at: numb
   );
 }
 
-/** A Codex push, which may carry one window and is laid over what the store has. */
 export function ingestCodexPush(key: string, raw: unknown, at: number): void {
   patch(key, (entry) => {
     if (entry.fetchedAt !== undefined && at < entry.fetchedAt) return entry;
@@ -394,7 +304,6 @@ export function ingestCodexPush(key: string, raw: unknown, at: number): void {
   });
 }
 
-/** Asks may go out at once again: a new sign-in makes what was heard, or the wait, past. */
 export function forgetPlanWait(key: string): void {
   patch(key, (entry) => ({ ...entry, failures: 0, nextAt: 0, unavailable: false }));
 }
@@ -406,11 +315,6 @@ function usePlanKey(agent: ChatAgent, workspaceId: string, profileId: string | u
   return planUsageKey(agent, location, profileId);
 }
 
-/**
- * A Claude profile's usage for a tab of `workspaceId`'s, as the store has
- * it: the same object until an answer tells other numbers, so the asks
- * between draw nothing again.
- */
 export function usePlanClaudeUsage(
   workspaceId: string,
   profileId: string | undefined,
@@ -419,7 +323,6 @@ export function usePlanClaudeUsage(
   return usePlanUsageStore((s) => s.byKey[key]?.claude);
 }
 
-/** A Codex profile's limits for a tab of `workspaceId`'s, as usePlanClaudeUsage. */
 export function usePlanCodexLimits(
   workspaceId: string,
   profileId: string | undefined,
@@ -428,7 +331,6 @@ export function usePlanCodexLimits(
   return usePlanUsageStore((s) => s.byKey[key]?.codex);
 }
 
-/** For tests: forgets every profile, source and ask, stops the minute's asks, and reads the time from `now`. */
 export function resetPlanUsage(now: () => number = () => Date.now()): void {
   endPoll();
   sources.clear();

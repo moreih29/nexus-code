@@ -1,10 +1,3 @@
-// What a Claude or Codex tab's pane shows of a `claude -p` or `codex exec`
-// run its session started: its state, and the run's own session as the
-// conversation it is, read from where the run keeps it; until that is read,
-// and for a run that keeps none, its request, tools and answer as the app
-// recorded them. With stopping it while it runs, and opening its session in
-// a tab of its own once it ended.
-
 import { Square, SquareArrowOutUpRight } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -26,16 +19,12 @@ import { Button } from "../ui/button";
 import { ChatMarkdown } from "./chat-markdown";
 import { MessageList, type OlderMessages } from "./message-list";
 
-/** A run's session as the pane shows it. */
 export interface RunConversation {
   model: ChatModel;
-  /** Its start is not here, and cannot be read. */
   truncated?: boolean;
-  /** Messages before the first that can be read (another computer's run, a page at a time). */
   older?: OlderMessages;
 }
 
-/** How many characters of a session id say which one it is. */
 const ID_SHOWN = 8;
 
 export function PrintRunPane({
@@ -51,22 +40,12 @@ export function PrintRunPane({
 }: {
   workspaceId: string;
   tabId: string;
-  /** Where the tab's session runs, which a run started from its commands shares. */
   cwd: string;
   rootPath: string;
   run: AgentRun;
   visible: boolean;
-  /**
-   * Stops the run, true when it did: the app's own by default (another
-   * computer's chat's goes through the room); null where it may not be.
-   */
   stopRun?: (() => Promise<boolean>) | null;
-  /** Goes on with its ended session in a tab of its own: here by default; null where it may not. */
   openInTab?: ((sessionId: string) => void) | null;
-  /**
-   * The run's session as a conversation: read here by default (the app's
-   * own run); another computer's is given, null while it has none.
-   */
   conversation?: RunConversation | null;
 }) {
   const { t } = useTranslation();
@@ -91,8 +70,6 @@ export function PrintRunPane({
     sessionId === undefined ? undefined : sessionId.slice(0, ID_SHOWN),
     run.toolsTold ? toolCount(run) : undefined,
   ].filter((part): part is string => part !== undefined);
-  // A Codex tab goes on with a `codex exec` run's thread, as a Claude tab
-  // goes on with a copy of a `claude -p` run's session.
   const openInTab =
     openThere === undefined
       ? (id: string) =>
@@ -167,7 +144,6 @@ export function PrintRunPane({
   );
 }
 
-/** Stops a running run, with the square a session's interrupt shows. */
 export function RunStopButton({ onClick }: { onClick: () => void }) {
   const { t } = useTranslation();
   return (

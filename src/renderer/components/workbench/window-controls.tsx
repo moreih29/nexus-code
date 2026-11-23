@@ -4,15 +4,6 @@ import { useTranslation } from "react-i18next";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { IconButton } from "../ui/icon-button";
 
-// ---------------------------------------------------------------------------
-// WindowControls — minimize / maximize / close drawn by the renderer
-//
-// Only the transparent Linux window uses them: Electron draws no frame, and
-// so no titleBarOverlay controls, around a transparent window on Linux (see
-// main/features/window). Each button calls the window channel, which acts on
-// this window.
-// ---------------------------------------------------------------------------
-
 export function WindowControls() {
   const { t } = useTranslation();
   const [maximized, setMaximized] = useState(false);

@@ -1,7 +1,3 @@
-/**
- * Pure tests for the accelerator parser. No DOM; we hand-roll
- * KeyboardEvent-shaped objects to satisfy `matchesEvent`.
- */
 import { describe, expect, it } from "bun:test";
 import { matchesEvent, parseAccelerator } from "../../../src/shared/keybindings/keybinding-parse";
 
@@ -79,8 +75,6 @@ describe("parseAccelerator", () => {
   });
 
   it("treats backslash as accepting only the Backslash physical key", () => {
-    // KeyboardEvent.code is layout-independent (Korean ₩/\ key still
-    // reports "Backslash"); including "Slash" here hijacked ⌘/.
     const p = parseAccelerator("CmdOrCtrl+\\");
     expect(p.codes).toEqual(["Backslash"]);
   });
@@ -119,7 +113,6 @@ describe("matchesEvent", () => {
         getModifierState: (key: string) => key === "AltGraph" && state,
       }) as unknown as KeyboardEvent;
     expect(matchesEvent(p, altGr(true), false)).toBe(false);
-    // Left Ctrl and Alt are the shortcut.
     expect(matchesEvent(p, altGr(false), false)).toBe(true);
   });
 
@@ -138,10 +131,6 @@ describe("matchesEvent", () => {
   });
 
   it("rejects CmdOrCtrl+R on bare ⌃R on Mac (xterm Ctrl-letter shortcuts pass through)", () => {
-    // Regression: previously ⌃R on Mac fired `files.refresh` because
-    // `CmdOrCtrl` accepted either metaKey or ctrlKey on every OS. After
-    // narrowing, Mac requires metaKey for CmdOrCtrl bindings — so the
-    // terminal's reverse-i-search (Ctrl+R) is no longer hijacked.
     const p = parseAccelerator("CmdOrCtrl+R");
     expect(matchesEvent(p, ev("KeyR", { ctrlKey: true }) as unknown as KeyboardEvent, true)).toBe(
       false,
@@ -149,8 +138,6 @@ describe("matchesEvent", () => {
   });
 
   it("rejects CmdOrCtrl+R on bare ⌘R on Win/Linux", () => {
-    // Mirror of the Mac case for non-Mac OSes: metaKey alone is usually
-    // the Win/Super key and not part of our shortcut catalogue.
     const p = parseAccelerator("CmdOrCtrl+R");
     expect(matchesEvent(p, ev("KeyR", { metaKey: true }) as unknown as KeyboardEvent, false)).toBe(
       false,
@@ -196,8 +183,6 @@ describe("matchesEvent", () => {
     expect(
       matchesEvent(p, ev("Backslash", { metaKey: true }) as unknown as KeyboardEvent, true),
     ).toBe(true);
-    // Regression guard: ⌘/ (Slash) must NOT match ⌘\ — it previously did,
-    // hijacking Monaco's comment-toggle shortcut into split-right.
     expect(matchesEvent(p, ev("Slash", { metaKey: true }) as unknown as KeyboardEvent, true)).toBe(
       false,
     );
@@ -208,7 +193,6 @@ describe("matchesEvent", () => {
     expect(matchesEvent(p, ev("Enter", { shiftKey: true }) as unknown as KeyboardEvent, true)).toBe(
       true,
     );
-    // ⌘⇧Enter must not match (extra modifier)
     expect(
       matchesEvent(
         p,
@@ -220,7 +204,6 @@ describe("matchesEvent", () => {
 
   it("matches Cmd+Ctrl+Up only when both metaKey and ctrlKey are held", () => {
     const p = parseAccelerator("Cmd+Ctrl+Up");
-    // both modifiers held → match
     expect(
       matchesEvent(
         p,
@@ -228,15 +211,12 @@ describe("matchesEvent", () => {
         true,
       ),
     ).toBe(true);
-    // only meta → no match (this is what CmdOrCtrl+Up would catch instead)
     expect(
       matchesEvent(p, ev("ArrowUp", { metaKey: true }) as unknown as KeyboardEvent, true),
     ).toBe(false);
-    // only ctrl → no match
     expect(
       matchesEvent(p, ev("ArrowUp", { ctrlKey: true }) as unknown as KeyboardEvent, true),
     ).toBe(false);
-    // adding shift breaks the match (strict modifier set)
     expect(
       matchesEvent(
         p,
@@ -251,8 +231,6 @@ describe("matchesEvent", () => {
   });
 
   it("matches bare Ctrl+W on ctrlKey only, on either OS", () => {
-    // Literal `Ctrl+...` (not the CmdOrCtrl shorthand) means Control,
-    // not "platform primary". Behaviour is identical Mac/non-Mac.
     const p = parseAccelerator("Ctrl+W");
     expect(matchesEvent(p, ev("KeyW", { ctrlKey: true }) as unknown as KeyboardEvent, true)).toBe(
       true,
@@ -260,7 +238,6 @@ describe("matchesEvent", () => {
     expect(matchesEvent(p, ev("KeyW", { ctrlKey: true }) as unknown as KeyboardEvent, false)).toBe(
       true,
     );
-    // ⌘W (no ctrlKey) must not satisfy a literal Ctrl binding.
     expect(matchesEvent(p, ev("KeyW", { metaKey: true }) as unknown as KeyboardEvent, true)).toBe(
       false,
     );

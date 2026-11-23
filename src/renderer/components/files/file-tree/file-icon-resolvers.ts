@@ -1,17 +1,3 @@
-/**
- * Pure resolver functions for file and folder icons.
- *
- * This module has NO Vite-specific imports (no SVG, no import.meta.glob),
- * so it can be imported and unit-tested in plain Bun/Node environments.
- *
- * Exported functions:
- *   - resolveLucide(kind, name)          → LucideIcon (always returns a value)
- *   - resolveMaterialIconName(kind, name) → string | null (iconName from manifest)
- *
- * The `<FileIcon>` component (file-icon.tsx) uses these functions alongside
- * the SVG import machinery that is Vite-only.
- */
-
 import {
   File,
   FileArchive,
@@ -28,17 +14,8 @@ import {
 } from "lucide-react";
 import materialIconMap from "./material-icon-map.json";
 
-// ---------------------------------------------------------------------------
-// Types (re-exported for convenience)
-// ---------------------------------------------------------------------------
-
 export type FileIconKind = "file" | "folder" | "folder-open";
 
-// ---------------------------------------------------------------------------
-// Lucide resolver (minimal theme + fallback)
-// ---------------------------------------------------------------------------
-
-/** Exact-filename → lucide icon (highest priority). */
 const LUCIDE_BY_NAME: Record<string, LucideIcon> = {
   Dockerfile: FileCog,
   Makefile: FileCog,
@@ -46,12 +23,7 @@ const LUCIDE_BY_NAME: Record<string, LucideIcon> = {
   README: FileText,
 };
 
-/**
- * Extension → lucide icon. Keys include the leading dot so that dotfiles
- * such as `.env` and `.gitignore` resolve through the same path.
- */
 const LUCIDE_BY_EXT: Record<string, LucideIcon> = {
-  // Code — programming languages.
   ".ts": FileCode,
   ".tsx": FileCode,
   ".js": FileCode,
@@ -78,24 +50,19 @@ const LUCIDE_BY_EXT: Record<string, LucideIcon> = {
   ".sql": FileCode,
   ".vue": FileCode,
   ".svelte": FileCode,
-  // Markup / web.
   ".html": FileCode,
   ".htm": FileCode,
   ".xml": FileCode,
-  // Style.
   ".css": FileCode,
   ".scss": FileCode,
   ".sass": FileCode,
   ".less": FileCode,
-  // Shell scripts.
   ".sh": FileTerminal,
   ".bash": FileTerminal,
   ".zsh": FileTerminal,
   ".fish": FileTerminal,
-  // Structured data.
   ".json": FileJson,
   ".jsonc": FileJson,
-  // Config.
   ".yaml": FileCog,
   ".yml": FileCog,
   ".toml": FileCog,
@@ -110,14 +77,12 @@ const LUCIDE_BY_EXT: Record<string, LucideIcon> = {
   ".prettierrc": FileCog,
   ".eslintrc": FileCog,
   ".editorconfig": FileCog,
-  // Text / docs.
   ".md": FileText,
   ".markdown": FileText,
   ".mdx": FileText,
   ".txt": FileText,
   ".rst": FileText,
   ".log": FileText,
-  // Images.
   ".png": FileImage,
   ".jpg": FileImage,
   ".jpeg": FileImage,
@@ -127,7 +92,6 @@ const LUCIDE_BY_EXT: Record<string, LucideIcon> = {
   ".ico": FileImage,
   ".bmp": FileImage,
   ".avif": FileImage,
-  // Archives.
   ".zip": FileArchive,
   ".tar": FileArchive,
   ".gz": FileArchive,
@@ -135,22 +99,13 @@ const LUCIDE_BY_EXT: Record<string, LucideIcon> = {
   ".bz2": FileArchive,
   ".7z": FileArchive,
   ".rar": FileArchive,
-  // Lockfiles.
   ".lock": FileLock,
 };
 
-/**
- * Resolves the Lucide icon for a given node kind and filename.
- * Pure function — no React, no store, no dynamic imports.
- *
- * @param kind - "file" | "folder" | "folder-open"
- * @param name - filename (required when kind="file"; ignored otherwise)
- */
 export function resolveLucide(kind: FileIconKind, name?: string): LucideIcon {
   if (kind === "folder") return Folder;
   if (kind === "folder-open") return FolderOpen;
 
-  // kind === "file"
   const fileName = name ?? "";
 
   const byName = LUCIDE_BY_NAME[fileName];
@@ -162,10 +117,6 @@ export function resolveLucide(kind: FileIconKind, name?: string): LucideIcon {
   const ext = fileName.slice(dot).toLowerCase();
   return LUCIDE_BY_EXT[ext] ?? File;
 }
-
-// ---------------------------------------------------------------------------
-// Material icon name resolver (theme=material → iconName from manifest)
-// ---------------------------------------------------------------------------
 
 type MaterialIconMap = typeof materialIconMap;
 
@@ -188,18 +139,6 @@ const FILE_DEFAULT =
 const FOLDER_DEFAULT = (materialIconMap as MaterialIconMap).folderDefault;
 const FOLDER_OPEN_DEFAULT = (materialIconMap as MaterialIconMap).folderOpenDefault;
 
-/**
- * Resolves the material icon name (manifest string key) for a given node.
- * Pure function — no React, no store, no dynamic imports.
- *
- * Returns the iconName string (e.g. "typescript", "react_ts", "folder"), or
- * null if the manifest has no entry (caller should fall back to Lucide).
- *
- * Resolution order for files:
- *   1. Exact lowercase filename match in manifest `file` map.
- *   2. Longest multi-segment suffix (e.g. "d.ts" before "ts") in `ext` map.
- *   3. fileDefault ("file").
- */
 export function resolveMaterialIconName(kind: FileIconKind, name?: string): string | null {
   if (kind === "folder") {
     const key = (name ?? "").toLowerCase();
@@ -210,23 +149,17 @@ export function resolveMaterialIconName(kind: FileIconKind, name?: string): stri
     return MAP_FOLDER_OPEN[key] ?? FOLDER_OPEN_DEFAULT ?? null;
   }
 
-  // kind === "file"
   const fileName = name ?? "";
   const lowerName = fileName.toLowerCase();
 
-  // 1. Exact filename match (case-insensitive).
   if (lowerName in MAP_FILE) return MAP_FILE[lowerName];
 
-  // 2. Multi-segment suffix match — walk every dot position left-to-right
-  //    so longer suffixes (closer to the start) are tested first.
-  //    Example: "foo.d.ts" → tests "d.ts" before "ts".
   let dotIdx = lowerName.indexOf(".");
   while (dotIdx >= 0) {
-    const suffix = lowerName.slice(dotIdx + 1); // without the leading dot
+    const suffix = lowerName.slice(dotIdx + 1);
     if (suffix in MAP_EXT) return MAP_EXT[suffix];
     dotIdx = lowerName.indexOf(".", dotIdx + 1);
   }
 
-  // 3. fileDefault
   return FILE_DEFAULT;
 }

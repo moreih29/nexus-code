@@ -1,6 +1,3 @@
-// A file's icon by its kind, where the conversation and the side panel
-// name a file.
-
 import {
   FileAudio,
   FileBraces,

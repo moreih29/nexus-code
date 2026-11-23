@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 
-// ---------------------------------------------------------------------------
-// Mock infrastructure — mirrors fs-mutations.test.ts patterns
-// ---------------------------------------------------------------------------
-
 const toastCalls: Array<{ kind: string; message: string }> = [];
 
 mock.module("../../../../../src/renderer/components/ui/toast", () => ({
@@ -12,8 +8,6 @@ mock.module("../../../../../src/renderer/components/ui/toast", () => ({
   },
 }));
 
-// movePath now asks the user before overwriting (VSCode parity); the test
-// drives that decision via `confirmReply` per case.
 let confirmReply: boolean = true;
 const confirmReplace = mock(() => Promise.resolve(confirmReply));
 mock.module("../../../../../src/renderer/components/ui/confirm-dialog", () => ({
@@ -25,15 +19,11 @@ const WS = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 const ROOT = "/repo";
 const ipcCalls: IpcCall[] = [];
 let rejectNext: Error | null = null;
-// Per-test readdir result so the pre-check can simulate "destination has a
-// name collision" without affecting later refresh readdirs.
 let readdirEntries: Array<{ name: string; type: "file" | "dir" | "symlink" }> = [];
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: (channel: string, method: string, args: unknown) => {
     ipcCalls.push({ channel, method, args });
-    // readdir always succeeds — the pre-check is supposed to be silent on its
-    // own behalf. rejectNext applies only to subsequent writes.
     if (channel === "fs" && method === "readdir")
       return Promise.resolve({ ok: true as const, value: readdirEntries });
     if (rejectNext) {
@@ -59,16 +49,8 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   canUseIpcBridge: () => false,
 }));
 
-// ---------------------------------------------------------------------------
-// Imports (after mocks are installed)
-// ---------------------------------------------------------------------------
-
 const { movePath } = await import("../../../../../src/renderer/services/fs-mutations");
 const { useFilesStore } = await import("../../../../../src/renderer/state/stores/files");
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function installWindow(): void {
   (globalThis as { window?: unknown }).window = {
@@ -103,10 +85,6 @@ function resetTree(): void {
   useFilesStore.getState().setChildren(WS, `${ROOT}/other`, []);
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe("movePath", () => {
   beforeEach(() => {
     ipcCalls.length = 0;
@@ -118,8 +96,6 @@ describe("movePath", () => {
     installWindow();
     resetTree();
   });
-
-  // ---- Core IPC shape ----
 
   it("emits fs.rename IPC with correct fromRelPath and toRelPath for cross-directory move", async () => {
     const ok = await movePath({
@@ -144,13 +120,9 @@ describe("movePath", () => {
       },
     });
 
-    // readdir is now called 3x: the destination pre-check + the two refresh
-    // calls (source parent + dest parent) after the move.
     const readdirCalls = ipcCalls.filter((c) => c.method === "readdir");
     expect(readdirCalls).toHaveLength(3);
   });
-
-  // ---- Same-dir no-op ----
 
   it("returns true without IPC when source and destination are the same directory", async () => {
     const ok = await movePath({
@@ -163,8 +135,6 @@ describe("movePath", () => {
     expect(ok).toBe(true);
     expect(ipcCalls).toHaveLength(0);
   });
-
-  // ---- NOT_FOUND toast ----
 
   it("returns false with not-found toast when source does not exist", async () => {
     rejectNext = new Error("NOT_FOUND: /repo/missing.ts");
@@ -179,8 +149,6 @@ describe("movePath", () => {
     expect(ok).toBe(false);
     expect(toastCalls.map((c) => c.message)).toEqual(["Item not found."]);
   });
-
-  // ---- Replace-on-collision (VSCode parity) ----
 
   it("prompts to replace when the destination has a colliding name; calls rename with overwrite=true on confirm", async () => {
     readdirEntries = [{ name: "nested.ts", type: "file" }];
@@ -202,7 +170,6 @@ describe("movePath", () => {
       toRelPath: "other/nested.ts",
       overwrite: true,
     });
-    // No error toast was raised — the collision was handled by the prompt.
     expect(toastCalls).toEqual([]);
   });
 
@@ -252,8 +219,6 @@ describe("movePath", () => {
     expect(toastCalls).toEqual([]);
   });
 
-  // ---- Out-of-workspace guard (source) ----
-
   it("returns false with out-of-workspace toast when srcAbsPath is outside workspace", async () => {
     const ok = await movePath({
       workspaceId: WS,
@@ -264,11 +229,8 @@ describe("movePath", () => {
 
     expect(ok).toBe(false);
     expect(toastCalls.map((c) => c.message)).toEqual(["This path is outside the workspace."]);
-    // No IPC should have been made
     expect(ipcCalls.filter((c) => c.method === "rename")).toHaveLength(0);
   });
-
-  // ---- Out-of-workspace guard (destination) ----
 
   it("returns false with out-of-workspace toast when dstDirAbsPath is outside workspace", async () => {
     const ok = await movePath({

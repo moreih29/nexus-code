@@ -34,8 +34,6 @@ describe("resolveEvent — no chord pending", () => {
     expect(
       resolveEvent(ev("Backslash", { metaKey: true }) as unknown as KeyboardEvent, null).kind,
     ).toBe("single");
-    // Regression guard: ⌘/ (Slash) is Monaco's comment toggle; resolving it
-    // here would swallow the event at capture phase.
     expect(
       resolveEvent(ev("Slash", { metaKey: true }) as unknown as KeyboardEvent, null).kind,
     ).toBe("none");
@@ -56,11 +54,9 @@ describe("resolveEvent — runtime recompilation (user overrides)", () => {
         KNOWN,
       ),
     );
-    // old key released…
     expect(resolveEvent(ev("KeyW", { metaKey: true }) as unknown as KeyboardEvent, null).kind).toBe(
       "none",
     );
-    // …new key live, same command.
     const r = resolveEvent(
       ev("KeyX", { metaKey: true, shiftKey: true }) as unknown as KeyboardEvent,
       null,
@@ -99,8 +95,6 @@ function terminalTarget(code: string, mods: Partial<Omit<MockKE, "code" | "key">
 }
 
 describe("resolveEvent — terminal shell-key guard (Win/Linux)", () => {
-  // `CmdOrCtrl` is Ctrl here, and the Ctrl keys a shell uses go to the
-  // terminal; the keys that also work there stand in for them.
   afterEach(() => setPlatformForTests(null));
 
   for (const platform of ["win32", "linux"] as const) {
@@ -149,9 +143,6 @@ describe("resolveEvent — chord pending", () => {
   });
 
   it("returns chord-completed for ⌘U when leader required ⌘ (strict-superset of VSCode)", () => {
-    // The user kept ⌘ held through ⌘K → ⌘U. VSCode's exact matcher
-    // would treat this as a miss; we mask the leader-only modifier
-    // so the chord still completes.
     const r = resolveEvent(ev("KeyU", { metaKey: true }) as unknown as KeyboardEvent, PENDING);
     if (r.kind !== "chord-completed") throw new Error("unreachable");
     expect(r.command).toBe(COMMANDS.tabCloseSaved);
@@ -172,8 +163,6 @@ describe("resolveEvent — chord pending", () => {
   });
 
   it("does not return single-match for primaries while a chord is pending", () => {
-    // ⌘R alone is normally files.refresh, but during ⌘K pending it
-    // should be chord-mismatch (no chord secondary for ⌘R under ⌘K).
     const r = resolveEvent(ev("KeyR", { metaKey: true }) as unknown as KeyboardEvent, PENDING);
     expect(r.kind).toBe("chord-mismatch");
   });

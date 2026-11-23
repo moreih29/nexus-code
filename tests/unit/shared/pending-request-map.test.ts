@@ -2,10 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { PendingRequestMap } from "../../../src/shared/ipc/pending-request-map";
 import type { TimerScheduler } from "../../../src/shared/util/timer-scheduler";
 
-// ---------------------------------------------------------------------------
-// Fake scheduler (same pattern as keyed-debouncer.test.ts)
-// ---------------------------------------------------------------------------
-
 function makeFakeScheduler(): TimerScheduler & {
   tick(): void;
   pendingCount: number;
@@ -54,10 +50,8 @@ describe("PendingRequestMap", () => {
     const map = new PendingRequestMap<string, number>(scheduler);
     const promise = map.register({ key: "k1", timeoutMs: 100 });
 
-    // Timer has been scheduled but not yet fired.
     expect(scheduler.pendingCount).toBe(1);
 
-    // Advance the fake clock — the timeout handler runs synchronously.
     scheduler.tick();
 
     await expect(promise).rejects.toThrow(/timed out/i);

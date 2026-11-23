@@ -1,23 +1,7 @@
-// src/renderer/state/stores/editor-font.ts — Editor font preference store.
-//
-// Mirrors the pattern established by state/stores/theme.ts and density.ts.
-//
-// Persistence model:
-//   - appState (main process, via IPC) — authoritative store.
-//   - localStorage keys below — boot cache, read before React loads.
-//
-// Semantics: all four fields are optional; undefined = token fallback.
-// Each setter dispatches a 'nexus:editor-font-changed' CustomEvent so that
-// Monaco instances can hot-apply the new values without a re-mount.
-
 import { create } from "zustand";
 import { createLogger } from "../../../shared/log/renderer";
 import type { AppState } from "../../../shared/types/app-state";
 import { ipcCallResult } from "../../ipc/client";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 
 const log = createLogger("editor-font");
 
@@ -28,12 +12,6 @@ const STORAGE_KEY_LINE_HEIGHT = "editorFontLineHeight";
 
 export const EDITOR_FONT_EVENT = "nexus:editor-font-changed" as const;
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-// Font size: integer in [8, 32] — matches AppStateSchema.editorFontSize.
-// Line height: closed set of three steps — matches AppStateSchema.editorFontLineHeight.
 export type EditorFontSize = number;
 export type EditorFontLineHeight = 1.0 | 1.2 | 1.4;
 
@@ -44,17 +22,12 @@ function isValidEditorFontSize(n: number): boolean {
   return Number.isInteger(n) && n >= EDITOR_FONT_SIZE_MIN && n <= EDITOR_FONT_SIZE_MAX;
 }
 
-// ---------------------------------------------------------------------------
-// State shape
-// ---------------------------------------------------------------------------
-
 interface EditorFontState {
   size: EditorFontSize | undefined;
   family: string | undefined;
   ligatures: boolean | undefined;
   lineHeight: EditorFontLineHeight | undefined;
 
-  /** Hydrate from persisted appState — called once during bootstrap. */
   hydrate(fields: {
     size?: AppState["editorFontSize"];
     family?: AppState["editorFontFamily"];
@@ -67,10 +40,6 @@ interface EditorFontState {
   setLigatures(ligatures: boolean | undefined): void;
   setLineHeight(lineHeight: EditorFontLineHeight | undefined): void;
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function dispatchFontChanged(): void {
   if (typeof window !== "undefined") {
@@ -108,10 +77,6 @@ function readStoredLineHeight(): EditorFontLineHeight | undefined {
   return (valid as number[]).includes(n) ? (n as EditorFontLineHeight) : undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
-
 export const useEditorFontStore = create<EditorFontState>((set) => {
   const initialSize = readStoredSize();
   const initialFamily = readStoredFamily();
@@ -126,7 +91,6 @@ export const useEditorFontStore = create<EditorFontState>((set) => {
 
     hydrate({ size, family, ligatures, lineHeight }) {
       set({ size, family, ligatures, lineHeight });
-      // Keep localStorage in sync with appState authoritative values.
       if (typeof localStorage !== "undefined") {
         if (size !== undefined) localStorage.setItem(STORAGE_KEY_SIZE, String(size));
         else localStorage.removeItem(STORAGE_KEY_SIZE);

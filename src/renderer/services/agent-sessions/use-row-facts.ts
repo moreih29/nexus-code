@@ -1,9 +1,3 @@
-/**
- * What a list row says a session waits on and does, read by the row itself:
- * the lists took every conversation and drew each of their rows again with
- * each chunk of any reply streaming in. A row now renders when its own
- * facts change.
- */
 import { useRef, useSyncExternalStore } from "react";
 import type { SessionActivity } from "../../../shared/claude/activity";
 import type { PermissionRequest } from "../chat/model";
@@ -11,7 +5,6 @@ import { chatKey, useChatStore } from "../chat/store";
 import type { AgentSession } from "./model";
 import { chatRowFacts, hookRowFacts, type RowFacts } from "./rows";
 
-/** The facts of `session`'s row, from its conversation, or from its hooks (`activity`) for a terminal. */
 export function useRowFacts(
   session: AgentSession,
   activity: SessionActivity | undefined,
@@ -26,7 +19,6 @@ export function useRowFacts(
         : chat
           ? chatRowFacts(chat.model, activity)
           : hookRowFacts(undefined);
-    // The same facts worked out again give the row the ones it has.
     if (kept.current && sameRowFacts(kept.current, facts)) return kept.current;
     kept.current = facts;
     return facts;
@@ -34,7 +26,6 @@ export function useRowFacts(
   return useSyncExternalStore(key === null ? followNothing : useChatStore.subscribe, read);
 }
 
-/** The request the conversation of `session` waits on the user for first, if any. */
 export function useFirstPermission(session: AgentSession): PermissionRequest | undefined {
   const key = chatKey(session.workspaceId, session.tabId);
   return useChatStore((s) =>
@@ -42,7 +33,6 @@ export function useFirstPermission(session: AgentSession): PermissionRequest | u
   );
 }
 
-/** Whether two rows' facts say the same, field by field. */
 export function sameRowFacts(a: RowFacts, b: RowFacts): boolean {
   if (a === b) return true;
   return (

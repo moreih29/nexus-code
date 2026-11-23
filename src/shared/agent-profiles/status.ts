@@ -1,27 +1,16 @@
-/** Who a profile is signed in as, as Settings shows it. */
-
 import { z } from "zod";
 
 export const AgentProfileStatusSchema = z.discriminatedUnion("state", [
   z.object({
     state: z.literal("signed-in"),
-    /** How: "claude.ai", "console", "chatgpt", "apikey"… */
     method: z.string().optional(),
     email: z.string().optional(),
-    /** Claude's organization. */
     orgId: z.string().optional(),
     orgName: z.string().optional(),
-    /** "max", "team", "plus"… */
     plan: z.string().optional(),
-    /** Codex's ChatGPT account, to tell two profiles of one account. */
     accountId: z.string().optional(),
   }),
   z.object({ state: z.literal("signed-out") }),
-  /**
-   * The agent's program was not found ("missing"), or gave nothing to read
-   * when asked who is signed in ("no-answer"). With no reason the sign-in
-   * could not be checked for another one, which `message` gives.
-   */
   z.object({
     state: z.literal("unavailable"),
     message: z.string(),
@@ -30,18 +19,12 @@ export const AgentProfileStatusSchema = z.discriminatedUnion("state", [
 ]);
 export type AgentProfileStatus = z.infer<typeof AgentProfileStatusSchema>;
 
-/**
- * Whether Claude's organization name is the one its server makes of an
- * email ("someone@example.com's Organization"): a personal organization,
- * which reads better by that word.
- */
 export function isPersonalOrgName(name: string | undefined, email?: string): boolean {
   if (!name) return false;
   if (email && name === `${email}'s Organization`) return true;
   return /^[^\s@]+@[^\s@]+'s Organization$/.test(name);
 }
 
-/** What `claude auth status --json` says, read leniently. */
 export function claudeStatusOf(stdout: string): z.infer<typeof AgentProfileStatusSchema> | null {
   let raw: unknown;
   try {
@@ -68,7 +51,6 @@ export function claudeStatusOf(stdout: string): z.infer<typeof AgentProfileStatu
   return status;
 }
 
-/** The claims of a JWT, unverified: only to show who signed in. */
 function jwtClaims(token: string): Record<string, unknown> | null {
   const part = token.split(".")[1];
   if (!part) return null;
@@ -88,7 +70,6 @@ function jwtClaims(token: string): Record<string, unknown> | null {
   }
 }
 
-/** What Codex's auth.json says of its sign-in; null when it says nothing readable. */
 export function codexStatusOf(authJson: string): z.infer<typeof AgentProfileStatusSchema> | null {
   let raw: unknown;
   try {

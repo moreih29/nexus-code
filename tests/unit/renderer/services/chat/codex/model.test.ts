@@ -22,9 +22,6 @@ import { activityOf } from "../../../../../../src/renderer/services/chat/running
 import { emptyTabState } from "../../../../../../src/renderer/services/chat/store";
 import { chatPanelOf } from "../../../../../../src/renderer/services/remote/chat-panel";
 
-// Lines as `codex app-server` 0.166.0 writes them (newline-delimited
-// JSON-RPC without the "jsonrpc" field), after the generated schema.
-
 let seq = 0;
 const out = (message: unknown): ChatLine => ({ seq: ++seq, dir: "out", message, at: 1000 });
 const inn = (message: unknown): ChatLine => ({ seq: ++seq, dir: "in", message, at: 1000 });
@@ -37,7 +34,6 @@ function run(lines: ChatLine[], from: CodexModel = emptyCodexModel()): CodexMode
 
 const T = "thr_1";
 
-/** The activity inputs shared by the local and remote panels. */
 const activity = (model: CodexModel) =>
   activityOf({
     agents: agentsOf(model),
@@ -170,7 +166,6 @@ test("Codex commands move from running to ended on the panel with their own life
     },
     { end: [turnEnd("completed")], status: "stopped", background: "running" },
     {
-      // The actual turn's items reached the log, but its turn/started did not.
       from: startCommands("previous-turn"),
       end: [turnEnd("completed")],
       status: "stopped",
@@ -679,7 +674,6 @@ describe("codex model", () => {
   });
 
   test("a moved file: its row and its approval name both paths, without Codex's tail", () => {
-    // As codex 0.166 sends a move on Windows.
     const from = "C:\\w\\src\\a.txt";
     const to = "C:\\w\\lib\\b.txt";
     const item = {
@@ -767,7 +761,6 @@ describe("codex model", () => {
         ],
       },
     });
-    // The server withdraws a question the turn no longer needs.
     const resolved = run([note("serverRequest/resolved", { threadId: T, requestId: 2 })], m);
     expect(resolved.permissions).toEqual([]);
   });
@@ -817,7 +810,6 @@ describe("codex model", () => {
   });
 
   test("a retried error shows on the turn, not as a notice, until the model answers", () => {
-    // As codex 0.170.0 tells a 429 it tries again after.
     const retrying = (message: string) =>
       note("error", {
         threadId: T,
@@ -839,7 +831,6 @@ describe("codex model", () => {
     });
     expect(m.items.some((i) => i.kind === "notice")).toBe(false);
 
-    // A dropped stream has no status, and an error without a count is counted.
     const dropped = run([
       ...started(),
       ...sendTurn("go"),
@@ -885,11 +876,9 @@ describe("codex model", () => {
   });
 
   test("a thread that never had a turn starts over without a word", () => {
-    // Codex saves a thread with its first turn: an unused one is not there.
     const once = run([...started(), ...notResumed()]);
     expect(once.items).toEqual([]);
     expect(once.threadId).toBe(T);
-    // Nor again after that, the notice of an earlier one being no conversation.
     const withNotice = run(notResumed(), {
       ...emptyCodexModel(),
       items: [{ kind: "notice", key: "n0", code: "not_resumed" }],
@@ -935,8 +924,6 @@ describe("codex model", () => {
   });
 
   test("a resumed turn shows its items in the order they started", () => {
-    // The server lists a turn's items as they ended: here a command Codex
-    // left running while it answered.
     const m = run([
       sys({ event: "start", pid: 1 }),
       inn({ id: "app-r", method: "thread/resume", params: { threadId: T } }),
@@ -1095,7 +1082,6 @@ describe("codex model", () => {
         supportedEffortLevels: ["low", "high"],
       },
     ]);
-    // The account's kind only: never who it is.
     expect(m.account).toEqual({ type: "chatgpt" });
     expect(m.signedOut).toBe(false);
     expect(m.items).toEqual([]);
@@ -1140,7 +1126,6 @@ describe("codex model", () => {
       primary: { usedPercent: 20, windowMins: 300, resetsAt: 1_700_000_000 },
       secondary: { usedPercent: 8, windowMins: 10080, resetsAt: 1_700_500_000 },
     });
-    // A rolling update may carry one window; the other still holds.
     const rolled = run(
       [
         note("account/rateLimits/updated", {
@@ -1155,7 +1140,6 @@ describe("codex model", () => {
     );
     expect(rolled.rateLimits?.primary?.usedPercent).toBe(35);
     expect(rolled.rateLimits?.secondary?.usedPercent).toBe(8);
-    // Another bucket's update is not the tab's.
     const other = run(
       [
         note("account/rateLimits/updated", {
@@ -1238,7 +1222,6 @@ describe("codex helpers", () => {
     expect(shownCommand(`/bin/zsh -lc 'echo '"'"'quoted'"'"''`)).toBe("echo 'quoted'");
     expect(shownCommand("bash -c ls")).toBe("ls");
     expect(shownCommand('bash -lc "echo \\"a\\""')).toBe('echo "a"');
-    // Not one script: shown as it is.
     expect(shownCommand("bash -lc 'a' 'b'")).toBe("bash -lc 'a' 'b'");
     expect(shownCommand('bash -lc "echo $HOME"')).toBe('bash -lc "echo $HOME"');
     expect(shownCommand("ls -la")).toBe("ls -la");
@@ -1255,7 +1238,6 @@ describe("codex helpers", () => {
   });
 
   test("shownCommand drops the PowerShell Codex runs a command in on Windows", () => {
-    // As codex app-server 0.166.0 reports them on Windows.
     const ps = String.raw`"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"`;
     expect(shownCommand(`${ps} -Command 'Get-Content README.md | Select-Object -First 1'`)).toBe(
       "Get-Content README.md | Select-Object -First 1",
@@ -1271,7 +1253,6 @@ describe("codex helpers", () => {
       "$p = (Resolve-Path -LiteralPath 'src/math.ts').Path; $c = Get-Content -LiteralPath $p -Raw; Set-Content -LiteralPath $p -Value ('// QA check' + \"`r`n\" + $c) -NoNewline",
     );
     expect(shownCommand("pwsh.exe -Command 'Get-Date'")).toBe("Get-Date");
-    // Not one script: shown as it is.
     expect(shownCommand(`${ps} -Command 'a' 'b'`)).toBe(`${ps} -Command 'a' 'b'`);
     expect(shownCommand(`${ps} -File run.ps1`)).toBe(`${ps} -File run.ps1`);
   });
@@ -1362,7 +1343,6 @@ describe("codex commands' answers", () => {
   });
 
   test("a review is told as it starts, and its findings once, as Codex's message", () => {
-    // As codex 0.167 sends them: the review's end, then the message with its findings.
     const model = run([
       ...started(),
       note("item/started", {
@@ -1395,8 +1375,6 @@ describe("codex commands' answers", () => {
     expect(texts).toEqual([expect.objectContaining({ text: "No issues found." })]);
   });
 
-  // As codex 0.167 starts a review: the review's start, then the
-  // instructions it writes itself, as a message of the user's.
   const reviewStart = (turnId: string): ChatLine[] => [
     note("item/completed", {
       threadId: T,
@@ -1451,7 +1429,6 @@ describe("codex commands' answers", () => {
               },
               {
                 id: "turn_r",
-                // Listed as they ended, the instructions before the review's start.
                 items: [
                   user("ru1", "Review the current code changes and provide prioritized findings."),
                   { type: "enteredReviewMode", id: "rv1", review: "current changes" },
@@ -1477,7 +1454,6 @@ describe("codex commands' answers", () => {
     expect(shownUserText("Generate a file named AGENTS.md")).toBe(
       "Generate a file named AGENTS.md",
     );
-    // As it is sent, as Codex tells it back, and as the thread is read again.
     const live = run([...started(), ...sendTurn(CODEX_INIT_PROMPT)]);
     expect(live.items.filter((i): i is UserItem => i.kind === "user").map((u) => u.text)).toEqual([
       "/init",

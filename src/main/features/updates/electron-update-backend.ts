@@ -1,24 +1,3 @@
-/**
- * electron-updater as the installer's UpdateBackend.
- *
- * electron-updater downloads the release file named in the platform's feed
- * file (latest-mac.yml, latest-linux.yml) and checks its sha512.
- *
- * - macOS: the zip goes to Squirrel.Mac, which verifies its code signature and
- *   stages it. electron-updater's own update-downloaded event fires before that
- *   verification, so the backend reports a staged update on Squirrel.Mac's
- *   event instead.
- * - Linux: the new AppImage is staged once downloaded and replaces the running
- *   one on quit. A deb install downloads the next deb, which apt installs
- *   through pkexec when the user restarts; it is not installed on a plain
- *   quit, which would ask for the admin password then.
- *
- * NEXUS_UPDATE_FEED_URL points the updater at a generic feed — a directory
- * holding the feed file and the release file — to try an update without
- * publishing a release: https, or http on this machine (./feed-url).
- * Squirrel.Mac still requires the release signature.
- */
-
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as electron from "electron";
@@ -30,20 +9,13 @@ import type { DownloadProgress, UpdateBackend } from "./installer";
 
 const OWNER = "moreih29";
 const REPO = "nexus-code";
-/** Picks the package manager electron-updater installs a deb with. */
 const PACKAGE_MANAGER_ENV = "ELECTRON_BUILDER_LINUX_PACKAGE_MANAGER";
 
-/** Whether this install can replace itself: a macOS app, a Linux AppImage or a deb. */
 export function canUpdateInPlace(): boolean {
   if (isMac()) return true;
   return isLinux() && (process.env.APPIMAGE !== undefined || isDebInstall());
 }
 
-/**
- * Whether this is a deb install. electron-builder marks one with a
- * resources/package-type file, which electron-updater reads to pick its deb
- * updater.
- */
 function isDebInstall(): boolean {
   if (!isLinux()) return false;
   try {
@@ -63,9 +35,6 @@ export function createElectronUpdateBackend(
   const progressListeners: ((progress: DownloadProgress) => void)[] = [];
   let loaded: Promise<AppUpdater> | null = null;
 
-  // Loaded on first use: most sessions never install an update. A plain
-  // require: electron-updater exports autoUpdater as a getter, which the
-  // bundler's namespace wrapper for import() leaves out.
   function load(): Promise<AppUpdater> {
     loaded ??= Promise.resolve().then(() => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -77,8 +46,6 @@ export function createElectronUpdateBackend(
         debug: (message) => logger.debug(String(message)),
       };
       autoUpdater.autoDownload = false;
-      // A staged update the user does not restart for goes in at the next quit,
-      // except a deb, whose install asks for the admin password.
       autoUpdater.autoInstallOnAppQuit = !deb;
       const feed = updateFeedUrl(process.env.NEXUS_UPDATE_FEED_URL, (m) => logger.warn(m));
       autoUpdater.setFeedURL(
@@ -94,8 +61,6 @@ export function createElectronUpdateBackend(
       autoUpdater.on("error", (error: Error) => {
         for (const listener of errorListeners) listener(error);
       });
-      // About once a second. A differential download counts only the blocks
-      // it fetches.
       autoUpdater.on("download-progress", ({ transferred, total, bytesPerSecond }) => {
         for (const listener of progressListeners) listener({ transferred, total, bytesPerSecond });
       });
@@ -138,9 +103,6 @@ export function createElectronUpdateBackend(
         updater.quitAndInstall();
         return;
       }
-      // One apt command installs the deb and any dependency it adds. The
-      // default dpkg -i runs a second elevated apt-get when it fails, so a
-      // cancelled password prompt would open another.
       process.env[PACKAGE_MANAGER_ENV] = "apt";
       try {
         updater.quitAndInstall();

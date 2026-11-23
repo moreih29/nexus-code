@@ -1,8 +1,3 @@
-/**
- * What the user told Claude when it asked, as the conversation keeps it:
- * which calls show as a prompt, the answers picked, and a decline's reason.
- */
-
 import { describe, expect, it } from "bun:test";
 import {
   answersOf,
@@ -50,7 +45,6 @@ describe("showsAsPrompt", () => {
   it("takes the calls that ask, unless the tool itself failed", () => {
     expect(showsAsPrompt(call({}))).toBe(true);
     expect(showsAsPrompt(call({ name: "ExitPlanMode", status: "denied" }))).toBe(true);
-    // A no read back from the transcript is an error in the user's words.
     expect(showsAsPrompt(call({ status: "error", result: result("not now") }))).toBe(true);
     expect(
       showsAsPrompt(

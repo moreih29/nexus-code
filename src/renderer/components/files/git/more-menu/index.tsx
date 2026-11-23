@@ -1,26 +1,3 @@
-/**
- * GitMoreMenu — overflow menu for Source Control operations.
- *
- * Per-action enablement is driven by `RepoCapabilities` rather than a
- * single `disabled` flag so the user never reaches an action that would
- * fail with a raw stderr message:
- *
- *   - Stash      → requires hasHEAD (no commits → "no initial commit yet")
- *   - Stash Pop  → requires stashCount > 0 (else "No stash entries found")
- *   - Fetch/Pull → requires at least one configured remote
- *   - Push       → requires at least one configured remote (publishing
- *                  without an upstream is handled by a parent dialog, not
- *                  by hiding the menu item)
- *
- * Tooltips spell out the reason a disabled item is disabled so the user
- * knows what to do next without trial and error.
- *
- * A Radix DropdownMenu (ui/dropdown-menu): its submenus open on hover or the
- * arrow keys, one at a time, placed and kept inside the window by Radix.
- * Each top-level submenu (Branch/Stash/Tag/Remotes/Autofetch) lives in its
- * own file in this folder so this view stays focused on the top-level menu
- * and props plumbing.
- */
 import { MoreHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { GitAutofetchIntervalMin, RepoCapabilities } from "../../../../../shared/git/types";
@@ -42,10 +19,8 @@ import { TagSubmenu } from "./tag-submenu";
 interface GitMoreMenuProps {
   disabled?: boolean;
   canInit?: boolean;
-  /** No Git to run: repository actions are off, and there is nothing to initialize. */
   gitMissing?: boolean;
   hasChanges?: boolean;
-  /** Repository-level capability flags. Falsy when the repo is detecting / non-repo. */
   capabilities?: RepoCapabilities;
   onRefresh: () => void;
   onInit: () => void;
@@ -114,7 +89,6 @@ export function GitMoreMenu({
   const hasHead = capabilities?.hasHEAD ?? false;
   const stashCount = capabilities?.stashCount ?? 0;
 
-  // Why fetch, pull and push are off without a remote: their tooltip.
   const noRemoteReason = hasRemote ? undefined : t("git.moreMenu.addRemoteFirst");
 
   return (

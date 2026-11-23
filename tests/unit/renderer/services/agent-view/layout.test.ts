@@ -1,8 +1,3 @@
-/**
- * The agent view's panels: agents held by session key in a split tree, each
- * change a new layout. Taking an agent out never closes its session; a
- * panel left empty closes unless it is the only one.
- */
 import { describe, expect, it } from "bun:test";
 import { Grid, type SplitNode } from "../../../../../src/renderer/engine";
 import {

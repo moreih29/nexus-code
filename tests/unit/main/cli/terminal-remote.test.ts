@@ -1,8 +1,3 @@
-/**
- * nexus terminal ... --device and events --device: another computer's
- * terminals and session changes through the remote's room, the output as
- * the local commands print it.
- */
 import { describe, expect, test } from "bun:test";
 import type { RemoteSession } from "../../../../packages/remote-protocol/src";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
@@ -55,7 +50,6 @@ function withPeer(handlers: Record<string, Handler> = {}): FakeApp {
 
 const AGENT = { workspaceId: APP, tabId: CLAUDE_TAB };
 const USER = { workspaceId: APP, tabId: SHELL_TAB };
-/** What the user runs at a shell goes there as an agent in that terminal: it is not told from one. */
 const FROM_SHELL = { kind: "terminal", ...USER };
 
 async function nexus(app: FakeApp, argv: string[], caller = USER) {
@@ -67,7 +61,6 @@ function asked(app: FakeApp, method: string) {
 }
 
 describe("reads of another computer's, as an agent's", () => {
-  /** The peer as one of 0.12.0, taking agents' requests or not. */
   function newerPeer(serves: string[], handlers: Record<string, Handler>): FakeApp {
     const app = withPeer(handlers);
     app.peers.devices = app.peers.devices.map((d) =>
@@ -116,7 +109,6 @@ describe("terminal --device", () => {
       "20",
     ]);
     expect(result.stdout).toBe("$ npm run dev\nready\n");
-    // A read says who reads, as every read does (see "reads of another computer's").
     expect(asked(app, "terminal.read")[0]).toEqual({
       workspaceId: SITE,
       tabId: TERM,

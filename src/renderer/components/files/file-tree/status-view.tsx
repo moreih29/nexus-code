@@ -1,11 +1,3 @@
-/**
- * Render the file tree's "no rows yet" states (error / loading / empty).
- *
- * Extracted from FileTree so the tree component can stay focused on
- * tree-with-rows rendering. Returning `null` is the "pre-200ms hidden"
- * pose — the caller branches on the same condition there.
- */
-
 import { useTranslation } from "react-i18next";
 import { refresh } from "@/state/operations/files";
 import { FS_ERROR, hasFsErrorCode } from "../../../../shared/fs/errors";
@@ -56,16 +48,10 @@ export function FileTreeStatusView({
       </div>
     );
   }
-  return null; // pre-200ms hidden
+  return null;
 }
 
 function toUserMessage(err: string, t: (key: string) => string): string {
-  // Errors flow through three layers before landing here:
-  //   1. Node throws an errno (`ENOENT`, `EACCES`).
-  //   2. The fs handler wraps it as `FS_ERROR.NOT_FOUND` etc.
-  //   3. The renderer subscriber stores `err.message` on the tree slice.
-  // Older error strings can still leak through from layers that haven't
-  // been migrated to the shared codes — accept both forms here.
   if (hasFsErrorCode(err, FS_ERROR.NOT_FOUND) || err.includes("ENOENT"))
     return t("fileTree.status.error.notFound");
   if (hasFsErrorCode(err, FS_ERROR.PERMISSION_DENIED) || err.includes("EACCES"))

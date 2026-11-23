@@ -1,18 +1,3 @@
-/**
- * The in-process ssh2 client, in place of OpenSSH's binaries on Windows.
- *
- * Win32-OpenSSH has no ControlMaster, so each `ssh` the app runs would open
- * and authenticate a connection of its own: about ten to open a workspace,
- * each asking for the password. On Windows the app runs ssh2 instead.
- * authenticateSsh2Master opens one connection and names it with a control
- * path, as a ControlMaster's socket would be named; spawnSsh2Process runs
- * every later `ssh -S <path> … command` as a command on that connection.
- * A connection that drops is opened again on the next command, answering its
- * prompts through the same handler (whose cache holds the password).
- *
- * NEXUS_SSH_CLIENT=ssh2 or =openssh picks the client on any platform.
- */
-
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Duplex } from "node:stream";
 import type { Client } from "ssh2";
@@ -28,7 +13,6 @@ import {
   Ssh2SftpProcess,
 } from "./process";
 
-/** Whether `ssh` runs through ssh2 rather than OpenSSH's binaries. */
 export function usesSsh2Client(env: NodeJS.ProcessEnv = process.env): boolean {
   const chosen = env.NEXUS_SSH_CLIENT;
   if (chosen === "ssh2") return true;
@@ -36,7 +20,6 @@ export function usesSsh2Client(env: NodeJS.ProcessEnv = process.env): boolean {
   return isWindows();
 }
 
-/** One authenticated connection that commands share, opened again when it drops. */
 class SharedConnection {
   private current: Promise<Ssh2Connection> | null = null;
   private readonly lifetime = new AbortController();
@@ -88,10 +71,6 @@ class SharedConnection {
 const shared = new Map<string, SharedConnection>();
 let masterSequence = 0;
 
-/**
- * Opens the connection later commands share, answering its prompts through
- * `promptHandler`: the ssh2 counterpart of authenticateSshControlMaster.
- */
 export async function authenticateSsh2Master(
   options: Omit<SshMasterOptions, "remoteCommand">,
   promptHandler: SshAuthPromptHandler,
@@ -127,12 +106,6 @@ export async function authenticateSsh2Master(
   };
 }
 
-/**
- * Runs an `ssh` or `sftp` command line on ssh2, as master.ts and the
- * bootstrap spawn OpenSSH's. A control path (`-S`, or `-o ControlPath=` for
- * sftp) runs the command on that path's connection; without one the command
- * gets a connection of its own and, as BatchMode, asks nothing.
- */
 export function spawnSsh2Process(
   command: string,
   args: readonly string[],
@@ -152,7 +125,6 @@ export function spawnSsh2Process(
       ? new Ssh2SftpProcess(client)
       : new Ssh2CommandProcess(client, line.remoteCommand ?? "");
   if (connection !== undefined) return asChildProcess(start(connection.client()));
-  // As `ssh -S <gone socket> -o ControlMaster=no` does, connect directly.
   const own = new SharedConnection(
     { ...parseDestination(line.destination), port: line.port, identityFile: line.identityFile },
     null,
@@ -163,19 +135,11 @@ export function spawnSsh2Process(
   return asChildProcess(process);
 }
 
-/** Opens channels to addresses as the SSH host sees them. */
 export interface Ssh2Forwarder {
-  /** A channel to `host:port` on the SSH host's side. */
   open(host: string, port: number): Promise<Duplex>;
-  /** Closes the connection of its own, if it opened one. */
   dispose(): void;
 }
 
-/**
- * Forwards over the connection `controlPath` names, as `ssh -S <path> -L`
- * would, or over a connection of its own (asking nothing, as BatchMode)
- * without one.
- */
 export function createSsh2Forwarder(
   target: SshTarget,
   controlPath: string | undefined,

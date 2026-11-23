@@ -1,8 +1,3 @@
-/**
- * A chat row's facts are worked out once for each conversation: the lists
- * show every row again when any tab's conversation moves, and a tab whose
- * own did not move gives the same facts without walking it again.
- */
 import { describe, expect, test } from "bun:test";
 import { chatRowFacts } from "../../../../../src/renderer/services/agent-sessions/rows";
 import { emptyModel } from "../../../../../src/renderer/services/chat/model";

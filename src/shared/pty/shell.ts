@@ -1,9 +1,5 @@
 import { z } from "zod";
 
-/**
- * A shell the user added in Settings › Terminal: a name, a program (a path,
- * or a name looked up on PATH) and the arguments it starts with.
- */
 export const CustomShellSchema = z.object({
   id: z.string().min(1).max(64),
   name: z.string().min(1).max(128),
@@ -12,38 +8,24 @@ export const CustomShellSchema = z.object({
 });
 export type CustomShell = z.infer<typeof CustomShellSchema>;
 
-/**
- * The shell a terminal runs: one the app found on this machine, or one the
- * user added (the id of a `CustomShell`). Detected ids are stable per
- * machine: "powershell", "pwsh", "cmd", "git-bash" and "nu" on Windows, the
- * shell's path elsewhere.
- */
 export const ShellChoiceSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("detected"), id: z.string().min(1).max(1024) }),
   z.object({ kind: z.literal("custom"), id: z.string().min(1).max(64) }),
 ]);
 export type ShellChoice = z.infer<typeof ShellChoiceSchema>;
 
-/** Whether two choices pick the same shell. */
 export function sameShellChoice(a: ShellChoice | undefined, b: ShellChoice | undefined): boolean {
   return a !== undefined && b !== undefined && a.kind === b.kind && a.id === b.id;
 }
 
-/** A shell found on this machine. */
 export const ShellInfoSchema = z.object({
   id: z.string(),
-  /** Display name, e.g. "Git Bash" or "zsh". */
   name: z.string(),
   path: z.string(),
-  /** Arguments the shell starts with, e.g. Git Bash's `--login -i`. */
   args: z.array(z.string()),
 });
 export type ShellInfo = z.infer<typeof ShellInfoSchema>;
 
-/**
- * Splits the settings field on whitespace outside double quotes. Inside a quoted
- * argument, doubled quotes insert a literal quote. Backslashes are literal.
- */
 export function splitShellArgs(text: string): string[] {
   const args: string[] = [];
   let arg: string | null = null;
@@ -69,19 +51,16 @@ export function splitShellArgs(text: string): string[] {
   return args;
 }
 
-/** The inverse of `splitShellArgs`, for showing stored arguments in the field. */
 export function joinShellArgs(args: readonly string[]): string {
   return args
     .map((arg) => (/[\s"]/.test(arg) || arg === "" ? `"${arg.replaceAll('"', '""')}"` : arg))
     .join(" ");
 }
 
-/** A literal value for a POSIX shell. */
 export function posixShellString(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-/** A literal PowerShell value. Typographic single quotes also count as delimiters. */
 export function powerShellString(value: string): string {
   return `'${value.replace(/['‘’‚‛]/g, "$&$&")}'`;
 }

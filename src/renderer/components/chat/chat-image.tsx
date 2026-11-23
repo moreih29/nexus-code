@@ -1,8 +1,3 @@
-// An image in the chat, which a click shows in quick look, where it zooms,
-// among the conversation's other images: as the file it is, when a tool
-// read it from one; from its data otherwise. Outside a Claude or Codex tab
-// it is a plain image.
-
 import { createContext, useContext } from "react";
 import { useTranslation } from "react-i18next";
 import { imageFileOf, imageSrc } from "../../services/chat/image-look";
@@ -16,13 +11,8 @@ import { useRemotePicture } from "../../services/chat/remote-picture";
 import { cn } from "../../utils/cn";
 import { useChatLinks } from "./chat-links";
 
-/**
- * Fetches an image whose bytes are elsewhere: another computer's chat's,
- * which comes without them. None in a chat here, whose images have theirs.
- */
 export const ImageLoaderContext = createContext<ImageLoader | null>(null);
 
-/** Resolve a remote ref under the current loader's peer connection. */
 export function useImageBytes(image: ImageBlock | undefined): {
   image: ImageBlock | null;
   failed: boolean;
@@ -48,12 +38,9 @@ export function ChatImage({
   file,
   className,
 }: {
-  /** The images it is shown among, itself at `index`. */
   images: readonly ImageBlock[];
   index: number;
-  /** The image file it is, as a tool read it. */
   file?: string;
-  /** The image's size and frame. */
   className?: string;
 }) {
   const { t } = useTranslation();
@@ -61,7 +48,6 @@ export function ChatImage({
   const bytes = useImageBytes(images[index]);
   if (!images[index]) return null;
   const image = bytes.image;
-  // Another computer's image, while it comes, or when it did not.
   if (!image) {
     return (
       <span
@@ -92,14 +78,8 @@ export function ChatImage({
   );
 }
 
-/** Most thumbnails beside a line of calls. */
 const MAX_THUMBS = 3;
 
-/**
- * The images tool calls gave, as small thumbnails beside their line, each
- * opening in quick look as ChatImage does: a Read of an image file shows
- * it there, as the line says only what was read.
- */
 export function ToolThumbs({ calls }: { calls: readonly (ToolCall | undefined)[] }) {
   const thumbs = calls
     .flatMap((tool) => {

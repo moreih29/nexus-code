@@ -4,7 +4,6 @@ import { lineKey, type ReadRecording } from "./transcript-rows";
 
 export type SummaryTaskTimes = ReadonlyMap<string, ReadonlySet<number>>;
 
-/** The source times of tasks still in the note, scoped to their recording. */
 export function summaryTaskTimes(doc: DocNode): SummaryTaskTimes {
   const byRecording = new Map<string, Set<number>>();
   const collect = (node: DocNode, times: Set<number>) => {
@@ -35,7 +34,6 @@ export function sameSummaryTaskTimes(a: SummaryTaskTimes, b: SummaryTaskTimes): 
   return true;
 }
 
-/** A source segment can be inside a joined row, after the time the row displays. */
 export function summaryTaskRows(
   read: readonly ReadRecording[],
   byRecording: SummaryTaskTimes,

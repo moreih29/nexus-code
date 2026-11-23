@@ -1,5 +1,3 @@
-// The notes IPC channel: a workspace's notes, kept under the app's data folder.
-
 import * as path from "node:path";
 import { BrowserWindow, dialog, shell } from "electron";
 import { ipcContract } from "../../../shared/ipc/contract";
@@ -66,7 +64,6 @@ const MIME: Record<string, string> = {
   ".ogg": "audio/ogg",
 };
 
-/** Where a workspace's folder is, as its notes are kept by; a task's notes are its parent's. */
 export function noteLocationOf(meta: WorkspaceMeta, all: readonly WorkspaceMeta[]): NoteLocation {
   const parent = meta.task ? all.find((w) => w.id === meta.task?.parentId) : undefined;
   const ws = parent ?? meta;
@@ -86,12 +83,10 @@ export function noteLocationOf(meta: WorkspaceMeta, all: readonly WorkspaceMeta[
   };
 }
 
-/** A note a window records into, as it last told (notes.recording). */
 export interface NoteRecording {
   workspaceId: string;
   noteId: string;
   title: string;
-  /** How long it had recorded at `at`. */
   recordedMs: number;
   at: number;
   paused: boolean;
@@ -99,14 +94,8 @@ export interface NoteRecording {
 
 export interface NotesFeature {
   readonly store: NotesStore;
-  /** The workspace's notes' location; throws for a workspace the app does not have. */
   locationOf(workspaceId: string): NoteLocation;
-  /** Tells the windows a note changed (the CLI's changes too). */
   changed(event: NoteChanged): void;
-  /**
-   * Puts a photo another device sent at the end of a note, and tells the
-   * windows, so an editor open on the note puts it in its copy too.
-   */
   attachPhoto(
     workspaceId: string,
     noteId: string,
@@ -114,27 +103,13 @@ export interface NotesFeature {
     ext: string,
     name?: string,
   ): Promise<NoteAsset>;
-  /** The note a window records into, the one told last; none while nothing records. */
   recording(): NoteRecording | undefined;
-  /** Drops recordings and in-flight reports for a removed workspace. */
   forgetWorkspace(workspaceId: string): void;
-  /** Releases the notes feature's process and recording state at app shutdown. */
   dispose(): void;
-  /** Waits for the note writes that were in progress at shutdown. */
   waitForWrites(): Promise<void>;
-  /** Makes a note, and tells the windows. */
   create(workspaceId: string, title: string): Promise<NoteContent>;
-  /**
-   * Puts blocks into a note: at its end, or at the end of the part under
-   * the heading `under` names; tells the windows, so an editor open on the
-   * note puts them in its copy too.
-   */
   append(workspaceId: string, noteId: string, blocks: DocNode[], under?: string): Promise<void>;
   reportLine(tab: NoteConversation, noteId: string, report: LineReport): Promise<boolean>;
-  /**
-   * Writes a file into a note's folder: an image into screens/, which it
-   * shows, anything else into materials/. The block that shows it.
-   */
   addAsset(
     workspaceId: string,
     noteId: string,
@@ -143,7 +118,6 @@ export interface NotesFeature {
   ): Promise<{ asset: NoteAsset; block: DocNode }>;
 }
 
-/** The images a note shows, by their extension, as the note keeps them. */
 const IMAGE_EXTS: Readonly<Record<string, string>> = {
   ".png": "png",
   ".jpg": "jpg",
@@ -155,7 +129,6 @@ const IMAGE_EXTS: Readonly<Record<string, string>> = {
 type NoteCall = (args: unknown, ctx?: CallContext) => unknown;
 type TrackWrite = <T>(write: () => Promise<T>) => Promise<T>;
 
-/** Reports expected note failures before they reach the router's bug handler. */
 function withNoteErrors(
   trackWrite: TrackWrite,
   handlers: Record<string, NoteCall>,
@@ -191,7 +164,6 @@ export function registerNotesChannel(opts: {
 }): NotesFeature {
   const store = new NotesStore(path.join(opts.userData, "notes"), (dir) => shell.trashItem(dir));
   const writes = new Set<Promise<unknown>>();
-  /** Keeps the entire write in the shutdown set, including any awaited reads. */
   const trackWrite: TrackWrite = (write) => {
     const pending = write();
     writes.add(pending);
@@ -215,7 +187,6 @@ export function registerNotesChannel(opts: {
       blocks: [card as Record<string, unknown>],
       updatedAt,
     });
-  // Beside the main bundle (electron.vite.config.ts).
   const voicePrints = new VoicePrints(path.join(__dirname, "voice-print-host.js"));
   const visibleNotes = new Map<number, Map<string, string>>();
   const noteKey = (locationKey: string, noteId: string) => JSON.stringify([locationKey, noteId]);
@@ -243,7 +214,6 @@ export function registerNotesChannel(opts: {
     if (!workspace || !getActiveAppWindow()) return;
     const { title } = await store.read(noteLocationOf(workspace, workspaces), noteId);
     if (isNoteVisible(key)) return;
-    // Deliver the toast to a single app window, even though the banner is broadcast to all.
     const active = getActiveAppWindow();
     const destination =
       active && isWindowVisible(active)
@@ -258,10 +228,8 @@ export function registerNotesChannel(opts: {
     });
   };
 
-  // The windows' recorders, by window: what each told last.
   const recordings = new Map<number, NoteRecording>();
   const pendingRecordings = new Map<number, { workspaceId: string }>();
-  /** Removes the current recording state of a workspace, including unfinished reports. */
   const forgetWorkspace = (workspaceId: string): void => {
     for (const byWindow of [recordings, pendingRecordings]) {
       for (const [senderId, value] of byWindow) {
@@ -360,7 +328,6 @@ export function registerNotesChannel(opts: {
   const addAsset: NotesFeature["addAsset"] = (workspaceId, noteId, bytes, name) =>
     trackWrite(async () => {
       const location = locationOf(workspaceId);
-      // A note that is not there gets no file either.
       await store.read(location, noteId);
       const ext = IMAGE_EXTS[path.extname(name).toLowerCase()];
       if (ext) {
@@ -643,7 +610,6 @@ export function registerNotesChannel(opts: {
           recordings.delete(senderId);
           return ipcOk(undefined);
         }
-        // Install the lifetime guard before looking up a title or touching disk.
         if (!watched.has(senderId)) {
           watched.add(senderId);
           sender.once("destroyed", () => {

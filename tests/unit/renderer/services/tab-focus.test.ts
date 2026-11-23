@@ -1,12 +1,3 @@
-/**
- * A tab's focus lands on the next frame, or once its view registers, unless
- * something came after it: a newer request, a tab's name starting to be
- * edited, or — for one that waited — the user going into a text field. A
- * view that must put the focus off itself (a terminal not open yet) is
- * handed the same test. bun:test runs without a DOM, so the document is a
- * stand-in that only tells what has the focus, and frames run when a test
- * says so.
- */
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import {
   cancelTabFocus,
@@ -59,7 +50,6 @@ const textarea = (): Fake => ({ tagName: "TEXTAREA" });
 
 let seq = 0;
 
-/** A tab's view, counting the focuses it gets and keeping the last test it was handed. */
 function view() {
   const tabId = `tab-${++seq}`;
   let focused = 0;
@@ -88,7 +78,6 @@ describe("a tab's view that is there", () => {
   });
 
   test("is not, when its name starts to be edited before that frame", () => {
-    // The first click of a double-click asks; the second starts the rename.
     const tab = view();
     tab.register();
     focus(button());
@@ -112,7 +101,6 @@ describe("a tab's view that is there", () => {
   });
 
   test("hands its view a test that typing elsewhere turns off", () => {
-    // A terminal not open yet keeps the test, for when it opens.
     const tab = view();
     tab.register();
     focus(button());
@@ -159,7 +147,6 @@ describe("a focus asked for before the tab's view registers", () => {
     const tab = view();
     focus(button());
     requestTabFocus(tab.tabId);
-    // A tab's name being edited.
     focus(input());
     tab.register();
     nextFrame();
@@ -179,7 +166,6 @@ describe("a focus asked for before the tab's view registers", () => {
     const tab = view();
     focus(input());
     requestTabFocus(tab.tabId);
-    // A menu handing the focus back to its trigger.
     focus(button());
     tab.register();
     nextFrame();
@@ -188,7 +174,6 @@ describe("a focus asked for before the tab's view registers", () => {
 
   test("is applied when the text field had the focus as it was asked for", () => {
     const tab = view();
-    // A keyboard shortcut pressed in another terminal.
     focus(textarea());
     requestTabFocus(tab.tabId);
     tab.register();

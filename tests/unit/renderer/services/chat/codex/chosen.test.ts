@@ -1,22 +1,12 @@
-/**
- * The model and effort picked in a Codex tab are the tab's, as a Claude
- * tab's are: the tab is told to keep them, and after a restart its chips
- * show them over the thread's own and its next turn is sent with them.
- * The real ipc client is spread under a spy, so later files keep its
- * other exports.
- */
 import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 import { CODEX_CONFIG_PROFILE_KEY } from "../../../../../../src/renderer/services/chat/codex/config";
 import { useAgentProfilesStore } from "../../../../../../src/renderer/state/stores/agent-profiles";
 import { ipcErr } from "../../../../../../src/shared/ipc/result";
 
-// The version the app tells Codex it is.
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
 
 type Message = Record<string, unknown> & { params?: Record<string, unknown> };
-/** A Codex program that comes up, answering what is sent to it as the test says. */
 let codex: ((message: Message) => void) | undefined;
-/** Whether a Codex program fails to come up, as a fork's does when its thread cannot be read. */
 let startFails = false;
 let rejectTurnWrite = false;
 let loseSteer = false;
@@ -79,10 +69,6 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-/**
- * A tab whose program comes up and goes on with thread "t1", which ran
- * on gpt-5.5 at high effort; every request is echoed and answered.
- */
 function tab(
   chosen?: { model?: string; effort?: string },
   onChosen?: (pick: unknown) => void,
@@ -130,7 +116,6 @@ function tab(
       } as never);
     });
   };
-  // Its program is not running: what the tab does next starts it.
   useChatStore.getState().update(c.key, (prev) => ({ ...prev, phase: "ended" }));
   return c;
 }
@@ -239,7 +224,6 @@ describe("the model and effort picked in a Codex tab", () => {
     await c.send("hi");
     expect(picks).toEqual([{}]);
     expect(c.inheritedChoice()?.model).toBe("gpt-5.4-mini");
-    // A second turn has nothing of its own to send, nor to forget.
     await Bun.sleep(40);
     await c.send("again");
     const turns = sent.filter((m) => m.method === "turn/start");
@@ -1003,7 +987,6 @@ describe("Codex collaboration modes", () => {
     const tabsOf = () => Object.keys(useTabsStore.getState().byWorkspace[workspaceId] ?? {});
     try {
       await c.prepareSend();
-      // A conversation with something to fork, as the tab has once it has run.
       c.forkPoint = () => ({ threadId: "t1" });
       startFails = true;
       await expect(chatHandlers["chat.fork"](ref)).rejects.toThrow("Codex is not running");

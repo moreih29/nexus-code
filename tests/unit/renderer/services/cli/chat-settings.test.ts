@@ -1,8 +1,3 @@
-/**
- * What `nexus chat set` and `chat new --model/--effort/--mode` read of a tab
- * and ask of it: the names its program takes, what it refuses, and only
- * what changes.
- */
 import { describe, expect, it } from "bun:test";
 import {
   type ChatModel,

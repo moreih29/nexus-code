@@ -91,7 +91,6 @@ func (p *serverProcess) start(ctx context.Context) error {
 	cmd := exec.Command(p.binaryPath, p.args...)
 	cmd.Dir = p.workspaceRoot
 	cmd.Env = os.Environ()
-	// exec takes the last of duplicate keys, so these win.
 	for key, value := range p.env {
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}
@@ -141,9 +140,6 @@ func (p *serverProcess) start(ctx context.Context) error {
 	return nil
 }
 
-// captureStderr drains the language server's stderr into a bounded ring
-// buffer so the last few KB survive even when the server crashes silently.
-// The buffer is then flushed onto the serverExited event payload.
 func (p *serverProcess) captureStderr() {
 	buf := make([]byte, 4*1024)
 	for {
@@ -205,7 +201,6 @@ func (p *serverProcess) initialize(ctx context.Context) (json.RawMessage, *Serve
 	return capabilities, serverInfo, nil
 }
 
-// processID is the server's pid, or 0 before it has started.
 func (p *serverProcess) processID() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -214,11 +209,6 @@ func (p *serverProcess) processID() int {
 
 func (p *serverProcess) initializeParams() map[string]any {
 	rootURI := fileURI(p.workspaceRoot)
-	// Capabilities is supplied by the TS client (see
-	// `src/shared/lsp/client-capabilities.ts`). The agent is intentionally
-	// shape-blind here — it embeds the raw JSON verbatim. Falls back to an
-	// empty object so an LSP server that hard-requires the field still gets
-	// a valid initialize message when the caller forgot to send one.
 	capabilities := p.capabilities
 	if len(capabilities) == 0 {
 		capabilities = json.RawMessage(`{}`)
@@ -336,8 +326,6 @@ func (p *serverProcess) cancel(ctx context.Context, requestID json.RawMessage) e
 	return p.sendRaw(ctx, raw)
 }
 
-// sendRaw bounds both writer acquisition and the pipe write. An interrupted
-// write may leave a partial frame, so that server's input is closed permanently.
 func (p *serverProcess) sendRaw(ctx context.Context, message json.RawMessage) error {
 	frame, err := EncodeRawMessage(message)
 	if err != nil {
@@ -367,8 +355,6 @@ func (p *serverProcess) sendRaw(ctx context.Context, message json.RawMessage) er
 	default:
 	}
 
-	// A write deadline is unavailable on some child pipes. Keep the waiter
-	// cancellable independently of the OS write and abort the pipe on timeout.
 	written := make(chan error, 1)
 	go func() {
 		_, err := p.stdin.Write(frame)

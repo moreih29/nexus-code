@@ -1,7 +1,3 @@
-/**
- * The line a task's terminal agent is started with: the prompt goes in as
- * one shell argument.
- */
 import { describe, expect, it } from "bun:test";
 import { agentCommandLine } from "../../../../../src/renderer/services/workspace/tasks";
 

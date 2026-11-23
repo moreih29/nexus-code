@@ -16,7 +16,6 @@ export function statusTrees(
   return groups;
 }
 
-/** Reorder roots in their existing slots while leaving hidden tabs and children in place. */
 export function moveSessionRoot(
   keys: readonly string[],
   roots: readonly string[],
@@ -37,17 +36,10 @@ export function moveSessionRoot(
 
 export interface SidebarWorktree {
   readonly worktree: WorktreeEntry;
-  /** Its own conversations: those it holds whose parent, if any, is not listed. */
   readonly roots: readonly SessionTreeNode[];
-  /** Conversations it holds that are listed under a parent elsewhere. */
   readonly hosted: number;
 }
 
-/**
- * Each workspace's worktrees with their own conversations. A child
- * conversation is listed under its parent wherever it runs, so a worktree
- * holding only children is left out unless `includeEmpty` keeps it.
- */
 export function workspaceTrees(
   families: readonly SessionFamily[],
   roots: readonly SessionTreeNode[],

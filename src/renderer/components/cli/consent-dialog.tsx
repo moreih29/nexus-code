@@ -11,13 +11,10 @@ import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 
 export interface CliConsentPrompt {
-  /** Main's id for it, for another device to answer it by. */
   readonly id?: string;
   readonly fromWorkspace: string;
   readonly fromTab: string;
-  /** The agent whose tab asks, when a Claude or Codex tab does; none for a terminal. */
   readonly fromAgent?: ChatAgent;
-  /** The user's other computer the agent asks from, by its name; none for this one. */
   readonly fromDevice?: string;
   readonly toWorkspace: string;
   readonly sameWorkspace?: boolean;
@@ -44,11 +41,6 @@ function settle(pending: Pending, answer: CliConsentAnswer): void {
   bus.notify();
 }
 
-/**
- * Answers the prompt `id` as the user would, from their device named `by`,
- * taking it down (or out of the queue) with a toast saying so. False when
- * no prompt `id` waits.
- */
 export function settleCliConsent(
   id: string,
   answer: "once" | "session" | "deny",
@@ -78,15 +70,10 @@ export function askCliConsent(prompt: CliConsentPrompt): Promise<CliConsentAnswe
   });
 }
 
-/** The action already names the target for these approval prompts. */
 export function consentNamesTarget(kind: string): boolean {
   return kind === "instructionsEdit" || kind === "profileAdd";
 }
 
-/**
- * Who asks and for what, as the prompt says it: an agent of another
- * computer by that computer, a Claude or Codex tab as one, else a terminal.
- */
 export function describeConsent(
   t: (key: string, values: Record<string, string>) => string,
   prompt: Pick<
@@ -134,10 +121,6 @@ export function describeConsent(
   });
 }
 
-/**
- * The question a prompt asks, by what it would change: for an agent of
- * another computer (`remote`), whether it may change this one.
- */
 export function consentTitleOf(kind: string, remote: boolean) {
   if (kind === "permissionAllow" || kind === "permissionDeny") {
     return "agentCli.consent.permission_title" as const;
@@ -188,7 +171,6 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         descriptionClassName={CONSENT_DESCRIPTION_CLASS}
       />
       {copy?.body && (
-        // What an answer lets run, whole: its first line can hide the rest.
         <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-(--radius-control) bg-muted px-2 py-1.5 font-mono text-app-ui-sm text-foreground">
           {copy.body}
         </pre>

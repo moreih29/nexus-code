@@ -8,7 +8,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/content"
 )
 
-// entryType classifies one DirEntry as "dir" / "symlink" / "file".
 func entryType(entry os.DirEntry) string {
 	if entry.IsDir() {
 		return "dir"
@@ -19,7 +18,6 @@ func entryType(entry os.DirEntry) string {
 	return "file"
 }
 
-// fileInfoType is the same classifier as entryType but for FileInfo.
 func fileInfoType(info os.FileInfo) string {
 	if info.IsDir() {
 		return "dir"
@@ -30,16 +28,12 @@ func fileInfoType(info os.FileInfo) string {
 	return "file"
 }
 
-// buildFileContent classifies the read bytes and packs them into the "ok"
-// variant of ReadFileResult.
 func buildFileContent(buf []byte, info os.FileInfo) ReadFileResult {
 	probe := buf
 	if len(probe) > content.BinaryProbeBytes {
 		probe = probe[:content.BinaryProbeBytes]
 	}
 	mtime := formatMTime(info.ModTime())
-	// UTF-16 with its byte-order mark is text, though its zero bytes read
-	// as binary; it goes to the reader as bytes, to decode.
 	if len(probe) >= 2 && ((probe[0] == 0xff && probe[1] == 0xfe) || (probe[0] == 0xfe && probe[1] == 0xff)) {
 		return ReadFileResult{Kind: "ok", Encoding: "bytes", Bytes: buf, Size: info.Size(), MTime: mtime}
 	}
@@ -49,16 +43,12 @@ func buildFileContent(buf []byte, info os.FileInfo) ReadFileResult {
 	if len(probe) >= 3 && probe[0] == 0xef && probe[1] == 0xbb && probe[2] == 0xbf {
 		return ReadFileResult{Kind: "ok", Content: string(buf[3:]), Encoding: "utf8-bom", Size: info.Size(), IsBinary: false, MTime: mtime}
 	}
-	// Text in another encoding (Latin-1, Shift-JIS, EUC-KR): the reader
-	// decodes its bytes, and writes them back in it.
 	if !utf8.Valid(buf) {
 		return ReadFileResult{Kind: "ok", Encoding: "bytes", Bytes: buf, Size: info.Size(), MTime: mtime}
 	}
 	return ReadFileResult{Kind: "ok", Content: string(buf), Encoding: "utf8", Size: info.Size(), IsBinary: false, MTime: mtime}
 }
 
-// formatMTime renders a time as the wire-format ISO 8601 string used across
-// all fs methods.
 func formatMTime(t time.Time) string {
 	return t.UTC().Format("2006-01-02T15:04:05.000Z")
 }

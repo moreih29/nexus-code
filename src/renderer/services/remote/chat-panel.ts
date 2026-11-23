@@ -1,11 +1,3 @@
-/**
- * What a chat's side panel shows, as another device reads it (chat.panel,
- * and chat.watch's `panel`): the to-do list, the tasks and subagents, the
- * files the chat changed, the context it fills, what it cost, and its goal;
- * MCP servers, program details and Claude Remote Control too, where it
- * went on in another profile, and what another device can do with it.
- */
-
 import {
   type ChatPanel,
   MAX_HELD_TEXT,
@@ -23,7 +15,6 @@ import type { PeerSubmission } from "../chat/transport/submission";
 import { claudeUsageLine, codexUsageLine } from "../chat/usage-line";
 import { type ChatSource, conversationOf, viewTaskOf } from "./chat-page";
 
-/** The context window as the panel shows it: Claude's last count, or Codex's tokens. */
 function contextOfModel(source: ChatSource): ChatPanel["context"] {
   const model = source.chat.model as CodexModel;
   if (source.agent === "codex") {
@@ -49,14 +40,8 @@ function contextOfModel(source: ChatSource): ChatPanel["context"] {
   };
 }
 
-/** The most kinds of what fills the context a panel tells. */
 const MAX_CONTEXT_CATEGORIES = 50;
 
-/**
- * The plan's usage limits as the composer's line shows them, the session's
- * and the week's first: the profile's as this app last heard them, else
- * what the program last told the tab. None for a profile with no plan.
- */
 export function planLimitsOf(source: ChatSource, now = Date.now()): ViewUsageMeter[] {
   const model = source.chat.model as CodexModel;
   const line =
@@ -72,11 +57,9 @@ export function planLimitsOf(source: ChatSource, now = Date.now()): ViewUsageMet
   return line ? [...line.meters, ...line.more] : [];
 }
 
-/** The most checks of a goal the panel tells, the latest; and of what each said. */
 const GOAL_CHECKS = 20;
 const GOAL_REASON_CHARS = 500;
 
-/** A goal as the panel shows it: what it is, how it stands, what its checks said. */
 function viewGoalOf(goal: GoalView): ViewGoal {
   const checkReasons = goal.checks.slice(-GOAL_CHECKS).map((check) => ({
     ...(check.at !== undefined ? { at: check.at } : {}),
@@ -99,7 +82,6 @@ function viewGoalOf(goal: GoalView): ViewGoal {
   };
 }
 
-/** Each move by the key of the item it follows; one whose message is not in the conversation is left out. */
 function movesOf(source: ChatSource, items: readonly ChatItem[]): NonNullable<ChatPanel["moves"]> {
   return (source.moves ?? []).flatMap((move) => {
     const item = items.findLast((i) => followsMessage(i, move.after));
@@ -107,10 +89,6 @@ function movesOf(source: ChatSource, items: readonly ChatItem[]): NonNullable<Ch
   });
 }
 
-/**
- * What a Claude tab's panel tells beside: the plan's limit as its banner
- * says it, its MCP servers, what its program runs as, and Remote Control.
- */
 function claudeExtrasOf(source: ChatSource): Partial<ChatPanel> {
   const { model } = source.chat;
   const limit = model.rateLimit;
@@ -134,7 +112,6 @@ function claudeExtrasOf(source: ChatSource): Partial<ChatPanel> {
       ? {
           rateLimit: {
             status: limit.status,
-            // The program tells it in seconds.
             ...(limit.resetsAt !== undefined ? { resetsAt: limit.resetsAt * 1000 } : {}),
             ...(limit.rateLimitType ? { kind: limit.rateLimitType } : {}),
           },
@@ -193,8 +170,6 @@ function codexExtrasOf(source: ChatSource, model: CodexModel): Partial<ChatPanel
   };
 }
 
-// Text deltas replace the chat model but retain its tool map. Reuse the
-// file summaries instead of recounting every earlier edit on each frame.
 const fileSummaries = new WeakMap<Record<string, ToolCall>, ChatPanel["changedFiles"]>();
 
 function changedFileSummaries(tools: Record<string, ToolCall>): ChatPanel["changedFiles"] {
@@ -249,7 +224,6 @@ export function chatPanelOf(source: ChatSource, now = Date.now()): ChatPanel {
   };
 }
 
-/** Going on after the usage limit, as the panel tells it; none once the app's message went. */
 function limitResumeOf({ limitResume: record }: ChatSource): Pick<ChatPanel, "limitResume"> {
   if (!record || record.state === "sent") return {};
   return {
@@ -263,7 +237,6 @@ function limitResumeOf({ limitResume: record }: ChatSource): Pick<ChatPanel, "li
   };
 }
 
-/** A held message as the panel tells it, with a bounded text preview. */
 function heldOf(
   item: QueuedMessage,
   submission?: PeerSubmission,

@@ -4,11 +4,6 @@ import { ipcCallResult } from "../../ipc/client";
 import { peerGitPaths } from "./peer-git-paths";
 import { readPeerGitStatus } from "./peer-git-status";
 
-/**
- * The file before the changes `hunks` tell, from the file as it is now:
- * the hunks of a diff against the last commit taken back. Null when they
- * do not fit the file now (it changed since).
- */
 export function beforeOfHunks(hunks: readonly DiffHunk[], now: string): string | null {
   const lines = now.split("\n");
   const lineCount = lines.length - Number(lines.at(-1) === "");
@@ -18,7 +13,6 @@ export function beforeOfHunks(hunks: readonly DiffHunk[], now: string): string |
     if (hunk.newLines > 0 && hunk.newStart + hunk.newLines - 1 === lineCount) {
       const lastBefore = hunk.lines.findLast((line) => line[0] === "-" || line[0] === " ");
       const lastAfter = hunk.lines.findLast((line) => line[0] === "+" || line[0] === " ");
-      // Git sends a delete/add pair for an EOF newline change, but the marker is omitted on the wire.
       if (
         lastBefore?.startsWith("-") &&
         lastAfter?.startsWith("+") &&
@@ -26,7 +20,6 @@ export function beforeOfHunks(hunks: readonly DiffHunk[], now: string): string |
       )
         return null;
     }
-    // A hunk that adds nothing starts after its line; any other, at it.
     const from = hunk.newLines === 0 ? hunk.newStart : hunk.newStart - 1;
     if (from < at || from > lines.length) return null;
     for (; at < from; at++) out.push(lines[at]);
@@ -44,18 +37,12 @@ export function beforeOfHunks(hunks: readonly DiffHunk[], now: string): string |
         if (lines[at] !== text) return null;
         at++;
       }
-      // "\ No newline at end of file" tells nothing of the lines.
     }
   }
   for (; at < lines.length; at++) out.push(lines[at]);
   return out.join("\n");
 }
 
-/**
- * As beforeOfHunks, also when Git tells LF lines of a working file checked
- * out with CRLF (core.autocrlf): the file before, in CRLF. A file with
- * mixed line endings is taken only as it is.
- */
 export function beforeOfWorkingText(hunks: readonly DiffHunk[], now: string): string | null {
   const exact = beforeOfHunks(hunks, now);
   if (exact !== null || !now.includes("\r\n") || /(?<!\r)\n/.test(now)) return exact;
@@ -63,7 +50,6 @@ export function beforeOfWorkingText(hunks: readonly DiffHunk[], now: string): st
   return before?.replace(/(?<!\r)\n/g, "\r\n") ?? null;
 }
 
-/** The session's saved original, or the last commit when that original is unavailable. */
 export async function readRemoteFileBefore(
   file: RemoteFileRef,
   tabId: string,

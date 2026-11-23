@@ -1,4 +1,3 @@
-/** Whether the app's theme is dark, following it as the user changes it. */
 import { THEME_SOURCE_BY_ID } from "../../../../shared/design-tokens/theme-sources";
 import { useThemeStore } from "../../../state/stores/theme";
 

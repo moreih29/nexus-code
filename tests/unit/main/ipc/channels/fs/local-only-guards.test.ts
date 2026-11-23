@@ -7,13 +7,6 @@ import {
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174010";
 
 describe("fs agent-backed SSH workspace delegation", () => {
-  // ensureRoot hydrates persisted expanded rels via fs.watch. When the
-  // user has deleted those folders externally between sessions the agent
-  // throws NOT_FOUND. Before envelope-wrapping, that rejection reached
-  // Electron's `ipcMain.handle` and printed a per-row "Error occurred in
-  // handler for 'ipc:call': Error: NOT_FOUND: …" — same family of noise we
-  // already silenced for readdir/stat. The handler must now return the
-  // typed `ipcErr` envelope instead of throwing.
   it("watch returns a typed ipcErr envelope on fs error (no rethrow)", async () => {
     const watcher = {
       watch: mock(async (_workspaceId: string, _relPath: string) => {

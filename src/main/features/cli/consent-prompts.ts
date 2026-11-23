@@ -1,11 +1,3 @@
-/**
- * The consent prompts waiting on the user, wherever they came from: a
- * nexus command changing another workspace, an agent of another computer
- * of theirs. The renderer shows them one at a time; this
- * keeps them by id meanwhile, so another device of the user's can list
- * them (the remote's sessions.list) and answer one (consent.answer), which
- * closes it here as the user's own answer would.
- */
 import { randomUUID } from "node:crypto";
 import type { CliConsentAnswer, CliUiOps } from "../../../shared/cli/ui";
 import type { CliConsents, PendingConsent } from "./context";
@@ -18,14 +10,12 @@ export interface ConsentPromptsDeps {
     timeoutMs: number,
     signal?: AbortSignal,
   ): Promise<{ answer: CliConsentAnswer }>;
-  /** Answers a prompt shown (consent.settle); false when it no longer waits. */
   settle(id: string, answer: "once" | "session" | "deny", by?: string): Promise<boolean>;
   onChange?(): void;
   now?: () => number;
 }
 
 export class ConsentPrompts implements CliConsents {
-  /** By id, in the order asked. */
   private readonly pending = new Map<string, PendingConsent>();
 
   constructor(private readonly deps: ConsentPromptsDeps) {}

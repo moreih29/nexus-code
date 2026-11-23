@@ -1,6 +1,3 @@
-/**
- * GitCommitButton renders the Source Control split action button.
- */
 import i18next from "i18next";
 import { ChevronDown, Loader2 } from "lucide-react";
 import type { GitCommitOptions } from "../../../../../shared/git/types";
@@ -60,7 +57,6 @@ export interface GitCommitOptionMenuSpec {
   readonly checked: boolean;
 }
 
-/** Builds the chevron menu model for commit-state and sync-state actions. */
 export function buildGitCommitMenuModel(input: {
   readonly mode: GitActionMenuMode;
   readonly commitOptions: GitCommitOptions;
@@ -139,7 +135,6 @@ export function buildGitCommitMenuModel(input: {
   ];
 }
 
-/** Renders the split action and its dynamic chevron menu. */
 export function GitCommitButton({
   action,
   busy = false,
@@ -236,7 +231,6 @@ export function GitCommitButton({
   );
 }
 
-/** Finds the nearest previous concrete menu id to key a separator. */
 function previousMenuItemId(menu: GitCommitMenuSpec[], index: number): string {
   for (let i = index - 1; i >= 0; i -= 1) {
     const item = menu[i];

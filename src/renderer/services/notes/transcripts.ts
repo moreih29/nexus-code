@@ -1,9 +1,3 @@
-/**
- * Notes' transcripts in the renderer: loaded once per note, changed here
- * (by the recorder as words come, by the user naming voices), and written
- * back to transcript.json a moment after each change. A task and its parent
- * share a cache, and writes only replace the recordings changed here.
- */
 import i18next from "i18next";
 import { create } from "zustand";
 import {
@@ -17,11 +11,9 @@ import { showToast } from "../../components/ui/toast";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { notesApi } from "./api";
 
-/** How long after a change the transcript is written. */
 export const TRANSCRIPT_SAVE_DELAY_MS = 800;
 
 interface TranscriptsState {
-  /** By transcriptKey; missing until loaded. */
   byNote: Record<string, TranscriptFile>;
 }
 
@@ -41,7 +33,6 @@ const writes = new Map<string, Promise<void>>();
 const savedFiles = new Map<string, TranscriptFile>();
 let toldSaveFailure = false;
 
-/** The note's transcript, read from its folder the first time. */
 export function loadTranscript(workspaceId: string, noteId: string): Promise<TranscriptFile> {
   const key = transcriptKey(workspaceId, noteId);
   const have = useTranscriptsStore.getState().byNote[key];
@@ -53,7 +44,6 @@ export function loadTranscript(workspaceId: string, noteId: string): Promise<Tra
       .catch(() => EMPTY_TRANSCRIPT)
       .then((file) => {
         if (loading.get(key) !== pending) return EMPTY_TRANSCRIPT;
-        // A change made while it loaded (a recording just started) wins.
         const now = useTranscriptsStore.getState().byNote[key];
         if (now) return now;
         const numbered = {
@@ -72,7 +62,6 @@ export function loadTranscript(workspaceId: string, noteId: string): Promise<Tra
   return pending;
 }
 
-/** Changes the note's transcript (loaded already), and writes it a moment later. */
 export function updateTranscript(
   workspaceId: string,
   noteId: string,
@@ -90,7 +79,6 @@ export function updateTranscript(
   );
 }
 
-/** Changes one recording of the note's transcript. */
 export function updateRecording(
   workspaceId: string,
   noteId: string,
@@ -109,11 +97,6 @@ export function updateRecording(
   });
 }
 
-/**
- * Writes the note's transcript now (what is waiting to be written, and any
- * write under way); `announce` tells the windows, for a change worth a
- * recount (a recording ended).
- */
 export function flushTranscript(
   workspaceId: string,
   noteId: string,
@@ -172,7 +155,6 @@ function changedRecordings(saved: TranscriptFile, file: TranscriptFile): Transcr
   return edits;
 }
 
-/** Names a voice of a recording (an empty name takes the name away). */
 export function nameSpeaker(
   workspaceId: string,
   noteId: string,
@@ -190,7 +172,6 @@ export function nameSpeaker(
   });
 }
 
-/** Moves a recording's audio to the Trash, and with `text` its words go too. */
 export async function removeRecording(
   workspaceId: string,
   noteId: string,
@@ -204,7 +185,6 @@ export async function removeRecording(
   useTranscriptsStore.setState((s) => ({ byNote: { ...s.byNote, [key]: next } }));
 }
 
-/** Forgets a note's transcript (the note was removed). */
 export function dropTranscript(workspaceId: string, noteId: string): void {
   const key = transcriptKey(workspaceId, noteId);
   loading.delete(key);

@@ -1,8 +1,3 @@
-/**
- * The other names the installed fonts go by, as the system says them: WPF's
- * on Windows, a family's names a line; fontconfig's on Linux.
- */
-
 import { describe, expect, test } from "bun:test";
 import { parseFcList, parseNameLines } from "../../../../../src/main/features/shell/font-names";
 

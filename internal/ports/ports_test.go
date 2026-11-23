@@ -8,20 +8,20 @@ import (
 func TestMatchKeepsPortsOfProcessesUnderTheRoots(t *testing.T) {
 	table := map[int]Process{
 		1:   {PPID: 0, Name: "init"},
-		100: {PPID: 1, Name: "zsh"},    // a terminal's shell
-		110: {PPID: 100, Name: "bun"},  // bun dev
-		111: {PPID: 110, Name: "node"}, // the server it runs
+		100: {PPID: 1, Name: "zsh"},
+		110: {PPID: 100, Name: "bun"},
+		111: {PPID: 110, Name: "node"},
 		112: {PPID: 111, Name: "esbuild"},
-		200: {PPID: 1, Name: "zsh"}, // another terminal's shell
+		200: {PPID: 1, Name: "zsh"},
 		210: {PPID: 200, Name: "python3"},
-		300: {PPID: 1, Name: "postgres"}, // started elsewhere
+		300: {PPID: 1, Name: "postgres"},
 	}
 	listeners := []Listener{
 		{Port: 5173, PID: 111},
-		{Port: 5173, PID: 111}, // IPv6 too
+		{Port: 5173, PID: 111},
 		{Port: 8000, PID: 210},
 		{Port: 5432, PID: 300},
-		{Port: 51234, PID: 112}, // a port the system handed out
+		{Port: 51234, PID: 112},
 	}
 
 	got := match(listeners, table, under(table, []int{100, 200}))
