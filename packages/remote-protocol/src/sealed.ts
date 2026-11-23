@@ -5,7 +5,7 @@ import { PositiveIntegerSchema } from "./validation.js";
 
 export const PROTOCOL_VERSION = 2;
 
-export const SCHEMA_VERSION = "0.33.0";
+export const SCHEMA_VERSION = "0.34.0";
 
 export const ROOM_KEY_INFO = "nexus-remote/room-key/v1";
 

@@ -816,6 +816,25 @@ describe("the methods", () => {
     expect(ChatPanelSchema.parse({ ...panel, twin: "t1" })).toEqual(panel);
   });
 
+  test("a chat's changed file carries its original spelling where a 0.34.0 host sends it", () => {
+    const panel = {
+      todos: [],
+      tasks: [],
+      agents: [],
+      context: null,
+      goal: null,
+    };
+    const file = { path: "//server/share/x.ts", added: 1, removed: 0 };
+    const unc = "\\\\server\\share\\x.ts";
+    expect(
+      ChatPanelSchema.parse({ ...panel, changedFiles: [{ ...file, rawPath: unc }] }).changedFiles,
+    ).toEqual([{ ...file, rawPath: unc }]);
+    expect(ChatPanelSchema.parse({ ...panel, changedFiles: [file] }).changedFiles).toEqual([file]);
+    expect(
+      ChatPanelSchema.parse({ ...panel, changedFiles: [{ ...file, rawPath: 7 }] }).changedFiles,
+    ).toEqual([file]);
+  });
+
   test("a chat's panel and session tell when its app goes on after the usage limit (0.19.0)", () => {
     const panel = {
       todos: [],
