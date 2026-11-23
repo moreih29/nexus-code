@@ -1439,7 +1439,7 @@
       "none_in_profile": "No conversations in this folder for this profile.",
       "none": "No conversations to resume in this folder.",
       "delete": "Delete this conversation",
-      "delete_hint": "This cannot be undone.",
+      "delete_hint": "Deletes the conversation and the attached files kept for it. This cannot be undone.",
       "deleting": "Deleting…",
       "delete_failed": "Couldn’t delete the conversation. {{message}}"
     },

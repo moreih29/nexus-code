@@ -1179,6 +1179,14 @@ const coreIpcContract = {
         }),
         z.void(),
       ),
+      /** Removes attached files ("<tabId>/<n>" slots), as their conversation is deleted. */
+      removeAttachments: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          slots: z.array(z.string().max(300)).max(5_000),
+        }),
+        z.void(),
+      ),
       /**
        * Where a Claude session is kept on the workspace's host, for a program
        * of another profile to copy it (`--resume <file> --fork-session`).

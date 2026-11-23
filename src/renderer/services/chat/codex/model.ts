@@ -728,6 +728,15 @@ function applyNativeAgent(
   m.tasks = { ...m.tasks, [id]: next };
 }
 
+/** The items a thread/read answer's turns show as (includeTurns), as a tab would. */
+export function codexThreadItems(result: unknown): ChatItem[] {
+  const thread = rec(rec(result)?.thread);
+  if (!thread) return [];
+  const draft = new Draft(emptyCodexModel());
+  applyThread(draft, { thread }, 0, false);
+  return draft.next.items;
+}
+
 function applyAgentTranscript(draft: CodexDraft, id: string, thread: Rec, seq: number): void {
   if (!Array.isArray(thread.turns)) return;
   const transcript = new Draft(emptyCodexModel());

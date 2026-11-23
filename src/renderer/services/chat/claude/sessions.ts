@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { createLogger } from "../../../../shared/log/renderer";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import type { CallReturn } from "../../../ipc/types";
+import { removeConversationAttachments } from "../attach-retention";
 import type { ListedSession } from "../sessions";
+import { historyModel } from "./history";
 
 const log = createLogger("chat-sessions");
 
@@ -56,19 +58,28 @@ export function useClaudeSessions(
 /**
  * Deletes a Claude session of the folder: its transcript and what it kept
  * under its id, in the profile's folder that keeps it. One already gone is
- * as good as deleted.
+ * as good as deleted. The files attached to its messages go too, but those
+ * an open tab uses; its transcript is read first, as nothing is left to
+ * read after. One that cannot be read leaves them to the prune of unused
+ * ones.
  */
 export async function deleteClaudeSession(
   workspaceId: string,
   cwd: string,
   session: Pick<ListedSession, "sessionId" | "profileId">,
 ): Promise<void> {
+  const { sessionId, profileId } = session;
+  const transcript = await ipcCallResult("chat", "transcript", {
+    workspaceId,
+    sessionId,
+    ...(profileId ? { profileId } : {}),
+  }).catch(() => null);
   unwrapIpcResult(
-    await ipcCallResult("chat", "deleteSession", {
-      workspaceId,
-      cwd,
-      sessionId: session.sessionId,
-      profileId: session.profileId,
-    }),
+    await ipcCallResult("chat", "deleteSession", { workspaceId, cwd, sessionId, profileId }),
+  );
+  if (!transcript?.ok || !transcript.value.found) return;
+  const { items } = historyModel(transcript.value.lines);
+  await removeConversationAttachments(workspaceId, items, cwd).catch((error: Error) =>
+    log.warn(`removing session ${sessionId}'s attachments: ${error.message}`),
   );
 }

@@ -124,3 +124,18 @@ test("a tab keeps what its conversation names and marks it used once", async () 
   await retention.followAttachmentsNow();
   expect(props()).toEqual({ conversation: "s2", slots: ["t2/1"] });
 });
+
+test("a deleted conversation's files go, but those an open tab uses", async () => {
+  const tabs = useTabsStore.getState();
+  const open = tabs.createTab(WS, {
+    type: "codex",
+    props: { cwd: "/p", attachments: { conversation: "t", slots: ["old/3"] } },
+  });
+  const items = [
+    sent("a", `one\n\n@${ROOT}/${WS}/old/1/a.png @${ROOT}/${WS}/old/3/c.png`),
+    sent("b", `two\n\n@${ROOT}/${WS}/${open.id}/1/mine.png`),
+    sent("c", `three\n\n@${ROOT}/other-ws/old/2/x.png @/Users/me/Desktop/kept.png`),
+  ];
+  await retention.removeConversationAttachments(WS, items as never, "/p");
+  expect(of("removeAttachments")).toEqual([{ workspaceId: WS, slots: ["old/1"] }]);
+});

@@ -24,7 +24,7 @@ import type { ChatChosen, CodexFork, ProfileMove } from "../../../../shared/type
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
-import { pruneAttachmentsAfterAttach } from "../attach-retention";
+import { pruneAttachmentsAfterAttach, removeConversationAttachments } from "../attach-retention";
 import type { PermissionAnswer, RewindPreview } from "../claude/controller";
 import type { AssistantItem, ChatLine, ImageBlock, PermissionRequest, UserItem } from "../model";
 import {
@@ -80,6 +80,7 @@ import {
   type CodexMode,
   type CodexModel,
   codexModelsOf,
+  codexThreadItems,
   emptyCodexModel,
   idKey,
   isThreadStatusChanged,
@@ -1015,11 +1016,22 @@ export class CodexController {
   /**
    * Deletes one of the folder's threads for good (thread/delete): Codex
    * removes its file, so it leaves `codex resume` too and gives back the space.
+   * The files attached to its messages go too, but those an open tab uses;
+   * read first, as nothing is left to read after. A thread that cannot be
+   * read leaves them to the prune of unused ones.
    */
   async deleteThread(threadId: string): Promise<void> {
     if (threadId === this.currentThread()) throw new Error("the tab's own thread");
     if (!(await this.ensureRunning())) throw new Error("Codex is not running");
+    const read = await this.request("thread/read", { threadId, includeTurns: true }).catch(
+      () => null,
+    );
     await this.request("thread/delete", { threadId });
+    if (!read) return;
+    const { workspaceId, cwd } = this.target;
+    await removeConversationAttachments(workspaceId, codexThreadItems(read), cwd).catch(
+      (error: Error) => log.warn(`removing thread ${threadId}'s attachments: ${error.message}`),
+    );
   }
 
   /**

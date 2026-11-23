@@ -121,6 +121,13 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         await host.attachmentCall("touchAttachments", validateArgs(c.touchAttachments.args, args));
         return ipcOk(undefined);
       },
+      removeAttachments: async (args: unknown) => {
+        await host.attachmentCall(
+          "removeAttachments",
+          validateArgs(c.removeAttachments.args, args),
+        );
+        return ipcOk(undefined);
+      },
       transcript: withProfileError(async (args: unknown) => {
         const { workspaceId, sessionId, profileId } = validateArgs(c.transcript.args, args);
         const result = (await host.transcript(workspaceId, sessionId, profileId)) as {

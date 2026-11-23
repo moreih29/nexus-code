@@ -273,6 +273,36 @@ export function pruneAttachmentsAfterAttach(workspaceId: string): void {
   );
 }
 
+/**
+ * Removes the attached files a deleted conversation's items named (written
+ * from `cwd`), but those an open chat tab uses: in its own folder, or named
+ * by its conversation. Forks of the conversation lose theirs too.
+ */
+export async function removeConversationAttachments(
+  workspaceId: string,
+  items: readonly ChatItem[],
+  cwd: string,
+): Promise<void> {
+  const root = await rootOf(workspaceId);
+  if (!root) return;
+  const named = slotsOf(attachedFilesIn(items, cwd), root, workspaceId);
+  if (named.length === 0) return;
+  const tabs = chatTabsOf(workspaceId);
+  const openTabs = new Set(tabs.map((tab) => tab.id));
+  const used = new Set(keptSlots(workspaceId, tabs, root));
+  const slots = named.filter(
+    (slot) => !used.has(slot) && !openTabs.has(slot.slice(0, slot.indexOf("/"))),
+  );
+  for (let i = 0; i < slots.length; i += MAX_CALL_SLOTS) {
+    unwrapIpcResult(
+      await ipcCallResult("chat", "removeAttachments", {
+        workspaceId,
+        slots: slots.slice(i, i + MAX_CALL_SLOTS),
+      }),
+    );
+  }
+}
+
 /** For tests: looks at the followed chats now, not once they settle. */
 export function followAttachmentsNow(): Promise<void> {
   return followAll();

@@ -1439,7 +1439,7 @@
       "none_in_profile": "이 프로필의 이 폴더에 대화가 없습니다.",
       "none": "이 폴더에 이어갈 대화가 없습니다.",
       "delete": "이 대화 삭제",
-      "delete_hint": "삭제하면 되돌릴 수 없습니다.",
+      "delete_hint": "대화와 보관 중인 첨부 파일을 지웁니다. 되돌릴 수 없습니다.",
       "deleting": "지우는 중…",
       "delete_failed": "대화 삭제 실패. {{message}}"
     },
