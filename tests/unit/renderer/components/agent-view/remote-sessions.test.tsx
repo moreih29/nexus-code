@@ -1732,6 +1732,8 @@ describe("the agent view's other computers", () => {
     const idle = renderToStaticMarkup(<RemoteTabLabel target={{ ...target, state: "idle" }} />);
     expect(idle).toContain("Work PC");
     expect(idle).toContain("Fix the build");
+    // The computer chip keeps its name while a long title is the one to truncate.
+    expect(idle).toMatch(/<span class="[^"]*\bshrink-0\b[^"]*"><svg[^>]*lucide-monitor/);
     expect(idle).not.toContain('role="img"');
     const waiting = renderToStaticMarkup(
       <RemoteTabLabel target={{ ...target, state: "needs-you" }} />,
