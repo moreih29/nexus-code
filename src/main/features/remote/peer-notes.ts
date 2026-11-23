@@ -64,12 +64,16 @@ function wholeRecording(
         start: lines.length,
       });
       const got = page.recordings[0];
-      if (!got?.lines.length) break;
+      if (!got) throw new Error(`no recording ${recording} in the answer`);
       if (
         got.start !== lines.length ||
         (got.total !== undefined && last !== undefined && got.total < last) ||
         got.lines.some((line) => seen.has(line.id))
       ) {
+        throw new ChangedWhileRead();
+      }
+      if (!got.lines.length) {
+        if (got.total === undefined || got.total <= lines.length) break;
         throw new ChangedWhileRead();
       }
       for (const line of got.lines) seen.add(line.id);

@@ -470,4 +470,21 @@ describe("a note that changes while another computer reads it in pages", () => {
       ),
     ).toHaveLength(1);
   });
+
+  test("a transcript that shrinks below the lines already read is read again, not cut", async () => {
+    const before: TranscriptFile = { version: 1, recordings: [recording("rabcdef1234", 2500)] };
+    const shrinks: TranscriptFile[] = [800, 1000].map((count) => ({
+      version: 1,
+      recordings: [recording("rabcdef1234", count)],
+    }));
+    for (const shrunk of shrinks) {
+      const r = live(before, doc);
+      r.hooks.after = (call, method) => {
+        if (method === "notes.transcript" && call === 2) r.state.file = shrunk;
+      };
+      const note = await readWholePeerNote(r.room, "d2", { workspaceId: "w1", note: "nabcdef1" });
+      expect(note.transcript).toBe(transcriptMarkdown(shrunk, "Standup"));
+      expect(note.recordings?.[0]?.lines).toBe(shrunk.recordings[0]?.lines.length);
+    }
+  });
 });
