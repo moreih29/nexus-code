@@ -49,8 +49,17 @@ class StubChannel {
 
   fire(_method: string, _params?: unknown): void {}
 
-  on(_event: string, _cb: unknown): () => void {
-    return () => {};
+  private eventListeners = new Map<string, Set<(payload: unknown) => void>>();
+
+  on(event: string, cb: (payload: unknown) => void): () => void {
+    const listeners = this.eventListeners.get(event) ?? new Set();
+    listeners.add(cb);
+    this.eventListeners.set(event, listeners);
+    return () => listeners.delete(cb);
+  }
+
+  emit(event: string, payload: unknown): void {
+    for (const cb of [...(this.eventListeners.get(event) ?? [])]) cb(payload);
   }
 
   onLifecycle(cb: ChannelLifecycleCallback): () => void {
@@ -343,6 +352,38 @@ test("PTY spawn waits for the local replacement's hook endpoint", async () => {
       NEXUS_AGENT_SOCKET: "/tmp/new-terminal.sock",
       NEXUS_HOOK_TOKEN: "new-terminal",
     });
+  } finally {
+    host.dispose();
+    globalDb.close();
+  }
+});
+
+test("hooks from a local agent that restarted on the same channel still reach the app", async () => {
+  const harness = makeHarness();
+  const { manager, channels, globalDb } = harness;
+  const host = startAgentPtyHost(manager);
+  try {
+    const { id } = await bootLocalWorkspace(harness);
+    await settle();
+    const [channel] = channels;
+    const hooks: unknown[] = [];
+    host.on("claude.hook", (payload) => hooks.push(payload));
+    channel.hookInfo.mockResolvedValue({ socketPath: "/tmp/restarted.sock", token: "restarted" });
+    channel.emitLifecycle({ type: "reconnecting", hadEpoch: false });
+    channel.emitLifecycle({ type: "ready" });
+    await settle();
+
+    const start = {
+      hookId: "h1",
+      workspaceId: id,
+      tabId: "claude-tab",
+      subcommand: "print-start",
+      payload: { run_id: "print-1" },
+    };
+    channel.emit("claude.hook", start);
+
+    expect(hooks).toEqual([start]);
+    expect(manager.getHookInfo(id)).toMatchObject({ socketPath: "/tmp/restarted.sock" });
   } finally {
     host.dispose();
     globalDb.close();
