@@ -1626,19 +1626,24 @@ describe("attached files", () => {
     };
     const { host, channel } = setup({}, undefined, undefined, (id) => profiles[id] ?? null);
     channel.historySlotsAnswer = { found: true, slots: ["t/1", 7, "x".repeat(301), "u/2"] };
-    expect(await host.historySlots(WS, "claude", "session-1", "claude-p")).toEqual(["t/1", "u/2"]);
-    expect(await host.historySlots(WS, "codex", "thread-1", "codex-p")).toEqual(["t/1", "u/2"]);
+    const told = { slots: ["t/1", "u/2"], found: true };
+    expect(await host.historySlots(WS, "claude", "session-1", "claude-p")).toEqual(told);
+    expect(await host.historySlots(WS, "codex", "thread-1", "codex-p")).toEqual(told);
     expect(callsOf(channel, "chat.historySlots")).toEqual([
       { workspaceId: WS, sessionId: "session-1", configDir: "/profiles/claude-p" },
       { workspaceId: WS, threadId: "thread-1", codexHome: "/profiles/codex-p" },
     ]);
     // A tab outlives its profile: no history is read there, and none asked for.
-    expect(await host.historySlots(WS, "claude", "s", "codex-p")).toEqual([]);
-    expect(await host.historySlots(WS, "codex", "t", "gone")).toEqual([]);
+    const none = { slots: [], found: true };
+    expect(await host.historySlots(WS, "claude", "s", "codex-p")).toEqual(none);
+    expect(await host.historySlots(WS, "codex", "t", "gone")).toEqual(none);
     expect(callsOf(channel, "chat.historySlots")).toHaveLength(2);
+    // No history of it yet: told so, to be asked again.
+    channel.historySlotsAnswer = { found: false, slots: [] };
+    expect(await host.historySlots(WS, "claude", "session-1")).toEqual({ slots: [], found: false });
 
     channel.failures.set("chat.historySlots", "unsupported-method");
-    expect(await host.historySlots(WS, "claude", "session-1")).toEqual([]);
+    expect(await host.historySlots(WS, "claude", "session-1")).toEqual(none);
     channel.failures.set("chat.historySlots", "request-failed");
     await expect(host.historySlots(WS, "claude", "session-1")).rejects.toThrow();
   });

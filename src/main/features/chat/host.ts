@@ -877,16 +877,18 @@ export class ChatHost {
   /**
    * The slots ("<tabId>/<n>") a conversation's whole history names, read by
    * the agent from the history kept in the profile's folder (a Claude
-   * session) or home (a Codex thread): only their names come back. None
-   * from an agent too old to tell, nor in a profile since removed: a tab
-   * outlives its profile, and no history is read there.
+   * session) or home (a Codex thread): only their names come back. `found`
+   * is false while the agent has no history of it yet (a fork's own, just
+   * named): to be asked again. None from an agent too old to tell, nor in
+   * a profile since removed: a tab outlives its profile, and no history is
+   * read there.
    */
   async historySlots(
     workspaceId: string,
     agent: ChatAgent,
     conversation: string,
     profileId?: string,
-  ): Promise<string[]> {
+  ): Promise<{ slots: string[]; found: boolean }> {
     let where: Record<string, string>;
     try {
       if (agent === "claude") {
@@ -896,20 +898,23 @@ export class ChatHost {
         where = { threadId: conversation, ...(codexHome ? { codexHome } : {}) };
       }
     } catch (error) {
-      if (error instanceof AgentProfileSelectionError) return [];
+      if (error instanceof AgentProfileSelectionError) return { slots: [], found: true };
       throw error;
     }
     const channel = await this.channelFor(workspaceId);
     const result = await channel
-      .call<{ slots?: unknown }>("chat.historySlots", { workspaceId, ...where })
+      .call<{ slots?: unknown; found?: unknown }>("chat.historySlots", { workspaceId, ...where })
       .catch((error: unknown) => {
         if ((error as { code?: unknown } | null)?.code === "unsupported-method") return null;
         throw error;
       });
     const slots = Array.isArray(result?.slots) ? result.slots : [];
-    return slots
-      .filter((slot): slot is string => typeof slot === "string" && slot.length <= 300)
-      .slice(-5_000);
+    return {
+      slots: slots
+        .filter((slot): slot is string => typeof slot === "string" && slot.length <= 300)
+        .slice(-5_000),
+      found: result?.found !== false,
+    };
   }
 
   async transcript(workspaceId: string, sessionId: string, profileId?: string): Promise<unknown> {

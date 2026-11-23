@@ -170,6 +170,8 @@ const historyKey = (workspaceId: string, history: History) =>
 const historySlots = new Map<string, readonly string[]>();
 /** The histories that could not be read, and when: asked again HISTORY_RETRY_MS on. */
 const historyFailed = new Map<string, { at: number; error: unknown }>();
+/** The histories the agent had no file of yet when last asked, and when. */
+const historyAbsent = new Map<string, number>();
 /** The histories being asked. */
 const askingHistory = new Map<string, Promise<readonly string[]>>();
 
@@ -177,20 +179,35 @@ const askingHistory = new Map<string, Promise<readonly string[]>>();
  * The slots a history names (chat.historySlots), asked once a run. One
  * that cannot be read (its file's rights, say) fails the same for
  * HISTORY_RETRY_MS, unasked: a chat is looked at each second it streams.
+ * One the agent has no file of yet (a fork's own, just named) names none
+ * for as long, then is asked again; with `again`, now.
  */
-function historyOf(workspaceId: string, history: History): Promise<readonly string[]> {
+function historyOf(
+  workspaceId: string,
+  history: History,
+  again = false,
+): Promise<readonly string[]> {
   const key = historyKey(workspaceId, history);
   const known = historySlots.get(key);
   if (known) return Promise.resolve(known);
   const failed = historyFailed.get(key);
   if (failed && Date.now() - failed.at < HISTORY_RETRY_MS) return Promise.reject(failed.error);
+  const absent = historyAbsent.get(key);
+  if (absent !== undefined && !again && Date.now() - absent < HISTORY_RETRY_MS) {
+    return Promise.resolve([]);
+  }
   const asking = askingHistory.get(key);
   if (asking) return asking;
   const asked = ipcCallResult("chat", "historySlots", { workspaceId, ...history })
     .then((result) => {
-      const slots = unwrapIpcResult(result).slots;
-      historySlots.set(key, slots);
+      const { slots, found } = unwrapIpcResult(result);
       historyFailed.delete(key);
+      if (found) {
+        historySlots.set(key, slots);
+        historyAbsent.delete(key);
+      } else {
+        historyAbsent.set(key, Date.now());
+      }
       return slots;
     })
     .catch((error: unknown) => {
@@ -206,21 +223,21 @@ function historyOf(workspaceId: string, history: History): Promise<readonly stri
 }
 
 /** The slots the tab's histories name (historiesOf), as asked. */
-async function historySlotsOf(workspaceId: string, tab: ChatTab): Promise<string[]> {
+async function historySlotsOf(workspaceId: string, tab: ChatTab, again = false): Promise<string[]> {
   const named = await Promise.all(
-    historiesOf(workspaceId, tab).map((history) => historyOf(workspaceId, history)),
+    historiesOf(workspaceId, tab).map((history) => historyOf(workspaceId, history, again)),
   );
   return [...new Set(named.flat())];
 }
 
 /**
  * Asks what the open chat tabs' whole histories name, for those not yet
- * asked: before a prune or a deletion names what stays. False when one
- * could not be told.
+ * asked or without a file when they were: before a prune or a deletion
+ * names what stays. False when one could not be told.
  */
 export async function readOpenHistories(workspaceId: string): Promise<boolean> {
   const asked = await Promise.allSettled(
-    chatTabsOf(workspaceId).map((tab) => historySlotsOf(workspaceId, tab)),
+    chatTabsOf(workspaceId).map((tab) => historySlotsOf(workspaceId, tab, true)),
   );
   return asked.every((result) => result.status === "fulfilled");
 }
@@ -229,7 +246,9 @@ export async function readOpenHistories(workspaceId: string): Promise<boolean> {
 function askedHistorySlots(workspaceId: string, tab: ChatTab): string[] | null {
   const slots: string[] = [];
   for (const history of historiesOf(workspaceId, tab)) {
-    const named = historySlots.get(historyKey(workspaceId, history));
+    const key = historyKey(workspaceId, history);
+    // One with no file yet names none.
+    const named = historySlots.get(key) ?? (historyAbsent.has(key) ? [] : undefined);
     if (!named) return null;
     slots.push(...named);
   }
@@ -269,10 +288,11 @@ async function followTab(workspaceId: string, tab: ChatTab, root: string): Promi
   const slots = [...new Set([...early, ...loaded])];
   // Nothing named, or nothing read yet: what the tab keeps stays.
   if (slots.length === 0) return;
+  // What the tab kept under another name stays too: a fork takes its own
+  // name before the agent has a history of it to tell these from.
   const saved = tab.props.attachments;
-  const same = saved?.conversation === conversation.key;
-  const next = same ? [...new Set([...saved.slots, ...slots])] : slots;
-  if (!same || next.length !== saved.slots.length) {
+  const next = [...new Set([...(saved?.slots ?? []), ...slots])];
+  if (saved?.conversation !== conversation.key || next.length !== saved.slots.length) {
     useTabsStore.getState().setChatAttachments(workspaceId, tab.id, {
       conversation: conversation.key,
       slots: next.slice(-MAX_TAB_SLOTS),
@@ -390,7 +410,7 @@ registerWorkspaceCleanup((workspaceId) => {
   followed.delete(workspaceId);
   roots.delete(workspaceId);
   touched.delete(workspaceId);
-  for (const known of [historySlots, historyFailed]) {
+  for (const known of [historySlots, historyFailed, historyAbsent]) {
     for (const key of known.keys()) if (key.startsWith(`${workspaceId}\n`)) known.delete(key);
   }
   waiting.delete(workspaceId);
@@ -518,5 +538,6 @@ export function resetAttachmentRetention(): void {
   looked.clear();
   historySlots.clear();
   historyFailed.clear();
+  historyAbsent.clear();
   askingHistory.clear();
 }

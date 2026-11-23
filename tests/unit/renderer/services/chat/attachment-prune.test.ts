@@ -3,8 +3,11 @@ import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 
 const ROOT = "/Users/me/.nexus-code/attach";
 let root: string | null = ROOT;
-/** The slots each conversation's whole history names, as its agent reads them; absent: it cannot. */
-let histories: Record<string, string[]> = {};
+/**
+ * The slots each conversation's whole history names, as its agent reads
+ * them ("none-yet": it has no file of it yet); absent: it cannot.
+ */
+let histories: Record<string, string[] | "none-yet"> = {};
 /** Calls answered with a failure, by their order among the calls to `failing`. */
 let failing: { method: string; at: number[] } | undefined;
 const calls: { method: string; args: unknown }[] = [];
@@ -17,9 +20,12 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
     calls.push({ method, args });
     if (method === "historySlots") {
       const slots = histories[(args as { conversation: string }).conversation];
+      if (slots === "none-yet") {
+        return Promise.resolve({ ok: true, value: { slots: [], found: false } });
+      }
       return Promise.resolve(
         slots
-          ? { ok: true, value: { slots } }
+          ? { ok: true, value: { slots, found: true } }
           : { ok: false, error: { code: "request-failed", message: "unread" } },
       );
     }
@@ -136,14 +142,15 @@ test("a tab keeps what its conversation names and marks it used once", async () 
   await retention.followAttachmentsNow();
   expect(props()?.slots).toEqual(["t0/1", "t0/2", "t1/1"]);
   expect(of("touchAttachments").at(-1)).toEqual({ workspaceId: WS, slots: ["t1/1"] });
-  // Another conversation in the tab: what it names takes the place of the last one's.
+  // Another conversation in the tab: what it names is kept with the last one's.
   shows(tab.id, "s2", `${ROOT}/${WS}/t2/1/d.png`);
   await retention.followAttachmentsNow();
-  expect(props()).toEqual({ conversation: "s2", slots: ["t2/1"] });
+  const all = ["t0/1", "t0/2", "t1/1", "t2/1"];
+  expect(props()).toEqual({ conversation: "s2", slots: all });
   // One that names nothing, or is not read yet, leaves what the tab keeps.
   shows(tab.id, "s3");
   await retention.followAttachmentsNow();
-  expect(props()).toEqual({ conversation: "s2", slots: ["t2/1"] });
+  expect(props()).toEqual({ conversation: "s2", slots: all });
 });
 
 test("a closing tab marks used what its conversation names, though marked before", async () => {
@@ -241,6 +248,35 @@ test("nothing goes while an open tab's history cannot be read", async () => {
   expect(of("removeAttachments")).toEqual([]);
   await expect(retention.pruneAttachments(WS)).rejects.toThrow();
   expect(of("pruneAttachments")).toEqual([]);
+});
+
+test("a fork that took its own name before its history was written keeps what it copied", async () => {
+  // The tab followed C ("c-long") while a fork of it; now it is "b-new", of which no file is yet.
+  histories = { "b-new": "none-yet" };
+  const tab = useTabsStore.getState().createTab(WS, {
+    type: "claude",
+    props: { cwd: "/p", attachments: { conversation: "c-long", slots: ["early/1"] } },
+  });
+  retention.pruneAttachmentsOnce(WS);
+  shows(tab.id, "b-new", `${ROOT}/${WS}/new/2/b.png`);
+  await retention.followAttachmentsNow();
+  const now = useTabsStore.getState().byWorkspace[WS]?.[tab.id];
+  expect(now?.type === "claude" ? now.props.attachments : undefined).toEqual({
+    conversation: "b-new",
+    slots: ["early/1", "new/2"],
+  });
+  // Deleting C: early/1 stays, and the history is asked again as none was found.
+  const asks = of("historySlots").length;
+  expect(await retention.readOpenHistories(WS)).toBe(true);
+  expect(of("historySlots")).toHaveLength(asks + 1);
+  const items = [sent("a", `@${ROOT}/${WS}/early/1/a.png @${ROOT}/${WS}/solo/3/c.png`)];
+  await retention.removeConversationAttachments(WS, items as never, "/p");
+  expect(of("removeAttachments")).toEqual([{ workspaceId: WS, slots: ["solo/3"] }]);
+  // Once written, it is asked no more.
+  histories = { "b-new": ["early/1", "new/2"] };
+  expect(await retention.readOpenHistories(WS)).toBe(true);
+  expect(await retention.readOpenHistories(WS)).toBe(true);
+  expect(of("historySlots")).toHaveLength(asks + 2);
 });
 
 test("a history that cannot be read is asked for again only a while on", async () => {
