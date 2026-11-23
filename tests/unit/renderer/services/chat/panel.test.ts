@@ -30,6 +30,7 @@ import {
   todosOf,
   usageLimitsOf,
 } from "../../../../../src/renderer/services/chat/panel";
+import { type RelaySender, relayedText } from "../../../../../src/shared/chat/relay";
 
 // Lines shaped as Claude Code 2.1.318 sent them for a turn that made two
 // to-dos, ran `sleep` in the background and an async general-purpose agent.
@@ -1044,22 +1045,39 @@ describe("images the user attached to a message", () => {
     expect(shown).toEqual([
       { file: "/tmp/a/first.png", image: before },
       { image: pasted },
-      { file: "/tmp/a/big.png" },
+      { file: "/tmp/a/big.png", placed: true },
       { file: "/tmp/a/last.png", image: after },
     ]);
+  });
+
+  // As the model holds a message another agent sent through the nexus command: the user's, its
+  // first line the one that says who sent it (withRelayed shows it as received only on screen).
+  const tab: RelaySender = { kind: "tab", agent: "claude", name: "Other", tabId: "t2" };
+  const relayed = (text: string) => user(relayedText(tab, text));
+
+  test("are none in a message another agent sent, whatever it names", () => {
+    for (const text of ["look\n\n@/tmp/x.png", "@/etc/a.png"]) {
+      expect(attachedImagesOf(relayed(text) as never, "/ws")).toEqual([]);
+    }
+    const shown = imagesOf([relayed("look\n\n@/tmp/x.png"), user("@/tmp/a/big.png")], {}, "/ws");
+    expect(shown).toEqual([{ file: "/tmp/a/big.png", placed: true }]);
   });
 
   test("are granted to the previews, and only they: not other attachments or others' messages", () => {
     const items = [
       user("@/tmp/a/big.png @/tmp/a/notes.txt"),
       user("@/ws/inside.png"),
-      {
-        kind: "received",
-        key: "r",
-        from: { kind: "tab" },
-        text: "@/tmp/a/theirs.png",
-      } as unknown as ChatItem,
+      relayed("look\n\n@/tmp/x.png"),
+      relayed("@/etc/a.png"),
     ];
     expect(outsideLinksOf(items, {}, "/ws", "/ws").files).toEqual(["/tmp/a/big.png"]);
+  });
+
+  test("are granted, where another device reads them, only as `attached` lets them", () => {
+    const ours = "/Users/me/.nexus-code/attach/w1/c1/1/shot.png";
+    const items = [user(`@${ours}`), user("@/tmp/a/big.png")];
+    const tools = { r1: readCall("r1", "/tmp/a/read.png", [image("r")]) };
+    const files = outsideLinksOf(items, tools, "/ws", "/ws", [], (file) => file === ours).files;
+    expect(files.sort()).toEqual([ours, "/tmp/a/read.png"].sort());
   });
 });

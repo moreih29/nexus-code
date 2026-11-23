@@ -16,8 +16,9 @@ export interface ShownImage {
   /** Its data, as a tool or the user gave it. */
   image?: ImageBlock;
   /**
-   * The file is shown in full where the conversation names it (sent the
-   * user, or ![alt](path) in a reply), which lets the previews read it.
+   * The file is shown where the conversation names it: in full (sent the
+   * user, or ![alt](path) in a reply), or as the chip of a file the user
+   * attached. The previews may read it; no lookup decides whether it stays.
    */
   placed?: true;
 }

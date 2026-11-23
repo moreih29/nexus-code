@@ -111,19 +111,46 @@ export function createFilePresence(
   };
 }
 
+/**
+ * Most lookups filesThere has going at once: each is a call to the agent,
+ * which takes only so many at a time (128) from all the app asks it, and
+ * a long conversation names hundreds of images.
+ */
+const MAX_LOOKUPS = 32;
+
+/**
+ * Which of `paths`, in the workspace at `root` or granted outside it, are
+ * files, as `presence` answers; at most `max` looked up at once.
+ */
+export async function filesFound(
+  presence: Pick<ReturnType<typeof createFilePresence>, "isThere">,
+  workspaceId: string,
+  root: string,
+  paths: readonly string[],
+  max = MAX_LOOKUPS,
+): Promise<ReadonlySet<string>> {
+  const found = new Set<string>();
+  let next = 0;
+  const lookUpNext = async () => {
+    while (next < paths.length) {
+      const path = paths[next++];
+      if (await presence.isThere(workspaceId, root, path)) found.add(path);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(max, paths.length) }, lookUpNext));
+  return new Set(paths.filter((path) => found.has(path)));
+}
+
 const presence = createFilePresence();
 const EMPTY_PATHS: ReadonlySet<string> = new Set();
 
 /** Which of `paths`, in the workspace at `root` or granted outside it, are files. */
-export async function filesThere(
+export function filesThere(
   workspaceId: string,
   root: string,
   paths: readonly string[],
 ): Promise<ReadonlySet<string>> {
-  const answers = await Promise.all(
-    paths.map(async (path) => ((await presence.isThere(workspaceId, root, path)) ? path : null)),
-  );
-  return new Set(answers.filter((path): path is string => path !== null));
+  return filesFound(presence, workspaceId, root, paths);
 }
 
 /**

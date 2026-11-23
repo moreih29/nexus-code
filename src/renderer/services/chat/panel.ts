@@ -2,6 +2,7 @@
 // the agents and tasks the CLI reports, the to-do list Claude keeps, the
 // files it changed, and what its replies point at.
 
+import { RELAY_MARK } from "../../../shared/chat/relay";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { splitAttachments } from "./composer-input";
 import { imageFileOf, type ShownImage } from "./image-look";
@@ -598,10 +599,13 @@ export function distinctResults(
 /**
  * The image files a message the user sent attached (the mentions of its
  * last paragraph, splitAttachments), by absolute path from `cwd`. None
- * while it goes to another device, whose chips name no path yet.
+ * while it goes to another device, whose chips name no path yet, nor in a
+ * message another agent sent through the nexus command (its first line
+ * RELAY_MARK's): what it names, that agent wrote, and the user attached
+ * nothing to it.
  */
 export function attachedImagesOf(item: UserItem, cwd: string): string[] {
-  if (item.optimistic) return [];
+  if (item.optimistic || item.text.startsWith(RELAY_MARK)) return [];
   return splitAttachments(item.text).files.flatMap((named) => {
     const path = resolveFilePath(named, cwd);
     return path && fileKind(path) === "image" ? [path] : [];
@@ -623,7 +627,7 @@ const LOOK_TOOLS = new Set(["Read", "ViewImage"]);
  * resultsOf takes them. An agent's images come where it was called
  * (`agentItems`, by the call's id). An image file the conversation shows
  * in full where it names it (placedImages: sent the user, or ![alt](path)
- * in a reply) is `placed`.
+ * in a reply), or that the user attached, is `placed`.
  */
 export function imagesOf(
   items: readonly ChatItem[],
@@ -667,7 +671,9 @@ export function imagesOf(
     for (const item of items) {
       if (item.kind === "user") {
         for (const image of item.images) addData(image);
-        for (const file of attachedImagesOf(item, cwd)) addFile(file);
+        // Its chip shows the file, as a card does: no lookup decides whether it stays.
+        const attached = attachedImagesOf(item, cwd);
+        for (const file of attached) addFile(file, undefined, new Set(attached));
         continue;
       }
       if (item.kind !== "assistant") continue;
@@ -919,10 +925,10 @@ export const MAX_OUTSIDE_DIRS = 200;
 /**
  * The files outside the workspace (`root`) that a session names: the ones
  * its tools took, its replies point at (a relative path at each place it
- * may name, link-places), the images the user attached to a message, and
- * `looked` (opened from the tab otherwise). An
- * HTML file's folder comes too, unless it holds the workspace, as the home
- * folder does.
+ * may name, link-places), the images the user attached to a message (those
+ * `attached` lets, when given), and `looked` (opened from the tab
+ * otherwise). An HTML file's folder comes too, unless it holds the
+ * workspace, as the home folder does.
  */
 export function outsideLinksOf(
   items: ChatItem[],
@@ -930,6 +936,7 @@ export function outsideLinksOf(
   cwd: string,
   root: string,
   looked: readonly string[] = [],
+  attached?: (file: string) => boolean,
 ): OutsideLinks {
   if (!root) return { files: [], dirs: [] };
   const named = new Set<string>(looked);
@@ -943,7 +950,8 @@ export function outsideLinksOf(
   }
   // An image the user attached to a message opens in quick look among the others.
   for (const item of items) {
-    if (item.kind === "user") for (const file of attachedImagesOf(item, cwd)) named.add(file);
+    if (item.kind !== "user") continue;
+    for (const file of attachedImagesOf(item, cwd)) if (attached?.(file) ?? true) named.add(file);
   }
   const places = linkPlaceIndex(tools, cwd);
   for (const result of resultsOf(items, {}, cwd, touchedFiles(tools, cwd))) {

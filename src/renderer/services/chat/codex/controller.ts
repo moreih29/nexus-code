@@ -24,6 +24,7 @@ import type { ChatChosen, CodexFork, ProfileMove } from "../../../../shared/type
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
+import { attachFile } from "../attach-folders";
 import type { PermissionAnswer, RewindPreview } from "../claude/controller";
 import type { AssistantItem, ChatLine, ImageBlock, PermissionRequest, UserItem } from "../model";
 import {
@@ -2141,12 +2142,8 @@ export class CodexController {
   }
 
   /** Writes a file attached to a message where the program can read it; its path there. */
-  async attach(name: string, data: string): Promise<string> {
-    const { workspaceId, tabId } = this.target;
-    const result = unwrapIpcResult(
-      await ipcCallResult("chat", "attach", { workspaceId, tabId, name, data }),
-    );
-    return result.path;
+  attach(name: string, data: string): Promise<string> {
+    return attachFile(this.target, name, data);
   }
 
   /** Answers an approval or a question the server asked. */
