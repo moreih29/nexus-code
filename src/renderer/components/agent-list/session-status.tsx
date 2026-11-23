@@ -1,57 +1,27 @@
 import i18next from "i18next";
 import {
-  Circle,
   CircleAlert,
-  CircleCheck,
-  CircleX,
   ListTodo,
-  Loader,
   type LucideIcon,
   MessageCircleQuestion,
   Shield,
-  TriangleAlert,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import { sharedClock, useSharedClock } from "../../hooks/use-now";
 import type { AgentSession } from "../../services/agent-sessions/model";
-import type { RowFacts, RowGroup } from "../../services/agent-sessions/rows";
+import type { RowFacts } from "../../services/agent-sessions/rows";
+import { programStateLabel, type StateLook, stateLook, stateText } from "./state-look";
 
-interface StateLook {
-  Icon: LucideIcon;
-  colorClass: string;
-  spin?: boolean;
-}
-
-function lookOf(state: string): StateLook {
-  switch (state) {
-    case "permissionPending":
-      return { Icon: CircleAlert, colorClass: "text-(--state-warning-fg)" };
-    case "needsInput":
-      return { Icon: MessageCircleQuestion, colorClass: "text-(--tab-claude-attention-fg)" };
-    case "error":
-      return { Icon: TriangleAlert, colorClass: "text-(--state-error-fg)" };
-    case "running":
-    case "busy":
-      return { Icon: Loader, colorClass: "text-emerald-500", spin: true };
-    case "completed":
-      return { Icon: CircleCheck, colorClass: "text-(--tab-claude-attention-fg)" };
-    case "exited":
-      return { Icon: CircleX, colorClass: "text-muted-foreground" };
-    default:
-      return { Icon: Circle, colorClass: "text-muted-foreground" };
-  }
-}
+export { GROUP_STATE, GROUP_TINT } from "./state-look";
 
 export function stateColor(state: string): string {
-  return lookOf(state).colorClass;
+  return stateLook(state).colorClass;
 }
 
 export function stateLabel(session: Pick<AgentSession, "state" | "estimated">): string {
-  const label = i18next.t(`common:agentList.state.${session.state}`, {
-    defaultValue: session.state,
-  });
+  const label = stateText(session.state);
   return session.estimated && session.state !== "exited"
     ? i18next.t("common:agentList.estimated", { label })
     : label;
@@ -62,20 +32,7 @@ export function estimatedLabel(status: string): string {
 }
 
 export function codexStatusLabel(status: ClaudeStatus): string {
-  switch (status) {
-    case "running":
-      return i18next.t("common:codexStatus.running");
-    case "completed":
-      return i18next.t("common:codexStatus.completed");
-    case "needsInput":
-      return i18next.t("common:codexStatus.needsInput");
-    case "permissionPending":
-      return i18next.t("common:codexStatus.permissionPending");
-    case "error":
-      return i18next.t("common:codexStatus.error");
-    case "idle":
-      return i18next.t("common:codexStatus.idle");
-  }
+  return programStateLabel("codex", status);
 }
 
 export function durationLabel(since: number | undefined, now: number): string | null {
@@ -88,6 +45,33 @@ export function durationLabel(since: number | undefined, now: number): string | 
   return i18next.t("common:agentList.duration.days", { count: Math.floor(hours / 24) });
 }
 
+export function LookGlyph({
+  look,
+  still,
+  className,
+}: {
+  look: Pick<StateLook, "Icon" | "colorClass" | "spin" | "pulse">;
+  still?: boolean;
+  className?: string;
+}) {
+  const { Icon, colorClass, spin, pulse } = look;
+  return (
+    <Icon
+      aria-hidden
+      width={12}
+      height={12}
+      strokeWidth={1.5}
+      className={cn(
+        "shrink-0",
+        colorClass,
+        !still && spin && "motion-safe:animate-spin",
+        !still && pulse && "motion-safe:animate-pulse",
+        className,
+      )}
+    />
+  );
+}
+
 export function StateGlyph({
   state,
   still,
@@ -97,17 +81,7 @@ export function StateGlyph({
   still?: boolean;
   className?: string;
 }) {
-  const { Icon, colorClass, spin: spins } = lookOf(state);
-  const spin = spins && !still;
-  return (
-    <Icon
-      aria-hidden
-      width={12}
-      height={12}
-      strokeWidth={1.5}
-      className={cn("shrink-0", colorClass, spin && "motion-safe:animate-spin", className)}
-    />
-  );
+  return <LookGlyph look={stateLook(state)} still={still} className={className} />;
 }
 
 const durationClock = sharedClock(10_000);
@@ -214,17 +188,3 @@ export function AgentBadge({ agent }: { agent: string | undefined }) {
     </span>
   );
 }
-
-export const GROUP_STATE: Record<RowGroup, string> = {
-  attention: "permissionPending",
-  running: "running",
-  done: "completed",
-  idle: "idle",
-};
-
-export const GROUP_TINT: Record<RowGroup, string> = {
-  attention: "text-(--state-warning-fg)",
-  running: "text-emerald-500",
-  done: "text-(--tab-claude-attention-fg)",
-  idle: "text-muted-foreground",
-};

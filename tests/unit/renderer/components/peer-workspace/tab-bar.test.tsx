@@ -79,5 +79,5 @@ test("a session tab tells its state as a local tab does", () => {
   } finally {
     storeView.mockRestore();
   }
-  expect(html).toContain('aria-label="Running"');
+  expect(html).toContain('aria-label="Working"');
 });

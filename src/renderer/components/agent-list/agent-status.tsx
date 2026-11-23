@@ -1,57 +1,20 @@
 import i18next from "i18next";
-import {
-  CircleAlert,
-  CircleCheck,
-  CircleSlash,
-  CircleX,
-  Loader,
-  type LucideIcon,
-} from "lucide-react";
 import { cn } from "@/utils/cn";
 import type { AgentRun, AgentRunState } from "../../../shared/claude/activity";
 import { agentDescription } from "../../services/agent-sessions/agents";
-import { useDurationLabel } from "./session-status";
-
-interface AgentLook {
-  Icon: LucideIcon;
-  colorClass: string;
-  spin?: boolean;
-}
-
-function lookOf(state: AgentRunState): AgentLook {
-  switch (state) {
-    case "running":
-      return { Icon: Loader, colorClass: "text-emerald-500", spin: true };
-    case "permissionPending":
-      return { Icon: CircleAlert, colorClass: "text-(--state-warning-fg)" };
-    case "completed":
-      return { Icon: CircleCheck, colorClass: "text-(--tab-claude-attention-fg)" };
-    case "failed":
-      return { Icon: CircleX, colorClass: "text-(--state-error-fg)" };
-    default:
-      return { Icon: CircleSlash, colorClass: "text-muted-foreground" };
-  }
-}
+import { LookGlyph, useDurationLabel } from "./session-status";
+import { runLook } from "./state-look";
 
 export function agentStateColor(state: AgentRunState): string {
-  return lookOf(state).colorClass;
+  return runLook(state).colorClass;
 }
 
 export function AgentGlyph({ state, className }: { state: AgentRunState; className?: string }) {
-  const { Icon, colorClass, spin } = lookOf(state);
-  return (
-    <Icon
-      aria-hidden
-      width={12}
-      height={12}
-      strokeWidth={1.5}
-      className={cn("shrink-0", colorClass, spin && "motion-safe:animate-spin", className)}
-    />
-  );
+  return <LookGlyph look={runLook(state)} className={className} />;
 }
 
 export function agentStateLabel(state: AgentRunState): string {
-  return i18next.t(`common:agentList.agents.state.${state}`);
+  return i18next.t(runLook(state).labelKey);
 }
 
 export function printLabel(program: AgentRun["program"]): string {

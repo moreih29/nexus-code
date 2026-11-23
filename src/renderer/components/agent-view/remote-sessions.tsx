@@ -76,12 +76,13 @@ import { PlaceTag, type RowPlace, rowShellClass, SessionRowLines } from "../agen
 import {
   FailureLabel,
   HiddenSessionCount,
+  LookGlyph,
   StateGlyph,
   useDurationLabel,
   WaitSign,
 } from "../agent-list/session-status";
 import { FoldChevron } from "../agent-list/session-tree-rows";
-import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
+import { GROUP_STATE, GROUP_TINT, remoteStateLook } from "../agent-list/state-look";
 import { TaskRowLine } from "../agent-list/task-row-line";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { OutdatedLine } from "../settings/panels/remote-outdated";
@@ -1358,7 +1359,7 @@ export function RemoteSessionRow({
   const Icon =
     session.kind === "claude" ? ClaudeIcon : session.kind === "codex" ? CodexIcon : SquareTerminal;
   const selected = where === "shown" || rest["aria-current"] === true;
-  const state = t(`agentView.remote.state.${session.state}`);
+  const state = t(remoteStateLook(session.state).labelKey);
   const message =
     session.waiting?.text ??
     (session.limitWait
@@ -1378,10 +1379,7 @@ export function RemoteSessionRow({
     />
   ) : (
     <span role="img" aria-label={state} title={state} className="inline-flex">
-      <StateGlyph
-        state={session.state === "ended" ? "exited" : GROUP_STATE[group]}
-        className={GROUP_TINT[group]}
-      />
+      <LookGlyph look={remoteStateLook(session.state)} />
     </span>
   );
   if (compact) {
@@ -1515,10 +1513,10 @@ export function RemoteStateGlyph({ target }: { target: Pick<RemoteTarget, "kind"
   return (
     <span
       role="img"
-      aria-label={t(`agentView.remote.state.${state}`)}
+      aria-label={t(remoteStateLook(state).labelKey)}
       className="inline-flex shrink-0"
     >
-      <StateGlyph state={ended ? "exited" : GROUP_STATE[group]} className={GROUP_TINT[group]} />
+      <LookGlyph look={remoteStateLook(state)} />
     </span>
   );
 }
