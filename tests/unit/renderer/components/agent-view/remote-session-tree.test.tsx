@@ -4,7 +4,7 @@ import type { KeyboardEvent, MouseEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
 import type { RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
-import { SessionRelations } from "../../../../../src/renderer/components/agent-list/session-tree-rows";
+import { ParentCaption } from "../../../../../src/renderer/components/agent-list/session-tree-rows";
 import {
   fromSearch,
   StatusGroups,
@@ -528,7 +528,7 @@ test("local workspace rows keep a saved parent closed when the ID has no own tab
           parent: { kind: "tab" as const, workspaceId: workspace.id, tabId },
         },
       };
-      const html = renderToStaticMarkup(<SessionRelations node={node} collapsed={false} />);
+      const html = renderToStaticMarkup(<ParentCaption node={node} />);
       expect(html).toContain("↳ Saved · closed");
       expect(html).toContain("opacity-70");
     }

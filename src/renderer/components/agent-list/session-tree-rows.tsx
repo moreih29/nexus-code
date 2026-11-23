@@ -165,13 +165,11 @@ export function useParentCaption(
   return { label, hint: device || closed ? label : t("agentView.list.parent_hint", { name }) };
 }
 
-export function SessionRelations({
-  node,
-  collapsed,
-}: {
-  node: SessionTreeNode;
-  collapsed: boolean;
-}) {
+/**
+ * A row's parent where the tree does not show it (on another computer,
+ * closed, or too deep), for the row's second line; nothing where it does.
+ */
+export function ParentCaption({ node }: { node: SessionTreeNode }) {
   const { open } = useSessionParent(node.parentClosed ? node.session.parent : undefined);
   const closed = node.parentClosed && !open;
   const parent = useParentCaption(
@@ -179,28 +177,15 @@ export function SessionRelations({
     node.session.parent?.device,
     closed,
   );
-  if (!parent && node.count === 0) return null;
+  if (!parent) return null;
   return (
-    <div className="pointer-events-none relative flex min-w-0 items-center gap-1.5 text-app-micro">
-      {parent && (
-        <span
-          className={cn("min-w-0 truncate text-muted-foreground", closed && "opacity-70")}
-          title={parent.hint}
-          data-testid="agent-list-parent"
-        >
-          {parent.label}
-        </span>
-      )}
-      {node.count > 0 && (
-        <FamilyFold
-          session={node.session}
-          count={node.count}
-          collapsed={collapsed}
-          counts={node.counts}
-          testPrefix="agent-list"
-        />
-      )}
-    </div>
+    <span
+      className={cn("max-w-40 min-w-0 shrink-[2] truncate", closed && "opacity-70")}
+      title={parent.hint}
+      data-testid="agent-list-parent"
+    >
+      {parent.label}
+    </span>
   );
 }
 
@@ -251,7 +236,8 @@ function TreeLine({
 }) {
   if (!indent) return children;
   // The line comes down under the parent's mark (a row's border and padding,
-  // and half the mark: 16px in) and turns to the child's title line.
+  // and half the mark: 16px in) and turns at the middle of the child's title
+  // line (15px down, in a two-line row and in a task card's one-line row).
   return (
     <div className="relative pl-5" data-testid={`${testPrefix}-tree-line`}>
       <span

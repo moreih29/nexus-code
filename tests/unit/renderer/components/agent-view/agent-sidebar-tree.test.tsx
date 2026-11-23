@@ -473,3 +473,61 @@ test("workspace tasks show moved conversations once under their parent and keep 
   ]);
   expect(render(workspaceList("task", "feature/test"))).toContain('aria-label="feature/test"');
 });
+
+test("the workspace view's status rows are two lines, with context, to-dos and subagents in their title", () => {
+  const state = agentView.useAgentViewStore.getInitialState();
+  const viewStore = spyOn(agentView, "useAgentViewStore").mockImplementation((select) =>
+    select({ ...state, order: {}, folded: new Set() }),
+  );
+  const facts = spyOn(rowFacts, "useRowFacts").mockReturnValue({
+    ...NO_FACTS,
+    context: 42,
+    todos: { done: 2, total: 5 },
+    subagents: 1,
+  });
+  try {
+    const html = renderToStaticMarkup(workspaceList("status"));
+    const row = html
+      .split('data-session-key="repo:plan"')[1]
+      ?.split('data-testid="agent-list-row"')[0];
+    expect(row).toContain('title="Release plan · Context 42% · To do 2/5 · Subagents 1"');
+    expect(row).not.toContain("lucide-list-checks");
+    expect(row).not.toContain("lucide-bot");
+    expect(row).not.toContain("42%</span>");
+    // A task's branch is its place; the workspace's own is not told.
+    const child = html
+      .split('data-session-key="task:question"')[1]
+      ?.split('data-testid="agent-list-row"')[0];
+    expect(child).toContain('data-testid="agent-list-branch"');
+    expect(row).not.toContain('data-testid="agent-list-branch"');
+    // A new result's buttons wait under the pointer, in its time's place.
+    const done = html
+      .split('data-session-key="repo:billing"')[1]
+      ?.split('data-testid="agent-list-row"')[0];
+    expect(done).toContain('aria-label="Mark as seen"');
+    expect(done).toMatch(/class="[^"]*\bhidden\b[^"]*group-hover\/row:flex[^"]*"><button/);
+  } finally {
+    viewStore.mockRestore();
+    facts.mockRestore();
+  }
+});
+
+test("a task card's row reads mark, title, branch, children, state and time in one line", () => {
+  const html = render(workspaceList("task"));
+  const rowOf = (key: string) =>
+    html.split(`data-session-key="${key}"`)[1]?.split('data-testid="agent-list-task-row"')[0] ?? "";
+  const plan = rowOf("repo:plan");
+  expect(plan).toContain('data-testid="agent-list-fold-family"');
+  expect(plan.indexOf(">Release plan<")).toBeLessThan(plan.indexOf("agent-list-fold-family"));
+  expect(plan.indexOf("agent-list-fold-family")).toBeLessThan(plan.indexOf('role="img"'));
+  const child = rowOf("task:question");
+  expect(child.indexOf(">Review tests<")).toBeLessThan(
+    child.indexOf('data-testid="agent-list-branch"'),
+  );
+  expect(child.indexOf('data-testid="agent-list-branch"')).toBeLessThan(
+    child.indexOf('role="img"'),
+  );
+  expect(child).toContain('data-wait="question"');
+  // No line of its own for the relations under a row.
+  expect(html).not.toMatch(/<div class="px-3"><div class="pointer-events-none relative flex/);
+});
