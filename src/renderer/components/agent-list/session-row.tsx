@@ -114,10 +114,10 @@ export function SessionRowLines({
   );
 }
 
-export function DeviceTag({ name }: { name: string }) {
+export function DeviceTag({ name, className }: { name: string; className?: string }) {
   return (
     <span
-      className="flex max-w-24 min-w-0 shrink-[2] items-center gap-1"
+      className={cn("flex max-w-24 min-w-0 shrink-[2] items-center gap-1", className)}
       {...tooltipProps(name)}
       data-testid="session-row-device"
     >

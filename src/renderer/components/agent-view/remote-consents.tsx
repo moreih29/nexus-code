@@ -318,11 +318,13 @@ export function RemoteConsentCard({
               className="flex min-w-0 items-center gap-1.5 text-app-micro text-muted-foreground"
               title={sentence}
             >
-              {(from.device || showDevice) && <DeviceTag name={from.device?.name ?? device} />}
+              {(from.device || showDevice) && (
+                <DeviceTag className="shrink-0" name={from.device?.name ?? device} />
+              )}
               {asker && from.device && showDevice ? (
                 <>
                   <span className="min-w-0 truncate">{`${asker} →`}</span>
-                  <DeviceTag name={device} />
+                  <DeviceTag className="shrink-0" name={device} />
                   <span className="min-w-0 truncate">{workspaceName}</span>
                 </>
               ) : (
