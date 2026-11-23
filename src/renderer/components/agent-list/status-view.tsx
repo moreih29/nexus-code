@@ -29,7 +29,12 @@ import {
   type SessionFamily,
 } from "../../services/agent-sessions/model";
 import { plainPreview } from "../../services/agent-sessions/preview";
-import { compareStatusTime, ROW_GROUPS, type RowFacts } from "../../services/agent-sessions/rows";
+import {
+  compareStatusTime,
+  ROW_GROUPS,
+  type RowFacts,
+  type RowGroup,
+} from "../../services/agent-sessions/rows";
 import {
   type SessionTreeNode,
   searchSessionTree,
@@ -122,13 +127,7 @@ export function StatusView({
           if (searching) return null;
           return (
             <section key={group} aria-label={label}>
-              <h3 className="flex items-center gap-1.5 px-2 py-1 text-app-ui-sm text-muted-foreground opacity-60">
-                {/* No fold to open, its chevron's place kept so the groups stay in one column. */}
-                <span aria-hidden className="size-3.5 shrink-0" />
-                <StateGlyph state={GROUP_STATE[group]} still />
-                <span>{label}</span>
-                <span className="tabular-nums">0</span>
-              </h3>
+              <StatusGroupHeading group={group} count={0} folded={false} />
             </section>
           );
         }
@@ -136,38 +135,22 @@ export function StatusView({
         const folded = !searching && folds.has(group);
         return (
           <section key={group} aria-label={label} className="flex flex-col gap-1">
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                aria-expanded={!folded}
-                onClick={() => useUIStore.getState().toggleAgentListGroup(group)}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-(--radius-control) px-2 py-1 text-app-ui-sm font-medium hover:bg-[var(--state-hover-bg)]",
-                  GROUP_TINT[group],
-                )}
-              >
-                <FoldChevron folded={folded} />
-                <StateGlyph state={GROUP_STATE[group]} />
-                <span>{label}</span>
-                <span className="tabular-nums">{rows.length}</span>
-              </button>
-              {group === "done" && (
-                <IconButton
-                  label={t("inbox.mark_read")}
-                  onClick={() =>
-                    markRead(
-                      [...treeSessions(rows)].flatMap((session) => {
-                        const workspace = worktreeOf(session)?.workspace;
-                        return workspace ? [{ workspace, session }] : [];
-                      }),
-                    )
-                  }
-                  data-testid="agent-list-mark-read"
-                >
-                  <CheckCheck aria-hidden className="size-3.5" />
-                </IconButton>
-              )}
-            </div>
+            <StatusGroupHeading
+              group={group}
+              count={rows.length}
+              folded={folded}
+              onMarkRead={
+                group === "done"
+                  ? () =>
+                      markRead(
+                        [...treeSessions(rows)].flatMap((session) => {
+                          const workspace = worktreeOf(session)?.workspace;
+                          return workspace ? [{ workspace, session }] : [];
+                        }),
+                      )
+                  : undefined
+              }
+            />
             {!folded &&
               rows.map((root) => (
                 <SessionTreeBranch
@@ -209,6 +192,65 @@ export function StatusView({
           </section>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * A group's heading in the status view: its state's mark, name and count,
+ * folding the group open or shut, with "mark read" beside the new results'.
+ * A group with none is one dim line, so the groups keep their places. The
+ * agent list of a workspace on another computer heads its groups with it too.
+ */
+export function StatusGroupHeading({
+  group,
+  count,
+  folded,
+  onMarkRead,
+}: {
+  group: RowGroup;
+  count: number;
+  folded: boolean;
+  onMarkRead?: () => void;
+}) {
+  const { t } = useTranslation();
+  const label = t(`agentList.group.${group}`);
+  if (count === 0) {
+    return (
+      <h3 className="flex items-center gap-1.5 px-2 py-1 text-app-ui-sm text-muted-foreground opacity-60">
+        {/* No fold to open, its chevron's place kept so the groups stay in one column. */}
+        <span aria-hidden className="size-3.5 shrink-0" />
+        <StateGlyph state={GROUP_STATE[group]} still />
+        <span>{label}</span>
+        <span className="tabular-nums">0</span>
+      </h3>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        type="button"
+        aria-expanded={!folded}
+        onClick={() => useUIStore.getState().toggleAgentListGroup(group)}
+        className={cn(
+          "flex items-center gap-1.5 rounded-(--radius-control) px-2 py-1 text-app-ui-sm font-medium hover:bg-[var(--state-hover-bg)]",
+          GROUP_TINT[group],
+        )}
+      >
+        <FoldChevron folded={folded} />
+        <StateGlyph state={GROUP_STATE[group]} />
+        <span>{label}</span>
+        <span className="tabular-nums">{count}</span>
+      </button>
+      {onMarkRead && (
+        <IconButton
+          label={t("inbox.mark_read")}
+          onClick={onMarkRead}
+          data-testid="agent-list-mark-read"
+        >
+          <CheckCheck aria-hidden className="size-3.5" />
+        </IconButton>
+      )}
     </div>
   );
 }

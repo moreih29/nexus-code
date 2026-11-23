@@ -425,7 +425,7 @@ test("the agents list distinguishes an unread list from a complete empty list", 
     );
     previous.syncSessions(target, [], false);
     expect(renderToStaticMarkup(<PeerSessionsPanel target={target} peer={peer} />)).toContain(
-      "No sessions",
+      "No conversations",
     );
   } finally {
     storeView.mockRestore();

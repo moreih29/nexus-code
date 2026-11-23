@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { RoomPeer } from "../../../shared/remote/room";
+import type { PeerSessions } from "../../services/remote/room";
 import {
   EMPTY_PEER_VIEW,
   type PeerFilesMode,
@@ -31,6 +32,7 @@ export function PeerFilesPanel({
   gitUpdateNeeded,
   refreshGit,
   sessionHint,
+  listing,
 }: {
   target: PeerWorkspaceTarget;
   peer?: RoomPeer;
@@ -42,6 +44,8 @@ export function PeerFilesPanel({
   gitUpdateNeeded: boolean;
   refreshGit: () => void;
   sessionHint: number;
+  /** What that computer lists of its sessions, for the agent list. */
+  listing?: PeerSessions;
 }) {
   const { t } = useTranslation();
   const id = peerTargetId(target);
@@ -93,7 +97,7 @@ export function PeerFilesPanel({
           )}
           {mode === "agents" && (
             <ErrorBoundary logSource="peer-agent-list-panel">
-              <PeerSessionsPanel target={target} peer={peer} />
+              <PeerSessionsPanel target={target} peer={peer} listing={listing} />
             </ErrorBoundary>
           )}
           <KeptMounted shown={mode === "git"}>

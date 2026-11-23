@@ -2144,7 +2144,6 @@
     "gitOutsideWorkspace": "Outside workspace",
     "gitCommitMissing": "Commit unavailable",
     "gitNoCommits": "No commits",
-    "sessionGone": "Gone",
-    "noSessions": "No sessions"
+    "sessionGone": "Gone"
   }
 }

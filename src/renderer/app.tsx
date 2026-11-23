@@ -335,6 +335,11 @@ export function App() {
                     gitUpdateNeeded={peerGitNeedsUpdate}
                     refreshGit={peers.refreshGit}
                     sessionHint={peers.sessionHint}
+                    listing={
+                      Object.hasOwn(peers.lists, activePeer.deviceId)
+                        ? peers.lists[activePeer.deviceId]
+                        : undefined
+                    }
                   />
                 ) : undefined
               }

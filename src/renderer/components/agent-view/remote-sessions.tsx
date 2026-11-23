@@ -150,7 +150,7 @@ function canReorderSession(session: RemoteSession): boolean {
 
 export { GROUP_OF } from "../../services/agent-view/remote-session-tree";
 
-const FAILURE_SCHEMA = "0.22.0";
+export const FAILURE_SCHEMA = "0.22.0";
 
 /**
  * Whether the list shows a session without being asked: a chat, or a
@@ -1158,7 +1158,7 @@ export function remotePlace(workspace: RemoteWorkspace): RowPlace {
  * closing it. Each runs once the menu has let go of the keyboard, for the
  * dialog it opens to take it.
  */
-function SessionMenu({
+export function SessionMenu({
   onRename,
   onClose,
   children,
