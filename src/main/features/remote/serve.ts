@@ -77,6 +77,7 @@ import {
   peekChat,
   previewChatRewind,
   readChat,
+  readChatRun,
   readEvents,
 } from "./serving/chat-details";
 import { fitsAsResult, tabOf, unavailable, workspaceOf } from "./serving/common";
@@ -144,6 +145,7 @@ export {
   listHistory,
   previewChatRewind,
   readChat,
+  readChatRun,
   readEvents,
   runDetailOf,
   runRowOf,
@@ -165,6 +167,7 @@ const AGENT_READS: ReadonlySet<string> = new Set([
   "sessions.list",
   "chat.read",
   "chat.peek",
+  "chat.runRead",
   "chat.wait",
   "terminal.read",
   "terminal.wait",
@@ -674,6 +677,8 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         return chatRuns(s, request.params as RpcParams<"chat.runs">);
       case "chat.run":
         return chatRun(s, request.params as RpcParams<"chat.run">);
+      case "chat.runRead":
+        return readChatRun(s, request.params as RpcParams<"chat.runRead">, from);
       case "chat.stopRun":
         return stopChatRun(s, request.params as RpcParams<"chat.stopRun">);
       case "chat.rewindPreview":

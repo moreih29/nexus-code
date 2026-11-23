@@ -3,14 +3,18 @@
  * started, as a chat here shows its own beside its subagents (from 0.13.0,
  * chat.runs): read while the chat shows, again every few seconds while one
  * runs and now and then while none does; and one run whole (chat.run) for
- * its pane, read again while it runs. A device before 0.13.0 has none.
+ * its pane, read again while it runs; and its own session as a conversation
+ * (chat.runRead), where that computer tells it. A device before 0.13.0 has
+ * none.
  */
 
-import { useEffect, useMemo, useState } from "react";
-import type { ChatRun } from "../../../../packages/remote-protocol/src";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ChatPage, ChatRun } from "../../../../packages/remote-protocol/src";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { ipcCallResult } from "../../ipc/client";
+import type { ChatModel } from "../chat/model";
 import type { AgentRow } from "../chat/panel";
+import { keepEarlier, modelOfPage, withEarlier } from "./chat-model";
 import type { PeerChatRef } from "./peer-mcp";
 
 /** How often the runs are read while one runs. */
@@ -19,6 +23,8 @@ export const RUNS_LIVE_MS = 2000;
 export const RUNS_IDLE_MS = 10_000;
 /** How often a run's pane reads it again while it runs. */
 export const RUN_LIVE_MS = 1500;
+/** How often its pane reads its session again while it runs. */
+export const RUN_READ_LIVE_MS = 3000;
 
 /** What a run's row is keyed by among the chat's agents, as a chat here keys its runs. */
 const RUN_KEY_PREFIX = "print:";
@@ -152,4 +158,84 @@ export function usePeerRun(ref: PeerChatRef, row: AgentRun, enabled: boolean): A
     };
   }, [deviceId, workspaceId, tabId, runId, enabled, ended]);
   return useMemo(() => (read ? agentRunOf(read) : row), [read, row]);
+}
+
+/** A run's session as its pane shows it, read from the computer that has it. */
+export interface PeerRunConversation {
+  model: ChatModel;
+  older?: { count: number; loading: boolean; load(): void };
+}
+
+/**
+ * One run's own session as a conversation (chat.runRead), for its pane
+ * while `enabled`: its last page, read again while it runs, with the
+ * earlier ones as they are asked for. Null until read, and from a computer
+ * that does not tell it or for a run that keeps none: the pane then shows
+ * what the run told.
+ */
+export function usePeerRunConversation(
+  ref: PeerChatRef,
+  row: AgentRun,
+  enabled: boolean,
+): PeerRunConversation | null {
+  const { deviceId, workspaceId, tabId } = ref;
+  const runId = row.id;
+  const ended = row.end !== undefined;
+  const [page, setPage] = useState<ChatPage | null>(null);
+  const [loading, setLoading] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: another run's read is not this one's
+  useEffect(() => {
+    setPage(null);
+    setLoading(false);
+  }, [deviceId, workspaceId, tabId, runId]);
+  useEffect(() => {
+    if (!enabled) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const ask = async () => {
+      const result = await ipcCallResult("remote", "peerChatRunRead", {
+        deviceId,
+        workspaceId,
+        tabId,
+        runId,
+      });
+      if (!live) return;
+      if (result.ok) {
+        const fresh = result.value;
+        setPage((old) => (old ? keepEarlier(old, fresh) : fresh));
+      } else if (result.kind === "unsupported") {
+        // A computer before chat.runRead: not asked again.
+        return;
+      }
+      // A run tells its session a moment after it starts: asked again while it runs.
+      if (!ended) timer = setTimeout(ask, RUN_READ_LIVE_MS);
+    };
+    void ask();
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [deviceId, workspaceId, tabId, runId, enabled, ended]);
+  const start = page?.start ?? 0;
+  const load = useCallback(() => {
+    if (start <= 0) return;
+    setLoading(true);
+    void ipcCallResult("remote", "peerChatRunRead", {
+      deviceId,
+      workspaceId,
+      tabId,
+      runId,
+      before: start,
+    }).then((result) => {
+      setLoading(false);
+      if (result.ok) setPage((now) => (now ? withEarlier(now, result.value) : now));
+    });
+  }, [deviceId, workspaceId, tabId, runId, start]);
+  return useMemo(() => {
+    if (!page || page.items.length === 0) return null;
+    return {
+      model: modelOfPage(page),
+      ...(page.start > 0 ? { older: { count: page.start, loading, load } } : {}),
+    };
+  }, [page, loading, load]);
 }

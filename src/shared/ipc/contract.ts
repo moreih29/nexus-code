@@ -3011,6 +3011,11 @@ const remoteContracts = {
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.run"].params),
         RPC_METHODS["chat.run"].result,
       ),
+      /** One of those runs as the conversation its own session holds, a page at a time. */
+      peerChatRunRead: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.runRead"].params),
+        RPC_METHODS["chat.runRead"].result,
+      ),
       /** Stops one of those runs. */
       peerChatStopRun: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.stopRun"].params),

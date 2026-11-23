@@ -1780,6 +1780,24 @@ export const RPC_METHODS = {
     result: z.object({ run: ChatRunSchema }),
   },
   /**
+   * One of the chat's runs as the conversation its own session holds, a
+   * page as chat.read gives one of the chat: the run's last `limit` items,
+   * or those before `before`. Only a run of that chat's; NotFound for any
+   * other, and for a run that keeps no session to read (chat.run still
+   * tells what it told the app).
+   */
+  "chat.runRead": {
+    capability: "chat.read",
+    params: z.object({
+      ...TabRef,
+      runId: z.string().max(200),
+      before: NonnegativeIntegerSchema.optional(),
+      limit: PositiveIntegerSchema.check(z.lte(MAX_READ_ITEMS)).optional(),
+      ...ReadBy,
+    }),
+    result: ChatPageSchema,
+  },
+  /**
    * Stops one of the chat's running runs, as its pane's stop button does:
    * `stopped` false when it no longer could be. Since 0.13.0.
    */

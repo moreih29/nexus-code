@@ -385,6 +385,49 @@ export async function chatRun(
   return { run: runDetailOf(run) };
 }
 
+/**
+ * A page of one of the chat's runs, read from the run's own session: as
+ * readChat gives one of the chat, with the same checks of who asks and the
+ * same fitting in a frame. The run is found among that chat's only, as the
+ * app recorded them; where its session is kept is main's to know.
+ */
+export async function readChatRun(
+  services: CliServices,
+  { workspaceId, tabId, runId, before, limit }: RpcParams<"chat.runRead">,
+  from?: string,
+): Promise<RpcResult<"chat.runRead">> {
+  const budget = new ReadBudget(services, "chat.runRead", from, 12_000);
+  try {
+    await tabOf(services, workspaceId, tabId, ["claude", "codex"], budget);
+    const run = services.claudeAgents
+      .list(workspaceId, tabId)
+      .find((agent) => agent.kind === "print" && agent.id === runId);
+    if (!run) throw new RpcFailure(RpcErrorCode.NotFound, `no run ${runId}: it is not kept`);
+    let count = limit ?? DEFAULT_READ_ITEMS;
+    for (;;) {
+      const page = await budget
+        .ui(
+          "chat.runPage",
+          { workspaceId, tabId, runId, ...(before !== undefined ? { before } : {}), limit: count },
+          budget.remaining(),
+        )
+        .catch(unavailable);
+      if (!page) {
+        throw new RpcFailure(RpcErrorCode.NotFound, `run ${runId} keeps no session to read`);
+      }
+      if (fitsAsResult(page)) return page;
+      if (page.items.length <= 1) {
+        const fitted = fitPage(page);
+        if (fitted) return fitted;
+        throw new RpcFailure(RpcErrorCode.Unavailable, "that part of the run is too large to send");
+      }
+      count = Math.max(1, Math.floor(page.items.length / 2));
+    }
+  } finally {
+    budget.report();
+  }
+}
+
 /** Whether rewinding to before a user message can restore files. */
 export async function previewChatRewind(
   services: CliServices,

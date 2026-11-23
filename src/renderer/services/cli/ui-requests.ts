@@ -203,6 +203,7 @@ export const READ_ONLY_OPS: ReadonlySet<string> = new Set<CliUiOp>([
   "chat.read",
   "chat.page",
   "chat.peek",
+  "chat.runPage",
   "layout.get",
   "panels.get",
   "agentView.get",

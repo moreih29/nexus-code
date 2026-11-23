@@ -96,6 +96,7 @@ import {
   tabWithSession,
 } from "../remote/history";
 import { cliProfileName } from "../remote/profile-name";
+import { runPageOf } from "../remote/run-page";
 import { type ChatSettingsPlan, chatChoicesOf, planChatSettings } from "./chat-settings";
 import {
   type ChatTabExtras,
@@ -728,6 +729,13 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     if (target.agent !== "claude") return read();
     // A subagent that ended opens on the device from the page it read: with its messages.
     return pageWithSubagents(read, (ids) => readSubagents(target, ids));
+  },
+
+  "chat.runPage": async ({ workspaceId, tabId, runId, before, limit }) => {
+    if (!agentTabController(workspaceId, tabId)) {
+      throw new UiRequestError("that tab is not a Claude or Codex tab");
+    }
+    return runPageOf(workspaceId, tabId, runId, { before, limit });
   },
 
   "chat.watch": async ({ workspaceId, tabId, watchId, limit, appends }) => {
