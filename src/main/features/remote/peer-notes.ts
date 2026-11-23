@@ -3,7 +3,10 @@ import {
   type RpcParams,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
-import { cliTranscriptMarkdown } from "../../../shared/notes/transcript";
+import {
+  type CliTranscriptRecording,
+  cliTranscriptMarkdown,
+} from "../../../shared/notes/transcript";
 import { speaks } from "../../../shared/remote/room";
 import type { RemoteRoom } from "./room";
 
@@ -17,7 +20,10 @@ export type AskNotes = <M extends NoteMethod>(
 ) => Promise<RpcResult<M>>;
 
 type NoteTranscript = RpcResult<"notes.transcript">;
-type WholeRecording = Omit<NoteTranscript["recordings"][number], "start" | "total">;
+type WholeRecording = Omit<
+  NoteTranscript["recordings"][number],
+  "start" | "total" | "base" | "revision"
+>;
 
 type ReadParams = Omit<
   RpcParams<"notes.read">,
@@ -47,15 +53,16 @@ function wholeRecording(
   workspaceId: string,
   note: string,
   recording: string,
-): Promise<{ id: string; title: string; recording: WholeRecording }> {
+): Promise<{ id: string; title: string; recording: WholeRecording; revision?: string }> {
   return again(async () => {
     const first = await ask("notes.transcript", { workspaceId, note, recording, start: 0 });
     const head = first.recordings[0];
     if (!head) throw new Error(`no recording ${recording} in the answer`);
-    const { start: _start, total, ...rest } = head;
+    const { start: _start, total, base: _base, revision, ...rest } = head;
     const lines = [...rest.lines];
     const seen = new Set(lines.map((line) => line.id));
     let last = total;
+    let held = revision;
     while (lines.length < (last ?? lines.length)) {
       const page = await ask("notes.transcript", {
         workspaceId,
@@ -64,19 +71,25 @@ function wholeRecording(
         start: lines.length,
       });
       const got = page.recordings[0];
-      if (!got?.lines.length) break;
+      if (!got) throw new Error(`no recording ${recording} in the answer`);
       if (
         got.start !== lines.length ||
         (got.total !== undefined && last !== undefined && got.total < last) ||
+        (got.base !== undefined && held !== undefined && got.base !== held) ||
         got.lines.some((line) => seen.has(line.id))
       ) {
+        throw new ChangedWhileRead();
+      }
+      if (!got.lines.length) {
+        if (got.total === undefined || got.total <= lines.length) break;
         throw new ChangedWhileRead();
       }
       for (const line of got.lines) seen.add(line.id);
       lines.push(...got.lines);
       last = got.total;
+      held = got.revision;
     }
-    return { id: first.id, title: first.title, recording: { ...rest, lines } };
+    return { id: first.id, title: first.title, recording: { ...rest, lines }, revision: held };
   }, "the recording");
 }
 
@@ -127,12 +140,27 @@ export async function readWholeNote(
   const { transcriptOnly, ...rest } = params;
   const note = await noteBody(ask, rest, !transcriptOnly);
   let recordings = note.recordings ?? [];
-  const read = [];
+  const read: (CliTranscriptRecording & { id: string })[] = [];
+  const revisions: (string | undefined)[] = [];
   for (const info of recordings) {
-    const { recording } = await wholeRecording(ask, params.workspaceId, note.id, info.id);
-    read.push({ id: info.id, startedAt: info.startedAt, ms: info.ms, lines: recording.lines });
+    const whole = await wholeRecording(ask, params.workspaceId, note.id, info.id);
+    read.push({
+      id: info.id,
+      startedAt: info.startedAt,
+      ms: info.ms,
+      lines: whole.recording.lines,
+    });
+    revisions.push(whole.revision);
   }
-  if (read.some((rec, i) => rec.lines.length !== recordings[i]?.lines)) {
+  const stale = (i: number) => {
+    const info = recordings[i];
+    const revision = revisions[i];
+    return (
+      read[i]?.lines.length !== info?.lines ||
+      (revision !== undefined && info?.revision !== undefined && revision !== info.revision)
+    );
+  };
+  if (read.some((_rec, i) => stale(i))) {
     const fresh = await noteBody(ask, { ...rest, note: note.id }, false);
     recordings = recordings.map(
       (info) => fresh.recordings?.find((now) => now.id === info.id) ?? info,

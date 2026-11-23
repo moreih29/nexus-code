@@ -83,7 +83,9 @@ function olderAnswer(method: string, result: unknown): unknown {
     const answer = result as { recordings: Record<string, unknown>[] };
     return {
       ...answer,
-      recordings: answer.recordings.map(({ start: _start, total: _total, ...rest }) => rest),
+      recordings: answer.recordings.map(
+        ({ start: _start, total: _total, base: _base, revision: _revision, ...rest }) => rest,
+      ),
     };
   }
   return result;

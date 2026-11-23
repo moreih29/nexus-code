@@ -19,6 +19,7 @@ import {
   MAX_SESSION_AGENTS,
   MAX_UPLOAD_BYTES,
   NOTE_PAGES_SCHEMA,
+  NoteRecordingInfoSchema,
   olderConnection,
   PUSH_VERSION,
   PushPayloadSchema,
@@ -1204,6 +1205,34 @@ test("a host drops note keys it does not know, so 0.31.0 keys go only to 0.31.0 
     RPC_METHODS["notes.list"].result.parse({ notes: [{ id: "n", title: "", updatedAt: 1 }] })
       .notes[0],
   ).not.toHaveProperty("recordings");
+});
+
+test("a transcript's revisions come where a 0.33.0 host sends them and drop alone when bad", () => {
+  const recording = { id: "r", startedAt: 1, participants: "auto", lines: [] };
+  const transcript = RPC_METHODS["notes.transcript"].result;
+  expect(
+    transcript.parse({
+      id: "n",
+      title: "",
+      recordings: [{ ...recording, start: 0, total: 0, base: "aa", revision: "bb" }],
+    }).recordings[0],
+  ).toMatchObject({ base: "aa", revision: "bb" });
+  const odd = transcript.parse({
+    id: "n",
+    title: "",
+    recordings: [{ ...recording, base: "x".repeat(65), revision: 7 }],
+  }).recordings[0];
+  expect(odd).toEqual(recording);
+  expect(transcript.parse({ id: "n", title: "", recordings: [recording] }).recordings[0]).toEqual(
+    recording,
+  );
+  const info = { id: "r", startedAt: 1, ms: 0, lines: 0, participants: 2 };
+  expect(NoteRecordingInfoSchema.parse({ ...info, revision: "cc" })).toEqual({
+    ...info,
+    revision: "cc",
+  });
+  expect(NoteRecordingInfoSchema.parse({ ...info, revision: "" })).toEqual(info);
+  expect(NoteRecordingInfoSchema.parse(info)).toEqual(info);
 });
 
 test("peer view changes take a declared action and validated arguments", () => {

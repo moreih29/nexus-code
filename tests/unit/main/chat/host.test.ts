@@ -2200,6 +2200,31 @@ describe("launch preparation", () => {
     expect(reader.env.CODEX_HOME).toBe(READER_HOME);
   });
 
+  test("a reader of a run in a Codex tab whose profile was removed since uses the default profile", async () => {
+    const work: AgentProfile = {
+      id: "codex-work",
+      agent: "codex",
+      name: "Work",
+      color: "green",
+      dir: "",
+      env: { PATH: "/profile/work/bin", PROFILE_ONLY: "work" },
+    };
+    const profiles = [apiKeyProfile("codex"), work];
+    const { host, starts, searches } = launchSetup(profiles, undefined);
+    expect(await host.startCodex(WS, TAB, "/repo", { profileId: work.id })).toMatchObject({
+      ok: true,
+    });
+    profiles.splice(profiles.indexOf(work), 1);
+    expect(await host.startPrintRunReader(WS, TAB, RUN)).toMatchObject({ ok: true });
+    expect(searches().map(({ searchPath }) => searchPath)).toEqual([
+      "/profile/work/bin",
+      "/profile/codex/bin",
+    ]);
+    const reader = starts()[1];
+    expect(reader.env.PROFILE_ONLY).toBe("codex");
+    expect(reader.env.CODEX_HOME).toBe(READER_HOME);
+  });
+
   test("a missing or wrong-agent profile stops each path with the same message", async () => {
     const wrongCodexDefault: AgentProfile = { ...apiKeyProfile("claude"), id: "codex-default" };
     const { host, channel } = launchSetup([wrongCodexDefault], "test-key");
