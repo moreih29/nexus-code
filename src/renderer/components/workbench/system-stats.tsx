@@ -15,6 +15,7 @@ import { cn } from "@/utils/cn";
 import type { SystemStats } from "../../../shared/system/stats";
 import {
   cpuLabel,
+  drawableStats,
   hostLabel,
   memoryLabel,
   memoryParts,
@@ -115,10 +116,12 @@ export function SystemStatsItem({
   stats: SystemStats;
   /** Whose numbers, first in the tooltip; this computer's when null. */
   host: string | null;
-}): React.JSX.Element {
+}): React.JSX.Element | null {
+  const drawn = drawableStats(stats);
+  if (!drawn) return null;
   return (
     <StatsLine
-      stats={stats}
+      stats={drawn}
       host={host}
       className="h-full gap-2 px-2 text-app-ui-sm font-sans leading-none"
     />
@@ -127,7 +130,8 @@ export function SystemStatsItem({
 
 /** The agent view's sidebar foot: this machine. */
 export function SystemStatsFooter(): React.JSX.Element | null {
-  const stats = useSystemStats(undefined, true);
+  const read = useSystemStats(undefined, true);
+  const stats = read && drawableStats(read);
   if (!stats) return null;
   return (
     <StatsLine
