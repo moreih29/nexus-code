@@ -13,6 +13,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 import type { Plugin } from "vite";
 import svgr from "vite-plugin-svgr";
+import { withoutAmdCheck } from "./scripts/no-amd";
 
 const NATIVE_EXTERNALS = ["node-pty", "better-sqlite3", "onnxruntime-node"];
 
@@ -153,14 +154,6 @@ function excalidrawManualChunks(): (id: string) => string | undefined {
   const entry = staticImports(resolve(dist, "index.js"));
   const shared = new Set([...worker].filter((file) => entry.has(file)).map(modulePath));
   return (id) => (shared.has(modulePath(id)) ? EXCALIDRAW_SHARED_CHUNK : undefined);
-}
-
-const AMD_CHECK = /\bdefine\.amd\b(?!\s*=(?!=))/g;
-
-function withoutAmdCheck(code: string): string | null {
-  if (!code.includes("define.amd")) return null;
-  const out = code.replace(AMD_CHECK, "false");
-  return out === code ? null : out;
 }
 
 function noAmdPlugin(): Plugin {
