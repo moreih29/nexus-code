@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
+import { tooltipProps } from "../../../ui/tooltip";
 import { FileIcon } from "../../file-tree/file-icon";
 import {
   type GitDecorationKind,
@@ -93,8 +94,7 @@ export function GitTreeRow(props: GitTreeRowProps) {
               variant="ghost"
               size="icon-sm"
               className="size-6"
-              aria-label={t("git.fileRow.stageFolder", { name: displayName })}
-              title={t("git.fileRow.stageFolder", { name: displayName })}
+              tooltip={t("git.fileRow.stageFolder", { name: displayName })}
               onClick={(event) => {
                 event.stopPropagation();
                 onStagePaths();
@@ -109,8 +109,7 @@ export function GitTreeRow(props: GitTreeRowProps) {
               variant="ghost"
               size="icon-sm"
               className="size-6"
-              aria-label={t("git.fileRow.unstageFolder", { name: displayName })}
-              title={t("git.fileRow.unstageFolder", { name: displayName })}
+              tooltip={t("git.fileRow.unstageFolder", { name: displayName })}
               onClick={(event) => {
                 event.stopPropagation();
                 onUnstagePaths();
@@ -125,8 +124,7 @@ export function GitTreeRow(props: GitTreeRowProps) {
               variant="ghost"
               size="icon-sm"
               className="size-6 opacity-50 transition-opacity hover:opacity-100 git-destructive-text"
-              aria-label={t("git.fileRow.discardFolder", { name: displayName })}
-              title={t("git.fileRow.discardFolder", { name: displayName })}
+              tooltip={t("git.fileRow.discardFolder", { name: displayName })}
               onClick={(event) => {
                 event.stopPropagation();
                 onDiscardPaths();
@@ -142,7 +140,7 @@ export function GitTreeRow(props: GitTreeRowProps) {
             style={{ color: kindToColorVar(decoration) }}
             role="img"
             aria-label={`Git ${t(`git.decorations.${decoration}`)}`}
-            title={t(`git.decorations.${decoration}`)}
+            {...tooltipProps(t(`git.decorations.${decoration}`))}
           >
             {kindToLetter(decoration)}
           </span>

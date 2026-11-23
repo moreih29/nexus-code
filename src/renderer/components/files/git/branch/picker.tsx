@@ -1,17 +1,12 @@
 import i18next from "i18next";
-import { AlertDialog as RadixAlertDialog } from "radix-ui";
 import type React from "react";
-import type { Dispatch, SetStateAction } from "react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useGitStore } from "../../../../state/stores/git";
 import { classifyGitError } from "../../../../utils/error-classification";
-import { Button } from "../../../ui/button";
-import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../../../ui/dialog";
-import { DialogHeader } from "../../../ui/dialog-header";
+import { showConfirmDialog } from "../../../ui/confirm-dialog";
 import { CommandPalette } from "../../../ui/palette/command-palette";
 import { PromptDialog, type PromptRequest } from "../../../ui/prompt-dialog";
-import { useDialogFocusReturn } from "../../../ui/use-dialog-focus-return";
 import {
   type BranchPickerSourceMode,
   type BranchPickItem,
@@ -52,7 +47,6 @@ export function BranchPicker({
   const renameBranch = useGitStore((state) => state.renameBranch);
   const setUpstream = useGitStore((state) => state.setUpstream);
   const inFlightKind = useGitStore((state) => state.sessions.get(workspaceId)?.inFlightOp?.kind);
-  const [deleteRequest, setDeleteRequest] = useState<BranchDeleteRequest | null>(null);
   const [promptRequest, setPromptRequest] = useState<BranchPromptRequest | null>(null);
   const normalizedMode = normalizeBranchPickerMode(mode);
 
@@ -77,7 +71,13 @@ export function BranchPicker({
         requestDelete: (item) => {
           if (normalizedMode === "select-ref" || normalizedMode === "rename") return;
           const request = branchDeleteRequestFromItem(item);
-          if (request) setDeleteRequest(request);
+          if (!request) return;
+          void confirmBranchDelete(request, {
+            workspaceId,
+            deleteBranch,
+            deleteRemoteBranch,
+            confirm: showBranchDeleteConfirm,
+          });
         },
         requestRename: (item) => {
           if (normalizedMode === "select-ref" || normalizedMode.startsWith("delete-")) return;
@@ -121,6 +121,8 @@ export function BranchPicker({
       checkout,
       checkoutTracking,
       createBranch,
+      deleteBranch,
+      deleteRemoteBranch,
       title,
       placeholder,
       normalizedMode,
@@ -137,19 +139,6 @@ export function BranchPicker({
         source={source}
         onClose={onClose}
         footer={footerText}
-      />
-      <BranchDeleteConfirmDialog
-        request={deleteRequest}
-        busy={inFlightKind === "deleteBranch" || inFlightKind === "deleteRemoteBranch"}
-        onCancel={() => setDeleteRequest(null)}
-        onConfirm={(request) => {
-          void confirmBranchDelete(request, {
-            workspaceId,
-            deleteBranch,
-            deleteRemoteBranch,
-            setDeleteRequest,
-          });
-        }}
       />
       <PromptDialog
         request={promptRequest?.prompt ?? null}
@@ -190,7 +179,7 @@ export interface ConfirmDeleteDeps {
   workspaceId: string;
   deleteBranch: (workspaceId: string, name: string, force?: boolean) => Promise<void>;
   deleteRemoteBranch: (workspaceId: string, remote: string, name: string) => Promise<void>;
-  setDeleteRequest: Dispatch<SetStateAction<BranchDeleteRequest | null>>;
+  confirm: (request: BranchDeleteRequest) => Promise<boolean>;
 }
 
 function defaultFooterForMode(mode: Exclude<BranchPickerMode, "checkout">): string {
@@ -226,86 +215,32 @@ export async function confirmBranchDelete(
   request: BranchDeleteRequest,
   deps: ConfirmDeleteDeps,
 ): Promise<void> {
+  if (!(await deps.confirm(request))) return;
   try {
     if (request.kind === "remote") {
       await deps.deleteRemoteBranch(deps.workspaceId, request.remote, request.name);
     } else {
       await deps.deleteBranch(deps.workspaceId, request.name, request.force);
     }
-    deps.setDeleteRequest(null);
   } catch (error) {
     const gitError = classifyGitError(error);
     if (request.kind === "local" && gitError.kind === "branch-not-fully-merged" && !request.force) {
-      deps.setDeleteRequest({
-        ...request,
-        force: true,
-      });
-      return;
+      await confirmBranchDelete({ ...request, force: true }, deps);
     }
-    deps.setDeleteRequest(null);
   }
 }
 
-function BranchDeleteConfirmDialog({
-  request,
-  busy,
-  onCancel,
-  onConfirm,
-}: {
-  request: BranchDeleteRequest | null;
-  busy?: boolean;
-  onCancel: () => void;
-  onConfirm: (request: BranchDeleteRequest) => void;
-}) {
-  const { t } = useTranslation("files");
+function showBranchDeleteConfirm(request: BranchDeleteRequest): Promise<boolean> {
   const view = buildBranchDeleteDialogView(request);
-  const confirmDisabled = busy;
-  const returnFocus = useDialogFocusReturn(request !== null);
-
-  return (
-    <RadixAlertDialog.Root
-      open={request !== null}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen) onCancel();
-      }}
-    >
-      <RadixAlertDialog.Portal>
-        <RadixAlertDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
-        <RadixAlertDialog.Content
-          className={dialogContentClass("md", true)}
-          onCloseAutoFocus={returnFocus}
-        >
-          <DialogHeader
-            alert
-            title={view.title}
-            description={view.description.map((line, index) => (
-              <span key={line} className={index === 0 ? "block" : "mt-2 block"}>
-                {line}
-              </span>
-            ))}
-          />
-          <div className="mt-5 flex justify-end gap-2">
-            <RadixAlertDialog.Cancel asChild>
-              <Button type="button" variant="ghost" size="sm" autoFocus disabled={busy}>
-                {t("git.branch.picker.deleteConfirm.cancel")}
-              </Button>
-            </RadixAlertDialog.Cancel>
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              disabled={confirmDisabled}
-              onClick={() => {
-                if (request) onConfirm(request);
-              }}
-            >
-              {view.confirmLabel}
-            </Button>
-          </div>
-        </RadixAlertDialog.Content>
-      </RadixAlertDialog.Portal>
-    </RadixAlertDialog.Root>
-  );
+  const [description, ...rest] = view.description;
+  return showConfirmDialog({
+    title: view.title,
+    description,
+    hint: rest.length > 0 ? rest.join("\n") : undefined,
+    cancelLabel: i18next.t("files:git.branch.picker.deleteConfirm.cancel"),
+    confirmLabel: view.confirmLabel,
+    variant: "destructive",
+  });
 }
 
 export interface BranchDeleteDialogView {

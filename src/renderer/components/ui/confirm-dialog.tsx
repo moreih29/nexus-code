@@ -11,6 +11,7 @@ export interface ConfirmDialogRequest {
   title: string;
   description: string;
   hint?: string;
+  details?: readonly string[];
   cancelLabel?: string;
   confirmLabel?: string;
   variant?: "default" | "destructive";
@@ -117,6 +118,15 @@ export function ConfirmDialogRoot(): React.JSX.Element {
         description={active?.description}
         descriptionClassName={CONFIRM_TEXT_CLASS}
       />
+      {active?.details && active.details.length > 0 && (
+        <ul className="mt-3 max-h-40 overflow-y-auto rounded-(--radius-control) border border-border px-2 py-1 font-mono text-app-ui-sm text-muted-foreground">
+          {active.details.map((line) => (
+            <li key={line} className="truncate" title={line}>
+              {line}
+            </li>
+          ))}
+        </ul>
+      )}
       {active?.hint && (
         <p className={`mt-3 ${CONFIRM_TEXT_CLASS} text-app-ui-sm text-muted-foreground`}>
           {active.hint}

@@ -1,5 +1,5 @@
 import { ExternalLink } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { type SitePage, siteUrl } from "../../../../shared/site";
@@ -9,9 +9,9 @@ import { installUpdate } from "../../../services/updates/operations";
 import { updateCheckFailedMessage } from "../../../services/updates/update-check-failure";
 import { showReleaseNotes } from "../../../state/operations/release-notes";
 import { useUpdatesStore } from "../../../state/stores/updates";
-import { copyTextViaIpc } from "../../../utils/clipboard";
 import { formatBytes } from "../../../utils/format-bytes";
 import { Button } from "../../ui/button";
+import { CopyButton } from "../../ui/copy-button";
 import { SettingsGroup, SettingsPage, SettingsRow, SettingsSwitch } from "../section";
 
 const APP_NAME = "NexusCode";
@@ -148,27 +148,12 @@ function SiteLinks() {
   );
 }
 
-const COPIED_MS = 2000;
-
 function LogActions() {
   const { t } = useTranslation("settings");
-  const [copied, setCopied] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
-      if (timer.current !== null) clearTimeout(timer.current);
-    },
-    [],
-  );
-
-  const copyPath = useCallback(async () => {
+  const logsPath = async (): Promise<string | null> => {
     const result = await ipcCallResult("system", "logsPath", undefined);
-    if (!result.ok) return;
-    if (!(await copyTextViaIpc(result.value.path))) return;
-    setCopied(true);
-    if (timer.current !== null) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setCopied(false), COPIED_MS);
-  }, []);
+    return result.ok ? result.value.path : null;
+  };
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -180,14 +165,15 @@ function LogActions() {
       >
         {t("about.logs.open")}
       </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => void copyPath()}
+      <CopyButton
+        variant="text"
+        viaIpc
+        ms={2000}
+        text={logsPath}
+        label={t("about.logs.copyPath")}
+        copiedLabel={t("about.logs.copied")}
         data-testid="about-copy-logs-path"
-      >
-        {copied ? t("about.logs.copied") : t("about.logs.copyPath")}
-      </Button>
+      />
     </div>
   );
 }

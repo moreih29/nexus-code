@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { tooltipProps } from "../../../ui/tooltip";
 
 interface GitStatusBadgeProps {
   code: string;
@@ -47,7 +48,7 @@ export function GitStatusBadge({ code }: GitStatusBadgeProps) {
       )}
       role="img"
       aria-label={label}
-      title={label}
+      {...tooltipProps(label)}
     >
       {code.slice(0, 1)}
     </span>

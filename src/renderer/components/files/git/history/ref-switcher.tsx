@@ -55,8 +55,7 @@ export function HistoryRefSwitcher({
           size="icon-sm"
           className="size-7"
           disabled={disabled}
-          aria-label={t("git.history.refSwitcher.refresh")}
-          title={t("git.history.refSwitcher.refresh")}
+          tooltip={t("git.history.refSwitcher.refresh")}
           onClick={onRefresh}
         >
           <RefreshCw className="size-3.5" aria-hidden="true" />

@@ -11,9 +11,9 @@ import {
 import { lookupPath } from "../../services/chat/file-presence";
 import { readWorkspaceRange } from "../../services/editor/preview/read-range";
 import { peerOf } from "../../services/remote/peer-workspace";
-import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
+import { useCopied } from "../ui/copy-button";
 import { useChatLinks } from "./chat-links";
 
 const HEAD_BYTES = 8 * 1024;
@@ -137,12 +137,7 @@ export function ArtifactCard({
   const { t } = useTranslation();
   const links = useChatLinks();
   const name = useArtifactName(page, workspaceId, rootPath);
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(timer);
-  }, [copied]);
+  const { copied, copy } = useCopied();
   const { url } = page;
   const preview = () => links?.openFile(page.file);
   return (
@@ -191,13 +186,7 @@ export function ArtifactCard({
             </CardButton>
           )}
           {url && (
-            <CardButton
-              onClick={() => {
-                copyText(url);
-                setCopied(true);
-              }}
-              title={url}
-            >
+            <CardButton onClick={() => void copy(url)} title={url}>
               {copied ? <Check className="size-3.5" /> : <Link className="size-3.5" />}
               {copied ? t("chat.artifact.copied") : t("chat.artifact.copy")}
             </CardButton>

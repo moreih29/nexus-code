@@ -153,8 +153,7 @@ export const GitFileRow = memo(function GitFileRow({ groupKey, entry, actions }:
                 variant="ghost"
                 size="icon-sm"
                 className="size-6"
-                aria-label={t("git.fileRow.markResolved", { path: entry.relPath })}
-                title={t("git.fileRow.markResolved", { path: entry.relPath })}
+                tooltip={t("git.fileRow.markResolved", { path: entry.relPath })}
                 onClick={onMarkResolved}
               >
                 <Check className="size-3.5" aria-hidden="true" />
@@ -166,8 +165,7 @@ export const GitFileRow = memo(function GitFileRow({ groupKey, entry, actions }:
               variant="ghost"
               size="icon-sm"
               className="size-6"
-              aria-label={toggleLabel}
-              title={toggleLabel}
+              tooltip={toggleLabel}
               onClick={toggleStage}
             >
               {groupKey === "staged" ? (
@@ -182,8 +180,7 @@ export const GitFileRow = memo(function GitFileRow({ groupKey, entry, actions }:
             variant="ghost"
             size="icon-sm"
             className="size-6 opacity-50 transition-opacity hover:opacity-100 git-destructive-text"
-            aria-label={t("git.fileRow.discardChanges")}
-            title={t("git.fileRow.discardChanges")}
+            tooltip={t("git.fileRow.discardChanges")}
             onClick={onDiscard}
           >
             <Trash2 className="size-3.5" aria-hidden="true" />

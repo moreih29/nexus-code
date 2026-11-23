@@ -90,8 +90,7 @@ export function AgentsPanel({ workspace }: { workspace: WorkspaceMeta }) {
             size="icon-sm"
             variant="outline"
             className="@max-[200px]/agents:w-7"
-            title={t("task.new")}
-            aria-label={t("task.new")}
+            tooltip={t("task.new")}
             onClick={() => newTask(rootId)}
           >
             <GitBranchPlus aria-hidden className="size-3.5" />
@@ -179,8 +178,7 @@ function NewChat({ workspace }: { workspace: WorkspaceMeta }) {
       <Button
         size="icon-sm"
         className="w-auto gap-1 rounded-r-none px-2 @max-[200px]/agents:px-1.5"
-        title={title}
-        aria-label={title}
+        tooltip={title}
         onClick={() => open(agent)}
         data-testid="agent-list-new-chat"
         data-agent={agent}
@@ -194,8 +192,7 @@ function NewChat({ workspace }: { workspace: WorkspaceMeta }) {
           <Button
             size="icon-sm"
             className="w-6 rounded-l-none border-l border-primary-foreground/25"
-            aria-label={t("agentList.list.new_chat")}
-            title={t("agentList.list.new_chat")}
+            tooltip={t("agentList.list.new_chat")}
           >
             <ChevronDown aria-hidden className="size-3.5" />
           </Button>

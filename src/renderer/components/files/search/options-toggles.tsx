@@ -34,7 +34,7 @@ export function SearchOptionsToggles({
         size="icon-sm"
         aria-label={t("search.options.matchCase")}
         aria-pressed={options.isCaseSensitive}
-        title={t("search.options.matchCaseTooltip")}
+        tooltip={t("search.options.matchCaseTooltip")}
         className={cn("shrink-0", options.isCaseSensitive && TOGGLE_ON_CLASS)}
         onClick={() => onToggle("isCaseSensitive")}
       >
@@ -46,7 +46,7 @@ export function SearchOptionsToggles({
         size="icon-sm"
         aria-label={t("search.options.matchWholeWord")}
         aria-pressed={options.isWordMatch}
-        title={t("search.options.matchWholeWordTooltip")}
+        tooltip={t("search.options.matchWholeWordTooltip")}
         className={cn("shrink-0", options.isWordMatch && TOGGLE_ON_CLASS)}
         onClick={() => onToggle("isWordMatch")}
       >
@@ -58,7 +58,7 @@ export function SearchOptionsToggles({
         size="icon-sm"
         aria-label={t("search.options.useRegex")}
         aria-pressed={options.isRegExp}
-        title={t("search.options.useRegexTooltip")}
+        tooltip={t("search.options.useRegexTooltip")}
         className={cn("shrink-0", options.isRegExp && TOGGLE_ON_CLASS)}
         onClick={() => onToggle("isRegExp")}
       >

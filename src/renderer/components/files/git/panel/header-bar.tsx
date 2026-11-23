@@ -42,8 +42,7 @@ export function GitHeaderBar({
           variant="ghost"
           size="icon-sm"
           className="size-7"
-          aria-label={t("git.panel.header.refresh")}
-          title={t("git.panel.header.refresh")}
+          tooltip={t("git.panel.header.refresh")}
           disabled={disabled || refreshing}
           onClick={onRefresh}
         >
@@ -61,10 +60,7 @@ export function GitHeaderBar({
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label={
-              hasAnyExpanded ? t("git.panel.header.collapseAll") : t("git.panel.header.expandAll")
-            }
-            title={
+            tooltip={
               hasAnyExpanded ? t("git.panel.header.collapseAll") : t("git.panel.header.expandAll")
             }
             disabled={disabled || !hasChanges}
