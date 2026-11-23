@@ -160,6 +160,26 @@ describe("a chat's side panel", () => {
     ]);
   });
 
+  test("a changed file keeps the spelling its first change named where it differs (0.34.0)", () => {
+    const unc = call(
+      "unc",
+      "Edit",
+      { file_path: "\\\\server\\share\\x.ts" },
+      { result: { text: "", isError: false, images: [], structured: {} } },
+    );
+    const again = call(
+      "again",
+      "Edit",
+      { file_path: "//server/share/x.ts" },
+      { result: { text: "", isError: false, images: [], structured: {} } },
+    );
+    const panel = chatPanelOf(source({ tools: { ...tools, unc, again } }));
+    expect(panel.changedFiles).toEqual([
+      { path: "/p/a.ts", added: 1, removed: 2 },
+      { path: "//server/share/x.ts", rawPath: "\\\\server\\share\\x.ts", added: 0, removed: 0 },
+    ]);
+  });
+
   test("an ended goal's checks, the last that ended it too", () => {
     const panel = chatPanelOf(
       source({

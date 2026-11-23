@@ -293,6 +293,7 @@ export const ChatPanelSchema = z.object({
   changedFiles: z.array(
     z.object({
       path: z.string(),
+      rawPath: z.string().optional().catch(undefined),
       added: NonnegativeIntegerSchema.optional(),
       removed: NonnegativeIntegerSchema.optional(),
       created: z.boolean().optional(),
