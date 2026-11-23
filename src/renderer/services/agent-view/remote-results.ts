@@ -13,6 +13,7 @@ import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useAppFocusStore } from "../../state/stores/app-focus";
 import {
   observePeerSessions,
+  peerRejoins,
   peerServes,
   refreshPeerSessions,
   useRemoteRoom,
@@ -590,7 +591,7 @@ export function useRemotePaneSeen(
   const peer = room?.peers.find((p) => p.id === deviceId);
   const hostReceipts = peerServes(peer, RECEIPTS);
   const online = room?.status === "online" && peer?.online === true;
-  const rejoin = peer?.rejoins ?? 0;
+  const rejoin = peerRejoins(peer);
   useEffect(() => {
     if (accountKey !== null && hostReceipts && online && visible)
       return receiptsFor(accountKey).watch(deviceId, rejoin);
@@ -682,7 +683,7 @@ export function useRemoteResults(
   useAgentViewStore((state) => state.remoteSeen);
   useSyncExternalStore(results.subscribe, results.snapshot, results.snapshot);
   const connections = JSON.stringify(
-    peers.map((peer) => [peer.id, peer.rejoins ?? 0, peerServes(peer, RECEIPTS)]),
+    peers.map((peer) => [peer.id, peerRejoins(peer), peerServes(peer, RECEIPTS)]),
   );
   useEffect(() => {
     if (!shown) return;

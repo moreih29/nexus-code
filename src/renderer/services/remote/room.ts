@@ -50,9 +50,8 @@ export function usePeerTypes(deviceId: string): boolean {
   return serves?.includes("terminal.control") ?? false;
 }
 
-export function usePeerRejoins(deviceId: string): number {
-  const room = useRemoteRoom();
-  return room?.peers.find((p) => p.id === deviceId)?.rejoins ?? 0;
+export function peerRejoins(peer: RoomPeer | undefined): number {
+  return peer?.rejoins ?? 0;
 }
 
 export function peerServes(peer: RoomPeer | undefined, capability: string): boolean {
@@ -292,7 +291,7 @@ export function usePeerSessions(
     room?.status === "online"
       ? room.peers
           .filter((peer) => peer.online && deviceIds.includes(peer.id))
-          .map((peer) => [peer.id, peer.rejoins ?? 0])
+          .map((peer) => [peer.id, peerRejoins(peer)])
       : [],
   );
   useEffect(() => {

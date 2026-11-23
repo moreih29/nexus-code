@@ -11,6 +11,7 @@ import {
   type RemoteImageRef,
   remoteImageKey,
 } from "../chat/model";
+import { peerRejoins } from "./room";
 
 interface ReadAccess {
   id: number;
@@ -391,7 +392,7 @@ function reset(peer: WatchedPeer, connection: string | null, reads: string | nul
 function updatePeer(id: string, watcher: WatchedPeer, refresh = false) {
   const peer = room?.status === "online" ? room.peers.find((p) => p.id === id) : undefined;
   const serves = peer?.serves?.slice().sort();
-  const connection = peer?.online ? JSON.stringify([peer.rejoins ?? 0, peer.schema, serves]) : null;
+  const connection = peer?.online ? JSON.stringify([peerRejoins(peer), peer.schema, serves]) : null;
   const allowed = serves?.filter((method) => method === "chat.read" || method === "files");
   const reads = peer ? JSON.stringify(allowed ?? ["chat.read", "files"]) : null;
   if (

@@ -3,7 +3,7 @@ import { type IpcResult, ipcErr } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/renderer";
 import { ipcListen } from "../../ipc/client";
 import type { ListenArg } from "../../ipc/types";
-import { useRemoteRoom } from "./room";
+import { peerRejoins, useRemoteRoom } from "./room";
 
 const log = createLogger("peer-watch");
 
@@ -74,7 +74,7 @@ export function usePeerOnline(deviceId: string): PeerOnline {
   const peer = room?.peers.find((p) => p.id === deviceId);
   return {
     online: room?.status === "online" && peer?.online === true,
-    rejoins: peer?.rejoins ?? 0,
+    rejoins: peerRejoins(peer),
   };
 }
 

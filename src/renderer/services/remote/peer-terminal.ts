@@ -4,7 +4,7 @@ import { createLogger } from "../../../shared/log/renderer";
 import type { RoomState } from "../../../shared/remote/room";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 import { holdPeerWatch, usePeerWatch } from "./peer-watch";
-import { PEER_READ_MS, type PeerRead } from "./room";
+import { PEER_READ_MS, type PeerRead, peerRejoins } from "./room";
 import { TerminalTyping } from "./terminal-typing";
 import { applyTextChange } from "./terminal-watch";
 
@@ -30,7 +30,7 @@ export function watchPeerTerminalTyping(
     const peer = room.peers.find(({ id }) => id === target.deviceId);
     const next =
       room.status === "online" && peer?.online && peer.serves?.includes("terminal.control")
-        ? (peer.rejoins ?? 0)
+        ? peerRejoins(peer)
         : undefined;
     if (next === connection) return;
 
