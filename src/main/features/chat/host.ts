@@ -225,6 +225,7 @@ export class ChatHost {
     string,
     { launch: string; sessionId?: string; digest: string | null }
   >();
+  private readonly codexProfiles = new Map<string, string>();
   private readonly promptFiles = new Map<string, string>();
   private readonly promptStarting = new Set<string>();
   private readonly closingTabs = new Map<string, Promise<unknown>>();
@@ -417,6 +418,7 @@ export class ChatHost {
     });
     if (!launch.ok) return launch;
     const { key, intent, channel, profile, windows, apiKey, profileEnv, path, version } = launch;
+    this.codexProfiles.set(key, profile.id);
     const { workspaceManager } = this.options;
     try {
       await this.closingTabs.get(key);
@@ -466,7 +468,7 @@ export class ChatHost {
     workspaceId: string,
     tabId: string,
     cwd: string,
-    options: { profileId?: string; home?: string; probeVersion?: boolean },
+    options: { profileId?: string; home?: string; probeVersion?: boolean; connection?: boolean },
   ): Promise<PreparedLaunch> {
     let profile: AgentProfile;
     try {
@@ -481,15 +483,17 @@ export class ChatHost {
     let apiKey: string | undefined;
     let profileEnv: Record<string, string>;
     try {
-      apiKey = await this.profileConnectionKey(profile);
-      if (profile.connection?.method === "api-key" && !apiKey) {
-        throw new Error(missingApiKeyMessage());
+      if (options.connection !== false) {
+        apiKey = await this.profileConnectionKey(profile);
+        if (profile.connection?.method === "api-key" && !apiKey) {
+          throw new Error(missingApiKeyMessage());
+        }
       }
       profileEnv = await this.profileEnv(
         channel,
         profile,
         windows,
-        launchConnectionEnv(profile, apiKey),
+        options.connection === false ? {} : launchConnectionEnv(profile, apiKey),
       );
     } catch (error) {
       return { ok: false, reason: "failed", message: (error as Error).message };
@@ -566,6 +570,7 @@ export class ChatHost {
     if (previous && !intent && !removal) return previous;
     this.tabIntents.delete(key);
     this.claudeInstructions.delete(key);
+    this.codexProfiles.delete(key);
     this.claudeInstructionUpdates.delete(key);
     const close = async () => {
       await this.removePromptFile(key);
@@ -1029,8 +1034,10 @@ export class ChatHost {
     const cwd = source.cwd ?? source.home;
     try {
       const launch = await this.prepareLaunch("codex", workspaceId, readerTabId, cwd, {
+        profileId: this.codexProfiles.get(`${workspaceId}:${tabId}`),
         home: source.home,
         probeVersion: false,
+        connection: false,
       });
       if (!launch.ok && launch.reason === "not-found") {
         this.tabIntents.delete(`${workspaceId}:${readerTabId}`);

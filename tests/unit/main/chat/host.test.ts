@@ -2125,7 +2125,7 @@ describe("launch preparation", () => {
     };
   }
 
-  test("Claude, Codex and a run's reader start from the same profile, key and PATH", async () => {
+  test("Claude, Codex and a run's reader start from the same profile and PATH, only tabs with the key", async () => {
     const { host, channel, starts, searches } = launchSetup(
       [apiKeyProfile("claude"), apiKeyProfile("codex")],
       "test-key",
@@ -2153,27 +2153,51 @@ describe("launch preparation", () => {
     expect(claude.env.ANTHROPIC_API_KEY === "test-key").toBe(true);
     const codexKeyEnv = Object.keys(codex.env).filter((name) => codex.env[name] === "test-key");
     expect(codexKeyEnv.length).toBe(1);
-    expect(codexKeyEnv.every((name) => reader.env[name] === "test-key")).toBe(true);
+    expect(codexKeyEnv.some((name) => name in reader.env)).toBe(false);
     expect(reader.env.CODEX_HOME).toBe(READER_HOME);
     expect(codex.env).not.toHaveProperty("CODEX_HOME");
     const versionProbes = channel.calls.filter(({ method }) => method === "chat.exec");
     expect(versionProbes.length).toBe(2);
   });
 
-  test("a missing API key stops all three the same way, before any program is looked for", async () => {
-    const { host, channel } = launchSetup(
+  test("a missing API key stops Claude and Codex the same way, and a reader, which only reads, starts", async () => {
+    const { host, channel, starts } = launchSetup(
       [apiKeyProfile("claude"), apiKeyProfile("codex")],
       undefined,
     );
     const claude = await host.start(WS, TAB, "/repo", {});
     const codex = await host.startCodex(WS, TAB, "/repo", {});
-    const reader = await host.startPrintRunReader(WS, TAB, RUN);
     expect(claude).toMatchObject({ ok: false, reason: "failed" });
     expect(codex).toEqual(claude);
-    expect(reader).toEqual(claude);
     expect(
       channel.calls.some(({ method }) => method === "lsp.findBinary" || method === "chat.start"),
     ).toBe(false);
+    expect(await host.startPrintRunReader(WS, TAB, RUN)).toMatchObject({ ok: true });
+    expect(starts().map(({ env }) => env.CODEX_HOME)).toEqual([READER_HOME]);
+  });
+
+  test("a reader of a run in a Codex tab on another profile uses that profile and the run's home", async () => {
+    const work: AgentProfile = {
+      id: "codex-work",
+      agent: "codex",
+      name: "Work",
+      color: "green",
+      dir: "",
+      env: { PATH: "/profile/work/bin", PROFILE_ONLY: "work" },
+    };
+    const { host, starts, searches } = launchSetup([apiKeyProfile("codex"), work], undefined);
+    expect(await host.startCodex(WS, TAB, "/repo", { profileId: work.id })).toMatchObject({
+      ok: true,
+    });
+    expect(await host.startPrintRunReader(WS, TAB, RUN)).toMatchObject({ ok: true });
+    expect(searches().map(({ searchPath }) => searchPath)).toEqual([
+      "/profile/work/bin",
+      "/profile/work/bin",
+    ]);
+    const reader = starts()[1];
+    expect(reader.env.PROFILE_ONLY).toBe("work");
+    expect(reader.env.PATH).toBe("/profile/work/bin");
+    expect(reader.env.CODEX_HOME).toBe(READER_HOME);
   });
 
   test("a missing or wrong-agent profile stops each path with the same message", async () => {
