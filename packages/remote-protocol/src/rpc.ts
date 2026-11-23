@@ -410,12 +410,15 @@ export const MAX_TRANSCRIPT_LINES = 1000;
 
 export const MAX_NOTE_MARKDOWN_PAGE = 262_144;
 
+const TranscriptRevisionSchema = z.string().min(1).max(64).optional().catch(undefined);
+
 export const NoteRecordingInfoSchema = z.object({
   id: z.string(),
   startedAt: NumberSchema,
   ms: NonnegativeNumberSchema,
   lines: NonnegativeIntegerSchema,
   participants: z.union([z.literal("auto"), z.literal("7+"), PositiveIntegerSchema]),
+  revision: TranscriptRevisionSchema,
 });
 export type NoteRecordingInfo = z.infer<typeof NoteRecordingInfoSchema>;
 
@@ -1623,6 +1626,8 @@ export const RPC_METHODS = {
           participants: z.union([z.literal("auto"), z.literal("7+"), PositiveIntegerSchema]),
           start: NonnegativeIntegerSchema.optional(),
           total: NonnegativeIntegerSchema.optional(),
+          base: TranscriptRevisionSchema,
+          revision: TranscriptRevisionSchema,
           lines: z.array(
             z.object({
               id: z.string(),

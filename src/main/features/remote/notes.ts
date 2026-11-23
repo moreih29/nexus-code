@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   MAX_ATTACHMENT_BYTES,
   MAX_LISTED_NOTES,
@@ -123,13 +124,26 @@ export function boundedNoteResult<T>(
   return result;
 }
 
+type WireLine = ReturnType<typeof transcriptLinesForCli>[number];
+
+function transcriptRevision(
+  participants: NoteRecordingInfo["participants"],
+  lines: readonly WireLine[],
+): string {
+  const hash = createHash("sha256").update(JSON.stringify(participants));
+  for (const line of lines) hash.update(`\n${JSON.stringify(line)}`);
+  return hash.digest("hex").slice(0, 16);
+}
+
 function recordingInfo(recording: TranscriptRecording): NoteRecordingInfo {
+  const participants = recording.participantCount ?? "auto";
   return {
     id: recording.id,
     startedAt: recording.startedAt,
     ms: recordingMs(recording),
     lines: recording.lines.length,
-    participants: recording.participantCount ?? "auto",
+    participants,
+    revision: transcriptRevision(participants, transcriptLinesForCli(recording)),
   };
 }
 
@@ -245,6 +259,7 @@ type TranscriptPage = RpcResult<"notes.transcript">["recordings"][number];
 function fittedPage(
   head: Omit<RpcResult<"notes.transcript">, "recordings">,
   page: TranscriptPage,
+  revisionAfter: (count: number) => string,
 ): TranscriptPage {
   const fits = (count: number) =>
     fitsAsResult({ ...head, recordings: [{ ...page, lines: page.lines.slice(0, count) }] });
@@ -262,7 +277,7 @@ function fittedPage(
       "a line of the transcript is too large to send; read it on that computer",
     );
   }
-  return { ...page, lines: page.lines.slice(0, low) };
+  return { ...page, lines: page.lines.slice(0, low), revision: revisionAfter(low) };
 }
 
 export async function noteTranscript(
@@ -290,21 +305,33 @@ export async function noteTranscript(
             "recording",
           ),
         ];
-  const pages = chosen.map((rec): TranscriptPage => {
+  const pages = chosen.map((rec) => {
     const lines = transcriptLinesForCli(rec);
+    const participants = rec.participantCount ?? "auto";
     const from = paged ? Math.min(start ?? 0, lines.length) : 0;
-    return {
+    const sent = paged ? lines.slice(from, from + (limit ?? MAX_TRANSCRIPT_LINES)) : lines;
+    const revisionAfter = (count: number) =>
+      transcriptRevision(participants, lines.slice(0, from + count));
+    const page: TranscriptPage = {
       id: rec.id,
       startedAt: rec.startedAt,
-      participants: rec.participantCount ?? "auto",
+      participants,
       start: from,
       total: lines.length,
-      lines: paged ? lines.slice(from, from + (limit ?? MAX_TRANSCRIPT_LINES)) : lines,
+      base: revisionAfter(0),
+      revision: revisionAfter(sent.length),
+      lines: sent,
     };
+    return { page, revisionAfter };
   });
   const head = { id, title };
-  if (paged) return { ...head, recordings: pages.map((page) => fittedPage(head, page)) };
-  const result = { ...head, recordings: pages };
+  if (paged) {
+    return {
+      ...head,
+      recordings: pages.map(({ page, revisionAfter }) => fittedPage(head, page, revisionAfter)),
+    };
+  }
+  const result = { ...head, recordings: pages.map(({ page }) => page) };
   if (!fitsAsResult(result)) {
     throw new RpcFailure(
       RpcErrorCode.Unavailable,

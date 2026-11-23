@@ -22,13 +22,18 @@ import {
   transcriptMarkdown,
 } from "../../../../../src/shared/notes/transcript";
 
-function recording(id: string, count: number, text = (i: number) => `line ${i}`) {
+function recording(
+  id: string,
+  count: number,
+  text = (i: number) => `line ${i}`,
+  speakers: Record<string, string> = { s1: "Ada" },
+) {
   return {
     id,
     startedAt: 1_700_000_000_000,
     language: "en",
     takes: [],
-    speakers: { s1: "Ada" },
+    speakers,
     speakerNumbers: { s1: "1", s2: "2" },
     lines: Array.from({ length: count }, (_, i) => ({
       speaker: i % 3 === 2 ? "s2" : "s1",
@@ -96,10 +101,26 @@ describe("notes.read", () => {
     expect(body.transcript).toBe("");
     expect(body.markdown).toBe(whole.markdown);
     expect(body.markdown).toContain("Body text");
+    const transcript = await noteTranscript(s, { workspaceId: "w1", note: "nabcdef1" });
     expect(body.recordings).toEqual([
-      { id: "rabcdef1234", startedAt: 1_700_000_000_000, ms: 40_900, lines: 5, participants: 2 },
-      { id: "rabcdef5678", startedAt: 1_700_000_000_000, ms: 10_900, lines: 2, participants: 2 },
+      {
+        id: "rabcdef1234",
+        startedAt: 1_700_000_000_000,
+        ms: 40_900,
+        lines: 5,
+        participants: 2,
+        revision: transcript.recordings[0]?.revision,
+      },
+      {
+        id: "rabcdef5678",
+        startedAt: 1_700_000_000_000,
+        ms: 10_900,
+        lines: 2,
+        participants: 2,
+        revision: transcript.recordings[1]?.revision,
+      },
     ]);
+    expect(body.recordings?.[0]?.revision).toMatch(/^[0-9a-f]{16}$/);
     expect(whole.recordings).toEqual(body.recordings);
     expect(RPC_METHODS["notes.read"].result.parse(body)).toEqual(body);
   });
@@ -267,6 +288,45 @@ describe("notes.transcript", () => {
       if (texts.length >= (got?.total ?? 0)) break;
     }
     expect(texts).toEqual(huge.recordings[0]?.lines.map((line) => line.text));
+  });
+
+  test("each page names the lines before it and through it, so pages chain into the whole", async () => {
+    const info = await readNote(servicesWith(huge), {
+      workspaceId: "w1",
+      note: "nabcdef1",
+      withoutTranscript: true,
+    });
+    const first = await ask(huge, { recording: "rabcdef1234", start: 0 });
+    let held = first.recordings[0]?.revision;
+    let read = first.recordings[0]?.lines.length ?? 0;
+    while (read < (first.recordings[0]?.total ?? 0)) {
+      const page = await ask(huge, { recording: "rabcdef1234", start: read });
+      const got = page.recordings[0];
+      expect(got?.lines.length).toBeLessThan(MAX_TRANSCRIPT_LINES);
+      expect(got?.base).toBe(held);
+      expect(got?.revision).not.toBe(held);
+      held = got?.revision;
+      read += got?.lines.length ?? 0;
+    }
+    expect(held).toBe(info.recordings?.[0]?.revision);
+  });
+
+  test("a renamed speaker or an edited line changes the revision; more lines keep the base", async () => {
+    const one = (file: TranscriptFile, start: number) =>
+      ask(file, { recording: "rabcdef1234", start, limit: 2 }).then((r) => r.recordings[0]);
+    const before = await one(small, 0);
+    const renamed = await one(
+      { version: 1, recordings: [recording("rabcdef1234", 5, undefined, { s1: "Grace" })] },
+      2,
+    );
+    const edited = await one(
+      { version: 1, recordings: [recording("rabcdef1234", 5, (i) => (i ? `line ${i}` : "hi"))] },
+      2,
+    );
+    const grown = await one({ version: 1, recordings: [recording("rabcdef1234", 9)] }, 2);
+    expect(grown?.base).toBe(before?.revision);
+    expect(renamed?.base).not.toBe(before?.revision);
+    expect(edited?.base).not.toBe(before?.revision);
   });
 
   test("limit is bounded by the protocol", () => {
@@ -469,6 +529,52 @@ describe("a note that changes while another computer reads it in pages", () => {
           method === "notes.transcript" && (params as { start: number }).start === 0,
       ),
     ).toHaveLength(1);
+  });
+
+  test("a speaker renamed or a line edited between pages starts that recording again", async () => {
+    const before: TranscriptFile = { version: 1, recordings: [recording("rabcdef1234", 2500)] };
+    const changes: TranscriptFile[] = [
+      {
+        version: 1,
+        recordings: [recording("rabcdef1234", 2500, undefined, { s1: "Grace" })],
+      },
+      {
+        version: 1,
+        recordings: [recording("rabcdef1234", 2500, (i) => (i === 7 ? "fixed" : `line ${i}`))],
+      },
+    ];
+    for (const after of changes) {
+      const r = live(before, doc);
+      r.hooks.after = (call, method) => {
+        if (method === "notes.transcript" && call === 2) r.state.file = after;
+      };
+      const note = await readWholePeerNote(r.room, "d2", { workspaceId: "w1", note: "nabcdef1" });
+      expect(note.transcript).toBe(transcriptMarkdown(after, "Standup"));
+      expect(note.transcript).not.toBe(transcriptMarkdown(before, "Standup"));
+      const transcriptStarts = r.request.mock.calls.filter(
+        ([, method, params]) =>
+          method === "notes.transcript" && (params as { start: number }).start === 0,
+      );
+      expect(transcriptStarts).toHaveLength(2);
+    }
+  });
+
+  test("a host that names no revision is read as before", async () => {
+    const before: TranscriptFile = { version: 1, recordings: [recording("rabcdef1234", 2500)] };
+    const r = live(before, doc);
+    const answer = r.request.getMockImplementation();
+    r.request.mockImplementation(async (to, method, params) => {
+      const result = (await answer?.(to, method, params)) as {
+        recordings?: Record<string, unknown>[];
+      };
+      return {
+        ...result,
+        recordings: result.recordings?.map(({ base: _base, revision: _revision, ...rest }) => rest),
+      };
+    });
+    const note = await readWholePeerNote(r.room, "d2", { workspaceId: "w1", note: "nabcdef1" });
+    expect(note.transcript).toBe(transcriptMarkdown(before, "Standup"));
+    expect(note.recordings?.[0]?.revision).toBeUndefined();
   });
 
   test("a transcript that shrinks below the lines already read is read again, not cut", async () => {
