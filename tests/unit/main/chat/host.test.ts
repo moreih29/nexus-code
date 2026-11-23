@@ -2075,3 +2075,152 @@ describe("attached files", () => {
     ).rejects.toThrow("chat.touchAttachments failed");
   });
 });
+
+describe("launch preparation", () => {
+  const RUN = "run-1";
+  const READER_HOME = "/home/u/.codex-run";
+
+  function launchSetup(profiles: AgentProfile[], key: string | undefined) {
+    let channel: FakeChannel | undefined;
+    const made = setup(
+      {
+        peekAgentChannel: async () => channel ?? null,
+        getWrapperBinDir: () => null,
+      },
+      undefined,
+      undefined,
+      (id) => profiles.find((profile) => profile.id === id) ?? null,
+      {
+        connectionKey: async () => key,
+        printRunSource: () => ({
+          program: "codex",
+          running: false,
+          sessionId: "th-1",
+          home: READER_HOME,
+          cwd: "/repo",
+        }),
+      },
+    );
+    channel = made.channel;
+    const starts = () =>
+      made.channel.calls
+        .filter(({ method }) => method === "chat.start")
+        .map(({ params }) => params as { program: string; env: Record<string, string> });
+    const searches = () =>
+      made.channel.calls
+        .filter(({ method }) => method === "lsp.findBinary")
+        .map(({ params }) => params as { name: string; dir: string; searchPath?: string });
+    return { ...made, starts, searches };
+  }
+
+  function apiKeyProfile(agent: "claude" | "codex"): AgentProfile {
+    return {
+      id: `${agent}-default`,
+      agent,
+      name: "",
+      color: "blue",
+      dir: "",
+      env: { PATH: `/profile/${agent}/bin`, PROFILE_ONLY: agent },
+      connection: { method: "api-key" },
+    };
+  }
+
+  test("Claude, Codex and a run's reader start from the same profile and PATH, only tabs with the key", async () => {
+    const { host, channel, starts, searches } = launchSetup(
+      [apiKeyProfile("claude"), apiKeyProfile("codex")],
+      "test-key",
+    );
+    channel.found = { path: "/found/agent", envPath: "/found/bin" };
+    expect(await host.start(WS, TAB, "/repo", {})).toMatchObject({ ok: true });
+    expect(await host.startCodex(WS, TAB, "/repo", {})).toMatchObject({ ok: true });
+    expect(await host.startPrintRunReader(WS, TAB, RUN)).toMatchObject({ ok: true });
+
+    expect(searches()).toEqual([
+      { name: "claude", dir: "/repo", searchPath: "/profile/claude/bin" },
+      { name: "codex", dir: "/repo", searchPath: "/profile/codex/bin" },
+      { name: "codex", dir: "/repo", searchPath: "/profile/codex/bin" },
+    ]);
+    const [claude, codex, reader] = starts();
+    for (const [agent, start] of [
+      ["claude", claude],
+      ["codex", codex],
+      ["codex", reader],
+    ] as const) {
+      expect(start.program).toBe("/found/agent");
+      expect(start.env.PATH).toBe(`/profile/${agent}/bin`);
+      expect(start.env.PROFILE_ONLY).toBe(agent);
+    }
+    expect(claude.env.ANTHROPIC_API_KEY === "test-key").toBe(true);
+    const codexKeyEnv = Object.keys(codex.env).filter((name) => codex.env[name] === "test-key");
+    expect(codexKeyEnv.length).toBe(1);
+    expect(codexKeyEnv.some((name) => name in reader.env)).toBe(false);
+    expect(reader.env.CODEX_HOME).toBe(READER_HOME);
+    expect(codex.env).not.toHaveProperty("CODEX_HOME");
+    const versionProbes = channel.calls.filter(({ method }) => method === "chat.exec");
+    expect(versionProbes.length).toBe(2);
+  });
+
+  test("a missing API key stops Claude and Codex the same way, and a reader, which only reads, starts", async () => {
+    const { host, channel, starts } = launchSetup(
+      [apiKeyProfile("claude"), apiKeyProfile("codex")],
+      undefined,
+    );
+    const claude = await host.start(WS, TAB, "/repo", {});
+    const codex = await host.startCodex(WS, TAB, "/repo", {});
+    expect(claude).toMatchObject({ ok: false, reason: "failed" });
+    expect(codex).toEqual(claude);
+    expect(
+      channel.calls.some(({ method }) => method === "lsp.findBinary" || method === "chat.start"),
+    ).toBe(false);
+    expect(await host.startPrintRunReader(WS, TAB, RUN)).toMatchObject({ ok: true });
+    expect(starts().map(({ env }) => env.CODEX_HOME)).toEqual([READER_HOME]);
+  });
+
+  test("a reader of a run in a Codex tab on another profile uses that profile and the run's home", async () => {
+    const work: AgentProfile = {
+      id: "codex-work",
+      agent: "codex",
+      name: "Work",
+      color: "green",
+      dir: "",
+      env: { PATH: "/profile/work/bin", PROFILE_ONLY: "work" },
+    };
+    const { host, starts, searches } = launchSetup([apiKeyProfile("codex"), work], undefined);
+    expect(await host.startCodex(WS, TAB, "/repo", { profileId: work.id })).toMatchObject({
+      ok: true,
+    });
+    expect(await host.startPrintRunReader(WS, TAB, RUN)).toMatchObject({ ok: true });
+    expect(searches().map(({ searchPath }) => searchPath)).toEqual([
+      "/profile/work/bin",
+      "/profile/work/bin",
+    ]);
+    const reader = starts()[1];
+    expect(reader.env.PROFILE_ONLY).toBe("work");
+    expect(reader.env.PATH).toBe("/profile/work/bin");
+    expect(reader.env.CODEX_HOME).toBe(READER_HOME);
+  });
+
+  test("a missing or wrong-agent profile stops each path with the same message", async () => {
+    const wrongCodexDefault: AgentProfile = { ...apiKeyProfile("claude"), id: "codex-default" };
+    const { host, channel } = launchSetup([wrongCodexDefault], "test-key");
+    const claude = await host.start(WS, TAB, "/repo", {}, "missing");
+    const codex = await host.startCodex(WS, TAB, "/repo", { profileId: "missing" });
+    expect(claude).toEqual({
+      ok: false,
+      reason: "failed",
+      message: "Profile missing was not found",
+    });
+    expect(codex).toEqual(claude);
+
+    await host.start(WS, TAB, "/repo", {}, "claude-default");
+    channel.calls.length = 0;
+    const wrong = {
+      ok: false,
+      reason: "failed",
+      message: "Profile codex-default does not belong to codex",
+    };
+    expect(await host.startCodex(WS, TAB, "/repo", {})).toEqual(wrong);
+    expect(await host.startPrintRunReader(WS, TAB, RUN)).toEqual(wrong);
+    expect(channel.calls.some(({ method }) => method === "chat.start")).toBe(false);
+  });
+});
