@@ -16,6 +16,7 @@ import {
 } from "../../../../shared/notes/transcript";
 import type { NoteAsset, NoteContent, NoteSummary } from "../../../../shared/notes/types";
 import { noteMarkdown } from "../../notes/store";
+import { type AskNotes, readWholeNote, readWholeTranscript } from "../../remote/peer-notes";
 import { CliUsageError, exactArgs, type ParsedArgs } from "../args";
 import { type CliContext, CliError, mayChange, pick, resolveWorkspace } from "../context";
 import { ago, oneLine, table } from "../format";
@@ -69,6 +70,10 @@ async function findNote(
     "note",
   );
   return ctx.services.notes.read(workspaceId, found.id);
+}
+
+function askNotes(ctx: CliContext, device: Parameters<typeof askPeerCli>[1]): AskNotes {
+  return (method, params) => askPeerCli(ctx, device, method, params);
 }
 
 async function notePeer(ctx: CliContext, flags: ParsedArgs["flags"]) {
@@ -143,11 +148,15 @@ const read: CliCommand = {
     const [selector] = exactArgs(positionals, "note") as [string];
     const peer = await notePeer(ctx, flags);
     if (peer) {
-      const note = await askPeerCli(ctx, peer.device, "notes.read", {
-        workspaceId: peer.workspace.id,
-        note: selector,
-        transcriptOnly: flags.transcript === true,
-      });
+      const { recordings: _recordings, ...note } = await readWholeNote(
+        askNotes(ctx, peer.device),
+        peer.device.schema,
+        {
+          workspaceId: peer.workspace.id,
+          note: selector,
+          transcriptOnly: flags.transcript === true,
+        },
+      );
       const text =
         flags.transcript === true
           ? note.transcript || `${named(note)} has no recordings.`
@@ -202,7 +211,7 @@ const noteTranscript: CliCommand = {
     const recordingId = typeof flags.recording === "string" ? flags.recording : undefined;
     const peer = await notePeer(ctx, flags);
     if (peer) {
-      const note = await askPeerCli(ctx, peer.device, "notes.transcript", {
+      const note = await readWholeTranscript(askNotes(ctx, peer.device), peer.device.schema, {
         workspaceId: peer.workspace.id,
         note: selector,
         recording: recordingId,
