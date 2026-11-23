@@ -403,6 +403,12 @@ export async function readChatRun(
       .list(workspaceId, tabId)
       .find((agent) => agent.kind === "print" && agent.id === runId);
     if (!run) throw new RpcFailure(RpcErrorCode.NotFound, `no run ${runId}: it is not kept`);
+    // A run that goes on and keeps a session may have none to read yet (its
+    // file not written, its thread not told, its host reconnecting): that is
+    // to ask again, not that there is none.
+    const mayCome =
+      run.end === undefined &&
+      (services.claudeAgents.keepsSession?.(workspaceId, tabId, runId) ?? false);
     let count = limit ?? DEFAULT_READ_ITEMS;
     for (;;) {
       const page = await budget
@@ -413,6 +419,9 @@ export async function readChatRun(
         )
         .catch(unavailable);
       if (!page) {
+        if (mayCome) {
+          throw new RpcFailure(RpcErrorCode.Unavailable, `run ${runId} has no session to read yet`);
+        }
         throw new RpcFailure(RpcErrorCode.NotFound, `run ${runId} keeps no session to read`);
       }
       if (fitsAsResult(page)) return page;

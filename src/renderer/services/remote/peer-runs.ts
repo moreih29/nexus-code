@@ -25,6 +25,8 @@ export const RUNS_IDLE_MS = 10_000;
 export const RUN_LIVE_MS = 1500;
 /** How often its pane reads its session again while it runs. */
 export const RUN_READ_LIVE_MS = 3000;
+/** How often a run that computer said it has no session of is asked for again while it runs. */
+export const RUN_READ_SLOW_MS = 15_000;
 
 /** What a run's row is keyed by among the chat's agents, as a chat here keys its runs. */
 const RUN_KEY_PREFIX = "print:";
@@ -161,15 +163,17 @@ export function usePeerRun(ref: PeerChatRef, row: AgentRun, enabled: boolean): A
 }
 
 /**
- * Whether a run's session is asked for again after an ask that ended with
- * `failure` (null: it was read). While it runs, after a read, and after an
- * ask that only did not arrive. Not after one that computer refused or does
- * not know (no such run or session there, not allowed, no such method): the
- * run is asked for once more as it ends.
+ * How long until a run's session is asked for again after an ask that ended
+ * with `failure` (null: it was read); null when it is not. While it runs:
+ * soon after a read and after an ask that did not arrive or found none yet,
+ * slowly after "no such run or session" (an older app says so of a session
+ * not written yet). Not after one that computer refused (not allowed, no
+ * such method), and not once the run ended: it is asked for once more then.
  */
-export function runReadAgain(failure: string | null, ended: boolean): boolean {
-  if (ended) return false;
-  return failure === null || failure === "unavailable";
+export function runReadAfter(failure: string | null, ended: boolean): number | null {
+  if (ended) return null;
+  if (failure === null || failure === "unavailable") return RUN_READ_LIVE_MS;
+  return failure === "not-found" ? RUN_READ_SLOW_MS : null;
 }
 
 /** A run's session as its pane shows it, read from the computer that has it. */
@@ -216,9 +220,8 @@ export function usePeerRunConversation(
         const fresh = result.value;
         setPage((old) => (old ? keepEarlier(old, fresh) : fresh));
       }
-      if (runReadAgain(result.ok ? null : result.kind, ended)) {
-        timer = setTimeout(ask, RUN_READ_LIVE_MS);
-      }
+      const after = runReadAfter(result.ok ? null : result.kind, ended);
+      if (after !== null) timer = setTimeout(ask, after);
     };
     void ask();
     return () => {

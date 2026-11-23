@@ -2995,7 +2995,7 @@ describe("chat.runRead", () => {
     tasks: {},
     agentItems: {},
   };
-  function runServices(answer: unknown = page) {
+  function runServices(answer: unknown = page, run: Partial<AgentRun> = {}, keeps = false) {
     const base = services();
     const asked: [string, unknown][] = [];
     const s = {
@@ -3003,11 +3003,12 @@ describe("chat.runRead", () => {
       claudeAgents: {
         list: (_ws: string, tab: string) =>
           tab === "t1"
-            ? [agentRun({ id: "run-1", kind: "print" }), agentRun({ id: "sub-1" })]
+            ? [agentRun({ id: "run-1", kind: "print", ...run }), agentRun({ id: "sub-1" })]
             : tab === "t4"
               ? [agentRun({ id: "run-4", kind: "print" })]
               : [],
         stop: async () => false,
+        keepsSession: () => keeps,
       },
       ui: async (op: string, args: { workspaceId: string }) => {
         if (op === "chat.runPage") {
@@ -3052,6 +3053,23 @@ describe("chat.runRead", () => {
     await expect(
       serve({ from: "d", method: "chat.runRead", params: { ...tab, runId: "run-1" } }),
     ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+  });
+
+  test("a run going on that keeps a session has none to read yet: asked for again", async () => {
+    const read = (run: Partial<AgentRun>, keeps: boolean) =>
+      serveWith(() => runServices(null, run, keeps).s)({
+        from: "d",
+        method: "chat.runRead",
+        params: { ...tab, runId: "run-1" },
+      });
+    await expect(read({ end: undefined }, true)).rejects.toMatchObject({
+      code: RpcErrorCode.Unavailable,
+    });
+    // One that ended, or that keeps none, has none.
+    await expect(read({ end: 200 }, true)).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+    await expect(read({ end: undefined }, false)).rejects.toMatchObject({
+      code: RpcErrorCode.NotFound,
+    });
   });
 
   test("a tab that is no chat has no runs to read", async () => {
