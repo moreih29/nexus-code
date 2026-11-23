@@ -118,7 +118,7 @@ Ubuntu 23.10 이상에서는 처음 실행 전에 AppArmor 프로필을 한 번 
 | macOS | 14 이상 |
 | Bun | 1.x 이상 |
 | Node.js | 20.x |
-| Go | 1.22 이상 |
+| Go | 1.25 이상 (`GOTOOLCHAIN=auto` 면 `go.mod` 의 go1.27.3 을 받아 쓴다) |
 | Xcode Command Line Tools | 최신 (`xcode-select --install`) |
 
 ### 빌드 명령 시퀀스
@@ -161,7 +161,7 @@ dist/
 |---|---|
 | Bun | 1.x 이상 |
 | Node.js · npm | 20.x (에이전트 빌드가 LSP 번들을 npm 으로 설치한다) |
-| Go | 1.22 이상 |
+| Go | 1.25 이상 (`GOTOOLCHAIN=auto` 면 `go.mod` 의 go1.27.3 을 받아 쓴다) |
 | C/C++ 빌드 도구 | Debian · Ubuntu 는 `sudo apt install build-essential python3` |
 
 ```bash
