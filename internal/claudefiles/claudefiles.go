@@ -2,6 +2,7 @@ package claudefiles
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -93,4 +94,25 @@ func Open(path string, want os.FileInfo) (*os.File, os.FileInfo, error) {
 		return nil, nil, ErrNotFoundFile
 	}
 	return file, info, nil
+}
+
+func Reason(err error) string {
+	for {
+		var pathErr *fs.PathError
+		var linkErr *os.LinkError
+		var syscallErr *os.SyscallError
+		switch {
+		case errors.As(err, &pathErr):
+			err = pathErr.Err
+		case errors.As(err, &linkErr):
+			err = linkErr.Err
+		case errors.As(err, &syscallErr):
+			err = syscallErr.Err
+		default:
+			if err == nil {
+				return ""
+			}
+			return err.Error()
+		}
+	}
 }

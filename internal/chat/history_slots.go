@@ -64,14 +64,14 @@ func (s *Service) HistorySlots(_ context.Context, raw json.RawMessage) (any, err
 	}
 	root, err := attachRoot()
 	if err != nil {
-		return nil, proto.RequestFailed("chat.historySlots: %v", err)
+		return nil, proto.RequestFailed("chat.historySlots: the attachment folder could not be found: %s", claudefiles.Reason(err))
 	}
 	slots, truncated, err := historySlots(path, found, filepath.Join(root, workspaceID))
 	if errors.Is(err, os.ErrNotExist) {
 		return empty, nil
 	}
 	if err != nil {
-		return nil, proto.RequestFailed("chat.historySlots: %v", err)
+		return nil, proto.RequestFailed("chat.historySlots: the transcript could not be read: %s", claudefiles.Reason(err))
 	}
 	return HistorySlotsResult{Found: true, Slots: slots, Truncated: truncated}, nil
 }

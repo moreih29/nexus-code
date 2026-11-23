@@ -178,7 +178,7 @@ func claudeLookupsFollowNoLink(t *testing.T, fileLink, dirLink func(t *testing.T
 		}
 	})
 
-	t.Run("linked subagent folders and files are not read", func(t *testing.T) {
+	t.Run("linked subagent folders are not read", func(t *testing.T) {
 		outside := t.TempDir()
 		writeClaudeSubagent(t, filepath.Join(outside, "subagents"))
 
@@ -190,16 +190,24 @@ func claudeLookupsFollowNoLink(t *testing.T, fileLink, dirLink func(t *testing.T
 		mkdir(t, filepath.Join(agentsLink, "projects", claudeProject, runSession))
 		dirLink(t, filepath.Join(outside, "subagents"), filepath.Join(agentsLink, "projects", claudeProject, runSession, "subagents"))
 
+		for name, config := range map[string]string{"session folder": sessionLink, "subagents folder": agentsLink} {
+			if got := claudeSubagentSeenBy(t, config); len(got) != 0 {
+				t.Fatalf("read through a linked %s: %v", name, got)
+			}
+		}
+	})
+
+	t.Run("linked subagent files are not read", func(t *testing.T) {
+		outside := t.TempDir()
+		writeClaudeSubagent(t, filepath.Join(outside, "subagents"))
+
 		filesLink := t.TempDir()
 		agents := filepath.Join(filesLink, "projects", claudeProject, runSession, "subagents")
 		mkdir(t, agents)
 		fileLink(t, filepath.Join(outside, "subagents", "agent-a1.jsonl"), filepath.Join(agents, "agent-a1.jsonl"))
 		fileLink(t, filepath.Join(outside, "subagents", "agent-a1.meta.json"), filepath.Join(agents, "agent-a1.meta.json"))
-
-		for name, config := range map[string]string{"session folder": sessionLink, "subagents folder": agentsLink, "files": filesLink} {
-			if got := claudeSubagentSeenBy(t, config); len(got) != 0 {
-				t.Fatalf("read through a linked %s: %v", name, got)
-			}
+		if got := claudeSubagentSeenBy(t, filesLink); len(got) != 0 {
+			t.Fatalf("read through linked files: %v", got)
 		}
 
 		metaOnly := t.TempDir()
@@ -284,4 +292,39 @@ func mustStat(t *testing.T, path string) os.FileInfo {
 		t.Fatal(err)
 	}
 	return info
+}
+
+func TestClaudeReadErrorsNameNoPath(t *testing.T) {
+	useAttachRoot(t)
+	config := t.TempDir()
+	session := writeClaudeSession(t, filepath.Join(config, "projects"))
+	agents := filepath.Join(config, "projects", claudeProject, runSession, "subagents")
+	writeClaudeSubagent(t, agents)
+	lockClaudeFile(t, session)
+	lockClaudeFile(t, filepath.Join(agents, "agent-a1.jsonl"))
+
+	service := New()
+	for _, call := range []struct {
+		name   string
+		method func(context.Context, json.RawMessage) (any, error)
+		params any
+	}{
+		{"transcript", service.Transcript, TranscriptParams{SessionID: runSession, ConfigDir: config}},
+		{"subagentTranscript", service.SubagentTranscript, SubagentTranscriptParams{SessionID: runSession, AgentID: "a1", ConfigDir: config}},
+		{"runTranscript", service.RunTranscript, RunTranscriptParams{SessionID: runSession, ConfigDir: config}},
+		{"transcriptPage", service.TranscriptPage, transcriptPageParams{TranscriptParams: TranscriptParams{SessionID: runSession, ConfigDir: config}}},
+		{"historySlots", service.HistorySlots, HistorySlotsParams{WorkspaceID: "ws", SessionID: runSession, ConfigDir: config}},
+		{"deleteSession", service.DeleteSession, DeleteSessionParams{Cwd: claudeCwd, SessionID: runSession, ConfigDir: config}},
+	} {
+		raw, _ := json.Marshal(call.params)
+		_, err := call.method(context.Background(), raw)
+		if err == nil {
+			t.Fatalf("%s: a locked file gave no error", call.name)
+		}
+		for _, part := range []string{config, filepath.ToSlash(config), runSession + ".jsonl", "agent-a1"} {
+			if strings.Contains(err.Error(), part) {
+				t.Fatalf("%s: the error names a path: %v", call.name, err)
+			}
+		}
+	}
 }
