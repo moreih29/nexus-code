@@ -6,7 +6,7 @@ let answer: (method: string, args: unknown) => unknown = () => undefined;
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: async (channel: string, method: string, args: unknown) => {
     ipcCalls.push({ channel, method, args });
-    return { ok: true as const, value: answer(method, args) };
+    return { ok: true as const, value: await answer(method, args) };
   },
   unwrapIpcResult: (result: { ok: boolean; value?: unknown; message?: string }) => {
     if (!result.ok) throw new Error(result.message);
@@ -22,6 +22,15 @@ import { withTranscriptSizes } from "../../../../../src/renderer/services/chat/s
 beforeEach(() => {
   ipcCalls.length = 0;
   answer = () => undefined;
+});
+
+const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
+const ROOT = "/home/me/.nexus-code/attach";
+const user = (uuid: string, content: string) => ({
+  type: "user",
+  uuid,
+  timestamp: "2026-11-10T13:52:27.980Z",
+  message: { role: "user", content },
 });
 
 describe("deleting a Claude session", () => {
@@ -56,13 +65,7 @@ describe("deleting a Claude session", () => {
   });
 
   test("the files its messages attached go after it, read before it goes", async () => {
-    const root = "/home/me/.nexus-code/attach";
-    const user = (uuid: string, content: string) => ({
-      type: "user",
-      uuid,
-      timestamp: "2026-11-10T13:52:27.980Z",
-      message: { role: "user", content },
-    });
+    const root = ROOT;
     answer = (method) => {
       if (method === "transcript")
         return {
@@ -76,6 +79,7 @@ describe("deleting a Claude session", () => {
       return { deleted: true };
     };
     await deleteClaudeSession("ws-1", "/home/me/app", { sessionId: "s", profileId: "p" });
+    await settled();
     expect(ipcCalls.map((call) => call.method)).toEqual([
       "transcript",
       "deleteSession",
@@ -83,6 +87,38 @@ describe("deleting a Claude session", () => {
       "removeAttachments",
     ]);
     expect(ipcCalls.at(-1)?.args).toEqual({ workspaceId: "ws-1", slots: ["t1/1", "t2/4"] });
+  });
+
+  test("it is deleted without waiting while the agent looks for other conversations naming its files", async () => {
+    let release = () => {};
+    const looking = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    answer = (method) => {
+      if (method === "transcript")
+        return { found: true, lines: [user("u1", `look\n\n@${ROOT}/ws-1/t1/1/a.txt`)] };
+      if (method === "attachRoot") return { root: ROOT };
+      if (method === "removeAttachments") return looking;
+      return { deleted: true };
+    };
+    await deleteClaudeSession("ws-1", "/home/me/app", { sessionId: "s", profileId: "p" });
+    await settled();
+    expect(ipcCalls.at(-1)?.method).toBe("removeAttachments");
+    release();
+  });
+
+  test("files left by a removal that fails are only logged", async () => {
+    answer = (method) => {
+      if (method === "transcript")
+        return { found: true, lines: [user("u1", `look\n\n@${ROOT}/ws-1/t1/1/a.txt`)] };
+      if (method === "attachRoot") return { root: ROOT };
+      if (method === "removeAttachments")
+        return Promise.reject(new Error("a history was not read"));
+      return { deleted: true };
+    };
+    await deleteClaudeSession("ws-1", "/home/me/app", { sessionId: "s", profileId: "p" });
+    await settled();
+    expect(ipcCalls.at(-1)?.method).toBe("removeAttachments");
   });
 
   test("a transcript that cannot be read still deletes, and removes no file", async () => {

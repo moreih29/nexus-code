@@ -2057,15 +2057,10 @@ describe("attached files", () => {
     await expect(host.historySlots(WS, "claude", "session-1")).rejects.toThrow();
   });
 
-  test("touching and removing slots skip an empty list and an agent from before", async () => {
+  test("touching slots skips an empty list and an agent from before", async () => {
     const { host, channel } = setup();
     await host.attachmentCall("touchAttachments", { workspaceId: WS, slots: [] });
     expect(channel.calls).toEqual([]);
-
-    await host.attachmentCall("removeAttachments", { workspaceId: WS, slots: ["t/1"] });
-    expect(channel.calls).toEqual([
-      { method: "chat.removeAttachments", params: { workspaceId: WS, slots: ["t/1"] } },
-    ]);
 
     channel.failures.set("chat.touchAttachments", "unsupported-method");
     await host.attachmentCall("touchAttachments", { workspaceId: WS, slots: ["t/1"] });
@@ -2073,6 +2068,96 @@ describe("attached files", () => {
     await expect(
       host.attachmentCall("touchAttachments", { workspaceId: WS, slots: ["t/1"] }),
     ).rejects.toThrow("chat.touchAttachments failed");
+  });
+});
+
+describe("a deleted conversation's files", () => {
+  const profile = (id: string, agent: "claude" | "codex", dir: string) =>
+    ({ id, agent, name: id, color: "blue", dir, env: {} }) as AgentProfile;
+  const PROFILES = [
+    profile("claude", "claude", ""),
+    profile("claude-p", "claude", "/profiles/claude-p"),
+    profile("claude-same", "claude", "/profiles/claude-p"),
+    profile("codex", "codex", ""),
+    profile("codex-p", "codex", "/profiles/codex-p"),
+  ];
+  const byId = (id: string) => PROFILES.find((p) => p.id === id) ?? null;
+
+  test("go only where no conversation of any profile names them", async () => {
+    const { host, channel } = setup({}, undefined, undefined, byId, {
+      profiles: () => PROFILES,
+    });
+    await host.removeConversationAttachments({ workspaceId: WS, slots: [] });
+    expect(channel.calls).toEqual([]);
+
+    await host.removeConversationAttachments({ workspaceId: WS, slots: ["t/1"] });
+    await host.removeConversationAttachments({
+      workspaceId: WS,
+      slots: ["t/2"],
+      exceptThread: { threadId: "thread-1", profileId: "codex-p" },
+    });
+    await host.removeConversationAttachments({
+      workspaceId: WS,
+      slots: ["t/3"],
+      exceptThread: { threadId: "thread-2" },
+    });
+    const looked = {
+      claudeDirs: ["", "/profiles/claude-p"],
+      codexHomes: ["", "/profiles/codex-p"],
+    };
+    expect(channel.calls).toEqual([
+      {
+        method: "chat.removeUnnamedAttachments",
+        params: { workspaceId: WS, slots: ["t/1"], ...looked },
+      },
+      {
+        method: "chat.removeUnnamedAttachments",
+        params: {
+          workspaceId: WS,
+          slots: ["t/2"],
+          ...looked,
+          exceptThreadId: "thread-1",
+          exceptCodexHome: "/profiles/codex-p",
+        },
+      },
+      {
+        method: "chat.removeUnnamedAttachments",
+        params: {
+          workspaceId: WS,
+          slots: ["t/3"],
+          ...looked,
+          exceptThreadId: "thread-2",
+          exceptCodexHome: "",
+        },
+      },
+    ]);
+  });
+
+  test("stay when the agent is one from before, or cannot read every history", async () => {
+    const { host, channel } = setup({}, undefined, undefined, byId, {
+      profiles: () => PROFILES,
+    });
+    channel.failures.set("chat.removeUnnamedAttachments", "unsupported-method");
+    await host.removeConversationAttachments({ workspaceId: WS, slots: ["t/1"] });
+    channel.failures.set("chat.removeUnnamedAttachments", "request-failed");
+    await expect(
+      host.removeConversationAttachments({ workspaceId: WS, slots: ["t/1"] }),
+    ).rejects.toThrow();
+    expect(channel.calls.map((call) => call.method)).toEqual([
+      "chat.removeUnnamedAttachments",
+      "chat.removeUnnamedAttachments",
+    ]);
+  });
+
+  test("with no list of profiles, the default folders are looked at", async () => {
+    const { host, channel } = setup();
+    await host.removeConversationAttachments({ workspaceId: WS, slots: ["t/1"] });
+    expect(channel.calls).toEqual([
+      {
+        method: "chat.removeUnnamedAttachments",
+        params: { workspaceId: WS, slots: ["t/1"], claudeDirs: [""], codexHomes: [""] },
+      },
+    ]);
   });
 });
 

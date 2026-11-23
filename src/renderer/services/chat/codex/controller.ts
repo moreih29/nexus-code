@@ -933,9 +933,12 @@ export class CodexController {
     await readOpenHistories(this.target.workspaceId);
     await this.request("thread/delete", { threadId });
     if (!read || !inherited) return;
-    const { workspaceId, cwd } = this.target;
-    await removeConversationAttachments(workspaceId, codexThreadItems(read), cwd, inherited).catch(
-      (error: Error) => log.warn(`removing thread ${threadId}'s attachments: ${error.message}`),
+    const { workspaceId, cwd, profileId } = this.target;
+    void removeConversationAttachments(workspaceId, codexThreadItems(read), cwd, inherited, {
+      threadId,
+      ...(profileId ? { profileId } : {}),
+    }).catch((error: Error) =>
+      log.warn(`removing thread ${threadId}'s attachments: ${error.message}`),
     );
   }
 

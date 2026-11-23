@@ -994,6 +994,12 @@ const coreIpcContract = {
         z.object({
           workspaceId: WorkspaceIdPrimitive,
           slots: z.array(z.string().max(300)).max(5_000),
+          exceptThread: z
+            .object({
+              threadId: z.string().max(128),
+              profileId: z.string().max(64).optional(),
+            })
+            .optional(),
         }),
         z.void(),
       ),

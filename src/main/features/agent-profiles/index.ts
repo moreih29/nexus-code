@@ -24,7 +24,7 @@ import {
 
 const c = ipcContract.agentProfiles.call;
 
-export { findProfile } from "./connection-save";
+export { findProfile, listProfiles } from "./connection-save";
 
 export function registerAgentProfilesChannel(
   state: StateService,
