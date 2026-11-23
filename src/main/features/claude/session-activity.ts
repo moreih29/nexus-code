@@ -576,7 +576,7 @@ export class SessionActivityLog {
       toolsTold: p.tools_told === true,
       ...optional("sessionId", text(p.session_id)),
       ...optional("cwd", text(p.cwd)),
-      ...optional("home", text(p.home)),
+      ...optional("home", homeOf(p.home)),
     };
     session.agents.set(id, run);
     this.emit(session, run);
@@ -614,7 +614,7 @@ export class SessionActivityLog {
     run.model = text(p.model) ?? run.model;
     run.endpoint = text(p.endpoint) ?? run.endpoint;
     run.cwd = text(p.cwd) ?? run.cwd;
-    run.home = text(p.home) ?? run.home;
+    run.home = homeOf(p.home) ?? run.home;
     run.toolsTold = p.tools_told === true;
     delete run.end;
     delete run.answer;
@@ -1095,6 +1095,18 @@ function text(value: unknown): string | undefined {
   return trimmed.length > ACTIVITY_TEXT_MAX_CHARS
     ? `${trimmed.slice(0, ACTIVITY_TEXT_MAX_CHARS)}…`
     : trimmed;
+}
+
+/** The longest folder path a run's home is taken as. */
+const HOME_MAX_CHARS = 4096;
+
+/**
+ * Where a run keeps its session, as it told it: whole, since a path cut or
+ * trimmed is another folder. None for one too long to be a path.
+ */
+function homeOf(value: unknown): string | undefined {
+  if (typeof value !== "string" || value === "" || value.length > HOME_MAX_CHARS) return undefined;
+  return value;
 }
 
 function firstLine(value: string | undefined): string | undefined {

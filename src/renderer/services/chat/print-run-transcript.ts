@@ -17,6 +17,9 @@ import { addLineReceiver } from "./transport/receivers";
 
 /** How often a running run's session is read again while its pane shows. */
 export const RUN_READ_INTERVAL_MS = 3_000;
+/** How many times a pane starts a reader again after one ended, and how long it waits to. */
+export const RUN_READER_ATTEMPTS = 3;
+const RUN_READER_AGAIN_MS = 1_000;
 /** How long a reader's answer is waited for. */
 const READER_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -50,8 +53,10 @@ export function mergeRunLines(prev: RunLines, read: PrintRunTranscriptResult): R
 
 /** An app-server that reads one run's thread. */
 export interface CodexRunReader {
-  /** The thread as a conversation; null when it cannot be read whole. */
+  /** The thread as a conversation; null when it cannot be read whole, or the reader is gone. */
   read(): Promise<ChatModel | null>;
+  /** Its program ended or cannot be told: it reads no more, and another is to be started. */
+  readonly dead: boolean;
   close(): void;
 }
 
@@ -63,12 +68,14 @@ export async function openCodexRunReader(
   workspaceId: string,
   tabId: string,
   runId: string,
+  onDead?: () => void,
 ): Promise<CodexRunReader | null> {
   const started = await ipcCallResult("chat", "printRunReader", { workspaceId, tabId, runId });
   if (!started.ok || !started.value.ok) return null;
-  const { readerTabId, threadId } = started.value;
+  const { readerTabId } = started.value;
   let nextId = 1;
   let closed = false;
+  let dead = false;
   const waiting = new Map<
     string,
     { resolve: (result: Record<string, unknown>) => void; reject: (error: Error) => void }
@@ -77,13 +84,19 @@ export async function openCodexRunReader(
     for (const waiter of waiting.values()) waiter.reject(error);
     waiting.clear();
   };
+  const die = (error: Error) => {
+    fail(error);
+    if (dead || closed) return;
+    dead = true;
+    onDead?.();
+  };
   const off = addLineReceiver({
     key: chatKey(workspaceId, readerTabId),
     receive(line: ChatLine) {
       const message = rec(line.message);
       if (!message) return;
       if (line.dir === "sys") {
-        if (message.event === "exit") fail(new Error("the reader ended"));
+        if (message.event === "exit") die(new Error("the reader ended"));
         return;
       }
       if (line.dir !== "out") return;
@@ -104,7 +117,12 @@ export async function openCodexRunReader(
       tabId: readerTabId,
       message,
     });
-    if (!sent.ok) throw new Error(sent.message);
+    if (!sent.ok) {
+      // Main knows no such reader, or its host is out of reach: it reads no more.
+      const error = new Error(sent.message);
+      die(error);
+      throw error;
+    }
   };
   const request = (method: string, params: Record<string, unknown>) => {
     const id = nextId++;
@@ -148,12 +166,20 @@ export async function openCodexRunReader(
       { appServerVersion: str(hello.userAgent)?.match(/^[^/]+\/([\d.]+)\b/)?.[1] },
       null,
     );
+    // Main names the thread: the reader's own, which is all it reads.
+    const read = (method: string, params: Record<string, unknown>) => {
+      const { threadId: _mains, ...rest } = params;
+      return request(method, rest);
+    };
     let reading: Promise<ChatModel | null> | null = null;
     return {
+      get dead() {
+        return dead;
+      },
       read() {
-        if (closed) return Promise.resolve(null);
+        if (closed || dead) return Promise.resolve(null);
         // One read at a time: a later ask shares the one going.
-        reading ??= readCodexThread(request, threadId, version)
+        reading ??= readCodexThread(read, runId, version)
           .then((thread) => (thread ? codexThreadModel(thread) : null))
           .finally(() => {
             reading = null;
@@ -225,10 +251,27 @@ export function useRunConversation(
   // A codex run's thread: a reader for as long as the pane shows it.
   const reader = useRef<CodexRunReader | null>(null);
   const [readerUp, setReaderUp] = useState(0);
+  // A reader that ended (its program, its host's connection, room made for
+  // another) is started again, a few times.
+  const [attempt, setAttempt] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: another run starts anew
+  useEffect(() => {
+    setAttempt(0);
+  }, [workspaceId, tabId, runId]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: attempt asks for another reader
   useEffect(() => {
     if (!codex || !visible || !hasSession) return;
     let gone = false;
-    void openCodexRunReader(workspaceId, tabId, runId).then((opened) => {
+    let again: ReturnType<typeof setTimeout> | undefined;
+    const onDead = () => {
+      if (gone) return;
+      reader.current = null;
+      again = setTimeout(
+        () => setAttempt((n) => (n < RUN_READER_ATTEMPTS ? n + 1 : n)),
+        RUN_READER_AGAIN_MS,
+      );
+    };
+    void openCodexRunReader(workspaceId, tabId, runId, onDead).then((opened) => {
       if (gone) {
         opened?.close();
         return;
@@ -238,10 +281,11 @@ export function useRunConversation(
     });
     return () => {
       gone = true;
+      clearTimeout(again);
       reader.current?.close();
       reader.current = null;
     };
-  }, [codex, visible, hasSession, workspaceId, tabId, runId]);
+  }, [codex, visible, hasSession, workspaceId, tabId, runId, attempt]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: tick and running ask for another read
   useEffect(() => {
     const current = reader.current;

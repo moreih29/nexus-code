@@ -704,7 +704,7 @@ const printRunTranscriptResult = z.object({
 export type PrintRunTranscriptResult = z.infer<typeof printRunTranscriptResult>;
 
 const printRunReaderResult = z.discriminatedUnion("ok", [
-  z.object({ ok: z.literal(true), readerTabId: z.string(), threadId: z.string() }),
+  z.object({ ok: z.literal(true), readerTabId: z.string() }),
   z.object({
     ok: z.literal(false),
     reason: z.enum(["none", "not-found", "failed"]),

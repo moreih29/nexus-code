@@ -1095,6 +1095,14 @@ app.whenReady().then(async () => {
   // workspace context is deleted. Must be called after initBrowserFeature so
   // the registry singleton is available.
   registerBrowserCloser(workspaceManager);
+  // A window that closes or loads anew leaves no pane to read a run for.
+  const endRunReaders = (win: BrowserWindow) => {
+    win.on("closed", () => chatHost?.closePrintRunReaders());
+    win.webContents.on("did-start-navigation", (details) => {
+      if (details.isMainFrame && !details.isSameDocument) chatHost?.closePrintRunReaders();
+    });
+  };
+  endRunReaders(mainWin);
   mainWin.on("closed", () => {
     getBrowserRegistry()?.disposeAll();
   });
@@ -1120,6 +1128,7 @@ app.whenReady().then(async () => {
       workspaceStorage,
       globalStorage,
     });
+    endRunReaders(newWin);
     newWin.on("closed", () => {
       getBrowserRegistry()?.disposeAll();
     });
