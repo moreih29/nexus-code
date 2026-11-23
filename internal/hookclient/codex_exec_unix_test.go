@@ -142,7 +142,8 @@ echo DONE`)
 	if subcommandsOf(told) != want {
 		t.Fatalf("told %v", told)
 	}
-	if told[0].Payload["tools_told"] != false || told[1].Payload["session_id"] != id ||
+	if told[0].Payload["tools_told"] != false || told[0].Payload["home"] != os.Getenv("CODEX_HOME") ||
+		told[1].Payload["session_id"] != id ||
 		told[2].Payload["tools_told"] != true {
 		t.Fatalf("told %v", told[:3])
 	}
@@ -171,5 +172,29 @@ func TestRunCodexExec_RunsWithNoAppToTell(t *testing.T) {
 	code, _ := runCodexExec(codex, []string{"exec", "-"}, strings.NewReader("from stdin"), &stdout, &bytes.Buffer{}, nil)
 	if code != 0 || stdout.String() != "from stdin and done\n" {
 		t.Fatalf("exit %d, stdout %q", code, stdout.String())
+	}
+}
+
+func TestRunCodexExec_TellsWhereItsSessionIsKeptUnlessItKeepsNone(t *testing.T) {
+	for _, ephemeral := range []bool{false, true} {
+		fs, socket := newFrameServer(t)
+		codex := fakeCodex(t, `echo done`)
+		args := []string{"exec", "hi"}
+		if ephemeral {
+			args = []string{"exec", "--ephemeral", "hi"}
+		}
+		code, _ := runCodexExec(codex, args, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{},
+			newPrintTeller(socket, "tok", "ws", "t1"))
+		if code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+		told := fs.told(t)
+		want := any(os.Getenv("CODEX_HOME"))
+		if ephemeral {
+			want = nil
+		}
+		if len(told) == 0 || told[0].Subcommand != "print-start" || told[0].Payload["home"] != want {
+			t.Fatalf("ephemeral %v: told %v", ephemeral, told)
+		}
 	}
 }

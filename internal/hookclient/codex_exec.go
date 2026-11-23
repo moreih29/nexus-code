@@ -392,6 +392,12 @@ func runCodexExec(
 	if run.resumed {
 		start["resumed"] = true
 	}
+	// Where its session is kept, for the app to read it whole.
+	if !run.ephemeral {
+		if home := absoluteDir(codexHome()); home != "" {
+			start["home"] = home
+		}
+	}
 	teller.tell("print-start", start)
 
 	watch := &codexWatch{tell: teller.tell, text: !run.events, noSession: run.ephemeral}

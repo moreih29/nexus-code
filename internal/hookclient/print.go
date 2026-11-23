@@ -269,6 +269,12 @@ func runPrint(
 	if run.resumed {
 		start["resumed"] = true
 	}
+	// Where its transcript is kept, for the app to read it whole.
+	if !run.noTranscript && run.sessionID != "" {
+		if home := absoluteDir(claudeConfigDir()); home != "" {
+			start["home"] = home
+		}
+	}
 	if endpoint := endpointHost(os.Getenv("ANTHROPIC_BASE_URL"), "api.anthropic.com"); endpoint != "" {
 		start["endpoint"] = endpoint
 	}

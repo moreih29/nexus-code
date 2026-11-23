@@ -134,6 +134,7 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("chat.cancelRun", service.CancelRun)
 	d.Register("chat.transcript", service.Transcript)
 	d.Register("chat.transcriptPage", service.TranscriptPage)
+	d.Register("chat.runTranscript", service.RunTranscript)
 	d.Register("chat.subagentTranscript", service.SubagentTranscript)
 	d.Register("chat.sessionFile", service.SessionFile)
 	d.Register("chat.stageThread", service.StageThread)

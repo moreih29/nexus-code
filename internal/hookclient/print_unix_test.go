@@ -168,7 +168,7 @@ func TestRunPrint_PassesTheRunOnAndTellsIt(t *testing.T) {
 	}
 	start := told[0].Payload
 	if start["prompt"] != "review it" || start["tools_told"] != true || start["cwd"] == "" ||
-		start["session_id"] != given[1] || start["resumed"] != nil {
+		start["session_id"] != given[1] || start["resumed"] != nil || start["home"] != claudeConfigDir() {
 		t.Fatalf("start = %v", start)
 	}
 	end := told[len(told)-1].Payload
