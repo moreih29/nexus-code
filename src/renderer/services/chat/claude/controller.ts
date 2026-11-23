@@ -21,8 +21,8 @@ import { createLogger } from "../../../../shared/log/renderer";
 import type { ChatChosen, ProfileMove } from "../../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
-import { useTabsStore } from "../../../state/stores/tabs";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
+import { pruneAttachmentsAfterAttach } from "../attach-retention";
 import {
   type ChatLine,
   type ChatModel,
@@ -2436,6 +2436,7 @@ export class ChatController {
     const result = unwrapIpcResult(
       await ipcCallResult("chat", "attach", { workspaceId, tabId, name, data }),
     );
+    pruneAttachmentsAfterAttach(workspaceId);
     return result.path;
   }
 
@@ -2828,28 +2829,6 @@ registerWorkspaceCleanup((workspaceId) => {
   }
 });
 /** The tab's controller, made on first use. */
-const pruned = new Set<string>();
-registerWorkspaceCleanup((workspaceId) => pruned.delete(workspaceId));
-
-/**
- * Removes, once per workspace while the app runs, the attached files the
- * agent still keeps for chat tabs that closed while the app was away.
- */
-export function pruneAttachmentsOnce(workspaceId: string): void {
-  if (pruned.has(workspaceId)) return;
-  pruned.add(workspaceId);
-  const tabs = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
-  const keepTabIds = Object.values(tabs)
-    .filter((tab) => tab.type === "claude" || tab.type === "codex")
-    .map((tab) => tab.id);
-  void ipcCallResult("chat", "pruneAttachments", { workspaceId, keepTabIds }).catch(
-    (err: Error) => {
-      pruned.delete(workspaceId);
-      log.warn(`pruning attachments failed: ${err.message}`);
-    },
-  );
-}
-
 /** Opens an MCP server's sign-in page in the user's browser, as a link in the tab is. */
 function openSignInPage(url: string): void {
   if (/^https?:\/\//i.test(url)) window.open(url, "_blank", "noopener,noreferrer");

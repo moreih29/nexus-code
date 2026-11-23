@@ -24,6 +24,7 @@ import type { ChatChosen, CodexFork, ProfileMove } from "../../../../shared/type
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
+import { pruneAttachmentsAfterAttach } from "../attach-retention";
 import type { PermissionAnswer, RewindPreview } from "../claude/controller";
 import type { AssistantItem, ChatLine, ImageBlock, PermissionRequest, UserItem } from "../model";
 import {
@@ -2146,6 +2147,7 @@ export class CodexController {
     const result = unwrapIpcResult(
       await ipcCallResult("chat", "attach", { workspaceId, tabId, name, data }),
     );
+    pruneAttachmentsAfterAttach(workspaceId);
     return result.path;
   }
 

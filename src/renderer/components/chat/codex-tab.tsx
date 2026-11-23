@@ -14,6 +14,7 @@ import { placeLocalFile, showHeldLocalFile } from "../../services/agent-view/fil
 import { codexTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
 import { attachedOpens } from "../../services/chat/attach-folders";
+import { pruneAttachmentsOnce } from "../../services/chat/attach-retention";
 import { useStateBesideStream } from "../../services/chat/beside-stream";
 import type { PermissionAnswer } from "../../services/chat/claude/controller";
 import { codexCommandsListed, parseCodexCommand } from "../../services/chat/codex/commands";
@@ -168,7 +169,8 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
     if (!isVisible || opened.current) return;
     opened.current = true;
     void controller.open();
-  }, [isVisible, controller]);
+    pruneAttachmentsOnce(workspaceId);
+  }, [isVisible, controller, workspaceId]);
 
   const onAnswer = (request: PermissionRequest, answer: PermissionAnswer) => {
     void controller.answerPermission(request, answer).catch(surfaceChatSendError);

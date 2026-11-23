@@ -597,19 +597,24 @@ export function distinctResults(
 }
 
 /**
- * The image files a message the user sent attached (the mentions of its
- * last paragraph, splitAttachments), by absolute path from `cwd`. None
- * while it goes to another device, whose chips name no path yet, nor in a
- * message another agent sent through the nexus command (its first line
+ * The files a message the user sent attached (the mentions of its last
+ * paragraph, splitAttachments), by absolute path from `cwd`. None while it
+ * goes to another device, whose chips name no path yet, nor in a message
+ * another agent sent through the nexus command (its first line
  * RELAY_MARK's): what it names, that agent wrote, and the user attached
  * nothing to it.
  */
-export function attachedImagesOf(item: UserItem, cwd: string): string[] {
+export function attachedFilesOf(item: UserItem, cwd: string): string[] {
   if (item.optimistic || item.text.startsWith(RELAY_MARK)) return [];
   return splitAttachments(item.text).files.flatMap((named) => {
     const path = resolveFilePath(named, cwd);
-    return path && fileKind(path) === "image" ? [path] : [];
+    return path ? [path] : [];
   });
+}
+
+/** The image files a message the user sent attached (attachedFilesOf). */
+export function attachedImagesOf(item: UserItem, cwd: string): string[] {
+  return attachedFilesOf(item, cwd).filter((path) => fileKind(path) === "image");
 }
 
 /** The image files the user attached to the conversation's messages (attachedImagesOf), each once. */

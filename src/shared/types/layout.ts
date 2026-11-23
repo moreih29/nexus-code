@@ -124,6 +124,22 @@ export const LimitResumeSchema = z
   .catch(undefined);
 export type LimitResume = NonNullable<z.infer<typeof LimitResumeSchema>>;
 
+/**
+ * The attached files a chat tab's conversation names (slots "<tabId>/<n>"
+ * of the agent's attach folder), for the agent to keep them while the tab
+ * is open, read or not yet since the app started. The conversation is the
+ * tab's session or thread they were seen in ("" before it had one). One
+ * the app cannot read is left out, not the layout.
+ */
+export const ChatAttachmentsSchema = z
+  .object({
+    conversation: z.string().max(128),
+    slots: z.array(z.string().max(300)).max(500),
+  })
+  .optional()
+  .catch(undefined);
+export type ChatAttachments = NonNullable<z.infer<typeof ChatAttachmentsSchema>>;
+
 export const ClaudeTabPropsSchema = z.object({
   cwd: z.string(),
   openedBy: TerminalOpenerSchema.optional(),
@@ -151,6 +167,7 @@ export const ClaudeTabPropsSchema = z.object({
   /** The model and effort the user picked in the tab, for its next program to take. */
   chosen: ChatChosenSchema,
   limitResume: LimitResumeSchema,
+  attachments: ChatAttachmentsSchema,
 });
 export type ClaudeTabProps = z.infer<typeof ClaudeTabPropsSchema>;
 
@@ -186,6 +203,7 @@ export const CodexTabPropsSchema = z.object({
   /** The model and effort the user picked in the tab, for its next turn to take. */
   chosen: ChatChosenSchema,
   limitResume: LimitResumeSchema,
+  attachments: ChatAttachmentsSchema,
 });
 export type CodexTabProps = z.infer<typeof CodexTabPropsSchema>;
 export type CodexFork = NonNullable<CodexTabProps["fork"]>;

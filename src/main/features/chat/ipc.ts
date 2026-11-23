@@ -114,7 +114,11 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         return ipcOk({ root: await host.attachRoot(workspaceId) });
       },
       pruneAttachments: async (args: unknown) => {
-        await host.call("pruneAttachments", validateArgs(c.pruneAttachments.args, args));
+        await host.pruneAttachments(validateArgs(c.pruneAttachments.args, args));
+        return ipcOk(undefined);
+      },
+      touchAttachments: async (args: unknown) => {
+        await host.attachmentCall("touchAttachments", validateArgs(c.touchAttachments.args, args));
         return ipcOk(undefined);
       },
       transcript: withProfileError(async (args: unknown) => {

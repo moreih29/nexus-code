@@ -1134,7 +1134,8 @@ const coreIpcContract = {
       /**
        * Writes a file attached to a message where the tab's program can read
        * it (on an SSH host, a file from this machine), and returns its path
-       * there. The agent removes it when the tab closes.
+       * there. It stays after the tab closes, for the conversation to go on
+       * elsewhere, until pruneAttachments or removeAttachments removes it.
        */
       attach: call(
         PtyWorkspaceTabSchema.extend({
@@ -1154,11 +1155,27 @@ const coreIpcContract = {
         z.object({ workspaceId: WorkspaceIdPrimitive }),
         z.object({ root: z.string().nullable() }),
       ),
-      /** Removes the attached files of the workspace's Claude tabs that are no longer open. */
+      /**
+       * Removes the workspace's attached files not in use: those of no open
+       * tab (keepTabIds) that no open tab's conversation names (keepSlots,
+       * "<tabId>/<n>"), once unused for 30 days, and the least recently used
+       * of them past 1 GiB. capOnly leaves the 30 days aside. An agent from
+       * before removes the files of every tab no longer open instead.
+       */
       pruneAttachments: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
           keepTabIds: z.array(z.string().max(128)).max(10_000),
+          keepSlots: z.array(z.string().max(300)).max(5_000).optional(),
+          capOnly: z.boolean().optional(),
+        }),
+        z.void(),
+      ),
+      /** Marks attached files ("<tabId>/<n>" slots) used now, as a conversation naming them is shown. */
+      touchAttachments: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          slots: z.array(z.string().max(300)).max(5_000),
         }),
         z.void(),
       ),

@@ -95,6 +95,11 @@ export interface ChatWorkspaceManager {
   peekAgentChannel?(workspaceId: string): Promise<AgentChannel | null>;
 }
 
+/** How long an attached file no open tab uses stays unused before a prune removes it. */
+export const ATTACH_UNUSED_MS = 30 * 24 * 60 * 60 * 1000;
+/** The most a workspace's attached files hold; past it a prune removes the least recently used. */
+export const ATTACH_ROOM_BYTES = 1024 * 1024 * 1024;
+
 export interface ChatHostOptions {
   workspaceManager: ChatWorkspaceManager;
   broadcast: (event: string, args: unknown) => void;
@@ -538,6 +543,9 @@ export class ChatHost {
         workspaceId,
         tabId,
         ...(intent ? { tabGeneration: intent.generation } : {}),
+        // Its conversation may go on in another tab, which names its files;
+        // a removed workspace's go with its folder.
+        ...(removal ? {} : { keepAttachments: true }),
       };
       if (removal) {
         const timeoutMs = removal.deadline - Date.now();
@@ -652,13 +660,55 @@ export class ChatHost {
     return update.text;
   }
 
-  async call(
-    method: "stop" | "close" | "replay" | "attach" | "pruneAttachments",
-    args: unknown,
-  ): Promise<unknown> {
+  async call(method: "stop" | "close" | "replay" | "attach", args: unknown): Promise<unknown> {
     const { workspaceId, tabId } = args as { workspaceId: string; tabId: string };
     if (method === "close") return this.closeTab(workspaceId, tabId);
     return (await this.channelFor(workspaceId)).call(`chat.${method}`, args);
+  }
+
+  /**
+   * Prunes the workspace's attached files (chat.pruneAttachments): those of
+   * no open tab, that no open tab's conversation names, once unused for
+   * ATTACH_UNUSED_MS (not with capOnly), and the least recently used past
+   * ATTACH_ROOM_BYTES.
+   */
+  async pruneAttachments({
+    workspaceId,
+    keepTabIds,
+    keepSlots = [],
+    capOnly = false,
+  }: {
+    workspaceId: string;
+    keepTabIds: string[];
+    keepSlots?: string[];
+    capOnly?: boolean;
+  }): Promise<void> {
+    const channel = await this.channelFor(workspaceId);
+    await channel.call("chat.pruneAttachments", {
+      workspaceId,
+      keepTabIds,
+      // An agent from before ignores it and removes every closed tab's files, as it did.
+      retain: {
+        keep: keepSlots,
+        maxAgeMs: capOnly ? 0 : ATTACH_UNUSED_MS,
+        maxBytes: ATTACH_ROOM_BYTES,
+      },
+    });
+  }
+
+  /**
+   * Touches or removes attached files by their slots. An agent from before
+   * has neither, nor kept a file past its tab: nothing to do there.
+   */
+  async attachmentCall(
+    method: "touchAttachments" | "removeAttachments",
+    args: { workspaceId: string; slots: string[] },
+  ): Promise<void> {
+    if (args.slots.length === 0) return;
+    const channel = await this.channelFor(args.workspaceId);
+    await channel.call(`chat.${method}`, args).catch((error: unknown) => {
+      if ((error as { code?: unknown } | null)?.code !== "unsupported-method") throw error;
+    });
   }
 
   /**
