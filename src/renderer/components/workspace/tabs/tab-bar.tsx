@@ -24,7 +24,7 @@ import { type ShellChoice, sameShellChoice } from "../../../../shared/pty/shell"
 import { shellEntries, useInstalledShells } from "../../../services/terminal/installed-shells";
 import type { EditorTab, Tab } from "../../../state/stores/tabs";
 import { useTerminalStore } from "../../../state/stores/terminal";
-import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { useWorkspace } from "../../../state/stores/workspaces";
 import { NewChatMenuItems } from "../../agent-profiles/new-chat-menu";
 import { formatDiffRefPair } from "../../editor/format-diff-refs";
 import { useTabBarDropTarget } from "../dnd/use-tab-bar-drop-target";
@@ -69,9 +69,7 @@ export function TabBar({
     strip.querySelector('[role="tab"][data-state="active"]'),
   );
 
-  const isLocal = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location.kind === "local",
-  );
+  const isLocal = useWorkspace(workspaceId, (w) => w?.location.kind === "local");
   const installed = useInstalledShells();
   const customShells = useTerminalStore((s) => s.customShells);
   const chosenShell = useTerminalStore((s) => s.shell);

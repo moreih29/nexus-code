@@ -3,6 +3,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { Button } from "../ui/button";
+import { tooltipProps } from "../ui/tooltip";
 
 export function TaskRowLine({
   mark,
@@ -47,7 +48,7 @@ export function TaskRowLine({
         type="button"
         aria-label={title}
         {...button}
-        title={tooltip ?? title}
+        {...tooltipProps(tooltip ?? title)}
         onClick={(event) => onSelect(event.currentTarget)}
         className="absolute inset-0 outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset data-[state=open]:bg-[var(--state-hover-bg)]"
       />
@@ -127,14 +128,14 @@ export function TaskHeaderLine({
             "truncate font-medium text-foreground",
             chip || creator ? "max-w-[70%] shrink-0" : "min-w-0",
           )}
-          title={name}
+          {...tooltipProps(name)}
         >
           {name}
         </span>
         {chip && (
           <span
             className="flex min-w-0 shrink items-center gap-1 rounded-(--radius-control) bg-muted px-1.5 font-mono text-app-micro text-muted-foreground @max-xs/agents:hidden"
-            title={chip}
+            {...tooltipProps(chip)}
           >
             <GitBranch aria-hidden className="size-3 shrink-0" />
             <span className="truncate">{chip}</span>
@@ -149,7 +150,7 @@ export function TaskHeaderLine({
             actions &&
               (menuOpen ? "hidden" : "group-focus-within/task:hidden group-hover/task:hidden"),
           )}
-          title={t("agentList.detail.changes", { count: changed })}
+          {...tooltipProps(t("agentList.detail.changes", { count: changed }))}
         >
           <FileDiff aria-hidden className="size-3.5" />
           {changed}
@@ -179,14 +180,7 @@ export function TaskHeaderAction({
   children: ReactNode;
 }) {
   return (
-    <Button
-      size="icon-sm"
-      variant="ghost"
-      className="size-6"
-      title={label}
-      aria-label={label}
-      onClick={onClick}
-    >
+    <Button size="icon-sm" variant="ghost" className="size-6" tooltip={label} onClick={onClick}>
       {children}
     </Button>
   );

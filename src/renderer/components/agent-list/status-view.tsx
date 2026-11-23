@@ -9,7 +9,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { PermissionAsk, SessionActivity } from "../../../shared/claude/activity";
@@ -62,7 +62,12 @@ import {
   stateLabel,
   useDurationLabel,
 } from "./session-status";
-import { FamilyFold, FoldChevron, ParentCaption, SessionTreeBranch } from "./session-tree-rows";
+import {
+  FamilyFold,
+  FoldChevron,
+  SessionTreeBranch,
+  useNodeParentCaption,
+} from "./session-tree-rows";
 
 export { GROUP_STATE, GROUP_TINT } from "./session-status";
 
@@ -102,83 +107,127 @@ export function StatusView({
       order[`status:${group}`],
     ).map(({ node }) => node),
   }));
-  if (groups.every(({ rows }) => rows.length === 0)) {
-    return (
-      <p className="p-4 text-app-ui-sm text-muted-foreground">
-        {searching ? t("agentList.list.no_match") : t("agentList.none")}
-      </p>
-    );
-  }
-
   return (
-    <div className="flex flex-col gap-3 p-2" data-testid="agent-list-status-view">
-      {groups.map(({ group, rows }) => {
-        const label = t(`agentList.group.${group}`);
-        if (rows.length === 0) {
+    <StatusSections
+      searching={searching}
+      empty={<ListNote>{searching ? t("agentList.list.no_match") : t("agentList.none")}</ListNote>}
+      testId="agent-list-status-view"
+      sections={groups.map(({ group, rows }) => ({
+        group,
+        count: rows.length,
+        folded: !searching && folds.has(group),
+        onToggle: () => useUIStore.getState().toggleAgentListGroup(group),
+        onMarkRead:
+          group === "done"
+            ? () =>
+                markRead(
+                  [...treeSessions(rows)].flatMap((session) => {
+                    const workspace = worktreeOf(session)?.workspace;
+                    return workspace ? [{ workspace, session }] : [];
+                  }),
+                )
+            : undefined,
+        body: () =>
+          rows.map((root) => (
+            <SessionTreeBranch
+              key={root.session.key}
+              node={root}
+              folded={familyFolds}
+              searching={searching}
+              groupIdle
+              testPrefix="agent-list"
+              renderRow={(node, collapsed) => {
+                const { session } = node;
+                const worktree = worktreeOf(session);
+                return (
+                  <SessionRow
+                    node={node}
+                    collapsed={collapsed}
+                    workspace={worktree?.workspace}
+                    branch={
+                      worktree && !worktree.isRoot
+                        ? (worktree.branch ??
+                          worktree.workspace.task?.branch ??
+                          changes.get(session.workspaceId)?.branch)
+                        : undefined
+                    }
+                    changed={changes.get(session.workspaceId)?.files.length ?? 0}
+                    activity={activity.get(session.key)}
+                    selected={isSessionSelected(selection, session.key)}
+                    selectedAgentId={
+                      selection?.kind === "agent" && selection.key === session.key
+                        ? selection.agentId
+                        : undefined
+                    }
+                    onSelect={onSelect}
+                  />
+                );
+              }}
+            />
+          )),
+      }))}
+    />
+  );
+}
+
+export interface StatusSection {
+  group: RowGroup;
+  count: number;
+  folded: boolean;
+  onToggle: () => void;
+  onMarkRead?: () => void;
+  body: () => ReactNode;
+}
+
+export function StatusSections({
+  sections,
+  searching,
+  empty,
+  className = "flex flex-col gap-3 p-2",
+  sectionClassName = "flex flex-col gap-1",
+  testId,
+  sectionTestId,
+  testPrefix,
+}: {
+  sections: readonly StatusSection[];
+  searching: boolean;
+  empty?: ReactNode;
+  className?: string;
+  sectionClassName?: string;
+  testId: string;
+  sectionTestId?: string;
+  testPrefix?: string;
+}) {
+  const { t } = useTranslation();
+  if (empty !== undefined && sections.every(({ count }) => count === 0)) return empty;
+  return (
+    <div className={className} data-testid={testId}>
+      {sections.map((section) => {
+        const label = t(`agentList.group.${section.group}`);
+        if (section.count === 0) {
           if (searching) return null;
           return (
-            <section key={group} aria-label={label}>
-              <StatusGroupHeading group={group} count={0} folded={false} />
+            <section key={section.group} aria-label={label}>
+              <StatusGroupHeading group={section.group} count={0} />
             </section>
           );
         }
-        const folded = !searching && folds.has(group);
         return (
-          <section key={group} aria-label={label} className="flex flex-col gap-1">
+          <section
+            key={section.group}
+            aria-label={label}
+            className={sectionClassName}
+            data-testid={sectionTestId}
+          >
             <StatusGroupHeading
-              group={group}
-              count={rows.length}
-              folded={folded}
-              onMarkRead={
-                group === "done"
-                  ? () =>
-                      markRead(
-                        [...treeSessions(rows)].flatMap((session) => {
-                          const workspace = worktreeOf(session)?.workspace;
-                          return workspace ? [{ workspace, session }] : [];
-                        }),
-                      )
-                  : undefined
-              }
+              group={section.group}
+              count={section.count}
+              folded={section.folded}
+              onToggle={section.onToggle}
+              onMarkRead={section.onMarkRead}
+              testPrefix={testPrefix}
             />
-            {!folded &&
-              rows.map((root) => (
-                <SessionTreeBranch
-                  key={root.session.key}
-                  node={root}
-                  folded={familyFolds}
-                  searching={searching}
-                  groupIdle
-                  testPrefix="agent-list"
-                  renderRow={(node, collapsed) => {
-                    const { session } = node;
-                    const worktree = worktreeOf(session);
-                    return (
-                      <SessionRow
-                        node={node}
-                        collapsed={collapsed}
-                        workspace={worktree?.workspace}
-                        branch={
-                          worktree && !worktree.isRoot
-                            ? (worktree.branch ??
-                              worktree.workspace.task?.branch ??
-                              changes.get(session.workspaceId)?.branch)
-                            : undefined
-                        }
-                        changed={changes.get(session.workspaceId)?.files.length ?? 0}
-                        activity={activity.get(session.key)}
-                        selected={isSessionSelected(selection, session.key)}
-                        selectedAgentId={
-                          selection?.kind === "agent" && selection.key === session.key
-                            ? selection.agentId
-                            : undefined
-                        }
-                        onSelect={onSelect}
-                      />
-                    );
-                  }}
-                />
-              ))}
+            {!section.folded && section.body()}
           </section>
         );
       })}
@@ -186,22 +235,30 @@ export function StatusView({
   );
 }
 
+export function ListNote({ children }: { children: ReactNode }) {
+  return <p className="p-4 text-app-ui-sm text-muted-foreground">{children}</p>;
+}
+
 export function StatusGroupHeading({
   group,
   count,
-  folded,
+  folded = false,
+  onToggle,
   onMarkRead,
+  testPrefix = "agent-list",
 }: {
   group: RowGroup;
   count: number;
-  folded: boolean;
+  folded?: boolean;
+  onToggle?: () => void;
   onMarkRead?: () => void;
+  testPrefix?: string;
 }) {
   const { t } = useTranslation();
   const label = t(`agentList.group.${group}`);
   if (count === 0) {
     return (
-      <h3 className="flex items-center gap-1.5 px-2 py-1 text-app-ui-sm text-muted-foreground opacity-60">
+      <h3 className="flex h-7 items-center gap-1.5 px-2 text-app-ui-sm text-muted-foreground opacity-60">
         <span aria-hidden className="size-3.5 shrink-0" />
         <StateGlyph state={GROUP_STATE[group]} still />
         <span>{label}</span>
@@ -214,9 +271,9 @@ export function StatusGroupHeading({
       <button
         type="button"
         aria-expanded={!folded}
-        onClick={() => useUIStore.getState().toggleAgentListGroup(group)}
+        onClick={onToggle}
         className={cn(
-          "flex items-center gap-1.5 rounded-(--radius-control) px-2 py-1 text-app-ui-sm font-medium hover:bg-[var(--state-hover-bg)]",
+          "flex h-7 shrink-0 items-center gap-1.5 rounded-(--radius-control) px-2 text-app-ui-sm font-medium whitespace-nowrap outline-none hover:bg-[var(--state-hover-bg)] focus-visible:ring-1 focus-visible:ring-ring",
           GROUP_TINT[group],
         )}
       >
@@ -229,7 +286,7 @@ export function StatusGroupHeading({
         <IconButton
           label={t("inbox.mark_read")}
           onClick={onMarkRead}
-          data-testid="agent-list-mark-read"
+          data-testid={`${testPrefix}-mark-read`}
         >
           <CheckCheck aria-hidden className="size-3.5" />
         </IconButton>
@@ -263,6 +320,8 @@ const SessionRow = memo(function SessionRow({
   const { session, count } = node;
   const group = session.phase;
   const facts = useRowFacts(session, activity);
+  const parent = useNodeParentCaption(node);
+  const preview = useRowLine(session, facts);
   const onSelect = (from: HTMLElement) => select({ kind: "session", key: session.key }, from);
   const onSelectAgent = (agentId: string, from: HTMLElement) =>
     select({ kind: "agent", key: session.key, agentId }, from);
@@ -320,8 +379,8 @@ const SessionRow = memo(function SessionRow({
         }
         place={branch ? { kind: "branch", name: branch } : undefined}
         placeTestId="agent-list-branch"
-        parent={<ParentCaption node={node} />}
-        preview={<RowLine session={session} facts={facts} />}
+        parent={parent}
+        preview={preview}
         family={
           count > 0 && (
             <FamilyFold
@@ -374,7 +433,7 @@ export function ToolIcon({ name }: { name: string }) {
   return <Wrench aria-hidden className={cn(cls, "text-emerald-500")} />;
 }
 
-export function RowLine({ session, facts }: { session: AgentSession; facts: RowFacts }) {
+export function useRowLine(session: AgentSession, facts: RowFacts): ReactNode {
   const { t, i18n } = useTranslation();
   const wait = facts.wait;
   if (wait?.kind === "permission" || (!wait && session.state === "permissionPending")) {
@@ -472,7 +531,7 @@ function ResultActions({
           size="sm"
           variant="outline"
           className="h-6 gap-1 px-1.5 text-app-micro"
-          title={t("agentList.detail.show_changes")}
+          tooltip={t("agentList.detail.show_changes")}
           onClick={() => showChanges(session.workspaceId)}
         >
           <FileDiff aria-hidden className="size-3.5" />
@@ -484,8 +543,7 @@ function ResultActions({
           size="icon-sm"
           variant="ghost"
           className="size-6"
-          title={t("agentList.list.mark_read")}
-          aria-label={t("agentList.list.mark_read")}
+          tooltip={t("agentList.list.mark_read")}
           onClick={() => markRead([{ workspace, session }])}
         >
           <Check aria-hidden className="size-3.5" />
@@ -557,8 +615,7 @@ function RowAnswer({
         variant="outline"
         className="size-7"
         disabled={sending}
-        title={t("chat.permission.deny")}
-        aria-label={t("chat.permission.deny")}
+        tooltip={t("chat.permission.deny")}
         onClick={() => send(false)}
       >
         <X aria-hidden className="size-3.5" />

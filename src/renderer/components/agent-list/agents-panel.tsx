@@ -125,6 +125,7 @@ export function AgentsPanel({ workspace }: { workspace: WorkspaceMeta }) {
           anchor={peek.anchor}
           worktree={peeked.worktree}
           session={peeked.session}
+          sessionId={activity.get(peek.key)?.sessionId}
           agent={agent}
           asks={(activity.get(peek.key)?.asks ?? []).filter((ask) => ask.agentId === agent.id)}
           onShowSession={() => select({ kind: "session", key: peek.key }, peek.anchor)}

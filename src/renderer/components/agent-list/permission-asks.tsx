@@ -12,6 +12,7 @@ import { ipcCallResult } from "../../ipc/client";
 import { markAnswered, useUnansweredAsks } from "../../services/agent-sessions/answered-asks";
 import type { AgentSession } from "../../services/agent-sessions/model";
 import { Button } from "../ui/button";
+import { tooltipProps } from "../ui/tooltip";
 import { agentLabel } from "./agent-status";
 
 export function PermissionAsks({
@@ -98,7 +99,7 @@ function AskCard({
           {ask.target && (
             <span
               className="min-w-0 break-all font-mono text-app-ui-sm text-foreground"
-              title={ask.target}
+              {...tooltipProps(ask.target)}
             >
               {ask.target}
             </span>
@@ -154,7 +155,7 @@ function AskCard({
               size="sm"
               variant="outline"
               disabled={sending}
-              title={always}
+              {...tooltipProps(always)}
               onClick={() => void answer("allowAlways")}
             >
               {t("agentList.permission.allow_always")}

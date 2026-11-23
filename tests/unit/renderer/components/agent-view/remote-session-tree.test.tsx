@@ -118,7 +118,7 @@ test("worktree children appear once under their opener and only their host's sav
     );
   const html = render();
   expect(html).not.toContain("under Plan the release");
-  expect(html).toContain('title="ship"');
+  expect(html).toContain('data-tooltip="ship"');
   expect(html.match(/>Review the release<\/span>/g)).toHaveLength(1);
   expect(html).toContain("Read the docs");
   const fold = `family:${remoteSessionKey({ deviceId: host.id, ...parent })}`;
@@ -614,7 +614,7 @@ test("cross-workspace children use the workspace name for a standalone workspace
       />,
     ),
   ]) {
-    expect(html).toContain('title="Defaults"');
+    expect(html).toContain('data-tooltip="Defaults"');
     expect(html).not.toContain('title="ship"');
   }
 });

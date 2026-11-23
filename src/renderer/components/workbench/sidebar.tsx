@@ -5,7 +5,7 @@ import { useShallow } from "zustand/shallow";
 import { cn } from "@/utils/cn";
 import type { ClaudeStatus, StatusEntry } from "../../../shared/claude/status";
 import { appErrorFailed } from "../../../shared/error/app-error";
-import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { locationLabel, type WorkspaceMeta } from "../../../shared/types/workspace";
 import { workspaceColorToken } from "../../../shared/types/workspace-color";
 import { useIpcAction } from "../../hooks/use-ipc-action";
 import { ipcCallResult } from "../../ipc/client";
@@ -32,7 +32,7 @@ import { WorkspaceStatusGlyph } from "../sidebar/workspace-status-glyph";
 import { ContextMenuRoot, ContextMenuTrigger } from "../ui/context-menu";
 import { IconButton } from "../ui/icon-button";
 import { useContextMenuHandoff } from "../ui/use-context-menu-handoff";
-import { formatSshSecondaryLine, formatSshTooltip } from "../workspace/add-workspace/ssh-helpers";
+import { formatSshTooltip } from "../workspace/add-workspace/ssh-helpers";
 import { RowDropSlot } from "./dnd/row-drop-slot";
 import { buildSlotsForGroup, type SlotInfo, useWorkspaceRowDnd } from "./dnd/use-workspace-row-dnd";
 import { PinToggle } from "./pin-toggle";
@@ -93,14 +93,7 @@ function WorkspaceRow({
     : wslDistro
       ? `${t("wsl.identity", { distro: wslDistro })}\n${ws.rootPath}`
       : ws.rootPath;
-  const hostLine = sshLocation
-    ? formatSshSecondaryLine({
-        user: sshLocation.user,
-        host: sshLocation.host,
-      })
-    : wslDistro
-      ? t("wsl.identity", { distro: wslDistro })
-      : null;
+  const hostLine = locationLabel(ws.location, { prefix: true });
 
   const statusSlices = useClaudeStatusStore(
     useShallow((s) => [s.byWorkspace[ws.id], ...taskIds.map((id) => s.byWorkspace[id])]),

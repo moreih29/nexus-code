@@ -457,8 +457,8 @@ test("workspace tasks show moved conversations once under their parent and keep 
   expect(html).toContain('aria-label="feature/test"');
   expect(html).not.toContain("under Release plan");
   expect(html).not.toContain("No conversations");
-  expect(html).toContain('title="feature/test"');
-  expect(html).toContain('title="Made by the conversation Release plan"');
+  expect(html).toContain('data-tooltip="feature/test"');
+  expect(html).toContain('data-tooltip="Made by the conversation Release plan"');
   expect(html).not.toContain('data-testid="agent-list-idle"');
   expect(sessionKeys(render(workspaceList("task", "Review tests")))).toEqual([
     plan.key,
@@ -483,7 +483,7 @@ test("the workspace view's status rows are two lines, with context, to-dos and s
     const row = html
       .split('data-session-key="repo:plan"')[1]
       ?.split('data-testid="agent-list-row"')[0];
-    expect(row).toContain('title="Release plan · Context 42% · To do 2/5 · Subagents 1"');
+    expect(row).toContain('data-tooltip="Release plan · Context 42% · To do 2/5 · Subagents 1"');
     expect(row).not.toContain("lucide-list-checks");
     expect(row).not.toContain("lucide-bot");
     expect(row).not.toContain("42%</span>");

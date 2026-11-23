@@ -6,6 +6,7 @@ import type { FileLineStats } from "../../../shared/git/types";
 import { showChanges, showFileChange } from "../../services/agent-sessions/actions";
 import type { WorktreeEntry } from "../../services/agent-sessions/model";
 import { useChangeStats, type WorktreeChanges } from "../../services/agent-sessions/use-family";
+import { tooltipProps } from "../ui/tooltip";
 
 const FILES_SHOWN = 5;
 
@@ -100,7 +101,7 @@ export function TaskInfoLines({
     >
       <div className="flex min-w-0 items-center gap-1.5 pr-3 pl-8 text-muted-foreground">
         {standing}
-        <span className="min-w-0 truncate font-mono" title={path}>
+        <span className="min-w-0 truncate font-mono" {...tooltipProps(path)}>
           {label}
         </span>
         {total}
@@ -114,7 +115,7 @@ export function TaskInfoLines({
             <li key={file.relPath}>
               <button
                 type="button"
-                title={file.relPath}
+                {...tooltipProps(file.relPath)}
                 onClick={() => onOpenFile(file.relPath)}
                 className="flex w-full min-w-0 items-center gap-2 py-0.5 pr-3 pl-8 text-left transition-colors outline-none hover:bg-[var(--state-hover-bg)] focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
               >
@@ -163,7 +164,7 @@ function AheadBehind({ ahead, behind, base }: { ahead: number; behind: number; b
   return (
     <span
       className="flex shrink-0 items-center gap-1.5 tabular-nums"
-      title={t("agentList.detail.ahead_behind", { ahead, behind, branch: base })}
+      {...tooltipProps(t("agentList.detail.ahead_behind", { ahead, behind, branch: base }))}
       data-testid="task-ahead-behind"
     >
       <span className="flex items-center">
@@ -208,7 +209,7 @@ function LineCounts({
   return (
     <span
       className={cn("flex shrink-0 gap-1.5 font-mono tabular-nums", className)}
-      title={t("agentList.detail.lines", { added: lines.added, deleted: lines.deleted })}
+      {...tooltipProps(t("agentList.detail.lines", { added: lines.added, deleted: lines.deleted }))}
     >
       {lines.added > 0 && <span className="text-emerald-500">+{lines.added}</span>}
       {lines.deleted > 0 && <span className="text-(--state-error-fg)">{`−${lines.deleted}`}</span>}

@@ -30,6 +30,7 @@ import { profileOf } from "../../../shared/agent-profiles/profiles";
 import type { RelayedMessage } from "../../../shared/chat/relay";
 import { shownNoteText } from "../../../shared/notes/line-report";
 import type { ProfileMove } from "../../../shared/types/layout";
+import { shortId } from "../../../shared/util/short-id";
 import { sharedClock, useSharedClock } from "../../hooks/use-now";
 import { revealInWorkspace } from "../../services/agent-sessions/actions";
 import { artifactOf } from "../../services/chat/artifact";
@@ -734,7 +735,7 @@ function PeerSenderLine({
               tabId,
               kind:
                 from.kind === "terminal" ? "terminal" : from.agent === "codex" ? "codex" : "claude",
-              title: from.name ?? tabId.slice(0, 8),
+              title: from.name ?? shortId(tabId),
             })
           }
         >

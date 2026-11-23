@@ -14,6 +14,7 @@ import { useSessionParent } from "../../services/agent-sessions/use-session-pare
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { cn } from "../../utils/cn";
 import { ToggleChevron } from "../ui/toggle-chevron";
+import { tooltipProps } from "../ui/tooltip";
 import { GROUP_STATE, GROUP_TINT, StateGlyph } from "./session-status";
 
 const SUMMED = ["attention", "running", "done"] as const;
@@ -107,7 +108,7 @@ export function FamilyFold({
       className="pointer-events-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-1.5 whitespace-nowrap tabular-nums text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
       aria-expanded={!collapsed}
       aria-label={label}
-      title={label}
+      {...tooltipProps(label)}
       onClick={() => useAgentViewStore.getState().toggleFolded(familyFoldKey(session))}
       data-testid={`${testPrefix}-fold-family`}
     >
@@ -158,6 +159,10 @@ export function useParentCaption(
 }
 
 export function ParentCaption({ node }: { node: SessionTreeNode }) {
+  return useNodeParentCaption(node);
+}
+
+export function useNodeParentCaption(node: SessionTreeNode): ReactNode {
   const { open } = useSessionParent(node.parentClosed ? node.session.parent : undefined);
   const closed = node.parentClosed && !open;
   const parent = useParentCaption(
@@ -169,7 +174,7 @@ export function ParentCaption({ node }: { node: SessionTreeNode }) {
   return (
     <span
       className={cn("max-w-40 min-w-0 shrink-[2] truncate", closed && "opacity-70")}
-      title={parent.hint}
+      {...tooltipProps(parent.hint)}
       data-testid="agent-list-parent"
     >
       {parent.label}
@@ -200,7 +205,7 @@ export function StateSummary({
         <span
           key={group}
           className={cn("inline-flex items-center gap-0.5", GROUP_TINT[group])}
-          title={`${t(`agentList.group.${group}`)} ${counts[group]}`}
+          {...tooltipProps(`${t(`agentList.group.${group}`)} ${counts[group]}`)}
           data-testid={`${testPrefix}-summary`}
         >
           <StateGlyph state={GROUP_STATE[group]} />

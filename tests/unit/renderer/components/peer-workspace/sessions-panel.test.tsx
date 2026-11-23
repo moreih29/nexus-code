@@ -127,7 +127,7 @@ test("by task, the workspace and each task headed by its name and changes", () =
   expect(html).toContain('data-testid="peer-agent-list-task-view"');
   expect(html.match(/peer-agent-list-task-header/g)).toHaveLength(3);
   expect(html.indexOf('aria-label="Repo"')).toBeLessThan(html.indexOf('aria-label="fix-login"'));
-  expect(html).toContain('title="Uncommitted changes (3)"');
+  expect(html).toContain('data-tooltip="Uncommitted changes (3)"');
   expect(html).toContain("No conversations");
   expect(html).not.toContain("Not ours");
 });

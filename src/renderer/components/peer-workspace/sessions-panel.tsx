@@ -35,8 +35,9 @@ import type { RemoteTarget } from "../../state/stores/remote-view";
 import { useTerminalStore } from "../../state/stores/terminal";
 import { useUIStore } from "../../state/stores/ui";
 import { AgentRows } from "../agent-list/agent-rows";
-import { StatusGroupHeading } from "../agent-list/status-view";
+import { ListNote, StatusSections } from "../agent-list/status-view";
 import { TaskHeaderAction, TaskHeaderLine } from "../agent-list/task-row-line";
+import { TaskSections, worktreeName } from "../agent-list/task-view";
 import { ViewSwitch } from "../agent-list/view-switch";
 import { RemoteNewMenu } from "../agent-view/remote-new-menu";
 import {
@@ -327,74 +328,56 @@ function PeerStatusView({
   const familyFolds = useAgentViewStore((s) => s.folded);
   const searching = query.trim() !== "";
   const { groups } = statusGroups([], [{ peer: device, list }], query, () => false);
-  if (groups.every(({ rows }) => rows.length === 0)) {
-    return (
-      <p className="p-4 text-app-ui-sm text-muted-foreground">
-        {searching ? t("agentList.list.no_match") : t("agentList.none")}
-      </p>
-    );
-  }
   return (
-    <div className="flex flex-col gap-3 p-2" data-testid="peer-agent-list-status-view">
-      {groups.map(({ group, rows }) => {
-        const label = t(`agentList.group.${group}`);
+    <StatusSections
+      searching={searching}
+      empty={<ListNote>{searching ? t("agentList.list.no_match") : t("agentList.none")}</ListNote>}
+      testId="peer-agent-list-status-view"
+      sections={groups.map(({ group, rows }) => {
         const remoteRows = rows.flatMap((row) => (row.kind === "remote" ? [row] : []));
-        if (remoteRows.length === 0) {
-          if (searching) return null;
-          return (
-            <section key={group} aria-label={label}>
-              <StatusGroupHeading group={group} count={0} folded={false} />
-            </section>
-          );
-        }
-        const folded = !searching && folds.has(group);
-        return (
-          <section key={group} aria-label={label} className="flex flex-col gap-1">
-            <StatusGroupHeading
-              group={group}
-              count={remoteRows.length}
-              folded={folded}
-              onMarkRead={
-                group === "done"
-                  ? () =>
-                      results.markSeen(
-                        remoteRows.flatMap((row) =>
-                          [...treeSessions([row.node])].flatMap((member) => {
-                            const session = row.byKey.get(member.key);
-                            return session
-                              ? [
-                                  {
-                                    deviceId: device.id,
-                                    session,
-                                    hostReceipts: peerServes(device, "sessions.markSeen"),
-                                  },
-                                ]
-                              : [];
-                          }),
-                        ),
-                      )
-                  : undefined
-              }
-            />
-            {!folded &&
-              remoteRows.map((row) => (
-                <RemoteSessionBranch
-                  key={row.node.session.key}
-                  root={row.node}
-                  folded={familyFolds}
-                  searching={searching}
-                  groupIdle
-                  workspaceOf={(id) => row.workspaces.get(id)}
-                  renderRow={(node, tree) => {
-                    const session = row.byKey.get(node.session.key);
-                    return session ? renderSession(session, tree) : null;
-                  }}
-                />
-              ))}
-          </section>
-        );
+        return {
+          group,
+          count: remoteRows.length,
+          folded: !searching && folds.has(group),
+          onToggle: () => useUIStore.getState().toggleAgentListGroup(group),
+          onMarkRead:
+            group === "done"
+              ? () =>
+                  results.markSeen(
+                    remoteRows.flatMap((row) =>
+                      [...treeSessions([row.node])].flatMap((member) => {
+                        const session = row.byKey.get(member.key);
+                        return session
+                          ? [
+                              {
+                                deviceId: device.id,
+                                session,
+                                hostReceipts: peerServes(device, "sessions.markSeen"),
+                              },
+                            ]
+                          : [];
+                      }),
+                    ),
+                  )
+              : undefined,
+          body: () =>
+            remoteRows.map((row) => (
+              <RemoteSessionBranch
+                key={row.node.session.key}
+                root={row.node}
+                folded={familyFolds}
+                searching={searching}
+                groupIdle
+                workspaceOf={(id) => row.workspaces.get(id)}
+                renderRow={(node, tree) => {
+                  const session = row.byKey.get(node.session.key);
+                  return session ? renderSession(session, tree) : null;
+                }}
+              />
+            )),
+        };
       })}
-    </div>
+    />
   );
 }
 
@@ -415,7 +398,6 @@ function PeerTaskView({
   onOpenSession: (opened: RemoteTarget) => void;
   onShowChanges: (workspace: RemoteWorkspace, file?: PeerGitFile) => void;
 }) {
-  const { t } = useTranslation();
   const unfolded = useUIStore((s) => s.agentListUnfoldedTasks);
   const familyFolds = useAgentViewStore((s) => s.folded);
   const needle = query.trim().toLowerCase();
@@ -436,25 +418,19 @@ function PeerTaskView({
     (workspace) =>
       !searching ||
       rootsOf.has(workspace.id) ||
-      worktreeName(workspace).toLowerCase().includes(needle),
+      peerWorktreeName(workspace).toLowerCase().includes(needle),
   );
-  if (shown.length === 0) {
-    return (
-      <p className="p-4 text-app-ui-sm text-muted-foreground">{t("agentList.list.no_match")}</p>
-    );
-  }
   return (
-    <div className="flex flex-col gap-3 p-2" data-testid="peer-agent-list-task-view">
-      {shown.map((workspace) => {
+    <TaskSections
+      testId="peer-agent-list-task-view"
+      sections={shown.map((workspace) => {
         const here = rootsOf.get(workspace.id) ?? [];
         const foldId = peerWorkspaceId(device.id, workspace.id);
         const open = unfolded.has(foldId);
-        return (
-          <section
-            key={workspace.id}
-            aria-label={worktreeName(workspace)}
-            className="overflow-hidden rounded-(--radius-raised) border border-border"
-          >
+        return {
+          key: workspace.id,
+          name: peerWorktreeName(workspace),
+          header: (
             <PeerTaskHeading
               workspace={workspace}
               peer={peer}
@@ -463,47 +439,41 @@ function PeerTaskView({
               onOpenSession={onOpenSession}
               onShowChanges={() => onShowChanges(workspace)}
             />
-            {open && (
-              <PeerTaskInfo
-                deviceId={device.id}
-                workspace={workspace}
-                canRead={peerServes(peer, "git")}
-                onOpenFile={(file) => onShowChanges(workspace, file)}
-                onShowChanges={() => onShowChanges(workspace)}
-              />
-            )}
-            {here.length === 0 && (
-              <p className="border-t border-border px-3 py-1.5 text-app-ui-sm text-muted-foreground">
-                {t("agentList.task.no_conversations")}
-              </p>
-            )}
-            {here.map((root) => (
-              <RemoteSessionBranch
-                key={root.session.key}
-                root={root}
-                folded={familyFolds}
-                searching={searching}
-                workspaceOf={workspaceOf}
-                renderRow={(node, tree) => {
-                  const session = byKey.get(node.session.key);
-                  return session ? (
-                    <div className="border-t border-border">
-                      {renderSession(session, tree, true)}
-                    </div>
-                  ) : null;
-                }}
-              />
-            ))}
-          </section>
-        );
+          ),
+          info: open && (
+            <PeerTaskInfo
+              deviceId={device.id}
+              workspace={workspace}
+              canRead={peerServes(peer, "git")}
+              onOpenFile={(file) => onShowChanges(workspace, file)}
+              onShowChanges={() => onShowChanges(workspace)}
+            />
+          ),
+          empty: here.length === 0,
+          rows: here.map((root) => (
+            <RemoteSessionBranch
+              key={root.session.key}
+              root={root}
+              folded={familyFolds}
+              searching={searching}
+              workspaceOf={workspaceOf}
+              renderRow={(node, tree) => {
+                const session = byKey.get(node.session.key);
+                return session ? (
+                  <div className="border-t border-border">{renderSession(session, tree, true)}</div>
+                ) : null;
+              }}
+            />
+          )),
+        };
       })}
-    </div>
+    />
   );
 }
 
-function worktreeName(workspace: RemoteWorkspace): string {
+function peerWorktreeName(workspace: RemoteWorkspace): string {
   return remoteDisplayName(
-    workspace.parentId === undefined ? workspace.name : (workspace.git?.branch ?? workspace.name),
+    worktreeName(workspace.name, workspace.parentId === undefined, workspace.git?.branch),
   );
 }
 
@@ -534,7 +504,7 @@ function PeerTaskHeading({
   };
   return (
     <TaskHeaderLine
-      name={worktreeName(workspace)}
+      name={peerWorktreeName(workspace)}
       isRoot={workspace.parentId === undefined}
       branch={branch ? remoteDisplayName(branch) : undefined}
       changed={workspace.git?.uncommitted ?? 0}
@@ -569,8 +539,7 @@ function PeerTaskHeading({
                 size="icon-sm"
                 variant="ghost"
                 className="size-6"
-                title={t("agentList.task.more")}
-                aria-label={t("agentList.task.more")}
+                tooltip={t("agentList.task.more")}
               >
                 <Ellipsis aria-hidden className="size-3.5" />
               </Button>
@@ -613,8 +582,7 @@ function PeerNewChat({
       <Button
         size="icon-sm"
         className="w-auto gap-1 rounded-r-none px-2 @max-[200px]/agents:px-1.5"
-        title={label}
-        aria-label={label}
+        tooltip={label}
         onClick={() => void newPeerChat(where, agent, undefined, onOpenSession)}
         data-testid="peer-agent-list-new-chat"
         data-agent={agent}
@@ -631,8 +599,7 @@ function PeerNewChat({
           <Button
             size="icon-sm"
             className="w-6 rounded-l-none border-l border-primary-foreground/25"
-            aria-label={t("agentList.list.new_chat")}
-            title={t("agentList.list.new_chat")}
+            tooltip={t("agentList.list.new_chat")}
           >
             <ChevronDown aria-hidden className="size-3.5" />
           </Button>

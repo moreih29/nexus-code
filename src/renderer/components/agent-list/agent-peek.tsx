@@ -11,6 +11,7 @@ export function AgentPeek({
   anchor,
   worktree,
   session,
+  sessionId,
   agent,
   asks,
   onShowSession,
@@ -19,6 +20,7 @@ export function AgentPeek({
   anchor: HTMLElement;
   worktree: WorktreeEntry;
   session: AgentSession;
+  sessionId: string | undefined;
   agent: AgentRun;
   asks: readonly PermissionAsk[];
   onShowSession: () => void;
@@ -61,11 +63,15 @@ export function AgentPeek({
           }}
           onCloseAutoFocus={(event) => event.preventDefault()}
           data-testid="agent-list-agent-card"
-          className={cn(POPOVER_CLASS, "w-[400px] max-w-[calc(100vw-16px)] p-0")}
+          className={cn(
+            POPOVER_CLASS,
+            "h-[min(560px,var(--radix-popover-content-available-height))] w-[400px] max-w-[calc(100vw-16px)] p-0",
+          )}
         >
           <AgentDetail
             worktree={worktree}
             session={session}
+            sessionId={sessionId}
             agent={agent}
             asks={asks}
             visible
