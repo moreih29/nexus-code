@@ -564,8 +564,8 @@ const chatSet: CliCommand = {
     "local increases require user approval, and unrestricted modes require a grant from an\n" +
     "unrestricted tab.\n" +
     "--profile runs it with another agent profile (another account or settings), as its\n" +
-    "profile chip does: its conversation goes on there, or a new one starts with --new. The\n" +
-    "user allows it; not while it works or asks the user.",
+    "profile chip does: its conversation goes on there, or a new one starts with --new. Not\n" +
+    "while it works or asks the user.",
   flags: {
     ...SETTING_FLAGS,
     profile: { type: "string", value: "NAME", description: "Run it with that agent profile" },
@@ -678,7 +678,7 @@ async function setProfile(
       kind: fresh ? "chatProfileNew" : "chatProfile",
       detail: `"${tab.title}" (${names.from} → ${names.to})`,
     },
-    { alwaysAsk: true },
+    { skipWorkspacePolicy: true },
   );
   const { from, to } = await ctx.services.ui(
     "chat.profile",
