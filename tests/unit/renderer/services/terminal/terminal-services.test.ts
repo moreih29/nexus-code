@@ -497,6 +497,23 @@ describe("services/terminal open and close", () => {
     expect(wsTabs?.[editor.id]).toBeUndefined();
   });
 
+  it("killTerminalSessions kills only the terminal sessions it is given", () => {
+    const first = openTerminal({ workspaceId: WS, cwd: "/workspace/a" });
+    const second = openTerminal({ workspaceId: WS, cwd: "/workspace/b" });
+    const editor = useTabsStore.getState().createTab(WS, {
+      type: "editor",
+      props: { workspaceId: WS, filePath: "/workspace/file.ts" },
+    });
+
+    useTabsStore.getState().killTerminalSessions(WS, [second.tabId, editor.id]);
+
+    expect(killCalls()).toEqual([
+      { channel: "pty", method: "kill", args: { workspaceId: WS, tabId: second.tabId } },
+    ]);
+    expect(useTabsStore.getState().byWorkspace[WS]?.[first.tabId]).toBeDefined();
+    expect(useTabsStore.getState().byWorkspace[WS]?.[second.tabId]).toBeDefined();
+  });
+
   it("terminal controller dispose does not kill the PTY session", async () => {
     const controller = createTerminalController({
       workspaceId: WS,
