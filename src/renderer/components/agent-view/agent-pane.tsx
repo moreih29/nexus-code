@@ -231,7 +231,7 @@ export const AgentPane = memo(function AgentPane({
         {sharedDevice !== undefined && <DeviceChip name={sharedDevice} className="ml-1" />}
         <RadixTabs.Root
           value={leaf.activeTabId ?? ""}
-          onValueChange={select}
+          onValueChange={(key) => update((layout) => selectKey(layout, leaf.id, key))}
           className="flex h-full min-w-0 flex-1 items-center"
         >
           <div
