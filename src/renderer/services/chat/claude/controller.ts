@@ -77,7 +77,7 @@ import {
 } from "./history";
 import { claudeModelCatalogKey, useClaudeModelCatalog } from "./model-catalog";
 import { effortToApply, remoteAtStartup } from "./settings-defaults";
-import { applyLines, endGoal } from "./stream-model";
+import { applyLines, endGoal, mainCallContextTokens } from "./stream-model";
 import { TranscriptPages } from "./transcript-pages";
 import { isSupportedClaude, supportsControl, usageSkipsBehaviors } from "./versions";
 
@@ -320,6 +320,10 @@ export class ChatController {
   );
   /** How many times this run of the program said it had no MCP servers, and was asked again. */
   private mcpEmptyAsks = 0;
+  /** Asks for the context not answered yet. */
+  private contextAsks = 0;
+  /** Whether this turn asked for the context it began without counted (askContextBase). */
+  private contextBaseAsked = false;
   private buffered: ChatLine[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   /** New lines held while the log is sent again. */
@@ -1956,9 +1960,30 @@ export class ChatController {
    */
   private refreshContext(retry = true): void {
     if (!this.lineCanAsk() || !this.supports(PANEL_REQUESTS.context)) return;
-    this.request(PANEL_REQUESTS.context, {}).catch(() => {
-      if (retry) setTimeout(() => this.refreshContext(false), CONTEXT_RETRY_MS);
-    });
+    this.contextAsks += 1;
+    this.request(PANEL_REQUESTS.context, {}).then(
+      () => {
+        this.contextAsks -= 1;
+      },
+      () => {
+        this.contextAsks -= 1;
+        if (retry) setTimeout(() => this.refreshContext(false), CONTEXT_RETRY_MS);
+      },
+    );
+  }
+
+  /**
+   * The context a turn began with no count of, asked for as the turn's API
+   * call says what it sent: a tab's first turn, with no one looking at it,
+   * else waits for its end to show any. Once a turn, and not while another
+   * ask is unanswered: from the answer on, each call moves the count on.
+   */
+  private askContextBase(): void {
+    if (this.contextBaseAsked || this.contextAsks > 0) return;
+    if (this.state.model.contextUsage !== undefined) return;
+    if (!this.lineCanAsk() || !this.supports(PANEL_REQUESTS.context)) return;
+    this.contextBaseAsked = true;
+    this.refreshContext();
   }
 
   async mcpReconnect(serverName: string): Promise<void> {
@@ -2595,7 +2620,10 @@ export class ChatController {
       // after the last turn, Remote Control, a background task's news. The
       // profile's usage too, which its store asks for when it is time.
       this.refreshContext();
-      if (message.type === "result") void wantPlanUsage(this.usageKey());
+      if (message.type === "result") {
+        this.contextBaseAsked = false;
+        void wantPlanUsage(this.usageKey());
+      }
       if (message.type === "result" && this.state.model.goal?.status === "active") {
         for (const ms of GOAL_SYNC_MS) setTimeout(() => void this.syncGoal(), ms);
       }
@@ -2641,6 +2669,7 @@ export class ChatController {
       phase: phaseAfter(prev.phase, model),
     }));
     this.afterModel(before, model);
+    if (lines.some(liveMainCall)) this.askContextBase();
     if (model.lastResult !== before.lastResult && lines.some(liveClaudeResult))
       this.hooks.onTurnEnd?.(model);
   }
@@ -2692,6 +2721,7 @@ export class ChatController {
     if (model.process === "exited" && before.process !== "exited") {
       this.rejectPending("the program exited");
       this.mcpEmptyAsks = 0;
+      this.contextBaseAsked = false;
     }
   }
 
@@ -2734,6 +2764,11 @@ function liveClaudeResult(line: ChatLine): boolean {
     line.dir === "out" &&
     (line.message as { type?: string } | undefined)?.type === "result"
   );
+}
+
+/** A main-thread API call's message, live, which says how much of the context it sent. */
+function liveMainCall(line: ChatLine): boolean {
+  return !line.replay && line.dir === "out" && mainCallContextTokens(line.message) !== undefined;
 }
 
 function phaseAfter(phase: ChatTabState["phase"], model: ChatModel): ChatTabState["phase"] {
