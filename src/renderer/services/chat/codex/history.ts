@@ -158,3 +158,41 @@ export function validCodexFork(
     expected && turns?.length === expected.length && expected.every((id, i) => turns[i] === id),
   );
 }
+
+/** Turns asked for in one page of a whole thread's read. */
+export const THREAD_READ_TURNS = 50;
+/** The most pages one read asks for: a thread longer is not read. */
+export const THREAD_READ_PAGES = 200;
+
+/**
+ * A thread's turns with their items, read without loading the thread: a
+ * page at a time from CODEX_HISTORY_VERSION, in one answer before. Null
+ * when the pages do not go on to an end.
+ */
+export async function readCodexThread(
+  request: (method: string, params: Record<string, unknown>) => Promise<Record<string, unknown>>,
+  threadId: string,
+  version: string | null | undefined,
+): Promise<{ id: string; turns: unknown[] } | null> {
+  if (!codexHistoryAvailable(version)) {
+    const result = await request("thread/read", { threadId, includeTurns: true });
+    const turns = (result.thread as { turns?: unknown } | undefined)?.turns;
+    return Array.isArray(turns) ? { id: threadId, turns } : null;
+  }
+  let pages = emptyCodexThreadPages();
+  for (let page = 0; page < THREAD_READ_PAGES; page++) {
+    const cursor = pages.nextCursor;
+    const result = await request("thread/turns/list", {
+      threadId,
+      sortDirection: "asc",
+      itemsView: "full",
+      limit: THREAD_READ_TURNS,
+      ...(cursor ? { cursor } : {}),
+    });
+    const next = appendCodexThreadPage(pages, result);
+    if (!next) return null;
+    if (next.nextCursor === null) return { id: threadId, turns: next.turns };
+    pages = next;
+  }
+  return null;
+}

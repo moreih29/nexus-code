@@ -847,6 +847,16 @@ function applyThread(draft: CodexDraft, result: Rec, seq: number, discoverAgents
   });
 }
 
+/**
+ * A thread read whole as a conversation of its own, as a resumed tab shows
+ * its turns: on a model no tab has, with nothing to fork, rewind or run.
+ */
+export function codexThreadModel(thread: { id: string; turns: unknown[] }): CodexModel {
+  const draft: CodexDraft = new Draft(emptyCodexModel());
+  applyThread(draft, { thread }, 0, false);
+  return draft.next;
+}
+
 /** Only the first input and the final answer can name whole-turn cuts. */
 function markHistoryBoundary(
   draft: CodexDraft,

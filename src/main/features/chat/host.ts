@@ -238,6 +238,8 @@ export class ChatHost {
   /** Tabs whose new prompt file is not yet taken by a started program. */
   private readonly promptStarting = new Set<string>();
   private readonly closingTabs = new Map<string, Promise<unknown>>();
+  /** The reader a tab's shown run has, by the tab: one at a time, closed with the tab. */
+  private readonly printRunReaders = new Map<string, string>();
   /** Workspaces whose tabs have started a program through this host. */
   private readonly workspaces = new Set<string>();
   /** What each agent connection answered chat.attachRoot with (askAttachRoot): asked once a connection. */
@@ -581,6 +583,7 @@ export class ChatHost {
     removal?: WorkspaceChatClose,
   ): Promise<unknown> {
     const key = `${workspaceId}:${tabId}`;
+    this.closePrintRunReader(workspaceId, tabId);
     const intent = this.tabIntents.get(key);
     const previous = this.closingTabs.get(key);
     if (previous && !intent && !removal) return previous;
@@ -1102,7 +1105,10 @@ export class ChatHost {
     if (source?.program !== "codex" || !source.sessionId || !source.home) {
       return { ok: false, reason: "none" };
     }
+    // A pane left without closing its reader (a reload) leaves none behind.
+    this.closePrintRunReader(workspaceId, tabId);
     const readerTabId = `${PRINT_RUN_READER_PREFIX}${randomUUID()}`;
+    this.printRunReaders.set(`${workspaceId}:${tabId}`, readerTabId);
     const key = `${workspaceId}:${readerTabId}`;
     const intent = this.openTab(key);
     try {
@@ -1134,6 +1140,14 @@ export class ChatHost {
       void this.closeTab(workspaceId, readerTabId).catch(() => {});
       return { ok: false, reason: "failed", message: (error as Error).message };
     }
+  }
+
+  private closePrintRunReader(workspaceId: string, tabId: string): void {
+    const owner = `${workspaceId}:${tabId}`;
+    const reader = this.printRunReaders.get(owner);
+    if (!reader) return;
+    this.printRunReaders.delete(owner);
+    void this.closeTab(workspaceId, reader).catch(() => {});
   }
 
   async subagentTranscript(
