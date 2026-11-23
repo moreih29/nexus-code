@@ -275,3 +275,22 @@ func TestAttachmentCallsNameSlotsByTheirGrammar(t *testing.T) {
 		t.Fatal("a name past the grammar was removed")
 	}
 }
+
+func TestAttachmentCallsNameSlotsAsTheFolderWritesThem(t *testing.T) {
+	useAttachRoot(t)
+	service := New()
+	path := attachAged(t, service, "tab", []byte("t"), 40*24*time.Hour)
+	// On a system that folds case these reach tab/1; not by these names.
+	other := []string{"TAB/1", "Tab/1", "tab/01"}
+	touched := slotsCallOf(t, service.TouchAttachments, SlotsParams{WorkspaceID: "ws", Slots: other})
+	if info, _ := os.Stat(path); touched.Count != 0 || time.Since(info.ModTime()) < time.Hour {
+		t.Fatalf("touched %d by another name", touched.Count)
+	}
+	removed := slotsCallOf(t, service.RemoveAttachments, SlotsParams{WorkspaceID: "ws", Slots: other})
+	if removed.Count != 0 || !exists(path) {
+		t.Fatalf("removed %d by another name", removed.Count)
+	}
+	if slotsCallOf(t, service.RemoveAttachments, SlotsParams{WorkspaceID: "ws", Slots: []string{"tab/1"}}).Count != 1 {
+		t.Fatal("the slot by its own name stayed")
+	}
+}

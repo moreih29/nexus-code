@@ -75,8 +75,9 @@ func (s *Service) TouchAttachments(_ context.Context, raw json.RawMessage) (any,
 	now := time.Now()
 	count := 0
 	if realDir(wsDir) {
+		names := dirNames{}
 		for _, slot := range p.Slots {
-			dir, ok := slotDir(wsDir, slot)
+			dir, ok := slotDir(wsDir, slot, names)
 			if !ok {
 				continue
 			}
@@ -106,8 +107,9 @@ func (s *Service) RemoveAttachments(_ context.Context, raw json.RawMessage) (any
 	}
 	count := 0
 	if realDir(wsDir) {
+		names := dirNames{}
 		for _, slot := range p.Slots {
-			dir, ok := slotDir(wsDir, slot)
+			dir, ok := slotDir(wsDir, slot, names)
 			if !ok {
 				continue
 			}
@@ -164,6 +166,7 @@ func pruneRetained(wsDir string, keepTabs map[string]bool, retain RetainParams, 
 	var loose []unused
 	var total int64
 	removed := 0
+	names := dirNames{}
 	tabs, _ := os.ReadDir(wsDir)
 	for _, tab := range tabs {
 		tabDir := filepath.Join(wsDir, tab.Name())
@@ -174,7 +177,7 @@ func pruneRetained(wsDir string, keepTabs map[string]bool, retain RetainParams, 
 		slots, _ := os.ReadDir(tabDir)
 		for _, entry := range slots {
 			slot := tab.Name() + "/" + entry.Name()
-			dir, ok := slotDir(wsDir, slot)
+			dir, ok := slotDir(wsDir, slot, names)
 			if !ok {
 				continue
 			}
@@ -219,8 +222,10 @@ func pruneRetained(wsDir string, keepTabs map[string]bool, retain RetainParams, 
 
 // slotDir is the folder of slot "<tabId>/<n>" below the workspace's folder
 // wsDir: none for any other name, nor where it or its tab's folder is not a
-// folder of its own (a link).
-func slotDir(wsDir, slot string) (string, bool) {
+// folder of its own (a link). Each name must be one the folder holds as it
+// is written (names): a system that folds case, or drops a trailing dot,
+// would otherwise find "TAB/1" at tab/1, which an open tab "tab" keeps.
+func slotDir(wsDir, slot string, names dirNames) (string, bool) {
 	tabID, n, ok := strings.Cut(slot, "/")
 	if !ok || !slotTab.MatchString(tabID) || !slotNumber.MatchString(n) {
 		return "", false
@@ -231,10 +236,27 @@ func slotDir(wsDir, slot string) (string, bool) {
 		return "", false
 	}
 	dir := filepath.Join(tabDir, n)
-	if !realDir(tabDir) || !realDir(dir) {
+	if !names.has(wsDir, tabID) || !names.has(tabDir, n) || !realDir(tabDir) || !realDir(dir) {
 		return "", false
 	}
 	return dir, true
+}
+
+// dirNames holds, for each folder read, the names of what is in it as the
+// system wrote them; read once a call.
+type dirNames map[string]map[string]bool
+
+func (d dirNames) has(dir, name string) bool {
+	held, ok := d[dir]
+	if !ok {
+		held = map[string]bool{}
+		entries, _ := os.ReadDir(dir)
+		for _, entry := range entries {
+			held[entry.Name()] = true
+		}
+		d[dir] = held
+	}
+	return held[name]
 }
 
 // slotFile is the one regular file in a slot's folder.
