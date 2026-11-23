@@ -216,12 +216,12 @@ test("by state, a family's root tells its computer and place once and a child on
 
 test("every remote row tells its own state, a parent raised by its children too", () => {
   const [root = "", child = ""] = remoteRows(remoteStatus());
-  expect(root).toContain('role="img" aria-label="Running"');
+  expect(root).toContain('role="img" aria-label="Working"');
   expect(child).toContain('role="img" aria-label="Needs you"');
   const running = remoteRows(
     remoteStatus({ ...treeList, sessions: [{ ...parent, tabId: "alone" }] }),
   );
-  expect(running[0]).toContain('role="img" aria-label="Running"');
+  expect(running[0]).toContain('role="img" aria-label="Working"');
 });
 
 test("a folded remote family tells inside its chip what of it works and waits", () => {

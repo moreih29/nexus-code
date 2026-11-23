@@ -21,6 +21,7 @@ import { useNoteLinks } from "../../services/notes/use-links";
 import { chatPropsWithProfile } from "../../state/operations/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { stateLabel } from "../agent-list/session-status";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { Button } from "../ui/button";
 import { Popover } from "../ui/popover";
@@ -301,9 +302,8 @@ function DestinationRow({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const { t } = useTranslation("notes");
+  useTranslation();
   const Icon = session.kind === "codex" ? CodexIcon : ClaudeIcon;
-  const phase = session.phase === "idle" && session.hasTurns ? "done" : session.phase;
   return (
     <button
       type="button"
@@ -319,7 +319,7 @@ function DestinationRow({
         {session.title}
       </span>
       <span className="shrink-0 whitespace-nowrap text-app-micro text-muted-foreground">
-        {t(`agent.phase.${phase}`)}
+        {stateLabel(session)}
       </span>
     </button>
   );
