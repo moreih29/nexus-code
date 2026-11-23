@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/nexus-code/nexus-code/internal/claudefiles"
 )
 
 func runTranscriptRead(t *testing.T, service *Service, dir, id string, from *int64) RunTranscriptResult {
@@ -201,7 +203,7 @@ func TestTranscriptFoldersAreNamesNotPatterns(t *testing.T) {
 		if got := runTranscriptRead(t, service, dir, runSession, nil); !got.Found || !strings.Contains(lineTexts(got.Lines), name) {
 			t.Fatalf("%s: not read: %+v", name, got)
 		}
-		if got := transcriptPath(dir, runSession); got == "" {
+		if got, _ := claudefiles.FindSession(dir, runSession); got == "" {
 			t.Fatalf("%s: chat.transcript's path not found", name)
 		}
 		agents := filepath.Join(dir, "projects", "p", runSession, "subagents")
@@ -213,7 +215,7 @@ func TestTranscriptFoldersAreNamesNotPatterns(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if got := subagentPath(dir, runSession, "a1", ""); got == "" {
+		if got, _ := findSubagent(dir, runSession, "a1", ""); got == "" {
 			t.Fatalf("%s: a subagent's path not found by its id", name)
 		}
 	}
@@ -223,7 +225,7 @@ func TestTranscriptFoldersAreNamesNotPatterns(t *testing.T) {
 		if err := os.RemoveAll(filepath.Join(parent, "cfg*", "projects")); err != nil {
 			t.Fatal(err)
 		}
-		if got := transcriptPath(filepath.Join(parent, "cfg*"), runSession); got != "" {
+		if got, _ := claudefiles.FindSession(filepath.Join(parent, "cfg*"), runSession); got != "" {
 			t.Fatalf("a pattern reached a sibling: %s", got)
 		}
 		if got := runTranscriptRead(t, service, filepath.Join(parent, "cfg*"), runSession, nil); got.Found {

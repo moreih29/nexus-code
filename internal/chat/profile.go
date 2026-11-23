@@ -12,6 +12,7 @@ import (
 
 	"github.com/nexus-code/nexus-code/internal/agentpaths"
 	"github.com/nexus-code/nexus-code/internal/filelink"
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 type ProfileDirParams struct {
@@ -30,23 +31,23 @@ type ProfileDirResult struct {
 
 func (s *Service) ProfileDir(_ context.Context, raw json.RawMessage) (any, error) {
 	var p ProfileDirParams
-	if err := decodeParams(raw, &p, "chat.profileDir params must include dir"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.profileDir params must include dir"); err != nil {
 		return nil, err
 	}
 	if p.Agent != "claude" && p.Agent != "codex" {
-		return nil, protocolError("chat.profileDir agent must be claude or codex")
+		return nil, proto.ProtocolError("chat.profileDir agent must be claude or codex")
 	}
 	home, _ := os.UserHomeDir()
 	dir := agentpaths.ExpandProfileDir(p.Dir, home)
 	if dir == "" || !filepath.IsAbs(dir) {
-		return nil, protocolError("chat.profileDir dir must be absolute or start with ~/")
+		return nil, proto.ProtocolError("chat.profileDir dir must be absolute or start with ~/")
 	}
 	defaultDir := defaultProfileDir(p.Agent, home)
 	if defaultDir != "" && sameDir(dir, defaultDir) {
-		return nil, requestFailed("chat.profileDir: %s is the default folder", dir)
+		return nil, proto.RequestFailed("chat.profileDir: %s is the default folder", dir)
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, requestFailed("chat.profileDir: %s", err)
+		return nil, proto.RequestFailed("chat.profileDir: %s", err)
 	}
 	result := ProfileDirResult{Dir: dir, DefaultDir: defaultDir, Linked: []string{}, Failed: []string{}}
 	shared := make(map[string]bool, len(p.Shared))

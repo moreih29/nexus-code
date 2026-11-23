@@ -86,7 +86,7 @@ func TestHistorySlotsFindsAWindowsHomeAsWritten(t *testing.T) {
 		`{"t":"@C:\/Users\/Me\/.nexus-code\/attach\/ws\/c\/3\/z.png"}`,
 		`{"out":"`+jsonText(`{"file":"`+jsonText(ws+`\d\4\w.png`)+`"}`)+`"}`,
 	)
-	slots, truncated, err := historySlots(path, ws)
+	slots, truncated, err := historySlots(path, nil, ws)
 	if err != nil || truncated || !reflect.DeepEqual(slots, []string{"a/1", "b/2", "c/3", "d/4"}) {
 		t.Fatalf("slots %v truncated %v err %v", slots, truncated, err)
 	}
@@ -100,7 +100,7 @@ func TestHistorySlotsKeepsTheLastNamedPastTheCap(t *testing.T) {
 	}
 	path := filepath.Join(t.TempDir(), "h.jsonl")
 	writeHistory(t, path, lines...)
-	slots, truncated, err := historySlots(path, ws)
+	slots, truncated, err := historySlots(path, nil, ws)
 	if err != nil || !truncated || len(slots) != maxAttachSlots || slots[0] != "t/11" {
 		t.Fatalf("len %d first %v truncated %v err %v", len(slots), slots[:1], truncated, err)
 	}
@@ -128,7 +128,7 @@ func TestHistorySlotsReadsANameAcrossChunks(t *testing.T) {
 	for _, at := range []int{historyChunk - 10, historyChunk - len(ws) - 3, 2*historyChunk - 1} {
 		name := ws + "/tab-x/7/f.png"
 		writeHistory(t, path, strings.Repeat("y", at)+name)
-		slots, _, err := historySlots(path, ws)
+		slots, _, err := historySlots(path, nil, ws)
 		if err != nil || !reflect.DeepEqual(slots, []string{"tab-x/7"}) {
 			t.Fatalf("at %d: slots %v err %v", at, slots, err)
 		}

@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 const maxAttachSlots = 5000
@@ -72,7 +74,7 @@ func (s *Service) RemoveAttachments(_ context.Context, raw json.RawMessage) (any
 			return SlotsResult{}, nil
 		}
 		if err := os.RemoveAll(wsDir); err != nil {
-			return nil, requestFailed("chat.removeAttachments: %v", err)
+			return nil, proto.RequestFailed("chat.removeAttachments: %v", err)
 		}
 		return SlotsResult{Count: 1}, nil
 	}
@@ -95,19 +97,19 @@ func (s *Service) RemoveAttachments(_ context.Context, raw json.RawMessage) (any
 
 func slotsCall(raw json.RawMessage, method string) (SlotsParams, string, error) {
 	var p SlotsParams
-	if err := decodeParams(raw, &p, method+" params must include workspaceId and slots"); err != nil {
+	if err := proto.DecodeParams(raw, &p, method+" params must include workspaceId and slots"); err != nil {
 		return p, "", err
 	}
 	workspaceID, ok := plainName(strings.TrimSpace(p.WorkspaceID))
 	if !ok {
-		return p, "", protocolError(method + " workspaceId is required")
+		return p, "", proto.ProtocolError(method + " workspaceId is required")
 	}
 	if len(p.Slots) > maxAttachSlots {
-		return p, "", protocolError(method + " names too many slots")
+		return p, "", proto.ProtocolError(method + " names too many slots")
 	}
 	root, err := attachRoot()
 	if err != nil {
-		return p, "", requestFailed("%s: %v", method, err)
+		return p, "", proto.RequestFailed("%s: %v", method, err)
 	}
 	return p, filepath.Join(root, workspaceID), nil
 }

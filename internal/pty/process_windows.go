@@ -21,11 +21,3 @@ func (c *child) signalGroup(syscall.Signal) error {
 	}
 	return err
 }
-
-func exitPayload(key tabKey, state *os.ProcessState, err error) ExitPayload {
-	code := 1
-	if err == nil {
-		code = state.ExitCode()
-	}
-	return ExitPayload{WorkspaceID: key.workspaceID, TabID: key.tabID, Code: &code}
-}

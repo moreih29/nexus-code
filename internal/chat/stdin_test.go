@@ -92,7 +92,7 @@ func TestCanceledStdinFrameOnlyClosesAfterAPartialWrite(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := New()
-			sess, err := s.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+			sess, err := s.sessionFor(tabKey{WorkspaceID: "ws", TabID: "tab"}, "")
 			if err != nil {
 				t.Fatal(err)
 			}

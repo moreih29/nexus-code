@@ -267,7 +267,7 @@ func TestRacingSpawnsOfATabForkOnlyOnce(t *testing.T) {
 		firstSpawn.Attached || !attached.Attached || firstSpawn.PID != attached.PID {
 		t.Fatalf("spawns returned %+v and %+v with %d starts", a, b, starts.Load())
 	}
-	session := service.lookup(tabKey{workspaceID: testWorkspaceID, tabID: params.TabID})
+	session := service.lookup(tabKey{WorkspaceID: testWorkspaceID, TabID: params.TabID})
 	if session == nil {
 		t.Fatal("the shared shell exited before the attach finished")
 	}

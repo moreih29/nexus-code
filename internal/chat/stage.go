@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/nexus-code/nexus-code/internal/agentpaths"
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 const stagedDir = "nexus-staged"
@@ -19,11 +20,11 @@ var stagedPublishMu sync.Mutex
 
 func (s *Service) StageThread(_ context.Context, raw json.RawMessage) (any, error) {
 	var p StageThreadParams
-	if err := decodeParams(raw, &p, "chat.stageThread params must include threadId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.stageThread params must include threadId"); err != nil {
 		return nil, err
 	}
 	if !sessionIDPattern.MatchString(p.ThreadID) {
-		return nil, protocolError("chat.stageThread threadId is not a thread id")
+		return nil, proto.ProtocolError("chat.stageThread threadId is not a thread id")
 	}
 	to := codexHome(p.To)
 	if to == "" {
@@ -39,12 +40,12 @@ func (s *Service) StageThread(_ context.Context, raw json.RawMessage) (any, erro
 	}
 	dir := filepath.Join(to, "sessions", stagedDir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, requestFailed("chat.stageThread: %s", err)
+		return nil, proto.RequestFailed("chat.stageThread: %s", err)
 	}
 	seen := map[string]bool{p.ThreadID: true}
 	for path := source; path != ""; {
 		if err := copyGrown(path, filepath.Join(dir, filepath.Base(path))); err != nil {
-			return nil, requestFailed("chat.stageThread: %s", err)
+			return nil, proto.RequestFailed("chat.stageThread: %s", err)
 		}
 		parent := forkedFrom(path)
 		if parent == "" || seen[parent] || len(seen) >= stagedLineage || rolloutPath(to, parent) != "" {

@@ -54,44 +54,44 @@ var errAttachFolderLinked = proto.NewError("chat.attach-folder-link", "chat.atta
 
 func (s *Service) Attach(_ context.Context, raw json.RawMessage) (any, error) {
 	var p AttachParams
-	if err := decodeParams(raw, &p, "chat.attach params must include workspaceId, tabId, name and data"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.attach params must include workspaceId, tabId, name and data"); err != nil {
 		return nil, err
 	}
-	key, err := keyFrom(p.WorkspaceID, p.TabID, "chat.attach")
+	key, err := proto.TabKeyFrom(p.WorkspaceID, p.TabID, "chat.attach")
 	if err != nil {
 		return nil, err
 	}
-	if !slotTab.MatchString(key.tabID) {
-		return nil, protocolError("chat.attach tabId is not a tab's id")
+	if !slotTab.MatchString(key.TabID) {
+		return nil, proto.ProtocolError("chat.attach tabId is not a tab's id")
 	}
 	name, ok := plainName(p.Name)
 	if !ok {
-		return nil, protocolError("chat.attach name must be a file name")
+		return nil, proto.ProtocolError("chat.attach name must be a file name")
 	}
 	if windowsNames {
 		name = windowsName(name)
 	}
 	if base64.StdEncoding.DecodedLen(len(p.Data)) > maxAttachBytes+3 {
-		return nil, requestFailed("%s is larger than %d MiB", name, maxAttachBytes>>20)
+		return nil, proto.RequestFailed("%s is larger than %d MiB", name, maxAttachBytes>>20)
 	}
 	data, err := base64.StdEncoding.DecodeString(p.Data)
 	if err != nil {
-		return nil, protocolError("chat.attach data must be base64")
+		return nil, proto.ProtocolError("chat.attach data must be base64")
 	}
 	if len(data) > maxAttachBytes {
-		return nil, requestFailed("%s is larger than %d MiB", name, maxAttachBytes>>20)
+		return nil, proto.RequestFailed("%s is larger than %d MiB", name, maxAttachBytes>>20)
 	}
 	dir, err := tabAttachDir(key)
 	if err != nil {
-		return nil, requestFailed("chat.attach: %v", err)
+		return nil, proto.RequestFailed("chat.attach: %v", err)
 	}
 	wsDir := filepath.Dir(dir)
 	if err := os.MkdirAll(filepath.Dir(wsDir), 0o700); err != nil {
-		return nil, requestFailed("chat.attach: %v", err)
+		return nil, proto.RequestFailed("chat.attach: %v", err)
 	}
 	for _, step := range []string{wsDir, dir} {
 		if err := os.Mkdir(step, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
-			return nil, requestFailed("chat.attach: %v", err)
+			return nil, proto.RequestFailed("chat.attach: %v", err)
 		}
 		if !realDir(step) {
 			return nil, errAttachFolderLinked
@@ -104,12 +104,12 @@ func (s *Service) Attach(_ context.Context, raw json.RawMessage) (any, error) {
 			continue
 		}
 		if err != nil {
-			return nil, requestFailed("chat.attach: %v", err)
+			return nil, proto.RequestFailed("chat.attach: %v", err)
 		}
 		path := filepath.Join(slot, name)
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			_ = os.RemoveAll(slot)
-			return nil, requestFailed("chat.attach: %v", err)
+			return nil, proto.RequestFailed("chat.attach: %v", err)
 		}
 		return AttachResult{Path: path}, nil
 	}
@@ -118,23 +118,23 @@ func (s *Service) Attach(_ context.Context, raw json.RawMessage) (any, error) {
 func (s *Service) AttachRoot(_ context.Context, _ json.RawMessage) (any, error) {
 	root, err := attachRoot()
 	if err != nil {
-		return nil, requestFailed("chat.attachRoot: %v", err)
+		return nil, proto.RequestFailed("chat.attachRoot: %v", err)
 	}
 	return AttachRootResult{Root: root}, nil
 }
 
 func (s *Service) PruneAttachments(_ context.Context, raw json.RawMessage) (any, error) {
 	var p PruneAttachParams
-	if err := decodeParams(raw, &p, "chat.pruneAttachments params must include workspaceId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.pruneAttachments params must include workspaceId"); err != nil {
 		return nil, err
 	}
 	workspaceID, ok := plainName(strings.TrimSpace(p.WorkspaceID))
 	if !ok {
-		return nil, protocolError("chat.pruneAttachments workspaceId is required")
+		return nil, proto.ProtocolError("chat.pruneAttachments workspaceId is required")
 	}
 	root, err := attachRoot()
 	if err != nil {
-		return nil, requestFailed("chat.pruneAttachments: %v", err)
+		return nil, proto.RequestFailed("chat.pruneAttachments: %v", err)
 	}
 	keep := make(map[string]bool, len(p.KeepTabIDs))
 	for _, id := range p.KeepTabIDs {
@@ -143,7 +143,7 @@ func (s *Service) PruneAttachments(_ context.Context, raw json.RawMessage) (any,
 	dir := filepath.Join(root, workspaceID)
 	if p.Retain != nil {
 		if len(p.Retain.Keep) > maxAttachSlots {
-			return nil, protocolError("chat.pruneAttachments keeps too many slots")
+			return nil, proto.ProtocolError("chat.pruneAttachments keeps too many slots")
 		}
 		return PruneResult{Removed: pruneRetained(dir, keep, *p.Retain, time.Now())}, nil
 	}
@@ -152,7 +152,7 @@ func (s *Service) PruneAttachments(_ context.Context, raw json.RawMessage) (any,
 		return struct{}{}, nil
 	}
 	if err != nil {
-		return nil, requestFailed("chat.pruneAttachments: %v", err)
+		return nil, proto.RequestFailed("chat.pruneAttachments: %v", err)
 	}
 	for _, entry := range entries {
 		if !keep[entry.Name()] {
@@ -169,11 +169,11 @@ func removeAttachments(key tabKey) {
 }
 
 func tabAttachDir(key tabKey) (string, error) {
-	workspaceID, ok := plainName(key.workspaceID)
+	workspaceID, ok := plainName(key.WorkspaceID)
 	if !ok {
 		return "", errors.New("workspaceId is not a plain name")
 	}
-	tabID, ok := plainName(key.tabID)
+	tabID, ok := plainName(key.TabID)
 	if !ok {
 		return "", errors.New("tabId is not a plain name")
 	}

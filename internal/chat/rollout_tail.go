@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 const (
@@ -22,11 +24,11 @@ const (
 
 func (s *Service) RolloutTail(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p RolloutTailParams
-	if err := decodeParams(raw, &p, "chat.rolloutTail params must include threadId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.rolloutTail params must include threadId"); err != nil {
 		return nil, err
 	}
 	if !sessionIDPattern.MatchString(p.ThreadID) {
-		return nil, protocolError("chat.rolloutTail threadId is not a thread id")
+		return nil, proto.ProtocolError("chat.rolloutTail threadId is not a thread id")
 	}
 	turns := p.Turns
 	if turns <= 0 {
@@ -48,7 +50,7 @@ func (s *Service) RolloutTail(ctx context.Context, raw json.RawMessage) (any, er
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
-			return nil, requestFailed("chat.rolloutTail: %s", err)
+			return nil, proto.RequestFailed("chat.rolloutTail: %s", err)
 		}
 		if tail.done || parent == "" {
 			break

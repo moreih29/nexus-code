@@ -4,7 +4,6 @@ package chat
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"syscall"
@@ -63,14 +62,6 @@ func (p *process) signalKill() error {
 		return nil
 	}
 	return p.cmd.Process.Kill()
-}
-
-func exitPayload(key tabKey, state *os.ProcessState, err error) ExitPayload {
-	code := -1
-	if err == nil && state != nil {
-		code = state.ExitCode()
-	}
-	return ExitPayload{WorkspaceID: key.workspaceID, TabID: key.tabID, Code: &code}
 }
 
 func sameEnvKey(a, b string) bool {

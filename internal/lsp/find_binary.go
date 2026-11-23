@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 const loginShellTimeout = 5 * time.Second
@@ -34,11 +36,11 @@ type FindBinaryResult struct {
 
 func (s *Service) FindBinary(_ context.Context, raw json.RawMessage) (any, error) {
 	var p FindBinaryParams
-	if err := decodeParams(raw, &p, "lsp.findBinary params must include name"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "lsp.findBinary params must include name"); err != nil {
 		return nil, err
 	}
 	if p.Name == "" || strings.ContainsAny(p.Name, `/\`+"\x00") {
-		return nil, protocolError("lsp.findBinary name must be a command name")
+		return nil, proto.ProtocolError("lsp.findBinary name must be a command name")
 	}
 
 	home, _ := os.UserHomeDir()

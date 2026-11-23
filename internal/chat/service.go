@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -37,10 +38,7 @@ type Service struct {
 	transcriptPages transcriptSnapshotCache
 }
 
-type tabKey struct {
-	workspaceID string
-	tabID       string
-}
+type tabKey = proto.TabKey
 
 const (
 	maxClosedTabGenerations = 4096
@@ -179,15 +177,15 @@ func (s *Service) Close() {
 
 func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 	var p StartParams
-	if err := decodeParams(raw, &p, "chat.start params must include workspaceId, tabId, cwd and program"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.start params must include workspaceId, tabId, cwd and program"); err != nil {
 		return nil, err
 	}
-	key, err := keyFrom(p.WorkspaceID, p.TabID, "chat.start")
+	key, err := proto.TabKeyFrom(p.WorkspaceID, p.TabID, "chat.start")
 	if err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(p.Cwd) == "" || strings.TrimSpace(p.Program) == "" {
-		return nil, protocolError("chat.start cwd and program are required")
+		return nil, proto.ProtocolError("chat.start cwd and program are required")
 	}
 
 	env := mergeEnv(p.Env)
@@ -220,7 +218,7 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 	}()
 	var generation [16]byte
 	if _, err := rand.Read(generation[:]); err != nil {
-		return nil, requestFailed("chat.start process generation: %s", err)
+		return nil, proto.RequestFailed("chat.start process generation: %s", err)
 	}
 
 	cmd := nodeshim.Command(p.Program, p.Args...)
@@ -229,7 +227,7 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 	generationID := hex.EncodeToString(generation[:])
 	stdin, childStdin, err := newChatStdin(generationID)
 	if err != nil {
-		return nil, requestFailed("chat.start: %s", err)
+		return nil, proto.RequestFailed("chat.start: %s", err)
 	}
 	defer childStdin.Close()
 	cmd.Stdin = childStdin
@@ -241,12 +239,12 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 	}()
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, requestFailed("chat.start: %s", err)
+		return nil, proto.RequestFailed("chat.start: %s", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		_ = stdout.Close()
-		return nil, requestFailed("chat.start: %s", err)
+		return nil, proto.RequestFailed("chat.start: %s", err)
 	}
 	proc := &process{
 		generation: generationID,
@@ -256,7 +254,7 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 		done:       make(chan struct{}),
 	}
 	if err := proc.startOwned(); err != nil {
-		return nil, requestFailed("chat.start: %s", err)
+		return nil, proto.RequestFailed("chat.start: %s", err)
 	}
 	_ = childStdin.Close()
 	started = true
@@ -297,10 +295,10 @@ func (s *Service) startSession(sess *session, p StartParams, env []string) (any,
 
 func (s *Service) Send(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p SendParams
-	if err := decodeParams(raw, &p, "chat.send params must include workspaceId, tabId and message"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.send params must include workspaceId, tabId and message"); err != nil {
 		return nil, err
 	}
-	key, err := keyFrom(p.WorkspaceID, p.TabID, "chat.send")
+	key, err := proto.TabKeyFrom(p.WorkspaceID, p.TabID, "chat.send")
 	if err != nil {
 		return nil, err
 	}
@@ -309,7 +307,7 @@ func (s *Service) Send(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	var line bytes.Buffer
 	if len(p.Message) == 0 || json.Compact(&line, p.Message) != nil {
-		return nil, protocolError("chat.send message must be JSON")
+		return nil, proto.ProtocolError("chat.send message must be JSON")
 	}
 	sess := s.lookup(key)
 	if sess == nil {
@@ -370,10 +368,10 @@ func (sess *session) finishInput(slot *entry, dir string, message json.RawMessag
 
 func (s *Service) Stop(_ context.Context, raw json.RawMessage) (any, error) {
 	var p TabParams
-	if err := decodeParams(raw, &p, "chat.stop params must include workspaceId and tabId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.stop params must include workspaceId and tabId"); err != nil {
 		return nil, err
 	}
-	key, err := keyFrom(p.WorkspaceID, p.TabID, "chat.stop")
+	key, err := proto.TabKeyFrom(p.WorkspaceID, p.TabID, "chat.stop")
 	if err != nil {
 		return nil, err
 	}
@@ -388,10 +386,10 @@ func (s *Service) Stop(_ context.Context, raw json.RawMessage) (any, error) {
 
 func (s *Service) CloseTab(_ context.Context, raw json.RawMessage) (any, error) {
 	var p TabParams
-	if err := decodeParams(raw, &p, "chat.close params must include workspaceId and tabId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.close params must include workspaceId and tabId"); err != nil {
 		return nil, err
 	}
-	key, err := keyFrom(p.WorkspaceID, p.TabID, "chat.close")
+	key, err := proto.TabKeyFrom(p.WorkspaceID, p.TabID, "chat.close")
 	if err != nil {
 		return nil, err
 	}
@@ -430,10 +428,10 @@ func (s *Service) CloseTab(_ context.Context, raw json.RawMessage) (any, error) 
 
 func (s *Service) Replay(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p ReplayParams
-	if err := decodeParams(raw, &p, "chat.replay params must include workspaceId and tabId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.replay params must include workspaceId and tabId"); err != nil {
 		return nil, err
 	}
-	key, err := keyFrom(p.WorkspaceID, p.TabID, "chat.replay")
+	key, err := proto.TabKeyFrom(p.WorkspaceID, p.TabID, "chat.replay")
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +463,7 @@ func (s *Service) Replay(ctx context.Context, raw json.RawMessage) (any, error) 
 				if ctxErr := s.checkReplayConnection(ctx, sink); ctxErr != nil {
 					return nil, ctxErr
 				}
-				return nil, requestFailed("chat.replay: %s", err)
+				return nil, proto.RequestFailed("chat.replay: %s", err)
 			}
 		}
 		last = e.seq
@@ -498,13 +496,13 @@ func (s *Service) List(_ context.Context, raw json.RawMessage) (any, error) {
 	var p ListParams
 	if len(raw) > 0 && string(raw) != "null" {
 		if err := json.Unmarshal(raw, &p); err != nil {
-			return nil, protocolError("chat.list params must be an object")
+			return nil, proto.ProtocolError("chat.list params must be an object")
 		}
 	}
 	s.mu.Lock()
 	sessions := make([]*session, 0, len(s.sessions))
 	for key, sess := range s.sessions {
-		if p.WorkspaceID == "" || key.workspaceID == p.WorkspaceID {
+		if p.WorkspaceID == "" || key.WorkspaceID == p.WorkspaceID {
 			sessions = append(sessions, sess)
 		}
 	}
@@ -512,8 +510,8 @@ func (s *Service) List(_ context.Context, raw json.RawMessage) (any, error) {
 	result := ListResult{Sessions: make([]SessionInfo, 0, len(sessions))}
 	for _, sess := range sessions {
 		info := SessionInfo{
-			WorkspaceID: sess.key.workspaceID,
-			TabID:       sess.key.tabID,
+			WorkspaceID: sess.key.WorkspaceID,
+			TabID:       sess.key.TabID,
 			CreatedAt:   sess.createdAt.UnixMilli(),
 		}
 		if proc := sess.running(); proc != nil {
@@ -575,7 +573,7 @@ func (s *Service) forgetClosedTabLocked(element *list.Element) {
 }
 
 func staleTab(key tabKey) error {
-	return proto.NewError("chat.tab-closed", "chat tab "+key.tabID+" is closed")
+	return proto.NewError("chat.tab-closed", "chat tab "+key.TabID+" is closed")
 }
 
 func (s *Service) dropIfEmpty(sess *session) {
@@ -655,8 +653,8 @@ func (sess *session) addPinnedLocked(fields any) {
 
 func (sess *session) payload(e *entry) LinePayload {
 	return LinePayload{
-		WorkspaceID: sess.key.workspaceID,
-		TabID:       sess.key.tabID,
+		WorkspaceID: sess.key.WorkspaceID,
+		TabID:       sess.key.TabID,
 		Seq:         e.seq,
 		Dir:         e.dir,
 		Message:     e.message,
@@ -843,32 +841,13 @@ func (p *process) stderr() string {
 	return redact.Credentials(tail)
 }
 
-func decodeParams(raw json.RawMessage, target any, message string) error {
-	if len(raw) == 0 || json.Unmarshal(raw, target) != nil {
-		return protocolError(message)
-	}
-	return nil
-}
-
-func keyFrom(workspaceID, tabID, method string) (tabKey, error) {
-	workspaceID = strings.TrimSpace(workspaceID)
-	tabID = strings.TrimSpace(tabID)
-	if workspaceID == "" || tabID == "" {
-		return tabKey{}, protocolError(method + " workspaceId and tabId are required")
-	}
-	return tabKey{workspaceID: workspaceID, tabID: tabID}, nil
-}
-
 const CodeNotRunning = "chat.not-running"
 
 func notRunning(key tabKey) error {
-	return proto.NewError(CodeNotRunning, "no program runs for tab "+key.tabID)
+	return proto.NewError(CodeNotRunning, "no program runs for tab "+key.TabID)
 }
 
-func requestFailed(format string, args ...any) error {
-	return proto.RequestFailed(format, args...)
-}
-
-func protocolError(message string) error {
-	return proto.ProtocolError(message)
+func exitPayload(key tabKey, state *os.ProcessState, err error) ExitPayload {
+	code, signal := proto.ExitStatus(state, err)
+	return ExitPayload{WorkspaceID: key.WorkspaceID, TabID: key.TabID, Code: code, Signal: signal}
 }

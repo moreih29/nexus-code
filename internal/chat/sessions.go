@@ -12,6 +12,9 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/nexus-code/nexus-code/internal/claudefiles"
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 const (
@@ -26,53 +29,50 @@ var notAlphanumeric = regexp.MustCompile(`[^a-zA-Z0-9]`)
 
 func (s *Service) Sessions(_ context.Context, raw json.RawMessage) (any, error) {
 	var p SessionsParams
-	if err := decodeParams(raw, &p, "chat.sessions params must include cwd"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.sessions params must include cwd"); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(p.Cwd) == "" {
-		return nil, protocolError("chat.sessions params must include cwd")
+		return nil, proto.ProtocolError("chat.sessions params must include cwd")
 	}
 	limit := p.Limit
 	if limit <= 0 {
 		limit = sessionsDefaultLimit
 	}
 	limit = min(limit, sessionsMaxLimit)
-	dir := configDir(p.ConfigDir)
-	if dir == "" {
-		return SessionsResult{Sessions: []ClaudeSession{}}, nil
-	}
-	return SessionsResult{Sessions: listSessions(filepath.Join(dir, "projects"), p.Cwd, limit)}, nil
+	return SessionsResult{Sessions: listSessions(claudefiles.ProjectsDir(configDir(p.ConfigDir)), p.Cwd, limit)}, nil
 }
 
 func listSessions(projects, cwd string, limit int) []ClaudeSession {
 	type file struct {
 		id, path string
-		modified time.Time
-		size     int64
+		info     os.FileInfo
 	}
 	var files []file
 	seen := map[string]bool{}
-	for _, dir := range projectDirs(projects, cwd) {
+	for _, dir := range claudeProjectFoldersFor(projects, cwd) {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue
 		}
 		for _, entry := range entries {
 			id, ok := strings.CutSuffix(entry.Name(), ".jsonl")
-			if !ok || entry.IsDir() || !sessionIDPattern.MatchString(id) || seen[id] {
+			if !ok || !sessionIDPattern.MatchString(id) || seen[id] {
 				continue
 			}
-			info, err := entry.Info()
-			if err != nil {
+			path := filepath.Join(dir, entry.Name())
+			info, ok := claudefiles.RegularFile(path)
+			if !ok {
 				continue
 			}
 			seen[id] = true
-			files = append(files, file{id, filepath.Join(dir, entry.Name()), info.ModTime(), info.Size()})
+			files = append(files, file{id, path, info})
 		}
 	}
 	sort.Slice(files, func(i, j int) bool {
-		if !files[i].modified.Equal(files[j].modified) {
-			return files[i].modified.After(files[j].modified)
+		a, b := files[i].info.ModTime(), files[j].info.ModTime()
+		if !a.Equal(b) {
+			return a.After(b)
 		}
 		return files[i].id < files[j].id
 	})
@@ -81,13 +81,13 @@ func listSessions(projects, cwd string, limit int) []ClaudeSession {
 		if len(sessions) >= limit {
 			break
 		}
-		info, ok := readClaudeSession(f.path)
+		info, ok := readClaudeSession(f.path, f.info)
 		if !ok {
 			continue
 		}
 		info.SessionID = f.id
-		info.LastModified = f.modified.UnixMilli()
-		info.Size = f.size
+		info.LastModified = f.info.ModTime().UnixMilli()
+		info.Size = f.info.Size()
 		sessions = append(sessions, info)
 	}
 	return sessions
@@ -115,8 +115,8 @@ func globEscape(s string) string {
 	return strings.NewReplacer(`\`, `\\`, "*", `\*`, "?", `\?`, "[", `\[`).Replace(s)
 }
 
-func readClaudeSession(path string) (ClaudeSession, bool) {
-	head, tail, err := readEnds(path, sessionReadBytes)
+func readClaudeSession(path string, want os.FileInfo) (ClaudeSession, bool) {
+	head, tail, err := readEnds(path, want, sessionReadBytes)
 	if err != nil {
 		return ClaudeSession{}, false
 	}
@@ -247,16 +247,12 @@ func jsonStringAt(b []byte) (string, bool) {
 	return "", false
 }
 
-func readEnds(path string, n int64) (head, tail []byte, err error) {
-	file, err := os.Open(path)
+func readEnds(path string, want os.FileInfo, n int64) (head, tail []byte, err error) {
+	file, info, err := claudefiles.Open(path, want)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return nil, nil, err
-	}
 	if info.Size() <= 2*n {
 		all, err := io.ReadAll(file)
 		return all, all, err
