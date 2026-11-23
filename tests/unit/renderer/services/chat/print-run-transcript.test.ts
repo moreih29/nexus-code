@@ -6,9 +6,15 @@ import {
   THREAD_READ_TURNS,
 } from "../../../../../src/renderer/services/chat/codex/history";
 import { codexThreadModel } from "../../../../../src/renderer/services/chat/codex/model";
+import type { ChatModel } from "../../../../../src/renderer/services/chat/model";
 import {
+  type CodexRunReader,
+  keepRunReader,
   mergeRunLines,
   NO_RUN_LINES,
+  RUN_READ_INTERVAL_MS,
+  RUN_READER_AGAIN_MS,
+  RUN_READER_ATTEMPTS,
 } from "../../../../../src/renderer/services/chat/print-run-transcript";
 
 const read = (over: Partial<Parameters<typeof mergeRunLines>[1]>) => ({
@@ -123,5 +129,128 @@ describe("a codex run's thread, read without loading it", () => {
       "assistant",
     ]);
     expect(model.items.some((item) => "forkable" in item && item.forkable)).toBe(false);
+  });
+});
+
+describe("a codex run's reader kept up for its pane", () => {
+  const MODEL = { items: [] } as unknown as ChatModel;
+  /** A keeper whose readers and clock are the test's. */
+  function kept(running = true, reached: boolean[] = []) {
+    const state = { running, ups: 0, opens: 0 };
+    /** What the next opens give: a reader, or none (out of reach). */
+    const reach = [...reached];
+    const readers: Array<{ die(): void; closed: boolean; model: ChatModel | null }> = [];
+    const waits: Array<{ run(): void; ms: number }> = [];
+    const keeper = keepRunReader({
+      open: async (onDead) => {
+        state.opens += 1;
+        if (reach.shift() === false) return null;
+        const made = {
+          closed: false,
+          dead: false,
+          model: MODEL as ChatModel | null,
+          die: () => {},
+        };
+        const reader: CodexRunReader = {
+          get dead() {
+            return made.dead;
+          },
+          read: async () => (made.dead || made.closed ? null : made.model),
+          close: () => {
+            made.closed = true;
+          },
+        };
+        made.die = () => {
+          made.dead = true;
+          onDead();
+        };
+        readers.push(made);
+        return reader;
+      },
+      running: () => state.running,
+      onUp: () => {
+        state.ups += 1;
+      },
+      timers: {
+        set: (run, ms) => {
+          const wait = { run, ms };
+          waits.push(wait);
+          return wait;
+        },
+        clear: (wait) => {
+          const at = waits.indexOf(wait as (typeof waits)[number]);
+          if (at >= 0) waits.splice(at, 1);
+        },
+      },
+    });
+    const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
+    /** Lets the one wait pending run out; its length. */
+    const pass = async () => {
+      const wait = waits.shift();
+      wait?.run();
+      await settled();
+      return wait?.ms;
+    };
+    return { keeper, state, reach, readers, waits, settled, pass };
+  }
+
+  test("one that did not start is asked for again for as long as the run goes on", async () => {
+    const k = kept(true, [false, false, false, false, false, true]);
+    await k.settled();
+    // More times than a reader that ended is started again: not reached is not ended.
+    for (let n = 0; n < 5; n += 1) expect(await k.pass()).toBe(RUN_READ_INTERVAL_MS);
+    expect(k.state.opens).toBe(6);
+    expect(k.state.ups).toBe(1);
+    expect(await k.keeper.read()).toBe(MODEL);
+    expect(k.waits).toEqual([]);
+  });
+
+  test("after the run ended, one that does not start is asked for a few times only", async () => {
+    const k = kept(false, Array(10).fill(false));
+    await k.settled();
+    let passed = 0;
+    while (k.waits.length > 0) {
+      expect(await k.pass()).toBe(RUN_READER_AGAIN_MS);
+      passed += 1;
+    }
+    expect(passed).toBe(RUN_READER_ATTEMPTS);
+    expect(await k.keeper.read()).toBeNull();
+  });
+
+  test("one that ended is closed and another started, counted anew after a read", async () => {
+    const k = kept();
+    await k.settled();
+    // Each ends after a read that gave the thread: never out of attempts.
+    for (let n = 0; n < RUN_READER_ATTEMPTS + 2; n += 1) {
+      expect(await k.keeper.read()).toBe(MODEL);
+      k.readers[n]?.die();
+      expect(k.readers[n]?.closed).toBe(true);
+      expect(await k.keeper.read()).toBeNull();
+      expect(await k.pass()).toBe(RUN_READER_AGAIN_MS);
+    }
+    expect(k.state.ups).toBe(RUN_READER_ATTEMPTS + 3);
+    // With no read between, a few times only: one start is spent already.
+    for (;;) {
+      k.readers[k.readers.length - 1]?.die();
+      if (k.waits.length === 0) break;
+      await k.pass();
+    }
+    expect(k.readers.length).toBe(RUN_READER_ATTEMPTS + 2 + RUN_READER_ATTEMPTS);
+    expect(k.readers.every((reader) => reader.closed)).toBe(true);
+  });
+
+  test("closing ends the reader and what was waited for", async () => {
+    const k = kept(true, [false]);
+    await k.settled();
+    expect(k.waits).toHaveLength(1);
+    k.keeper.close();
+    expect(k.waits).toEqual([]);
+
+    const up = kept();
+    await up.settled();
+    up.keeper.close();
+    expect(up.readers[0]?.closed).toBe(true);
+    up.readers[0]?.die();
+    expect(up.waits).toEqual([]);
   });
 });

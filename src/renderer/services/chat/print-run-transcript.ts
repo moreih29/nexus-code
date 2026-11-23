@@ -19,7 +19,7 @@ import { addLineReceiver } from "./transport/receivers";
 export const RUN_READ_INTERVAL_MS = 3_000;
 /** How many times a pane starts a reader again after one ended, and how long it waits to. */
 export const RUN_READER_ATTEMPTS = 3;
-const RUN_READER_AGAIN_MS = 1_000;
+export const RUN_READER_AGAIN_MS = 1_000;
 /** How long a reader's answer is waited for. */
 const READER_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -50,6 +50,9 @@ export function mergeRunLines(prev: RunLines, read: PrintRunTranscriptResult): R
     truncated: prev.truncated || read.truncated,
   };
 }
+
+/** The thread a reader names in what it asks: none, as main fills in the reader's own. */
+const MAINS_THREAD = "";
 
 /** An app-server that reads one run's thread. */
 export interface CodexRunReader {
@@ -179,8 +182,9 @@ export async function openCodexRunReader(
       read() {
         if (closed || dead) return Promise.resolve(null);
         // One read at a time: a later ask shares the one going.
-        reading ??= readCodexThread(read, runId, version)
-          .then((thread) => (thread ? codexThreadModel(thread) : null))
+        reading ??= readCodexThread(read, MAINS_THREAD, version)
+          // The conversation is named by the run: its thread is not told here.
+          .then((thread) => (thread ? codexThreadModel({ id: runId, turns: thread.turns }) : null))
           .finally(() => {
             reading = null;
           });
@@ -192,6 +196,97 @@ export async function openCodexRunReader(
     close();
     return null;
   }
+}
+
+/** A codex run's reader kept up for a pane: started again when it ends or did not start. */
+export interface RunReaderKeeper {
+  /** The thread by the reader now up; null with none up, or when it cannot be read. */
+  read(): Promise<ChatModel | null>;
+  close(): void;
+}
+
+/**
+ * Keeps a reader of one run up. One whose program ended is closed and
+ * another started, `RUN_READER_ATTEMPTS` times at most between reads that
+ * gave the thread. One that did not start (its host is out of reach, or the
+ * run has told no thread yet) is asked for again for as long as the run
+ * goes on, and the same few times after it ended.
+ */
+export function keepRunReader(options: {
+  open(onDead: () => void): Promise<CodexRunReader | null>;
+  running(): boolean;
+  /** A reader is up: its thread can be read. */
+  onUp(): void;
+  /** The clock, for a test's own. */
+  timers?: { set(run: () => void, ms: number): unknown; clear(timer: unknown): void };
+}): RunReaderKeeper {
+  const timers = options.timers ?? {
+    set: (run, ms) => setTimeout(run, ms),
+    clear: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+  };
+  let reader: CodexRunReader | null = null;
+  let closed = false;
+  let opening = false;
+  let attempts = 0;
+  let timer: unknown;
+  const again = (delay: number, counted: boolean) => {
+    if (closed || timer !== undefined) return;
+    if (counted) {
+      if (attempts >= RUN_READER_ATTEMPTS) return;
+      attempts += 1;
+    }
+    timer = timers.set(() => {
+      timer = undefined;
+      start();
+    }, delay);
+  };
+  const start = () => {
+    if (closed || opening || reader) return;
+    opening = true;
+    let mine: CodexRunReader | null = null;
+    const onDead = () => {
+      if (closed || !mine) return;
+      if (reader === mine) reader = null;
+      // Its program, its line receiver and main's record of it go.
+      mine.close();
+      again(RUN_READER_AGAIN_MS, true);
+    };
+    void options
+      .open(onDead)
+      .catch(() => null)
+      .then((opened) => {
+        opening = false;
+        if (closed) {
+          opened?.close();
+          return;
+        }
+        if (!opened || opened.dead) {
+          opened?.close();
+          // Not reached is not ended: asked for again while the run goes on.
+          const running = options.running();
+          again(running ? RUN_READ_INTERVAL_MS : RUN_READER_AGAIN_MS, !running);
+          return;
+        }
+        mine = opened;
+        reader = opened;
+        options.onUp();
+      });
+  };
+  start();
+  return {
+    async read() {
+      const model = (await reader?.read()) ?? null;
+      if (model) attempts = 0;
+      return model;
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      if (timer !== undefined) timers.clear(timer);
+      reader?.close();
+      reader = null;
+    },
+  };
 }
 
 /**
@@ -249,46 +344,26 @@ export function useRunConversation(
   }, [codex, visible, hasSession, workspaceId, tabId, runId, tick, running]);
 
   // A codex run's thread: a reader for as long as the pane shows it.
-  const reader = useRef<CodexRunReader | null>(null);
+  const keeper = useRef<RunReaderKeeper | null>(null);
   const [readerUp, setReaderUp] = useState(0);
-  // A reader that ended (its program, its host's connection, room made for
-  // another) is started again, a few times.
-  const [attempt, setAttempt] = useState(0);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: another run starts anew
-  useEffect(() => {
-    setAttempt(0);
-  }, [workspaceId, tabId, runId]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: attempt asks for another reader
+  const runningRef = useRef(running);
+  runningRef.current = running;
   useEffect(() => {
     if (!codex || !visible || !hasSession) return;
-    let gone = false;
-    let again: ReturnType<typeof setTimeout> | undefined;
-    const onDead = () => {
-      if (gone) return;
-      reader.current = null;
-      again = setTimeout(
-        () => setAttempt((n) => (n < RUN_READER_ATTEMPTS ? n + 1 : n)),
-        RUN_READER_AGAIN_MS,
-      );
-    };
-    void openCodexRunReader(workspaceId, tabId, runId, onDead).then((opened) => {
-      if (gone) {
-        opened?.close();
-        return;
-      }
-      reader.current = opened;
-      if (opened) setReaderUp((n) => n + 1);
+    const kept = keepRunReader({
+      open: (onDead) => openCodexRunReader(workspaceId, tabId, runId, onDead),
+      running: () => runningRef.current,
+      onUp: () => setReaderUp((n) => n + 1),
     });
+    keeper.current = kept;
     return () => {
-      gone = true;
-      clearTimeout(again);
-      reader.current?.close();
-      reader.current = null;
+      kept.close();
+      if (keeper.current === kept) keeper.current = null;
     };
-  }, [codex, visible, hasSession, workspaceId, tabId, runId, attempt]);
+  }, [codex, visible, hasSession, workspaceId, tabId, runId]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: tick and running ask for another read
   useEffect(() => {
-    const current = reader.current;
+    const current = keeper.current;
     if (!current) return;
     let stale = false;
     void current
