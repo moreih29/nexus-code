@@ -36,20 +36,21 @@ func (s *Service) RunTranscript(_ context.Context, raw json.RawMessage) (any, er
 	if p.From != nil && *p.From < 0 {
 		return nil, proto.ProtocolError("chat.runTranscript from is negative")
 	}
-	path, info := claudefiles.FindSession(configDir(p.ConfigDir), p.SessionID)
+	dir := configDir(p.ConfigDir)
+	path, info := claudefiles.FindSession(dir, p.SessionID)
 	if path == "" {
 		return RunTranscriptResult{Found: false, Lines: []json.RawMessage{}}, nil
 	}
-	result, err := readRunTranscript(path, info, p.From, transcriptCapBytes)
+	result, err := readRunTranscript(claudefiles.ProjectsDir(dir), path, info, p.From, transcriptCapBytes)
 	if err != nil {
 		return nil, proto.RequestFailed("chat.runTranscript: the run's transcript could not be read")
 	}
 	return result, nil
 }
 
-func readRunTranscript(path string, want os.FileInfo, from *int64, limit int64) (RunTranscriptResult, error) {
+func readRunTranscript(projects, path string, want os.FileInfo, from *int64, limit int64) (RunTranscriptResult, error) {
 	result := RunTranscriptResult{Found: true, Lines: []json.RawMessage{}}
-	file, info, err := claudefiles.Open(path, want)
+	file, info, err := claudefiles.Open(projects, path, want)
 	if err != nil {
 		return result, err
 	}

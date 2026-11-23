@@ -93,16 +93,16 @@ func TestRunTranscriptKeepsTheLastLinesPastTheCap(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := readRunTranscript(path, nil, nil, 12)
+	got, err := readRunTranscript(filepath.Dir(path), path, nil, nil, 12)
 	if err != nil || !got.Truncated || lineTexts(got.Lines) != `{"n":3}` || got.Next != int64(len(content)) {
 		t.Fatalf("cut inside = %+v, %v", got, err)
 	}
-	got, err = readRunTranscript(path, nil, nil, 16)
+	got, err = readRunTranscript(filepath.Dir(path), path, nil, nil, 16)
 	if err != nil || !got.Truncated || lineTexts(got.Lines) != `{"n":2},{"n":3}` {
 		t.Fatalf("cut on a start = %+v, %v", got, err)
 	}
 	from := int64(0)
-	got, err = readRunTranscript(path, nil, &from, 12)
+	got, err = readRunTranscript(filepath.Dir(path), path, nil, &from, 12)
 	if err != nil || !got.Truncated || got.Reset || lineTexts(got.Lines) != `{"n":3}` {
 		t.Fatalf("from = %+v, %v", got, err)
 	}
@@ -186,7 +186,7 @@ func TestRunTranscriptReadsOnlyTheFileThatWasFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readRunTranscript(path, want, nil, 1024); err == nil {
+	if _, err := readRunTranscript(filepath.Dir(path), path, want, nil, 1024); err == nil {
 		t.Fatal("read a file other than the one found")
 	}
 }

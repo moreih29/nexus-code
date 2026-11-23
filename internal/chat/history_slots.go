@@ -42,19 +42,22 @@ func (s *Service) HistorySlots(_ context.Context, raw json.RawMessage) (any, err
 	if !ok {
 		return nil, proto.ProtocolError("chat.historySlots workspaceId is required")
 	}
-	var path string
+	var root, path string
 	var found os.FileInfo
 	switch {
 	case p.SessionID != "" && p.ThreadID == "":
 		if !sessionIDPattern.MatchString(p.SessionID) {
 			return nil, proto.ProtocolError("chat.historySlots sessionId is not a session id")
 		}
-		path, found = claudefiles.FindSession(configDir(p.ConfigDir), p.SessionID)
+		dir := configDir(p.ConfigDir)
+		root = claudefiles.ProjectsDir(dir)
+		path, found = claudefiles.FindSession(dir, p.SessionID)
 	case p.ThreadID != "" && p.SessionID == "":
 		if !sessionIDPattern.MatchString(p.ThreadID) {
 			return nil, proto.ProtocolError("chat.historySlots threadId is not a thread id")
 		}
 		path = keptRollout(codexHome(p.CodexHome), p.ThreadID)
+		root = filepath.Dir(path)
 	default:
 		return nil, proto.ProtocolError("chat.historySlots needs one of sessionId and threadId")
 	}
@@ -62,11 +65,11 @@ func (s *Service) HistorySlots(_ context.Context, raw json.RawMessage) (any, err
 	if path == "" {
 		return empty, nil
 	}
-	root, err := attachRoot()
+	attachments, err := attachRoot()
 	if err != nil {
 		return nil, proto.RequestFailed("chat.historySlots: the attachment folder could not be found: %s", proto.Reason(err))
 	}
-	slots, truncated, err := historySlots(path, found, filepath.Join(root, workspaceID))
+	slots, truncated, err := historySlots(root, path, found, filepath.Join(attachments, workspaceID))
 	if errors.Is(err, os.ErrNotExist) {
 		return empty, nil
 	}
@@ -76,8 +79,8 @@ func (s *Service) HistorySlots(_ context.Context, raw json.RawMessage) (any, err
 	return HistorySlotsResult{Found: true, Slots: slots, Truncated: truncated}, nil
 }
 
-func historySlots(path string, want os.FileInfo, wsDir string) ([]string, bool, error) {
-	file, _, err := claudefiles.Open(path, want)
+func historySlots(root, path string, want os.FileInfo, wsDir string) ([]string, bool, error) {
+	file, _, err := claudefiles.Open(root, path, want)
 	if err != nil {
 		return nil, false, err
 	}

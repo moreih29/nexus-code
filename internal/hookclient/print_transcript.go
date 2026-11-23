@@ -112,7 +112,7 @@ func (tr *printTranscript) open() *os.File {
 	if path == "" {
 		return nil
 	}
-	file, _, err := claudefiles.Open(path, info)
+	file, _, err := claudefiles.Open(claudefiles.ProjectsDir(tr.config), path, info)
 	if err != nil {
 		return nil
 	}

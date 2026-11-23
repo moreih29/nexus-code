@@ -78,8 +78,13 @@ func FindSession(configDir, sessionID string) (string, os.FileInfo) {
 
 var ErrNotFoundFile = errors.New("the file is not the one that was found")
 
-func Open(path string, want os.FileInfo) (*os.File, os.FileInfo, error) {
-	file, err := os.Open(path)
+func Open(projects, path string, want os.FileInfo) (*os.File, os.FileInfo, error) {
+	root, rel, err := openRoot(projects, path)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer root.Close()
+	file, err := root.Open(rel)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -88,9 +93,58 @@ func Open(path string, want os.FileInfo) (*os.File, os.FileInfo, error) {
 		file.Close()
 		return nil, nil, err
 	}
-	if !info.Mode().IsRegular() || (want != nil && !os.SameFile(want, info)) {
+	if !info.Mode().IsRegular() || (want != nil && !os.SameFile(want, info)) || !realDirs(root, rel) || linked(file, info) {
 		file.Close()
 		return nil, nil, ErrNotFoundFile
 	}
 	return file, info, nil
+}
+
+func Remove(projects, path string) error {
+	root, rel, err := openRoot(projects, path)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	if info, err := root.Lstat(rel); err != nil || !info.Mode().IsRegular() || !realDirs(root, rel) {
+		return ErrNotFoundFile
+	}
+	return root.Remove(rel)
+}
+
+func RemoveAll(projects, path string) error {
+	root, rel, err := openRoot(projects, path)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	if !realDirs(root, rel) {
+		return ErrNotFoundFile
+	}
+	return root.RemoveAll(rel)
+}
+
+func openRoot(projects, path string) (*os.Root, string, error) {
+	if projects == "" {
+		return nil, "", ErrNotFoundFile
+	}
+	rel, err := filepath.Rel(projects, path)
+	if err != nil || rel == "." || !filepath.IsLocal(rel) {
+		return nil, "", ErrNotFoundFile
+	}
+	root, err := os.OpenRoot(projects)
+	if err != nil {
+		return nil, "", err
+	}
+	return root, rel, nil
+}
+
+func realDirs(root *os.Root, rel string) bool {
+	for dir := filepath.Dir(rel); dir != "."; dir = filepath.Dir(dir) {
+		info, err := root.Lstat(dir)
+		if err != nil || !info.IsDir() {
+			return false
+		}
+	}
+	return true
 }

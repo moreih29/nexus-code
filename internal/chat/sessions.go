@@ -81,7 +81,7 @@ func listSessions(projects, cwd string, limit int) []ClaudeSession {
 		if len(sessions) >= limit {
 			break
 		}
-		info, ok := readClaudeSession(f.path, f.info)
+		info, ok := readClaudeSession(projects, f.path, f.info)
 		if !ok {
 			continue
 		}
@@ -115,8 +115,8 @@ func globEscape(s string) string {
 	return strings.NewReplacer(`\`, `\\`, "*", `\*`, "?", `\?`, "[", `\[`).Replace(s)
 }
 
-func readClaudeSession(path string, want os.FileInfo) (ClaudeSession, bool) {
-	head, tail, err := readEnds(path, want, sessionReadBytes)
+func readClaudeSession(projects, path string, want os.FileInfo) (ClaudeSession, bool) {
+	head, tail, err := readEnds(projects, path, want, sessionReadBytes)
 	if err != nil {
 		return ClaudeSession{}, false
 	}
@@ -247,8 +247,8 @@ func jsonStringAt(b []byte) (string, bool) {
 	return "", false
 }
 
-func readEnds(path string, want os.FileInfo, n int64) (head, tail []byte, err error) {
-	file, info, err := claudefiles.Open(path, want)
+func readEnds(projects, path string, want os.FileInfo, n int64) (head, tail []byte, err error) {
+	file, info, err := claudefiles.Open(projects, path, want)
 	if err != nil {
 		return nil, nil, err
 	}

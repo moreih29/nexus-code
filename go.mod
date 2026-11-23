@@ -1,6 +1,10 @@
 module github.com/nexus-code/nexus-code
 
-go 1.22
+go 1.25
+
+toolchain go1.27.3
+
+godebug default=go1.22
 
 require (
 	github.com/creack/pty v1.1.24

@@ -27,8 +27,9 @@ func findSubagent(configDir, sessionID, agentID, toolUseID string) (string, os.F
 	if !claudefiles.SessionIDPattern.MatchString(sessionID) || (agentID != "" && !agentIDPattern.MatchString(agentID)) {
 		return "", nil
 	}
+	projects := claudefiles.ProjectsDir(configDir)
 	var folders []string
-	for _, project := range claudefiles.ProjectFolders(claudefiles.ProjectsDir(configDir)) {
+	for _, project := range claudefiles.ProjectFolders(projects) {
 		session := filepath.Join(project, sessionID)
 		folder := filepath.Join(session, "subagents")
 		if claudefiles.RealDir(session) && claudefiles.RealDir(folder) {
@@ -56,7 +57,7 @@ func findSubagent(configDir, sessionID, agentID, toolUseID string) (string, os.F
 				continue
 			}
 			meta := filepath.Join(folder, name)
-			if subagentCallOf(meta) == toolUseID {
+			if subagentCallOf(projects, meta) == toolUseID {
 				paths = append(paths, strings.TrimSuffix(meta, ".meta.json")+".jsonl")
 			}
 		}
@@ -66,12 +67,12 @@ func findSubagent(configDir, sessionID, agentID, toolUseID string) (string, os.F
 
 const subagentMetaCap = 64 * 1024
 
-func subagentCallOf(path string) string {
+func subagentCallOf(projects, path string) string {
 	info, ok := claudefiles.RegularFile(path)
 	if !ok {
 		return ""
 	}
-	file, _, err := claudefiles.Open(path, info)
+	file, _, err := claudefiles.Open(projects, path, info)
 	if err != nil {
 		return ""
 	}
