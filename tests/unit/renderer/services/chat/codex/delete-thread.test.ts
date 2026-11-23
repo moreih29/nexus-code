@@ -262,7 +262,6 @@ const FORKED = turn("turn-3", [
   agentMessage("item-6", "Applied."),
 ]);
 
-/** A tab whose app-server keeps `threads`, each with its turns and the thread it was forked from. */
 function threadsTab(threads: Record<string, { turns: unknown[]; parent?: string }>): Controller {
   version = "0.169.0";
   return tab((message) => {
