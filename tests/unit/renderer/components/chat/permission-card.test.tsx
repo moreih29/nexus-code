@@ -96,7 +96,9 @@ describe("scopesOf", () => {
     );
     expect(scopes.map((scope) => scope.label)).toEqual([
       "Read, Bash(ls)",
-      i18next.t("chat.permission.suggest_mode", { mode: i18next.t("chat.mode.acceptEdits") }),
+      i18next.t("chat.permission.suggest_mode", {
+        mode: i18next.t("agentConfig.claude.permissionMode.acceptEdits"),
+      }),
       i18next.t("chat.permission.suggest_session"),
     ]);
     expect(scopes[1].suggestion).toEqual({ type: "setMode", mode: "acceptEdits" });

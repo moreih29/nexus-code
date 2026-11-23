@@ -11,13 +11,13 @@ export const CHAT_MODES: Readonly<Record<ChatAgent, ModeSet>> = {
   claude: {
     modes: ["auto", "default", "acceptEdits", "plan", "bypassPermissions"],
     dangerous: "bypassPermissions",
-    prefix: "chat.mode",
+    prefix: "agentConfig.claude.permissionMode",
     fallback: "default",
   },
   codex: {
     modes: ["readOnly", "auto", "fullAccess"],
     dangerous: "fullAccess",
-    prefix: "chat.codex.mode",
+    prefix: "agentConfig.codex.mode",
     fallback: "auto",
   },
 };

@@ -5,7 +5,6 @@
     "editor": "Editor",
     "languageServers": "Language Servers",
     "terminal": "Terminal",
-    "workspaces": "Workspaces",
     "notifications": "Notifications",
     "notes": "Notes",
     "browserPermissions": "Browser Permissions",
@@ -22,7 +21,6 @@
     "close": "Close settings",
     "search": {
       "placeholder": "Search",
-      "clear": "Clear search",
       "empty": "No matches."
     },
     "nav": "Settings navigation",
@@ -505,7 +503,6 @@
       "prompt": "Press the desired key combination",
       "promptSecond": "Press the second key of the chord",
       "commit": "Save",
-      "cancel": "Cancel",
       "unsupported": "Unsupported key",
       "hint": "Enter to save · Esc to cancel"
     },
@@ -784,7 +781,6 @@
       "env": "Environment variables (optional)",
       "envPlaceholder": "KEY=value, one per line",
       "envReserved": "NEXUS_ variables are reserved by NexusCode.",
-      "create": "Create and sign in",
       "save": "Save"
     },
     "loginDialog": {
@@ -889,7 +885,7 @@
         },
         "sandboxNetwork": {
           "label": "Sandbox network access",
-          "hint": "Outbound connections in workspace-write mode"
+          "hint": "Outbound connections in Workspace only mode"
         },
         "webSearch": {
           "label": "Web search",
@@ -915,42 +911,8 @@
         }
       },
       "options": {
-        "permissionMode": {
-          "default": "Default",
-          "plan": "Plan",
-          "acceptEdits": "Accept edits",
-          "auto": "Auto",
-          "dontAsk": "Don't ask"
-        },
         "outputStyle": {
           "default": "Default"
-        },
-        "approvalPolicy": {
-          "on-request": "Ask when needed",
-          "never": "Never ask",
-          "untrusted": "Ask for untrusted commands"
-        },
-        "sandboxMode": {
-          "read-only": "Read only",
-          "workspace-write": "Workspace only",
-          "danger-full-access": "Full access"
-        },
-        "webSearch": {
-          "disabled": "Off",
-          "cached": "Cached",
-          "indexed": "Indexed",
-          "live": "Live"
-        },
-        "reasoningSummary": {
-          "auto": "Auto",
-          "concise": "Concise",
-          "detailed": "Detailed",
-          "none": "Hidden"
-        },
-        "verbosity": {
-          "low": "Short",
-          "medium": "Medium",
-          "high": "Long"
         }
       }
     },
@@ -1118,8 +1080,6 @@
     "rulesDescription": "Workspace > deeper folder > SSH host > default",
     "add": "Add rule",
     "addFolder": "Folder…",
-    "addSsh": "SSH host…",
-    "addWorkspace": "Workspace…",
     "target": "Target",
     "inherit": "Use default",
     "applies": "Applies to",
@@ -1134,7 +1094,6 @@
     "hint": "For new conversations · on an SSH host, sign in on that host",
     "pickSsh": "Choose an SSH host",
     "pickWorkspace": "Choose a workspace",
-    "noneLeft": "Nothing left to add",
     "results": "Results",
     "resultsCount": "{{count}} workspaces"
   },

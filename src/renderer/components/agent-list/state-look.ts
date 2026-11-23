@@ -95,5 +95,8 @@ export function stateText(state: string): string {
 }
 
 export function programStateLabel(program: "claude" | "codex", state: ClaudeStatus): string {
-  return i18next.t(`common:${program === "codex" ? "codexStatus" : "claudeStatus"}.${state}`);
+  return i18next.t("common:agentList.state_of", {
+    agent: program === "codex" ? "Codex" : "Claude",
+    state: stateText(state),
+  });
 }

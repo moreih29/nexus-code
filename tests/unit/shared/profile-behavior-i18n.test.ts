@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BEHAVIOR_FIELDS } from "../../../src/shared/agent-profiles/behavior";
+import { BEHAVIOR_FIELDS, behaviorOptionKey } from "../../../src/shared/agent-profiles/behavior";
 import { resources } from "../../../src/shared/i18n/index";
 
 const LOCALES = ["en", "ko"] as const;
@@ -7,6 +7,16 @@ const LOCALES = ["en", "ko"] as const;
 function text(locale: (typeof LOCALES)[number], ...path: string[]): unknown {
   let node: unknown = resources[locale].settings.profiles.behavior;
   for (const part of path) {
+    if (typeof node !== "object" || node === null) return undefined;
+    node = (node as Record<string, unknown>)[part];
+  }
+  return node;
+}
+
+function lookup(locale: (typeof LOCALES)[number], key: string): unknown {
+  const [ns = "", path = ""] = key.split(":", 2);
+  let node: unknown = (resources[locale] as Record<string, unknown>)[ns];
+  for (const part of path.split(".")) {
     if (typeof node !== "object" || node === null) return undefined;
     node = (node as Record<string, unknown>)[part];
   }
@@ -34,7 +44,7 @@ describe("the behavior fold's words", () => {
           expect({
             id: field.id,
             value,
-            label: typeof text(locale, "options", field.id, value),
+            label: typeof lookup(locale, behaviorOptionKey(field, value)),
           }).toEqual({ id: field.id, value, label: "string" });
         }
       }

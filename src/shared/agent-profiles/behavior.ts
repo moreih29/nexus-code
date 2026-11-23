@@ -63,6 +63,12 @@ export const BEHAVIOR_FIELDS: readonly BehaviorField[] = [
   { id: "codexModel", agent: "codex", path: ["model"], kind: "text" },
 ];
 
+export function behaviorOptionKey(field: BehaviorField, value: string): string {
+  if (field.id === "permissionMode") return `common:agentConfig.claude.permissionMode.${value}`;
+  if (field.agent === "codex") return `common:agentConfig.codex.${field.path.join(".")}.${value}`;
+  return `settings:profiles.behavior.options.${field.id}.${value}`;
+}
+
 export function behaviorField(agent: ChatAgent, id: string): BehaviorField | undefined {
   return BEHAVIOR_FIELDS.find((f) => f.agent === agent && f.id === id);
 }

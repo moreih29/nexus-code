@@ -157,9 +157,7 @@ function DiagnosticSegment({
 }): React.JSX.Element {
   const { t } = useTranslation();
   const isError = kind === "error";
-  const title = isError
-    ? t("statusBar.error_one", { count })
-    : t("statusBar.warning_one", { count });
+  const title = isError ? t("statusBar.error", { count }) : t("statusBar.warning", { count });
   const Icon = isError ? XCircle : AlertTriangle;
   const glyphColor = isError ? "var(--status-bar-error-bg)" : "var(--status-bar-warning-bg)";
 

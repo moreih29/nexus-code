@@ -15,9 +15,9 @@ test("an agent view tab's menu takes tabs out of the panel", () => {
   const menu = panelTabMenu(keys, 1, (each) => removed.push(each));
   const items = menu();
   pick(items, i18next.t("agentView.pane.remove"))();
-  pick(items, i18next.t("tabBar.close_others"))();
-  pick(items, i18next.t("tabBar.close_all_right"))();
-  pick(items, i18next.t("tabBar.close_all"))();
+  pick(items, i18next.t("agentView.pane.remove_others"))();
+  pick(items, i18next.t("agentView.pane.remove_right"))();
+  pick(items, i18next.t("agentView.pane.remove_all"))();
   expect(removed).toEqual([["b"], ["a", "c"], ["c"], ["a", "b", "c"]]);
   expect(
     items.some((each) => each.kind === "item" && each.label === i18next.t("tabBar.copy_path")),

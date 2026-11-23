@@ -9,7 +9,7 @@
     "TRANSFER_TOO_LARGE": "파일이 너무 커서 전송할 수 없습니다.",
     "OUT_OF_WORKSPACE": "이 경로는 워크스페이스 밖에 있습니다.",
     "NOT_EMPTY": "폴더가 비어 있지 않습니다.",
-    "CROSS_DEVICE": "파일 시스템을 넘어 이동할 수 없습니다.",
+    "CROSS_DEVICE": "다른 파일 시스템으로는 이동할 수 없습니다.",
     "NO_SPACE": "디스크 공간이 부족합니다.",
     "UNSUPPORTED_REMOTE": "원격 워크스페이스에서는 지원하지 않습니다."
   },
@@ -38,7 +38,7 @@
   },
   "save": {
     "failed": "저장 실패: {{reason}}",
-    "buffer_unavailable": "에디터 버퍼를 사용할 수 없습니다",
+    "buffer_unavailable": "편집기 버퍼를 사용할 수 없습니다",
     "outside_workspace": "워크스페이스 폴더 안의 위치를 선택하세요",
     "changed_on_disk": "저장하는 동안 디스크의 파일이 바뀌었습니다",
     "read_only": "읽기 전용 파일입니다.",
@@ -47,7 +47,7 @@
   "chat": {
     "ambiguousProfile": "이름이 “{{name}}”인 프로필이 여러 개입니다. nexus chat profiles에 표시된 프로필 ID를 지정하세요.",
     "permissionModeMismatch": "요청한 권한 모드 {{requested}} 대신 {{applied}} 모드가 적용되었습니다",
-    "commandLineTooLong": "이 채팅의 지시가 너무 길어 Windows 에서 Claude Code 를 시작할 수 없습니다. 설정이나 이 세션의 지시를 줄인 뒤 다시 시도하세요.",
+    "commandLineTooLong": "이 대화의 지시가 너무 길어 Windows에서 Claude Code를 시작할 수 없습니다. 설정이나 이 대화의 지시를 줄인 뒤 다시 시도하세요.",
     "attachFolderLink": "첨부 폴더가 링크라 파일을 첨부할 수 없습니다."
   }
 }

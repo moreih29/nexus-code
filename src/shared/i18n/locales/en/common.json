@@ -9,11 +9,8 @@
     "delete": "Delete",
     "edit": "Edit",
     "back": "Back",
-    "next": "Next",
     "retry": "Retry",
     "remove": "Remove",
-    "reload": "Reload",
-    "reopen": "Reopen",
     "reopenAll": "Reopen all",
     "copy": "Copy",
     "copy_details": "Copy details",
@@ -23,7 +20,6 @@
     "connect": "Connect →",
     "connecting": "Connecting…",
     "retry_save": "Retry save",
-    "close_tab": "Close tab",
     "mark_resolved": "Mark as resolved",
     "reveal_in_finder": "Reveal in Finder",
     "reveal_in_explorer": "Reveal in File Explorer",
@@ -95,12 +91,6 @@
     "staged": "{{count}} staged",
     "modified": "{{count}} modified",
     "untracked": "{{count}} untracked",
-    "errors": "{{count}} errors",
-    "warnings": "{{count}} warnings",
-    "error_one": "{{count}} error",
-    "error_other": "{{count}} errors",
-    "warning_one": "{{count}} warning",
-    "warning_other": "{{count}} warnings",
     "op_staging": "Staging…",
     "op_unstaging": "Unstaging…",
     "op_discarding": "Discarding…",
@@ -133,7 +123,11 @@
     "ports_open": "Open in browser tab",
     "ports_copy": "Copy URL",
     "ports_forward": "Forward to this machine",
-    "ports_unforward": "Stop forwarding"
+    "ports_unforward": "Stop forwarding",
+    "error_one": "{{count}} error",
+    "error_other": "{{count}} errors",
+    "warning_one": "{{count}} warning",
+    "warning_other": "{{count}} warnings"
   },
   "titleBar": {
     "open_settings": "Open settings",
@@ -263,7 +257,6 @@
     "add_to_favorites": "Add to favorites",
     "remove_from_favorites": "Remove from favorites",
     "remove_from_list": "Remove from list",
-    "could_not_open": "Could not open workspace.",
     "profile_not_found": "Connection profile not found."
   },
   "ssh": {
@@ -303,7 +296,6 @@
     "invalid_host": "Enter a valid host or user@host.",
     "loading_connections": "Loading connections…",
     "error": {
-      "unknown_error": "Something went wrong. Please try again.",
       "connect_failed": "Couldn't connect to the host. Check the address and your network, then retry.",
       "auth_failed": "Authentication failed. Verify your credentials or identity file and try again.",
       "session_expired": "The SSH session has expired. Go back and reconnect.",
@@ -325,8 +317,6 @@
     "no_matching_folders": "No matching folders",
     "this_folder_empty": "This folder is empty.",
     "truncated": "Some entries are hidden (listing truncated).",
-    "back_to_reconnect": "Use ‹ Back to reconnect.",
-    "use_back": "Use",
     "to_reconnect": "to reconnect.",
     "add_workspace": "Add Workspace",
     "adding": "Adding…"
@@ -400,7 +390,6 @@
     "pick_send_to": "Send the element to",
     "pick_no_agent": "No agent terminal here. Copied element details to the clipboard.",
     "pick_terminal_closed": "That terminal has not opened. The element was copied to the clipboard.",
-    "pick_failed": "Could not pick an element: {{message}}",
     "downloaded": "Downloaded {{file}}"
   },
   "tabBar": {
@@ -428,7 +417,6 @@
     "split_down": "Split Down",
     "copy_path": "Copy Path",
     "copy_relative_path": "Copy Relative Path",
-    "terminal_ended_suffix": "·",
     "terminal_ended_aria": ", terminal ended",
     "new_codex": "New Codex conversation",
     "hidden_tabs_one": "1 more tab",
@@ -544,7 +532,6 @@
   },
   "agentList": {
     "none": "No conversations",
-    "count": "{{label}} {{count}}",
     "view_label": "View",
     "view": {
       "status": "By state",
@@ -574,8 +561,6 @@
       "days": "{{count}}d"
     },
     "agent_unknown": "agent",
-    "changed_files": "{{count}} changed",
-    "column_empty": "None",
     "detail": {
       "show_terminal": "Go to terminal",
       "show_changes": "Show changes",
@@ -623,7 +608,8 @@
         "permission_hint_claude": "Answer the subagent’s permission request in the Claude tab."
       },
       "parent": "A subagent of {{title}}",
-      "close_card": "Close"
+      "close_card": "Close",
+      "run_crumb": "Run"
     },
     "permission": {
       "title": "Permission request",
@@ -675,23 +661,8 @@
       "more": "More",
       "copy_path": "Copy path",
       "more_in_git": "{{count}} more · Show in source control"
-    }
-  },
-  "claudeStatus": {
-    "running": "Claude: working",
-    "completed": "Claude: new result",
-    "needsInput": "Claude: needs you",
-    "permissionPending": "Claude: permission request",
-    "error": "Claude: error",
-    "idle": "Claude: idle"
-  },
-  "codexStatus": {
-    "running": "Codex: working",
-    "completed": "Codex: new result",
-    "needsInput": "Codex: needs you",
-    "permissionPending": "Codex: permission request",
-    "error": "Codex: error",
-    "idle": "Codex: idle"
+    },
+    "state_of": "{{agent}}: {{state}}"
   },
   "claudeNotification": {
     "needsAttention": "Needs your attention",
@@ -781,8 +752,6 @@
   },
   "markdown": {
     "copy_code": "Copy code",
-    "copy": "Copy",
-    "copied": "Copied",
     "expand_section": "Expand section",
     "collapse_section": "Collapse section",
     "copy_link": "Copy link to this section",
@@ -895,7 +864,7 @@
       "unknown": "Sent by an agent whose tab could not be told",
       "manager": "Sent by the manager",
       "app": "Sent by NexusCode",
-      "closed": "closed",
+      "closed": "closed tab",
       "show_tab": "Go to the tab that sent it",
       "more": "Show all",
       "less": "Show less"
@@ -1029,7 +998,6 @@
       "suggest_dirs": "Allow {{dirs}}",
       "suggest_session": "Allowed without asking again until Codex restarts",
       "deny_placeholder_codex": "Tell Codex what to do instead (optional)",
-      "back_esc": "Back (Esc)",
       "deny_reason": "Reason for denying",
       "allow_always_one": "Always allow just one"
     },
@@ -1099,8 +1067,7 @@
       "auth_no_code": "The work stopped on a sign-in failure · Check the sign-in or API key, then send again",
       "request": "The API refused the request ({{code}}) · The same request fails again · Fix the request or shorten the conversation with /compact, then send",
       "retry": "Try again",
-      "retry_prompt": "The last request stopped on a temporary error. Please continue from where you left off.",
-      "dismiss": "Close"
+      "retry_prompt": "The last request stopped on a temporary error. Please continue from where you left off."
     },
     "limit_resume": {
       "waiting": "Usage limit · Resumes at {{time}}",
@@ -1152,7 +1119,6 @@
       "queue": "Queue",
       "stop": "Stop",
       "remove_image": "Remove image",
-      "image_too_large": "{{name}} is larger than an image Claude can read.",
       "add": "Add",
       "attach_file": "Attach images or files",
       "mention_file": "Mention a file",
@@ -1170,20 +1136,7 @@
     "mode": {
       "aria": "Permission mode",
       "label": "Permission mode",
-      "auto": "Auto",
-      "auto_hint": "Claude handles permission decisions",
-      "default": "Manual",
-      "default_hint": "Always ask before changes",
-      "acceptEdits": "Accept edits",
-      "acceptEdits_hint": "Accept every file edit",
-      "plan": "Plan",
-      "plan_hint": "Plan before changes",
-      "bypassPermissions": "Bypass permissions",
-      "bypassPermissions_hint": "Never ask",
-      "bypass_blocked": "Turned off by a setting or policy",
-      "bypass_confirm_title": "Bypass every permission?",
-      "bypass_confirm_body": "Claude can edit files and run commands without asking, including deletion and network access. Use only in isolation.",
-      "bypass_confirm": "Bypass permissions"
+      "bypass_blocked": "Turned off by a setting or policy"
     },
     "model": {
       "aria": "Model",
@@ -1262,7 +1215,7 @@
         "account_unknown": "Unknown",
         "account_check": "Refresh account and usage",
         "branch": "Branch",
-        "session": "Session",
+        "session": "Conversation",
         "copy_session": "Copy the session ID",
         "fork_session": "Fork the whole session",
         "model": "Model",
@@ -1333,12 +1286,7 @@
         "cost": "This tab, at list price",
         "cost_hint": "Claude Code's estimate at API list prices. A subscription plan isn't billed by it.",
         "none": "No limits reported",
-        "resets": "Resets {{time}}",
-        "kind": {
-          "session": "Current session",
-          "weekly_all": "This week, all models",
-          "weekly_scoped": "This week, {{scope}}"
-        }
+        "resets": "Resets {{time}}"
       },
       "mcp": {
         "title": "MCP",
@@ -1374,9 +1322,9 @@
       "aria": "Subagents",
       "main": "Main",
       "finished": "Finished {{count}}",
-      "permission_waiting": "A permission request is waiting in the main conversation",
+      "permission_waiting": "Permission request in the main conversation",
       "to_main": "To main",
-      "input_to_main": "Messages go to the main conversation",
+      "input_to_main": "Message to the main conversation",
       "summary": {
         "agents_one": "{{count}} subagent",
         "agents_other": "{{count}} subagents",
@@ -1469,9 +1417,9 @@
       "sandbox_is_on": "The sandbox is **on**: Bash commands run inside it. `/sandbox off` turns it off for this tab.",
       "sandbox_is_off": "The sandbox is **off**. `/sandbox on` runs Bash commands inside it, for this tab; the host needs its tools (bubblewrap on Linux).",
       "behavior": {
-        "allow": "Allowed",
-        "ask": "Asked",
-        "deny": "Denied"
+        "allow": "Allow",
+        "ask": "Ask",
+        "deny": "Deny"
       },
       "source": {
         "userSettings": "user settings",
@@ -1545,7 +1493,7 @@
         "killed": "stopped",
         "stopped": "stopped",
         "idle": "idle",
-        "blocked": "waiting",
+        "blocked": "waiting on you",
         "pending": "waiting"
       },
       "in_terminal": "Running `{{command}}` in a new terminal.",
@@ -1591,17 +1539,6 @@
       "signed_out": "Codex is not signed in. Sign in in a terminal, then check again.",
       "sign_in": "Sign in in a terminal",
       "sign_in_check": "Check again",
-      "mode": {
-        "readOnly": "Read only",
-        "readOnly_hint": "Reads files and runs commands read-only; editing or going online needs approval",
-        "auto": "Auto",
-        "auto_hint": "Edits and runs commands in the folder; asks to go outside it or online",
-        "fullAccess": "Full access",
-        "fullAccess_hint": "No sandbox: runs anything without asking",
-        "bypass_confirm_title": "Give Codex full access?",
-        "bypass_confirm_body": "Codex can edit any file, run commands, and access the network outside the sandbox without asking. Use only in an isolated environment.",
-        "bypass_confirm": "Give full access"
-      },
       "commands": {
         "describe": {
           "model": "Choose the model (this tab only)",
@@ -1693,7 +1630,7 @@
       "context": "Context",
       "context_tip": "Context: {{used}} of {{max}} tokens ({{percent}}%)",
       "kind": {
-        "session": "Session",
+        "session": "Current session",
         "weekly": "This week",
         "weekly_all": "This week, all models",
         "weekly_scoped": "This week, {{scope}}",
@@ -1740,7 +1677,7 @@
         "idleCompaction": "Idle compaction",
         "thinking": "Thinking mode",
         "outputStyle": "Output style",
-        "language": "Language",
+        "language": "Reply language",
         "checkpoints": "Rewind code (checkpoints)",
         "switchModelsOnFlag": "Switch models when a message is flagged",
         "permissionMode": "Default permission mode",
@@ -1792,9 +1729,6 @@
       "option": {
         "outputStyle": {
           "default": "Default"
-        },
-        "permissionMode": {
-          "dontAsk": "Don't ask"
         },
         "worktreeBaseRef": {
           "fresh": "Latest default branch",
@@ -1868,7 +1802,7 @@
           "model_post_turn_compact_threshold_percent": "End-of-turn compaction (%)",
           "model_context_window": "Model context window",
           "model_reasoning_summary": "Reasoning summary",
-          "model_verbosity": "Response verbosity",
+          "model_verbosity": "Answer length",
           "plan_mode_reasoning_effort": "Plan mode reasoning effort"
         },
         "descriptions": {
@@ -1879,46 +1813,6 @@
           "model_reasoning_summary": "Set the level of detail in reasoning summaries on supported models.",
           "model_verbosity": "Set the level of detail in responses on supported models.",
           "plan_mode_reasoning_effort": "Choose the reasoning effort Codex uses in Plan mode."
-        },
-        "options": {
-          "approval_policy": {
-            "on-request": "On request",
-            "untrusted": "Untrusted commands",
-            "never": "Never ask",
-            "granular": "Granular"
-          },
-          "sandbox_mode": {
-            "read-only": "Read only",
-            "workspace-write": "Workspace write",
-            "danger-full-access": "Full access"
-          },
-          "service_tier": {
-            "default": "Standard",
-            "priority": "Fast",
-            "ultrafast": "Ultrafast",
-            "flex": "Flex"
-          },
-          "web_search": {
-            "disabled": "Disabled",
-            "cached": "Cached",
-            "indexed": "Indexed",
-            "live": "Live"
-          },
-          "model_auto_compact_token_limit_scope": {
-            "total": "Full context",
-            "body_after_prefix": "After carried prefix"
-          },
-          "model_reasoning_summary": {
-            "auto": "Auto",
-            "concise": "Concise",
-            "detailed": "Detailed",
-            "none": "Off"
-          },
-          "model_verbosity": {
-            "low": "Low",
-            "medium": "Medium",
-            "high": "High"
-          }
         }
       }
     },
@@ -1976,12 +1870,15 @@
     },
     "pane": {
       "close": "Close panel",
-      "remove": "Remove from panel (the session goes on)",
+      "remove": "Remove from panel",
       "remove_file": "Remove file from panel",
       "show_file_tab": "Go to the file tab",
       "empty": "Empty panel",
       "empty_hint": "Pick an agent from the list, or drag one here",
-      "open_list": "Open list"
+      "open_list": "Open list",
+      "remove_others": "Remove others from panel",
+      "remove_right": "Remove tabs to the right",
+      "remove_all": "Remove all from panel"
     },
     "ended": {
       "message": "{{agent}} session ended",
@@ -2001,13 +1898,6 @@
       "loading": "Loading…",
       "unavailable": "No remote response",
       "empty": "No conversations",
-      "state": {
-        "needs-you": "Needs you",
-        "running": "Running",
-        "new-result": "New result",
-        "idle": "Idle",
-        "ended": "Ended"
-      },
       "worktreesShow_one": "Show 1 task in {{workspace}}",
       "worktreesShow_other": "Show {{count}} tasks in {{workspace}}",
       "worktreesHide_one": "Hide 1 task in {{workspace}}",
@@ -2142,7 +2032,77 @@
     "gitPatchTruncated": "Partial patch",
     "gitOutsideWorkspace": "Outside workspace",
     "gitCommitMissing": "Commit unavailable",
-    "gitNoCommits": "No commits",
     "sessionGone": "Gone"
+  },
+  "agentConfig": {
+    "claude": {
+      "permissionMode": {
+        "auto": "Auto",
+        "auto_hint": "Claude handles permission decisions",
+        "default": "Manual",
+        "default_hint": "Always ask before changes",
+        "acceptEdits": "Accept edits",
+        "acceptEdits_hint": "Accept every file edit",
+        "plan": "Plan",
+        "plan_hint": "Plan before changes",
+        "bypassPermissions": "Bypass permissions",
+        "bypassPermissions_hint": "Never ask",
+        "bypass_confirm_title": "Bypass every permission?",
+        "bypass_confirm_body": "Claude can edit files and run commands without asking, including deletion and network access. Use only in isolation.",
+        "bypass_confirm": "Bypass permissions",
+        "dontAsk": "Don't ask"
+      }
+    },
+    "codex": {
+      "mode": {
+        "readOnly": "Read only",
+        "readOnly_hint": "Reads files and runs commands read-only; editing or going online needs approval",
+        "auto": "Auto",
+        "auto_hint": "Edits and runs commands in the folder; asks to go outside it or online",
+        "fullAccess": "Full access",
+        "fullAccess_hint": "No sandbox: runs anything without asking",
+        "bypass_confirm_title": "Give Codex full access?",
+        "bypass_confirm_body": "Codex can edit any file, run commands, and access the network outside the sandbox without asking. Use only in an isolated environment.",
+        "bypass_confirm": "Give full access"
+      },
+      "approval_policy": {
+        "untrusted": "Ask for untrusted commands",
+        "on-request": "Ask when needed",
+        "never": "Never ask",
+        "granular": "Granular"
+      },
+      "sandbox_mode": {
+        "read-only": "Read only",
+        "workspace-write": "Workspace only",
+        "danger-full-access": "Full access"
+      },
+      "web_search": {
+        "disabled": "Off",
+        "cached": "Cached",
+        "indexed": "Indexed",
+        "live": "Live"
+      },
+      "model_reasoning_summary": {
+        "auto": "Auto",
+        "concise": "Concise",
+        "detailed": "Detailed",
+        "none": "Hidden"
+      },
+      "model_verbosity": {
+        "low": "Short",
+        "medium": "Medium",
+        "high": "Long"
+      },
+      "service_tier": {
+        "default": "Standard",
+        "priority": "Fast",
+        "ultrafast": "Ultrafast",
+        "flex": "Flex"
+      },
+      "model_auto_compact_token_limit_scope": {
+        "total": "Full context",
+        "body_after_prefix": "After carried prefix"
+      }
+    }
   }
 }
