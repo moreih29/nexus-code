@@ -6,7 +6,8 @@
 //   conversation names stay, and each prune marks them used. What the
 //   conversation names is kept with the tab (its props' `attachments`),
 //   for a tab not yet read since the app started;
-// - a file a conversation names is marked used as it is shown or sent;
+// - a file a conversation names is marked used as it is shown or sent,
+//   and as its tab closes;
 // - a prune removes the rest unused for 30 days, and the least recently
 //   used past 1 GiB (main tells the agent the numbers);
 // - deleting a conversation removes the files it names that no open tab
@@ -181,9 +182,33 @@ async function touchAttachments(workspaceId: string, slots: string[]): Promise<v
   }
 }
 
+/**
+ * As a chat tab closes, marks used what its conversation names, though it
+ * was marked once since the app started: the files' unused days start at
+ * its last use, not at the app's start.
+ */
+async function touchClosed(workspaceId: string, tab: ChatTab): Promise<void> {
+  const at = chatKey(workspaceId, tab.id);
+  looked.delete(at);
+  const root = await rootOf(workspaceId);
+  if (!root) return;
+  const slots = new Set(tab.props.attachments?.slots ?? []);
+  const conversation = conversationOf(workspaceId, tab);
+  if (conversation) {
+    for (const slot of slotsOf(
+      attachedFilesIn(conversation.items, tab.props.cwd),
+      root,
+      workspaceId,
+    ))
+      slots.add(slot);
+  }
+  if (slots.size > 0) await touchAttachments(workspaceId, [...slots]);
+}
+
 /** Workspaces whose chats are followed, and pruned now and then. */
 const followed = new Set<string>();
 let unsubscribe: (() => void) | undefined;
+let unsubscribeTabs: (() => void) | undefined;
 let settle: ReturnType<typeof setTimeout> | undefined;
 let pruneTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -203,6 +228,21 @@ function follow(workspaceId: string): void {
       settle = undefined;
       void followAll().catch((error: Error) => log.warn(`following attachments: ${error.message}`));
     }, SETTLE_MS);
+  });
+  unsubscribeTabs ??= useTabsStore.subscribe((state, prev) => {
+    if (state.byWorkspace === prev.byWorkspace) return;
+    for (const id of followed) {
+      const now = state.byWorkspace[id];
+      const was = prev.byWorkspace[id];
+      // A removed workspace's files go with its folder.
+      if (!now || !was || now === was) continue;
+      for (const [tabId, tab] of Object.entries(was)) {
+        if (now[tabId] || (tab.type !== "claude" && tab.type !== "codex")) continue;
+        void touchClosed(id, tab).catch((error: Error) =>
+          log.warn(`marking a closed tab's attachments used failed: ${error.message}`),
+        );
+      }
+    }
   });
   pruneTimer ??= setInterval(() => {
     for (const id of followed) void pruneAttachments(id);
@@ -322,6 +362,8 @@ export function followAttachmentsNow(): Promise<void> {
 export function resetAttachmentRetention(): void {
   unsubscribe?.();
   unsubscribe = undefined;
+  unsubscribeTabs?.();
+  unsubscribeTabs = undefined;
   if (settle) clearTimeout(settle);
   settle = undefined;
   if (pruneTimer) clearInterval(pruneTimer);

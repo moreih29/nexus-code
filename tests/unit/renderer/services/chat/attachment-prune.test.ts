@@ -129,6 +129,30 @@ test("a tab keeps what its conversation names and marks it used once", async () 
   expect(props()).toEqual({ conversation: "s2", slots: ["t2/1"] });
 });
 
+test("a closing tab marks used what its conversation names, though marked before", async () => {
+  const tabs = useTabsStore.getState();
+  const tab = tabs.createTab(WS, {
+    type: "claude",
+    props: { cwd: "/p", attachments: { conversation: "t", slots: ["t0/1", "older/3"] } },
+  });
+  const other = tabs.createTab(WS, { type: "codex", props: { cwd: "/p" } });
+  retention.pruneAttachmentsOnce(WS);
+  shows(tab.id, "t", `${ROOT}/${WS}/t0/1/a.png`, `${ROOT}/${WS}/t0/2/b.png`);
+  await retention.followAttachmentsNow();
+  expect(of("touchAttachments")).toEqual([{ workspaceId: WS, slots: ["t0/1", "t0/2"] }]);
+  useTabsStore.getState().removeTab(WS, tab.id);
+  await Bun.sleep(0);
+  expect(of("touchAttachments").at(-1)).toEqual({
+    workspaceId: WS,
+    slots: ["t0/1", "older/3", "t0/2"],
+  });
+  // A tab that names nothing marks nothing.
+  const touches = of("touchAttachments").length;
+  useTabsStore.getState().removeTab(WS, other.id);
+  await Bun.sleep(0);
+  expect(of("touchAttachments")).toHaveLength(touches);
+});
+
 test("a deleted conversation's files go, but those an open tab uses", async () => {
   const tabs = useTabsStore.getState();
   const open = tabs.createTab(WS, {
