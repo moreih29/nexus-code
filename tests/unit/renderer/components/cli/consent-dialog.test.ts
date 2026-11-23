@@ -17,8 +17,15 @@ import { consentDetailsOf } from "../../../../../src/shared/cli/consent-copy";
 
 mock.module("../../../../../src/renderer/components/ui/dialog", () => ({
   Dialog: ({ open, children }: DialogProps) =>
-    open ? createElement(RadixDialog.Root, { open }, children) : null,
+    createElement(
+      RadixDialog.Root,
+      { open },
+      createElement("section", { "data-open": String(open) }, children),
+    ),
 }));
+
+const buttonLabels = (html: string) =>
+  Array.from(html.matchAll(/<button[^>]*>([^<]*)<\/button>/g), ([, label]) => label);
 
 const prompt = (id?: string) => ({
   ...(id ? { id } : {}),
@@ -38,15 +45,28 @@ for (const [eachTime, labels] of [
     const asked = askCliConsent({ ...request, change: { ...request.change, eachTime } });
     try {
       const html = renderToStaticMarkup(createElement(CliConsentDialogRoot));
-      expect(
-        Array.from(html.matchAll(/<button[^>]*>([^<]*)<\/button>/g), ([, label]) => label),
-      ).toEqual(labels);
+      expect(buttonLabels(html)).toEqual(labels);
     } finally {
       settleCliConsent("button-labels", "deny");
       await asked;
     }
   });
 }
+
+test("an answered prompt keeps its own title and choices while the dialog closes", async () => {
+  const asked = askCliConsent({
+    ...prompt("closing"),
+    change: { kind: "chatMode", detail: '"Review" (default → acceptEdits)', eachTime: true },
+  });
+  const open = renderToStaticMarkup(createElement(CliConsentDialogRoot));
+  settleCliConsent("closing", "once");
+  expect(await asked).toBe("once");
+  const closing = renderToStaticMarkup(createElement(CliConsentDialogRoot));
+  expect(open).toContain('data-open="true"');
+  expect(closing).toContain('data-open="false"');
+  expect(buttonLabels(closing)).toEqual(["Don&#x27;t allow", "Allow"]);
+  expect(closing.replace('data-open="false"', 'data-open="true"')).toBe(open);
+});
 
 describe("a prompt without a time limit", () => {
   test("stays until the user answers, and says nothing of a time limit", async () => {

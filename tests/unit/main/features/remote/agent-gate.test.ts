@@ -463,22 +463,34 @@ test("persistent global layers and voice deletion require fresh peer approval", 
   ]);
 });
 
-test("a profile approval covers mode increases for the same pair", async () => {
-  const { g, services, asked } = gate("allow", ["session"]);
-  await g.check(services, {
+test("a profile change follows the device policy without a prompt of its own", async () => {
+  const profile = {
     ...send(),
-    method: "chat.profile",
+    method: "chat.profile" as const,
     params: { ...send().params, profile: "Work" },
-  });
-  const expectedMode = await g.check(services, {
+  };
+  const allowed = gate("allow", ["once"]);
+  await allowed.g.check(allowed.services, profile);
+  const expectedMode = await allowed.g.check(allowed.services, {
     ...send(),
     method: "chat.configure",
     params: { ...send().params, permissionMode: "acceptEdits" },
   });
   expect(expectedMode).toBe("plan");
-  expect(asked.map((prompt) => prompt.change)).toEqual([
+  expect(allowed.asked.map((prompt) => (prompt.change as { kind: string }).kind)).toEqual([
+    "chatMode",
+  ]);
+
+  const asking = gate("ask", ["session"]);
+  await asking.g.check(asking.services, profile);
+  await asking.g.check(asking.services, profile);
+  expect(asking.asked.map((prompt) => prompt.change)).toEqual([
     { kind: "chatProfile", detail: '"Review" (Personal → Work)' },
   ]);
+
+  const denied = gate("deny");
+  await expect(denied.g.check(denied.services, profile)).rejects.toMatchObject({ code: 1002 });
+  expect(denied.asked).toEqual([]);
 });
 
 test("the note speaker prompt uses the title instead of the note id", async () => {

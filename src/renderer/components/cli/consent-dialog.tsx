@@ -29,16 +29,22 @@ interface Pending {
 }
 
 let queue: Pending[] = [];
+let lastShown: Pending | null = null;
 const bus = createListenerBus();
 export const CONSENT_CONFIRM_BUTTON_CLASS = "hover:bg-primary/90 active:bg-primary/80";
 export const CONSENT_DESCRIPTION_CLASS = "break-keep [overflow-wrap:anywhere]";
+
+function queueChanged(): void {
+  lastShown = queue[0] ?? lastShown;
+  bus.notify();
+}
 
 function settle(pending: Pending, answer: CliConsentAnswer): void {
   if (!queue.includes(pending)) return;
   queue = queue.filter((p) => p !== pending);
   clearTimeout(pending.timer);
   pending.resolve(answer);
-  bus.notify();
+  queueChanged();
 }
 
 export function settleCliConsent(
@@ -66,7 +72,7 @@ export function askCliConsent(prompt: CliConsentPrompt): Promise<CliConsentAnswe
       timeoutMs !== undefined ? setTimeout(() => settle(pending, "timeout"), timeoutMs) : undefined;
     const pending: Pending = { prompt, resolve, ...(timer !== undefined ? { timer } : {}) };
     queue.push(pending);
-    bus.notify();
+    queueChanged();
   });
 }
 
@@ -146,7 +152,7 @@ export function CliConsentDialogRoot(): React.JSX.Element {
 
   useEffect(() => bus.subscribe(() => setActive(queue[0] ?? null)), []);
 
-  const prompt = active?.prompt;
+  const prompt = (active ?? lastShown)?.prompt;
   const change = prompt?.change;
   const copy = change && consentDetailsOf(t, change);
   const action = change

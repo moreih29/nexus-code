@@ -283,7 +283,7 @@ async function operationApproval(
     (method === "settings.instructions.set" && params.layer !== "workspace")
   )
     return { approval: "once" };
-  if (method === "chat.rewind" || method === "chat.profile") return { approval: "session" };
+  if (method === "chat.rewind") return { approval: "session" };
   if (typeof params.permissionMode === "string") {
     if (method === "chat.new") {
       const agent = params.agent === "codex" ? "codex" : "claude";
