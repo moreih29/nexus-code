@@ -1784,7 +1784,7 @@ export const RPC_METHODS = {
    * page as chat.read gives one of the chat: the run's last `limit` items,
    * or those before `before`. Only a run of that chat's; NotFound for any
    * other, and for a run that keeps no session to read (chat.run still
-   * tells what it told the app).
+   * tells what it told the app). Since 0.28.0.
    */
   "chat.runRead": {
     capability: "chat.read",
