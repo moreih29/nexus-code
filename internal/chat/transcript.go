@@ -158,7 +158,17 @@ func transcriptPath(dir, sessionID string) string {
 	if dir == "" {
 		return ""
 	}
-	matches, _ := filepath.Glob(filepath.Join(dir, "projects", "*", sessionID+".jsonl"))
+	// Read by name, not matched as a pattern: a folder named with `*` or `[`
+	// is that folder only.
+	projects := filepath.Join(dir, "projects")
+	entries, err := os.ReadDir(projects)
+	if err != nil {
+		return ""
+	}
+	matches := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		matches = append(matches, filepath.Join(projects, entry.Name(), sessionID+".jsonl"))
+	}
 	return newestFile(matches)
 }
 

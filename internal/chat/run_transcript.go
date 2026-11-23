@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
+	"path/filepath"
 )
 
 // RunTranscriptParams is the wire shape for chat.runTranscript: a print
@@ -44,21 +46,67 @@ func (s *Service) RunTranscript(_ context.Context, raw json.RawMessage) (any, er
 	if p.From != nil && *p.From < 0 {
 		return nil, protocolError("chat.runTranscript from is negative")
 	}
-	path := transcriptPath(configDir(p.ConfigDir), p.SessionID)
+	path, info := runTranscriptPath(configDir(p.ConfigDir), p.SessionID)
 	if path == "" {
 		return RunTranscriptResult{Found: false, Lines: []json.RawMessage{}}, nil
 	}
-	result, err := readRunTranscript(path, p.From, transcriptCapBytes)
+	result, err := readRunTranscript(path, info, p.From, transcriptCapBytes)
 	if err != nil {
-		return nil, requestFailed("chat.runTranscript: %s", err)
+		// The error names the file: where a run keeps its session is not told back.
+		return nil, requestFailed("chat.runTranscript: the run's transcript could not be read")
 	}
 	return result, nil
+}
+
+// runTranscriptPath is the file a run's session is kept in under the config
+// folder the run told, with what it is, "" when none is found. The folder
+// comes from the run's own start, not from a profile's settings, so nothing
+// under it is followed out of it: the folder itself is resolved first (a
+// user's ~/.claude may be a link), then `projects`, the project's folder and
+// the file must each be what they are named, no link. The newest one when
+// several projects have it.
+func runTranscriptPath(dir, sessionID string) (string, os.FileInfo) {
+	if dir == "" {
+		return "", nil
+	}
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", nil
+	}
+	projects := filepath.Join(root, "projects")
+	if info, err := os.Lstat(projects); err != nil || !info.IsDir() {
+		return "", nil
+	}
+	entries, err := os.ReadDir(projects)
+	if err != nil {
+		return "", nil
+	}
+	found := ""
+	var foundInfo os.FileInfo
+	for _, entry := range entries {
+		// A link's type is a link's, whatever it points at.
+		if !entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(projects, entry.Name(), sessionID+".jsonl")
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		if foundInfo == nil || info.ModTime().After(foundInfo.ModTime()) {
+			found, foundInfo = path, info
+		}
+	}
+	return found, foundInfo
 }
 
 // readRunTranscript reads the whole lines of path from `from` (from its
 // start when nil, or when the file is shorter), the last `limit` bytes of
 // them at most.
-func readRunTranscript(path string, from *int64, limit int64) (RunTranscriptResult, error) {
+//
+// With `want`, the file opened must be the one that was found: one put in
+// its place since (a link to another) is not read.
+func readRunTranscript(path string, want os.FileInfo, from *int64, limit int64) (RunTranscriptResult, error) {
 	result := RunTranscriptResult{Found: true, Lines: []json.RawMessage{}}
 	file, err := os.Open(path)
 	if err != nil {
@@ -68,6 +116,9 @@ func readRunTranscript(path string, from *int64, limit int64) (RunTranscriptResu
 	info, err := file.Stat()
 	if err != nil {
 		return result, err
+	}
+	if !info.Mode().IsRegular() || (want != nil && !os.SameFile(want, info)) {
+		return result, errors.New("the transcript is not the file that was found")
 	}
 	size := info.Size()
 	var start int64

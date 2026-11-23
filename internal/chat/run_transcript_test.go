@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -93,19 +94,161 @@ func TestRunTranscriptKeepsTheLastLinesPastTheCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The cut falls inside the second line: the third is kept.
-	got, err := readRunTranscript(path, nil, 12)
+	got, err := readRunTranscript(path, nil, nil, 12)
 	if err != nil || !got.Truncated || lineTexts(got.Lines) != `{"n":3}` || got.Next != int64(len(content)) {
 		t.Fatalf("cut inside = %+v, %v", got, err)
 	}
 	// The cut falls on a line's start: that line is kept.
-	got, err = readRunTranscript(path, nil, 16)
+	got, err = readRunTranscript(path, nil, nil, 16)
 	if err != nil || !got.Truncated || lineTexts(got.Lines) != `{"n":2},{"n":3}` {
 		t.Fatalf("cut on a start = %+v, %v", got, err)
 	}
 	// Read on from a place, more than the cap since.
 	from := int64(0)
-	got, err = readRunTranscript(path, &from, 12)
+	got, err = readRunTranscript(path, nil, &from, 12)
 	if err != nil || !got.Truncated || got.Reset || lineTexts(got.Lines) != `{"n":3}` {
 		t.Fatalf("from = %+v, %v", got, err)
+	}
+}
+
+const runSession = "0123abcd-run-session"
+
+func writeRunTranscript(t *testing.T, dir, project, text string) string {
+	t.Helper()
+	folder := filepath.Join(dir, "projects", project)
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(folder, runSession+".jsonl")
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func symlinkOrSkip(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("no symlinks here: %v", err)
+		}
+		t.Fatal(err)
+	}
+}
+
+func TestRunTranscriptFollowsNoLinkOutOfTheRunsFolder(t *testing.T) {
+	service := New()
+	outside := t.TempDir()
+	secret := writeRunTranscript(t, outside, "elsewhere", `{"secret":1}`+"\n")
+
+	// The file is a link to one outside.
+	fileLink := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(fileLink, "projects", "p"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	symlinkOrSkip(t, secret, filepath.Join(fileLink, "projects", "p", runSession+".jsonl"))
+	if got := runTranscriptRead(t, service, fileLink, runSession, nil); got.Found {
+		t.Fatalf("read through a linked file: %s", lineTexts(got.Lines))
+	}
+
+	// The project's folder is a link to one outside.
+	folderLink := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(folderLink, "projects"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	symlinkOrSkip(t, filepath.Dir(secret), filepath.Join(folderLink, "projects", "p"))
+	if got := runTranscriptRead(t, service, folderLink, runSession, nil); got.Found {
+		t.Fatalf("read through a linked project folder: %s", lineTexts(got.Lines))
+	}
+
+	// `projects` itself is a link to one outside.
+	projectsLink := t.TempDir()
+	symlinkOrSkip(t, filepath.Join(outside, "projects"), filepath.Join(projectsLink, "projects"))
+	if got := runTranscriptRead(t, service, projectsLink, runSession, nil); got.Found {
+		t.Fatalf("read through a linked projects folder: %s", lineTexts(got.Lines))
+	}
+
+	// The config folder itself may be a link, as a user's ~/.claude can be.
+	home := t.TempDir()
+	writeRunTranscript(t, home, "p", `{"mine":1}`+"\n")
+	linked := filepath.Join(t.TempDir(), "claude")
+	symlinkOrSkip(t, home, linked)
+	if got := runTranscriptRead(t, service, linked, runSession, nil); !got.Found || lineTexts(got.Lines) != `{"mine":1}` {
+		t.Fatalf("a linked config folder was not read: %+v", got)
+	}
+}
+
+func TestRunTranscriptReadsOnlyTheFileThatWasFound(t *testing.T) {
+	dir := t.TempDir()
+	path := writeRunTranscript(t, dir, "p", `{"a":1}`+"\n")
+	other := writeRunTranscript(t, t.TempDir(), "p", `{"b":2}`+"\n")
+	want, err := os.Lstat(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readRunTranscript(path, want, nil, 1024); err == nil {
+		t.Fatal("read a file other than the one found")
+	}
+}
+
+func TestTranscriptFoldersAreNamesNotPatterns(t *testing.T) {
+	service := New()
+	parent := t.TempDir()
+	// A folder named with pattern characters is that folder only.
+	for _, name := range []string{"cfg[1]", "cfg*"} {
+		if runtime.GOOS == "windows" && strings.Contains(name, "*") {
+			continue
+		}
+		dir := filepath.Join(parent, name)
+		writeRunTranscript(t, dir, "p", `{"in":"`+name+`"}`+"\n")
+		if got := runTranscriptRead(t, service, dir, runSession, nil); !got.Found || !strings.Contains(lineTexts(got.Lines), name) {
+			t.Fatalf("%s: not read: %+v", name, got)
+		}
+		if got := transcriptPath(dir, runSession); got == "" {
+			t.Fatalf("%s: chat.transcript's path not found", name)
+		}
+	}
+	// `cfg*` does not reach its sibling.
+	if runtime.GOOS != "windows" {
+		sibling := filepath.Join(parent, "cfgX")
+		writeRunTranscript(t, sibling, "p", `{"in":"sibling"}`+"\n")
+		if err := os.RemoveAll(filepath.Join(parent, "cfg*", "projects")); err != nil {
+			t.Fatal(err)
+		}
+		if got := transcriptPath(filepath.Join(parent, "cfg*"), runSession); got != "" {
+			t.Fatalf("a pattern reached a sibling: %s", got)
+		}
+		if got := runTranscriptRead(t, service, filepath.Join(parent, "cfg*"), runSession, nil); got.Found {
+			t.Fatal("a pattern reached a sibling's run")
+		}
+	}
+	// A project folder named with them is found too.
+	dir := t.TempDir()
+	writeRunTranscript(t, dir, "-repo-[draft]", `{"p":1}`+"\n")
+	if got := runTranscriptRead(t, service, dir, runSession, nil); !got.Found {
+		t.Fatal("a project folder with brackets was not found")
+	}
+}
+
+func TestRunTranscriptErrorNamesNoPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes do not refuse a read there")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any file")
+	}
+	service := New()
+	dir := t.TempDir()
+	path := writeRunTranscript(t, dir, "p", `{"a":1}`+"\n")
+	if err := os.Chmod(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	params, _ := json.Marshal(RunTranscriptParams{SessionID: runSession, ConfigDir: dir})
+	_, err := service.RunTranscript(context.Background(), params)
+	if err == nil {
+		t.Fatal("an unreadable transcript was read")
+	}
+	if strings.Contains(err.Error(), dir) || strings.Contains(err.Error(), "projects") {
+		t.Fatalf("the error names the path: %v", err)
 	}
 }
