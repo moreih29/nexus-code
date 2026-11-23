@@ -5,7 +5,10 @@ import { type AgentProfile, profilesOf } from "../../../shared/agent-profiles/pr
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { formatBytes } from "../../../shared/util/format-bytes";
 import { deleteClaudeSession, useClaudeSessions } from "../../services/chat/claude/sessions";
-import type { CodexController } from "../../services/chat/codex/controller";
+import {
+  type CodexController,
+  CodexForkedHistoryError,
+} from "../../services/chat/codex/controller";
 import { revealTabById } from "../../services/chat/open-beside";
 import {
   type ListedSession,
@@ -142,7 +145,11 @@ export function SessionPicker({
       setConfirming(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setFailed(t("chat.sessions.delete_failed", { message }));
+      setFailed(
+        err instanceof CodexForkedHistoryError
+          ? t("chat.sessions.delete_forked")
+          : t("chat.sessions.delete_failed", { message }),
+      );
     } finally {
       setDeleting(false);
     }

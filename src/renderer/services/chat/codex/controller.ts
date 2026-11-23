@@ -193,6 +193,10 @@ function nextId(): string {
 
 export class CodexReplyError extends Error {}
 
+export class CodexForkedHistoryError extends Error {}
+
+const FORKED_HISTORY_REFUSAL = "forked history still references it";
+
 export class CodexController {
   readonly key: string;
   readonly modes = CHAT_MODES.codex;
@@ -931,7 +935,12 @@ export class CodexController {
     const read = await this.readThreadWhole(threadId).catch(() => null);
     const inherited = read ? await this.forkParentItems(threadId) : null;
     await readOpenHistories(this.target.workspaceId);
-    await this.request("thread/delete", { threadId });
+    await this.request("thread/delete", { threadId }).catch((error: unknown) => {
+      if (error instanceof CodexReplyError && error.message.includes(FORKED_HISTORY_REFUSAL)) {
+        throw new CodexForkedHistoryError(error.message);
+      }
+      throw error;
+    });
     if (!read || !inherited) return;
     const { workspaceId, cwd, profileId } = this.target;
     void removeConversationAttachments(workspaceId, codexThreadItems(read), cwd, inherited, {
