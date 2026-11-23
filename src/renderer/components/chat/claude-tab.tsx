@@ -776,6 +776,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               toolStatuses={toolStatuses}
               actions={shown ? undefined : actions}
               items={shownTranscript}
+              itemsDone={shown !== undefined && shown.status !== "running"}
               reveal={shown ? null : callAsk}
               moves={props.moves}
               relayed={relayedOf(props)}
@@ -794,7 +795,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
                   : undefined
               }
               empty={
-                state.phase === "ready" || state.phase === "ended" ? (
+                !shown && (state.phase === "ready" || state.phase === "ended") ? (
                   <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
                     <ClaudeIcon className="size-8" />
                     <div className="text-app-body">{t("chat.empty.title")}</div>

@@ -715,6 +715,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
               model={state.model}
               actions={messageActions}
               items={childId ? (model.nativeTranscripts?.[childId] ?? []) : undefined}
+              itemsDone={shown !== undefined && shown.status !== "running"}
               reveal={callReveal ?? undefined}
               moves={props.moves}
               relayed={relayedOf(props)}

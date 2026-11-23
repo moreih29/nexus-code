@@ -1029,27 +1029,30 @@ function RemoteChatView({
                     }
                     actions={shown ? undefined : { ...actions, onRecoverSubmission: recover }}
                     items={shown ? agentTranscript(model, shown) : undefined}
+                    itemsDone={shown !== undefined && shown.status !== "running"}
                     reveal={shown ? null : callAsk}
                     {...(moves ? { moves } : {})}
                     {...(older && !shown ? { older } : {})}
                     empty={
-                      <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
-                        {claude ? (
-                          <ClaudeIcon className="size-8" />
-                        ) : (
-                          <CodexIcon className="size-8" />
-                        )}
-                        <div className="text-app-body">
-                          {t(claude ? "chat.empty.title" : "chat.codex.empty")}
+                      shown ? undefined : (
+                        <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
+                          {claude ? (
+                            <ClaudeIcon className="size-8" />
+                          ) : (
+                            <CodexIcon className="size-8" />
+                          )}
+                          <div className="text-app-body">
+                            {t(claude ? "chat.empty.title" : "chat.codex.empty")}
+                          </div>
+                          <div
+                            className="max-w-full truncate font-mono text-app-micro"
+                            title={target.cwd ?? target.path}
+                          >
+                            {target.cwd ?? target.path}
+                          </div>
+                          {reachable && <RemoteSessionList target={target} />}
                         </div>
-                        <div
-                          className="max-w-full truncate font-mono text-app-micro"
-                          title={target.cwd ?? target.path}
-                        >
-                          {target.cwd ?? target.path}
-                        </div>
-                        {reachable && <RemoteSessionList target={target} />}
-                      </div>
+                      )
                     }
                   />
                 )}
