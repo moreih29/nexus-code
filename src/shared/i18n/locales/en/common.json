@@ -558,6 +558,11 @@
       "exited": "Ended"
     },
     "estimated": "{{label}} (estimated)",
+    "wait": {
+      "permission": "Permission request",
+      "question": "Question",
+      "plan": "Plan to approve"
+    },
     "duration": {
       "now": "just now",
       "minutes": "{{count}}m",

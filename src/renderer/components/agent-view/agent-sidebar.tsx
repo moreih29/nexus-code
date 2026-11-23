@@ -911,7 +911,7 @@ const AgentItem = memo(function AgentItem({
       <SessionRowLines
         icon={<AgentMark session={session} />}
         title={session.title}
-        sign={<SessionSign session={session} testId="agent-sidebar-state" />}
+        sign={<SessionSign session={session} facts={facts} testId="agent-sidebar-state" />}
         time={duration}
         timeHint={stateLabel(session)}
         urgent={attention && session.state !== "error"}

@@ -245,6 +245,31 @@ test("a folded remote family tells inside its chip what of it works and waits", 
   }
 });
 
+test.each([
+  ["permission", "lucide-shield", "Needs you · Permission request"],
+  ["question", "lucide-message-circle-question", "Needs you · Question"],
+  ["plan", "lucide-list-todo", "Needs you · Plan to approve"],
+  [undefined, "lucide-circle-alert", "Needs you"],
+] as const)("another computer's row waiting on a %s tells it by its icon", (kind, icon, label) => {
+  const waiting = row("waiting", {
+    state: "needs-you",
+    title: "Snapshot check",
+    ...(kind ? { waiting: { kind, text: "Make new snapshots?" } } : {}),
+  });
+  const list = { workspaces: [workspace], sessions: [waiting] };
+  for (const html of [
+    remoteStatus(list),
+    renderToStaticMarkup(<PeerGroup peer={host} query="" sessions={{ status: "ready", list }} />),
+  ]) {
+    const sign = html.match(
+      /<span role="img" aria-label="([^"]+)"[^>]*data-testid="remote-session-wait"[^>]*>(<svg[^>]*>)/,
+    );
+    expect(sign?.[1]).toBe(label);
+    expect(sign?.[2]).toContain(icon);
+    if (kind) expect(html).toContain("Make new snapshots?");
+  }
+});
+
 test("a child row takes its tree line's width, so a long title ends in an ellipsis", () => {
   const long = { ...activeChild, title: "Read the brief and run every check it lists" };
   const html = renderToStaticMarkup(

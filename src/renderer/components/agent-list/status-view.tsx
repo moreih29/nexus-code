@@ -13,13 +13,9 @@ import {
   FileDiff,
   GitBranch,
   ListChecks,
-  ListTodo,
-  MessageCircleQuestion,
   Pencil,
   Search,
-  Shield,
   SquareTerminal,
-  TriangleAlert,
   Wrench,
   X,
 } from "lucide-react";
@@ -384,11 +380,10 @@ export function ToolIcon({ name }: { name: string }) {
 export function RowLine({ session, facts }: { session: AgentSession; facts: RowFacts }) {
   const { t, i18n } = useTranslation();
   const wait = facts.wait;
-  const warn = "size-3.5 shrink-0 text-(--state-warning-fg)";
+  // What it waits on the user for is told by the icon beside its time.
   if (wait?.kind === "permission" || (!wait && session.state === "permissionPending")) {
     return (
       <span className="flex min-w-0 items-center gap-1.5">
-        <Shield aria-hidden className={warn} />
         <span className="max-w-[60%] shrink-0 truncate font-medium text-foreground">
           {wait?.kind === "permission" ? wait.tool : stateLabel(session)}
         </span>
@@ -404,7 +399,6 @@ export function RowLine({ session, facts }: { session: AgentSession; facts: RowF
     const text = wait?.kind === "question" ? wait.text : session.message;
     return (
       <span className="flex min-w-0 items-center gap-1.5">
-        <MessageCircleQuestion aria-hidden className={warn} />
         <span className="min-w-0 truncate text-foreground">{text || stateLabel(session)}</span>
         {wait?.kind === "question" && wait.count > 1 && (
           <span className="ml-auto shrink-0 text-app-micro text-muted-foreground tabular-nums">
@@ -417,7 +411,6 @@ export function RowLine({ session, facts }: { session: AgentSession; facts: RowF
   if (wait?.kind === "plan") {
     return (
       <span className="flex min-w-0 items-center gap-1.5">
-        <ListTodo aria-hidden className={warn} />
         <span className="min-w-0 truncate text-foreground">
           {wait.text || t("chat.plan.title")}
         </span>
@@ -440,7 +433,6 @@ export function RowLine({ session, facts }: { session: AgentSession; facts: RowF
   if (session.state === "error") {
     return (
       <span className="flex min-w-0 items-center gap-1.5 text-(--state-error-fg)">
-        <TriangleAlert aria-hidden className="size-3.5 shrink-0" />
         <span className="min-w-0 truncate">{session.message || stateLabel(session)}</span>
       </span>
     );

@@ -266,6 +266,48 @@ test("by state, a root tells its place once and a child only a place elsewhere",
   expect(workspace).not.toContain('data-testid="agent-sidebar-workspace"');
 });
 
+test("rows that need the user tell what for: a permission, a question, a plan, or a failure", () => {
+  const ask = session("ask", "Run the checks", "attention", { state: "permissionPending" });
+  const asked = session("asked", "Pick a cache key", "attention", { state: "needsInput" });
+  const plans = session("plans", "Roll back in steps", "attention", { state: "permissionPending" });
+  const broke = session("broke", "Status test", "attention", { state: "error" });
+  const working = session("working", "Release notes", "running");
+  const state = agentView.useAgentViewStore.getInitialState();
+  const viewStore = spyOn(agentView, "useAgentViewStore").mockImplementation((select) =>
+    select({ ...state, order: {}, folded: new Set() }),
+  );
+  const facts = spyOn(rowFacts, "useRowFacts").mockImplementation((row) =>
+    row.key === plans.key ? { ...NO_FACTS, wait: { kind: "plan", text: "Three steps" } } : NO_FACTS,
+  );
+  try {
+    const html = renderToStaticMarkup(status("", [ask, asked, plans, broke, working]));
+    const sign = (title: string) => {
+      const row = html
+        .split(`aria-label="${title}"`)[1]
+        ?.split('data-testid="agent-sidebar-item"')[0];
+      return row?.match(/<span role="img" aria-label="([^"]+)"[^>]*data-wait="([^"]+)"/)?.slice(1);
+    };
+    expect(sign(ask.title)).toEqual(["Permission request", "permission"]);
+    expect(sign(asked.title)).toEqual(["Question", "question"]);
+    expect(sign(plans.title)).toEqual(["Plan to approve", "plan"]);
+    expect(html).toContain("lucide-shield");
+    expect(html).toContain("lucide-message-circle-question");
+    expect(html).toContain("lucide-list-todo");
+    const failed = html.split(`aria-label="${broke.title}"`)[1] ?? "";
+    expect(failed).toMatch(/^[\s\S]*?text-\(--state-error-fg\)">Failed<\/span>/);
+    expect(sign(working.title)).toBeUndefined();
+    // By workspace too.
+    const byWorkspace = renderToStaticMarkup(
+      <WorkspaceGroups agents={agents([ask, plans])} activity={new Map()} query="" />,
+    );
+    expect(byWorkspace).toContain('data-wait="permission"');
+    expect(byWorkspace).toContain('data-wait="plan"');
+  } finally {
+    viewStore.mockRestore();
+    facts.mockRestore();
+  }
+});
+
 test("status reordering moves a root with its whole family", () => {
   const first = session("first", "First request", "attention", { since: 1 });
   const initial = render(status("", [first, ...local]));

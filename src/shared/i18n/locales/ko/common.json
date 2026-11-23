@@ -558,6 +558,11 @@
       "exited": "종료"
     },
     "estimated": "{{label}} (추정)",
+    "wait": {
+      "permission": "권한 요청",
+      "question": "질문",
+      "plan": "계획 승인"
+    },
     "duration": {
       "now": "방금",
       "minutes": "{{count}}분",

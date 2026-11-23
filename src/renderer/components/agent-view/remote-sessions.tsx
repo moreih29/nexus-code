@@ -91,6 +91,7 @@ import {
   HiddenSessionCount,
   StateGlyph,
   useDurationLabel,
+  WaitSign,
 } from "../agent-list/session-status";
 import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
@@ -1465,6 +1466,17 @@ export function RemoteSessionRow({
         sign={
           session.failed ? (
             <FailureLabel />
+          ) : session.state === "needs-you" ? (
+            // What for, as the computer tells it since 0.25; the attention glyph before.
+            <WaitSign
+              kind={session.waiting?.kind}
+              label={
+                session.waiting
+                  ? `${state} · ${t(`agentList.wait.${session.waiting.kind}`)}`
+                  : state
+              }
+              testId="remote-session-wait"
+            />
           ) : (
             <span role="img" aria-label={state} title={state} className="inline-flex">
               <StateGlyph
