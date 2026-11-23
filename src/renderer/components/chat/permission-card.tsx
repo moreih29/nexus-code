@@ -73,7 +73,7 @@ export function PermissionCard({
       aria-label={t("chat.permission.aria")}
       data-testid="chat-permission"
     >
-      {onToMain && (
+      {onToMain && !request.agentId && (
         <div
           className="mb-2 flex items-center gap-2 text-app-micro text-muted-foreground"
           data-testid="chat-permission-main"

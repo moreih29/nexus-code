@@ -62,6 +62,12 @@ describe("a permission request while a subagent is shown", () => {
     expect(html).toContain(i18next.t("chat.strip.to_main"));
   });
 
+  test("a request from a subagent does not say it is the main conversation's", () => {
+    const html = dock({ ...emptyModel(), permissions: [{ ...request, agentId: "a1" }] }, () => {});
+    expect(html).toContain('data-testid="chat-permission"');
+    expect(html).not.toContain('data-testid="chat-permission-main"');
+  });
+
   test("on the main conversation the card has no such line", () => {
     const html = dock(waiting);
     expect(html).toContain('data-testid="chat-permission"');
