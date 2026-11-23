@@ -61,6 +61,8 @@ Schema 0.30.0 lets `chat.tool` and `chat.image` take an optional `runId`, the id
 
 Schema 0.31.0 lets a reader take a note's body and its recordings' transcripts apart, so a long transcript no longer keeps the body from coming: an answer over `MAX_FRAME_BYTES` is refused whole (Unavailable). `notes.read` takes an optional `withoutTranscript: true`: the host leaves `transcript` empty (`""`) and still sends `markdown`. Whether it is set or not, a 0.31.0 host adds `recordings`, one entry a recording of the note in the order `notes.transcript` gives them, empty for a note without one: `{ id, startedAt, ms, lines, participants }`, where `ms` is the recording's length in milliseconds, `lines` how many transcript lines it has (as `notes.transcript` counts them, before the Markdown joins a speaker's lines) and `participants` is `"auto"`, `"7+"` or a number. `transcriptOnly` and `withoutTranscript` together are refused (InvalidParams). `notes.transcript` takes optional `start` (a line index from 0) and `limit` (1 to `MAX_TRANSCRIPT_LINES`, 1000, which it also is when left out) to read one recording a page at a time; with either, `recording` is required (InvalidParams otherwise) and `recordings` holds that one recording. Each recording of a 0.31.0 host's answer carries `start`, the index of its first line here, and `total`, how many lines it has; without `start` and `limit` they are 0 and the count of the lines it sends, all of them. A page holds lines `start` up to `start + limit`, fewer where that is past the end or where more would not fit in a frame: the host leaves lines off the end until the answer fits, so a reader asks again from `start` plus the lines it got until it has `total`, and never takes a short page for the end. A `start` past the end answers no lines, with `start` set to `total`. Line `id`s are the same as in the whole transcript. A host answers Unavailable only when a single line does not fit. `notes.read` also reads a body a page at a time: with `withoutTranscript: true`, optional `markdownStart` (an index into `markdown` from 0) and `markdownLimit` (1 to `MAX_NOTE_MARKDOWN_PAGE`, 262144, which it also is when left out) send `markdown` from `markdownStart` for at most `markdownLimit` characters; either one without `withoutTranscript` is refused (InvalidParams). Indexes and lengths count UTF-16 code units, as JavaScript, Kotlin and Swift's `utf16` view index strings; the host never ends a page between the two halves of a surrogate pair, and a `markdownStart` that falls between them starts the page one unit earlier, so a page's `markdown` is always well-formed. A 0.31.0 host's `notes.read` answer always carries `markdownStart`, where its `markdown` begins, and `markdownTotal`, the length of the whole body (0 and that length when not reading by pages; 0 and 0 with `transcriptOnly`). A page holds fewer characters where more would not fit in a frame, so a reader asks again from `markdownStart` plus the length it got until it has `markdownTotal`, and joins the pages; a `markdownStart` past the end answers `markdown: ""` with `markdownStart` set to `markdownTotal`. Without `markdownStart` and `markdownLimit` a body that does not fit is still refused whole (Unavailable), not cut: a reader before 0.31.0 would drop `markdownTotal` and take a cut body for the whole one. The note's `recordings` come with every page. Every page carries the note's `updatedAt`, which changes whenever its body is saved: a reader compares each page's `updatedAt` (and `markdownTotal`) with the first page's and, when they differ, reads the body again from 0, giving up after a few tries if the note keeps changing; otherwise the joined body may match no one version of it. A transcript page carries no such version, and saving a transcript does not change the note's `updatedAt`. A recording being recorded only grows, so a `total` larger than on an earlier page is normal and the reader goes on. A reader reads a recording again from 0 when a page's `start` is not the one it asked for, its `total` is smaller than before, or it repeats a line `id` already read; an edit that keeps the count and ids (a speaker renamed) is not seen until the next read. `notes.list` adds `recordings` to each note, how many recordings it has (0 for none). The capability stays `notes`, and people and agents (`from`) may read as before; no capability is added. A host before 0.31.0 drops `withoutTranscript`, `markdownStart`, `markdownLimit`, `start` and `limit` as unknown keys and answers the whole note or transcript as before, which may then be refused as too large, and sends none of the new result fields; so a reader sends these keys only to a device whose hello says 0.31.0 or later (`NOTE_PAGES_SCHEMA`), and reads `recordings`, `markdownStart`, `markdownTotal`, `start` and `total` as absent from an older one. Readers before 0.31.0 drop the new result fields.
 
+Schema 0.32.0 lets another device show two of a chat's banners as its own computer shows them: how the last turn failed, and a terminal tab running the same session. A chat's status adds optional `failure` while its last turn ended in a failure the app could name: `kind`, one of `TURN_FAILURE_KINDS` (`usage_limit`, `transient`, `auth`, `request`, `other`), `status`, the HTTP status when an answer came, and `at`, when the turn ended, in Unix milliseconds. It never carries the error's own words, a path or a token: those stay in the conversation's error notice as before. The host may keep sending it while a new turn runs and leaves it out once a turn ends without failing; a reader shows it only while no turn runs, as the desktop does: `transient` with a way to try again (chat.send of a message that asks the agent to go on from where it stopped), `auth` and `request` as an error with the status, and nothing for `usage_limit` (the plan limit's own banner says that) or `other`. A Claude chat's panel adds optional `twin`, `{ tabId }` of a terminal tab in the same workspace whose Claude Code runs the same session, as its hooks told the host: going on in both forks the conversation. The host sends the panel again in chat.update when a terminal starts or stops running the session, and tells only a terminal tab, never another chat. A reader shows that terminal where the sessions' list lists it, as it opens any listed terminal. A `failure` of a kind this version does not know, or one or a `twin` it cannot read, is left out, not the status or the panel. A host before 0.32.0 sends neither and a reader before 0.32.0 drops both, so a reader shows the banners only where they come; no method, capability or schema constant is added, and `chat.read` and `chat.control` serve them as before.
+
 A consent prompt in the sessions' list (`RemoteConsent`) is a change waiting on the user of the serving device. An agent of another device of the account may have asked for it, or a nexus command changing another workspace there, or that device's agent manager. The user answers it there, or from the device that lists it when `answerable` (`consent.answer`). An agent's request (`from`, `AgentSender`) to a control method takes the `agents` capability instead of the method's own. The serving device may ask its user first or turn the request down. `at` and `expiresAt` use the serving device's clock. `expiresInMs` is `expiresAt` minus the time the list was sent, so a reader needs no shared clock. A serving device before 0.29.0 turns a prompt down at `expiresAt` and drops it from the list. `AGENT_CONSENT_MS` (90 seconds) is how long a host asks a requester before 0.29.0 before turning the request down. Such a requester waits that long, plus a little more.
 
 In schema 0.16.0, `chat.instructions` can also return `session`, the tab's editable session text, and `layers`, its ordered persistent layers, including empty layers. The workspace layer comes from the parent for a worktree task. Hosts through desktop 0.36.1 only return the combined `instructions` text. Treat a response without `session` as read-only. With `chat.control`, a person can replace the session layer using `chat.instructions.set`. Send an empty string to clear it. The 5,000-character limit applies to both people and agents. An edit with `from` follows the receiving device's agent approval policy.
@@ -2310,6 +2312,18 @@ path, though it is outside the workspace's folders. Since 0.13.0.
 
 The reply being written: what the program streamed of its next message so far.
 
+**`TURN_FAILURE_KINDS`**
+
+How a chat's last turn failed, as `ChatStatusSchema.failure.kind` tells
+it: usage_limit (the plan's usage limit), transient (a rate limit, an
+overloaded or failing server, a lost connection: trying again may
+work), auth (a sign-in or key refused), request (the API refused the
+request itself: the same request fails again), other. Since 0.32.0.
+
+**`TurnFailureKindSchema`**
+
+One of `TURN_FAILURE_KINDS`.
+
 **`ChatStatusSchema`**
 
 Where a chat stands, apart from its messages.
@@ -2380,6 +2394,27 @@ The HTTP status of the error it tries again after; none when no answer came. Sin
 
 Why: rate_limit, overloaded, server, connection, auth or other;
 another this version does not know reads as other. Since 0.19.0.
+
+**`ChatStatusSchema.failure`**
+
+How its last turn failed, while that is its last result; none once a
+turn ends without failing. It may stay while a new turn runs: a reader
+shows it only while none runs. Only the kind, the status and the time:
+never the error's own words. Since 0.32.0; one this version cannot read
+(a kind it does not know) is left out, not the status.
+
+**`ChatStatusSchema.failure.kind`**
+
+One of `TURN_FAILURE_KINDS`.
+
+**`ChatStatusSchema.failure.status`**
+
+The HTTP status of the failed request; none when no answer came.
+
+**`ChatStatusSchema.failure.at`**
+
+When the turn ended, in Unix milliseconds; with kind and status, which
+failure a reader's dismissal was for.
 
 **`ViewTodoSchema`**
 
@@ -2542,6 +2577,14 @@ whether it is on, and the session's address there while it is
 Where the conversation went on in another profile: after the item
 whose key is `after`, in the profile named `profile` (profiles.list's
 name), at `at`. Since 0.11.0.
+
+**`ChatPanelSchema.twin`**
+
+A terminal tab in the same workspace whose Claude Code runs this
+chat's session too, as its hooks told the host: `tabId`, as the
+sessions' list names it. Going on in both forks the conversation. A
+Claude chat's only, and only a terminal tab. Since 0.32.0; one this
+version cannot read is left out, not the panel.
 
 **`ChatPanelSchema.can`**
 

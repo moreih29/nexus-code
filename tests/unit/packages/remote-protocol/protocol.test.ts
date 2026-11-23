@@ -35,6 +35,7 @@ import {
   SealedMessageSchema,
   ServerFrameSchema,
   ServerInfoSchema,
+  TURN_FAILURE_KINDS,
   ViewItemSchema,
 } from "../../../../packages/remote-protocol/src";
 
@@ -775,6 +776,43 @@ describe("the methods", () => {
     expect(ChatPanelSchema.safeParse({ ...panel, planLimits: [{ kind: "session" }] }).success).toBe(
       false,
     );
+  });
+
+  test("a chat's status tells how its last turn failed, by kind, status and time only (0.32.0)", () => {
+    const failure = { kind: "transient", status: 529, at: 1_763_200_000_000 };
+    const page = (more: Record<string, unknown>) =>
+      ChatPageSchema.parse({
+        status: { ...status, ...more },
+        start: 0,
+        total: 0,
+        items: [],
+        tools: {},
+        tasks: {},
+        agentItems: {},
+      }).status;
+    expect(page({ failure }).failure).toEqual(failure);
+    expect(page({ failure: { kind: "auth" } }).failure).toEqual({ kind: "auth" });
+    expect(page({ failure: { ...failure, message: "API Error" } }).failure).toEqual(failure);
+    expect(page({ failure: { kind: "later" } })).toEqual(status);
+    expect(page({ failure: { kind: "request", status: 400.5 } })).toEqual(status);
+    expect(page({ failure: "boom" })).toEqual(status);
+    expect(TURN_FAILURE_KINDS).toEqual(["usage_limit", "transient", "auth", "request", "other"]);
+  });
+
+  test("a chat's panel names the terminal tab running its session too (0.32.0)", () => {
+    const panel = {
+      todos: [],
+      tasks: [],
+      agents: [],
+      changedFiles: [],
+      context: null,
+      goal: null,
+    };
+    expect(ChatPanelSchema.parse({ ...panel, twin: { tabId: "t1" } }).twin).toEqual({
+      tabId: "t1",
+    });
+    expect(ChatPanelSchema.parse({ ...panel, twin: { tabId: "x".repeat(65) } })).toEqual(panel);
+    expect(ChatPanelSchema.parse({ ...panel, twin: "t1" })).toEqual(panel);
   });
 
   test("a chat's panel and session tell when its app goes on after the usage limit (0.19.0)", () => {

@@ -50,6 +50,7 @@ import { planUsageKeyFor } from "../chat/plan-usage";
 import { sameProfile } from "../chat/profile-moves";
 import { relayedOf } from "../chat/relayed";
 import { chatKey, useChatStore } from "../chat/store";
+import { followClaudeSessions, refreshClaudeSessions } from "../chat/terminal-twin";
 import {
   sendFirstMessage,
   sendToAgentTab,
@@ -694,6 +695,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
           const props = chatPropsOf(workspaceId, tabId);
           return props ? planUsageKeyFor(target.agent, workspaceId, props.profileId) : null;
         },
+        ...(target.agent === "claude" ? { follow: () => followClaudeSessions(workspaceId) } : {}),
       },
     );
     void readSubagents(target, unreadSubagentsOf(watched));
@@ -976,6 +978,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
   "chat.panel": async ({ workspaceId, tabId }) => {
     const target = await readableTab(workspaceId, tabId);
     askMcp(workspaceId, tabId, target);
+    if (target.agent === "claude") await refreshClaudeSessions(workspaceId);
     return chatPanelOf(sourceOf(workspaceId, tabId, target.agent));
   },
 
