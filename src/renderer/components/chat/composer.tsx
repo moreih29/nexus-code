@@ -54,6 +54,7 @@ import {
   type TypedToken,
 } from "../../services/chat/composer-input";
 import { watchFileDrop } from "../../services/chat/file-drop";
+import { fileKind } from "../../services/chat/links";
 import {
   type CommandInfo,
   type ImageBlock,
@@ -86,6 +87,7 @@ import { IconButton } from "../ui/icon-button";
 import { Keycap } from "../ui/keycap";
 import { showToast } from "../ui/toast";
 import { type ChatAgent, ChatAgentContext, useAgentContext } from "./chat-agent";
+import { useChatLinks } from "./chat-links";
 import { type CompletionItem, CompletionMenu } from "./completion-menu";
 import { COMPOSER_CHIP_CLASS } from "./composer-chip";
 import { fitTextHeight, observeTextHeight } from "./composer-height";
@@ -882,13 +884,7 @@ export const Composer = memo(function Composer({
                   title={attachment.path ?? attachment.file.name}
                   data-testid="chat-attachment"
                 >
-                  <FileText className="size-4 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate">{attachment.file.name}</div>
-                    <div className="text-app-micro text-muted-foreground">
-                      {formatBytes(attachment.file.size)}
-                    </div>
-                  </div>
+                  <AttachmentLabel file={attachment.file} />
                   <IconButton
                     label={t("chat.composer.remove_file")}
                     size="xs"
@@ -1087,6 +1083,40 @@ function useRevealedMenu(
     else setOpen(true);
   }, [reveal]);
   return [open, setOpen];
+}
+
+/**
+ * An attached file's icon, name and size. An image opens in quick look
+ * from the file itself, before the message goes, where the tab has quick look.
+ */
+function AttachmentLabel({ file }: { file: File }) {
+  const { t } = useTranslation();
+  const links = useChatLinks();
+  const body = (
+    <>
+      <FileText className="size-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate">{file.name}</div>
+        <div className="text-app-micro text-muted-foreground">{formatBytes(file.size)}</div>
+      </div>
+    </>
+  );
+  if (!links || fileKind(file.name) !== "image") return body;
+  const look = () =>
+    void base64Of(file).then((data) =>
+      links.openImages([{ mediaType: file.type || "image/png", data }], 0),
+    );
+  return (
+    <button
+      type="button"
+      onClick={look}
+      aria-label={`${t("chat.links.look")}: ${file.name}`}
+      className="flex min-w-0 flex-1 cursor-zoom-in items-center gap-1.5 rounded-(--radius-control) text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      data-testid="chat-attachment-look"
+    >
+      {body}
+    </button>
+  );
 }
 
 /** The + menu: attach a file, mention one, or start a command. */

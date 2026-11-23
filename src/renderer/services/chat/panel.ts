@@ -3,6 +3,7 @@
 // files it changed, and what its replies point at.
 
 import type { AgentRun } from "../../../shared/claude/activity";
+import { splitAttachments } from "./composer-input";
 import { imageFileOf, type ShownImage } from "./image-look";
 import { linkPlaceIndex, linkPlaces } from "./link-places";
 import { fileKind, isUnder, resolveFilePath, slashWindowsPath } from "./links";
@@ -594,6 +595,19 @@ export function distinctResults(
   return out;
 }
 
+/**
+ * The image files a message the user sent attached (the mentions of its
+ * last paragraph, splitAttachments), by absolute path from `cwd`. None
+ * while it goes to another device, whose chips name no path yet.
+ */
+export function attachedImagesOf(item: UserItem, cwd: string): string[] {
+  if (item.optimistic) return [];
+  return splitAttachments(item.text).files.flatMap((named) => {
+    const path = resolveFilePath(named, cwd);
+    return path && fileKind(path) === "image" ? [path] : [];
+  });
+}
+
 /** Most agents within agents whose images are looked for. */
 const MAX_AGENT_DEPTH = 4;
 
@@ -603,7 +617,7 @@ const LOOK_TOOLS = new Set(["Read", "ViewImage"]);
 /**
  * Every image a conversation shows, each once (each read of a file its own),
  * in the order it came: the
- * ones the user pasted, the ones its tools gave (as the file a Read of one
+ * ones the user pasted or attached, the ones its tools gave (as the file a Read of one
  * took, its data kept for when the file is gone), and the image files it
  * sent the user, wrote new, or showed or pointed at in a reply, as
  * resultsOf takes them. An agent's images come where it was called
@@ -653,6 +667,7 @@ export function imagesOf(
     for (const item of items) {
       if (item.kind === "user") {
         for (const image of item.images) addData(image);
+        for (const file of attachedImagesOf(item, cwd)) addFile(file);
         continue;
       }
       if (item.kind !== "assistant") continue;
@@ -904,7 +919,8 @@ export const MAX_OUTSIDE_DIRS = 200;
 /**
  * The files outside the workspace (`root`) that a session names: the ones
  * its tools took, its replies point at (a relative path at each place it
- * may name, link-places), and `looked` (opened from the tab otherwise). An
+ * may name, link-places), the images the user attached to a message, and
+ * `looked` (opened from the tab otherwise). An
  * HTML file's folder comes too, unless it holds the workspace, as the home
  * folder does.
  */
@@ -924,6 +940,10 @@ export function outsideLinksOf(
       const abs = resolveFilePath(file, cwd);
       if (abs) named.add(abs);
     }
+  }
+  // An image the user attached to a message opens in quick look among the others.
+  for (const item of items) {
+    if (item.kind === "user") for (const file of attachedImagesOf(item, cwd)) named.add(file);
   }
   const places = linkPlaceIndex(tools, cwd);
   for (const result of resultsOf(items, {}, cwd, touchedFiles(tools, cwd))) {

@@ -13,6 +13,7 @@ import {
   agentsOf,
   agentTranscript,
   answerExtras,
+  attachedImagesOf,
   changedFilesOf,
   contextOf,
   distinctResults,
@@ -993,5 +994,72 @@ describe("imagesOf, the images a chat shows in full", () => {
       "/ws",
     );
     expect(shown).toEqual([{ file: "/tmp/s/a.png" }]);
+  });
+});
+
+describe("images the user attached to a message", () => {
+  const image = (data: string): ImageBlock => ({ mediaType: "image/png", data });
+  const user = (text: string, images: ImageBlock[] = [], extra: object = {}): ChatItem =>
+    ({ kind: "user", key: text, text, images, state: "taken", ...extra }) as ChatItem;
+  const readCall = (id: string, path: string, images: ImageBlock[]): ToolCall =>
+    ({
+      id,
+      name: "Read",
+      status: "done",
+      input: { file_path: path },
+      result: { text: "", isError: false, images },
+    }) as ToolCall;
+  const turn = (ids: string[]): ChatItem =>
+    ({
+      kind: "assistant",
+      blocks: ids.map((toolUseId) => ({ type: "tool", toolUseId })),
+    }) as unknown as ChatItem;
+
+  test("are its last paragraph's mentions of image files, from the chat's folder", () => {
+    const sent = user(
+      'look\n\n@/tmp/a/big.png @shots/b.webp @"/tmp/a/my shot.png" @/tmp/a/notes.txt',
+    );
+    expect(attachedImagesOf(sent as never, "/ws")).toEqual([
+      "/tmp/a/big.png",
+      "/ws/shots/b.webp",
+      "/tmp/a/my shot.png",
+    ]);
+    // A mention in the text is no attachment, nor one a message going to another device names.
+    expect(attachedImagesOf(user("see @/tmp/a/big.png here") as never, "/ws")).toEqual([]);
+    const going = user("@/tmp/a/big.png", [], { optimistic: { fileNames: ["big.png"] } });
+    expect(attachedImagesOf(going as never, "/ws")).toEqual([]);
+  });
+
+  test("come in quick look's list where the message is, after its pasted ones", () => {
+    const [pasted, before, after] = [image("p"), image("b"), image("a")];
+    const tools = {
+      r1: readCall("r1", "/tmp/a/first.png", [before]),
+      r2: readCall("r2", "/tmp/a/last.png", [after]),
+    };
+    const shown = imagesOf(
+      [turn(["r1"]), user("here\n\n@/tmp/a/big.png @/tmp/a/notes.txt", [pasted]), turn(["r2"])],
+      tools,
+      "/ws",
+    );
+    expect(shown).toEqual([
+      { file: "/tmp/a/first.png", image: before },
+      { image: pasted },
+      { file: "/tmp/a/big.png" },
+      { file: "/tmp/a/last.png", image: after },
+    ]);
+  });
+
+  test("are granted to the previews, and only they: not other attachments or others' messages", () => {
+    const items = [
+      user("@/tmp/a/big.png @/tmp/a/notes.txt"),
+      user("@/ws/inside.png"),
+      {
+        kind: "received",
+        key: "r",
+        from: { kind: "tab" },
+        text: "@/tmp/a/theirs.png",
+      } as unknown as ChatItem,
+    ];
+    expect(outsideLinksOf(items, {}, "/ws", "/ws").files).toEqual(["/tmp/a/big.png"]);
   });
 });

@@ -42,6 +42,7 @@ import { artifactOf } from "../../services/chat/artifact";
 import { useChatFiles } from "../../services/chat/chat-files";
 import { splitAttachments } from "../../services/chat/composer-input";
 import { callsUnder, type ItemView, itemView, sameView } from "../../services/chat/item-view";
+import { fileKind } from "../../services/chat/links";
 import {
   indexOfCall,
   shownStart,
@@ -95,8 +96,9 @@ import { AnswerExtrasView } from "./answer-extras";
 import { ArtifactCard } from "./artifact-card";
 import { ChatAgentContext, useAgentContext } from "./chat-agent";
 import { ChatImage, ToolThumbs } from "./chat-image";
-import { LinkPlacesContext, usePlacesOf } from "./chat-links";
+import { LinkPlacesContext, useChatLinks, usePlacesOf } from "./chat-links";
 import { ChatMarkdown } from "./chat-markdown";
+import { FileKindIcon } from "./file-kind-icon";
 import { AnsweredQuestions, PlanOutcome, showsAsPrompt } from "./prompt-rows";
 import { SentFiles } from "./sent-files";
 import { ToolRow } from "./tool-row";
@@ -938,6 +940,43 @@ function ShellCard({ item }: { item: ShellItem }) {
   );
 }
 
+/**
+ * A file a sent message attached, as a chip of its name. An image opens in
+ * quick look among the conversation's images; while the message goes to
+ * another device the chip names no path yet, and opens nothing.
+ */
+function AttachedFile({ path, sending }: { path: string; sending: boolean }) {
+  const { t } = useTranslation();
+  const links = useChatLinks();
+  const name = path.split(/[\\/]/).pop() ?? path;
+  const chip =
+    "flex max-w-56 items-center gap-1.5 rounded-(--radius-control) border border-border px-2 py-1 text-app-ui-sm";
+  if (!links || sending || fileKind(path) !== "image") {
+    return (
+      <span title={path} className={chip}>
+        <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate">{name}</span>
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => links.openFile(path)}
+      title={path}
+      aria-label={`${t("chat.links.look")}: ${name}`}
+      className={cn(
+        chip,
+        "cursor-zoom-in hover:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+      )}
+      data-testid="chat-attached-image"
+    >
+      <FileKindIcon path={path} className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="truncate">{name}</span>
+    </button>
+  );
+}
+
 function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
   const { t } = useTranslation();
   const agent = useAgentContext();
@@ -980,14 +1019,7 @@ function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
       {files.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
           {files.map((path) => (
-            <span
-              key={path}
-              title={path}
-              className="flex max-w-56 items-center gap-1.5 rounded-(--radius-control) border border-border px-2 py-1 text-app-ui-sm"
-            >
-              <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="truncate">{path.split(/[\\/]/).pop()}</span>
-            </span>
+            <AttachedFile key={path} path={path} sending={optimistic !== undefined} />
           ))}
         </div>
       )}
