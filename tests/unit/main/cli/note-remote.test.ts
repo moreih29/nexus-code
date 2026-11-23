@@ -8,6 +8,7 @@ import {
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import type { CliDevice, CliServices } from "../../../../src/main/features/cli/context";
 import { runCli } from "../../../../src/main/features/cli/registry";
+import { noteMarkdown } from "../../../../src/main/features/notes/store";
 import { noteTranscript, readNote } from "../../../../src/main/features/remote/notes";
 import type { TranscriptFile } from "../../../../src/shared/notes/transcript";
 import { APP, contextFor, type FakeApp, fakeApp, SHELL_TAB } from "./fake-services";
@@ -35,15 +36,25 @@ function recording(id: string, count: number) {
   };
 }
 
-function hostServices(file: TranscriptFile): CliServices {
+const smallDoc = {
+  type: "doc",
+  content: [{ type: "paragraph", content: [{ type: "text", text: "Body text" }] }],
+};
+
+const bigDoc = {
+  type: "doc",
+  content: Array.from({ length: 6000 }, (_, i) => ({
+    type: "paragraph",
+    content: [{ type: "text", text: `문단 ${i} 😀${"가".repeat(97)}` }],
+  })),
+};
+
+function hostServices(file: TranscriptFile, doc: object): CliServices {
   const note = {
     id: "nabcdef1",
     title: "Standup",
     updatedAt: 1000,
-    doc: {
-      type: "doc",
-      content: [{ type: "paragraph", content: [{ type: "text", text: "Body text" }] }],
-    },
+    doc,
     ...(file.recordings.length
       ? { recording: { recordings: file.recordings.length, ms: 1, people: 2 } }
       : {}),
@@ -60,7 +71,12 @@ function hostServices(file: TranscriptFile): CliServices {
 
 function olderAnswer(method: string, result: unknown): unknown {
   if (method === "notes.read") {
-    const { recordings: _recordings, ...rest } = result as Record<string, unknown>;
+    const {
+      recordings: _recordings,
+      markdownStart: _start,
+      markdownTotal: _total,
+      ...rest
+    } = result as Record<string, unknown>;
     return rest;
   }
   if (method === "notes.transcript") {
@@ -73,7 +89,7 @@ function olderAnswer(method: string, result: unknown): unknown {
   return result;
 }
 
-function withHost(file: TranscriptFile, schema: string): FakeApp {
+function withHost(file: TranscriptFile, schema: string, doc: object = smallDoc): FakeApp {
   const app = fakeApp(NOW);
   const device = (over: Partial<CliDevice> & Pick<CliDevice, "id" | "name">): CliDevice => ({
     platform: "macos",
@@ -91,7 +107,7 @@ function withHost(file: TranscriptFile, schema: string): FakeApp {
       schema,
     }),
   ];
-  const services = hostServices(file);
+  const services = hostServices(file, doc);
   const older = schema !== NOTE_PAGES_SCHEMA;
   app.peers.answer = async (_d, method, params) => {
     if (method === "sessions.list") {
@@ -105,6 +121,8 @@ function withHost(file: TranscriptFile, schema: string): FakeApp {
       delete parsed.withoutTranscript;
       delete parsed.start;
       delete parsed.limit;
+      delete parsed.markdownStart;
+      delete parsed.markdownLimit;
     }
     const result =
       method === "notes.read"
@@ -228,5 +246,30 @@ describe("note read and note transcript --device", () => {
       expect.objectContaining({ recording: "rabcdef1234", start: 2 * MAX_TRANSCRIPT_LINES }),
       expect.objectContaining({ recording: "rabcdef5678", start: 0 }),
     ]);
+  });
+
+  test("a body over a frame comes from a 0.31.0 host in pages, exactly as written", async () => {
+    const small = { version: 1 as const, recordings: [recording("rabcdef5678", 3)] };
+    const app = withHost(small, NOTE_PAGES_SCHEMA, bigDoc);
+    const argv = ["note", "read", "Standup", "--workspace", "site", "--device", MINI, "--json"];
+    const read = await nexus(app, argv);
+    expect(read.exitCode).toBe(0);
+    expect(JSON.parse(read.stdout).markdown).toBe(
+      noteMarkdown({ title: "Standup", doc: bigDoc } as never),
+    );
+    expect(app.peers.requests.filter((r) => r.method === "notes.read").length).toBeGreaterThan(2);
+    const older = await nexus(withHost(small, "0.30.0", bigDoc), argv);
+    expect(older.exitCode).not.toBe(0);
+    const lines = await nexus(app, [
+      "note",
+      "transcript",
+      "Standup",
+      "--workspace",
+      "site",
+      "--device",
+      MINI,
+    ]);
+    expect(lines.exitCode).toBe(0);
+    expect(lines.stdout).toContain("Recording rabcdef5678");
   });
 });

@@ -19,7 +19,10 @@ export type AskNotes = <M extends NoteMethod>(
 type NoteTranscript = RpcResult<"notes.transcript">;
 type WholeRecording = Omit<NoteTranscript["recordings"][number], "start" | "total">;
 
-type ReadParams = Omit<RpcParams<"notes.read">, "from" | "withoutTranscript">;
+type ReadParams = Omit<
+  RpcParams<"notes.read">,
+  "from" | "withoutTranscript" | "markdownStart" | "markdownLimit"
+>;
 type TranscriptParams = Omit<RpcParams<"notes.transcript">, "from" | "start" | "limit">;
 
 async function wholeRecording(
@@ -49,6 +52,35 @@ async function wholeRecording(
   return { id: first.id, title: first.title, recording: { ...rest, lines } };
 }
 
+async function noteBody(
+  ask: AskNotes,
+  params: Omit<ReadParams, "transcriptOnly">,
+  whole: boolean,
+): Promise<RpcResult<"notes.read">> {
+  const first = await ask("notes.read", {
+    ...params,
+    withoutTranscript: true,
+    markdownStart: 0,
+    ...(whole ? {} : { markdownLimit: 1 }),
+  });
+  if (!whole) return first;
+  let markdown = first.markdown;
+  const total = first.markdownTotal ?? markdown.length;
+  while (markdown.length < total) {
+    const page = await ask("notes.read", {
+      ...params,
+      note: first.id,
+      withoutTranscript: true,
+      markdownStart: markdown.length,
+    });
+    if (!page.markdown || page.markdownStart !== markdown.length) {
+      throw new Error("the note changed while it was read; read it again");
+    }
+    markdown += page.markdown;
+  }
+  return { ...first, markdown };
+}
+
 export async function readWholeNote(
   ask: AskNotes,
   schema: string | undefined,
@@ -56,7 +88,7 @@ export async function readWholeNote(
 ): Promise<RpcResult<"notes.read">> {
   if (!speaks(schema, NOTE_PAGES_SCHEMA)) return ask("notes.read", params);
   const { transcriptOnly, ...rest } = params;
-  const note = await ask("notes.read", { ...rest, withoutTranscript: true });
+  const note = await noteBody(ask, rest, !transcriptOnly);
   const recordings = note.recordings ?? [];
   const read = [];
   for (const info of recordings) {
@@ -64,9 +96,12 @@ export async function readWholeNote(
     read.push({ startedAt: info.startedAt, ms: info.ms, lines: recording.lines });
   }
   return {
-    ...note,
+    id: note.id,
+    title: note.title,
+    updatedAt: note.updatedAt,
     markdown: transcriptOnly ? "" : note.markdown,
     transcript: transcriptOnly || read.length ? cliTranscriptMarkdown(note.title, read) : "",
+    recordings,
   };
 }
 
@@ -81,7 +116,7 @@ export async function readWholeTranscript(
     const one = await wholeRecording(ask, workspaceId, note, recording);
     return { id: one.id, title: one.title, recordings: [one.recording] };
   }
-  const found = await ask("notes.read", { workspaceId, note, withoutTranscript: true });
+  const found = await noteBody(ask, { workspaceId, note }, false);
   const recordings: WholeRecording[] = [];
   for (const info of found.recordings ?? []) {
     recordings.push((await wholeRecording(ask, workspaceId, found.id, info.id)).recording);

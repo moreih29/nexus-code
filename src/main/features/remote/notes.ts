@@ -1,6 +1,7 @@
 import {
   MAX_ATTACHMENT_BYTES,
   MAX_LISTED_NOTES,
+  MAX_NOTE_MARKDOWN_PAGE,
   MAX_TRANSCRIPT_LINES,
   type NoteRecordingInfo,
   type RemoteRecording,
@@ -132,14 +133,83 @@ function recordingInfo(recording: TranscriptRecording): NoteRecordingInfo {
   };
 }
 
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
+export function markdownCut(markdown: string, start: number, count: number): number {
+  const end = Math.min(markdown.length, start + count);
+  if (end < markdown.length && end > start && isHighSurrogate(markdown.charCodeAt(end - 1))) {
+    return end - 1 > start ? end - 1 : end + 1;
+  }
+  return end;
+}
+
+export function markdownPageStart(markdown: string, start: number): number {
+  const from = Math.min(start, markdown.length);
+  return from > 0 &&
+    from < markdown.length &&
+    isLowSurrogate(markdown.charCodeAt(from)) &&
+    isHighSurrogate(markdown.charCodeAt(from - 1))
+    ? from - 1
+    : from;
+}
+
+function fittedMarkdown<T extends { markdown: string }>(
+  answer: T,
+  whole: string,
+  from: number,
+  limit: number,
+): T {
+  const at = (count: number) => ({
+    ...answer,
+    markdown: whole.slice(from, markdownCut(whole, from, count)),
+  });
+  const room = Math.min(limit, whole.length - from);
+  if (fitsAsResult(at(room))) return at(room);
+  let low = 0;
+  let high = room;
+  while (low + 1 < high) {
+    const mid = (low + high) >>> 1;
+    if (fitsAsResult(at(mid))) low = mid;
+    else high = mid;
+  }
+  const page = at(low);
+  if (!page.markdown && room > 0) {
+    throw new RpcFailure(
+      RpcErrorCode.Unavailable,
+      "that part of the note is too large to send; read it on that computer",
+    );
+  }
+  return page;
+}
+
 export async function readNote(
   services: CliServices,
-  { workspaceId, note: selector, transcriptOnly, withoutTranscript }: RpcParams<"notes.read">,
+  {
+    workspaceId,
+    note: selector,
+    transcriptOnly,
+    withoutTranscript,
+    markdownStart,
+    markdownLimit,
+  }: RpcParams<"notes.read">,
 ): Promise<RpcResult<"notes.read">> {
   if (transcriptOnly && withoutTranscript) {
     throw new RpcFailure(
       RpcErrorCode.InvalidParams,
       "transcriptOnly and withoutTranscript cannot both be set",
+    );
+  }
+  const paged = markdownStart !== undefined || markdownLimit !== undefined;
+  if (paged && !withoutTranscript) {
+    throw new RpcFailure(
+      RpcErrorCode.InvalidParams,
+      "markdownStart and markdownLimit read the body alone: set withoutTranscript",
     );
   }
   const note = await findNote(services, workspaceId, selector);
@@ -149,18 +219,24 @@ export async function readNote(
       ? await services.notes.transcript(workspaceId, id).catch(failure)
       : undefined;
   const transcript = file && !withoutTranscript ? transcriptMarkdown(file, title) : "";
+  const markdown = transcriptOnly ? "" : noteMarkdown(note);
+  const from = paged ? markdownPageStart(markdown, markdownStart ?? 0) : 0;
+  const answer = {
+    id,
+    title,
+    updatedAt,
+    markdown,
+    markdownStart: from,
+    markdownTotal: markdown.length,
+    transcript,
+    recordings: file?.recordings.map(recordingInfo) ?? [],
+  };
+  if (paged) return fittedMarkdown(answer, markdown, from, markdownLimit ?? MAX_NOTE_MARKDOWN_PAGE);
   return boundedNoteResult(
-    {
-      id,
-      title,
-      updatedAt,
-      markdown: transcriptOnly ? "" : noteMarkdown(note),
-      transcript,
-      recordings: file?.recordings.map(recordingInfo) ?? [],
-    },
+    answer,
     transcript
       ? "the note is too large to send in one response; read it without its transcript (withoutTranscript) and its recordings with notes.transcript a page at a time"
-      : undefined,
+      : "the note is too large to send in one response; read it a page at a time (withoutTranscript, markdownStart, markdownLimit)",
   );
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import {
+  MAX_NOTE_MARKDOWN_PAGE,
   MAX_TRANSCRIPT_LINES,
   NOTE_PAGES_SCHEMA,
   RPC_METHODS,
@@ -8,6 +9,7 @@ import {
   type RpcParams,
 } from "../../../../../packages/remote-protocol/src";
 import type { CliServices } from "../../../../../src/main/features/cli/context";
+import { noteMarkdown } from "../../../../../src/main/features/notes/store";
 import { listNotes, noteTranscript, readNote } from "../../../../../src/main/features/remote/notes";
 import { readWholePeerNote } from "../../../../../src/main/features/remote/peer-notes";
 import { fitsAsResult } from "../../../../../src/main/features/remote/serving/common";
@@ -40,12 +42,20 @@ const doc = {
   content: [{ type: "paragraph", content: [{ type: "text", text: "Body text" }] }],
 };
 
-function servicesWith(file: TranscriptFile, withRecording = true): CliServices {
+const bigDoc = {
+  type: "doc",
+  content: Array.from({ length: 6000 }, (_, i) => ({
+    type: "paragraph",
+    content: [{ type: "text", text: `문단 ${i} 😀${"가".repeat(97)}👍🏽` }],
+  })),
+};
+
+function servicesWith(file: TranscriptFile, withRecording = true, body = doc): CliServices {
   const note = {
     id: "nabcdef1",
     title: "Standup",
     updatedAt: 1000,
-    doc,
+    doc: body,
     ...(withRecording
       ? { recording: { recordings: file.recordings.length, ms: 1, people: 2 } }
       : {}),
@@ -117,6 +127,88 @@ describe("notes.read", () => {
         withoutTranscript: true,
       }),
     ).rejects.toMatchObject({ code: RpcErrorCode.InvalidParams });
+  });
+});
+
+describe("notes.read of a body a page at a time", () => {
+  const big = servicesWith(small, true, bigDoc);
+  const whole = noteMarkdown({ title: "Standup", doc: bigDoc } as never);
+  const page = (markdownStart?: number, markdownLimit?: number) =>
+    readNote(big, {
+      workspaceId: "w1",
+      note: "nabcdef1",
+      withoutTranscript: true,
+      ...(markdownStart === undefined ? {} : { markdownStart }),
+      ...(markdownLimit === undefined ? {} : { markdownLimit }),
+    });
+
+  test("a body over a frame is refused whole, so an older reader never takes a part for all", async () => {
+    expect(whole.length).toBeGreaterThan(MAX_NOTE_MARKDOWN_PAGE);
+    await expect(
+      readNote(big, { workspaceId: "w1", note: "nabcdef1", withoutTranscript: true }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.Unavailable });
+  });
+
+  test("pages that each fit join into the body exactly, never cut inside a surrogate pair", async () => {
+    let markdown = "";
+    let pages = 0;
+    for (;;) {
+      const got = await page(markdown.length);
+      pages++;
+      expect(fitsAsResult(got)).toBe(true);
+      expect(got.markdownStart).toBe(markdown.length);
+      expect(got.markdownTotal).toBe(whole.length);
+      expect(got.markdown.length).toBeLessThanOrEqual(MAX_NOTE_MARKDOWN_PAGE);
+      expect(got.markdown.length).toBeGreaterThan(0);
+      expect(got.markdown.isWellFormed()).toBe(true);
+      expect(got.recordings).toHaveLength(2);
+      markdown += got.markdown;
+      if (markdown.length >= (got.markdownTotal ?? 0)) break;
+    }
+    expect(pages).toBeGreaterThan(2);
+    expect(markdown).toBe(whole);
+  });
+
+  test("an emoji is sent whole at either end of a page", async () => {
+    const s = servicesWith(small, false, {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "a😀b" }] }],
+    });
+    const at = (markdownStart: number, markdownLimit: number) =>
+      readNote(s, {
+        workspaceId: "w1",
+        note: "nabcdef1",
+        withoutTranscript: true,
+        markdownStart,
+        markdownLimit,
+      });
+    const body = noteMarkdown({ title: "Standup", doc: { type: "doc", content: [] } } as never);
+    const emoji = body.length + 1;
+    expect(await at(emoji - 1, 2)).toMatchObject({ markdown: "a", markdownStart: emoji - 1 });
+    expect(await at(emoji, 1)).toMatchObject({ markdown: "😀", markdownStart: emoji });
+    expect(await at(emoji + 1, 2)).toMatchObject({ markdown: "😀", markdownStart: emoji });
+    const end = await at(9999, 5);
+    expect(end).toMatchObject({ markdown: "", markdownStart: end.markdownTotal });
+  });
+
+  test("markdownStart or markdownLimit without withoutTranscript is refused", async () => {
+    await expect(
+      readNote(big, { workspaceId: "w1", note: "nabcdef1", markdownStart: 0 }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.InvalidParams });
+    await expect(
+      readNote(big, { workspaceId: "w1", note: "nabcdef1", markdownLimit: 5 }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.InvalidParams });
+  });
+
+  test("markdownLimit is bounded by the protocol", () => {
+    const params = RPC_METHODS["notes.read"].params;
+    const base = { workspaceId: "w1", note: "n", withoutTranscript: true };
+    expect(params.safeParse({ ...base, markdownLimit: MAX_NOTE_MARKDOWN_PAGE }).success).toBe(true);
+    expect(params.safeParse({ ...base, markdownLimit: MAX_NOTE_MARKDOWN_PAGE + 1 }).success).toBe(
+      false,
+    );
+    expect(params.safeParse({ ...base, markdownLimit: 0 }).success).toBe(false);
+    expect(params.safeParse({ ...base, markdownStart: -1 }).success).toBe(false);
   });
 });
 
@@ -200,8 +292,8 @@ test("notes.list tells how many recordings a note has", async () => {
 });
 
 describe("another computer's note on the desktop", () => {
-  function room(file: TranscriptFile, schema: string | undefined) {
-    const s = servicesWith(file);
+  function room(file: TranscriptFile, schema: string | undefined, body = doc) {
+    const s = servicesWith(file, true, body);
     const request = mock(async (_to: string, method: RpcMethod, params: object) => {
       const parsed = RPC_METHODS[method].params.parse(params) as never;
       if (method === "notes.read") return readNote(s, parsed);
@@ -223,10 +315,30 @@ describe("another computer's note on the desktop", () => {
     const calls = request.mock.calls.map(([, method, params]) => [method, params]);
     expect(calls[0]).toEqual([
       "notes.read",
-      { workspaceId: "w1", note: "nabcdef1", withoutTranscript: true },
+      { workspaceId: "w1", note: "nabcdef1", withoutTranscript: true, markdownStart: 0 },
     ]);
     expect(calls.length).toBeGreaterThan(2);
     expect(calls.slice(1).every(([method]) => method === "notes.transcript")).toBe(true);
+  });
+
+  test("a body over a frame comes in pages from a 0.31.0 host, exactly as written", async () => {
+    const { room: r, request } = room(small, NOTE_PAGES_SCHEMA, bigDoc);
+    const note = await readWholePeerNote(r, "d2", { workspaceId: "w1", note: "Standup" });
+    expect(note.markdown).toBe(noteMarkdown({ title: "Standup", doc: bigDoc } as never));
+    expect(note.transcript).toBe(transcriptMarkdown(small, "Standup"));
+    const reads = request.mock.calls.filter(([, method]) => method === "notes.read");
+    expect(reads.length).toBeGreaterThan(2);
+    expect(
+      reads.slice(1).every(([, , params]) => (params as { note: string }).note === "nabcdef1"),
+    ).toBe(true);
+  });
+
+  test("a body over a frame from an older host fails as before, asked once", async () => {
+    const { room: r, request } = room(small, "0.30.0", bigDoc);
+    await expect(
+      readWholePeerNote(r, "d2", { workspaceId: "w1", note: "nabcdef1" }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.Unavailable });
+    expect(request).toHaveBeenCalledTimes(1);
   });
 
   test("small transcripts come out as the host would write them", async () => {

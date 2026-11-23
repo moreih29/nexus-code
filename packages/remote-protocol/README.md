@@ -59,7 +59,7 @@ Schema 0.29.0 takes the time limit off the consent prompts an agent's request (`
 
 Schema 0.30.0 lets `chat.tool` and `chat.image` take an optional `runId`, the id `chat.runs` gives one of the chat's `claude -p` or `codex exec` runs. With it, the host looks for the tool call or image in that run's own session, as `chat.runRead` reads it, instead of in the conversation: a `toolUseId`, or a ref's `itemKey` and `toolUseId`, are then the ones a `chat.runRead` page gives. Both still need the `chat.read` capability. The host finds the run only among the runs of the chat it names and answers NotFound for any other run, a subagent, and a tool call or image the run does not hold; for a run that keeps no session to read it answers as `chat.runRead` does (Unavailable while a running run's session may still come, NotFound otherwise). A `held` ref with `runId` is never found. A host before 0.30.0 drops `runId` as an unknown key and looks in the conversation, so a reader sends `runId` only to a device whose hello says 0.30.0 or later (`RUN_ITEMS_SCHEMA`). No capability is added. The same version raises `PUSH_TTL_SECONDS.consent.max` from 120 to 86400 seconds: a computer sends the push for a consent prompt with no time limit for what is left of a day from the prompt's `at`, and for a prompt with a limit until that limit as before. A server before 0.30.0 clamps the TTL to 120 seconds; a computer that sees a consent push with a TTL over 120 refused with HTTP 400 sends it once more, with the same id and a TTL of 120. Every push for one consent prompt, a retry or the 120-second resend alike, carries the same `id` (`PUSH_EVENT_ID_PATTERN`), and a computer stops sending it once the prompt is answered or withdrawn. People may read `profiles.usage` from 0.30.0 on: a host that takes their requests lists the new capability `profiles.usage.people` (beside `profiles.usage`, which hosts since 0.17.0 list and which takes only agents' requests there); an agent's request is taken as before, under the `agents` capability and its policy. The answer is the same for both and carries no account email or keys: per profile its `id`, the `name` the user gave it, `agent`, `status`, `fetchedAt` and the usage `limits`.
 
-Schema 0.31.0 lets a reader take a note's body and its recordings' transcripts apart, so a long transcript no longer keeps the body from coming: an answer over `MAX_FRAME_BYTES` is refused whole (Unavailable). `notes.read` takes an optional `withoutTranscript: true`: the host leaves `transcript` empty (`""`) and still sends `markdown`. Whether it is set or not, a 0.31.0 host adds `recordings`, one entry a recording of the note in the order `notes.transcript` gives them, empty for a note without one: `{ id, startedAt, ms, lines, participants }`, where `ms` is the recording's length in milliseconds, `lines` how many transcript lines it has (as `notes.transcript` counts them, before the Markdown joins a speaker's lines) and `participants` is `"auto"`, `"7+"` or a number. `transcriptOnly` and `withoutTranscript` together are refused (InvalidParams). `notes.transcript` takes optional `start` (a line index from 0) and `limit` (1 to `MAX_TRANSCRIPT_LINES`, 1000, which it also is when left out) to read one recording a page at a time; with either, `recording` is required (InvalidParams otherwise) and `recordings` holds that one recording. Each recording of a 0.31.0 host's answer carries `start`, the index of its first line here, and `total`, how many lines it has; without `start` and `limit` they are 0 and the count of the lines it sends, all of them. A page holds lines `start` up to `start + limit`, fewer where that is past the end or where more would not fit in a frame: the host leaves lines off the end until the answer fits, so a reader asks again from `start` plus the lines it got until it has `total`, and never takes a short page for the end. A `start` past the end answers no lines, with `start` set to `total`. Line `id`s are the same as in the whole transcript. A host answers Unavailable only when a single line does not fit. `notes.list` adds `recordings` to each note, how many recordings it has (0 for none). The capability stays `notes`, and people and agents (`from`) may read as before; no capability is added. A host before 0.31.0 drops `withoutTranscript`, `start` and `limit` as unknown keys and answers the whole note or transcript as before, which may then be refused as too large, and sends none of the new result fields; so a reader sends these keys only to a device whose hello says 0.31.0 or later (`NOTE_PAGES_SCHEMA`), and reads `recordings`, `start` and `total` as absent from an older one. Readers before 0.31.0 drop the new result fields.
+Schema 0.31.0 lets a reader take a note's body and its recordings' transcripts apart, so a long transcript no longer keeps the body from coming: an answer over `MAX_FRAME_BYTES` is refused whole (Unavailable). `notes.read` takes an optional `withoutTranscript: true`: the host leaves `transcript` empty (`""`) and still sends `markdown`. Whether it is set or not, a 0.31.0 host adds `recordings`, one entry a recording of the note in the order `notes.transcript` gives them, empty for a note without one: `{ id, startedAt, ms, lines, participants }`, where `ms` is the recording's length in milliseconds, `lines` how many transcript lines it has (as `notes.transcript` counts them, before the Markdown joins a speaker's lines) and `participants` is `"auto"`, `"7+"` or a number. `transcriptOnly` and `withoutTranscript` together are refused (InvalidParams). `notes.transcript` takes optional `start` (a line index from 0) and `limit` (1 to `MAX_TRANSCRIPT_LINES`, 1000, which it also is when left out) to read one recording a page at a time; with either, `recording` is required (InvalidParams otherwise) and `recordings` holds that one recording. Each recording of a 0.31.0 host's answer carries `start`, the index of its first line here, and `total`, how many lines it has; without `start` and `limit` they are 0 and the count of the lines it sends, all of them. A page holds lines `start` up to `start + limit`, fewer where that is past the end or where more would not fit in a frame: the host leaves lines off the end until the answer fits, so a reader asks again from `start` plus the lines it got until it has `total`, and never takes a short page for the end. A `start` past the end answers no lines, with `start` set to `total`. Line `id`s are the same as in the whole transcript. A host answers Unavailable only when a single line does not fit. `notes.read` also reads a body a page at a time: with `withoutTranscript: true`, optional `markdownStart` (an index into `markdown` from 0) and `markdownLimit` (1 to `MAX_NOTE_MARKDOWN_PAGE`, 262144, which it also is when left out) send `markdown` from `markdownStart` for at most `markdownLimit` characters; either one without `withoutTranscript` is refused (InvalidParams). Indexes and lengths count UTF-16 code units, as JavaScript, Kotlin and Swift's `utf16` view index strings; the host never ends a page between the two halves of a surrogate pair, and a `markdownStart` that falls between them starts the page one unit earlier, so a page's `markdown` is always well-formed. A 0.31.0 host's `notes.read` answer always carries `markdownStart`, where its `markdown` begins, and `markdownTotal`, the length of the whole body (0 and that length when not reading by pages; 0 and 0 with `transcriptOnly`). A page holds fewer characters where more would not fit in a frame, so a reader asks again from `markdownStart` plus the length it got until it has `markdownTotal`, and joins the pages; a `markdownStart` past the end answers `markdown: ""` with `markdownStart` set to `markdownTotal`. Without `markdownStart` and `markdownLimit` a body that does not fit is still refused whole (Unavailable), not cut: a reader before 0.31.0 would drop `markdownTotal` and take a cut body for the whole one. The note's `recordings` come with every page. If the note changes between pages, the joined body may match no one version of it; a reader that gets a page starting elsewhere than it asked reads the note again. `notes.list` adds `recordings` to each note, how many recordings it has (0 for none). The capability stays `notes`, and people and agents (`from`) may read as before; no capability is added. A host before 0.31.0 drops `withoutTranscript`, `markdownStart`, `markdownLimit`, `start` and `limit` as unknown keys and answers the whole note or transcript as before, which may then be refused as too large, and sends none of the new result fields; so a reader sends these keys only to a device whose hello says 0.31.0 or later (`NOTE_PAGES_SCHEMA`), and reads `recordings`, `markdownStart`, `markdownTotal`, `start` and `total` as absent from an older one. Readers before 0.31.0 drop the new result fields.
 
 A consent prompt in the sessions' list (`RemoteConsent`) is a change waiting on the user of the serving device. An agent of another device of the account may have asked for it, or a nexus command changing another workspace there, or that device's agent manager. The user answers it there, or from the device that lists it when `answerable` (`consent.answer`). An agent's request (`from`, `AgentSender`) to a control method takes the `agents` capability instead of the method's own. The serving device may ask its user first or turn the request down. `at` and `expiresAt` use the serving device's clock. `expiresInMs` is `expiresAt` minus the time the list was sent, so a reader needs no shared clock. A serving device before 0.29.0 turns a prompt down at `expiresAt` and drops it from the list. `AGENT_CONSENT_MS` (90 seconds) is how long a host asks a requester before 0.29.0 before turning the request down. Such a requester waits that long, plus a little more.
 
@@ -801,9 +801,10 @@ chat.image (0.30.0). A reader compares a device's hello `schema` with it.
 
 **`NOTE_PAGES_SCHEMA`**
 
-The first schema version whose hosts take `withoutTranscript` in
-notes.read and `start` and `limit` in notes.transcript, and answer a
-note's `recordings` and each recording's `start` and `total` (0.31.0). A
+The first schema version whose hosts take `withoutTranscript`,
+`markdownStart` and `markdownLimit` in notes.read and `start` and `limit`
+in notes.transcript, and answer a note's `recordings`, `markdownStart` and
+`markdownTotal` and each recording's `start` and `total` (0.31.0). A
 reader compares a device's hello `schema` with it; an older host drops
 those keys and answers the whole note or transcript.
 
@@ -870,6 +871,12 @@ Most notes notes.list gives.
 Most lines a page of notes.transcript gives (1000), and the most `limit`
 may ask for. A page has fewer where more would not fit in a frame.
 Since 0.31.0.
+
+**`MAX_NOTE_MARKDOWN_PAGE`**
+
+Most characters (UTF-16 code units) of a note's body a page of notes.read
+gives (262144), and the most `markdownLimit` may ask for. A page has
+fewer where more would not fit in a frame. Since 0.31.0.
 
 **`NoteRecordingInfoSchema`**
 
@@ -2068,7 +2075,9 @@ A note, found by id, id prefix or title, as Markdown, with what was said
 in its recordings as Markdown in `transcript` (empty for a note without
 recordings). The answer must fit in a frame: otherwise Unavailable. Read a
 note with a long transcript with `withoutTranscript` and its recordings
-with notes.transcript a page at a time.
+with notes.transcript a page at a time, and a long body with
+`markdownStart` and `markdownLimit`. Answer:
+`{ id, title, updatedAt, markdown, markdownStart, markdownTotal, transcript, recordings }`.
 
 **`RPC_METHODS."notes.read".params.transcriptOnly`**
 
@@ -2081,6 +2090,31 @@ recording's id and size for notes.transcript. Not with `transcriptOnly`
 (InvalidParams). Since 0.31.0; send it only to a device whose hello says
 NOTE_PAGES_SCHEMA or later, as an older one drops it and sends the
 transcript.
+
+**`RPC_METHODS."notes.read".params.markdownStart`**
+
+Where the page of the body begins, in UTF-16 code units from 0. Needs
+`withoutTranscript`. Since 0.31.0; an older host drops it and sends the
+whole body.
+
+**`RPC_METHODS."notes.read".params.markdownLimit`**
+
+Most UTF-16 code units of the body to send, 1 to MAX_NOTE_MARKDOWN_PAGE
+(the default when a page is read). Fewer come when more would not fit in
+a frame or would end inside a surrogate pair. Needs `withoutTranscript`.
+Since 0.31.0; an older host drops it.
+
+**`RPC_METHODS."notes.read".result.markdownStart`**
+
+Where `markdown` begins in the whole body: `markdownStart` as asked, one
+earlier when that fell inside a surrogate pair, `markdownTotal` when it
+was past the end, and 0 when not reading by pages. Since 0.31.0; absent
+from an older host.
+
+**`RPC_METHODS."notes.read".result.markdownTotal`**
+
+The length of the whole body in UTF-16 code units; 0 with
+`transcriptOnly`. Since 0.31.0; absent from an older host.
 
 **`RPC_METHODS."notes.read".result.recordings`**
 

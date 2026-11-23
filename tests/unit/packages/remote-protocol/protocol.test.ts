@@ -1133,9 +1133,17 @@ test("a host drops note keys it does not know, so 0.31.0 keys go only to 0.31.0 
     workspaceId: "w",
     note: "n",
     withoutTranscript: true,
+    markdownStart: 0,
+    markdownLimit: 10,
     laterKey: 1,
   });
-  expect(read).toEqual({ workspaceId: "w", note: "n", withoutTranscript: true });
+  expect(read).toEqual({
+    workspaceId: "w",
+    note: "n",
+    withoutTranscript: true,
+    markdownStart: 0,
+    markdownLimit: 10,
+  });
   const page = RPC_METHODS["notes.transcript"].params.parse({
     workspaceId: "w",
     note: "n",
@@ -1153,7 +1161,7 @@ test("a host drops note keys it does not know, so 0.31.0 keys go only to 0.31.0 
       markdown: "",
       transcript: "",
     }),
-  ).not.toHaveProperty("recordings");
+  ).not.toContainAnyKeys(["recordings", "markdownStart", "markdownTotal"]);
   expect(
     RPC_METHODS["notes.list"].result.parse({ notes: [{ id: "n", title: "", updatedAt: 1 }] })
       .notes[0],

@@ -408,6 +408,8 @@ export const MAX_LISTED_NOTES = 50;
 
 export const MAX_TRANSCRIPT_LINES = 1000;
 
+export const MAX_NOTE_MARKDOWN_PAGE = 262_144;
+
 export const NoteRecordingInfoSchema = z.object({
   id: z.string(),
   startedAt: NumberSchema,
@@ -1586,6 +1588,8 @@ export const RPC_METHODS = {
       note: z.string().min(1).max(300),
       transcriptOnly: z.boolean().optional(),
       withoutTranscript: z.literal(true).optional(),
+      markdownStart: NonnegativeIntegerSchema.optional(),
+      markdownLimit: PositiveIntegerSchema.check(z.lte(MAX_NOTE_MARKDOWN_PAGE)).optional(),
       ...ReadBy,
     }),
     result: z.object({
@@ -1593,6 +1597,8 @@ export const RPC_METHODS = {
       title: z.string(),
       updatedAt: NumberSchema,
       markdown: z.string(),
+      markdownStart: NonnegativeIntegerSchema.optional(),
+      markdownTotal: NonnegativeIntegerSchema.optional(),
       transcript: z.string(),
       recordings: z.array(NoteRecordingInfoSchema).optional(),
     }),
