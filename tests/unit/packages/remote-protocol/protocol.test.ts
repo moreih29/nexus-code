@@ -335,6 +335,29 @@ describe("the methods", () => {
     expect(result.parse({ marked: 0 })).toEqual({ marked: 0 });
   });
 
+  test("system.stats tells a workspace's host's CPU and memory, and takes no agent sender", () => {
+    const { capability, params, result } = RPC_METHODS["system.stats"];
+    expect(capability).toBe("system.stats");
+    expect(CAPABILITIES).toContain(capability);
+    expect(params.parse({ workspaceId: "w" })).toEqual({ workspaceId: "w" });
+    expect(params.safeParse({}).success).toBe(false);
+    // An agent's `from` is dropped, so the room refuses an agent's request.
+    const from = { workspaceId: "w2", tabId: "t", kind: "tab" };
+    expect(params.parse({ workspaceId: "w", from })).toEqual({ workspaceId: "w" });
+    const stats = { cpu: 12.5, memUsed: 1024, memTotal: 4096 };
+    expect(result.parse(stats)).toEqual(stats);
+    expect(result.parse({ ...stats, cpu: null })).toEqual({ ...stats, cpu: null });
+    for (const wrong of [
+      { ...stats, cpu: 101 },
+      { ...stats, cpu: -1 },
+      { ...stats, memUsed: -1 },
+      { ...stats, memTotal: 0 },
+      { cpu: 1, memUsed: 1 },
+    ]) {
+      expect(result.safeParse(wrong).success).toBe(false);
+    }
+  });
+
   test("sessions.list carries the consent prompts waiting on the user; an older list has none", () => {
     const consent = {
       id: "c1",

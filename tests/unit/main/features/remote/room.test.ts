@@ -349,6 +349,40 @@ describe("the room", () => {
     expect(a.served).toEqual([{ from: "b", method: "consent.answer" }]);
   });
 
+  test("how busy a host is, advertised with its files and refused to agent senders", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const calls: unknown[] = [];
+    const stats = { cpu: null, memUsed: 1, memTotal: 2 };
+    const a = device(relay, "a", key, {
+      serves: servesWith(false, false, true),
+      serve: async (request) => {
+        calls.push(request.params);
+        return stats;
+      },
+    });
+    const b = device(relay, "b", key);
+    try {
+      a.room.start();
+      b.room.start();
+      await flushRelay();
+      const capabilities = b.room.state().peers[0]?.serves;
+      expect(capabilities).toContain("files");
+      expect(capabilities).toContain("system.stats");
+      const params = { workspaceId: "w1" };
+      const relayed = { ...params, from: { kind: "tab", workspaceId: "bw", tabId: "bt" } };
+      await expect(b.room.request("a", "system.stats", relayed)).rejects.toMatchObject({
+        code: RpcErrorCode.Forbidden,
+        message: "system.stats is not taken from agents",
+      });
+      await expect(b.room.request("a", "system.stats", params)).resolves.toEqual(stats);
+      expect(calls).toEqual([params]);
+    } finally {
+      b.room.stop();
+      a.room.stop();
+    }
+  });
+
   test("session reordering is advertised with sessions and refused to agent senders", async () => {
     const relay = new MockRelay();
     const key = await roomKey();

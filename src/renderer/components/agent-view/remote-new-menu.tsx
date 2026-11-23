@@ -11,7 +11,7 @@
  */
 
 import { Plus, SquareTerminal } from "lucide-react";
-import { useState } from "react";
+import { cloneElement, type ReactElement, type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { RpcResult } from "../../../../packages/remote-protocol/src/rpc";
 import type { RoomPeer } from "../../../shared/remote/room";
@@ -45,18 +45,30 @@ export function RemoteNewMenu({
   peer,
   workspace,
   onOpenSession,
+  trigger,
+  chatsOnly = false,
+  terminalFirst = false,
+  children,
 }: {
   peer: RoomPeer;
   workspace: { id: string; name: string; path: string };
   onOpenSession?: OpenRemoteSession;
+  /** The button that opens it; the heading's small + by default. */
+  trigger?: ReactElement<{ onPointerEnter?: () => void }>;
+  /** Conversations only, as the agent list's new-conversation menu. */
+  chatsOnly?: boolean;
+  /** The terminal before the conversations, as the tab bar's menu lists them. */
+  terminalFirst?: boolean;
+  /** Items after its own, as the tab bar's agent list. */
+  children?: ReactNode;
 }) {
   const { t } = useTranslation();
   const chats = peerServes(peer, "chat.control");
-  const terminals = peerServes(peer, "terminal.control");
+  const terminals = !chatsOnly && peerServes(peer, "terminal.control");
   const shellsKey = `${peer.id}/${workspace.id}`;
   const [profiles, setProfiles] = useState(() => knownProfiles.get(peer.id) ?? null);
   const [shells, setShells] = useState(() => knownShells.get(shellsKey) ?? null);
-  if (!chats && !terminals) return null;
+  if (!chats && !terminals && !children) return null;
 
   const load = () => {
     if (chats) {
@@ -87,6 +99,16 @@ export function RemoteNewMenu({
     path: workspace.path,
   };
 
+  const preload = () => {
+    if ((chats && profiles === null) || (terminals && shells === null)) load();
+  };
+  const terminalItems = (
+    <NewTerminalItems
+      shells={shells}
+      onOpen={(shell) => void newPeerTerminal(where, shell, onOpenSession)}
+    />
+  );
+
   return (
     <DropdownMenuRoot
       onOpenChange={(open) => {
@@ -94,19 +116,23 @@ export function RemoteNewMenu({
       }}
     >
       <DropdownMenuTrigger>
-        <IconButton
-          label={t("agentView.remote.newIn", { name: workspace.name })}
-          size="xs"
+        {trigger ? (
           // Asked before the click, so the menu opens with them where it can.
-          onPointerEnter={() => {
-            if ((chats && profiles === null) || (terminals && shells === null)) load();
-          }}
-          data-testid="remote-new-menu"
-        >
-          <Plus aria-hidden className="size-3.5" />
-        </IconButton>
+          cloneElement(trigger, { onPointerEnter: preload })
+        ) : (
+          <IconButton
+            label={t("agentView.remote.newIn", { name: workspace.name })}
+            size="xs"
+            // Asked before the click, so the menu opens with them where it can.
+            onPointerEnter={preload}
+            data-testid="remote-new-menu"
+          >
+            <Plus aria-hidden className="size-3.5" />
+          </IconButton>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        {terminals && terminalFirst && terminalItems}
         {chats &&
           (["claude", "codex"] as const).map((agent) => (
             <NewChatItems
@@ -116,12 +142,8 @@ export function RemoteNewMenu({
               onOpen={(profile) => void newPeerChat(where, agent, profile, onOpenSession)}
             />
           ))}
-        {terminals && (
-          <NewTerminalItems
-            shells={shells}
-            onOpen={(shell) => void newPeerTerminal(where, shell, onOpenSession)}
-          />
-        )}
+        {terminals && !terminalFirst && terminalItems}
+        {children}
       </DropdownMenuContent>
     </DropdownMenuRoot>
   );

@@ -4,7 +4,10 @@ import { type CallContext, validateArgs } from "../../infra/ipc-router";
 import type { RemoteRoom } from "./room";
 import { SEARCH_TIME_MS } from "./search";
 
-/** File and Git RPCs behind the renderer's peer read calls. The byte reader shares files.read. */
+/**
+ * File, Git and host-load RPCs behind the renderer's peer read calls. The
+ * byte reader shares files.read.
+ */
 export const PEER_READ_METHODS = {
   peerFilesList: "files.list",
   peerFilesFind: "files.find",
@@ -14,6 +17,7 @@ export const PEER_READ_METHODS = {
   peerGitDiff: "git.diff",
   peerGitLog: "git.log",
   peerGitShow: "git.show",
+  peerSystemStats: "system.stats",
 } as const;
 
 const c = ipcContract.remote.call;
@@ -70,6 +74,18 @@ export function peerReadCalls(
       const { deviceId, ...params } = validateArgs(c.peerGitShow.args, args);
       return askPeer(() =>
         inRoom().request(deviceId, PEER_READ_METHODS.peerGitShow, params, undefined, ctx?.signal),
+      );
+    },
+    peerSystemStats: (args: unknown, ctx?: CallContext) => {
+      const { deviceId, ...params } = validateArgs(c.peerSystemStats.args, args);
+      return askPeer(() =>
+        inRoom().request(
+          deviceId,
+          PEER_READ_METHODS.peerSystemStats,
+          params,
+          undefined,
+          ctx?.signal,
+        ),
       );
     },
   };

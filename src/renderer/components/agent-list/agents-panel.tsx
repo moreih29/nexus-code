@@ -8,11 +8,9 @@
 // from Settings (state/stores/agent-list-view.ts). The header takes two
 // lines; narrow, its buttons and the rows drop what can be told on hover.
 
-import { ChevronDown, GitBranch, GitBranchPlus, List, Plus } from "lucide-react";
+import { ChevronDown, GitBranchPlus, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { cn } from "@/utils/cn";
-import type { AgentListView } from "../../../shared/agent-list/view";
 import {
   type ChatAgent,
   chatAgentOf,
@@ -46,6 +44,7 @@ import { AgentPeek } from "./agent-peek";
 import type { AgentListSelection } from "./selection";
 import { StatusView } from "./status-view";
 import { TaskView } from "./task-view";
+import { ViewSwitch } from "./view-switch";
 
 /** The agent whose card is open, with the row it was opened from. */
 interface Peek {
@@ -96,7 +95,10 @@ export function AgentsPanel({ workspace }: { workspace: WorkspaceMeta }) {
       <div className="flex flex-col gap-2 border-b border-border/50 px-2 py-2">
         <SearchInput value={query} onChange={setQuery} label={t("agentList.list.search")} />
         <div className="flex items-center gap-1">
-          <ViewSwitch view={view} rootId={rootId} />
+          <ViewSwitch
+            view={view}
+            onChange={(next) => useAgentListViewStore.getState().setForWorkspace(rootId, next)}
+          />
           <NewChat workspace={family.root} />
           <Button
             size="icon-sm"
@@ -166,42 +168,6 @@ function findPeeked(family: SessionFamily, peek: Peek) {
     if (session) return { worktree, session };
   }
   return undefined;
-}
-
-const VIEW_ICONS: Record<AgentListView, typeof List> = { status: List, task: GitBranch };
-
-/** The list by state or by task, as two icon buttons. */
-function ViewSwitch({ view, rootId }: { view: AgentListView; rootId: string }) {
-  const { t } = useTranslation();
-  return (
-    <fieldset
-      aria-label={t("agentList.view_label")}
-      className="flex shrink-0 items-center gap-0.5 rounded-(--radius-control) border border-border p-0.5"
-    >
-      {(["status", "task"] as const).map((each) => {
-        const Icon = VIEW_ICONS[each];
-        const label = t(`agentList.view.${each}`);
-        return (
-          <button
-            key={each}
-            type="button"
-            aria-pressed={view === each}
-            title={label}
-            aria-label={label}
-            onClick={() => useAgentListViewStore.getState().setForWorkspace(rootId, each)}
-            className={cn(
-              "flex size-6 items-center justify-center rounded-[calc(var(--radius-control)-2px)] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-ring",
-              view === each
-                ? "bg-[var(--sidebar-item-selected-bg)] text-foreground"
-                : "text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-            )}
-          >
-            <Icon aria-hidden className="size-3.5" />
-          </button>
-        );
-      })}
-    </fieldset>
-  );
 }
 
 /**

@@ -2,10 +2,26 @@
  * The numbers as the status bar and the agent view's sidebar write them:
  * "23%" and "12.3/32 GB", and whose machine they are. Pure, for tests.
  */
+import type { SystemStats } from "../../../shared/system/stats";
 import type { WorkspaceLocation } from "../../../shared/types/workspace";
 
 const GIB = 1024 ** 3;
 const MIB = 1024 ** 2;
+
+/**
+ * The numbers within what can be drawn: the CPU's share from 0 to 100, the
+ * memory in use from none to all there is. Another computer may tell more
+ * memory in use than it has; null where all there is is no finite amount.
+ */
+export function drawableStats(stats: SystemStats): SystemStats | null {
+  const { cpu, memUsed, memTotal } = stats;
+  if (!Number.isFinite(memTotal) || memTotal <= 0) return null;
+  return {
+    cpu: cpu === null || !Number.isFinite(cpu) ? null : Math.min(100, Math.max(0, cpu)),
+    memUsed: Number.isFinite(memUsed) ? Math.min(memTotal, Math.max(0, memUsed)) : memTotal,
+    memTotal,
+  };
+}
 
 /** The CPU's share, whole: "23%". */
 export function cpuLabel(cpu: number): string {

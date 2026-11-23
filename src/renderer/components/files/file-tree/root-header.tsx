@@ -17,6 +17,9 @@
  * Right-click anywhere on the header surfaces the root context menu through
  * the same ContextMenuRoot the tree uses — index.tsx wires `onContextMenu`
  * to set the root target before the menu opens.
+ *
+ * A workspace on another computer heads its tree with it too, without New
+ * File and New Folder: it only looks at that computer's files.
  */
 import { ChevronRight, ChevronsDownUp, FilePlus, FolderPlus, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -31,8 +34,9 @@ interface WorkspaceRootHeaderProps {
   isExpanded: boolean;
   /** Click on chevron / name → toggle root's expanded state. */
   onToggle: () => void;
-  onNewFile: () => void;
-  onNewFolder: () => void;
+  /** Absent where the tree only looks, as a workspace on another computer's. */
+  onNewFile?: () => void;
+  onNewFolder?: () => void;
   onRefresh: () => void;
   onCollapseAll: () => void;
   /** Right-click on any part of the header → root context menu. */
@@ -133,12 +137,16 @@ export function WorkspaceRootHeader({
           "group-hover/filetree:opacity-100 focus-within:opacity-100",
         )}
       >
-        <ActionButton label={t("fileTree.header.newFile")} onClick={onNewFile}>
-          <FilePlus aria-hidden className="size-3.5" />
-        </ActionButton>
-        <ActionButton label={t("fileTree.header.newFolder")} onClick={onNewFolder}>
-          <FolderPlus aria-hidden className="size-3.5" />
-        </ActionButton>
+        {onNewFile && (
+          <ActionButton label={t("fileTree.header.newFile")} onClick={onNewFile}>
+            <FilePlus aria-hidden className="size-3.5" />
+          </ActionButton>
+        )}
+        {onNewFolder && (
+          <ActionButton label={t("fileTree.header.newFolder")} onClick={onNewFolder}>
+            <FolderPlus aria-hidden className="size-3.5" />
+          </ActionButton>
+        )}
         <ActionButton label={t("fileTree.header.refresh")} onClick={onRefresh}>
           <RefreshCw aria-hidden className="size-3.5" />
         </ActionButton>

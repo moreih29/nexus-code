@@ -2131,7 +2131,6 @@
     "quickOpenPrompt": "File name or path on the other computer",
     "quickOpenEmpty": "No matching files",
     "gitNoStageCommit": "No staging or commits",
-    "gitUnstaged": "Unstaged Changes",
     "gitDetached": "Detached HEAD",
     "gitDivergence": "Ahead {{ahead}} · Behind {{behind}}",
     "gitTruncated": "Partial file list",
@@ -2144,7 +2143,6 @@
     "gitOutsideWorkspace": "Outside workspace",
     "gitCommitMissing": "Commit unavailable",
     "gitNoCommits": "No commits",
-    "sessionGone": "Gone",
-    "noSessions": "No sessions"
+    "sessionGone": "Gone"
   }
 }

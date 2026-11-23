@@ -1,18 +1,35 @@
 /**
  * How busy a workspace's host is, or this machine with no workspace named,
  * asked every few seconds while `active` and the window is shown. The last
- * answer for each is kept, so switching back shows it at once.
+ * answer for each is kept, so switching back shows it at once. A workspace
+ * on another computer is asked the same way (usePolledStats).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ipcCallResult } from "@/ipc/client";
 import type { SystemStats } from "../../../shared/system/stats";
 
 export const POLL_MS = 3_000;
 
+/** One ask's answer: the numbers, none now, or "never" from a host that cannot tell at all. */
+export type StatsAnswer = SystemStats | null | "never";
+
 const lastFor = new Map<string, SystemStats>();
 
+/** The last numbers for `key`: kept to show at once, dropped with null. */
+export function rememberStats(key: string, stats: SystemStats | null): void {
+  if (stats) lastFor.set(key, stats);
+  else lastFor.delete(key);
+}
+
+export function rememberedStats(key: string): SystemStats | null {
+  return lastFor.get(key) ?? null;
+}
+
 function useDocumentShown(): boolean {
-  const [shown, setShown] = useState(() => document.visibilityState !== "hidden");
+  // No document while drawn ahead of the window (as tests draw it): nothing asks then.
+  const [shown, setShown] = useState(
+    () => typeof document !== "undefined" && document.visibilityState !== "hidden",
+  );
   useEffect(() => {
     const update = () => setShown(document.visibilityState !== "hidden");
     document.addEventListener("visibilitychange", update);
@@ -21,39 +38,76 @@ function useDocumentShown(): boolean {
   return shown;
 }
 
+/**
+ * Asks, and again POLL_MS after each answer (so a slow host is not asked
+ * on top of itself), until stopped or told "never". Gives the stop, which
+ * also aborts an ask still on its way.
+ */
+export function pollStats(
+  ask: (signal: AbortSignal) => Promise<StatsAnswer>,
+  tell: (stats: SystemStats | null) => void,
+  wait: (next: () => void, ms: number) => ReturnType<typeof setTimeout> = setTimeout,
+): () => void {
+  let live = true;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const asking = new AbortController();
+  const once = async () => {
+    const answer = await ask(asking.signal);
+    if (!live) return;
+    tell(answer === "never" ? null : answer);
+    if (answer !== "never") timer = wait(() => void once(), POLL_MS);
+  };
+  void once();
+  return () => {
+    live = false;
+    clearTimeout(timer);
+    asking.abort();
+  };
+}
+
+/**
+ * The numbers `ask` gives for `key`, asked while `active` and the window is
+ * shown. With `forgetIdle`, those of a host no longer asked are dropped
+ * (another computer's, once out of reach), not shown again later.
+ */
+export function usePolledStats(
+  key: string,
+  active: boolean,
+  ask: (signal: AbortSignal) => Promise<StatsAnswer>,
+  forgetIdle = false,
+): SystemStats | null {
+  const [stats, setStats] = useState<SystemStats | null>(() => lastFor.get(key) ?? null);
+  const shown = useDocumentShown();
+  const asking = useRef(ask);
+  asking.current = ask;
+
+  useEffect(() => {
+    if (forgetIdle && !active) rememberStats(key, null);
+    setStats(lastFor.get(key) ?? null);
+    if (!active || !shown) return;
+    return pollStats(
+      (signal) => asking.current(signal),
+      (value) => {
+        rememberStats(key, value);
+        setStats(value);
+      },
+    );
+  }, [key, active, shown, forgetIdle]);
+
+  return stats;
+}
+
 export function useSystemStats(
   workspaceId: string | undefined,
   active: boolean,
 ): SystemStats | null {
-  const key = workspaceId ?? "";
-  const [stats, setStats] = useState<SystemStats | null>(() => lastFor.get(key) ?? null);
-  const shown = useDocumentShown();
-
-  useEffect(() => {
-    setStats(lastFor.get(key) ?? null);
-    if (!active || !shown) return;
-    let live = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const ask = async () => {
-      const result = await ipcCallResult(
-        "system",
-        "stats",
-        workspaceId === undefined ? {} : { workspaceId },
-      );
-      if (!live) return;
-      const value = result.ok ? result.value : null;
-      if (value) lastFor.set(key, value);
-      else lastFor.delete(key);
-      setStats(value);
-      // The next ask waits for this one, so a slow host is not asked on top of itself.
-      timer = setTimeout(ask, POLL_MS);
-    };
-    void ask();
-    return () => {
-      live = false;
-      clearTimeout(timer);
-    };
-  }, [key, workspaceId, active, shown]);
-
-  return stats;
+  return usePolledStats(workspaceId ?? "", active, async (signal) => {
+    const result = await ipcCallResult(
+      "system",
+      "stats",
+      workspaceId === undefined ? {} : { workspaceId },
+      { signal },
+    );
+    return result.ok ? result.value : null;
+  });
 }

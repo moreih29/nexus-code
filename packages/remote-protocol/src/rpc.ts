@@ -2086,6 +2086,25 @@ export const RPC_METHODS = {
       truncated: z.boolean().optional(),
     }),
   },
+  /**
+   * How busy the workspace's host is, as its status bar shows it: the share
+   * of the CPU in use and the memory. An SSH or WSL workspace's host is
+   * asked while it is connected. NotFound for a workspace that is not there;
+   * Unavailable while its host cannot tell. Only the user's: an agent's
+   * request (`from`) is refused. Since 0.26.0.
+   */
+  "system.stats": {
+    capability: "system.stats",
+    params: z.object({ workspaceId: z.string() }),
+    result: z.object({
+      /** The share of the CPU time in use, 0 to 100; null when it cannot be told. */
+      cpu: NumberSchema.check(z.gte(0)).check(z.lte(100)).nullable(),
+      /** Bytes the programs hold, as the machine's own monitor counts them. */
+      memUsed: NonnegativeNumberSchema,
+      /** All the memory there is, in bytes. */
+      memTotal: NumberSchema.check(z.gt(0)),
+    }),
+  },
 
   /** The workspace's branch, how it stands against its upstream, and its changed files. */
   "git.status": {

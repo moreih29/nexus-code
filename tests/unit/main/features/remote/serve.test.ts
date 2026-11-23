@@ -975,6 +975,79 @@ describe("what this device serves", () => {
     expect(servesWith(true)).toContain("workspace.create");
     expect(servesWith(false, true, true)).not.toContain("workspace.create");
   });
+
+  test("how busy a host is, with its files, however the user set the rest", () => {
+    for (const set of [servesWith(false), servesWith(true, true, true, true)]) {
+      expect(set).toContain("files");
+      expect(set).toContain("system.stats");
+    }
+  });
+
+  test("no files, writing them or host load where this device cannot read the files", () => {
+    const set = servesWith(true, true, true, true, false);
+    for (const capability of ["files", "files.write", "system.stats"] as const) {
+      expect(set).not.toContain(capability);
+    }
+    expect(set).toContain("chat.control");
+    expect(set).toContain("git");
+  });
+});
+
+describe("serving how busy a workspace's host is", () => {
+  const stats = { cpu: 12.5, memUsed: 4, memTotal: 16 };
+  const files = { fs: async () => ({}) as FsProvider, shrink: () => null };
+  const agent = { workspaceId: "other-workspace", tabId: "other-tab", kind: "tab" };
+
+  test("to the user, for a workspace that is there", async () => {
+    const asked: string[] = [];
+    const serve = serveWith(services, {
+      files,
+      stats: async (workspaceId) => {
+        asked.push(workspaceId);
+        return workspaceId === "w1" ? stats : null;
+      },
+    });
+    const request = { from: "d", method: "system.stats" as const };
+    expect(await serve({ ...request, params: { workspaceId: "w1" } })).toEqual(stats);
+    // While the host cannot tell, it says so.
+    await expect(serve({ ...request, params: { workspaceId: "w2" } })).rejects.toMatchObject({
+      code: RpcErrorCode.Unavailable,
+    });
+    await expect(serve({ ...request, params: { workspaceId: "gone" } })).rejects.toMatchObject({
+      code: RpcErrorCode.NotFound,
+    });
+    expect(asked).toEqual(["w1", "w2"]);
+  });
+
+  test("never to an agent, even where agents may act", async () => {
+    let asked = 0;
+    const serve = serveWith(services, {
+      files,
+      stats: async () => {
+        asked++;
+        return stats;
+      },
+      agents: new AgentGate({ policy: () => "allow" }),
+    });
+    await expect(
+      serve({ from: "d", method: "system.stats", params: { workspaceId: "w1", from: agent } }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    expect(asked).toBe(0);
+  });
+
+  test("not where the workspace's files are not served", async () => {
+    let asked = 0;
+    const serve = serveWith(services, {
+      stats: async () => {
+        asked++;
+        return stats;
+      },
+    });
+    await expect(
+      serve({ from: "d", method: "system.stats", params: { workspaceId: "w1" } }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.MethodNotFound });
+    expect(asked).toBe(0);
+  });
 });
 
 describe("serving a workspace's notes", () => {

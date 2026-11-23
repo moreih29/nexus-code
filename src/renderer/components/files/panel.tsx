@@ -1,7 +1,5 @@
-import { Bot, Folder, GitBranch, NotebookPen, Search } from "lucide-react";
 import { memo, type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { cn } from "@/utils/cn";
 import { AppErrorSchema, appErrorFailed } from "../../../shared/error/app-error";
 import { useIpcAction } from "../../hooks/use-ipc-action";
 import { surfaceError } from "../../services/error-surface/surface-error";
@@ -15,36 +13,19 @@ import {
   FILES_PANEL_WIDTH_DEFAULT,
   FILES_PANEL_WIDTH_MAX,
   FILES_PANEL_WIDTH_MIN,
-  type FilesPanelMode,
   useUIStore,
 } from "../../state/stores/ui";
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/workspaces";
 import { AgentsPanel } from "../agent-list/agents-panel";
 import { EMPTY_TREE } from "../editor/diff-refs";
 import { NotesPanel } from "../notes/notes-panel";
-import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { ResizeHandle } from "../ui/resize-handle";
 import { FileTree } from "./file-tree";
 import { GitPanel, type GitPanelOpenDiffInput } from "./git";
+import { FilesPanelModeBar } from "./mode-bar";
 import { SearchPanel } from "./search/panel";
-
-interface ModeButton {
-  mode: FilesPanelMode;
-  labelKey: string;
-  Icon: typeof Folder;
-}
-
-const MODE_BUTTONS: ModeButton[] = [
-  { mode: "tree", labelKey: "files:panel.tab.tree", Icon: Folder },
-  { mode: "search", labelKey: "files:panel.tab.search", Icon: Search },
-  { mode: "git", labelKey: "files:panel.tab.git", Icon: GitBranch },
-  // The agent list; the same mark as the agent view's.
-  { mode: "agents", labelKey: "files:panel.tab.agents", Icon: Bot },
-  // The workspace's notes, kept by the app: there even when an SSH workspace is not connected.
-  { mode: "notes", labelKey: "files:panel.tab.notes", Icon: NotebookPen },
-];
 
 // Memo: kept while hidden, it would render again with each of the app's.
 export const FilesPanel = memo(function FilesPanel({ peerPanel }: { peerPanel?: ReactNode }) {
@@ -100,41 +81,13 @@ export const FilesPanel = memo(function FilesPanel({ peerPanel }: { peerPanel?: 
       <div className="flex flex-col flex-1 min-h-0 island-surface rounded-(--radius-island) overflow-hidden">
         {activeWorkspace ? (
           <>
-            <div className="flex items-center gap-1 px-2 pt-2 pb-2 border-b border-border/50">
-              {MODE_BUTTONS.map(({ mode, labelKey, Icon }) => {
-                const isActive = filesPanelMode === mode;
-                const label = t(labelKey);
-                return (
-                  <Button
-                    key={mode}
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={label}
-                    aria-pressed={isActive}
-                    title={label}
-                    // The panel shown, drawn like an active tab: a tint and an
-                    // underline indicator (design.md §8, "selected"). aria-pressed
-                    // carries it to assistive tech.
-                    // At the panel's narrowest the five buttons share what is
-                    // there (each still wider than its icon), none cut off.
-                    className={cn(
-                      "relative min-w-0 shrink",
-                      isActive && [
-                        "bg-[var(--sidebar-item-selected-bg)] text-foreground",
-                        "after:absolute after:right-1.5 after:bottom-0 after:left-1.5 after:h-0.5",
-                        "after:rounded-full after:bg-[var(--state-selected-indicator)] after:content-['']",
-                      ],
-                    )}
-                    onClick={() => {
-                      setFilesPanelMode(activeWorkspace.id, mode);
-                      if (mode === "search") setSearchFocusRequest((n) => n + 1);
-                    }}
-                  >
-                    <Icon />
-                  </Button>
-                );
-              })}
-            </div>
+            <FilesPanelModeBar
+              active={filesPanelMode}
+              onSelect={(mode) => {
+                setFilesPanelMode(activeWorkspace.id, mode);
+                if (mode === "search") setSearchFocusRequest((n) => n + 1);
+              }}
+            />
             <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
               {filesPanelMode === "notes" ? (
                 // ErrorBoundary: a notes panel crash leaves the other views working.

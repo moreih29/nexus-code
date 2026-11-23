@@ -90,7 +90,7 @@ import { registerSystemChannel } from "./features/shell/ipc";
 import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./features/ssh/auth-prompt";
 import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
 import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
-import { systemStatsHandler } from "./features/system-stats";
+import { type SystemStatsSources, systemStats, systemStatsHandler } from "./features/system-stats";
 import { LocalStats } from "./features/system-stats/local";
 import { registerTaskChannel } from "./features/tasks/ipc";
 import { installUpdatesDomain, type UpdatesDomainHandle } from "./features/updates";
@@ -492,18 +492,20 @@ registerSshBrowseHandlers(
 );
 registerSshAuthPromptIpcChannels(sshAuthPromptHub);
 registerWslChannel(sshBrowseRegistry, forwardBroadcast);
+// How busy a workspace's host is: for the status bar here, and other devices' (system.stats).
+const systemStatsSources: SystemStatsSources = {
+  local: new LocalStats(),
+  isLocal: (workspaceId) => workspaceManager.isLocal(workspaceId),
+  exists: (workspaceId) => workspaceManager.getName(workspaceId) !== null,
+  // Looking never connects a workspace, as the ports' look does not.
+  remote: async (workspaceId) => {
+    const channel = await workspaceManager.peekAgentChannel(workspaceId);
+    return channel ? channel.call("system.stats", {}) : null;
+  },
+};
 registerSystemChannel({
   openNewWindow: () => createMainWindow(stateService.getState()),
-  stats: systemStatsHandler({
-    local: new LocalStats(),
-    isLocal: (workspaceId) => workspaceManager.isLocal(workspaceId),
-    exists: (workspaceId) => workspaceManager.getName(workspaceId) !== null,
-    // Looking never connects a workspace, as the ports' look does not.
-    remote: async (workspaceId) => {
-      const channel = await workspaceManager.peekAgentChannel(workspaceId);
-      return channel ? channel.call("system.stats", {}) : null;
-    },
-  }),
+  stats: systemStatsHandler(systemStatsSources),
 });
 registerWindowChannel(closePersistence);
 registerClipboardChannel();
@@ -806,6 +808,7 @@ app.whenReady().then(async () => {
       return repository ? repository.status() : null;
     },
     fs: (workspaceId) => workspaceManager.getFs(workspaceId),
+    stats: (workspaceId) => systemStats(systemStatsSources, workspaceId),
     repository: async (workspaceId) => (await gitRegistry?.getOrDetect(workspaceId)) ?? null,
     noteFile: async (workspaceId, noteId, src) => {
       if (!notesFeature) throw new Error("notes are not ready");

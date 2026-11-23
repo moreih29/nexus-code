@@ -1,4 +1,5 @@
 import type { RpcMethod, RpcRequest } from "../../../../../packages/remote-protocol/src";
+import type { SystemStats } from "../../../../shared/system/stats";
 import type { AgentGate } from "../agent-gate";
 import type { Attachments } from "../attachments";
 import type { ChatWatches } from "../chat-watches";
@@ -28,6 +29,11 @@ export interface RemoteServeOptions {
   files?: Omit<RemoteFiles, "folders">;
   /** The workspaces' repositories, for git.status, git.diff, git.log and git.show. */
   repositories?: RemoteGit;
+  /**
+   * How busy a workspace's host is, for system.stats: null while it cannot
+   * tell. Served only with `files`.
+   */
+  stats?: (workspaceId: string) => Promise<SystemStats | null>;
   /** The workspaces' notes, for notes.list and notes.attach, and the note it records into. */
   notes?: RemoteNotes;
   /** How many photos each device put into notes lately; a fresh one when not given. */

@@ -92,7 +92,7 @@ const readyChat: ReturnType<typeof peerChat.usePeerChat> = {
   loadingEarlier: false,
 };
 
-test("the workspace plus opens the shared new-session menu only for a control capability", () => {
+test("the workspace plus is the local tab bar's, with the agent list wherever that computer is reached", () => {
   const previous = usePeerWorkspaceStore.getState();
   usePeerWorkspaceStore.setState({ active: target, accountKey: target.accountKey, views: {} });
   const render = (computer?: RoomPeer) =>
@@ -111,12 +111,17 @@ test("the workspace plus opens the shared new-session menu only for a control ca
     );
   try {
     expect(render()).not.toContain('data-testid="remote-new-menu"');
-    expect(render(peer)).not.toContain('data-testid="remote-new-menu"');
-    expect(render({ ...peer, serves: ["chat.read", "terminal.read"] })).not.toContain(
-      'data-testid="remote-new-menu"',
-    );
-    for (const capability of ["chat.control", "terminal.control"]) {
-      expect(render({ ...peer, serves: [capability] })).toContain('data-testid="remote-new-menu"');
+    // Its menu lists the new sessions that computer lets this one open, then the agent list.
+    for (const serves of [
+      [],
+      ["chat.read", "terminal.read"],
+      ["chat.control"],
+      ["terminal.control"],
+    ]) {
+      const html = render({ ...peer, serves });
+      expect(html).toContain('data-testid="remote-new-menu"');
+      expect(html).toContain('aria-label="New tab"');
+      expect(html).toMatch(/class="[^"]*size-8[^"]*"[^>]*data-testid="remote-new-menu"/);
     }
   } finally {
     usePeerWorkspaceStore.setState(previous, true);
@@ -425,7 +430,7 @@ test("the agents list distinguishes an unread list from a complete empty list", 
     );
     previous.syncSessions(target, [], false);
     expect(renderToStaticMarkup(<PeerSessionsPanel target={target} peer={peer} />)).toContain(
-      "No sessions",
+      "No conversations",
     );
   } finally {
     storeView.mockRestore();

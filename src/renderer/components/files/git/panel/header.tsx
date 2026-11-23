@@ -1,14 +1,11 @@
 /**
  * GitHeader renders the Source Control title and top-level action buttons.
  */
-import { ChevronsDownUp, ChevronsUpDown, RefreshCw } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import type { GitAutofetchIntervalMin, RepoCapabilities } from "../../../../../shared/git/types";
 import type { ViewMode } from "../../../../../shared/types/panel";
-import { Button } from "../../../ui/button";
-import { ViewModeToggle } from "../../view-mode-toggle";
 import { GitMoreMenu } from "../more-menu";
 import type { GitTagPickerMenuMode } from "../utils/more-menu-model";
+import { GitHeaderBar } from "./header-bar";
 
 interface GitHeaderProps {
   disabled?: boolean;
@@ -99,91 +96,50 @@ export function GitHeader({
   lastFetchedAt,
   onSetAutofetchInterval,
 }: GitHeaderProps) {
-  const { t } = useTranslation("files");
   return (
-    <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-border px-2">
-      <span className="min-w-0 truncate text-app-label uppercase text-muted-foreground">
-        {t("git.panel.header.title")}
-      </span>
-      <div className="flex shrink-0 items-center gap-0.5">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="size-7"
-          aria-label={t("git.panel.header.refresh")}
-          title={t("git.panel.header.refresh")}
-          disabled={disabled || refreshing}
-          onClick={onRefresh}
-        >
-          <RefreshCw className={refreshing ? "size-4 animate-spin" : "size-4"} aria-hidden="true" />
-        </Button>
-        {showViewToggle && onViewModeChange ? (
-          <ViewModeToggle
-            viewMode={viewMode}
-            onViewModeChange={onViewModeChange}
-            disabled={disabled}
-          />
-        ) : null}
-        {/* Single expand/collapse toggle — icon + tooltip swap based on the
-            current expanded state. Only meaningful when (1) the repo is
-            detected (showViewToggle proxies that), (2) tree mode is active,
-            and (3) at least one group has entries. List mode doesn't render
-            directories at all so there's nothing to expand. */}
-        {showViewToggle && viewMode === "tree" && onToggleAllTrees ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={
-              hasAnyExpanded ? t("git.panel.header.collapseAll") : t("git.panel.header.expandAll")
-            }
-            title={
-              hasAnyExpanded ? t("git.panel.header.collapseAll") : t("git.panel.header.expandAll")
-            }
-            disabled={disabled || !hasChanges}
-            onClick={onToggleAllTrees}
-          >
-            {hasAnyExpanded ? (
-              <ChevronsDownUp aria-hidden="true" />
-            ) : (
-              <ChevronsUpDown aria-hidden="true" />
-            )}
-          </Button>
-        ) : null}
-        <GitMoreMenu
-          disabled={disabled}
-          canInit={canInit}
-          gitMissing={gitMissing}
-          hasChanges={hasChanges}
-          capabilities={capabilities}
-          onRefresh={onRefresh}
-          onInit={onInit}
-          onFetch={onFetch}
-          onPull={onPull}
-          onPush={onPush}
-          onStash={onStash}
-          onStashPop={onStashPop}
-          onOpenStashes={onOpenStashes}
-          onDropStash={onDropStash}
-          onOpenTags={onOpenTags}
-          onSwitchBranch={onSwitchBranch}
-          onMergeBranch={onMergeBranch}
-          onRebaseBranch={onRebaseBranch}
-          onCreateBranch={onCreateBranch}
-          onCreateBranchFrom={onCreateBranchFrom}
-          onRenameBranch={onRenameBranch}
-          onDeleteBranch={onDeleteBranch}
-          onDeleteRemoteBranch={onDeleteRemoteBranch}
-          onPushTags={onPushTags}
-          onAddRemote={onAddRemote}
-          onRemoveRemote={onRemoveRemote}
-          onDiscardAll={onDiscardAll}
-          autofetchIntervalMin={autofetchIntervalMin}
-          lastFetchedAt={lastFetchedAt}
-          onSetAutofetchInterval={onSetAutofetchInterval}
-        />
-      </div>
-    </div>
+    <GitHeaderBar
+      disabled={disabled}
+      refreshing={refreshing}
+      hasChanges={hasChanges}
+      showViewToggle={showViewToggle}
+      viewMode={viewMode}
+      onViewModeChange={onViewModeChange}
+      hasAnyExpanded={hasAnyExpanded}
+      onToggleAllTrees={onToggleAllTrees}
+      onRefresh={onRefresh}
+    >
+      <GitMoreMenu
+        disabled={disabled}
+        canInit={canInit}
+        gitMissing={gitMissing}
+        hasChanges={hasChanges}
+        capabilities={capabilities}
+        onRefresh={onRefresh}
+        onInit={onInit}
+        onFetch={onFetch}
+        onPull={onPull}
+        onPush={onPush}
+        onStash={onStash}
+        onStashPop={onStashPop}
+        onOpenStashes={onOpenStashes}
+        onDropStash={onDropStash}
+        onOpenTags={onOpenTags}
+        onSwitchBranch={onSwitchBranch}
+        onMergeBranch={onMergeBranch}
+        onRebaseBranch={onRebaseBranch}
+        onCreateBranch={onCreateBranch}
+        onCreateBranchFrom={onCreateBranchFrom}
+        onRenameBranch={onRenameBranch}
+        onDeleteBranch={onDeleteBranch}
+        onDeleteRemoteBranch={onDeleteRemoteBranch}
+        onPushTags={onPushTags}
+        onAddRemote={onAddRemote}
+        onRemoveRemote={onRemoveRemote}
+        onDiscardAll={onDiscardAll}
+        autofetchIntervalMin={autofetchIntervalMin}
+        lastFetchedAt={lastFetchedAt}
+        onSetAutofetchInterval={onSetAutofetchInterval}
+      />
+    </GitHeaderBar>
   );
 }
