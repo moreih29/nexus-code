@@ -134,7 +134,7 @@ function closestMenuLabel(
   return null;
 }
 
-function confirmHistoryCommit(request: HistoryCommitConfirmRequest): Promise<boolean> {
+export function confirmHistoryCommit(request: HistoryCommitConfirmRequest): Promise<boolean> {
   const t = i18next.t.bind(i18next);
   if (request.kind === "checkout") {
     return showConfirmDialog({
@@ -142,6 +142,7 @@ function confirmHistoryCommit(request: HistoryCommitConfirmRequest): Promise<boo
       description: t("files:git.history.menu.confirmCheckout.description"),
       cancelLabel: t("files:git.history.menu.confirmCheckout.cancel"),
       confirmLabel: t("files:git.history.menu.confirmCheckout.confirmLabel"),
+      focus: "cancel",
     });
   }
   return showConfirmDialog({

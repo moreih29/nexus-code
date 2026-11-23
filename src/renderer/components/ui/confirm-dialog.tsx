@@ -15,6 +15,7 @@ export interface ConfirmDialogRequest {
   cancelLabel?: string;
   confirmLabel?: string;
   variant?: "default" | "destructive";
+  focus?: "cancel" | "confirm";
   signal?: AbortSignal;
 }
 
@@ -58,6 +59,13 @@ function resolveActive(confirmed: boolean): void {
   bus.notify();
 }
 
+export function startsOnCancel({
+  variant,
+  focus,
+}: Pick<ConfirmDialogRequest, "variant" | "focus">): boolean {
+  return (focus ?? (variant === "destructive" ? "cancel" : "confirm")) === "cancel";
+}
+
 export const CONFIRM_TEXT_CLASS = "break-keep wrap-break-word";
 
 export function ConfirmDialogRoot(): React.JSX.Element {
@@ -77,6 +85,7 @@ export function ConfirmDialogRoot(): React.JSX.Element {
   const cancelLabel = active?.cancelLabel ?? t("action.cancel");
   const confirmLabel = active?.confirmLabel ?? t("action.confirm");
   const variant = active?.variant ?? "default";
+  const focusCancel = startsOnCancel({ variant, focus: active?.focus });
 
   const handleOpenChange = (next: boolean): void => {
     if (next) return;
@@ -133,20 +142,10 @@ export function ConfirmDialogRoot(): React.JSX.Element {
         </p>
       )}
       <div className="mt-5 flex justify-end gap-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleCancelClick}
-          autoFocus={variant === "destructive"}
-        >
+        <Button variant="ghost" size="sm" onClick={handleCancelClick} autoFocus={focusCancel}>
           {cancelLabel}
         </Button>
-        <Button
-          variant={variant}
-          size="sm"
-          onClick={handleConfirmClick}
-          autoFocus={variant !== "destructive"}
-        >
+        <Button variant={variant} size="sm" onClick={handleConfirmClick} autoFocus={!focusCancel}>
           {confirmLabel}
         </Button>
       </div>
