@@ -59,6 +59,15 @@ func slotsCallOf(t *testing.T, call func(context.Context, json.RawMessage) (any,
 	return result.(SlotsResult)
 }
 
+// closeTab closes a tab of "ws" without keeping its attached files.
+func closeTab(t *testing.T, service *Service, tabID string) {
+	t.Helper()
+	raw, _ := json.Marshal(TabParams{WorkspaceID: "ws", TabID: tabID})
+	if _, err := service.CloseTab(context.Background(), raw); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestClosingATabKeepsItsAttachmentsWhenAsked(t *testing.T) {
 	root := useAttachRoot(t)
 	service := New()
@@ -239,6 +248,17 @@ func TestAttachmentCallsFollowNoLink(t *testing.T) {
 	if !exists(victim) {
 		t.Fatal("a file through a link was removed")
 	}
+	// Nothing is attached through it, and closing its tab removes the link alone.
+	if _, err := attach(t, service, "linked", "new.txt", []byte("n")); err == nil {
+		t.Fatal("a file was attached through a link")
+	}
+	if entries, _ := os.ReadDir(outside); len(entries) != 1 {
+		t.Fatalf("attaching wrote through a link: %v", entries)
+	}
+	closeTab(t, service, "linked")
+	if !exists(victim) || exists(filepath.Join(root, "ws", "linked")) {
+		t.Fatalf("closing a linked tab: victim %v link %v", exists(victim), exists(filepath.Join(root, "ws", "linked")))
+	}
 	// The workspace's folder as a link: removing it all removes the link alone.
 	if err := os.RemoveAll(filepath.Join(root, "ws")); err != nil {
 		t.Fatal(err)
@@ -247,6 +267,10 @@ func TestAttachmentCallsFollowNoLink(t *testing.T) {
 		t.Fatal(err)
 	}
 	prune(t, service, PruneAttachParams{WorkspaceID: "ws", Retain: &RetainParams{MaxAgeMs: 1}})
+	if _, err := attach(t, service, "1", "new.txt", []byte("n")); err == nil {
+		t.Fatal("a file was attached below a linked workspace")
+	}
+	closeTab(t, service, "1")
 	slotsCallOf(t, service.RemoveAttachments, SlotsParams{WorkspaceID: "ws", All: true})
 	if !exists(victim) || exists(filepath.Join(root, "ws")) {
 		t.Fatalf("victim %v link %v", exists(victim), exists(filepath.Join(root, "ws")))

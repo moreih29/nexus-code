@@ -115,6 +115,10 @@ func (s *Service) Attach(_ context.Context, raw json.RawMessage) (any, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, requestFailed("chat.attach: %v", err)
 	}
+	// No link is written through, as none is pruned through (slotDir).
+	if !realDir(filepath.Dir(dir)) || !realDir(dir) {
+		return nil, requestFailed("chat.attach: the tab's attach folder is not a folder of its own")
+	}
 	// Each file gets a folder of its own, so two of one name both stay.
 	for n := 1; ; n++ {
 		slot := filepath.Join(dir, strconv.Itoa(n))
@@ -189,8 +193,10 @@ func (s *Service) PruneAttachments(_ context.Context, raw json.RawMessage) (any,
 }
 
 // removeAttachments forgets a closed tab's attached files.
+// A link in the folder's place goes, not what it points at; below a
+// workspace's folder that is a link, nothing does.
 func removeAttachments(key tabKey) {
-	if dir, err := tabAttachDir(key); err == nil {
+	if dir, err := tabAttachDir(key); err == nil && realDir(filepath.Dir(dir)) {
 		_ = os.RemoveAll(dir)
 	}
 }
