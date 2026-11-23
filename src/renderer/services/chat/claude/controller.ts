@@ -37,6 +37,7 @@ import {
   editQueuedIn,
   heldTab,
   type ReplayResult,
+  ResyncRetry,
   removeQueuedIn,
   replayTab,
 } from "../tab-core";
@@ -235,6 +236,10 @@ export class ChatController {
       this.sendNextQueued();
     },
     (error) => log.warn(`Claude could not restart after a profile edit: ${String(error)}`),
+  );
+  private readonly resyncRetry = new ResyncRetry(
+    () => !this.disposed && this.state.phase === "held",
+    () => void this.resync(),
   );
   private mcpEmptyAsks = 0;
   private contextAsks = 0;
@@ -1352,12 +1357,14 @@ export class ChatController {
     try {
       replay = await this.replay(this.state.model.lastSeq);
     } catch {
+      this.resyncRetry.failed();
       return;
     }
+    this.resyncRetry.settled();
     if (this.disposed || this.changingSession || this.transcriptSource !== source) return;
     if (replay.found) {
       this.update((prev) => ({ ...prev, phase: replay.running ? "ready" : "ended" }));
-      if (replay.running) this.sendNextQueued();
+      this.sendNextQueued();
       return;
     }
     const pages = this.transcriptPages;
@@ -1382,6 +1389,7 @@ export class ChatController {
       model: emptyModel(),
     }));
     this.rejectPending("the program is gone");
+    this.sendNextQueued();
   }
 
   held(): void {
@@ -2294,6 +2302,7 @@ export class ChatController {
     if (this.flushTimer !== null) clearTimeout(this.flushTimer);
     this.disposed = true;
     this.connectionRestart.dispose();
+    this.resyncRetry.stop();
     this.removeReceiver?.();
     this.leavePlanUsage();
     useClaudeModelCatalog.getState().forget(this.key);

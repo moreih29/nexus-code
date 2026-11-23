@@ -54,14 +54,23 @@ test("Claude keeps source prompts recoverable if another conversation is selecte
   const queued = controller.enqueue("Send only to the source");
 
   handle = ({ method }) =>
-    method === "replay" ? ipcOk({ found: false, running: false, lastSeq: 0 }) : undefined;
+    method === "replay"
+      ? ipcOk({ found: false, running: false, lastSeq: 0 })
+      : method === "start"
+        ? ipcOk({ ok: false, reason: "failed", message: "Claude did not start" })
+        : undefined;
   controller.held();
   await controller.resync();
-  expect(controller.state.phase).toBe("ended");
+  await Bun.sleep(0);
+  expect(controller.state.phase).toBe("failed");
+  expect(calls.filter(({ method }) => method === "start").map(({ args }) => args.resume)).toEqual([
+    "source",
+  ]);
 
+  const asked = calls.length;
   await expect(controller.resumeSession("destination")).rejects.toThrow();
   expect(controller.currentSession()).toBe("source");
-  expect(calls.map(({ method }) => method)).toEqual(["replay", "replay"]);
+  expect(calls).toHaveLength(asked);
   expect(controller.removeQueued(queued as string)?.text).toBe("Send only to the source");
 });
 

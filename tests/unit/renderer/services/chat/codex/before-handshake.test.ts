@@ -324,25 +324,32 @@ test("resumes a Codex thread after agent replacement and queues against the new 
 
   c.held();
   replayResponse = () => ({ found: false, running: false, truncated: false, lastSeq: 0 });
-  await c.resync();
-  expect(c.model.lastSeq).toBe(0);
-  expect(c.model.permissions).toEqual([]);
-  expect(c.model.requests).toEqual({});
-  await c.answerPermission(oldPermission, { kind: "allow" });
-  expect(c.state.queue[0]?.afterTool).toBe(0);
-
   seq = 0;
-  const steered = Promise.withResolvers<Message>();
+  const started = Promise.withResolvers<Message>();
   onStart = () => line("sys", { event: "start" });
   codex = (message) => {
     sent.push(message);
     line("in", message);
     if (message.id === undefined) return;
-    const result = message.method === "thread/resume" ? { thread: { id: "t1" } } : {};
+    const result =
+      message.method === "thread/resume"
+        ? { thread: { id: "t1" } }
+        : message.method === "turn/start"
+          ? { turn: { id: "new" } }
+          : {};
     line("out", { id: message.id, result });
-    if (message.method === "turn/steer") steered.resolve(message);
+    if (message.method === "turn/start") started.resolve(message);
   };
-  await c.prepareSend();
+  await c.resync();
+  expect(c.model.permissions).toEqual([]);
+  expect(c.model.requests).toEqual({});
+  expect(c.state.queue[0]?.afterTool).toBe(0);
+
+  expect((await started.promise).params).toMatchObject({
+    threadId: "t1",
+    input: [{ type: "text", text: "queued prompt" }],
+  });
+  c.flushNow();
   expect(sent.find((m) => m.method === "thread/resume")?.params).toMatchObject({
     threadId: "t1",
     excludeTurns: true,
@@ -350,6 +357,7 @@ test("resumes a Codex thread after agent replacement and queues against the new 
   expect(c.model.process).toBe("running");
   expect(c.model.items.filter((item) => item.kind === "user").map((item) => item.text)).toEqual([
     "old prompt",
+    "queued prompt",
   ]);
   expect(new Set(c.model.items.map((item) => item.key)).size).toBe(c.model.items.length);
 
@@ -361,22 +369,7 @@ test("resumes a Codex thread after agent replacement and queues against the new 
   await c.answerPermission(oldPermission, { kind: "allow" });
   expect(sent).toHaveLength(writes);
   await c.answerPermission(c.model.permissions[0], { kind: "allow" });
-  expect(order()).not.toContain("turn/steer");
-  line("out", {
-    method: "item/completed",
-    params: {
-      threadId: "t1",
-      turnId: "new",
-      item: { id: "cmd", type: "commandExecution", command: "pwd", status: "completed" },
-    },
-  });
-  c.flushNow();
-  expect(c.model.toolCompletedSeq).toBe(seq);
-  expect((await steered.promise).params).toMatchObject({
-    threadId: "t1",
-    expectedTurnId: "new",
-    input: [{ type: "text", text: "queued prompt" }],
-  });
+  expect(sent).toHaveLength(writes + 1);
   seq = 404;
   line("sys", { event: "dropped" });
   c.flushNow();

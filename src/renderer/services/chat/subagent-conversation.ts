@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { ipcCallResult } from "../../ipc/client";
 import { subagentLog } from "./claude/history";
@@ -54,10 +54,13 @@ export function useSubagentConversation(
   const key = `${workspaceId}\n${sessionId ?? ""}\n${agent.id}`;
   const [read, setRead] = useState<Read | null>(null);
   const [tick, setTick] = useState(0);
+  const reading = useRef(false);
 
   useEffect(() => {
     if (!enabled || !running) return;
-    const timer = setInterval(() => setTick((n) => n + 1), RUN_READ_INTERVAL_MS);
+    const timer = setInterval(() => {
+      if (!reading.current) setTick((n) => n + 1);
+    }, RUN_READ_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [enabled, running]);
 
@@ -65,17 +68,23 @@ export function useSubagentConversation(
   useEffect(() => {
     if (!enabled || !sessionId) return;
     let stale = false;
+    reading.current = true;
     void ipcCallResult("chat", "subagentTranscript", {
       workspaceId,
       sessionId,
       agentId: agent.id,
       ...(profileId ? { profileId } : {}),
-    }).then((result) => {
-      if (stale || !result.ok || !result.value.found) return;
-      setRead({ key, lines: result.value.lines, truncated: result.value.truncated });
-    });
+    })
+      .then((result) => {
+        if (stale || !result.ok || !result.value.found) return;
+        setRead({ key, lines: result.value.lines, truncated: result.value.truncated });
+      })
+      .finally(() => {
+        if (!stale) reading.current = false;
+      });
     return () => {
       stale = true;
+      reading.current = false;
     };
   }, [enabled, workspaceId, sessionId, profileId, agent.id, key, tick, running]);
 
