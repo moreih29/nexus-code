@@ -11,7 +11,7 @@ import { remoteFileKey } from "../../../shared/fs/remote-file-key";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { showHeldRemoteFile } from "../../services/agent-view/file-tabs";
 import { remoteSessionKey } from "../../services/agent-view/layout";
-import { attachShaped } from "../../services/chat/attach-folders";
+import { attachShaped, servedAttachment } from "../../services/chat/attach-folders";
 import type { ChatFiles } from "../../services/chat/chat-files";
 import {
   imageLook,
@@ -20,7 +20,12 @@ import {
   type ShownImage,
 } from "../../services/chat/image-look";
 import { findLinkPlace, linkPlaceIndex, linkPlaces } from "../../services/chat/link-places";
-import { type FileLink, fileKind, isLocalAddress } from "../../services/chat/links";
+import {
+  type FileLink,
+  fileKind,
+  isLocalAddress,
+  resolveFilePath,
+} from "../../services/chat/links";
 import type { ChatModel } from "../../services/chat/model";
 import { changedFilesOf, imagesOf } from "../../services/chat/panel";
 import { readRemoteFileBefore } from "../../services/remote/file-comparison";
@@ -115,6 +120,10 @@ export function useRemoteLinks(
     };
     return {
       openFile,
+      opensAttached(written) {
+        const file = resolveFilePath(written, cwd);
+        return file !== null && servedAttachment(peerWorkspace, tabId, workspaceRoot, file);
+      },
       openBeside:
         placeFile ??
         ((path, { at, before, mode, compare }) => {

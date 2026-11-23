@@ -5,6 +5,7 @@
 // message is text, which anyone who sends one writes as they like.
 
 import { ipcCallResult } from "../../ipc/client";
+import { isUnder } from "./links";
 
 /** A numbered folder's file, below a tab's folder: `<n>/<name>`. */
 const SLOT_FILE = /^\d+\/[^/]+$/;
@@ -49,4 +50,19 @@ export function inAttachFolder(
 export function attachShaped(workspaceId: string, tabId: string, file: string): boolean {
   const at = file.lastIndexOf(`/attach/${workspaceId}/${tabId}/`);
   return at >= 0 && inAttachFolder(file.slice(0, at + 7), workspaceId, tabId, file);
+}
+
+/**
+ * Whether another computer serves a file attached to its tab's message
+ * (absolute, as resolveFilePath gives it): one its agent wrote for the tab
+ * (attachShaped), or one in its workspace (`root`). Not one the user
+ * attached there from where it was, as from Finder: that stays its own.
+ */
+export function servedAttachment(
+  workspaceId: string,
+  tabId: string,
+  root: string,
+  file: string,
+): boolean {
+  return attachShaped(workspaceId, tabId, file) || isUnder(file, root);
 }

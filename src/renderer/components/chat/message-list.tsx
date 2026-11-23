@@ -943,7 +943,8 @@ function ShellCard({ item }: { item: ShellItem }) {
 /**
  * A file a sent message attached, as a chip of its name. An image opens in
  * quick look among the conversation's images; while the message goes to
- * another device the chip names no path yet, and opens nothing.
+ * another device the chip names no path yet, and opens nothing, as one in
+ * another computer's chat that computer does not serve (opensAttached).
  */
 function AttachedFile({ path, sending }: { path: string; sending: boolean }) {
   const { t } = useTranslation();
@@ -951,7 +952,7 @@ function AttachedFile({ path, sending }: { path: string; sending: boolean }) {
   const name = path.split(/[\\/]/).pop() ?? path;
   const chip =
     "flex max-w-56 items-center gap-1.5 rounded-(--radius-control) border border-border px-2 py-1 text-app-ui-sm";
-  if (!links || sending || fileKind(path) !== "image") {
+  if (!links || sending || fileKind(path) !== "image" || links.opensAttached?.(path) === false) {
     return (
       <span title={path} className={chip}>
         <FileText className="size-3.5 shrink-0 text-muted-foreground" />
