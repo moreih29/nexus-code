@@ -204,10 +204,32 @@ test("workspace shows relocated rows once, keeps their worktree labels and uses 
   ]);
   expect(html).toContain('draggable="true" aria-label="Release plan"');
   expect(html).toContain('draggable="false" aria-label="Review tests"');
-  expect(html).toContain(">↳ 1 under Release plan<");
-  expect(html).toContain(">↳ 1 under Billing results<");
   expect(html.match(/data-testid="agent-sidebar-branch"/g)).toHaveLength(2);
   expect(html).not.toContain('data-testid="agent-sidebar-idle"');
+});
+
+test("a worktree holding only children has no group and no line naming their parents", () => {
+  const html = render(<WorkspaceGroups agents={agents()} activity={new Map()} query="" />);
+  expect(html).not.toContain(`aria-label="New agent in ${task.name}"`);
+  expect(html).not.toContain("under Release plan");
+  expect(html).not.toContain("under Billing results");
+  expect(html).not.toContain('data-testid="agent-sidebar-moved"');
+  // The worktree's conversations still show, each under its parent.
+  expect(rows(html)).toEqual(expect.arrayContaining([question.title, notes.title]));
+});
+
+test("a mixed worktree's group lists only its own conversations", () => {
+  const own = session("own", "Own check", "done", { workspaceId: task.id });
+  const html = render(
+    <WorkspaceGroups agents={agents([...local, own])} activity={new Map()} query="" />,
+  );
+  const group = html.split(`aria-label="New agent in ${task.name}"`)[1] ?? "";
+  expect(rows(group)).toEqual([own.title]);
+  expect(rows(html).filter((title) => title === question.title)).toHaveLength(1);
+  expect(rows(html.split(`aria-label="New agent in ${task.name}"`)[0] ?? "")).toEqual(
+    expect.arrayContaining([question.title, notes.title]),
+  );
+  expect(html).not.toContain("under Release plan");
 });
 
 test("status reordering moves a root with its whole family", () => {
@@ -361,8 +383,10 @@ test("workspace tasks show moved conversations once under their parent and keep 
   const views = <WorkspaceGroups agents={agents()} activity={new Map()} query="" />;
   const html = render(workspaceList("task"));
   expect(sessionKeys(html)).toEqual(sessionKeys(render(views)));
-  expect(html).toContain("↳ 1 under Release plan");
-  expect(html).toContain("↳ 1 under Billing results");
+  // The task's card stays for its actions; its conversations run under their parents.
+  expect(html).toContain('aria-label="feature/test"');
+  expect(html).not.toContain("under Release plan");
+  expect(html).not.toContain("No conversations");
   expect(html).toContain('title="feature/test"');
   expect(html).toContain('title="Made by the conversation Release plan"');
   expect(html).not.toContain('data-testid="agent-list-idle"');

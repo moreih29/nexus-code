@@ -110,7 +110,7 @@ test("worktree children appear once under their opener and only their host's sav
       <PeerGroup peer={peer} sessions={{ status: "ready", list: treeList }} query="" />,
     );
   const html = render();
-  expect(html).toContain("↳ 1 under Plan the release");
+  expect(html).not.toContain("under Plan the release");
   expect(html).toContain('title="ship"');
   expect(html.match(/>Review the release<\/span>/g)).toHaveLength(1);
   expect(html).toContain("Read the docs");
@@ -127,6 +127,54 @@ test("worktree children appear once under their opener and only their host's sav
   } finally {
     store.mockRestore();
   }
+});
+
+test("a worktree holding only children makes no group and waits behind its parent's chip", () => {
+  const grouped = (sessions: RemoteSession[], query = "") =>
+    workspaceGroups(
+      { workspaces: [workspace, task], sessions },
+      { deviceId: host.id, query, opens: false, inPanel: () => false, worktreesIn: new Set() },
+    );
+  const quiet = grouped([parent, activeChild]);
+  expect(quiet.groups.map(([id]) => id)).toEqual([workspace.id]);
+  expect([...quiet.worktreeCounts]).toEqual([[workspace.id, 1]]);
+  expect(grouped([parent, activeChild], "review").groups.map(([id]) => id)).toEqual([workspace.id]);
+  const html = renderToStaticMarkup(
+    <PeerGroup
+      peer={host}
+      sessions={{ status: "ready", list: { ...treeList, sessions: [parent, activeChild] } }}
+      query=""
+    />,
+  );
+  expect(html.match(/data-testid="remote-workspace"/g)).toHaveLength(1);
+  expect(html).toContain('data-testid="remote-worktrees-toggle"');
+  expect(html).not.toContain("under Plan the release");
+  expect(html).toContain("Review the release");
+});
+
+test("a mixed worktree's group lists only its own conversations", () => {
+  const own = row("own", { workspaceId: task.id, title: "Check the defaults", state: "running" });
+  const { groups, worktreeCounts } = workspaceGroups(
+    { workspaces: [workspace, task], sessions: [parent, activeChild, own] },
+    { deviceId: host.id, query: "", opens: false, inPanel: () => false, worktreesIn: new Set() },
+  );
+  expect(groups.map(([id, rows]) => [id, rows.map((each) => each.tabId)])).toEqual([
+    [workspace.id, [parent.tabId]],
+    [task.id, [own.tabId]],
+  ]);
+  expect(worktreeCounts.size).toBe(0);
+  const html = renderToStaticMarkup(
+    <PeerGroup
+      peer={host}
+      sessions={{ status: "ready", list: { ...treeList, sessions: [parent, activeChild, own] } }}
+      query=""
+    />,
+  );
+  const [home = "", worktree = ""] = html.split('data-task=""');
+  expect(home).toContain("Review the release");
+  expect(worktree).toContain("Check the defaults");
+  expect(worktree).not.toContain("Review the release");
+  expect(html).not.toContain("under Plan the release");
 });
 
 test("a child row takes its tree line's width, so a long title ends in an ellipsis", () => {

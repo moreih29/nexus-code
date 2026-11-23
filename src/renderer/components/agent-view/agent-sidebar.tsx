@@ -662,10 +662,10 @@ function FamilyGroup({
           onColor={(color) => update({ color })}
         />
       </ContextMenuRoot>
-      {worktrees.map(({ worktree, roots, moved }) => {
+      {worktrees.map(({ worktree, roots, hosted }) => {
         const foldedHere = folded && reordering !== worktree.workspace.id;
         const visible = foldedHere ? roots.filter((node) => node.group !== "idle") : roots;
-        if (foldedHere && visible.length === 0 && moved.length === 0) return null;
+        if (foldedHere && visible.length === 0) return null;
         return (
           // biome-ignore lint/a11y/noStaticElementInteractions: restores the fold when a native row drag leaves
           <div
@@ -694,16 +694,6 @@ function FamilyGroup({
                 <NewAgentMenu workspace={worktree.workspace} />
               </div>
             )}
-            {moved.map(({ key, title, count }) => (
-              <span
-                key={key}
-                className="min-w-0 truncate px-2 py-1 pl-6 text-app-micro text-muted-foreground"
-                title={t("agentView.list.moved_family", { name: title, count })}
-                data-testid="agent-sidebar-moved"
-              >
-                {t("agentView.list.moved_family", { name: title, count })}
-              </span>
-            ))}
             {visible.map((node) => (
               <SessionBranch
                 key={node.session.key}
@@ -716,7 +706,8 @@ function FamilyGroup({
                 onReorder={roots.length > 1 ? onReorder : undefined}
               />
             ))}
-            {worktree.isRoot && roots.length === 0 && (
+            {/* A conversation listed under its parent elsewhere still runs here. */}
+            {worktree.isRoot && roots.length === 0 && hosted === 0 && (
               <p className="py-1 pl-7 text-app-micro text-muted-foreground">
                 {t("agentView.list.no_agents")}
               </p>

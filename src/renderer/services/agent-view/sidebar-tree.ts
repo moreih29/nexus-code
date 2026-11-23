@@ -37,10 +37,17 @@ export function moveSessionRoot(
 
 export interface SidebarWorktree {
   readonly worktree: WorktreeEntry;
+  /** Its own conversations: those it holds whose parent, if any, is not listed. */
   readonly roots: readonly SessionTreeNode[];
-  readonly moved: readonly { key: string; title: string; count: number }[];
+  /** Conversations it holds that are listed under a parent elsewhere. */
+  readonly hosted: number;
 }
 
+/**
+ * Each workspace's worktrees with their own conversations. A child
+ * conversation is listed under its parent wherever it runs, so a worktree
+ * holding only children is left out unless `includeEmpty` keeps it.
+ */
 export function workspaceTrees(
   families: readonly SessionFamily[],
   roots: readonly SessionTreeNode[],
@@ -49,35 +56,27 @@ export function workspaceTrees(
   includeEmpty: (worktree: WorktreeEntry) => boolean = (worktree) => worktree.isRoot && !searching,
 ): readonly { family: SessionFamily; worktrees: readonly SidebarWorktree[] }[] {
   const byWorkspace = new Map<string, SessionTreeNode[]>();
-  const moved = new Map<string, SidebarWorktree["moved"][number][]>();
+  const hosted = new Map<string, number>();
   for (const root of roots) {
-    const { workspaceId, title, key } = root.session;
+    const { workspaceId } = root.session;
     const group = byWorkspace.get(workspaceId) ?? [];
     group.push(root);
     byWorkspace.set(workspaceId, group);
-
-    const counts = new Map<string, number>();
     for (const child of treeSessions(root.children)) {
-      if (child.workspaceId === workspaceId) continue;
-      counts.set(child.workspaceId, (counts.get(child.workspaceId) ?? 0) + 1);
-    }
-    for (const [id, count] of counts) {
-      const notes = moved.get(id) ?? [];
-      notes.push({ key, title, count });
-      moved.set(id, notes);
+      if (child.workspaceId !== workspaceId)
+        hosted.set(child.workspaceId, (hosted.get(child.workspaceId) ?? 0) + 1);
     }
   }
   return families.flatMap((family) => {
     const worktrees = family.worktrees.flatMap((worktree) => {
       const id = worktree.workspace.id;
       const rows = byWorkspace.get(id) ?? [];
-      const notes = worktree.isRoot ? [] : (moved.get(id) ?? []);
-      if (!rows.length && !notes.length && !includeEmpty(worktree)) return [];
+      if (!rows.length && !includeEmpty(worktree)) return [];
       const ordered = orderSessions(
         rows.map((node) => ({ key: node.session.key, node })),
         order[id],
       );
-      return [{ worktree, roots: ordered.map(({ node }) => node), moved: notes }];
+      return [{ worktree, roots: ordered.map(({ node }) => node), hosted: hosted.get(id) ?? 0 }];
     });
     return worktrees.length ? [{ family, worktrees }] : [];
   });

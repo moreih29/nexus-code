@@ -111,7 +111,7 @@ export function TaskView({
   }
   return (
     <div className="flex flex-col gap-3 p-2" data-testid="agent-list-task-view">
-      {groups.map(({ worktree, roots, moved }) => {
+      {groups.map(({ worktree, roots, hosted }) => {
         const id = worktree.workspace.id;
         const createdBy = worktree.workspace.task?.createdBy;
         const creator = createdBy
@@ -141,17 +141,8 @@ export function TaskView({
                 changes={changes.get(id)}
               />
             )}
-            {moved.map(({ key, title, count }) => (
-              <p
-                key={key}
-                className="truncate border-t border-border px-3 py-1.5 text-app-micro text-muted-foreground"
-                title={t("agentView.list.moved_family", { name: title, count })}
-                data-testid="agent-list-moved"
-              >
-                {t("agentView.list.moved_family", { name: title, count })}
-              </p>
-            ))}
-            {roots.length === 0 && moved.length === 0 && (
+            {/* A conversation listed under its parent elsewhere still runs here. */}
+            {roots.length === 0 && hosted === 0 && (
               <p className="border-t border-border px-3 py-1.5 text-app-ui-sm text-muted-foreground">
                 {t("agentList.task.no_conversations")}
               </p>

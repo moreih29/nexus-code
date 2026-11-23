@@ -309,21 +309,16 @@ export function workspaceGroups(
   const byWorkspace = new Map<string, RemoteSession[]>(
     [...workspaces.keys()].map((id) => [id, []]),
   );
-  const moved = new Map<string, { key: string; title: string; count: number }[]>();
+  // Worktrees that hold a child listed under its parent elsewhere: a quiet
+  // worktree behind its parent's chip, since the child shows only there.
+  const hosts = new Set<string>();
   for (const root of roots) {
-    const counts = new Map<string, number>();
     for (const child of treeSessions(root.children)) {
       if (
-        child.workspaceId === root.session.workspaceId ||
-        !workspaces.get(child.workspaceId)?.parentId
+        child.workspaceId !== root.session.workspaceId &&
+        workspaces.get(child.workspaceId)?.parentId
       )
-        continue;
-      counts.set(child.workspaceId, (counts.get(child.workspaceId) ?? 0) + 1);
-    }
-    for (const [workspaceId, count] of counts) {
-      const notes = moved.get(workspaceId) ?? [];
-      notes.push({ key: root.session.key, title: root.session.title, count });
-      moved.set(workspaceId, notes);
+        hosts.add(child.workspaceId);
     }
   }
   // Keep the host's root order. A search can still find a terminal with only its shell.
@@ -361,8 +356,8 @@ export function workspaceGroups(
     const canStart =
       opens && !searching && workspace && (workspace.parentId === undefined || rootParent);
     const terminals = plainShown.get(id);
-    const hasMoved = moved.has(id);
-    if (rows.length === 0 && !terminals && !canStart && !hasMoved) continue;
+    const hosting = !searching && hosts.has(id);
+    if (rows.length === 0 && !terminals && !canStart && !hosting) continue;
     eligible.add(id);
     if (rootParent && !searching) eligible.add(rootParent.id);
 
@@ -381,12 +376,11 @@ export function workspaceGroups(
         disclosedTerminals,
       );
       hiddenCounts.set(owner, (hiddenCounts.get(owner) ?? 0) + count);
-      if (parentFolded && visible.length === 0 && !hasMoved) hidden.add(id);
+      if (parentFolded && visible.length === 0) hidden.add(id);
     }
 
     if (searching || !rootParent || parentFolded || reordering?.has(id)) continue;
-    if (hasMoved || rows.some(keepsWorktreeVisible) || terminals?.some(keepsWorktreeVisible))
-      continue;
+    if (rows.some(keepsWorktreeVisible) || terminals?.some(keepsWorktreeVisible)) continue;
     worktreeCounts.set(rootParent.id, (worktreeCounts.get(rootParent.id) ?? 0) + 1);
     if (!worktreesIn.has(rootParent.id)) hidden.add(id);
   }
@@ -397,7 +391,6 @@ export function workspaceGroups(
     workspaces,
     branches,
     byKey,
-    moved,
     plain: plainShown,
     worktreeCounts,
     foldedWorkspaces,
@@ -763,7 +756,6 @@ export function PeerGroup({
     workspaces,
     branches,
     byKey,
-    moved,
     plain,
     worktreeCounts,
     foldedWorkspaces,
@@ -1029,16 +1021,6 @@ export function PeerGroup({
                           }))}
                         />
                       )}
-                      {moved.get(workspaceId)?.map(({ key, title, count }) => (
-                        <span
-                          key={key}
-                          className="min-w-0 truncate px-2 py-1 pl-6 text-app-micro text-muted-foreground"
-                          title={t("agentView.list.moved_family", { name: title, count })}
-                          data-testid="remote-session-moved"
-                        >
-                          {t("agentView.list.moved_family", { name: title, count })}
-                        </span>
-                      ))}
                       {ordered.map((session) => {
                         const key = remoteSessionKey({ deviceId: peer.id, ...session });
                         const node = branches.get(key);

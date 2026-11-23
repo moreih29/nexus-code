@@ -1963,8 +1963,7 @@
       "closed_conversation": "닫힌 대화",
       "remote_parent": "↳ {{device}} · {{name}}",
       "this_computer": "이 컴퓨터",
-      "parent_closed_state": "닫힘",
-      "moved_family": "↳ ‘{{name}}’ 아래 {{count}}"
+      "parent_closed_state": "닫힘"
     },
     "pane": {
       "close": "패널 닫기",
