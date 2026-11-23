@@ -150,12 +150,13 @@ test("status counts families, shows differing glyphs and discloses idle children
   const [attention, running, done, idle] = sections(render(status()));
   expect(rows(attention ?? "")).toEqual([plan.title, question.title, result.title, deep.title]);
   expect(attention).toContain('class="tabular-nums">1</span>');
-  expect(attention).toContain(">4 under it<");
+  expect(attention).toContain('aria-label="4 conversations under it"');
   expect(attention).toContain("1 idle");
   expect(attention).toContain("↳ Test report");
   expect(attention).toContain('title="Parent · Test report"');
   expect(attention?.match(/data-testid="agent-sidebar-tree-line"/g)).toHaveLength(3);
-  expect(attention?.match(/data-testid="agent-sidebar-state"/g)).toHaveLength(3);
+  // Each row tells its own state, the group's too.
+  expect(attention?.match(/data-testid="agent-sidebar-state"/g)).toHaveLength(4);
   expect(rows(running ?? "")).toEqual([]);
   expect(rows(done ?? "")).toEqual([billing.title, notes.title]);
   expect(rows(idle ?? "")).toEqual([human.title, closed.title, peer.title]);
@@ -179,13 +180,12 @@ test.each([
   const html = render(status("", sessions));
   const caption = [
     ...html.matchAll(
-      /<div class="([^"]+)"><span class="([^"]+)"[^>]*data-testid="agent-sidebar-parent">([^<]+)<\/span>(.*?)<\/div>/g,
+      /<span class="([^"]+)"[^>]*data-testid="agent-sidebar-parent">([^<]+)<\/span><\/span><span class="([^"]+)">(.*?)<\/span><\/span><\/div>/g,
     ),
-  ].find((match) => match[3] === label);
-  expect(caption?.[1]?.split(" ")).toEqual(expect.arrayContaining(["flex", "min-w-0", "grow"]));
-  expect(caption?.[2]?.split(" ")).toEqual(
-    expect.arrayContaining(["max-w-[60%]", "shrink-0", "truncate"]),
-  );
+  ].find((match) => match[2] === label);
+  expect(caption?.[1]?.split(" ")).toEqual(expect.arrayContaining(["max-w-40", "truncate"]));
+  // What it last said gives way first, and goes with less than 3em left.
+  expect(caption?.[3]?.split(" ")).toEqual(expect.arrayContaining(["min-w-[3em]", "flex-1"]));
   expect(caption?.[4]).toContain(preview);
 });
 
@@ -232,6 +232,40 @@ test("a mixed worktree's group lists only its own conversations", () => {
   expect(html).not.toContain("under Release plan");
 });
 
+test("a folded family tells inside its chip what of it works and waits, not its new results", () => {
+  const html = render(status(), [`family:${plan.key}`]);
+  const chip =
+    html.match(/<button[^>]*data-testid="agent-sidebar-fold-family">.*?<\/button>/)?.[0] ?? "";
+  expect(chip).toContain('aria-label="4 conversations under it · Working 1 · Needs you 1"');
+  expect(chip.match(/data-testid="agent-sidebar-summary"/g)).toHaveLength(2);
+  expect(chip).toContain(">4<");
+  expect(chip).not.toContain("lucide-circle-check");
+  // Unfolded, the chip tells only how many.
+  const open = render(status());
+  const openChip =
+    open.match(/<button[^>]*data-testid="agent-sidebar-fold-family">.*?<\/button>/)?.[0] ?? "";
+  expect(openChip).not.toContain('data-testid="agent-sidebar-summary"');
+});
+
+test("a row raised into a group by its children still tells its own state", () => {
+  const idlePlan = { ...plan, state: "idle", phase: "idle" as const };
+  const sessions = local.map((session) => (session.key === plan.key ? idlePlan : session));
+  const [attention = ""] = sections(render(status("", sessions)));
+  const row = attention.split('data-testid="agent-sidebar-item"')[1] ?? "";
+  expect(row).toContain('aria-label="Release plan"');
+  expect(row).toMatch(/role="img" aria-label="Idle"[^>]*data-testid="agent-sidebar-state"/);
+});
+
+test("by state, a root tells its place once and a child only a place elsewhere", () => {
+  const [attention = ""] = sections(render(status()));
+  const [, root = "", child = ""] = attention.split('data-testid="agent-sidebar-item"');
+  expect(root).toContain('data-testid="agent-sidebar-workspace"');
+  expect(child).toContain('data-testid="agent-sidebar-branch"');
+  expect(child).toContain(">feature/test<");
+  const workspace = render(<WorkspaceGroups agents={agents()} activity={new Map()} query="" />);
+  expect(workspace).not.toContain('data-testid="agent-sidebar-workspace"');
+});
+
 test("status reordering moves a root with its whole family", () => {
   const first = session("first", "First request", "attention", { since: 1 });
   const initial = render(status("", [first, ...local]));
@@ -252,8 +286,9 @@ test("search exposes matching children and their ancestors through both saved fo
   const folds = ["status:attention", `family:${plan.key}`];
   const folded = render(status(), folds.slice(1));
   expect(rows(sections(folded)[0] ?? "")).toEqual([plan.title]);
+  // The folded chip tells what of the family works and waits on the user, not new results.
   const summary = sections(folded)[0]?.match(/data-testid="agent-sidebar-summary"/g);
-  expect(summary).toHaveLength(3);
+  expect(summary).toHaveLength(2);
   const found = render(status(" quiet "), folds);
   expect(rows(found)).toEqual([plan.title, quiet.title]);
   const workspace = render(
@@ -327,7 +362,7 @@ test("old layouts keep flat status order and row appearance", () => {
   const html = render(status("", [b, a, human]));
   expect(rows(html)).toEqual([a.title, b.title, human.title]);
   expect(html).not.toContain('data-testid="agent-sidebar-fold-family"');
-  expect(html).not.toContain('data-testid="agent-sidebar-state"');
+  expect(html.match(/data-testid="agent-sidebar-state"/g)).toHaveLength(3);
   expect(html).not.toContain('data-testid="agent-sidebar-tree-line"');
 });
 
@@ -374,7 +409,7 @@ test("workspace status uses the agent view's family grouping, idle disclosure an
   expect(html).toContain("↳ Test report");
   const folded = render(workspaceList("status"), [`family:${plan.key}`]);
   expect(sessionKeys(sections(folded)[0] ?? "")).toEqual([plan.key]);
-  expect(sections(folded)[0]?.match(/data-testid="agent-list-summary"/g)).toHaveLength(3);
+  expect(sections(folded)[0]?.match(/data-testid="agent-list-summary"/g)).toHaveLength(2);
   const match = render(workspaceList("status", "quiet"), [`family:${plan.key}`]);
   expect(sessionKeys(match)).toEqual([plan.key, quiet.key]);
 });

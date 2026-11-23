@@ -403,11 +403,9 @@ export function RowLine({ session, facts }: { session: AgentSession; facts: RowF
   if (wait?.kind === "question" || (!wait && session.state === "needsInput")) {
     const text = wait?.kind === "question" ? wait.text : session.message;
     return (
-      <span className="flex min-w-0 items-start gap-1.5">
-        <MessageCircleQuestion aria-hidden className={cn(warn, "mt-0.5")} />
-        <span className="line-clamp-2 min-w-0 break-words text-foreground">
-          {text || stateLabel(session)}
-        </span>
+      <span className="flex min-w-0 items-center gap-1.5">
+        <MessageCircleQuestion aria-hidden className={warn} />
+        <span className="min-w-0 truncate text-foreground">{text || stateLabel(session)}</span>
         {wait?.kind === "question" && wait.count > 1 && (
           <span className="ml-auto shrink-0 text-app-micro text-muted-foreground tabular-nums">
             {t("agentList.list.questions", { count: wait.count })}
@@ -441,11 +439,9 @@ export function RowLine({ session, facts }: { session: AgentSession; facts: RowF
   }
   if (session.state === "error") {
     return (
-      <span className="flex min-w-0 items-start gap-1.5 text-(--state-error-fg)">
-        <TriangleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-        <span className="line-clamp-2 min-w-0 break-words">
-          {session.message || stateLabel(session)}
-        </span>
+      <span className="flex min-w-0 items-center gap-1.5 text-(--state-error-fg)">
+        <TriangleAlert aria-hidden className="size-3.5 shrink-0" />
+        <span className="min-w-0 truncate">{session.message || stateLabel(session)}</span>
       </span>
     );
   }
@@ -469,9 +465,7 @@ export function RowLine({ session, facts }: { session: AgentSession; facts: RowF
   }
   // The answer, in Markdown, as plain words.
   return session.message ? (
-    <span className="line-clamp-2 min-w-0 break-words text-foreground">
-      {plainPreview(session.message)}
-    </span>
+    <span className="min-w-0 truncate text-foreground">{plainPreview(session.message)}</span>
   ) : null;
 }
 

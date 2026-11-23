@@ -80,30 +80,62 @@ export function SessionTreeBranch({
   );
 }
 
+/** Shown in a folded family's chip: what of it works, and what waits on the user. */
+const FOLDED_COUNTS = ["running", "attention"] as const;
+
+/**
+ * A family's chip, `≣ 3 ⌄`: how many conversations are under the row, and
+ * folds them. Folded, it tells inside its border how many of them work and
+ * wait on the user, `≣ 3 · ⟳ 1 · ! 1 ›`, so they do not read as the row's
+ * own state.
+ */
 export function FamilyFold({
   session,
   count,
   collapsed,
+  counts,
   testPrefix,
 }: {
   session: AgentSession;
   count: number;
   collapsed: boolean;
+  /** The family's states, told while it is folded. */
+  counts?: SessionCounts;
   testPrefix: string;
 }) {
   const { t } = useTranslation();
+  const shown = collapsed && counts ? FOLDED_COUNTS.filter((group) => counts[group] > 0) : [];
+  const label = [
+    t("agentView.list.children", { count }),
+    ...shown.map((group) => `${t(`agentList.group.${group}`)} ${counts?.[group]}`),
+  ].join(" · ");
   return (
     <button
       type="button"
-      className="pointer-events-auto ml-auto inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-full border border-border px-1.5 text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+      className="pointer-events-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-1.5 whitespace-nowrap tabular-nums text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
       aria-expanded={!collapsed}
-      title={t("agentView.list.toggle_children")}
+      aria-label={label}
+      title={label}
       onClick={() => useAgentViewStore.getState().toggleFolded(familyFoldKey(session))}
       data-testid={`${testPrefix}-fold-family`}
     >
-      <ListTree aria-hidden className="size-3" />
-      {t("agentView.list.children", { count })}
-      <FoldChevron folded={collapsed} />
+      <ListTree aria-hidden className="size-3 shrink-0" />
+      {count}
+      {shown.map((group) => (
+        <span
+          key={group}
+          aria-hidden
+          className="inline-flex items-center gap-1"
+          data-testid={`${testPrefix}-summary`}
+        >
+          <span>·</span>
+          <span className={cn("inline-flex items-center gap-0.5", GROUP_TINT[group])}>
+            <StateGlyph state={GROUP_STATE[group]} still />
+            {counts?.[group]}
+          </span>
+        </span>
+      ))}
+      <FoldChevron folded={collapsed} className="size-3" />
     </button>
   );
 }
@@ -164,10 +196,10 @@ export function SessionRelations({
           session={node.session}
           count={node.count}
           collapsed={collapsed}
+          counts={node.counts}
           testPrefix="agent-list"
         />
       )}
-      {collapsed && <StateSummary counts={node.counts} compact testPrefix="agent-list" />}
     </div>
   );
 }
@@ -218,19 +250,21 @@ function TreeLine({
   testPrefix: string;
 }) {
   if (!indent) return children;
+  // The line comes down under the parent's mark (a row's border and padding,
+  // and half the mark: 16px in) and turns to the child's title line.
   return (
-    <div className="relative pl-4" data-testid={`${testPrefix}-tree-line`}>
+    <div className="relative pl-5" data-testid={`${testPrefix}-tree-line`}>
       <span
         aria-hidden
         className={cn(
-          "pointer-events-none absolute top-0 left-1.5 border-border border-l",
-          last ? "h-4 w-2.5 rounded-bl-sm border-b" : "bottom-0",
+          "pointer-events-none absolute top-0 left-4 border-border border-l",
+          last ? "h-4 w-3 rounded-bl-sm border-b" : "bottom-0",
         )}
       />
       {!last && (
         <span
           aria-hidden
-          className="pointer-events-none absolute top-4 left-1.5 w-2.5 border-border border-t"
+          className="pointer-events-none absolute top-4 left-4 w-3 border-border border-t"
         />
       )}
       {children}
@@ -238,7 +272,7 @@ function TreeLine({
   );
 }
 
-export function FoldChevron({ folded }: { folded: boolean }) {
+export function FoldChevron({ folded, className }: { folded: boolean; className?: string }) {
   const Icon = folded ? ChevronRight : ChevronDown;
-  return <Icon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />;
+  return <Icon aria-hidden className={cn("size-3.5 shrink-0 text-muted-foreground", className)} />;
 }

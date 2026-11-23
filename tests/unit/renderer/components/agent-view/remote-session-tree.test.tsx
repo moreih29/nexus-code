@@ -177,6 +177,74 @@ test("a mixed worktree's group lists only its own conversations", () => {
   expect(html).not.toContain("under Plan the release");
 });
 
+function remoteStatus(list = treeList) {
+  return renderToStaticMarkup(
+    <StatusGroups
+      agents={emptyAgents}
+      activity={new Map()}
+      remote={[{ peer: host, list }]}
+      query=""
+      results={new RemoteResults()}
+    />,
+  );
+}
+
+/** Each row's markup, from its frame to the next row's. */
+function remoteRows(html: string): string[] {
+  return html.split('data-testid="remote-session-item"').slice(1);
+}
+
+test("by state, a family's root tells its computer and place once and a child only a place elsewhere", () => {
+  const [root = "", child = "", ...rest] = remoteRows(remoteStatus());
+  expect(rest).toHaveLength(0);
+  expect(root).toContain('data-testid="session-row-device"');
+  expect(root).toContain(">Remote host<");
+  expect(root).toMatch(/data-testid="session-row-place"><svg[^>]*lucide-folder/);
+  expect(child).not.toContain('data-testid="session-row-device"');
+  expect(child).toMatch(/data-testid="session-row-place"><svg[^>]*lucide-git-branch/);
+  expect(child).toContain(">ship<");
+  // No line of its own for the relations: the chip is in the row's second line.
+  expect(root).toMatch(
+    /data-testid="remote-session-fold-family"[\s\S]*<\/button><\/div><\/div><\/div>/,
+  );
+});
+
+test("every remote row tells its own state, a parent raised by its children too", () => {
+  const [root = "", child = ""] = remoteRows(remoteStatus());
+  // In the group that needs the user, raised there by its child, the parent still works.
+  expect(root).toContain('role="img" aria-label="Running"');
+  expect(child).toContain('role="img" aria-label="Needs you"');
+  const running = remoteRows(
+    remoteStatus({ ...treeList, sessions: [{ ...parent, tabId: "alone" }] }),
+  );
+  expect(running[0]).toContain('role="img" aria-label="Running"');
+});
+
+test("a folded remote family tells inside its chip what of it works and waits", () => {
+  const working = row("working", { state: "running", openedBy });
+  const done = row("done", { state: "new-result", openedBy });
+  const fold = `family:${remoteSessionKey({ deviceId: host.id, ...parent })}`;
+  const state = view.useAgentViewStore.getInitialState();
+  const store = spyOn(view, "useAgentViewStore").mockImplementation((select) =>
+    select({ ...state, folded: new Set([fold]) }),
+  );
+  try {
+    const html = remoteStatus({
+      ...treeList,
+      sessions: [parent, activeChild, idleChild, working, done],
+    });
+    const chip =
+      html.match(/<button[^>]*data-testid="remote-session-fold-family">.*?<\/button>/)?.[0] ?? "";
+    expect(chip).toContain('aria-label="4 conversations under it · Working 1 · Needs you 1"');
+    expect(chip.match(/data-testid="remote-session-summary"/g)).toHaveLength(2);
+    expect(chip).toContain("lucide-loader");
+    expect(chip).toContain("lucide-circle-alert");
+    expect(chip).not.toContain("lucide-circle-check");
+  } finally {
+    store.mockRestore();
+  }
+});
+
 test("a child row takes its tree line's width, so a long title ends in an ellipsis", () => {
   const long = { ...activeChild, title: "Read the brief and run every check it lists" };
   const html = renderToStaticMarkup(
@@ -187,9 +255,9 @@ test("a child row takes its tree line's width, so a long title ends in an ellips
     />,
   );
   const child = html.split('data-testid="remote-session-tree-line"')[1] ?? "";
-  const row = child.match(/<button[^>]*class="([^"]+)"[^>]*data-testid="remote-session-row"/);
+  const row = child.match(/<div class="([^"]+)"[^>]*data-testid="remote-session-item"/);
   expect(row?.[1]?.split(" ")).toEqual(expect.arrayContaining(["w-full", "min-w-0"]));
-  expect(child).toMatch(/class="[^"]*\btruncate\b[^"]*">Read the brief and run every check/);
+  expect(child).toMatch(/class="[^"]*\btruncate\b[^"]*"[^>]*>Read the brief and run every check/);
 });
 
 test("a local opener uses the account device ID, current title and actual workspace", () => {

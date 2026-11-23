@@ -147,6 +147,23 @@ export function FailureLabel() {
   );
 }
 
+/** A conversation's own state beside its time: its glyph, or the words for a failed turn. */
+export function SessionSign({
+  session,
+  testId,
+}: {
+  session: Pick<AgentSession, "state" | "estimated">;
+  testId?: string;
+}) {
+  if (session.state === "error") return <FailureLabel />;
+  const label = stateLabel(session);
+  return (
+    <span role="img" aria-label={label} title={label} className="inline-flex" data-testid={testId}>
+      <StateGlyph state={session.state} />
+    </span>
+  );
+}
+
 export function HiddenSessionCount({ count }: { count: number }) {
   const { t } = useTranslation();
   return (

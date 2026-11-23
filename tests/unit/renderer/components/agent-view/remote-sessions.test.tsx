@@ -776,7 +776,7 @@ describe("the agent view's other computers", () => {
         <RemoteSessionRow session={session({ state: "needs-you" })} />
       </I18nextProvider>,
     );
-    expect(html).toContain(`class="sr-only">${ko.t("agentList.group.attention")}</span>`);
+    expect(html).toContain(`role="img" aria-label="${ko.t("agentList.group.attention")}"`);
   });
 
   test("orders both groups and only offers reordering with multiple online computers outside search", () => {
