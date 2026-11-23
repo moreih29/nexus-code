@@ -24,7 +24,11 @@ import type { ChatChosen, CodexFork, ProfileMove } from "../../../../shared/type
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
-import { pruneAttachmentsAfterAttach, removeConversationAttachments } from "../attach-retention";
+import {
+  pruneAttachmentsAfterAttach,
+  readOpenHistories,
+  removeConversationAttachments,
+} from "../attach-retention";
 import type { PermissionAnswer, RewindPreview } from "../claude/controller";
 import type { AssistantItem, ChatLine, ImageBlock, PermissionRequest, UserItem } from "../model";
 import {
@@ -1030,6 +1034,8 @@ export class CodexController {
     if (threadId === this.currentThread()) throw new Error("the tab's own thread");
     if (!(await this.ensureRunning())) throw new Error("Codex is not running");
     const read = await this.readThreadWhole(threadId).catch(() => null);
+    // What open tabs' histories name, a fork's of this one too, read while it is there.
+    await readOpenHistories(this.target.workspaceId);
     await this.request("thread/delete", { threadId });
     if (!read) return;
     const { workspaceId, cwd } = this.target;

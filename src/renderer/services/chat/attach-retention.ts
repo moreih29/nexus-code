@@ -5,7 +5,9 @@
 // - while a tab is open, its own folder's files and the files its
 //   conversation names stay, and each prune marks them used. What the
 //   conversation names is kept with the tab (its props' `attachments`),
-//   for a tab not yet read since the app started;
+//   for a tab not yet read since the app started. A tab loads a long
+//   history a page at a time from its end: what the whole history names
+//   is asked of the agent once a run (chat.historySlots, historyOf);
 // - a file a conversation names is marked used as it is shown or sent,
 //   and as its tab closes;
 // - a prune removes the rest unused for 30 days, and the least recently
@@ -105,10 +107,17 @@ function conversationOf(
   return { key, items, history: chat.history?.items, live: model.items };
 }
 
-/** The slots the open chat tabs' conversations name: those they keep and those read now. */
-function keptSlots(workspaceId: string, tabs: readonly ChatTab[], root: string): string[] {
+/**
+ * The slots the open chat tabs' conversations name: those they keep, those
+ * read now, and those their whole histories name (readOpenHistories).
+ * Null while a history's are not known: nothing is to go on a guess.
+ */
+function keptSlots(workspaceId: string, tabs: readonly ChatTab[], root: string): string[] | null {
   const slots = new Set<string>();
   for (const tab of tabs) {
+    const history = askedHistorySlots(workspaceId, tab);
+    if (!history) return null;
+    for (const slot of history) slots.add(slot);
     for (const slot of tab.props.attachments?.slots ?? []) slots.add(slot);
     const conversation = conversationOf(workspaceId, tab);
     if (!conversation) continue;
@@ -120,6 +129,93 @@ function keptSlots(workspaceId: string, tabs: readonly ChatTab[], root: string):
       slots.add(slot);
   }
   return [...slots].slice(-MAX_CALL_SLOTS);
+}
+
+/** A conversation's history as the agent keeps it, in a profile. */
+interface History {
+  agent: "claude" | "codex";
+  conversation: string;
+  profileId?: string;
+}
+
+/**
+ * The histories a tab's slots are read from: its conversation's (from the
+ * chat when read, else as the tab keeps it), and the one it was forked
+ * from until the copy has its own, in the profile that keeps that.
+ */
+function historiesOf(workspaceId: string, tab: ChatTab): History[] {
+  const agent = tab.type;
+  const own = conversationOf(workspaceId, tab)?.key ?? "";
+  const kept = tab.type === "claude" ? tab.props.sessionId : tab.props.threadId;
+  const fork = tab.type === "claude" ? tab.props.fork?.sessionId : tab.props.fork?.threadId;
+  const profileId = tab.props.profileId;
+  const histories: History[] = [];
+  for (const [conversation, profile] of [
+    [own || kept, profileId],
+    [fork, tab.props.fork?.profileId ?? profileId],
+  ] as const) {
+    if (!conversation || conversation.length > 128) continue;
+    if (histories.some((history) => history.conversation === conversation)) continue;
+    histories.push({ agent, conversation, ...(profile ? { profileId: profile } : {}) });
+  }
+  return histories;
+}
+
+const historyKey = (workspaceId: string, history: History) =>
+  `${workspaceId}\n${history.agent}\n${history.profileId ?? ""}\n${history.conversation}`;
+
+/** The slots each history named when asked this run (historyKey). */
+const historySlots = new Map<string, readonly string[]>();
+/** The histories being asked. */
+const askingHistory = new Map<string, Promise<readonly string[]>>();
+
+/** The slots a history names (chat.historySlots), asked once a run; asked again after a failure. */
+function historyOf(workspaceId: string, history: History): Promise<readonly string[]> {
+  const key = historyKey(workspaceId, history);
+  const known = historySlots.get(key);
+  if (known) return Promise.resolve(known);
+  const asking = askingHistory.get(key);
+  if (asking) return asking;
+  const asked = ipcCallResult("chat", "historySlots", { workspaceId, ...history })
+    .then((result) => {
+      const slots = unwrapIpcResult(result).slots;
+      historySlots.set(key, slots);
+      return slots;
+    })
+    .finally(() => askingHistory.delete(key));
+  askingHistory.set(key, asked);
+  return asked;
+}
+
+/** The slots the tab's histories name (historiesOf), as asked. */
+async function historySlotsOf(workspaceId: string, tab: ChatTab): Promise<string[]> {
+  const named = await Promise.all(
+    historiesOf(workspaceId, tab).map((history) => historyOf(workspaceId, history)),
+  );
+  return [...new Set(named.flat())];
+}
+
+/**
+ * Asks what the open chat tabs' whole histories name, for those not yet
+ * asked: before a prune or a deletion names what stays. False when one
+ * could not be told.
+ */
+export async function readOpenHistories(workspaceId: string): Promise<boolean> {
+  const asked = await Promise.allSettled(
+    chatTabsOf(workspaceId).map((tab) => historySlotsOf(workspaceId, tab)),
+  );
+  return asked.every((result) => result.status === "fulfilled");
+}
+
+/** The slots the tab's histories named as already asked; null when one is not. */
+function askedHistorySlots(workspaceId: string, tab: ChatTab): string[] | null {
+  const slots: string[] = [];
+  for (const history of historiesOf(workspaceId, tab)) {
+    const named = historySlots.get(historyKey(workspaceId, history));
+    if (!named) return null;
+    slots.push(...named);
+  }
+  return slots;
 }
 
 /** What each tab's conversation was when last looked at, so an unchanged one is not again. */
@@ -148,7 +244,14 @@ async function followTab(workspaceId: string, tab: ChatTab, root: string): Promi
     history: conversation.history,
     live: conversation.live,
   });
-  const slots = slotsOf(attachedFilesIn(conversation.items, tab.props.cwd), root, workspaceId);
+  const loaded = slotsOf(attachedFilesIn(conversation.items, tab.props.cwd), root, workspaceId);
+  // What the history named before the pages the tab loaded; asked again next time on failure.
+  const early = await historySlotsOf(workspaceId, tab).catch((error: Error) => {
+    looked.delete(at);
+    log.warn(`reading a conversation's attachments: ${error.message}`);
+    return [];
+  });
+  const slots = [...new Set([...early, ...loaded])];
   // Nothing named, or nothing read yet: what the tab keeps stays.
   if (slots.length === 0) return;
   const saved = tab.props.attachments;
@@ -211,6 +314,7 @@ async function touchClosed(workspaceId: string, tab: ChatTab): Promise<void> {
   const root = await rootOf(workspaceId);
   if (!root) return;
   const slots = new Set(tab.props.attachments?.slots ?? []);
+  for (const slot of askedHistorySlots(workspaceId, tab) ?? []) slots.add(slot);
   const conversation = conversationOf(workspaceId, tab);
   if (conversation) {
     for (const slot of slotsOf(
@@ -271,6 +375,9 @@ registerWorkspaceCleanup((workspaceId) => {
   followed.delete(workspaceId);
   roots.delete(workspaceId);
   touched.delete(workspaceId);
+  for (const key of historySlots.keys()) {
+    if (key.startsWith(`${workspaceId}\n`)) historySlots.delete(key);
+  }
   waiting.delete(workspaceId);
   const prefix = `${workspaceId}:`;
   for (const key of looked.keys()) if (key.startsWith(prefix)) looked.delete(key);
@@ -295,11 +402,15 @@ export async function pruneAttachments(workspaceId: string, capOnly = false): Pr
     }
     return false;
   }
+  await readOpenHistories(workspaceId);
+  const keepSlots = keptSlots(workspaceId, tabs, root);
+  // What an open conversation names early on is not known: nothing goes now.
+  if (!keepSlots) throw new Error("an open conversation's history could not be read");
   unwrapIpcResult(
     await ipcCallResult("chat", "pruneAttachments", {
       workspaceId,
       keepTabIds,
-      keepSlots: keptSlots(workspaceId, tabs, root),
+      keepSlots,
       ...(capOnly ? { capOnly: true } : {}),
     }),
   );
@@ -344,7 +455,9 @@ export function pruneAttachmentsAfterAttach(workspaceId: string): void {
 /**
  * Removes the attached files a deleted conversation's items named (written
  * from `cwd`), but those an open chat tab uses: in its own folder, or named
- * by its conversation. Forks of the conversation lose theirs too.
+ * by its conversation, its whole history as asked before the conversation
+ * went (readOpenHistories), a fork's too. None go while an open tab's
+ * history is not known; the prune of unused ones takes them later.
  */
 export async function removeConversationAttachments(
   workspaceId: string,
@@ -357,7 +470,10 @@ export async function removeConversationAttachments(
   if (named.length === 0) return;
   const tabs = chatTabsOf(workspaceId);
   const openTabs = new Set(tabs.map((tab) => tab.id));
-  const used = new Set(keptSlots(workspaceId, tabs, root));
+  // Read before the conversation went (readOpenHistories), as a fork's may be its.
+  const kept = keptSlots(workspaceId, tabs, root);
+  if (!kept) return;
+  const used = new Set(kept);
   const slots = named.filter(
     (slot) => !used.has(slot) && !openTabs.has(slot.slice(0, slot.indexOf("/"))),
   );
@@ -385,4 +501,6 @@ export function resetAttachmentRetention(): void {
   roots.clear();
   touched.clear();
   looked.clear();
+  historySlots.clear();
+  askingHistory.clear();
 }

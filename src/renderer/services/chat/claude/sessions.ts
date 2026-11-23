@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createLogger } from "../../../../shared/log/renderer";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import type { CallReturn } from "../../../ipc/types";
-import { removeConversationAttachments } from "../attach-retention";
+import { readOpenHistories, removeConversationAttachments } from "../attach-retention";
 import type { ListedSession } from "../sessions";
 import { historyModel } from "./history";
 
@@ -74,6 +74,8 @@ export async function deleteClaudeSession(
     sessionId,
     ...(profileId ? { profileId } : {}),
   }).catch(() => null);
+  // What open tabs' histories name, a fork's of this one too, read while it is there.
+  await readOpenHistories(workspaceId);
   unwrapIpcResult(
     await ipcCallResult("chat", "deleteSession", { workspaceId, cwd, sessionId, profileId }),
   );

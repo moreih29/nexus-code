@@ -3,6 +3,8 @@ import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 
 const ROOT = "/Users/me/.nexus-code/attach";
 let root: string | null = ROOT;
+/** The slots each conversation's whole history names, as its agent reads them; absent: it cannot. */
+let histories: Record<string, string[]> = {};
 /** Calls answered with a failure, by their order among the calls to `failing`. */
 let failing: { method: string; at: number[] } | undefined;
 const calls: { method: string; args: unknown }[] = [];
@@ -13,6 +15,14 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
     if (channel !== "chat") return Promise.resolve({ ok: true, value: undefined });
     if (method === "attachRoot") return Promise.resolve({ ok: true, value: { root } });
     calls.push({ method, args });
+    if (method === "historySlots") {
+      const slots = histories[(args as { conversation: string }).conversation];
+      return Promise.resolve(
+        slots
+          ? { ok: true, value: { slots } }
+          : { ok: false, error: { code: "request-failed", message: "unread" } },
+      );
+    }
     if (failing?.method === method && failing.at.includes(of(method).length - 1)) {
       return Promise.resolve({ ok: false, error: { code: "request-failed", message: "no" } });
     }
@@ -52,6 +62,7 @@ function of(method: string) {
 beforeEach(() => {
   root = ROOT;
   failing = undefined;
+  histories = { s1: [], s2: [], s3: [], t: [] };
   calls.length = 0;
   retention.resetAttachmentRetention();
   useChatStore.setState({ tabs: {} });
@@ -182,4 +193,76 @@ test("a call of slots that fails stops none after it", async () => {
   expect(
     (of("removeAttachments") as Array<{ slots: string[] }>).map((call) => call.slots.length),
   ).toEqual([5000, 5000, 2000]);
+});
+
+test("a fork open in a tab keeps what its history names early on, past the pages it loaded", async () => {
+  // C, long, named early/1 early on; tab B is a fork of it, which loaded only its last page.
+  histories = { "b-fork": ["early/1", "late/2"] };
+  const fork = useTabsStore.getState().createTab(WS, { type: "claude", props: { cwd: "/p" } });
+  shows(fork.id, "b-fork", `${ROOT}/${WS}/old-tab/2/late.png`);
+  const items = [
+    sent("a", `first\n\n@${ROOT}/${WS}/early/1/a.png`),
+    sent("b", `after the fork\n\n@${ROOT}/${WS}/after/9/b.png`),
+  ];
+  // Deleting C: the open tabs' histories are read while it is there.
+  expect(await retention.readOpenHistories(WS)).toBe(true);
+  expect(of("historySlots")).toEqual([
+    { workspaceId: WS, agent: "claude", conversation: "b-fork" },
+  ]);
+  await retention.removeConversationAttachments(WS, items as never, "/p");
+  expect(of("removeAttachments")).toEqual([{ workspaceId: WS, slots: ["after/9"] }]);
+});
+
+test("a fork not yet its own keeps what the conversation it copies names, in that one's profile", async () => {
+  histories = { "c-long": ["early/1"] };
+  useTabsStore.getState().createTab(WS, {
+    type: "codex",
+    props: { cwd: "/p", profileId: "mine", fork: { threadId: "c-long", profileId: "theirs" } },
+  });
+  expect(await retention.readOpenHistories(WS)).toBe(true);
+  expect(of("historySlots")).toEqual([
+    { workspaceId: WS, agent: "codex", conversation: "c-long", profileId: "theirs" },
+  ]);
+  const items = [sent("a", `@${ROOT}/${WS}/early/1/a.png @${ROOT}/${WS}/solo/3/c.png`)];
+  await retention.removeConversationAttachments(WS, items as never, "/p");
+  expect(of("removeAttachments")).toEqual([{ workspaceId: WS, slots: ["solo/3"] }]);
+});
+
+test("nothing goes while an open tab's history cannot be read", async () => {
+  histories = {};
+  const tab = useTabsStore.getState().createTab(WS, { type: "claude", props: { cwd: "/p" } });
+  shows(tab.id, "unread");
+  expect(await retention.readOpenHistories(WS)).toBe(false);
+  await retention.removeConversationAttachments(
+    WS,
+    [sent("a", `@${ROOT}/${WS}/solo/3/c.png`)] as never,
+    "/p",
+  );
+  expect(of("removeAttachments")).toEqual([]);
+  await expect(retention.pruneAttachments(WS)).rejects.toThrow();
+  expect(of("pruneAttachments")).toEqual([]);
+});
+
+test("a conversation gone on after days keeps and marks used what it named early on", async () => {
+  // Twenty days idle; its tab loads the last page, which names new/2 alone.
+  histories = { "s-20": ["old/1", "new/2"] };
+  const tab = useTabsStore.getState().createTab(WS, { type: "claude", props: { cwd: "/p" } });
+  retention.pruneAttachmentsOnce(WS);
+  shows(tab.id, "s-20", `${ROOT}/${WS}/new/2/b.png`);
+  await retention.followAttachmentsNow();
+  const now = useTabsStore.getState().byWorkspace[WS]?.[tab.id];
+  expect(now?.type === "claude" ? now.props.attachments : undefined).toEqual({
+    conversation: "s-20",
+    slots: ["old/1", "new/2"],
+  });
+  expect(of("touchAttachments")).toEqual([{ workspaceId: WS, slots: ["old/1", "new/2"] }]);
+  // Ten days on, with the tab still open, a prune keeps it.
+  await retention.pruneAttachments(WS);
+  expect(of("pruneAttachments").at(-1)).toEqual({
+    workspaceId: WS,
+    keepTabIds: [tab.id],
+    keepSlots: ["old/1", "new/2"],
+  });
+  // The history was asked once.
+  expect(of("historySlots")).toHaveLength(1);
 });
