@@ -672,6 +672,68 @@ describe("`claude -p` runs", () => {
     expect(log.printWatch(WS, TAB, "p1")).toBe("hook-2");
   });
 
+  test("where a run keeps its session is main's alone, and only for that tab's run", () => {
+    print("print-start", { session_id: "s-1", cwd: "/repo", home: "/home/u/.claude-work" });
+    expect(log.printRunSource(WS, TAB, "p1")).toEqual({
+      program: "claude",
+      running: true,
+      sessionId: "s-1",
+      home: "/home/u/.claude-work",
+      cwd: "/repo",
+    });
+    // The renderer is never told it.
+    expect(JSON.stringify(activity().agents)).not.toContain(".claude-work");
+    expect(JSON.stringify(changes)).not.toContain(".claude-work");
+    // Another tab's, another workspace's, an unknown run and a subagent have none.
+    expect(log.printRunSource(WS, "tab-2", "p1")).toBeUndefined();
+    expect(log.printRunSource("ws-2", TAB, "p1")).toBeUndefined();
+    expect(log.printRunSource(WS, TAB, "p9")).toBeUndefined();
+    hook("subagent-start", { agent_id: "a1", agent_type: "Explore" });
+    expect(log.printRunSource(WS, TAB, "a1")).toBeUndefined();
+    print("print-end", { exit_code: 0 });
+    expect(log.printRunSource(WS, TAB, "p1")?.running).toBe(false);
+  });
+
+  test("a run going on keeps its session where the later run says", () => {
+    print("print-start", { session_id: "s-1", home: "/a" });
+    print("print-end", { exit_code: 0 });
+    log.notePrint(WS, TAB, "print-start", {
+      run_id: "p2",
+      session_id: "s-1",
+      resumed: true,
+      program: "claude",
+      home: "/b",
+    });
+    expect(log.printRunSource(WS, TAB, "p1")).toMatchObject({ home: "/b", running: true });
+    // The later run is the earlier one's: it has no row of its own.
+    expect(log.printRunSource(WS, TAB, "p2")).toBeUndefined();
+  });
+
+  test("where a run keeps its session is kept as told, and one too long is none", () => {
+    const spaced = ` /home/u/${"d".repeat(3000)} `;
+    print("print-start", { session_id: "s-1", home: spaced });
+    expect(log.printRunSource(WS, TAB, "p1")?.home).toBe(spaced);
+    print("print-end", { exit_code: 0 });
+    log.notePrint(WS, TAB, "print-start", {
+      run_id: "p3",
+      session_id: "s-3",
+      program: "claude",
+      home: `/${"d".repeat(4096)}`,
+    });
+    const long = log.printRunSource(WS, TAB, "p3");
+    expect(long?.sessionId).toBe("s-3");
+    expect(long?.home).toBeUndefined();
+  });
+
+  test("a codex exec run that keeps no session tells no home", () => {
+    print("print-start", { program: "codex", session_id: "th-1" });
+    expect(log.printRunSource(WS, TAB, "p1")).toEqual({
+      program: "codex",
+      running: true,
+      sessionId: "th-1",
+    });
+  });
+
   test("frames of a run that never told its start change nothing", () => {
     hook("user-prompt-submit", { prompt: "go" });
     print("print-tool-use", { tool_use_id: "u1", tool_name: "Read", tool_input: {} });

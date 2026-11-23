@@ -1111,6 +1111,16 @@ export interface CliUiOps {
     result: ChatPeek;
   };
   /**
+   * One of a Claude or Codex tab's `claude -p` or `codex exec` runs as
+   * another device draws it (the remote's chat.runRead): a page of the
+   * run's own session, read by the run's id as main knows it; null when
+   * the run keeps no session to read.
+   */
+  "chat.runPage": {
+    args: { workspaceId: string; tabId: string; runId: string; before?: number; limit?: number };
+    result: ChatPage | null;
+  };
+  /**
    * Starts telling main what changes in a Claude or Codex tab's
    * conversation, for another device watching it (the remote's chat.watch):
    * its page now, then remote.chatChanged with `watchId` as it changes;

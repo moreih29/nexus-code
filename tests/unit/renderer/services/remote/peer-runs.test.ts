@@ -1,7 +1,13 @@
 /** Another computer's chat's `claude -p` runs, as a chat here lists its own beside its subagents. */
 import { describe, expect, test } from "bun:test";
 import type { ChatRun } from "../../../../../packages/remote-protocol/src";
-import { agentRunOf, peerRunRows } from "../../../../../src/renderer/services/remote/peer-runs";
+import {
+  agentRunOf,
+  peerRunRows,
+  RUN_READ_LIVE_MS,
+  RUN_READ_SLOW_MS,
+  runReadAfter,
+} from "../../../../../src/renderer/services/remote/peer-runs";
 
 const run = (over: Partial<ChatRun>): ChatRun => ({
   id: "r1",
@@ -63,5 +69,19 @@ describe("another computer's chat's runs", () => {
       failedCount: 0,
       sessionId: "s1",
     });
+  });
+
+  test("a run is asked for again while it goes on, unless the other computer refused", () => {
+    for (const failure of ["permission-denied", "unsupported"]) {
+      expect(runReadAfter(failure, false)).toBeNull();
+    }
+    // Read, out of reach, or no session there yet: soon.
+    expect(runReadAfter(null, false)).toBe(RUN_READ_LIVE_MS);
+    expect(runReadAfter("unavailable", false)).toBe(RUN_READ_LIVE_MS);
+    // "None" from an older app may be "not yet": slowly.
+    expect(runReadAfter("not-found", false)).toBe(RUN_READ_SLOW_MS);
+    for (const failure of [null, "unavailable", "not-found"]) {
+      expect(runReadAfter(failure, true)).toBeNull();
+    }
   });
 });

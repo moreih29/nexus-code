@@ -189,6 +189,7 @@ const RETRYABLE_READS: ReadonlySet<RpcMethod> = new Set([
   "chat.fileSuggestions",
   "chat.runs",
   "chat.run",
+  "chat.runRead",
   "chat.rewindPreview",
   "terminal.read",
   "terminal.wait",

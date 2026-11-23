@@ -70,15 +70,13 @@ import {
 } from "./config";
 import {
   appendCodexForkPage,
-  appendCodexThreadPage,
-  type CodexThreadPages,
   codexForkPrefix,
   codexForkSourceStatus,
   codexHistoryAvailable,
   codexHistoryBusy,
   codexServerVersion,
   emptyCodexForkPages,
-  emptyCodexThreadPages,
+  readCodexThread,
   validCodexFork,
 } from "./history";
 import { invalidateCodexHistory } from "./history-catalog";
@@ -109,9 +107,6 @@ export const MIN_CODEX_VERSION = "0.166.0";
 
 /** How long a request waits for its answer. */
 const REQUEST_TIMEOUT_MS = 30_000;
-/** A deleted thread's turns are read this many a page, and in at most this many pages. */
-const THREAD_READ_TURNS = 50;
-const THREAD_READ_PAGES = 200;
 
 const HISTORY_MUTATIONS = new Set([
   "thread/fork",
@@ -1052,25 +1047,12 @@ export class CodexController {
    * it cannot be read whole.
    */
   private async readThreadWhole(threadId: string): Promise<unknown> {
-    if (!codexHistoryAvailable(codexServerVersion(this.model, this.state.version))) {
-      return this.request("thread/read", { threadId, includeTurns: true });
-    }
-    let pages: CodexThreadPages = emptyCodexThreadPages();
-    for (let page = 0; page < THREAD_READ_PAGES; page++) {
-      const cursor = pages.nextCursor;
-      const result = await this.request("thread/turns/list", {
-        threadId,
-        sortDirection: "asc",
-        itemsView: "full",
-        limit: THREAD_READ_TURNS,
-        ...(cursor ? { cursor } : {}),
-      });
-      const next = appendCodexThreadPage(pages, result);
-      if (!next) return null;
-      if (next.nextCursor === null) return { thread: { id: threadId, turns: next.turns } };
-      pages = next;
-    }
-    return null;
+    const thread = await readCodexThread(
+      (method, params) => this.request(method, params),
+      threadId,
+      codexServerVersion(this.model, this.state.version),
+    );
+    return thread ? { thread } : null;
   }
 
   /**

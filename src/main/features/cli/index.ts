@@ -105,6 +105,11 @@ export interface SetupCliFeatureOptions {
   /** The agents of Claude sessions, for nexus agent. */
   claudeActivity?: {
     get(workspaceId: string, tabId: string): { agents: readonly AgentRun[] } | null;
+    printRunSource?(
+      workspaceId: string,
+      tabId: string,
+      runId: string,
+    ): { home?: string } | undefined;
   };
   /** The permission requests the terminals' Claude sessions hold for the app to answer. */
   claudeAsks?: {
@@ -327,6 +332,8 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       list: (workspaceId, tabId) => options.claudeActivity?.get(workspaceId, tabId)?.agents ?? [],
       stop: async (workspaceId, tabId, agentId) =>
         (await options.stopPrintRun?.(workspaceId, tabId, agentId)) ?? false,
+      keepsSession: (workspaceId, tabId, runId) =>
+        options.claudeActivity?.printRunSource?.(workspaceId, tabId, runId)?.home !== undefined,
     },
     waits: {
       begin: (waiter, target, since) => waits.begin(waiter, target, since),

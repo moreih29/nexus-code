@@ -1034,6 +1034,8 @@ app.whenReady().then(async () => {
     onTaskEvent: (workspaceId, tabId, message) =>
       claudeSetup.activity.noteTask(workspaceId, tabId, message),
     onProgramExit: (workspaceId, tabId) => claudeSetup.noteProgramExit(workspaceId, tabId),
+    printRunSource: (workspaceId, tabId, runId) =>
+      claudeSetup.activity.printRunSource(workspaceId, tabId, runId),
   });
   workspaceManager.setChatSessionCloser(
     (workspaceId, channel) => chatHost?.closeWorkspace(workspaceId, channel) ?? Promise.resolve(),
@@ -1093,6 +1095,18 @@ app.whenReady().then(async () => {
   // workspace context is deleted. Must be called after initBrowserFeature so
   // the registry singleton is available.
   registerBrowserCloser(workspaceManager);
+  // A window that closes or loads anew leaves no pane to read a run for:
+  // the readers it asked for end, and another window's go on.
+  const endRunReaders = (win: BrowserWindow) => {
+    const opener = win.webContents.id;
+    win.on("closed", () => chatHost?.closePrintRunReadersOf(opener));
+    win.webContents.on("did-start-navigation", (details) => {
+      if (details.isMainFrame && !details.isSameDocument) {
+        chatHost?.closePrintRunReadersOf(opener);
+      }
+    });
+  };
+  endRunReaders(mainWin);
   mainWin.on("closed", () => {
     getBrowserRegistry()?.disposeAll();
   });
@@ -1118,6 +1132,7 @@ app.whenReady().then(async () => {
       workspaceStorage,
       globalStorage,
     });
+    endRunReaders(newWin);
     newWin.on("closed", () => {
       getBrowserRegistry()?.disposeAll();
     });

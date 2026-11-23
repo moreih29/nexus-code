@@ -10,7 +10,7 @@ import { useContext } from "react";
 import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { ipcCallResult } from "../../ipc/client";
-import { usePeerRun } from "../../services/remote/peer-runs";
+import { usePeerRun, usePeerRunConversation } from "../../services/remote/peer-runs";
 import { peerWorkspaceId } from "../../services/remote/peer-workspace";
 import { openRemoteSession, type RemoteTarget } from "../../state/stores/remote-view";
 import { PrintRunPane } from "../chat/print-run-pane";
@@ -35,6 +35,7 @@ export function RemotePrintRunPane({
   const { deviceId, workspaceId, tabId } = target;
   const ref = { deviceId, workspaceId, tabId };
   const run = usePeerRun(ref, row, visible);
+  const conversation = usePeerRunConversation(ref, row, visible);
   const codex = run.program === "codex";
   const stopRun = async () => {
     const result = await ipcCallResult("remote", "peerChatStopRun", { ...ref, runId: run.id });
@@ -73,6 +74,7 @@ export function RemotePrintRunPane({
       visible={visible}
       stopRun={controls ? stopRun : null}
       openInTab={controls ? openInTab : null}
+      conversation={conversation}
     />
   );
 }

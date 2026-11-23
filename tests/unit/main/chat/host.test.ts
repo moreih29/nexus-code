@@ -56,6 +56,8 @@ class FakeChannel implements AgentChannel {
   versionWait?: Promise<void>;
   transcriptPageError?: string;
   attachRootAnswer: unknown = {};
+  /** The tabs the agent says it has. */
+  listed: Array<{ workspaceId: string; tabId: string }> = [];
   historySlotsAnswer: unknown = {};
   attachRootError?: string;
   /** Error codes thrown by method. */
@@ -64,6 +66,8 @@ class FakeChannel implements AgentChannel {
   private readonly lifecycle = new Set<ChannelLifecycleCallback>();
 
   async call<T = unknown>(method: string, params?: unknown): Promise<T> {
+    // Asked once as the agent connects, to close run readers left behind.
+    if (method === "chat.list") return { sessions: this.listed } as T;
     this.calls.push({ method, params });
     const failure = this.failures.get(method);
     if (failure) throw Object.assign(new Error(`${method} failed`), { code: failure });
@@ -168,6 +172,318 @@ test.each([
     await expect(page).rejects.toMatchObject({ code });
     expect(channel.calls.map((call) => call.method)).toEqual(["chat.transcriptPage"]);
   }
+});
+
+/** Lets what was started without being waited for go on. */
+const flushed = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe("a run's transcript", () => {
+  const RUN = "run-1";
+  type Source = ReturnType<NonNullable<ChatHostOptions["printRunSource"]>>;
+  const CODEX_RUN: Source = {
+    program: "codex",
+    running: false,
+    sessionId: "th-1",
+    home: "/home/u/.codex-work",
+    cwd: "/repo",
+  };
+  /** A host whose agent is up (or out of reach), with the tab's run `source`. */
+  function runSetup(source: Source, reached = true) {
+    let up = reached;
+    let dialed = 0;
+    let channel: FakeChannel | undefined;
+    const made = setup(
+      {
+        peekAgentChannel: async () => (up ? (channel ?? null) : null),
+        getAgentChannel: async () => {
+          dialed += 1;
+          if (!channel) throw new Error("no channel");
+          return channel;
+        },
+        // As the workspace manager's: it dials.
+        tryGetAgentChannel: async () => {
+          dialed += 1;
+          return up ? (channel ?? null) : null;
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      {
+        printRunSource: (ws, tab, run) =>
+          ws === WS && tab === TAB && run === RUN ? source : undefined,
+      },
+    );
+    channel = made.channel;
+    made.channel.found = { path: "/usr/bin/codex" };
+    const closes = () =>
+      made.channel.calls
+        .filter((call) => call.method === "chat.close")
+        .map((call) => (call.params as { tabId: string }).tabId);
+    const reader = async () => {
+      const started = await made.host.startPrintRunReader(WS, TAB, RUN);
+      if (!started.ok) throw new Error(`not started: ${started.reason}`);
+      return started.readerTabId;
+    };
+    return {
+      ...made,
+      dialed: () => dialed,
+      closes,
+      reader,
+      drop: () => {
+        up = false;
+      },
+    };
+  }
+  /** The same, with the tab the run is of open. */
+  async function openSetup(source: Source = CODEX_RUN) {
+    const made = runSetup(source);
+    await made.host.start(WS, TAB, "/repo", {});
+    made.channel.calls.length = 0;
+    return made;
+  }
+
+  test("is read where the run's own start said, by its session", async () => {
+    const { host, channel } = runSetup({
+      program: "claude",
+      running: true,
+      sessionId: "sess-0001",
+      home: "/home/u/.claude-work",
+    });
+    await host.printRunTranscript(WS, TAB, RUN, 120);
+    expect(channel.calls.filter((call) => call.method === "chat.runTranscript")).toEqual([
+      {
+        method: "chat.runTranscript",
+        params: { sessionId: "sess-0001", configDir: "/home/u/.claude-work", from: 120 },
+      },
+    ]);
+  });
+
+  test.each([
+    ["another tab's run", "22222222-2222-4222-8222-222222222222", RUN, undefined],
+    ["an unknown run", TAB, "run-9", undefined],
+    ["a codex exec run", TAB, RUN, { program: "codex", sessionId: "th-1", home: "/c" }],
+    ["a run that told no session", TAB, RUN, { program: "claude", home: "/c" }],
+    ["a run that keeps no session", TAB, RUN, { program: "claude", sessionId: "sess-0001" }],
+  ] as const)("is not read for %s", async (_name, tab, run, source) => {
+    const { host, channel } = runSetup(source ? { running: false, ...source } : undefined);
+    expect(await host.printRunTranscript(WS, tab, run, undefined)).toEqual({
+      found: false,
+      lines: [],
+      next: 0,
+      reset: false,
+      truncated: false,
+    });
+    expect(channel.calls.some((call) => call.method === "chat.runTranscript")).toBe(false);
+  });
+
+  test("a host out of reach is not dialed to read a run", async () => {
+    const claude = runSetup(
+      { program: "claude", running: true, sessionId: "sess-0001", home: "/c" },
+      false,
+    );
+    expect((await claude.host.printRunTranscript(WS, TAB, RUN, undefined)).found).toBe(false);
+    expect(claude.dialed()).toBe(0);
+    expect(claude.channel.calls).toEqual([]);
+
+    // The connection drops after the tab opened.
+    const codex = await openSetup();
+    const id = await codex.reader();
+    const before = codex.dialed();
+    codex.drop();
+    codex.channel.calls.length = 0;
+    expect(await codex.host.startPrintRunReader(WS, TAB, RUN)).toEqual({
+      ok: false,
+      reason: "none",
+    });
+    await expect(codex.host.send(WS, id, { id: 1, method: "thread/read" })).rejects.toThrow();
+    // Closing it dials none either: main forgets it, and the host's is closed as it connects.
+    await codex.host.call("close", { workspaceId: WS, tabId: id });
+    await expect(codex.host.send(WS, id, { id: 1, method: "thread/read" })).rejects.toMatchObject({
+      code: "chat.reader-read-only",
+    });
+    expect(codex.channel.calls).toEqual([]);
+    expect(codex.dialed()).toBe(before);
+  });
+
+  test("a codex exec run's reader starts with the run's CODEX_HOME", async () => {
+    const { host, channel } = await openSetup();
+    const started = await host.startPrintRunReader(WS, TAB, RUN);
+    if (!started.ok) throw new Error(`not started: ${started.reason}`);
+    // Which thread it reads is main's to know.
+    expect(Object.keys(started).sort()).toEqual(["ok", "readerTabId"]);
+    const start = channel.calls.find((call) => call.method === "chat.start")?.params as {
+      tabId: string;
+      cwd: string;
+      args: string[];
+      env: Record<string, string>;
+    };
+    expect(start.tabId).toBe(started.readerTabId);
+    expect(start.tabId).not.toBe(TAB);
+    expect(start.cwd).toBe("/repo");
+    expect(start.args).toEqual(["app-server"]);
+    expect(start.env.CODEX_HOME).toBe("/home/u/.codex-work");
+  });
+
+  test("a reader is told only reads of its own run's thread", async () => {
+    const { host, channel, reader } = await openSetup();
+    const id = await reader();
+    channel.calls.length = 0;
+    const sent = () =>
+      channel.calls
+        .filter((call) => call.method === "chat.send")
+        .map((call) => (call.params as { message: unknown }).message);
+
+    await host.send(WS, id, { id: 1, method: "thread/read", params: { includeTurns: true } });
+    await host.send(WS, id, {
+      id: 2,
+      method: "thread/turns/list",
+      params: { threadId: "th-1", limit: 50 },
+      extra: "dropped",
+    });
+    await host.send(WS, id, { method: "initialized" });
+    expect(sent()).toEqual([
+      { id: 1, method: "thread/read", params: { includeTurns: true, threadId: "th-1" } },
+      { id: 2, method: "thread/turns/list", params: { threadId: "th-1", limit: 50 } },
+      { method: "initialized" },
+    ]);
+
+    const refused = { code: "chat.reader-read-only" };
+    for (const message of [
+      { id: 3, method: "thread/read", params: { threadId: "th-other" } },
+      { id: 4, method: ["thread/read"], params: {} },
+      { id: 5, method: "turn/start", params: {} },
+      { id: 6, method: "thread/resume", params: { threadId: "th-1" } },
+      { id: 7, result: { decision: "accept" } },
+      { id: 8, method: "thread/read", params: ["th-other"] },
+      { id: { a: 1 }, method: "thread/read" },
+    ]) {
+      await expect(
+        host.send(WS, id, message as unknown as Record<string, unknown>),
+      ).rejects.toMatchObject(refused);
+    }
+    // A reader main did not start is none.
+    await expect(
+      host.send(WS, "print-run-reader-made-up", { id: 9, method: "thread/read" }),
+    ).rejects.toMatchObject(refused);
+    expect(sent()).toHaveLength(3);
+  });
+
+  test("no reader starts for a claude run, another tab's, or a tab that closed", async () => {
+    const claude = await openSetup({
+      program: "claude",
+      running: false,
+      sessionId: "s",
+      home: "/c",
+    });
+    expect(await claude.host.startPrintRunReader(WS, TAB, RUN)).toEqual({
+      ok: false,
+      reason: "none",
+    });
+    expect(await claude.host.startPrintRunReader(WS, TAB, "run-9")).toEqual({
+      ok: false,
+      reason: "none",
+    });
+
+    // The run's tab never opened here.
+    const unopened = runSetup(CODEX_RUN);
+    expect(await unopened.host.startPrintRunReader(WS, TAB, RUN)).toEqual({
+      ok: false,
+      reason: "none",
+    });
+    // And one that closed.
+    const closed = await openSetup();
+    await closed.host.call("close", { workspaceId: WS, tabId: TAB });
+    closed.channel.calls.length = 0;
+    expect(await closed.host.startPrintRunReader(WS, TAB, RUN)).toEqual({
+      ok: false,
+      reason: "none",
+    });
+    for (const made of [claude, unopened, closed]) {
+      expect(made.channel.calls.some((call) => call.method === "chat.start")).toBe(false);
+    }
+  });
+
+  test("a tab's runs have two readers up at most, and one that closed is not counted", async () => {
+    const { host, reader, closes } = await openSetup();
+    const a = await reader();
+    const b = await reader();
+    await host.call("close", { workspaceId: WS, tabId: b });
+    expect(closes()).toEqual([b]);
+    // B is gone: C takes its place, and A stays.
+    const c = await reader();
+    await flushed();
+    expect(closes()).toEqual([b]);
+    // With A and C up, the oldest makes room.
+    const d = await reader();
+    await flushed();
+    expect(closes()).toEqual([b, a]);
+    await host.send(WS, c, { id: 1, method: "thread/read" });
+    await host.send(WS, d, { id: 1, method: "thread/read" });
+    await expect(host.send(WS, a, { id: 1, method: "thread/read" })).rejects.toMatchObject({
+      code: "chat.reader-read-only",
+    });
+  });
+
+  test("a reader whose program ended is up no longer", async () => {
+    const { host, channel, reader, closes } = await openSetup();
+    const a = await reader();
+    const b = await reader();
+    channel.emit("chat.exit", { workspaceId: WS, tabId: a });
+    await expect(host.send(WS, a, { id: 1, method: "thread/read" })).rejects.toMatchObject({
+      code: "chat.reader-read-only",
+    });
+    // Its place is free: a third closes neither.
+    await reader();
+    await flushed();
+    expect(closes()).toEqual([]);
+    await host.send(WS, b, { id: 1, method: "thread/read" });
+  });
+
+  test("readers end with their tab, the window, and the app", async () => {
+    const tab = await openSetup();
+    const a = await tab.reader();
+    const b = await tab.reader();
+    await tab.host.call("close", { workspaceId: WS, tabId: TAB });
+    await flushed();
+    expect(tab.closes().sort()).toEqual([TAB, a, b].sort());
+
+    // A window that closes or loads anew ends the readers it asked for only.
+    const win = await openSetup();
+    const [mine, others] = [7, 8];
+    const start = async (opener: number) => {
+      const started = await win.host.startPrintRunReader(WS, TAB, RUN, opener);
+      if (!started.ok) throw new Error(`not started: ${started.reason}`);
+      return started.readerTabId;
+    };
+    const c = await start(mine);
+    const kept = await start(others);
+    win.host.closePrintRunReadersOf(mine);
+    await flushed();
+    expect(win.closes()).toEqual([c]);
+    await expect(win.host.send(WS, c, { id: 1, method: "thread/read" })).rejects.toMatchObject({
+      code: "chat.reader-read-only",
+    });
+    await win.host.send(WS, kept, { id: 1, method: "thread/read" });
+
+    const app = await openSetup();
+    const d = await app.reader();
+    app.host.dispose();
+    await flushed();
+    expect(app.closes()).toEqual([d]);
+    expect(await app.host.startPrintRunReader(WS, TAB, RUN)).toEqual({ ok: false, reason: "none" });
+  });
+
+  test("readers an agent still has from an app that ended are closed as it connects", async () => {
+    const made = runSetup(CODEX_RUN);
+    made.channel.listed = [
+      { workspaceId: WS, tabId: TAB },
+      { workspaceId: WS, tabId: "print-run-reader-left-behind" },
+    ];
+    await made.host.start(WS, TAB, "/repo", {});
+    await flushed();
+    expect(made.closes()).toEqual(["print-run-reader-left-behind"]);
+  });
 });
 
 describe("attachRoot", () => {

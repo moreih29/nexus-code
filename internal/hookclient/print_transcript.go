@@ -36,13 +36,9 @@ type printTranscript struct {
 // newPrintTranscript is the transcript of the session `sessionID`; nil when
 // Claude Code's directory is not known.
 func newPrintTranscript(sessionID string) *printTranscript {
-	dir := os.Getenv("CLAUDE_CONFIG_DIR")
+	dir := claudeConfigDir()
 	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil
-		}
-		dir = filepath.Join(home, ".claude")
+		return nil
 	}
 	return &printTranscript{
 		projects: filepath.Join(dir, "projects"),
@@ -50,6 +46,30 @@ func newPrintTranscript(sessionID string) *printTranscript {
 		stop:     make(chan struct{}),
 		done:     make(chan struct{}),
 	}
+}
+
+// claudeConfigDir is claude's directory: CLAUDE_CONFIG_DIR, else ~/.claude.
+func claudeConfigDir() string {
+	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+		return dir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".claude")
+}
+
+// absoluteDir is dir made absolute, "" when it is "" or cannot be.
+func absoluteDir(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return ""
+	}
+	return abs
 }
 
 // follow hands each line written to the transcript to `watch` as it comes,

@@ -440,6 +440,7 @@ test("only the reviewed read operations skip focus restoration", () => {
     "chat.page",
     "chat.peek",
     "chat.read",
+    "chat.runPage",
     "chat.state",
     "events.read",
     "layout.get",

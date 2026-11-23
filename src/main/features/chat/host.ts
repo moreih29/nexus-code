@@ -21,7 +21,12 @@ import {
   SHAREABLE,
 } from "../../../shared/agent-profiles/profiles";
 import { type ClaudeTurnResult, claudeTurnResult } from "../../../shared/claude/turn-result";
-import type { ChatPeekTail, TranscriptPageResult } from "../../../shared/ipc/contract";
+import type {
+  ChatPeekTail,
+  PrintRunReaderResult,
+  PrintRunTranscriptResult,
+  TranscriptPageResult,
+} from "../../../shared/ipc/contract";
 import { createLogger } from "../../../shared/log/main";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { tryGetMainT } from "../../i18n";
@@ -33,6 +38,7 @@ import {
   codexConnectionCatalog,
   codexConnectionEnv,
 } from "../agent-profiles/connection-launch";
+import type { PrintRunSource } from "../claude/session-activity";
 import type { ChatAgentContext } from "../cli/commands/agent-context";
 import type { WindowsAgentFiles } from "../pty/windows-shell-shim";
 import type { HookInfo } from "../workspace/manager";
@@ -125,6 +131,40 @@ export interface AttachCleanups {
   remove(host: string, workspaceId: string): void;
 }
 
+/** The tab ids of the app-servers that read a `codex exec` run's thread. */
+const PRINT_RUN_READER_PREFIX = "print-run-reader-";
+
+export function isPrintRunReader(tabId: string): boolean {
+  return tabId.startsWith(PRINT_RUN_READER_PREFIX);
+}
+
+/** How many readers one tab's runs have at a time. */
+const PRINT_RUN_READERS = 2;
+
+/** What a run's reader is told: the handshake and reads of its thread, nothing that changes one. */
+const PRINT_RUN_READER_METHODS = new Set([
+  "initialize",
+  "initialized",
+  "thread/read",
+  "thread/turns/list",
+]);
+/** Those of them that name a thread: the reader's own, which main fills in. */
+const PRINT_RUN_READER_THREAD_METHODS = new Set(["thread/read", "thread/turns/list"]);
+
+/** A reader main started: whose run it reads, and the one thread it may. */
+interface PrintRunReader {
+  workspaceId: string;
+  /** The tab whose run it reads: it goes with that tab. */
+  ownerTabId: string;
+  threadId: string;
+  /** The window (its webContents id) whose pane asked for it; it goes with that window. */
+  opener?: number;
+}
+
+function readerRefused(message: string): Error {
+  return Object.assign(new Error(message), { code: "chat.reader-read-only" });
+}
+
 export interface ChatHostOptions {
   workspaceManager: ChatWorkspaceManager;
   broadcast: (event: string, args: unknown) => void;
@@ -139,6 +179,15 @@ export interface ChatHostOptions {
   onTurnResult?: (workspaceId: string, tabId: string, result: ClaudeTurnResult) => void;
   /** The lifecycle messages for a Claude chat's background tasks. */
   onTaskEvent?: (workspaceId: string, tabId: string, message: Record<string, unknown>) => void;
+  /**
+   * Where a tab's `claude -p` or `codex exec` run keeps its session, as the
+   * app recorded it from the run's start: undefined for a run not of that tab.
+   */
+  printRunSource?: (
+    workspaceId: string,
+    tabId: string,
+    runId: string,
+  ) => PrintRunSource | undefined;
   /** A tab's program exited. */
   onProgramExit?: (workspaceId: string, tabId: string) => void;
   /** Saved chat tabs that may still have a program even before their view opens. */
@@ -208,6 +257,13 @@ export class ChatHost {
   /** Tabs whose new prompt file is not yet taken by a started program. */
   private readonly promptStarting = new Set<string>();
   private readonly closingTabs = new Map<string, Promise<unknown>>();
+  /**
+   * The readers that are up, by their tab id, oldest first: a tab's runs
+   * have at most PRINT_RUN_READERS (its pane's, and one another device
+   * reads by). One leaves as it closes or its program ends; all go with
+   * their tab, the window and the app.
+   */
+  private readonly printRunReaders = new Map<string, PrintRunReader>();
   /** Workspaces whose tabs have started a program through this host. */
   private readonly workspaces = new Set<string>();
   /** What each agent connection answered chat.attachRoot with (askAttachRoot): asked once a connection. */
@@ -551,6 +607,8 @@ export class ChatHost {
     removal?: WorkspaceChatClose,
   ): Promise<unknown> {
     const key = `${workspaceId}:${tabId}`;
+    if (isPrintRunReader(tabId)) this.printRunReaders.delete(tabId);
+    else this.closePrintRunReaders(workspaceId, tabId);
     const intent = this.tabIntents.get(key);
     const previous = this.closingTabs.get(key);
     if (previous && !intent && !removal) return previous;
@@ -577,7 +635,11 @@ export class ChatHost {
         if (timeoutMs <= 0) return removal.expired;
         return removal.channel.call("chat.close", params, { timeoutMs });
       }
-      const channel = await this.options.workspaceManager.tryGetAgentChannel(workspaceId);
+      // A run's reader on a host out of reach dials none: what is left there
+      // is closed as the host connects again (prunePrintRunReaders).
+      const channel = isPrintRunReader(tabId)
+        ? ((await this.options.workspaceManager.peekAgentChannel?.(workspaceId)) ?? null)
+        : await this.options.workspaceManager.tryGetAgentChannel(workspaceId);
       if (!channel) return undefined;
       // Its conversation may go on in another tab, which names its files. Not
       // where the agent names no attach root (a home it cannot name, or an
@@ -591,7 +653,8 @@ export class ChatHost {
         return await (removal ? Promise.race([close(), removal.expired]) : close());
       } finally {
         this.subscriptions.get(workspaceId)?.processes.delete(tabId);
-        this.options.onProgramExit?.(workspaceId, tabId);
+        // A run's reader is no tab: nothing waits on its exit.
+        if (!isPrintRunReader(tabId)) this.options.onProgramExit?.(workspaceId, tabId);
       }
     })();
     this.closingTabs.set(key, run);
@@ -608,6 +671,10 @@ export class ChatHost {
     message: Record<string, unknown>,
     layer: { profileId?: string; instructions?: string } = {},
   ): Promise<void> {
+    if (isPrintRunReader(tabId)) {
+      await this.sendToPrintRunReader(workspaceId, tabId, message);
+      return;
+    }
     const channel = await this.channelFor(workspaceId);
     if (message.type === "user" && layer.instructions !== undefined) {
       this.claudeInstructions.set(`${workspaceId}:${tabId}`, layer);
@@ -1003,6 +1070,221 @@ export class ChatHost {
     }
   }
 
+  /**
+   * The transcript of the tab's `claude -p` run `runId`, read on from
+   * `from` (where the last read ended): read where the run's own start
+   * said its session is kept, never where the renderer says. Not found for
+   * a run not of that tab, a `codex exec` run, or one that keeps none.
+   */
+  async printRunTranscript(
+    workspaceId: string,
+    tabId: string,
+    runId: string,
+    from: number | undefined,
+  ): Promise<PrintRunTranscriptResult> {
+    const none: PrintRunTranscriptResult = {
+      found: false,
+      lines: [],
+      next: 0,
+      reset: false,
+      truncated: false,
+    };
+    const source = this.options.printRunSource?.(workspaceId, tabId, runId);
+    if (source?.program !== "claude" || !source.sessionId || !source.home) return none;
+    // Only from an agent that is up: a host out of reach is not dialed for a
+    // pane's poll or another device's read, and the pane shows what the run told.
+    const channel = await this.upChannel(workspaceId);
+    if (!channel) return none;
+    try {
+      const result = await channel.call<{
+        found?: boolean;
+        lines?: unknown[];
+        next?: number;
+        reset?: boolean;
+        truncated?: boolean;
+      }>("chat.runTranscript", {
+        sessionId: source.sessionId,
+        configDir: source.home,
+        ...(from !== undefined ? { from } : {}),
+      });
+      return {
+        found: result.found === true,
+        lines: result.lines ?? [],
+        next: typeof result.next === "number" ? result.next : 0,
+        reset: result.reset === true,
+        truncated: result.truncated === true,
+      };
+    } catch (error) {
+      // An agent before chat.runTranscript: the pane shows what the run told.
+      if ((error as { code?: unknown } | null)?.code === "unsupported-method") return none;
+      throw error;
+    }
+  }
+
+  /** The workspace's agent channel while it is up, relayed from; null when it is out of reach. */
+  private async upChannel(workspaceId: string): Promise<AgentChannel | null> {
+    const channel = await this.options.workspaceManager.peekAgentChannel?.(workspaceId);
+    if (!channel) return null;
+    await channel.ready;
+    this.workspaces.add(workspaceId);
+    this.subscribe(workspaceId, channel);
+    return channel;
+  }
+
+  /**
+   * Starts a Codex app-server that reads the tab's `codex exec` run
+   * `runId`'s thread, with the run's own CODEX_HOME, as a tab's starts (an
+   * SSH or WSL host's too, while it is connected): its lines come as a chat
+   * tab's do, by the reader's tab id, which chat.close ends. Only for a tab
+   * that is open. Main keeps which thread it reads: send fills it in.
+   */
+  async startPrintRunReader(
+    workspaceId: string,
+    tabId: string,
+    runId: string,
+    opener?: number,
+  ): Promise<PrintRunReaderResult> {
+    const source = this.options.printRunSource?.(workspaceId, tabId, runId);
+    if (source?.program !== "codex" || !source.sessionId || !source.home) {
+      return { ok: false, reason: "none" };
+    }
+    // A run of a tab that closed has no pane to read it for.
+    if (this.disposed || !this.tabIntents.has(`${workspaceId}:${tabId}`)) {
+      return { ok: false, reason: "none" };
+    }
+    if (!(await this.upChannel(workspaceId))) return { ok: false, reason: "none" };
+    const readerTabId = `${PRINT_RUN_READER_PREFIX}${randomUUID()}`;
+    // Past the most a tab's runs have, the oldest still up goes.
+    const up = [...this.printRunReaders].filter(
+      ([, reader]) => reader.workspaceId === workspaceId && reader.ownerTabId === tabId,
+    );
+    for (const [old] of up.slice(0, Math.max(0, up.length + 1 - PRINT_RUN_READERS))) {
+      void this.closeTab(workspaceId, old).catch(() => {});
+    }
+    this.printRunReaders.set(readerTabId, {
+      workspaceId,
+      ownerTabId: tabId,
+      threadId: source.sessionId,
+      ...(opener !== undefined ? { opener } : {}),
+    });
+    const key = `${workspaceId}:${readerTabId}`;
+    const intent = this.openTab(key);
+    try {
+      const channel = await this.channelForStart(workspaceId, key, intent);
+      const windows = this.windowsHost(workspaceId);
+      const profileEnv = mergeAgentEnv(
+        windows,
+        await this.profileEnv(channel, this.profile("codex", undefined), windows),
+        { [PROFILE_DIR_ENV.codex]: source.home },
+      );
+      const cwd = source.cwd ?? source.home;
+      const found = await this.findBinary(channel, "codex", cwd, profileEnv, windows);
+      if (!found.path) {
+        this.tabIntents.delete(key);
+        this.printRunReaders.delete(readerTabId);
+        return { ok: false, reason: "not-found" };
+      }
+      const path = agentEnvValue(profileEnv, "PATH", windows) ?? found.envPath;
+      await this.spawn(key, intent, channel, {
+        workspaceId,
+        tabId: readerTabId,
+        cwd,
+        program: found.path,
+        args: ["app-server"],
+        env: mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path }),
+        resetLog: true,
+      });
+      return { ok: true, readerTabId };
+    } catch (error) {
+      void this.closeTab(workspaceId, readerTabId).catch(() => {});
+      return { ok: false, reason: "failed", message: (error as Error).message };
+    }
+  }
+
+  /**
+   * Tells a run's reader a read: only the handshake and the reads of a
+   * thread, and of those only the reader's own thread, which main puts in
+   * (a message naming another is refused). Nothing else of the message goes.
+   */
+  private async sendToPrintRunReader(
+    workspaceId: string,
+    readerTabId: string,
+    message: Record<string, unknown>,
+  ): Promise<void> {
+    const reader = this.printRunReaders.get(readerTabId);
+    if (!reader || reader.workspaceId !== workspaceId) throw readerRefused("no such reader");
+    const { method, id } = message;
+    if (typeof method !== "string" || !PRINT_RUN_READER_METHODS.has(method)) {
+      throw readerRefused("a run's reader only reads");
+    }
+    if (id !== undefined && typeof id !== "number" && typeof id !== "string") {
+      throw readerRefused("a run's reader only reads");
+    }
+    const given = message.params;
+    if (
+      given !== undefined &&
+      (typeof given !== "object" || given === null || Array.isArray(given))
+    ) {
+      throw readerRefused("a run's reader only reads");
+    }
+    let params = given as Record<string, unknown> | undefined;
+    if (PRINT_RUN_READER_THREAD_METHODS.has(method)) {
+      const named = params?.threadId;
+      if (named !== undefined && named !== reader.threadId) {
+        throw readerRefused("a run's reader reads its own run only");
+      }
+      params = { ...params, threadId: reader.threadId };
+    }
+    const channel = await this.upChannel(workspaceId);
+    if (!channel) throw readerRefused("the reader's host is out of reach");
+    await channel.call("chat.send", {
+      workspaceId,
+      tabId: readerTabId,
+      message: {
+        ...(id !== undefined ? { id } : {}),
+        method,
+        ...(params !== undefined ? { params } : {}),
+      },
+    });
+  }
+
+  /** Ends the readers of one tab's runs, or with no tab every reader (the app quits). */
+  closePrintRunReaders(workspaceId?: string, tabId?: string): void {
+    for (const [readerTabId, reader] of [...this.printRunReaders]) {
+      if (workspaceId !== undefined && reader.workspaceId !== workspaceId) continue;
+      if (tabId !== undefined && reader.ownerTabId !== tabId) continue;
+      void this.closeTab(reader.workspaceId, readerTabId).catch(() => {});
+    }
+  }
+
+  /** Ends the readers one window's panes asked for: it closed, or loads anew. */
+  closePrintRunReadersOf(opener: number): void {
+    for (const [readerTabId, reader] of [...this.printRunReaders]) {
+      if (reader.opener !== opener) continue;
+      void this.closeTab(reader.workspaceId, readerTabId).catch(() => {});
+    }
+  }
+
+  /**
+   * Ends the readers an agent still has that main does not know: left by an
+   * app that ended before closing them, on a daemon that outlived it.
+   */
+  private async prunePrintRunReaders(workspaceId: string, channel: AgentChannel): Promise<void> {
+    try {
+      const listed = await channel.call<{ sessions?: { tabId?: unknown }[] }>("chat.list", {
+        workspaceId,
+      });
+      for (const session of listed.sessions ?? []) {
+        const tabId = session.tabId;
+        if (typeof tabId !== "string" || !isPrintRunReader(tabId)) continue;
+        if (this.printRunReaders.has(tabId)) continue;
+        await channel.call("chat.close", { workspaceId, tabId }).catch(() => {});
+      }
+    } catch (error) {
+      log.warn(`could not list ${workspaceId}'s run readers: ${(error as Error).message}`);
+    }
+  }
+
   async subagentTranscript(
     workspaceId: string,
     sessionId: string,
@@ -1294,6 +1576,14 @@ export class ChatHost {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    // The app's readers end with it: asked of each agent still connected.
+    for (const [readerTabId, reader] of this.printRunReaders) {
+      const channel = this.subscriptions.get(reader.workspaceId)?.channel;
+      void channel
+        ?.call("chat.close", { workspaceId: reader.workspaceId, tabId: readerTabId })
+        .catch(() => {});
+    }
+    this.printRunReaders.clear();
     this.oauth.dispose();
     this.disposeProviderReady();
     for (const subscription of this.subscriptions.values()) subscription.dispose();
@@ -1357,6 +1647,14 @@ export class ChatHost {
     const workspaceId = payload.workspaceId as string;
     const tabId = typeof payload.tabId === "string" ? payload.tabId : null;
     if (!tabId) return;
+    if (isPrintRunReader(tabId)) {
+      // A run's reader is no tab: it has no status. One whose program ended is up no longer.
+      if (event === "exit") {
+        this.printRunReaders.delete(tabId);
+        this.tabIntents.delete(`${workspaceId}:${tabId}`);
+      }
+      return;
+    }
     if (event === "exit") {
       // A restart's new file is not the exited program's.
       const key = `${workspaceId}:${tabId}`;
@@ -1413,6 +1711,7 @@ export class ChatHost {
       this.handleLifecycle(workspaceId, subscription, event),
     );
     this.subscriptions.set(workspaceId, subscription);
+    void this.prunePrintRunReaders(workspaceId, channel);
   }
 
   /**

@@ -10,6 +10,7 @@ import {
   MAX_LISTED_NOTES,
   MAX_PEEK_BYTES,
   MAX_SESSION_AGENTS,
+  RPC_METHODS,
   RpcErrorCode,
   SessionsUpdateSchema,
 } from "../../../../../packages/remote-protocol/src";
@@ -2981,5 +2982,130 @@ describe("receiver-side checks on peer writes", () => {
       }),
     ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
     expect(calls).toEqual([]);
+  });
+});
+
+describe("chat.runRead", () => {
+  const page = {
+    status: { agent: "claude", state: "idle" },
+    start: 0,
+    total: 1,
+    items: [{ kind: "user", key: "u1", text: "review it" }],
+    tools: {},
+    tasks: {},
+    agentItems: {},
+  };
+  function runServices(answer: unknown = page, run: Partial<AgentRun> = {}, keeps = false) {
+    const base = services();
+    const asked: [string, unknown][] = [];
+    const s = {
+      ...base,
+      claudeAgents: {
+        list: (_ws: string, tab: string) =>
+          tab === "t1"
+            ? [agentRun({ id: "run-1", kind: "print", ...run }), agentRun({ id: "sub-1" })]
+            : tab === "t4"
+              ? [agentRun({ id: "run-4", kind: "print" })]
+              : [],
+        stop: async () => false,
+        keepsSession: () => keeps,
+      },
+      ui: async (op: string, args: { workspaceId: string }) => {
+        if (op === "chat.runPage") {
+          asked.push([op, args]);
+          return answer;
+        }
+        return base.ui(op as "tabs.list", args);
+      },
+    } as unknown as CliServices;
+    return { s, asked };
+  }
+  const tab = { workspaceId: "w1", tabId: "t1" };
+
+  test("reads a run of the chat's by its id, a page as the chat's own", async () => {
+    const { s, asked } = runServices();
+    const serve = serveWith(() => s);
+    const got = await serve({
+      from: "d",
+      method: "chat.runRead",
+      params: { ...tab, runId: "run-1", before: 40, limit: 20 },
+    });
+    expect(got).toEqual(page);
+    expect(asked).toEqual([["chat.runPage", { ...tab, runId: "run-1", before: 40, limit: 20 }]]);
+  });
+
+  test.each([
+    ["another chat's run", "run-4"],
+    ["a subagent", "sub-1"],
+    ["an unknown run", "run-9"],
+  ])("finds no %s there, and reads nothing", async (_name, runId) => {
+    const { s, asked } = runServices();
+    const serve = serveWith(() => s);
+    await expect(
+      serve({ from: "d", method: "chat.runRead", params: { ...tab, runId } }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+    expect(asked).toEqual([]);
+  });
+
+  test("a run that keeps no session is not found", async () => {
+    const { s } = runServices(null);
+    const serve = serveWith(() => s);
+    await expect(
+      serve({ from: "d", method: "chat.runRead", params: { ...tab, runId: "run-1" } }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+  });
+
+  test("a run going on that keeps a session has none to read yet: asked for again", async () => {
+    const read = (run: Partial<AgentRun>, keeps: boolean) =>
+      serveWith(() => runServices(null, run, keeps).s)({
+        from: "d",
+        method: "chat.runRead",
+        params: { ...tab, runId: "run-1" },
+      });
+    await expect(read({ end: undefined }, true)).rejects.toMatchObject({
+      code: RpcErrorCode.Unavailable,
+    });
+    // One that ended, or that keeps none, has none.
+    await expect(read({ end: 200 }, true)).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+    await expect(read({ end: undefined }, false)).rejects.toMatchObject({
+      code: RpcErrorCode.NotFound,
+    });
+  });
+
+  test("a tab that is no chat has no runs to read", async () => {
+    const { s, asked } = runServices();
+    const serve = serveWith(() => s);
+    await expect(
+      serve({
+        from: "d",
+        method: "chat.runRead",
+        params: { workspaceId: "w1", tabId: "t2", runId: "run-1" },
+      }),
+    ).rejects.toThrow();
+    expect(asked).toEqual([]);
+  });
+
+  test("an agent reads it as it reads the chat: unasked, and not where agents are off", async () => {
+    const by = { name: "claude", workspace: "w9", tab: "t9" };
+    for (const policy of ["ask", "allow"] as const) {
+      const { s, asked } = runServices();
+      const serve = serveWith(() => s, { agents: new AgentGate({ policy: () => policy }) });
+      await serve({
+        from: "d",
+        method: "chat.runRead",
+        params: { ...tab, runId: "run-1", from: by },
+      });
+      expect(asked.map(([op]) => op)).toEqual(["chat.runPage"]);
+    }
+    const { s, asked } = runServices();
+    const serve = serveWith(() => s, { agents: new AgentGate({ policy: () => "deny" }) });
+    await expect(
+      serve({ from: "d", method: "chat.runRead", params: { ...tab, runId: "run-1", from: by } }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    expect(asked).toEqual([]);
+  });
+
+  test("it is asked under the chat.read capability", () => {
+    expect(RPC_METHODS["chat.runRead"].capability).toBe("chat.read");
   });
 });

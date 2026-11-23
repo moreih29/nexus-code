@@ -690,6 +690,30 @@ const chatPeekTail = z.object({
 });
 export type ChatPeekTail = z.infer<typeof chatPeekTail>;
 
+const printRunTranscriptResult = z.object({
+  found: z.boolean(),
+  lines: z.array(z.unknown()),
+  /** Where the next read goes on: its `from`. */
+  next: NonnegativeIntegerSchema,
+  /** The file was shorter than `from`: `lines` are its whole again. */
+  reset: z.boolean(),
+  /** Past the cap: only the last lines. */
+  truncated: z.boolean(),
+});
+
+export type PrintRunTranscriptResult = z.infer<typeof printRunTranscriptResult>;
+
+const printRunReaderResult = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true), readerTabId: z.string() }),
+  z.object({
+    ok: z.literal(false),
+    reason: z.enum(["none", "not-found", "failed"]),
+    message: z.string().optional(),
+  }),
+]);
+
+export type PrintRunReaderResult = z.infer<typeof printRunReaderResult>;
+
 const notesContracts = {
   /**
    * Notes: a workspace's notes, kept by the app under its data folder by
@@ -1282,6 +1306,33 @@ const coreIpcContract = {
           lines: z.array(z.unknown()),
           truncated: z.boolean(),
         }),
+      ),
+      /**
+       * The transcript of a tab's `claude -p` run, read on from `from` (the
+       * last read's `next`), from where the run's start said its session is
+       * kept: the renderer names the run, never a path.
+       */
+      printRunTranscript: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          tabId: z.string().max(128),
+          runId: z.string().max(200),
+          from: NonnegativeIntegerSchema.optional(),
+        }),
+        printRunTranscriptResult,
+      ),
+      /**
+       * Starts a Codex app-server that reads a tab's `codex exec` run's
+       * thread with the run's CODEX_HOME: its lines come by `readerTabId`,
+       * which chat.send writes to and chat.close ends.
+       */
+      printRunReader: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          tabId: z.string().max(128),
+          runId: z.string().max(200),
+        }),
+        printRunReaderResult,
       ),
       /** An internal page of a Claude transcript, from newest to oldest. */
       transcriptPage: call(
@@ -2959,6 +3010,11 @@ const remoteContracts = {
       peerChatRun: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.run"].params),
         RPC_METHODS["chat.run"].result,
+      ),
+      /** One of those runs as the conversation its own session holds, a page at a time. */
+      peerChatRunRead: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.runRead"].params),
+        RPC_METHODS["chat.runRead"].result,
       ),
       /** Stops one of those runs. */
       peerChatStopRun: call(
