@@ -53,7 +53,7 @@ func (s *Service) AddToGitignore(ctx context.Context, raw json.RawMessage) (any,
 		prefix += "\n"
 	}
 	if err := atomicWriteText(ignorePath, prefix+pattern+"\n"); err != nil {
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: err.Error()}
+		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: proto.Reason(err)}
 	}
 	return AddToGitignoreResult{Added: true, AlreadyIgnored: false}, nil
 }

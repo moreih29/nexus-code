@@ -99,19 +99,19 @@ func (p *serverProcess) start(ctx context.Context) error {
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return proto.RequestFailed("lsp.spawn stdin pipe failed: %s", err)
+		return proto.RequestFailed("lsp.spawn stdin pipe failed: %s", proto.Reason(err))
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return proto.RequestFailed("lsp.spawn stdout pipe failed: %s", err)
+		return proto.RequestFailed("lsp.spawn stdout pipe failed: %s", proto.Reason(err))
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return proto.RequestFailed("lsp.spawn stderr pipe failed: %s", err)
+		return proto.RequestFailed("lsp.spawn stderr pipe failed: %s", proto.Reason(err))
 	}
 	stopTree, err := startServerCommand(cmd)
 	if err != nil {
-		return proto.RequestFailed("lsp.spawn failed: %s", err)
+		return proto.RequestFailed("lsp.spawn failed: %s", proto.Reason(err))
 	}
 
 	p.cmd = cmd
@@ -245,7 +245,7 @@ func (p *serverProcess) request(ctx context.Context, method string, params any) 
 	if p.exited {
 		err := p.exitErr
 		p.mu.Unlock()
-		return nil, proto.RequestFailed("lsp server exited: %v", err)
+		return nil, proto.RequestFailed("lsp server exited: %s", proto.Reason(err))
 	}
 	p.pendingInternal[key] = response
 	p.mu.Unlock()
@@ -365,7 +365,7 @@ func (p *serverProcess) sendRaw(ctx context.Context, message json.RawMessage) er
 	select {
 	case err := <-written:
 		if err != nil {
-			return proto.RequestFailed("lsp write failed: %s", err)
+			return proto.RequestFailed("lsp write failed: %s", proto.Reason(err))
 		}
 		return nil
 	case <-writeCtx.Done():

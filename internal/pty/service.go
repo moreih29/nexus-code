@@ -248,7 +248,7 @@ func (s *Service) spawnSession(key tabKey, p SpawnParams) (*session, error) {
 		rows:  p.Rows,
 	})
 	if err != nil {
-		return nil, proto.RequestFailed("failed to spawn PTY: %s", err)
+		return nil, proto.RequestFailed("failed to spawn PTY: %s", proto.Reason(err))
 	}
 
 	session := newSession(s, key, child, master)
@@ -308,7 +308,7 @@ func (s *Service) Resize(_ context.Context, raw json.RawMessage) (any, error) {
 		return struct{}{}, nil
 	}
 	if err := session.resize(p.Cols, p.Rows); err != nil {
-		return nil, proto.RequestFailed("failed to resize PTY: %s", err)
+		return nil, proto.RequestFailed("failed to resize PTY: %s", proto.Reason(err))
 	}
 	return struct{}{}, nil
 }
@@ -559,7 +559,7 @@ func (s *session) write(data []byte) error {
 			next = maxWriteChunkSize
 		}
 		if err := writeFull(s.master, data[:next]); err != nil {
-			return proto.RequestFailed("failed to write PTY input: %s", err)
+			return proto.RequestFailed("failed to write PTY input: %s", proto.Reason(err))
 		}
 		data = data[next:]
 	}

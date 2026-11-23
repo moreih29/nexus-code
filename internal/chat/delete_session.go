@@ -35,7 +35,7 @@ func (s *Service) DeleteSession(_ context.Context, raw json.RawMessage) (any, er
 			continue
 		}
 		if err := os.Remove(transcript); err != nil {
-			return nil, proto.RequestFailed("chat.deleteSession: the transcript could not be removed: %s", claudefiles.Reason(err))
+			return nil, proto.RequestFailed("chat.deleteSession: the transcript could not be removed: %s", proto.Reason(err))
 		}
 		deleted = true
 		_ = os.RemoveAll(filepath.Join(project, p.SessionID))

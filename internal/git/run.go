@@ -349,7 +349,7 @@ func mapGitStartError(err error, args []string) error {
 	if errors.Is(err, exec.ErrNotFound) {
 		return classifiedFailure(KindGitMissing, "git executable not found")
 	}
-	return proto.CodedError{Code: proto.CodeRequestFailed, Msg: redact.Credentials(err.Error())}
+	return proto.CodedError{Code: proto.CodeRequestFailed, Msg: redact.Credentials(proto.Reason(err))}
 }
 
 type cappedBuffer struct {

@@ -1,4 +1,4 @@
-package claudefiles
+package proto
 
 import (
 	"errors"

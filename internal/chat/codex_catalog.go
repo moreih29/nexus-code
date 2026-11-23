@@ -31,11 +31,11 @@ func (s *Service) WriteCodexCatalog(_ context.Context, raw json.RawMessage) (any
 
 	dir, err := agentpaths.RunDir()
 	if err != nil {
-		return nil, proto.RequestFailed("chat.writeCodexCatalog: %s", err)
+		return nil, proto.RequestFailed("chat.writeCodexCatalog: %s", proto.Reason(err))
 	}
 	dir = filepath.Join(dir, "codex-catalogs")
 	if err = agentpaths.EnsureDir(dir); err != nil {
-		return nil, proto.RequestFailed("chat.writeCodexCatalog: %s", err)
+		return nil, proto.RequestFailed("chat.writeCodexCatalog: %s", proto.Reason(err))
 	}
 	path := filepath.Join(dir, fmt.Sprintf("%x.json", sha256.Sum256(p.Catalog)))
 	if _, err := os.Stat(path); err == nil {
@@ -43,17 +43,17 @@ func (s *Service) WriteCodexCatalog(_ context.Context, raw json.RawMessage) (any
 	}
 	file, err := os.CreateTemp(dir, ".catalog-*")
 	if err != nil {
-		return nil, proto.RequestFailed("chat.writeCodexCatalog: %s", err)
+		return nil, proto.RequestFailed("chat.writeCodexCatalog: %s", proto.Reason(err))
 	}
 	defer os.Remove(file.Name())
 	_, writeErr := file.Write(p.Catalog)
 	closeErr := file.Close()
 	if writeErr != nil || closeErr != nil {
-		return nil, proto.RequestFailed("chat.writeCodexCatalog: %s", errors.Join(writeErr, closeErr))
+		return nil, proto.RequestFailed("chat.writeCodexCatalog: %s", proto.Reason(errors.Join(writeErr, closeErr)))
 	}
 	if err := os.Rename(file.Name(), path); err != nil {
 		if _, statErr := os.Stat(path); statErr != nil {
-			return nil, proto.RequestFailed("chat.writeCodexCatalog: %s", err)
+			return nil, proto.RequestFailed("chat.writeCodexCatalog: %s", proto.Reason(err))
 		}
 	}
 	return path, nil

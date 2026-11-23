@@ -83,15 +83,15 @@ func (s *Service) Attach(_ context.Context, raw json.RawMessage) (any, error) {
 	}
 	dir, err := tabAttachDir(key)
 	if err != nil {
-		return nil, proto.RequestFailed("chat.attach: %v", err)
+		return nil, proto.RequestFailed("chat.attach: %s", proto.Reason(err))
 	}
 	wsDir := filepath.Dir(dir)
 	if err := os.MkdirAll(filepath.Dir(wsDir), 0o700); err != nil {
-		return nil, proto.RequestFailed("chat.attach: %v", err)
+		return nil, proto.RequestFailed("chat.attach: %s", proto.Reason(err))
 	}
 	for _, step := range []string{wsDir, dir} {
 		if err := os.Mkdir(step, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
-			return nil, proto.RequestFailed("chat.attach: %v", err)
+			return nil, proto.RequestFailed("chat.attach: %s", proto.Reason(err))
 		}
 		if !realDir(step) {
 			return nil, errAttachFolderLinked
@@ -104,12 +104,12 @@ func (s *Service) Attach(_ context.Context, raw json.RawMessage) (any, error) {
 			continue
 		}
 		if err != nil {
-			return nil, proto.RequestFailed("chat.attach: %v", err)
+			return nil, proto.RequestFailed("chat.attach: %s", proto.Reason(err))
 		}
 		path := filepath.Join(slot, name)
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			_ = os.RemoveAll(slot)
-			return nil, proto.RequestFailed("chat.attach: %v", err)
+			return nil, proto.RequestFailed("chat.attach: %s", proto.Reason(err))
 		}
 		return AttachResult{Path: path}, nil
 	}
@@ -118,7 +118,7 @@ func (s *Service) Attach(_ context.Context, raw json.RawMessage) (any, error) {
 func (s *Service) AttachRoot(_ context.Context, _ json.RawMessage) (any, error) {
 	root, err := attachRoot()
 	if err != nil {
-		return nil, proto.RequestFailed("chat.attachRoot: %v", err)
+		return nil, proto.RequestFailed("chat.attachRoot: %s", proto.Reason(err))
 	}
 	return AttachRootResult{Root: root}, nil
 }
@@ -134,7 +134,7 @@ func (s *Service) PruneAttachments(_ context.Context, raw json.RawMessage) (any,
 	}
 	root, err := attachRoot()
 	if err != nil {
-		return nil, proto.RequestFailed("chat.pruneAttachments: %v", err)
+		return nil, proto.RequestFailed("chat.pruneAttachments: %s", proto.Reason(err))
 	}
 	keep := make(map[string]bool, len(p.KeepTabIDs))
 	for _, id := range p.KeepTabIDs {
@@ -152,7 +152,7 @@ func (s *Service) PruneAttachments(_ context.Context, raw json.RawMessage) (any,
 		return struct{}{}, nil
 	}
 	if err != nil {
-		return nil, proto.RequestFailed("chat.pruneAttachments: %v", err)
+		return nil, proto.RequestFailed("chat.pruneAttachments: %s", proto.Reason(err))
 	}
 	for _, entry := range entries {
 		if !keep[entry.Name()] {

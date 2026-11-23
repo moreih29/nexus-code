@@ -144,7 +144,7 @@ func (p *serverProcess) markExited(err error) {
 
 		exitErr := proto.RequestFailed("lsp server exited")
 		if err != nil {
-			exitErr = proto.RequestFailed("lsp server exited: %s", err)
+			exitErr = proto.RequestFailed("lsp server exited: %s", proto.Reason(err))
 		}
 		for _, ch := range internal {
 			ch <- rpcResponse{Err: exitErr}

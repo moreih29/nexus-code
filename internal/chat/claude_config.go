@@ -56,12 +56,12 @@ func (s *Service) ClaudeConfig(_ context.Context, raw json.RawMessage) (any, err
 		return ClaudeConfigResult{Found: false, Values: values}, nil
 	}
 	if err != nil {
-		return nil, proto.RequestFailed("chat.claudeConfig: %s", err)
+		return nil, proto.RequestFailed("chat.claudeConfig: %s", proto.Reason(err))
 	}
 	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, claudeConfigCapBytes+1))
 	if err != nil {
-		return nil, proto.RequestFailed("chat.claudeConfig: %s", err)
+		return nil, proto.RequestFailed("chat.claudeConfig: %s", proto.Reason(err))
 	}
 	if len(data) > claudeConfigCapBytes {
 		return ClaudeConfigResult{Found: false, Values: values}, nil
