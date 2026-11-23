@@ -1,12 +1,19 @@
 import {
   MAX_ATTACHMENT_BYTES,
   MAX_LISTED_NOTES,
+  MAX_TRANSCRIPT_LINES,
+  type NoteRecordingInfo,
   type RemoteRecording,
   RpcErrorCode,
   type RpcParams,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
-import { transcriptLinesForCli, transcriptMarkdown } from "../../../shared/notes/transcript";
+import {
+  recordingMs,
+  type TranscriptRecording,
+  transcriptLinesForCli,
+  transcriptMarkdown,
+} from "../../../shared/notes/transcript";
 import { type CliServices, pick } from "../cli/context";
 import { noteMarkdown } from "../notes/store";
 import { RpcFailure } from "./room";
@@ -22,7 +29,14 @@ const EXTENSIONS = {
 export type NotePhotoExtension = (typeof EXTENSIONS)[keyof typeof EXTENSIONS];
 
 export interface RemoteNotes {
-  list(workspaceId: string): Promise<readonly { id: string; title: string; updatedAt: number }[]>;
+  list(workspaceId: string): Promise<
+    readonly {
+      id: string;
+      title: string;
+      updatedAt: number;
+      recording?: { recordings: number };
+    }[]
+  >;
   attach(
     workspaceId: string,
     noteId: string,
@@ -63,9 +77,12 @@ export async function listNotes(
 ): Promise<RpcResult<"notes.list">> {
   const all = await notes.list(workspaceId).catch(failure);
   return {
-    notes: all
-      .slice(0, MAX_LISTED_NOTES)
-      .map(({ id, title, updatedAt }) => ({ id, title, updatedAt })),
+    notes: all.slice(0, MAX_LISTED_NOTES).map(({ id, title, updatedAt, recording }) => ({
+      id,
+      title,
+      updatedAt,
+      recordings: recording?.recordings ?? 0,
+    })),
   };
 }
 
@@ -97,39 +114,92 @@ export async function findNote(services: CliServices, workspaceId: string, selec
   return services.notes.read(workspaceId, id).catch(failure);
 }
 
-export function boundedNoteResult<T>(result: T): T {
-  if (!fitsAsResult(result)) {
-    throw new RpcFailure(
-      RpcErrorCode.Unavailable,
-      "the note is too large to send in one response; read it on that computer",
-    );
-  }
+export function boundedNoteResult<T>(
+  result: T,
+  message = "the note is too large to send in one response; read it on that computer",
+): T {
+  if (!fitsAsResult(result)) throw new RpcFailure(RpcErrorCode.Unavailable, message);
   return result;
+}
+
+function recordingInfo(recording: TranscriptRecording): NoteRecordingInfo {
+  return {
+    id: recording.id,
+    startedAt: recording.startedAt,
+    ms: recordingMs(recording),
+    lines: recording.lines.length,
+    participants: recording.participantCount ?? "auto",
+  };
 }
 
 export async function readNote(
   services: CliServices,
-  { workspaceId, note: selector, transcriptOnly }: RpcParams<"notes.read">,
+  { workspaceId, note: selector, transcriptOnly, withoutTranscript }: RpcParams<"notes.read">,
 ): Promise<RpcResult<"notes.read">> {
+  if (transcriptOnly && withoutTranscript) {
+    throw new RpcFailure(
+      RpcErrorCode.InvalidParams,
+      "transcriptOnly and withoutTranscript cannot both be set",
+    );
+  }
   const note = await findNote(services, workspaceId, selector);
   const { id, title, updatedAt } = note;
-  const transcript =
+  const file =
     transcriptOnly || note.recording
-      ? transcriptMarkdown(await services.notes.transcript(workspaceId, id).catch(failure), title)
-      : "";
-  return boundedNoteResult({
-    id,
-    title,
-    updatedAt,
-    markdown: transcriptOnly ? "" : noteMarkdown(note),
-    transcript,
-  });
+      ? await services.notes.transcript(workspaceId, id).catch(failure)
+      : undefined;
+  const transcript = file && !withoutTranscript ? transcriptMarkdown(file, title) : "";
+  return boundedNoteResult(
+    {
+      id,
+      title,
+      updatedAt,
+      markdown: transcriptOnly ? "" : noteMarkdown(note),
+      transcript,
+      recordings: file?.recordings.map(recordingInfo) ?? [],
+    },
+    transcript
+      ? "the note is too large to send in one response; read it without its transcript (withoutTranscript) and its recordings with notes.transcript a page at a time"
+      : undefined,
+  );
+}
+
+type TranscriptPage = RpcResult<"notes.transcript">["recordings"][number];
+
+function fittedPage(
+  head: Omit<RpcResult<"notes.transcript">, "recordings">,
+  page: TranscriptPage,
+): TranscriptPage {
+  const fits = (count: number) =>
+    fitsAsResult({ ...head, recordings: [{ ...page, lines: page.lines.slice(0, count) }] });
+  if (fits(page.lines.length)) return page;
+  let low = 0;
+  let high = page.lines.length;
+  while (low + 1 < high) {
+    const mid = (low + high) >>> 1;
+    if (fits(mid)) low = mid;
+    else high = mid;
+  }
+  if (low === 0) {
+    throw new RpcFailure(
+      RpcErrorCode.Unavailable,
+      "a line of the transcript is too large to send; read it on that computer",
+    );
+  }
+  return { ...page, lines: page.lines.slice(0, low) };
 }
 
 export async function noteTranscript(
   services: CliServices,
-  { workspaceId, note: selector, recording }: RpcParams<"notes.transcript">,
+  { workspaceId, note: selector, recording, start, limit }: RpcParams<"notes.transcript">,
 ): Promise<RpcResult<"notes.transcript">> {
+  const paged = start !== undefined || limit !== undefined;
+  if (paged && recording === undefined) {
+    throw new RpcFailure(
+      RpcErrorCode.InvalidParams,
+      "start and limit read one recording: name it with recording",
+    );
+  }
   const { id, title } = await findNote(services, workspaceId, selector);
   const { recordings } = await services.notes.transcript(workspaceId, id).catch(failure);
   const chosen =
@@ -144,20 +214,25 @@ export async function noteTranscript(
             "recording",
           ),
         ];
-  const result = {
-    id,
-    title,
-    recordings: chosen.map((rec) => ({
+  const pages = chosen.map((rec): TranscriptPage => {
+    const lines = transcriptLinesForCli(rec);
+    const from = paged ? Math.min(start ?? 0, lines.length) : 0;
+    return {
       id: rec.id,
       startedAt: rec.startedAt,
       participants: rec.participantCount ?? "auto",
-      lines: transcriptLinesForCli(rec),
-    })),
-  };
+      start: from,
+      total: lines.length,
+      lines: paged ? lines.slice(from, from + (limit ?? MAX_TRANSCRIPT_LINES)) : lines,
+    };
+  });
+  const head = { id, title };
+  if (paged) return { ...head, recordings: pages.map((page) => fittedPage(head, page)) };
+  const result = { ...head, recordings: pages };
   if (!fitsAsResult(result)) {
     throw new RpcFailure(
       RpcErrorCode.Unavailable,
-      "the transcript is too large to send; select a recording or read it on that computer",
+      "the transcript is too large to send; read it a page at a time (start, limit) or on that computer",
     );
   }
   return result;

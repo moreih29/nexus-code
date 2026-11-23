@@ -1329,6 +1329,7 @@ describe("serving a workspace's notes", () => {
               title: `note ${i}`,
               updatedAt: 1000 - i,
               excerpt: "not sent",
+              ...(i === 1 ? { recording: { recordings: 2, ms: 5000, people: 3 } } : {}),
             }))
           : [],
       attach: async (workspaceId, noteId, _bytes, ext, name) => {
@@ -1351,7 +1352,8 @@ describe("serving a workspace's notes", () => {
       notes: object[];
     };
     expect(listed.notes).toHaveLength(MAX_LISTED_NOTES);
-    expect(listed.notes[0]).toEqual({ id: "n0", title: "note 0", updatedAt: 1000 });
+    expect(listed.notes[0]).toEqual({ id: "n0", title: "note 0", updatedAt: 1000, recordings: 0 });
+    expect(listed.notes[1]).toEqual({ id: "n1", title: "note 1", updatedAt: 999, recordings: 2 });
     await expect(ask(remote, "notes.list", { workspaceId: "nope" })).rejects.toMatchObject({
       code: RpcErrorCode.NotFound,
     });

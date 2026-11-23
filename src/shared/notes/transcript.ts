@@ -453,8 +453,8 @@ export function transcriptLinesForCli(recording: TranscriptRecording) {
   });
 }
 
-export function joinedLines(lines: readonly TranscriptLine[], gapMs = 4000): TranscriptLine[] {
-  const out: TranscriptLine[] = [];
+export function joinedLines<T extends TranscriptLine>(lines: readonly T[], gapMs = 4000): T[] {
+  const out: T[] = [];
   for (const line of lines) {
     const last = out[out.length - 1];
     if (last && last.speaker === line.speaker && line.startMs - last.endMs <= gapMs) {
@@ -481,15 +481,62 @@ function dateOf(ms: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-export function transcriptMarkdown(file: TranscriptFile, title: string): string {
+interface SpokenLine extends TranscriptLine {
+  name: string;
+}
+
+interface SpokenRecording {
+  startedAt: number;
+  ms: number;
+  lines: readonly SpokenLine[];
+}
+
+function spokenMarkdown(title: string, recordings: readonly SpokenRecording[]): string {
   const out: string[] = [`# Transcript${title.trim() ? `: ${title.trim()}` : ""}`];
-  for (const rec of file.recordings) {
-    out.push("", `## Recording ${dateOf(rec.startedAt)} (${clockOf(recordingMs(rec))})`, "");
+  for (const rec of recordings) {
+    out.push("", `## Recording ${dateOf(rec.startedAt)} (${clockOf(rec.ms)})`, "");
     const lines = joinedLines(rec.lines);
     if (!lines.length) out.push("(nothing heard)");
     for (const line of lines) {
-      out.push(`[${clockOf(line.startMs)}] ${speakerName(rec, line.speaker)}: ${line.text}`);
+      out.push(`[${clockOf(line.startMs)}] ${line.name}: ${line.text}`);
     }
   }
   return `${out.join("\n")}\n`;
+}
+
+export function transcriptMarkdown(file: TranscriptFile, title: string): string {
+  return spokenMarkdown(
+    title,
+    file.recordings.map((rec) => ({
+      startedAt: rec.startedAt,
+      ms: recordingMs(rec),
+      lines: rec.lines.map((line) => ({ ...line, name: speakerName(rec, line.speaker) })),
+    })),
+  );
+}
+
+export interface CliTranscriptRecording {
+  startedAt: number;
+  ms: number;
+  lines: readonly ReturnType<typeof transcriptLinesForCli>[number][];
+}
+
+export function cliTranscriptMarkdown(
+  title: string,
+  recordings: readonly CliTranscriptRecording[],
+): string {
+  return spokenMarkdown(
+    title,
+    recordings.map(({ startedAt, ms, lines }) => ({
+      startedAt,
+      ms,
+      lines: lines.map(({ speaker, startMs, endMs, text, speakerName, speakerLabel }) => ({
+        speaker,
+        startMs,
+        endMs,
+        text,
+        name: speakerName ?? speakerLabel,
+      })),
+    })),
+  );
 }

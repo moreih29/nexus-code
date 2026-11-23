@@ -2313,9 +2313,13 @@ const remoteContracts = {
         RPC_METHODS["notes.list"].result,
       ),
       peerNotesRead: call(
-        z
-          .object({ deviceId: z.string().min(1).max(64) })
-          .merge(RPC_METHODS["notes.read"].params.omit({ from: true, transcriptOnly: true })),
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(
+          RPC_METHODS["notes.read"].params.omit({
+            from: true,
+            transcriptOnly: true,
+            withoutTranscript: true,
+          }),
+        ),
         RPC_METHODS["notes.read"].result,
       ),
       peerHistory: call(

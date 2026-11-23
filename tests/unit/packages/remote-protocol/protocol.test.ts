@@ -18,6 +18,7 @@ import {
   MAX_PEEK_TURNS,
   MAX_SESSION_AGENTS,
   MAX_UPLOAD_BYTES,
+  NOTE_PAGES_SCHEMA,
   olderConnection,
   PUSH_VERSION,
   PushPayloadSchema,
@@ -1124,6 +1125,39 @@ test("expanded CLI peers share the v2 envelope and strip private transcript data
     ],
   });
   expect(result.recordings[0]?.lines).toEqual([line]);
+});
+
+test("a host drops note keys it does not know, so 0.31.0 keys go only to 0.31.0 hosts", () => {
+  expect(NOTE_PAGES_SCHEMA).toBe("0.31.0");
+  const read = RPC_METHODS["notes.read"].params.parse({
+    workspaceId: "w",
+    note: "n",
+    withoutTranscript: true,
+    laterKey: 1,
+  });
+  expect(read).toEqual({ workspaceId: "w", note: "n", withoutTranscript: true });
+  const page = RPC_METHODS["notes.transcript"].params.parse({
+    workspaceId: "w",
+    note: "n",
+    recording: "r",
+    start: 0,
+    limit: 10,
+    laterKey: 1,
+  });
+  expect(page).toEqual({ workspaceId: "w", note: "n", recording: "r", start: 0, limit: 10 });
+  expect(
+    RPC_METHODS["notes.read"].result.parse({
+      id: "n",
+      title: "",
+      updatedAt: 1,
+      markdown: "",
+      transcript: "",
+    }),
+  ).not.toHaveProperty("recordings");
+  expect(
+    RPC_METHODS["notes.list"].result.parse({ notes: [{ id: "n", title: "", updatedAt: 1 }] })
+      .notes[0],
+  ).not.toHaveProperty("recordings");
 });
 
 test("peer view changes take a declared action and validated arguments", () => {

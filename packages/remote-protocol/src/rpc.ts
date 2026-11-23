@@ -364,6 +364,8 @@ export const UNTIMED_CONSENT_SCHEMA = "0.29.0";
 
 export const RUN_ITEMS_SCHEMA = "0.30.0";
 
+export const NOTE_PAGES_SCHEMA = "0.31.0";
+
 export const REQUEST_CANCEL = "request.cancel";
 export const RequestCancelSchema = z.object({ id: RpcIdSchema });
 export type RequestCancel = z.infer<typeof RequestCancelSchema>;
@@ -403,6 +405,17 @@ export const MAX_IMAGE_EDGE = 4096;
 export const ImageMediaTypeSchema = z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 export const MAX_LISTED_NOTES = 50;
+
+export const MAX_TRANSCRIPT_LINES = 1000;
+
+export const NoteRecordingInfoSchema = z.object({
+  id: z.string(),
+  startedAt: NumberSchema,
+  ms: NonnegativeNumberSchema,
+  lines: NonnegativeIntegerSchema,
+  participants: z.union([z.literal("auto"), z.literal("7+"), PositiveIntegerSchema]),
+});
+export type NoteRecordingInfo = z.infer<typeof NoteRecordingInfoSchema>;
 
 export const ChatSettingsSchema = z.object({
   agent: z.enum(["claude", "codex"]),
@@ -1561,6 +1574,7 @@ export const RPC_METHODS = {
           id: z.string(),
           title: z.string(),
           updatedAt: NumberSchema,
+          recordings: NonnegativeIntegerSchema.optional(),
         }),
       ),
     }),
@@ -1571,6 +1585,7 @@ export const RPC_METHODS = {
       workspaceId: z.string(),
       note: z.string().min(1).max(300),
       transcriptOnly: z.boolean().optional(),
+      withoutTranscript: z.literal(true).optional(),
       ...ReadBy,
     }),
     result: z.object({
@@ -1579,6 +1594,7 @@ export const RPC_METHODS = {
       updatedAt: NumberSchema,
       markdown: z.string(),
       transcript: z.string(),
+      recordings: z.array(NoteRecordingInfoSchema).optional(),
     }),
   },
   "notes.transcript": {
@@ -1587,6 +1603,8 @@ export const RPC_METHODS = {
       workspaceId: z.string(),
       note: z.string().min(1).max(300),
       recording: z.string().min(1).max(64).optional(),
+      start: NonnegativeIntegerSchema.optional(),
+      limit: PositiveIntegerSchema.check(z.lte(MAX_TRANSCRIPT_LINES)).optional(),
       ...ReadBy,
     }),
     result: z.object({
@@ -1597,6 +1615,8 @@ export const RPC_METHODS = {
           id: z.string(),
           startedAt: NumberSchema,
           participants: z.union([z.literal("auto"), z.literal("7+"), PositiveIntegerSchema]),
+          start: NonnegativeIntegerSchema.optional(),
+          total: NonnegativeIntegerSchema.optional(),
           lines: z.array(
             z.object({
               id: z.string(),
