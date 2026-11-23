@@ -175,6 +175,7 @@ const RETRYABLE_READS: ReadonlySet<RpcMethod> = new Set([
   "folders.list",
   "history.list",
   "chat.read",
+  "chat.peek",
   "chat.settings",
   "chat.commands",
   "chat.panel",
@@ -1268,7 +1269,11 @@ export class RemoteRoom {
         },
       };
     }
-    if (!serves.includes(capability as Capability)) {
+    if (
+      !serves.includes(capability as Capability) ||
+      // A peek reads no more than chat.read does: only where that is served too.
+      (method === "chat.peek" && !serves.includes("chat.read"))
+    ) {
       return { error: { code: RpcErrorCode.Forbidden, message: `${method} is not served here` } };
     }
     if (byAgent && !serves.includes("agents")) {

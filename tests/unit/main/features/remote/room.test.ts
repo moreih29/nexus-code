@@ -310,6 +310,63 @@ describe("the room", () => {
     expect(a.served).toEqual([{ from: "b", method: "chat.interrupt" }]);
   });
 
+  test("a peek at a chat is served by its capability, only where chats are read, an agent's where agents may", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    let serves = ["sessions"];
+    const peeked = { status: { running: false, phase: "idle" }, turns: [] };
+    const a = device(relay, "a", key, { serves: () => serves, serve: async () => peeked });
+    const b = device(relay, "b", key);
+    const phone = device(relay, "p", key, { self: { id: "p", name: "phone", platform: "ios" } });
+    a.room.start();
+    b.room.start();
+    phone.room.start();
+    await flushRelay();
+    const tab = { workspaceId: "w1", tabId: "t1" };
+    const from = { kind: "tab" as const, workspaceId: "bw", tabId: "bt" };
+    // A device that does not let its chats be read lets none be peeked at.
+    for (const method of ["chat.peek", "chat.read"] as const) {
+      await expect(phone.room.request("a", method, tab)).rejects.toMatchObject({
+        code: RpcErrorCode.Forbidden,
+        message: `${method} is not served here`,
+      });
+    }
+    // Nor one that reads chats but knows no peek, or tells a peek without reading chats.
+    for (const set of [
+      ["sessions", "chat.read"],
+      ["sessions", "chat.peek"],
+    ]) {
+      serves = set;
+      a.room.announce();
+      await flushRelay();
+      await expect(phone.room.request("a", "chat.peek", tab)).rejects.toMatchObject({
+        code: RpcErrorCode.Forbidden,
+        message: "chat.peek is not served here",
+      });
+    }
+    serves = ["sessions", "chat.read", "chat.peek"];
+    a.room.announce();
+    await flushRelay();
+    expect(phone.room.state().peers.find((p) => p.id === "a")?.serves).toContain("chat.peek");
+    expect(await phone.room.request("a", "chat.peek", { ...tab, turns: 5 })).toEqual(peeked);
+    await expect(phone.room.request("a", "chat.peek", { ...tab, turns: 6 })).rejects.toMatchObject({
+      code: RpcErrorCode.InvalidParams,
+    });
+    // An agent's: only where agents may act, and never from a phone.
+    await expect(b.room.request("a", "chat.peek", { ...tab, from })).rejects.toMatchObject({
+      code: RpcErrorCode.Forbidden,
+      message: expect.stringContaining("control by agents is off"),
+    });
+    serves = ["sessions", "chat.read", "chat.peek", "agents"];
+    a.room.announce();
+    await flushRelay();
+    expect(await b.room.request("a", "chat.peek", { ...tab, from })).toEqual(peeked);
+    await expect(phone.room.request("a", "chat.peek", { ...tab, from })).rejects.toMatchObject({
+      code: RpcErrorCode.Forbidden,
+      message: "agents' requests are not taken from a phone",
+    });
+  });
+
   test("an agent's request from a phone is refused: no agent runs there", async () => {
     const relay = new MockRelay();
     const key = await roomKey();

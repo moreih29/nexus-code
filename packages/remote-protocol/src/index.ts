@@ -3,7 +3,8 @@
  * - ./relay: the frames between a device and its account's room on the
  *   relay, which the relay reads and routes;
  * - ./sealed, ./rpc, ./view: what a sealed frame carries between two
- *   devices of the account, which only they can open;
+ *   devices of the account, which only they can open; ./peek fits a
+ *   chat.peek answer in its budget;
  * - ./account: the account key, locked with the account password, as the
  *   server keeps it;
  * - ./device-keys: each device's key, envelopes and rotation, pairing, and
@@ -17,6 +18,7 @@ export * from "./account.js";
 export * from "./commands.js";
 export * from "./device-keys.js";
 export * from "./info.js";
+export * from "./peek.js";
 export * from "./push.js";
 export * from "./relay.js";
 export * from "./rpc.js";

@@ -59,7 +59,7 @@ export const PROTOCOL_VERSION = 2;
  * the methods a device serves are those of its version, so another can
  * leave out what an older one does not have. Kept equal to package.json's.
  */
-export const SCHEMA_VERSION = "0.26.0";
+export const SCHEMA_VERSION = "0.27.0";
 
 /** The HKDF info that makes the room key from the account key. */
 export const ROOM_KEY_INFO = "nexus-remote/room-key/v1";
@@ -131,6 +131,13 @@ export const CAPABILITIES = [
    * agent's request is refused. Served only where files is. Since 0.26.0.
    */
   "system.stats",
+  /**
+   * chat.peek: a chat's last turns at a glance, read without opening it. A
+   * device serves it only where it serves chat.read, and reads no more
+   * than chat.read does; an agent's request (`from`) is taken as chat.read's
+   * is. Since 0.27.0.
+   */
+  "chat.peek",
 ] as const;
 export const CapabilitySchema = z.string();
 export type Capability = (typeof CAPABILITIES)[number];

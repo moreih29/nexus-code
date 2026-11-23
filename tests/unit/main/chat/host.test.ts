@@ -235,6 +235,95 @@ describe("attachRoot", () => {
   });
 });
 
+describe("peekTail", () => {
+  const profiles: AgentProfile[] = [
+    { id: "work", agent: "claude", dir: "/profiles/work", name: "Work", color: "" },
+    { id: "side", agent: "codex", dir: "/profiles/side", name: "Side", color: "" },
+  ];
+  const profile = (id: string) => profiles.find((p) => p.id === id) ?? null;
+  const peeking = (channel: FakeChannel | null) => {
+    const dialed: string[] = [];
+    const { host } = setup(
+      {
+        peekAgentChannel: async () => channel,
+        getAgentChannel: async (id) => {
+          dialed.push(id);
+          return new FakeChannel();
+        },
+        tryGetAgentChannel: async (id) => {
+          dialed.push(id);
+          return null;
+        },
+      },
+      undefined,
+      undefined,
+      profile,
+    );
+    return { host, dialed };
+  };
+
+  test("reads a Claude transcript's last page in its profile's folder, starting nothing", async () => {
+    const channel = new FakeChannel();
+    const { host, dialed } = peeking(channel);
+    expect(await host.peekTail(WS, "claude", "session", "work", { turns: 3 })).toEqual({
+      offline: false,
+      claude: {} as never,
+    });
+    await host.peekTail(WS, "claude", "session", "work", { cursor: "c1" });
+    expect(channel.calls).toEqual([
+      {
+        method: "chat.transcriptPage",
+        params: { sessionId: "session", configDir: "/profiles/work" },
+      },
+      {
+        method: "chat.transcriptPage",
+        params: { sessionId: "session", configDir: "/profiles/work", cursor: "c1" },
+      },
+    ]);
+    expect(dialed).toEqual([]);
+  });
+
+  test("reads a Codex rollout's end in its profile's folder, with no app-server", async () => {
+    const channel = new FakeChannel();
+    const { host, dialed } = peeking(channel);
+    expect(await host.peekTail(WS, "codex", "thread", "side", { turns: 5 })).toEqual({
+      offline: false,
+      codex: {} as never,
+    });
+    expect(channel.calls).toEqual([
+      {
+        method: "chat.rolloutTail",
+        params: { threadId: "thread", codexHome: "/profiles/side", turns: 5 },
+      },
+    ]);
+    expect(dialed).toEqual([]);
+  });
+
+  test("a workspace whose host is not connected is offline, and is not dialed", async () => {
+    const { host, dialed } = peeking(null);
+    expect(await host.peekTail(WS, "claude", "session", undefined)).toEqual({ offline: true });
+    expect(await host.peekTail(WS, "codex", "thread", undefined)).toEqual({ offline: true });
+    expect(dialed).toEqual([]);
+    // A manager that cannot tell whether one is up dials none either.
+    expect(await setup().host.peekTail(WS, "codex", "thread", undefined)).toEqual({
+      offline: true,
+    });
+  });
+
+  test("an agent too old to read it gives neither history; another failure is told", async () => {
+    const channel = new FakeChannel();
+    const { host } = peeking(channel);
+    channel.transcriptPageError = "unsupported-method";
+    expect(await host.peekTail(WS, "claude", "session", undefined)).toEqual({ offline: false });
+    // Not read whole through chat.transcript, as a tab's own history is.
+    expect(channel.calls.map((call) => call.method)).toEqual(["chat.transcriptPage"]);
+    channel.transcriptPageError = "transport.timeout";
+    await expect(host.peekTail(WS, "claude", "session", undefined)).rejects.toMatchObject({
+      code: "transport.timeout",
+    });
+  });
+});
+
 describe("Claude instruction history", () => {
   const parent = "11111111-aaaa-4aaa-8aaa-111111111111";
   const child = "22222222-bbbb-4bbb-8bbb-222222222222";

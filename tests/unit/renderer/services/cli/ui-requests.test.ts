@@ -438,6 +438,7 @@ test("only the reviewed read operations skip focus restoration", () => {
   expect([...READ_ONLY_OPS].sort()).toEqual([
     "agentView.get",
     "chat.page",
+    "chat.peek",
     "chat.read",
     "chat.state",
     "events.read",

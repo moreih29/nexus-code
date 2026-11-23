@@ -137,6 +137,7 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("chat.subagentTranscript", service.SubagentTranscript)
 	d.Register("chat.sessionFile", service.SessionFile)
 	d.Register("chat.stageThread", service.StageThread)
+	d.Register("chat.rolloutTail", service.RolloutTail)
 	d.Register("chat.sessions", service.Sessions)
 	d.Register("chat.deleteSession", service.DeleteSession)
 	d.Register("chat.fileSizes", service.FileSizes)

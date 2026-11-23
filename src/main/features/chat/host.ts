@@ -21,7 +21,7 @@ import {
   SHAREABLE,
 } from "../../../shared/agent-profiles/profiles";
 import { type ClaudeTurnResult, claudeTurnResult } from "../../../shared/claude/turn-result";
-import type { TranscriptPageResult } from "../../../shared/ipc/contract";
+import type { ChatPeekTail, TranscriptPageResult } from "../../../shared/ipc/contract";
 import { createLogger } from "../../../shared/log/main";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { tryGetMainT } from "../../i18n";
@@ -959,6 +959,47 @@ export class ChatHost {
         lines: result.lines ?? [],
         truncated: result.truncated === true,
       };
+    }
+  }
+
+  /**
+   * The end of a chat's history, for a glance at its last turns: a Claude
+   * transcript's last page, or a Codex rollout's last events, which the
+   * agent reads from the file (no app-server). Read only from an agent that
+   * is up: an SSH or WSL host that is not connected is not dialed, and is
+   * told `offline`. An agent too old to read it gives neither.
+   */
+  async peekTail(
+    workspaceId: string,
+    agent: ChatAgent,
+    sessionId: string,
+    profileId: string | undefined,
+    page: { turns?: number; cursor?: string } = {},
+  ): Promise<ChatPeekTail> {
+    const channel = await this.options.workspaceManager.peekAgentChannel?.(workspaceId);
+    if (!channel) return { offline: true };
+    await channel.ready;
+    try {
+      if (agent === "claude") {
+        const claude = await channel.call<TranscriptPageResult>("chat.transcriptPage", {
+          sessionId,
+          ...this.configDir(workspaceId, profileId),
+          ...(page.cursor ? { cursor: page.cursor } : {}),
+        });
+        return { offline: false, claude };
+      }
+      const codexHome = this.profileDir(workspaceId, "codex", profileId);
+      const codex = await channel.call<NonNullable<ChatPeekTail["codex"]>>("chat.rolloutTail", {
+        threadId: sessionId,
+        ...(codexHome ? { codexHome } : {}),
+        ...(page.turns ? { turns: page.turns } : {}),
+      });
+      return { offline: false, codex };
+    } catch (error) {
+      if ((error as { code?: unknown } | null)?.code === "unsupported-method") {
+        return { offline: false };
+      }
+      throw error;
     }
   }
 

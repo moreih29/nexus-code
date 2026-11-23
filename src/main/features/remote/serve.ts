@@ -74,6 +74,7 @@ import {
   chatRuns,
   chatTool,
   listHistory,
+  peekChat,
   previewChatRewind,
   readChat,
   readEvents,
@@ -163,6 +164,7 @@ export { createWorkspace } from "./serving/workspaces";
 const AGENT_READS: ReadonlySet<string> = new Set([
   "sessions.list",
   "chat.read",
+  "chat.peek",
   "chat.wait",
   "terminal.read",
   "terminal.wait",
@@ -529,6 +531,8 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         );
       case "chat.read":
         return readChat(s, request.params as RpcParams<"chat.read">, from);
+      case "chat.peek":
+        return peekChat(s, request.params as RpcParams<"chat.peek">, from);
       case "terminal.read":
         return readTerminal(s, request.params as RpcParams<"terminal.read">, from);
       case "chat.send":

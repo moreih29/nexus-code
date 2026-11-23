@@ -5,8 +5,10 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { setImmediate as flush } from "node:timers/promises";
 import {
+  ChatPeekSchema,
   MAX_AGENT_DESCRIPTION,
   MAX_LISTED_NOTES,
+  MAX_PEEK_BYTES,
   MAX_SESSION_AGENTS,
   RpcErrorCode,
   SessionsUpdateSchema,
@@ -834,6 +836,125 @@ describe("serving a chat and a terminal to read", () => {
     ]);
   });
 
+  test("peeks at a chat's last turns through the app, which opens no tab for it", async () => {
+    const peeked = {
+      status: { running: false, phase: "idle" },
+      turns: [{ user: { text: "Fix it", images: 0 }, reply: "Fixed.", tools: { Edit: 1 } }],
+    };
+    const { s, asked } = recording(() => peeked);
+    const peek = (params: object) => serveWith(() => s)({ from: "d", method: "chat.peek", params });
+    expect(await peek({ workspaceId: "w1", tabId: "t1" })).toEqual(peeked);
+    expect(await peek({ workspaceId: "w2", tabId: "t4", turns: 5 })).toEqual(peeked);
+    // One request of the window, and none that opens or reads the tab whole.
+    expect(asked).toEqual([
+      ["chat.peek", { workspaceId: "w1", tabId: "t1" }],
+      ["chat.peek", { workspaceId: "w2", tabId: "t4", turns: 5 }],
+    ]);
+  });
+
+  test("a peek names its chat by workspace and tab alone: what else its params carry is not passed on", async () => {
+    const { s, asked } = recording(() => ({ status: { running: false }, turns: [] }));
+    await serveWith(() => s)({
+      from: "d",
+      method: "chat.peek",
+      params: {
+        workspaceId: "w1",
+        tabId: "t1",
+        turns: 2,
+        // A device cannot point the read at a history of its choosing.
+        threadId: "01a1c494-518d-7651-938d-00031c0ec9fb",
+        sessionId: "0b0f8a52-2b8e-4a4f-9d3e-0c4f2f6f6a22",
+        codexHome: "/etc",
+        configDir: "/etc",
+        profileId: "other",
+        cursor: "c1",
+        agent: "codex",
+      },
+    });
+    expect(asked).toEqual([["chat.peek", { workspaceId: "w1", tabId: "t1", turns: 2 }]]);
+  });
+
+  test("a peek is fitted in its budget, whatever the window answered", async () => {
+    const turn = {
+      user: { text: "가".repeat(5000), images: 0 },
+      reply: "나".repeat(9000),
+      tools: {},
+    };
+    const { s } = recording(() => ({
+      status: { running: true, phase: "ready", streaming: "다".repeat(5000) },
+      turns: [turn, turn, turn],
+    }));
+    const peek = await serveWith(() => s)({
+      from: "d",
+      method: "chat.peek",
+      params: { workspaceId: "w1", tabId: "t1" },
+    });
+    expect(Buffer.byteLength(JSON.stringify(peek), "utf8")).toBeLessThanOrEqual(MAX_PEEK_BYTES);
+    expect(ChatPeekSchema.safeParse(peek).success).toBe(true);
+    expect(peek).toMatchObject({ more: true, turns: [{ reply: `${"나".repeat(1999)}…` }] });
+  });
+
+  test("an offline or missing chat is an answer, not a failure; a tab that is not there is not found", async () => {
+    for (const unavailable of ["offline", "missing"] as const) {
+      const answer = { status: { running: false, phase: "idle" }, turns: [], unavailable };
+      const { s } = recording(() => answer);
+      expect(
+        await serveWith(() => s)({
+          from: "d",
+          method: "chat.peek",
+          params: { workspaceId: "w1", tabId: "t1" },
+        }),
+      ).toEqual(answer);
+    }
+    const { s, asked } = recording();
+    for (const params of [
+      { workspaceId: "nope", tabId: "t1" },
+      { workspaceId: "w1", tabId: "nope" },
+      { workspaceId: "w1", tabId: "t2" },
+    ]) {
+      await expect(
+        serveWith(() => s)({ from: "d", method: "chat.peek", params }),
+      ).rejects.toMatchObject({ code: 1001 });
+    }
+    expect(asked).toEqual([]);
+    const failing = recording(() => new Error("that tab is gone"));
+    await expect(
+      serveWith(() => failing.s)({
+        from: "d",
+        method: "chat.peek",
+        params: { workspaceId: "w1", tabId: "t1" },
+      }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.Unavailable, message: "that tab is gone" });
+  });
+
+  test("an agent's peek is read where agents are taken, with no prompt, as its chat.read", async () => {
+    const from = { kind: "tab", agent: "claude", name: "Lead", workspaceId: "bw", tabId: "bt" };
+    const params = { workspaceId: "w1", tabId: "t1", from };
+    for (const method of ["chat.peek", "chat.read"] as const) {
+      const { s, asked } = recording(() => ({
+        status: { running: false },
+        turns: [],
+        start: 0,
+        total: 0,
+        items: [],
+      }));
+      const read = (policy?: "allow" | "ask" | "deny") =>
+        serveWith(
+          () => s,
+          policy ? { agents: new AgentGate({ policy: () => policy }) } : {},
+        )({ from: "d", method, params });
+      await expect(read()).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+      await expect(read("deny")).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+      expect(asked).toEqual([]);
+      await read("ask");
+      await read("allow");
+      // Only the read itself: the user is asked nothing.
+      expect(asked.map(([op]) => op)).toEqual(
+        method === "chat.peek" ? ["chat.peek", "chat.peek"] : ["chat.page", "chat.page"],
+      );
+    }
+  });
+
   test("reads the full parent page when Codex child messages alone exceed a frame", async () => {
     const items = Array.from({ length: 200 }, (_, i) => ({
       kind: "shell",
@@ -980,6 +1101,13 @@ describe("what this device serves", () => {
     for (const set of [servesWith(false), servesWith(true, true, true, true)]) {
       expect(set).toContain("files");
       expect(set).toContain("system.stats");
+    }
+  });
+
+  test("a peek at a chat with reading it, however the user set the rest", () => {
+    for (const set of [servesWith(false), servesWith(true, true, true, true, false)]) {
+      expect(set).toContain("chat.read");
+      expect(set).toContain("chat.peek");
     }
   });
 

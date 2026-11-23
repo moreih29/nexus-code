@@ -860,6 +860,178 @@ export const ChatUpdateSchema = z.object({
 });
 export type ChatUpdate = z.infer<typeof ChatUpdateSchema>;
 
+// ---------------------------------------------------------------------------
+// A chat's last turns, at a glance (chat.peek; since 0.27.0)
+// ---------------------------------------------------------------------------
+
+/** Turns a chat.peek gives when it names none. */
+export const DEFAULT_PEEK_TURNS = 3;
+/** Most turns a chat.peek asks for. */
+export const MAX_PEEK_TURNS = 5;
+/**
+ * Most bytes a chat.peek answer takes: its result, encoded as JSON, in
+ * UTF-8. The serving device fits the answer in this (see ChatPeekSchema).
+ */
+export const MAX_PEEK_BYTES = 14 * 1024;
+/** Most characters (code points) of the user's message in a peeked turn. */
+export const MAX_PEEK_USER_TEXT = 1000;
+/** Most characters of the agent's last words in a peeked turn. */
+export const MAX_PEEK_REPLY = 2000;
+/** Most characters of another sender's message in a peeked turn. */
+export const MAX_PEEK_RECEIVED_TEXT = 300;
+/** Most characters of the name of another sender in a peeked turn, as AgentSender's `name`. */
+export const MAX_PEEK_SENDER = 200;
+/** Most characters of the reply being written that a peek carries. */
+export const MAX_PEEK_STREAMING = 1000;
+/** Most tool names a peeked turn counts; the rest add up in `otherTools`. */
+export const MAX_PEEK_TOOLS = 8;
+/** Most characters of a tool's name in a peeked turn. */
+export const MAX_PEEK_TOOL_NAME = 64;
+
+/**
+ * A string of at most `max` characters, counted as code points: a
+ * character outside the Basic Multilingual Plane (an emoji) counts one,
+ * though it takes two UTF-16 units.
+ */
+function codePointText(max: number) {
+  return z.string().check(({ value, issues }) => {
+    if (value.length <= max) return;
+    let count = 0;
+    for (const _ of value) {
+      count += 1;
+      if (count > max) {
+        issues.push({ code: "custom", message: `At most ${max} characters`, input: value });
+        return;
+      }
+    }
+  });
+}
+
+/**
+ * One turn of a peeked chat: what began it, the agent's last words in it,
+ * and the tools it called, counted. What came before the first message
+ * read (a turn cut at the start of what was read) has neither `user` nor
+ * `received`; a turn has at most one of them.
+ */
+export const ChatPeekTurnSchema = z.object({
+  /**
+   * The user's message that began the turn: its text (cut at
+   * MAX_PEEK_USER_TEXT), how many images it had, and how many other files
+   * (left out when none).
+   */
+  user: z
+    .object({
+      text: codePointText(MAX_PEEK_USER_TEXT),
+      images: NonnegativeIntegerSchema,
+      files: PositiveIntegerSchema.optional(),
+    })
+    .optional(),
+  /**
+   * Another sender's message that began the turn (nexus chat send): the
+   * sender as the chat names it (its tab's title, else its agent or kind),
+   * cut at MAX_PEEK_SENDER, and its text, cut at MAX_PEEK_RECEIVED_TEXT.
+   */
+  received: z
+    .object({
+      from: codePointText(MAX_PEEK_SENDER),
+      text: codePointText(MAX_PEEK_RECEIVED_TEXT),
+    })
+    .optional(),
+  /**
+   * The agent's last words in the turn: the text blocks of its last message
+   * in the turn that has text, joined by a blank line, cut at
+   * MAX_PEEK_REPLY. No thinking, no tool input or result. Empty when it
+   * wrote none.
+   */
+  reply: codePointText(MAX_PEEK_REPLY),
+  /**
+   * The tool calls the agent made in the turn (not its subagents'), counted
+   * by the tool's name as its program names it ("Bash", "mcp__srv__tool"):
+   * the MAX_PEEK_TOOLS most called, a tie going to the one called first. A
+   * name longer than MAX_PEEK_TOOL_NAME is cut, and names cut alike count
+   * together.
+   */
+  tools: wireRecord(
+    z.string().min(1).pipe(codePointText(MAX_PEEK_TOOL_NAME)),
+    PositiveIntegerSchema,
+  ).check(({ value, issues }) => {
+    if (Object.keys(value).length > MAX_PEEK_TOOLS) {
+      issues.push({
+        code: "custom",
+        message: `At most ${MAX_PEEK_TOOLS} tools`,
+        input: value,
+      });
+    }
+  }),
+  /** The calls of the tools `tools` leaves out, added up; left out when none. */
+  otherTools: PositiveIntegerSchema.optional(),
+});
+export type ChatPeekTurn = z.infer<typeof ChatPeekTurnSchema>;
+
+/**
+ * A chat's last turns at a glance, for a preview (chat.peek). The serving
+ * device reads them from the chat's history as it is kept, and so:
+ * - does not open the tab, start or resume its program, or connect to a
+ *   workspace's host (SSH, WSL) for it;
+ * - does not wait for subagents, and sends no tool results;
+ * - marks nothing seen.
+ *
+ * Its size: the result, encoded as JSON, is at most MAX_PEEK_BYTES in
+ * UTF-8. Each text is first cut at its own limit; then, while the answer is
+ * over, the oldest turn is left out (and `more` set), down to one; then the
+ * texts are cut shorter, in this order, each as far as needed (to nothing
+ * but "…" when it must): the turns' `reply`, `user.text`,
+ * `status.streaming`, `received.text`. The limits are the most each may
+ * take within the budget, not what each may always take: a text in Korean,
+ * three bytes a character, at all its limits is over it.
+ *
+ * Cutting: by code points, never inside one. A text cut at its start keeps
+ * it and ends with "…" (U+2026); `status.streaming`, cut at its end, keeps
+ * its end and begins with "…". The "…" counts in the limit. Texts are sent
+ * as written otherwise (no trimming beyond the cut). fitPeek does all this,
+ * and peekTools counts a turn's tools.
+ */
+export const ChatPeekSchema = z.object({
+  status: z.object({
+    /** A turn is under way. Only a tab open there runs one. */
+    running: z.boolean(),
+    /** Where its tab stands with its program, as ChatStatus's `phase` (idle before it opens). */
+    phase: z.string().max(32).optional(),
+    /**
+     * The reply being written, while a turn runs: its text blocks so far,
+     * joined by a blank line, the last MAX_PEEK_STREAMING characters ("…"
+     * before them when cut). Left out when it has none.
+     */
+    streaming: codePointText(MAX_PEEK_STREAMING).optional(),
+  }),
+  /** There are turns before those sent: older, or left out to fit the budget. */
+  more: z.literal(true).optional(),
+  /** The last turns, oldest first, at most the turns asked for. */
+  turns: z.array(ChatPeekTurnSchema).max(MAX_PEEK_TURNS),
+  /**
+   * What the chat waits on the user for now: a permission (with the tool
+   * that asks, as `tools` names it), a question, or a plan to approve. Only
+   * from a tab open there; one this version cannot read is left out.
+   */
+  waiting: z
+    .object({
+      kind: z.enum(["permission", "question", "plan"]),
+      tool: z.string().min(1).pipe(codePointText(MAX_PEEK_TOOL_NAME)).optional(),
+    })
+    .optional()
+    .catch(undefined),
+  /**
+   * Why no turns could be read, with `turns` empty:
+   * - offline: the workspace is on a host (SSH, WSL) the device is not
+   *   connected to now; a peek does not connect to it.
+   * - missing: the chat has no history to read (it never ran, or its
+   *   record is gone).
+   * A tab that is not there is a NotFound error, as for chat.read.
+   */
+  unavailable: z.enum(["offline", "missing"]).optional(),
+});
+export type ChatPeek = z.infer<typeof ChatPeekSchema>;
+
 /**
  * Where a terminal's cursor is in its text (terminal.read and
  * terminal.watch with `ansi`; since 0.13.0): on its `line`th line from 0,
@@ -1114,6 +1286,22 @@ export const RPC_METHODS = {
       ...ReadBy,
     }),
     result: ChatPageSchema,
+  },
+  /**
+   * The chat's last `turns` turns (DEFAULT_PEEK_TURNS when it names none)
+   * at a glance, within MAX_PEEK_BYTES, read without starting anything
+   * (ChatPeekSchema). For a preview: a device asks it of one whose hello
+   * serves chat.peek, and chat.read of one that does not. A device serves
+   * it only where it serves chat.read. Since 0.27.0.
+   */
+  "chat.peek": {
+    capability: "chat.peek",
+    params: z.object({
+      ...TabRef,
+      turns: PositiveIntegerSchema.check(z.lte(MAX_PEEK_TURNS)).optional(),
+      ...ReadBy,
+    }),
+    result: ChatPeekSchema,
   },
   /** The chat's last page now; then a chat.update each time it changes, until chat.unwatch. */
   "chat.watch": {
