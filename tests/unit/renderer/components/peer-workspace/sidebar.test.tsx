@@ -60,3 +60,59 @@ test("folded and offline devices hide workspace rows; a removed selection disapp
   expect(html.match(/<button/g)).toHaveLength(4);
   expect(render([], true)).not.toContain("Pinned app");
 });
+
+test("a workspace's row tells its tasks, its pin, and where its sessions stand, as a local card", () => {
+  const html = renderToStaticMarkup(
+    <PeerWorkspaceSection
+      accountKey="account"
+      online={[mac]}
+      offline={[]}
+      lists={{
+        mac: {
+          status: "ready",
+          list: {
+            workspaces: [pinned, task, regular],
+            sessions: [
+              {
+                kind: "claude",
+                tabId: "asks",
+                workspaceId: task.id,
+                title: "Asks",
+                state: "needs-you",
+                since: 2,
+                waiting: { kind: "permission", text: "Run tools?" },
+              },
+              {
+                kind: "codex",
+                tabId: "said",
+                workspaceId: pinned.id,
+                title: "Said",
+                state: "new-result",
+                since: 3,
+                last: "**Done** with the fix",
+              },
+              {
+                kind: "claude",
+                tabId: "other",
+                workspaceId: regular.id,
+                title: "x",
+                state: "idle",
+              },
+            ],
+          },
+        },
+      }}
+      active={null}
+      folded={[]}
+      toggleFold={() => {}}
+    />,
+  );
+  const [pinnedRow, regularRow] = html.split("Project docs");
+  expect(pinnedRow).toContain("1 task");
+  expect(pinnedRow).toContain('aria-label="Pinned"');
+  // The task's permission ask is the row's state; the latest message its line.
+  expect(pinnedRow).toContain("border-l-[var(--state-warning-fg)]");
+  expect(pinnedRow).toContain("Done with the fix");
+  expect(regularRow).not.toContain('aria-label="Pinned"');
+  expect(regularRow).not.toContain("task");
+});

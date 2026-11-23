@@ -1,13 +1,15 @@
-import { ChevronDown, ChevronRight, Folder, GitBranch, Laptop, Server } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, GitBranch, Laptop, Pin, Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { RemoteWorkspace } from "../../../../packages/remote-protocol/src/rpc";
+import type { RemoteSession, RemoteWorkspace } from "../../../../packages/remote-protocol/src/rpc";
 import { toSlashPath } from "../../../shared/fs/drive-path";
 import type { RoomPeer } from "../../../shared/remote/room";
 import type { PeerSessions } from "../../services/remote/room";
 import { selectPeerWorkspace } from "../../state/operations/workspace-selection";
 import type { PeerWorkspaceTarget } from "../../state/stores/peer-workspace";
 import { cn } from "../../utils/cn";
+import { WorkspaceStatusGlyph } from "../sidebar/workspace-status-glyph";
 import { peerTarget } from "./room";
+import { peerWorkspacePreview, peerWorkspaceStatus } from "./workspace-status";
 
 const PLATFORM_NAMES: Readonly<Record<string, string>> = {
   darwin: "macOS",
@@ -81,6 +83,7 @@ export function PeerWorkspaceSection({
                   <PeerWorkspaceRow
                     key={workspace.id}
                     workspace={workspace}
+                    family={list?.status === "ready" ? list.list : undefined}
                     selected={
                       active?.deviceId === peer.id &&
                       (active.workspace.parentId ?? active.workspaceId) === workspace.id
@@ -133,15 +136,28 @@ function PeerDeviceLabel({ peer }: { peer: RoomPeer }) {
 
 function PeerWorkspaceRow({
   workspace,
+  family,
   selected,
   onSelect,
 }: {
   workspace: RemoteWorkspace;
+  /** That computer's listing, for the workspace's tasks and sessions. */
+  family?: { workspaces: readonly RemoteWorkspace[]; sessions: readonly RemoteSession[] };
   selected: boolean;
   onSelect: () => void;
 }) {
   const { t } = useTranslation();
   const path = toSlashPath(workspace.path).split("/").filter(Boolean).slice(-2).join("/");
+  // The workspace and its tasks, as a local card tells them.
+  const ids = new Set([
+    workspace.id,
+    ...(family?.workspaces ?? []).flatMap(({ id, parentId }) =>
+      parentId === workspace.id ? [id] : [],
+    ),
+  ]);
+  const tasks = ids.size - 1;
+  const status = family ? peerWorkspaceStatus(family.sessions, ids) : null;
+  const preview = family ? peerWorkspacePreview(family.sessions, ids) : null;
   return (
     <button
       type="button"
@@ -151,7 +167,11 @@ function PeerWorkspaceRow({
         "block w-full cursor-pointer select-none rounded-(--radius-control) border-l-2 px-3 py-2.5 text-left transition-colors",
         selected
           ? "border-l-[var(--state-selected-indicator)] bg-[var(--sidebar-item-selected-bg)] text-foreground"
-          : "border-l-transparent text-muted-foreground hover:bg-[var(--state-hover-bg)]",
+          : status === "permissionPending"
+            ? "border-l-[var(--state-warning-fg)] text-muted-foreground hover:bg-[var(--state-hover-bg)]"
+            : status === "error"
+              ? "border-l-[var(--state-error-fg)] text-muted-foreground hover:bg-[var(--state-hover-bg)]"
+              : "border-l-transparent text-muted-foreground hover:bg-[var(--state-hover-bg)]",
       )}
     >
       <span className="grid grid-cols-[16px_minmax(0,1fr)] items-start gap-2">
@@ -165,11 +185,46 @@ function PeerWorkspaceRow({
           />
         </span>
         <span className="min-w-0">
-          <span className="block truncate text-app-body-emphasis">{workspace.name}</span>
+          <span className="flex min-w-0 items-center gap-1">
+            <span
+              className={cn(
+                "truncate text-app-body-emphasis",
+                status === "needsInput" && "font-semibold",
+              )}
+            >
+              {workspace.name}
+            </span>
+            {workspace.pinned && (
+              <span
+                role="img"
+                aria-label={t("sidebar.pinned")}
+                title={t("sidebar.pinned")}
+                className="ml-auto inline-flex size-5 shrink-0 items-center justify-center text-[var(--state-selected-indicator)]"
+              >
+                <Pin className="size-3" fill="currentColor" aria-hidden="true" />
+              </span>
+            )}
+          </span>
           <span className="block truncate text-app-micro opacity-70" title={workspace.path}>
             {path || workspace.path}
           </span>
-          <PeerWorkspaceBranch git={workspace.git} />
+          {(workspace.git || tasks > 0) && (
+            <span className="flex min-w-0 items-center gap-1">
+              <PeerWorkspaceBranch git={workspace.git} />
+              {tasks > 0 && (
+                <span className="shrink-0 whitespace-nowrap text-app-micro opacity-70">
+                  {workspace.git?.branch && "· "}
+                  {t("sidebar.task_count", { count: tasks })}
+                </span>
+              )}
+            </span>
+          )}
+          {(status || preview) && (
+            <span className="mt-1 flex min-w-0 items-center gap-1.5 text-app-ui-sm">
+              {status && <WorkspaceStatusGlyph status={status} />}
+              {preview && <span className="truncate">{preview}</span>}
+            </span>
+          )}
         </span>
       </span>
     </button>
