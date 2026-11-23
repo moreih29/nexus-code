@@ -32,6 +32,7 @@ import { type JobOutput, readJobOutput } from "../../services/chat/job-output";
 import { linkPlaceIndex, linkPlaces } from "../../services/chat/link-places";
 import { fileKind, slashWindowsPath } from "../../services/chat/links";
 import type { ChatItem, TaskInfo, ToolCall } from "../../services/chat/model";
+import { modelLineOfTab } from "../../services/chat/model-line";
 import {
   type AgentRow,
   type ChangedFile,
@@ -462,6 +463,7 @@ function EnvSection({
 }) {
   const { t } = useTranslation();
   const { model } = state;
+  const modelLine = modelLineOfTab(model);
   const branch = useGitStore((s) => {
     const session = s.sessions.get(workspaceId);
     return session?.branchInfo?.current ?? session?.status?.branch?.current ?? null;
@@ -554,9 +556,11 @@ function EnvSection({
           </IconButton>
         </Field>
       )}
-      {model.model && (
+      {modelLine && (
         <Field label={t("chat.panel.env.model")}>
-          <span className="min-w-0 truncate font-mono text-app-micro">{model.model}</span>
+          <span className="min-w-0 truncate font-mono text-app-micro" title={modelLine}>
+            {modelLine}
+          </span>
         </Field>
       )}
       {(state.version ?? model.version) && (

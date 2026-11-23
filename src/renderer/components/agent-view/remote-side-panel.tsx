@@ -17,6 +17,7 @@ import { useTranslation } from "react-i18next";
 import type { ChatPanel } from "../../../../packages/remote-protocol/src/view";
 import { useNow } from "../../hooks/use-now";
 import type { ChatModel, ToolCall } from "../../services/chat/model";
+import { modelLineOfTab } from "../../services/chat/model-line";
 import {
   type AgentRow,
   type AgentStatus,
@@ -236,6 +237,7 @@ export function SessionSidePanel({
   const links = useChatLinks();
   const { agent, foldKey, computer, cwd, rootPath, workspaceId, profile } = scope;
   const codex = agent === "codex";
+  const modelLine = modelLineOfTab(model);
   const agents = useMemo(() => [...remoteAgentsOf(panel, model), ...runs], [panel, model, runs]);
   const jobs = panel?.tasks ?? NO_JOBS;
   const todos = panel?.todos ?? [];
@@ -397,14 +399,11 @@ export function SessionSidePanel({
             )}
           </Field>
         )}
-        {model.model && (
+        {modelLine && (
           <Field label={t("chat.panel.env.model")}>
-            <span className="min-w-0 truncate font-mono text-app-micro">{model.model}</span>
-          </Field>
-        )}
-        {codex && model.effort && (
-          <Field label={t("chat.codex.commands.status.effort")}>
-            <span className="min-w-0 truncate text-app-micro">{model.effort}</span>
+            <span className="min-w-0 truncate font-mono text-app-micro" title={modelLine}>
+              {modelLine}
+            </span>
           </Field>
         )}
         {version && (
