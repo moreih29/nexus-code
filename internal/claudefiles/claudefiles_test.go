@@ -30,7 +30,9 @@ type folderLink struct {
 func folderLinks() []folderLink {
 	links := []folderLink{{"symlink", os.Symlink}}
 	if runtime.GOOS == "windows" {
-		links = append(links, folderLink{"junction", filelink.Junction})
+		links = append(links, folderLink{"junction", func(target, link string) error {
+			return filelink.Junction(link, target)
+		}})
 	}
 	return links
 }
