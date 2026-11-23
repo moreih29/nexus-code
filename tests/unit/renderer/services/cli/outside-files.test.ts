@@ -26,7 +26,7 @@ const { chatKey, emptyTabState, useChatStore } = await import(
   "../../../../../src/renderer/services/chat/store"
 );
 const { emptyModel } = await import("../../../../../src/renderer/services/chat/model");
-const { attachRootOf, attachShaped, inAttachFolder } = await import(
+const { attachRootOf, attachShaped, attachSlotOf } = await import(
   "../../../../../src/renderer/services/chat/attach-folders"
 );
 const { relayedText } = await import("../../../../../src/shared/chat/relay");
@@ -111,19 +111,29 @@ describe("chat.outsideFiles", () => {
 
   const NAMED = ["/tmp/cam/frame.jpg", "/tmp/scale/chart.png", "/tmp/scale/old.jpg"];
 
-  test("of the images the user attached, only those in the tab's folder under the agent's attach root", async () => {
+  test("of the images the user attached, only those in the workspace's attach folder under the agent's root", async () => {
     attachRoot = ATTACH;
     const ours = `${ATTACH}/w1/c1/2/shot.png`;
+    // The conversation went on here from another tab, whose message named its own.
+    const before = `${ATTACH}/w1/other-tab/1/theirs.png`;
     userSent(
       `look\n\n@${ours}`,
       "and\n\n@/Users/me/Pictures/private.png",
-      `@${ATTACH}/w1/other-tab/1/theirs.png`,
+      `@${before}`,
       `@${ATTACH}/w1/c1/2/../../../other-tab/1/theirs.png`,
+      `@${ATTACH}/w2/c9/1/another-workspace.png`,
       `@/tmp/attach/w1/c1/1/elsewhere.png`,
       relayedText({ kind: "tab", name: "Other", tabId: "t2" }, `@${ATTACH}/w1/c1/3/x.png`),
     );
     const { files } = await chatHandlers["chat.outsideFiles"]({ workspaceId: "w1" } as never);
-    expect([...files].sort()).toEqual([...NAMED, ours].sort());
+    expect([...files].sort()).toEqual([...NAMED, ours, before].sort());
+  });
+
+  test("an attached image of the workspace no message here names is not served", async () => {
+    attachRoot = ATTACH;
+    userSent("nothing attached");
+    const { files } = await chatHandlers["chat.outsideFiles"]({ workspaceId: "w1" } as never);
+    expect(files).not.toContain(`${ATTACH}/w1/other-tab/1/theirs.png`);
   });
 
   test("a file's name, as another device chose it, takes nothing out of the tab's folder", async () => {
@@ -149,28 +159,33 @@ describe("chat.outsideFiles", () => {
     expect([...files].sort()).toEqual(NAMED);
   });
 
-  test("an attach folder is the tab's, right below the root, a file in a numbered folder of it", async () => {
-    expect(inAttachFolder(ATTACH, "w1", "c1", `${ATTACH}/w1/c1/7/b.png`)).toBe(true);
-    expect(inAttachFolder(ATTACH, "w1", "c1", `${ATTACH}/w1/c1/b.png`)).toBe(false);
-    expect(inAttachFolder(ATTACH, "w1", "c1", `${ATTACH}/w1/c1/x/b.png`)).toBe(false);
-    expect(inAttachFolder(ATTACH, "w1", "c1", `${ATTACH}/w1/c1/7/sub/b.png`)).toBe(false);
-    expect(inAttachFolder(ATTACH, "w1", "c1", `${ATTACH}/w1/c2/7/b.png`)).toBe(false);
-    expect(inAttachFolder(ATTACH, "w1", "c1", "/tmp/attach/w1/c1/7/b.png")).toBe(false);
+  test("an attachment is a file right in a numbered folder of a tab's folder below the root", async () => {
+    expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/c1/7/b.png`)).toBe("c1/7");
+    expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/c2/7/b.png`)).toBe("c2/7");
+    expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/c1/b.png`)).toBeNull();
+    expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/c1/x/b.png`)).toBeNull();
+    expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/c1/7/sub/b.png`)).toBeNull();
+    expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/../7/b.png`)).toBeNull();
+    expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/./7/b.png`)).toBeNull();
+    expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w2/c1/7/b.png`)).toBeNull();
+    expect(attachSlotOf(ATTACH, "w1", "/tmp/attach/w1/c1/7/b.png")).toBeNull();
     // A Windows root, as main answers it, is written as resolveFilePath writes paths.
     attachRoot = "c:\\Users\\me\\.nexus-code\\attach\\";
     const root = await attachRootOf("w1");
     expect(root).toBe("C:/Users/me/.nexus-code/attach");
-    expect(
-      inAttachFolder(root ?? "", "w1", "c1", "C:/Users/me/.nexus-code/attach/w1/c1/2/b.png"),
-    ).toBe(true);
+    expect(attachSlotOf(root ?? "", "w1", "C:/Users/me/.nexus-code/attach/w1/c1/2/b.png")).toBe(
+      "c1/2",
+    );
   });
 
   test("another computer's tab tells the attached files that computer serves by their place", () => {
-    expect(attachShaped("w1", "c1", `${ATTACH}/w1/c1/2/b.png`)).toBe(true);
-    expect(attachShaped("w1", "c1", "C:/Users/me/.nexus-code/attach/w1/c1/2/b.png")).toBe(true);
-    expect(attachShaped("w1", "c1", "/Users/me/Desktop/b.png")).toBe(false);
-    expect(attachShaped("w1", "c1", `${ATTACH}/w1/c2/2/b.png`)).toBe(false);
-    expect(attachShaped("w1", "c1", `${ATTACH}/w1/c1/b.png`)).toBe(false);
+    expect(attachShaped("w1", `${ATTACH}/w1/c1/2/b.png`)).toBe(true);
+    expect(attachShaped("w1", "C:/Users/me/.nexus-code/attach/w1/c1/2/b.png")).toBe(true);
+    // Another tab's, where the conversation began.
+    expect(attachShaped("w1", `${ATTACH}/w1/c2/2/b.png`)).toBe(true);
+    expect(attachShaped("w1", "/Users/me/Desktop/b.png")).toBe(false);
+    expect(attachShaped("w1", `${ATTACH}/w2/c1/2/b.png`)).toBe(false);
+    expect(attachShaped("w1", `${ATTACH}/w1/c1/b.png`)).toBe(false);
   });
 
   test("under a Windows network home, no attachment is served: links never reach a share", async () => {

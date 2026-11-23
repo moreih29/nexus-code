@@ -75,10 +75,10 @@ export function useRemoteLinks(
     /** Quick look over the conversation's images, at `target`; `alone` when it is not among them. */
     const lookAt = (image: ShownImage, alone?: () => QuickLookList) => {
       const { model } = latest.current;
-      // That computer serves only the attached files its agent wrote for the tab; others wait
-      // on a lookup, as an image only named does.
+      // That computer serves only the attached files its agent wrote for a message; others
+      // wait on a lookup, as an image only named does.
       const shown = imagesOf(model.items, model.tools, cwd, model.agentItems, (file) =>
-        attachShaped(peerWorkspace, tabId, file),
+        attachShaped(peerWorkspace, file),
       );
       // The last read of a file a panel holds selects the panel; an earlier one shows as it was read.
       const held = image.image ? latestReadFile(shown, image) : undefined;
@@ -122,7 +122,7 @@ export function useRemoteLinks(
       openFile,
       opensAttached(written) {
         const file = resolveFilePath(written, cwd);
-        return file !== null && servedAttachment(peerWorkspace, tabId, workspaceRoot, file);
+        return file !== null && servedAttachment(peerWorkspace, workspaceRoot, file);
       },
       openBeside:
         placeFile ??

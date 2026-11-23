@@ -44,7 +44,7 @@ import {
   agentTabController,
 } from "../chat/agent-tab";
 import { conversationMarkdown } from "../chat/app-commands";
-import { attachRootOf, inAttachFolder } from "../chat/attach-folders";
+import { attachRootOf, attachSlotOf } from "../chat/attach-folders";
 import { existingChatController, type ForkPoint } from "../chat/claude/controller";
 import { borrowedClaudeModels, useClaudeModelCatalog } from "../chat/claude/model-catalog";
 import { firstVersionOf } from "../chat/claude/versions";
@@ -873,10 +873,11 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         if (path) files.add(path);
       }
       // As the tab's own previews read them (outsideLinksOf), its HTML files' folders aside;
-      // of the images the user attached, only those the agent wrote for the tab: a device that
-      // sends a message names in it whatever path it likes.
+      // of the images the user attached, only those the agent wrote for a message, of this
+      // tab or of another the conversation went on from: a device that sends a message names
+      // in it whatever path it likes, yet one that may send it could have the agent read more.
       const attached = (file: string) =>
-        attachRoot !== null && inAttachFolder(attachRoot, workspaceId, tab.id, file);
+        attachRoot !== null && attachSlotOf(attachRoot, workspaceId, file) !== null;
       if (root)
         for (const file of outsideLinksOf(items, tools, tab.props.cwd, root, [], attached).files) {
           files.add(file);
