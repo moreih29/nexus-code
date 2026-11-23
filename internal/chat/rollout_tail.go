@@ -8,7 +8,8 @@ package chat
 // user's messages, the agent's words and the tools it called, as Codex
 // before 0.16x wrote them (user_message, agent_message, exec_command_end…)
 // and after (item_completed with its item). They come back cut down to what
-// a peek shows, so a call's output or a patch's diff is not sent.
+// a peek shows: no call's output or patch's diff, of what the agent wrote
+// in a turn only its last words, and no more than rolloutTailBytes in all.
 
 import (
 	"bytes"
@@ -33,6 +34,9 @@ const (
 	rolloutTailText = 8 << 10
 	// rolloutTailEvents bounds the events sent; a turn with more is cut.
 	rolloutTailEvents = 5000
+	// rolloutTailBytes bounds the answer, as JSON: over it, the oldest turns
+	// are left out, then the oldest events of the one left.
+	rolloutTailBytes = 512 << 10
 	// rolloutTailForks is how many threads back a fork's history is followed.
 	rolloutTailForks = 4
 )
@@ -85,7 +89,37 @@ func (s *Service) RolloutTail(ctx context.Context, raw json.RawMessage) (any, er
 	for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
 		events[i], events[j] = events[j], events[i]
 	}
-	return RolloutTailResult{Found: true, Events: events, More: tail.more}, nil
+	events, cut := fitRolloutEvents(events, rolloutTailBytes)
+	return RolloutTailResult{Found: true, Events: events, More: tail.more || cut}, nil
+}
+
+// fitRolloutEvents is the events, oldest first, that go in `limit` bytes of
+// JSON: the oldest turns are left out first (a turn begins at the user's
+// message), then the oldest events of the one turn left. True when any were.
+func fitRolloutEvents(events []RolloutEvent, limit int) ([]RolloutEvent, bool) {
+	sizes := make([]int, len(events))
+	total := 0
+	for i, event := range events {
+		encoded, _ := json.Marshal(event)
+		// The comma between two events.
+		sizes[i] = len(encoded) + 1
+		total += sizes[i]
+	}
+	start := 0
+	for total > limit && start < len(events) {
+		next := start + 1
+		for next < len(events) && events[next].Kind != "user" {
+			next++
+		}
+		if next >= len(events) {
+			// One turn left: its oldest events go, one by one.
+			next = start + 1
+		}
+		for ; start < next; start++ {
+			total -= sizes[start]
+		}
+	}
+	return events[start:], start > 0
 }
 
 // rolloutTail gathers a thread's events from its end, newest first.
@@ -100,8 +134,11 @@ type rolloutTail struct {
 	full bool
 	// turnTaken: the turn the earliest message began was told.
 	turnTaken bool
-	done      bool
-	more      bool
+	// replied: the agent's last words of the turn being read (the first read,
+	// from the end) were taken; a peek shows no others of that turn.
+	replied bool
+	done    bool
+	more    bool
 }
 
 // read reads a rollout back from `end` (its end when 0), and tells the
@@ -209,11 +246,19 @@ func (t *rolloutTail) take(line []byte) bool {
 		t.more = true
 		return true
 	}
-	t.events = append(t.events, event)
-	if event.Kind == "user" {
+	switch event.Kind {
+	case "agent":
+		// Only a turn's last words are shown: the rest of what it wrote is not sent.
+		if t.replied || strings.TrimSpace(event.Text) == "" {
+			return false
+		}
+		t.replied = true
+	case "user":
+		t.replied = false
 		t.users++
 		t.full = t.users >= t.want
 	}
+	t.events = append(t.events, event)
 	return false
 }
 

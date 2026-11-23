@@ -141,7 +141,7 @@ func TestRolloutTailReadsItemsOfANewerCodex(t *testing.T) {
 	sameLines(t, told(got.Events), []string{
 		"turn t1",
 		"user t1 첫 줄\n둘째 줄 m1 images=1",
-		"agent t1 보는 중",
+		// Of what the agent wrote in the turn, only its last words are sent.
 		"tool t1 commandExecution",
 		"tool t1 fileChange delete",
 		"tool t1 webSearch",
@@ -245,4 +245,81 @@ func TestRolloutTailStopsAtItsScanBudget(t *testing.T) {
 		t.Fatal("what was not read was not told as more")
 	}
 	sameLines(t, told(got.Events), oldTurnTold(2))
+}
+
+// A long turn's words, all but the last, are not sent: the answer stays
+// small whatever the turn wrote.
+func TestRolloutTailSendsOnlyATurnsLastWords(t *testing.T) {
+	home := t.TempDir()
+	// Characters Go escapes in JSON, six bytes for each: near 6 MiB of words in all.
+	body, _ := json.Marshal(strings.Repeat("<", rolloutTailText))
+	lines := []string{tailMeta}
+	for turn := 1; turn <= 3; turn++ {
+		lines = append(lines, fmt.Sprintf(`{"type":"event_msg","payload":{"type":"user_message","message":"q%d"}}`, turn))
+		for i := 0; i < 40; i++ {
+			lines = append(lines, `{"type":"event_msg","payload":{"type":"agent_message","message":`+string(body)+`}}`)
+			lines = append(lines, `{"type":"event_msg","payload":{"type":"exec_command_end"}}`)
+		}
+		lines = append(lines, fmt.Sprintf(`{"type":"event_msg","payload":{"type":"agent_message","message":"done %d"}}`, turn))
+		lines = append(lines, `{"type":"event_msg","payload":{"type":"agent_message","message":"  "}}`)
+	}
+	writeRollout(t, home, tailThread, lines...)
+	got := rolloutTailOf(t, RolloutTailParams{ThreadID: tailThread, CodexHome: home, Turns: 3})
+	encoded, _ := json.Marshal(got)
+	if len(encoded) > 64<<10 {
+		t.Fatalf("the answer takes %d bytes", len(encoded))
+	}
+	agents := []string{}
+	tools := 0
+	for _, event := range got.Events {
+		switch event.Kind {
+		case "agent":
+			agents = append(agents, event.Text)
+		case "tool":
+			tools++
+		}
+	}
+	// The last words that are words, and every call still counted.
+	if strings.Join(agents, ",") != "done 1,done 2,done 3" || tools != 120 || got.More {
+		t.Fatalf("agents %v, %d tools, more %v", agents, tools, got.More)
+	}
+}
+
+// An answer over its bound loses its oldest turns, then the oldest events
+// of the turn left, and tells there is more.
+func TestRolloutTailAnswerIsBounded(t *testing.T) {
+	home := t.TempDir()
+	body, _ := json.Marshal(strings.Repeat("<", rolloutTailText))
+	lines := []string{tailMeta}
+	for turn := 1; turn <= rolloutTailMaxTurns; turn++ {
+		lines = append(lines, `{"type":"event_msg","payload":{"type":"user_message","message":`+string(body)+`}}`)
+		lines = append(lines, `{"type":"event_msg","payload":{"type":"agent_message","message":`+string(body)+`}}`)
+	}
+	writeRollout(t, home, tailThread, lines...)
+	got := rolloutTailOf(t, RolloutTailParams{ThreadID: tailThread, CodexHome: home, Turns: rolloutTailMaxTurns})
+	encoded, _ := json.Marshal(got)
+	if len(encoded) > rolloutTailBytes+1024 {
+		t.Fatalf("the answer takes %d bytes", len(encoded))
+	}
+	// Ten turns of two escaped 8 KiB texts are near 1 MiB: whole turns went.
+	if !got.More || len(got.Events) == 0 || len(got.Events)%2 != 0 || got.Events[0].Kind != "user" {
+		t.Fatalf("more %v, %d events, first %q", got.More, len(got.Events), got.Events[0].Kind)
+	}
+	if len(got.Events) >= 2*rolloutTailMaxTurns {
+		t.Fatal("no turn was left out")
+	}
+
+	// One turn too long by itself keeps its newest events.
+	events := []RolloutEvent{{Kind: "user", Text: "q"}}
+	for i := 0; i < 100; i++ {
+		events = append(events, RolloutEvent{Kind: "tool", Tool: "commandExecution", Name: fmt.Sprint(i)})
+	}
+	fitted, cut := fitRolloutEvents(events, 1000)
+	size, _ := json.Marshal(fitted)
+	if !cut || len(fitted) == 0 || len(size) > 1000 || fitted[len(fitted)-1].Name != "99" {
+		t.Fatalf("cut %v, %d events, %d bytes", cut, len(fitted), len(size))
+	}
+	if whole, cut := fitRolloutEvents(events, 1<<20); cut || len(whole) != len(events) {
+		t.Fatal("an answer within its bound was cut")
+	}
 }
