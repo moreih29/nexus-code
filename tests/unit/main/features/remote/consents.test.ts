@@ -62,6 +62,7 @@ describe("the consent prompts another device is told", () => {
     const { expiresAt: _, ...untimed } = pendingOf("c1");
     const { services } = setup([untimed]);
     const [listed] = await remoteConsents(services, both, 31_000);
+    expect(listed?.untimed).toBe(true);
     expect(listed?.expiresAt).toBe(1000 + UNTIMED_EXPIRES_AFTER_MS);
     expect(listed?.expiresInMs).toBe(1000 + UNTIMED_EXPIRES_AFTER_MS - 31_000);
     expect(UNTIMED_EXPIRES_AFTER_MS).toBe(24 * 60 * 60_000);

@@ -407,6 +407,7 @@ export const RemoteConsentSchema = z.object({
    * says false to it): consent.answer is not taken from agents.
    */
   answerable: z.boolean(),
+  untimed: z.literal(true).optional(),
 });
 export type RemoteConsent = z.infer<typeof RemoteConsentSchema>;
 

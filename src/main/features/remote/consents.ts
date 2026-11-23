@@ -111,6 +111,7 @@ export async function remoteConsents(
         },
         eachTime: request.change.eachTime === true,
         answerable: refusalFor(p, controls) === null,
+        ...(p.expiresAt === undefined ? { untimed: true as const } : {}),
       };
     }),
   );

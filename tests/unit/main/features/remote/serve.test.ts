@@ -795,6 +795,34 @@ describe("serving the sessions", () => {
     }
   });
 
+  test("a prompt without a time limit is listed as untimed, a timed one is not", async () => {
+    const request = {
+      fromWorkspaceId: "w1",
+      fromTabId: "t2",
+      toWorkspaceId: "w2",
+      change: { kind: "terminalNew" },
+    };
+    const pending: PendingConsent[] = [
+      { id: "open", at: 1000, request: { ...request, id: "open" } },
+      {
+        id: "timed",
+        at: 1000,
+        expiresAt: 91_000,
+        request: { ...request, timeoutMs: 90_000, id: "timed" },
+      },
+    ];
+    const listed = (await serveWith(() => services(pending), {
+      controls: () => ({ chat: true, terminal: true }),
+    })({ from: "phone", method: "sessions.list", params: {} })) as {
+      consents: { id: string; untimed?: true }[];
+    };
+    expect(listed.consents.map(({ id, untimed }) => ({ id, untimed }))).toEqual([
+      { id: "open", untimed: true },
+      { id: "timed", untimed: undefined },
+    ]);
+    expect(listed.consents[1]).not.toHaveProperty("untimed");
+  });
+
   test("with the consent prompts waiting on the user, as the device asking may answer them", async () => {
     const pending: PendingConsent[] = [
       {
