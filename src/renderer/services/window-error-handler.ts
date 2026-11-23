@@ -49,6 +49,43 @@ export function isPureCanceled(reason: unknown): boolean {
 // Handler implementations
 // ---------------------------------------------------------------------------
 
+const NAME_MAX = 64;
+
+export interface UncaughtErrorDetail {
+  name: string;
+  source: string;
+  errorNull: boolean;
+  resizeObserverLoop: boolean;
+}
+
+function fileBasename(filename: unknown): string {
+  if (typeof filename !== "string" || filename === "") return "none";
+  const path = filename.split(/[?#]/, 1)[0] ?? "";
+  return path.split(/[\\/]/).pop() || "none";
+}
+
+function errorName(error: unknown): string {
+  const name =
+    typeof error === "object" && error !== null ? (error as { name?: unknown }).name : undefined;
+  return typeof name === "string" && name !== "" ? name.slice(0, NAME_MAX) : "none";
+}
+
+function position(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+export function uncaughtErrorDetail(
+  event: Pick<ErrorEvent, "error" | "message" | "filename" | "lineno" | "colno">,
+): UncaughtErrorDetail {
+  return {
+    name: errorName(event.error),
+    source: `${fileBasename(event.filename)}:${position(event.lineno)}:${position(event.colno)}`,
+    errorNull: event.error === null,
+    resizeObserverLoop:
+      typeof event.message === "string" && event.message.startsWith("ResizeObserver loop"),
+  };
+}
+
 function onError(event: ErrorEvent): void {
   // Synchronous uncaught errors. Check whether the underlying error value is a
   // cancellation before surfacing.
@@ -57,7 +94,10 @@ function onError(event: ErrorEvent): void {
     return;
   }
 
-  log.error("Uncaught renderer error", {});
+  const detail = uncaughtErrorDetail(event);
+  log.error(
+    `Uncaught renderer error name=${JSON.stringify(detail.name)} source=${JSON.stringify(detail.source)} errorNull=${detail.errorNull} resizeObserverLoop=${detail.resizeObserverLoop}`,
+  );
 
   // Do NOT call preventDefault — let the Electron default handler see the
   // error so that DevTools console and crash reporting still work.
