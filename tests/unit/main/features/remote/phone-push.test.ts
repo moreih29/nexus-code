@@ -297,6 +297,53 @@ describe("consent notifications", () => {
     expect(app.send.mock.calls[2]?.[0]).toMatchObject({ kind: "consent", ttl: 86_400 });
   });
 
+  test("an untimed prompt answered or withdrawn while its push is refused is not sent again", async () => {
+    const app = setup();
+    await tick();
+    app.setAway(true);
+    let fail: ((error: Error) => void) | undefined;
+    app.send.mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          fail = reject;
+        }),
+    );
+    const resolve = app.consent(null);
+    await tick();
+    expect(app.send).toHaveBeenCalledTimes(1);
+    resolve();
+    expect(app.send.mock.calls[0]?.[1].aborted).toBe(true);
+    fail?.(new ServerError(400, "bad_request", "POST /push/send?v=1"));
+    await tick(3_600_000);
+    expect(app.send).toHaveBeenCalledTimes(1);
+  });
+
+  test("an untimed prompt answered or withdrawn before its push goes is never sent", async () => {
+    const app = setup({ mode: "away" });
+    await tick();
+    const resolve = app.consent(null);
+    await tick(60_000);
+    resolve();
+    app.setAway(true);
+    await tick(3_600_000);
+    expect(app.send).not.toHaveBeenCalled();
+  });
+
+  test("every send of one prompt's push carries the same id", async () => {
+    const app = setup();
+    await tick();
+    app.setAway(true);
+    app.send
+      .mockRejectedValueOnce(new UnreachableError("offline"))
+      .mockRejectedValueOnce(new ServerError(400, "bad_request", "POST /push/send?v=1"));
+    app.consent(null);
+    await tick(10_000);
+    const ids = app.send.mock.calls.map(([body]) => body.id);
+    expect(ids.length).toBe(3);
+    expect(new Set(ids).size).toBe(1);
+    expect(new TextEncoder().encode(ids[0]).length).toBeLessThanOrEqual(64);
+  });
+
   test("a timed consent refused is not asked again", async () => {
     const app = setup();
     await tick();
