@@ -79,7 +79,7 @@ export function PeerGitPanel({ rejoin, ...props }: PeerGitPanelProps) {
         onRefresh={props.refresh}
       >
         <span title={t("peerWorkspace.gitNoStageCommit")} className="ml-1 inline-flex">
-          <PeerReadOnlyBadge />
+          <PeerReadOnlyBadge compact />
         </span>
       </GitHeaderBar>
       <HistorySegmentToggle segment={segment} onChange={setSegment} />

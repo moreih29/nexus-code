@@ -49,6 +49,9 @@ test("Source Control is headed by the local title row, then the changes and hist
   expect(refresh).toBeLessThan(html.indexOf("History"));
   // That nothing is staged or committed is told once, by the read-only mark.
   expect(html).toContain('title="No staging or commits"');
+  // Only its lock, so the title row keeps room for its title, as locally.
+  expect(html).toContain('role="img" aria-label="Read-only"');
+  expect(html).not.toContain("Read-only</span>");
 });
 
 test("the changes fall in the local panel's four groups, in its order", () => {
