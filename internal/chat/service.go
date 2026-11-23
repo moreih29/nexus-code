@@ -146,6 +146,7 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("chat.pruneAttachments", service.PruneAttachments)
 	d.Register("chat.touchAttachments", service.TouchAttachments)
 	d.Register("chat.removeAttachments", service.RemoveAttachments)
+	d.Register("chat.historySlots", service.HistorySlots)
 	d.Register("chat.profileDir", service.ProfileDir)
 	d.Register("chat.writeCodexCatalog", service.WriteCodexCatalog)
 }
