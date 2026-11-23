@@ -29,6 +29,7 @@ import type { AgentRun } from "../../../shared/claude/activity";
 import { type RemoteAccountState, SIGNUP_FAILURES } from "../../../shared/remote/account";
 import type { RoomPeer, RoomState } from "../../../shared/remote/room";
 import { boundedPeerFoldKey } from "../../../shared/types/agent-view";
+import { shortId } from "../../../shared/util/short-id";
 import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import type { AgentSession } from "../../services/agent-sessions/model";
 import {
@@ -897,7 +898,7 @@ export function PeerGroup({
                         device={remoteDisplayName(peer.name)}
                         sessions={sessions.list.sessions}
                         workspaceName={
-                          names.get(consent.workspaceId) ?? consent.workspaceId.slice(0, 8)
+                          names.get(consent.workspaceId) ?? shortId(consent.workspaceId)
                         }
                       />
                     ))}

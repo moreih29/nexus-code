@@ -1,4 +1,4 @@
-import { CheckCheck, GitBranch, Plus } from "lucide-react";
+import { GitBranch, Plus } from "lucide-react";
 import { type KeyboardEvent, memo, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStableHandlers } from "@/hooks/use-stable-handlers";
@@ -37,13 +37,13 @@ import { useUIStore } from "@/state/stores/ui";
 import { selectWorkspaceConnectionStatus, useWorkspacesStore } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
 import type { SessionActivity } from "../../../shared/claude/activity";
-import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { locationLabel, type WorkspaceMeta } from "../../../shared/types/workspace";
+import { shortId } from "../../../shared/util/short-id";
 import { AgentRows } from "../agent-list/agent-rows";
 import { type RowPlace, rowShellClass, SessionRowLines } from "../agent-list/session-row";
 import {
   HiddenSessionCount,
   SessionSign,
-  StateGlyph,
   stateLabel,
   useDurationLabel,
 } from "../agent-list/session-status";
@@ -55,7 +55,7 @@ import {
   useParentCaption,
   visibleParentName,
 } from "../agent-list/session-tree-rows";
-import { AgentMark, GROUP_STATE, GROUP_TINT, RowLine } from "../agent-list/status-view";
+import { AgentMark, RowLine, StatusSections } from "../agent-list/status-view";
 import { NewChatMenuItems } from "../agent-profiles/new-chat-menu";
 import { GoalRowLine } from "../chat/goal-bar";
 import { ContextMenuRoot, ContextMenuTrigger } from "../ui/context-menu";
@@ -254,7 +254,6 @@ export function StatusGroups({
   remote,
   results,
 }: GroupsProps & { remote: readonly RemoteStatusSource[]; results: RemoteResults }) {
-  const { t } = useTranslation();
   const folded = useAgentViewStore((s) => s.folded);
   const order = useAgentViewStore((s) => s.order);
   const pending = useConsentIsPending();
@@ -312,95 +311,67 @@ export function StatusGroups({
   if (searching && !consents.length && groups.every(({ rows }) => rows.length === 0))
     return <NoMatch />;
   return (
-    <div className="flex flex-col gap-1" data-testid="agent-sidebar-status">
-      {groups.map(({ group, key, rows }) => {
-        const label = t(`agentList.group.${group}`);
+    <StatusSections
+      searching={searching}
+      className="flex flex-col gap-1"
+      sectionClassName="flex flex-col"
+      testId="agent-sidebar-status"
+      sectionTestId="agent-sidebar-group"
+      testPrefix="agent-sidebar"
+      sections={groups.map(({ group, key, rows }) => {
         const cards = group === "attention" ? consents : [];
-        const count = rows.length + cards.length;
-        if (count === 0) {
-          if (searching) return null;
-          return (
-            <section key={group} aria-label={label}>
-              <h3 className="flex h-7 items-center gap-1.5 px-2 text-app-ui-sm text-muted-foreground opacity-60">
-                <span aria-hidden className="size-3.5 shrink-0" />
-                <StateGlyph state={GROUP_STATE[group]} still />
-                <span>{label}</span>
-                <span className="tabular-nums">0</span>
-              </h3>
-            </section>
-          );
-        }
-        const isFolded = !searching && folded.has(key);
-        return (
-          <section
-            key={group}
-            aria-label={label}
-            className="flex flex-col"
-            data-testid="agent-sidebar-group"
-          >
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                aria-expanded={!isFolded}
-                onClick={() => useAgentViewStore.getState().toggleFolded(key)}
-                className={cn(
-                  "flex h-7 shrink-0 items-center gap-1.5 rounded-(--radius-control) px-2 text-app-ui-sm font-medium whitespace-nowrap outline-none hover:bg-[var(--state-hover-bg)] focus-visible:ring-1 focus-visible:ring-ring",
-                  GROUP_TINT[group],
-                )}
-              >
-                <FoldChevron folded={isFolded} />
-                <StateGlyph state={GROUP_STATE[group]} />
-                <span>{label}</span>
-                <span className="tabular-nums">{count}</span>
-              </button>
-              {group === "done" && (
-                <MarkAllRead
-                  onMark={() => {
-                    const local: InboxItem[] = [];
-                    const remote: Parameters<RemoteResults["markSeen"]>[0][number][] = [];
-                    for (const row of rows) {
-                      if (row.kind === "remote") {
-                        for (const member of treeSessions([row.node])) {
-                          const session = row.byKey.get(member.key);
-                          if (session)
-                            remote.push({
-                              deviceId: row.peer.id,
-                              session,
-                              hostReceipts: peerServes(row.peer, "sessions.markSeen"),
-                            });
-                        }
-                      } else {
-                        for (const session of treeSessions([row.node])) {
-                          const entry = agents.byKey.get(session.key);
-                          if (entry) local.push({ workspace: entry.workspace, session });
-                        }
+        return {
+          group,
+          count: rows.length + cards.length,
+          folded: !searching && folded.has(key),
+          onToggle: () => useAgentViewStore.getState().toggleFolded(key),
+          onMarkRead:
+            group === "done"
+              ? () => {
+                  const local: InboxItem[] = [];
+                  const remote: Parameters<RemoteResults["markSeen"]>[0][number][] = [];
+                  for (const row of rows) {
+                    if (row.kind === "remote") {
+                      for (const member of treeSessions([row.node])) {
+                        const session = row.byKey.get(member.key);
+                        if (session)
+                          remote.push({
+                            deviceId: row.peer.id,
+                            session,
+                            hostReceipts: peerServes(row.peer, "sessions.markSeen"),
+                          });
+                      }
+                    } else {
+                      for (const session of treeSessions([row.node])) {
+                        const entry = agents.byKey.get(session.key);
+                        if (entry) local.push({ workspace: entry.workspace, session });
                       }
                     }
-                    markRead(local);
-                    results.markSeen(remote);
-                  }}
-                />
+                  }
+                  markRead(local);
+                  results.markSeen(remote);
+                }
+              : undefined,
+          body: () => (
+            <>
+              {cards.length > 0 && (
+                <div className="flex flex-col px-1 py-1" data-testid="remote-consents">
+                  <ConsentPages>
+                    {cards.map(({ consent, source: { peer, list }, workspace }) => (
+                      <PeerConsentCard
+                        key={JSON.stringify([peer.id, consent.id])}
+                        consent={consent}
+                        deviceId={peer.id}
+                        device={remoteDisplayName(peer.name)}
+                        workspaceName={workspace?.name ?? shortId(consent.workspaceId)}
+                        sessions={list.sessions}
+                      />
+                    ))}
+                  </ConsentPages>
+                </div>
               )}
-            </div>
-            {!isFolded && cards.length > 0 && (
-              <div className="flex flex-col px-1 py-1" data-testid="remote-consents">
-                <ConsentPages>
-                  {cards.map(({ consent, source: { peer, list }, workspace }) => (
-                    <PeerConsentCard
-                      key={JSON.stringify([peer.id, consent.id])}
-                      consent={consent}
-                      deviceId={peer.id}
-                      device={remoteDisplayName(peer.name)}
-                      workspaceName={workspace?.name ?? consent.workspaceId.slice(0, 8)}
-                      sessions={list.sessions}
-                    />
-                  ))}
-                </ConsentPages>
-              </div>
-            )}
-            {!isFolded &&
-              rows.map((row) => {
-                return row.kind === "local" ? (
+              {rows.map((row) =>
+                row.kind === "local" ? (
                   <SessionBranch
                     key={row.key}
                     node={row.node}
@@ -444,25 +415,17 @@ export function StatusGroups({
                       );
                     }}
                   />
-                );
-              })}
-          </section>
-        );
+                ),
+              )}
+            </>
+          ),
+        };
       })}
-    </div>
+    />
   );
 }
 
 type LocalStatusTree = { kind: "local"; key: string; node: SessionTreeNode };
-
-function MarkAllRead({ onMark }: { onMark: () => void }) {
-  const { t } = useTranslation();
-  return (
-    <IconButton label={t("inbox.mark_read")} onClick={onMark} data-testid="agent-sidebar-mark-read">
-      <CheckCheck aria-hidden className="size-3.5" />
-    </IconButton>
-  );
-}
 
 export function WorkspaceGroups({ agents, activity, query }: GroupsProps) {
   const order = useAgentViewStore((s) => s.order);
@@ -750,12 +713,8 @@ function SessionBranch({
 
 function WhereLabel({ workspace }: { workspace: WorkspaceMeta }) {
   const status = useWorkspacesStore((s) => selectWorkspaceConnectionStatus(s, workspace.id));
-  const location = workspace.location;
-  if (location.kind === "local") return null;
-  const label =
-    location.kind === "ssh"
-      ? `ssh: ${location.configAlias ?? (location.user ? `${location.user}@${location.host}` : location.host)}`
-      : `wsl: ${location.distro}`;
+  const label = locationLabel(workspace.location, { prefix: true });
+  if (label === null) return null;
   return (
     <span className="flex min-w-0 shrink items-center gap-1 text-app-micro text-muted-foreground">
       <span

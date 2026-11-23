@@ -12,6 +12,7 @@ import type { ClaudeStatus } from "../../../shared/claude/status";
 import { sharedClock, useSharedClock } from "../../hooks/use-now";
 import type { AgentSession } from "../../services/agent-sessions/model";
 import type { RowFacts } from "../../services/agent-sessions/rows";
+import { tooltipProps } from "../ui/tooltip";
 import { programStateLabel, type StateLook, stateLook, stateText } from "./state-look";
 
 export { GROUP_STATE, GROUP_TINT } from "./state-look";
@@ -133,7 +134,7 @@ export function WaitSign({
     <span
       role="img"
       aria-label={label}
-      title={label}
+      {...tooltipProps(label)}
       className="inline-flex"
       data-testid={testId}
       data-wait={kind}
@@ -166,7 +167,13 @@ export function SessionSign({
     );
   const label = stateLabel(session);
   return (
-    <span role="img" aria-label={label} title={label} className="inline-flex" data-testid={testId}>
+    <span
+      role="img"
+      aria-label={label}
+      {...tooltipProps(label)}
+      className="inline-flex"
+      data-testid={testId}
+    >
       <StateGlyph state={session.state} />
     </span>
   );

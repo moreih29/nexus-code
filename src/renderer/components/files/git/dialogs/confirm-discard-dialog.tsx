@@ -13,7 +13,6 @@ export interface DiscardConfirmRequest {
 
 interface ConfirmDiscardDialogProps {
   request: DiscardConfirmRequest | null;
-  busy?: boolean;
   onCancel: () => void;
   onConfirm: (request: DiscardConfirmRequest) => void;
 }

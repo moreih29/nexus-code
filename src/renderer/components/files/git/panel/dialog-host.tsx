@@ -40,9 +40,6 @@ export interface GitDialogHostCallbacks {
 
   addRemoteFields: FormDialogField[];
 
-  discardBusy: boolean;
-  removeRemoteBusy: boolean;
-  forcePushBusy: boolean;
   branchCreateBusy: boolean;
   mergeBusy: boolean;
   publishBusy: boolean;
@@ -122,9 +119,6 @@ export function GitDialogHost({ dialogs, pickers, callbacks }: GitDialogHostProp
     commitPickerSource,
     commitBranchSource,
     addRemoteFields,
-    discardBusy,
-    removeRemoteBusy,
-    forcePushBusy,
     branchCreateBusy,
     mergeBusy,
     publishBusy,
@@ -137,7 +131,6 @@ export function GitDialogHost({ dialogs, pickers, callbacks }: GitDialogHostProp
     <>
       <ConfirmDiscardDialog
         request={discardRequest}
-        busy={discardBusy}
         onCancel={() => setDiscardRequest(null)}
         onConfirm={(request) => {
           setDiscardRequest(null);
@@ -146,7 +139,6 @@ export function GitDialogHost({ dialogs, pickers, callbacks }: GitDialogHostProp
       />
       <ConfirmDiscardDialog
         request={removeRemoteRequest?.confirm ?? null}
-        busy={removeRemoteBusy}
         onCancel={() => setRemoveRemoteRequest(null)}
         onConfirm={() => {
           const remote = removeRemoteRequest?.remote;
@@ -166,7 +158,6 @@ export function GitDialogHost({ dialogs, pickers, callbacks }: GitDialogHostProp
               }
             : null
         }
-        busy={forcePushBusy}
         onCancel={() => setForcePushRequest(null)}
         onConfirm={() => {
           const options = forcePushRequest;

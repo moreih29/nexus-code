@@ -29,7 +29,7 @@ import { useAgentViewStore } from "@/state/stores/agent-view";
 import { useRemoteTarget, useRemoteViewStore } from "@/state/stores/remote-view";
 import { type EditorTab, useTabsStore } from "@/state/stores/tabs";
 import { useUIStore } from "@/state/stores/ui";
-import { rootWorkspaceId, useWorkspacesStore } from "@/state/stores/workspaces";
+import { rootWorkspaceId, useWorkspace, useWorkspacesStore } from "@/state/stores/workspaces";
 import { copyTextViaIpc } from "@/utils/clipboard";
 import { cn } from "@/utils/cn";
 import { beginDragInFlight } from "@/utils/drag-in-flight";
@@ -364,9 +364,9 @@ export const AgentPane = memo(function AgentPane({
 });
 
 function WorkspaceChip({ workspaceId, className }: { workspaceId: string; className?: string }) {
-  const name = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.name);
+  const name = useWorkspace(workspaceId, (w) => w?.name);
   const rootId = useWorkspacesStore((s) => rootWorkspaceId(s.workspaces, workspaceId));
-  const color = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === rootId)?.color);
+  const color = useWorkspace(rootId, (w) => w?.color);
   return (
     <span
       className={cn(
@@ -387,9 +387,7 @@ function WorkspaceChip({ workspaceId, className }: { workspaceId: string; classN
 function useLocalTabInfo(key: string, agents: Agents) {
   const ref = parseSessionKey(key);
   const tab = useTabsStore((s) => (ref ? s.byWorkspace[ref.workspaceId]?.[ref.tabId] : undefined));
-  const workspaceName = useWorkspacesStore((s) =>
-    ref ? s.workspaces.find((w) => w.id === ref.workspaceId)?.name : undefined,
-  );
+  const workspaceName = useWorkspace(ref?.workspaceId, (w) => w?.name);
   if (!ref || !tab) return null;
   if (tab.type === "editor") return { kind: "file" as const, ref, tab };
   if (tab.type !== "claude" && tab.type !== "codex" && tab.type !== "terminal") return null;

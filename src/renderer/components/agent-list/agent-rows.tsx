@@ -3,6 +3,7 @@ import { cn } from "@/utils/cn";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { rowAgents } from "../../services/agent-sessions/agents";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
+import { tooltipProps } from "../ui/tooltip";
 import { AgentDuration, AgentGlyph, agentLabel, agentStateLabel } from "./agent-status";
 
 const ROW =
@@ -42,7 +43,7 @@ export function AgentRows({
                 type="button"
                 aria-pressed={selected}
                 onClick={(event) => onSelect(agent.id, event.currentTarget)}
-                title={title}
+                {...tooltipProps(title)}
                 className={cn(
                   ROW,
                   "transition-colors outline-none focus-visible:ring-1 focus-visible:ring-ring",
@@ -54,7 +55,7 @@ export function AgentRows({
                 {line}
               </button>
             ) : (
-              <div title={title} className={cn(ROW, "text-muted-foreground")}>
+              <div {...tooltipProps(title)} className={cn(ROW, "text-muted-foreground")}>
                 {line}
               </div>
             )}

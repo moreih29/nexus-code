@@ -43,18 +43,6 @@ export function agentTitle(agent: AgentRun): string {
   );
 }
 
-export function agentKindParts(agent: AgentRun): string[] {
-  if (agent.kind === "print") {
-    return [agent.model, agent.endpoint, printLabel(agent.program)].filter(
-      (part): part is string => part !== undefined,
-    );
-  }
-  return [
-    agent.type,
-    agent.background ? i18next.t("common:agentList.agents.background") : undefined,
-  ].filter((part): part is string => part !== undefined);
-}
-
 export function elapsedLabel(ms: number): string {
   const seconds = Math.max(0, Math.floor(ms / 1_000));
   if (seconds < 60) return i18next.t("common:agentList.elapsed.seconds", { count: seconds });
