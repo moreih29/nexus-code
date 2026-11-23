@@ -1,7 +1,7 @@
-import type { RelaySender } from "../../../shared/chat/relay";
+import { type RelaySender, withoutRelayHeader } from "../../../shared/chat/relay";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { pruneAttachmentsAfterAttach } from "./attach-retention";
-import type { ChatLine } from "./model";
+import { type ChatItem, type ChatLine, isWaiting, type UserItem } from "./model";
 import type { ChatTabState } from "./store";
 import type { LiveLines } from "./transport/live-lines";
 import { cancelQueuedMessage, type QueuedMessage } from "./transport/queue";
@@ -66,6 +66,36 @@ async function catchUp(tab: ReplayingTab, replay: ReplayResult): Promise<void> {
 
 export function heldTab(prev: ChatTabState): ChatTabState {
   return prev.phase === "ready" ? { ...prev, phase: "held" } : prev;
+}
+
+export function holdUnread(
+  state: ChatTabState,
+  senderOf: (id: string) => RelaySender | undefined,
+): ChatTabState {
+  const unread = state.model.items.filter(
+    (item): item is UserItem => isWaiting(item) && item.sentUuid !== undefined,
+  );
+  if (unread.length === 0) return state;
+  const queued = new Set(state.queue.map((item) => item.id));
+  const held = unread.flatMap(({ sentUuid: id = "", text, images }): QueuedMessage[] => {
+    if (queued.has(id)) return [];
+    const from = senderOf(id);
+    return [
+      {
+        id,
+        text: from ? withoutRelayHeader(text) : text,
+        images,
+        afterTool: 0,
+        ...(from ? { from } : {}),
+      },
+    ];
+  });
+  const moved = new Set<ChatItem>(unread);
+  return {
+    ...state,
+    model: { ...state.model, items: state.model.items.filter((item) => !moved.has(item)) },
+    queue: [...held, ...state.queue],
+  };
 }
 
 export class ResyncRetry {

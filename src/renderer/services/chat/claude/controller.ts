@@ -36,6 +36,7 @@ import {
   attachToTab,
   editQueuedIn,
   heldTab,
+  holdUnread,
   type ReplayResult,
   ResyncRetry,
   removeQueuedIn,
@@ -144,6 +145,7 @@ export interface ChatTabHooks {
   onProfile?: (profileId: string) => void;
   onMoves?: (moves: readonly ProfileMove[]) => void;
   onRelayed?: (record: RelayedMessage) => void;
+  relayedFrom?: (id: string) => RelaySender | undefined;
   onChosen?: (chosen: ChatChosen) => void;
   onPeerWritten?: (id: string) => void;
   onTurnEnd?: (model: ChatModel) => void;
@@ -1363,12 +1365,14 @@ export class ChatController {
     this.resyncRetry.settled();
     if (this.disposed || this.changingSession || this.transcriptSource !== source) return;
     if (replay.found) {
+      if (!replay.running) this.holdUnread();
       this.update((prev) => ({ ...prev, phase: replay.running ? "ready" : "ended" }));
       this.sendNextQueued();
       return;
     }
     const pages = this.transcriptPages;
     if (!pages && this.opening) return;
+    this.holdUnread();
     if (source && pages) {
       this.fullTranscript = undefined;
       this.transcriptSource = {
@@ -1394,6 +1398,10 @@ export class ChatController {
 
   held(): void {
     this.update(heldTab);
+  }
+
+  private holdUnread(): void {
+    this.update((prev) => holdUnread(prev, (id) => this.hooks.relayedFrom?.(id)));
   }
 
   async prepareSend(): Promise<void> {
@@ -1511,12 +1519,16 @@ export class ChatController {
         this.flushNow();
         this.sendNextQueued();
       },
-      () => this.canSendQueued(),
+      (item) => this.canSendQueued(item),
     );
   }
 
-  private canSendQueued(): boolean {
-    return !this.disposed && this.state.phase !== "held" && !this.state.model.running;
+  private canSendQueued(item: QueuedMessage): boolean {
+    return (
+      !this.disposed &&
+      this.state.phase !== "held" &&
+      (!this.state.model.running || item.afterTool !== undefined)
+    );
   }
 
   private sawQueuedMessage(id: string): boolean {
@@ -2231,6 +2243,8 @@ export class ChatController {
       model,
       phase: phaseAfter(prev.phase, model),
     }));
+    if (!this.changingSession && model.process === "exited" && lines.some(liveExit))
+      this.holdUnread();
     this.afterModel(before, model);
     if (lines.some(liveMainCall)) this.askContextBase();
     if (model.lastResult !== before.lastResult && lines.some(liveClaudeResult))
@@ -2320,6 +2334,14 @@ function liveClaudeResult(line: ChatLine): boolean {
     !line.replay &&
     line.dir === "out" &&
     (line.message as { type?: string } | undefined)?.type === "result"
+  );
+}
+
+function liveExit(line: ChatLine): boolean {
+  return (
+    !line.replay &&
+    line.dir === "sys" &&
+    (line.message as { event?: string } | undefined)?.event === "exit"
   );
 }
 

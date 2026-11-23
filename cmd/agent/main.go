@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/nexus-code/nexus-code/internal/agentpaths"
 	"github.com/nexus-code/nexus-code/internal/agentrun"
 	agentchat "github.com/nexus-code/nexus-code/internal/chat"
 	"github.com/nexus-code/nexus-code/internal/cliclient"
@@ -88,6 +90,7 @@ func main() {
 	}
 	root := args.root
 	idleWatchdog := args.idleWatchdog
+	endOrphanedPrograms(root, agentLogger)
 
 	fsys, err := agentfs.New(root)
 	if err != nil {
@@ -251,4 +254,22 @@ func askpassExitFromArgv(argv []string) (int, bool) {
 		return agentgit.RunAskpassHelper(socketPath, argv[1:], os.Stdout, os.Stderr), true
 	}
 	return 0, false
+}
+
+func endOrphanedPrograms(root string, logger *slog.Logger) {
+	runDir, err := agentpaths.RunDir()
+	if err != nil {
+		logger.Warn("cannot track chat programs", "err", err)
+		return
+	}
+	ended, err := agentchat.TrackOwnedPrograms(
+		filepath.Join(runDir, "programs"),
+		agentrun.WsID(root, proto.ServerVersion),
+	)
+	if len(ended) > 0 {
+		logger.Info("ended chat programs a dead agent left running", "pids", ended)
+	}
+	if err != nil {
+		logger.Warn("cannot track chat programs", "err", err)
+	}
 }

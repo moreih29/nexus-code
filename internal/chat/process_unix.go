@@ -22,6 +22,7 @@ func (p *process) holdTree() error {
 	p.tree.mu.Lock()
 	defer p.tree.mu.Unlock()
 	p.tree.start = processStart(p.cmd.Process.Pid)
+	noteOwned(p.cmd.Process.Pid, p.tree.start)
 	return nil
 }
 
@@ -33,6 +34,7 @@ func (p *process) releaseTree() {
 		p.tree.targets = nil
 	}
 	p.tree.released = true
+	forgetOwned(p.cmd.Process.Pid)
 }
 
 func (p *process) signalTerm() error {

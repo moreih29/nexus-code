@@ -25,6 +25,7 @@ import { liveAnswerOf } from "../notes/live-answer";
 import { type ChatController, type ChatTabHooks, chatController } from "./claude/controller";
 import { type CodexController, type CodexTabHooks, codexController } from "./codex/controller";
 import type { ChatModel } from "./model";
+import { relayedOf } from "./relayed";
 import { clipTitle, titleOf } from "./tab-title";
 import { sendFirstMessage } from "./transport/submission";
 
@@ -82,6 +83,11 @@ export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks
       ),
     onMoves: (moves) => tabs().setChatMoves(workspaceId, tabId, moves),
     onRelayed: (record) => tabs().addChatRelayed(workspaceId, tabId, record),
+    relayedFrom: (id) => {
+      const tab = tabs().byWorkspace[workspaceId]?.[tabId];
+      if (tab?.type !== "claude") return undefined;
+      return relayedOf(tab.props)?.find((record) => record.id === id)?.from;
+    },
     onPeerWritten: (id) => {
       const tab = tabs().byWorkspace[workspaceId]?.[tabId];
       const submission = tab?.type === "claude" ? tab.props.peerSubmissions?.[id] : undefined;
