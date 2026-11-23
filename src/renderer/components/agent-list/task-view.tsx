@@ -6,8 +6,6 @@
 // done in it.
 
 import {
-  ChevronDown,
-  ChevronRight,
   CornerDownRight,
   Ellipsis,
   FileDiff,
@@ -57,6 +55,7 @@ import { SessionSign, stateColor, useDurationLabel } from "./session-status";
 import { FamilyFold, ParentCaption, SessionTreeBranch } from "./session-tree-rows";
 import { AgentMark } from "./status-view";
 import { TaskInfo } from "./task-info";
+import { TaskHeaderAction, TaskHeaderLine, TaskRowLine } from "./task-row-line";
 
 interface TaskViewProps {
   family: SessionFamily;
@@ -241,44 +240,13 @@ function TaskHeader({
   const { workspace } = worktree;
   const name = worktreeName(worktree, branch);
   const path = workspace.task?.worktreePath ?? workspace.rootPath;
-  const Chevron = unfolded ? ChevronDown : ChevronRight;
   return (
-    <div
-      className="group/task relative flex min-w-0 items-center gap-2 px-3 py-2 text-app-ui-sm transition-colors hover:bg-[var(--state-hover-bg)]"
-      data-testid="agent-list-task-header"
-    >
-      {/* The header as one button behind its content, so its actions stay buttons. */}
-      <button
-        type="button"
-        aria-expanded={unfolded}
-        aria-label={name}
-        onClick={onToggle}
-        className="absolute inset-0 outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
-      />
-      <div className="pointer-events-none relative flex min-w-0 flex-1 items-center gap-2">
-        <Chevron aria-hidden className="-ml-1 size-3.5 shrink-0 text-muted-foreground" />
-        <WorktreeMark worktree={worktree} />
-        {/* The name keeps its width beside the branch or the creator, which
-            give way first, up to most of the line. */}
-        <span
-          className={cn(
-            "truncate font-medium text-foreground",
-            (worktree.isRoot && branch) || creator ? "max-w-[70%] shrink-0" : "min-w-0",
-          )}
-          title={name}
-        >
-          {name}
-        </span>
-        {worktree.isRoot && branch && (
-          <span
-            className="flex min-w-0 shrink items-center gap-1 rounded-(--radius-control) bg-muted px-1.5 font-mono text-app-micro text-muted-foreground @max-xs/agents:hidden"
-            title={branch}
-          >
-            <GitBranch aria-hidden className="size-3 shrink-0" />
-            <span className="truncate">{branch}</span>
-          </span>
-        )}
-        {creator && (
+    <TaskHeaderLine
+      name={name}
+      isRoot={worktree.isRoot}
+      branch={branch}
+      creator={
+        creator && (
           <span
             className="flex min-w-0 shrink items-center gap-1 text-app-micro text-muted-foreground @max-xs/agents:hidden"
             title={t("agentList.task.created_by", { title: creator.title })}
@@ -287,98 +255,62 @@ function TaskHeader({
             <AgentMark session={creator} className="size-3" />
             <span className="truncate">{creator.title}</span>
           </span>
-        )}
-      </div>
-      {changed > 0 && (
-        <span
-          className={cn(
-            "pointer-events-none relative flex shrink-0 items-center gap-1 text-app-micro text-muted-foreground tabular-nums",
-            menuOpen ? "hidden" : "group-focus-within/task:hidden group-hover/task:hidden",
-          )}
-          title={t("agentList.detail.changes", { count: changed })}
-        >
-          <FileDiff aria-hidden className="size-3.5" />
-          {changed}
-        </span>
-      )}
-      {/* The buttons stand over the header's padding, so showing them does
-          not make the line taller than its text. */}
-      <div
-        className={cn(
-          "relative -my-1 shrink-0 items-center gap-0.5",
-          menuOpen ? "flex" : "hidden group-focus-within/task:flex group-hover/task:flex",
-        )}
-      >
-        <HeaderAction
-          label={t("agentList.detail.show_changes")}
-          onClick={() => showChanges(workspace.id)}
-        >
-          <FileDiff aria-hidden className="size-3.5" />
-        </HeaderAction>
-        <HeaderAction
-          label={t("agentList.task.open_terminal")}
-          onClick={() => openWorktreeTerminal(workspace)}
-        >
-          <SquareTerminal aria-hidden className="size-3.5" />
-        </HeaderAction>
-        <HeaderAction
-          label={t("agentList.list.new_claude")}
-          onClick={() => openWorktreeChat(workspace)}
-        >
-          <MessageSquarePlus aria-hidden className="size-3.5" />
-        </HeaderAction>
-        <DropdownMenuRoot onOpenChange={setMenuOpen}>
-          <DropdownMenuTrigger>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              className="size-6"
-              title={t("agentList.task.more")}
-              aria-label={t("agentList.task.more")}
-            >
-              <Ellipsis aria-hidden className="size-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={() => void copyTextViaIpc(path)}>
-              {t("agentList.task.copy_path")}
-            </DropdownMenuItem>
-            {!worktree.isRoot && (
-              <DropdownMenuItem
-                className="text-(--state-error-fg)"
-                onSelect={() => removeTask(workspace.id)}
+        )
+      }
+      changed={changed}
+      unfolded={unfolded}
+      onToggle={onToggle}
+      menuOpen={menuOpen}
+      testId="agent-list-task-header"
+      actions={
+        <>
+          <TaskHeaderAction
+            label={t("agentList.detail.show_changes")}
+            onClick={() => showChanges(workspace.id)}
+          >
+            <FileDiff aria-hidden className="size-3.5" />
+          </TaskHeaderAction>
+          <TaskHeaderAction
+            label={t("agentList.task.open_terminal")}
+            onClick={() => openWorktreeTerminal(workspace)}
+          >
+            <SquareTerminal aria-hidden className="size-3.5" />
+          </TaskHeaderAction>
+          <TaskHeaderAction
+            label={t("agentList.list.new_claude")}
+            onClick={() => openWorktreeChat(workspace)}
+          >
+            <MessageSquarePlus aria-hidden className="size-3.5" />
+          </TaskHeaderAction>
+          <DropdownMenuRoot onOpenChange={setMenuOpen}>
+            <DropdownMenuTrigger>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                className="size-6"
+                title={t("agentList.task.more")}
+                aria-label={t("agentList.task.more")}
               >
-                {t("agentList.detail.remove_task")}
+                <Ellipsis aria-hidden className="size-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => void copyTextViaIpc(path)}>
+                {t("agentList.task.copy_path")}
               </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenuRoot>
-      </div>
-    </div>
-  );
-}
-
-/** One of a worktree header's actions, as an icon with its name for a title. */
-function HeaderAction({
-  label,
-  onClick,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Button
-      size="icon-sm"
-      variant="ghost"
-      className="size-6"
-      title={label}
-      aria-label={label}
-      onClick={onClick}
-    >
-      {children}
-    </Button>
+              {!worktree.isRoot && (
+                <DropdownMenuItem
+                  className="text-(--state-error-fg)"
+                  onSelect={() => removeTask(workspace.id)}
+                >
+                  {t("agentList.detail.remove_task")}
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenuRoot>
+        </>
+      }
+    />
   );
 }
 
@@ -423,72 +355,44 @@ export function TaskRow({
   const group = groupOf(session);
   const tool = session.phase === "running" ? facts.tool : undefined;
   return (
-    <div
-      className={cn(
-        "relative flex h-7 w-full min-w-0 items-center gap-2 px-2 text-app-ui-sm transition-colors",
-        selected ? "bg-[var(--sidebar-item-selected-bg)]" : "hover:bg-[var(--state-hover-bg)]",
-      )}
-      data-testid="agent-list-task-row"
-      data-session-key={session.key}
-    >
-      {/* The row as one button behind its content, so its chips stay buttons. */}
-      <button
-        type="button"
-        aria-pressed={selected}
-        aria-label={session.title}
-        title={tool ? `${session.title}\n${tool.name} ${tool.target ?? ""}`.trim() : session.title}
-        onClick={(event) => onSelect(event.currentTarget)}
-        className="absolute inset-0 outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
-      />
-      <span className="pointer-events-none relative flex min-w-0 flex-1 items-center gap-2">
-        <AgentMark session={session} />
-        <span className="flex h-5 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden">
-          <span
-            className={cn(
-              "h-5 min-w-0 flex-[1_1_8em] truncate",
-              group === "attention" || group === "running" || group === "done"
-                ? "font-medium text-foreground"
-                : "text-foreground/90",
+    <TaskRowLine
+      mark={<AgentMark session={session} />}
+      title={session.title}
+      tooltip={tool ? `${session.title}\n${tool.name} ${tool.target ?? ""}`.trim() : session.title}
+      emphasized={group === "attention" || group === "running" || group === "done"}
+      tags={
+        (branch || parent || waitingOn) && (
+          <>
+            {branch && (
+              <PlaceTag place={{ kind: "branch", name: branch }} testId="agent-list-branch" />
             )}
-          >
-            {session.title}
-          </span>
-          {(branch || parent || waitingOn) && (
-            <span className="flex h-5 max-w-full min-w-0 shrink-0 items-center gap-2 text-app-micro text-muted-foreground">
-              {branch && (
-                <PlaceTag place={{ kind: "branch", name: branch }} testId="agent-list-branch" />
-              )}
-              {parent}
-              {waitingOn && (
-                <span
-                  className="flex max-w-40 min-w-0 items-center gap-1"
-                  title={t("agentList.task.waiting_on", { title: waitingOn.title })}
-                >
-                  <Hourglass aria-hidden className="size-3 shrink-0" />
-                  <AgentMark session={waitingOn} className="size-3" />
-                  <span className="truncate">{waitingOn.title}</span>
-                </span>
-              )}
-            </span>
-          )}
-        </span>
-        {family}
-        <span className="flex shrink-0 items-center gap-1">
-          <SessionSign session={session} facts={facts} />
-          {duration && (
-            <span
-              className={cn(
-                "text-app-micro tabular-nums",
-                group === "attention" || group === "done"
-                  ? stateColor(session.state)
-                  : "text-muted-foreground",
-              )}
-            >
-              {duration}
-            </span>
-          )}
-        </span>
-      </span>
-    </div>
+            {parent}
+            {waitingOn && (
+              <span
+                className="flex max-w-40 min-w-0 items-center gap-1"
+                title={t("agentList.task.waiting_on", { title: waitingOn.title })}
+              >
+                <Hourglass aria-hidden className="size-3 shrink-0" />
+                <AgentMark session={waitingOn} className="size-3" />
+                <span className="truncate">{waitingOn.title}</span>
+              </span>
+            )}
+          </>
+        )
+      }
+      family={family}
+      sign={<SessionSign session={session} facts={facts} />}
+      duration={duration}
+      durationClass={
+        group === "attention" || group === "done"
+          ? stateColor(session.state)
+          : "text-muted-foreground"
+      }
+      selected={selected}
+      aria-pressed={selected}
+      onSelect={onSelect}
+      testId="agent-list-task-row"
+      sessionKey={session.key}
+    />
   );
 }

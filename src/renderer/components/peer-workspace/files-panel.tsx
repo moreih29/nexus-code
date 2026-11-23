@@ -15,11 +15,14 @@ import { ErrorBoundary } from "../ui/error-boundary";
 import { KeptMounted } from "../ui/kept-mounted";
 import { PeerFileTree } from "./file-tree";
 import { PeerGitPanel } from "./git-panel";
+import { PeerNotesPanel } from "./notes-panel";
 import { PeerSearchPanel } from "./search-panel";
 import { PeerSessionsPanel } from "./sessions-panel";
 
 /** What a workspace on another computer shows of the local panel's views. */
-const PEER_FILES_MODES: readonly PeerFilesMode[] = ["tree", "search", "git", "agents"];
+const PEER_FILES_MODES: readonly PeerFilesMode[] = ["tree", "search", "git", "agents", "notes"];
+/** The same, for a computer that does not serve its notes. */
+const PEER_FILES_MODES_NO_NOTES = PEER_FILES_MODES.filter((mode) => mode !== "notes");
 
 export function PeerFilesPanel({
   target,
@@ -33,6 +36,7 @@ export function PeerFilesPanel({
   refreshGit,
   sessionHint,
   listing,
+  canReadNotes,
 }: {
   target: PeerWorkspaceTarget;
   peer?: RoomPeer;
@@ -46,16 +50,21 @@ export function PeerFilesPanel({
   sessionHint: number;
   /** What that computer lists of its sessions, for the agent list. */
   listing?: PeerSessions;
+  /** Shown, in reach, and that computer serves its notes. */
+  canReadNotes: boolean;
 }) {
   const { t } = useTranslation();
   const id = peerTargetId(target);
   // Kept per workspace while the app runs, as a local workspace's is.
-  const mode = usePeerWorkspaceStore((s) => (s.views[id] ?? EMPTY_PEER_VIEW).filesMode ?? "tree");
+  const picked = usePeerWorkspaceStore((s) => (s.views[id] ?? EMPTY_PEER_VIEW).filesMode ?? "tree");
+  // Out of reach, its capabilities are not known: the notes view stays as it was.
+  const notes = peer ? (peer.serves?.includes("notes") ?? false) : picked === "notes";
+  const mode = picked === "notes" && !notes ? "tree" : picked;
   const [searchFocusRequest, setSearchFocusRequest] = useState(0);
   return (
     <>
       <FilesPanelModeBar<PeerFilesMode>
-        modes={PEER_FILES_MODES}
+        modes={notes ? PEER_FILES_MODES : PEER_FILES_MODES_NO_NOTES}
         active={mode}
         onSelect={(next) => {
           usePeerWorkspaceStore.getState().setFilesMode(id, next);
@@ -111,6 +120,17 @@ export function PeerFilesPanel({
               />
             </ErrorBoundary>
           </KeptMounted>
+          {notes && (
+            <KeptMounted shown={mode === "notes"}>
+              <ErrorBoundary logSource="peer-notes-panel">
+                <PeerNotesPanel
+                  target={target}
+                  canRead={canReadNotes && mode === "notes"}
+                  rejoin={rejoin}
+                />
+              </ErrorBoundary>
+            </KeptMounted>
+          )}
         </>
       )}
     </>

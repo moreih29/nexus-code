@@ -7,7 +7,12 @@ import type {
 import {
   PeerSessionsPanel,
   peerFamilyListing,
+  peerFamilyRoot,
 } from "../../../../../src/renderer/components/peer-workspace/sessions-panel";
+import {
+  PeerTaskInfo,
+  peerChangeCode,
+} from "../../../../../src/renderer/components/peer-workspace/task-info";
 import type { PeerSessions } from "../../../../../src/renderer/services/remote/room";
 import * as workspaceStore from "../../../../../src/renderer/state/stores/peer-workspace";
 import type { RoomPeer } from "../../../../../src/shared/remote/room";
@@ -132,6 +137,69 @@ test("by task, the workspace and each task headed by its name and changes", () =
   // A task with none says so.
   expect(html).toContain("No conversations");
   expect(html).not.toContain("Not ours");
+});
+
+test("by task, conversations are the local list's one-line rows under headers that fold", () => {
+  usePeerWorkspaceStore.getState().select(target, null);
+  usePeerWorkspaceStore.getState().setAgentListView(peerTargetId(target), "task");
+  const render = (serves: string[]) => {
+    const storeView = currentStore();
+    try {
+      return renderToStaticMarkup(
+        <PeerSessionsPanel target={target} peer={{ ...peer, serves }} listing={listing} />,
+      );
+    } finally {
+      storeView.mockRestore();
+    }
+  };
+  const html = render(["sessions", "chat.read"]);
+  // An idle terminal is not listed by default.
+  expect(html.match(/data-testid="remote-session-task-row"/g)).toHaveLength(2);
+  expect(html).not.toContain('data-testid="remote-session-item"');
+  // Folded until opened, as locally: no facts drawn.
+  expect(html).toContain('aria-expanded="false"');
+  expect(html).not.toContain('aria-expanded="true"');
+  expect(html).not.toContain("peer-agent-list-task-info");
+  // Without control only what reads: its changes and its path.
+  expect(html).toContain("Show changes");
+  expect(html).not.toContain("Open a terminal in this task");
+  expect(html).not.toContain('aria-label="New Claude conversation"');
+
+  const controlled = render(["sessions", "chat.control", "terminal.control"]);
+  expect(controlled.match(/aria-label="Open a terminal in this task"/g)).toHaveLength(3);
+});
+
+test("a worktree's facts are its folder, after its branch for the workspace itself", () => {
+  const info = (workspace: RemoteWorkspace) =>
+    renderToStaticMarkup(
+      <PeerTaskInfo
+        deviceId={peer.id}
+        workspace={workspace}
+        canRead={false}
+        onOpenFile={() => {}}
+        onShowChanges={() => {}}
+      />,
+    );
+  expect(info(task)).toContain(">/repo-task<");
+  expect(info({ ...root, git: { branch: "main", ahead: 0, behind: 0, uncommitted: 0 } })).toContain(
+    "main · /repo",
+  );
+  // Unknown until git.status is read: neither files nor "no changes".
+  expect(info(task)).not.toContain("No uncommitted changes");
+  expect(peerChangeCode({ path: "a", staged: "A", unstaged: "M" })).toBe("A");
+  expect(peerChangeCode({ path: "a", unstaged: "?" })).toBe("?");
+});
+
+test("a new conversation starts in the workspace its tasks are of, whichever is shown", () => {
+  const family = peerFamilyListing(
+    { ...target, workspaceId: "task", workspace: task },
+    listing,
+    [],
+  );
+  expect(peerFamilyRoot({ ...target, workspaceId: "task", workspace: task }, family)).toBe(root);
+  expect(peerFamilyRoot(target, family)).toBe(root);
+  // Before that computer lists its workspaces: the one shown.
+  expect(peerFamilyRoot({ ...target, workspaceId: "task", workspace: task }, undefined)).toBe(task);
 });
 
 test("a new conversation there only where that computer lets this one control its chats", () => {

@@ -171,6 +171,7 @@ export function usePeerWorkbench(sidebarShown: boolean, workspaceShown: boolean)
     reachable,
     filesSupported: peer?.serves?.includes("files") ?? false,
     gitSupported,
+    notesSupported: peer?.serves?.includes("notes") ?? false,
     refreshGit,
     sessionHint,
     rejoin,

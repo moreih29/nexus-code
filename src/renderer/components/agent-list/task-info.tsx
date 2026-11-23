@@ -5,6 +5,7 @@
 // source control.
 
 import { ArrowDown, ArrowUp } from "lucide-react";
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { FileLineStats } from "../../../shared/git/types";
@@ -38,7 +39,6 @@ export function TaskInfo({
   base: string | undefined;
   changes: WorktreeChanges | undefined;
 }) {
-  const { t } = useTranslation();
   const { workspace } = worktree;
   // Read only while it is unfolded, as the detail panel read it while shown.
   const stats = useChangeStats(workspace.id, base, true);
@@ -48,30 +48,93 @@ export function TaskInfo({
   const lines = new Map(stats?.files.map((file) => [file.path, file]));
   const total = stats && totalLines(stats.files);
   return (
+    <TaskInfoLines
+      label={worktree.isRoot && branch ? `${branch} · ${path}` : path}
+      path={path}
+      standing={
+        base &&
+        stats?.ahead !== undefined &&
+        stats.behind !== undefined && (
+          <AheadBehind ahead={stats.ahead} behind={stats.behind} base={base} />
+        )
+      }
+      total={total && <LineCounts lines={total} className="ml-auto" />}
+      files={
+        changes &&
+        shown.map((file) => ({
+          relPath: file.relPath,
+          code: file.code,
+          lines: (
+            // Narrow, a file's lines give their room to its name; the total stays.
+            <LineCounts
+              lines={lines.get(file.relPath)}
+              className="ml-auto @max-[200px]/agents:hidden"
+            />
+          ),
+        }))
+      }
+      count={files.length}
+      onOpenFile={(relPath) => showFileChange(workspace.id, relPath)}
+      onShowChanges={() => showChanges(workspace.id)}
+      testId="agent-list-task-info"
+    />
+  );
+}
+
+/**
+ * A worktree's facts as drawn: its folder, how it stands, and the first of
+ * its changed files, with the rest a step away in source control. Shared
+ * with another computer's worktree, which tells fewer of them.
+ */
+export function TaskInfoLines({
+  label,
+  path,
+  standing,
+  total,
+  files,
+  count,
+  onOpenFile,
+  onShowChanges,
+  testId,
+}: {
+  /** The folder, after its branch for the workspace itself. */
+  label: string;
+  path: string;
+  standing?: ReactNode;
+  total?: ReactNode;
+  /** The first changed files; undefined until its changes are known. */
+  files: readonly { relPath: string; code: string; lines?: ReactNode }[] | undefined;
+  /** How many files changed in all. */
+  count: number;
+  onOpenFile: (relPath: string) => void;
+  onShowChanges: () => void;
+  testId: string;
+}) {
+  const { t } = useTranslation();
+  const shown = files ?? [];
+  return (
     <div
       className="flex min-w-0 flex-col gap-0.5 border-t border-border bg-[var(--state-hover-bg)] py-1.5 text-app-micro"
-      data-testid="agent-list-task-info"
+      data-testid={testId}
     >
       <div className="flex min-w-0 items-center gap-1.5 pr-3 pl-8 text-muted-foreground">
-        {base && stats?.ahead !== undefined && stats.behind !== undefined && (
-          <AheadBehind ahead={stats.ahead} behind={stats.behind} base={base} />
-        )}
+        {standing}
         <span className="min-w-0 truncate font-mono" title={path}>
-          {worktree.isRoot && branch ? `${branch} · ${path}` : path}
+          {label}
         </span>
-        {total && <LineCounts lines={total} className="ml-auto" />}
+        {total}
       </div>
-      {changes && files.length === 0 && (
+      {files && count === 0 && (
         <p className="pr-3 pl-8 text-muted-foreground">{t("agentList.detail.no_changes")}</p>
       )}
       {shown.length > 0 && (
-        <ul aria-label={t("agentList.detail.changes", { count: files.length })}>
+        <ul aria-label={t("agentList.detail.changes", { count })}>
           {shown.map((file) => (
             <li key={file.relPath}>
               <button
                 type="button"
                 title={file.relPath}
-                onClick={() => showFileChange(workspace.id, file.relPath)}
+                onClick={() => onOpenFile(file.relPath)}
                 className="flex w-full min-w-0 items-center gap-2 py-0.5 pr-3 pl-8 text-left transition-colors outline-none hover:bg-[var(--state-hover-bg)] focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
               >
                 <span
@@ -83,23 +146,19 @@ export function TaskInfo({
                   {file.code}
                 </span>
                 <FilePath relPath={file.relPath} />
-                {/* Narrow, a file's lines give their room to its name; the total stays. */}
-                <LineCounts
-                  lines={lines.get(file.relPath)}
-                  className="ml-auto @max-[200px]/agents:hidden"
-                />
+                {file.lines}
               </button>
             </li>
           ))}
         </ul>
       )}
-      {files.length > shown.length && (
+      {count > shown.length && files && (
         <button
           type="button"
-          onClick={() => showChanges(workspace.id)}
+          onClick={onShowChanges}
           className="self-start pr-3 pl-8 text-left text-(--tab-claude-attention-fg) outline-none hover:underline focus-visible:underline"
         >
-          {t("agentList.task.more_in_git", { count: files.length - shown.length })}
+          {t("agentList.task.more_in_git", { count: count - shown.length })}
         </button>
       )}
     </div>

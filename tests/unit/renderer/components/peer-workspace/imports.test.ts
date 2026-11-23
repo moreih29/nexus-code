@@ -25,6 +25,8 @@ const peerReads = new Set([
   "peerGitLog",
   "peerGitShow",
   "peerGitStatus",
+  "peerNotesList",
+  "peerNotesRead",
   "peerSystemStats",
 ]);
 const agentView = "components/agent-view";
@@ -42,6 +44,7 @@ const allowedImports: readonly [file: string, module: string, ...names: string[]
     `${agentView}/remote-session-actions`,
     "closePeerSession",
     "newPeerChat",
+    "newPeerTerminal",
     "PeerSessionRef",
     "PeerWorkspaceRef",
     "renamePeerSession",
@@ -58,6 +61,8 @@ const allowedImports: readonly [file: string, module: string, ...names: string[]
     "statusGroups",
   ],
   ["sessions-panel.tsx", `${remote}/display-name`, "remoteDisplayName"],
+  ["sessions-panel.tsx", `${remote}/peer-git-status`, "PeerGitFile"],
+  ["task-info.tsx", `${remote}/peer-git-status`, "PeerGitFile", "readPeerGitStatus"],
   ["sessions-panel.tsx", `${remote}/room`, "PeerSessions", "peerServes", "peerSpeaks"],
   ["diff-model.ts", `${remote}/file-comparison`, "beforeOfWorkingText"],
   ["diff-model.ts", `${remote}/peer-git-status`, "isPeerGitConflict", "PeerGitFile", "PeerGitSide"],

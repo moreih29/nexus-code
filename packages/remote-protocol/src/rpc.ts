@@ -129,8 +129,9 @@ export const RemoteWorkspaceSchema = z.object({
    */
   pinned: z.boolean().optional(),
   /**
-   * A task's branch and how it stands against its upstream, with how many
-   * files it changed and did not commit. Looked at now and then, not live.
+   * Its branch and how it stands against its upstream, with how many files
+   * it changed and did not commit. Looked at now and then, not live. A
+   * device may tell it for tasks only, and none where it is no repository.
    */
   git: z
     .object({

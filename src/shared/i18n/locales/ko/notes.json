@@ -4,6 +4,8 @@
     "new": "새 노트",
     "search": "노트 검색",
     "searchPlaceholder": "제목이나 내용으로 찾기",
+    "searchTitlePlaceholder": "제목으로 찾기",
+    "none": "노트 없음",
     "recent": "최근",
     "empty": "아직 노트가 없습니다. 글, 파일, 그림을 한곳에 모아 두세요.",
     "noMatch": "찾는 노트가 없습니다.",

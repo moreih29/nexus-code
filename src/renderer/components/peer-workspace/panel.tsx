@@ -1,4 +1,4 @@
-import { Bot, FileDiff, GitCommitHorizontal, Plus } from "lucide-react";
+import { Bot, FileDiff, GitCommitHorizontal, NotebookPen, Plus } from "lucide-react";
 import { Tabs } from "radix-ui";
 import { type ReactNode, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -35,6 +35,7 @@ import { PeerCommitTabBody } from "./commit-tab";
 import { PeerDiffTabBody } from "./diff-tab";
 import { peerGitDisplayPath } from "./git-path-label";
 import { PeerReadOnlyBadge } from "./labels";
+import { PeerNoteTabBody } from "./note-tab";
 import { showPeerWorkspaceSession } from "./session-placement";
 import { PeerSessionTabBody, peerSessionIcons } from "./session-tab";
 import { PeerStatusBar } from "./status-bar";
@@ -77,7 +78,8 @@ export function PeerWorkspacePanel({
   const root = target.workspace.path;
   const status = gitUpdateNeeded ? undefined : view.gitStatus;
   const names = view.tabs.map((tab) => {
-    if (tab.type === "peer.commit" || tab.type === "peer.session") return null;
+    if (tab.type === "peer.commit" || tab.type === "peer.session" || tab.type === "peer.note")
+      return null;
     return tab.type === "peer.diff"
       ? peerGitDisplayPath(root, tab.path, status?.topLevel)
       : { ...workspacePathParts(tab.path, root), outsideWorkspace: false };
@@ -115,6 +117,16 @@ export function PeerWorkspacePanel({
           value,
           label: tab.subject || t("editor.commit_title", { sha: tab.hash.slice(0, 7) }),
           icon: <GitCommitHorizontal className="size-3.5" aria-hidden="true" />,
+        },
+      ];
+    }
+    if (tab.type === "peer.note") {
+      return [
+        {
+          key,
+          value,
+          label: tab.title || t("notes:panel.untitled"),
+          icon: <NotebookPen className="size-3.5" aria-hidden="true" />,
         },
       ];
     }
@@ -325,6 +337,19 @@ export function PeerWorkspacePanel({
                       selected={selected}
                       canRead={canReadGit}
                       updateNeeded={gitUpdateNeeded}
+                      rejoin={rejoin}
+                    />
+                  );
+                }
+                if (tab.type === "peer.note") {
+                  return (
+                    <PeerNoteTabBody
+                      key={key}
+                      target={target}
+                      tab={tab}
+                      selected={selected}
+                      canRead={shown && reachable && peerServes(peer, "notes")}
+                      updateNeeded={!!peer && !peerServes(peer, "notes")}
                       rejoin={rejoin}
                     />
                   );
