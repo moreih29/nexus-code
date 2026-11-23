@@ -157,6 +157,8 @@ interface PrintRunReader {
   /** The tab whose run it reads: it goes with that tab. */
   ownerTabId: string;
   threadId: string;
+  /** The window (its webContents id) whose pane asked for it; it goes with that window. */
+  opener?: number;
 }
 
 function readerRefused(message: string): Error {
@@ -1136,6 +1138,7 @@ export class ChatHost {
     workspaceId: string,
     tabId: string,
     runId: string,
+    opener?: number,
   ): Promise<PrintRunReaderResult> {
     const source = this.options.printRunSource?.(workspaceId, tabId, runId);
     if (source?.program !== "codex" || !source.sessionId || !source.home) {
@@ -1158,6 +1161,7 @@ export class ChatHost {
       workspaceId,
       ownerTabId: tabId,
       threadId: source.sessionId,
+      ...(opener !== undefined ? { opener } : {}),
     });
     const key = `${workspaceId}:${readerTabId}`;
     const intent = this.openTab(key);
@@ -1240,11 +1244,19 @@ export class ChatHost {
     });
   }
 
-  /** Ends the readers of one tab's runs, or with no tab every reader (the window closed, the app quits). */
+  /** Ends the readers of one tab's runs, or with no tab every reader (the app quits). */
   closePrintRunReaders(workspaceId?: string, tabId?: string): void {
     for (const [readerTabId, reader] of [...this.printRunReaders]) {
       if (workspaceId !== undefined && reader.workspaceId !== workspaceId) continue;
       if (tabId !== undefined && reader.ownerTabId !== tabId) continue;
+      void this.closeTab(reader.workspaceId, readerTabId).catch(() => {});
+    }
+  }
+
+  /** Ends the readers one window's panes asked for: it closed, or loads anew. */
+  closePrintRunReadersOf(opener: number): void {
+    for (const [readerTabId, reader] of [...this.printRunReaders]) {
+      if (reader.opener !== opener) continue;
       void this.closeTab(reader.workspaceId, readerTabId).catch(() => {});
     }
   }

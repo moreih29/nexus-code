@@ -438,14 +438,23 @@ describe("a run's transcript", () => {
     await flushed();
     expect(tab.closes().sort()).toEqual([TAB, a, b].sort());
 
+    // A window that closes or loads anew ends the readers it asked for only.
     const win = await openSetup();
-    const c = await win.reader();
-    win.host.closePrintRunReaders();
+    const [mine, others] = [7, 8];
+    const start = async (opener: number) => {
+      const started = await win.host.startPrintRunReader(WS, TAB, RUN, opener);
+      if (!started.ok) throw new Error(`not started: ${started.reason}`);
+      return started.readerTabId;
+    };
+    const c = await start(mine);
+    const kept = await start(others);
+    win.host.closePrintRunReadersOf(mine);
     await flushed();
     expect(win.closes()).toEqual([c]);
     await expect(win.host.send(WS, c, { id: 1, method: "thread/read" })).rejects.toMatchObject({
       code: "chat.reader-read-only",
     });
+    await win.host.send(WS, kept, { id: 1, method: "thread/read" });
 
     const app = await openSetup();
     const d = await app.reader();

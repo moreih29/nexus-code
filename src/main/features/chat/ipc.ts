@@ -184,9 +184,9 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         const { workspaceId, tabId, runId, from } = validateArgs(c.printRunTranscript.args, args);
         return ipcOk(await host.printRunTranscript(workspaceId, tabId, runId, from));
       },
-      printRunReader: async (args: unknown) => {
+      printRunReader: async (args: unknown, ctx?: { sender?: { id: number } }) => {
         const { workspaceId, tabId, runId } = validateArgs(c.printRunReader.args, args);
-        return ipcOk(await host.startPrintRunReader(workspaceId, tabId, runId));
+        return ipcOk(await host.startPrintRunReader(workspaceId, tabId, runId, ctx?.sender?.id));
       },
       subagentTranscript: withProfileError(async (args: unknown) => {
         const { workspaceId, sessionId, agentId, toolUseId, profileId } = validateArgs(
