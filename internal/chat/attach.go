@@ -11,15 +11,21 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nexus-code/nexus-code/internal/agentpaths"
 )
 
-// Files the user attaches to a Claude tab's message are sent to the agent
-// when the program cannot read them where they are: on an SSH host, a
-// file on the user's machine. The agent keeps each under
-// ~/.nexus-code/attach/<workspaceId>/<tabId>/<n>/<name>, the message names
-// that path, and the tab's folder goes when the tab closes.
+// Files attached to a Claude or Codex tab's message are sent to the agent
+// when the program cannot read them where they are: any file but a small
+// image on an SSH or WSL host, one with no path on the user's machine (a
+// pasted one), one another device sent. The agent keeps each under
+// ~/.nexus-code/attach/<workspaceId>/<tabId>/<n>/<name>, a slot of its
+// own, and the message names that path. The conversation may go on in
+// another tab, after /resume or from the history, or in a fork, which name
+// the same paths: so the files stay when the tab closes, and go as the app
+// says (attach_retain.go): when their conversation or workspace is
+// deleted, or once unused for a while.
 
 // maxAttachBytes caps one attached file. It travels as one line on the
 // agent's channel.
@@ -62,8 +68,12 @@ type AttachRootResult struct {
 // PruneAttachParams is the wire shape for chat.pruneAttachments.
 type PruneAttachParams struct {
 	WorkspaceID string `json:"workspaceId"`
-	// KeepTabIDs are the workspace's Claude tabs still open.
+	// KeepTabIDs are the workspace's Claude and Codex tabs still open.
 	KeepTabIDs []string `json:"keepTabIds"`
+	// Retain, when given, keeps what is in use and removes only what has
+	// not been for a while (pruneRetained); without it every closed tab's
+	// folder goes, as an agent from before it does with any.
+	Retain *RetainParams `json:"retain,omitempty"`
 }
 
 // Attach writes one file for a tab's message and returns its path.
@@ -132,8 +142,9 @@ func (s *Service) AttachRoot(_ context.Context, _ json.RawMessage) (any, error) 
 	return AttachRootResult{Root: root}, nil
 }
 
-// PruneAttachments removes the attached files of a workspace's tabs that
-// are no longer open, which closed while the app was away.
+// PruneAttachments removes the attached files a workspace no longer needs:
+// with retain, those unused for a while or past its room (pruneRetained);
+// without, those of every tab no longer open.
 func (s *Service) PruneAttachments(_ context.Context, raw json.RawMessage) (any, error) {
 	var p PruneAttachParams
 	if err := decodeParams(raw, &p, "chat.pruneAttachments params must include workspaceId"); err != nil {
@@ -152,6 +163,12 @@ func (s *Service) PruneAttachments(_ context.Context, raw json.RawMessage) (any,
 		keep[strings.TrimSpace(id)] = true
 	}
 	dir := filepath.Join(root, workspaceID)
+	if p.Retain != nil {
+		if len(p.Retain.Keep) > maxAttachSlots {
+			return nil, protocolError("chat.pruneAttachments keeps too many slots")
+		}
+		return PruneResult{Removed: pruneRetained(dir, keep, *p.Retain, time.Now())}, nil
+	}
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return struct{}{}, nil
