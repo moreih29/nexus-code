@@ -180,6 +180,33 @@ interface TabIntent {
   starts: Set<Promise<unknown>>;
 }
 
+interface Launch {
+  key: string;
+  intent: TabIntent;
+  channel: AgentChannel;
+  profile: AgentProfile;
+  windows: boolean;
+  apiKey: string | undefined;
+  profileEnv: Record<string, string>;
+  program: string;
+  path: string | undefined;
+  env: Record<string, string>;
+  version: string | null;
+}
+
+type PreparedLaunch =
+  | ({ ok: true } & Launch)
+  | { ok: false; reason: "not-found" | "failed"; message: string };
+
+function launchConnectionEnv(
+  profile: AgentProfile,
+  apiKey: string | undefined,
+): Record<string, string> {
+  return profile.agent === "claude"
+    ? claudeConnectionEnv(profile.connection, apiKey)
+    : codexConnectionEnv(profile.connection, apiKey);
+}
+
 interface WorkspaceChatClose {
   readonly channel: AgentChannel | null;
   readonly deadline: number;
@@ -234,33 +261,12 @@ export class ChatHost {
     profileId?: string,
     instructions?: string,
   ): Promise<StartResult> {
-    let profile: AgentProfile;
-    try {
-      profile = this.profile("claude", profileId);
-    } catch (error) {
-      return { ok: false, reason: "failed", message: (error as Error).message };
-    }
-    const key = `${workspaceId}:${tabId}`;
-    const intent = this.openTab(key);
-    const channel = await this.channelForStart(workspaceId, key, intent);
+    const launch = await this.prepareLaunch("claude", workspaceId, tabId, cwd, { profileId });
+    if (!launch.ok) return launch;
+    const { key, intent, channel, profile, windows, profileEnv, path, version } = launch;
+    const { program: claude, env: launchEnv } = launch;
     const { workspaceManager } = this.options;
-    const windows = this.windowsHost(workspaceId);
     const withoutWrapper = windows && this.options.windowsAgentFiles !== undefined;
-
-    let profileEnv: Record<string, string>;
-    try {
-      profileEnv = await this.profileEnv(channel, profile, windows, true);
-    } catch (error) {
-      return { ok: false, reason: "failed", message: (error as Error).message };
-    }
-    const found = await this.findBinary(channel, "claude", cwd, profileEnv, windows);
-    if (!found.path) {
-      return { ok: false, reason: "not-found", message: "claude was not found on the PATH" };
-    }
-
-    const path = agentEnvValue(profileEnv, "PATH", windows) ?? found.envPath;
-    const launchEnv = mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path });
-    const version = await this.probeVersion(channel, "claude", cwd, found.path, launchEnv);
 
     if (resume.usageOnly) {
       try {
@@ -268,7 +274,7 @@ export class ChatHost {
           workspaceId,
           tabId,
           cwd,
-          program: found.path,
+          program: claude,
           args: claudeTabArgs(resume),
           env: launchEnv,
         });
@@ -290,7 +296,7 @@ export class ChatHost {
     }
     const wrapperBinDir = workspaceManager.getWrapperBinDir(workspaceId);
     const agentBin = workspaceManager.getWrapperAgentBin(workspaceId);
-    let program = found.path;
+    let program = claude;
     let hooksSettings: string | undefined;
     let gitBash: { wrapperDir: string; bashEnv: string } | undefined;
     if (withoutWrapper) {
@@ -317,7 +323,7 @@ export class ChatHost {
         withoutWrapper,
         ...(gitBash ? { gitBash } : {}),
       });
-      if (program !== found.path) env.NEXUS_CLAUDE_PROGRAM = found.path;
+      if (program !== claude) env.NEXUS_CLAUDE_PROGRAM = claude;
       const combined = this.options.instructions?.(workspaceId, profile, instructions) ?? "";
       const sourceId = resume.fork ? claudeResumeId(resume.resume) : undefined;
       const sourceDigest = sourceId
@@ -333,7 +339,7 @@ export class ChatHost {
       const modelPicker = claudeModelPicker(profile.connection);
       let settings = hooksSettings;
       if (modelPicker) {
-        if (program !== found.path) {
+        if (program !== claude) {
           env.NEXUS_CLAUDE_MODEL_PICKER = JSON.stringify(modelPicker);
         } else {
           const hooks = hooksSettings ? JSON.parse(await readFile(hooksSettings, "utf8")) : {};
@@ -406,44 +412,11 @@ export class ChatHost {
     cwd: string,
     options: { resetLog?: boolean; connectionChanged?: boolean; profileId?: string },
   ): Promise<StartResult> {
-    let profile: AgentProfile;
-    try {
-      profile = this.profile("codex", options.profileId);
-    } catch (error) {
-      return { ok: false, reason: "failed", message: (error as Error).message };
-    }
-    const key = `${workspaceId}:${tabId}`;
-    const intent = this.openTab(key);
-    const channel = await this.channelForStart(workspaceId, key, intent);
-    const windows = this.windowsHost(workspaceId);
-    let profileEnv: Record<string, string>;
-    let apiKey: string | undefined;
-    try {
-      profileEnv = await this.profileEnv(channel, profile, windows);
-      apiKey = await this.profileConnectionKey(profile);
-      if (profile.connection?.method === "api-key" && !apiKey)
-        throw new Error(missingApiKeyMessage());
-      profileEnv = mergeAgentEnv(
-        windows,
-        profileEnv,
-        codexConnectionEnv(profile.connection, apiKey),
-      );
-    } catch (error) {
-      return { ok: false, reason: "failed", message: (error as Error).message };
-    }
-    const found = await this.findBinary(channel, "codex", cwd, profileEnv, windows);
-    if (!found.path) {
-      return { ok: false, reason: "not-found", message: "codex was not found on the PATH" };
-    }
-    const path = agentEnvValue(profileEnv, "PATH", windows) ?? found.envPath;
-    const version = await this.probeVersion(
-      channel,
-      "codex",
-      cwd,
-      found.path,
-      mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path }),
-    );
-
+    const launch = await this.prepareLaunch("codex", workspaceId, tabId, cwd, {
+      profileId: options.profileId,
+    });
+    if (!launch.ok) return launch;
+    const { key, intent, channel, profile, windows, apiKey, profileEnv, path, version } = launch;
     const { workspaceManager } = this.options;
     try {
       await this.closingTabs.get(key);
@@ -470,7 +443,7 @@ export class ChatHost {
         workspaceId,
         tabId,
         cwd,
-        program: found.path,
+        program: launch.program,
         args,
         env: mergeAgentEnv(windows, profileEnv, env),
         ...(options.resetLog ? { resetLog: true } : {}),
@@ -486,6 +459,68 @@ export class ChatHost {
     } catch (err) {
       return { ok: false, reason: "failed", message: (err as Error).message };
     }
+  }
+
+  private async prepareLaunch(
+    agent: ChatAgent,
+    workspaceId: string,
+    tabId: string,
+    cwd: string,
+    options: { profileId?: string; home?: string; probeVersion?: boolean },
+  ): Promise<PreparedLaunch> {
+    let profile: AgentProfile;
+    try {
+      profile = this.profile(agent, options.profileId);
+    } catch (error) {
+      return { ok: false, reason: "failed", message: (error as Error).message };
+    }
+    const key = `${workspaceId}:${tabId}`;
+    const intent = this.openTab(key);
+    const channel = await this.channelForStart(workspaceId, key, intent);
+    const windows = this.windowsHost(workspaceId);
+    let apiKey: string | undefined;
+    let profileEnv: Record<string, string>;
+    try {
+      apiKey = await this.profileConnectionKey(profile);
+      if (profile.connection?.method === "api-key" && !apiKey) {
+        throw new Error(missingApiKeyMessage());
+      }
+      profileEnv = await this.profileEnv(
+        channel,
+        profile,
+        windows,
+        launchConnectionEnv(profile, apiKey),
+      );
+    } catch (error) {
+      return { ok: false, reason: "failed", message: (error as Error).message };
+    }
+    if (options.home !== undefined) {
+      profileEnv = mergeAgentEnv(windows, profileEnv, { [PROFILE_DIR_ENV[agent]]: options.home });
+    }
+    const found = await this.findBinary(channel, agent, cwd, profileEnv, windows);
+    if (!found.path) {
+      return { ok: false, reason: "not-found", message: `${agent} was not found on the PATH` };
+    }
+    const path = agentEnvValue(profileEnv, "PATH", windows) ?? found.envPath;
+    const env = mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path });
+    const version =
+      options.probeVersion === false
+        ? null
+        : await this.probeVersion(channel, agent, cwd, found.path, env);
+    return {
+      ok: true,
+      key,
+      intent,
+      channel,
+      profile,
+      windows,
+      apiKey,
+      profileEnv,
+      program: found.path,
+      path,
+      env,
+      version,
+    };
   }
 
   private openTab(key: string): TabIntent {
@@ -991,31 +1026,25 @@ export class ChatHost {
       threadId: source.sessionId,
       ...(opener !== undefined ? { opener } : {}),
     });
-    const key = `${workspaceId}:${readerTabId}`;
-    const intent = this.openTab(key);
+    const cwd = source.cwd ?? source.home;
     try {
-      const channel = await this.channelForStart(workspaceId, key, intent);
-      const windows = this.windowsHost(workspaceId);
-      const profileEnv = mergeAgentEnv(
-        windows,
-        await this.profileEnv(channel, this.profile("codex", undefined), windows),
-        { [PROFILE_DIR_ENV.codex]: source.home },
-      );
-      const cwd = source.cwd ?? source.home;
-      const found = await this.findBinary(channel, "codex", cwd, profileEnv, windows);
-      if (!found.path) {
-        this.tabIntents.delete(key);
+      const launch = await this.prepareLaunch("codex", workspaceId, readerTabId, cwd, {
+        home: source.home,
+        probeVersion: false,
+      });
+      if (!launch.ok && launch.reason === "not-found") {
+        this.tabIntents.delete(`${workspaceId}:${readerTabId}`);
         this.printRunReaders.delete(readerTabId);
         return { ok: false, reason: "not-found" };
       }
-      const path = agentEnvValue(profileEnv, "PATH", windows) ?? found.envPath;
-      await this.spawn(key, intent, channel, {
+      if (!launch.ok) throw new Error(launch.message);
+      await this.spawn(launch.key, launch.intent, launch.channel, {
         workspaceId,
         tabId: readerTabId,
         cwd,
-        program: found.path,
+        program: launch.program,
         args: ["app-server"],
-        env: mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path }),
+        env: launch.env,
         resetLog: true,
       });
       return { ok: true, readerTabId };
@@ -1152,7 +1181,7 @@ export class ChatHost {
     const profile = this.profile("claude", profileId);
     const channel = await this.channelFor(workspaceId);
     const windows = this.windowsHost(workspaceId);
-    const env = await this.profileEnv(channel, profile, windows);
+    const env = await this.commandEnv(channel, profile, windows);
     const found = await this.findBinary(channel, "claude", cwd, env, windows);
     if (!found.path) throw new Error("claude was not found on the PATH");
     return channel.call(
@@ -1284,29 +1313,30 @@ export class ChatHost {
     }
     const channel = await this.options.workspaceManager.getAgentChannel(workspaceId);
     await channel.ready;
-    return this.profileEnv(channel, profile, this.windowsHost(workspaceId));
+    return this.commandEnv(channel, profile, this.windowsHost(workspaceId));
+  }
+
+  private async commandEnv(
+    channel: AgentChannel,
+    profile: AgentProfile,
+    windows: boolean,
+  ): Promise<Record<string, string>> {
+    const connectionEnv =
+      profile.agent === "claude"
+        ? claudeConnectionEnv(profile.connection, await this.profileConnectionKey(profile))
+        : {};
+    return this.profileEnv(channel, profile, windows, connectionEnv);
   }
 
   private async profileEnv(
     channel: AgentChannel,
     profile: AgentProfile,
     windows: boolean,
-    requireApiKey = false,
+    connectionEnv: Record<string, string>,
   ): Promise<Record<string, string>> {
     const { agent } = profile;
     const key = PROFILE_DIR_ENV[agent];
-    const connection = agent === "claude" ? profile.connection : undefined;
-    const apiKey =
-      connection && connection.method !== "account"
-        ? await this.profileConnectionKey(profile)
-        : undefined;
-    if (requireApiKey && connection?.method === "api-key" && !apiKey)
-      throw new Error(missingApiKeyMessage());
-    const env = mergeAgentEnv(
-      windows,
-      profileVariables(profile.env, windows),
-      claudeConnectionEnv(connection, apiKey),
-    );
+    const env = mergeAgentEnv(windows, profileVariables(profile.env, windows), connectionEnv);
     let dir = profileDirectory(profile, windows);
     if (profile.dir.trim() !== "") {
       const result = await channel.call<{ dir: string; failed?: string[] }>("chat.profileDir", {
