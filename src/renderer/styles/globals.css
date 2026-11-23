@@ -566,27 +566,6 @@
 .md-preview .md-code-wrap > pre {
   margin: 0;
 }
-.md-preview .md-code-copy {
-  position: absolute;
-  top: 0.5em;
-  right: 0.5em;
-  padding: 0.15em 0.55em;
-  font-size: 0.8em;
-  color: var(--editor-text-muted);
-  background: var(--surface-island-bg);
-  border: 1px solid var(--surface-island-border);
-  border-radius: var(--radius-control);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.1s ease;
-}
-.md-preview .md-code-wrap:hover .md-code-copy {
-  opacity: 0.8;
-}
-.md-preview .md-code-copy:hover {
-  opacity: 1;
-}
-
 .md-preview .md-mermaid {
   display: flex;
   justify-content: center;

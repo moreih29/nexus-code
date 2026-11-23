@@ -1,14 +1,10 @@
-import { Check, Copy } from "lucide-react";
-import { memo, useCallback, useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
+import { memo, useCallback, useMemo } from "react";
+import { type Components, defaultUrlTransform } from "react-markdown";
 import { useFoundFiles } from "../../services/chat/file-presence";
 import { fileKind, resolveFilePath } from "../../services/chat/links";
 import { openOrRevealEditor } from "../../services/editor";
 import { classifyLinkHref } from "../../services/editor/preview/link-router";
-import { copyText } from "../../utils/clipboard";
-import { REMARK_PLUGINS } from "../../utils/remark-plugins";
+import { ImageName, MarkdownBody } from "../ui/markdown-body";
 import { LinkMenu, useChatLinks, useLinkPlaces } from "./chat-links";
 import { FileImage, ImageChip } from "./file-image";
 import { FileKindIcon } from "./file-kind-icon";
@@ -53,7 +49,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
     [cwd, rootPath, workspaceId, links],
   );
 
-  const components = useMemo<NonNullable<React.ComponentProps<typeof ReactMarkdown>["components"]>>(
+  const components = useMemo<Components>(
     () => ({
       a({ href, children, ...rest }) {
         const safe = typeof href === "string" ? href : "";
@@ -89,9 +85,8 @@ export const ChatMarkdown = memo(function ChatMarkdown({
           link()
         );
       },
-      pre: CodeBlock,
       img({ src, alt }) {
-        const label = <span className="text-muted-foreground">[{alt || "image"}]</span>;
+        const label = <ImageName alt={alt} />;
         const places =
           typeof src === "string" && linkKind(src, cwd) === "file"
             ? placesOf(src, cwd).map((place) => place.path)
@@ -121,14 +116,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 
   return (
     <div className="md-preview chat-md">
-      <ReactMarkdown
-        remarkPlugins={REMARK_PLUGINS}
-        rehypePlugins={[[rehypeHighlight, { detect: false, ignoreMissing: true }]]}
-        components={components}
-        urlTransform={keepFileUrls}
-      >
-        {text}
-      </ReactMarkdown>
+      <MarkdownBody source={text} components={components} urlTransform={keepFileUrls} />
     </div>
   );
 });
@@ -191,29 +179,4 @@ function linkKind(href: string, cwd: string): "file" | "url" | null {
   if (/^https?:\/\//i.test(href)) return "url";
   if (href.startsWith("#")) return null;
   return resolveFilePath(href, cwd) ? "file" : null;
-}
-
-function CodeBlock({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>) {
-  const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const onCopy = (event: React.MouseEvent<HTMLButtonElement>) => {
-    const pre = event.currentTarget.parentElement?.querySelector("pre");
-    copyText(pre?.textContent ?? "");
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
-  };
-  return (
-    <div className="group/code relative">
-      <pre {...rest}>{children}</pre>
-      <button
-        type="button"
-        onClick={onCopy}
-        title={t("chat.copy")}
-        aria-label={t("chat.copy")}
-        className="absolute top-1.5 right-1.5 rounded-(--radius-control) p-1 text-muted-foreground opacity-0 group-hover/code:opacity-100 hover:bg-[var(--state-hover-bg)]"
-      >
-        {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      </button>
-    </div>
-  );
 }
