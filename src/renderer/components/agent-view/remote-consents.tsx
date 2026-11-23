@@ -74,12 +74,14 @@ export function PeerConsentCard({
   device,
   workspaceName,
   sessions,
+  showDevice,
 }: {
   consent: RemoteConsent;
   deviceId: string;
   device: string;
   workspaceName: string;
   sessions: readonly RemoteSession[] | undefined;
+  showDevice?: boolean;
 }) {
   return (
     <RemoteConsentCard
@@ -87,6 +89,7 @@ export function PeerConsentCard({
       device={device}
       workspaceName={workspaceName}
       sessions={sessions}
+      showDevice={showDevice}
       onAnswer={(answer) =>
         ipcCallResult("remote", "peerConsentAnswer", { deviceId, id: consent.id, answer })
       }
@@ -243,6 +246,7 @@ export function RemoteConsentCard({
   device,
   workspaceName,
   sessions,
+  showDevice = false,
   onAnswer,
   onSettled,
 }: {
@@ -250,6 +254,7 @@ export function RemoteConsentCard({
   device: string;
   workspaceName: string;
   sessions?: readonly RemoteSession[] | undefined;
+  showDevice?: boolean;
   onAnswer: (answer: ConsentAnswer) => Promise<IpcResult<unknown>>;
   onSettled: () => void;
 }) {
@@ -313,10 +318,18 @@ export function RemoteConsentCard({
               className="flex min-w-0 items-center gap-1.5 text-app-micro text-muted-foreground"
               title={sentence}
             >
-              {from.device && <DeviceTag name={from.device.name} />}
-              <span className="min-w-0 truncate">
-                {asker ? `${asker} → ${workspaceName}` : workspaceName}
-              </span>
+              {(from.device || showDevice) && <DeviceTag name={from.device?.name ?? device} />}
+              {asker && from.device && showDevice ? (
+                <>
+                  <span className="min-w-0 truncate">{`${asker} →`}</span>
+                  <DeviceTag name={device} />
+                  <span className="min-w-0 truncate">{workspaceName}</span>
+                </>
+              ) : (
+                <span className="min-w-0 truncate">
+                  {asker ? `${asker} → ${workspaceName}` : workspaceName}
+                </span>
+              )}
             </span>
             <p className="sr-only">{sentence}</p>
           </div>

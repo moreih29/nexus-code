@@ -365,6 +365,7 @@ export function StatusGroups({
                         device={remoteDisplayName(peer.name)}
                         workspaceName={workspace?.name ?? shortId(consent.workspaceId)}
                         sessions={list.sessions}
+                        showDevice
                       />
                     ))}
                   </ConsentPages>

@@ -176,6 +176,37 @@ describe("what another computer's consent prompt says", () => {
     expect(html).not.toContain("remote-consent-there");
   });
 
+  test("among several computers' prompts a card names the computer it is on", () => {
+    const placed = (c: RemoteConsent) =>
+      renderToStaticMarkup(
+        <RemoteConsentCard
+          consent={c}
+          device="Work PC"
+          workspaceName="api"
+          showDevice
+          onAnswer={() => Promise.resolve({ ok: true } as never)}
+          onSettled={() => {}}
+        />,
+      );
+    const tags = (html: string) =>
+      [
+        ...html.matchAll(
+          /data-testid="session-row-device"><svg[\s\S]*?<\/svg><span class="truncate">([^<]*)</g,
+        ),
+      ].map((match) => match[1]);
+    expect(tags(card(consent()))).toEqual([]);
+    expect(tags(placed(consent()))).toEqual(["Work PC"]);
+    expect(placed(consent())).toContain(">zsh → api<");
+    const device = { id: "d3", name: "Laptop" };
+    const from = { ...consent().from, device };
+    expect(tags(card(consent({ from })))).toEqual(["Laptop"]);
+    const both = placed(consent({ from }));
+    expect(tags(both)).toEqual(["Laptop", "Work PC"]);
+    expect(both).toMatch(/>zsh →<.*>Work PC<.*>api</s);
+    const manager = { workspaceId: "w-app", tabId: "t-m", manager: true };
+    expect(tags(placed(consent({ from: manager })))).toEqual(["Work PC"]);
+  });
+
   test("headlines come from their own keys, the question when a kind has none", () => {
     const ko = i18next.getFixedT("ko", "settings");
     expect(consentHeadlineOf(ko, { kind: "terminalInput", detail: "dev" }, "")).toBe(
