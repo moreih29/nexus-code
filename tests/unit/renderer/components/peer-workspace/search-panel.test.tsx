@@ -194,6 +194,14 @@ test("peer search shows a bounded regexp diagnostic and localizes other failures
 test("peer search filters and the submit action have separate rows", () => {
   const markup = mountPanel().markup();
   expect(markup).toMatch(
-    /<div class="flex flex-col [^"]*"><details[^>]*><summary[^>]*whitespace-nowrap[^>]*>Search filters<\/summary>.*?<\/details><button[^>]*type="submit"/,
+    /<div class="flex flex-col [^"]*"><details[^>]*><summary[^>]*whitespace-nowrap[^>]*>Search filters<svg.*?<\/svg><\/summary>.*?<\/details><button[^>]*type="submit"/,
   );
+});
+
+test("peer search filters open in place, with no platform triangle: a chevron down after their name", () => {
+  const summary = mountPanel()
+    .markup()
+    .match(/<summary([^>]*)>(.*?)<\/summary>/);
+  expect(summary?.[1]).toContain("list-none");
+  expect(summary?.[2]).toMatch(/^Search filters<svg[^>]*lucide-chevron-down/);
 });

@@ -1,4 +1,4 @@
-import { GitBranch, RefreshCw } from "lucide-react";
+import { ChevronRight, GitBranch, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { GitPanelSegment } from "../../../shared/git/types";
@@ -139,8 +139,12 @@ function PeerGitChanges({
             const files = gitStatus.files.filter((file) => file[side]);
             if (files.length === 0) return null;
             return (
-              <details key={side} open>
-                <summary className="cursor-pointer px-2 py-1 text-app-ui-sm text-muted-foreground hover:bg-[var(--state-hover-bg)]">
+              <details key={side} open className="group">
+                <summary className="flex cursor-pointer list-none items-center gap-1 px-2 py-1 text-app-ui-sm text-muted-foreground hover:bg-[var(--state-hover-bg)] [&::-webkit-details-marker]:hidden">
+                  <ChevronRight
+                    aria-hidden="true"
+                    className="size-3.5 shrink-0 transition-transform group-open:rotate-90"
+                  />
                   {label} <span className="rounded bg-muted px-1">{files.length}</span>
                 </summary>
                 {files.map((file) => {
