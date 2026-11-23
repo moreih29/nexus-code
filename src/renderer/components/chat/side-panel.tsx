@@ -3,6 +3,7 @@ import { memo, useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { profileOf } from "../../../shared/agent-profiles/profiles";
 import { createLogger } from "../../../shared/log/renderer";
+import { locationLabel } from "../../../shared/types/workspace";
 import type { ChatController } from "../../services/chat/claude/controller";
 import { firstVersionOf } from "../../services/chat/claude/versions";
 import { goalViewOf } from "../../services/chat/goal";
@@ -109,12 +110,7 @@ export const SidePanel = memo(function SidePanel({
         workspaceId,
         cwd,
         rootPath,
-        computer:
-          location?.kind === "ssh"
-            ? (location.configAlias ?? location.host)
-            : location?.kind === "wsl"
-              ? location.distro
-              : t("chat.panel.env.local_computer"),
+        computer: (location && locationLabel(location)) ?? t("chat.panel.env.local_computer"),
         profile: profileName(profile, t),
       }}
       panel={panel}

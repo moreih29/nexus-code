@@ -10,7 +10,11 @@ import {
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { COMMANDS } from "../../../shared/keybindings/commands";
-import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
+import {
+  locationLabel,
+  type WorkspaceLocation,
+  type WorkspaceMeta,
+} from "../../../shared/types/workspace";
 import { ipcCallResult } from "../../ipc/client";
 import { shortcutFor } from "../../keybindings/shortcut-labels";
 import { useActiveStore } from "../../state/stores/active";
@@ -158,9 +162,6 @@ function titleLabel(workspace: WorkspaceMeta): string {
 }
 
 function workspaceTitleLabel(name: string, location: WorkspaceLocation): string {
-  if (location.kind === "wsl") return `${name} (wsl: ${location.distro})`;
-  if (location.kind !== "ssh") return name;
-  const host =
-    location.configAlias ?? (location.user ? `${location.user}@${location.host}` : location.host);
-  return `${name} (ssh: ${host})`;
+  const where = locationLabel(location, { prefix: true });
+  return where ? `${name} (${where})` : name;
 }

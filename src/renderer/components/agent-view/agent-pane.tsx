@@ -1,4 +1,6 @@
+import i18next from "i18next";
 import { Columns2, Rows2, SquareArrowOutUpRight, X } from "lucide-react";
+import { Tabs as RadixTabs } from "radix-ui";
 import { memo, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { SplitLeaf } from "@/engine";
@@ -27,12 +29,8 @@ import { useAgentViewStore } from "@/state/stores/agent-view";
 import { useRemoteTarget, useRemoteViewStore } from "@/state/stores/remote-view";
 import { type EditorTab, useTabsStore } from "@/state/stores/tabs";
 import { useUIStore } from "@/state/stores/ui";
-import {
-  rootWorkspaceId,
-  selectIsWorkspaceOnline,
-  selectWorkspaceConnectionStatus,
-  useWorkspacesStore,
-} from "@/state/stores/workspaces";
+import { rootWorkspaceId, useWorkspacesStore } from "@/state/stores/workspaces";
+import { copyTextViaIpc } from "@/utils/clipboard";
 import { cn } from "@/utils/cn";
 import { beginDragInFlight } from "@/utils/drag-in-flight";
 import { listenForPaneActivation } from "@/utils/pane-activation";
@@ -40,19 +38,19 @@ import { basename } from "@/utils/path";
 import { toSlashPath } from "../../../shared/fs/drive-path";
 import { isRemoteFileKey, parseRemoteFileKey } from "../../../shared/fs/remote-file-key";
 import { COMMANDS } from "../../../shared/keybindings/commands";
-import { retryWorkspaceConnection } from "../../state/operations/workspace-selection";
 import type { DropZone } from "../../types/workbench-dnd";
 import { StateGlyph, stateLabel } from "../agent-list/session-status";
 import { AgentMark } from "../agent-list/status-view";
 import { FileIcon } from "../files/file-tree/file-icon";
 import { Button } from "../ui/button";
-import { EmptyState } from "../ui/empty-state";
+import type { MenuItemSpec } from "../ui/context-menu";
 import { IconButton } from "../ui/icon-button";
 import { AGENT_VIEW_SLOTS, slotRegistry } from "../workspace/content/slot-registry";
 import { DropIndicator } from "../workspace/dnd/drop-indicator";
 import { zoneFromCoords } from "../workspace/dnd/use-drop-target";
+import { OfflineWorkspace, useWorkspaceOffline } from "../workspace/offline-workspace";
 import { OverflowTabsMenu } from "../workspace/tabs/overflow-tabs-menu";
-import { TabIcon, useTabDirty } from "../workspace/tabs/tab-item";
+import { TabIcon, TabItem, useTabDirty } from "../workspace/tabs/tab-item";
 import {
   agentDragKey,
   insertionIndex,
@@ -205,6 +203,8 @@ export const AgentPane = memo(function AgentPane({
     focusPanelTab(key);
   };
   const remove = (key: string) => update((layout) => removeKey(layout, key));
+  const removeAll = (keys: readonly string[]) =>
+    update((layout) => keys.reduce((next, key) => removeKey(next, key), layout));
   const splitTo = (direction: "right" | "down") =>
     update((layout) => splitLeaf(layout, leaf.id, direction));
 
@@ -229,49 +229,53 @@ export const AgentPane = memo(function AgentPane({
       <div ref={barRef} className="flex h-9 shrink-0 items-center gap-1 overflow-hidden px-1.5">
         {sharedWorkspace && <WorkspaceChip workspaceId={sharedWorkspace} className="ml-1" />}
         {sharedDevice !== undefined && <DeviceChip name={sharedDevice} className="ml-1" />}
-        <div
-          ref={stripRef}
-          className="relative flex h-full min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          style={{ maskImage: fadeMask(overflow) }}
+        <RadixTabs.Root
+          value={leaf.activeTabId ?? ""}
+          onValueChange={(key) => update((layout) => selectKey(layout, leaf.id, key))}
+          className="flex h-full min-w-0 flex-1 items-center"
         >
-          {leaf.tabIds.map((key) =>
-            isRemoteKey(key) ? (
-              <RemoteTab
-                key={key}
-                sessionKey={key}
-                active={key === leaf.activeTabId}
-                showDevice={sharedDevice === undefined}
-                onSelect={() => select(key)}
-                onRemove={() => remove(key)}
+          <div
+            ref={stripRef}
+            className="relative h-full min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            style={{ maskImage: fadeMask(overflow) }}
+          >
+            <RadixTabs.List
+              aria-label={t("tabBar.open_tabs")}
+              className="flex h-full w-max items-center gap-0.5"
+            >
+              {leaf.tabIds.map((key, index) => {
+                const menu = panelTabMenu(leaf.tabIds, index, removeAll);
+                return isRemoteKey(key) ? (
+                  <RemoteTab
+                    key={key}
+                    sessionKey={key}
+                    showDevice={sharedDevice === undefined}
+                    menu={menu}
+                    onRemove={() => remove(key)}
+                  />
+                ) : isRemoteFileKey(key) ? (
+                  <RemoteFileTab key={key} fileKey={key} menu={menu} onRemove={() => remove(key)} />
+                ) : (
+                  <AgentTab
+                    key={key}
+                    sessionKey={key}
+                    agents={agents}
+                    showWorkspace={sharedWorkspace === undefined}
+                    menu={menu}
+                    onRemove={() => remove(key)}
+                  />
+                );
+              })}
+            </RadixTabs.List>
+            {insertion && (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute top-0 bottom-0 w-0.5 bg-primary"
+                style={{ left: insertion.x, transform: "translateX(-1px)" }}
               />
-            ) : isRemoteFileKey(key) ? (
-              <RemoteFileTab
-                key={key}
-                fileKey={key}
-                active={key === leaf.activeTabId}
-                onSelect={() => select(key)}
-                onRemove={() => remove(key)}
-              />
-            ) : (
-              <AgentTab
-                key={key}
-                sessionKey={key}
-                agents={agents}
-                active={key === leaf.activeTabId}
-                showWorkspace={sharedWorkspace === undefined}
-                onSelect={() => select(key)}
-                onRemove={() => remove(key)}
-              />
-            ),
-          )}
-          {insertion && (
-            <div
-              aria-hidden
-              className="pointer-events-none absolute top-0 bottom-0 w-0.5 bg-primary"
-              style={{ left: insertion.x, transform: "translateX(-1px)" }}
-            />
-          )}
-        </div>
+            )}
+          </div>
+        </RadixTabs.Root>
         <OverflowTabsMenu
           hidden={overflow.hidden}
           renderTab={(key) =>
@@ -458,16 +462,14 @@ function EditorTabLabel({ tab, showWorkspace }: { tab: EditorTab; showWorkspace:
 function AgentTab({
   sessionKey: key,
   agents,
-  active,
   showWorkspace,
-  onSelect,
+  menu,
   onRemove,
 }: {
   sessionKey: string;
   agents: Agents;
-  active: boolean;
   showWorkspace: boolean;
-  onSelect: () => void;
+  menu: PanelTabMenu;
   onRemove: () => void;
 }) {
   const info = useLocalTabInfo(key, agents);
@@ -481,10 +483,9 @@ function AgentTab({
   return (
     <PanelTab
       sessionKey={key}
-      active={active}
       title={title}
       file={info.kind === "file"}
-      onSelect={onSelect}
+      menu={menu}
       onRemove={onRemove}
     >
       <AgentTabLabel sessionKey={key} agents={agents} showWorkspace={showWorkspace} />
@@ -508,26 +509,17 @@ function RemoteFileTabFace({ fileKey }: { fileKey: string }) {
 
 function RemoteFileTab({
   fileKey,
-  active,
-  onSelect,
+  menu,
   onRemove,
 }: {
   fileKey: string;
-  active: boolean;
-  onSelect: () => void;
+  menu: PanelTabMenu;
   onRemove: () => void;
 }) {
   const file = parseRemoteFileKey(fileKey);
   if (!file) return null;
   return (
-    <PanelTab
-      sessionKey={fileKey}
-      active={active}
-      title={file.path}
-      file
-      onSelect={onSelect}
-      onRemove={onRemove}
-    >
+    <PanelTab sessionKey={fileKey} title={file.path} file menu={menu} onRemove={onRemove}>
       <RemoteFileTabFace fileKey={fileKey} />
     </PanelTab>
   );
@@ -558,15 +550,13 @@ function RemoteTabFace({ sessionKey, showDevice }: { sessionKey: string; showDev
 
 function RemoteTab({
   sessionKey: key,
-  active,
   showDevice,
-  onSelect,
+  menu,
   onRemove,
 }: {
   sessionKey: string;
-  active: boolean;
   showDevice: boolean;
-  onSelect: () => void;
+  menu: PanelTabMenu;
   onRemove: () => void;
 }) {
   const target = useRemoteTarget(key);
@@ -574,9 +564,8 @@ function RemoteTab({
   return (
     <PanelTab
       sessionKey={key}
-      active={active}
       title={`${remoteTitle(target.title)} · ${target.deviceName} · ${target.workspaceName}`}
-      onSelect={onSelect}
+      menu={menu}
       onRemove={onRemove}
     >
       <RemoteTabLabel target={target} showDevice={showDevice} />
@@ -586,62 +575,77 @@ function RemoteTab({
 
 function PanelTab({
   sessionKey: key,
-  active,
   title,
   file,
-  onSelect,
+  menu,
   onRemove,
   children,
 }: {
   sessionKey: string;
-  active: boolean;
   title: string;
   file?: boolean;
-  onSelect: () => void;
+  menu: PanelTabMenu;
   onRemove: () => void;
   children: ReactNode;
 }) {
   const { t } = useTranslation();
   return (
-    <div
-      data-agent-tab={key}
-      className={cn(
-        "group relative flex h-7 max-w-64 shrink-0 items-center rounded-(--radius-raised) text-app-ui-sm whitespace-nowrap transition-colors",
-        active
-          ? "bg-[var(--tab-active-bg)] text-foreground after:absolute after:right-2 after:bottom-0 after:left-2 after:h-0.5 after:rounded-full after:bg-[var(--state-selected-indicator)] after:content-['']"
-          : "text-muted-foreground hover:bg-[var(--tab-hover-bg)] hover:text-foreground",
-      )}
-    >
-      <button
-        type="button"
-        draggable
-        aria-current={active || undefined}
-        title={title}
-        onClick={onSelect}
-        onAuxClick={(e) => {
-          if (e.button === 1) onRemove();
-        }}
-        onDragStart={(e) => {
-          setAgentDrag(e.dataTransfer, key);
-          beginDragInFlight();
-        }}
-        className="flex h-full min-w-0 items-center gap-1.5 rounded-(--radius-raised) pr-7 pl-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-      >
-        {children}
-      </button>
-      <IconButton
-        label={t(file ? "agentView.pane.remove_file" : "agentView.pane.remove")}
-        size="xs"
-        onClick={onRemove}
-        className={cn(
-          "absolute right-1",
-          active ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
-        )}
-      >
-        <X aria-hidden className="size-3" />
-      </IconButton>
-    </div>
+    <TabItem
+      readOnly
+      value={key}
+      label={title}
+      title={title}
+      face={<span className="flex min-w-0 max-w-64 items-center gap-1.5">{children}</span>}
+      closeLabel={t(file ? "agentView.pane.remove_file" : "agentView.pane.remove")}
+      menu={menu(file ? title : undefined)}
+      tabAttrs={{ "data-agent-tab": key }}
+      onDragStart={(dataTransfer) => {
+        setAgentDrag(dataTransfer, key);
+        beginDragInFlight();
+      }}
+      onActivate={() => focusPanelTab(key)}
+      onClose={onRemove}
+    />
   );
+}
+
+type PanelTabMenu = (path?: string) => MenuItemSpec[];
+
+export function panelTabMenu(
+  keys: readonly string[],
+  index: number,
+  remove: (keys: readonly string[]) => void,
+): PanelTabMenu {
+  const t = i18next.t.bind(i18next);
+  const key = keys[index];
+  return (path) => [
+    {
+      kind: "item",
+      label: t(path !== undefined ? "agentView.pane.remove_file" : "agentView.pane.remove"),
+      onSelect: () => remove([key]),
+    },
+    {
+      kind: "item",
+      label: t("tabBar.close_others"),
+      onSelect: () => remove(keys.filter((each) => each !== key)),
+    },
+    {
+      kind: "item",
+      label: t("tabBar.close_all_right"),
+      onSelect: () => remove(keys.slice(index + 1)),
+    },
+    { kind: "item", label: t("tabBar.close_all"), onSelect: () => remove(keys) },
+    ...(path !== undefined
+      ? [
+          { kind: "separator" as const },
+          {
+            kind: "item" as const,
+            label: t("tabBar.copy_path"),
+            onSelect: () => void copyTextViaIpc(path),
+          },
+        ]
+      : []),
+  ];
 }
 
 function goToTabLabel(type: string | undefined): string {
@@ -674,35 +678,10 @@ function EmptyPane() {
 }
 
 function OfflinePane({ workspaceId }: { workspaceId: string }) {
-  const { t } = useTranslation();
-  const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
-  const online = useWorkspacesStore((s) => selectIsWorkspaceOnline(s, workspaceId));
-  const status = useWorkspacesStore((s) => selectWorkspaceConnectionStatus(s, workspaceId));
-  if (!workspace || workspace.location.kind === "local" || online) return null;
-  const connecting = status === "connecting" || status === "reconnecting";
-  const failed = status === "error" || status === "held-then-expired";
-  const isWsl = workspace.location.kind === "wsl";
-  const label =
-    workspace.location.kind === "ssh"
-      ? `${workspace.location.user ? `${workspace.location.user}@` : ""}${workspace.location.host}`
-      : workspace.location.distro;
-  const connect = () => retryWorkspaceConnection(workspaceId);
+  if (!useWorkspaceOffline(workspaceId)) return null;
   return (
-    <div className="absolute inset-0 flex island-surface">
-      <EmptyState
-        title={failed ? t("panel.connection_failed") : workspace.name}
-        description={
-          failed
-            ? t(isWsl ? "panel.could_not_start_wsl" : "panel.could_not_connect", { label })
-            : t(isWsl ? "panel.wsl_workspace" : "panel.ssh_workspace", { label })
-        }
-        actionLabel={
-          connecting ? t("action.connecting") : failed ? t("action.retry") : t("action.connect")
-        }
-        onAction={connect}
-        disabled={connecting}
-        tone="status"
-      />
+    <div className="absolute inset-0 flex items-center justify-center island-surface">
+      <OfflineWorkspace workspaceId={workspaceId} />
     </div>
   );
 }
