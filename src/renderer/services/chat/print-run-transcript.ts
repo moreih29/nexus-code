@@ -64,17 +64,22 @@ export interface CodexRunReader {
 }
 
 /**
- * Starts the reader of the tab's `codex exec` run: null when the run has no
- * thread to read (it kept none, or it is not the tab's) or it did not start.
+ * Why no reader came up. "none": there is none to start now (the run told no
+ * thread, it is not the tab's, or its host is out of reach). "failed": one
+ * was started and did not come up (no program, or it did not answer).
  */
+export type RunReaderMiss = "none" | "failed";
+
+/** Starts the reader of the tab's `codex exec` run, or says why none came up. */
 export async function openCodexRunReader(
   workspaceId: string,
   tabId: string,
   runId: string,
   onDead?: () => void,
-): Promise<CodexRunReader | null> {
+): Promise<CodexRunReader | RunReaderMiss> {
   const started = await ipcCallResult("chat", "printRunReader", { workspaceId, tabId, runId });
-  if (!started.ok || !started.value.ok) return null;
+  if (!started.ok) return "failed";
+  if (!started.value.ok) return started.value.reason === "none" ? "none" : "failed";
   const { readerTabId } = started.value;
   let nextId = 1;
   let closed = false;
@@ -194,7 +199,7 @@ export async function openCodexRunReader(
     };
   } catch {
     close();
-    return null;
+    return "failed";
   }
 }
 
@@ -208,12 +213,13 @@ export interface RunReaderKeeper {
 /**
  * Keeps a reader of one run up. One whose program ended is closed and
  * another started, `RUN_READER_ATTEMPTS` times at most between reads that
- * gave the thread. One that did not start (its host is out of reach, or the
- * run has told no thread yet) is asked for again for as long as the run
- * goes on, and the same few times after it ended.
+ * gave the thread, as is one that was started and did not come up. With
+ * none to start (its host is out of reach, or the run has told no thread
+ * yet) it is asked for again for as long as the run goes on, and the same
+ * few times after it ended.
  */
 export function keepRunReader(options: {
-  open(onDead: () => void): Promise<CodexRunReader | null>;
+  open(onDead: () => void): Promise<CodexRunReader | RunReaderMiss>;
   running(): boolean;
   /** A reader is up: its thread can be read. */
   onUp(): void;
@@ -253,18 +259,23 @@ export function keepRunReader(options: {
     };
     void options
       .open(onDead)
-      .catch(() => null)
+      .catch((): RunReaderMiss => "failed")
       .then((opened) => {
         opening = false;
-        if (closed) {
-          opened?.close();
+        if (typeof opened === "string") {
+          // Not reached is not ended: asked for again while the run goes on.
+          // One that was started and did not come up is one of the few.
+          const waited = opened === "none" && options.running();
+          again(waited ? RUN_READ_INTERVAL_MS : RUN_READER_AGAIN_MS, !waited);
           return;
         }
-        if (!opened || opened.dead) {
-          opened?.close();
-          // Not reached is not ended: asked for again while the run goes on.
-          const running = options.running();
-          again(running ? RUN_READ_INTERVAL_MS : RUN_READER_AGAIN_MS, !running);
+        if (closed) {
+          opened.close();
+          return;
+        }
+        if (opened.dead) {
+          opened.close();
+          again(RUN_READER_AGAIN_MS, true);
           return;
         }
         mine = opened;

@@ -135,7 +135,7 @@ describe("a codex run's thread, read without loading it", () => {
 describe("a codex run's reader kept up for its pane", () => {
   const MODEL = { items: [] } as unknown as ChatModel;
   /** A keeper whose readers and clock are the test's. */
-  function kept(running = true, reached: boolean[] = []) {
+  function kept(running = true, reached: Array<boolean | "failed"> = []) {
     const state = { running, ups: 0, opens: 0 };
     /** What the next opens give: a reader, or none (out of reach). */
     const reach = [...reached];
@@ -144,7 +144,9 @@ describe("a codex run's reader kept up for its pane", () => {
     const keeper = keepRunReader({
       open: async (onDead) => {
         state.opens += 1;
-        if (reach.shift() === false) return null;
+        const next = reach.shift();
+        if (next === false) return "none";
+        if (next === "failed") return "failed";
         const made = {
           closed: false,
           dead: false,
@@ -215,6 +217,20 @@ describe("a codex run's reader kept up for its pane", () => {
     }
     expect(passed).toBe(RUN_READER_ATTEMPTS);
     expect(await k.keeper.read()).toBeNull();
+  });
+
+  test("one that was started and did not come up is started a few times only", async () => {
+    // Even while the run goes on: each is a program started and ended.
+    const k = kept(true, Array(10).fill("failed"));
+    await k.settled();
+    let passed = 0;
+    while (k.waits.length > 0) {
+      expect(await k.pass()).toBe(RUN_READER_AGAIN_MS);
+      passed += 1;
+    }
+    expect(passed).toBe(RUN_READER_ATTEMPTS);
+    expect(k.state.opens).toBe(RUN_READER_ATTEMPTS + 1);
+    expect(k.state.ups).toBe(0);
   });
 
   test("one that ended is closed and another started, counted anew after a read", async () => {

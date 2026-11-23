@@ -14,7 +14,9 @@ import {
   mergeRunLines,
   NO_RUN_LINES,
   openCodexRunReader,
+  RUN_READER_ATTEMPTS,
   type RunLines,
+  type RunReaderMiss,
 } from "../chat/print-run-transcript";
 import { emptyTabState } from "../chat/store";
 import { chatPageOf } from "./chat-page";
@@ -30,7 +32,9 @@ interface Kept {
   model?: ChatModel;
   /** When a codex run's thread was last read whole into `model`. */
   readAt?: number;
-  reader?: Promise<CodexRunReader | null>;
+  reader?: Promise<CodexRunReader | RunReaderMiss>;
+  /** Readers that were started and did not come up or ended, since a read gave the thread. */
+  failed?: number;
   timer?: ReturnType<typeof setTimeout>;
 }
 
@@ -41,7 +45,9 @@ function drop(key: string): void {
   if (!entry) return;
   kept.delete(key);
   clearTimeout(entry.timer);
-  void entry.reader?.then((reader) => reader?.close());
+  void entry.reader?.then((reader) => {
+    if (typeof reader !== "string") reader.close();
+  });
 }
 
 /** The run's page, null when it keeps no session to read (or is not the tab's). */
@@ -79,9 +85,12 @@ export async function runPageOf(
   if (!model) {
     // Not a claude run's transcript: a codex run's thread, if it is one.
     agent = "codex";
+    // A reader that keeps failing is started a few times, not at every ask.
+    if (!entry.reader && (entry.failed ?? 0) >= RUN_READER_ATTEMPTS) return null;
     entry.reader ??= openCodexRunReader(workspaceId, tabId, runId);
     const opening = entry.reader;
-    const reader = await opening;
+    const opened = await opening;
+    const reader = typeof opened === "string" ? null : opened;
     // A page that did not fit is asked for again at once, smaller: of the thread just read.
     const fresh =
       entry.model && entry.readAt !== undefined && Date.now() - entry.readAt < RUN_THREAD_FRESH_MS;
@@ -90,10 +99,15 @@ export async function runPageOf(
       model = reader && !reader.dead ? await reader.read().catch(() => null) : null;
       entry.model = model ?? undefined;
       entry.readAt = model ? Date.now() : undefined;
+      if (model) entry.failed = 0;
     }
     if (!reader || reader.dead) {
-      // None started, or it ended since: the next ask starts another.
-      if (entry.reader === opening) entry.reader = undefined;
+      // None started, or it ended since: the next ask starts another. One
+      // out of reach ("none") is not one that failed.
+      if (entry.reader === opening) {
+        entry.reader = undefined;
+        if (opened !== "none") entry.failed = (entry.failed ?? 0) + 1;
+      }
       reader?.close();
       return null;
     }
