@@ -102,15 +102,22 @@ test("in a chat here, every attached image's chip opens quick look", () => {
 });
 
 test("in another computer's chat, only the chips of images that computer serves open it", () => {
-  // As remote-links answers for that computer's workspace w1 at /p and its tab c1.
+  // As remote-links answers for that computer's workspace w1 at /p: an image its agent wrote,
+  // for this tab or another the conversation went on from, or one in the workspace.
   const opensAttached = (written: string) => {
     const file = resolveFilePath(written, "/p");
-    return file !== null && servedAttachment("w1", "c1", "/p", file);
+    return file !== null && servedAttachment("w1", "/p", file);
   };
-  expect(attachedChips(ATTACHED, { ...links, opensAttached })).toEqual(["inside.png", "sent.png"]);
+  const before = "/Users/me/.nexus-code/attach/w1/c0/1/before.png";
+  const elsewhere = "/Users/me/.nexus-code/attach/w2/c1/1/elsewhere.png";
+  expect(attachedChips([...ATTACHED, before, elsewhere], { ...links, opensAttached })).toEqual([
+    "before.png",
+    "inside.png",
+    "sent.png",
+  ]);
 });
 
-test("in a chat here, the chip of an attached image removed with its tab only names it", () => {
+test("in a chat here, the chip of an attached image no longer kept only names it", () => {
   const gone = new Set(["/Users/me/.nexus-code/attach/w1/c1/2/sent.png"]);
   const opensAttached = attachedOpens(gone, "/p");
   expect(attachedChips(ATTACHED, { ...links, opensAttached })).toEqual([

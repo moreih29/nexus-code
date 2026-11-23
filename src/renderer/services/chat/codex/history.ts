@@ -42,6 +42,43 @@ export function codexTurnIds(thread: unknown): string[] | undefined {
   return turnIds((thread as { turns?: unknown } | undefined)?.turns);
 }
 
+/** A thread's turns with their items so far, read a page at a time (thread/turns/list). */
+export interface CodexThreadPages {
+  turns: unknown[];
+  /** The next page's cursor; undefined before the first, null after the last. */
+  nextCursor: string | null | undefined;
+  cursors: string[];
+}
+
+export function emptyCodexThreadPages(): CodexThreadPages {
+  return { turns: [], nextCursor: undefined, cursors: [] };
+}
+
+/**
+ * The pages with the next one's turns, or undefined where the chain breaks:
+ * no turns listed, an empty page that goes on, or a cursor seen before.
+ */
+export function appendCodexThreadPage(
+  previous: CodexThreadPages,
+  result: Record<string, unknown>,
+): CodexThreadPages | undefined {
+  if (previous.nextCursor === null || !Array.isArray(result.data)) return;
+  const nextCursor = result.nextCursor;
+  if (
+    nextCursor !== null &&
+    (typeof nextCursor !== "string" ||
+      !nextCursor ||
+      result.data.length === 0 ||
+      previous.cursors.includes(nextCursor))
+  )
+    return;
+  return {
+    turns: [...previous.turns, ...result.data],
+    nextCursor,
+    cursors: nextCursor === null ? previous.cursors : [...previous.cursors, nextCursor],
+  };
+}
+
 /** Fork preflight needs ordered turn IDs, without the items in each turn. */
 export interface CodexForkPages {
   turns: string[];

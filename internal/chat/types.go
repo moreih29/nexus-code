@@ -97,6 +97,10 @@ type TabParams struct {
 	TabID       string `json:"tabId"`
 	// TabGeneration limits a close to one opening of the tab.
 	TabGeneration string `json:"tabGeneration,omitempty"`
+	// KeepAttachments leaves the files attached to the tab's messages where
+	// they are (chat.close): the tab's conversation may go on in another
+	// one, which names them. An app from before it gets them removed.
+	KeepAttachments bool `json:"keepAttachments,omitempty"`
 }
 
 // ReplayParams is the wire shape for chat.replay.

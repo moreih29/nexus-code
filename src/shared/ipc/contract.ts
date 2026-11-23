@@ -1134,7 +1134,8 @@ const coreIpcContract = {
       /**
        * Writes a file attached to a message where the tab's program can read
        * it (on an SSH host, a file from this machine), and returns its path
-       * there. The agent removes it when the tab closes.
+       * there. It stays after the tab closes, for the conversation to go on
+       * elsewhere, until pruneAttachments or removeAttachments removes it.
        */
       attach: call(
         PtyWorkspaceTabSchema.extend({
@@ -1154,13 +1155,61 @@ const coreIpcContract = {
         z.object({ workspaceId: WorkspaceIdPrimitive }),
         z.object({ root: z.string().nullable() }),
       ),
-      /** Removes the attached files of the workspace's Claude tabs that are no longer open. */
+      /**
+       * Removes the workspace's attached files not in use: those of no open
+       * tab (keepTabIds) that no open tab's conversation names (keepSlots,
+       * "<tabId>/<n>"), once unused for 30 days, and the least recently used
+       * of them past 1 GiB. capOnly leaves the 30 days aside. Without
+       * keepSlots (no attach root known to name them by), only an agent that
+       * names no root prunes, as an agent from before does: the files of
+       * every tab no longer open go.
+       */
       pruneAttachments: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
           keepTabIds: z.array(z.string().max(128)).max(10_000),
+          keepSlots: z.array(z.string().max(300)).max(5_000).optional(),
+          capOnly: z.boolean().optional(),
         }),
         z.void(),
+      ),
+      /** Marks attached files ("<tabId>/<n>" slots) used now, as a conversation naming them is shown. */
+      touchAttachments: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          slots: z.array(z.string().max(300)).max(5_000),
+        }),
+        z.void(),
+      ),
+      /** Removes attached files ("<tabId>/<n>" slots), as their conversation is deleted. */
+      removeAttachments: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          slots: z.array(z.string().max(300)).max(5_000),
+        }),
+        z.void(),
+      ),
+      /**
+       * The attached files ("<tabId>/<n>" slots) a conversation's whole
+       * history names, as its agent reads them from the history kept on
+       * the workspace's host (a Claude session in the profile's folder, a
+       * Codex thread in its home): what a tab that has loaded only its last
+       * pages keeps. Empty from an agent too old to tell. `found` is false
+       * while the agent has no history of it yet: to be asked again.
+       * `truncated`: it names more than these, so what it names is not known.
+       */
+      historySlots: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          agent: z.enum(["claude", "codex"]),
+          conversation: z.string().max(128),
+          profileId: z.string().max(64).optional(),
+        }),
+        z.object({
+          slots: z.array(z.string().max(300)).max(5_000),
+          found: z.boolean(),
+          truncated: z.boolean(),
+        }),
       ),
       /**
        * Where a Claude session is kept on the workspace's host, for a program

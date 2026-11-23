@@ -6,7 +6,7 @@
  */
 
 import i18next from "i18next";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { remoteFileKey } from "../../../shared/fs/remote-file-key";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { showHeldRemoteFile } from "../../services/agent-view/file-tabs";
@@ -27,7 +27,7 @@ import {
   resolveFilePath,
 } from "../../services/chat/links";
 import type { ChatModel } from "../../services/chat/model";
-import { changedFilesOf, imagesOf } from "../../services/chat/panel";
+import { attachedImagesIn, changedFilesOf, imagesOf } from "../../services/chat/panel";
 import { readRemoteFileBefore } from "../../services/remote/file-comparison";
 import { requestTabFocus } from "../../services/tab-focus";
 import { useAgentViewStore } from "../../state/stores/agent-view";
@@ -62,6 +62,14 @@ export function useRemoteLinks(
   const cwd = target.cwd ?? target.path;
   const latest = useRef(source);
   latest.current = source;
+  // The attached images that computer wrote, as a chat there shows them: one it
+  // no longer keeps is a plain chip, as in a chat here (attachedOpens).
+  const items = source.model.items;
+  const written = useMemo(
+    () => attachedImagesIn(items, cwd).filter((file) => attachShaped(peerWorkspace, file)),
+    [items, cwd, peerWorkspace],
+  );
+  const gone = useGoneAttachments(files, written);
   return useMemo<ChatLinks & { openBeside: OpenRemoteFileBeside }>(() => {
     const where = { deviceId, workspaceId: peerWorkspace };
     // Each look its own: one that comes after another was opened does not replace it.
@@ -75,10 +83,10 @@ export function useRemoteLinks(
     /** Quick look over the conversation's images, at `target`; `alone` when it is not among them. */
     const lookAt = (image: ShownImage, alone?: () => QuickLookList) => {
       const { model } = latest.current;
-      // That computer serves only the attached files its agent wrote for the tab; others wait
-      // on a lookup, as an image only named does.
+      // That computer serves only the attached files its agent wrote for a message; others
+      // wait on a lookup, as an image only named does.
       const shown = imagesOf(model.items, model.tools, cwd, model.agentItems, (file) =>
-        attachShaped(peerWorkspace, tabId, file),
+        attachShaped(peerWorkspace, file),
       );
       // The last read of a file a panel holds selects the panel; an earlier one shows as it was read.
       const held = image.image ? latestReadFile(shown, image) : undefined;
@@ -122,7 +130,9 @@ export function useRemoteLinks(
       openFile,
       opensAttached(written) {
         const file = resolveFilePath(written, cwd);
-        return file !== null && servedAttachment(peerWorkspace, tabId, workspaceRoot, file);
+        return (
+          file !== null && !gone.has(file) && servedAttachment(peerWorkspace, workspaceRoot, file)
+        );
       },
       openBeside:
         placeFile ??
@@ -188,5 +198,46 @@ export function useRemoteLinks(
       },
       urlsOneWay: true as const,
     };
-  }, [deviceId, peerWorkspace, tabId, workspaceRoot, cwd, deviceName, files, setLook, placeFile]);
+  }, [
+    deviceId,
+    peerWorkspace,
+    tabId,
+    workspaceRoot,
+    cwd,
+    deviceName,
+    files,
+    setLook,
+    placeFile,
+    gone,
+  ]);
+}
+
+const NONE: ReadonlySet<string> = new Set();
+
+/**
+ * Which of `paths`, attached files that computer serves by their names, it
+ * says are gone (ChatFiles.gone): pruned there, or their conversation
+ * deleted. Looked up again as the files or the connection change.
+ */
+function useGoneAttachments(files: ChatFiles, paths: readonly string[]): ReadonlySet<string> {
+  const key = paths.join("\n");
+  const [gone, setGone] = useState<ReadonlySet<string>>(NONE);
+  useEffect(() => {
+    const wanted = key === "" ? [] : key.split("\n");
+    if (wanted.length === 0 || !files.gone) {
+      setGone((was) => (was.size === 0 ? was : NONE));
+      return;
+    }
+    let live = true;
+    void files.gone(wanted).then((next) => {
+      if (!live) return;
+      setGone((was) =>
+        was.size === next.size && [...next].every((path) => was.has(path)) ? was : next,
+      );
+    });
+    return () => {
+      live = false;
+    };
+  }, [files, key]);
+  return gone;
 }

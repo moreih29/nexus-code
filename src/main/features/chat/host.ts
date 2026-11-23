@@ -93,6 +93,36 @@ export interface ChatWorkspaceManager {
   isLocal?(workspaceId: string): boolean;
   /** The workspace's agent channel only while it is up: an SSH host is not dialed. */
   peekAgentChannel?(workspaceId: string): Promise<AgentChannel | null>;
+  /**
+   * The host and user whose attach folder the workspace's agent writes in,
+   * the same for every workspace there (attachHostOf); null when unknown.
+   */
+  attachHost?(workspaceId: string): string | null;
+}
+
+/** How long an attached file no open tab uses stays unused before a prune removes it. */
+export const ATTACH_UNUSED_MS = 30 * 24 * 60 * 60 * 1000;
+/** The most a workspace's attached files hold; past it a prune removes the least recently used. */
+export const ATTACH_ROOM_BYTES = 1024 * 1024 * 1024;
+
+/**
+ * The attach root an agent told, or null when it names none. One on a network
+ * share (`\\server\share`, `//server/share`) counts as none: the app does not
+ * read slots from it (attachRootOf), so it could name none an open tab keeps,
+ * and nothing kept past its tab there would ever go.
+ */
+function namedRoot(root: unknown): string | null {
+  if (typeof root !== "string" || root === "") return null;
+  return /^[\\/]{2}/.test(root) ? null : root;
+}
+
+/** Removed workspaces whose attached files wait for an agent on their host to remove them. */
+export interface AttachCleanups {
+  add(host: string, workspaceId: string): void;
+  /** The workspaces waiting on the host. */
+  waiting(host: string): string[];
+  /** One no longer waits: its folder went. */
+  remove(host: string, workspaceId: string): void;
 }
 
 export interface ChatHostOptions {
@@ -131,6 +161,8 @@ export interface ChatHostOptions {
     workspaceId: string,
     tabId: string,
   ) => { profileId?: string; instructions?: string } | undefined;
+  /** Where a removed workspace's attached files wait when its host's agent was not up. */
+  attachCleanups?: AttachCleanups;
 }
 
 export type StartResult =
@@ -178,8 +210,8 @@ export class ChatHost {
   private readonly closingTabs = new Map<string, Promise<unknown>>();
   /** Workspaces whose tabs have started a program through this host. */
   private readonly workspaces = new Set<string>();
-  /** What each agent connection answered chat.attachRoot with: asked once a connection. */
-  private readonly attachRoots = new WeakMap<AgentChannel, Promise<string | null>>();
+  /** What each agent connection answered chat.attachRoot with (askAttachRoot): asked once a connection. */
+  private readonly attachRoots = new WeakMap<AgentChannel, Promise<string | null | undefined>>();
   private readonly disposeProviderReady: () => void;
   private disposed = false;
 
@@ -540,12 +572,19 @@ export class ChatHost {
         ...(intent ? { tabGeneration: intent.generation } : {}),
       };
       if (removal) {
+        // A removed workspace's files go with its folder.
         const timeoutMs = removal.deadline - Date.now();
         if (timeoutMs <= 0) return removal.expired;
         return removal.channel.call("chat.close", params, { timeoutMs });
       }
       const channel = await this.options.workspaceManager.tryGetAgentChannel(workspaceId);
-      return channel?.call("chat.close", params);
+      if (!channel) return undefined;
+      // Its conversation may go on in another tab, which names its files. Not
+      // where the agent names no attach root (a home it cannot name, or an
+      // agent from before): no prune there knows what a conversation names,
+      // so the files go with the tab, as they did. Kept when asking failed.
+      const kept = (await this.askAttachRoot(channel)) !== null;
+      return channel.call("chat.close", { ...params, ...(kept ? { keepAttachments: true } : {}) });
     };
     const run = (async () => {
       try {
@@ -652,13 +691,136 @@ export class ChatHost {
     return update.text;
   }
 
-  async call(
-    method: "stop" | "close" | "replay" | "attach" | "pruneAttachments",
-    args: unknown,
-  ): Promise<unknown> {
+  async call(method: "stop" | "close" | "replay" | "attach", args: unknown): Promise<unknown> {
     const { workspaceId, tabId } = args as { workspaceId: string; tabId: string };
     if (method === "close") return this.closeTab(workspaceId, tabId);
     return (await this.channelFor(workspaceId)).call(`chat.${method}`, args);
+  }
+
+  /**
+   * Prunes the workspace's attached files (chat.pruneAttachments): those of
+   * no open tab, that no open tab's conversation names, once unused for
+   * ATTACH_UNUSED_MS (not with capOnly), and the least recently used past
+   * ATTACH_ROOM_BYTES. First the files of removed workspaces left for an
+   * agent on the same host go.
+   *
+   * Without keepSlots (the app did not know the root to name them by), only
+   * an agent that names no root prunes: one with a home it cannot name, or
+   * one from before. It removed each tab's files as the tab closed; those of
+   * every tab not open go, as they did. Nothing goes when asking the agent
+   * for its root failed.
+   */
+  async pruneAttachments({
+    workspaceId,
+    keepTabIds,
+    keepSlots,
+    capOnly = false,
+  }: {
+    workspaceId: string;
+    keepTabIds: string[];
+    keepSlots?: string[];
+    capOnly?: boolean;
+  }): Promise<void> {
+    const channel = await this.channelFor(workspaceId);
+    const root = await this.askAttachRoot(channel);
+    if (root === undefined) return;
+    if (root === null) {
+      // Nothing is kept past its tab there, so there is no room to make.
+      if (!capOnly) await channel.call("chat.pruneAttachments", { workspaceId, keepTabIds });
+      return;
+    }
+    // What the open conversations name is not known: nothing goes on a guess.
+    if (!keepSlots) return;
+    await this.removeWaitingAttachments(workspaceId, channel);
+    await channel.call("chat.pruneAttachments", {
+      workspaceId,
+      keepTabIds,
+      // An agent between (it tells its root, not this) removes every closed tab's files, as it did.
+      retain: {
+        keep: keepSlots,
+        maxAgeMs: capOnly ? 0 : ATTACH_UNUSED_MS,
+        maxBytes: ATTACH_ROOM_BYTES,
+      },
+    });
+  }
+
+  /**
+   * Touches or removes attached files by their slots. An agent from before
+   * has neither, nor kept a file past its tab: nothing to do there.
+   */
+  async attachmentCall(
+    method: "touchAttachments" | "removeAttachments",
+    args: { workspaceId: string; slots: string[] },
+  ): Promise<void> {
+    if (args.slots.length === 0) return;
+    const channel = await this.channelFor(args.workspaceId);
+    await channel.call(`chat.${method}`, args).catch((error: unknown) => {
+      if ((error as { code?: unknown } | null)?.code !== "unsupported-method") throw error;
+    });
+  }
+
+  /** Removes the folders of removed workspaces whose host is this workspace's. */
+  private async removeWaitingAttachments(
+    workspaceId: string,
+    channel: AgentChannel,
+  ): Promise<void> {
+    const cleanups = this.options.attachCleanups;
+    const host = this.options.workspaceManager.attachHost?.(workspaceId);
+    if (!cleanups || !host) return;
+    for (const removed of cleanups.waiting(host)) {
+      try {
+        await channel.call("chat.removeAttachments", {
+          workspaceId: removed,
+          slots: [],
+          all: true,
+        });
+      } catch (error) {
+        // An agent from before removed each tab's files as it closed: nothing waits there.
+        if ((error as { code?: unknown } | null)?.code !== "unsupported-method") {
+          // It waits on, for the next time.
+          log.warn(
+            `could not remove removed workspace ${removed}'s attached files: ${String(error)}`,
+          );
+          continue;
+        }
+      }
+      cleanups.remove(host, removed);
+    }
+  }
+
+  /**
+   * Removes a removed workspace's attached files, its whole folder; left for
+   * the next prune on the same host when its agent is not up or fails.
+   */
+  private async removeWorkspaceAttachments(
+    workspaceId: string,
+    channel: AgentChannel | null,
+    host: string | null,
+    deadline: number,
+  ): Promise<void> {
+    const wait = () => {
+      if (host) this.options.attachCleanups?.add(host, workspaceId);
+    };
+    if (!channel || deadline <= Date.now()) return wait();
+    const root = await this.askAttachRootBy(channel, deadline);
+    // An agent that names no root kept no file past its tab: they went as the tabs closed.
+    if (root === null) return;
+    const timeoutMs = deadline - Date.now();
+    if (root === undefined || timeoutMs <= 0) return wait();
+    try {
+      await channel.call(
+        "chat.removeAttachments",
+        { workspaceId, slots: [], all: true },
+        { timeoutMs },
+      );
+    } catch (error) {
+      // An agent from before removed each tab's files as it closed.
+      if ((error as { code?: unknown } | null)?.code === "unsupported-method") return;
+      log.warn(
+        `could not remove removed workspace ${workspaceId}'s attached files: ${String(error)}`,
+      );
+      wait();
+    }
   }
 
   /**
@@ -673,22 +835,96 @@ export class ChatHost {
       .peekAgentChannel?.(workspaceId)
       .catch(() => null);
     if (!channel) return null;
+    return (await this.askAttachRoot(channel)) ?? null;
+  }
+
+  /**
+   * The attach root the agent on `channel` tells (chat.attachRoot): null
+   * when it names none, from a home it cannot name or as an agent too old
+   * to tell, or one on a network share (namedRoot), which stays so for the
+   * connection; undefined when asking failed, which is asked again next time.
+   */
+  private askAttachRoot(channel: AgentChannel): Promise<string | null | undefined> {
     const known = this.attachRoots.get(channel);
     if (known) return known;
     const asked = channel.ready
       .then(() => channel.call<{ root?: unknown }>("chat.attachRoot", {}))
       .then(
-        (result) => (typeof result?.root === "string" && result.root !== "" ? result.root : null),
+        (result) => namedRoot(result?.root),
         (error: unknown) => {
-          // An agent too old to tell stays so for the connection; anything else is asked again.
-          if ((error as { code?: unknown } | null)?.code !== "unsupported-method") {
-            this.attachRoots.delete(channel);
-          }
-          return null;
+          if ((error as { code?: unknown } | null)?.code === "unsupported-method") return null;
+          this.attachRoots.delete(channel);
+          return undefined;
         },
       );
     this.attachRoots.set(channel, asked);
     return asked;
+  }
+
+  /** askAttachRoot, but undefined once `deadline` passes. */
+  private async askAttachRootBy(
+    channel: AgentChannel,
+    deadline: number,
+  ): Promise<string | null | undefined> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<undefined>((resolve) => {
+      timer = setTimeout(resolve, Math.max(0, deadline - Date.now()), undefined);
+    });
+    try {
+      return await Promise.race([this.askAttachRoot(channel), late]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * The slots ("<tabId>/<n>") a conversation's whole history names, read by
+   * the agent from the history kept in the profile's folder (a Claude
+   * session) or home (a Codex thread): only their names come back. `found`
+   * is false while the agent has no history of it yet (a fork's own, just
+   * named): to be asked again. `truncated` tells that it names more than
+   * these. None from an agent too old to tell, nor in
+   * a profile since removed: a tab outlives its profile, and no history is
+   * read there.
+   */
+  async historySlots(
+    workspaceId: string,
+    agent: ChatAgent,
+    conversation: string,
+    profileId?: string,
+  ): Promise<{ slots: string[]; found: boolean; truncated: boolean }> {
+    let where: Record<string, string>;
+    try {
+      if (agent === "claude") {
+        where = { sessionId: conversation, ...this.configDir(workspaceId, profileId) };
+      } else {
+        const codexHome = this.profileDir(workspaceId, "codex", profileId);
+        where = { threadId: conversation, ...(codexHome ? { codexHome } : {}) };
+      }
+    } catch (error) {
+      if (error instanceof AgentProfileSelectionError)
+        return { slots: [], found: true, truncated: false };
+      throw error;
+    }
+    const channel = await this.channelFor(workspaceId);
+    const result = await channel
+      .call<{ slots?: unknown; found?: unknown; truncated?: unknown }>("chat.historySlots", {
+        workspaceId,
+        ...where,
+      })
+      .catch((error: unknown) => {
+        if ((error as { code?: unknown } | null)?.code === "unsupported-method") return null;
+        throw error;
+      });
+    const told = Array.isArray(result?.slots) ? result.slots : [];
+    const slots = told.filter(
+      (slot): slot is string => typeof slot === "string" && slot.length <= 300,
+    );
+    return {
+      slots: slots.slice(-5_000),
+      found: result?.found !== false,
+      truncated: result?.truncated === true || slots.length > 5_000,
+    };
   }
 
   async transcript(workspaceId: string, sessionId: string, profileId?: string): Promise<unknown> {
@@ -988,22 +1224,30 @@ export class ChatHost {
     this.workspaces.delete(workspaceId);
     subscription?.dispose();
     this.subscriptions.delete(workspaceId);
-    if (tabIds.size === 0) return;
+    // Read while the workspace is still known.
+    const host = this.options.workspaceManager.attachHost?.(workspaceId) ?? null;
     const deadline = Date.now() + WORKSPACE_CHAT_CLOSE_MS;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const expired = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("chat.close timed out")), WORKSPACE_CHAT_CLOSE_MS);
-    });
-    const removal = { channel, deadline, expired };
-    const results = await Promise.allSettled(
-      Array.from(tabIds, (tabId) => this.closeTab(workspaceId, tabId, removal)),
-    ).finally(() => clearTimeout(timer));
-    for (const result of results) {
-      if (result.status === "rejected")
-        log.warn(
-          `could not close a chat in removed workspace ${workspaceId}: ${String(result.reason)}`,
+    if (tabIds.size > 0) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const expired = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("chat.close timed out")),
+          WORKSPACE_CHAT_CLOSE_MS,
         );
+      });
+      const removal = { channel, deadline, expired };
+      const results = await Promise.allSettled(
+        Array.from(tabIds, (tabId) => this.closeTab(workspaceId, tabId, removal)),
+      ).finally(() => clearTimeout(timer));
+      for (const result of results) {
+        if (result.status === "rejected")
+          log.warn(
+            `could not close a chat in removed workspace ${workspaceId}: ${String(result.reason)}`,
+          );
+      }
     }
+    // Its closed tabs' files stayed for conversations of its own, which go with it.
+    await this.removeWorkspaceAttachments(workspaceId, channel, host, deadline);
   }
 
   dispose(): void {

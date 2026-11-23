@@ -12,13 +12,13 @@ import { placeLocalFile, showHeldLocalFile } from "../../services/agent-view/fil
 import { claudeTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
 import { attachedOpens } from "../../services/chat/attach-folders";
+import { pruneAttachmentsOnce } from "../../services/chat/attach-retention";
 import { useStateBesideStream } from "../../services/chat/beside-stream";
 import { configCommandOf } from "../../services/chat/claude/config";
 import {
   type ChatController,
   chatController,
   type PermissionAnswer,
-  pruneAttachmentsOnce,
 } from "../../services/chat/claude/controller";
 import { historyForDisplay } from "../../services/chat/claude/history";
 import {

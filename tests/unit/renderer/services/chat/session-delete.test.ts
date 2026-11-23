@@ -8,9 +8,9 @@ const ipcCalls: Array<{ channel: string; method: string; args: unknown }> = [];
 let answer: (method: string, args: unknown) => unknown = () => undefined;
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
-  ipcCallResult: (channel: string, method: string, args: unknown) => {
+  ipcCallResult: async (channel: string, method: string, args: unknown) => {
     ipcCalls.push({ channel, method, args });
-    return Promise.resolve({ ok: true as const, value: answer(method, args) });
+    return { ok: true as const, value: answer(method, args) };
   },
   unwrapIpcResult: (result: { ok: boolean; value?: unknown; message?: string }) => {
     if (!result.ok) throw new Error(result.message);
@@ -30,12 +30,22 @@ beforeEach(() => {
 
 describe("deleting a Claude session", () => {
   test("asks the agent of the workspace, in the profile that keeps it", async () => {
-    answer = () => ({ deleted: true });
+    answer = (method) =>
+      method === "transcript" ? { found: false, lines: [] } : { deleted: true };
     await deleteClaudeSession("ws-1", "/home/me/app", {
       sessionId: "11111111-1111-4111-8111-111111111111",
       profileId: "work",
     });
     expect(ipcCalls).toEqual([
+      {
+        channel: "chat",
+        method: "transcript",
+        args: {
+          workspaceId: "ws-1",
+          sessionId: "11111111-1111-4111-8111-111111111111",
+          profileId: "work",
+        },
+      },
       {
         channel: "chat",
         method: "deleteSession",
@@ -47,6 +57,45 @@ describe("deleting a Claude session", () => {
         },
       },
     ]);
+  });
+
+  test("the files its messages attached go after it, read before it goes", async () => {
+    const root = "/home/me/.nexus-code/attach";
+    const user = (uuid: string, content: string) => ({
+      type: "user",
+      uuid,
+      timestamp: "2026-11-10T13:52:27.980Z",
+      message: { role: "user", content },
+    });
+    answer = (method) => {
+      if (method === "transcript")
+        return {
+          found: true,
+          lines: [
+            user("u1", `look\n\n@${root}/ws-1/t1/1/a.txt @/home/me/elsewhere.txt`),
+            user("u2", `and\n\n@${root}/ws-1/t2/4/b.png`),
+          ],
+        };
+      if (method === "attachRoot") return { root };
+      return { deleted: true };
+    };
+    await deleteClaudeSession("ws-1", "/home/me/app", { sessionId: "s", profileId: "p" });
+    expect(ipcCalls.map((call) => call.method)).toEqual([
+      "transcript",
+      "deleteSession",
+      "attachRoot",
+      "removeAttachments",
+    ]);
+    expect(ipcCalls.at(-1)?.args).toEqual({ workspaceId: "ws-1", slots: ["t1/1", "t2/4"] });
+  });
+
+  test("a transcript that cannot be read still deletes, and removes no file", async () => {
+    answer = (method) => {
+      if (method === "transcript") throw new Error("offline");
+      return { deleted: true };
+    };
+    await deleteClaudeSession("ws-1", "/home/me/app", { sessionId: "s", profileId: "p" });
+    expect(ipcCalls.map((call) => call.method)).toEqual(["transcript", "deleteSession"]);
   });
 
   test("one already gone is as good as deleted", async () => {

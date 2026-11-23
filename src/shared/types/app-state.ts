@@ -184,6 +184,15 @@ export const AppStateSchema = z.object({
   chatInstructionHistory: ChatInstructionHistorySchema.optional(),
   /** Last Claude hook replacement by workspace and session, or null for a fork pending a refresh. */
   claudeInstructionDigests: ClaudeInstructionDigestsSchema.optional(),
+  /**
+   * Removed workspaces whose attached files wait for an agent on their host
+   * (attachHostOf) to remove them: it was not up when they were removed.
+   */
+  attachCleanups: z
+    .array(z.object({ host: z.string().max(512), workspaceId: z.string().max(64) }))
+    .max(200)
+    .optional()
+    .catch(undefined),
 
   // What a new task opens with (a TaskAgent): a Claude or Codex tab given the
   // task's first prompt, or a plain terminal; absent = "claude". Kept as a

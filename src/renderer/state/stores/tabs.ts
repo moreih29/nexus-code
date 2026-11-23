@@ -12,6 +12,7 @@ import {
 } from "../../../shared/chat/relay";
 import type { ShellChoice } from "../../../shared/pty/shell";
 import {
+  type ChatAttachments,
   type ChatChosen,
   type CodexFork,
   type LimitResume,
@@ -89,6 +90,8 @@ export interface ClaudeTabProps {
   chosen?: ChatChosen;
   /** Going on once the plan's usage limit resets (services/chat/limit-resume). */
   limitResume?: LimitResume;
+  /** The attached files its conversation names, kept while it is open (services/chat/attach-retention). */
+  attachments?: ChatAttachments;
 }
 
 export interface CodexTabProps {
@@ -115,6 +118,8 @@ export interface CodexTabProps {
   chosen?: ChatChosen;
   /** Going on once the plan's usage limit resets (services/chat/limit-resume). */
   limitResume?: LimitResume;
+  /** The attached files its conversation names, kept while it is open (services/chat/attach-retention). */
+  attachments?: ChatAttachments;
 }
 
 interface TabBase {
@@ -358,6 +363,8 @@ interface TabsState {
   addChatRelayed: (workspaceId: string, tabId: string, record: RelayedMessage) => void;
   /** Sets, or with undefined drops, a chat tab's going on after the usage limit. */
   setLimitResume: (workspaceId: string, tabId: string, record: LimitResume | undefined) => void;
+  /** Keep the attached files a Claude or Codex tab's conversation names. No-op on other tab types. */
+  setChatAttachments: (workspaceId: string, tabId: string, attachments: ChatAttachments) => void;
   /** Keep the thread a Codex tab now has. No-op on other tab types. */
   setCodexThread: (workspaceId: string, tabId: string, threadId: string) => void;
   /**
@@ -903,6 +910,15 @@ export const useTabsStore = create<TabsState>((set, get) => {
           if (tab.props.limitResume === record) return tab;
           const { limitResume: _was, ...props } = tab.props;
           return { ...tab, props: record ? { ...props, limitResume: record } : props } as Tab;
+        }),
+      );
+    },
+
+    setChatAttachments(workspaceId, tabId, attachments) {
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude" && tab.type !== "codex") return tab;
+          return { ...tab, props: { ...tab.props, attachments } } as Tab;
         }),
       );
     },

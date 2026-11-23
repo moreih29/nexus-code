@@ -114,9 +114,27 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         return ipcOk({ root: await host.attachRoot(workspaceId) });
       },
       pruneAttachments: async (args: unknown) => {
-        await host.call("pruneAttachments", validateArgs(c.pruneAttachments.args, args));
+        await host.pruneAttachments(validateArgs(c.pruneAttachments.args, args));
         return ipcOk(undefined);
       },
+      touchAttachments: async (args: unknown) => {
+        await host.attachmentCall("touchAttachments", validateArgs(c.touchAttachments.args, args));
+        return ipcOk(undefined);
+      },
+      removeAttachments: async (args: unknown) => {
+        await host.attachmentCall(
+          "removeAttachments",
+          validateArgs(c.removeAttachments.args, args),
+        );
+        return ipcOk(undefined);
+      },
+      historySlots: withProfileError(async (args: unknown) => {
+        const { workspaceId, agent, conversation, profileId } = validateArgs(
+          c.historySlots.args,
+          args,
+        );
+        return ipcOk(await host.historySlots(workspaceId, agent, conversation, profileId));
+      }),
       transcript: withProfileError(async (args: unknown) => {
         const { workspaceId, sessionId, profileId } = validateArgs(c.transcript.args, args);
         const result = (await host.transcript(workspaceId, sessionId, profileId)) as {
