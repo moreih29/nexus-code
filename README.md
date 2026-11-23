@@ -131,15 +131,13 @@ nexus open README.md
 - **Linux** (x64, arm64): `.deb`나 `.AppImage`를 받으세요. Ubuntu 24.04에서 확인했습니다. [다운로드](https://github.com/moreih29/nexus-code/releases/latest)
 
 <details>
-<summary>macOS 첫 실행 보안 해제 (Gatekeeper)</summary>
+<summary>macOS 첫 실행</summary>
 
-macOS 릴리스는 자체 서명 인증서를 사용하며 Apple Developer ID 서명과 공증 없이 배포합니다. macOS가 앱을 차단하거나 ‘손상된 앱’으로 표시하면, 앱을 `/Applications`로 옮긴 뒤 터미널에서 아래 명령을 실행하고 앱을 여세요.
+0.38.1부터 macOS 앱과 DMG는 Apple Developer ID로 서명하고 공증했습니다. 처음 열 때 확인되지 않은 개발자 경고가 뜨지 않습니다. 0.37.0 이하는 앱 안에서 업데이트되지 않으니 DMG로 직접 설치하세요.
 
-```bash
-xattr -dr com.apple.quarantine "/Applications/NexusCode.app"
-```
+원격 로그인, 프로필 API 키, 기억한 목소리를 저장해 두었다면 앱 서명이 바뀐 뒤 처음 켤 때 앱이 "키체인을 열까요?"라고 묻습니다. **계속**을 누르고, 이어서 뜨는 macOS 창에서 로그인 암호를 넣은 뒤 **항상 허용**을 고르세요.
 
-처음 설치할 때 한 번만 하면 됩니다. Finder나 시스템 설정에서 해제하는 방법은 [macOS 설치 가이드](docs/INSTALL.md#3-gatekeeper-우회)에 있습니다.
+직접 빌드해 다른 Mac에서 내려받은 앱처럼 공증되지 않은 앱이 차단되면 [macOS 설치 가이드](docs/INSTALL.md#4-gatekeeper-가-차단할-때)를 보세요.
 
 </details>
 
