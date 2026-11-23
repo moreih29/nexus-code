@@ -3047,6 +3047,20 @@ const remoteContracts = {
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["git.show"].params),
         RPC_METHODS["git.show"].result,
       ),
+      /** The notes of another device's workspace, the last changed first: to read, not to change. */
+      peerNotesList: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["notes.list"].params.omit({ from: true })),
+        RPC_METHODS["notes.list"].result,
+      ),
+      /** One of those notes as Markdown, with what its recording heard. */
+      peerNotesRead: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["notes.read"].params.omit({ from: true, transcriptOnly: true })),
+        RPC_METHODS["notes.read"].result,
+      ),
       /** The past conversations another device's workspace can resume. */
       peerHistory: call(
         z

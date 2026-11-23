@@ -5,8 +5,8 @@ import type { RemoteRoom } from "./room";
 import { SEARCH_TIME_MS } from "./search";
 
 /**
- * File, Git and host-load RPCs behind the renderer's peer read calls. The
- * byte reader shares files.read.
+ * File, Git, host-load and note RPCs behind the renderer's peer read calls.
+ * The byte reader shares files.read.
  */
 export const PEER_READ_METHODS = {
   peerFilesList: "files.list",
@@ -18,6 +18,8 @@ export const PEER_READ_METHODS = {
   peerGitLog: "git.log",
   peerGitShow: "git.show",
   peerSystemStats: "system.stats",
+  peerNotesList: "notes.list",
+  peerNotesRead: "notes.read",
 } as const;
 
 const c = ipcContract.remote.call;
@@ -86,6 +88,18 @@ export function peerReadCalls(
           undefined,
           ctx?.signal,
         ),
+      );
+    },
+    peerNotesList: (args: unknown, ctx?: CallContext) => {
+      const { deviceId, ...params } = validateArgs(c.peerNotesList.args, args);
+      return askPeer(() =>
+        inRoom().request(deviceId, PEER_READ_METHODS.peerNotesList, params, undefined, ctx?.signal),
+      );
+    },
+    peerNotesRead: (args: unknown, ctx?: CallContext) => {
+      const { deviceId, ...params } = validateArgs(c.peerNotesRead.args, args);
+      return askPeer(() =>
+        inRoom().request(deviceId, PEER_READ_METHODS.peerNotesRead, params, undefined, ctx?.signal),
       );
     },
   };

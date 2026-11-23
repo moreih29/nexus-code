@@ -340,6 +340,9 @@ export function App() {
                     canReadGit={
                       !agentView && !filesPanelHidden && peers.reachable && peers.gitSupported
                     }
+                    canReadNotes={
+                      !agentView && !filesPanelHidden && peers.reachable && peers.notesSupported
+                    }
                     gitUpdateNeeded={peerGitNeedsUpdate}
                     refreshGit={peers.refreshGit}
                     sessionHint={peers.sessionHint}

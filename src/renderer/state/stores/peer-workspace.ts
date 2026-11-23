@@ -45,10 +45,18 @@ export interface PeerSessionTab {
   pending?: number;
 }
 
-type PeerWorkspaceTab = PeerFileTab | PeerDiffTab | PeerCommitTab | PeerSessionTab;
+/** A note of that workspace, shown to read. */
+export interface PeerNoteTab {
+  type: "peer.note";
+  noteId: string;
+  /** As the list named it when opened; empty for a note not named yet. */
+  title: string;
+}
+
+type PeerWorkspaceTab = PeerFileTab | PeerDiffTab | PeerCommitTab | PeerSessionTab | PeerNoteTab;
 
 /** The files panel's views for another computer's workspace, as a local one's. */
-export type PeerFilesMode = "tree" | "search" | "git" | "agents";
+export type PeerFilesMode = "tree" | "search" | "git" | "agents" | "notes";
 
 export function peerTabId(tab: PeerWorkspaceTab): string {
   switch (tab.type) {
@@ -60,6 +68,8 @@ export function peerTabId(tab: PeerWorkspaceTab): string {
       return JSON.stringify([tab.type, tab.hash]);
     case "peer.session":
       return JSON.stringify([tab.type, tab.target.tabId]);
+    case "peer.note":
+      return JSON.stringify([tab.type, tab.noteId]);
   }
 }
 
@@ -113,6 +123,7 @@ interface PeerWorkspaceState {
   openFile: (id: string, path: string, at?: LineAt) => void;
   openDiff: (id: string, change: PeerGitFile, side: PeerGitSide) => void;
   openCommit: (id: string, commit: Pick<PeerCommitTab, "hash" | "subject">) => void;
+  openNote: (id: string, note: Pick<PeerNoteTab, "noteId" | "title">) => void;
   openSession: (id: string, target: RemoteTarget, requestedBefore?: number) => void;
   syncSessions: (
     target: PeerWorkspaceTarget,
@@ -144,7 +155,7 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
 
   function openTab(
     id: string,
-    tab: PeerDiffTab | PeerCommitTab | PeerSessionTab,
+    tab: PeerDiffTab | PeerCommitTab | PeerSessionTab | PeerNoteTab,
     requestedBefore = 0,
   ) {
     updateView(id, (view) => {
@@ -234,6 +245,7 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
       }),
     openDiff: (id, change, side) => openTab(id, { ...change, type: "peer.diff", side }),
     openCommit: (id, { hash, subject }) => openTab(id, { type: "peer.commit", hash, subject }),
+    openNote: (id, { noteId, title }) => openTab(id, { type: "peer.note", noteId, title }),
     openSession: (id, target, requestedBefore) => {
       if (target.state !== "ended" && peerTargetId(target) === id) {
         openTab(id, { type: "peer.session", target }, requestedBefore);

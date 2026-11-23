@@ -5,7 +5,7 @@
  */
 import i18next from "i18next";
 import { NotebookPen, Plus, Search, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { NoteSummary } from "../../../shared/notes/types";
@@ -21,12 +21,8 @@ import { Button } from "../ui/button";
 import { showToast } from "../ui/toast";
 
 export function NotesPanel({ workspace }: { workspace: WorkspaceMeta }) {
-  const { t } = useTranslation("notes");
   const [notes, setNotes] = useState<NoteSummary[] | null>(null);
   const [error, setError] = useState(false);
-  const [query, setQuery] = useState("");
-  const [searching, setSearching] = useState(false);
-  const searchRef = useRef<HTMLInputElement>(null);
   const activeNoteId = useActiveNoteId(workspace.id);
 
   const load = useCallback(async () => {
@@ -51,16 +47,6 @@ export function NotesPanel({ workspace }: { workspace: WorkspaceMeta }) {
     };
   }, [load]);
 
-  useEffect(() => {
-    if (searching) searchRef.current?.focus();
-  }, [searching]);
-
-  const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!notes || !q) return notes ?? [];
-    return notes.filter((n) => `${n.title} ${n.excerpt}`.toLowerCase().includes(q));
-  }, [notes, query]);
-
   const create = async () => {
     try {
       const note = await notesApi.create(workspace.id);
@@ -71,11 +57,74 @@ export function NotesPanel({ workspace }: { workspace: WorkspaceMeta }) {
   };
 
   return (
+    <NotesPanelView
+      notes={notes}
+      error={error}
+      activeNoteId={activeNoteId}
+      workspaceId={workspace.id}
+      onOpen={(note) => openOrRevealNoteTab(workspace.id, note.id, note.title)}
+      onCreate={() => void create()}
+    />
+  );
+}
+
+/** What a row tells of a note. Another computer's list gives no excerpt and no counts. */
+export type NoteRowFacts = Pick<NoteSummary, "id" | "title" | "updatedAt"> &
+  Partial<Pick<NoteSummary, "excerpt" | "counts" | "recording">>;
+
+/**
+ * The notes view itself: its title row, search, and rows. Shared with a
+ * workspace on another computer, which reads only: without `onCreate` there
+ * is no "New note" button.
+ */
+export function NotesPanelView<Note extends NoteRowFacts>({
+  notes,
+  error,
+  activeNoteId,
+  workspaceId,
+  onOpen,
+  onCreate,
+  badge,
+  emptyText,
+  errorText,
+  searchPlaceholder,
+}: {
+  /** Null until first read. */
+  notes: readonly Note[] | null;
+  error: boolean;
+  activeNoteId: string | null;
+  /** The local workspace, for the row's recording mark; none for another computer's. */
+  workspaceId?: string;
+  onOpen: (note: Note) => void;
+  onCreate?: () => void;
+  /** Shown in the title row, before its search button. */
+  badge?: ReactNode;
+  emptyText?: string;
+  errorText?: string;
+  searchPlaceholder?: string;
+}) {
+  const { t } = useTranslation("notes");
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (searching) searchRef.current?.focus();
+  }, [searching]);
+
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!notes || !q) return notes ?? [];
+    return notes.filter((n) => `${n.title} ${n.excerpt ?? ""}`.toLowerCase().includes(q));
+  }, [notes, query]);
+
+  return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="notes-panel">
       <div className="flex h-8 shrink-0 items-center gap-1 px-3">
         <span className="min-w-0 flex-1 truncate text-app-ui-sm font-medium text-foreground">
           {t("panel.title")}
         </span>
+        {badge}
         <button
           type="button"
           className="inline-flex size-6 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
@@ -89,11 +138,13 @@ export function NotesPanel({ workspace }: { workspace: WorkspaceMeta }) {
           {searching ? <X className="size-3.5" /> : <Search className="size-3.5" />}
         </button>
       </div>
-      <div className="flex shrink-0 flex-col gap-2 px-3 pb-2">
-        <Button variant="outline" size="sm" className="w-full" onClick={() => void create()}>
-          <Plus aria-hidden="true" />
-          {t("panel.new")}
-        </Button>
+      <div className={cn("flex shrink-0 flex-col gap-2 px-3", (onCreate || searching) && "pb-2")}>
+        {onCreate && (
+          <Button variant="outline" size="sm" className="w-full" onClick={onCreate}>
+            <Plus aria-hidden="true" />
+            {t("panel.new")}
+          </Button>
+        )}
         {searching && (
           <input
             ref={searchRef}
@@ -105,16 +156,20 @@ export function NotesPanel({ workspace }: { workspace: WorkspaceMeta }) {
                 setQuery("");
               }
             }}
-            placeholder={t("panel.searchPlaceholder")}
+            placeholder={searchPlaceholder ?? t("panel.searchPlaceholder")}
             className="h-7 rounded-(--radius-control) border border-border bg-transparent px-2 text-app-ui-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
           />
         )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
         {error ? (
-          <p className="px-2 py-3 text-app-ui-sm text-muted-foreground">{t("panel.loadError")}</p>
+          <p className="px-2 py-3 text-app-ui-sm text-muted-foreground">
+            {errorText ?? t("panel.loadError")}
+          </p>
         ) : notes && notes.length === 0 ? (
-          <p className="px-2 py-3 text-app-ui-sm text-muted-foreground">{t("panel.empty")}</p>
+          <p className="px-2 py-3 text-app-ui-sm text-muted-foreground">
+            {emptyText ?? t("panel.empty")}
+          </p>
         ) : notes && shown.length === 0 ? (
           <p className="px-2 py-3 text-app-ui-sm text-muted-foreground">{t("panel.noMatch")}</p>
         ) : (
@@ -127,10 +182,10 @@ export function NotesPanel({ workspace }: { workspace: WorkspaceMeta }) {
             {shown.map((note) => (
               <NoteRow
                 key={note.id}
-                workspaceId={workspace.id}
+                workspaceId={workspaceId}
                 note={note}
                 active={note.id === activeNoteId}
-                onOpen={() => openOrRevealNoteTab(workspace.id, note.id, note.title)}
+                onOpen={() => onOpen(note)}
               />
             ))}
           </>
@@ -146,14 +201,18 @@ function NoteRow({
   active,
   onOpen,
 }: {
-  workspaceId: string;
-  note: NoteSummary;
+  workspaceId?: string;
+  note: NoteRowFacts;
   active: boolean;
   onOpen: () => void;
 }) {
   const { t } = useTranslation("notes");
   const recording = useRecorderStore(
-    (s) => s.phase !== "idle" && s.workspaceId === workspaceId && s.noteId === note.id,
+    (s) =>
+      workspaceId !== undefined &&
+      s.phase !== "idle" &&
+      s.workspaceId === workspaceId &&
+      s.noteId === note.id,
   );
   return (
     <button
@@ -203,7 +262,9 @@ function NoteRow({
 }
 
 /** What a note's row says it has: its sketches, files, images and to-dos, or "Text". */
-export function noteChips(note: Pick<NoteSummary, "counts" | "recording">): string[] {
+export function noteChips(note: Pick<NoteRowFacts, "counts" | "recording">): string[] {
+  // Another computer's list tells no counts: no chip says what is not known.
+  if (!note.counts) return [];
   const { sketches, files, images, todos, todosDone } = note.counts;
   const t = i18next.t.bind(i18next);
   const chips: string[] = [];

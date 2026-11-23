@@ -25,6 +25,8 @@ const peerReads = new Set([
   "peerGitLog",
   "peerGitShow",
   "peerGitStatus",
+  "peerNotesList",
+  "peerNotesRead",
   "peerSystemStats",
 ]);
 const agentView = "components/agent-view";

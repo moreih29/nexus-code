@@ -4,6 +4,8 @@
     "new": "New note",
     "search": "Search notes",
     "searchPlaceholder": "Find by title or text",
+    "searchTitlePlaceholder": "Find by title",
+    "none": "No notes",
     "recent": "Recent",
     "empty": "No notes yet. Keep text, files and sketches in one place.",
     "noMatch": "No notes match.",
