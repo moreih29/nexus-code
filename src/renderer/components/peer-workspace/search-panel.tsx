@@ -32,10 +32,13 @@ export function PeerSearchPanel({
   target,
   canRead,
   rejoin,
+  focusRequest = 0,
 }: {
   target: PeerWorkspaceTarget;
   canRead: boolean;
   rejoin: number;
+  /** Bumped by each click on the Search button: the input takes the keyboard. */
+  focusRequest?: number;
 }) {
   const { t } = useTranslation();
   const { t: files } = useTranslation("files");
@@ -58,7 +61,9 @@ export function PeerSearchPanel({
   const unsupported = error?.kind === "unsupported";
   const canSearch = canRead && !!query && validation.valid && !invalidFilters && !unsupported;
   useGlobalSearchHotkey(input);
-  useEffect(() => input.current?.focus(), []);
+  useEffect(() => {
+    if (focusRequest > 0) input.current?.focus();
+  }, [focusRequest]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: in-flight results belong to one connection
   useEffect(() => {

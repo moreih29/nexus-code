@@ -45,6 +45,9 @@ export interface PeerSessionTab {
 
 type PeerWorkspaceTab = PeerFileTab | PeerDiffTab | PeerCommitTab | PeerSessionTab;
 
+/** The files panel's views for another computer's workspace, as a local one's. */
+export type PeerFilesMode = "tree" | "search" | "git" | "agents";
+
 export function peerTabId(tab: PeerWorkspaceTab): string {
   switch (tab.type) {
     case "peer.file":
@@ -74,6 +77,8 @@ interface PeerWorkspaceView {
   expanded: ReadonlySet<string>;
   gitStatus?: PeerGitStatus;
   gitError?: string;
+  /** The files panel's view; the tree until another is picked. */
+  filesMode?: PeerFilesMode;
 }
 
 export const EMPTY_PEER_VIEW: PeerWorkspaceView = {
@@ -115,6 +120,7 @@ interface PeerWorkspaceState {
   setGitResult: (id: string, result: IpcResult<PeerGitStatus>) => void;
   setFolder: (id: string, key: string, folder: PeerFolder | null) => void;
   toggleFolder: (id: string, path: string) => void;
+  setFilesMode: (id: string, mode: PeerFilesMode) => void;
 }
 
 export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
@@ -335,5 +341,7 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
         else expanded.add(path);
         return { ...view, expanded };
       }),
+    setFilesMode: (id, mode) =>
+      updateView(id, (view) => (view.filesMode === mode ? view : { ...view, filesMode: mode })),
   };
 });

@@ -359,3 +359,23 @@ test("a newer complete list marks a never-listed background session gone and exc
   expect(view().sessions).toEqual([]);
   expect(view().activePath).toBe(JSON.stringify(["peer.session", "new"]));
 });
+
+test("each peer workspace keeps its files panel view while the app runs", () => {
+  const other: PeerWorkspaceTarget = {
+    ...target,
+    workspaceId: "w2",
+    workspace: { id: "w2", name: "Other", path: "/o" },
+  };
+  const store = usePeerWorkspaceStore.getState();
+  store.select(target, null);
+  store.setFilesMode(id, "git");
+  expect(usePeerWorkspaceStore.getState().views[id]?.filesMode).toBe("git");
+  store.select(other, null);
+  expect(usePeerWorkspaceStore.getState().views[peerTargetId(other)]?.filesMode).toBeUndefined();
+  store.setFilesMode(peerTargetId(other), "agents");
+  store.select(target, null);
+  expect(usePeerWorkspaceStore.getState().views[id]?.filesMode).toBe("git");
+  // Another account starts again from the tree.
+  store.setAccount("another");
+  expect(usePeerWorkspaceStore.getState().views[id]).toBeUndefined();
+});
