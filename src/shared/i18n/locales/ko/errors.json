@@ -42,7 +42,7 @@
     "outside_workspace": "워크스페이스 폴더 안의 위치를 선택하세요",
     "changed_on_disk": "저장하는 동안 디스크의 파일이 바뀌었습니다",
     "read_only": "읽기 전용 파일입니다.",
-    "unencodable": "{{encoding}}에 없는 문자 \"{{char}}\"가 있습니다 ({{line}}행 {{column}}열)"
+    "unencodable": "{{encoding}}에 없는 문자가 있습니다: \"{{char}}\" ({{line}}행 {{column}}열)"
   },
   "chat": {
     "ambiguousProfile": "이름이 “{{name}}”인 프로필이 여러 개입니다. nexus chat profiles에 표시된 프로필 ID를 지정하세요.",

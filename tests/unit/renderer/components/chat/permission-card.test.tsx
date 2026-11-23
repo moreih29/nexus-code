@@ -25,7 +25,7 @@ function render(request: Partial<PermissionRequest>, planModeOptions?: boolean):
 describe("plan approval", () => {
   it("offers a single approval when the session cannot choose a permission mode", () => {
     const plan = { toolName: "ExitPlanMode", input: {} };
-    const dropdown = i18next.t("chat.plan.approve_other");
+    const dropdown = i18next.t("chat.plan.approve_more");
     const simple = render(plan, false);
     expect(simple).toContain(i18next.t("chat.plan.approve"));
     expect(simple).toContain(i18next.t("chat.plan.request_changes"));

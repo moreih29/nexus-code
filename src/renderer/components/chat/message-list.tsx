@@ -600,7 +600,7 @@ function ReceivedBubble({ item }: { item: ReceivedItem }) {
   const { kind, name } = item.from;
   const what = NAMED_SOURCES.has(kind)
     ? t(`chat.received.${name ? "from_" : ""}${kind}`)
-    : t("chat.received.from_other", { kind });
+    : t("chat.received.from_kind", { kind });
   const long = item.text.split("\n").length > RECEIVED_LINES || item.text.length > 600;
   return (
     <div className="group/received flex flex-col items-start gap-1" data-testid="chat-received">

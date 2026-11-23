@@ -80,8 +80,8 @@
       "titleFile": "파일 삭제",
       "titleFolder": "폴더 삭제",
       "titleMany": "항목 {{count}}개 삭제",
-      "askFile": "\"{{name}}\"을(를) 삭제할까요?",
-      "askFolder": "\"{{name}}\"과(와) 그 안의 내용을 삭제할까요?",
+      "askFile": "\"{{name}}\" 삭제?",
+      "askFolder": "\"{{name}}\" 폴더와 그 안의 내용을 삭제할까요?",
       "restoreFile": "{{bin}}에서 파일을 복원할 수 있습니다.",
       "restoreFolder": "{{bin}}에서 폴더를 복원할 수 있습니다.",
       "restoreItems": "{{bin}}에서 항목을 복원할 수 있습니다.",
@@ -344,15 +344,15 @@
       "resolveFirstTooltip_one": "먼저 충돌 {{count}}개를 해결하세요.",
       "resolveFirstTooltip_other": "먼저 충돌 {{count}}개를 해결하세요.",
       "merge": {
-        "conflicts": "{{source}}을(를) {{target}}(으)로 병합하는 중 — {{conflictText}}",
+        "conflicts": "병합 중: {{source}} → {{target}} — {{conflictText}}",
         "conflictsDetail": "아래 파일을 해결한 후 계속을 클릭하세요.",
         "ready": "병합 준비 완료",
         "readyDetail": "모든 충돌이 해결되었습니다."
       },
       "rebase": {
         "paused": "{{step}}에서 리베이스 일시 중지",
-        "rebasing": "{{onto}}(으)로 리베이스하는 중",
-        "conflicts": "{{onto}}(으)로 리베이스하는 중{{progress}} · {{conflictText}}",
+        "rebasing": "리베이스 중: {{onto}} 위로",
+        "conflicts": "리베이스 중: {{onto}} 위로{{progress}} · {{conflictText}}",
         "step": "{{done}}/{{total}} 단계",
         "readyDetail": "해결한 후 계속을 클릭하세요."
       },
@@ -442,7 +442,7 @@
       },
       "refSwitcher": {
         "viewingHistory": "{{ref}} 기록 보는 중",
-        "filteredBy": " · '{{query}}'(으)로 필터링",
+        "filteredBy": " · 필터: '{{query}}'",
         "refresh": "기록 새로 고침",
         "pickerTitle": "다음의 기록 보기",
         "pickerPlaceholder": "기록을 볼 브랜치 선택…",
@@ -471,7 +471,7 @@
           "cancel": "취소"
         },
         "confirmResetSoft": {
-          "title": "{{sha}}(으)로 브랜치 리셋?",
+          "title": "브랜치를 커밋 {{sha}}에 리셋할까요?",
           "description": "소프트 리셋은 변경 사항을 스테이징된 상태로 유지하므로 다시 커밋할 수 있습니다.",
           "confirmLabel": "소프트 리셋",
           "cancel": "취소"
@@ -495,7 +495,7 @@
           "required": "필수 항목입니다",
           "checkingBranches": "기존 브랜치 확인 중…",
           "alreadyCurrent": "'{{name}}' 브랜치가 이미 현재 브랜치입니다.",
-          "alreadyExists": "'{{name}}'(이)라는 브랜치가 이미 존재합니다."
+          "alreadyExists": "같은 이름의 브랜치가 이미 있습니다: '{{name}}'"
         }
       },
       "picker": {
@@ -517,7 +517,7 @@
         "footerDeleteLocal": "Enter 선택한 브랜치 삭제",
         "footerDeleteRemote": "Enter 선택한 원격 브랜치 삭제",
         "createNew": "새 브랜치 만들기: '{{name}}'",
-        "renameUnborn": "미생성 '{{current}}' → '{{name}}'(으)로 이름 바꾸기",
+        "renameUnborn": "미생성 '{{current}}' → '{{name}}' 이름 바꾸기",
         "descriptionLocal": "로컬",
         "descriptionRemote": "원격 {{ref}}",
         "renameDialog": {
@@ -558,7 +558,7 @@
       "title": "'{{remote}}' 원격을 제거하시겠습니까?",
       "baseDescription": "'{{remote}}' 원격이 이 저장소에서 제거됩니다.",
       "confirmLabel": "제거",
-      "upstreamWarning": "{{branch}}이(가) {{remote}}/...를 추적합니다. 제거하면 업스트림 추적이 해제됩니다."
+      "upstreamWarning": "{{branch}} 브랜치가 {{remote}}/...를 추적합니다. 제거하면 업스트림 추적이 해제됩니다."
     },
     "stashGroup": {
       "title": "그룹 변경 사항 임시 저장",
@@ -580,12 +580,12 @@
     "publish": {
       "title": "브랜치를 게시하시겠습니까?",
       "description": "'{{branch}}'에 업스트림 브랜치가 없습니다. '{{remote}}'에 게시하시겠습니까?",
-      "descriptionMultiRemote": " 첫 번째 구성된 원격이 사용됩니다. {{others}}은(는) 사용되지 않습니다.",
+      "descriptionMultiRemote": " 첫 번째 구성된 원격을 사용하고, 나머지({{others}})는 사용하지 않습니다.",
       "confirmLabel": "게시"
     },
     "merge": {
       "title": "{{ref}} 병합",
-      "chooseMerge": "{{ref}}을(를) 현재 브랜치로 병합하는 방법을 선택하세요.",
+      "chooseMerge": "{{ref}}에서 현재 브랜치로 병합하는 방법을 선택하세요.",
       "strategyLegend": "병합 전략",
       "options": {
         "mergeCommit": "병합 커밋 만들기 (기본값)",
@@ -618,8 +618,8 @@
       "footerApply": "Enter 적용",
       "footerDrop": "Enter 임시 저장 삭제",
       "noMessage": "(메시지 없음)",
-      "dropConfirmTitle": "{{ref}}을(를) 삭제하시겠습니까?",
-      "dropConfirmDescription": "{{ref}}을(를) 삭제하시겠습니까? 이 작업은 취소할 수 없습니다.",
+      "dropConfirmTitle": "stash {{ref}} 삭제?",
+      "dropConfirmDescription": "stash {{ref}} 삭제. 이 작업은 취소할 수 없습니다.",
       "dropConfirmLabel": "삭제"
     },
     "tagPicker": {
@@ -669,7 +669,7 @@
       "deleteConfirm": {
         "titleLocal": "'{{name}}' 태그를 삭제하시겠습니까?",
         "titleRemote": "'{{name}}' 원격 태그를 삭제하시겠습니까?",
-        "descriptionLocal": "{{sha}}의 로컬 태그 '{{name}}'을(를) 삭제합니다. 로컬에서 취소할 수 없습니다.",
+        "descriptionLocal": "{{sha}}의 로컬 태그 '{{name}}' 삭제. 로컬에서 취소할 수 없습니다.",
         "descriptionRemote": "{{remote}}에서 '{{name}}' 태그를 삭제합니다. 원격 저장소에 영향을 주며 로컬에서 취소할 수 없습니다.",
         "cancel": "취소",
         "confirm": "삭제"
@@ -684,7 +684,7 @@
       "descriptionRemoteBranch": "원격 브랜치"
     },
     "mergePicker": {
-      "titleWithBranch": "{{current}}(으)로 브랜치 병합",
+      "titleWithBranch": "{{current}}에 브랜치 병합",
       "title": "브랜치 병합",
       "placeholder": "병합할 브랜치 선택…",
       "loadingBranches": "브랜치 불러오는 중…",

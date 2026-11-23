@@ -857,7 +857,6 @@
       "from_peer": "sent from another session",
       "from_channel": "from a channel",
       "from_coordinator": "from the coordinator",
-      "from_other": "sent as {{kind}}",
       "tab": "Sent from another tab",
       "from_tab": "sent from a tab",
       "from_terminal": "sent from {{agent}} in a terminal",
@@ -867,7 +866,8 @@
       "closed": "closed tab",
       "show_tab": "Go to the tab that sent it",
       "more": "Show all",
-      "less": "Show less"
+      "less": "Show less",
+      "from_kind": "sent as {{kind}}"
     },
     "task_end": {
       "job_completed": "Background job finished",
@@ -999,7 +999,7 @@
       "suggest_session": "Allowed without asking again until Codex restarts",
       "deny_placeholder_codex": "Tell Codex what to do instead (optional)",
       "deny_reason": "Reason for denying",
-      "allow_always_one": "Always allow just one"
+      "allow_always_single": "Always allow just one"
     },
     "question": {
       "other": "Other answer",
@@ -1023,10 +1023,10 @@
       "send_feedback": "Send",
       "approve": "Approve",
       "accept_edits": "Accept edits",
-      "approve_other": "Other ways to approve",
       "waiting": "Waiting for approval",
       "approved": "Plan approved",
-      "declined": "Changes requested"
+      "declined": "Changes requested",
+      "approve_more": "Other ways to approve"
     },
     "status": {
       "working": "Working",

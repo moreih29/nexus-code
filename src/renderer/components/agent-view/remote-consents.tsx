@@ -106,7 +106,7 @@ export function consentActionOf(t: TFunction<"settings">, change: RemoteConsent[
     ? t(key as `agentCli.consent.action.${CliChangeKind}`, {
         detail: consentDetailsOf(t, change).detail,
       })
-    : t("agentCli.consent.action_other", { kind: change.kind });
+    : t("agentCli.consent.action_unknown", { kind: change.kind });
 }
 
 export function consentHeadlineOf(

@@ -16,7 +16,7 @@ test("commit load uses translated messages for missing refs and other git failur
     const missing = Object.assign(new Error("fatal: invalid object"), { kind: "ref-not-found" });
     expect(commitTabErrorFrom(missing, sha)).toEqual({
       notFound: true,
-      message: "커밋 abc1234을(를) 저장소에서 찾을 수 없습니다",
+      message: "커밋 abc1234: 저장소에서 찾을 수 없습니다",
     });
   } finally {
     await i18next.changeLanguage(originalLanguage ?? "en");

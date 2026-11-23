@@ -152,7 +152,7 @@ describe("what another computer's consent prompt says", () => {
     expect(consentSentenceOf(t, prompt, "api", sessions)).toContain(`The ${agent} tab "Review"`);
     expect(
       consentSentenceOf(i18next.getFixedT("ko", "settings"), prompt, "api", sessions),
-    ).toContain(`app의 ${agent} 탭 "Review"이(가)`);
+    ).toContain(`app의 ${agent} 탭 "Review":`);
     expect(consentSentenceOf(t, prompt, "api", sessions.slice(0, 2))).toContain(
       'The terminal "Review"',
     );
