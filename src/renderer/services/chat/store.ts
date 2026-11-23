@@ -32,7 +32,15 @@ export interface ChatTabState {
   goalClosed?: string;
 }
 
-export type RevealPart = "context" | "usage" | "mcp" | "model" | "effort" | "status" | "jobs";
+export type RevealPart =
+  | "context"
+  | "usage"
+  | "mcp"
+  | "model"
+  | "effort"
+  | "status"
+  | "jobs"
+  | "changes";
 
 export interface Reveal {
   part: RevealPart;
