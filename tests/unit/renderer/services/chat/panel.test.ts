@@ -33,6 +33,7 @@ import {
   usageLimitsOf,
 } from "../../../../../src/renderer/services/chat/panel";
 import { type RelaySender, relayedText } from "../../../../../src/shared/chat/relay";
+import { shownPath } from "../../../../../src/shared/fs/relative-path";
 
 let seq = 0;
 function out(message: Record<string, unknown>): ChatLine {
@@ -330,9 +331,11 @@ describe("chat panel", () => {
       assistant("m1", [
         { type: "tool_use", id: "e", name: "Edit", input: { file_path: "C:\\p\\a.ts" } },
         { type: "tool_use", id: "e2", name: "Edit", input: { file_path: "C:/p/a.ts" } },
+        { type: "tool_use", id: "e3", name: "Edit", input: { file_path: "c:\\p\\a.ts" } },
       ]),
       result("e", "ok", { structuredPatch: [{ oldStart: 1, lines: ["-a", "+b"] }] }),
       result("e2", "ok", { structuredPatch: [{ oldStart: 1, lines: ["-b", "+c"] }] }),
+      result("e3", "ok", { structuredPatch: [{ oldStart: 1, lines: ["-c", "+d"] }] }),
       assistant("m2", [
         { type: "tool_use", id: "r", name: "Read", input: { file_path: "C:\\P\\SRC\\B.ts" } },
         {
@@ -342,12 +345,40 @@ describe("chat panel", () => {
       ]),
     ]);
     expect(changedFilesOf(model.tools)).toEqual([
-      { path: "C:/p/a.ts", added: 2, removed: 2, created: false, toolUseIds: ["e", "e2"] },
+      {
+        path: "C:/p/a.ts",
+        rawPath: "C:\\p\\a.ts",
+        added: 3,
+        removed: 3,
+        created: false,
+        toolUseIds: ["e", "e2", "e3"],
+      },
     ]);
     expect(resultsOf(model.items, model.tools, "C:\\p")).toEqual([
       { kind: "file", target: "C:\\p\\a.ts", created: false },
       { kind: "file", target: "src\\b.ts", created: false },
     ]);
+  });
+
+  test.each([
+    [
+      "\\\\wsl.localhost\\Ubuntu\\tmp\\x.ts",
+      "C:\\p",
+      "//wsl.localhost/Ubuntu/tmp/x.ts",
+      "\\\\wsl.localhost\\Ubuntu\\tmp\\x.ts",
+    ],
+    ["d:\\work\\y.ts", "C:\\p", "D:/work/y.ts", "d:\\work\\y.ts"],
+    ["c:\\p\\src\\a.ts", "C:\\p", "C:/p/src/a.ts", "src/a.ts"],
+    ["/home/me/p/src/a.ts", "/home/me/p", "/home/me/p/src/a.ts", "src/a.ts"],
+    ["/Users/me/tmp/x.ts", "/Users/me/p", "/Users/me/tmp/x.ts", "/Users/me/tmp/x.ts"],
+  ])("shows %s from %s using the tool path", (named, cwd, path, label) => {
+    const model = applyLines(emptyModel(), [
+      assistant("m1", [{ type: "tool_use", id: "e", name: "Edit", input: { file_path: named } }]),
+      result("e", "ok", {}),
+    ]);
+    const [file] = changedFilesOf(model.tools);
+    expect(file?.path).toBe(path);
+    expect(shownPath(file?.rawPath ?? file?.path ?? "", cwd)).toBe(label);
   });
 
   test("results are the files written new, then what the replies point at", () => {
