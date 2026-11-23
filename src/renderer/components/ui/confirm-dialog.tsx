@@ -98,6 +98,13 @@ function resolveActive(confirmed: boolean): void {
 }
 
 /**
+ * Korean breaks between words, not inside one; an overlong word still wraps.
+ * `wrap-break-word`, not `break-words`: tailwind-merge (in DialogHeader's
+ * `cn()`) counts `break-words` as the same group as `break-keep` and drops it.
+ */
+export const CONFIRM_TEXT_CLASS = "break-keep wrap-break-word";
+
+/**
  * Mount once at App level. Reads the head of the prompt queue and
  * renders the active confirmation dialog.
  */
@@ -170,10 +177,10 @@ export function ConfirmDialogRoot(): React.JSX.Element {
       <DialogHeader
         title={active?.title}
         description={active?.description}
-        descriptionClassName="break-keep break-words"
+        descriptionClassName={CONFIRM_TEXT_CLASS}
       />
       {active?.hint && (
-        <p className="mt-3 break-keep break-words text-app-ui-sm text-muted-foreground">
+        <p className={`mt-3 ${CONFIRM_TEXT_CLASS} text-app-ui-sm text-muted-foreground`}>
           {active.hint}
         </p>
       )}
