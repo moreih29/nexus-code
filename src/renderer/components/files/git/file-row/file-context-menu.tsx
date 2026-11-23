@@ -39,10 +39,11 @@ export interface GitFileContextMenuActions {
   readonly stage?: () => void;
   readonly unstage?: () => void;
   readonly discard?: () => void;
-  readonly revealInOS: () => void;
+  /** Absent where the file is not on this computer, as with addToGitignore where nothing is written. */
+  readonly revealInOS?: () => void;
   readonly copyPath: () => void;
   readonly copyRelativePath: () => void;
-  readonly addToGitignore: () => void;
+  readonly addToGitignore?: () => void;
 }
 
 export interface GitGroupContextMenuActions {
@@ -109,6 +110,12 @@ export function buildGitFileContextMenuItems(
   if (groupKey === "merge") {
     // Conflict rows open the in-app editor with the conflict-resolution
     // CodeLens UI — there is no external-editor escape hatch for this group.
+    // Read-only (no discard), only its diff opens.
+    if (!actions.discard) {
+      return [
+        { kind: "item", label: t("files:git.contextMenu.openDiff"), onSelect: actions.openChanges },
+      ];
+    }
     return collapseGitMenuSeparators([
       { kind: "item", label: t("files:git.contextMenu.openDiff"), onSelect: actions.openChanges },
       {
@@ -122,7 +129,7 @@ export function buildGitFileContextMenuItems(
         kind: "item",
         label: t("files:git.contextMenu.discard"),
         destructive: true,
-        onSelect: actions.discard ?? noop,
+        onSelect: actions.discard,
       },
     ]);
   }
@@ -160,9 +167,11 @@ export function buildGitFileContextMenuItems(
     });
   }
 
+  items.push({ kind: "separator" });
+  if (actions.revealInOS) {
+    items.push({ kind: "item", label: revealInOSLabel(), onSelect: actions.revealInOS });
+  }
   items.push(
-    { kind: "separator" },
-    { kind: "item", label: revealInOSLabel(), onSelect: actions.revealInOS },
     { kind: "item", label: t("files:git.contextMenu.copyPath"), onSelect: actions.copyPath },
     {
       kind: "item",
@@ -171,14 +180,16 @@ export function buildGitFileContextMenuItems(
     },
   );
 
-  items.push(
-    { kind: "separator" },
-    {
-      kind: "item",
-      label: t("files:git.contextMenu.addToGitignore"),
-      onSelect: actions.addToGitignore,
-    },
-  );
+  if (actions.addToGitignore) {
+    items.push(
+      { kind: "separator" },
+      {
+        kind: "item",
+        label: t("files:git.contextMenu.addToGitignore"),
+        onSelect: actions.addToGitignore,
+      },
+    );
+  }
 
   return collapseGitMenuSeparators(items);
 }

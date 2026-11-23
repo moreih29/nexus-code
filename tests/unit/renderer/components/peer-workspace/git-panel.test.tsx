@@ -1,6 +1,13 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { PeerGitPanel } from "../../../../../src/renderer/components/peer-workspace/git-panel";
+import { buildGitFileContextMenuItems } from "../../../../../src/renderer/components/files/git/file-row/file-context-menu";
+import type { GitGroupActions } from "../../../../../src/renderer/components/files/git/file-row/group";
+import { gitFileMenuActions } from "../../../../../src/renderer/components/files/git/file-row/row";
+import {
+  allPeerGitTrees,
+  PeerGitPanel,
+  peerGitEntries,
+} from "../../../../../src/renderer/components/peer-workspace/git-panel";
 import * as workspaceStore from "../../../../../src/renderer/state/stores/peer-workspace";
 
 const { peerTargetId, usePeerWorkspaceStore } = workspaceStore;
@@ -69,6 +76,111 @@ test("the changes fall in the local panel's four groups, in its order", () => {
   // Read-only groups only fold: no group actions.
   expect(html).not.toContain("Stage All");
   expect(html).not.toContain("lucide-ellipsis");
+});
+
+const files = [
+  { path: "src/app/main.ts", staged: "M", unstaged: "M" },
+  { path: "src/new.ts", unstaged: "?" },
+  { path: "README.md", staged: "R", oldPath: "README.txt" },
+];
+
+function withChanges(): void {
+  const store = usePeerWorkspaceStore.getState();
+  store.select(target, null);
+  store.setGitResult(peerTargetId(target), {
+    ok: true,
+    value: { branch: "main", ahead: 0, behind: 0, files },
+  });
+}
+
+test("the changes are the local panel's entries: Git's path, its old path and both letters", () => {
+  const { entries, files: byPath } = peerGitEntries(files);
+  expect(entries.staged).toEqual([
+    { relPath: "src/app/main.ts", xy: "MM", conflictType: null },
+    { relPath: "README.md", oldRelPath: "README.txt", xy: "R.", conflictType: null },
+  ]);
+  expect(entries.working.map((entry) => entry.xy)).toEqual(["MM"]);
+  expect(entries.untracked).toEqual([{ relPath: "src/new.ts", xy: ".?", conflictType: null }]);
+  expect(byPath.get("src/new.ts")).toBe(files[1]);
+  // Expanding all opens every folder of each group's files.
+  expect(allPeerGitTrees(entries)).toEqual({
+    merge: [],
+    staged: ["src", "src/app"],
+    working: ["src", "src/app"],
+    untracked: ["src"],
+  });
+});
+
+test("as a tree by default, as locally, with the view toggle and expand all, and no row writes", () => {
+  withChanges();
+  const html = render();
+  expect(html).toContain('role="tree"');
+  expect(html).toContain('aria-label="Expand all folders"');
+  expect(html).toContain('aria-label="View as List"');
+  expect(html).not.toContain("Stage changes");
+  expect(html).not.toContain("Discard changes");
+  expect(html).not.toContain("Stage folder");
+});
+
+test("as a list once switched, each change a local row that opens its diff", () => {
+  withChanges();
+  usePeerWorkspaceStore.getState().setGitViewMode(peerTargetId(target), "list");
+  const html = render();
+  expect(html).not.toContain('role="tree"');
+  expect(html).not.toContain('aria-label="Expand all folders"');
+  expect(html).toContain('aria-label="Open diff for src/app/main.ts"');
+  expect(html).toContain('aria-label="Open diff for README.txt → README.md"');
+  expect(html).not.toContain("Stage changes");
+  expect(html).not.toContain("Discard changes");
+});
+
+test("a change's menu has only what looks: open it, its changes, and its paths", () => {
+  const calls: string[] = [];
+  const record =
+    (name: string) =>
+    (..._args: unknown[]) => {
+      calls.push(name);
+    };
+  const actions = {
+    readOnly: true,
+    stage: record("stage"),
+    unstage: record("unstage"),
+    discard: record("discard"),
+    markResolved: record("markResolved"),
+    openDiff: record("openDiff"),
+    openFile: record("openFile"),
+    revealInOS: record("revealInOS"),
+    copyPath: record("copyPath"),
+    copyRelativePath: record("copyRelativePath"),
+    addToGitignore: record("addToGitignore"),
+    openMenu: record("openMenu"),
+    toggleGroup: record("toggleGroup"),
+    toggleTreeNode: record("toggleTreeNode"),
+    addPathsToGitignore: record("addPathsToGitignore"),
+    stashGroup: record("stashGroup"),
+  } satisfies GitGroupActions;
+  const entry = { relPath: "a.ts", xy: ".M", conflictType: null };
+  const labels = (groupKey: "working" | "staged" | "untracked" | "merge") =>
+    buildGitFileContextMenuItems(groupKey, gitFileMenuActions(entry, groupKey, actions)).map(
+      (item) => (item.kind === "item" ? item.label : "-"),
+    );
+  expect(labels("working")).toEqual([
+    "Open File",
+    "Open Changes",
+    "-",
+    "Copy Path",
+    "Copy Relative Path",
+  ]);
+  expect(labels("staged")).toEqual(labels("working"));
+  expect(labels("untracked")).toEqual(["Open File", "-", "Copy Path", "Copy Relative Path"]);
+  expect(labels("merge")).toEqual(["Open Diff"]);
+  for (const item of buildGitFileContextMenuItems(
+    "working",
+    gitFileMenuActions(entry, "working", actions),
+  )) {
+    if (item.kind === "item") item.onSelect();
+  }
+  expect(calls).toEqual(["openFile", "openDiff", "copyPath", "copyRelativePath"]);
 });
 
 test("a group of changes folds by a heading that leads with its chevron, no platform triangle", () => {

@@ -3,6 +3,7 @@ import type { RemoteSession, RemoteWorkspace } from "../../../../packages/remote
 import type { AgentListView } from "../../../shared/agent-list/view";
 import { type PeerWorkspace, peerWorkspaceId } from "../../../shared/fs/peer-url";
 import type { IpcResult } from "../../../shared/ipc/result";
+import type { ViewMode } from "../../../shared/types/panel";
 import type { LineAt } from "../../services/chat/links";
 import type {
   PeerGitFile,
@@ -82,6 +83,8 @@ interface PeerWorkspaceView {
   filesMode?: PeerFilesMode;
   /** Its agent list's view, once switched; Settings' default until then. */
   agentListView?: AgentListView;
+  /** Source Control's list or tree, once switched; the local default until then. */
+  gitViewMode?: ViewMode;
 }
 
 export const EMPTY_PEER_VIEW: PeerWorkspaceView = {
@@ -127,6 +130,7 @@ interface PeerWorkspaceState {
   collapseFolders: (id: string) => void;
   setFilesMode: (id: string, mode: PeerFilesMode) => void;
   setAgentListView: (id: string, view: AgentListView) => void;
+  setGitViewMode: (id: string, mode: ViewMode) => void;
 }
 
 export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
@@ -357,5 +361,7 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
       updateView(id, (view) =>
         view.agentListView === next ? view : { ...view, agentListView: next },
       ),
+    setGitViewMode: (id, mode) =>
+      updateView(id, (view) => (view.gitViewMode === mode ? view : { ...view, gitViewMode: mode })),
   };
 });

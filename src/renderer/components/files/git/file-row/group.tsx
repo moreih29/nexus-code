@@ -127,10 +127,12 @@ export const GitGroup = memo(function GitGroup({
   if (entries.length === 0) return null;
 
   const paths = collectGitEntryPaths(entries);
-  const canStageRows = groupKey !== "staged" && groupKey !== "merge";
-  const canStageHeader = groupKey === "working" || groupKey === "untracked";
-  const canUnstage = groupKey === "staged";
-  const canDiscardHeader = groupKey === "working";
+  // Read-only, the group only folds and opens: nothing staged or discarded.
+  const writes = !actions.readOnly;
+  const canStageRows = writes && groupKey !== "staged" && groupKey !== "merge";
+  const canStageHeader = writes && (groupKey === "working" || groupKey === "untracked");
+  const canUnstage = writes && groupKey === "staged";
+  const canDiscardHeader = writes && groupKey === "working";
   const discardLabel = t("git.groups.discardAll", { label: label.toLowerCase() });
 
   const header = (
@@ -140,6 +142,7 @@ export const GitGroup = memo(function GitGroup({
       count={entries.length}
       expanded={expanded}
       onToggle={() => actions.toggleGroup(groupKey)}
+      readOnly={!writes}
       stageActionLabel={
         canStageHeader ? t("git.groups.stageAll", { label: label.toLowerCase() }) : undefined
       }
@@ -148,8 +151,12 @@ export const GitGroup = memo(function GitGroup({
       onStageAll={canStageHeader ? () => actions.stage(paths) : undefined}
       onUnstageAll={canUnstage ? () => actions.unstage(paths) : undefined}
       onDiscardAll={canDiscardHeader ? () => actions.discard(paths, label, groupKey) : undefined}
-      onAddToGitignore={groupKey !== "merge" ? () => actions.addPathsToGitignore(paths) : undefined}
-      onStashGroup={groupKey !== "merge" ? () => actions.stashGroup(paths, label) : undefined}
+      onAddToGitignore={
+        writes && groupKey !== "merge" ? () => actions.addPathsToGitignore(paths) : undefined
+      }
+      onStashGroup={
+        writes && groupKey !== "merge" ? () => actions.stashGroup(paths, label) : undefined
+      }
     />
   );
 
@@ -323,7 +330,11 @@ function GitGroupTree({
               onToggle={() => handleToggle(node.relPath)}
               onStagePaths={canStage ? () => actions.stage(leafPaths) : undefined}
               onUnstagePaths={canUnstage ? () => actions.unstage(leafPaths) : undefined}
-              onDiscardPaths={() => actions.discard(leafPaths, node.displayName, groupKey)}
+              onDiscardPaths={
+                actions.readOnly
+                  ? undefined
+                  : () => actions.discard(leafPaths, node.displayName, groupKey)
+              }
             />
           );
         }

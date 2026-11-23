@@ -42,6 +42,11 @@ export interface GitFileActions {
   readonly copyPath: (entry: GitStatusEntry) => void;
   readonly copyRelativePath: (entry: GitStatusEntry) => void;
   readonly addToGitignore: (entry: GitStatusEntry) => void;
+  /**
+   * Only looks: no staging, discarding or resolving from a row, its group
+   * or its menu. A workspace on another computer's Source Control is.
+   */
+  readonly readOnly?: boolean;
   /** Opens the panel's file menu for the row at `point`. */
   readonly openMenu: (
     entry: GitStatusEntry,
@@ -61,6 +66,14 @@ export function gitFileMenuActions(
   groupKey: GitExpandedGroupKey,
   actions: GitFileActions,
 ): GitFileContextMenuActions {
+  if (actions.readOnly) {
+    return {
+      openFile: () => actions.openFile(entry),
+      openChanges: () => actions.openDiff(entry, groupKey),
+      copyPath: () => actions.copyPath(entry),
+      copyRelativePath: () => actions.copyRelativePath(entry),
+    };
+  }
   return {
     openFile: () => actions.openFile(entry),
     openChanges: () => actions.openDiff(entry, groupKey),
@@ -104,10 +117,14 @@ export const GitFileRow = memo(function GitFileRow({ groupKey, entry, actions }:
   const pathLabel = formatGitEntryPath(entry);
   const code = getGitStatusCode(groupKey, entry);
   const isConflictRow = groupKey === "merge";
-  const onStage = canStageIn(groupKey) ? () => actions.stage([entry.relPath]) : undefined;
-  const onUnstage = groupKey === "staged" ? () => actions.unstage([entry.relPath]) : undefined;
-  const onDiscard = () => actions.discard([entry.relPath], entry.relPath, groupKey);
-  const onMarkResolved = isConflictRow ? () => actions.markResolved(entry) : undefined;
+  const writes = !actions.readOnly;
+  const onStage = writes && canStageIn(groupKey) ? () => actions.stage([entry.relPath]) : undefined;
+  const onUnstage =
+    writes && groupKey === "staged" ? () => actions.unstage([entry.relPath]) : undefined;
+  const onDiscard = writes
+    ? () => actions.discard([entry.relPath], entry.relPath, groupKey)
+    : undefined;
+  const onMarkResolved = writes && isConflictRow ? () => actions.markResolved(entry) : undefined;
   const onOpenDiff = (opts?: { preview: boolean }) => actions.openDiff(entry, groupKey, opts);
   const toggleStage = groupKey === "staged" ? onUnstage : onStage;
   const toggleLabel =
@@ -116,7 +133,7 @@ export const GitFileRow = memo(function GitFileRow({ groupKey, entry, actions }:
     if (event.key === " " && toggleStage) {
       event.preventDefault();
       toggleStage();
-    } else if (event.key === "Backspace") {
+    } else if (event.key === "Backspace" && onDiscard) {
       event.preventDefault();
       onDiscard();
     }
@@ -154,50 +171,52 @@ export const GitFileRow = memo(function GitFileRow({ groupKey, entry, actions }:
           {pathLabel}
         </span>
       </button>
-      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-        {isConflictRow ? (
-          onMarkResolved ? (
+      {onDiscard && (
+        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          {isConflictRow ? (
+            onMarkResolved ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="size-6"
+                aria-label={t("git.fileRow.markResolved", { path: entry.relPath })}
+                title={t("git.fileRow.markResolved", { path: entry.relPath })}
+                onClick={onMarkResolved}
+              >
+                <Check className="size-3.5" aria-hidden="true" />
+              </Button>
+            ) : null
+          ) : toggleStage ? (
             <Button
               type="button"
               variant="ghost"
               size="icon-sm"
               className="size-6"
-              aria-label={t("git.fileRow.markResolved", { path: entry.relPath })}
-              title={t("git.fileRow.markResolved", { path: entry.relPath })}
-              onClick={onMarkResolved}
+              aria-label={toggleLabel}
+              title={toggleLabel}
+              onClick={toggleStage}
             >
-              <Check className="size-3.5" aria-hidden="true" />
+              {groupKey === "staged" ? (
+                <Minus className="size-3.5" aria-hidden="true" />
+              ) : (
+                <Plus className="size-3.5" aria-hidden="true" />
+              )}
             </Button>
-          ) : null
-        ) : toggleStage ? (
+          ) : null}
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="size-6"
-            aria-label={toggleLabel}
-            title={toggleLabel}
-            onClick={toggleStage}
+            className="size-6 opacity-50 transition-opacity hover:opacity-100 git-destructive-text"
+            aria-label={t("git.fileRow.discardChanges")}
+            title={t("git.fileRow.discardChanges")}
+            onClick={onDiscard}
           >
-            {groupKey === "staged" ? (
-              <Minus className="size-3.5" aria-hidden="true" />
-            ) : (
-              <Plus className="size-3.5" aria-hidden="true" />
-            )}
+            <Trash2 className="size-3.5" aria-hidden="true" />
           </Button>
-        ) : null}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="size-6 opacity-50 transition-opacity hover:opacity-100 git-destructive-text"
-          aria-label={t("git.fileRow.discardChanges")}
-          title={t("git.fileRow.discardChanges")}
-          onClick={onDiscard}
-        >
-          <Trash2 className="size-3.5" aria-hidden="true" />
-        </Button>
-      </div>
+        </div>
+      )}
     </div>
   );
 }, sameGitFileRow);
