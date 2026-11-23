@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"unsafe"
 
 	"github.com/nexus-code/nexus-code/internal/proto"
 	"golang.org/x/sys/windows"
@@ -34,8 +33,13 @@ func TestPreviewDetectsMappedWriteAfterWriterHandleCloses(t *testing.T) {
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	mapped := (*byte)(unsafe.Pointer(view))
-	*mapped = 1
+	writeMappedByte := func(value byte) {
+		t.Helper()
+		if err := windows.WriteProcessMemory(windows.CurrentProcess(), view, &value, 1, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeMappedByte(1)
 	params := previewParams{RelPath: name, Length: 1, VersionScope: "workspace"}
 	initial, err := previewRequest(t, s, params)
 	if err != nil || initial.Base64 != "AQ==" {
@@ -44,7 +48,7 @@ func TestPreviewDetectsMappedWriteAfterWriterHandleCloses(t *testing.T) {
 	if initial.Version == "" {
 		t.Skip("filesystem does not issue preview versions")
 	}
-	*mapped = 2
+	writeMappedByte(2)
 	params.IfVersion = initial.Version
 	edited, err := previewRequest(t, s, params)
 	if err != nil || edited.Kind != "ok" || edited.Base64 != "Ag==" || edited.Version == initial.Version {
