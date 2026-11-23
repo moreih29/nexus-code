@@ -123,6 +123,8 @@ interface PeerWorkspaceState {
   setGitResult: (id: string, result: IpcResult<PeerGitStatus>) => void;
   setFolder: (id: string, key: string, folder: PeerFolder | null) => void;
   toggleFolder: (id: string, path: string) => void;
+  /** Folds every folder, the root kept open, as the local tree's "Collapse Folders". */
+  collapseFolders: (id: string) => void;
   setFilesMode: (id: string, mode: PeerFilesMode) => void;
   setAgentListView: (id: string, view: AgentListView) => void;
 }
@@ -338,6 +340,10 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
         else delete folders[key];
         return { ...view, folders };
       }),
+    collapseFolders: (id) =>
+      updateView(id, (view) =>
+        view.expanded.size === 0 ? view : { ...view, expanded: new Set() },
+      ),
     toggleFolder: (id, path) =>
       updateView(id, (view) => {
         const expanded = new Set(view.expanded);
