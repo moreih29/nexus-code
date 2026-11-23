@@ -54,7 +54,16 @@ describe("a task's git facts", () => {
     expect(asked).toBe(2);
   });
 
-  test("none for a workspace that is no task, and the last kept when git fails", async () => {
+  test("a root workspace's facts too, and none where it is no repository", async () => {
+    const git = new TaskGit(async (id) => (id === root.id ? status() : null));
+    expect(git.facts(root)).toBeUndefined();
+    git.facts(task);
+    await settle();
+    expect(git.facts(root)).toMatchObject({ branch: "feat", uncommitted: 3 });
+    expect(git.facts(task)).toBeUndefined();
+  });
+
+  test("the last kept when git fails", async () => {
     let fail = false;
     let clock = 0;
     const git = new TaskGit(
@@ -64,7 +73,6 @@ describe("a task's git facts", () => {
       },
       () => clock,
     );
-    expect(git.facts(root)).toBeUndefined();
     git.facts(task);
     await settle();
     fail = true;
