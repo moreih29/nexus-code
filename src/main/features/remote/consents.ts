@@ -34,6 +34,8 @@ export interface ConsentControls {
  */
 export const MAX_REMOTE_BODY_CHARS = 8000;
 
+export const UNTIMED_EXPIRES_AFTER_MS = 24 * 60 * 60_000;
+
 /** Whether another device may answer `pending`, and why not when not. */
 export function refusalFor(pending: PendingConsent, controls: ConsentControls): string | null {
   const { request } = pending;
@@ -84,11 +86,12 @@ export async function remoteConsents(
       // Keep display text for peers that only know detail and body.
       const { detail, body } =
         t && (instructionEdit || profileAdd) ? consentDetailsOf(t, request.change) : request.change;
+      const expiresAt = p.expiresAt ?? p.at + UNTIMED_EXPIRES_AFTER_MS;
       return {
         id: p.id,
         at: p.at,
-        expiresAt: p.expiresAt,
-        expiresInMs: Math.max(0, Math.round(p.expiresAt - now)),
+        expiresAt,
+        expiresInMs: Math.max(0, Math.round(expiresAt - now)),
         from: {
           ...(remote
             ? { device: { id: request.fromDeviceId as string, name: request.fromDevice as string } }
@@ -132,7 +135,10 @@ export async function answerConsent(
 ): Promise<Record<string, never>> {
   const pending = services.consents.list().find((p) => p.id === id);
   if (!pending) {
-    throw new RpcFailure(RpcErrorCode.NotFound, "no such prompt: answered, or run out, since");
+    throw new RpcFailure(
+      RpcErrorCode.NotFound,
+      "no such prompt: answered, or no longer asked, since",
+    );
   }
   const refusal = refusalFor(pending, controls);
   if (refusal) throw new RpcFailure(RpcErrorCode.Forbidden, refusal);
@@ -140,7 +146,10 @@ export async function answerConsent(
     throw new RpcFailure(RpcErrorCode.Forbidden, "this request can only be allowed once");
   }
   if (!(await services.consents.answer(id, answer, device.name))) {
-    throw new RpcFailure(RpcErrorCode.NotFound, "no such prompt: answered, or run out, since");
+    throw new RpcFailure(
+      RpcErrorCode.NotFound,
+      "no such prompt: answered, or no longer asked, since",
+    );
   }
   return {};
 }

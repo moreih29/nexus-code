@@ -2,9 +2,11 @@
  * Asks the user whether an agent may change another workspace than its
  * terminal's own, or answer another session's permission request, for the
  * nexus CLI (main/features/cli/consent). One prompt at a time; more wait
- * their turn. A prompt left unanswered is taken down after its timeout and
- * counts as turned down; one answered on another device of the user's
- * (the remote's consent.answer) is taken down with a toast saying so.
+ * their turn. A prompt waits until the user answers, or main takes it down
+ * as turned down once its asker is gone; one with a timeout (an agent of a
+ * computer that does not wait longer) is taken down after it, as turned
+ * down too. One answered on another device of the user's (the remote's
+ * consent.answer) is taken down with a toast saying so.
  */
 
 import i18next from "i18next";
@@ -31,13 +33,13 @@ export interface CliConsentPrompt {
   readonly toWorkspace: string;
   readonly sameWorkspace?: boolean;
   readonly change: CliChange;
-  readonly timeoutMs: number;
+  readonly timeoutMs?: number;
 }
 
 interface Pending {
   readonly prompt: CliConsentPrompt;
   readonly resolve: (answer: CliConsentAnswer) => void;
-  readonly timer: ReturnType<typeof setTimeout>;
+  readonly timer?: ReturnType<typeof setTimeout>;
 }
 
 let queue: Pending[] = [];
@@ -76,11 +78,13 @@ export function settleCliConsent(
   return true;
 }
 
-/** Shows the prompt and resolves to the user's answer, or "timeout". */
+/** Shows the prompt and resolves to the user's answer, or "timeout" past its `timeoutMs`. */
 export function askCliConsent(prompt: CliConsentPrompt): Promise<CliConsentAnswer> {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => settle(pending, "timeout"), prompt.timeoutMs);
-    const pending: Pending = { prompt, resolve, timer };
+    const { timeoutMs } = prompt;
+    const timer =
+      timeoutMs !== undefined ? setTimeout(() => settle(pending, "timeout"), timeoutMs) : undefined;
+    const pending: Pending = { prompt, resolve, ...(timer !== undefined ? { timer } : {}) };
     queue.push(pending);
     bus.notify();
   });
@@ -201,11 +205,11 @@ export function CliConsentDialogRoot(): React.JSX.Element {
           {copy.body}
         </pre>
       )}
-      <p className="mt-2 text-app-ui-sm text-muted-foreground">
-        {t(sandbox ? "agentCli.consent.sandbox_deadline" : "agentCli.consent.timeout", {
-          seconds: Math.round((prompt?.timeoutMs ?? 0) / 1000),
-        })}
-      </p>
+      {prompt?.timeoutMs !== undefined && (
+        <p className="mt-2 text-app-ui-sm text-muted-foreground">
+          {t("agentCli.consent.timeout", { seconds: Math.round(prompt.timeoutMs / 1000) })}
+        </p>
+      )}
       <div className="mt-5 flex justify-end gap-2">
         <Button
           variant="ghost"

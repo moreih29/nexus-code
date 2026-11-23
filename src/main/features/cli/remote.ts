@@ -15,8 +15,10 @@ import {
   type RpcMethod,
   type RpcParams,
   type RpcResult,
+  UNTIMED_CONSENT_SCHEMA,
 } from "../../../../packages/remote-protocol/src";
 import { PROFILE_USAGE_REFRESH_TIMEOUT_MS } from "../../../shared/cli/ui";
+import { speaks } from "../../../shared/remote/room";
 import { fileVerifyTimeoutMs, isFileTransferMethod, needsFileConsent } from "../remote/file-io";
 import { type CliContext, type CliDevice, CliError, pick } from "./context";
 import { ago } from "./format";
@@ -31,7 +33,10 @@ export const DEVICE_FLAG = {
 
 export const NOT_IN_ROOM = "this computer is not in the remote room (Settings › Remote)";
 
-/** How long a request an agent sends waits: the user there may be asked first. */
+/**
+ * How long a request an agent sends waits on a device before schema
+ * UNTIMED_CONSENT_SCHEMA: the user there may be asked first.
+ */
 const AGENT_REQUEST_MS = AGENT_CONSENT_MS + 10_000;
 // Commands whose renderer work can take 60 seconds after the approval.
 const PEER_APPLY_MS = AGENT_CONSENT_MS + 70_000;
@@ -274,43 +279,57 @@ export async function askDevice<M extends RpcMethod>(
     (params as { permissionMode?: string }).permissionMode !== undefined
   )
     requirePeerCli(ctx, device);
+  const slow = [
+    "worktree.new",
+    "worktree.remove",
+    "notes.speakers",
+    "notes.voiceSuggestions.list",
+    "notes.voiceSuggestions.change",
+  ].includes(method);
+  const applies =
+    from !== undefined &&
+    [
+      "chat.rewind",
+      "chat.command",
+      "chat.remoteControl",
+      "chat.send",
+      "chat.configure",
+      "chat.new",
+      "chat.profile",
+      "settings.instructions.set",
+      "notes.voiceNames.delete",
+    ].includes(method);
+  const asksUser =
+    applies ||
+    (from !== undefined &&
+      !reads &&
+      (!isFileTransferMethod(method) || needsFileConsent(method, params as { anywhere?: true })));
   let timeoutMs =
     method === "chat.wait" || method === "terminal.wait"
       ? WAIT_REQUEST_MS
       : method === "files.write.end"
         ? FILE_WRITE_END_REQUEST_MS
-        : [
-              "worktree.new",
-              "worktree.remove",
-              "notes.speakers",
-              "notes.voiceSuggestions.list",
-              "notes.voiceSuggestions.change",
-            ].includes(method)
+        : slow
           ? AGENT_REQUEST_MS + 5 * 60_000
-          : from &&
-              [
-                "chat.rewind",
-                "chat.command",
-                "chat.remoteControl",
-                "chat.send",
-                "chat.configure",
-                "chat.new",
-                "chat.profile",
-                "settings.instructions.set",
-                "notes.voiceNames.delete",
-              ].includes(method)
+          : applies
             ? PEER_APPLY_MS
-            : from &&
-                !reads &&
-                (!isFileTransferMethod(method) ||
-                  needsFileConsent(method, params as { anywhere?: true }))
+            : asksUser
               ? AGENT_REQUEST_MS
               : undefined;
   if (method === "profiles.usage" && (params as RpcParams<"profiles.usage">).refresh) {
     timeoutMs = PROFILE_USAGE_REFRESH_TIMEOUT_MS + 5_000;
   }
+  if (asksUser && method !== "files.write.end" && speaks(device.schema, UNTIMED_CONSENT_SCHEMA)) {
+    timeoutMs = Number.POSITIVE_INFINITY;
+  }
   try {
-    return await ctx.services.remote.request(device.id, method, params, timeoutMs, signal);
+    return await ctx.services.remote.request(
+      device.id,
+      method,
+      params,
+      timeoutMs,
+      signal ?? ctx.signal,
+    );
   } catch (error) {
     signal?.throwIfAborted();
     const failure = failureOf(device, method, error, ctx.services.clock.now());

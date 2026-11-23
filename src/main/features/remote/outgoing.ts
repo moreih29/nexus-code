@@ -1,4 +1,8 @@
-import type { RpcMethod, RpcNotificationMethod } from "../../../../packages/remote-protocol/src";
+import type {
+  REQUEST_CANCEL,
+  RpcMethod,
+  RpcNotificationMethod,
+} from "../../../../packages/remote-protocol/src";
 import { createLogger } from "../../../shared/log/main";
 import { frameStallDeadline } from "./frame-stall";
 
@@ -26,7 +30,7 @@ export type FrameKind =
   | "pairing"
   | `request:${RpcMethod}`
   | `reply:${RpcMethod | "unknown"}`
-  | `notification:${RpcNotificationMethod}`;
+  | `notification:${RpcNotificationMethod | typeof REQUEST_CANCEL}`;
 
 const FILE_CHUNK_KINDS = new Set<FrameKind>([
   "request:files.read",

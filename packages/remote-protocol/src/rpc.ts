@@ -344,15 +344,19 @@ export type ConsentAnswer = z.infer<typeof ConsentAnswerSchema>;
  * serving device: an agent of another device of the account, a nexus
  * command changing another workspace there, or its agent manager. The user
  * may answer it there or, when `answerable`, from the device that lists it
- * (consent.answer); unanswered by `expiresAt`, it counts as turned down.
+ * (consent.answer). Since schema 0.29.0 a prompt waits until it is answered
+ * or its asker is gone, and leaves the list then: a reader neither counts
+ * it down nor drops it by time. Its `expiresAt` is then a day past `at`, for
+ * readers before 0.29.0, which drop a prompt there; an older serving device
+ * turns its prompts down at `expiresAt` and drops them from the list.
  */
 export const RemoteConsentSchema = z.object({
   id: z.string(),
   /** When it was asked, by the serving device's clock (Unix ms). */
   at: NumberSchema,
-  /** When it counts as turned down, by the serving device's clock. */
+  /** When readers before schema 0.29.0 drop it, by the serving device's clock. */
   expiresAt: NumberSchema,
-  /** How long it has left as the list is sent: a countdown that needs no clock in common. */
+  /** `expiresAt` less the time the list is sent, needing no clock in common. */
   expiresInMs: NonnegativeIntegerSchema,
   /** Who asks. */
   from: z.object({
@@ -460,7 +464,7 @@ const TabRef = { workspaceId: z.string(), tabId: z.string() };
  * another device): its own tab there, which the receiving chat shows as
  * the reply address. The device is the frame's sender. A control method
  * with `from` takes the `agents` capability, not its own, and the serving
- * device may ask its user first (AGENT_CONSENT_MS) or turn it down.
+ * device may ask its user first (UNTIMED_CONSENT_SCHEMA) or turn it down.
  */
 export const AgentSenderSchema = z.object({
   /** tab: a Claude or Codex tab; terminal: an agent in a terminal; manager: the agent manager. */
@@ -554,9 +558,16 @@ export type TerminalKey = z.infer<typeof TerminalKeySchema>;
 
 /**
  * How long a serving device may ask its user about a request with `from`
- * before it turns it down: a requester waits this long, and a little more.
+ * from a requester before schema UNTIMED_CONSENT_SCHEMA, before it turns it
+ * down: such a requester waits this long, and a little more.
  */
 export const AGENT_CONSENT_MS = 90_000;
+
+export const UNTIMED_CONSENT_SCHEMA = "0.29.0";
+
+export const REQUEST_CANCEL = "request.cancel";
+export const RequestCancelSchema = z.object({ id: RpcIdSchema });
+export type RequestCancel = z.infer<typeof RequestCancelSchema>;
 
 /** Most requests with `from` one agent (a device's tab) may make a minute; more are Unavailable. */
 export const MAX_AGENT_REQUESTS_PER_MINUTE = 20;

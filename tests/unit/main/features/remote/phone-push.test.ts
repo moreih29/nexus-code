@@ -161,15 +161,15 @@ function setup(
     terminal: (id?: string) => {
       terminalWait = id;
     },
-    consent: (timeoutMs = 90_000, change: CliChange = consentChange) => {
+    consent: (timeoutMs: number | null = 90_000, change: CliChange = consentChange) => {
       const at = now;
       const id = `consent-${at}-${consents.length}`;
-      consents.push({
-        id,
-        at,
-        expiresAt: at + timeoutMs,
-        request: { fromWorkspaceId: "w", fromTabId: "t", toWorkspaceId: "w2", change, timeoutMs },
-      });
+      const request = { fromWorkspaceId: "w", fromTabId: "t", toWorkspaceId: "w2", change };
+      consents.push(
+        timeoutMs === null
+          ? { id, at, request }
+          : { id, at, expiresAt: at + timeoutMs, request: { ...request, timeoutMs } },
+      );
       sender.consentsChanged();
       return () => {
         const index = consents.findIndex((event) => event.id === id);
@@ -235,6 +235,14 @@ describe("consent notifications", () => {
       ttl: 88,
       to: [phone.id, android.id],
     });
+  });
+
+  test("one that waits until answered is told for the longest a consent push may last", async () => {
+    const app = setup({ devices: [phone, android, computer] });
+    await tick();
+    app.setAway(true);
+    app.consent(null);
+    expect(app.send.mock.calls[0]?.[0]).toMatchObject({ kind: "consent", ttl: 120 });
   });
 
   test("always waits ten seconds for a present user, and cancels a resolved consent", async () => {

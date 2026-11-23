@@ -24,7 +24,7 @@ import {
   PhotoQuota,
   type RemoteNotes,
 } from "../../../../../src/main/features/remote/notes";
-import { MAX_MESSAGE_BYTES } from "../../../../../src/main/features/remote/room";
+import { MAX_MESSAGE_BYTES, RpcFailure } from "../../../../../src/main/features/remote/room";
 import {
   chatRun,
   chatRuns,
@@ -147,6 +147,88 @@ test("a peer editing a task's workspace instructions asks for and changes the pa
     ],
     ["settings.instructions.set", { scope: { kind: "workspace", id: "w1" }, text: "" }],
   ]);
+});
+
+describe("an agent's request whose device waits for the user", () => {
+  const edit = {
+    from: "d",
+    method: "settings.instructions.set" as const,
+    params: {
+      workspaceId: "w2",
+      layer: "workspace" as const,
+      text: "",
+      from: { kind: "tab" as const, workspaceId: "other-workspace", tabId: "other-tab" },
+    },
+  };
+
+  function serving(answer: (signal?: AbortSignal) => Promise<string>) {
+    const calls: string[] = [];
+    const asks: { timeoutMs: number | undefined; bridge: number | undefined }[] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string) => {
+        calls.push(op);
+        return {};
+      },
+      consents: {
+        ...base.consents,
+        ask: async (
+          args: { timeoutMs?: number },
+          bridgeTimeoutMs?: number,
+          signal?: AbortSignal,
+        ) => {
+          calls.push("consent.ask");
+          asks.push({ timeoutMs: args.timeoutMs, bridge: bridgeTimeoutMs });
+          return { answer: await answer(signal) };
+        },
+      },
+    } as unknown as CliServices;
+    const serve = serveWith(() => s, { agents: new AgentGate({ policy: () => "ask" }) });
+    return { serve, calls, asks };
+  }
+
+  test("asks with no time limit, and the user's answer goes as given", async () => {
+    const { serve, calls, asks } = serving(async () => "once");
+    const controller = new AbortController();
+    await expect(serve({ ...edit, waits: true, signal: controller.signal })).resolves.toEqual({});
+    expect(asks).toEqual([{ timeoutMs: undefined, bridge: Number.POSITIVE_INFINITY }]);
+    expect(calls).toEqual(["consent.ask", "settings.instructions.set"]);
+  });
+
+  test("the device gone while the user is asked: the prompt closes, nothing is changed", async () => {
+    const controller = new AbortController();
+    const { serve, calls } = serving(
+      (signal) =>
+        new Promise((_, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+    );
+    const served = serve({ ...edit, waits: true, signal: controller.signal });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort(
+      new RpcFailure(RpcErrorCode.Unavailable, "the requesting device left the room"),
+    );
+    await expect(served).rejects.toMatchObject({
+      code: RpcErrorCode.Unavailable,
+      message: "the requesting device left the room",
+    });
+    expect(calls).toEqual(["consent.ask"]);
+  });
+
+  test("allowed after the device called it off: nothing is changed", async () => {
+    const controller = new AbortController();
+    const { serve, calls } = serving(async () => {
+      controller.abort(
+        new RpcFailure(RpcErrorCode.Unavailable, "the requesting device called it off"),
+      );
+      return "once";
+    });
+    await expect(serve({ ...edit, waits: true, signal: controller.signal })).rejects.toMatchObject({
+      message: "the requesting device called it off",
+    });
+    expect(calls).toEqual(["consent.ask"]);
+  });
 });
 
 test("profile usage follows the receiving device's agent read policy", async () => {

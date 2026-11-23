@@ -2041,7 +2041,7 @@
       "closeTerminalTitle": "Close the terminal on {{device}}?",
       "closeTerminalBody": "It closes on that computer.",
       "consentThere": "Answer it on {{device}}",
-      "consentGone": "Already answered, or timed out"
+      "consentGone": "Already answered or withdrawn"
     }
   },
   "releaseNotes": {

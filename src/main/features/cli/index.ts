@@ -198,16 +198,10 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   });
   const askConsent = async (
     { fromWorkspaceId, fromTabId, toWorkspaceId, change }: ChangeRequest,
-    timeoutMs: number,
     signal?: AbortSignal,
   ) =>
-    (
-      await consents.ask(
-        { fromWorkspaceId, fromTabId, toWorkspaceId, change, timeoutMs },
-        undefined,
-        signal,
-      )
-    ).answer;
+    (await consents.ask({ fromWorkspaceId, fromTabId, toWorkspaceId, change }, undefined, signal))
+      .answer;
   const consent = new CrossWorkspaceConsent({
     policy: () => options.settings().crossWorkspace,
     ask: askConsent,

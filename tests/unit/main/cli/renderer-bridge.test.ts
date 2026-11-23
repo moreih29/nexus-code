@@ -39,3 +39,59 @@ test("aborting a CLI request cancels its pending renderer reply and timer", asyn
     jest.useRealTimers();
   }
 });
+
+test("a request that waits on the user has no timer, and ends when the page goes", async () => {
+  jest.useFakeTimers();
+  const listeners = new Map<string, () => void>();
+  const bridge = new RendererBridge(() => ({
+    webContents: {
+      send: () => {},
+      focus: () => {},
+      on: (event, listener) => listeners.set(event, listener),
+      removeListener: (event) => listeners.delete(event),
+    },
+  }));
+  try {
+    const answer = bridge.ask(
+      "consent.ask",
+      {
+        fromWorkspaceId: "w1",
+        fromTabId: "t1",
+        toWorkspaceId: "w2",
+        change: { kind: "chatInput" },
+      },
+      Number.POSITIVE_INFINITY,
+    );
+    expect(jest.getTimerCount()).toBe(0);
+    expect([...listeners.keys()].sort()).toEqual([
+      "destroyed",
+      "did-navigate",
+      "render-process-gone",
+    ]);
+    listeners.get("did-navigate")?.();
+    await expect(answer).rejects.toThrow("NexusCode's window was reloaded or closed");
+    expect(listeners.size).toBe(0);
+  } finally {
+    bridge.dispose();
+    jest.useRealTimers();
+  }
+});
+
+test("a request with a time limit does not watch the page", async () => {
+  const listeners = new Map<string, () => void>();
+  let requestId = "";
+  const bridge = new RendererBridge(() => ({
+    webContents: {
+      send: (_channel, _group, _event, request) => {
+        requestId = (request as { requestId: string }).requestId;
+      },
+      focus: () => {},
+      on: (event, listener) => listeners.set(event, listener),
+      removeListener: (event) => listeners.delete(event),
+    },
+  }));
+  const answer = bridge.ask("tabs.list", { workspaceId: "test" });
+  expect(listeners.size).toBe(0);
+  bridge.resolve({ requestId, ok: true, value: { tabs: [] } });
+  expect(await answer).toEqual({ tabs: [] });
+});

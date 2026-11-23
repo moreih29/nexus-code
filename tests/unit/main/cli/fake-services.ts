@@ -866,7 +866,7 @@ export function fakeApp(now = Date.now()): FakeApp {
       );
       return true;
     },
-    consents: { list: () => [], answer: async () => false },
+    consents: { ask: (args) => ui("consent.ask", args), list: () => [], answer: async () => false },
     remote,
     claudeAgents: {
       list: (ws, t) => agents.get(`${ws}:${t}`) ?? [],

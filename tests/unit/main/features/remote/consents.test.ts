@@ -6,6 +6,7 @@ import {
   answerConsent,
   MAX_REMOTE_BODY_CHARS,
   remoteConsents,
+  UNTIMED_EXPIRES_AFTER_MS,
 } from "../../../../../src/main/features/remote/consents";
 import type { CliChange, CliUiOps } from "../../../../../src/shared/cli/ui";
 
@@ -57,6 +58,15 @@ const both = { chat: true, terminal: true };
 const phone = { id: "phone", name: "iPhone" };
 
 describe("the consent prompts another device is told", () => {
+  test("one that waits until answered says it expires a day after it was asked, for older readers", async () => {
+    const { expiresAt: _, ...untimed } = pendingOf("c1");
+    const { services } = setup([untimed]);
+    const [listed] = await remoteConsents(services, both, 31_000);
+    expect(listed?.expiresAt).toBe(1000 + UNTIMED_EXPIRES_AFTER_MS);
+    expect(listed?.expiresInMs).toBe(1000 + UNTIMED_EXPIRES_AFTER_MS - 31_000);
+    expect(UNTIMED_EXPIRES_AFTER_MS).toBe(24 * 60 * 60_000);
+  });
+
   test("who asks, what it would change, and how long it has left", async () => {
     const terminal: CliChange = { kind: "terminalInput", detail: "zsh", body: "rm -rf dist" };
     const { services } = setup([

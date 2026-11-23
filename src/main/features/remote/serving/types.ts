@@ -59,6 +59,8 @@ export interface RemoteServeRequest {
   method: RpcMethod;
   params: unknown;
   isCurrent?: () => boolean;
+  signal?: AbortSignal;
+  waits?: boolean;
 }
 
 import type { WorkspaceGit } from "./sessions";

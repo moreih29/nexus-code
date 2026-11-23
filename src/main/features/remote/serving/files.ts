@@ -8,7 +8,7 @@ import {
 import type { CliServices } from "../../cli/context";
 import { isAgentBackedProvider } from "../../fs/bridge/provider";
 import { AgentFileWrites } from "../agent-file-writes";
-import type { AgentGate } from "../agent-gate";
+import { type AgentGate, lifetimeOf } from "../agent-gate";
 import type { ConsentControls } from "../consents";
 import { type FileWrites, fileWriteDestination, makeRemoteDirectory } from "../file-writes";
 import {
@@ -95,6 +95,7 @@ export async function serveFileDestination(
       device: { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) },
       method,
       params: write,
+      ...lifetimeOf(request),
     },
     {
       path: approvedPath,
@@ -185,6 +186,7 @@ export async function serveFileRead(
         device: { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) },
         method,
         params: { ...read, from: by as AgentSender },
+        ...lifetimeOf(request),
       },
       {
         path: target,

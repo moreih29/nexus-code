@@ -1,7 +1,7 @@
 /**
  * Another computer's consent prompts in the agent view's list, told in the
  * words of this computer's own prompt: who asks to do what, all of what it
- * would run, the seconds left, and the answers it allows; or, where this
+ * would run, and the answers it allows, with no time limit; or, where this
  * computer may not answer it, where to.
  */
 import { describe, expect, spyOn, test } from "bun:test";
@@ -158,14 +158,14 @@ describe("what another computer's consent prompt says", () => {
     );
   });
 
-  test("a card: its question, all it would run, the seconds left, and the three answers", () => {
+  test("a card: its question, all it would run, and the three answers", () => {
     const html = card(consent());
     expect(html).toContain("Allow an agent to change another workspace?");
     expect(html).toMatch(/<p class="[^"]*break-keep \[overflow-wrap:anywhere\][^"]*">The terminal/);
     expect(html).toContain("rm -rf dist\nbun run build");
     // The body scrolls, as the prompt's box does.
     expect(html).toMatch(/<pre class="[^"]*overflow-auto/);
-    expect(html).toContain("It is turned down if not answered in 42 seconds.");
+    expect(html).not.toContain("It is turned down if not answered");
     expect(html).toContain("Don&#x27;t allow");
     expect(html).toContain("Allow until restart");
     expect(html).toContain("Allow once");
@@ -246,7 +246,9 @@ describe("what another computer's consent prompt says", () => {
     expect(html).not.toContain("<button");
   });
 
-  test("one run out is gone", () => {
-    expect(card(consent({ expiresInMs: 0 }))).toBe("");
+  test("one past its expiresAt still shows until the list leaves it out", () => {
+    const html = card(consent({ expiresInMs: 0 }));
+    expect(html).toContain("Allow once");
+    expect(html).not.toContain("seconds");
   });
 });
