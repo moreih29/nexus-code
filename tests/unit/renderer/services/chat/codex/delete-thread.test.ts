@@ -109,10 +109,10 @@ const SECOND = turn("turn-2", [
   agentMessage("item-4", "Read."),
 ]);
 /** A Thread as thread/read answers it with includeTurns. */
-const thread = (turns: unknown[]) => ({
-  id: "gone",
-  sessionId: "gone",
-  forkedFromId: null,
+const thread = (turns: unknown[], id = "gone", forkedFromId: string | null = null) => ({
+  id,
+  sessionId: id,
+  forkedFromId,
   parentThreadId: null,
   preview: "look at these",
   ephemeral: false,
@@ -197,6 +197,14 @@ function tab(reply: (message: Message) => unknown): Controller {
   return c;
 }
 
+const metaRead = (message: Message) => {
+  if (message.method !== "thread/read") return undefined;
+  const params = message.params as Message;
+  return params.includeTurns === false
+    ? { thread: thread([], params.threadId as string) }
+    : undefined;
+};
+
 const asked = () =>
   sent
     .map((message) => message.method as string)
@@ -204,7 +212,7 @@ const asked = () =>
 
 test("deleting a thread reads its turns a page at a time, then removes what they attached", async () => {
   const c = tab((message) => {
-    if (message.method !== "thread/turns/list") return undefined;
+    if (message.method !== "thread/turns/list") return metaRead(message);
     const params = message.params as Message;
     expect(params).toMatchObject({ threadId: "gone", sortDirection: "asc", itemsView: "full" });
     return params.cursor === "c1"
@@ -213,7 +221,12 @@ test("deleting a thread reads its turns a page at a time, then removes what they
   });
   await c.prepareSend();
   await c.deleteThread("gone");
-  expect(asked()).toEqual(["thread/turns/list", "thread/turns/list", "thread/delete"]);
+  expect(asked()).toEqual([
+    "thread/turns/list",
+    "thread/turns/list",
+    "thread/read",
+    "thread/delete",
+  ]);
   expect(removed).toEqual([{ workspaceId: WS, slots: ["tab-a/1", "tab-a/2", "tab-b/1"] }]);
 });
 
@@ -224,7 +237,7 @@ test("a Codex before paged history is read whole", async () => {
   );
   await c.prepareSend();
   await c.deleteThread("gone");
-  expect(asked()).toEqual(["thread/read", "thread/delete"]);
+  expect(asked()).toEqual(["thread/read", "thread/read", "thread/delete"]);
   expect(sent.find((message) => message.method === "thread/read")?.params).toEqual({
     threadId: "gone",
     includeTurns: true,
@@ -241,5 +254,46 @@ test("a thread whose pages break is deleted, its files left to the prune", async
   await c.prepareSend();
   await c.deleteThread("gone");
   expect(asked()).toEqual(["thread/turns/list", "thread/turns/list", "thread/delete"]);
+  expect(removed).toEqual([]);
+});
+
+const FORKED = turn("turn-3", [
+  userMessage("item-5", `after the fork\n\n@${ROOT}/${WS}/tab-c/1/diff.patch`),
+  agentMessage("item-6", "Applied."),
+]);
+
+/** A tab whose app-server keeps `threads`, each with its turns and the thread it was forked from. */
+function threadsTab(threads: Record<string, { turns: unknown[]; parent?: string }>): Controller {
+  version = "0.169.0";
+  return tab((message) => {
+    if (message.method !== "thread/read") return undefined;
+    const params = message.params as Message;
+    const id = params.threadId as string;
+    const kept = threads[id];
+    if (!kept) return { thread: undefined };
+    return {
+      thread: thread(params.includeTurns === false ? [] : kept.turns, id, kept.parent ?? null),
+    };
+  });
+}
+
+test("deleting a fork removes only what its own turns attached, not what came from its parent", async () => {
+  const c = threadsTab({
+    gone: { turns: [FIRST, FORKED], parent: "parent" },
+    parent: { turns: [FIRST] },
+  });
+  await c.prepareSend();
+  await c.deleteThread("gone");
+  expect(sent.find((message) => message.method === "thread/delete")?.params).toEqual({
+    threadId: "gone",
+  });
+  expect(removed).toEqual([{ workspaceId: WS, slots: ["tab-c/1"] }]);
+});
+
+test("a fork whose parent cannot be read is deleted, its files left to the prune", async () => {
+  const c = threadsTab({ gone: { turns: [FIRST, FORKED], parent: "parent" } });
+  await c.prepareSend();
+  await c.deleteThread("gone");
+  expect(asked()).toContain("thread/delete");
   expect(removed).toEqual([]);
 });

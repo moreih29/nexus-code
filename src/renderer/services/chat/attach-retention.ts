@@ -514,10 +514,14 @@ export async function removeConversationAttachments(
   workspaceId: string,
   items: readonly ChatItem[],
   cwd: string,
+  inherited: readonly ChatItem[] = [],
 ): Promise<void> {
   const root = await rootOf(workspaceId);
   if (!root) return;
-  const named = slotsOf(attachedFilesIn(items, cwd), root, workspaceId);
+  const theirs = new Set(slotsOf(attachedFilesIn(inherited, cwd), root, workspaceId));
+  const named = slotsOf(attachedFilesIn(items, cwd), root, workspaceId).filter(
+    (slot) => !theirs.has(slot),
+  );
   if (named.length === 0) return;
   const tabs = chatTabsOf(workspaceId);
   const openTabs = new Set(tabs.map((tab) => tab.id));
