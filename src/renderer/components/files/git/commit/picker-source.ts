@@ -1,7 +1,7 @@
 import i18next from "i18next";
 import type { LogEntry } from "../../../../../shared/git/types";
+import { relativeTime } from "../../../../utils/time-format";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
-import { relativeTime } from "../utils/relative-time";
 
 export type CommitPickAction = { kind: "commit"; sha: string } | { kind: "pick-from-branch" };
 

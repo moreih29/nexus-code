@@ -1,7 +1,7 @@
 import i18next from "i18next";
 import type { RemoteTag, Tag } from "../../../../../shared/git/types";
+import { relativeTime } from "../../../../utils/time-format";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
-import { relativeTime } from "../utils/relative-time";
 
 export type TagPickerMode = "browse" | "create" | "delete-local" | "delete-remote";
 

@@ -17,10 +17,10 @@ import { codexThreads } from "../../services/remote/history";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { cn } from "../../utils/cn";
 import { formatBytes } from "../../utils/format-bytes";
+import { relativeTime } from "../../utils/time-format";
 import { ProfileDot, profileName } from "../agent-profiles/profile-badge";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
-import { relativeTime } from "./message-list";
 
 const SHOWN_FIRST = 6;
 
@@ -326,7 +326,7 @@ export function SessionPicker({
                     tab ? t("chat.sessions.open") : undefined,
                     session.gitBranch,
                     session.size !== undefined ? formatBytes(session.size) : undefined,
-                    relativeTime(session.lastModified, now, i18n.language, t("chat.time.now")),
+                    relativeTime(session.lastModified, now, i18n.language),
                   ]
                     .filter(Boolean)
                     .join(" · ")}
