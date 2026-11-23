@@ -622,7 +622,7 @@ describe("`claude -p` runs", () => {
       sessionId: "s-1",
       prompt: "fix it",
       state: "running",
-      start: 1_000,
+      start: 3_000,
       toolsTold: false,
     });
     expect(activity().agents[0]?.end).toBeUndefined();
