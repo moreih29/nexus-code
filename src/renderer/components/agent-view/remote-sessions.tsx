@@ -1464,7 +1464,7 @@ export function RemoteSessionRow({
         <span className="flex min-w-0 items-center gap-1.5 pl-4.5 text-app-micro text-muted-foreground">
           {context && (
             <>
-              <DeviceChip name={context.device} className="shrink-0" />
+              <DeviceChip name={context.device} />
               <span
                 className="max-w-[40%] shrink-0 truncate"
                 title={remoteDisplayName(context.workspace)}
@@ -1496,7 +1496,7 @@ export function DeviceChip({ name, className }: { name: string; className?: stri
   return (
     <span
       className={cn(
-        "flex max-w-24 min-w-0 items-center gap-1 overflow-hidden rounded-full border border-border px-1.5 text-app-micro whitespace-nowrap text-muted-foreground",
+        "flex max-w-24 shrink-0 items-center gap-1 overflow-hidden rounded-full border border-border px-1.5 text-app-micro whitespace-nowrap text-muted-foreground",
         className,
       )}
     >
