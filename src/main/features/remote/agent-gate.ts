@@ -11,6 +11,7 @@ import { consentProfileLayer } from "../../../shared/cli/consent-copy";
 import type { CliChange } from "../../../shared/cli/ui";
 import { CHAT_MODES, chatModeNamed, loosens } from "../../../shared/sessions/chat-modes";
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
+import { shortId } from "../../../shared/util/short-id";
 import type { CliServices } from "../cli/context";
 import { filePathRules } from "./file-io";
 import { findNote } from "./notes";
@@ -269,7 +270,7 @@ const AGENT_NAMES: Record<string, string> = { claude: "Claude", codex: "Codex" }
 
 async function tabTitle(services: CliServices, workspaceId: string, tabId: string) {
   const { tabs } = await services.ui("tabs.list", { workspaceId }).catch(() => ({ tabs: [] }));
-  return tabs.find((t) => t.id === tabId)?.title ?? tabId.slice(0, 8);
+  return tabs.find((t) => t.id === tabId)?.title ?? shortId(tabId);
 }
 
 type Approval = "policy" | "session" | "once";
@@ -422,7 +423,7 @@ async function changeOf(
                 kind: "workspace",
                 name:
                   services.listWorkspaces().find((workspace) => workspace.id === workspaceId)
-                    ?.name ?? workspaceId.slice(0, 8),
+                    ?.name ?? shortId(workspaceId),
               }
             : layer === "claude" || layer === "codex"
               ? { kind: "agent", agent: layer }

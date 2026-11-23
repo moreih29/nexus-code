@@ -4,7 +4,7 @@ import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { retargetEditorTabs } from "@/services/editor/tabs";
 import { loadChildren } from "@/state/operations/files";
 import { parentOf } from "@/state/stores/files";
-import { basename, relPath } from "@/utils/path";
+import { basename, relativeTo } from "@/utils/path";
 import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
 import { listDirNames } from "./dir-listing";
 import { toFsToast } from "./errors";
@@ -21,9 +21,9 @@ export async function renamePath(input: RenameInput): Promise<boolean> {
   const trimmedName = input.newName.trim();
   if (trimmedName.length === 0 || trimmedName === basename(input.absPath)) return true;
 
-  const fromRel = relPath(input.absPath, input.workspaceRootPath);
+  const fromRel = relativeTo(input.absPath, input.workspaceRootPath);
   const toAbsPath = `${parentAbsPath}/${trimmedName}`;
-  const toRel = relPath(toAbsPath, input.workspaceRootPath);
+  const toRel = relativeTo(toAbsPath, input.workspaceRootPath);
   if (fromRel === input.absPath || toRel === toAbsPath) {
     toFsToast(new Error(FS_ERROR.OUT_OF_WORKSPACE), {
       fallback: i18next.t("files:fileTree.fsError.outsideWorkspace"),
@@ -64,9 +64,9 @@ export interface MoveInput {
 
 export async function movePath(input: MoveInput): Promise<boolean> {
   const name = basename(input.srcAbsPath);
-  const fromRel = relPath(input.srcAbsPath, input.workspaceRootPath);
+  const fromRel = relativeTo(input.srcAbsPath, input.workspaceRootPath);
   const toAbsPath = `${input.dstDirAbsPath}/${name}`;
-  const toRel = relPath(toAbsPath, input.workspaceRootPath);
+  const toRel = relativeTo(toAbsPath, input.workspaceRootPath);
 
   if (toRel === fromRel) return true;
 
@@ -93,7 +93,7 @@ export async function movePath(input: MoveInput): Promise<boolean> {
     }).then(unwrapIpcResult);
 
   try {
-    const dstDirRel = relPath(input.dstDirAbsPath, input.workspaceRootPath);
+    const dstDirRel = relativeTo(input.dstDirAbsPath, input.workspaceRootPath);
     const existing = await listDirNames(input.workspaceId, dstDirRel).catch(() => null);
     const overwrite = existing?.has(name) ?? false;
     if (overwrite && !(await confirmReplace())) return false;

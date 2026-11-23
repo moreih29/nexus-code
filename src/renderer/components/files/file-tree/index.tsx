@@ -28,7 +28,7 @@ import { selectGitDecorations } from "../../../state/stores/git/decorations";
 import { useIgnoredStore } from "../../../state/stores/git/ignored";
 import { useLayoutStore } from "../../../state/stores/layout";
 import { useTabsStore } from "../../../state/stores/tabs";
-import { relPath } from "../../../utils/path";
+import { relativeTo } from "../../../utils/path";
 import { type FileTreeActionTarget, useFileTreeActions } from "../hooks/use-file-tree-actions";
 import { useFileTreeDropTarget } from "../hooks/use-file-tree-drop-target";
 import { useFileTreePendingCreate } from "../hooks/use-file-tree-pending-create";
@@ -162,7 +162,7 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
 
   useEffect(() => {
     if (!activeEditorAbsPath) return;
-    if (relPath(activeEditorAbsPath, rootAbsPath) === activeEditorAbsPath) return;
+    if (relativeTo(activeEditorAbsPath, rootAbsPath) === activeEditorAbsPath) return;
     if (lastRevealedRef.current === activeEditorAbsPath) return;
     if (flat.some((f) => f.absPath === activeEditorAbsPath)) return;
     void reveal(workspaceId, activeEditorAbsPath);

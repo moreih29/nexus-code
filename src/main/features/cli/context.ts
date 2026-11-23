@@ -20,6 +20,7 @@ import type { ListeningPort, PortForward } from "../../../shared/pty/ports";
 import type { LinkedNote } from "../../../shared/types/notes";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { WorkspaceColor } from "../../../shared/types/workspace-color";
+import { shortId } from "../../../shared/util/short-id";
 import type { ProfileConnections } from "../agent-profiles/connection-save";
 import type { ClaudeInstructionHook } from "../chat/instructions";
 import type { TabActivity } from "./activity";
@@ -188,12 +189,7 @@ export interface CliContext {
   readonly signal?: AbortSignal;
 }
 
-export const SHORT_ID_LENGTH = 8;
 const MIN_PREFIX = 4;
-
-export function shortId(id: string): string {
-  return id.slice(0, SHORT_ID_LENGTH);
-}
 
 export function pick<T>(
   items: readonly T[],

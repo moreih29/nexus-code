@@ -6,6 +6,7 @@ import {
   type WorkspaceColor,
   WorkspaceColorSchema,
 } from "../../../../shared/types/workspace-color";
+import { shortId } from "../../../../shared/util/short-id";
 import { compareWorkspaceOrder } from "../../../../shared/workspace-order";
 import { CliUsageError, exactArgs } from "../args";
 import {
@@ -16,7 +17,6 @@ import {
   mayChange,
   pick,
   resolveWorkspace,
-  shortId,
   type WorkspaceMove,
 } from "../context";
 import { table } from "../format";

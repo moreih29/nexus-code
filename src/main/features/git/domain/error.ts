@@ -4,6 +4,7 @@ import {
   type AgentGitRunResult,
 } from "../../../../shared/git/protocol";
 import type { GitActionHint, GitErrorKind } from "../../../../shared/git/types";
+import { formatBytes } from "../../../../shared/util/format-bytes";
 
 export type { GitErrorKind };
 
@@ -166,9 +167,4 @@ function processExitMessage(
 
 function renderGitCommand(args: readonly string[]): string {
   return ["git", ...args].join(" ");
-}
-
-function formatBytes(bytes: number): string {
-  const mib = bytes / (1024 * 1024);
-  return `${mib.toFixed(Number.isInteger(mib) ? 0 : 1)} MB`;
 }

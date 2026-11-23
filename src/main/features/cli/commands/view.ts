@@ -8,6 +8,7 @@ import type {
   CliViewAgent,
   CliViewHeldTab,
 } from "../../../../shared/cli/ui";
+import { shortId } from "../../../../shared/util/short-id";
 import { CliUsageError, exactArgs } from "../args";
 import {
   type CliContext,
@@ -16,7 +17,6 @@ import {
   mayChange,
   pick,
   resolveWorkspace,
-  shortId,
 } from "../context";
 import { workspaceFile } from "../paths";
 import { type CliCommand, output } from "../registry";

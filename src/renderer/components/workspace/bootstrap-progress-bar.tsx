@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import { formatBytes } from "@/utils/format-bytes";
 import type { LspBootstrapProgressPhase } from "../../../shared/lsp/diagnostics";
+import { formatBytes } from "../../../shared/util/format-bytes";
 
 export interface BootstrapProgressBarProps {
   readonly phase: LspBootstrapProgressPhase;

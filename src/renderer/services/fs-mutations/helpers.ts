@@ -1,6 +1,6 @@
 import i18next from "i18next";
 import { loadChildren } from "@/state/operations/files";
-import { relPath } from "@/utils/path";
+import { relativeTo } from "@/utils/path";
 import { FS_ERROR } from "../../../shared/fs/errors";
 import type { FsToastMessages } from "./errors";
 import { toFsToast } from "./errors";
@@ -16,7 +16,7 @@ export interface FsMutationSpec {
 
 export async function runFsMutation(spec: FsMutationSpec): Promise<boolean> {
   const absPath = `${spec.parentAbsPath}/${spec.name}`;
-  const rel = relPath(absPath, spec.workspaceRootPath);
+  const rel = relativeTo(absPath, spec.workspaceRootPath);
   if (rel === absPath) {
     toFsToast(new Error(FS_ERROR.OUT_OF_WORKSPACE), {
       fallback: i18next.t("files:fileTree.fsError.outsideWorkspace"),

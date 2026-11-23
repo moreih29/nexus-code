@@ -1,7 +1,7 @@
 import i18next from "i18next";
 import { showToast } from "@/components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
-import { relPath } from "@/utils/path";
+import { relativeTo } from "@/utils/path";
 import { toFsToast } from "./errors";
 
 export interface RevealInput {
@@ -11,7 +11,7 @@ export interface RevealInput {
 }
 
 export async function revealInFinder(input: RevealInput): Promise<void> {
-  const rel = relPath(input.absPath, input.workspaceRootPath);
+  const rel = relativeTo(input.absPath, input.workspaceRootPath);
   if (rel === input.absPath) {
     showToast({
       kind: "error",

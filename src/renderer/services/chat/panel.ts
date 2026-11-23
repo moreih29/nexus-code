@@ -1,9 +1,10 @@
 import { RELAY_MARK } from "../../../shared/chat/relay";
 import type { AgentRun } from "../../../shared/claude/activity";
+import { isUnder, slashWindowsPath } from "../../../shared/fs/relative-path";
 import { splitAttachments } from "./composer-input";
 import { imageFileOf, type ShownImage } from "./image-look";
 import { linkPlaceIndex, linkPlaces } from "./link-places";
-import { fileKind, isUnder, resolveFilePath, slashWindowsPath } from "./links";
+import { fileKind, resolveFilePath } from "./links";
 import {
   type AssistantBlock,
   type AssistantItem,

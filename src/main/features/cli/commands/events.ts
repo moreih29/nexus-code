@@ -1,6 +1,7 @@
 import type { CliSessionEvent } from "../../../../shared/cli/ui";
+import { shortId } from "../../../../shared/util/short-id";
 import { CliUsageError, exactArgs, parseDuration } from "../args";
-import { type CliContext, type CliDevice, resolveWorkspace, shortId } from "../context";
+import { type CliContext, type CliDevice, resolveWorkspace } from "../context";
 import { oneLine, table } from "../format";
 import { type CliCommand, output } from "../registry";
 import {

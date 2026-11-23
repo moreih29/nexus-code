@@ -9,7 +9,7 @@ import { createPathActions } from "@/services/fs-mutations";
 import { toggleTabPin } from "@/state/operations";
 import { useTabEditingStore } from "@/state/stores/tab-editing";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
-import { useWorkspacesStore } from "@/state/stores/workspaces";
+import { useWorkspace } from "@/state/stores/workspaces";
 import type { ShellChoice } from "../../../../shared/pty/shell";
 import { TabBar } from "../tabs/tab-bar";
 import { buildGroupTabBarMenuItems, type TabContextInfo } from "./tab-bar-menu";
@@ -96,9 +96,7 @@ export function GroupTabBar({
     useTabEditingStore.getState().startEditing(contextTabId);
   }
 
-  const isRemote = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location.kind !== "local",
-  );
+  const isRemote = useWorkspace(workspaceId, (w) => w?.location.kind !== "local");
 
   const menuItems = buildGroupTabBarMenuItems({
     context: contextInfo,

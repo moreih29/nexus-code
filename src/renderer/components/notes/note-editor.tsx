@@ -36,7 +36,7 @@ import {
 import { useNoteSummaries } from "../../services/notes/use-summaries";
 import { closeNoteTabs, closeTab, openEditorTab } from "../../state/operations";
 import { useTabsStore } from "../../state/stores/tabs";
-import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { useWorkspace, useWorkspacesStore } from "../../state/stores/workspaces";
 import { type FileDragPayload, MIME_FILE } from "../../types/workbench-dnd";
 import { Button } from "../ui/button";
 import { showConfirmDialog } from "../ui/confirm-dialog";
@@ -157,7 +157,7 @@ function LoadedNote({
   const [agentOpen, setAgentOpen] = useState(false);
   const summaries = useNoteSummaries(workspaceId, note.id, tabId, isVisible);
   const [taskTimes, setTaskTimes] = useState(() => summaryTaskTimes(note.doc));
-  const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
+  const workspace = useWorkspace(workspaceId);
 
   const recordings = useTranscriptsStore(
     (s) => s.byNote[transcriptKey(workspaceId, note.id)]?.recordings.length ?? 0,

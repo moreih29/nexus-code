@@ -10,7 +10,7 @@ import {
 import { confirmAndDeleteBatch, createPathActions, distinctParents } from "@/services/fs-mutations";
 import { parentOf } from "@/state/stores/files";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
-import { relPath } from "@/utils/path";
+import { relativeTo } from "@/utils/path";
 import type { EntryKind } from "../file-tree/display";
 
 export interface FileTreeActionTarget {
@@ -103,7 +103,7 @@ export function useFileTreeActions({
 
     const absPaths = distinctParents(copyable.map((t) => t.absPath));
     const entries = absPaths.map((abs) => ({
-      relPath: relPath(abs, rootAbsPath),
+      relPath: relativeTo(abs, rootAbsPath),
       absPath: abs,
     }));
 
@@ -124,7 +124,7 @@ export function useFileTreeActions({
 
     const absPaths = distinctParents(cuttable.map((t) => t.absPath));
     const entries = absPaths.map((abs) => ({
-      relPath: relPath(abs, rootAbsPath),
+      relPath: relativeTo(abs, rootAbsPath),
       absPath: abs,
     }));
 

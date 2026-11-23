@@ -3,7 +3,7 @@ import { createLogger } from "../../../shared/log/renderer";
 import { createKeyedDebouncer } from "../../../shared/util/keyed-debouncer";
 import { FS_EXPANDED_SAVE_DEBOUNCE_MS } from "../../../shared/util/timing-constants";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
-import { relPath } from "../../utils/path";
+import { relativeTo } from "../../utils/path";
 import { getAncestors, joinPath } from "../stores/files/helpers";
 import { useFilesStore } from "../stores/files/store";
 
@@ -71,7 +71,7 @@ function scheduleSave(workspaceId: string): void {
     const relPaths: string[] = [];
     for (const absPath of tree.expanded) {
       if (absPath === tree.rootAbsPath) continue;
-      relPaths.push(relPath(absPath, tree.rootAbsPath));
+      relPaths.push(relativeTo(absPath, tree.rootAbsPath));
     }
     void ipcCallResult("fs", "setExpanded", { workspaceId, relPaths }).then((result) => {
       if (!result.ok) log.error(`setExpanded failed: ${result.message}`);
@@ -146,7 +146,7 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
         const remainingRels: string[] = [];
         for (const absPath of tree.expanded) {
           if (absPath === tree.rootAbsPath) continue;
-          remainingRels.push(relPath(absPath, tree.rootAbsPath));
+          remainingRels.push(relativeTo(absPath, tree.rootAbsPath));
         }
         void ipcCallResult("fs", "setExpanded", {
           workspaceId,
@@ -177,7 +177,7 @@ export async function loadChildren(workspaceId: string, absPath: string): Promis
   const completion = Promise.withResolvers<void>();
   const load = { reload: false, done: completion.promise };
   childLoads.set(key, load);
-  const rel = relPath(absPath, tree.rootAbsPath);
+  const rel = relativeTo(absPath, tree.rootAbsPath);
   const ownsLoad = () => childLoads.get(key) === load;
   const listingIsStillLoading = () =>
     ownsLoad() && useFilesStore.getState().trees.get(workspaceId)?.loading.has(absPath);
@@ -221,7 +221,7 @@ export async function toggleExpand(workspaceId: string, absPath: string): Promis
   if (!node || node.type !== "dir") return;
 
   const isExpanded = tree.expanded.has(absPath);
-  const rel = relPath(absPath, tree.rootAbsPath);
+  const rel = relativeTo(absPath, tree.rootAbsPath);
 
   if (isExpanded) {
     useFilesStore.getState().collapseDir(workspaceId, absPath);
@@ -302,7 +302,7 @@ export async function collapseAll(workspaceId: string): Promise<void> {
   for (const absPath of targets) {
     store.collapseDir(workspaceId, absPath);
     store.markChildrenStale(workspaceId, absPath);
-    const rel = relPath(absPath, rootAbsPath);
+    const rel = relativeTo(absPath, rootAbsPath);
     void queueWatchCall(workspaceId, rel, "unwatch").then((result) => {
       if (!result.ok) log.error(`unwatch failed: ${result.message}`);
     });
@@ -325,7 +325,7 @@ export async function reveal(workspaceId: string, absPath: string): Promise<void
 
     if (!currentTree.expanded.has(ancestor)) {
       useFilesStore.getState().expandDir(workspaceId, ancestor);
-      void queueWatchCall(workspaceId, relPath(ancestor, currentTree.rootAbsPath), "watch").then(
+      void queueWatchCall(workspaceId, relativeTo(ancestor, currentTree.rootAbsPath), "watch").then(
         (result) => {
           if (!result.ok) log.error(`watch revealed dir failed: ${result.message}`);
         },
@@ -344,9 +344,11 @@ export async function reveal(workspaceId: string, absPath: string): Promise<void
 export function rewatchExpandedDir(workspaceId: string, absPath: string): void {
   const tree = useFilesStore.getState().trees.get(workspaceId);
   if (!tree?.expanded.has(absPath)) return;
-  void queueWatchCall(workspaceId, relPath(absPath, tree.rootAbsPath), "watch").then((result) => {
-    if (!result.ok) log.error(`re-watch failed: ${result.message}`);
-  });
+  void queueWatchCall(workspaceId, relativeTo(absPath, tree.rootAbsPath), "watch").then(
+    (result) => {
+      if (!result.ok) log.error(`re-watch failed: ${result.message}`);
+    },
+  );
   loadChildren(workspaceId, absPath).catch((err) => {
     log.error(`re-watch reload failed: ${(err as Error).message}`);
   });

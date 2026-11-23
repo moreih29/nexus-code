@@ -1,8 +1,9 @@
 import { noteLabel } from "../../../../shared/notes/line-report";
 import type { NoteConversation } from "../../../../shared/notes/links";
 import { NOTE_ID_RE } from "../../../../shared/notes/types";
+import { shortId } from "../../../../shared/util/short-id";
 import { instructionSessionId } from "../../chat/instructions";
-import { type CliNotes, type CliServices, resolveWorkspace, shortId } from "../context";
+import { type CliNotes, type CliServices, resolveWorkspace } from "../context";
 import { type CliCommand, output } from "../registry";
 
 const agentContext: CliCommand = {

@@ -16,6 +16,7 @@ import { createLogger } from "../../../../shared/log/main";
 import { CHAT_MODES, chatModeNamed, grants, loosens } from "../../../../shared/sessions/chat-modes";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import { shortId } from "../../../../shared/util/short-id";
 import {
   applyRemoteControl,
   remoteControlCommand,
@@ -33,7 +34,6 @@ import {
   placementFor,
   resolveTab,
   resolveWorkspace,
-  shortId,
 } from "../context";
 import { oneLine } from "../format";
 import { absolutePath, callerPath, onAppMachine } from "../paths";

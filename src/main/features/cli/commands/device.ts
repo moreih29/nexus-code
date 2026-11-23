@@ -1,7 +1,8 @@
 import type { RemoteSession, RemoteWorkspace } from "../../../../../packages/remote-protocol/src";
 import { MAX_DEVICE_ALIAS } from "../../../../shared/remote/account";
+import { shortId } from "../../../../shared/util/short-id";
 import { CliUsageError, exactArgs } from "../args";
-import { type CliContext, type CliDevice, CliError, shortId } from "../context";
+import { type CliContext, type CliDevice, CliError } from "../context";
 import { ago, oneLine, table } from "../format";
 import { type CliCommand, output } from "../registry";
 import { deviceRef, listDevices, offline, peerSessions, pickDevice } from "../remote";

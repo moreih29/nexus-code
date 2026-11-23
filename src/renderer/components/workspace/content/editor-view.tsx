@@ -21,10 +21,10 @@ import { toggleTaskMarker } from "../../../services/editor/preview/task-toggle";
 import { useGitSession, useGitStore } from "../../../state/stores/git";
 import { usePreviewDefaultsStore } from "../../../state/stores/preview-defaults";
 import { useTabsStore } from "../../../state/stores/tabs";
-import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { useWorkspace, useWorkspacesStore } from "../../../state/stores/workspaces";
 import { cn } from "../../../utils/cn";
 import { fileErrorMessage } from "../../../utils/file-error";
-import { relPath } from "../../../utils/path";
+import { relativeTo } from "../../../utils/path";
 import { HtmlPreview } from "../../editor/preview/html-preview";
 import { ImagePreview } from "../../editor/preview/image-preview";
 import { JsonTreePreview } from "../../editor/preview/json-tree-preview";
@@ -80,7 +80,7 @@ function useIsFileConflicted(filePath: string, workspaceId: string): boolean {
 
   if (!repoRoot) return false;
 
-  const gitRelPath = relPath(filePath, repoRoot);
+  const gitRelPath = relativeTo(filePath, repoRoot);
   return session.status.merge.some(
     (entry) => entry.relPath === gitRelPath && entry.conflictType !== null,
   );
@@ -262,9 +262,7 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
     [model, readOnly],
   );
 
-  const workspaceRootAbsPath = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
-  );
+  const workspaceRootAbsPath = useWorkspace(workspaceId, (w) => w?.rootPath ?? "");
 
   if (phase === "loading" || (phase === "ready" && !model)) {
     return <EmptyState title={t("editor.loading")} tone="status" className="min-h-0" />;
@@ -293,7 +291,7 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
         : (useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId)?.rootPath ??
           null);
     if (!repoRoot) return;
-    void markResolved(workspaceId, [relPath(filePath, repoRoot)]);
+    void markResolved(workspaceId, [relativeTo(filePath, repoRoot)]);
   }
 
   return (
@@ -361,9 +359,7 @@ interface ImageEditorViewProps {
 }
 
 export function ImageEditorView({ filePath, workspaceId }: ImageEditorViewProps) {
-  const workspaceRootAbsPath = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
-  );
+  const workspaceRootAbsPath = useWorkspace(workspaceId, (w) => w?.rootPath ?? "");
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
 
   const handleNaturalSize = useCallback((size: { w: number; h: number }) => {

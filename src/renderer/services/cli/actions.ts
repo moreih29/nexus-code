@@ -18,6 +18,7 @@ import { hasProfile, PROFILE_AGENTS } from "../../../shared/agent-profiles/profi
 import type { CliUiOp } from "../../../shared/cli/ui";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
 import { sameShellChoice } from "../../../shared/pty/shell";
+import { shortId } from "../../../shared/util/short-id";
 import { activateWorkspace } from "../../state/operations/workspace-selection";
 import { holdsInAgentView, showBesideCaller } from "../agent-view/show";
 import { classifyUrl } from "../browser/url-classifier";
@@ -519,14 +520,14 @@ export const actionHandlers: {
   "consent.ask": async (args) => {
     const { id, fromWorkspaceId, fromTabId, toWorkspaceId, change, timeoutMs, fromDevice } = args;
     const workspaces = useWorkspacesStore.getState().workspaces;
-    const name = (id: string) => workspaces.find((w) => w.id === id)?.name ?? id.slice(0, 8);
+    const name = (id: string) => workspaces.find((w) => w.id === id)?.name ?? shortId(id);
     const fromTab = fromDevice
       ? undefined
       : useTabsStore.getState().byWorkspace[fromWorkspaceId]?.[fromTabId];
     const answer = await askCliConsent({
       ...(id ? { id } : {}),
       fromWorkspace: fromDevice ? "" : name(fromWorkspaceId),
-      fromTab: args.fromName ?? fromTab?.title ?? fromTabId.slice(0, 8),
+      fromTab: args.fromName ?? fromTab?.title ?? shortId(fromTabId),
       ...(fromTab?.type === "claude" || fromTab?.type === "codex"
         ? { fromAgent: fromTab.type }
         : {}),

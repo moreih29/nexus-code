@@ -1,11 +1,12 @@
 import type { CliTabInfo } from "../../../../shared/cli/ui";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import { shortId } from "../../../../shared/util/short-id";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
 import { dialogText } from "../browser/dialog";
 import type { BrowserScroll, BrowserWaitCondition } from "../browser/driver";
 import { BROWSER_KEYS_HELP } from "../browser/keys";
 import { cancelledText, cleanPicked, formatPick } from "../browser/pick";
-import { type CliContext, CliError, mayChange, resolveWorkspace, shortId } from "../context";
+import { type CliContext, CliError, mayChange, resolveWorkspace } from "../context";
 import { callerPath } from "../paths";
 import { type CliCommand, output } from "../registry";
 import { mayExecute } from "../sandbox";

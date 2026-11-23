@@ -23,7 +23,7 @@ import { peerOf } from "../../services/remote/peer-workspace";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
-import { relPath } from "../../utils/path";
+import { relativeTo } from "../../utils/path";
 import { revealInOSLabel } from "../../utils/reveal-label";
 import { ZoomableImage } from "../editor/preview/image-preview";
 import { EmptyState } from "../ui/empty-state";
@@ -222,7 +222,7 @@ export function QuickLook({
             onClick={() => {
               const src = image
                 ? Promise.resolve(shownImage.image ? imageSrc(shownImage.image) : null)
-                : workspaceImageSrc(workspaceId, peer ? path : relPath(path, root));
+                : workspaceImageSrc(workspaceId, peer ? path : relativeTo(path, root));
               void src
                 .then((data) => {
                   if (data === null) throw new Error(t("chat.look.copy_image_unread"));

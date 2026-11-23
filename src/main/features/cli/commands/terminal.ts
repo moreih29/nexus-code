@@ -1,5 +1,6 @@
 import type { CliChatInfo, CliTabInfo } from "../../../../shared/cli/ui";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import { shortId } from "../../../../shared/util/short-id";
 import { isAgentSession, type TerminalState, terminalState } from "../agent-state";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
 import {
@@ -10,7 +11,6 @@ import {
   placementFor,
   resolveTab,
   resolveWorkspace,
-  shortId,
 } from "../context";
 import { ago, oneLine, table } from "../format";
 import { KEY_NAMES_HELP, keySequence } from "../keys";

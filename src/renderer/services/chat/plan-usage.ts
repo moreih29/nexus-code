@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { defaultProfileId } from "../../../shared/agent-profiles/profiles";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { WorkspaceLocation } from "../../../shared/types/workspace";
-import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { useWorkspace, useWorkspacesStore } from "../../state/stores/workspaces";
 import { type CodexRateLimits, mergeRateLimits, rateLimitsOf } from "./codex/model";
 import { usageLimitsOf } from "./panel";
 
@@ -309,9 +309,7 @@ export function forgetPlanWait(key: string): void {
 }
 
 function usePlanKey(agent: ChatAgent, workspaceId: string, profileId: string | undefined): string {
-  const location = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location,
-  );
+  const location = useWorkspace(workspaceId, (w) => w?.location);
   return planUsageKey(agent, location, profileId);
 }
 

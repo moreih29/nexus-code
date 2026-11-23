@@ -5,7 +5,7 @@ import { cn } from "@/utils/cn";
 import type { LspLogEntry, LspLogLevel } from "../../../shared/lsp/status";
 import { ipcCallResult } from "../../ipc/client";
 import { type LspLogTarget, useLspLogViewerStore } from "../../state/stores/lsp-log-viewer";
-import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { useWorkspace } from "../../state/stores/workspaces";
 import { Button } from "../ui/button";
 import { DialogHeader } from "../ui/dialog-header";
 
@@ -54,9 +54,7 @@ function LspLogDialog({
   const [entries, setEntries] = useState<LspLogEntry[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
-  const workspace = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === target.workspaceId)?.name ?? "",
-  );
+  const workspace = useWorkspace(target.workspaceId, (w) => w?.name ?? "");
   const language = t(`lsp.language.${target.languageId}`, { defaultValue: target.languageId });
 
   useEffect(() => {

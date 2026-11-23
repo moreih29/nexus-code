@@ -19,7 +19,7 @@ import {
   usePanelViewOptionsStore,
   useViewOptions,
 } from "../../../../state/stores/panel-view-options";
-import { useWorkspacesStore } from "../../../../state/stores/workspaces";
+import { useWorkspace } from "../../../../state/stores/workspaces";
 import { EmptyState } from "../../../ui/empty-state";
 import type { FormDialogField } from "../../../ui/form-dialog";
 import { Skeleton, SkeletonLine } from "../../../ui/skeleton";
@@ -61,9 +61,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const { t } = useTranslation("files");
   const session = useGitSession(workspaceId);
   const helperPromptOccupancyMessage = useGitHelperOccupancy(workspaceId);
-  const remoteWorkspace = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location.kind !== "local",
-  );
+  const remoteWorkspace = useWorkspace(workspaceId, (w) => w?.location.kind !== "local");
 
   const { loadInitial } = useGitStore(useShallow((s) => ({ loadInitial: s.loadInitial })));
 

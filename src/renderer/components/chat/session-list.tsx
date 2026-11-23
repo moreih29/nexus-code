@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type AgentProfile, profilesOf } from "../../../shared/agent-profiles/profiles";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import { formatBytes } from "../../../shared/util/format-bytes";
 import { deleteClaudeSession, useClaudeSessions } from "../../services/chat/claude/sessions";
 import type { CodexController } from "../../services/chat/codex/controller";
 import { revealTabById } from "../../services/chat/open-beside";
@@ -16,7 +17,6 @@ import {
 import { codexThreads } from "../../services/remote/history";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { cn } from "../../utils/cn";
-import { formatBytes } from "../../utils/format-bytes";
 import { relativeTime } from "../../utils/time-format";
 import { ProfileDot, profileName } from "../agent-profiles/profile-badge";
 import { Button } from "../ui/button";

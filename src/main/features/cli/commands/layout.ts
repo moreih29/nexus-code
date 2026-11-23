@@ -1,15 +1,9 @@
 import type { RpcParams } from "../../../../../packages/remote-protocol/src";
 import type { CliChange, CliLayoutNode, CliSplitSide, CliTabInfo } from "../../../../shared/cli/ui";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import { shortId } from "../../../../shared/util/short-id";
 import { CliUsageError, exactArgs } from "../args";
-import {
-  type CliContext,
-  CliError,
-  mayChange,
-  resolveTab,
-  resolveWorkspace,
-  shortId,
-} from "../context";
+import { type CliContext, CliError, mayChange, resolveTab, resolveWorkspace } from "../context";
 import { type CliCommand, output } from "../registry";
 import {
   askPeerCli,

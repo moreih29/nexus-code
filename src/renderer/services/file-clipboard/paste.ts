@@ -8,7 +8,7 @@ import { loadChildren } from "@/state/operations/files";
 import { useActiveStore } from "@/state/stores/active";
 import { selectFocus, useFilesStore } from "@/state/stores/files";
 import { parentOf } from "@/state/stores/files/helpers";
-import { basename, relPath } from "@/utils/path";
+import { basename, relativeTo } from "@/utils/path";
 import { copyPathWithAutoRename, movePath } from "../fs-mutations";
 import {
   type BatchFailure,
@@ -112,7 +112,7 @@ export async function handlePaste(targetAbsPath?: string | null): Promise<void> 
         ? parentOf(entry.absPath, cb.sourceRootPath)
         : targetDir;
       const dstAbsPath = `${effectiveDir}/${name}`;
-      const toRel = relPath(dstAbsPath, cb.sourceRootPath);
+      const toRel = relativeTo(dstAbsPath, cb.sourceRootPath);
 
       let ok = false;
       try {

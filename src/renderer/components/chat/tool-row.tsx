@@ -1,8 +1,8 @@
 import { Ban, Check, CircleStop, Layers2, LoaderCircle, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { shownPath } from "../../../shared/fs/relative-path";
 import { imageFileOf } from "../../services/chat/image-look";
-import { slashWindowsPath } from "../../services/chat/links";
 import type { ToolCall } from "../../services/chat/model";
 import {
   canBackground,
@@ -367,17 +367,10 @@ export function toolSummary(tool: ToolCall, cwd: string): string {
   };
   const path = pick("file_path", "notebook_path", "path");
   const from = pick("moved_from");
-  if (path && from) return `${relativeTo(from, cwd)} → ${relativeTo(path, cwd)}`;
-  if (path) return relativeTo(path, cwd);
+  if (path && from) return `${shownPath(from, cwd)} → ${shownPath(path, cwd)}`;
+  if (path) return shownPath(path, cwd);
   const value = pick("command", "pattern", "url", "query", "description", "prompt", "skill");
   if (value) return value.split("\n")[0];
   if (tool.status === "streaming" && tool.partialInput) return tool.partialInput.slice(0, 120);
   return "";
-}
-
-function relativeTo(path: string, cwd: string): string {
-  const base = slashWindowsPath(cwd);
-  const root = base.endsWith("/") ? base : `${base}/`;
-  const file = slashWindowsPath(path);
-  return file.startsWith(root) ? file.slice(root.length) : path;
 }

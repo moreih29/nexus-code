@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { NumberSchema } from "../../../packages/remote-protocol/src/validation";
 import { CLI_CALLER_ID_MAX } from "../cli/protocol";
+import { shortId } from "../util/short-id";
 
 export const RelaySenderSchema = z.object({
   kind: z.enum(["tab", "terminal", "manager", "app"]),
@@ -40,8 +41,6 @@ export const RELAY_MARK = "[nexus] ";
 const AGENT_NAMES = { claude: "Claude", codex: "Codex" } as const;
 const TERMINAL_AGENTS = { claude: "Claude Code", codex: "Codex" } as const;
 
-const short = (id: string) => id.slice(0, 8);
-
 export function relayHeader(from: RelaySender): string {
   if (from.kind === "app")
     return `${RELAY_MARK}NexusCode, the app, sent this on its own, not the user.`;
@@ -68,8 +67,8 @@ export function relayHeader(from: RelaySender): string {
 function replyOf({ kind, device, workspaceId, tabId }: RelaySender): string | null {
   if (kind === "manager" || kind === "app" || !workspaceId || !tabId) return null;
   const command = kind === "terminal" ? "nexus terminal send" : "nexus chat send";
-  const on = device ? ` --device ${short(device.id)}` : "";
-  return `${command} ${short(tabId)} --workspace ${short(workspaceId)}${on} -`;
+  const on = device ? ` --device ${shortId(device.id)}` : "";
+  return `${command} ${shortId(tabId)} --workspace ${shortId(workspaceId)}${on} -`;
 }
 
 export function relayedText(from: RelaySender, text: string): string {

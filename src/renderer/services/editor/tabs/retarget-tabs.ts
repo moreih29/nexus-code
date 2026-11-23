@@ -1,6 +1,6 @@
 import { useTabsStore } from "../../../state/stores/tabs";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
-import { relPath } from "../../../utils/path";
+import { relativeTo } from "../../../utils/path";
 import { acquireModel, cacheUriFor, getResolvedModel, releaseModel } from "../model/cache";
 import { isDirty } from "../model/dirty-tracker";
 import type { EditorInput } from "../types";
@@ -55,7 +55,7 @@ export function retargetEditorTabs(
     const filePath = movedFilePath(oldPath, fromPath, toPath);
     if (filePath === null) continue;
     if (tab.type === "editor.diff" && root !== undefined) {
-      moves.push({ tabId: tab.id, filePath, diffRelPath: relPath(filePath, root) });
+      moves.push({ tabId: tab.id, filePath, diffRelPath: relativeTo(filePath, root) });
     } else {
       moves.push({ tabId: tab.id, filePath });
     }

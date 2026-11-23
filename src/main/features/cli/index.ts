@@ -20,6 +20,7 @@ import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 import type { ListeningPort } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { WorkspaceColor } from "../../../shared/types/workspace-color";
+import { shortId } from "../../../shared/util/short-id";
 import type { AgentChannel } from "../../infra/agent/channel";
 import { register, validateArgs } from "../../infra/ipc-router";
 import { getBrowserRegistry, onBrowserTabCreated } from "../browser";
@@ -45,7 +46,6 @@ import {
   type CliNotes,
   type CliRemote,
   type CliServices,
-  shortId,
 } from "./context";
 import { listedAt } from "./listed";
 import { notifyTab } from "./notifier";

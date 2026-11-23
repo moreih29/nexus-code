@@ -55,10 +55,6 @@ export function limitLog(logger: Logger, options: LimitOptions = {}): LimitedLog
   };
 }
 
-export function shortId(id: string): string {
-  return id.slice(0, 8);
-}
-
 export function truncate(text: string, max: number): string {
   if (max <= 0) return "";
   if (text.length <= max) return text;

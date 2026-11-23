@@ -16,13 +16,13 @@ import {
   IntegerSchema,
   PositiveIntegerSchema,
 } from "../../../../packages/remote-protocol/src/validation";
-import { shortId } from "../../../shared/log/limit";
 import { createLogger } from "../../../shared/log/main";
 import type {
   AccountKeyState,
   KeyFailure,
   RemoteAccountState,
 } from "../../../shared/remote/account";
+import { shortId } from "../../../shared/util/short-id";
 import {
   fromBase64Url,
   KdfTooHeavyError,

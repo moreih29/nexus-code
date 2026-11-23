@@ -1,4 +1,5 @@
 import { createLogger } from "../../../shared/log/main";
+import { shortId } from "../../../shared/util/short-id";
 import type { CliServices } from "../cli/context";
 import { output } from "../cli/registry";
 
@@ -18,7 +19,7 @@ export async function applyRemoteControl(
     { ...target, ...(enabled === undefined ? {} : { enabled }) },
     60_000,
   );
-  log.info(`Remote Control ${target.tabId.slice(0, 8)} ${result.enabled ? "on" : "off"}`);
+  log.info(`Remote Control ${shortId(target.tabId)} ${result.enabled ? "on" : "off"}`);
   return result;
 }
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { PANE_FRAME_FOCUS_EVENT } from "@/utils/pane-activation";
-import { isWithinWorkspace, relPath } from "@/utils/path";
+import { isWithinWorkspace, relativeTo } from "@/utils/path";
 import { PREVIEW_LINK_WINDOW } from "../../../../shared/window/preview-link";
 import { ipcCallResult } from "../../../ipc/client";
 import {
@@ -231,7 +231,7 @@ function buildBaseTag(
   }
   const baseHref = peerOf(workspaceId)
     ? buildOutsideDirUrl(workspaceId, dirAbs)
-    : buildWorkspaceDirUrl(workspaceId, relPath(dirAbs, workspaceRootAbsPath));
+    : buildWorkspaceDirUrl(workspaceId, relativeTo(dirAbs, workspaceRootAbsPath));
   return `<base href="${baseHref}">`;
 }
 

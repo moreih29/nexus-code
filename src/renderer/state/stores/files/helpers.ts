@@ -1,5 +1,5 @@
 import type { DirEntry } from "../../../../shared/fs/types";
-import { relPath } from "../../../utils/path";
+import { relativeTo } from "../../../utils/path";
 import type { FilesState, FlatItem, WorkspaceTree } from "./types";
 
 export function joinPath(base: string, name: string): string {
@@ -9,7 +9,7 @@ export function joinPath(base: string, name: string): string {
 
 export function getAncestors(rootAbsPath: string, absPath: string): string[] {
   if (absPath === rootAbsPath) return [];
-  const rel = relPath(absPath, rootAbsPath);
+  const rel = relativeTo(absPath, rootAbsPath);
   const parts = rel.split("/");
   const ancestors: string[] = [];
   let current = rootAbsPath;

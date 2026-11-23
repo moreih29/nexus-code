@@ -10,6 +10,7 @@ import {
   type Todo,
   type ToolRun,
 } from "../../../shared/claude/activity";
+import { shownPath } from "../../../shared/fs/relative-path";
 
 const AGENT_TOOLS = new Set(["Agent", "Task"]);
 const STOP_TASK_TOOLS = new Set(["TaskStop", "KillShell", "KillBash"]);
@@ -897,12 +898,7 @@ function callKey(p: Payload): string {
 }
 
 function relative(path: string, cwd: string | undefined): string {
-  if (!cwd) return path;
-  for (const sep of ["/", "\\"]) {
-    const base = cwd.endsWith(sep) ? cwd : `${cwd}${sep}`;
-    if (path.startsWith(base)) return path.slice(base.length);
-  }
-  return path;
+  return cwd ? shownPath(path, cwd) : path;
 }
 
 function latest(tools: readonly ToolRun[]): ToolRun | undefined {

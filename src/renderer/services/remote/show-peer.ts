@@ -1,3 +1,4 @@
+import { shortId } from "../../../shared/util/short-id";
 import { ipcCallResult } from "../../ipc/client";
 import { useRemoteViewStore } from "../../state/stores/remote-view";
 
@@ -24,7 +25,7 @@ export async function showPeerSession(ref: PeerSessionRef): Promise<void> {
     deviceId: ref.device.id,
     deviceName: ref.device.name,
     workspaceId,
-    workspaceName: workspace?.name ?? workspaceId.slice(0, 8),
+    workspaceName: workspace?.name ?? shortId(workspaceId),
     path: workspace?.path ?? "",
     tabId: ref.tabId,
     kind: session?.kind ?? ref.kind,

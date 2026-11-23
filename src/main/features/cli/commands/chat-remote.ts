@@ -6,9 +6,10 @@ import {
 } from "../../../../../packages/remote-protocol/src";
 import type { CliChatEntry, CliChatInfo } from "../../../../shared/cli/ui";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
+import { shortId } from "../../../../shared/util/short-id";
 import { remoteControlCommand, remoteControlOutput } from "../../chat/remote-control";
 import { CliUsageError, type ParsedArgs } from "../args";
-import { type CliContext, type CliDevice, CliError, shortId } from "../context";
+import { type CliContext, type CliDevice, CliError } from "../context";
 import { type CliOutput, output } from "../registry";
 import {
   agentSenderOf,

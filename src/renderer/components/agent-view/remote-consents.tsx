@@ -19,6 +19,7 @@ import { consentDetailsOf } from "../../../shared/cli/consent-copy";
 import type { CliChangeKind } from "../../../shared/cli/ui";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { createListenerBus } from "../../../shared/util/listener-bus";
+import { shortId } from "../../../shared/util/short-id";
 import { ipcCallResult } from "../../ipc/client";
 import { refreshPeerSessions } from "../../services/remote/room";
 import { cn } from "../../utils/cn";
@@ -203,8 +204,8 @@ export function consentSentenceOf(
   return describeConsent(
     t,
     {
-      fromWorkspace: from.workspaceName ?? from.workspaceId.slice(0, 8),
-      fromTab: from.name ?? from.tabId.slice(0, 8),
+      fromWorkspace: from.workspaceName ?? shortId(from.workspaceId),
+      fromTab: from.name ?? shortId(from.tabId),
       ...(kind === "claude" || kind === "codex" ? { fromAgent: kind } : {}),
       ...(from.device ? { fromDevice: from.device.name } : {}),
       toWorkspace: to,
@@ -264,7 +265,7 @@ export function RemoteConsentCard({
   const headline = consentHeadlineOf(t, consent.change, title);
   const sentence = consentSentenceOf(t, consent, workspaceName, sessions);
   const { from } = consent;
-  const asker = from.manager && !from.device ? undefined : (from.name ?? from.tabId.slice(0, 8));
+  const asker = from.manager && !from.device ? undefined : (from.name ?? shortId(from.tabId));
   const { body } = consentDetailsOf(t, consent.change);
   return (
     <section aria-label={title} className={PERMISSION_CARD_CLASS} data-testid="remote-consent">

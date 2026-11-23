@@ -1,4 +1,5 @@
 import { reducePosixSegments } from "./posix-segments";
+import { isUnder } from "./relative-path";
 
 function normalizePosix(p: string): string {
   const result = reducePosixSegments(p, {
@@ -10,12 +11,5 @@ function normalizePosix(p: string): string {
 
 export function isWithinWorkspace(absPath: string, workspaceRootPath: string): boolean {
   if (!workspaceRootPath || !absPath) return false;
-
-  const root = normalizePosix(workspaceRootPath).replace(/\/+$/, "");
-  const target = normalizePosix(absPath).replace(/\/+$/, "");
-
-  if (!root) return absPath.startsWith("/");
-
-  if (target === root) return true;
-  return target.startsWith(`${root}/`);
+  return isUnder(normalizePosix(absPath), normalizePosix(workspaceRootPath));
 }

@@ -24,7 +24,7 @@ import {
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { fsErrorReason } from "../../utils/file-error";
-import { isWithinWorkspace, relPath } from "../../utils/path";
+import { isWithinWorkspace, relativeTo } from "../../utils/path";
 import { getActiveTabContext } from "../context";
 
 type ClipboardEntry = { relPath: string; absPath: string };
@@ -47,7 +47,7 @@ function withFocusedTreePaths(
   );
   if (absPaths.length === 0) return;
   const entries = absPaths.map((p) => ({
-    relPath: relPath(p, tree.rootAbsPath),
+    relPath: relativeTo(p, tree.rootAbsPath),
     absPath: p,
   }));
   handler({ wsId, tree, absPaths, entries });

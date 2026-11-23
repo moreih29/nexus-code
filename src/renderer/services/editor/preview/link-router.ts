@@ -1,4 +1,4 @@
-import { isWithinWorkspace, relPath } from "@/utils/path";
+import { isWithinWorkspace, relativeTo } from "@/utils/path";
 import { reducePosixSegments } from "../../../../shared/fs/posix-segments";
 import { isExternalSchemeAllowed } from "../../../../shared/security/url-scheme";
 
@@ -41,7 +41,7 @@ export function classifyLinkHref(href: string, ctx: LinkClassifyContext): Classi
   return {
     kind: "internal-file",
     absPath,
-    relPath: relPath(absPath, ctx.workspaceRootAbsPath),
+    relPath: relativeTo(absPath, ctx.workspaceRootAbsPath),
   };
 }
 
