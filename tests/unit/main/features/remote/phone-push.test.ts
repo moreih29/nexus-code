@@ -252,6 +252,17 @@ describe("consent notifications", () => {
     expect(app.send.mock.calls[0]?.[0].ttl).toBe(78);
   });
 
+  test("leaving during the grace sends the consent at once", async () => {
+    const app = setup();
+    await tick();
+    app.consent();
+    await tick(4_000);
+    expect(app.send).not.toHaveBeenCalled();
+    app.setAway(true);
+    app.screenLockChanged();
+    expect(app.send).toHaveBeenCalledTimes(1);
+  });
+
   test("the default rechecks idle time after grace until the consent expires", async () => {
     const app = setup({ mode: "away" });
     await tick();
@@ -412,6 +423,57 @@ describe("chat and terminal request notifications", () => {
     await tick(23_000);
     expect(app.send).toHaveBeenCalledTimes(2);
     expect(app.send.mock.calls[0]?.[0].id).not.toBe(app.send.mock.calls[1]?.[0].id);
+  });
+
+  test("sends a new request on the next poll without the grace when away", async () => {
+    const app = setup({ mode: "away" });
+    await tick();
+    app.setAway(true);
+    app.chat("away request");
+    await tick(3_000);
+    expect(app.send).toHaveBeenCalledTimes(1);
+    expect(app.send.mock.calls[0]?.[0]).toMatchObject({ kind: "request", ttl: 600 });
+  });
+
+  test("always still waits twenty seconds for a present user", async () => {
+    const app = setup();
+    await tick();
+    app.chat("present request");
+    await tick(22_000);
+    expect(app.send).not.toHaveBeenCalled();
+    await tick(1_000);
+    expect(app.send).toHaveBeenCalledTimes(1);
+  });
+
+  test("leaving during the grace skips the rest of it", async () => {
+    const app = setup();
+    await tick();
+    app.chat("leaving");
+    await tick(6_000);
+    expect(app.send).not.toHaveBeenCalled();
+    app.setAway(true);
+    await tick(3_000);
+    expect(app.send).toHaveBeenCalledTimes(1);
+  });
+
+  test("a screen lock rereads requests at once", async () => {
+    const app = setup({ mode: "away" });
+    await tick();
+    app.chat("locked");
+    await tick(1_000);
+    expect(app.send).not.toHaveBeenCalled();
+    app.setAway(true);
+    app.screenLockChanged();
+    await tick();
+    expect(app.send).toHaveBeenCalledTimes(1);
+  });
+
+  test("a present user under the away policy gets no request", async () => {
+    const app = setup({ mode: "away" });
+    await tick();
+    app.chat("never");
+    await tick(60_000);
+    expect(app.send).not.toHaveBeenCalled();
   });
 
   test("notifies for a terminal ask only with the control required by terminal.answer", async () => {
