@@ -1,6 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import { useStableHandlers } from "../../hooks/use-stable-handlers";
 import { claudeTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
@@ -55,7 +54,6 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspace } from "../../state/stores/workspaces";
 import { ProfileUsageChip, type TabUse } from "../agent-profiles/tab-profile";
 import { ConversationNoteChip } from "../notes/conversation-note-chip";
-import { Banner } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { ChatLinksContext } from "./chat-links";
 import {
@@ -83,6 +81,7 @@ import { type InstructionsChipSlot, SessionInstructionsChip } from "./session-in
 import { SessionList } from "./session-list";
 import { SidePanel } from "./side-panel";
 import { summaryCountsOf } from "./summary-line";
+import { TerminalTwinBanner } from "./terminal-twin-banner";
 import { toolSummary } from "./tool-row";
 import { TurnFailureBanner } from "./turn-failure-banner";
 import { ClaudeUsageLine } from "./usage-line";
@@ -669,22 +668,14 @@ const TwinBanner = memo(function TwinBanner({
   tabId: string;
   sessionId: string;
 }) {
-  const { t } = useTranslation();
   const twin = useTerminalTwin(workspaceId, tabId, sessionId);
-  const { dismiss, dismissed } = useBannerDismissal(
-    ["chat-terminal-twin", workspaceId, tabId, sessionId],
-    twin ? [twin] : undefined,
-    twin !== undefined,
-  );
-  if (!twin || dismissed) return null;
   return (
-    <div className="shrink-0" data-testid="chat-terminal-twin">
-      <Banner
-        variant="warning"
-        message={t("chat.twin.message")}
-        dismiss={dismiss}
-        actions={[{ label: t("chat.twin.show"), onAction: () => revealTabById(workspaceId, twin) }]}
-      />
-    </div>
+    <TerminalTwinBanner
+      scope={["chat-terminal-twin", workspaceId, tabId, sessionId]}
+      twin={twin}
+      onShow={() => {
+        if (twin) revealTabById(workspaceId, twin);
+      }}
+    />
   );
 });

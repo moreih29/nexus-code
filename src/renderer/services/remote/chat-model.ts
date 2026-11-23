@@ -165,6 +165,19 @@ export function modelOfPage(page: ChatPage, source?: PageSource): ChatModel {
           ...(status.turn.retry ? { retry: retryOf(status.turn.retry) } : {}),
         }
       : null,
+    ...(status.failure
+      ? {
+          lastResult: {
+            subtype: "error",
+            isError: true,
+            failure: {
+              kind: status.failure.kind,
+              ...(status.failure.status !== undefined ? { status: status.failure.status } : {}),
+            },
+            ...(status.failure.at !== undefined ? { at: status.failure.at } : {}),
+          },
+        }
+      : {}),
     tasks: page.tasks as Record<string, TaskInfo>,
     agentItems: page.agentItems as Record<string, AssistantItem[]>,
   };

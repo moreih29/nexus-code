@@ -87,6 +87,7 @@ import {
   type OpenRemoteSession,
   openRemoteSession,
   type RemoteTarget,
+  refreshRemoteTarget,
 } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
 import { ChatAgentContext } from "../chat/chat-agent";
@@ -124,6 +125,8 @@ import {
   remoteAgentsOf,
 } from "../chat/session-side-panel";
 import { StatusLine } from "../chat/status-line";
+import { TerminalTwinBanner } from "../chat/terminal-twin-banner";
+import { TurnFailureBanner } from "../chat/turn-failure-banner";
 import { UsageLineView } from "../chat/usage-line";
 import { BannerDismissButton } from "../ui/banner";
 import { showToast } from "../ui/toast";
@@ -754,6 +757,28 @@ function RemoteChatView({
       }
     });
   const signInThere = () => runInPeerTerminal(target, CODEX_SIGN_IN, open);
+  const twin = page.panel ? (page.panel.twin?.tabId ?? null) : undefined;
+  const twinSession = twin
+    ? list?.sessions.find(
+        (s) => s.workspaceId === workspaceId && s.tabId === twin && s.kind === "terminal",
+      )
+    : undefined;
+  const showTwin = twinSession
+    ? () => {
+        const { profile: _theirs, cwd: _its, state: _was, ask: _asked, ...rest } = target;
+        open(
+          refreshRemoteTarget(
+            { ...rest, kind: "terminal", tabId: twinSession.tabId, title: twinSession.title },
+            list?.workspaces.find((workspace) => workspace.id === workspaceId),
+            twinSession,
+          ),
+        );
+      }
+    : undefined;
+  const twinBanner =
+    claude && visible ? (
+      <TerminalTwinBanner scope={[...bannerScope, "terminal-twin"]} twin={twin} onShow={showTwin} />
+    ) : null;
   const panel = (className: string) => (
     <RemoteSidePanel
       target={target}
@@ -909,6 +934,7 @@ function RemoteChatView({
                   onShowMain={() => showAgent(null)}
                   goalBar={goalBar}
                   consentCards={consentCards}
+                  twinBanner={twinBanner}
                   onPanelPart={askPanel}
                   selfId={selfId}
                 />
@@ -956,6 +982,7 @@ function RemoteControls({
   onShowMain,
   goalBar,
   consentCards,
+  twinBanner,
   onPanelPart,
   selfId,
 }: {
@@ -968,6 +995,7 @@ function RemoteControls({
   onShowMain: () => void;
   goalBar?: React.ReactNode;
   consentCards: React.ReactNode;
+  twinBanner?: React.ReactNode;
   onPanelPart?: (part: RemotePanelPart) => void;
 }) {
   const { t } = useTranslation();
@@ -1149,6 +1177,16 @@ function RemoteControls({
       {!showsLimitResume(page.panel?.limitResume) && (
         <RateLimitBanner scope={bannerScope} limit={limit} />
       )}
+      <TurnFailureBanner
+        scope={bannerScope}
+        model={model}
+        onRetry={(text) =>
+          composer.controller.send(text).catch((error: Error) => {
+            onError(error.message);
+          })
+        }
+      />
+      {twinBanner}
       <Composer
         controller={composer.controller}
         composition={composition}

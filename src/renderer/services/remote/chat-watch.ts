@@ -20,6 +20,7 @@ import type { ToolCall } from "../chat/model";
 import { planUsageKeyFor, usePlanUsageStore, watchPlanUsageAfar } from "../chat/plan-usage";
 import { relayedOf } from "../chat/relayed";
 import { chatKey, useChatStore } from "../chat/store";
+import { twinOf, useClaudeSessionsStore } from "../chat/terminal-twin";
 import {
   type ChatSource,
   type ChatWindow,
@@ -211,6 +212,7 @@ export function startChatWatch(
     appends?: boolean;
     onChange?: () => void;
     usageKey?: () => string | null;
+    follow?: () => () => void;
   } = {},
 ): ChatPage & { panel: ChatPanel } {
   stopChatWatch(watchId);
@@ -246,12 +248,16 @@ export function startChatWatch(
   const offChat = useChatStore.subscribe(changed);
   const offTabs = useTabsStore.subscribe(changed);
   const offPlan = usePlanUsageStore.subscribe(changed);
+  const offSessions = useClaudeSessionsStore.subscribe(changed);
   const offAfar = options.usageKey ? watchPlanUsageAfar(watchId, options.usageKey) : () => {};
+  const offFollow = options.follow?.() ?? (() => {});
   const stop = () => {
     offChat();
     offTabs();
     offPlan();
+    offSessions();
     offAfar();
+    offFollow();
     if (timer) clearTimeout(timer);
     watches.delete(watchId);
   };
@@ -286,10 +292,13 @@ export function tabSource(
   const codex = chat.model as CodexModel;
   const codexIdle = Boolean(codex.threadId && !codexHistoryBusy(chat));
   const relayed = relayedOf(tab.props);
+  const twin =
+    tab.type === "claude" ? terminalTwinOf(workspaceId, tabId, chat.model.sessionId) : null;
   return {
     agent,
     title: tab.title,
     chat,
+    ...(twin ? { twin } : {}),
     ...(relayed ? { relayed } : {}),
     ...(tab.props.peerSubmissions ? { peerSubmissions: tab.props.peerSubmissions } : {}),
     ...(moves && moves.length > 0 ? { moves } : {}),
@@ -330,4 +339,18 @@ export function tabSource(
         }
       : {}),
   };
+}
+
+export function terminalTwinOf(
+  workspaceId: string,
+  tabId: string,
+  sessionId: string | undefined,
+): string | null {
+  if (!sessionId) return null;
+  const sessions = useClaudeSessionsStore.getState().byWorkspace[workspaceId];
+  const twin = sessions ? twinOf(sessions, tabId, sessionId) : null;
+  if (!twin) return null;
+  return useTabsStore.getState().byWorkspace[workspaceId]?.[twin]?.type === "terminal"
+    ? twin
+    : null;
 }

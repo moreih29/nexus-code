@@ -210,6 +210,7 @@ export function chatPanelOf(source: ChatSource, now = Date.now()): ChatPanel {
     goal: goal ? viewGoalOf(goal) : null,
     ...(codex ? codexExtrasOf(source, codex) : claudeExtrasOf(source)),
     ...(moves.length > 0 ? { moves } : {}),
+    ...(source.twin ? { twin: { tabId: source.twin } } : {}),
     ...limitResumeOf(source),
     ...(source.can
       ? { can: { ...source.can, clientNonce: true, ...(codex ? { mcpStatus: true } : {}) } }

@@ -188,6 +188,10 @@ export const ViewStreamingSchema = z.object({
 });
 export type ViewStreaming = z.infer<typeof ViewStreamingSchema>;
 
+export const TURN_FAILURE_KINDS = ["usage_limit", "transient", "auth", "request", "other"] as const;
+export const TurnFailureKindSchema = z.enum(TURN_FAILURE_KINDS);
+export type TurnFailureKind = z.infer<typeof TurnFailureKindSchema>;
+
 export const ChatStatusSchema = z.object({
   agent: z.enum(["claude", "codex"]),
   title: z.string(),
@@ -227,6 +231,14 @@ export const ChatStatusSchema = z.object({
         .optional(),
     })
     .nullable(),
+  failure: z
+    .object({
+      kind: TurnFailureKindSchema,
+      status: PositiveIntegerSchema.optional(),
+      at,
+    })
+    .optional()
+    .catch(undefined),
   streaming: ViewStreamingSchema.nullable(),
   permissions: z.array(ViewPermissionSchema),
 });
@@ -342,6 +354,10 @@ export const ChatPanelSchema = z.object({
     })
     .optional(),
   moves: z.array(z.object({ after: z.string(), profile: z.string(), at: NumberSchema })).optional(),
+  twin: z
+    .object({ tabId: z.string().max(64) })
+    .optional()
+    .catch(undefined),
   can: z
     .object({
       rewind: z.boolean(),

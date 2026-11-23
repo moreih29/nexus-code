@@ -45,6 +45,7 @@ export interface ChatSource {
   plan?: { claude?: Record<string, unknown>; codex?: CodexRateLimits };
   moves?: readonly { after: string; profile: string; at: number }[];
   limitResume?: LimitResume;
+  twin?: string;
   can?: {
     rewind: boolean;
     fork: boolean;
@@ -186,6 +187,20 @@ export function viewTaskOf(task: TaskInfo, tools: Record<string, ToolCall> = {})
   };
 }
 
+function failureOf(model: ChatModel): Pick<ChatStatus, "failure"> {
+  const result = model.lastResult;
+  const failure = result?.failure;
+  if (!failure) return {};
+  const { kind, status } = failure;
+  return {
+    failure: {
+      kind,
+      ...(status !== undefined && Number.isInteger(status) && status > 0 ? { status } : {}),
+      ...(result.at !== undefined ? { at: result.at } : {}),
+    },
+  };
+}
+
 export function chatStatusOf({ agent, title, chat }: ChatSource): ChatStatus {
   const model: ChatModel = chat.model;
   const version = chat.version ?? model.version;
@@ -223,6 +238,7 @@ export function chatStatusOf({ agent, title, chat }: ChatSource): ChatStatus {
           ...(model.turn.retry ? { retry: { ...model.turn.retry } } : {}),
         }
       : null,
+    ...failureOf(model),
     streaming: model.streaming
       ? {
           messageId: model.streaming.messageId,

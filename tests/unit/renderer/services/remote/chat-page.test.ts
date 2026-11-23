@@ -341,6 +341,50 @@ describe("where its tab stands with its program (0.13.0)", () => {
   });
 });
 
+describe("a turn that failed (0.32.0)", () => {
+  const failed = (failure: NonNullable<ChatModel["lastResult"]>["failure"], at?: number) =>
+    source({
+      process: "running",
+      lastResult: {
+        subtype: "error_during_execution",
+        isError: true,
+        error: "API Error: 529 at /Users/someone/project token sk-ant-123",
+        ...(failure ? { failure } : {}),
+        ...(at !== undefined ? { at } : {}),
+      },
+    });
+
+  test("tells its kind, status and time, never the error's own words", () => {
+    const page = chatPageOf(failed({ kind: "transient", status: 529 }, 1700));
+    expect(ChatPageSchema.safeParse(page).success).toBe(true);
+    expect(page.status.failure).toEqual({ kind: "transient", status: 529, at: 1700 });
+    expect(JSON.stringify(page.status)).not.toContain("sk-ant");
+    expect(JSON.stringify(page.status)).not.toContain("/Users");
+  });
+
+  test("is drawn as this app's chat draws its own last result", () => {
+    const model = modelOfPage(chatPageOf(failed({ kind: "auth", status: 401 }, 5)));
+    expect(model.lastResult).toEqual({
+      subtype: "error",
+      isError: true,
+      failure: { kind: "auth", status: 401 },
+      at: 5,
+    });
+  });
+
+  test("a failure with no status or time sends only its kind", () => {
+    const page = chatPageOf(failed({ kind: "transient" }));
+    expect(page.status.failure).toEqual({ kind: "transient" });
+    expect(modelOfPage(page).lastResult?.failure).toEqual({ kind: "transient" });
+  });
+
+  test("a turn that did not fail, or failed with no kind to tell, says nothing", () => {
+    expect(chatPageOf(failed(undefined)).status).not.toHaveProperty("failure");
+    expect(chatPageOf(source({ process: "running" })).status).not.toHaveProperty("failure");
+    expect(modelOfPage(chatPageOf(failed(undefined))).lastResult).toBeUndefined();
+  });
+});
+
 describe("a request's always-allow suggestions", () => {
   test("are worded, by the index chat.answer's always gives back; those it cannot word left out", () => {
     const page = chatPageOf(
