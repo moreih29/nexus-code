@@ -198,9 +198,13 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   const continueInProfile = (profileId: string) => {
     setResumeQuery(null);
     setResumeError(null);
-    void controller
-      .continueInProfile(profileId)
-      .catch((err: Error) => showToast({ kind: "error", message: err.message }));
+    return controller.continueInProfile(profileId).then(
+      () => true,
+      (err: Error) => {
+        showToast({ kind: "error", message: err.message });
+        return false;
+      },
+    );
   };
   const { items: liveItems, tools: liveTools, agentItems, tasks } = model;
   const source = useMemo(

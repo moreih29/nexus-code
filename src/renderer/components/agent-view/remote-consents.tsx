@@ -2,6 +2,7 @@ import i18next, { type TFunction } from "i18next";
 import { ChevronDown, Shield } from "lucide-react";
 import {
   createContext,
+  type MouseEvent,
   type ReactElement,
   useContext,
   useLayoutEffect,
@@ -134,7 +135,15 @@ const ConsentPageContext = createContext<ConsentPage>({
   answering: () => {},
 });
 
-export function ConsentPages({ children }: { children: readonly ReactElement[] }) {
+const leftUnanswered = new Map<string, number>();
+
+export function ConsentPages({
+  place,
+  children,
+}: {
+  place: string;
+  children: readonly ReactElement[];
+}) {
   const keys = children.map((child) => String(child.key));
   const view = useRef<{ key?: string; index: number }>({ index: 0 });
   const answered = useRef<string | undefined>(undefined);
@@ -156,6 +165,20 @@ export function ConsentPages({ children }: { children: readonly ReactElement[] }
       hold.current = { key: shownKey, until: performance.now() + CONSENT_SWAP_HOLD_MS };
     view.current = { key: shownKey, index: shown };
   });
+  useLayoutEffect(() => {
+    const left = leftUnanswered.get(place);
+    leftUnanswered.delete(place);
+    const first = view.current.key;
+    if (first !== undefined && left !== undefined) {
+      const until = left + CONSENT_SWAP_HOLD_MS;
+      if (performance.now() < until) hold.current = { key: first, until };
+    }
+    return () => {
+      const last = view.current.key;
+      if (last !== undefined && answered.current !== last)
+        leftUnanswered.set(place, performance.now());
+    };
+  }, [place]);
   const page: ConsentPage = {
     held: () =>
       hold.current !== null &&
@@ -165,13 +188,11 @@ export function ConsentPages({ children }: { children: readonly ReactElement[] }
       answered.current = shownKey;
     },
   };
-  const card = children[shown] ?? null;
+  const paged = children.length > 1;
   return (
     <ConsentPageContext.Provider value={page}>
-      {children.length < 2 ? (
-        card
-      ) : (
-        <div className="flex flex-col gap-1" data-testid="remote-consent-pages">
+      <div className="flex flex-col gap-1" data-testid={paged ? "remote-consent-pages" : undefined}>
+        {paged && (
           <RequestPager
             shown={shown}
             total={children.length}
@@ -180,9 +201,9 @@ export function ConsentPages({ children }: { children: readonly ReactElement[] }
               repaint((n) => n + 1);
             }}
           />
-          {card}
-        </div>
-      )}
+        )}
+        {children[shown] ?? null}
+      </div>
     </ConsentPageContext.Provider>
   );
 }
@@ -237,7 +258,15 @@ export function RemoteConsentCard({
   const [busy, setBusy] = useState<ConsentAnswer | null>(null);
   const [gone, setGone] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
+  const { body } = consentDetailsOf(t, consent.change);
+  const [open, setOpen] = useState(() => body?.includes("\n") === true);
+  const toggled = useRef(false);
+  const bodyBox = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    const box = bodyBox.current;
+    if (!box || !body || open || toggled.current) return;
+    if (box.scrollWidth > box.clientWidth) setOpen(true);
+  }, [body, open]);
 
   const page = useContext(ConsentPageContext);
   const answer = async (choice: ConsentAnswer) => {
@@ -259,6 +288,10 @@ export function RemoteConsentCard({
     }
     setFailure(tc("agentView.remote.failed", { message: result.message }));
   };
+  const answerOnce = (event: MouseEvent, choice: ConsentAnswer) => {
+    if (event.detail > 1) return;
+    void answer(choice);
+  };
   const idle = busy === null && !gone;
 
   const title = t(consentTitleOf(consent.change.kind, Boolean(consent.from.device)));
@@ -266,7 +299,6 @@ export function RemoteConsentCard({
   const sentence = consentSentenceOf(t, consent, workspaceName, sessions);
   const { from } = consent;
   const asker = from.manager && !from.device ? undefined : (from.name ?? shortId(from.tabId));
-  const { body } = consentDetailsOf(t, consent.change);
   return (
     <section aria-label={title} className={PERMISSION_CARD_CLASS} data-testid="remote-consent">
       <div className="flex flex-col gap-2">
@@ -291,10 +323,14 @@ export function RemoteConsentCard({
         </div>
         {body && (
           <button
+            ref={bodyBox}
             type="button"
             aria-expanded={open}
             title={open ? undefined : body}
-            onClick={() => setOpen(!open)}
+            onClick={() => {
+              toggled.current = true;
+              setOpen(!open);
+            }}
             className={cn(
               "block w-full min-w-0 rounded-(--radius-control) bg-background px-2 py-1 text-left font-mono text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring",
               open
@@ -312,7 +348,7 @@ export function RemoteConsentCard({
               variant="outline"
               loading={busy === "deny"}
               disabled={!idle}
-              onClick={() => void answer("deny")}
+              onClick={(event) => answerOnce(event, "deny")}
             >
               {tc("chat.permission.deny_send")}
             </Button>
@@ -322,7 +358,7 @@ export function RemoteConsentCard({
                 className={cn(CONSENT_CONFIRM_BUTTON_CLASS, !consent.eachTime && "rounded-r-none")}
                 loading={busy === "once"}
                 disabled={!idle}
-                onClick={() => void answer("once")}
+                onClick={(event) => answerOnce(event, "once")}
               >
                 {t("agentCli.consent.allow")}
               </Button>

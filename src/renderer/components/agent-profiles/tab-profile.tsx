@@ -63,7 +63,7 @@ export function ProfileUsageChip({
   profileId?: string;
   use: TabUse;
   onSwitch: (profileId: string) => void;
-  onContinue: (profileId: string) => void;
+  onContinue: (profileId: string) => Promise<boolean>;
   compact?: boolean;
 }) {
   const { t } = useTranslation();
@@ -138,11 +138,14 @@ export function ProfileUsageChip({
       }}
       onPick={(id, fresh) => {
         if (fresh) {
+          moving.current = null;
           onSwitch(id);
           return;
         }
         moving.current = id;
-        onContinue(id);
+        void onContinue(id).then((moved) => {
+          if (!moved && moving.current === id) moving.current = null;
+        });
       }}
       compact={compact}
       testIdPrefix="chat-profile"

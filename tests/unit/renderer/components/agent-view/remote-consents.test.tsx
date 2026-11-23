@@ -1,4 +1,4 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import i18next from "i18next";
 import { act, type MouseEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -169,7 +169,7 @@ describe("what another computer's consent prompt says", () => {
     expect(html).toContain(
       '<p class="sr-only">The terminal &quot;zsh&quot; in app asks to type into the terminal &quot;dev&quot; in api.</p>',
     );
-    expect(html).toMatch(/aria-expanded="false"[^>]*>rm -rf dist\nbun run build<\/button>/);
+    expect(html).toMatch(/aria-expanded="true"[^>]*>rm -rf dist\nbun run build<\/button>/);
     expect(html).not.toContain("It is turned down if not answered");
     expect(html).toMatch(/>Deny<\/button>.*>Allow<\/button>.*aria-label="Allow options"/s);
     expect(html).not.toContain("Allow once");
@@ -272,9 +272,11 @@ describe("what another computer's consent prompt says", () => {
   });
 
   test("several in one place show one at a time, with a pager", () => {
-    const one = renderToStaticMarkup(<ConsentPages>{[card0("a")]}</ConsentPages>);
+    const one = renderToStaticMarkup(<ConsentPages place="p">{[card0("a")]}</ConsentPages>);
     expect(one).not.toContain("remote-consent-pages");
-    const two = renderToStaticMarkup(<ConsentPages>{[card0("a"), card0("b")]}</ConsentPages>);
+    const two = renderToStaticMarkup(
+      <ConsentPages place="p">{[card0("a"), card0("b")]}</ConsentPages>,
+    );
     expect(two).toContain("1 of 2");
     expect(two).toContain('aria-label="Previous request"');
     expect(two).toContain(">a<");
@@ -286,18 +288,34 @@ describe("several consent prompts in one place", () => {
   const prompt = (id: string) =>
     consent({ id, eachTime: true, change: { kind: "chatInput", detail: id.toUpperCase() } });
 
-  function Pages({ ids, answers }: { ids: string[]; answers: string[] }) {
+  let run = 0;
+  beforeEach(() => {
+    run += 1;
+  });
+
+  function Pages({
+    ids,
+    answers,
+    pending = false,
+    change,
+  }: {
+    ids: string[];
+    answers: string[];
+    pending?: boolean;
+    change?: RemoteConsent["change"];
+  }) {
+    if (ids.length === 0) return null;
     return (
-      <ConsentPages>
+      <ConsentPages place={`pages-${run}`}>
         {ids.map((id) => (
           <RemoteConsentCard
             key={id}
-            consent={prompt(id)}
+            consent={change ? { ...prompt(id), change } : prompt(id)}
             device="Work PC"
             workspaceName="api"
             onAnswer={(answer) => {
               answers.push(`${id}:${answer}`);
-              return Promise.resolve(ipcOk({}));
+              return pending ? new Promise(() => {}) : Promise.resolve(ipcOk({}));
             }}
             onSettled={() => {}}
           />
@@ -309,12 +327,25 @@ describe("several consent prompts in one place", () => {
   const headline = (host: HTMLElement) => host.querySelector(".font-semibold")?.textContent;
   const page = (host: HTMLElement) =>
     host.querySelector('[data-testid="remote-consent-pages"] span')?.textContent;
-  const press = async (host: HTMLElement, label: string) => {
+  const find = (host: HTMLElement, label: string) => {
     const button = Array.from(host.querySelectorAll("button")).find(
       (node) => node.textContent === label || node.getAttribute("aria-label") === label,
     );
     expect(button).toBeDefined();
-    await act(async () => button?.click());
+    return button as HTMLButtonElement;
+  };
+  const press = async (host: HTMLElement, label: string) => {
+    const button = find(host, label);
+    await act(async () => button.click());
+  };
+  const clickWith = async (host: HTMLElement, label: string, detail: number) => {
+    const button = find(host, label);
+    const event = document.createEvent("MouseEvent");
+    event.initEvent("click", true, true);
+    Object.defineProperty(event, "detail", { value: detail });
+    await act(async () => {
+      button.dispatchEvent(event);
+    });
   };
 
   test("the card in view stays when a new prompt arrives before or after it", async () => {
@@ -378,5 +409,146 @@ describe("several consent prompts in one place", () => {
     } finally {
       now.mockRestore();
     }
+  });
+
+  test("a prompt that comes right after the one in view went away elsewhere is held too", async () => {
+    const now = spyOn(performance, "now").mockReturnValue(10_000);
+    try {
+      await withTestDom(async (host, root) => {
+        const answers: string[] = [];
+        await act(async () => root.render(<Pages ids={["a"]} answers={answers} />));
+        await act(async () => root.render(<Pages ids={[]} answers={answers} />));
+        now.mockReturnValue(10_050);
+        await act(async () => root.render(<Pages ids={["b"]} answers={answers} />));
+        now.mockReturnValue(10_100);
+        await press(host, "Allow");
+        expect(answers).toEqual([]);
+        now.mockReturnValue(10_000 + CONSENT_SWAP_HOLD_MS);
+        await press(host, "Allow");
+        expect(answers).toEqual(["b:once"]);
+      });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  test("a prompt after one the user answered and that then left is not held", async () => {
+    const now = spyOn(performance, "now").mockReturnValue(10_000);
+    try {
+      await withTestDom(async (host, root) => {
+        const answers: string[] = [];
+        await act(async () => root.render(<Pages ids={["a"]} answers={answers} />));
+        await press(host, "Allow");
+        await act(async () => root.render(<Pages ids={[]} answers={answers} />));
+        await act(async () => root.render(<Pages ids={["b"]} answers={answers} />));
+        await press(host, "Allow");
+        expect(answers).toEqual(["a:once", "b:once"]);
+      });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  test("the card in view keeps its state when a second prompt arrives", async () => {
+    await withTestDom(async (host, root) => {
+      const answers: string[] = [];
+      const change = { kind: "terminalInput", detail: "dev", body: "a\nb" } as const;
+      await act(async () =>
+        root.render(<Pages ids={["a"]} answers={answers} change={change} pending />),
+      );
+      const deny = find(host, "Deny");
+      await press(host, "Allow");
+      expect(answers).toEqual(["a:once"]);
+      await act(async () =>
+        root.render(<Pages ids={["a", "b"]} answers={answers} change={change} pending />),
+      );
+      expect(deny.isConnected).toBe(true);
+      expect(deny.disabled).toBe(true);
+      await press(host, "Allow");
+      await press(host, "Deny");
+      expect(answers).toEqual(["a:once"]);
+      await act(async () =>
+        root.render(<Pages ids={["a"]} answers={answers} change={change} pending />),
+      );
+      expect(deny.isConnected).toBe(true);
+    });
+  });
+
+  test("the second click of a double click answers nothing, a key press does", async () => {
+    await withTestDom(async (host, root) => {
+      const answers: string[] = [];
+      await act(async () => root.render(<Pages ids={["a", "b"]} answers={answers} />));
+      await clickWith(host, "Allow", 2);
+      expect(answers).toEqual([]);
+      await clickWith(host, "Deny", 0);
+      expect(answers).toEqual(["a:deny"]);
+      await act(async () => root.render(<Pages ids={["b"]} answers={answers} />));
+      await clickWith(host, "Allow", 1);
+      expect(answers).toEqual(["a:deny", "b:once"]);
+    });
+  });
+});
+
+describe("what another computer's prompt would run", () => {
+  const shownBody = (host: HTMLElement) =>
+    host.querySelector<HTMLButtonElement>("button[aria-expanded]");
+
+  async function cardWith(body: string, widths?: { scroll: number; client: number }) {
+    let result: { expanded: string | null | undefined; className: string | undefined } = {
+      expanded: undefined,
+      className: undefined,
+    };
+    await withTestDom(async (host, root) => {
+      const proto = Object.getPrototypeOf(document.createElement("button"));
+      const saved = ["scrollWidth", "clientWidth"].map(
+        (name) => [name, Object.getOwnPropertyDescriptor(proto, name)] as const,
+      );
+      if (widths) {
+        Object.defineProperty(proto, "scrollWidth", {
+          configurable: true,
+          get: () => widths.scroll,
+        });
+        Object.defineProperty(proto, "clientWidth", {
+          configurable: true,
+          get: () => widths.client,
+        });
+      }
+      try {
+        await act(async () =>
+          root.render(
+            <RemoteConsentCard
+              consent={consent({ change: { kind: "terminalInput", detail: "dev", body } })}
+              device="Work PC"
+              workspaceName="api"
+              onAnswer={() => Promise.resolve(ipcOk({}))}
+              onSettled={() => {}}
+            />,
+          ),
+        );
+        result = {
+          expanded: shownBody(host)?.getAttribute("aria-expanded"),
+          className: shownBody(host)?.className,
+        };
+      } finally {
+        for (const [name, descriptor] of saved) {
+          if (descriptor) Object.defineProperty(proto, name, descriptor);
+          else Reflect.deleteProperty(proto, name);
+        }
+      }
+    });
+    return result;
+  }
+
+  test("a command of several lines shows whole, scrolling past the chat card's height", async () => {
+    const shown = await cardWith("echo ok\nrm -rf ~");
+    expect(shown.expanded).toBe("true");
+    expect(shown.className).toContain("max-h-40 overflow-auto whitespace-pre-wrap");
+  });
+
+  test("a one-line command opens when it does not fit, and stays on one line when it does", async () => {
+    expect((await cardWith("x".repeat(400), { scroll: 900, client: 200 })).expanded).toBe("true");
+    const fits = await cardWith("bun run build", { scroll: 120, client: 200 });
+    expect(fits.expanded).toBe("false");
+    expect(fits.className).toContain("whitespace-nowrap");
   });
 });

@@ -74,11 +74,24 @@ test("group tints come from the same table as the state glyphs", () => {
 test("a remote row reads with the local words and looks", () => {
   for (const [remote, local] of Object.entries(REMOTE_STATE)) {
     const look = remoteStateLook(remote as keyof typeof REMOTE_STATE);
-    expect(look).toEqual(stateLook(local));
+    expect(look.labelKey).toBe(stateLook(local).labelKey);
+    if (remote !== "needs-you") expect(look).toEqual(stateLook(local));
     expect(look.labelKey.startsWith("common:agentList.state.")).toBe(true);
     const key = local as keyof typeof koCommon.agentList.state;
     expect(koCommon.agentList.state[key]).toBeString();
     expect(enCommon.agentList.state[key as keyof typeof enCommon.agentList.state]).toBeString();
   }
   expect(koCommon.agentList.state[REMOTE_STATE.running as "running"]).toBe("작업 중");
+});
+
+test("another computer's conversation that needs you looks like a local permission request", () => {
+  const look = remoteStateLook("needs-you");
+  const local = stateLook("permissionPending");
+  expect([look.Icon, look.colorClass, Boolean(look.pulse)]).toEqual([
+    local.Icon,
+    local.colorClass,
+    false,
+  ]);
+  expect(look.Icon).toBe(CircleAlert);
+  expect(look.labelKey).toBe("common:agentList.state.needsInput");
 });

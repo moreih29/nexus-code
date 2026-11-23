@@ -520,7 +520,7 @@ function RemoteChatView({
     consentFromChat(consent, target),
   );
   const consentCards = consents.length ? (
-    <ConsentPages>
+    <ConsentPages place={JSON.stringify(["pane", deviceId, workspaceId, tabId])}>
       {consents.map((consent) => (
         <PeerConsentCard
           key={consent.id}

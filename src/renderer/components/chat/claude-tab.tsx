@@ -177,9 +177,13 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   };
   const continueInProfile = (profileId: string) => {
     setResumeError(null);
-    void controller
-      .continueInProfile(profileId)
-      .catch((err: Error) => showToast({ kind: "error", message: err.message }));
+    return controller.continueInProfile(profileId).then(
+      () => true,
+      (err: Error) => {
+        showToast({ kind: "error", message: err.message });
+        return false;
+      },
+    );
   };
   const resumeFailed = (message: string) => {
     showToast({ kind: "error", message: t("chat.sessions.resume_failed", { message }) });
