@@ -53,6 +53,12 @@ type AttachResult struct {
 	Path string `json:"path"`
 }
 
+// AttachRootResult is returned by chat.attachRoot: the folder attached
+// files are kept in, absolute.
+type AttachRootResult struct {
+	Root string `json:"root"`
+}
+
 // PruneAttachParams is the wire shape for chat.pruneAttachments.
 type PruneAttachParams struct {
 	WorkspaceID string `json:"workspaceId"`
@@ -113,6 +119,17 @@ func (s *Service) Attach(_ context.Context, raw json.RawMessage) (any, error) {
 		}
 		return AttachResult{Path: path}, nil
 	}
+}
+
+// AttachRoot tells where attached files are kept (attachRoot): the app
+// lets another device read a message's attachments only from below it,
+// and the agent alone knows its own NEXUS_CODE_HOME and home folder.
+func (s *Service) AttachRoot(_ context.Context, _ json.RawMessage) (any, error) {
+	root, err := attachRoot()
+	if err != nil {
+		return nil, requestFailed("chat.attachRoot: %v", err)
+	}
+	return AttachRootResult{Root: root}, nil
 }
 
 // PruneAttachments removes the attached files of a workspace's tabs that

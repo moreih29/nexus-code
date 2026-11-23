@@ -28,10 +28,8 @@ import {
   resolveLocalAgentCommand,
 } from "../../infra/agent/local-agent-resolver";
 import {
-  attachDir,
   removeShimDir as defaultRemoveShimDir,
   writeShimFiles as defaultWriteShimFiles,
-  remoteAttachDir,
   shimDir,
   worktreesDir,
 } from "../../infra/agent/runtimeDirs";
@@ -543,19 +541,6 @@ export class WorkspaceManager {
     const bootstrap = this.remote.sshBootstraps.get(workspaceId);
     if (!bootstrap) return null;
     return absoluteRemotePath(bootstrap.remoteHome, `${REMOTE_AGENT_ROOT}/worktrees`);
-  }
-
-  /**
-   * The folder this workspace's agent writes the files attached to a chat
-   * tab's message in, on the host the workspace lives on (attachDir). Null
-   * for an SSH workspace that has not connected yet.
-   */
-  getAttachRoot(workspaceId: string): string | null {
-    const meta = this.contexts.get(workspaceId)?.getMeta();
-    if (!meta) return null;
-    if (meta.location.kind === "local") return attachDir();
-    const bootstrap = this.remote.sshBootstraps.get(workspaceId);
-    return bootstrap ? remoteAttachDir(bootstrap.remoteHome) : null;
   }
 
   async tryGetAgentChannel(id: string): Promise<AgentChannel | null> {

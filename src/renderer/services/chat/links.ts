@@ -152,6 +152,8 @@ function absolutePath(path: string, windows: boolean, cwd: string): string | nul
   if (windows) {
     path = path.replace(/\\/g, "/");
     if (DRIVE_PATH.test(path)) return normalize(path);
+    // A network path (\\server\share\…) loses its leading "//" below, on purpose: looking a
+    // file up there would have Windows reach that server and offer it the user's credentials.
   }
   const joined = path.startsWith("/")
     ? path

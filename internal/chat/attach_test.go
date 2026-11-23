@@ -168,3 +168,38 @@ func TestPruneKeepsTheOpenTabsAttachments(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAttachRootTellsWhereAttachedFilesAreKept(t *testing.T) {
+	root := useAttachRoot(t)
+	result, err := New().AttachRoot(context.Background(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.(AttachRootResult).Root; got != root {
+		t.Fatalf("root = %q, want %q", got, root)
+	}
+}
+
+func TestAttachRootIsAbsoluteForARelativeNexusCodeHome(t *testing.T) {
+	// The folder NEXUS_CODE_HOME names from where the agent runs, made absolute there.
+	dir := t.TempDir()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prev) })
+	t.Setenv("NEXUS_CODE_HOME", filepath.Join("rel", "home"))
+	result, err := New().AttachRoot(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := result.(AttachRootResult).Root
+	cwd, _ := os.Getwd()
+	want := filepath.Join(cwd, "rel", "home", "attach")
+	if !filepath.IsAbs(got) || got != want {
+		t.Fatalf("root = %q, want %q", got, want)
+	}
+}

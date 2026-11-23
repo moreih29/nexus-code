@@ -142,6 +142,7 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("chat.fileSizes", service.FileSizes)
 	d.Register("chat.claudeConfig", service.ClaudeConfig)
 	d.Register("chat.attach", service.Attach)
+	d.Register("chat.attachRoot", service.AttachRoot)
 	d.Register("chat.pruneAttachments", service.PruneAttachments)
 	d.Register("chat.profileDir", service.ProfileDir)
 	d.Register("chat.writeCodexCatalog", service.WriteCodexCatalog)

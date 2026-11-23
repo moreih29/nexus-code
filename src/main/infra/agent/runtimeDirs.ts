@@ -54,24 +54,6 @@ export function worktreesDir(): string {
 }
 
 /**
- * Returns the absolute path of ~/.nexus-code/attach, where the agent keeps
- * the files attached to a chat tab's message (internal/chat/attach.go):
- * attach/<workspaceId>/<tabId>/<n>/<name>.
- */
-export function attachDir(): string {
-  return path.join(root(), "attach");
-}
-
-/**
- * The attach folder of an agent on an SSH or WSL host whose home is
- * `remoteHome`: it starts without NEXUS_CODE_HOME, so its root is
- * ~/.nexus-code there, whichever folder its binaries are in.
- */
-export function remoteAttachDir(remoteHome: string): string {
-  return `${remoteHome.replace(/\/+$/, "")}/${ROOT_DIR_NAME}/attach`;
-}
-
-/**
  * Returns the absolute path of ~/.nexus-code/bin, the directory where
  * agent-managed executables (e.g. wrapper scripts) are installed at runtime.
  */

@@ -173,6 +173,40 @@ describe("chat.outsideFiles", () => {
     expect(attachShaped("w1", "c1", `${ATTACH}/w1/c1/b.png`)).toBe(false);
   });
 
+  test("under a Windows network home, no attachment is served: links never reach a share", async () => {
+    // As the agent there answers: its home on a share.
+    attachRoot = "\\\\server\\share\\Users\\k\\.nexus-code\\attach";
+    useWorkspacesStore.setState({
+      workspaces: [{ id: "w2", name: "win", rootPath: "C:\\work" }],
+    } as never);
+    useTabsStore.setState({
+      byWorkspace: {
+        w2: { c2: { id: "c2", type: "claude", title: "c2", props: { cwd: "C:\\work" } } },
+      },
+    } as never);
+    const share = "\\\\server\\share\\Users\\k";
+    useChatStore.setState({
+      tabs: {
+        [chatKey("w2", "c2")]: {
+          ...emptyTabState(),
+          model: {
+            ...emptyModel(),
+            items: [
+              sent("u1", `@${share}\\.nexus-code\\attach\\w2\\c2\\1\\a.png`),
+              sent("u2", `@${share}\\Pictures\\b.png`),
+              sent("u3", `@${share}\\.nexus-code\\attach\\w2\\other\\1\\c.png`),
+              sent("u4", "@\\\\server\\other\\Users\\k\\.nexus-code\\attach\\w2\\c2\\1\\d.png"),
+            ],
+            tools: {},
+          },
+        },
+      },
+    } as never);
+    const { files } = await chatHandlers["chat.outsideFiles"]({ workspaceId: "w2" } as never);
+    expect(files).toEqual([]);
+    expect(await attachRootOf("w2")).toBeNull();
+  });
+
   test("nothing for a workspace it doesn't know", async () => {
     const { files } = await chatHandlers["chat.outsideFiles"]({ workspaceId: "w9" } as never);
     expect(files).toEqual([]);

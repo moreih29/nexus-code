@@ -1,6 +1,6 @@
 // Where the agent writes a tab's attached files (internal/chat/attach.go):
 // <attach root>/<workspaceId>/<tabId>/<n>/<name>, the root on the
-// workspace's host as main tells it. Another device reads a message's
+// workspace's host as its agent tells it (through main). Another device reads a message's
 // attachments outside the workspace only from there: a mention in a
 // message is text, which anyone who sends one writes as they like.
 
@@ -13,14 +13,17 @@ const SLOT_FILE = /^\d+\/[^/]+$/;
 /**
  * A path as resolveFilePath gives one, taken as it is written: "/" for
  * "\", a Windows drive in upper case, no "/" at the end. Nothing in it is
- * read as a link's (no %xx, #, ? or :line).
+ * read as a link's (no %xx, #, ? or :line). Null for a network path
+ * (\\server\share\…), which links never resolve to, on purpose (links.ts):
+ * the attachments under a home on a share are not served.
  */
-function slashed(path: string): string {
+function slashed(path: string): string | null {
   const forward = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (forward.startsWith("//")) return null;
   return /^[a-z]:\//.test(forward) ? forward[0].toUpperCase() + forward.slice(1) : forward;
 }
 
-/** The workspace's attach root, as resolveFilePath writes paths; null when main knows none. */
+/** The workspace's attach root, as resolveFilePath writes paths; null when its agent tells none. */
 export async function attachRootOf(workspaceId: string): Promise<string | null> {
   const result = await ipcCallResult("chat", "attachRoot", { workspaceId }).catch(() => null);
   const root = result?.ok ? result.value.root : null;

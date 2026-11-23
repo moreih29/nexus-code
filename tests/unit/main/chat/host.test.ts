@@ -53,6 +53,8 @@ class FakeChannel implements AgentChannel {
   versionOutput = "2.1.318 (Claude Code)\n";
   versionWait?: Promise<void>;
   transcriptPageError?: string;
+  attachRootAnswer: unknown = {};
+  attachRootError?: string;
   private readonly listeners = new Map<string, Set<ChannelEventCallback>>();
   private readonly lifecycle = new Set<ChannelLifecycleCallback>();
 
@@ -70,6 +72,12 @@ class FakeChannel implements AgentChannel {
       throw Object.assign(new Error("transcript page failed"), { code: this.transcriptPageError });
     }
     if (method === "chat.transcript") return { found: true, lines: [] } as T;
+    if (method === "chat.attachRoot") {
+      if (this.attachRootError) {
+        throw Object.assign(new Error("attach root failed"), { code: this.attachRootError });
+      }
+      return this.attachRootAnswer as T;
+    }
     return {} as T;
   }
   fire(): void {}
@@ -152,6 +160,62 @@ test.each([
     await expect(page).rejects.toMatchObject({ code });
     expect(channel.calls.map((call) => call.method)).toEqual(["chat.transcriptPage"]);
   }
+});
+
+describe("attachRoot", () => {
+  const asked = (channel: FakeChannel) =>
+    channel.calls.filter((call) => call.method === "chat.attachRoot").length;
+
+  test("is what the workspace's agent answers, asked once a connection", async () => {
+    let channel = new FakeChannel();
+    const { host } = setup({ peekAgentChannel: async () => channel });
+    channel.attachRootAnswer = { root: "\\\\server\\share\\Users\\k\\.nexus-code\\attach" };
+    expect(await host.attachRoot(WS)).toBe("\\\\server\\share\\Users\\k\\.nexus-code\\attach");
+    expect(await host.attachRoot(WS)).toBe("\\\\server\\share\\Users\\k\\.nexus-code\\attach");
+    expect(asked(channel)).toBe(1);
+    // A new connection is asked anew.
+    channel = new FakeChannel();
+    channel.attachRootAnswer = { root: "/home/k/elsewhere/attach" };
+    expect(await host.attachRoot(WS)).toBe("/home/k/elsewhere/attach");
+    expect(asked(channel)).toBe(1);
+  });
+
+  test("is null from an agent too old to tell, asked no more on that connection", async () => {
+    const channel = new FakeChannel();
+    channel.attachRootError = "unsupported-method";
+    const { host } = setup({ peekAgentChannel: async () => channel });
+    expect(await host.attachRoot(WS)).toBeNull();
+    expect(await host.attachRoot(WS)).toBeNull();
+    expect(asked(channel)).toBe(1);
+  });
+
+  test("is null when asking fails, and asked again the next time", async () => {
+    const channel = new FakeChannel();
+    channel.attachRootError = "transport.timeout";
+    const { host } = setup({ peekAgentChannel: async () => channel });
+    expect(await host.attachRoot(WS)).toBeNull();
+    channel.attachRootError = undefined;
+    channel.attachRootAnswer = { root: "/home/k/.nexus-code/attach" };
+    expect(await host.attachRoot(WS)).toBe("/home/k/.nexus-code/attach");
+    expect(asked(channel)).toBe(2);
+  });
+
+  test("is null with no agent up, or no answer in it, and dials no host", async () => {
+    const channel = new FakeChannel();
+    const dialed: string[] = [];
+    const { host } = setup({
+      peekAgentChannel: async () => null,
+      getAgentChannel: async (id) => {
+        dialed.push(id);
+        return channel;
+      },
+    });
+    expect(await host.attachRoot(WS)).toBeNull();
+    expect(dialed).toEqual([]);
+    const answered = setup({ peekAgentChannel: async () => channel });
+    expect(await answered.host.attachRoot(WS)).toBeNull();
+    expect(await setup().host.attachRoot(WS)).toBeNull();
+  });
 });
 
 describe("Claude instruction history", () => {

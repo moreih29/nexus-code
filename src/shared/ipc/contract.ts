@@ -1146,8 +1146,9 @@ const coreIpcContract = {
       ),
       /**
        * The folder the workspace's agent writes attached files in, on its
-       * host: attach/<workspaceId>/<tabId>/<n>/<name> below it. Null while
-       * an SSH workspace has not connected.
+       * host, as the agent tells it (chat.attachRoot):
+       * <workspaceId>/<tabId>/<n>/<name> below it. Null with no agent up
+       * (an SSH host is not dialed for it) or one too old to tell.
        */
       attachRoot: call(
         z.object({ workspaceId: WorkspaceIdPrimitive }),
