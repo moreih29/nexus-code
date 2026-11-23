@@ -161,11 +161,19 @@ func TestRunTranscriptFollowsNoLinkOutOfTheRunsFolder(t *testing.T) {
 		t.Fatalf("read through a linked project folder: %s", lineTexts(got.Lines))
 	}
 
-	// `projects` itself is a link to one outside.
+	// `projects` itself may be a link (kept on another disk): its real folders
+	// and files are read, and links in it are not followed.
+	moved := t.TempDir()
+	writeRunTranscript(t, moved, "p", `{"moved":1}`+"\n")
+	symlinkOrSkip(t, secret, filepath.Join(moved, "projects", "p", "other-session.jsonl"))
+	symlinkOrSkip(t, filepath.Dir(secret), filepath.Join(moved, "projects", "q"))
 	projectsLink := t.TempDir()
-	symlinkOrSkip(t, filepath.Join(outside, "projects"), filepath.Join(projectsLink, "projects"))
-	if got := runTranscriptRead(t, service, projectsLink, runSession, nil); got.Found {
-		t.Fatalf("read through a linked projects folder: %s", lineTexts(got.Lines))
+	symlinkOrSkip(t, filepath.Join(moved, "projects"), filepath.Join(projectsLink, "projects"))
+	if got := runTranscriptRead(t, service, projectsLink, runSession, nil); !got.Found || lineTexts(got.Lines) != `{"moved":1}` {
+		t.Fatalf("a linked projects folder was not read: %+v", got)
+	}
+	if got := runTranscriptRead(t, service, projectsLink, "other-session", nil); got.Found {
+		t.Fatalf("read through a linked file in a linked projects folder: %s", lineTexts(got.Lines))
 	}
 
 	// The config folder itself may be a link, as a user's ~/.claude can be.
@@ -206,6 +214,18 @@ func TestTranscriptFoldersAreNamesNotPatterns(t *testing.T) {
 		}
 		if got := transcriptPath(dir, runSession); got == "" {
 			t.Fatalf("%s: chat.transcript's path not found", name)
+		}
+		agents := filepath.Join(dir, "projects", "p", runSession, "subagents")
+		if err := os.MkdirAll(agents, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for file, text := range map[string]string{"agent-a1.jsonl": "{}\n", "agent-a1.meta.json": `{"toolUseId":"tu-1"}`} {
+			if err := os.WriteFile(filepath.Join(agents, file), []byte(text), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := subagentPath(dir, runSession, "a1", ""); got == "" {
+			t.Fatalf("%s: a subagent's path not found by its id", name)
 		}
 	}
 	// `cfg*` does not reach its sibling.

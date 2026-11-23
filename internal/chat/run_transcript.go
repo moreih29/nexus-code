@@ -73,7 +73,12 @@ func runTranscriptPath(dir, sessionID string) (string, os.FileInfo) {
 	if err != nil {
 		return "", nil
 	}
-	projects := filepath.Join(root, "projects")
+	// The projects folder may be a link itself (kept on another disk): what is
+	// read is a regular file in a real folder of where it leads.
+	projects, err := filepath.EvalSymlinks(filepath.Join(root, "projects"))
+	if err != nil {
+		return "", nil
+	}
 	if info, err := os.Lstat(projects); err != nil || !info.IsDir() {
 		return "", nil
 	}
