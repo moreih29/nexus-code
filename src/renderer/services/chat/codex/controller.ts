@@ -45,6 +45,7 @@ import {
   editQueuedIn,
   heldTab,
   type ReplayResult,
+  ResyncRetry,
   removeQueuedIn,
   replayTab,
 } from "../tab-core";
@@ -232,6 +233,10 @@ export class CodexController {
     () => this.restartProgram(true),
     () => this.sendNextQueued(),
     (error) => log.warn(`Codex could not restart after a profile edit: ${String(error)}`),
+  );
+  private readonly resyncRetry = new ResyncRetry(
+    () => !this.disposed && this.state.phase === "held",
+    () => void this.resync(),
   );
   private ready: Promise<boolean> = Promise.resolve(false);
   private handshaking: Promise<boolean> | null = null;
@@ -1389,11 +1394,13 @@ export class CodexController {
     try {
       replay = await this.replay(this.model.lastSeq);
     } catch {
+      this.resyncRetry.failed();
       return;
     }
+    this.resyncRetry.settled();
     if (replay.found) {
       this.update((prev) => ({ ...prev, phase: replay.running ? "ready" : "ended" }));
-      if (replay.running) this.sendNextQueued();
+      this.sendNextQueued();
       if (replay.running && (this.discoverAgents || this.dirtyAgents.size > 0)) {
         this.armSubagentRefresh();
       }
@@ -1414,6 +1421,7 @@ export class CodexController {
       ),
     }));
     this.rejectPending("the program is gone");
+    this.sendNextQueued();
   }
 
   held(): void {
@@ -2317,6 +2325,7 @@ export class CodexController {
     if (this.flushTimer !== null) clearTimeout(this.flushTimer);
     this.disposed = true;
     this.connectionRestart.dispose();
+    this.resyncRetry.stop();
     clearTimeout(this.agentRefresh);
     this.removeReceiver();
     this.leavePlanUsage();

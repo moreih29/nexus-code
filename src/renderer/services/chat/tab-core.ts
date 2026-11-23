@@ -7,6 +7,7 @@ import type { LiveLines } from "./transport/live-lines";
 import { cancelQueuedMessage, type QueuedMessage } from "./transport/queue";
 
 const REPLAY_CATCH_UP_MS = 3_000;
+export const RESYNC_RETRY_MS = [500, 1_000, 2_000, 4_000, 8_000, 15_000, 30_000];
 
 export interface ReplayResult {
   found: boolean;
@@ -65,6 +66,36 @@ async function catchUp(tab: ReplayingTab, replay: ReplayResult): Promise<void> {
 
 export function heldTab(prev: ChatTabState): ChatTabState {
   return prev.phase === "ready" ? { ...prev, phase: "held" } : prev;
+}
+
+export class ResyncRetry {
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private failures = 0;
+
+  constructor(
+    private readonly stillHeld: () => boolean,
+    private readonly resync: () => void,
+  ) {}
+
+  failed(): void {
+    this.stop();
+    const delay = RESYNC_RETRY_MS[Math.min(this.failures, RESYNC_RETRY_MS.length - 1)];
+    this.failures += 1;
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      if (this.stillHeld()) this.resync();
+    }, delay);
+  }
+
+  settled(): void {
+    this.stop();
+    this.failures = 0;
+  }
+
+  stop(): void {
+    if (this.timer !== undefined) clearTimeout(this.timer);
+    this.timer = undefined;
+  }
 }
 
 export function removeQueuedIn(
