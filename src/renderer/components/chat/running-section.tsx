@@ -247,10 +247,10 @@ function Fold({
         )}
       >
         {shown ? (
-          <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
         ) : (
           <ChevronRight
-            className={cn("size-3 shrink-0 text-muted-foreground", empty && "opacity-40")}
+            className={cn("size-3.5 shrink-0 text-muted-foreground", empty && "opacity-40")}
           />
         )}
         <span className="min-w-0 truncate">{label}</span>

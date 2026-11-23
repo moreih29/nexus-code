@@ -5,8 +5,6 @@
 import {
   Ban,
   Check,
-  ChevronDown,
-  ChevronRight,
   CircleStop,
   ListTodo,
   LoaderCircle,
@@ -16,6 +14,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ToolCall } from "../../services/chat/model";
 import { cn } from "../../utils/cn";
+import { ToggleChevron } from "../ui/toggle-chevron";
 import { ChatMarkdown } from "./chat-markdown";
 import { questionKey, readQuestions } from "./permission-card";
 
@@ -226,12 +225,7 @@ export function PlanOutcome({
         <span className="min-w-0 flex-1 truncate text-muted-foreground" title={title}>
           {title}
         </span>
-        {plan &&
-          (open ? (
-            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-          ))}
+        {plan && <ToggleChevron open={open} />}
       </button>
       {reason && (
         <div className="mt-0.5 ml-5 border-l-2 border-border pl-2 whitespace-pre-wrap break-words text-muted-foreground">

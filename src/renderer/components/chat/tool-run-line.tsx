@@ -1,11 +1,12 @@
 // Calls in a row as one line that says what they did, and opens to show
 // each: the main conversation's runs and an agent's own turn alike.
 
-import { Check, ChevronDown, ChevronRight, LoaderCircle } from "lucide-react";
+import { Check, LoaderCircle } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { RunTally } from "../../services/chat/tool-runs";
+import { ToggleChevron } from "../ui/toggle-chevron";
 
 /** The kinds of call a run's line counts, in its order. */
 const RUN_KINDS = ["commands", "reads", "edits", "searches", "others"] as const;
@@ -68,11 +69,7 @@ export function ToolRunLine({
               {t("chat.tool.run.denied", { count: tally.denied })}
             </span>
           )}
-          {open ? (
-            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-          )}
+          <ToggleChevron open={open} />
         </button>
         {beside}
       </div>

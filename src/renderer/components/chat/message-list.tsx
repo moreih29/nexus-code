@@ -90,6 +90,7 @@ import {
 import { ProfileDot, profileName } from "../agent-profiles/profile-badge";
 import { SaveAnswerMenu } from "../notes/save-answer-menu";
 import { IconButton } from "../ui/icon-button";
+import { ToggleChevron } from "../ui/toggle-chevron";
 import { AnswerExtrasView } from "./answer-extras";
 import { ArtifactCard } from "./artifact-card";
 import { ChatAgentContext, useAgentContext } from "./chat-agent";
@@ -1322,7 +1323,7 @@ export function Thinking({ text, live = false }: { text: string; live?: boolean 
       >
         <Brain className={cn("size-3.5", live && "animate-pulse")} />
         <span>{label}</span>
-        {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+        <ToggleChevron open={open} className="text-current" />
       </button>
       {open && (
         <div className="mt-1 ml-5 border-l border-border pl-3 text-app-ui-sm whitespace-pre-wrap break-words italic">

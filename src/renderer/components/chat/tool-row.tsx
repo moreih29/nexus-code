@@ -1,16 +1,7 @@
 // One tool call as a row under its turn: what ran and how it ended, folded
 // by default. Open, an edit shows its patch and a command its output.
 
-import {
-  Ban,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  CircleStop,
-  Layers2,
-  LoaderCircle,
-  X,
-} from "lucide-react";
+import { Ban, Check, CircleStop, Layers2, LoaderCircle, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { imageFileOf } from "../../services/chat/image-look";
@@ -22,6 +13,7 @@ import {
   type ToolRowStatuses,
 } from "../../services/chat/running";
 import { cn } from "../../utils/cn";
+import { ToggleChevron } from "../ui/toggle-chevron";
 import { ChatImage, ToolThumbs } from "./chat-image";
 import { Highlighted, highlightCode, languageOf } from "./code-highlight";
 
@@ -123,11 +115,7 @@ export function ToolRow({ tool, toolUseId, tools, toolStatuses, cwd, onBackgroun
               {t("chat.tool.subagent_calls", { count: children.length })}
             </span>
           )}
-          {open ? (
-            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-          )}
+          <ToggleChevron open={open} />
         </button>
         {/* Beside the line, not in it: a thumbnail opens its image, not the call. */}
         <ToolThumbs calls={[tool]} />
