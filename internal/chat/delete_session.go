@@ -29,16 +29,17 @@ func (s *Service) DeleteSession(_ context.Context, raw json.RawMessage) (any, er
 		return DeleteSessionResult{Deleted: false}, nil
 	}
 	deleted := false
-	for _, project := range claudeProjectFoldersFor(claudefiles.ProjectsDir(dir), p.Cwd) {
+	projects := claudefiles.ProjectsDir(dir)
+	for _, project := range claudeProjectFoldersFor(projects, p.Cwd) {
 		transcript := filepath.Join(project, p.SessionID+".jsonl")
 		if _, ok := claudefiles.RegularFile(transcript); !ok {
 			continue
 		}
-		if err := os.Remove(transcript); err != nil {
+		if err := claudefiles.Remove(projects, transcript); err != nil {
 			return nil, proto.RequestFailed("chat.deleteSession: the transcript could not be removed: %s", proto.Reason(err))
 		}
 		deleted = true
-		_ = os.RemoveAll(filepath.Join(project, p.SessionID))
+		_ = claudefiles.RemoveAll(projects, filepath.Join(project, p.SessionID))
 	}
 	if !deleted {
 		return DeleteSessionResult{Deleted: false}, nil

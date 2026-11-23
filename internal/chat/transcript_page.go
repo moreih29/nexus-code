@@ -161,7 +161,7 @@ func (s *Service) readTranscriptPage(ctx context.Context, p transcriptPageParams
 	if path == "" {
 		return page, nil
 	}
-	file, info, err := claudefiles.Open(path, found)
+	file, info, err := claudefiles.Open(claudefiles.ProjectsDir(dir), path, found)
 	if err != nil {
 		if snapshot != nil && (os.IsNotExist(err) || errors.Is(err, claudefiles.ErrNotFoundFile)) {
 			return page, errStaleTranscriptCursor

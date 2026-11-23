@@ -25,11 +25,12 @@ func (s *Service) Transcript(_ context.Context, raw json.RawMessage) (any, error
 	if !sessionIDPattern.MatchString(p.SessionID) {
 		return nil, proto.ProtocolError("chat.transcript sessionId is not a session id")
 	}
-	path, info := claudefiles.FindSession(configDir(p.ConfigDir), p.SessionID)
+	dir := configDir(p.ConfigDir)
+	path, info := claudefiles.FindSession(dir, p.SessionID)
 	if path == "" {
 		return TranscriptResult{Found: false, Lines: []json.RawMessage{}}, nil
 	}
-	lines, truncated, err := readJSONLines(path, info, transcriptCapBytes)
+	lines, truncated, err := readJSONLines(claudefiles.ProjectsDir(dir), path, info, transcriptCapBytes)
 	if err != nil {
 		return nil, proto.RequestFailed("chat.transcript: the transcript could not be read")
 	}
@@ -50,11 +51,12 @@ func (s *Service) SubagentTranscript(_ context.Context, raw json.RawMessage) (an
 	if p.AgentID == "" && p.ToolUseID == "" {
 		return nil, proto.ProtocolError("chat.subagentTranscript needs an agentId or a toolUseId")
 	}
-	path, info := findSubagent(configDir(p.ConfigDir), p.SessionID, p.AgentID, p.ToolUseID)
+	dir := configDir(p.ConfigDir)
+	path, info := findSubagent(dir, p.SessionID, p.AgentID, p.ToolUseID)
 	if path == "" {
 		return SubagentTranscriptResult{Found: false, Lines: []json.RawMessage{}}, nil
 	}
-	lines, truncated, err := readJSONLinesWhere(path, info, transcriptCapBytes, isMessageLine)
+	lines, truncated, err := readJSONLinesWhere(claudefiles.ProjectsDir(dir), path, info, transcriptCapBytes, isMessageLine)
 	if err != nil {
 		return nil, proto.RequestFailed("chat.subagentTranscript: the transcript could not be read")
 	}
@@ -110,12 +112,12 @@ func configDir(given string) string {
 	return defaultProfileDir("claude", home)
 }
 
-func readJSONLines(path string, want os.FileInfo, limit int64) ([]json.RawMessage, bool, error) {
-	return readJSONLinesWhere(path, want, limit, nil)
+func readJSONLines(projects, path string, want os.FileInfo, limit int64) ([]json.RawMessage, bool, error) {
+	return readJSONLinesWhere(projects, path, want, limit, nil)
 }
 
-func readJSONLinesWhere(path string, want os.FileInfo, limit int64, keep func(json.RawMessage) bool) ([]json.RawMessage, bool, error) {
-	file, info, err := claudefiles.Open(path, want)
+func readJSONLinesWhere(projects, path string, want os.FileInfo, limit int64, keep func(json.RawMessage) bool) ([]json.RawMessage, bool, error) {
+	file, info, err := claudefiles.Open(projects, path, want)
 	if err != nil {
 		return nil, false, err
 	}
