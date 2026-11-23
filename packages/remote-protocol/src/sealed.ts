@@ -33,6 +33,7 @@ export const CAPABILITIES = [
   "push",
   "system.stats",
   "chat.peek",
+  "profiles.usage.people",
 ] as const;
 export const CapabilitySchema = z.string();
 export type Capability = (typeof CAPABILITIES)[number];

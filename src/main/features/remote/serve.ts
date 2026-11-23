@@ -258,7 +258,6 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     const agentOnly =
       method === "settings.instructions" ||
       method === "settings.instructions.set" ||
-      method === "profiles.usage" ||
       method === "notes.voiceNames.delete";
     if (agentOnly && !by)
       throw new RpcFailure(RpcErrorCode.Forbidden, "an agent sender is required");

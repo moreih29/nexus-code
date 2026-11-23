@@ -230,7 +230,7 @@ describe("an agent's request whose device waits for the user", () => {
   });
 });
 
-test("profile usage follows the receiving device's agent read policy", async () => {
+test("profile usage follows the receiving device's agent read policy, and people read it too", async () => {
   const calls: [string, unknown][] = [];
   const s = {
     ...services(),
@@ -245,7 +245,8 @@ test("profile usage follows the receiving device's agent read policy", async () 
   const from = { workspaceId: "other-workspace", tabId: "other-tab", kind: "tab" };
   const request = { from: "d", method: "profiles.usage" as const, params };
   expect(servesWith(false, false, true)).toContain("profiles.usage");
-  await expect(serve(request)).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+  expect(servesWith(false)).toContain("profiles.usage.people");
+  await expect(serve(request)).resolves.toEqual({ profiles: [] });
   await expect(serve({ ...request, params: { ...params, from } })).resolves.toEqual({
     profiles: [],
   });
@@ -253,7 +254,49 @@ test("profile usage follows the receiving device's agent read policy", async () 
   await expect(serve({ ...request, params: { ...params, from } })).rejects.toMatchObject({
     code: RpcErrorCode.Forbidden,
   });
-  expect(calls).toEqual([["chat.usage", params]]);
+  expect(calls).toEqual([
+    ["chat.usage", params],
+    ["chat.usage", params],
+  ]);
+});
+
+test("people read profile usage without agents and without the agent policy", async () => {
+  const calls: [string, unknown][] = [];
+  const usage = {
+    profiles: [
+      {
+        id: "p1",
+        name: "Work",
+        agent: "claude",
+        status: "fresh",
+        fetchedAt: 10,
+        limits: [{ kind: "five_hour", percent: 12, resetsAt: 99, fetchedAt: 10, stale: false }],
+      },
+    ],
+  };
+  const s = {
+    ...services(),
+    ui: async (op: string, args: unknown) => {
+      calls.push([op, args]);
+      return usage;
+    },
+  } as CliServices;
+  const serve = serveWith(() => s, { agents: new AgentGate({ policy: () => "deny" }) });
+  const result = await serve({
+    from: "phone",
+    method: "profiles.usage",
+    params: { agent: "claude", refresh: true },
+  });
+  expect(result).toEqual(usage);
+  expect(RPC_METHODS["profiles.usage"].result.parse(result)).toEqual(usage);
+  expect(calls).toEqual([["chat.usage", { agent: "claude", refresh: true }]]);
+  await expect(
+    serveWith(() => s)({
+      from: "phone",
+      method: "profiles.usage",
+      params: { workspaceId: "nope" },
+    }),
+  ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
 });
 
 describe("the sessions list's renderer deadline", () => {

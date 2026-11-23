@@ -23,6 +23,7 @@ export const SERVES: readonly Capability[] = [
   "push",
   "system.stats",
   "chat.peek",
+  "profiles.usage.people",
 ];
 
 export function servesWith(
