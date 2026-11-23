@@ -44,6 +44,7 @@ import {
   agentTabController,
 } from "../chat/agent-tab";
 import { conversationMarkdown } from "../chat/app-commands";
+import { attachRootOf, inAttachFolder } from "../chat/attach-folders";
 import { existingChatController, type ForkPoint } from "../chat/claude/controller";
 import { borrowedClaudeModels, useClaudeModelCatalog } from "../chat/claude/model-catalog";
 import { firstVersionOf } from "../chat/claude/versions";
@@ -857,6 +858,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       .getState()
       .workspaces.find((w) => w.id === workspaceId)?.rootPath;
     const files = new Set<string>();
+    const attachRoot = root ? await attachRootOf(workspaceId) : null;
     for (const tab of Object.values(useTabsStore.getState().byWorkspace[workspaceId] ?? {})) {
       if (tab.type !== "claude" && tab.type !== "codex") continue;
       const chat = useChatStore.getState().tabs[chatKey(workspaceId, tab.id)];
@@ -870,9 +872,13 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         const path = jobOutputFile(job, tools);
         if (path) files.add(path);
       }
-      // As the tab's own previews read them (outsideLinksOf), its HTML files' folders aside.
+      // As the tab's own previews read them (outsideLinksOf), its HTML files' folders aside;
+      // of the images the user attached, only those the agent wrote for the tab: a device that
+      // sends a message names in it whatever path it likes.
+      const attached = (file: string) =>
+        attachRoot !== null && inAttachFolder(attachRoot, workspaceId, tab.id, file);
       if (root)
-        for (const file of outsideLinksOf(items, tools, tab.props.cwd, root).files) {
+        for (const file of outsideLinksOf(items, tools, tab.props.cwd, root, [], attached).files) {
           files.add(file);
         }
     }

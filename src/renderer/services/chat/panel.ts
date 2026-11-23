@@ -2,7 +2,9 @@
 // the agents and tasks the CLI reports, the to-do list Claude keeps, the
 // files it changed, and what its replies point at.
 
+import { RELAY_MARK } from "../../../shared/chat/relay";
 import type { AgentRun } from "../../../shared/claude/activity";
+import { splitAttachments } from "./composer-input";
 import { imageFileOf, type ShownImage } from "./image-look";
 import { linkPlaceIndex, linkPlaces } from "./link-places";
 import { fileKind, isUnder, resolveFilePath, slashWindowsPath } from "./links";
@@ -594,6 +596,31 @@ export function distinctResults(
   return out;
 }
 
+/**
+ * The image files a message the user sent attached (the mentions of its
+ * last paragraph, splitAttachments), by absolute path from `cwd`. None
+ * while it goes to another device, whose chips name no path yet, nor in a
+ * message another agent sent through the nexus command (its first line
+ * RELAY_MARK's): what it names, that agent wrote, and the user attached
+ * nothing to it.
+ */
+export function attachedImagesOf(item: UserItem, cwd: string): string[] {
+  if (item.optimistic || item.text.startsWith(RELAY_MARK)) return [];
+  return splitAttachments(item.text).files.flatMap((named) => {
+    const path = resolveFilePath(named, cwd);
+    return path && fileKind(path) === "image" ? [path] : [];
+  });
+}
+
+/** The image files the user attached to the conversation's messages (attachedImagesOf), each once. */
+export function attachedImagesIn(items: readonly ChatItem[], cwd: string): string[] {
+  const files = new Set<string>();
+  for (const item of items) {
+    if (item.kind === "user") for (const file of attachedImagesOf(item, cwd)) files.add(file);
+  }
+  return [...files];
+}
+
 /** Most agents within agents whose images are looked for. */
 const MAX_AGENT_DEPTH = 4;
 
@@ -603,39 +630,48 @@ const LOOK_TOOLS = new Set(["Read", "ViewImage"]);
 /**
  * Every image a conversation shows, each once (each read of a file its own),
  * in the order it came: the
- * ones the user pasted, the ones its tools gave (as the file a Read of one
+ * ones the user pasted or attached, the ones its tools gave (as the file a Read of one
  * took, its data kept for when the file is gone), and the image files it
  * sent the user, wrote new, or showed or pointed at in a reply, as
  * resultsOf takes them. An agent's images come where it was called
- * (`agentItems`, by the call's id).
+ * (`agentItems`, by the call's id). An image file the conversation shows
+ * in full where it names it (placedImages: sent the user, or ![alt](path)
+ * in a reply) is `placed`, as one the user attached is where `served` lets
+ * it (another computer's tab: those that computer serves). Any other is
+ * looked up: the agent removes a tab's attached files as the tab closes.
  */
 export function imagesOf(
   items: readonly ChatItem[],
   tools: Record<string, ToolCall>,
   cwd: string,
   agentItems: Readonly<Record<string, readonly ChatItem[]>> = {},
+  served: (attached: string) => boolean = () => false,
 ): ShownImage[] {
   const out: ShownImage[] = [];
   const byFile = new Map<string, number>();
   const seen = new Set<ImageBlock>();
   const touched = touchedFiles(tools, cwd);
-  const addFile = (named: string, image?: ImageBlock) => {
+  /** `placed`: the image files the part naming it shows in full. */
+  const addFile = (named: string, image?: ImageBlock, placed?: ReadonlySet<string>) => {
     const file = resolveFilePath(named, cwd);
     if (!file || fileKind(file) !== "image") return;
     if (image) {
       if (seen.has(image)) return;
       seen.add(image);
     }
+    const shows = placed?.has(file) === true;
     const at = byFile.get(file);
     if (at === undefined) {
       byFile.set(file, out.length);
-      out.push(image ? { file, image } : { file });
+      out.push(image ? { file, image } : { file, ...(shows ? { placed: true } : {}) });
     } else if (image && !out[at].image) {
-      out[at] = { file, image };
+      out[at] = { ...out[at], image };
     } else if (image) {
       // Another read of the same file, which gave another image.
       byFile.set(file, out.length);
       out.push({ file, image });
+    } else if (shows && !out[at].placed) {
+      out[at] = { ...out[at], placed: true };
     }
   };
   const addData = (image: ImageBlock) => {
@@ -647,12 +683,19 @@ export function imagesOf(
     for (const item of items) {
       if (item.kind === "user") {
         for (const image of item.images) addData(image);
+        // A chip served shows the file, as a card does: no lookup decides whether it stays.
+        const attached = attachedImagesOf(item, cwd);
+        const placed = new Set(attached.filter(served));
+        for (const file of attached) addFile(file, undefined, placed);
         continue;
       }
       if (item.kind !== "assistant") continue;
       for (const block of item.blocks) {
         if (block.type === "text") {
-          for (const named of filesNamedIn(block.text, cwd, touched)) addFile(named);
+          const placed = new Set(placedImages(block, tools, cwd));
+          for (const named of filesNamedIn(block.text, cwd, touched)) {
+            addFile(named, undefined, placed);
+          }
           continue;
         }
         const tool = block.type === "tool" ? tools[block.toolUseId] : undefined;
@@ -665,7 +708,8 @@ export function imagesOf(
         }
         // A Codex ViewImage gives no data back: the file is the image it looked at.
         if (read && given.length === 0 && LOOK_TOOLS.has(tool.name)) addFile(read);
-        for (const file of sentFilesOf(tool)) addFile(file);
+        const sent = new Set(placedImages(block, tools, cwd));
+        for (const file of sentFilesOf(tool)) addFile(file, undefined, sent);
         const written = str(rec(tool.input)?.file_path);
         if (tool.name === "Write" && tool.status === "done" && written) {
           if (rec(tool.result?.structured)?.type === "create") addFile(written);
@@ -894,9 +938,10 @@ export const MAX_OUTSIDE_DIRS = 200;
 /**
  * The files outside the workspace (`root`) that a session names: the ones
  * its tools took, its replies point at (a relative path at each place it
- * may name, link-places), and `looked` (opened from the tab otherwise). An
- * HTML file's folder comes too, unless it holds the workspace, as the home
- * folder does.
+ * may name, link-places), the images the user attached to a message (those
+ * `attached` lets, when given), and `looked` (opened from the tab
+ * otherwise). An HTML file's folder comes too, unless it holds the
+ * workspace, as the home folder does.
  */
 export function outsideLinksOf(
   items: ChatItem[],
@@ -904,6 +949,7 @@ export function outsideLinksOf(
   cwd: string,
   root: string,
   looked: readonly string[] = [],
+  attached?: (file: string) => boolean,
 ): OutsideLinks {
   if (!root) return { files: [], dirs: [] };
   const named = new Set<string>(looked);
@@ -914,6 +960,11 @@ export function outsideLinksOf(
       const abs = resolveFilePath(file, cwd);
       if (abs) named.add(abs);
     }
+  }
+  // An image the user attached to a message opens in quick look among the others.
+  for (const item of items) {
+    if (item.kind !== "user") continue;
+    for (const file of attachedImagesOf(item, cwd)) if (attached?.(file) ?? true) named.add(file);
   }
   const places = linkPlaceIndex(tools, cwd);
   for (const result of resultsOf(items, {}, cwd, touchedFiles(tools, cwd))) {

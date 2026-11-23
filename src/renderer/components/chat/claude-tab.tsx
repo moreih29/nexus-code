@@ -11,6 +11,7 @@ import { useStableHandlers } from "../../hooks/use-stable-handlers";
 import { placeLocalFile, showHeldLocalFile } from "../../services/agent-view/file-tabs";
 import { claudeTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
+import { attachedOpens } from "../../services/chat/attach-folders";
 import { useStateBesideStream } from "../../services/chat/beside-stream";
 import { configCommandOf } from "../../services/chat/claude/config";
 import {
@@ -25,7 +26,7 @@ import {
   useClaudeModelCatalog,
 } from "../../services/chat/claude/model-catalog";
 import { runAppCommand } from "../../services/chat/claude/run-command";
-import { filesThere } from "../../services/chat/file-presence";
+import { filesThere, useGoneFiles } from "../../services/chat/file-presence";
 import {
   imageLook,
   latestReadFile,
@@ -51,6 +52,7 @@ import {
 import {
   agentsOf,
   agentTranscript,
+  attachedImagesIn,
   changedFilesOf,
   imagesOf,
   jobOutputFiles,
@@ -460,6 +462,13 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     () => () => grantOutside(workspaceId, tabId, { files: [], dirs: [] }),
     [workspaceId, tabId],
   );
+  // The agent removes a tab's attached files as it closes: in a conversation gone on in a new
+  // tab, their chips only name them.
+  const attached = useMemo(
+    () => attachedImagesIn(history ? [...history.items, ...liveItems] : liveItems, props.cwd),
+    [history, liveItems, props.cwd],
+  );
+  const goneAttached = useGoneFiles(workspaceId, rootPath, attached);
   const latest = useRef({ state, place, rootPath, outside });
   latest.current = { state, place, rootPath, outside };
   // biome-ignore lint/correctness/useExhaustiveDependencies: the tab's state is read from `latest` when a link is followed
@@ -508,6 +517,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       );
     };
     return {
+      opensAttached: attachedOpens(goneAttached, cwd),
       openFile(target) {
         follow(target, ({ path, ...line }) => {
           grant(path);
@@ -567,7 +577,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         }
       },
     };
-  }, [workspaceId, tabId]);
+  }, [workspaceId, tabId, goneAttached]);
 
   // Claude Code's settings (/config), and the one a command opened them at.
   const [config, setConfig] = useState<{ focus?: string } | null>(null);

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { applyLines } from "../../../../../src/renderer/services/chat/claude/stream-model";
+import { lookAtImage } from "../../../../../src/renderer/services/chat/image-look";
 import { resultFiles } from "../../../../../src/renderer/services/chat/links";
 import {
   type ChatItem,
@@ -13,6 +14,8 @@ import {
   agentsOf,
   agentTranscript,
   answerExtras,
+  attachedImagesIn,
+  attachedImagesOf,
   changedFilesOf,
   contextOf,
   distinctResults,
@@ -29,6 +32,7 @@ import {
   todosOf,
   usageLimitsOf,
 } from "../../../../../src/renderer/services/chat/panel";
+import { type RelaySender, relayedText } from "../../../../../src/shared/chat/relay";
 
 // Lines shaped as Claude Code 2.1.318 sent them for a turn that made two
 // to-dos, ran `sleep` in the background and an async general-purpose agent.
@@ -931,5 +935,185 @@ describe("imagesOf", () => {
     const a = image("a");
     const shown = imagesOf([turn(["t1", "t1"])], { t1: read("t1", [a]) }, "/tmp");
     expect(shown).toHaveLength(1);
+  });
+});
+
+describe("imagesOf, the images a chat shows in full", () => {
+  const image = (data: string): ImageBlock => ({ mediaType: "image/png", data });
+  const tool = (id: string, name: string, input: unknown, images: ImageBlock[] = []): ToolCall =>
+    ({ id, name, status: "done", input, result: { text: "", isError: false, images } }) as ToolCall;
+  const turn = (blocks: unknown[]): ChatItem =>
+    ({ kind: "assistant", blocks }) as unknown as ChatItem;
+
+  test("marks the files sent to the user and shown in a reply as placed, not one only linked", () => {
+    const tree = image("tree");
+    const tools = {
+      r: tool("r", "Read", { file_path: "/tmp/s/tree.png" }, [tree]),
+      s: tool("s", "SendUserFile", { files: ["/tmp/s/tree.png", "/tmp/s/top.png"] }),
+    };
+    const shown = imagesOf(
+      [
+        turn([
+          { type: "tool", toolUseId: "r" },
+          { type: "tool", toolUseId: "s" },
+          { type: "text", text: "![x](/tmp/s/shown.png) and [y](/tmp/s/linked.png)" },
+        ]),
+      ],
+      tools,
+      "/ws",
+    );
+    expect(shown).toEqual([
+      // Read, then sent: shown from its data.
+      { file: "/tmp/s/tree.png", image: tree, placed: true },
+      { file: "/tmp/s/top.png", placed: true },
+      { file: "/tmp/s/shown.png", placed: true },
+      { file: "/tmp/s/linked.png" },
+    ]);
+  });
+
+  test("places a file linked first once a later part shows it, where it first came", () => {
+    const tools = { s: tool("s", "SendUserFile", { files: ["/tmp/s/a.png"] }) };
+    const shown = imagesOf(
+      [
+        turn([
+          { type: "text", text: "[a](/tmp/s/a.png)" },
+          { type: "tool", toolUseId: "s" },
+        ]),
+      ],
+      tools,
+      "/ws",
+    );
+    expect(shown).toEqual([{ file: "/tmp/s/a.png", placed: true }]);
+  });
+
+  test("does not place what a send not yet done names", () => {
+    const sending = {
+      ...tool("s", "SendUserFile", { files: ["/tmp/s/a.png"] }),
+      status: "running",
+    };
+    const shown = imagesOf(
+      [turn([{ type: "tool", toolUseId: "s" }])],
+      { s: sending as ToolCall },
+      "/ws",
+    );
+    expect(shown).toEqual([{ file: "/tmp/s/a.png" }]);
+  });
+});
+
+describe("images the user attached to a message", () => {
+  const image = (data: string): ImageBlock => ({ mediaType: "image/png", data });
+  const user = (text: string, images: ImageBlock[] = [], extra: object = {}): ChatItem =>
+    ({ kind: "user", key: text, text, images, state: "taken", ...extra }) as ChatItem;
+  const readCall = (id: string, path: string, images: ImageBlock[]): ToolCall =>
+    ({
+      id,
+      name: "Read",
+      status: "done",
+      input: { file_path: path },
+      result: { text: "", isError: false, images },
+    }) as ToolCall;
+  const turn = (ids: string[]): ChatItem =>
+    ({
+      kind: "assistant",
+      blocks: ids.map((toolUseId) => ({ type: "tool", toolUseId })),
+    }) as unknown as ChatItem;
+
+  test("are its last paragraph's mentions of image files, from the chat's folder", () => {
+    const sent = user(
+      'look\n\n@/tmp/a/big.png @shots/b.webp @"/tmp/a/my shot.png" @/tmp/a/notes.txt',
+    );
+    expect(attachedImagesOf(sent as never, "/ws")).toEqual([
+      "/tmp/a/big.png",
+      "/ws/shots/b.webp",
+      "/tmp/a/my shot.png",
+    ]);
+    // A mention in the text is no attachment, nor one a message going to another device names.
+    expect(attachedImagesOf(user("see @/tmp/a/big.png here") as never, "/ws")).toEqual([]);
+    const going = user("@/tmp/a/big.png", [], { optimistic: { fileNames: ["big.png"] } });
+    expect(attachedImagesOf(going as never, "/ws")).toEqual([]);
+  });
+
+  test("come in quick look's list where the message is, after its pasted ones", () => {
+    const [pasted, before, after] = [image("p"), image("b"), image("a")];
+    const tools = {
+      r1: readCall("r1", "/tmp/a/first.png", [before]),
+      r2: readCall("r2", "/tmp/a/last.png", [after]),
+    };
+    const shown = imagesOf(
+      [turn(["r1"]), user("here\n\n@/tmp/a/big.png @/tmp/a/notes.txt", [pasted]), turn(["r2"])],
+      tools,
+      "/ws",
+    );
+    expect(shown).toEqual([
+      { file: "/tmp/a/first.png", image: before },
+      { image: pasted },
+      { file: "/tmp/a/big.png" },
+      { file: "/tmp/a/last.png", image: after },
+    ]);
+  });
+
+  // As the model holds a message another agent sent through the nexus command: the user's, its
+  // first line the one that says who sent it (withRelayed shows it as received only on screen).
+  const tab: RelaySender = { kind: "tab", agent: "claude", name: "Other", tabId: "t2" };
+  const relayed = (text: string) => user(relayedText(tab, text));
+
+  test("in a chat here, are looked up: one there keeps its place, one removed with its tab is left out", async () => {
+    const [before, after] = [image("b"), image("a")];
+    const tools = {
+      r1: readCall("r1", "/tmp/a/first.png", [before]),
+      r2: readCall("r2", "/tmp/a/last.png", [after]),
+    };
+    const kept = "/h/.nexus-code/attach/w1/c1/1/kept.png";
+    const removed = "/h/.nexus-code/attach/w1/old/1/removed.png";
+    const items = [turn(["r1"]), user(`@${removed}`), user(`see\n\n@${kept}`), turn(["r2"])];
+    const shown = imagesOf(items, tools, "/ws");
+    expect(attachedImagesIn(items, "/ws")).toEqual([removed, kept]);
+    const asked: string[][] = [];
+    const look = await lookAtImage(
+      shown,
+      { file: "/tmp/a/last.png", image: after },
+      async (files) => {
+        asked.push(files);
+        return new Set([kept]);
+      },
+    );
+    expect(asked).toEqual([[removed, kept]]);
+    expect(look?.files).toEqual(["image:1", kept, "image:2"]);
+    expect(look?.index).toBe(2);
+  });
+
+  test("are placed only where `served` says the files are served, as another computer's are", () => {
+    const ours = "/h/.nexus-code/attach/w1/c1/1/shot.png";
+    const items = [user(`@${ours} @/Users/me/Desktop/dropped.png`)];
+    expect(imagesOf(items, {}, "/ws", {}, (file) => file === ours)).toEqual([
+      { file: ours, placed: true },
+      { file: "/Users/me/Desktop/dropped.png" },
+    ]);
+  });
+
+  test("are none in a message another agent sent, whatever it names", () => {
+    for (const text of ["look\n\n@/tmp/x.png", "@/etc/a.png"]) {
+      expect(attachedImagesOf(relayed(text) as never, "/ws")).toEqual([]);
+    }
+    const shown = imagesOf([relayed("look\n\n@/tmp/x.png"), user("@/tmp/a/big.png")], {}, "/ws");
+    expect(shown).toEqual([{ file: "/tmp/a/big.png" }]);
+  });
+
+  test("are granted to the previews, and only they: not other attachments or others' messages", () => {
+    const items = [
+      user("@/tmp/a/big.png @/tmp/a/notes.txt"),
+      user("@/ws/inside.png"),
+      relayed("look\n\n@/tmp/x.png"),
+      relayed("@/etc/a.png"),
+    ];
+    expect(outsideLinksOf(items, {}, "/ws", "/ws").files).toEqual(["/tmp/a/big.png"]);
+  });
+
+  test("are granted, where another device reads them, only as `attached` lets them", () => {
+    const ours = "/Users/me/.nexus-code/attach/w1/c1/1/shot.png";
+    const items = [user(`@${ours}`), user("@/tmp/a/big.png")];
+    const tools = { r1: readCall("r1", "/tmp/a/read.png", [image("r")]) };
+    const files = outsideLinksOf(items, tools, "/ws", "/ws", [], (file) => file === ours).files;
+    expect(files.sort()).toEqual([ours, "/tmp/a/read.png"].sort());
   });
 });

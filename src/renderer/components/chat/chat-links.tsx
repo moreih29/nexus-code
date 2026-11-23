@@ -43,6 +43,12 @@ export interface ChatLinks {
    * user gave it, in quick look among the conversation's images.
    */
   openImages: (images: readonly ImageBlock[], index: number) => void;
+  /**
+   * Whether quick look can open a file the user attached, as written: in
+   * another computer's chat, only one that computer serves. Every one when
+   * absent, as in a chat here.
+   */
+  opensAttached?: (target: string) => boolean;
   /** Shows a file the session changed in quick look, alone, as a diff. */
   openChange: (path: string) => void;
   /**

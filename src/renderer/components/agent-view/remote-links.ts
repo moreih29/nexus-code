@@ -11,6 +11,7 @@ import { remoteFileKey } from "../../../shared/fs/remote-file-key";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { showHeldRemoteFile } from "../../services/agent-view/file-tabs";
 import { remoteSessionKey } from "../../services/agent-view/layout";
+import { attachShaped, servedAttachment } from "../../services/chat/attach-folders";
 import type { ChatFiles } from "../../services/chat/chat-files";
 import {
   imageLook,
@@ -19,7 +20,12 @@ import {
   type ShownImage,
 } from "../../services/chat/image-look";
 import { findLinkPlace, linkPlaceIndex, linkPlaces } from "../../services/chat/link-places";
-import { type FileLink, fileKind, isLocalAddress } from "../../services/chat/links";
+import {
+  type FileLink,
+  fileKind,
+  isLocalAddress,
+  resolveFilePath,
+} from "../../services/chat/links";
 import type { ChatModel } from "../../services/chat/model";
 import { changedFilesOf, imagesOf } from "../../services/chat/panel";
 import { readRemoteFileBefore } from "../../services/remote/file-comparison";
@@ -69,7 +75,11 @@ export function useRemoteLinks(
     /** Quick look over the conversation's images, at `target`; `alone` when it is not among them. */
     const lookAt = (image: ShownImage, alone?: () => QuickLookList) => {
       const { model } = latest.current;
-      const shown = imagesOf(model.items, model.tools, cwd, model.agentItems);
+      // That computer serves only the attached files its agent wrote for the tab; others wait
+      // on a lookup, as an image only named does.
+      const shown = imagesOf(model.items, model.tools, cwd, model.agentItems, (file) =>
+        attachShaped(peerWorkspace, tabId, file),
+      );
       // The last read of a file a panel holds selects the panel; an earlier one shows as it was read.
       const held = image.image ? latestReadFile(shown, image) : undefined;
       if (held) {
@@ -110,6 +120,10 @@ export function useRemoteLinks(
     };
     return {
       openFile,
+      opensAttached(written) {
+        const file = resolveFilePath(written, cwd);
+        return file !== null && servedAttachment(peerWorkspace, tabId, workspaceRoot, file);
+      },
       openBeside:
         placeFile ??
         ((path, { at, before, mode, compare }) => {

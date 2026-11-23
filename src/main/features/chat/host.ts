@@ -91,6 +91,8 @@ export interface ChatWorkspaceManager {
   getWrapperAgentBin(workspaceId: string): string | null;
   getWrapperShimDir(workspaceId: string): string | null;
   isLocal?(workspaceId: string): boolean;
+  /** The workspace's agent channel only while it is up: an SSH host is not dialed. */
+  peekAgentChannel?(workspaceId: string): Promise<AgentChannel | null>;
 }
 
 export interface ChatHostOptions {
@@ -176,6 +178,8 @@ export class ChatHost {
   private readonly closingTabs = new Map<string, Promise<unknown>>();
   /** Workspaces whose tabs have started a program through this host. */
   private readonly workspaces = new Set<string>();
+  /** What each agent connection answered chat.attachRoot with: asked once a connection. */
+  private readonly attachRoots = new WeakMap<AgentChannel, Promise<string | null>>();
   private readonly disposeProviderReady: () => void;
   private disposed = false;
 
@@ -655,6 +659,36 @@ export class ChatHost {
     const { workspaceId, tabId } = args as { workspaceId: string; tabId: string };
     if (method === "close") return this.closeTab(workspaceId, tabId);
     return (await this.channelFor(workspaceId)).call(`chat.${method}`, args);
+  }
+
+  /**
+   * Where the workspace's agent writes the files attached to a message, as
+   * the agent tells it (chat.attachRoot): it alone knows its NEXUS_CODE_HOME
+   * and home folder, on whatever host. Null with no agent up (an SSH host
+   * is not dialed for it), from an agent too old to tell, or when asking
+   * fails; asked again on the next connection, or after a failure.
+   */
+  async attachRoot(workspaceId: string): Promise<string | null> {
+    const channel = await this.options.workspaceManager
+      .peekAgentChannel?.(workspaceId)
+      .catch(() => null);
+    if (!channel) return null;
+    const known = this.attachRoots.get(channel);
+    if (known) return known;
+    const asked = channel.ready
+      .then(() => channel.call<{ root?: unknown }>("chat.attachRoot", {}))
+      .then(
+        (result) => (typeof result?.root === "string" && result.root !== "" ? result.root : null),
+        (error: unknown) => {
+          // An agent too old to tell stays so for the connection; anything else is asked again.
+          if ((error as { code?: unknown } | null)?.code !== "unsupported-method") {
+            this.attachRoots.delete(channel);
+          }
+          return null;
+        },
+      );
+    this.attachRoots.set(channel, asked);
+    return asked;
   }
 
   async transcript(workspaceId: string, sessionId: string, profileId?: string): Promise<unknown> {

@@ -1144,6 +1144,16 @@ const coreIpcContract = {
         }),
         z.object({ path: z.string() }),
       ),
+      /**
+       * The folder the workspace's agent writes attached files in, on its
+       * host, as the agent tells it (chat.attachRoot):
+       * <workspaceId>/<tabId>/<n>/<name> below it. Null with no agent up
+       * (an SSH host is not dialed for it) or one too old to tell.
+       */
+      attachRoot: call(
+        z.object({ workspaceId: WorkspaceIdPrimitive }),
+        z.object({ root: z.string().nullable() }),
+      ),
       /** Removes the attached files of the workspace's Claude tabs that are no longer open. */
       pruneAttachments: call(
         z.object({
