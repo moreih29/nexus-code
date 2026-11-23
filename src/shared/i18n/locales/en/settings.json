@@ -380,7 +380,7 @@
         "worktreeNew": "Create the task \"{{detail}}\"",
         "worktreeRemove": "Delete the task and its worktree folder",
         "worktreeRemoveBranch": "Delete the task, its worktree folder and its branch",
-        "workspaceRemove": "Remove the workspace and its tasks from the app, leaving their folders",
+        "workspaceRemove": "Remove the workspace from the app, keeping its folders",
         "workspaceEdit": "Rename the workspace or change its color",
         "workspacePin": "Pin or unpin the workspace",
         "workspaceMove": "Move the workspace in the sidebar",
