@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 const (
@@ -52,11 +54,11 @@ var errRunOutputLimit = errors.New("chat.run exceeded its output limit")
 
 func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p runParams
-	if err := decodeParams(raw, &p, "chat.run params must include runId, cwd and program"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.run params must include runId, cwd and program"); err != nil {
 		return nil, err
 	}
 	if !validRunID(p.RunID) || !filepath.IsAbs(p.Program) || !filepath.IsAbs(p.Cwd) {
-		return nil, protocolError("chat.run requires a runId and absolute program and cwd")
+		return nil, proto.ProtocolError("chat.run requires a runId and absolute program and cwd")
 	}
 	timeout := runTimeout
 	if p.TimeoutMs > 0 && p.TimeoutMs < int(runTimeout/time.Millisecond) {
@@ -71,7 +73,7 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 	s.mu.Lock()
 	if s.closed || s.runs[key] != nil {
 		s.mu.Unlock()
-		return nil, protocolError("chat.run ID is already running or the service is closed")
+		return nil, proto.ProtocolError("chat.run ID is already running or the service is closed")
 	}
 	if expires, ok := s.earlyRunCancels[key]; ok {
 		delete(s.earlyRunCancels, key)
@@ -137,11 +139,11 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 
 func (s *Service) CancelRun(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p runID
-	if err := decodeParams(raw, &p, "chat.cancelRun params must include runId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.cancelRun params must include runId"); err != nil {
 		return nil, err
 	}
 	if !validRunID(p.RunID) {
-		return nil, protocolError("chat.cancelRun runId is required")
+		return nil, proto.ProtocolError("chat.cancelRun runId is required")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

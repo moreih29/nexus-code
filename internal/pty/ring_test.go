@@ -383,7 +383,7 @@ func TestRingReleasedOnSessionExit(t *testing.T) {
 	t.Cleanup(svc.Close)
 
 	tabID := "ring-release"
-	key := tabKey{workspaceID: testWorkspaceID, tabID: tabID}
+	key := tabKey{WorkspaceID: testWorkspaceID, TabID: tabID}
 
 	spawnTestScript(t, svc, tabID, `
 read line
@@ -472,7 +472,7 @@ sleep 10
 	}
 	t.Fatal("session not found within deadline")
 sessionFound:
-	key := tabKey{workspaceID: testWorkspaceID, tabID: tabID}
+	key := tabKey{WorkspaceID: testWorkspaceID, TabID: tabID}
 	svc.mu.Lock()
 	sess := svc.sessions[key]
 	svc.mu.Unlock()
@@ -545,7 +545,7 @@ sleep 10
 		t.Fatalf("resize: %v", err)
 	}
 
-	key := tabKey{workspaceID: testWorkspaceID, tabID: tabID}
+	key := tabKey{WorkspaceID: testWorkspaceID, TabID: tabID}
 	svc.mu.Lock()
 	sess := svc.sessions[key]
 	svc.mu.Unlock()

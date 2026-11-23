@@ -6,34 +6,35 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 const fileSizesMax = 500
 
 func (s *Service) DeleteSession(_ context.Context, raw json.RawMessage) (any, error) {
 	var p DeleteSessionParams
-	if err := decodeParams(raw, &p, "chat.deleteSession params must include cwd and sessionId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.deleteSession params must include cwd and sessionId"); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(p.Cwd) == "" {
-		return nil, protocolError("chat.deleteSession params must include cwd")
+		return nil, proto.ProtocolError("chat.deleteSession params must include cwd")
 	}
 	if !sessionIDPattern.MatchString(p.SessionID) {
-		return nil, protocolError("chat.deleteSession sessionId is not a session id")
+		return nil, proto.ProtocolError("chat.deleteSession sessionId is not a session id")
 	}
 	dir := configDir(p.ConfigDir)
 	if dir == "" {
 		return DeleteSessionResult{Deleted: false}, nil
 	}
 	deleted := false
-	for _, project := range projectDirs(filepath.Join(dir, "projects"), p.Cwd) {
+	for _, project := range claudeProjectFoldersFor(claudeProjectsDir(dir), p.Cwd) {
 		transcript := filepath.Join(project, p.SessionID+".jsonl")
-		info, err := os.Lstat(transcript)
-		if err != nil || !info.Mode().IsRegular() {
+		if _, ok := claudeFile(transcript); !ok {
 			continue
 		}
 		if err := os.Remove(transcript); err != nil {
-			return nil, requestFailed("chat.deleteSession: %s", err)
+			return nil, proto.RequestFailed("chat.deleteSession: %s", err)
 		}
 		deleted = true
 		_ = os.RemoveAll(filepath.Join(project, p.SessionID))
@@ -54,11 +55,11 @@ func (s *Service) DeleteSession(_ context.Context, raw json.RawMessage) (any, er
 
 func (s *Service) FileSizes(_ context.Context, raw json.RawMessage) (any, error) {
 	var p FileSizesParams
-	if err := decodeParams(raw, &p, "chat.fileSizes params must include paths"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.fileSizes params must include paths"); err != nil {
 		return nil, err
 	}
 	if len(p.Paths) > fileSizesMax {
-		return nil, protocolError("chat.fileSizes asks about too many paths")
+		return nil, proto.ProtocolError("chat.fileSizes asks about too many paths")
 	}
 	sizes := map[string]int64{}
 	for _, path := range p.Paths {

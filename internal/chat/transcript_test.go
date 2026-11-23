@@ -127,7 +127,7 @@ func TestReadJSONLinesKeepsTheEnd(t *testing.T) {
 	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	lines, truncated, err := readJSONLines(path, 50)
+	lines, truncated, err := readJSONLines(path, nil, 50)
 	if err != nil || !truncated {
 		t.Fatalf("err %v, truncated %v", err, truncated)
 	}

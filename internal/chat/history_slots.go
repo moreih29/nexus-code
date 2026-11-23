@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 const historyChunk = 1 << 20
@@ -32,27 +34,28 @@ type HistorySlotsResult struct {
 
 func (s *Service) HistorySlots(_ context.Context, raw json.RawMessage) (any, error) {
 	var p HistorySlotsParams
-	if err := decodeParams(raw, &p, "chat.historySlots params must include workspaceId and sessionId or threadId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.historySlots params must include workspaceId and sessionId or threadId"); err != nil {
 		return nil, err
 	}
 	workspaceID, ok := plainName(strings.TrimSpace(p.WorkspaceID))
 	if !ok {
-		return nil, protocolError("chat.historySlots workspaceId is required")
+		return nil, proto.ProtocolError("chat.historySlots workspaceId is required")
 	}
 	var path string
+	var found os.FileInfo
 	switch {
 	case p.SessionID != "" && p.ThreadID == "":
 		if !sessionIDPattern.MatchString(p.SessionID) {
-			return nil, protocolError("chat.historySlots sessionId is not a session id")
+			return nil, proto.ProtocolError("chat.historySlots sessionId is not a session id")
 		}
-		path = transcriptPath(configDir(p.ConfigDir), p.SessionID)
+		path, found = findClaudeSession(configDir(p.ConfigDir), p.SessionID)
 	case p.ThreadID != "" && p.SessionID == "":
 		if !sessionIDPattern.MatchString(p.ThreadID) {
-			return nil, protocolError("chat.historySlots threadId is not a thread id")
+			return nil, proto.ProtocolError("chat.historySlots threadId is not a thread id")
 		}
 		path = keptRollout(codexHome(p.CodexHome), p.ThreadID)
 	default:
-		return nil, protocolError("chat.historySlots needs one of sessionId and threadId")
+		return nil, proto.ProtocolError("chat.historySlots needs one of sessionId and threadId")
 	}
 	empty := HistorySlotsResult{Slots: []string{}}
 	if path == "" {
@@ -60,20 +63,20 @@ func (s *Service) HistorySlots(_ context.Context, raw json.RawMessage) (any, err
 	}
 	root, err := attachRoot()
 	if err != nil {
-		return nil, requestFailed("chat.historySlots: %v", err)
+		return nil, proto.RequestFailed("chat.historySlots: %v", err)
 	}
-	slots, truncated, err := historySlots(path, filepath.Join(root, workspaceID))
+	slots, truncated, err := historySlots(path, found, filepath.Join(root, workspaceID))
 	if errors.Is(err, os.ErrNotExist) {
 		return empty, nil
 	}
 	if err != nil {
-		return nil, requestFailed("chat.historySlots: %v", err)
+		return nil, proto.RequestFailed("chat.historySlots: %v", err)
 	}
 	return HistorySlotsResult{Found: true, Slots: slots, Truncated: truncated}, nil
 }
 
-func historySlots(path, wsDir string) ([]string, bool, error) {
-	file, err := os.Open(path)
+func historySlots(path string, want os.FileInfo, wsDir string) ([]string, bool, error) {
+	file, _, err := openFound(path, want)
 	if err != nil {
 		return nil, false, err
 	}

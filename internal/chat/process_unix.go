@@ -117,38 +117,6 @@ func descendants(pid int) []int {
 	return found
 }
 
-func exitPayload(key tabKey, state *os.ProcessState, err error) ExitPayload {
-	payload := ExitPayload{WorkspaceID: key.workspaceID, TabID: key.tabID}
-	if err != nil || state == nil {
-		code := -1
-		payload.Code = &code
-		return payload
-	}
-	if status, ok := state.Sys().(syscall.WaitStatus); ok && status.Signaled() {
-		signal := signalName(status.Signal())
-		payload.Signal = &signal
-		return payload
-	}
-	code := state.ExitCode()
-	payload.Code = &code
-	return payload
-}
-
-func signalName(signal syscall.Signal) string {
-	switch signal {
-	case syscall.SIGHUP:
-		return "SIGHUP"
-	case syscall.SIGINT:
-		return "SIGINT"
-	case syscall.SIGTERM:
-		return "SIGTERM"
-	case syscall.SIGKILL:
-		return "SIGKILL"
-	default:
-		return signal.String()
-	}
-}
-
 func sameEnvKey(a, b string) bool {
 	return a == b
 }

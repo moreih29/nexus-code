@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"os"
-	"path/filepath"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 type RunTranscriptParams struct {
@@ -26,77 +26,33 @@ type RunTranscriptResult struct {
 
 func (s *Service) RunTranscript(_ context.Context, raw json.RawMessage) (any, error) {
 	var p RunTranscriptParams
-	if err := decodeParams(raw, &p, "chat.runTranscript params must include sessionId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.runTranscript params must include sessionId"); err != nil {
 		return nil, err
 	}
 	if !sessionIDPattern.MatchString(p.SessionID) {
-		return nil, protocolError("chat.runTranscript sessionId is not a session id")
+		return nil, proto.ProtocolError("chat.runTranscript sessionId is not a session id")
 	}
 	if p.From != nil && *p.From < 0 {
-		return nil, protocolError("chat.runTranscript from is negative")
+		return nil, proto.ProtocolError("chat.runTranscript from is negative")
 	}
-	path, info := runTranscriptPath(configDir(p.ConfigDir), p.SessionID)
+	path, info := findClaudeSession(configDir(p.ConfigDir), p.SessionID)
 	if path == "" {
 		return RunTranscriptResult{Found: false, Lines: []json.RawMessage{}}, nil
 	}
 	result, err := readRunTranscript(path, info, p.From, transcriptCapBytes)
 	if err != nil {
-		return nil, requestFailed("chat.runTranscript: the run's transcript could not be read")
+		return nil, proto.RequestFailed("chat.runTranscript: the run's transcript could not be read")
 	}
 	return result, nil
 }
 
-func runTranscriptPath(dir, sessionID string) (string, os.FileInfo) {
-	if dir == "" {
-		return "", nil
-	}
-	root, err := filepath.EvalSymlinks(dir)
-	if err != nil {
-		return "", nil
-	}
-	projects, err := filepath.EvalSymlinks(filepath.Join(root, "projects"))
-	if err != nil {
-		return "", nil
-	}
-	if info, err := os.Lstat(projects); err != nil || !info.IsDir() {
-		return "", nil
-	}
-	entries, err := os.ReadDir(projects)
-	if err != nil {
-		return "", nil
-	}
-	found := ""
-	var foundInfo os.FileInfo
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		path := filepath.Join(projects, entry.Name(), sessionID+".jsonl")
-		info, err := os.Lstat(path)
-		if err != nil || !info.Mode().IsRegular() {
-			continue
-		}
-		if foundInfo == nil || info.ModTime().After(foundInfo.ModTime()) {
-			found, foundInfo = path, info
-		}
-	}
-	return found, foundInfo
-}
-
 func readRunTranscript(path string, want os.FileInfo, from *int64, limit int64) (RunTranscriptResult, error) {
 	result := RunTranscriptResult{Found: true, Lines: []json.RawMessage{}}
-	file, err := os.Open(path)
+	file, info, err := openFound(path, want)
 	if err != nil {
 		return result, err
 	}
 	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return result, err
-	}
-	if !info.Mode().IsRegular() || (want != nil && !os.SameFile(want, info)) {
-		return result, errors.New("the transcript is not the file that was found")
-	}
 	size := info.Size()
 	var start int64
 	if from != nil {

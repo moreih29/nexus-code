@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 type serverProcess struct {
@@ -97,19 +99,19 @@ func (p *serverProcess) start(ctx context.Context) error {
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return requestFailed("lsp.spawn stdin pipe failed: %s", err)
+		return proto.RequestFailed("lsp.spawn stdin pipe failed: %s", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return requestFailed("lsp.spawn stdout pipe failed: %s", err)
+		return proto.RequestFailed("lsp.spawn stdout pipe failed: %s", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return requestFailed("lsp.spawn stderr pipe failed: %s", err)
+		return proto.RequestFailed("lsp.spawn stderr pipe failed: %s", err)
 	}
 	stopTree, err := startServerCommand(cmd)
 	if err != nil {
-		return requestFailed("lsp.spawn failed: %s", err)
+		return proto.RequestFailed("lsp.spawn failed: %s", err)
 	}
 
 	p.cmd = cmd
@@ -185,7 +187,7 @@ func (p *serverProcess) initialize(ctx context.Context) (json.RawMessage, *Serve
 			ServerInfo   *ServerInfo     `json:"serverInfo"`
 		}
 		if err := json.Unmarshal(result, &parsed); err != nil {
-			return nil, nil, requestFailed("lsp initialize result was invalid: %s", err)
+			return nil, nil, proto.RequestFailed("lsp initialize result was invalid: %s", err)
 		}
 		if len(parsed.Capabilities) > 0 {
 			capabilities = append(json.RawMessage(nil), parsed.Capabilities...)
@@ -243,7 +245,7 @@ func (p *serverProcess) request(ctx context.Context, method string, params any) 
 	if p.exited {
 		err := p.exitErr
 		p.mu.Unlock()
-		return nil, requestFailed("lsp server exited: %v", err)
+		return nil, proto.RequestFailed("lsp server exited: %v", err)
 	}
 	p.pendingInternal[key] = response
 	p.mu.Unlock()
@@ -279,14 +281,14 @@ func (p *serverProcess) request(ctx context.Context, method string, params any) 
 			if strings.TrimSpace(message) == "" {
 				message = fmt.Sprintf("LSP %s failed with code %d", method, resp.Error.Code)
 			}
-			return nil, requestFailed("LSP %s failed: %s", method, message)
+			return nil, proto.RequestFailed("LSP %s failed: %s", method, message)
 		}
 		return resp.Result, nil
 	case <-ctx.Done():
 		p.deleteInternal(key)
 		return nil, ctx.Err()
 	case <-p.done:
-		return nil, requestFailed("lsp server exited")
+		return nil, proto.RequestFailed("lsp server exited")
 	}
 }
 
@@ -329,7 +331,7 @@ func (p *serverProcess) cancel(ctx context.Context, requestID json.RawMessage) e
 func (p *serverProcess) sendRaw(ctx context.Context, message json.RawMessage) error {
 	frame, err := EncodeRawMessage(message)
 	if err != nil {
-		return protocolError(err.Error())
+		return proto.ProtocolError(err.Error())
 	}
 
 	writeCtx, cancel := context.WithTimeout(ctx, stdinWriteTimeout)
@@ -340,18 +342,18 @@ func (p *serverProcess) sendRaw(ctx context.Context, message json.RawMessage) er
 	case <-writeCtx.Done():
 		return writeCtx.Err()
 	case <-p.inputDone:
-		return requestFailed("lsp server input closed")
+		return proto.RequestFailed("lsp server input closed")
 	case <-p.done:
-		return requestFailed("lsp server exited")
+		return proto.RequestFailed("lsp server exited")
 	}
 	if err := writeCtx.Err(); err != nil {
 		return err
 	}
 	select {
 	case <-p.inputDone:
-		return requestFailed("lsp server input closed")
+		return proto.RequestFailed("lsp server input closed")
 	case <-p.done:
-		return requestFailed("lsp server exited")
+		return proto.RequestFailed("lsp server exited")
 	default:
 	}
 
@@ -363,15 +365,15 @@ func (p *serverProcess) sendRaw(ctx context.Context, message json.RawMessage) er
 	select {
 	case err := <-written:
 		if err != nil {
-			return requestFailed("lsp write failed: %s", err)
+			return proto.RequestFailed("lsp write failed: %s", err)
 		}
 		return nil
 	case <-writeCtx.Done():
 		p.abortInput()
 		return writeCtx.Err()
 	case <-p.inputDone:
-		return requestFailed("lsp server input closed")
+		return proto.RequestFailed("lsp server input closed")
 	case <-p.done:
-		return requestFailed("lsp server exited")
+		return proto.RequestFailed("lsp server exited")
 	}
 }

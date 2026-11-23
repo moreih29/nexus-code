@@ -50,10 +50,10 @@ process.stdin.on("end", () => process.stdout.write('{"eof":true}\n'));
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	key := tabKey{workspaceID: "ws", tabID: "windows-node-stdin"}
+	key := tabKey{WorkspaceID: "ws", TabID: "windows-node-stdin"}
 	start, err := json.Marshal(StartParams{
-		WorkspaceID: key.workspaceID,
-		TabID:       key.tabID,
+		WorkspaceID: key.WorkspaceID,
+		TabID:       key.TabID,
 		Cwd:         dir,
 		Program:     cmd,
 		Args:        []string{"/d", "/c", "echo-input.cmd"},
@@ -76,7 +76,7 @@ process.stdin.on("end", () => process.stdout.write('{"eof":true}\n'));
 			t.Fatal(err)
 		}
 		want = append(want, message)
-		params, err := json.Marshal(SendParams{WorkspaceID: key.workspaceID, TabID: key.tabID, Message: message})
+		params, err := json.Marshal(SendParams{WorkspaceID: key.WorkspaceID, TabID: key.TabID, Message: message})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -265,7 +265,7 @@ func (p *partialStdin) Close() error {
 
 func TestPartialWriteClosesTheUnframedStdin(t *testing.T) {
 	service := New()
-	sess, err := service.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+	sess, err := service.sessionFor(tabKey{WorkspaceID: "ws", TabID: "tab"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestSendLogsAConfirmedInputBeforeEarlyOutput(t *testing.T) {
 	service := New()
 	rec := newRecorder()
 	service.SetEventSink(rec.sink)
-	key := tabKey{workspaceID: "ws", tabID: "tab"}
+	key := tabKey{WorkspaceID: "ws", TabID: "tab"}
 	sess, err := service.sessionFor(key, "")
 	if err != nil {
 		t.Fatal(err)
@@ -333,7 +333,7 @@ func TestFailedStdinWriteReplaysFailureInsteadOfApproval(t *testing.T) {
 	service := New()
 	rec := newRecorder()
 	service.SetEventSink(rec.sink)
-	key := tabKey{workspaceID: "ws", tabID: "tab"}
+	key := tabKey{WorkspaceID: "ws", TabID: "tab"}
 	sess, err := service.sessionFor(key, "")
 	if err != nil {
 		t.Fatal(err)
@@ -700,7 +700,7 @@ func TestClosedTabGenerationRejectsLateStart(t *testing.T) {
 	if _, err := service.Start(context.Background(), start); err == nil {
 		t.Fatal("a start from the closed tab reached the process")
 	}
-	if service.lookup(tabKey{workspaceID: "ws", tabID: "tab"}) != nil {
+	if service.lookup(tabKey{WorkspaceID: "ws", TabID: "tab"}) != nil {
 		t.Fatal("late start registered a chat session")
 	}
 }
@@ -733,7 +733,7 @@ func TestClosedTabGenerationsStayBounded(t *testing.T) {
 	if got := service.closedOrder.Len(); got != len(service.closedTabs) {
 		t.Fatalf("expiry queue has %d records for %d closed generations", got, len(service.closedTabs))
 	}
-	key := tabKey{workspaceID: "ws", tabID: "reopened"}
+	key := tabKey{WorkspaceID: "ws", TabID: "reopened"}
 	if _, err := service.sessionFor(key, fmt.Sprintf("generation-%d", limit)); err == nil {
 		t.Fatal("the latest closed generation could start")
 	}
@@ -744,7 +744,7 @@ func TestClosedTabGenerationsStayBounded(t *testing.T) {
 
 func TestClosedTabGenerationsExpire(t *testing.T) {
 	service := New()
-	key := tabKey{workspaceID: "ws", tabID: "tab"}
+	key := tabKey{WorkspaceID: "ws", TabID: "tab"}
 	tab := closedTabGeneration{key, "old"}
 	service.mu.Lock()
 	service.rememberClosedTabLocked(tab, time.Now().Add(-closedTabRetention))
@@ -766,7 +766,7 @@ func TestStartCannotUseARemovedSession(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			service := New()
 			defer service.Close()
-			key := tabKey{workspaceID: "ws", tabID: "tab"}
+			key := tabKey{WorkspaceID: "ws", TabID: "tab"}
 			held, err := service.sessionFor(key, "")
 			if err != nil {
 				t.Fatal(err)
@@ -802,7 +802,7 @@ func TestStopPublishesExitBeforeReleasingProcess(t *testing.T) {
 		return nil
 	})
 	startFake(t, service, "tab", nil)
-	proc := service.lookup(tabKey{workspaceID: "ws", tabID: "tab"}).running()
+	proc := service.lookup(tabKey{WorkspaceID: "ws", TabID: "tab"}).running()
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
@@ -828,7 +828,7 @@ func TestDelayedStdoutCannotBeAttributedToTheReplacement(t *testing.T) {
 	service := New()
 	rec := newRecorder()
 	service.SetEventSink(rec.sink)
-	sess, err := service.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+	sess, err := service.sessionFor(tabKey{WorkspaceID: "ws", TabID: "tab"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -859,7 +859,7 @@ func TestAClosedTabsProgramSendsNothingToTheTabsNext(t *testing.T) {
 	rec.waitFor(t, "the program to linger", func(lines []LinePayload, _ []ExitPayload) bool {
 		return hasOut(lines, `"lingering"`)
 	})
-	old := service.lookup(tabKey{workspaceID: "ws", tabID: "tab"}).running()
+	old := service.lookup(tabKey{WorkspaceID: "ws", TabID: "tab"}).running()
 	if _, err := service.CloseTab(context.Background(), tabParams("tab")); err != nil {
 		t.Fatalf("CloseTab: %v", err)
 	}
@@ -893,7 +893,7 @@ func TestAClosedTabsProgramSendsNothingToTheTabsNext(t *testing.T) {
 
 func TestCanceledSendDoesNotWaitForEarlierWrites(t *testing.T) {
 	s := New()
-	sess, err := s.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+	sess, err := s.sessionFor(tabKey{WorkspaceID: "ws", TabID: "tab"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -929,7 +929,7 @@ func TestCanceledSendDoesNotWaitForEarlierWrites(t *testing.T) {
 
 func TestReplayCannotFollowAReplacedConnection(t *testing.T) {
 	s := New()
-	sess, err := s.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+	sess, err := s.sessionFor(tabKey{WorkspaceID: "ws", TabID: "tab"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -982,7 +982,7 @@ func TestReplayCannotFollowAReplacedConnection(t *testing.T) {
 
 func TestReplayStopsWhenItsConnectionCancels(t *testing.T) {
 	s := New()
-	sess, err := s.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+	sess, err := s.sessionFor(tabKey{WorkspaceID: "ws", TabID: "tab"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

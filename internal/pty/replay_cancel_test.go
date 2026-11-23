@@ -22,7 +22,7 @@ func TestReplayCreditAcrossDialers(t *testing.T) {
 			defer cancelA()
 			ctxB, cancelB := context.WithCancel(context.Background())
 			defer cancelB()
-			key := tabKey{workspaceID: "ws", tabID: "tab"}
+			key := tabKey{WorkspaceID: "ws", TabID: "tab"}
 			sess := newSession(svc, key, nil, nil)
 			svc.storeSession(key, sess)
 			history := bytes.Repeat([]byte("a"), HighWatermarkBytes+2*MaxChunkSize)

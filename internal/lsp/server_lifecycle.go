@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strconv"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 func (p *serverProcess) Shutdown(ctx context.Context) error {
@@ -44,7 +46,7 @@ func (p *serverProcess) doShutdown(ctx context.Context) error {
 	if p.waitForExit(shutdownExitGrace) {
 		return requestErr
 	}
-	return requestFailed("lsp server did not exit after shutdown")
+	return proto.RequestFailed("lsp server did not exit after shutdown")
 }
 
 func (p *serverProcess) forceClose() {
@@ -140,9 +142,9 @@ func (p *serverProcess) markExited(err error) {
 		p.watchedFileRegistrations = nil
 		p.mu.Unlock()
 
-		exitErr := requestFailed("lsp server exited")
+		exitErr := proto.RequestFailed("lsp server exited")
 		if err != nil {
-			exitErr = requestFailed("lsp server exited: %s", err)
+			exitErr = proto.RequestFailed("lsp server exited: %s", err)
 		}
 		for _, ch := range internal {
 			ch <- rpcResponse{Err: exitErr}

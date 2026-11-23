@@ -8,15 +8,17 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 func (s *Service) Exec(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p ExecParams
-	if err := decodeParams(raw, &p, "chat.exec params must include program"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.exec params must include program"); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(p.Program) == "" {
-		return nil, protocolError("chat.exec program is required")
+		return nil, proto.ProtocolError("chat.exec program is required")
 	}
 	timeout := execTimeout
 	if p.TimeoutMs > 0 && time.Duration(p.TimeoutMs)*time.Millisecond < timeout {

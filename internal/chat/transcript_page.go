@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"sync"
@@ -119,13 +120,13 @@ var errStaleTranscriptCursor = proto.NewError("chat.transcript-cursor-stale", "t
 
 func (s *Service) TranscriptPage(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p transcriptPageParams
-	if err := decodeParams(raw, &p, "chat.transcriptPage params must include sessionId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.transcriptPage params must include sessionId"); err != nil {
 		return nil, err
 	}
 	if !sessionIDPattern.MatchString(p.SessionID) ||
 		(p.Cursor != "" && p.BeforeAnchor != "") ||
 		((p.Cursor != "" || p.BeforeAnchor != "") && (len(p.Before) > 0 || p.UpTo != "")) {
-		return nil, protocolError("invalid chat.transcriptPage params")
+		return nil, proto.ProtocolError("invalid chat.transcriptPage params")
 	}
 	page, err := s.readTranscriptPage(ctx, p, transcriptCapBytes, transcriptPageBytes)
 	if err != nil {
@@ -135,7 +136,7 @@ func (s *Service) TranscriptPage(ctx context.Context, raw json.RawMessage) (any,
 		if err == errStaleTranscriptCursor {
 			return nil, err
 		}
-		return nil, requestFailed("chat.transcriptPage: %s", err)
+		return nil, proto.RequestFailed("chat.transcriptPage: %s", err)
 	}
 	return page, nil
 }
@@ -146,7 +147,7 @@ func (s *Service) readTranscriptPage(ctx context.Context, p transcriptPageParams
 		return page, err
 	}
 	dir := configDir(p.ConfigDir)
-	path := transcriptPath(dir, p.SessionID)
+	path, found := findClaudeSession(dir, p.SessionID)
 	var snapshot *transcriptSnapshot
 	var pos, fragment int64
 	var boundary [32]byte
@@ -159,18 +160,14 @@ func (s *Service) readTranscriptPage(ctx context.Context, p transcriptPageParams
 	if path == "" {
 		return page, nil
 	}
-	file, err := os.Open(path)
+	file, info, err := openFound(path, found)
 	if err != nil {
-		if snapshot != nil && os.IsNotExist(err) {
+		if snapshot != nil && (os.IsNotExist(err) || errors.Is(err, errNotFoundFile)) {
 			return page, errStaleTranscriptCursor
 		}
 		return page, err
 	}
 	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return page, err
-	}
 	if snapshot == nil {
 		snapshot = &transcriptSnapshot{session: p.SessionID, dir: dir, path: path, info: info, floor: max(0, info.Size()-retention), end: info.Size()}
 		if _, err := rand.Read(snapshot.key[:]); err != nil {
@@ -219,7 +216,7 @@ func (s *Service) readTranscriptPage(ctx context.Context, p transcriptPageParams
 	if err := ctx.Err(); err != nil {
 		return page, err
 	}
-	current, err := os.Stat(path)
+	current, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		return page, errStaleTranscriptCursor
 	}

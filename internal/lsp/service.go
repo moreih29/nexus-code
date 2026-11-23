@@ -1,7 +1,6 @@
 package lsp
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/nexus-code/nexus-code/internal/dispatch"
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 type Service struct {
@@ -87,17 +87,17 @@ func (s *Service) Close() {
 
 func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p SpawnParams
-	if err := decodeParams(raw, &p, "lsp.spawn params must include workspaceId, languageId, binaryPath, args, and workspaceRoot"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "lsp.spawn params must include workspaceId, languageId, binaryPath, args, and workspaceRoot"); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(p.WorkspaceID) == "" {
-		return nil, protocolError("lsp.spawn workspaceId is required")
+		return nil, proto.ProtocolError("lsp.spawn workspaceId is required")
 	}
 	if strings.TrimSpace(p.LanguageID) == "" {
-		return nil, protocolError("lsp.spawn languageId is required")
+		return nil, proto.ProtocolError("lsp.spawn languageId is required")
 	}
 	if strings.TrimSpace(p.WorkspaceRoot) == "" {
-		return nil, protocolError("lsp.spawn workspaceRoot is required")
+		return nil, proto.ProtocolError("lsp.spawn workspaceRoot is required")
 	}
 
 	binaryPath, err := resolveBinaryPath(p.BinaryPath)
@@ -106,14 +106,14 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	workspaceRoot, err := filepath.Abs(p.WorkspaceRoot)
 	if err != nil {
-		return nil, requestFailed("invalid workspaceRoot: %s", err)
+		return nil, proto.RequestFailed("invalid workspaceRoot: %s", err)
 	}
 	workspaceRoot = filepath.Clean(workspaceRoot)
 
 	idleTimeout := defaultIdleTimeout
 	if p.IdleTimeoutMs != nil {
 		if *p.IdleTimeoutMs < 0 {
-			return nil, protocolError("lsp.spawn idleTimeoutMs must be non-negative")
+			return nil, proto.ProtocolError("lsp.spawn idleTimeoutMs must be non-negative")
 		}
 		if *p.IdleTimeoutMs == 0 {
 			idleTimeout = 0
@@ -160,7 +160,7 @@ func (s *Service) startServer(ctx context.Context, server *serverProcess) error 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return requestFailed("lsp service closed")
+		return proto.RequestFailed("lsp service closed")
 	}
 	if err := server.start(ctx); err != nil {
 		return err
@@ -179,7 +179,7 @@ func (s *Service) Stats(_ context.Context, _ json.RawMessage) (any, error) {
 
 	table, err := processTable()
 	if err != nil {
-		return nil, requestFailed("lsp.stats failed: %s", err)
+		return nil, proto.RequestFailed("lsp.stats failed: %s", err)
 	}
 	pids := make([]int, 0, len(servers))
 	for _, server := range servers {
@@ -199,7 +199,7 @@ func (s *Service) Stats(_ context.Context, _ json.RawMessage) (any, error) {
 
 func (s *Service) Send(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p SendParams
-	if err := decodeParams(raw, &p, "lsp.send params must include serverId and message"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "lsp.send params must include serverId and message"); err != nil {
 		return nil, err
 	}
 	server, err := s.lookupServer(p.ServerID)
@@ -215,7 +215,7 @@ func (s *Service) Send(ctx context.Context, raw json.RawMessage) (any, error) {
 
 func (s *Service) Notify(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p NotifyParams
-	if err := decodeParams(raw, &p, "lsp.notify params must include serverId and message"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "lsp.notify params must include serverId and message"); err != nil {
 		return nil, err
 	}
 	server, err := s.lookupServer(p.ServerID)
@@ -231,11 +231,11 @@ func (s *Service) Notify(ctx context.Context, raw json.RawMessage) (any, error) 
 
 func (s *Service) Cancel(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p CancelParams
-	if err := decodeParams(raw, &p, "lsp.cancel params must include serverId and requestId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "lsp.cancel params must include serverId and requestId"); err != nil {
 		return nil, err
 	}
 	if _, ok := jsonRPCIDKey(p.RequestID); !ok {
-		return nil, protocolError("lsp.cancel requestId must be a JSON-RPC id")
+		return nil, proto.ProtocolError("lsp.cancel requestId must be a JSON-RPC id")
 	}
 	server, err := s.lookupServer(p.ServerID)
 	if err != nil {
@@ -250,7 +250,7 @@ func (s *Service) Cancel(ctx context.Context, raw json.RawMessage) (any, error) 
 
 func (s *Service) Shutdown(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p ShutdownParams
-	if err := decodeParams(raw, &p, "lsp.shutdown params must include serverId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "lsp.shutdown params must include serverId"); err != nil {
 		return nil, err
 	}
 	server, err := s.lookupServer(p.ServerID)
@@ -267,20 +267,20 @@ func (s *Service) Shutdown(ctx context.Context, raw json.RawMessage) (any, error
 
 func (s *Service) RespondServerRequest(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p RespondServerRequestParams
-	if err := decodeParams(raw, &p, "lsp.respondServerRequest params must include serverId and agentRequestId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "lsp.respondServerRequest params must include serverId and agentRequestId"); err != nil {
 		return nil, err
 	}
 	if p.AgentRequestID == "" {
-		return nil, protocolError("lsp.respondServerRequest agentRequestId is required")
+		return nil, proto.ProtocolError("lsp.respondServerRequest agentRequestId is required")
 	}
 	if len(p.Result) > 0 && len(p.Error) > 0 {
-		return nil, protocolError("lsp.respondServerRequest must include result or error, not both")
+		return nil, proto.ProtocolError("lsp.respondServerRequest must include result or error, not both")
 	}
 	if len(p.Result) > 0 && !json.Valid(p.Result) {
-		return nil, protocolError("lsp.respondServerRequest result must be valid JSON")
+		return nil, proto.ProtocolError("lsp.respondServerRequest result must be valid JSON")
 	}
 	if len(p.Error) > 0 && !json.Valid(p.Error) {
-		return nil, protocolError("lsp.respondServerRequest error must be valid JSON")
+		return nil, proto.ProtocolError("lsp.respondServerRequest error must be valid JSON")
 	}
 
 	server, err := s.lookupServer(p.ServerID)
@@ -318,13 +318,13 @@ func (s *Service) removeServer(id string, expected *serverProcess) {
 
 func (s *Service) lookupServer(id string) (*serverProcess, error) {
 	if strings.TrimSpace(id) == "" {
-		return nil, protocolError("lsp serverId is required")
+		return nil, proto.ProtocolError("lsp serverId is required")
 	}
 	s.mu.Lock()
 	server := s.servers[id]
 	s.mu.Unlock()
 	if server == nil {
-		return nil, requestFailed("lsp server not found: %s", id)
+		return nil, proto.RequestFailed("lsp server not found: %s", id)
 	}
 	return server, nil
 }
@@ -344,7 +344,7 @@ func (s *Service) emitRequired(event string, payload any) error {
 	sink := s.sink
 	s.mu.Unlock()
 	if sink == nil {
-		return requestFailed("lsp event sink is unavailable")
+		return proto.RequestFailed("lsp event sink is unavailable")
 	}
 	return sink(event, payload)
 }
@@ -359,40 +359,29 @@ func (s *Service) serverRequestCount(serverID string) int {
 	return server.serverRequestCount()
 }
 
-func decodeParams(raw json.RawMessage, dst any, message string) error {
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return protocolError(message)
-	}
-	if err := json.Unmarshal(trimmed, dst); err != nil {
-		return protocolError(message)
-	}
-	return nil
-}
-
 func resolveBinaryPath(binaryPath string) (string, error) {
 	path := strings.TrimSpace(binaryPath)
 	if path == "" || strings.Contains(path, "\x00") {
-		return "", protocolError("lsp.spawn binaryPath is required")
+		return "", proto.ProtocolError("lsp.spawn binaryPath is required")
 	}
 
 	if filepath.IsAbs(path) || strings.ContainsAny(path, `/\`) {
 		info, err := os.Stat(path)
 		if err != nil {
-			return "", requestFailed("lsp.spawn binaryPath is not executable: %s", err)
+			return "", proto.RequestFailed("lsp.spawn binaryPath is not executable: %s", err)
 		}
 		if info.IsDir() {
-			return "", requestFailed("lsp.spawn binaryPath is a directory: %s", path)
+			return "", proto.RequestFailed("lsp.spawn binaryPath is a directory: %s", path)
 		}
 		if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
-			return "", requestFailed("lsp.spawn binaryPath is not executable: %s", path)
+			return "", proto.RequestFailed("lsp.spawn binaryPath is not executable: %s", path)
 		}
 		return path, nil
 	}
 
 	resolved, err := exec.LookPath(path)
 	if err != nil {
-		return "", requestFailed("lsp.spawn binaryPath is not executable: %s", err)
+		return "", proto.RequestFailed("lsp.spawn binaryPath is not executable: %s", err)
 	}
 	return resolved, nil
 }

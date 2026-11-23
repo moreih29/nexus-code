@@ -18,6 +18,7 @@ import (
 	"github.com/nexus-code/nexus-code/internal/agentpaths"
 	"github.com/nexus-code/nexus-code/internal/dispatch"
 	"github.com/nexus-code/nexus-code/internal/ports"
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 type Service struct {
@@ -62,10 +63,7 @@ func (c *child) wait() (*os.ProcessState, error) {
 	return c.Wait()
 }
 
-type tabKey struct {
-	workspaceID string
-	tabID       string
-}
+type tabKey = proto.TabKey
 
 type session struct {
 	service *Service
@@ -184,15 +182,15 @@ func (s *Service) Close() {
 
 func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p SpawnParams
-	if err := decodeParams(raw, &p, "pty.spawn params must include workspaceId, tabId, cwd, cols, and rows"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "pty.spawn params must include workspaceId, tabId, cwd, cols, and rows"); err != nil {
 		return nil, err
 	}
-	key, err := keyFrom(p.WorkspaceID, p.TabID, "pty.spawn")
+	key, err := proto.TabKeyFrom(p.WorkspaceID, p.TabID, "pty.spawn")
 	if err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(p.Cwd) == "" {
-		return nil, protocolError("pty.spawn cwd is required")
+		return nil, proto.ProtocolError("pty.spawn cwd is required")
 	}
 	if err := validateSize(p.Cols, p.Rows, "pty.spawn"); err != nil {
 		return nil, err
@@ -201,7 +199,7 @@ func (s *Service) Spawn(ctx context.Context, raw json.RawMessage) (any, error) {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		return nil, requestFailed("PTY service is closed")
+		return nil, proto.RequestFailed("PTY service is closed")
 	}
 	if starting := s.spawning[key]; starting != nil {
 		s.mu.Unlock()
@@ -250,7 +248,7 @@ func (s *Service) spawnSession(key tabKey, p SpawnParams) (*session, error) {
 		rows:  p.Rows,
 	})
 	if err != nil {
-		return nil, requestFailed("failed to spawn PTY: %s", err)
+		return nil, proto.RequestFailed("failed to spawn PTY: %s", err)
 	}
 
 	session := newSession(s, key, child, master)
@@ -276,10 +274,10 @@ func (s *session) attach(cols, rows int) SpawnResult {
 
 func (s *Service) Write(_ context.Context, raw json.RawMessage) (any, error) {
 	var p WriteParams
-	if err := decodeParams(raw, &p, "pty.write params must include workspaceId, tabId, and data"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "pty.write params must include workspaceId, tabId, and data"); err != nil {
 		return nil, err
 	}
-	key, err := keyFrom(p.WorkspaceID, p.TabID, "pty.write")
+	key, err := proto.TabKeyFrom(p.WorkspaceID, p.TabID, "pty.write")
 	if err != nil {
 		return nil, err
 	}
@@ -295,10 +293,10 @@ func (s *Service) Write(_ context.Context, raw json.RawMessage) (any, error) {
 
 func (s *Service) Resize(_ context.Context, raw json.RawMessage) (any, error) {
 	var p ResizeParams
-	if err := decodeParams(raw, &p, "pty.resize params must include workspaceId, tabId, cols, and rows"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "pty.resize params must include workspaceId, tabId, cols, and rows"); err != nil {
 		return nil, err
 	}
-	key, err := keyFrom(p.WorkspaceID, p.TabID, "pty.resize")
+	key, err := proto.TabKeyFrom(p.WorkspaceID, p.TabID, "pty.resize")
 	if err != nil {
 		return nil, err
 	}
@@ -310,23 +308,23 @@ func (s *Service) Resize(_ context.Context, raw json.RawMessage) (any, error) {
 		return struct{}{}, nil
 	}
 	if err := session.resize(p.Cols, p.Rows); err != nil {
-		return nil, requestFailed("failed to resize PTY: %s", err)
+		return nil, proto.RequestFailed("failed to resize PTY: %s", err)
 	}
 	return struct{}{}, nil
 }
 
 func (s *Service) Ack(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p AckParams
-	if err := decodeParams(raw, &p, "pty.ack params must include workspaceId, tabId, and bytesConsumed"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "pty.ack params must include workspaceId, tabId, and bytesConsumed"); err != nil {
 		return nil, err
 	}
-	key, err := keyFrom(p.WorkspaceID, p.TabID, "pty.ack")
+	key, err := proto.TabKeyFrom(p.WorkspaceID, p.TabID, "pty.ack")
 	if err != nil {
 		return nil, err
 	}
 	bytesConsumed := p.BytesConsumed
 	if bytesConsumed < 0 {
-		return nil, protocolError("pty.ack bytesConsumed must be non-negative")
+		return nil, proto.ProtocolError("pty.ack bytesConsumed must be non-negative")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -338,10 +336,10 @@ func (s *Service) Ack(ctx context.Context, raw json.RawMessage) (any, error) {
 
 func (s *Service) Kill(_ context.Context, raw json.RawMessage) (any, error) {
 	var p KillParams
-	if err := decodeParams(raw, &p, "pty.kill params must include workspaceId and tabId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "pty.kill params must include workspaceId and tabId"); err != nil {
 		return nil, err
 	}
-	key, err := keyFrom(p.WorkspaceID, p.TabID, "pty.kill")
+	key, err := proto.TabKeyFrom(p.WorkspaceID, p.TabID, "pty.kill")
 	if err != nil {
 		return nil, err
 	}
@@ -365,10 +363,10 @@ func (s *Service) Kill(_ context.Context, raw json.RawMessage) (any, error) {
 
 func (s *Service) ForegroundProcess(_ context.Context, raw json.RawMessage) (any, error) {
 	var p ForegroundProcessParams
-	if err := decodeParams(raw, &p, "pty.foregroundProcess params must include workspaceId and tabId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "pty.foregroundProcess params must include workspaceId and tabId"); err != nil {
 		return nil, err
 	}
-	key, err := keyFrom(p.WorkspaceID, p.TabID, "pty.foregroundProcess")
+	key, err := proto.TabKeyFrom(p.WorkspaceID, p.TabID, "pty.foregroundProcess")
 	if err != nil {
 		return nil, err
 	}
@@ -382,18 +380,18 @@ func (s *Service) ForegroundProcess(_ context.Context, raw json.RawMessage) (any
 
 func (s *Service) ListeningPorts(_ context.Context, raw json.RawMessage) (any, error) {
 	var p ListeningPortsParams
-	if err := decodeParams(raw, &p, "pty.listeningPorts params must include workspaceId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "pty.listeningPorts params must include workspaceId"); err != nil {
 		return nil, err
 	}
 	workspaceID := strings.TrimSpace(p.WorkspaceID)
 	if workspaceID == "" {
-		return nil, protocolError("pty.listeningPorts workspaceId is required")
+		return nil, proto.ProtocolError("pty.listeningPorts workspaceId is required")
 	}
 	tabByShell := map[int]string{}
 	s.mu.Lock()
 	for key, session := range s.sessions {
-		if key.workspaceID == workspaceID && session.child != nil && session.child.Process != nil {
-			tabByShell[session.child.Pid] = key.tabID
+		if key.WorkspaceID == workspaceID && session.child != nil && session.child.Process != nil {
+			tabByShell[session.child.Pid] = key.TabID
 		}
 	}
 	s.mu.Unlock()
@@ -561,7 +559,7 @@ func (s *session) write(data []byte) error {
 			next = maxWriteChunkSize
 		}
 		if err := writeFull(s.master, data[:next]); err != nil {
-			return requestFailed("failed to write PTY input: %s", err)
+			return proto.RequestFailed("failed to write PTY input: %s", err)
 		}
 		data = data[next:]
 	}
@@ -588,31 +586,12 @@ func (s *session) stopReading() {
 	s.stopReadingOnce.Do(func() { _ = s.master.Close() })
 }
 
-func decodeParams(raw json.RawMessage, target any, message string) error {
-	if len(raw) == 0 || json.Unmarshal(raw, target) != nil {
-		return protocolError(message)
-	}
-	return nil
-}
-
-func keyFrom(workspaceID string, tabID string, method string) (tabKey, error) {
-	workspaceID = strings.TrimSpace(workspaceID)
-	tabID = strings.TrimSpace(tabID)
-	if workspaceID == "" {
-		return tabKey{}, protocolError(method + " workspaceId is required")
-	}
-	if tabID == "" {
-		return tabKey{}, protocolError(method + " tabId is required")
-	}
-	return tabKey{workspaceID: workspaceID, tabID: tabID}, nil
-}
-
 func validateSize(cols int, rows int, method string) error {
 	if cols <= 0 || rows <= 0 {
-		return protocolError(method + " cols and rows must be positive")
+		return proto.ProtocolError(method + " cols and rows must be positive")
 	}
 	if cols > 65535 || rows > 65535 {
-		return protocolError(method + " cols and rows must fit uint16")
+		return proto.ProtocolError(method + " cols and rows must fit uint16")
 	}
 	return nil
 }
@@ -793,12 +772,12 @@ func (s *Service) SessionList(_ context.Context, raw json.RawMessage) (any, erro
 	s.mu.Lock()
 	var infos []SessionInfo
 	for key, sess := range s.sessions {
-		if p.WorkspaceID != "" && key.workspaceID != p.WorkspaceID {
+		if p.WorkspaceID != "" && key.WorkspaceID != p.WorkspaceID {
 			continue
 		}
 		infos = append(infos, SessionInfo{
-			WorkspaceID: key.workspaceID,
-			TabID:       key.tabID,
+			WorkspaceID: key.WorkspaceID,
+			TabID:       key.TabID,
 			CreatedAt:   sess.createdAt.UnixMilli(),
 		})
 	}
@@ -812,10 +791,10 @@ func (s *Service) SessionList(_ context.Context, raw json.RawMessage) (any, erro
 
 func (s *Service) Replay(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p ReplayParams
-	if err := decodeParams(raw, &p, "pty.replay params must include workspaceId and tabId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "pty.replay params must include workspaceId and tabId"); err != nil {
 		return nil, err
 	}
-	key, err := keyFrom(p.WorkspaceID, p.TabID, "pty.replay")
+	key, err := proto.TabKeyFrom(p.WorkspaceID, p.TabID, "pty.replay")
 	if err != nil {
 		return nil, err
 	}
@@ -884,8 +863,8 @@ func (s *session) emitData(chunk []byte, replay *outputSink) error {
 	svc.mu.Unlock()
 
 	err := output.emit(EventData, DataPayload{
-		WorkspaceID: s.key.workspaceID,
-		TabID:       s.key.tabID,
+		WorkspaceID: s.key.WorkspaceID,
+		TabID:       s.key.TabID,
 		Chunk:       base64.StdEncoding.EncodeToString(chunk),
 		Replay:      replay != nil,
 	})
@@ -911,4 +890,9 @@ func (s *Service) emit(event string, payload any) error {
 
 func timeAfter(duration time.Duration) <-chan time.Time {
 	return time.After(duration)
+}
+
+func exitPayload(key tabKey, state *os.ProcessState, err error) ExitPayload {
+	code, signal := proto.ExitStatus(state, err)
+	return ExitPayload{WorkspaceID: key.WorkspaceID, TabID: key.TabID, Code: code, Signal: signal}
 }
