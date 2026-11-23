@@ -1032,9 +1032,10 @@ export class ChatHost {
       ...(opener !== undefined ? { opener } : {}),
     });
     const cwd = source.cwd ?? source.home;
+    const remembered = this.codexProfiles.get(`${workspaceId}:${tabId}`);
     try {
       const launch = await this.prepareLaunch("codex", workspaceId, readerTabId, cwd, {
-        profileId: this.codexProfiles.get(`${workspaceId}:${tabId}`),
+        profileId: remembered && this.options.profile?.(remembered) ? remembered : undefined,
         home: source.home,
         probeVersion: false,
         connection: false,
