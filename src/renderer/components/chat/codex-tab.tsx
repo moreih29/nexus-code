@@ -1,12 +1,12 @@
-import { ArrowLeft } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { defaultProfileId, profileOf } from "../../../shared/agent-profiles/profiles";
+import { isUnder } from "../../../shared/fs/relative-path";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
-import { placeLocalFile, showHeldLocalFile } from "../../services/agent-view/file-tabs";
+import { locationLabel } from "../../../shared/types/workspace";
+import { useNow } from "../../hooks/use-now";
 import { codexTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
-import { attachedOpens } from "../../services/chat/attach-folders";
 import { pruneAttachmentsOnce } from "../../services/chat/attach-retention";
 import { useStateBesideStream } from "../../services/chat/beside-stream";
 import type { PermissionAnswer } from "../../services/chat/claude/controller";
@@ -19,27 +19,10 @@ import {
 } from "../../services/chat/codex/history";
 import { type CodexModel, originalsFor } from "../../services/chat/codex/model";
 import { runCodexCommand } from "../../services/chat/codex/run-command";
-import { filesThere, useGoneFiles } from "../../services/chat/file-presence";
 import { goalViewOf } from "../../services/chat/goal";
-import {
-  imageLook,
-  latestReadFile,
-  lookAtImage,
-  type ShownImage,
-} from "../../services/chat/image-look";
-import { linkPlaceIndex } from "../../services/chat/link-places";
-import {
-  type FileLink,
-  fileKind,
-  isLocalAddress,
-  isUnder,
-  type LineAt,
-} from "../../services/chat/links";
-import { lookAreaOf } from "../../services/chat/look-area";
+import { useLocalChatLinks } from "../../services/chat/local-chat-links";
 import type { AssistantItem, PermissionRequest, UserItem } from "../../services/chat/model";
-import { followFileLink, openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
-import { agentsOf, attachedImagesIn, imagesOf, outsideLinksOf } from "../../services/chat/panel";
-import { registerPanelToggle } from "../../services/chat/panel-toggle";
+import { agentsOf } from "../../services/chat/panel";
 import { usePlanCodexLimits } from "../../services/chat/plan-usage";
 import {
   printRunRows,
@@ -48,59 +31,55 @@ import {
   usePrintRuns,
 } from "../../services/chat/print-runs";
 import { relayedOf, withRelayed } from "../../services/chat/relayed";
-import { revertChangedFile } from "../../services/chat/revert-file";
 import { chatKey, revealPart, useChatStore, useChatTab } from "../../services/chat/store";
 import { ChatNotesProvider } from "../../services/notes/chat-notes";
 import { chatPanelOf } from "../../services/remote/chat-panel";
-import { registerTabFocusTarget } from "../../services/tab-focus";
 import { openTerminal } from "../../services/terminal/open-terminal";
 import { queueStartupInput } from "../../services/terminal/pty-client";
 import { agentCommandLine } from "../../services/workspace/tasks";
-import { localUrlFor } from "../../state/operations/ports";
 import { openCodexTab } from "../../state/operations/tabs";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { dropAgentAsk } from "../../state/stores/agent-reveal";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { useGitStore } from "../../state/stores/git";
-import { grantOutside } from "../../state/stores/outside-grants";
 import type { CodexTabProps } from "../../state/stores/tabs";
-import { useWorkspacesStore } from "../../state/stores/workspaces";
-import { cn } from "../../utils/cn";
+import { useWorkspace } from "../../state/stores/workspaces";
 import { profileName } from "../agent-profiles/profile-badge";
 import { ProfileUsageChip, type TabUse } from "../agent-profiles/tab-profile";
 import {
   CodexPanelMcp,
   panelSummaryCounts,
-  type RemotePanelAsk,
-  type RemotePanelPart,
   remotePanelPartOf,
-  SessionSidePanel,
 } from "../agent-view/remote-side-panel";
 import { ConversationNoteChip } from "../notes/conversation-note-chip";
-import { BannerDismissButton } from "../ui/banner";
 import { showToast } from "../ui/toast";
-import { CodexIcon } from "./agent-icons";
-import { AgentStrip, ShownState } from "./agent-strip";
 import { ChatAgentContext } from "./chat-agent";
-import { ChatLinksContext, type LocalChatLinks } from "./chat-links";
+import { ChatLinksContext } from "./chat-links";
+import {
+  ChatEmptyState,
+  ChatRequestDock,
+  ChatShell,
+  codexRateLimitOf,
+  LocalChatLook,
+  showsEmptyChat,
+  useChatPanelPlace,
+  useShownAgent,
+} from "./chat-shell";
 import { ChatPhaseBanner, ChatSignedOutBanner } from "./chat-state-banner";
 import { CodexDefaultsDialog } from "./codex-config-dialog";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
 import { ConversationChildren, ConversationParentChip } from "./conversation-tree";
 import { closeGoalBar, GoalBar, useTabGoal } from "./goal-bar";
-import { LimitResumeBanner } from "./limit-resume-banner";
+import { LimitResumeBanner, showsLimitResume } from "./limit-resume-banner";
 import { type CallReveal, type MessageActions, MessageList } from "./message-list";
-import { type PanelPlace, placeFor, readPanelPref, writePanelPref } from "./panel-place";
-import { focusChatTab, PermissionCard } from "./permission-card";
 import { PrintRunPane } from "./print-run-pane";
-import { QuickLook, type QuickLookList } from "./quick-look";
+import { RateLimitBanner } from "./rate-limit-banner";
 import { RewindDialog } from "./rewind-dialog";
 import { surfaceChatSendError } from "./send-error";
 import { type InstructionsChipSlot, SessionInstructionsChip } from "./session-instructions-chip";
 import { CodexSessionList } from "./session-list";
-import { StatusLine } from "./status-line";
-import { SummaryLine } from "./summary-line";
+import { type RemotePanelAsk, type RemotePanelPart, SessionSidePanel } from "./session-side-panel";
 import { toolSummary } from "./tool-row";
 import { TurnFailureBanner } from "./turn-failure-banner";
 import { CodexUsageLine } from "./usage-line";
@@ -112,8 +91,6 @@ interface CodexTabViewProps {
   isVisible: boolean;
 }
 
-const SPLIT_FROM_PX = 900;
-
 export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabViewProps) {
   const instructions = useCallback(
     (slot: InstructionsChipSlot) => (
@@ -122,12 +99,8 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
     [workspaceId, tabId],
   );
   const { t } = useTranslation();
-  const rootPath = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
-  );
-  const location = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location,
-  );
+  const rootPath = useWorkspace(workspaceId, (w) => w?.rootPath ?? "");
+  const location = useWorkspace(workspaceId, (w) => w?.location);
   const isLocal = location?.kind === "local";
   // biome-ignore lint/correctness/useExhaustiveDependencies: the target is read once; the controller keeps the thread it moves on to
   const controller = useMemo(
@@ -167,72 +140,25 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   const printRuns = usePrintRuns(workspaceId, tabId, isVisible);
   const runs = useMemo(() => printRunRows(printRuns), [printRuns]);
   const agents = useMemo(() => [...agentsOf(steady.model), ...runs], [steady.model, runs]);
-  const [shownId, setShownId] = useState<string | null>(null);
-  const shown = shownId ? agents.find((run) => run.toolUseId === shownId) : undefined;
-  useEffect(() => {
-    if (shownId && !shown) setShownId(null);
-  }, [shownId, shown]);
-  const showRun = (toolUseId: string | null) => {
-    setShownId(toolUseId);
-    dropAgentAsk(tabId);
-  };
+  const fontStyle = useChatFontStyle();
+  const shell = useChatPanelPlace(tabId, isVisible);
+  const { rootRef, place, panelOpen } = shell;
+  const {
+    shown,
+    showAgent: showRun,
+    onKeyDown,
+  } = useShownAgent(agents, shell, () => dropAgentAsk(tabId));
   useAgentAsk(tabId, agents, showRun);
   const childId = shown && !shown.run ? shown.toolUseId : undefined;
   useEffect(() => {
     if (childId) void controller.loadSubagent(childId);
   }, [childId, controller]);
 
-  const rootRef = useRef<HTMLDivElement>(null);
-  const fontStyle = useChatFontStyle();
-  useEffect(() => registerTabFocusTarget(tabId, () => focusChatTab(rootRef.current)), [tabId]);
-  const [place, setPlace] = useState<PanelPlace>("beside");
-  useLayoutEffect(() => {
-    const el = rootRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry && entry.contentRect.width > 0) setPlace(placeFor(entry.contentRect.width));
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-  const [besideOpen, setBesideOpen] = useState(readPanelPref);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const panelOpen = place === "beside" ? besideOpen : drawerOpen;
-  const togglePanel = () => {
-    if (place === "beside") {
-      writePanelPref(!besideOpen);
-      setBesideOpen(!besideOpen);
-    } else setDrawerOpen((open) => !open);
-  };
-  const togglePanelRef = useRef(togglePanel);
-  togglePanelRef.current = togglePanel;
-  useEffect(() => registerPanelToggle(tabId, () => togglePanelRef.current()), [tabId]);
-  useEffect(() => {
-    if (place === "beside" || !isVisible) setDrawerOpen(false);
-  }, [place, isVisible]);
-  const drawerRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const drawer = drawerRef.current;
-    if (!drawerOpen || !drawer) return;
-    const back = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    if (!drawer.contains(document.activeElement)) drawer.focus({ preventScroll: true });
-    return () => {
-      const active = document.activeElement;
-      if ((active === document.body || drawer.contains(active)) && back?.isConnected) {
-        back.focus({ preventScroll: true });
-      }
-    };
-  }, [drawerOpen]);
   const [panelAsk, setPanelAsk] = useState<RemotePanelAsk | null>(null);
   const askPanel = (part: RemotePanelPart) => {
     setPanelAsk((prev) => ({ part, seq: (prev?.seq ?? 0) + 1 }));
-    if (place !== "beside") setDrawerOpen(true);
-    else if (!besideOpen) {
-      writePanelPref(true);
-      setBesideOpen(true);
-    }
+    shell.openPanel();
   };
-  const [look, setLook] = useState<QuickLookList | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
   const [resumeQuery, setResumeQuery] = useState<string | null>(null);
   const [resumeError, setResumeError] = useState<string | null>(null);
@@ -276,108 +202,22 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
       .continueInProfile(profileId)
       .catch((err: Error) => showToast({ kind: "error", message: err.message }));
   };
-  useEffect(() => {
-    if (!isVisible) setLook(null);
-  }, [isVisible]);
-  const [looked, setLooked] = useState<readonly string[]>([]);
-  const { items: liveItems, tools: liveTools } = state.model;
-  const outside = useMemo(
-    () => outsideLinksOf(liveItems, liveTools, props.cwd, rootPath, looked),
-    [liveItems, liveTools, props.cwd, rootPath, looked],
+  const { items: liveItems, tools: liveTools, agentItems, tasks } = model;
+  const source = useMemo(
+    () => ({ items: liveItems, tools: liveTools, agentItems }),
+    [liveItems, liveTools, agentItems],
   );
-  useEffect(() => {
-    grantOutside(workspaceId, tabId, outside);
-  }, [workspaceId, tabId, outside]);
-  useEffect(
-    () => () => grantOutside(workspaceId, tabId, { files: [], dirs: [] }),
-    [workspaceId, tabId],
-  );
-  const attached = useMemo(() => attachedImagesIn(liveItems, props.cwd), [liveItems, props.cwd]);
-  const goneAttached = useGoneFiles(workspaceId, rootPath, attached);
-  const latest = useRef({ state, rootPath, outside });
-  latest.current = { state, rootPath, outside };
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the tab's state is read from `latest` when a link is followed
-  const links = useMemo<LocalChatLinks>(() => {
-    const cwd = props.cwd;
-    const split = () => (rootRef.current?.clientWidth ?? 0) >= SPLIT_FROM_PX;
-    const grant = (path: string) => {
-      const { rootPath, outside } = latest.current;
-      if (isUnder(path, rootPath) || outside.files.includes(path)) return;
-      setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
-    };
-    const lookAt = (target: ShownImage, alone?: () => QuickLookList) => {
-      const current = latest.current.state.model as CodexModel;
-      const shown = imagesOf(current.items, current.tools, cwd, current.agentItems);
-      const held = target.image ? latestReadFile(shown, target) : undefined;
-      if (held && showHeldLocalFile(workspaceId, held)) {
-        setLook(null);
-        return;
-      }
-      void lookAtImage(shown, target, (files) =>
-        filesThere(workspaceId, latest.current.rootPath, files),
-      ).then((look) => {
-        for (const path of Object.values(look?.paths ?? {})) grant(path);
-        const list = look ?? alone?.();
-        if (list) setLook(list);
-      });
-    };
-    const showAlone = (path: string, line?: LineAt) => {
-      const current = latest.current.state.model as CodexModel;
-      setLook({
-        files: [path],
-        index: 0,
-        changes: originalsFor(current.originals, [path]),
-        ...(line?.line ? { at: { path, line: line.line, column: line.column } } : {}),
-      });
-    };
-    const follow = (target: string, then: (link: FileLink) => void) => {
-      const { state, rootPath } = latest.current;
-      const places = linkPlaceIndex(state.model.tools, cwd);
-      void followFileLink(workspaceId, rootPath, target, places).then((link) => link && then(link));
-    };
-    const openFileTab = (target: string, at?: LineAt) => {
-      follow(target, ({ path, ...line }) => {
-        const inside = isUnder(path, latest.current.rootPath);
-        openFileBeside(workspaceId, tabId, path, { split: split(), inside, at: at ?? line });
-      });
-    };
-    return {
-      opensAttached: attachedOpens(goneAttached, cwd),
-      openFile(target) {
-        follow(target, ({ path, ...line }) => {
-          grant(path);
-          if (showHeldLocalFile(workspaceId, path, line)) {
-            setLook(null);
-            return;
-          }
-          if (fileKind(path) !== "image") return showAlone(path, line);
-          lookAt({ file: path });
-        });
-      },
-      openChange(path) {
-        grant(path);
-        if (showHeldLocalFile(workspaceId, path)) setLook(null);
-        else showAlone(path);
-      },
-      openImages(images, index) {
-        const image = images[index];
-        if (image) lookAt({ image }, () => imageLook(images, index));
-      },
-      openFileTab,
-      openUrl(url, other = false) {
-        const local = isLocalAddress(url);
-        if (local !== other) {
-          openBrowserBeside(workspaceId, tabId, url, { split: split() });
-        } else if (local) {
-          void localUrlFor(workspaceId, url).then((here) => {
-            if (here) window.open(here, "_blank", "noopener,noreferrer");
-          });
-        } else if (isExternalSchemeAllowed(url)) {
-          window.open(url, "_blank", "noopener,noreferrer");
-        }
-      },
-    };
-  }, [workspaceId, tabId, goneAttached]);
+  const { links, look, setLook } = useLocalChatLinks({
+    workspaceId,
+    tabId,
+    cwd: props.cwd,
+    rootPath,
+    visible: isVisible,
+    source,
+    tasks,
+    split: () => shell.place === "beside",
+    changesOf: (path) => originalsFor(model.originals, [path]),
+  });
 
   const signIn = () => {
     const command = isLocal ? "codex login" : "codex login --device-auth";
@@ -390,6 +230,11 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   };
 
   const plan = usePlanCodexLimits(workspaceId, profileId);
+  const now = useNow(isVisible, 60_000);
+  const rateLimit = useMemo(
+    () => codexRateLimitOf(plan ?? model.rateLimits, now),
+    [plan, model.rateLimits, now],
+  );
   const branch = useGitStore((s) => {
     const git = s.sessions.get(workspaceId);
     return git?.branchInfo?.current ?? git?.status?.branch?.current ?? null;
@@ -406,7 +251,6 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   const [callReveal, setCallReveal] = useState<CallReveal | null>(null);
   const showCall = (toolUseId: string) => {
     showRun(null);
-    setDrawerOpen(false);
     setCallReveal((prev) => ({ toolUseId, seq: (prev?.seq ?? 0) + 1 }));
   };
   const ready = state.phase === "ready" && model.process === "running";
@@ -476,7 +320,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   };
   const panelGoal = goalViewOf(model);
   const historyBusy = codexHistoryBusy(state);
-  const panel = (
+  const panel = (className: string) => (
     <SessionSidePanel
       scope={{
         agent: "codex",
@@ -484,12 +328,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
         workspaceId,
         cwd,
         rootPath,
-        computer:
-          location?.kind === "ssh"
-            ? (location.configAlias ?? location.host)
-            : location?.kind === "wsl"
-              ? location.distro
-              : t("chat.panel.env.local_computer"),
+        computer: (location && locationLabel(location)) ?? t("chat.panel.env.local_computer"),
         profile: profileName(profile, t),
       }}
       panel={panelData}
@@ -505,10 +344,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
       signedOut={model.account === null}
       branch={isUnder(cwd, rootPath) ? branch : null}
       contextUsed={model.tokens?.used}
-      onShowAgent={(id) => {
-        showRun(id);
-        setDrawerOpen(false);
-      }}
+      onShowAgent={showRun}
       onShowCall={showCall}
       onCompact={
         ready && threadId && !model.signedOut
@@ -548,7 +384,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
           reveal={panelAsk?.part === "mcp" ? panelAsk.seq : undefined}
         />
       }
-      className={place === "beside" ? "w-72 shrink-0 border-l border-border" : "h-full"}
+      className={className}
       testId="codex-side-panel"
       conversations={isVisible ? <ConversationChildren tabId={tabId} /> : undefined}
     />
@@ -587,14 +423,15 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
           onRewind: setRewinding,
         }
       : undefined;
-  const permissions = model.permissions;
   const view = (
+    // biome-ignore lint/a11y/noStaticElementInteractions: ⌘[ and ⌘] step through the agents from anywhere in the tab
     <div
       ref={rootRef}
       className="chat-font relative flex h-full flex-col bg-background"
       style={fontStyle}
       data-testid="codex-tab"
       data-chat-drop
+      onKeyDown={onKeyDown}
     >
       {rewinding && (
         <RewindDialog
@@ -628,297 +465,204 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
       />
       {props.openedBy && <ConversationParentChip opener={props.openedBy} />}
       <ConversationNoteChip />
-      <div className="relative flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
-          {place === "summary" ? (
-            <>
-              <SummaryLine
-                counts={panelSummaryCounts(panelData, agents)}
-                open={drawerOpen}
-                onToggle={togglePanel}
-              />
-              {shown && (
-                <div className="flex h-7 shrink-0 items-center gap-2 border-b border-border px-2 text-app-ui-sm">
-                  <button
-                    type="button"
-                    onClick={() => showRun(null)}
-                    className="flex shrink-0 items-center gap-1 rounded-(--radius-control) px-1.5 py-0.5 font-medium hover:bg-[var(--state-hover-bg)]"
-                  >
-                    <ArrowLeft className="size-3.5" aria-hidden />
-                    {t("chat.strip.to_main")}
-                  </button>
-                  <span className="min-w-0 truncate text-muted-foreground">
-                    {shown.description}
-                  </span>
-                  <ShownState agent={shown} />
-                </div>
-              )}
-            </>
-          ) : (
-            <AgentStrip
-              agents={runs}
-              shown={shown ? shown.toolUseId : null}
-              onShow={showRun}
-              panel={{ open: panelOpen, onToggle: togglePanel }}
-            />
-          )}
-          {shown?.run ? (
-            <PrintRunPane
-              workspaceId={workspaceId}
-              tabId={tabId}
-              cwd={props.cwd}
-              rootPath={rootPath}
-              run={shown.run}
-              visible={isVisible}
-            />
-          ) : (
-            <MessageList
-              workspaceId={workspaceId}
-              tabId={tabId}
-              cwd={props.cwd}
-              rootPath={rootPath}
-              history={null}
-              model={state.model}
-              actions={messageActions}
-              items={childId ? (model.nativeTranscripts?.[childId] ?? []) : undefined}
-              itemsDone={shown !== undefined && shown.status !== "running"}
-              reveal={callReveal ?? undefined}
-              moves={props.moves}
-              relayed={relayedOf(props)}
-              historyTruncated={!shown && state.truncated}
-              empty={
-                !shown && (state.phase === "ready" || state.phase === "ended") ? (
-                  <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
-                    <CodexIcon className="size-8" />
-                    <div className="text-app-body">{t("chat.codex.empty")}</div>
-                    <div className="max-w-full truncate font-mono text-app-micro" title={props.cwd}>
-                      {props.cwd}
-                    </div>
-                    {resumeError && (
-                      <div className="flex items-center gap-2 text-app-ui-sm text-[var(--state-error-fg)]">
-                        <span className="flex-1">
-                          {t("chat.sessions.resume_failed", { message: resumeError })}
-                        </span>
-                        <BannerDismissButton
-                          dismiss={{
-                            label: t("action.dismiss"),
-                            onDismiss: () => setResumeError(null),
-                          }}
-                        />
-                      </div>
-                    )}
-                    {state.phase === "ready" && (
-                      <CodexSessionList
-                        workspaceId={workspaceId}
-                        tabId={tabId}
-                        controller={controller}
-                        cwd={props.cwd}
-                        profileId={profileId}
-                        onResume={resumeThread}
-                      />
-                    )}
-                  </div>
-                ) : null
-              }
-            />
-          )}
-          {(permissions.length > 0 || model.running || goal) && (
-            <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
-              <div className="mx-auto flex max-w-[860px] flex-col gap-2">
-                {goal && (
-                  <GoalBar
-                    tab={goal}
-                    onClear={() => controller.clearGoal()}
-                    onStatus={(status) => controller.setGoalStatus(status)}
-                    onClose={() => closeGoalBar(workspaceId, tabId, goal.goal)}
-                  />
-                )}
-                {permissions.length > 0 && (
-                  <PermissionCard
-                    requests={permissions}
-                    workspaceId={workspaceId}
-                    cwd={props.cwd}
-                    rootPath={rootPath}
-                    onAnswer={onAnswer}
-                  />
-                )}
-                <StatusLine model={state.model} />
-              </div>
-            </div>
-          )}
-          {model.collaborationMode === "plan" && collaboration && (
-            <div className="mx-auto flex w-full max-w-[860px] px-4">
-              <button
-                type="button"
-                className="rounded-(--radius-control) px-2 py-1 text-app-ui-sm text-accent-foreground hover:bg-accent"
-                title={t("chat.codex.commands.describe.default")}
-                aria-label={t("chat.codex.commands.describe.default")}
-                onClick={() => {
-                  void runCommand({ name: "default", args: "" }).catch((error: Error) =>
-                    showToast({ kind: "error", message: error.message }),
-                  );
-                }}
-              >
-                {t("chat.codex.commands.collaboration.plan")}
-              </button>
-            </div>
-          )}
-          <LimitResumeBanner workspaceId={workspaceId} tabId={tabId} record={props.limitResume} />
-          <TurnFailureBanner
-            scope={bannerScope}
-            model={model}
-            onRetry={(text) => controller.send(text)}
+      <ChatShell
+        shell={shell}
+        agents={agents}
+        shown={shown}
+        onShowAgent={showRun}
+        summaryCounts={() => panelSummaryCounts(panelData, agents)}
+        panel={panel}
+      >
+        {shown?.run ? (
+          <PrintRunPane
+            workspaceId={workspaceId}
+            tabId={tabId}
+            cwd={props.cwd}
+            rootPath={rootPath}
+            run={shown.run}
+            visible={isVisible}
           />
-          <Composer
-            instructions={instructions}
-            controller={controller}
-            state={state}
+        ) : (
+          <MessageList
+            workspaceId={workspaceId}
+            tabId={tabId}
+            cwd={props.cwd}
+            rootPath={rootPath}
+            history={null}
+            model={state.model}
+            actions={messageActions}
+            items={childId ? (model.nativeTranscripts?.[childId] ?? []) : undefined}
+            itemsDone={shown !== undefined && shown.status !== "running"}
+            reveal={callReveal ?? undefined}
+            moves={props.moves}
             relayed={relayedOf(props)}
-            local={isLocal}
-            commands={commands}
-            placeholder={shown ? t("chat.strip.input_to_main") : undefined}
-            above={
-              resumeQuery !== null ? (
-                <CodexSessionList
-                  workspaceId={workspaceId}
-                  tabId={tabId}
-                  controller={controller}
+            historyTruncated={!shown && state.truncated}
+            empty={
+              !shown && showsEmptyChat(state.phase) ? (
+                <ChatEmptyState
+                  agent="codex"
                   cwd={props.cwd}
-                  profileId={profileId}
-                  query={resumeQuery}
-                  onClose={() => setResumeQuery(null)}
-                  onResume={(threadId, profile, title) =>
-                    resumeThread(threadId, profile, title, resumeFailed)
-                  }
-                />
-              ) : (
-                state.card && (
-                  <CommandCardView
-                    card={state.card}
-                    workspaceId={workspaceId}
-                    cwd={props.cwd}
-                    rootPath={rootPath}
-                    onClose={() => controller.closeCard()}
-                  />
-                )
-              )
+                  error={resumeError}
+                  onDismissError={() => setResumeError(null)}
+                >
+                  {state.phase === "ready" && (
+                    <CodexSessionList
+                      workspaceId={workspaceId}
+                      tabId={tabId}
+                      controller={controller}
+                      cwd={props.cwd}
+                      profileId={profileId}
+                      onResume={resumeThread}
+                    />
+                  )}
+                </ChatEmptyState>
+              ) : null
             }
-            below={
-              <CodexUsageLine
-                workspaceId={workspaceId}
-                profileId={props.profileId}
-                visible={isVisible}
-                tokens={model.tokens}
-                rateLimits={model.rateLimits}
-                trailing={(compact) => (
-                  <ProfileUsageChip
-                    agent="codex"
-                    workspaceId={workspaceId}
-                    profileId={props.profileId}
-                    use={tabUse}
-                    onSwitch={switchProfile}
-                    onContinue={continueInProfile}
-                    compact={compact}
-                  />
-                )}
-              />
-            }
-            onCommand={(text) => {
-              if (/^\/(config|settings)$/i.test(text.trim())) {
-                setConfigOpen(true);
-                return true;
-              }
-              if (parseAppCommand(text, [])?.name === "resume") {
-                if (state.model.running) {
-                  showToast({ kind: "warning", message: t("chat.commands.resume_busy") });
-                } else setResumeQuery(text.trim().replace(/^\/\S+\s*/, ""));
-                return true;
-              }
-              const part = revealOf(text, ["model", "effort"]);
-              if (part) {
-                revealPart(controller.key, part);
-                return true;
-              }
-              const section = remotePanelPartOf(text);
-              if (section) {
-                askPanel(section);
-                return true;
-              }
-              const command = parseCodexCommand(text);
-              if (!command || ["config", "resume"].includes(command.name)) return false;
-              void runCommand(command).catch((err: Error) =>
-                showToast({ kind: "error", message: err.message }),
-              );
-              return true;
-            }}
           />
-        </div>
-        {place === "beside" && besideOpen && panel}
-        {place !== "beside" && drawerOpen && (
-          <>
+        )}
+        <ChatRequestDock
+          model={state.model}
+          goal={
+            goal && (
+              <GoalBar
+                tab={goal}
+                onClear={() => controller.clearGoal()}
+                onStatus={(status) => controller.setGoalStatus(status)}
+                onClose={() => closeGoalBar(workspaceId, tabId, goal.goal)}
+              />
+            )
+          }
+          card={{ workspaceId, cwd: props.cwd, rootPath, onAnswer }}
+          {...(shown ? { onToMain: () => showRun(null) } : {})}
+        />
+        {model.collaborationMode === "plan" && collaboration && (
+          <div className="mx-auto flex w-full max-w-[860px] px-4">
             <button
               type="button"
-              aria-label={t("chat.panel.hide")}
-              tabIndex={-1}
-              className={cn(
-                "absolute inset-x-0 bottom-0 z-10 cursor-default",
-                place === "summary" ? "top-7" : "top-8",
-              )}
-              onClick={() => setDrawerOpen(false)}
-            />
-            {/* biome-ignore lint/a11y/noStaticElementInteractions: Escape closes the drawer */}
-            <div
-              ref={drawerRef}
-              tabIndex={-1}
-              className={cn(
-                "absolute right-0 bottom-0 z-20 border-l border-border bg-background outline-none",
-                place === "summary" ? "top-7 w-full" : "top-8 w-80",
-              )}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.stopPropagation();
-                  setDrawerOpen(false);
-                }
+              className="rounded-(--radius-control) px-2 py-1 text-app-ui-sm text-accent-foreground hover:bg-accent"
+              title={t("chat.codex.commands.describe.default")}
+              aria-label={t("chat.codex.commands.describe.default")}
+              onClick={() => {
+                void runCommand({ name: "default", args: "" }).catch((error: Error) =>
+                  showToast({ kind: "error", message: error.message }),
+                );
               }}
             >
-              {panel}
-            </div>
-          </>
+              {t("chat.codex.commands.collaboration.plan")}
+            </button>
+          </div>
         )}
-      </div>
+        {showsLimitResume(props.limitResume) ? (
+          <LimitResumeBanner workspaceId={workspaceId} tabId={tabId} record={props.limitResume} />
+        ) : (
+          <RateLimitBanner scope={bannerScope} limit={rateLimit} />
+        )}
+        <TurnFailureBanner
+          scope={bannerScope}
+          model={model}
+          onRetry={(text) => controller.send(text)}
+        />
+        <Composer
+          instructions={instructions}
+          controller={controller}
+          state={state}
+          relayed={relayedOf(props)}
+          local={isLocal}
+          commands={commands}
+          placeholder={shown ? t("chat.strip.input_to_main") : undefined}
+          above={
+            resumeQuery !== null ? (
+              <CodexSessionList
+                workspaceId={workspaceId}
+                tabId={tabId}
+                controller={controller}
+                cwd={props.cwd}
+                profileId={profileId}
+                query={resumeQuery}
+                onClose={() => setResumeQuery(null)}
+                onResume={(threadId, profile, title) =>
+                  resumeThread(threadId, profile, title, resumeFailed)
+                }
+              />
+            ) : (
+              state.card && (
+                <CommandCardView
+                  card={state.card}
+                  workspaceId={workspaceId}
+                  cwd={props.cwd}
+                  rootPath={rootPath}
+                  onClose={() => controller.closeCard()}
+                />
+              )
+            )
+          }
+          below={
+            <CodexUsageLine
+              workspaceId={workspaceId}
+              profileId={props.profileId}
+              visible={isVisible}
+              tokens={model.tokens}
+              rateLimits={model.rateLimits}
+              trailing={(compact) => (
+                <ProfileUsageChip
+                  agent="codex"
+                  workspaceId={workspaceId}
+                  profileId={props.profileId}
+                  use={tabUse}
+                  onSwitch={switchProfile}
+                  onContinue={continueInProfile}
+                  compact={compact}
+                />
+              )}
+            />
+          }
+          onCommand={(text) => {
+            if (/^\/(config|settings)$/i.test(text.trim())) {
+              setConfigOpen(true);
+              return true;
+            }
+            if (parseAppCommand(text, [])?.name === "resume") {
+              if (state.model.running) {
+                showToast({ kind: "warning", message: t("chat.commands.resume_busy") });
+              } else setResumeQuery(text.trim().replace(/^\/\S+\s*/, ""));
+              return true;
+            }
+            const part = revealOf(text, ["model", "effort"]);
+            if (part) {
+              revealPart(controller.key, part);
+              return true;
+            }
+            const section = remotePanelPartOf(text);
+            if (section) {
+              askPanel(section);
+              return true;
+            }
+            const command = parseCodexCommand(text);
+            if (!command || ["config", "resume"].includes(command.name)) return false;
+            void runCommand(command).catch((err: Error) =>
+              showToast({ kind: "error", message: err.message }),
+            );
+            return true;
+          }}
+        />
+      </ChatShell>
       <CodexDefaultsDialog
         source={controller}
         open={configOpen}
         onClose={() => setConfigOpen(false)}
       />
-      {look && (
-        <QuickLook
-          workspaceId={workspaceId}
-          list={look}
-          area={lookAreaOf(rootRef.current)}
-          local={isLocal}
-          onIndex={(index) => setLook({ ...look, index })}
-          onClose={() => setLook(null)}
-          onOpenBeside={(path, { at }) => {
-            setLook(null);
-            placeLocalFile(workspaceId, tabId, path, isUnder(path, rootPath), at);
-            return true;
-          }}
-          onOpenTab={(path, at) => {
-            setLook(null);
-            links.openFileTab(path, at);
-          }}
-          onRevert={(path) => {
-            const before = look.changes?.[path];
-            if (before !== undefined) {
-              void revertChangedFile(workspaceId, rootPath, path, before, "codex");
-            }
-          }}
-          revertBlocked={
-            model.running ? t("chat.look.revert_busy", { context: "codex" }) : undefined
-          }
-        />
-      )}
+      <LocalChatLook
+        workspaceId={workspaceId}
+        tabId={tabId}
+        rootPath={rootPath}
+        rootRef={rootRef}
+        look={look}
+        setLook={setLook}
+        local={isLocal}
+        openFileTab={links.openFileTab}
+        agent="codex"
+        running={model.running}
+      />
     </div>
   );
   return (

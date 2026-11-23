@@ -18,13 +18,6 @@ import { Switch } from "../ui/switch";
 import { showToast } from "../ui/toast";
 import { peerProfileName } from "./remote-profile-chip";
 
-export {
-  type RemotePanelAsk,
-  type RemotePanelPart,
-  remoteAgentsOf,
-  SessionSidePanel,
-} from "../chat/session-side-panel";
-
 export function remotePanelPartOf(text: string): RemotePanelPart | null {
   const match = /^\/(status|context|usage|mcp)$/i.exec(text.trim());
   return (match?.[1]?.toLowerCase() as RemotePanelPart | undefined) ?? null;
