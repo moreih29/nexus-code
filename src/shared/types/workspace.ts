@@ -130,6 +130,19 @@ export function workspaceLocationKey(location: WorkspaceLocation): string {
   return `ssh:${user}@${location.host}:${port}:${normalizeWorkspacePath(location.remotePath)}`;
 }
 
+export function locationLabel(
+  location: WorkspaceLocation,
+  options: { prefix?: boolean } = {},
+): string | null {
+  if (location.kind === "local") return null;
+  const label =
+    location.kind === "wsl"
+      ? location.distro
+      : (location.configAlias ??
+        (location.user ? `${location.user}@${location.host}` : location.host));
+  return options.prefix ? `${location.kind}: ${label}` : label;
+}
+
 export function attachHostOf(location: WorkspaceLocation): string {
   if (location.kind === "local") return "local";
   if (location.kind === "wsl") return `wsl:${location.distro}`;

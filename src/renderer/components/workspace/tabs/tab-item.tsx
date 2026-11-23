@@ -1,18 +1,13 @@
 import i18next from "i18next";
 import {
-  CircleAlert,
-  CircleCheck,
   File,
   FileDiff,
   GitCommit,
   Globe,
-  Loader,
   Lock,
   type LucideIcon,
-  MessageCircleQuestion,
   NotebookPen,
   SquareTerminal,
-  TriangleAlert,
   X,
 } from "lucide-react";
 import { Tabs as RadixTabs } from "radix-ui";
@@ -56,7 +51,7 @@ import { useTabGitDecoration } from "../../../state/stores/git/use-tab-decoratio
 import { useTabEditingStore } from "../../../state/stores/tab-editing";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
 import { MIME_TAB, type TabDragPayload } from "../../../types/workbench-dnd";
-import { codexStatusLabel, estimatedLabel } from "../../agent-list/session-status";
+import { codexStatusLabel, estimatedLabel, StateGlyph } from "../../agent-list/session-status";
 import { TabProfileMark } from "../../agent-profiles/tab-profile";
 import { ClaudeIcon, CodexIcon } from "../../chat/agent-icons";
 import { GoalTabBadge } from "../../chat/goal-bar";
@@ -202,75 +197,16 @@ function ClaudeGlyph({
   codex?: boolean;
 }) {
   if (status === "idle") return null;
-
   const label = estimated
     ? estimatedLabel(status)
     : codex
       ? codexStatusLabel(status)
       : claudeAriaLabel(status);
-  const title = estimated ? label : undefined;
-
-  if (status === "running") {
-    return (
-      <span role="img" aria-label={label} title={title}>
-        <Loader
-          width={12}
-          height={12}
-          strokeWidth={1.5}
-          className="shrink-0 text-(--state-loading-indicator) motion-safe:animate-spin"
-        />
-      </span>
-    );
-  }
-  if (status === "completed") {
-    return (
-      <span role="img" aria-label={label} title={title}>
-        <CircleCheck
-          width={12}
-          height={12}
-          strokeWidth={1.5}
-          className="shrink-0 text-(--tab-claude-attention-fg)"
-        />
-      </span>
-    );
-  }
-  if (status === "needsInput") {
-    return (
-      <span role="img" aria-label={label} className="motion-safe:animate-pulse">
-        <MessageCircleQuestion
-          width={12}
-          height={12}
-          strokeWidth={1.5}
-          className="shrink-0 text-(--tab-claude-attention-fg)"
-        />
-      </span>
-    );
-  }
-  if (status === "permissionPending") {
-    return (
-      <span role="img" aria-label={label}>
-        <CircleAlert
-          width={12}
-          height={12}
-          strokeWidth={1.5}
-          className="shrink-0 text-(--state-warning-fg)"
-        />
-      </span>
-    );
-  }
-  if (status === "error") {
-    return (
-      <span role="img" aria-label={label}>
-        <TriangleAlert
-          width={12}
-          height={12}
-          strokeWidth={1.5}
-          className="shrink-0 text-(--state-error-fg)"
-        />
-      </span>
-    );
-  }
-  return null;
+  return (
+    <span role="img" aria-label={label} title={estimated ? label : undefined}>
+      <StateGlyph state={status} />
+    </span>
+  );
 }
 
 export interface TabItemProps {
@@ -302,9 +238,15 @@ interface ReadonlyTabItemProps {
   readOnly: true;
   value: string;
   label: string;
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
   glyph?: React.ReactNode;
+  face?: React.ReactNode;
+  title?: string;
+  closeLabel?: string;
   menu?: readonly MenuItemSpec[];
+  tabAttrs?: Readonly<Record<`data-${string}`, string>>;
+  onDragStart?: (dataTransfer: DataTransfer) => void;
+  onActivate?: () => void;
   onClose: () => void;
 }
 
@@ -312,24 +254,48 @@ export function TabItem(props: TabItemProps | ReadonlyTabItemProps) {
   return "readOnly" in props ? <ReadonlyTabItem {...props} /> : <LocalTabItem {...props} />;
 }
 
-function ReadonlyTabItem({ value, label, icon, glyph, menu, onClose }: ReadonlyTabItemProps) {
+function ReadonlyTabItem({
+  value,
+  label,
+  icon,
+  glyph,
+  face,
+  title,
+  closeLabel,
+  menu,
+  tabAttrs,
+  onDragStart,
+  onActivate,
+  onClose,
+}: ReadonlyTabItemProps) {
   const item = (
-    <div className="group relative flex h-full items-center" data-tab-id={value}>
+    <div className="group relative flex h-full items-center" data-tab-id={value} {...tabAttrs}>
       <RadixTabs.Trigger
         value={value}
+        title={title}
+        draggable={onDragStart !== undefined}
+        onDragStart={onDragStart && ((event) => onDragStart(event.dataTransfer))}
+        onClick={onActivate}
+        onAuxClick={(event) => {
+          if (event.button === 1) onClose();
+        }}
         className={cn(TAB_TRIGGER_CLASS, "data-[state=inactive]:[&_[data-tab-icon]]:opacity-65")}
       >
-        {icon}
-        {glyph && (
-          <span data-tab-icon className="inline-flex">
-            {glyph}
-          </span>
+        {face ?? (
+          <>
+            {icon}
+            {glyph && (
+              <span data-tab-icon className="inline-flex">
+                {glyph}
+              </span>
+            )}
+            <span className="min-w-0 max-w-64 truncate" title={label}>
+              {label}
+            </span>
+          </>
         )}
-        <span className="min-w-0 max-w-64 truncate" title={label}>
-          {label}
-        </span>
       </RadixTabs.Trigger>
-      <TabCloseButton onClose={onClose} />
+      <TabCloseButton onClose={onClose} label={closeLabel} />
     </div>
   );
   if (!menu?.length) return item;
@@ -576,9 +542,17 @@ const LocalTabItem = memo(function LocalTabItem({
   );
 });
 
-function TabCloseButton({ onClose, shortcut }: { onClose: () => void; shortcut?: string }) {
+function TabCloseButton({
+  onClose,
+  shortcut,
+  label: given,
+}: {
+  onClose: () => void;
+  shortcut?: string;
+  label?: string;
+}) {
   const { t } = useTranslation();
-  const label = t("tabBar.close_tab");
+  const label = given ?? t("tabBar.close_tab");
   return (
     <Button
       variant="ghost"

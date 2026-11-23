@@ -1,5 +1,5 @@
 import type { SystemStats } from "../../../shared/system/stats";
-import type { WorkspaceLocation } from "../../../shared/types/workspace";
+import { locationLabel, type WorkspaceLocation } from "../../../shared/types/workspace";
 
 const GIB = 1024 ** 3;
 const MIB = 1024 ** 2;
@@ -41,7 +41,5 @@ export function memoryParts(used: number, total: number): { used: string; total:
 }
 
 export function hostLabel(location: WorkspaceLocation | undefined): string | null {
-  if (!location || location.kind === "local") return null;
-  if (location.kind === "wsl") return location.distro;
-  return location.user ? `${location.user}@${location.host}` : location.host;
+  return location ? locationLabel(location) : null;
 }
