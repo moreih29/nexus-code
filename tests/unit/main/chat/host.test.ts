@@ -1526,6 +1526,18 @@ describe("attached files", () => {
     ]);
   });
 
+  test("a removed workspace's folder waits no more on a host whose agent is one from before", async () => {
+    const { waiting, attachCleanups } = cleanups();
+    const { host, channel } = rooted(ROOT, { attachCleanups });
+    await host.closeWorkspace(OTHER, null);
+    expect(waiting).toEqual([{ host: "local", workspaceId: OTHER }]);
+    // It removed each tab's files as the tab closed.
+    channel.failures.set("chat.removeAttachments", "unsupported-method");
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [], keepSlots: [] });
+    expect(waiting).toEqual([]);
+    expect(callsOf(channel, "chat.pruneAttachments")).toHaveLength(1);
+  });
+
   test("no prune when asking the agent for its root fails", async () => {
     const { host, channel } = rooted("request-failed");
     await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB], keepSlots: [] });

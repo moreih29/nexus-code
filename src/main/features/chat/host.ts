@@ -775,11 +775,14 @@ export class ChatHost {
           all: true,
         });
       } catch (error) {
-        // It waits on, for the next time.
-        log.warn(
-          `could not remove removed workspace ${removed}'s attached files: ${String(error)}`,
-        );
-        continue;
+        // An agent from before removed each tab's files as it closed: nothing waits there.
+        if ((error as { code?: unknown } | null)?.code !== "unsupported-method") {
+          // It waits on, for the next time.
+          log.warn(
+            `could not remove removed workspace ${removed}'s attached files: ${String(error)}`,
+          );
+          continue;
+        }
       }
       cleanups.remove(host, removed);
     }
