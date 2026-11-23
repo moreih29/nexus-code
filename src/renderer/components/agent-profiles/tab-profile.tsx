@@ -1,5 +1,4 @@
-import { Square } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import {
@@ -17,9 +16,9 @@ import {
   useAgentProfilesStore,
 } from "../../state/stores/agent-profiles";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
-import { Popover } from "../ui/popover";
-import { tooltipProps } from "../ui/tooltip";
+import { showToast } from "../ui/toast";
 import { hasProfileChoice, ProfileDot, profileName } from "./profile-badge";
+import { ProfileChipView } from "./profile-chip-view";
 import { sourceLabel } from "./workspace-profile-menu";
 
 export function TabProfileMark({
@@ -80,6 +79,14 @@ export function ProfileUsageChip({
     () => (workspace ? resolveWorkspaceProfile(agent, workspace, workspaces, config) : null),
     [agent, workspace, workspaces, config],
   );
+  const moving = useRef<string | null>(null);
+  const movedTo = profile.id;
+  const movedName = profileName(profile, t);
+  useEffect(() => {
+    if (moving.current !== movedTo) return;
+    moving.current = null;
+    showToast({ kind: "info", message: t("chat.profile.moved", { name: movedName }) });
+  }, [movedTo, movedName, t]);
   if (!hasProfileChoice(config, agent)) return null;
   const local = workspace?.location.kind === "local";
   const status = local ? statuses[profile.id]?.status : undefined;
@@ -106,98 +113,39 @@ export function ProfileUsageChip({
   const name = profileName(profile, t);
 
   const conversation = use !== "empty";
-  const pick = (id: string, fresh: boolean) => {
-    setOpen(false);
-    if (conversation && !fresh) onContinue(id);
-    else onSwitch(id);
-  };
+  const details = [
+    ...(account ? [{ label: t("chat.profile.account"), value: account }] : []),
+    { label: t("chat.profile.folder"), value: folder, mono: true },
+    { label: t("chat.profile.rule"), value: rule },
+  ];
 
   return (
-    <Popover
+    <ProfileChipView
+      name={name}
+      color={profile.color}
+      details={details}
+      others={others.map((other) => ({
+        id: other.id,
+        name: profileName(other, t),
+        color: other.color,
+      }))}
+      conversation={conversation}
+      busy={use === "running" ? "stops" : null}
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
         if (next && local) void refresh(profile.id);
       }}
-      label={t("chat.profile.title")}
-      side="top"
-      align="end"
-      className="w-72"
-      testId="chat-profile-popover"
-      trigger={
-        <button
-          type="button"
-          className="flex shrink-0 items-center gap-1 rounded-(--radius-control) px-1 hover:bg-[var(--state-hover-bg)] hover:text-foreground"
-          data-testid="chat-profile-chip"
-          {...(compact ? { "aria-label": name, ...tooltipProps(name) } : {})}
-        >
-          <ProfileDot color={profile.color} className="size-1.5" />
-          {!compact && <span className="max-w-28 truncate">{name}</span>}
-        </button>
-      }
-    >
-      <div className="flex flex-col gap-2 px-2 py-1.5 text-app-ui-sm">
-        <div className="flex items-center gap-1.5 text-app-body text-foreground">
-          <ProfileDot color={profile.color} />
-          <span className="truncate">{name}</span>
-        </div>
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
-          {account && (
-            <>
-              <dt className="text-muted-foreground">{t("chat.profile.account")}</dt>
-              <dd className="truncate">{account}</dd>
-            </>
-          )}
-          <dt className="text-muted-foreground">{t("chat.profile.folder")}</dt>
-          <dd className="truncate font-mono" title={folder}>
-            {folder}
-          </dd>
-          <dt className="text-muted-foreground">{t("chat.profile.rule")}</dt>
-          <dd className="truncate">{rule}</dd>
-        </dl>
-        {others.length > 0 && (
-          <div className="flex flex-col border-t border-border pt-1.5">
-            <span className="pb-0.5 text-app-micro text-muted-foreground">
-              {t(conversation ? "chat.profile.continueIn" : "chat.profile.switchTo")}
-            </span>
-            {use === "running" && (
-              <span
-                className="flex items-center gap-1 pb-0.5 text-app-micro text-(--state-warning-fg)"
-                data-testid="chat-profile-stops"
-              >
-                <Square className="size-2.5 fill-current" aria-hidden="true" />
-                {t("chat.profile.stops")}
-              </span>
-            )}
-            {others.map((other) => (
-              <div
-                key={other.id}
-                className="-mx-1 flex items-center rounded-(--radius-control) hover:bg-[var(--state-hover-bg)]"
-              >
-                <button
-                  type="button"
-                  onClick={() => pick(other.id, false)}
-                  className="flex min-w-0 flex-1 items-center gap-1.5 rounded-(--radius-control) px-1 py-0.5 text-left"
-                  data-testid="chat-profile-pick"
-                >
-                  <ProfileDot color={other.color} />
-                  <span className="truncate">{profileName(other, t)}</span>
-                </button>
-                {conversation && (
-                  <button
-                    type="button"
-                    onClick={() => pick(other.id, true)}
-                    className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
-                    data-testid="chat-profile-new"
-                  >
-                    {t("chat.profile.newChat")}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </Popover>
+      onPick={(id, fresh) => {
+        if (fresh) {
+          onSwitch(id);
+          return;
+        }
+        moving.current = id;
+        onContinue(id);
+      }}
+      compact={compact}
+      testIdPrefix="chat-profile"
+    />
   );
 }
