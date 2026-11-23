@@ -658,6 +658,38 @@ const transcriptPageResult = z.object({
 
 export type TranscriptPageResult = z.infer<typeof transcriptPageResult>;
 
+/** An event of a Codex thread's rollout, as the agent's chat.rolloutTail cuts it down. */
+const rolloutEvent = z.object({
+  /** turn: a turn began; user, agent: a message; tool: a call. */
+  kind: z.string(),
+  turnId: z.string().optional(),
+  text: z.string().optional(),
+  images: NonnegativeIntegerSchema.optional(),
+  clientId: z.string().optional(),
+  /** The call's kind, as the app-server names its item (commandExecution, fileChange…). */
+  tool: z.string().optional(),
+  /** How a patch changes each file: add, delete, update. */
+  changes: z.array(z.string()).optional(),
+  server: z.string().optional(),
+  name: z.string().optional(),
+});
+export type RolloutEvent = z.infer<typeof rolloutEvent>;
+
+/**
+ * The end of a chat's history as its agent keeps it, read for a glance at
+ * its last turns (chat.peekTail): a Claude transcript's last page, or a
+ * Codex rollout's last events. `offline`: the workspace's host is not
+ * connected, and was not dialed. Neither history: an agent too old to read it.
+ */
+const chatPeekTail = z.object({
+  offline: z.boolean(),
+  claude: transcriptPageResult.optional(),
+  codex: z
+    .object({ found: z.boolean(), events: z.array(rolloutEvent), more: z.boolean().optional() })
+    .optional(),
+});
+export type ChatPeekTail = z.infer<typeof chatPeekTail>;
+
 const notesContracts = {
   /**
    * Notes: a workspace's notes, kept by the app under its data folder by
@@ -1214,6 +1246,22 @@ const coreIpcContract = {
           before: z.array(z.string().max(128)).optional(),
         }),
         transcriptPageResult,
+      ),
+      /**
+       * The end of a chat's history, for another device's glance at its last
+       * turns (chat.peek): read without starting its program, and without
+       * connecting to a workspace's host that is not connected.
+       */
+      peekTail: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          agent: z.enum(["claude", "codex"]),
+          sessionId: z.string().max(128),
+          profileId: z.string().max(64).optional(),
+          turns: z.number().int().min(1).max(10).optional(),
+          cursor: z.string().max(128).optional(),
+        }),
+        chatPeekTail,
       ),
       /**
        * One subagent's messages, which Claude Code keeps apart from its

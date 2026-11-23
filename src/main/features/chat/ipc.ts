@@ -130,6 +130,19 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
           truncated: result.truncated === true,
         });
       }),
+      peekTail: withProfileError(async (args: unknown) => {
+        const { workspaceId, agent, sessionId, profileId, ...page } = validateArgs(
+          c.peekTail.args,
+          args,
+        );
+        try {
+          return ipcOk(await host.peekTail(workspaceId, agent, sessionId, profileId, page));
+        } catch (error) {
+          const failure = agentCallError(error);
+          if (failure) return failure;
+          throw error;
+        }
+      }),
       transcriptPage: withProfileError(async (args: unknown) => {
         const { workspaceId, sessionId, profileId, ...page } = validateArgs(
           c.transcriptPage.args,

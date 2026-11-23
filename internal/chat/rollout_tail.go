@@ -1,0 +1,371 @@
+package chat
+
+// The end of a Codex thread's rollout, read for a glance at its last turns
+// (another device's chat.peek) without starting Codex: the app-server that
+// reads a thread whole is what a peek must not start. Codex writes a thread
+// to <codex home>/sessions/YYYY/MM/DD/rollout-<time>-<thread id>.jsonl, a
+// JSON line for each record. What a peek takes of it are the events: the
+// user's messages, the agent's words and the tools it called, as Codex
+// before 0.16x wrote them (user_message, agent_message, exec_command_end…)
+// and after (item_completed with its item). They come back cut down to what
+// a peek shows, so a call's output or a patch's diff is not sent.
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"os"
+	"sort"
+	"strings"
+	"unicode/utf8"
+)
+
+const (
+	// rolloutTailTurns is how many turns are read when the request names none.
+	rolloutTailTurns = 3
+	// rolloutTailMaxTurns is the most turns a request reads.
+	rolloutTailMaxTurns = 10
+	// rolloutTailScanBytes bounds what is read of the files, from their end:
+	// a long command's output can fill a turn.
+	rolloutTailScanBytes = 8 << 20
+	// rolloutTailText is the most bytes of a message's text sent: more than
+	// a peek shows (2,000 characters, 4 bytes at most each).
+	rolloutTailText = 8 << 10
+	// rolloutTailEvents bounds the events sent; a turn with more is cut.
+	rolloutTailEvents = 5000
+	// rolloutTailForks is how many threads back a fork's history is followed.
+	rolloutTailForks = 4
+)
+
+// RolloutTail reads the events of a Codex thread's last turns.
+func (s *Service) RolloutTail(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p RolloutTailParams
+	if err := decodeParams(raw, &p, "chat.rolloutTail params must include threadId"); err != nil {
+		return nil, err
+	}
+	if !sessionIDPattern.MatchString(p.ThreadID) {
+		return nil, protocolError("chat.rolloutTail threadId is not a thread id")
+	}
+	turns := p.Turns
+	if turns <= 0 {
+		turns = rolloutTailTurns
+	}
+	home := codexHome(p.CodexHome)
+	path := ""
+	if home != "" {
+		path = keptRollout(home, p.ThreadID)
+	}
+	if path == "" {
+		return RolloutTailResult{Found: false, Events: []RolloutEvent{}}, nil
+	}
+	tail := rolloutTail{ctx: ctx, want: min(turns, rolloutTailMaxTurns), budget: rolloutTailScanBytes}
+	end := int64(0)
+	for fork := 0; ; fork++ {
+		parent, parentEnd, err := tail.read(path, end)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, requestFailed("chat.rolloutTail: %s", err)
+		}
+		if tail.done || parent == "" {
+			break
+		}
+		// A fork keeps only what it added: what came before is its parent's, up to where it forked.
+		if !tail.full && fork+1 < rolloutTailForks {
+			if parentPath := keptRollout(home, parent); parentPath != "" {
+				path, end = parentPath, parentEnd
+				continue
+			}
+		}
+		tail.more = true
+		break
+	}
+	events := tail.events
+	for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
+		events[i], events[j] = events[j], events[i]
+	}
+	return RolloutTailResult{Found: true, Events: events, More: tail.more}, nil
+}
+
+// rolloutTail gathers a thread's events from its end, newest first.
+type rolloutTail struct {
+	ctx context.Context
+	// want is how many of the user's messages to read back to.
+	want   int
+	budget int64
+	events []RolloutEvent
+	users  int
+	// full: want messages were read; what is before them only tells `more`.
+	full bool
+	// turnTaken: the turn the earliest message began was told.
+	turnTaken bool
+	done      bool
+	more      bool
+}
+
+// read reads a rollout back from `end` (its end when 0), and tells the
+// thread it was forked from and where in that one the fork began, when its
+// first line names them and it was read to its start.
+func (t *rolloutTail) read(path string, end int64) (string, int64, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", 0, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return "", 0, err
+	}
+	if end <= 0 || end > info.Size() {
+		end = info.Size()
+	}
+	floor := max(0, end-t.budget)
+	reader := transcriptReverseReader{ctx: t.ctx, file: file, floor: floor}
+	pos := end
+	defer func() { t.budget -= end - pos }()
+	for pos > floor {
+		start, lineEnd, err := reader.previous(pos)
+		if err != nil {
+			return "", 0, err
+		}
+		if start == floor && floor != 0 {
+			// The rest is past what is read: a line cut at its start, and all before it.
+			pos = floor
+			break
+		}
+		line, err := reader.read(start, lineEnd)
+		if err != nil {
+			return "", 0, err
+		}
+		pos = start
+		if start == 0 {
+			return t.first(line)
+		}
+		if t.take(line) {
+			t.done = true
+			return "", 0, nil
+		}
+	}
+	if pos > 0 {
+		t.more, t.done = true, true
+	}
+	return "", 0, nil
+}
+
+// first reads a rollout's first line: its thread's start, or an event of
+// an older Codex that wrote none.
+func (t *rolloutTail) first(line []byte) (string, int64, error) {
+	var meta struct {
+		Type    string `json:"type"`
+		Payload struct {
+			ForkedFromID string `json:"forked_from_id"`
+			HistoryBase  struct {
+				EndByteOffset int64 `json:"end_byte_offset"`
+			} `json:"history_base"`
+		} `json:"payload"`
+	}
+	if json.Unmarshal(line, &meta) != nil || meta.Type != "session_meta" {
+		if t.take(line) {
+			t.done = true
+		}
+		return "", 0, nil
+	}
+	parent, parentEnd := meta.Payload.ForkedFromID, meta.Payload.HistoryBase.EndByteOffset
+	if !sessionIDPattern.MatchString(parent) || parentEnd <= 0 {
+		return "", 0, nil
+	}
+	if t.full {
+		// The earliest message read had turns before it, in the thread forked from.
+		t.more, t.done = true, true
+		return "", 0, nil
+	}
+	return parent, parentEnd, nil
+}
+
+// take reads a line, newest first; true once nothing before it is needed.
+func (t *rolloutTail) take(line []byte) bool {
+	if !bytes.Contains(line, []byte(`"event_msg"`)) {
+		return false
+	}
+	event, ok := rolloutEventOf(line)
+	if !ok {
+		return false
+	}
+	if t.full {
+		// The turn the earliest message read began, else news of an earlier turn.
+		if event.Kind == "turn" && !t.turnTaken {
+			t.turnTaken = true
+			t.events = append(t.events, event)
+			return false
+		}
+		if event.Kind == "turn" {
+			return false
+		}
+		t.more = true
+		return true
+	}
+	if len(t.events) >= rolloutTailEvents {
+		t.more = true
+		return true
+	}
+	t.events = append(t.events, event)
+	if event.Kind == "user" {
+		t.users++
+		t.full = t.users >= t.want
+	}
+	return false
+}
+
+// rolloutRecord is a rollout's event, cut to what is read of it.
+type rolloutRecord struct {
+	Type    string `json:"type"`
+	Payload struct {
+		Type        string            `json:"type"`
+		TurnID      string            `json:"turn_id"`
+		Message     string            `json:"message"`
+		Images      []json.RawMessage `json:"images"`
+		LocalImages []json.RawMessage `json:"local_images"`
+		Invocation  struct {
+			Server string `json:"server"`
+			Tool   string `json:"tool"`
+		} `json:"invocation"`
+		Changes map[string]struct {
+			Type string `json:"type"`
+		} `json:"changes"`
+		Item *struct {
+			Type    string `json:"type"`
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+			ClientID string `json:"client_id"`
+			Changes  map[string]struct {
+				Type string `json:"type"`
+			} `json:"changes"`
+			Server string `json:"server"`
+			Tool   string `json:"tool"`
+			Kind   string `json:"kind"`
+		} `json:"item"`
+	} `json:"payload"`
+}
+
+// rolloutEventOf is the event a rollout's line tells; false for one a peek
+// does not show (reasoning, token counts, a turn's end).
+func rolloutEventOf(line []byte) (RolloutEvent, bool) {
+	var record rolloutRecord
+	if json.Unmarshal(line, &record) != nil || record.Type != "event_msg" {
+		return RolloutEvent{}, false
+	}
+	p := record.Payload
+	event := RolloutEvent{TurnID: p.TurnID}
+	tool := func(kind string) (RolloutEvent, bool) {
+		event.Kind, event.Tool = "tool", kind
+		return event, true
+	}
+	switch p.Type {
+	case "task_started":
+		event.Kind = "turn"
+		return event, p.TurnID != ""
+	case "user_message":
+		event.Kind, event.Text = "user", cutText(p.Message)
+		event.Images = len(p.Images) + len(p.LocalImages)
+		return event, true
+	case "agent_message":
+		event.Kind, event.Text = "agent", cutText(p.Message)
+		return event, true
+	case "exec_command_end":
+		return tool("commandExecution")
+	case "patch_apply_end":
+		event.Changes = changeKinds(p.Changes)
+		return tool("fileChange")
+	case "web_search_end":
+		return tool("webSearch")
+	case "view_image_tool_call":
+		return tool("imageView")
+	case "mcp_tool_call_end":
+		event.Server, event.Name = p.Invocation.Server, p.Invocation.Tool
+		return tool("mcpToolCall")
+	case "item_completed":
+	default:
+		return RolloutEvent{}, false
+	}
+	item := p.Item
+	if item == nil {
+		return RolloutEvent{}, false
+	}
+	switch item.Type {
+	case "UserMessage":
+		texts := make([]string, 0, len(item.Content))
+		for _, part := range item.Content {
+			if strings.EqualFold(part.Type, "text") {
+				texts = append(texts, part.Text)
+			} else if strings.Contains(strings.ToLower(part.Type), "image") {
+				event.Images++
+			}
+		}
+		event.Kind, event.Text, event.ClientID = "user", cutText(strings.Join(texts, "\n")), item.ClientID
+		return event, true
+	case "AgentMessage":
+		texts := make([]string, 0, len(item.Content))
+		for _, part := range item.Content {
+			if strings.EqualFold(part.Type, "text") {
+				texts = append(texts, part.Text)
+			}
+		}
+		event.Kind, event.Text = "agent", cutText(strings.Join(texts, "\n"))
+		return event, true
+	case "CommandExecution":
+		return tool("commandExecution")
+	case "FileChange":
+		event.Changes = changeKinds(item.Changes)
+		return tool("fileChange")
+	case "McpToolCall":
+		event.Server, event.Name = item.Server, item.Tool
+		return tool("mcpToolCall")
+	case "WebSearch":
+		return tool("webSearch")
+	case "ImageView":
+		return tool("imageView")
+	case "DynamicToolCall":
+		event.Name = item.Tool
+		return tool("dynamicToolCall")
+	case "CollabAgentToolCall":
+		event.Name = item.Tool
+		return tool("collabAgentToolCall")
+	case "Extension":
+		// Codex 0.170 writes its web search as an extension's.
+		if item.Kind == "web.search" {
+			return tool("webSearch")
+		}
+	}
+	return RolloutEvent{}, false
+}
+
+// changeKinds is how a patch changes each file (add, delete, update), by path.
+func changeKinds(changes map[string]struct {
+	Type string `json:"type"`
+}) []string {
+	paths := make([]string, 0, len(changes))
+	for path := range changes {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	kinds := make([]string, 0, len(paths))
+	for _, path := range paths {
+		kinds = append(kinds, changes[path].Type)
+	}
+	return kinds
+}
+
+// cutText is the text in at most rolloutTailText bytes, not cut inside a character.
+func cutText(text string) string {
+	if len(text) <= rolloutTailText {
+		return text
+	}
+	end := rolloutTailText
+	for end > 0 && !utf8.RuneStart(text[end]) {
+		end--
+	}
+	return text[:end]
+}

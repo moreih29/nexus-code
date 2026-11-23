@@ -9,6 +9,7 @@
  */
 
 import i18next from "i18next";
+import { type ChatPeek, fitPeek } from "../../../../packages/remote-protocol/src";
 import {
   isDefaultProfileId,
   portableProfileDir,
@@ -24,7 +25,7 @@ import { sameFolder } from "../../../shared/fs/drive-path";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { LimitResume } from "../../../shared/types/layout";
 import { toolSummary } from "../../components/chat/tool-row";
-import { ipcCallResult } from "../../ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { chatPropsWithProfile } from "../../state/operations/tabs";
 import {
   saveSessionInstructions,
@@ -36,7 +37,7 @@ import {
   tildePath,
   useAgentProfilesStore,
 } from "../../state/stores/agent-profiles";
-import { useTabsStore } from "../../state/stores/tabs";
+import { type Tab, useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import {
   type AgentTabController,
@@ -79,6 +80,13 @@ import {
   viewToolOf,
 } from "../remote/chat-page";
 import { chatPanelOf } from "../remote/chat-panel";
+import {
+  ClaudeTail,
+  peekOfChat,
+  peekOfRollout,
+  peekTurnCount,
+  peekUnavailable,
+} from "../remote/chat-peek";
 import { eachTimeItCan, startChatWatch, stopChatWatch, tabSource } from "../remote/chat-watch";
 import {
   claudeSessions,
@@ -212,6 +220,73 @@ export function peekChatInfo(
     return withProfile(workspaceId, tabId, chatInfoOf(target.agent, undefined, false));
   }
   return infoOf(workspaceId, tabId, target, includeWaitingId);
+}
+
+/**
+ * A tab's last turns from the end of its history as its agent keeps it
+ * (chat.peekTail), for one whose conversation the app does not hold: the
+ * tab is not opened, and its program not started. A workspace on a host
+ * that is not connected is told offline; a chat that never ran, or whose
+ * record is gone, missing.
+ */
+async function storedPeek(
+  workspaceId: string,
+  tab: Extract<Tab, { type: "claude" | "codex" }>,
+  turns: number | undefined,
+): Promise<ChatPeek> {
+  const { props } = tab;
+  const sessionId = tab.type === "claude" ? tab.props.sessionId : tab.props.threadId;
+  if (!sessionId) return peekUnavailable("missing");
+  const read = async (cursor?: string) =>
+    unwrapIpcResult(
+      await ipcCallResult("chat", "peekTail", {
+        workspaceId,
+        agent: tab.type,
+        sessionId,
+        ...(props.profileId ? { profileId: props.profileId } : {}),
+        turns: peekTurnCount(turns),
+        ...(cursor ? { cursor } : {}),
+      }),
+    );
+  const tail = await read();
+  if (tail.offline) return peekUnavailable("offline");
+  const relayed = relayedOf(props);
+  if (tail.codex) return peekOfRollout(tail.codex, relayed, turns);
+  if (!tail.claude) return peekUnavailable("missing");
+  const claude = new ClaudeTail(tail.claude);
+  try {
+    for (let cursor = claude.cursor; cursor; cursor = claude.cursor) {
+      const page = (await read(cursor)).claude;
+      if (!page) break;
+      claude.prepend(page);
+    }
+  } catch {
+    // The transcript changed as it was read: what was read of it is told.
+  }
+  return claude.peek(relayed, turns);
+}
+
+/**
+ * A Claude or Codex tab's last turns at a glance: from the conversation an
+ * open tab holds, else from the end of its history. Never opens the tab.
+ */
+export async function peekChat(
+  workspaceId: string,
+  tabId: string,
+  turns?: number,
+): Promise<ChatPeek> {
+  const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+  if (tab?.type !== "claude" && tab?.type !== "codex") {
+    throw new UiRequestError("that tab is not a Claude or Codex tab");
+  }
+  const source = tabSource(workspaceId, tabId, tab.type);
+  const open = source ? peekOfChat(source, turns) : undefined;
+  if (open && (open.turns.length > 0 || open.status.running)) return open;
+  const stored = await storedPeek(workspaceId, tab, turns);
+  if (!open) return stored;
+  // Open, with its conversation not in yet (its log is still read): its history's turns, as it stands.
+  if (stored.turns.length === 0) return open;
+  return fitPeek({ ...open, turns: stored.turns, ...(stored.more ? { more: true } : {}) });
 }
 
 /**
@@ -641,6 +716,8 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       }),
     };
   },
+
+  "chat.peek": ({ workspaceId, tabId, turns }) => peekChat(workspaceId, tabId, turns),
 
   "chat.page": async ({ workspaceId, tabId, before, limit }) => {
     const target = await readableTab(workspaceId, tabId);

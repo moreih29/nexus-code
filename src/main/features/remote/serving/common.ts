@@ -23,6 +23,7 @@ export const SERVES: readonly Capability[] = [
   "profiles.usage",
   "push",
   "system.stats",
+  "chat.peek",
 ];
 
 /**
@@ -48,6 +49,9 @@ export function servesWith(
       (c !== "push" || allowPush) &&
       // How busy a host is goes only where its files may be read.
       ((c !== "files" && c !== "files.write" && c !== "system.stats") || servesFiles),
+  ).filter(
+    // A peek at a chat only where the chat may be read.
+    (c, _i, served) => c !== "chat.peek" || served.includes("chat.read"),
   );
 }
 

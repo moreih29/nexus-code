@@ -11,6 +11,7 @@ import type {
   ChatCommand,
   ChatConfig,
   ChatPage,
+  ChatPeek,
   RemoteConsent,
   RpcParams,
   RpcResult,
@@ -1098,6 +1099,16 @@ export interface CliUiOps {
   "chat.page": {
     args: { workspaceId: string; tabId: string; before?: number; limit?: number };
     result: ChatPage;
+  };
+  /**
+   * A Claude or Codex tab's last turns at a glance (the remote's
+   * chat.peek): from the tab's conversation when it is open, else from the
+   * end of its history as its agent keeps it. Opens no tab, and starts no
+   * program.
+   */
+  "chat.peek": {
+    args: { workspaceId: string; tabId: string; turns?: number };
+    result: ChatPeek;
   };
   /**
    * Starts telling main what changes in a Claude or Codex tab's

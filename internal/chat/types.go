@@ -236,6 +236,48 @@ type SessionFileResult struct {
 	Path  string `json:"path,omitempty"`
 }
 
+// RolloutTailParams is the wire shape for chat.rolloutTail.
+type RolloutTailParams struct {
+	ThreadID string `json:"threadId"`
+	// CodexHome is the Codex profile's folder, "~" for the home; empty for
+	// CODEX_HOME or ~/.codex.
+	CodexHome string `json:"codexHome,omitempty"`
+	// Turns is how many of the last turns to read: 3 when 0, at most 10.
+	Turns int `json:"turns,omitempty"`
+}
+
+// RolloutTailResult is returned by chat.rolloutTail: the events of a Codex
+// thread's last turns, oldest first, from its rollout, and whether there is
+// more before them (earlier turns, or what was not read). Found is false
+// when the profile keeps no rollout of the thread.
+type RolloutTailResult struct {
+	Found  bool           `json:"found"`
+	Events []RolloutEvent `json:"events"`
+	More   bool           `json:"more,omitempty"`
+}
+
+// RolloutEvent is an event of a Codex thread as a peek takes it:
+//   - turn: a turn began (TurnID);
+//   - user: the user's message, its text and how many images it had, and
+//     the client id it was sent with, when it tells;
+//   - agent: the agent's words;
+//   - tool: a call the agent made, of an app-server item's type
+//     (commandExecution, fileChange…): a patch's change kinds by path, an
+//     MCP call's server and tool, a dynamic call's tool as Name.
+//
+// A text is cut at 8 KiB.
+type RolloutEvent struct {
+	Kind     string   `json:"kind"`
+	TurnID   string   `json:"turnId,omitempty"`
+	Text     string   `json:"text,omitempty"`
+	Images   int      `json:"images,omitempty"`
+	ClientID string   `json:"clientId,omitempty"`
+	Tool     string   `json:"tool,omitempty"`
+	Changes  []string `json:"changes,omitempty"`
+	Server   string   `json:"server,omitempty"`
+	Name     string   `json:"name,omitempty"`
+}
+
 // StageThreadParams is the wire shape for chat.stageThread.
 type StageThreadParams struct {
 	ThreadID string `json:"threadId"`

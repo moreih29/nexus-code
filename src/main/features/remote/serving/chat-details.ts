@@ -1,6 +1,7 @@
 import {
   type ChatPage,
   type ChatRun,
+  fitPeek,
   MAX_AGENT_DESCRIPTION,
   MAX_CHAT_RUNS,
   MAX_RUN_TEXT,
@@ -53,6 +54,33 @@ export async function readChat(
       }
       count = Math.max(1, Math.floor(page.items.length / 2));
     }
+  } finally {
+    budget.report();
+  }
+}
+
+/**
+ * The chat's last turns at a glance (chat.peek), as the app reads them
+ * without opening the tab: from the conversation an open tab holds, else
+ * from the end of its history. Fitted in MAX_PEEK_BYTES here too, whatever
+ * the window answered.
+ */
+export async function peekChat(
+  services: CliServices,
+  { workspaceId, tabId, turns }: RpcParams<"chat.peek">,
+  from?: string,
+): Promise<RpcResult<"chat.peek">> {
+  const budget = new ReadBudget(services, "chat.peek", from, 8_000);
+  try {
+    await tabOf(services, workspaceId, tabId, ["claude", "codex"], budget);
+    const peek = await budget
+      .ui(
+        "chat.peek",
+        { workspaceId, tabId, ...(turns !== undefined ? { turns } : {}) },
+        budget.remaining(),
+      )
+      .catch(unavailable);
+    return fitPeek(peek);
   } finally {
     budget.report();
   }
