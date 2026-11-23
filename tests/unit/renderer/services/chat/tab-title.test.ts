@@ -54,6 +54,11 @@ describe("shortenPaths", () => {
   test.each(PATHS)("%s", (_case, input, output) => {
     expect(shortenPaths(input)).toBe(output);
   });
+
+  // Another computer's titles are shortened each time they are shown.
+  test.each(PATHS)("%s, shortened again, stays", (_case, _input, output) => {
+    expect(shortenPaths(output)).toBe(output);
+  });
 });
 
 describe("titleOf", () => {

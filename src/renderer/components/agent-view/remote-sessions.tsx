@@ -63,7 +63,7 @@ import {
 import { moveSessionRoot } from "../../services/agent-view/sidebar-tree";
 import { resumeTimeText } from "../../services/chat/limit-resume";
 import { remoteAccountKey, useRemoteAccount } from "../../services/remote/account";
-import { remoteDisplayName } from "../../services/remote/display-name";
+import { remoteDisplayName, remoteTitle } from "../../services/remote/display-name";
 import {
   offlinePeers,
   type PeerSessions,
@@ -199,7 +199,7 @@ function matches(session: RemoteSession, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   return (
-    remoteDisplayName(session.title).toLowerCase().includes(q) ||
+    remoteTitle(session.title).toLowerCase().includes(q) ||
     (session.last ?? "").toLowerCase().includes(q)
   );
 }
@@ -1416,7 +1416,7 @@ export function RemoteSessionRow({
   const { t, i18n } = useTranslation();
   const group = remoteGroupOf(session);
   const duration = useDurationLabel(session.since);
-  const title = remoteDisplayName(session.title);
+  const title = remoteTitle(session.title);
   const Icon =
     session.kind === "claude" ? ClaudeIcon : session.kind === "codex" ? CodexIcon : SquareTerminal;
   const selected = where === "shown" || rest["aria-current"] === true;
@@ -1549,7 +1549,7 @@ export function RemoteTabLabel({
     <>
       {showDevice && <DeviceChip name={target.deviceName} />}
       <Icon aria-hidden className="size-3 shrink-0" />
-      <span className="min-w-0 truncate">{remoteDisplayName(target.title)}</span>
+      <span className="min-w-0 truncate">{remoteTitle(target.title)}</span>
       {state && (ended || group !== "idle") && (
         <span
           role="img"

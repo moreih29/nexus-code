@@ -27,6 +27,7 @@ import {
 } from "@/services/agent-view/layout";
 import { useAgentResumeCheckpoint } from "@/services/agent-view/resume-terminal";
 import { focusPanelTab } from "@/services/agent-view/show";
+import { remoteTitle } from "@/services/remote/display-name";
 import { useAgentViewStore } from "@/state/stores/agent-view";
 import { useRemoteTarget, useRemoteViewStore } from "@/state/stores/remote-view";
 import { type EditorTab, useTabsStore } from "@/state/stores/tabs";
@@ -608,7 +609,7 @@ function RemoteTab({
     <PanelTab
       sessionKey={key}
       active={active}
-      title={`${target.title} · ${target.deviceName} · ${target.workspaceName}`}
+      title={`${remoteTitle(target.title)} · ${target.deviceName} · ${target.workspaceName}`}
       onSelect={onSelect}
       onRemove={onRemove}
     >

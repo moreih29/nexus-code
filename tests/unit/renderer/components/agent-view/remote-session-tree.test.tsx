@@ -13,11 +13,13 @@ import {
 import {
   PeerGroup,
   RemoteSessions,
+  RemoteTabLabel,
   workspaceGroups,
 } from "../../../../../src/renderer/components/agent-view/remote-sessions";
 import * as buttons from "../../../../../src/renderer/components/ui/button";
 import * as iconButtons from "../../../../../src/renderer/components/ui/icon-button";
 import * as ipc from "../../../../../src/renderer/ipc/client";
+import { sessionParentName } from "../../../../../src/renderer/services/agent-sessions/model";
 import { treeSessions } from "../../../../../src/renderer/services/agent-sessions/session-tree";
 import {
   activeKey,
@@ -27,11 +29,17 @@ import {
 import { RemoteResults } from "../../../../../src/renderer/services/agent-view/remote-results";
 import { remoteSessionTree } from "../../../../../src/renderer/services/agent-view/remote-session-tree";
 import * as account from "../../../../../src/renderer/services/remote/account";
-import { remoteDisplayName } from "../../../../../src/renderer/services/remote/display-name";
+import {
+  remoteDisplayName,
+  remoteTitle,
+} from "../../../../../src/renderer/services/remote/display-name";
 import * as room from "../../../../../src/renderer/services/remote/room";
 import * as view from "../../../../../src/renderer/state/stores/agent-view";
 import { useMountedWorkspacesStore } from "../../../../../src/renderer/state/stores/mounted-workspaces";
-import { useRemoteViewStore } from "../../../../../src/renderer/state/stores/remote-view";
+import {
+  listedRemoteTarget,
+  useRemoteViewStore,
+} from "../../../../../src/renderer/state/stores/remote-view";
 import * as tabs from "../../../../../src/renderer/state/stores/tabs";
 import type { RoomPeer } from "../../../../../src/shared/remote/room";
 
@@ -718,4 +726,72 @@ test("visible remote rows take arrow and edge keys, and Enter opens the first se
   );
   expect(rows[0]?.click).toHaveBeenCalledTimes(1);
   expect(rows[1]?.click).not.toHaveBeenCalled();
+});
+
+// A title an older app on another computer made kept the whole path.
+const OLD_BRIEF = "작업 지시서 /c/Users/demo/AppData/Local/Temp/qa-brief.md 를 읽고";
+const SHORT_BRIEF = "작업 지시서 qa-brief.md 를 읽고";
+// A title the user wrote: past a sentence's end and past sixty letters.
+const WRITTEN =
+  "C:\\Users\\demo\\notes\\release-plan.md 정리. 그다음 0.4.0 변경 사항을 세 묶음으로 나누고 릴리스 노트 초안을 써 주세요";
+
+test("another computer's title shows its paths shortened, and nothing else cut", () => {
+  expect(remoteTitle(OLD_BRIEF)).toBe(SHORT_BRIEF);
+  expect(WRITTEN.length).toBeGreaterThan(60);
+  expect(remoteTitle(WRITTEN)).toBe(
+    "release-plan.md 정리. 그다음 0.4.0 변경 사항을 세 묶음으로 나누고 릴리스 노트 초안을 써 주세요",
+  );
+  // Its lines are joined, as every label from another computer's is, not cut to the first.
+  expect(remoteTitle("첫 줄\n/Users/demo/out/report.md 둘째 줄")).toBe("첫 줄 report.md 둘째 줄");
+  expect(remoteTitle("/review src/app.ts")).toBe("/review src/app.ts");
+  expect(remoteTitle(undefined)).toBe("");
+});
+
+test.each([
+  OLD_BRIEF,
+  WRITTEN,
+  '"/Users/demo/My Docs/brief.md" 읽기',
+  "결과(/Users/demo/out/report.md) 확인",
+  "https://github.com/acme/app/pull/12 리뷰",
+])("a title shown once reads the same shown again: %s", (title) => {
+  expect(remoteTitle(remoteTitle(title))).toBe(remoteTitle(title));
+});
+
+test("rows, tabs and parents show another computer's titles shortened; what is kept stays whole", () => {
+  const brief = row("brief", { title: OLD_BRIEF, state: "running", since: 5 });
+  const [shown = ""] = remoteRows(remoteStatus({ workspaces: [workspace], sessions: [brief] }));
+  expect(shown).toContain(`>${SHORT_BRIEF}</span>`);
+  expect(shown).toContain(`aria-label="${SHORT_BRIEF}"`);
+  expect(shown).not.toContain("AppData");
+  // The workspace grouping's rows, and a search for what the row shows.
+  const grouped = renderToStaticMarkup(
+    <PeerGroup
+      peer={host}
+      sessions={{ status: "ready", list: { workspaces: [workspace], sessions: [brief] } }}
+      query="지시서 qa-brief"
+    />,
+  );
+  expect(grouped).toContain(`>${SHORT_BRIEF}</span>`);
+  // The tab keeps the title as that computer sent it, and shows it shortened.
+  const target = listedRemoteTarget(host, workspace, brief);
+  expect(target.title).toBe(OLD_BRIEF);
+  expect(renderToStaticMarkup(<RemoteTabLabel target={target} />)).toContain(
+    `>${SHORT_BRIEF}</span>`,
+  );
+  // A parent named by its child's opener, closed or on yet another computer.
+  const opener = { workspaceId: workspace.id, tabId: "1a2b3c4d-missing", name: OLD_BRIEF };
+  expect(remoteWithOpener(opener)).toContain(
+    `data-testid="remote-session-parent">↳ ${SHORT_BRIEF} · closed</span>`,
+  );
+  expect(remoteWithOpener({ ...opener, device: { id: "away", name: "Win Desk" } })).toContain(
+    `↳ <bdi>Win Desk</bdi> · <bdi>${SHORT_BRIEF}</bdi>`,
+  );
+});
+
+test("a conversation here opened from another computer names that parent shortened, a tab here as kept", () => {
+  const away = { kind: "tab" as const, tabId: "lead", name: OLD_BRIEF };
+  expect(sessionParentName({ ...away, device: { id: "windesk", name: "Win Desk" } })).toBe(
+    SHORT_BRIEF,
+  );
+  expect(sessionParentName(away)).toBe(OLD_BRIEF);
 });
