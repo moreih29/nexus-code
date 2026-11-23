@@ -1,11 +1,14 @@
-import { expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RpcResult } from "../../../../../packages/remote-protocol/src/rpc";
 import { SearchInput } from "../../../../../src/renderer/components/files/search/input";
 import { SearchResultsList } from "../../../../../src/renderer/components/files/search/results-list";
 import { SearchFailedMessage } from "../../../../../src/renderer/components/files/search/state-messages";
-import { PeerSearchPanel } from "../../../../../src/renderer/components/peer-workspace/search-panel";
+import {
+  PEER_SEARCH_DEBOUNCE_MS,
+  PeerSearchPanel,
+} from "../../../../../src/renderer/components/peer-workspace/search-panel";
 import * as ipc from "../../../../../src/renderer/ipc/client";
 import type { PeerWorkspaceTarget } from "../../../../../src/renderer/state/stores/peer-workspace";
 import { type IpcResult, ipcErr, ipcOk } from "../../../../../src/shared/ipc/result";
@@ -26,6 +29,37 @@ function reply(path: string, truncated = false): SearchReply {
     files: [{ path, matches: [{ line: 1, column: 0, length: 1, text: "x" }] }],
     truncated,
   });
+}
+
+// Typing schedules a search; the tests run each scheduled one by hand.
+interface Scheduled {
+  run: () => void;
+  ms: number | undefined;
+  cleared: boolean;
+}
+let scheduled: Scheduled[] = [];
+let timerSpies: { mockRestore(): void }[] = [];
+
+beforeEach(() => {
+  scheduled = [];
+  timerSpies = [
+    spyOn(globalThis, "setTimeout").mockImplementation(((run: () => void, ms?: number) => {
+      scheduled.push({ run, ms, cleared: false });
+      return scheduled.length as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout),
+    spyOn(globalThis, "clearTimeout").mockImplementation(((id?: number) => {
+      const timer = typeof id === "number" ? scheduled[id - 1] : undefined;
+      if (timer) timer.cleared = true;
+    }) as typeof clearTimeout),
+  ];
+});
+
+afterEach(() => {
+  for (const spy of timerSpies) spy.mockRestore();
+});
+
+function waiting(): Scheduled[] {
+  return scheduled.filter((timer) => !timer.cleared);
 }
 
 function findChild<P extends { children?: React.ReactNode }>(
@@ -248,6 +282,68 @@ test("an unsupported peer search offers no retry", async () => {
     await Promise.resolve();
     expect(panel.failed()?.onRetry).toBeUndefined();
     expect(panel.markup()).not.toContain("Retry");
+  } finally {
+    call.mockRestore();
+  }
+});
+
+test("typing searches once it pauses, drops what it overtakes, and Enter searches at once", async () => {
+  const first = Promise.withResolvers<SearchReply>();
+  const second = Promise.withResolvers<SearchReply>();
+  const call = spyOn(ipc, "ipcCallResult")
+    .mockImplementationOnce(() => first.promise)
+    .mockImplementationOnce(() => second.promise);
+  try {
+    const panel = mountPanel();
+    panel.input().onChange("fi");
+    panel.input().onChange("first");
+    // Only the last pause searches, and nothing before it.
+    expect(waiting()).toHaveLength(1);
+    expect(waiting()[0].ms).toBe(PEER_SEARCH_DEBOUNCE_MS);
+    expect(call).not.toHaveBeenCalled();
+    waiting()[0].run();
+    expect(call).toHaveBeenCalledTimes(1);
+    expect(call.mock.calls[0][2]).toMatchObject({ query: "first" });
+
+    // Typing on drops the running search; Enter does not wait for the pause.
+    panel.input().onChange("firsts");
+    expect(call.mock.calls[0][3]?.signal?.aborted).toBe(true);
+    expect(waiting()).toHaveLength(1);
+    panel.input().onEnter();
+    expect(waiting()).toHaveLength(0);
+    expect(call).toHaveBeenCalledTimes(2);
+    expect(call.mock.calls[1][2]).toMatchObject({ query: "firsts" });
+
+    second.resolve(reply("current.ts"));
+    first.resolve(reply("old.ts"));
+    await Promise.all([first.promise, second.promise]);
+    expect(panel.paths()).toEqual(["current.ts"]);
+
+    // Cleared, nothing is searched.
+    panel.input().onChange("");
+    expect(waiting()).toHaveLength(0);
+  } finally {
+    call.mockRestore();
+  }
+});
+
+test("an option searches again at once, and a broken pattern or filter does not search", () => {
+  const call = spyOn(ipc, "ipcCallResult").mockImplementation(
+    () => new Promise<SearchReply>(() => {}),
+  );
+  try {
+    const panel = mountPanel();
+    panel.input().onChange("value");
+    panel.input().onToggleOption("isCaseSensitive");
+    expect(waiting()).toHaveLength(0);
+    expect(call).toHaveBeenCalledTimes(1);
+    expect(call.mock.calls[0][2]).toMatchObject({ query: "value", caseSensitive: true });
+
+    panel.input().onToggleOption("isRegExp");
+    expect(call).toHaveBeenCalledTimes(2);
+    panel.input().onChange("(");
+    expect(waiting()).toHaveLength(0);
+    expect(call).toHaveBeenCalledTimes(2);
   } finally {
     call.mockRestore();
   }

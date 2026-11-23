@@ -32,6 +32,21 @@ const INITIAL_OPTIONS = {
 
 const PATTERN_REASON_LIMIT = 256;
 
+/**
+ * How long typing pauses before the search runs, as the local panel's 300ms
+ * but a little longer: each search runs on the other computer, and one that
+ * typing overtakes is only dropped here, not stopped there.
+ */
+export const PEER_SEARCH_DEBOUNCE_MS = 400;
+
+/** What a search looks for: the text, its options and the two filters. */
+interface SearchCriteria {
+  query: string;
+  options: typeof INITIAL_OPTIONS;
+  include: string;
+  exclude: string;
+}
+
 export function PeerSearchPanel({
   target,
   canRead,
@@ -49,6 +64,7 @@ export function PeerSearchPanel({
   const input = useRef<HTMLInputElement>(null);
   const firstRow = useRef<(() => void) | null>(null);
   const flight = useRef<AbortController | null>(null);
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [query, setQuery] = useState("");
   const [options, setOptions] = useState(INITIAL_OPTIONS);
   const [include, setInclude] = useState("");
@@ -59,41 +75,71 @@ export function PeerSearchPanel({
   const [viewMode, setViewMode] = useState<"list" | "tree">("list");
   const [expandedDirs, setExpandedDirs] = useState<ReadonlySet<string>>(new Set());
   const validation = validateRegexPattern(query, options.isRegExp);
-  const includes = parsePeerSearchFilters(include, false);
-  const excludes = parsePeerSearchFilters(exclude, true);
-  const invalidFilters = !includes || !excludes;
+  const invalidFilters =
+    !parsePeerSearchFilters(include, false) || !parsePeerSearchFilters(exclude, true);
   const unsupported = error?.kind === "unsupported";
-  const canSearch = canRead && !!query && validation.valid && !invalidFilters && !unsupported;
+  const current: SearchCriteria = { query, options, include, exclude };
+  const canSearch = searchable(current);
   useGlobalSearchHotkey(input);
   useEffect(() => {
     if (focusRequest > 0) input.current?.focus();
   }, [focusRequest]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: in-flight results belong to one connection
+  // biome-ignore lint/correctness/useExhaustiveDependencies: in-flight and pending searches belong to one connection and workspace
   useEffect(() => {
     setRunning(false);
     setError((before) => (before?.kind === "unsupported" ? null : before));
     return () => {
+      cancelPending();
       flight.current?.abort();
       flight.current = null;
     };
-  }, [canRead, rejoin]);
+  }, [canRead, rejoin, target.deviceId, target.workspaceId]);
 
-  function changeSearchCriteria() {
+  function cancelPending() {
+    if (pending.current !== null) clearTimeout(pending.current);
+    pending.current = null;
+  }
+
+  function searchable(criteria: SearchCriteria): boolean {
+    return (
+      canRead &&
+      !!criteria.query &&
+      validateRegexPattern(criteria.query, criteria.options.isRegExp).valid &&
+      !!parsePeerSearchFilters(criteria.include, false) &&
+      !!parsePeerSearchFilters(criteria.exclude, true) &&
+      !unsupported
+    );
+  }
+
+  /**
+   * A change to what is searched for: the results so far, and a search still
+   * running, are dropped; the search runs again once typing pauses, or at
+   * once for an option, as locally.
+   */
+  function changeSearchCriteria(next: Partial<SearchCriteria>, at: "pause" | "once" = "pause") {
+    cancelPending();
     flight.current?.abort();
     flight.current = null;
     setRunning(false);
     setResults(null);
     if (!unsupported) setError(null);
+    const criteria = { ...current, ...next };
+    if (!searchable(criteria)) return;
+    if (at === "once") void search(criteria);
+    else pending.current = setTimeout(() => void search(criteria), PEER_SEARCH_DEBOUNCE_MS);
   }
 
   function changeQuery(next: string) {
     setQuery(next);
-    changeSearchCriteria();
+    changeSearchCriteria({ query: next });
   }
 
-  async function search() {
-    if (!canSearch || !includes || !excludes) return;
+  async function search(criteria: SearchCriteria = current) {
+    cancelPending();
+    const includes = parsePeerSearchFilters(criteria.include, false);
+    const excludes = parsePeerSearchFilters(criteria.exclude, true);
+    if (!searchable(criteria) || !includes || !excludes) return;
     flight.current?.abort();
     const controller = new AbortController();
     flight.current = controller;
@@ -108,10 +154,10 @@ export function PeerSearchPanel({
         {
           deviceId: target.deviceId,
           workspaceId: target.workspaceId,
-          query,
-          caseSensitive: options.isCaseSensitive,
-          wholeWord: options.isWordMatch,
-          regex: options.isRegExp,
+          query: criteria.query,
+          caseSensitive: criteria.options.isCaseSensitive,
+          wholeWord: criteria.options.isWordMatch,
+          regex: criteria.options.isRegExp,
           include: includes,
           exclude: excludes,
         },
@@ -164,8 +210,9 @@ export function PeerSearchPanel({
             else input.current?.blur();
           }}
           onToggleOption={(key) => {
-            changeSearchCriteria();
-            setOptions({ ...options, [key]: !options[key] });
+            const next = { ...options, [key]: !options[key] };
+            setOptions(next);
+            changeSearchCriteria({ options: next }, "once");
           }}
           onArrowDown={() => firstRow.current?.()}
           viewMode={viewMode}
@@ -186,8 +233,8 @@ export function PeerSearchPanel({
               <input
                 value={include}
                 onChange={(event) => {
-                  changeSearchCriteria();
                   setInclude(event.target.value);
+                  changeSearchCriteria({ include: event.target.value });
                 }}
                 placeholder="*.ts, README.md"
                 className="min-w-0 rounded border border-border bg-background px-2 py-1 text-app-body text-foreground"
@@ -198,8 +245,8 @@ export function PeerSearchPanel({
               <input
                 value={exclude}
                 onChange={(event) => {
-                  changeSearchCriteria();
                   setExclude(event.target.value);
+                  changeSearchCriteria({ exclude: event.target.value });
                 }}
                 placeholder="fixtures/, *.min.js"
                 className="min-w-0 rounded border border-border bg-background px-2 py-1 text-app-body text-foreground"
