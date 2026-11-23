@@ -15,7 +15,6 @@ import {
   Copy,
   FileText,
   GitFork,
-  LoaderCircle,
   MessageSquareShare,
   RotateCcw,
   SquareTerminal,
@@ -66,7 +65,6 @@ import {
 } from "../../services/chat/model";
 import { revealTabById } from "../../services/chat/open-beside";
 import {
-  type AnswerExtras,
   answerExtras,
   exitCodeOf,
   imagesShownEarlier,
@@ -92,6 +90,7 @@ import {
 import { ProfileDot, profileName } from "../agent-profiles/profile-badge";
 import { SaveAnswerMenu } from "../notes/save-answer-menu";
 import { IconButton } from "../ui/icon-button";
+import { ToggleChevron } from "../ui/toggle-chevron";
 import { AnswerExtrasView } from "./answer-extras";
 import { ArtifactCard } from "./artifact-card";
 import { ChatAgentContext, useAgentContext } from "./chat-agent";
@@ -102,6 +101,7 @@ import { FileKindIcon } from "./file-kind-icon";
 import { AnsweredQuestions, PlanOutcome, showsAsPrompt } from "./prompt-rows";
 import { SentFiles } from "./sent-files";
 import { ToolRow } from "./tool-row";
+import { ToolRunLine } from "./tool-run-line";
 
 const NO_TOOL_STATUSES: ToolRowStatuses = {};
 
@@ -119,6 +119,8 @@ interface MessageListProps {
   actions?: MessageActions;
   /** In place of the conversation: an agent's transcript. */
   items?: ChatItem[];
+  /** Whether the agent of `items` ended: its answer then ends with its files, as a turn's does. */
+  itemsDone?: boolean;
   /** A call to bring into view and light up, as the side panel asks. */
   reveal?: CallReveal | null;
   /** Where the conversation went on in another profile: a line after the message. */
@@ -233,6 +235,7 @@ export function MessageList({
   empty,
   actions,
   items,
+  itemsDone = false,
   reveal,
   moves,
   relayed,
@@ -346,23 +349,21 @@ export function MessageList({
     () => (history ? { ...history.tools, ...model.tools } : model.tools),
     [history, model.tools],
   );
-  // What each finished turn's answer ends with; an agent's transcript has none. A chat here
-  // shows an image file's picture on its card wherever the file is; another computer's, only
-  // from its workspace.
-  const turnDone = !model.running && !streaming;
+  // What each finished turn's answer ends with, an agent's once it ended. A chat here shows
+  // an image file's picture on its card wherever the file is; another computer's, only from
+  // its workspace.
+  const turnDone = items ? itemsDone : !model.running && !streaming;
   const chatFiles = useChatFiles();
   const extras = useMemo(
     () =>
-      items
-        ? new Map<ChatItem, AnswerExtras>()
-        : answerExtras(
-            [...(history?.items ?? []), ...model.items],
-            tools,
-            cwd,
-            rootPath,
-            turnDone,
-            !chatFiles,
-          ),
+      answerExtras(
+        items ?? [...(history?.items ?? []), ...model.items],
+        tools,
+        cwd,
+        rootPath,
+        turnDone,
+        !chatFiles,
+      ),
     [items, history, model.items, tools, cwd, rootPath, turnDone, chatFiles],
   );
   const shownItems = useMemo(() => [...historyItems, ...liveItems], [historyItems, liveItems]);
@@ -1177,9 +1178,6 @@ function runKey(blocks: AssistantBlock[]): string {
   return first?.type === "tool" ? first.toolUseId : "";
 }
 
-/** The kinds of call a run's line counts, in its order. */
-const RUN_KINDS = ["commands", "reads", "edits", "searches", "others"] as const;
-
 /**
  * Calls in a row as one line that says what they did, and opens to show
  * each. A call still going shows under it while folded, so the turn's
@@ -1194,7 +1192,6 @@ function ToolRun({
   ctx: ItemContext;
   view: ItemView;
 }) {
-  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const { tools, toolStatuses } = view;
   // Opens when the side panel asks to see a call of the run's.
@@ -1211,74 +1208,33 @@ function ToolRun({
     const status = toolStatuses[block.toolUseId] ?? tools[block.toolUseId]?.status;
     return !status || status === "running" || status === "streaming" || status === "background";
   });
-  const running = live.length > 0;
-  const tally = tallyRun(calls, toolStatuses);
-  const label = RUN_KINDS.filter((kind) => tally[kind] > 0)
-    .map((kind) => t(`chat.tool.run.${kind}`, { count: tally[kind] }))
-    .join(" · ");
   const rows = open ? blocks : live;
   return (
-    <div className="my-1 text-app-ui-sm" data-testid="chat-tool-run">
-      <div className="flex min-w-0 items-center gap-1">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-(--radius-control) px-1.5 py-1 text-left hover:bg-[var(--state-hover-bg)]"
-        >
-          {running ? (
-            <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--state-loading-indicator)]" />
-          ) : (
-            // A run some calls of which failed is not all green.
-            <Check
-              className={cn(
-                "size-3.5 shrink-0",
-                tally.failed > 0 ? "text-muted-foreground" : "text-[var(--state-success-fg)]",
-              )}
+    <ToolRunLine
+      tally={tallyRun(calls, toolStatuses)}
+      running={live.length > 0}
+      open={open}
+      onToggle={() => setOpen((v) => !v)}
+      beside={<ToolThumbs calls={calls} />}
+    >
+      {rows.length > 0 &&
+        rows.map((block, i) =>
+          block.type === "tool" ? (
+            <ToolRow
+              key={block.toolUseId}
+              toolUseId={block.toolUseId}
+              tool={tools[block.toolUseId]}
+              tools={tools}
+              toolStatuses={toolStatuses}
+              cwd={ctx.cwd}
+              onBackground={backgroundOf(ctx.actions, block.toolUseId)}
             />
-          )}
-          <span className="min-w-0 flex-1 truncate text-muted-foreground" title={label}>
-            {label}
-          </span>
-          {tally.failed > 0 && (
-            <span className="shrink-0 text-[var(--state-error-fg)]">
-              {t("chat.tool.run.failed", { count: tally.failed })}
-            </span>
-          )}
-          {tally.denied > 0 && (
-            <span className="shrink-0 text-muted-foreground">
-              {t("chat.tool.run.denied", { count: tally.denied })}
-            </span>
-          )}
-          {open ? (
-            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-          )}
-        </button>
-        <ToolThumbs calls={calls} />
-      </div>
-      {rows.length > 0 && (
-        <div className="ml-4 border-l border-border pl-2">
-          {rows.map((block, i) =>
-            block.type === "tool" ? (
-              <ToolRow
-                key={block.toolUseId}
-                toolUseId={block.toolUseId}
-                tool={tools[block.toolUseId]}
-                tools={tools}
-                toolStatuses={toolStatuses}
-                cwd={ctx.cwd}
-                onBackground={backgroundOf(ctx.actions, block.toolUseId)}
-              />
-            ) : block.type === "thinking" ? (
-              // biome-ignore lint/suspicious/noArrayIndexKey: a run's blocks are only appended
-              <Thinking key={i} text={block.text} />
-            ) : null,
-          )}
-        </div>
-      )}
-    </div>
+          ) : block.type === "thinking" ? (
+            // biome-ignore lint/suspicious/noArrayIndexKey: a run's blocks are only appended
+            <Thinking key={i} text={block.text} />
+          ) : null,
+        )}
+    </ToolRunLine>
   );
 }
 
@@ -1367,7 +1323,7 @@ export function Thinking({ text, live = false }: { text: string; live?: boolean 
       >
         <Brain className={cn("size-3.5", live && "animate-pulse")} />
         <span>{label}</span>
-        {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+        <ToggleChevron open={open} className="text-current" />
       </button>
       {open && (
         <div className="mt-1 ml-5 border-l border-border pl-3 text-app-ui-sm whitespace-pre-wrap break-words italic">

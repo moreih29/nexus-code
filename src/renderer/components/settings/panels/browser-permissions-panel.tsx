@@ -18,6 +18,7 @@ import i18next from "i18next";
 import type { LucideIcon } from "lucide-react";
 import {
   Bell,
+  ChevronRight,
   Clipboard,
   Clock,
   ExternalLink,
@@ -101,6 +102,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Video,
   MapPin,
   Bell,
+  ChevronRight,
   MonitorUp,
   Clipboard,
   ExternalLink,
@@ -257,12 +259,10 @@ export function BrowserPermissionsPanel() {
               "list-none", // remove native triangle
             )}
           >
-            <span
-              className="inline-block transition-transform group-open:rotate-90"
+            <ChevronRight
+              className="size-3.5 shrink-0 transition-transform group-open:rotate-90"
               aria-hidden="true"
-            >
-              ›
-            </span>
+            />
             {t("browserPermissions.advancedCount", { count: tierBToggles.length })}
           </summary>
           <div className="mt-2.5 flex flex-col gap-2.5">

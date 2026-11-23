@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { ChevronDown, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ipcCallResult } from "../../ipc/client";
@@ -164,9 +164,13 @@ export function PeerSearchPanel({
           viewModeDisabled={!hasResults}
         />
         <div className="flex flex-col gap-1 px-2 pb-1">
-          <details className="min-w-0 text-app-ui-sm text-muted-foreground">
-            <summary className="cursor-pointer py-1 whitespace-nowrap">
+          <details className="group min-w-0 text-app-ui-sm text-muted-foreground">
+            <summary className="flex w-fit cursor-pointer list-none items-center gap-1 py-1 whitespace-nowrap [&::-webkit-details-marker]:hidden">
               {t("peerWorkspace.searchFilters")}
+              <ChevronDown
+                aria-hidden="true"
+                className="size-3 shrink-0 transition-transform group-open:rotate-180"
+              />
             </summary>
             <label className="mt-1 flex flex-col gap-0.5">
               <span>{t("peerWorkspace.searchInclude")}</span>

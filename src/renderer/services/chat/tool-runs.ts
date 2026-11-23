@@ -25,6 +25,49 @@ export const MIN_RUN = 2;
 /** A block as a message shows it: as it came, or calls in a row folded together. */
 export type ShownBlock = AssistantBlock | { type: "run"; blocks: AssistantBlock[] };
 
+/** Whether a call keeps a line of its own, out of any run. */
+export function isLoneTool(name: string): boolean {
+  return LONE_TOOLS.has(name);
+}
+
+/** What an entry is to a run: a call that folds, what may come between two, or what ends it. */
+export type RunPart = "call" | "between" | "end";
+
+/** Entries as shown: alone, or calls in a row (with what came between them) as a run. */
+export type FoldedEntry<T> = { readonly one: T } | { readonly run: readonly T[] };
+
+/**
+ * Entries with calls in a row folded into runs, for any list of an agent's
+ * turn: the main conversation's blocks and a run's own steps alike. A run
+ * takes `MIN_RUN` calls or more and what comes between them, and ends at
+ * its last call.
+ */
+export function foldRuns<T>(entries: readonly T[], part: (entry: T) => RunPart): FoldedEntry<T>[] {
+  const out: FoldedEntry<T>[] = [];
+  let i = 0;
+  while (i < entries.length) {
+    if (part(entries[i]) === "call") {
+      let last = i;
+      let calls = 0;
+      for (let j = i; j < entries.length; j++) {
+        const kind = part(entries[j]);
+        if (kind === "call") {
+          last = j;
+          calls++;
+        } else if (kind !== "between") break;
+      }
+      if (calls >= MIN_RUN) {
+        out.push({ run: entries.slice(i, last + 1) });
+        i = last + 1;
+        continue;
+      }
+    }
+    out.push({ one: entries[i] });
+    i++;
+  }
+  return out;
+}
+
 /**
  * What each assistant message shows: its blocks, with calls in a row folded
  * into a run. A run goes on across messages, as Claude makes a call a
@@ -37,33 +80,22 @@ export function foldToolRuns(
   tools: Record<string, ToolCall>,
 ): Map<AssistantItem, ShownBlock[]> {
   const shown = new Map<AssistantItem, ShownBlock[]>();
-  const foldable = (block: AssistantBlock) =>
-    block.type === "tool" && !LONE_TOOLS.has(tools[block.toolUseId]?.name ?? "");
+  const part = ({ block }: { block: AssistantBlock }): RunPart =>
+    block.type === "tool" && !isLoneTool(tools[block.toolUseId]?.name ?? "")
+      ? "call"
+      : block.type === "thinking"
+        ? "between"
+        : "end";
 
   let entries: { item: AssistantItem; block: AssistantBlock }[] = [];
   const flush = () => {
-    let i = 0;
-    while (i < entries.length) {
-      const { item, block } = entries[i];
-      const into = shown.get(item) ?? [];
-      if (foldable(block)) {
-        let last = i;
-        let calls = 0;
-        for (let j = i; j < entries.length; j++) {
-          const next = entries[j].block;
-          if (foldable(next)) {
-            last = j;
-            calls++;
-          } else if (next.type !== "thinking") break;
-        }
-        if (calls >= MIN_RUN) {
-          into.push({ type: "run", blocks: entries.slice(i, last + 1).map((e) => e.block) });
-          i = last + 1;
-          continue;
-        }
-      }
-      into.push(block);
-      i++;
+    for (const entry of foldRuns(entries, part)) {
+      const first = "one" in entry ? entry.one : entry.run[0];
+      const into = shown.get(first.item) ?? [];
+      into.push(
+        "one" in entry ? entry.one.block : { type: "run", blocks: entry.run.map((e) => e.block) },
+      );
+      shown.set(first.item, into);
     }
     entries = [];
   };
@@ -96,10 +128,32 @@ export interface RunTally {
   denied: number;
 }
 
+/** A call as a run's line counts it: its tool, the file it works on, and how it went. */
+export interface RunCall {
+  readonly name: string;
+  readonly path?: string;
+  readonly status?: string;
+}
+
 export function tallyRun(
   calls: readonly (ToolCall | undefined)[],
   toolStatuses: ToolRowStatuses,
 ): RunTally {
+  return tallyCalls(
+    calls.map((call) => {
+      const input = (call?.input ?? {}) as Record<string, unknown>;
+      return {
+        name: call?.name ?? "",
+        path: [input.file_path, input.notebook_path].find(
+          (value): value is string => typeof value === "string" && value !== "",
+        ),
+        status: call && (toolStatuses[call.id] ?? call.status),
+      };
+    }),
+  );
+}
+
+export function tallyCalls(calls: readonly RunCall[]): RunTally {
   const tally: RunTally = {
     commands: 0,
     reads: 0,
@@ -111,15 +165,9 @@ export function tallyRun(
   };
   const read = new Set<string>();
   const edited = new Set<string>();
-  for (const call of calls) {
-    const status = call && (toolStatuses[call.id] ?? call.status);
+  for (const { name, path, status } of calls) {
     if (status === "error") tally.failed++;
     if (status === "denied") tally.denied++;
-    const name = call?.name ?? "";
-    const input = (call?.input ?? {}) as Record<string, unknown>;
-    const path = [input.file_path, input.notebook_path].find(
-      (value): value is string => typeof value === "string" && value !== "",
-    );
     if (COMMAND_TOOLS.has(name)) tally.commands++;
     else if (READ_TOOLS.has(name)) {
       if (!path) tally.reads++;

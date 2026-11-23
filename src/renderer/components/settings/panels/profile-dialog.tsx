@@ -6,7 +6,7 @@
  * and shows its output, with a field for a code the browser gives.
  */
 
-import { Check, ChevronRight, CircleAlert, Loader2 } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, CircleAlert, Loader2 } from "lucide-react";
 import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -402,8 +402,12 @@ export function ProfileDialog({
             )}
 
             <details className="group" open={env !== ""}>
-              <summary className="cursor-pointer select-none text-app-ui-sm text-muted-foreground hover:text-foreground">
+              <summary className="flex w-fit cursor-pointer list-none select-none items-center gap-1 text-app-ui-sm text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
                 {t("profiles.dialog.env")}
+                <ChevronDown
+                  className="size-3 shrink-0 transition-transform group-open:rotate-180"
+                  aria-hidden="true"
+                />
               </summary>
               <textarea
                 id={envId}

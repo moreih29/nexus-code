@@ -13,6 +13,7 @@ import {
 import { useSessionParent } from "../../services/agent-sessions/use-session-parent";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { cn } from "../../utils/cn";
+import { ToggleChevron } from "../ui/toggle-chevron";
 import { GROUP_STATE, GROUP_TINT, StateGlyph } from "./session-status";
 
 const SUMMED = ["attention", "running", "done"] as const;
@@ -72,7 +73,7 @@ export function SessionTreeBranch({
           >
             <StateGlyph state="idle" />
             {t("agentView.list.idle_children", { count: idle })}
-            <FoldChevron folded={!idleOpen} />
+            <ToggleChevron open={idleOpen} className="size-3" />
           </button>
         </TreeLine>
       )}
@@ -84,9 +85,9 @@ export function SessionTreeBranch({
 const FOLDED_COUNTS = ["running", "attention"] as const;
 
 /**
- * A family's chip, `≣ 3 ⌄`: how many conversations are under the row, and
+ * A family's chip, `≣ 3 ⌃`: how many conversations are under the row, and
  * folds them. Folded, it tells inside its border how many of them work and
- * wait on the user, `≣ 3 · ⟳ 1 · ! 1 ›`, so they do not read as the row's
+ * wait on the user, `≣ 3 · ⟳ 1 · ! 1 ⌄`, so they do not read as the row's
  * own state.
  */
 export function FamilyFold({
@@ -135,7 +136,7 @@ export function FamilyFold({
           </span>
         </span>
       ))}
-      <FoldChevron folded={collapsed} className="size-3" />
+      <ToggleChevron open={!collapsed} className="size-3 text-current" />
     </button>
   );
 }

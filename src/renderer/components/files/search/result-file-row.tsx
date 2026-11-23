@@ -28,6 +28,7 @@ export function SearchResultFileRow({
     <button
       type="button"
       onClick={onToggle}
+      aria-expanded={expanded}
       title={relPath}
       style={{ height: ROW_HEIGHT_PX }}
       className="flex items-center w-full px-2 gap-1 text-left cursor-pointer select-none hover:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"

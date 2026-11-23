@@ -6,8 +6,6 @@
 import {
   Check,
   CheckCheck,
-  ChevronDown,
-  ChevronRight,
   Clock,
   FileDiff,
   Pencil,
@@ -64,7 +62,7 @@ import {
   stateLabel,
   useDurationLabel,
 } from "./session-status";
-import { FamilyFold, ParentCaption, SessionTreeBranch } from "./session-tree-rows";
+import { FamilyFold, FoldChevron, ParentCaption, SessionTreeBranch } from "./session-tree-rows";
 
 export { GROUP_STATE, GROUP_TINT } from "./session-status";
 
@@ -125,6 +123,8 @@ export function StatusView({
           return (
             <section key={group} aria-label={label}>
               <h3 className="flex items-center gap-1.5 px-2 py-1 text-app-ui-sm text-muted-foreground opacity-60">
+                {/* No fold to open, its chevron's place kept so the groups stay in one column. */}
+                <span aria-hidden className="size-3.5 shrink-0" />
                 <StateGlyph state={GROUP_STATE[group]} still />
                 <span>{label}</span>
                 <span className="tabular-nums">0</span>
@@ -146,14 +146,10 @@ export function StatusView({
                   GROUP_TINT[group],
                 )}
               >
+                <FoldChevron folded={folded} />
                 <StateGlyph state={GROUP_STATE[group]} />
                 <span>{label}</span>
                 <span className="tabular-nums">{rows.length}</span>
-                {folded ? (
-                  <ChevronRight aria-hidden className="size-3.5" />
-                ) : (
-                  <ChevronDown aria-hidden className="size-3.5" />
-                )}
               </button>
               {group === "done" && (
                 <IconButton

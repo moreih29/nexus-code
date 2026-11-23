@@ -9,8 +9,16 @@ import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { AgentRun, ToolRun } from "../../../shared/claude/activity";
-import { agentFlow, runMessages } from "../../services/agent-sessions/agents";
+import { agentFlow, type FlowEntry, runMessages } from "../../services/agent-sessions/agents";
+import {
+  foldRuns,
+  isLoneTool,
+  type RunCall,
+  type RunPart,
+  tallyCalls,
+} from "../../services/chat/tool-runs";
 import { toolTint } from "../chat/tool-row";
+import { ToolRunLine } from "../chat/tool-run-line";
 import { elapsedLabel } from "./agent-status";
 import { FoldToggle, useFold } from "./fold";
 
@@ -61,12 +69,14 @@ export function AgentFlow({
                   : t("agentList.agents.detail.more_tools", { count: hidden })}
               </button>
             )}
-            {steps.slice(hidden).map((step) =>
-              "tool" in step ? (
-                <ToolStep key={step.key} tool={step.tool} now={now} />
+            {foldRuns(steps.slice(hidden), stepPart).map((entry) =>
+              "run" in entry ? (
+                <StepRun key={entry.run[0].key} steps={entry.run} now={now} />
+              ) : "tool" in entry.one ? (
+                <ToolStep key={entry.one.key} tool={entry.one.tool} now={now} />
               ) : (
-                <div key={step.key} className="min-w-0 px-1.5 py-1">
-                  {renderText(step.message.text)}
+                <div key={entry.one.key} className="min-w-0 px-1.5 py-1">
+                  {renderText(entry.one.message.text)}
                 </div>
               ),
             )}
@@ -127,6 +137,44 @@ function PromptBubble({ text }: { text: string }) {
       {fold.foldable && <FoldToggle open={fold.open} onToggle={fold.toggle} />}
     </div>
   );
+}
+
+/** A tool folds into a run as a call does in the main conversation; what it wrote ends one. */
+function stepPart(step: FlowEntry): RunPart {
+  return "tool" in step && !isLoneTool(step.tool.name) ? "call" : "end";
+}
+
+/** Tools it ran in a row, as one line that opens to show each, as the main conversation's runs. */
+function StepRun({ steps, now }: { steps: readonly FlowEntry[]; now: number }) {
+  const [open, setOpen] = useState(false);
+  const tools = steps.flatMap((step) => ("tool" in step ? [step.tool] : []));
+  const live = tools.filter((tool) => tool.end === undefined);
+  const rows = open ? tools : live;
+  return (
+    <ToolRunLine
+      tally={tallyCalls(tools.map(runCallOf))}
+      running={live.length > 0}
+      open={open}
+      onToggle={() => setOpen((v) => !v)}
+    >
+      {rows.length > 0 && rows.map((tool) => <ToolStep key={tool.id} tool={tool} now={now} />)}
+    </ToolRunLine>
+  );
+}
+
+/** A tool as a run's line counts it; a file tool's target is its file. */
+function runCallOf(tool: ToolRun): RunCall {
+  return {
+    name: tool.name,
+    path: tool.target,
+    status: tool.denied
+      ? "denied"
+      : tool.failed
+        ? "error"
+        : tool.end === undefined
+          ? "running"
+          : "done",
+  };
 }
 
 /** A tool it ran, as a call reads in its tab: how it went, its name and what it worked on. */

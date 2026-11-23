@@ -11,7 +11,12 @@ import {
 } from "../../../../../src/renderer/services/chat/attach-folders";
 import { resolveFilePath } from "../../../../../src/renderer/services/chat/links";
 import { WINDOW_ITEMS } from "../../../../../src/renderer/services/chat/message-window";
-import { emptyModel, type UserItem } from "../../../../../src/renderer/services/chat/model";
+import {
+  type ChatItem,
+  emptyModel,
+  type ToolCall,
+  type UserItem,
+} from "../../../../../src/renderer/services/chat/model";
 import en from "../../../../../src/shared/i18n/locales/en/common.json";
 
 function render(historyTruncated: boolean, count = 1, hasEarlier = false) {
@@ -116,4 +121,47 @@ test("in a chat here, the chip of an attached image removed with its tab only na
   expect(
     attachedChips(ATTACHED, { ...links, opensAttached: attachedOpens(new Set(), "/p") }),
   ).toEqual(["dropped.png", "inside.png", "sent.png"]);
+});
+
+/** A subagent's transcript whose one call gave an image, and its answer. */
+function transcript(itemsDone: boolean) {
+  const items: ChatItem[] = [
+    { kind: "user", key: "prompt", text: "look", images: [], state: "taken" },
+    {
+      kind: "assistant",
+      key: "a",
+      messageId: "a",
+      blocks: [
+        { type: "tool", toolUseId: "shot" },
+        { type: "text", text: "Here it is" },
+      ],
+    },
+  ];
+  const tools: Record<string, ToolCall> = {
+    shot: {
+      id: "shot",
+      name: "Screenshot",
+      input: {},
+      status: "done",
+      parentToolUseId: "agent",
+      result: { text: "", isError: false, images: [{ mediaType: "image/png", data: "AAAA" }] },
+    },
+  };
+  return renderToStaticMarkup(
+    <MessageList
+      workspaceId="ws"
+      cwd="/p"
+      rootPath="/p"
+      history={null}
+      model={{ ...emptyModel(), tools }}
+      items={items}
+      itemsDone={itemsDone}
+    />,
+  );
+}
+
+test("a subagent's answer ends with what its calls gave once it ended, as a turn's does", () => {
+  expect(transcript(true)).toContain('data-testid="chat-answer-extras"');
+  // While it runs, its answer is not its last yet.
+  expect(transcript(false)).not.toContain('data-testid="chat-answer-extras"');
 });

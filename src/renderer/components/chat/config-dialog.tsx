@@ -8,7 +8,6 @@
 // tab the dialog is opened in takes the new ones, as the CLI's session
 // does).
 
-import { ChevronRight } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -37,6 +36,7 @@ import { Dialog } from "../ui/dialog";
 import { DialogHeader } from "../ui/dialog-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { showToast } from "../ui/toast";
+import { ToggleChevron } from "../ui/toggle-chevron";
 
 /**
  * Where the dialog's settings come from and go to: a tab's program here,
@@ -269,11 +269,8 @@ export function ConfigDialogView({
                         onClick={() => setOtherOpen((v) => !v)}
                         className="inline-flex items-center gap-0.5 rounded-(--radius-control) px-1.5 py-0.5 text-app-ui-sm text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
                       >
-                        <ChevronRight
-                          className={cn("size-3 transition-transform", otherOpen && "rotate-90")}
-                          aria-hidden="true"
-                        />
                         {t(otherOpen ? "chat.config.hide" : "chat.config.show")}
+                        <ToggleChevron open={otherOpen} className="size-3 text-current" />
                       </button>
                     ) : undefined
                   }
