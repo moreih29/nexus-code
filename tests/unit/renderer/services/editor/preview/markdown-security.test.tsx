@@ -73,11 +73,12 @@ describe("MarkdownPreview — workspace image rewriting", () => {
     expect(html).toContain('alt="logo"');
   });
 
-  test("escape attempt outside workspace renders inline [image] placeholder", () => {
+  test("escape attempt outside workspace renders the image's name in its place", () => {
     const source = "![secret](../../../etc/shadow)";
     const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
     expect(html).not.toContain("nexus-workspace://");
-    expect(html).toContain("[image]");
+    expect(html).not.toContain("<img");
+    expect(html).toContain("[secret]");
   });
 });
 

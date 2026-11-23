@@ -2,18 +2,13 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import ReactMarkdown from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
-import rehypeRaw from "rehype-raw";
-import rehypeSanitize from "rehype-sanitize";
-import rehypeSlug from "rehype-slug";
+import type { Components } from "react-markdown";
 import { createLogger } from "../../../../shared/log/renderer";
 import { openOrRevealEditor } from "../../../services/editor";
 import {
@@ -23,8 +18,14 @@ import {
 import { buildOutsideUrl, buildWorkspaceUrl } from "../../../services/editor/preview/workspace-url";
 import { peerOf } from "../../../services/remote/peer-workspace";
 import { copyText } from "../../../utils/clipboard";
-import { REMARK_PLUGINS } from "../../../utils/remark-plugins";
 import { useChatLinks } from "../../chat/chat-links";
+import {
+  ImageName,
+  MarkdownBody,
+  MarkdownCodeBlock,
+  type MarkdownNode,
+  markdownText,
+} from "../../ui/markdown-body";
 import { capPreviewSource, getPreviewTruncatedMessage } from "./constants";
 import { MermaidDiagram } from "./mermaid-diagram";
 
@@ -151,7 +152,7 @@ export function MarkdownPreview({
     [onToggleTask, frontmatterLineOffset, onCopyAnchor, collapsed, toggleCollapse],
   );
 
-  const components = useMemo<NonNullable<React.ComponentProps<typeof ReactMarkdown>["components"]>>(
+  const components = useMemo<Components>(
     () => ({
       a({ href, children, ...rest }) {
         const safeHref = typeof href === "string" ? href : "";
@@ -165,14 +166,7 @@ export function MarkdownPreview({
         const rawSrc = typeof src === "string" ? src : "";
         const resolved = images?.get(rawSrc) ?? resolveImageSrc(rawSrc, workspaceId, imageCtx);
         if (resolved === null) {
-          return (
-            <span
-              className="inline-flex items-center px-1.5 py-0.5 text-app-ui-sm text-muted-foreground border border-border rounded-(--radius-control)"
-              title={t("markdown.image_not_loaded", { src: rawSrc })}
-            >
-              [{t("markdown.image")}]
-            </span>
-          );
+          return <ImageName alt={alt} title={t("markdown.image_not_loaded", { src: rawSrc })} />;
         }
         return <img {...rest} src={resolved} alt={alt ?? ""} />;
       },
@@ -189,24 +183,6 @@ export function MarkdownPreview({
     [imageCtx, images, onLinkClick, workspaceId, t],
   );
 
-  const markdown = useMemo(
-    () => (
-      <ReactMarkdown
-        remarkPlugins={REMARK_PLUGINS}
-        rehypePlugins={[
-          rehypeRaw,
-          rehypeSanitize,
-          rehypeSlug,
-          [rehypeHighlight, { detect: false, ignoreMissing: true }],
-        ]}
-        components={components}
-      >
-        {text}
-      </ReactMarkdown>
-    ),
-    [text, components],
-  );
-
   return (
     <div ref={containerRef} className="md-preview h-full min-h-0 overflow-auto">
       {truncated && (
@@ -219,19 +195,14 @@ export function MarkdownPreview({
       )}
       <PreviewContext.Provider value={previewCtx}>
         <div className="md-content mx-auto max-w-[72ch] px-6 py-4 text-[var(--surface-island-fg)]">
-          {markdown}
+          <MarkdownBody source={text} components={components} html />
         </div>
       </PreviewContext.Provider>
     </div>
   );
 }
 
-type RmNode = {
-  tagName?: string;
-  position?: { start?: { line?: number } };
-  properties?: Record<string, unknown>;
-  children?: unknown[];
-};
+type RmNode = MarkdownNode;
 
 function MdListItem({ node, children, ...rest }: { node?: RmNode; children?: React.ReactNode }) {
   const ctx = useContext(PreviewContext);
@@ -279,33 +250,13 @@ function MdInput({
   return <input {...rest} type={type} checked={Boolean(checked)} disabled readOnly />;
 }
 
-function MdPre({ node, children, ...rest }: { node?: RmNode; children?: React.ReactNode }) {
-  const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const code = useMemo(() => hastToText(node), [node]);
-
-  useEffect(() => {
-    if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(t);
-  }, [copied]);
-
+function MdPre({ node, ...rest }: React.HTMLAttributes<HTMLPreElement> & { node?: RmNode }) {
   return (
-    <div className="md-code-wrap">
-      <button
-        type="button"
-        className="md-code-copy"
-        tabIndex={-1}
-        aria-label={t("markdown.copy_code")}
-        onClick={() => {
-          copyText(code);
-          setCopied(true);
-        }}
-      >
-        {copied ? t("markdown.copied") : t("markdown.copy")}
-      </button>
-      {isMermaid(node) ? <MermaidDiagram code={code} /> : <pre {...rest}>{children}</pre>}
-    </div>
+    <MarkdownCodeBlock
+      node={node}
+      shown={isMermaid(node) ? <MermaidDiagram code={markdownText(node)} /> : undefined}
+      {...rest}
+    />
   );
 }
 
@@ -375,15 +326,6 @@ function countNewlines(s: string): number {
 function headingLevel(el: Element): number | null {
   const m = /^H([1-6])$/.exec(el.tagName);
   return m ? Number(m[1]) : null;
-}
-
-function hastToText(node: RmNode | undefined): string {
-  if (!node) return "";
-  const self = (node as { value?: string }).value ?? "";
-  const kids = Array.isArray(node.children)
-    ? node.children.map((c) => hastToText(c as RmNode)).join("")
-    : "";
-  return self + kids;
 }
 
 export function stripFrontmatter(source: string): string {

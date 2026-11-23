@@ -1,47 +1,16 @@
 import { Tabs } from "radix-ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import ReactMarkdown from "react-markdown";
-import rehypeHighlight from "rehype-highlight";
 import type { PeerWorkspace } from "../../../shared/fs/peer-url";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { noteTime } from "../../services/notes/note-time";
 import { type PeerNoteTab, peerTabId } from "../../state/stores/peer-workspace";
 import { cn } from "../../utils/cn";
-import { REMARK_PLUGINS } from "../../utils/remark-plugins";
 import { EmptyState } from "../ui/empty-state";
+import { MarkdownBody } from "../ui/markdown-body";
 import { PeerReadOnlyBadge } from "./labels";
 import { type PeerNote, readPeerNote } from "./notes-model";
 import { peerSearchErrorKey } from "./search-model";
-
-const WEB_LINK = /^https?:\/\//i;
-
-const COMPONENTS: NonNullable<React.ComponentProps<typeof ReactMarkdown>["components"]> = {
-  a({ href, children }) {
-    const url = typeof href === "string" ? href : "";
-    if (!WEB_LINK.test(url)) return <span title={url}>{children}</span>;
-    return (
-      <a
-        href={url}
-        title={url}
-        onClick={(event) => {
-          event.preventDefault();
-          window.open(url, "_blank", "noopener,noreferrer");
-        }}
-      >
-        {children}
-      </a>
-    );
-  },
-  img({ alt }) {
-    return <span className="text-muted-foreground">[{alt || "image"}]</span>;
-  },
-  input({ type, checked }) {
-    return type === "checkbox" ? (
-      <input type="checkbox" checked={!!checked} disabled readOnly />
-    ) : null;
-  },
-};
 
 export function withoutHeading(markdown: string): string {
   return markdown.replace(/^# [^\n]*\n*/, "");
@@ -50,13 +19,7 @@ export function withoutHeading(markdown: string): string {
 export function PeerNoteMarkdown({ source }: { source: string }) {
   return (
     <div className="md-preview">
-      <ReactMarkdown
-        remarkPlugins={REMARK_PLUGINS}
-        rehypePlugins={[rehypeHighlight]}
-        components={COMPONENTS}
-      >
-        {source}
-      </ReactMarkdown>
+      <MarkdownBody source={source} links="web-only" />
     </div>
   );
 }
