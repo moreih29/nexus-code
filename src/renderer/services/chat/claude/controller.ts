@@ -463,6 +463,11 @@ export class ChatController {
     useChatStore.getState().update(this.key, update);
   }
 
+  /** Whether the tab is being opened: its log replayed, or its program started to show it. */
+  get isOpening(): boolean {
+    return this.opening !== null;
+  }
+
   /** Shows the tab's conversation: the agent's log, else a new or resumed program. */
   open(): Promise<void> {
     if (this.opening) return this.opening;

@@ -130,7 +130,7 @@ function getIpcCallHandler(): IpcHandler {
 /**
  * Creates a registered PTY channel backed by the agent host.
  */
-function makeFixture(): {
+function makeFixture(more: Partial<PtyChannelOptions> = {}): {
   handler: IpcHandler;
   agentChannel: FakeAgentChannel;
   recorder: FakeRecorder;
@@ -142,7 +142,7 @@ function makeFixture(): {
     // tryGetAgentChannel mirrors getAgentChannel in normal (non-removed) tests.
     tryGetAgentChannel: async () => agentChannel,
   });
-  const options: PtyChannelOptions = { agentHost, recorder };
+  const options: PtyChannelOptions = { agentHost, recorder, ...more };
   registerPtyChannel(options);
   return { handler: getIpcCallHandler(), agentChannel, recorder };
 }
@@ -205,6 +205,34 @@ describe("registerPtyChannel agent events", () => {
       });
     });
   }
+});
+
+describe("registerPtyChannel resize", () => {
+  test("tells of a terminal's new size before its program is told", async () => {
+    const told: string[] = [];
+    const { handler, agentChannel } = makeFixture({
+      onResize: (workspaceId, tabId) => {
+        expect(agentChannel.calls.some((call) => call.method === "pty.resize")).toBe(false);
+        told.push(`${workspaceId}:${tabId}`);
+      },
+    });
+    await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
+
+    await handler({}, "pty", "resize", {
+      workspaceId: LOCAL_WORKSPACE_ID,
+      tabId: TAB_ID,
+      cols: 120,
+      rows: 40,
+    });
+
+    expect(told).toEqual([`${LOCAL_WORKSPACE_ID}:${TAB_ID}`]);
+    expect(agentChannel.calls.filter((call) => call.method === "pty.resize")).toEqual([
+      {
+        method: "pty.resize",
+        params: { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID, cols: 120, rows: 40 },
+      },
+    ]);
+  });
 });
 
 describe("registerPtyChannel attach to a running session", () => {

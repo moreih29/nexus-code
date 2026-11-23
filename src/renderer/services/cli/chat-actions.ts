@@ -183,9 +183,22 @@ function infoOf(
 }
 
 /**
+ * Whether the tab is still being opened only to show it: its log replayed,
+ * or its program started, with nothing sent to it. That is no turn.
+ * Closing a tab brings the one used before it to the front, which opens
+ * it; read as working, it would flash as running in other devices' lists.
+ */
+function openingToShow(workspaceId: string, tabId: string, target: AgentTabController): boolean {
+  const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+  return (
+    target.controller.isOpening && chat?.phase === "starting" && !sendUnseen(workspaceId, tabId)
+  );
+}
+
+/**
  * Where a Claude or Codex tab stands without opening its program, as
  * chat.state with `peek` tells it: a tab not opened since the app started
- * reads idle.
+ * reads idle, and one being opened to show it reads as before.
  */
 export function peekChatInfo(
   workspaceId: string,
@@ -194,7 +207,7 @@ export function peekChatInfo(
 ): CliChatInfo & { waitingId?: string } {
   const target = agentTabController(workspaceId, tabId);
   if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
-  if (!opened(workspaceId, tabId)) {
+  if (!opened(workspaceId, tabId) || openingToShow(workspaceId, tabId, target)) {
     return withProfile(workspaceId, tabId, chatInfoOf(target.agent, undefined, false));
   }
   return infoOf(workspaceId, tabId, target, includeWaitingId);

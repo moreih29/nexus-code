@@ -83,6 +83,8 @@ export interface PtyChannelOptions {
   notificationsEnabled?: () => boolean;
   /** Input written to a terminal, before it reaches the program. */
   onInput?: (workspaceId: string, tabId: string, data: string) => void;
+  /** A terminal's new size, before its program is told. */
+  onResize?: (workspaceId: string, tabId: string) => void;
   /** The ports the programs in the workspaces' terminals listen on. */
   ports?: { snapshot(): WorkspacePorts[] };
   /** The SSH workspaces' ports forwarded to this machine. */
@@ -369,6 +371,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
 
       resize: async (args: unknown) => {
         const { workspaceId, tabId, cols, rows } = validateArgs(c.resize.args, args);
+        options.onResize?.(workspaceId, tabId);
         await agentHost.call("resize", { workspaceId, tabId, cols, rows });
         recorder.handleResize(workspaceId, tabId, cols, rows);
         return ipcOk(undefined);
