@@ -208,15 +208,6 @@ async function bootstrapAppState(): Promise<void> {
   startAgentViewPeerOrderSync();
 
   registerStatePersistence();
-
-  if (import.meta.env?.DEV) {
-    (window as unknown as { __setWindowOpacity?: (v: number) => void }).__setWindowOpacity = (
-      v: number,
-    ) => {
-      useWindowOpacityStore.getState().setOpacity(v);
-      log.info(`[dev] windowOpacity = ${v} — restart the app to apply the window flag.`);
-    };
-  }
 }
 
 export async function bootstrapWorkspaces(): Promise<void> {

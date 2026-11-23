@@ -1,6 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { PtyChannelOptions } from "../../../../../src/main/features/pty/ipc";
-import type { PtyRecorderSink } from "../../../../../src/main/features/pty/recorder";
 import type {
   AgentChannel,
   ChannelEventCallback,
@@ -88,29 +87,6 @@ class FakeAgentChannel implements AgentChannel {
   dispose(): void {}
 }
 
-class FakeRecorder implements PtyRecorderSink {
-  readonly starts: Array<{ workspaceId: string; tabId: string; cols: number; rows: number }> = [];
-  readonly data: Array<{ workspaceId: string; tabId: string; chunk: string }> = [];
-  readonly resizes: Array<{ workspaceId: string; tabId: string; cols: number; rows: number }> = [];
-  readonly stops: Array<{ workspaceId: string; tabId: string }> = [];
-
-  start(workspaceId: string, tabId: string, cols: number, rows: number): void {
-    this.starts.push({ workspaceId, tabId, cols, rows });
-  }
-
-  appendData(workspaceId: string, tabId: string, chunk: string): void {
-    this.data.push({ workspaceId, tabId, chunk });
-  }
-
-  handleResize(workspaceId: string, tabId: string, cols: number, rows: number): void {
-    this.resizes.push({ workspaceId, tabId, cols, rows });
-  }
-
-  stop(workspaceId: string, tabId: string): void {
-    this.stops.push({ workspaceId, tabId });
-  }
-}
-
 function getIpcCallHandler(): IpcHandler {
   const calls = mockHandle.mock.calls as [string, IpcHandler][];
   const entry = calls.filter(([channel]) => channel === "ipc:call").at(-1);
@@ -121,17 +97,15 @@ function getIpcCallHandler(): IpcHandler {
 function makeFixture(more: Partial<PtyChannelOptions> = {}): {
   handler: IpcHandler;
   agentChannel: FakeAgentChannel;
-  recorder: FakeRecorder;
 } {
   const agentChannel = new FakeAgentChannel();
-  const recorder = new FakeRecorder();
   const agentHost = startAgentPtyHost({
     getAgentChannel: async () => agentChannel,
     tryGetAgentChannel: async () => agentChannel,
   });
-  const options: PtyChannelOptions = { agentHost, recorder, ...more };
+  const options: PtyChannelOptions = { agentHost, ...more };
   registerPtyChannel(options);
-  return { handler: getIpcCallHandler(), agentChannel, recorder };
+  return { handler: getIpcCallHandler(), agentChannel };
 }
 
 function spawnArgs(workspaceId: string, tabId = TAB_ID): unknown {
@@ -241,7 +215,7 @@ describe("registerPtyChannel attach to a running session", () => {
   });
 
   test("relays replayed output marked as replay without raising its notifications", async () => {
-    const { handler, agentChannel, recorder } = makeFixture();
+    const { handler, agentChannel } = makeFixture();
     await handler({}, "pty", "spawn", spawnArgs(SSH_WORKSPACE_ID));
     mockSend.mockClear();
 
@@ -259,9 +233,6 @@ describe("registerPtyChannel attach to a running session", () => {
         "data",
         { workspaceId: SSH_WORKSPACE_ID, tabId: TAB_ID, chunk: "\x1b]9;Done\x07", replay: true },
       ],
-    ]);
-    expect(recorder.data).toEqual([
-      { workspaceId: SSH_WORKSPACE_ID, tabId: TAB_ID, chunk: "\x1b]9;Done\x07" },
     ]);
   });
 });
