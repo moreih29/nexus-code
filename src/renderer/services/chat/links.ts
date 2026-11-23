@@ -10,8 +10,6 @@ import { isImageFile, isPreviewable, previewEngineFor } from "../editor/preview/
 import { isSpreadsheetFile } from "../editor/preview/spreadsheet";
 import type { ResultEntry } from "./panel";
 
-export { isUnder } from "../../../shared/fs/relative-path";
-
 const DRIVE_PATH = /^[A-Za-z]:([\\/]|$)/;
 
 const DRIVE_LINK = /^[A-Za-z]:([\\/]|%5C|$)/i;

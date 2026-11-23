@@ -1,5 +1,5 @@
 import i18next, { type TFunction } from "i18next";
-import { ArrowLeft, CloudOff } from "lucide-react";
+import { CloudOff } from "lucide-react";
 import {
   useCallback,
   useContext,
@@ -13,7 +13,9 @@ import {
 import { useTranslation } from "react-i18next";
 import type { ViewGoal } from "../../../../packages/remote-protocol/src/view";
 import { appErrorFailed } from "../../../shared/error/app-error";
+import { isUnder, shownPath } from "../../../shared/fs/relative-path";
 import type { IpcResult } from "../../../shared/ipc/result";
+import { shortId } from "../../../shared/util/short-id";
 import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
 import { useNow } from "../../hooks/use-now";
 import { ipcCallResult } from "../../ipc/client";
@@ -25,7 +27,6 @@ import type { PermissionAnswer } from "../../services/chat/claude/controller";
 import { CODEX_COMMANDS, codexStatusMarkdown } from "../../services/chat/codex/commands";
 import { emptyCodexModel } from "../../services/chat/codex/model";
 import type { GoalView } from "../../services/chat/goal";
-import { isUnder } from "../../services/chat/links";
 import { lookAreaOf } from "../../services/chat/look-area";
 import type {
   AssistantItem,
@@ -34,7 +35,6 @@ import type {
   UserItem,
 } from "../../services/chat/model";
 import { agentTranscript } from "../../services/chat/panel";
-import { registerPanelToggle } from "../../services/chat/panel-toggle";
 import type { CommandCard } from "../../services/chat/store";
 import { surfaceError } from "../../services/error-surface/surface-error";
 import { modelOfPage } from "../../services/remote/chat-model";
@@ -81,7 +81,6 @@ import {
   TerminalInputQueueFullError,
   type TerminalTyping,
 } from "../../services/remote/terminal-typing";
-import { registerTabFocusTarget } from "../../services/tab-focus";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import {
   askOf,
@@ -90,11 +89,18 @@ import {
   type RemoteTarget,
 } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
-import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
-import { AgentStrip, ShownState } from "../chat/agent-strip";
 import { ChatAgentContext } from "../chat/chat-agent";
 import { ImageLoaderContext } from "../chat/chat-image";
 import { ChatLinksContext, useChatLinks } from "../chat/chat-links";
+import {
+  ChatEmptyState,
+  ChatRequestDock,
+  ChatShell,
+  RequestDock,
+  showsEmptyChat,
+  useChatPanelPlace,
+  useShownAgent,
+} from "../chat/chat-shell";
 import { ChatPhaseBanner, ChatSignedOutBanner } from "../chat/chat-state-banner";
 import { CommandCardView } from "../chat/command-card";
 import { Composer, composerHint, composerKeys } from "../chat/composer";
@@ -107,15 +113,17 @@ import {
   type OlderMessages,
   type ShownMove,
 } from "../chat/message-list";
-import { type PanelPlace, placeFor, readPanelPref, writePanelPref } from "../chat/panel-place";
-import { focusChatTab, PermissionCard } from "../chat/permission-card";
+import { focusChatTab } from "../chat/permission-card";
 import { QuickLook, type QuickLookList } from "../chat/quick-look";
 import { RateLimitBanner } from "../chat/rate-limit-banner";
 import { RewindDialog } from "../chat/rewind-dialog";
 import type { InstructionsChipSlot } from "../chat/session-instructions-chip";
-import { shortPath } from "../chat/side-panel";
+import {
+  type RemotePanelAsk,
+  type RemotePanelPart,
+  remoteAgentsOf,
+} from "../chat/session-side-panel";
 import { StatusLine } from "../chat/status-line";
-import { SummaryLine } from "../chat/summary-line";
 import { UsageLineView } from "../chat/usage-line";
 import { BannerDismissButton } from "../ui/banner";
 import { showToast } from "../ui/toast";
@@ -129,14 +137,7 @@ import { RemotePrintRunPane } from "./remote-print-run-pane";
 import { peerProfileName, RemoteProfileChip } from "./remote-profile-chip";
 import { closePeerSession } from "./remote-session-actions";
 import { type RemoteSessionHost, RemoteSessionHostContext } from "./remote-session-host";
-import {
-  panelSummaryCounts,
-  type RemotePanelAsk,
-  type RemotePanelPart,
-  RemoteSidePanel,
-  remoteAgentsOf,
-  remotePanelPartOf,
-} from "./remote-side-panel";
+import { panelSummaryCounts, RemoteSidePanel, remotePanelPartOf } from "./remote-side-panel";
 import { RemoteTerminalAsk } from "./remote-terminal-ask";
 import { RemoteTerminalScreen } from "./remote-terminal-screen";
 import { rateLimitOf, usageLineOf } from "./remote-usage";
@@ -160,7 +161,7 @@ export function changesCard(
         empty: t("agentView.remote.noChanges"),
         rows: changed.map((file) => ({
           id: file.path,
-          label: shortPath(file.path, folder),
+          label: shownPath(file.path, folder),
           detail: file.created
             ? t("chat.panel.results.created")
             : `+${file.added ?? 0} −${file.removed ?? 0}`,
@@ -526,7 +527,7 @@ function RemoteChatView({
           sessions={list?.sessions}
           workspaceName={
             list?.workspaces.find((workspace) => workspace.id === consent.workspaceId)?.name ??
-            consent.workspaceId.slice(0, 8)
+            shortId(consent.workspaceId)
           }
         />
       ))}
@@ -549,61 +550,16 @@ function RemoteChatView({
   };
   const fontStyle = useChatFontStyle();
   const claude = target.kind !== "codex";
-  const rootRef = useRef<HTMLDivElement>(null);
   const sessionKey = remoteSessionKey(target);
   const focusKey = host?.focusKey ?? sessionKey;
-  useEffect(
-    () => registerTabFocusTarget(focusKey, () => focusChatTab(rootRef.current)),
-    [focusKey],
-  );
-  const [place, setPlace] = useState<PanelPlace>("beside");
-  useLayoutEffect(() => {
-    const el = rootRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry && entry.contentRect.width > 0) setPlace(placeFor(entry.contentRect.width));
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-  const [besideOpen, setBesideOpen] = useState(readPanelPref);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const panelOpen = place === "beside" ? besideOpen : drawerOpen;
-  const togglePanel = () => {
-    if (place === "beside") {
-      writePanelPref(!besideOpen);
-      setBesideOpen(!besideOpen);
-    } else setDrawerOpen((v) => !v);
-  };
-  const togglePanelRef = useRef(togglePanel);
-  togglePanelRef.current = togglePanel;
-  useEffect(() => registerPanelToggle(focusKey, () => togglePanelRef.current()), [focusKey]);
-  useEffect(() => {
-    if (place === "beside") setDrawerOpen(false);
-  }, [place]);
-  const drawerRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const drawer = drawerRef.current;
-    if (!drawerOpen || !drawer) return;
-    const back = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    if (!drawer.contains(document.activeElement)) drawer.focus({ preventScroll: true });
-    return () => {
-      const now = document.activeElement;
-      const dropped = now === null || now === document.body || drawer.contains(now);
-      if (dropped && back?.isConnected) back.focus({ preventScroll: true });
-    };
-  }, [drawerOpen]);
+  const shell = useChatPanelPlace(focusKey, visible);
+  const { rootRef } = shell;
   const [panelAsk, setPanelAsk] = useState<RemotePanelAsk | null>(null);
   const askPanel = (part: RemotePanelPart, id?: string) =>
     setPanelAsk((prev) => ({ part, seq: (prev?.seq ?? 0) + 1, ...(id ? { id } : {}) }));
   // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once, where the panel then is
   useEffect(() => {
-    if (!panelAsk) return;
-    if (place !== "beside") setDrawerOpen(true);
-    else if (!besideOpen) {
-      writePanelPref(true);
-      setBesideOpen(true);
-    }
+    if (panelAsk) shell.openPanel();
   }, [panelAsk?.seq]);
 
   const runs = usePeerRuns({ deviceId, workspaceId, tabId }, visible && reach === "online");
@@ -612,26 +568,7 @@ function RemoteChatView({
     () => [...remoteAgentsOf(page.panel, model), ...runRows],
     [page.panel, model, runRows],
   );
-  const [shownId, setShownId] = useState<string | null>(null);
-  const shown = shownId ? agents.find((a) => a.toolUseId === shownId) : undefined;
-  useEffect(() => {
-    if (shownId && !shown) setShownId(null);
-  }, [shownId, shown]);
-  const showAgent = (toolUseId: string | null) => {
-    setShownId(toolUseId);
-    if (place !== "beside") setDrawerOpen(false);
-  };
-
-  const onKeyDown = (event: React.KeyboardEvent) => {
-    if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
-    if (event.key !== "[" && event.key !== "]") return;
-    if (agents.length === 0) return;
-    event.preventDefault();
-    const order = [null, ...agents.map((a) => a.toolUseId)];
-    const at = Math.max(0, order.indexOf(shown ? shown.toolUseId : null));
-    const step = event.key === "]" ? 1 : -1;
-    setShownId(order[(at + step + order.length) % order.length] ?? null);
-  };
+  const { shown, showAgent, onKeyDown } = useShownAgent(agents, shell);
   const taskShower = useRef<NonNullable<MessageActions["taskShower"]>>(() => undefined);
   taskShower.current = (item) => {
     const toolUseId =
@@ -817,7 +754,7 @@ function RemoteChatView({
       }
     });
   const signInThere = () => runInPeerTerminal(target, CODEX_SIGN_IN, open);
-  const panel = (
+  const panel = (className: string) => (
     <RemoteSidePanel
       target={target}
       panel={page.panel}
@@ -867,7 +804,7 @@ function RemoteChatView({
       {...(actions.onBackground ? { onBackground: actions.onBackground } : {})}
       reveal={panelAsk}
       goal={goalNow}
-      className={place === "beside" ? "w-72 shrink-0 border-l border-border" : "h-full"}
+      className={className}
     />
   );
 
@@ -901,149 +838,82 @@ function RemoteChatView({
                   }
                 : {})}
             />
-            <div className="relative flex min-h-0 flex-1">
-              <div className="flex min-w-0 flex-1 flex-col">
-                {place === "summary" ? (
-                  <>
-                    <SummaryLine
-                      counts={panelSummaryCounts(page.panel, agents)}
-                      open={drawerOpen}
-                      onToggle={togglePanel}
-                    />
-                    {shown && (
-                      <div className="flex h-7 shrink-0 items-center gap-2 border-b border-border px-2 text-app-ui-sm">
-                        <button
-                          type="button"
-                          onClick={() => showAgent(null)}
-                          className="flex shrink-0 items-center gap-1 rounded-(--radius-control) px-1.5 py-0.5 font-medium whitespace-nowrap hover:bg-[var(--state-hover-bg)]"
-                        >
-                          <ArrowLeft className="size-3.5" aria-hidden />
-                          {t("chat.strip.to_main")}
-                        </button>
-                        <span className="min-w-0 truncate text-muted-foreground">
-                          {shown.description}
-                        </span>
-                        <ShownState agent={shown} />
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <AgentStrip
-                    agents={agents}
-                    shown={shown ? shown.toolUseId : null}
-                    onShow={showAgent}
-                    panel={{ open: panelOpen, onToggle: togglePanel }}
-                  />
-                )}
-                {shown?.run ? (
-                  <RemotePrintRunPane
-                    target={target}
-                    row={shown.run}
-                    visible={visible}
-                    controls={reachable}
-                  />
-                ) : (
-                  <MessageList
-                    workspaceId={peerWorkspace}
-                    cwd={target.cwd ?? target.path}
-                    rootPath={target.path}
-                    history={null}
-                    model={
-                      shown || previewItems === model.items
-                        ? model
-                        : { ...model, items: previewItems }
-                    }
-                    actions={shown ? undefined : { ...actions, onRecoverSubmission: recover }}
-                    items={shown ? agentTranscript(model, shown) : undefined}
-                    itemsDone={shown !== undefined && shown.status !== "running"}
-                    reveal={shown ? null : callAsk}
-                    {...(moves ? { moves } : {})}
-                    {...(older && !shown ? { older } : {})}
-                    empty={
-                      shown ? undefined : (
-                        <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
-                          {claude ? (
-                            <ClaudeIcon className="size-8" />
-                          ) : (
-                            <CodexIcon className="size-8" />
-                          )}
-                          <div className="text-app-body">
-                            {t(claude ? "chat.empty.title" : "chat.codex.empty")}
-                          </div>
-                          <div
-                            className="max-w-full truncate font-mono text-app-micro"
-                            title={target.cwd ?? target.path}
-                          >
-                            {target.cwd ?? target.path}
-                          </div>
-                          {reachable && <RemoteSessionList target={target} />}
-                        </div>
-                      )
-                    }
-                  />
-                )}
-                {reach !== "online" ? (
-                  <Unreachable
-                    reach={reach}
+            <ChatShell
+              shell={shell}
+              agents={agents}
+              shown={shown}
+              onShowAgent={showAgent}
+              summaryCounts={() => panelSummaryCounts(page.panel, agents)}
+              panel={panel}
+            >
+              {shown?.run ? (
+                <RemotePrintRunPane
+                  target={target}
+                  row={shown.run}
+                  visible={visible}
+                  controls={reachable}
+                />
+              ) : (
+                <MessageList
+                  workspaceId={peerWorkspace}
+                  cwd={target.cwd ?? target.path}
+                  rootPath={target.path}
+                  history={null}
+                  model={
+                    shown || previewItems === model.items
+                      ? model
+                      : { ...model, items: previewItems }
+                  }
+                  actions={shown ? undefined : { ...actions, onRecoverSubmission: recover }}
+                  items={shown ? agentTranscript(model, shown) : undefined}
+                  itemsDone={shown !== undefined && shown.status !== "running"}
+                  reveal={shown ? null : callAsk}
+                  {...(moves ? { moves } : {})}
+                  {...(older && !shown ? { older } : {})}
+                  empty={
+                    !shown && showsEmptyChat(page.status.phase) ? (
+                      <ChatEmptyState
+                        agent={claude ? "claude" : "codex"}
+                        cwd={target.cwd ?? target.path}
+                      >
+                        {reachable && <RemoteSessionList target={target} />}
+                      </ChatEmptyState>
+                    ) : undefined
+                  }
+                />
+              )}
+              {reach !== "online" ? (
+                <Unreachable
+                  reach={reach}
+                  device={target.deviceName}
+                  goalBar={goalBar}
+                  notice={unreachableNotice}
+                />
+              ) : !controls ? (
+                <>
+                  {consentCards && <RequestDock>{consentCards}</RequestDock>}
+                  <ViewOnly
+                    model={model}
                     device={target.deviceName}
                     goalBar={goalBar}
-                    notice={unreachableNotice}
+                    notice={viewOnlyNotice}
                   />
-                ) : !controls ? (
-                  <>
-                    {consentCards && <RemoteRequestDock>{consentCards}</RemoteRequestDock>}
-                    <ViewOnly
-                      model={model}
-                      device={target.deviceName}
-                      goalBar={goalBar}
-                      notice={viewOnlyNotice}
-                    />
-                  </>
-                ) : (
-                  <RemoteControls
-                    target={target}
-                    model={model}
-                    page={page}
-                    visible={visible}
-                    toMain={shown !== undefined}
-                    onShowMain={() => showAgent(null)}
-                    goalBar={goalBar}
-                    consentCards={consentCards}
-                    onPanelPart={askPanel}
-                    selfId={selfId}
-                  />
-                )}
-              </div>
-              {place === "beside" && besideOpen && panel}
-              {place !== "beside" && drawerOpen && (
-                <>
-                  <button
-                    type="button"
-                    aria-label={t("chat.panel.hide")}
-                    tabIndex={-1}
-                    className={cn(
-                      "absolute inset-x-0 bottom-0 z-10 cursor-default",
-                      place === "summary" ? "top-7" : "top-8",
-                    )}
-                    onClick={() => setDrawerOpen(false)}
-                  />
-                  {/* biome-ignore lint/a11y/noStaticElementInteractions: Esc closes the drawer */}
-                  <div
-                    ref={drawerRef}
-                    tabIndex={-1}
-                    className={cn(
-                      "absolute right-0 bottom-0 z-20 border-l border-border bg-background outline-none",
-                      place === "summary" ? "top-7 w-full" : "top-8 w-80",
-                    )}
-                    onKeyDown={(event) => {
-                      if (event.key === "Escape") setDrawerOpen(false);
-                    }}
-                  >
-                    {panel}
-                  </div>
                 </>
+              ) : (
+                <RemoteControls
+                  target={target}
+                  model={model}
+                  page={page}
+                  visible={visible}
+                  toMain={shown !== undefined}
+                  onShowMain={() => showAgent(null)}
+                  goalBar={goalBar}
+                  consentCards={consentCards}
+                  onPanelPart={askPanel}
+                  selfId={selfId}
+                />
               )}
-            </div>
+            </ChatShell>
             {canRewind && (
               <RewindDialog
                 controller={rewinder}
@@ -1074,14 +944,6 @@ function RemoteChatView({
         </ChatLinksContext.Provider>
       </ChatFilesContext.Provider>
     </ImageLoaderContext.Provider>
-  );
-}
-
-function RemoteRequestDock({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
-      <div className="mx-auto flex max-w-[860px] flex-col gap-2">{children}</div>
-    </div>
   );
 }
 
@@ -1263,48 +1125,26 @@ function RemoteControls({
   const now = useNow(visible, 60_000);
   const line = useMemo(() => usageLineOf(page.panel, now), [page.panel, now]);
   const bannerScope = ["remote-chat", deviceId, workspaceId, tabId, page.panel?.session?.id];
-  const limit = useMemo(
-    () => (target.kind === "codex" ? undefined : rateLimitOf(page.panel, now)),
-    [target.kind, page.panel, now],
-  );
+  const limit = useMemo(() => rateLimitOf(page.panel, now), [page.panel, now]);
   const chat =
     target.kind === "codex"
       ? { ...target, kind: "codex" as const }
       : { ...target, kind: "claude" as const };
   return (
     <>
-      {(consentCards || model.permissions.length > 0 || model.running || goalBar) && (
-        <RemoteRequestDock>
-          {goalBar}
-          {consentCards}
-          {model.permissions.length > 0 && toMain && (
-            <div
-              className="flex items-center gap-2 rounded-(--radius-control) border border-[var(--state-warning-border)] bg-[var(--state-warning-bg)] px-2 py-1 text-app-ui-sm text-[var(--state-warning-fg)]"
-              role="status"
-            >
-              <span className="min-w-0 flex-1 truncate">{t("chat.strip.permission_waiting")}</span>
-              <button
-                type="button"
-                onClick={onShowMain}
-                className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 font-medium whitespace-nowrap hover:bg-[var(--state-hover-bg)]"
-              >
-                {t("chat.strip.to_main")}
-              </button>
-            </div>
-          )}
-          {model.permissions.length > 0 && !toMain && (
-            <PermissionCard
-              requests={model.permissions}
-              workspaceId={peerWorkspaceId(deviceId, workspaceId)}
-              cwd={target.cwd ?? target.path}
-              rootPath={target.path}
-              planModeOptions={planModeOptions}
-              onAnswer={answer}
-            />
-          )}
-          <StatusLine model={model} />
-        </RemoteRequestDock>
-      )}
+      <ChatRequestDock
+        model={model}
+        goal={goalBar}
+        extra={consentCards}
+        card={{
+          workspaceId: peerWorkspaceId(deviceId, workspaceId),
+          cwd: target.cwd ?? target.path,
+          rootPath: target.path,
+          planModeOptions,
+          onAnswer: answer,
+        }}
+        {...(toMain ? { onToMain: onShowMain } : {})}
+      />
       <LimitResumeView scope={bannerScope} record={page.panel?.limitResume} />
       {!showsLimitResume(page.panel?.limitResume) && (
         <RateLimitBanner scope={bannerScope} limit={limit} />

@@ -1,5 +1,6 @@
 import { Grid } from "@/engine";
 import type { MonacoRange } from "../../../shared/editor/monaco-range";
+import { isUnder } from "../../../shared/fs/relative-path";
 import { ipcCallResult } from "../../ipc/client";
 import { openBrowserTabAt, revealTab } from "../../state/operations/tabs";
 import { isAgentViewShown, useAgentViewStore } from "../../state/stores/agent-view";
@@ -11,7 +12,7 @@ import { openExternalEditor } from "../editor/tabs/open-external-editor";
 import { requestEditorReveal } from "../editor/tabs/pending-reveal";
 import { filesThere } from "./file-presence";
 import { findLinkPlace, type LinkPlaceIndex, linkPlaces } from "./link-places";
-import { type FileLink, isUnder, type LineAt } from "./links";
+import type { FileLink, LineAt } from "./links";
 
 export function activateTarget(workspaceId: string, tabId: string, split: boolean): void {
   if (showWorkspaceOf(workspaceId, tabId)) split = true;

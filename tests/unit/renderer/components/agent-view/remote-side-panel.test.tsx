@@ -4,8 +4,11 @@ import type { ChatPanel } from "../../../../../packages/remote-protocol/src/view
 import { emptyModel } from "../../../../../src/renderer/services/chat/model";
 import type { RemoteTarget } from "../../../../../src/renderer/state/stores/remote-view";
 
-const { RemoteSidePanel, panelSummaryCounts, remoteAgentsOf, remotePanelPartOf } = await import(
+const { RemoteSidePanel, panelSummaryCounts, remotePanelPartOf } = await import(
   "../../../../../src/renderer/components/agent-view/remote-side-panel"
+);
+const { remoteAgentsOf } = await import(
+  "../../../../../src/renderer/components/chat/session-side-panel"
 );
 const { usageMeterLabel } = await import("../../../../../src/renderer/components/chat/usage-line");
 const { RemoteProfileChip } = await import(

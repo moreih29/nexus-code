@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { ipcCallResult } from "@/ipc/client";
 import { isAbsoluteOutsidePath } from "../../../shared/fs/outside-url";
+import { isUnder } from "../../../shared/fs/relative-path";
 import { isOutsideGranted, useOutsideGrantsStore } from "../../state/stores/outside-grants";
 import { useChatFiles } from "./chat-files";
-import { isUnder } from "./links";
 
 const FRESH_MS = 30_000;
 

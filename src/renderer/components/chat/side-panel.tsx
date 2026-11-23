@@ -2,19 +2,19 @@ import { RefreshCw } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { profileOf } from "../../../shared/agent-profiles/profiles";
+import { isUnder } from "../../../shared/fs/relative-path";
 import { createLogger } from "../../../shared/log/renderer";
 import { locationLabel } from "../../../shared/types/workspace";
 import type { ChatController } from "../../services/chat/claude/controller";
 import { firstVersionOf } from "../../services/chat/claude/versions";
 import { goalViewOf } from "../../services/chat/goal";
-import { isUnder } from "../../services/chat/links";
 import type { AgentRow } from "../../services/chat/panel";
 import { usePlanUsageStore } from "../../services/chat/plan-usage";
 import { type ChatTabState, takeReveal } from "../../services/chat/store";
 import { chatPanelOf } from "../../services/remote/chat-panel";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useGitStore } from "../../state/stores/git";
-import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { useWorkspace } from "../../state/stores/workspaces";
 import { profileName } from "../agent-profiles/profile-badge";
 import { IconButton } from "../ui/icon-button";
 import { Switch } from "../ui/switch";
@@ -27,8 +27,6 @@ import {
   SessionSidePanel,
   TextButton,
 } from "./session-side-panel";
-
-export { shownPath as shortPath } from "../../../shared/fs/relative-path";
 
 const log = createLogger("chat-side-panel");
 
@@ -79,9 +77,7 @@ export const SidePanel = memo(function SidePanel({
     () => chatPanelOf({ agent: "claude", title: "", chat: state, plan: { claude: plan } }),
     [state, plan],
   );
-  const location = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.location,
-  );
+  const location = useWorkspace(workspaceId, (w) => w?.location);
   const profileConfig = useAgentProfilesStore((s) => s.config);
   const profile = profileOf(profileConfig, "claude", controller.profileId);
   const branch = useGitStore((s) => {

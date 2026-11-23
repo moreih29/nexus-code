@@ -33,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Keycap } from "../ui/keycap";
+import { tooltipProps } from "../ui/tooltip";
 import { useAgentContext } from "./chat-agent";
 import { ChatMarkdown } from "./chat-markdown";
 import { Highlighted } from "./code-highlight";
@@ -45,6 +46,7 @@ interface PermissionCardProps {
   rootPath: string;
   planModeOptions?: boolean;
   onAnswer: (request: PermissionRequest, answer: PermissionAnswer) => void;
+  onToMain?: () => void;
 }
 
 export function PermissionCard({
@@ -54,6 +56,7 @@ export function PermissionCard({
   rootPath,
   planModeOptions = true,
   onAnswer,
+  onToMain,
 }: PermissionCardProps) {
   const { t } = useTranslation();
   const [index, setIndex] = useState(0);
@@ -70,6 +73,21 @@ export function PermissionCard({
       aria-label={t("chat.permission.aria")}
       data-testid="chat-permission"
     >
+      {onToMain && (
+        <div
+          className="mb-2 flex items-center gap-2 text-app-micro text-muted-foreground"
+          data-testid="chat-permission-main"
+        >
+          <span className="min-w-0 flex-1 truncate">{t("chat.strip.permission_waiting")}</span>
+          <button
+            type="button"
+            onClick={onToMain}
+            className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 font-medium whitespace-nowrap hover:bg-[var(--state-hover-bg)]"
+          >
+            {t("chat.strip.to_main")}
+          </button>
+        </div>
+      )}
       {requests.length > 1 && (
         <RequestPager shown={shown} total={requests.length} onShow={setIndex} className="mb-2" />
       )}
@@ -118,8 +136,8 @@ export function RequestPager({
         type="button"
         disabled={shown === 0}
         onClick={() => onShow(shown - 1)}
-        title={t("chat.permission.previous")}
         aria-label={t("chat.permission.previous")}
+        {...tooltipProps(t("chat.permission.previous"))}
         className="rounded-(--radius-control) p-0.5 hover:bg-[var(--state-hover-bg)] disabled:opacity-40"
       >
         <ChevronLeft className="size-3.5" />
@@ -129,8 +147,8 @@ export function RequestPager({
         type="button"
         disabled={shown === total - 1}
         onClick={() => onShow(shown + 1)}
-        title={t("chat.permission.next")}
         aria-label={t("chat.permission.next")}
+        {...tooltipProps(t("chat.permission.next"))}
         className="rounded-(--radius-control) p-0.5 hover:bg-[var(--state-hover-bg)] disabled:opacity-40"
       >
         <ChevronRight className="size-3.5" />
@@ -263,8 +281,8 @@ function BackButton({ onBack }: { onBack: () => void }) {
       size="icon-sm"
       variant="ghost"
       onClick={onBack}
-      title={t("chat.permission.back_esc")}
-      aria-label={t("chat.permission.back")}
+      tooltip={t("chat.permission.back")}
+      shortcut="Esc"
     >
       <ArrowLeft className="size-4" />
     </Button>

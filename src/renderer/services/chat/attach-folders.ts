@@ -1,5 +1,6 @@
+import { isUnder } from "../../../shared/fs/relative-path";
 import { ipcCallResult } from "../../ipc/client";
-import { isUnder, resolveFilePath } from "./links";
+import { resolveFilePath } from "./links";
 
 const SLOT_PATH = /^([A-Za-z0-9_-]{1,128})\/(\d{1,9})\/[^/]+$/;
 
