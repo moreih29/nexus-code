@@ -80,7 +80,7 @@ export function CopyButton({
         size="sm"
         className={className}
         tabIndex={tabIndex}
-        aria-label={label}
+        aria-label={shownLabel}
         onClick={onClick}
         data-testid={testId}
       >
@@ -92,7 +92,6 @@ export function CopyButton({
   return (
     <IconButton
       label={shownLabel}
-      aria-label={label}
       size={size}
       className={className}
       tabIndex={tabIndex}
