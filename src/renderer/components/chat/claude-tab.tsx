@@ -3,7 +3,7 @@
 // connection, so the view only reads what its controller has.
 
 import { ArrowLeft } from "lucide-react";
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
@@ -111,6 +111,7 @@ import { QuickLook, type QuickLookList } from "./quick-look";
 import { RateLimitBanner } from "./rate-limit-banner";
 import { RewindDialog } from "./rewind-dialog";
 import { surfaceChatSendError } from "./send-error";
+import { type InstructionsChipSlot, SessionInstructionsChip } from "./session-instructions-chip";
 import { SessionList } from "./session-list";
 import { SidePanel } from "./side-panel";
 import { StatusLine } from "./status-line";
@@ -130,7 +131,12 @@ interface ClaudeTabViewProps {
 const PANEL_PARTS: ReadonlySet<RevealPart> = new Set(["context", "usage", "mcp", "status", "jobs"]);
 
 export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTabViewProps) {
-  const instructionsTab = useMemo(() => ({ workspaceId, tabId }), [workspaceId, tabId]);
+  const instructions = useCallback(
+    (slot: InstructionsChipSlot) => (
+      <SessionInstructionsChip workspaceId={workspaceId} tabId={tabId} {...slot} />
+    ),
+    [workspaceId, tabId],
+  );
   const { t } = useTranslation();
   const rootPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
@@ -870,7 +876,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
             />
           )}
           <Composer
-            instructionsTab={instructionsTab}
+            instructions={instructions}
             controller={controller}
             state={steady}
             fallbackModels={fallbackModels}

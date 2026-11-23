@@ -2952,6 +2952,20 @@ const remoteContracts = {
           .merge(RPC_METHODS["chat.profile"].params.omit({ from: true })),
         RPC_METHODS["chat.profile"].result,
       ),
+      /** Another device's chat's instructions: the combined text, and from 0.16.0 its layers. */
+      peerChatInstructions: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.instructions"].params.omit({ from: true })),
+        RPC_METHODS["chat.instructions"].result,
+      ),
+      /** Replaces another device's chat's session instructions, as the user. */
+      peerChatInstructionsSet: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.instructions.set"].params.omit({ from: true })),
+        RPC_METHODS["chat.instructions.set"].result,
+      ),
       /** An image of another device's chat: a message's or a tool's, by its place there. */
       peerChatImage: call(
         z

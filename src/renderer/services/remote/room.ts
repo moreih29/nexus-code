@@ -55,6 +55,16 @@ export function usePeerControls(deviceId: string, assumeControl = true): boolean
 }
 
 /**
+ * Whether another device lets this one read its chats: that one serves
+ * chat.read. Taken as yes until its hello says otherwise.
+ */
+export function usePeerReadsChats(deviceId: string): boolean {
+  const room = useRemoteRoom();
+  const serves = room?.peers.find((p) => p.id === deviceId)?.serves;
+  return serves?.includes("chat.read") ?? true;
+}
+
+/**
  * Whether another device lets this one type into its terminals: it serves
  * terminal.control, as the user there allowed it (off unless allowed). No
  * until its hello says.
