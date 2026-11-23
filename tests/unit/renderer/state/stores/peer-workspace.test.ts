@@ -81,10 +81,9 @@ test("peer choices keep their tabs and tree while local selection and persistenc
     store.toggleFolder(id, "/w/src");
     expect(useActiveStore.getState().activeWorkspaceId).toBeNull();
 
+    // ⌘W and ⌘T act on the peer workspace itself (tests/unit/renderer/commands).
     for (const command of [
-      COMMANDS.terminalNew,
       COMMANDS.fileSave,
-      COMMANDS.tabClose,
       COMMANDS.fileNew,
       COMMANDS.workspaceFocusNext,
       COMMANDS.sessionNextWaiting,
@@ -99,6 +98,11 @@ test("peer choices keep their tabs and tree while local selection and persistenc
     expect(useFilesStore.getState().trees).toBe(tree);
     expect(useUIStore.getState().filesPanelModes).toBe(mode);
     expect(call).not.toHaveBeenCalled();
+    // ⌘T asks the room whether that computer lets this one open a terminal; nothing local.
+    executeCommand(COMMANDS.terminalNew);
+    expect(call.mock.calls).toEqual([["remote", "room", undefined]]);
+    expect(useLayoutStore.getState().byWorkspace).toBe(layout);
+    expect(useTabsStore.getState().byWorkspace).toBe(tabs);
 
     selectPeerWorkspace({ ...target, deviceId: "other" });
     returnFromPeerWorkspace();
