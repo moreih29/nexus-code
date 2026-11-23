@@ -11,6 +11,8 @@ let root: string | null = ROOT;
 let version = "0.170.0";
 const sent: Message[] = [];
 const removed: unknown[] = [];
+let removing: Promise<unknown> | undefined;
+const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const realIpc = await import("../../../../../../src/renderer/ipc/client");
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
@@ -29,7 +31,10 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
       });
     }
     if (method === "attachRoot") return Promise.resolve({ ok: true, value: { root } });
-    if (method === "removeAttachments") removed.push(args);
+    if (method === "removeAttachments") {
+      removed.push(args);
+      if (removing) return removing.then(() => ({ ok: true, value: undefined }));
+    }
     return Promise.resolve({ ok: true, value: undefined });
   },
 }));
@@ -60,6 +65,7 @@ afterEach(() => {
   version = "0.170.0";
   sent.length = 0;
   removed.length = 0;
+  removing = undefined;
 });
 
 const userMessage = (id: string, text: string) => ({
@@ -209,13 +215,20 @@ test("deleting a thread reads its turns a page at a time, then removes what they
   });
   await c.prepareSend();
   await c.deleteThread("gone");
+  await settled();
   expect(asked()).toEqual([
     "thread/turns/list",
     "thread/turns/list",
     "thread/read",
     "thread/delete",
   ]);
-  expect(removed).toEqual([{ workspaceId: WS, slots: ["tab-a/1", "tab-a/2", "tab-b/1"] }]);
+  expect(removed).toEqual([
+    {
+      workspaceId: WS,
+      slots: ["tab-a/1", "tab-a/2", "tab-b/1"],
+      exceptThread: { threadId: "gone" },
+    },
+  ]);
 });
 
 test("a Codex before paged history is read whole", async () => {
@@ -225,12 +238,15 @@ test("a Codex before paged history is read whole", async () => {
   );
   await c.prepareSend();
   await c.deleteThread("gone");
+  await settled();
   expect(asked()).toEqual(["thread/read", "thread/read", "thread/delete"]);
   expect(sent.find((message) => message.method === "thread/read")?.params).toEqual({
     threadId: "gone",
     includeTurns: true,
   });
-  expect(removed).toEqual([{ workspaceId: WS, slots: ["tab-a/1", "tab-a/2"] }]);
+  expect(removed).toEqual([
+    { workspaceId: WS, slots: ["tab-a/1", "tab-a/2"], exceptThread: { threadId: "gone" } },
+  ]);
 });
 
 test("a thread whose pages break is deleted, its files left to the prune", async () => {
@@ -241,6 +257,7 @@ test("a thread whose pages break is deleted, its files left to the prune", async
   );
   await c.prepareSend();
   await c.deleteThread("gone");
+  await settled();
   expect(asked()).toEqual(["thread/turns/list", "thread/turns/list", "thread/delete"]);
   expect(removed).toEqual([]);
 });
@@ -271,16 +288,32 @@ test("deleting a fork removes only what its own turns attached, not what came fr
   });
   await c.prepareSend();
   await c.deleteThread("gone");
+  await settled();
   expect(sent.find((message) => message.method === "thread/delete")?.params).toEqual({
     threadId: "gone",
   });
-  expect(removed).toEqual([{ workspaceId: WS, slots: ["tab-c/1"] }]);
+  expect(removed).toEqual([
+    { workspaceId: WS, slots: ["tab-c/1"], exceptThread: { threadId: "gone" } },
+  ]);
 });
 
 test("a fork whose parent cannot be read is deleted, its files left to the prune", async () => {
   const c = threadsTab({ gone: { turns: [FIRST, FORKED], parent: "parent" } });
   await c.prepareSend();
   await c.deleteThread("gone");
+  await settled();
   expect(asked()).toContain("thread/delete");
   expect(removed).toEqual([]);
+});
+
+test("a thread is deleted without waiting while the agent looks for other conversations naming its files", async () => {
+  removing = new Promise(() => {});
+  const c = threadsTab({ gone: { turns: [FIRST] } });
+  await c.prepareSend();
+  await c.deleteThread("gone");
+  await settled();
+  expect(asked()).toContain("thread/delete");
+  expect(removed).toEqual([
+    { workspaceId: WS, slots: ["tab-a/1", "tab-a/2"], exceptThread: { threadId: "gone" } },
+  ]);
 });

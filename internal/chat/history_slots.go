@@ -85,46 +85,9 @@ func historySlots(root, path string, want os.FileInfo, wsDir string) ([]string, 
 		return nil, false, err
 	}
 	defer file.Close()
-	needles := slotNeedles(wsDir)
-	longest := 0
-	for _, needle := range needles {
-		longest = max(longest, len(needle))
-	}
-	overlap := longest + slotTail
-	last := map[string]int64{}
-	var base int64
-	buf := make([]byte, 0, historyChunk+overlap)
-	chunk := make([]byte, historyChunk)
-	for {
-		n, readErr := file.Read(chunk)
-		buf = append(buf, chunk[:n]...)
-		done := readErr == io.EOF
-		if readErr != nil && !done {
-			return nil, false, readErr
-		}
-		limit := len(buf)
-		if !done {
-			limit = max(0, len(buf)-overlap)
-		}
-		folded := asciiLower(buf)
-		for _, needle := range needles {
-			for at := 0; at < limit; {
-				i := bytes.Index(folded[at:], needle)
-				if i < 0 || at+i >= limit {
-					break
-				}
-				start := at + i + len(needle)
-				if slot, ok := slotAt(buf[start:]); ok {
-					last[slot] = max(last[slot], base+int64(at+i))
-				}
-				at += i + 1
-			}
-		}
-		if done {
-			break
-		}
-		base += int64(limit)
-		buf = append(buf[:0], buf[limit:]...)
+	last, err := namedSlots(file, wsDir)
+	if err != nil {
+		return nil, false, err
 	}
 	slots := make([]string, 0, len(last))
 	for slot := range last {
@@ -138,68 +101,95 @@ func historySlots(root, path string, want os.FileInfo, wsDir string) ([]string, 
 	return slots, truncated, nil
 }
 
-func slotNeedles(wsDir string) [][]byte {
-	parts := strings.FieldsFunc(wsDir, func(r rune) bool { return r == '/' || r == '\\' })
-	lead := wsDir != "" && (wsDir[0] == '/' || wsDir[0] == '\\')
-	var needles [][]byte
-	for _, sep := range []string{"/", `\`, `\\`, `\/`, `\\\\`} {
-		joined := strings.Join(parts, sep) + sep
-		if lead {
-			joined = sep + joined
+func namedSlots(r io.Reader, wsDir string) (map[string]int64, error) {
+	needle := foldedPath(wsDir)
+	overlap := len(needle) + slotTail
+	last := map[string]int64{}
+	var base int64
+	folded := make([]byte, 0, historyChunk+overlap)
+	written := make([]byte, 0, historyChunk+overlap)
+	chunk := make([]byte, historyChunk)
+	separated := false
+	for {
+		n, readErr := r.Read(chunk)
+		for _, c := range chunk[:n] {
+			if c == '/' || c == '\\' {
+				if !separated {
+					folded = append(folded, '/')
+					written = append(written, '/')
+				}
+				separated = true
+				continue
+			}
+			separated = false
+			written = append(written, c)
+			if c >= 'A' && c <= 'Z' {
+				c += 'a' - 'A'
+			}
+			folded = append(folded, c)
 		}
-		needles = append(needles, asciiLower([]byte(joined)))
+		done := readErr == io.EOF
+		if readErr != nil && !done {
+			return nil, readErr
+		}
+		limit := len(folded)
+		if !done {
+			limit = max(0, len(folded)-overlap)
+		}
+		for at := 0; at < limit; {
+			i := bytes.Index(folded[at:], needle)
+			if i < 0 || at+i >= limit {
+				break
+			}
+			start := at + i + len(needle)
+			if slot, ok := slotAt(folded[start:], written[start:]); ok {
+				last[slot] = max(last[slot], base+int64(at+i))
+			}
+			at += i + 1
+		}
+		if done {
+			return last, nil
+		}
+		base += int64(limit)
+		folded = append(folded[:0], folded[limit:]...)
+		written = append(written[:0], written[limit:]...)
 	}
-	return needles
 }
 
-func slotAt(b []byte) (string, bool) {
+func foldedPath(path string) []byte {
+	parts := strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == '\\' })
+	joined := strings.Join(parts, "/") + "/"
+	if path != "" && (path[0] == '/' || path[0] == '\\') {
+		joined = "/" + joined
+	}
+	folded := []byte(joined)
+	for i, c := range folded {
+		if c >= 'A' && c <= 'Z' {
+			folded[i] = c + 'a' - 'A'
+		}
+	}
+	return folded
+}
+
+func slotAt(folded, written []byte) (string, bool) {
 	tab := 0
-	for tab < len(b) && tab <= 128 && slotTabByte(b[tab]) {
+	for tab < len(folded) && tab <= 128 && slotTabByte(folded[tab]) {
 		tab++
 	}
-	if tab == 0 || tab > 128 {
+	if tab == 0 || tab > 128 || tab >= len(folded) || folded[tab] != '/' {
 		return "", false
 	}
-	rest, ok := cutSeparator(b[tab:])
-	if !ok {
-		return "", false
-	}
+	rest := folded[tab+1:]
 	n := 0
 	for n < len(rest) && n <= 9 && rest[n] >= '0' && rest[n] <= '9' {
 		n++
 	}
-	if n == 0 || n > 9 {
+	if n == 0 || n > 9 || n >= len(rest) || rest[n] != '/' {
 		return "", false
 	}
-	if _, ok := cutSeparator(rest[n:]); !ok {
-		return "", false
-	}
-	return string(b[:tab]) + "/" + string(rest[:n]), true
+	return string(written[:tab]) + "/" + string(rest[:n]), true
 }
 
 func slotTabByte(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-'
-}
-
-func cutSeparator(b []byte) ([]byte, bool) {
-	switch {
-	case len(b) >= 4 && b[0] == '\\' && b[1] == '\\' && b[2] == '\\' && b[3] == '\\':
-		return b[4:], true
-	case len(b) >= 2 && b[0] == '\\' && (b[1] == '\\' || b[1] == '/'):
-		return b[2:], true
-	case len(b) >= 1 && (b[0] == '/' || b[0] == '\\'):
-		return b[1:], true
-	}
-	return nil, false
-}
-
-func asciiLower(b []byte) []byte {
-	out := make([]byte, len(b))
-	for i, c := range b {
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		out[i] = c
-	}
-	return out
+	return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-'
 }

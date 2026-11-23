@@ -23,6 +23,11 @@ import { localDefaultDir } from "./local";
 
 export class ProfileValidationError extends Error {}
 
+export function listProfiles(state: StateService): AgentProfile[] {
+  const config = state.getState().agentProfiles ?? EMPTY_AGENT_PROFILES;
+  return PROFILE_AGENTS.flatMap((agent) => profilesOf(config, agent));
+}
+
 export function findProfile(state: StateService, id: string): AgentProfile | null {
   const config = state.getState().agentProfiles ?? EMPTY_AGENT_PROFILES;
   for (const agent of PROFILE_AGENTS) {

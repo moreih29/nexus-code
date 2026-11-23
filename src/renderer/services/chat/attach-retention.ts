@@ -242,20 +242,11 @@ async function followTab(workspaceId: string, tab: ChatTab, root: string): Promi
   });
 }
 
-async function slotCalls(
-  method: "touchAttachments" | "removeAttachments",
-  workspaceId: string,
-  slots: string[],
-): Promise<void> {
+async function inParts(slots: string[], call: (part: string[]) => Promise<void>): Promise<void> {
   let failed: unknown;
   for (let i = 0; i < slots.length; i += MAX_CALL_SLOTS) {
     try {
-      unwrapIpcResult(
-        await ipcCallResult("chat", method, {
-          workspaceId,
-          slots: slots.slice(i, i + MAX_CALL_SLOTS),
-        }),
-      );
+      await call(slots.slice(i, i + MAX_CALL_SLOTS));
     } catch (error) {
       failed ??= error;
     }
@@ -264,7 +255,9 @@ async function slotCalls(
 }
 
 function touchAttachments(workspaceId: string, slots: string[]): Promise<void> {
-  return slotCalls("touchAttachments", workspaceId, slots);
+  return inParts(slots, async (part) =>
+    unwrapIpcResult(await ipcCallResult("chat", "touchAttachments", { workspaceId, slots: part })),
+  );
 }
 
 async function touchClosed(workspaceId: string, tab: ChatTab): Promise<void> {
@@ -402,6 +395,7 @@ export async function removeConversationAttachments(
   items: readonly ChatItem[],
   cwd: string,
   inherited: readonly ChatItem[] = [],
+  exceptThread?: { threadId: string; profileId?: string },
 ): Promise<void> {
   const root = await rootOf(workspaceId);
   if (!root) return;
@@ -417,7 +411,15 @@ export async function removeConversationAttachments(
   const slots = named.filter(
     (slot) => !used.has(slot) && !openTabs.has(slot.slice(0, slot.indexOf("/"))),
   );
-  await slotCalls("removeAttachments", workspaceId, slots);
+  await inParts(slots, async (part) =>
+    unwrapIpcResult(
+      await ipcCallResult("chat", "removeAttachments", {
+        workspaceId,
+        slots: part,
+        ...(exceptThread ? { exceptThread } : {}),
+      }),
+    ),
+  );
 }
 
 export function followAttachmentsNow(): Promise<void> {
