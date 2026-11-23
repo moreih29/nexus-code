@@ -70,7 +70,7 @@ import { WorkspaceMenuContent } from "../workbench/workspace-menu";
 import { WorkspaceNameInput } from "../workbench/workspace-name-input";
 import { useWorkspaceRename, useWorkspaceUpdate } from "../workbench/workspace-rename";
 import { PANEL_SHOWN_BG, PanelMark, panelPlaceOf } from "./panel-mark";
-import { PeerConsentCard, useConsentIsPending } from "./remote-consents";
+import { ConsentPages, PeerConsentCard, useConsentIsPending } from "./remote-consents";
 import { RemoteSessionBranch } from "./remote-session-branch";
 import {
   agentRunsOf,
@@ -383,17 +383,19 @@ export function StatusGroups({
               )}
             </div>
             {!isFolded && cards.length > 0 && (
-              <div className="flex flex-col gap-1.5 px-1 py-1" data-testid="remote-consents">
-                {cards.map(({ consent, source: { peer, list }, workspace }) => (
-                  <PeerConsentCard
-                    key={JSON.stringify([peer.id, consent.id])}
-                    consent={consent}
-                    deviceId={peer.id}
-                    device={remoteDisplayName(peer.name)}
-                    workspaceName={workspace?.name ?? consent.workspaceId.slice(0, 8)}
-                    sessions={list.sessions}
-                  />
-                ))}
+              <div className="flex flex-col px-1 py-1" data-testid="remote-consents">
+                <ConsentPages>
+                  {cards.map(({ consent, source: { peer, list }, workspace }) => (
+                    <PeerConsentCard
+                      key={JSON.stringify([peer.id, consent.id])}
+                      consent={consent}
+                      deviceId={peer.id}
+                      device={remoteDisplayName(peer.name)}
+                      workspaceName={workspace?.name ?? consent.workspaceId.slice(0, 8)}
+                      sessions={list.sessions}
+                    />
+                  ))}
+                </ConsentPages>
               </div>
             )}
             {!isFolded &&

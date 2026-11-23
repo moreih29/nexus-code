@@ -293,6 +293,7 @@
       "destination": "{{to}}에서 ",
       "deny": "허용 안 함",
       "session": "재시작 전까지 허용",
+      "allow_choices": "허용 범위",
       "allow": "허용",
       "once": "이번만 허용",
       "timeout": "{{seconds}}초 안에 답하지 않으면 거절됩니다.",

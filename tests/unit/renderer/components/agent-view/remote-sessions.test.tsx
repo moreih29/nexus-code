@@ -1695,7 +1695,8 @@ describe("the agent view's other computers", () => {
     );
     expect(html).toContain('data-testid="remote-consent"');
     expect(html).toContain("asks to send a message to the tab &quot;Review&quot; in web.");
-    expect(html).toContain("The Claude tab &quot;Review&quot; in api asks to");
+    expect(html).toContain("1 of 2");
+    expect(html).not.toContain("The Claude tab &quot;Review&quot; in api asks to");
     expect(html.indexOf("remote-consent")).toBeLessThan(html.indexOf("remote-workspace"));
   });
 

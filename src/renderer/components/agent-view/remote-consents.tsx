@@ -1,6 +1,6 @@
 import i18next, { type TFunction } from "i18next";
-import { ShieldQuestion } from "lucide-react";
-import { useState, useSyncExternalStore } from "react";
+import { ChevronDown, Shield } from "lucide-react";
+import { type ReactElement, useEffect, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   ConsentAnswer,
@@ -14,6 +14,8 @@ import { createListenerBus } from "../../../shared/util/listener-bus";
 import { ipcCallResult } from "../../ipc/client";
 import { refreshPeerSessions } from "../../services/remote/room";
 import { cn } from "../../utils/cn";
+import { DeviceTag } from "../agent-list/session-row";
+import { PERMISSION_CARD_CLASS, RequestPager } from "../chat/permission-card";
 import {
   CONSENT_CONFIRM_BUTTON_CLASS,
   CONSENT_DESCRIPTION_CLASS,
@@ -22,6 +24,12 @@ import {
   describeConsent,
 } from "../cli/consent-dialog";
 import { Button } from "../ui/button";
+import {
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRoot,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 
 const GONE_SHOWN_MS = 1500;
 
@@ -92,6 +100,32 @@ export function consentActionOf(t: TFunction<"settings">, change: RemoteConsent[
     : t("agentCli.consent.action_other", { kind: change.kind });
 }
 
+export function consentHeadlineOf(
+  t: TFunction<"settings">,
+  change: RemoteConsent["change"],
+  title: string,
+): string {
+  if (!i18next.exists(`agentCli.consent.action.${change.kind}`, { ns: "settings" })) return title;
+  const action = consentActionOf(t, change).replace(/(을|를)$/, "");
+  return action.charAt(0).toUpperCase() + action.slice(1);
+}
+
+export function ConsentPages({ children }: { children: readonly ReactElement[] }) {
+  const [index, setIndex] = useState(0);
+  const last = Math.max(0, children.length - 1);
+  const shown = Math.min(index, last);
+  useEffect(() => {
+    if (index > last) setIndex(last);
+  }, [index, last]);
+  if (children.length < 2) return children[0] ?? null;
+  return (
+    <div className="flex flex-col gap-1" data-testid="remote-consent-pages">
+      <RequestPager shown={shown} total={children.length} onShow={setIndex} />
+      {children[shown]}
+    </div>
+  );
+}
+
 export function consentSentenceOf(
   t: TFunction<"settings">,
   consent: RemoteConsent,
@@ -140,9 +174,12 @@ export function RemoteConsentCard({
   const { t } = useTranslation("settings");
   const { t: tc } = useTranslation();
   const [busy, setBusy] = useState<ConsentAnswer | null>(null);
+  const [gone, setGone] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
 
   const answer = async (choice: ConsentAnswer) => {
+    if (busy !== null || gone) return;
     setBusy(choice);
     setFailure(null);
     const result = await onAnswer(choice);
@@ -152,69 +189,116 @@ export function RemoteConsentCard({
     }
     setBusy(null);
     if (result.kind === "not-found") {
+      setGone(true);
       setFailure(tc("agentView.remote.consentGone"));
       setTimeout(onSettled, GONE_SHOWN_MS);
       return;
     }
     setFailure(tc("agentView.remote.failed", { message: result.message }));
   };
-  const button = (
-    choice: ConsentAnswer,
-    label: string,
-    variant: "default" | "outline" | "ghost",
-  ) => (
-    <Button
-      variant={variant}
-      size="sm"
-      className={choice === "once" ? CONSENT_CONFIRM_BUTTON_CLASS : undefined}
-      loading={busy === choice}
-      disabled={busy !== null}
-      onClick={() => void answer(choice)}
-    >
-      {label}
-    </Button>
-  );
+  const idle = busy === null && !gone;
 
   const title = t(consentTitleOf(consent.change.kind, Boolean(consent.from.device)));
+  const headline = consentHeadlineOf(t, consent.change, title);
+  const sentence = consentSentenceOf(t, consent, workspaceName, sessions);
+  const { from } = consent;
+  const asker = from.manager && !from.device ? undefined : (from.name ?? from.tabId.slice(0, 8));
   const { body } = consentDetailsOf(t, consent.change);
   return (
-    <section
-      aria-label={title}
-      className="flex flex-col gap-2 rounded-(--radius-raised) border border-(--state-warning-fg)/40 bg-(--state-warning-fg)/5 p-3"
-      data-testid="remote-consent"
-    >
-      <span className="flex min-w-0 items-start gap-2 text-app-ui-sm text-(--state-warning-fg)">
-        <ShieldQuestion aria-hidden className="mt-0.5 size-3 shrink-0" />
-        <span>{title}</span>
-      </span>
-      <p className={cn("text-app-ui-sm text-foreground", CONSENT_DESCRIPTION_CLASS)}>
-        {consentSentenceOf(t, consent, workspaceName, sessions)}
-      </p>
-      {body && (
-        <pre className="app-scrollbar max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-(--radius-control) bg-muted px-2 py-1.5 font-mono text-app-ui-sm text-foreground">
-          {body}
-        </pre>
-      )}
-      {consent.answerable ? (
-        <span className="flex flex-wrap justify-end gap-2">
-          {button("deny", t("agentCli.consent.deny"), "ghost")}
-          {!consent.eachTime && button("session", t("agentCli.consent.session"), "outline")}
-          {button(
-            "once",
-            t(consent.eachTime ? "agentCli.consent.allow" : "agentCli.consent.once"),
-            "default",
-          )}
-        </span>
-      ) : (
-        <p className="text-app-micro text-muted-foreground" data-testid="remote-consent-there">
-          {tc("agentView.remote.consentThere", { device })}
-        </p>
-      )}
-      {failure && (
-        <p role="alert" className="text-app-micro text-(--state-error-fg)">
-          {failure}
-        </p>
-      )}
+    <section aria-label={title} className={PERMISSION_CARD_CLASS} data-testid="remote-consent">
+      <div className="flex flex-col gap-2">
+        <div className="flex items-start gap-2">
+          <Shield aria-hidden className="mt-0.5 size-4 shrink-0 text-[var(--state-warning-fg)]" />
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className={cn("font-semibold text-foreground", CONSENT_DESCRIPTION_CLASS)}>
+              {headline}
+            </span>
+            <span
+              aria-hidden
+              className="flex min-w-0 items-center gap-1.5 text-app-micro text-muted-foreground"
+              title={sentence}
+            >
+              {from.device && <DeviceTag name={from.device.name} />}
+              <span className="min-w-0 truncate">
+                {asker ? `${asker} → ${workspaceName}` : workspaceName}
+              </span>
+            </span>
+            <p className="sr-only">{sentence}</p>
+          </div>
+        </div>
+        {body && (
+          <button
+            type="button"
+            aria-expanded={open}
+            title={open ? undefined : body}
+            onClick={() => setOpen(!open)}
+            className={cn(
+              "block w-full min-w-0 rounded-(--radius-control) bg-background px-2 py-1 text-left font-mono text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              open
+                ? "app-scrollbar max-h-40 overflow-auto whitespace-pre-wrap break-all"
+                : "overflow-hidden text-ellipsis whitespace-nowrap",
+            )}
+          >
+            {body}
+          </button>
+        )}
+        {consent.answerable ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              loading={busy === "deny"}
+              disabled={!idle}
+              onClick={() => void answer("deny")}
+            >
+              {tc("chat.permission.deny_send")}
+            </Button>
+            <span className="inline-flex">
+              <Button
+                size="sm"
+                className={cn(CONSENT_CONFIRM_BUTTON_CLASS, !consent.eachTime && "rounded-r-none")}
+                loading={busy === "once"}
+                disabled={!idle}
+                onClick={() => void answer("once")}
+              >
+                {t("agentCli.consent.allow")}
+              </Button>
+              {!consent.eachTime && (
+                <DropdownMenuRoot>
+                  <DropdownMenuTrigger>
+                    <Button
+                      size="sm"
+                      className={cn(
+                        CONSENT_CONFIRM_BUTTON_CLASS,
+                        "rounded-l-none border-l border-l-primary-foreground/25 px-1.5",
+                      )}
+                      loading={busy === "session"}
+                      disabled={!idle}
+                      tooltip={t("agentCli.consent.allow_choices")}
+                    >
+                      <ChevronDown aria-hidden className="size-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem disabled={!idle} onSelect={() => void answer("session")}>
+                      {t("agentCli.consent.session")}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenuRoot>
+              )}
+            </span>
+          </div>
+        ) : (
+          <p className="text-app-micro text-muted-foreground" data-testid="remote-consent-there">
+            {tc("agentView.remote.consentThere", { device })}
+          </p>
+        )}
+        {failure && (
+          <p role="alert" className="text-app-micro text-(--state-error-fg)">
+            {failure}
+          </p>
+        )}
+      </div>
     </section>
   );
 }

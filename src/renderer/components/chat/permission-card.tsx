@@ -66,34 +66,12 @@ export function PermissionCard({
 
   return (
     <section
-      className="rounded-(--radius-raised) border border-border border-l-2 border-l-[var(--state-warning-border)] bg-popover p-3 text-app-ui-sm focus-within:border-ring focus-within:border-l-[var(--state-warning-border)]"
+      className={PERMISSION_CARD_CLASS}
       aria-label={t("chat.permission.aria")}
       data-testid="chat-permission"
     >
       {requests.length > 1 && (
-        <div className="mb-2 flex items-center justify-end gap-1 text-app-micro text-muted-foreground">
-          <button
-            type="button"
-            disabled={shown === 0}
-            onClick={() => setIndex(shown - 1)}
-            title={t("chat.permission.previous")}
-            aria-label={t("chat.permission.previous")}
-            className="rounded-(--radius-control) p-0.5 hover:bg-[var(--state-hover-bg)] disabled:opacity-40"
-          >
-            <ChevronLeft className="size-3.5" />
-          </button>
-          <span>{t("chat.permission.page", { current: shown + 1, total: requests.length })}</span>
-          <button
-            type="button"
-            disabled={shown === requests.length - 1}
-            onClick={() => setIndex(shown + 1)}
-            title={t("chat.permission.next")}
-            aria-label={t("chat.permission.next")}
-            className="rounded-(--radius-control) p-0.5 hover:bg-[var(--state-hover-bg)] disabled:opacity-40"
-          >
-            <ChevronRight className="size-3.5" />
-          </button>
-        </div>
+        <RequestPager shown={shown} total={requests.length} onShow={setIndex} className="mb-2" />
       )}
       {request.toolName === "AskUserQuestion" ? (
         <QuestionForm key={request.requestId} request={request} onAnswer={onAnswer} />
@@ -111,6 +89,53 @@ export function PermissionCard({
         <ToolApproval key={request.requestId} request={request} onAnswer={onAnswer} cwd={cwd} />
       )}
     </section>
+  );
+}
+
+export const PERMISSION_CARD_CLASS =
+  "rounded-(--radius-raised) border border-border border-l-2 border-l-[var(--state-warning-border)] bg-popover p-3 text-app-ui-sm focus-within:border-ring focus-within:border-l-[var(--state-warning-border)]";
+
+export function RequestPager({
+  shown,
+  total,
+  onShow,
+  className,
+}: {
+  shown: number;
+  total: number;
+  onShow: (index: number) => void;
+  className?: string;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-end gap-1 text-app-micro text-muted-foreground",
+        className,
+      )}
+    >
+      <button
+        type="button"
+        disabled={shown === 0}
+        onClick={() => onShow(shown - 1)}
+        title={t("chat.permission.previous")}
+        aria-label={t("chat.permission.previous")}
+        className="rounded-(--radius-control) p-0.5 hover:bg-[var(--state-hover-bg)] disabled:opacity-40"
+      >
+        <ChevronLeft className="size-3.5" />
+      </button>
+      <span>{t("chat.permission.page", { current: shown + 1, total })}</span>
+      <button
+        type="button"
+        disabled={shown === total - 1}
+        onClick={() => onShow(shown + 1)}
+        title={t("chat.permission.next")}
+        aria-label={t("chat.permission.next")}
+        className="rounded-(--radius-control) p-0.5 hover:bg-[var(--state-hover-bg)] disabled:opacity-40"
+      >
+        <ChevronRight className="size-3.5" />
+      </button>
+    </div>
   );
 }
 
