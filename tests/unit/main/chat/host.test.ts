@@ -1402,6 +1402,7 @@ describe("ChatHost", () => {
 
 describe("attached files", () => {
   const OTHER = "w-removed";
+  const ROOT = "/home/u/.nexus-code/attach";
   function cleanups() {
     const waiting: Array<{ host: string; workspaceId: string }> = [];
     return {
@@ -1416,11 +1417,23 @@ describe("attached files", () => {
       },
     };
   }
+  /** A host whose agent tells `root` (null: names none; a string code: asking fails so). */
+  function rooted(root: string | null = ROOT, options: Partial<ChatHostOptions> = {}) {
+    const made = setup({ attachHost: () => "local" }, undefined, undefined, undefined, options);
+    if (root === "unsupported-method" || root === "request-failed") {
+      made.channel.attachRootError = root;
+    } else {
+      made.channel.attachRootAnswer = { root };
+    }
+    return made;
+  }
   const callsOf = (channel: FakeChannel, method: string) =>
     channel.calls.filter((call) => call.method === method).map((call) => call.params);
+  const agentCalls = (channel: FakeChannel) =>
+    channel.calls.filter((call) => call.method !== "chat.attachRoot");
 
   test("closing a tab keeps its files; removing its workspace removes the folder", async () => {
-    const { host, channel } = setup({ attachHost: () => "local" });
+    const { host, channel } = rooted();
     await host.start(WS, TAB, "/repo", {});
     await host.call("close", { workspaceId: WS, tabId: TAB });
     expect(callsOf(channel, "chat.close")).toEqual([
@@ -1437,10 +1450,24 @@ describe("attached files", () => {
     ]);
   });
 
+  test.each([
+    [null, false],
+    ["unsupported-method", false],
+    ["request-failed", true],
+  ] as const)("an agent whose root is %p keeps a closed tab's files: %p", async (root, kept) => {
+    const { host, channel } = rooted(root);
+    await host.start(WS, TAB, "/repo", {});
+    await host.call("close", { workspaceId: WS, tabId: TAB });
+    const [close] = callsOf(channel, "chat.close") as Array<Record<string, unknown>>;
+    expect(close?.keepAttachments).toBe(kept ? true : undefined);
+  });
+
   test("a prune tells the agent what to keep and for how long", async () => {
-    const { host, channel } = setup();
+    const { host, channel } = rooted();
     await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB], keepSlots: ["t/1"] });
-    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [], capOnly: true });
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [], keepSlots: [], capOnly: true });
+    // Not knowing what the open conversations name, nothing goes.
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB] });
     expect(callsOf(channel, "chat.pruneAttachments")).toEqual([
       {
         workspaceId: WS,
@@ -1455,17 +1482,30 @@ describe("attached files", () => {
     ]);
   });
 
+  test.each([
+    null,
+    "unsupported-method",
+  ] as const)("where the agent's root is %p, the files of tabs not open go, as they did", async (root) => {
+    const { host, channel } = rooted(root);
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB] });
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB], capOnly: true });
+    expect(callsOf(channel, "chat.pruneAttachments")).toEqual([
+      { workspaceId: WS, keepTabIds: [TAB] },
+    ]);
+  });
+
+  test("no prune when asking the agent for its root fails", async () => {
+    const { host, channel } = rooted("request-failed");
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB], keepSlots: [] });
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB] });
+    expect(callsOf(channel, "chat.pruneAttachments")).toEqual([]);
+    // Asked again each time.
+    expect(callsOf(channel, "chat.attachRoot")).toHaveLength(2);
+  });
+
   test("a removed workspace's folder waits for its host's next prune when it cannot go now", async () => {
     const { waiting, attachCleanups } = cleanups();
-    const { host, channel } = setup(
-      { attachHost: () => "local" },
-      undefined,
-      undefined,
-      undefined,
-      {
-        attachCleanups,
-      },
-    );
+    const { host, channel } = rooted(ROOT, { attachCleanups });
     await host.closeWorkspace(OTHER, null);
     expect(waiting).toEqual([{ host: "local", workspaceId: OTHER }]);
 
@@ -1477,14 +1517,14 @@ describe("attached files", () => {
     ]);
 
     // Still failing: both stay for the next time.
-    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [] });
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [], keepSlots: [] });
     expect(waiting).toHaveLength(2);
 
     channel.failures.clear();
     channel.calls.length = 0;
     await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB], keepSlots: ["t/1"] });
     expect(waiting).toEqual([]);
-    expect(channel.calls).toEqual([
+    expect(agentCalls(channel)).toEqual([
       { method: "chat.removeAttachments", params: { workspaceId: OTHER, slots: [], all: true } },
       {
         method: "chat.removeAttachments",
@@ -1504,18 +1544,10 @@ describe("attached files", () => {
   test("another host's removed workspaces wait for an agent there", async () => {
     const { waiting, attachCleanups } = cleanups();
     attachCleanups.add("ssh:u@h:22", OTHER);
-    const { host, channel } = setup(
-      { attachHost: () => "local" },
-      undefined,
-      undefined,
-      undefined,
-      {
-        attachCleanups,
-      },
-    );
-    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [], capOnly: true });
+    const { host, channel } = rooted(ROOT, { attachCleanups });
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [], keepSlots: [], capOnly: true });
     expect(waiting).toEqual([{ host: "ssh:u@h:22", workspaceId: OTHER }]);
-    expect(channel.calls).toEqual([
+    expect(agentCalls(channel)).toEqual([
       {
         method: "chat.pruneAttachments",
         params: {
@@ -1527,19 +1559,14 @@ describe("attached files", () => {
     ]);
   });
 
-  test("an agent from before neither keeps nor waits for a removed workspace's files", async () => {
+  test.each([
+    null,
+    "unsupported-method",
+  ] as const)("an agent whose root is %p kept nothing for a removed workspace", async (root) => {
     const { waiting, attachCleanups } = cleanups();
-    const { host, channel } = setup(
-      { attachHost: () => "local" },
-      undefined,
-      undefined,
-      undefined,
-      {
-        attachCleanups,
-      },
-    );
-    channel.failures.set("chat.removeAttachments", "unsupported-method");
+    const { host, channel } = rooted(root, { attachCleanups });
     await host.closeWorkspace(OTHER, channel);
+    expect(callsOf(channel, "chat.removeAttachments")).toEqual([]);
     expect(waiting).toEqual([]);
   });
 

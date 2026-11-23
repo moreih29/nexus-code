@@ -1159,8 +1159,10 @@ const coreIpcContract = {
        * Removes the workspace's attached files not in use: those of no open
        * tab (keepTabIds) that no open tab's conversation names (keepSlots,
        * "<tabId>/<n>"), once unused for 30 days, and the least recently used
-       * of them past 1 GiB. capOnly leaves the 30 days aside. An agent from
-       * before removes the files of every tab no longer open instead.
+       * of them past 1 GiB. capOnly leaves the 30 days aside. Without
+       * keepSlots (no attach root known to name them by), only an agent that
+       * names no root prunes, as an agent from before does: the files of
+       * every tab no longer open go.
        */
       pruneAttachments: call(
         z.object({

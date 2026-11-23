@@ -77,11 +77,15 @@ test("a prune keeps the open Claude and Codex tabs and what their conversations 
   ]);
 });
 
-test("no prune before the agent tells its attach root: an open conversation's files would look unused", async () => {
+test("no prune by use before the agent tells its attach root: an open conversation's files would look unused", async () => {
   root = null;
-  useTabsStore.getState().createTab(WS, { type: "claude", props: { cwd: "/p" } });
+  const tab = useTabsStore.getState().createTab(WS, { type: "claude", props: { cwd: "/p" } });
   expect(await retention.pruneAttachments(WS)).toBe(false);
-  expect(of("pruneAttachments")).toEqual([]);
+  // Main prunes only where the agent names no root, whose tabs' files went as they closed.
+  expect(of("pruneAttachments")).toEqual([{ workspaceId: WS, keepTabIds: [tab.id] }]);
+  // No room is made there: nothing is kept past its tab.
+  expect(await retention.pruneAttachments(WS, true)).toBe(false);
+  expect(of("pruneAttachments")).toHaveLength(1);
 });
 
 test("after a file is attached, only the room is made", async () => {

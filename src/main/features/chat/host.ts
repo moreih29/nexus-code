@@ -197,8 +197,8 @@ export class ChatHost {
   private readonly closingTabs = new Map<string, Promise<unknown>>();
   /** Workspaces whose tabs have started a program through this host. */
   private readonly workspaces = new Set<string>();
-  /** What each agent connection answered chat.attachRoot with: asked once a connection. */
-  private readonly attachRoots = new WeakMap<AgentChannel, Promise<string | null>>();
+  /** What each agent connection answered chat.attachRoot with (askAttachRoot): asked once a connection. */
+  private readonly attachRoots = new WeakMap<AgentChannel, Promise<string | null | undefined>>();
   private readonly disposeProviderReady: () => void;
   private disposed = false;
 
@@ -557,17 +557,21 @@ export class ChatHost {
         workspaceId,
         tabId,
         ...(intent ? { tabGeneration: intent.generation } : {}),
-        // Its conversation may go on in another tab, which names its files;
-        // a removed workspace's go with its folder.
-        ...(removal ? {} : { keepAttachments: true }),
       };
       if (removal) {
+        // A removed workspace's files go with its folder.
         const timeoutMs = removal.deadline - Date.now();
         if (timeoutMs <= 0) return removal.expired;
         return removal.channel.call("chat.close", params, { timeoutMs });
       }
       const channel = await this.options.workspaceManager.tryGetAgentChannel(workspaceId);
-      return channel?.call("chat.close", params);
+      if (!channel) return undefined;
+      // Its conversation may go on in another tab, which names its files. Not
+      // where the agent names no attach root (a home it cannot name, or an
+      // agent from before): no prune there knows what a conversation names,
+      // so the files go with the tab, as they did. Kept when asking failed.
+      const kept = (await this.askAttachRoot(channel)) !== null;
+      return channel.call("chat.close", { ...params, ...(kept ? { keepAttachments: true } : {}) });
     };
     const run = (async () => {
       try {
@@ -686,11 +690,17 @@ export class ChatHost {
    * ATTACH_UNUSED_MS (not with capOnly), and the least recently used past
    * ATTACH_ROOM_BYTES. First the files of removed workspaces left for an
    * agent on the same host go.
+   *
+   * Without keepSlots (the app did not know the root to name them by), only
+   * an agent that names no root prunes: one with a home it cannot name, or
+   * one from before. It removed each tab's files as the tab closed; those of
+   * every tab not open go, as they did. Nothing goes when asking the agent
+   * for its root failed.
    */
   async pruneAttachments({
     workspaceId,
     keepTabIds,
-    keepSlots = [],
+    keepSlots,
     capOnly = false,
   }: {
     workspaceId: string;
@@ -699,11 +709,20 @@ export class ChatHost {
     capOnly?: boolean;
   }): Promise<void> {
     const channel = await this.channelFor(workspaceId);
+    const root = await this.askAttachRoot(channel);
+    if (root === undefined) return;
+    if (root === null) {
+      // Nothing is kept past its tab there, so there is no room to make.
+      if (!capOnly) await channel.call("chat.pruneAttachments", { workspaceId, keepTabIds });
+      return;
+    }
+    // What the open conversations name is not known: nothing goes on a guess.
+    if (!keepSlots) return;
     await this.removeWaitingAttachments(workspaceId, channel);
     await channel.call("chat.pruneAttachments", {
       workspaceId,
       keepTabIds,
-      // An agent from before ignores it and removes every closed tab's files, as it did.
+      // An agent between (it tells its root, not this) removes every closed tab's files, as it did.
       retain: {
         keep: keepSlots,
         maxAgeMs: capOnly ? 0 : ATTACH_UNUSED_MS,
@@ -764,8 +783,12 @@ export class ChatHost {
     const wait = () => {
       if (host) this.options.attachCleanups?.add(host, workspaceId);
     };
+    if (!channel || deadline <= Date.now()) return wait();
+    const root = await this.askAttachRootBy(channel, deadline);
+    // An agent that names no root kept no file past its tab: they went as the tabs closed.
+    if (root === null) return;
     const timeoutMs = deadline - Date.now();
-    if (!channel || timeoutMs <= 0) return wait();
+    if (root === undefined || timeoutMs <= 0) return wait();
     try {
       await channel.call(
         "chat.removeAttachments",
@@ -794,6 +817,16 @@ export class ChatHost {
       .peekAgentChannel?.(workspaceId)
       .catch(() => null);
     if (!channel) return null;
+    return (await this.askAttachRoot(channel)) ?? null;
+  }
+
+  /**
+   * The attach root the agent on `channel` tells (chat.attachRoot): null
+   * when it names none, from a home it cannot name or as an agent too old
+   * to tell, which stays so for the connection; undefined when asking
+   * failed, which is asked again next time.
+   */
+  private askAttachRoot(channel: AgentChannel): Promise<string | null | undefined> {
     const known = this.attachRoots.get(channel);
     if (known) return known;
     const asked = channel.ready
@@ -801,15 +834,29 @@ export class ChatHost {
       .then(
         (result) => (typeof result?.root === "string" && result.root !== "" ? result.root : null),
         (error: unknown) => {
-          // An agent too old to tell stays so for the connection; anything else is asked again.
-          if ((error as { code?: unknown } | null)?.code !== "unsupported-method") {
-            this.attachRoots.delete(channel);
-          }
-          return null;
+          if ((error as { code?: unknown } | null)?.code === "unsupported-method") return null;
+          this.attachRoots.delete(channel);
+          return undefined;
         },
       );
     this.attachRoots.set(channel, asked);
     return asked;
+  }
+
+  /** askAttachRoot, but undefined once `deadline` passes. */
+  private async askAttachRootBy(
+    channel: AgentChannel,
+    deadline: number,
+  ): Promise<string | null | undefined> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<undefined>((resolve) => {
+      timer = setTimeout(resolve, Math.max(0, deadline - Date.now()), undefined);
+    });
+    try {
+      return await Promise.race([this.askAttachRoot(channel), late]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async transcript(workspaceId: string, sessionId: string, profileId?: string): Promise<unknown> {

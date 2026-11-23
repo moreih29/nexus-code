@@ -221,18 +221,26 @@ registerWorkspaceCleanup((workspaceId) => {
 /**
  * Prunes the workspace's attached files (chat.pruneAttachments): the open
  * chat tabs' and what their conversations name stay; with `capOnly`, only
- * the room is made. Done only once the agent tells its attach root, so a
- * file an open conversation names is never taken for an unused one; false
- * while it tells none.
+ * the room is made. Files are kept by use only once the agent tells its
+ * attach root, so a file an open conversation names is never taken for an
+ * unused one; false while it tells none. Main then prunes only where the
+ * agent names no root (a home it cannot name, or an agent from before),
+ * whose files go as their tabs close: those of the tabs not open go.
  */
 export async function pruneAttachments(workspaceId: string, capOnly = false): Promise<boolean> {
   const root = await rootOf(workspaceId);
-  if (!root) return false;
   const tabs = chatTabsOf(workspaceId);
+  const keepTabIds = tabs.map((tab) => tab.id);
+  if (!root) {
+    if (!capOnly) {
+      unwrapIpcResult(await ipcCallResult("chat", "pruneAttachments", { workspaceId, keepTabIds }));
+    }
+    return false;
+  }
   unwrapIpcResult(
     await ipcCallResult("chat", "pruneAttachments", {
       workspaceId,
-      keepTabIds: tabs.map((tab) => tab.id),
+      keepTabIds,
       keepSlots: keptSlots(workspaceId, tabs, root),
       ...(capOnly ? { capOnly: true } : {}),
     }),
@@ -255,13 +263,15 @@ export function pruneAttachmentsOnce(workspaceId: string): void {
   const attempt = () => {
     waiting.delete(workspaceId);
     if (!followed.has(workspaceId)) return;
-    void pruneAttachments(workspaceId).then(
-      (done) => {
+    void pruneAttachments(workspaceId)
+      .catch((error: Error) => {
+        log.warn(`pruning attachments failed: ${error.message}`);
+        return false;
+      })
+      .then((done) => {
         if (done || ++tries >= ROOT_TRIES) return;
         waiting.set(workspaceId, setTimeout(attempt, ROOT_RETRY_MS));
-      },
-      (error: Error) => log.warn(`pruning attachments failed: ${error.message}`),
-    );
+      });
   };
   attempt();
 }
