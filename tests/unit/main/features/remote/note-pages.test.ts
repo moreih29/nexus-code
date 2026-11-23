@@ -11,7 +11,10 @@ import {
 import type { CliServices } from "../../../../../src/main/features/cli/context";
 import { noteMarkdown } from "../../../../../src/main/features/notes/store";
 import { listNotes, noteTranscript, readNote } from "../../../../../src/main/features/remote/notes";
-import { readWholePeerNote } from "../../../../../src/main/features/remote/peer-notes";
+import {
+  MAX_NOTE_READS,
+  readWholePeerNote,
+} from "../../../../../src/main/features/remote/peer-notes";
 import { fitsAsResult } from "../../../../../src/main/features/remote/serving/common";
 import {
   type TranscriptFile,
@@ -353,5 +356,118 @@ describe("another computer's note on the desktop", () => {
     expect(note.transcript).toBe(transcriptMarkdown(small, "Standup"));
     expect(request).toHaveBeenCalledTimes(1);
     expect(request.mock.calls[0]?.[2]).toEqual({ workspaceId: "w1", note: "nabcdef1" });
+  });
+});
+
+describe("a note that changes while another computer reads it in pages", () => {
+  function live(file: TranscriptFile, body: object) {
+    const note = {
+      id: "nabcdef1",
+      title: "Standup",
+      updatedAt: 1000,
+      doc: body,
+      recording: { recordings: file.recordings.length, ms: 1, people: 2 },
+    };
+    const state = { note, file };
+    const s = {
+      listWorkspaces: () => [{ id: "w1", name: "app", rootPath: "/src/app" }],
+      notes: {
+        list: async () => [state.note],
+        read: async () => state.note,
+        transcript: async () => state.file,
+      },
+    } as unknown as CliServices;
+    let calls = 0;
+    const hooks: { after?: (call: number, method: RpcMethod) => void } = {};
+    const request = mock(async (_to: string, method: RpcMethod, params: object) => {
+      const parsed = RPC_METHODS[method].params.parse(params) as never;
+      const result =
+        method === "notes.read" ? await readNote(s, parsed) : await noteTranscript(s, parsed);
+      hooks.after?.(++calls, method);
+      return result;
+    });
+    const room = {
+      request: request as never,
+      state: () => ({
+        status: "online" as const,
+        peers: [
+          { id: "d2", name: "mini", platform: "darwin", online: true, schema: NOTE_PAGES_SCHEMA },
+        ],
+      }),
+    };
+    return { state, hooks, request, room };
+  }
+
+  const editedDoc = {
+    ...bigDoc,
+    content: [
+      { type: "paragraph", content: [{ type: "text", text: "Inserted first" }] },
+      ...bigDoc.content,
+    ],
+  };
+
+  test("an edit between body pages starts the body again, and the edited body comes whole", async () => {
+    const { state, hooks, request, room } = live(small, bigDoc);
+    hooks.after = (call) => {
+      if (call === 1) state.note = { ...state.note, doc: editedDoc, updatedAt: 2000 };
+    };
+    const note = await readWholePeerNote(room, "d2", { workspaceId: "w1", note: "nabcdef1" });
+    expect(note.markdown).toBe(noteMarkdown({ title: "Standup", doc: editedDoc } as never));
+    expect(note.updatedAt).toBe(2000);
+    const starts = request.mock.calls
+      .filter(([, method]) => method === "notes.read")
+      .map(([, , params]) => (params as { markdownStart?: number }).markdownStart);
+    expect(starts.filter((at) => at === 0)).toHaveLength(2);
+  });
+
+  test("a note that keeps changing is given up after a few reads", async () => {
+    const { state, hooks, request, room } = live(small, bigDoc);
+    hooks.after = (_call, method) => {
+      if (method === "notes.read")
+        state.note = { ...state.note, updatedAt: state.note.updatedAt + 1 };
+    };
+    await expect(
+      readWholePeerNote(room, "d2", { workspaceId: "w1", note: "nabcdef1" }),
+    ).rejects.toThrow("kept changing");
+    expect(request.mock.calls.length).toBe(2 * MAX_NOTE_READS);
+  });
+
+  test("a transcript rewritten between pages is read again; one that only grows is not", async () => {
+    const long: TranscriptFile = { version: 1, recordings: [recording("rabcdef1234", 2500)] };
+    const rewritten: TranscriptFile = {
+      version: 1,
+      recordings: [recording("rabcdef1234", 2200, (i) => `again ${i}`)],
+    };
+    const changed = live(long, doc);
+    changed.hooks.after = (call, method) => {
+      if (method === "notes.transcript" && call === 3) changed.state.file = rewritten;
+    };
+    const note = await readWholePeerNote(changed.room, "d2", {
+      workspaceId: "w1",
+      note: "nabcdef1",
+    });
+    expect(note.transcript).toBe(transcriptMarkdown(rewritten, "Standup"));
+
+    const grown: TranscriptFile = {
+      version: 1,
+      recordings: [
+        { ...recording("rabcdef1234", 2600), lines: recording("rabcdef1234", 2600).lines },
+      ],
+    };
+    const growing = live(long, doc);
+    growing.hooks.after = (call, method) => {
+      if (method === "notes.transcript" && call === 3) growing.state.file = grown;
+    };
+    const read = await readWholePeerNote(growing.room, "d2", {
+      workspaceId: "w1",
+      note: "nabcdef1",
+    });
+    expect(read.transcript).toBe(transcriptMarkdown(grown, "Standup"));
+    expect(
+      growing.request.mock.calls.filter(
+        ([, method, params]) =>
+          method === "notes.transcript" && (params as { start: number }).start === 0,
+      ),
+    ).toHaveLength(1);
   });
 });
