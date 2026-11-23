@@ -9,7 +9,7 @@
 // the agent list's does. The grouping and the folded groups are kept across
 // restarts.
 
-import { CheckCheck, ChevronDown, ChevronRight, GitBranch, Plus } from "lucide-react";
+import { CheckCheck, GitBranch, Plus } from "lucide-react";
 import { type KeyboardEvent, memo, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStableHandlers } from "@/hooks/use-stable-handlers";
@@ -351,6 +351,8 @@ export function StatusGroups({
           return (
             <section key={group} aria-label={label}>
               <h3 className="flex h-7 items-center gap-1.5 px-2 text-app-ui-sm text-muted-foreground opacity-60">
+                {/* No fold to open, its chevron's place kept so the groups stay in one column. */}
+                <span aria-hidden className="size-3.5 shrink-0" />
                 <StateGlyph state={GROUP_STATE[group]} still />
                 <span>{label}</span>
                 <span className="tabular-nums">0</span>
@@ -377,14 +379,10 @@ export function StatusGroups({
                   GROUP_TINT[group],
                 )}
               >
+                <FoldChevron folded={isFolded} />
                 <StateGlyph state={GROUP_STATE[group]} />
                 <span>{label}</span>
                 <span className="tabular-nums">{count}</span>
-                {isFolded ? (
-                  <ChevronRight aria-hidden className="size-3.5" />
-                ) : (
-                  <ChevronDown aria-hidden className="size-3.5" />
-                )}
               </button>
               {group === "done" && (
                 <MarkAllRead

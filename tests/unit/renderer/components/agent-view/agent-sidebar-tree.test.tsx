@@ -531,3 +531,36 @@ test("a task card's row reads mark, title, branch, children, state and time in o
   // No line of its own for the relations under a row.
   expect(html).not.toMatch(/<div class="px-3"><div class="pointer-events-none relative flex/);
 });
+
+/** A state group's fold button, as the html renders it. */
+function groupHeads(html: string): string[] {
+  return [...html.matchAll(/<button[^>]*aria-expanded="(?:true|false)"[^>]*>(.*?)<\/button>/g)]
+    .map(([, inside]) => inside ?? "")
+    .filter((inside) => inside.includes('class="tabular-nums"'));
+}
+
+test("a state group's chevron leads its line, before its glyph, in the muted color", () => {
+  for (const html of [render(status()), render(workspaceList("status"))]) {
+    const [head = ""] = groupHeads(html);
+    const chevron = head.indexOf("lucide-chevron-down");
+    expect(chevron).toBeGreaterThanOrEqual(0);
+    expect(head.slice(chevron - 80, chevron)).not.toContain("tabular-nums");
+    expect(head.indexOf("Needs you")).toBeGreaterThan(chevron);
+    expect(head).toMatch(/lucide-chevron-down[^"]*text-muted-foreground/);
+  }
+  // Folded, it points the other way, still first.
+  const [folded = ""] = groupHeads(render(status(), ["status:attention"]));
+  expect(folded.indexOf("lucide-chevron-right")).toBeGreaterThanOrEqual(0);
+  expect(folded.indexOf("lucide-chevron-right")).toBeLessThan(folded.indexOf("Needs you"));
+});
+
+test("a family's chip and its quiet conversations open in place: down while folded, up while open", () => {
+  const chip = (html: string) =>
+    html.match(/<button[^>]*data-testid="agent-sidebar-fold-family">.*?<\/button>/)?.[0] ?? "";
+  expect(chip(render(status()))).toContain("lucide-chevron-up");
+  expect(chip(render(status(), [`family:${plan.key}`]))).toContain("lucide-chevron-down");
+  const idle =
+    render(status()).match(/<button[^>]*data-testid="agent-sidebar-idle">.*?<\/button>/)?.[0] ?? "";
+  expect(idle).toContain("lucide-chevron-down");
+  expect(idle).not.toContain("lucide-chevron-right");
+});

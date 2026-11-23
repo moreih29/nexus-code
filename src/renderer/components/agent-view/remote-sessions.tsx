@@ -93,6 +93,7 @@ import {
   useDurationLabel,
   WaitSign,
 } from "../agent-list/session-status";
+import { FoldChevron } from "../agent-list/session-tree-rows";
 import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { OutdatedLine } from "../settings/panels/remote-outdated";
@@ -682,10 +683,10 @@ export function OfflinePeer({ peer }: { peer: RoomPeer }) {
   const { t } = useTranslation();
   return (
     <div
-      className="flex min-w-0 items-center gap-1.5 px-2 py-1 text-muted-foreground"
+      className="flex min-w-0 items-center gap-1.5 py-1 pr-2 pl-1 text-muted-foreground"
       data-testid="remote-peer-offline"
     >
-      <ChevronRight aria-hidden className="size-3 shrink-0 opacity-40" />
+      <ChevronRight aria-hidden className="size-3.5 shrink-0 opacity-40" />
       <Monitor aria-hidden className="size-3.5 shrink-0" />
       <span className="min-w-0 truncate text-app-ui-sm">{remoteDisplayName(peer.name)}</span>
       <span className="min-w-0 truncate text-app-micro">
@@ -730,7 +731,6 @@ export function PeerGroup({
     () => new Map(),
   );
   const folded = !searching && folds.has(peerFoldKey);
-  const Chevron = folded ? ChevronRight : ChevronDown;
   const rawList = sessions?.status === "ready" ? sessions.list : null;
   const list =
     rawList && results
@@ -882,9 +882,9 @@ export function PeerGroup({
         reorder={reorder}
         expanded={!folded}
         onToggle={() => useAgentViewStore.getState().toggleFolded(peerFoldKey)}
-        className="flex min-w-0 items-center gap-1.5 rounded-(--radius-control) px-2 py-1 hover:bg-[var(--state-hover-bg)]"
+        className="flex min-w-0 items-center gap-1.5 rounded-(--radius-control) py-1 pr-2 pl-1 hover:bg-[var(--state-hover-bg)]"
       >
-        <Chevron aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+        <FoldChevron folded={folded} />
         <Monitor aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 truncate text-app-ui-sm text-foreground">
           {remoteDisplayName(peer.name)}
@@ -1214,7 +1214,6 @@ function WorkspaceHeading({
 }) {
   const { t } = useTranslation();
   const Icon = workspace?.parentId ? GitBranch : Folder;
-  const Chevron = fold?.folded ? ChevronRight : ChevronDown;
   const git = workspace?.git;
   const stands = git
     ? [
@@ -1226,10 +1225,24 @@ function WorkspaceHeading({
         .filter(Boolean)
         .join(" ")
     : "";
+  // The fold's chevron leads, as a tree's does; a heading that cannot fold
+  // keeps its place, so the folders stay in one column.
   const title = (
     <>
+      {fold ? (
+        <FoldChevron folded={fold.folded} className="size-3" />
+      ) : (
+        <span aria-hidden className="size-3 shrink-0" />
+      )}
       <Icon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
       <span className="min-w-0 truncate font-semibold text-app-micro text-foreground">{name}</span>
+      {/* The git status takes the space left by the name and controls. */}
+      {stands && (
+        <span className="w-0 grow truncate font-mono text-app-micro text-muted-foreground">
+          {stands}
+        </span>
+      )}
+      {fold && fold.hidden > 0 && <HiddenSessionCount count={fold.hidden} />}
     </>
   );
   return (
@@ -1239,27 +1252,20 @@ function WorkspaceHeading({
       className="flex min-w-0 items-center gap-1.5 px-2 pt-1.5 pb-0.5"
       data-testid="remote-workspace"
     >
+      {/* The whole heading up to its chips folds it; the chips and the menu stay buttons of their own. */}
       {fold ? (
         <button
           type="button"
           aria-expanded={!fold.folded}
           onClick={fold.toggle}
-          className="flex min-w-0 items-center gap-1.5 rounded-(--radius-control) text-left outline-none hover:bg-[var(--state-hover-bg)] focus-visible:ring-1 focus-visible:ring-ring"
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-(--radius-control) text-left outline-none hover:bg-[var(--state-hover-bg)] focus-visible:ring-1 focus-visible:ring-ring"
           data-testid="remote-workspace-fold"
         >
           {title}
-          <Chevron aria-hidden className="size-3 shrink-0 text-muted-foreground" />
         </button>
       ) : (
-        <span className="flex min-w-0 items-center gap-1.5">{title}</span>
+        <span className="flex min-w-0 flex-1 items-center gap-1.5">{title}</span>
       )}
-      {/* The git status takes the space left by the name and controls. */}
-      {stands && (
-        <span className="w-0 grow truncate font-mono text-app-micro text-muted-foreground">
-          {stands}
-        </span>
-      )}
-      {fold && fold.hidden > 0 && <HiddenSessionCount count={fold.hidden} />}
       {(worktrees || terminals || menu) && (
         <span className="ml-auto flex shrink-0 items-center gap-1">
           {worktrees && (
