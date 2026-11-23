@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  attachHostOf,
   rootPathFromLocation,
   WorkspaceLocationSchema,
   WorkspaceMetaSchema,
@@ -54,5 +55,30 @@ describe("WSL workspace location", () => {
     });
 
     expect(meta.rootPath).toBe("/home/me/project");
+  });
+});
+
+describe("attachHostOf", () => {
+  test("names the computer a workspace's agent runs on", () => {
+    expect(attachHostOf({ kind: "local", rootPath: "/a" })).toBe("local");
+    expect(attachHostOf({ kind: "local", rootPath: "/b" })).toBe("local");
+    expect(
+      attachHostOf(
+        WorkspaceLocationSchema.parse({ kind: "wsl", distro: "Ubuntu", remotePath: "/x" }),
+      ),
+    ).toBe("wsl:Ubuntu");
+    const ssh = (port?: number) =>
+      attachHostOf(
+        WorkspaceLocationSchema.parse({
+          kind: "ssh",
+          host: "h",
+          user: "u",
+          port,
+          remotePath: "/x",
+        }),
+      );
+    expect(ssh()).toBe("ssh:u@h:22");
+    expect(ssh(22)).toBe("ssh:u@h:22");
+    expect(ssh(2222)).toBe("ssh:u@h:2222");
   });
 });

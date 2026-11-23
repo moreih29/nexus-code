@@ -20,7 +20,9 @@ export const NOTICE_SETTLE_MS = 2_000;
 
 /**
  * Output this soon after a key was typed into the terminal is its echo, or
- * the program redrawing its input: the program at work prints on past it.
+ * the program redrawing its input; this soon after the terminal changed
+ * size, the program drawing its screen again: the program at work prints
+ * on past it.
  */
 export const ECHO_MS = 500;
 

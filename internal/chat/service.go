@@ -134,15 +134,21 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("chat.cancelRun", service.CancelRun)
 	d.Register("chat.transcript", service.Transcript)
 	d.Register("chat.transcriptPage", service.TranscriptPage)
+	d.Register("chat.runTranscript", service.RunTranscript)
 	d.Register("chat.subagentTranscript", service.SubagentTranscript)
 	d.Register("chat.sessionFile", service.SessionFile)
 	d.Register("chat.stageThread", service.StageThread)
+	d.Register("chat.rolloutTail", service.RolloutTail)
 	d.Register("chat.sessions", service.Sessions)
 	d.Register("chat.deleteSession", service.DeleteSession)
 	d.Register("chat.fileSizes", service.FileSizes)
 	d.Register("chat.claudeConfig", service.ClaudeConfig)
 	d.Register("chat.attach", service.Attach)
+	d.Register("chat.attachRoot", service.AttachRoot)
 	d.Register("chat.pruneAttachments", service.PruneAttachments)
+	d.Register("chat.touchAttachments", service.TouchAttachments)
+	d.Register("chat.removeAttachments", service.RemoveAttachments)
+	d.Register("chat.historySlots", service.HistorySlots)
 	d.Register("chat.profileDir", service.ProfileDir)
 	d.Register("chat.writeCodexCatalog", service.WriteCodexCatalog)
 }
@@ -420,8 +426,8 @@ func (s *Service) Stop(_ context.Context, raw json.RawMessage) (any, error) {
 	return struct{}{}, nil
 }
 
-// CloseTab ends the tab's program and forgets its log and its attached
-// files: the tab was closed.
+// CloseTab ends the tab's program and forgets its log, and its attached
+// files unless the app keeps them (keepAttachments): the tab was closed.
 func (s *Service) CloseTab(_ context.Context, raw json.RawMessage) (any, error) {
 	var p TabParams
 	if err := decodeParams(raw, &p, "chat.close params must include workspaceId and tabId"); err != nil {
@@ -458,7 +464,9 @@ func (s *Service) CloseTab(_ context.Context, raw json.RawMessage) (any, error) 
 			proc.stop()
 		}
 	}
-	removeAttachments(key)
+	if !p.KeepAttachments {
+		removeAttachments(key)
+	}
 	return struct{}{}, nil
 }
 

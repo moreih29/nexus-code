@@ -71,8 +71,12 @@ const logger = createLogger("browser-registry");
 // Internal data types
 // ---------------------------------------------------------------------------
 
+export type BrowserHostWindow = Pick<BrowserWindow, "contentView" | "webContents">;
+
 interface TabEntry {
   view: WebContentsView;
+  readonly win: BrowserHostWindow;
+  readonly windowId: number;
   workspaceId: string;
   partition: string;
   loadFailure: BrowserLoadFailure | null;
@@ -152,7 +156,6 @@ interface SuspendSnapshot {
 }
 
 export class BrowserTabRegistry {
-  private readonly win: BrowserWindow;
   private readonly tabs = new Map<string, TabEntry>();
   private readonly popups = new PopupTracker();
   private readonly permissionDeps: PermissionHandlerDeps | undefined;
@@ -165,7 +168,7 @@ export class BrowserTabRegistry {
    * the browser would otherwise cover.  The renderer holds the refcount;
    * this class only sees the boolean edge.
    */
-  private suspended = false;
+  private readonly suspendedWindows = new Set<number>();
   /**
    * Bumped at every suspendAll → snapshot capture and every resumeAll.
    * Used to bail out of a hide path when resumeAll races mid-capture.
@@ -175,9 +178,9 @@ export class BrowserTabRegistry {
    * advanced — meaning resumeAll already ran and the view is supposed to
    * be visible.
    */
-  private suspendGeneration = 0;
+  private readonly suspendGenerations = new Map<number, number>();
   /** Tabs whose overlay snapshot needs clearing on resume, even after detaching. */
-  private readonly snapshotTabs = new Set<string>();
+  private readonly snapshotTabs = new Map<string, number>();
   /** Told of each tab's WebContents as it is created, before its first page loads. */
   private readonly createListeners = new Set<(tabId: string, contents: WebContents) => void>();
   private addressResolver: BrowserAddressResolver | null = null;
@@ -187,9 +190,18 @@ export class BrowserTabRegistry {
     (tabId: string, failure: BrowserLoadFailure | null) => void
   >();
 
-  constructor(win: BrowserWindow, permissionDeps?: PermissionHandlerDeps) {
-    this.win = win;
+  constructor(permissionDeps?: PermissionHandlerDeps) {
     this.permissionDeps = permissionDeps;
+  }
+
+  private isSuspended(entry: TabEntry): boolean {
+    return this.suspendedWindows.has(entry.windowId);
+  }
+
+  private nextSuspendGeneration(windowId: number): number {
+    const next = (this.suspendGenerations.get(windowId) ?? 0) + 1;
+    this.suspendGenerations.set(windowId, next);
+    return next;
   }
 
   // -------------------------------------------------------------------------
@@ -202,8 +214,14 @@ export class BrowserTabRegistry {
    * If a view for `tabId` already exists it is destroyed before the new one
    * is created — see class doc for the rationale.
    */
-  create(args: { tabId: string; workspaceId: string; url: string; partition: string }): void {
-    const { tabId, workspaceId, url, partition } = args;
+  create(args: {
+    tabId: string;
+    workspaceId: string;
+    url: string;
+    partition: string;
+    win: BrowserHostWindow;
+  }): void {
+    const { tabId, workspaceId, url, partition, win } = args;
 
     // Guard: if an entry already exists, tear it down cleanly first.
     if (this.tabs.has(tabId)) {
@@ -235,7 +253,7 @@ export class BrowserTabRegistry {
 
     // A tab not shown is in no window; on macOS its dialogs would hold up
     // the whole app until clicked.
-    showDialogsOverWindow(view.webContents, () => this.win);
+    showDialogsOverWindow(view.webContents, () => win as BrowserWindow);
 
     // Start the view in the inactive (detached) state.  The caller must call
     // setActive(true) + setBounds() to make it visible.  Background throttling
@@ -244,6 +262,8 @@ export class BrowserTabRegistry {
 
     const entry: TabEntry = {
       view,
+      win,
+      windowId: win.webContents.id,
       workspaceId,
       partition,
       loadFailure: null,
@@ -313,7 +333,7 @@ export class BrowserTabRegistry {
   private setLoadFailure(tabId: string, entry: TabEntry, failure: BrowserLoadFailure | null): void {
     if (this.tabs.get(tabId) !== entry || (failure === null && entry.loadFailure === null)) return;
     entry.loadFailure = failure;
-    if (entry.active) entry.view.setVisible(!this.suspended && failure === null);
+    if (entry.active) entry.view.setVisible(!this.isSuspended(entry) && failure === null);
     for (const listener of this.loadFailureListeners) listener(tabId, failure);
   }
 
@@ -391,7 +411,7 @@ export class BrowserTabRegistry {
     // Mirrors the page-view cleanup below — detach then close WebContents.
     if (entry.devtoolsView !== null) {
       try {
-        this.win.contentView.removeChildView(entry.devtoolsView);
+        entry.win.contentView.removeChildView(entry.devtoolsView);
       } catch {
         // May already be detached (closed before destroy).
       }
@@ -404,7 +424,7 @@ export class BrowserTabRegistry {
 
     // Detach from the window's view hierarchy.
     try {
-      this.win.contentView.removeChildView(entry.view);
+      entry.win.contentView.removeChildView(entry.view);
     } catch (err) {
       // The view may already have been removed (e.g. window close race).
       logger.warn(`[destroy] removeChildView failed for ${tabId}: ${(err as Error).message}`);
@@ -466,7 +486,7 @@ export class BrowserTabRegistry {
     // Keep CSS pixels so reattachment uses the current shell zoom factor.
     entry.lastBounds = { x, y, width, height };
 
-    this.applyCssBounds(entry.view, entry.lastBounds);
+    this.applyCssBounds(entry, entry.view, entry.lastBounds);
   }
 
   /**
@@ -493,8 +513,8 @@ export class BrowserTabRegistry {
    * resizes the placeholder, which fires the renderer's ResizeObserver and
    * re-sends bounds — re-applied here with the now-current factor.
    */
-  private applyCssBounds(view: WebContentsView, b: CssBounds): void {
-    const zf = this.win.webContents.getZoomFactor();
+  private applyCssBounds(entry: TabEntry, view: WebContentsView, b: CssBounds): void {
+    const zf = entry.win.webContents.getZoomFactor();
     view.setBounds({
       x: Math.round(b.x * zf),
       y: Math.round(b.y * zf),
@@ -556,11 +576,11 @@ export class BrowserTabRegistry {
    */
   private attachAndRestoreBounds(entry: TabEntry): void {
     // An overlay may have ended while the view was detached.
-    entry.view.setVisible(!this.suspended && entry.loadFailure === null);
-    this.win.contentView.addChildView(entry.view);
+    entry.view.setVisible(!this.isSuspended(entry) && entry.loadFailure === null);
+    entry.win.contentView.addChildView(entry.view);
     const b = entry.lastBounds;
     if (b) {
-      this.applyCssBounds(entry.view, b);
+      this.applyCssBounds(entry, entry.view, b);
     }
   }
 
@@ -571,7 +591,7 @@ export class BrowserTabRegistry {
    */
   private safeRemoveChildView(entry: TabEntry): void {
     try {
-      this.win.contentView.removeChildView(entry.view);
+      entry.win.contentView.removeChildView(entry.view);
     } catch {
       // View may already be detached.
     }
@@ -584,11 +604,11 @@ export class BrowserTabRegistry {
   private attachAndRestoreDevtoolsBounds(entry: TabEntry): void {
     const dt = entry.devtoolsView;
     if (dt === null) return;
-    dt.setVisible(!this.suspended);
-    this.win.contentView.addChildView(dt);
+    dt.setVisible(!this.isSuspended(entry));
+    entry.win.contentView.addChildView(dt);
     const b = entry.devtoolsBounds;
     if (b !== null) {
-      this.applyCssBounds(dt, b);
+      this.applyCssBounds(entry, dt, b);
     }
   }
 
@@ -596,7 +616,7 @@ export class BrowserTabRegistry {
   private safeRemoveDevtoolsChildView(entry: TabEntry): void {
     if (entry.devtoolsView === null) return;
     try {
-      this.win.contentView.removeChildView(entry.devtoolsView);
+      entry.win.contentView.removeChildView(entry.devtoolsView);
     } catch {
       // View may already be detached.
     }
@@ -636,13 +656,18 @@ export class BrowserTabRegistry {
    * and bails out before hiding if the generation has advanced, leaving the
    * view visible — exactly what resume requested.
    */
-  async suspendAll(opts: { captureSnapshot: boolean }): Promise<SuspendSnapshot[]> {
-    if (this.suspended) return [];
-    this.suspended = true;
-    const gen = ++this.suspendGeneration;
+  async suspendAll(opts: {
+    captureSnapshot: boolean;
+    windowId: number;
+  }): Promise<SuspendSnapshot[]> {
+    const { windowId } = opts;
+    if (this.suspendedWindows.has(windowId)) return [];
+    this.suspendedWindows.add(windowId);
+    const gen = this.nextSuspendGeneration(windowId);
 
     const activeEntries = new Map<string, TabEntry>();
     for (const [tabId, entry] of this.tabs) {
+      if (entry.windowId !== windowId) continue;
       if (entry.active && !entry.view.webContents.isDestroyed()) {
         activeEntries.set(tabId, entry);
       }
@@ -653,7 +678,7 @@ export class BrowserTabRegistry {
     // Bail if resumeAll ran while we were capturing — the view is supposed
     // to be visible now, hiding here would re-introduce the blank area the
     // user just dismissed.
-    if (gen !== this.suspendGeneration) return [];
+    if (gen !== this.suspendGenerations.get(windowId)) return [];
 
     for (const entry of activeEntries.values()) {
       if (!entry.active || entry.view.webContents.isDestroyed()) continue;
@@ -671,7 +696,7 @@ export class BrowserTabRegistry {
 
     return snapshots.filter(({ tabId }) => {
       if (this.tabs.get(tabId) !== activeEntries.get(tabId)) return false;
-      this.snapshotTabs.add(tabId);
+      this.snapshotTabs.set(tabId, windowId);
       return true;
     });
   }
@@ -680,13 +705,13 @@ export class BrowserTabRegistry {
    * Re-show currently attached views and return the IDs of all tabs with
    * snapshots to clear, including tabs that detached during the overlay.
    */
-  resumeAll(): string[] {
-    if (!this.suspended) return [];
-    this.suspended = false;
+  resumeAll(windowId: number): string[] {
+    if (!this.suspendedWindows.delete(windowId)) return [];
     // Bump generation so any in-flight suspendAll capture skips its hide step.
-    this.suspendGeneration++;
+    this.nextSuspendGeneration(windowId);
 
     for (const entry of this.tabs.values()) {
+      if (entry.windowId !== windowId) continue;
       if (entry.active && !entry.view.webContents.isDestroyed()) {
         entry.view.setVisible(entry.loadFailure === null);
         if (
@@ -698,8 +723,12 @@ export class BrowserTabRegistry {
         }
       }
     }
-    const snapshotTabs = [...this.snapshotTabs];
-    this.snapshotTabs.clear();
+    const snapshotTabs: string[] = [];
+    for (const [tabId, owner] of this.snapshotTabs) {
+      if (owner !== windowId) continue;
+      snapshotTabs.push(tabId);
+      this.snapshotTabs.delete(tabId);
+    }
     return snapshotTabs;
   }
 
@@ -876,7 +905,7 @@ export class BrowserTabRegistry {
     entry.devtoolsBounds = { x, y, width, height };
 
     if (entry.devtoolsView !== null && !entry.devtoolsView.webContents.isDestroyed()) {
-      this.applyCssBounds(entry.devtoolsView, entry.devtoolsBounds);
+      this.applyCssBounds(entry, entry.devtoolsView, entry.devtoolsBounds);
     }
   }
 
@@ -911,10 +940,14 @@ export class BrowserTabRegistry {
     this.popups.closeWorkspace(workspaceId);
   }
 
-  /**
-   * Destroys all registered tabs and their popups.  Called when the main
-   * window is closed.
-   */
+  disposeWindow(windowId: number): void {
+    for (const [tabId, entry] of [...this.tabs]) {
+      if (entry.windowId === windowId) this.destroy({ tabId });
+    }
+    this.suspendedWindows.delete(windowId);
+    this.suspendGenerations.delete(windowId);
+  }
+
   disposeAll(): void {
     for (const tabId of [...this.tabs.keys()]) {
       this.destroy({ tabId });

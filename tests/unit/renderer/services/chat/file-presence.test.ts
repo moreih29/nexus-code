@@ -6,6 +6,8 @@
 import { describe, expect, it } from "bun:test";
 import {
   createFilePresence,
+  filesFound,
+  filesGone,
   lookupPath,
 } from "../../../../../src/renderer/services/chat/file-presence";
 
@@ -138,5 +140,47 @@ describe("createFilePresence", () => {
     expect(await presence.isThere("ws", "C:\\w", "D:/out/shot.png")).toBe(true);
     expect(await presence.isThere("ws", "C:\\w", output)).toBe(true);
     expect(asked).toEqual(["D:/out/shot.png", output]);
+  });
+});
+
+describe("filesFound", () => {
+  it("looks up so many at once, however many there are, and keeps their order", async () => {
+    let going = 0;
+    let most = 0;
+    const presence = createFilePresence(async (_workspaceId, relPath) => {
+      going++;
+      most = Math.max(most, going);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      going--;
+      return !relPath.endsWith("gone.png");
+    });
+    const paths = Array.from({ length: 50 }, (_, i) => `/p/${i}${i % 7 === 0 ? "gone" : ""}.png`);
+    const found = await filesFound(presence, "ws", "/p", paths, 8);
+    expect(most).toBe(8);
+    expect([...found]).toEqual(paths.filter((path) => !path.endsWith("gone.png")));
+    expect(await filesFound(presence, "ws", "/p", [], 8)).toEqual(new Set());
+  });
+});
+
+describe("filesGone", () => {
+  it("is what was looked up and not found, not what cannot be looked up yet", async () => {
+    const granted = new Set(["/h/attach/w/c/1/kept.png", "/h/attach/w/old/1/removed.png"]);
+    const grantedCheck = (_workspaceId: string, path: string) => granted.has(path);
+    const presence = createFilePresence(
+      async (_workspaceId, relPath) =>
+        relPath === "/h/attach/w/c/1/kept.png" || relPath === "in.png",
+      () => 0,
+      grantedCheck,
+    );
+    const paths = [
+      "/h/attach/w/c/1/kept.png",
+      "/h/attach/w/old/1/removed.png",
+      "/p/in.png",
+      "/p/gone.png",
+      // Outside and not granted (yet): not known to be gone.
+      "/h/attach/w/c/2/new.png",
+    ];
+    const gone = await filesGone(presence, "w", "/p", paths, grantedCheck);
+    expect([...gone]).toEqual(["/h/attach/w/old/1/removed.png", "/p/gone.png"]);
   });
 });

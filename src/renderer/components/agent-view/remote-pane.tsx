@@ -71,6 +71,7 @@ import {
   TERMINAL_PROFILE_SCHEMA,
   usePeerControls,
   usePeerReach,
+  usePeerReadsChats,
   usePeerSessions,
   usePeerSpeaks,
   usePeerTypes,
@@ -111,6 +112,7 @@ import { focusChatTab, PermissionCard } from "../chat/permission-card";
 import { QuickLook, type QuickLookList } from "../chat/quick-look";
 import { RateLimitBanner } from "../chat/rate-limit-banner";
 import { RewindDialog } from "../chat/rewind-dialog";
+import type { InstructionsChipSlot } from "../chat/session-instructions-chip";
 import { shortPath } from "../chat/side-panel";
 import { StatusLine } from "../chat/status-line";
 import { SummaryLine } from "../chat/summary-line";
@@ -120,6 +122,7 @@ import { showToast } from "../ui/toast";
 import { forkPeerChat, peerRewinder } from "./remote-chat-actions";
 import { RemoteCodexConfigDialog, RemoteConfigDialog } from "./remote-config-dialog";
 import { consentFromChat, PeerConsentCard, usePeerConsents } from "./remote-consents";
+import { RemoteInstructionsChip } from "./remote-instructions-chip";
 import { useRemoteLinks } from "./remote-links";
 import { RemoteSessionList } from "./remote-past-sessions";
 import { RemotePrintRunPane } from "./remote-print-run-pane";
@@ -1026,27 +1029,30 @@ function RemoteChatView({
                     }
                     actions={shown ? undefined : { ...actions, onRecoverSubmission: recover }}
                     items={shown ? agentTranscript(model, shown) : undefined}
+                    itemsDone={shown !== undefined && shown.status !== "running"}
                     reveal={shown ? null : callAsk}
                     {...(moves ? { moves } : {})}
                     {...(older && !shown ? { older } : {})}
                     empty={
-                      <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
-                        {claude ? (
-                          <ClaudeIcon className="size-8" />
-                        ) : (
-                          <CodexIcon className="size-8" />
-                        )}
-                        <div className="text-app-body">
-                          {t(claude ? "chat.empty.title" : "chat.codex.empty")}
+                      shown ? undefined : (
+                        <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
+                          {claude ? (
+                            <ClaudeIcon className="size-8" />
+                          ) : (
+                            <CodexIcon className="size-8" />
+                          )}
+                          <div className="text-app-body">
+                            {t(claude ? "chat.empty.title" : "chat.codex.empty")}
+                          </div>
+                          <div
+                            className="max-w-full truncate font-mono text-app-micro"
+                            title={target.cwd ?? target.path}
+                          >
+                            {target.cwd ?? target.path}
+                          </div>
+                          {reachable && <RemoteSessionList target={target} />}
                         </div>
-                        <div
-                          className="max-w-full truncate font-mono text-app-micro"
-                          title={target.cwd ?? target.path}
-                        >
-                          {target.cwd ?? target.path}
-                        </div>
-                        {reachable && <RemoteSessionList target={target} />}
-                      </div>
+                      )
                     }
                   />
                 )}
@@ -1191,6 +1197,23 @@ function RemoteControls({
   const planModeOptions = agent === "claude" && peerTakesPlanMode;
   const folder = target.cwd ?? target.path;
   const types = usePeerTypes(deviceId);
+  // Shown where that computer serves chat.read; set where it serves chat.control.
+  const readsChats = usePeerReadsChats(deviceId);
+  const controls = usePeerControls(deviceId, host === null);
+  const { deviceName, profile, workspaceName } = target;
+  const instructions = useCallback(
+    (slot: InstructionsChipSlot) => (
+      <RemoteInstructionsChip
+        chat={{ deviceId, workspaceId, tabId }}
+        deviceName={deviceName}
+        {...(profile ? { profile } : {})}
+        workspaceName={workspaceName}
+        controls={controls}
+        {...slot}
+      />
+    ),
+    [deviceId, workspaceId, tabId, deviceName, profile, workspaceName, controls],
+  );
   // Claude's commands run in a terminal there in the chat's profile from 0.13.1; not before.
   const inProfile = usePeerSpeaks(deviceId, TERMINAL_PROFILE_SCHEMA);
   // A Codex chat's /resume and /config, which this pane runs, in its picker as in a Codex tab's.
@@ -1385,6 +1408,7 @@ function RemoteControls({
         state={composer.state}
         local={false}
         appCommands={false}
+        {...(readsChats ? { instructions } : {})}
         commands={composer.commands}
         onCommand={onCommand}
         placeholder={

@@ -12,6 +12,7 @@ import { toggleTabPin } from "../../state/operations";
 import { useLayoutStore } from "../../state/stores/layout";
 import { useTabsStore } from "../../state/stores/tabs";
 import { closeTabById, getActiveTabContext } from "../context";
+import { runPeerTabCommand } from "./peer-workspace";
 
 /**
  * Cycle the active tab one slot inside the active group's `tabIds` by
@@ -23,7 +24,10 @@ import { closeTabById, getActiveTabContext } from "../context";
  */
 function cycleActiveTab(delta: 1 | -1): void {
   const ctx = getActiveTabContext();
-  if (!ctx) return;
+  if (!ctx) {
+    runPeerTabCommand(delta === 1 ? "next" : "previous");
+    return;
+  }
   const { tabIds } = ctx.leaf;
   if (tabIds.length < 2) return;
 
@@ -51,13 +55,19 @@ export function registerTabCommands(): Array<() => void> {
   return [
     registerCommand(COMMANDS.tabClose, () => {
       const ctx = getActiveTabContext();
-      if (!ctx) return;
+      if (!ctx) {
+        runPeerTabCommand("close");
+        return;
+      }
       void closeTabById(ctx.wsId, ctx.tabId);
     }),
 
     registerCommand(COMMANDS.tabCloseOthers, async () => {
       const ctx = getActiveTabContext();
-      if (!ctx) return;
+      if (!ctx) {
+        runPeerTabCommand("closeOthers");
+        return;
+      }
       // Pin protection mirrors `useGroupActions.closeOthers`.
       const wsRecord = useTabsStore.getState().byWorkspace[ctx.wsId] ?? {};
       const others = ctx.leaf.tabIds.filter((id) => id !== ctx.tabId && !wsRecord[id]?.isPinned);
@@ -86,7 +96,10 @@ export function registerTabCommands(): Array<() => void> {
       // VSCode "Close All Editors": closes pinned tabs too — pin only
       // protects against bulk Close Others / Close-to-Right gestures.
       const ctx = getActiveTabContext();
-      if (!ctx) return;
+      if (!ctx) {
+        runPeerTabCommand("closeAll");
+        return;
+      }
       for (const id of [...ctx.leaf.tabIds]) {
         const outcome = await closeTabById(ctx.wsId, id);
         if (outcome === "cancelled") return;

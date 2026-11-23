@@ -40,4 +40,11 @@ test("task workspaces are omitted from the instructions editor and its preview",
   expect(html).not.toContain("Task workspace");
   expect(html).toContain("## Workspace: Parent workspace\nParent rules");
   expect(html).not.toContain("Legacy rules");
+  // The preview opens in place: its chevron follows its name, pointing down while folded.
+  const summary = html.match(/<summary[^>]*>(.*?)<\/summary>/)?.[1] ?? "";
+  expect(summary.indexOf("Combined instructions")).toBeGreaterThanOrEqual(0);
+  expect(summary.indexOf("lucide-chevron-down")).toBeGreaterThan(
+    summary.indexOf("Combined instructions"),
+  );
+  expect(summary).not.toContain("lucide-chevron-right");
 });

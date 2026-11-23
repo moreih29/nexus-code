@@ -88,7 +88,10 @@ export class PhonePush {
 
   constructor(private readonly deps: PhonePushDeps) {
     this.now = deps.now ?? Date.now;
-    this.stopScreenLockListener = deps.activity.onScreenLockChanged?.(() => this.consentsChanged());
+    this.stopScreenLockListener = deps.activity.onScreenLockChanged?.(() => {
+      this.consentsChanged();
+      this.scheduleRequests(0);
+    });
   }
 
   enabled(): boolean {
@@ -173,7 +176,7 @@ export class PhonePush {
       }
       const last = event.expiresAt - PUSH_TTL_SECONDS.consent.min * 1_000;
       if (event.done || event.sending || now > last) continue;
-      if (now < event.readyAt) next = Math.min(next, event.readyAt);
+      if (now < event.readyAt && !away) next = Math.min(next, event.readyAt);
       else if (away || this.deps.policy() === "always") this.send("consent", event);
       else next = Math.min(next, now + RECHECK_MS, last + 1);
     }
@@ -289,7 +292,8 @@ export class PhonePush {
         if (!incompleteWorkspaces.has(event.workspaceId)) this.requests.delete(key);
       }
       const now = this.now();
-      const ready = this.deps.policy() === "always" || this.deps.activity.away();
+      const away = this.deps.activity.away();
+      const always = this.deps.policy() === "always";
       for (const { key, workspaceId } of waitingRequests) {
         let event = this.requests.get(key);
         if (!event) {
@@ -300,8 +304,10 @@ export class PhonePush {
           this.requests.set(key, event);
         }
         if (event.done || event.sending) continue;
-        if (startedAt < event.readyAt) next = Math.min(next, Math.max(0, event.readyAt - now));
-        else if (ready) this.send("request", event);
+        if (away) this.send("request", event);
+        else if (!always) continue;
+        else if (startedAt < event.readyAt) next = Math.min(next, Math.max(0, event.readyAt - now));
+        else this.send("request", event);
       }
     } catch {
       // A snapshot that failed does not confirm a request is still waiting.

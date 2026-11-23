@@ -105,6 +105,11 @@ export interface SetupCliFeatureOptions {
   /** The agents of Claude sessions, for nexus agent. */
   claudeActivity?: {
     get(workspaceId: string, tabId: string): { agents: readonly AgentRun[] } | null;
+    printRunSource?(
+      workspaceId: string,
+      tabId: string,
+      runId: string,
+    ): { home?: string } | undefined;
   };
   /** The permission requests the terminals' Claude sessions hold for the app to answer. */
   claudeAsks?: {
@@ -159,6 +164,8 @@ export interface CliFeature {
   ): Promise<ChatAgentContext | undefined>;
   /** A key typed into a terminal (activity.ts). */
   noteInput(workspaceId: string, tabId: string): void;
+  /** A terminal's new size (activity.ts). */
+  noteResize(workspaceId: string, tabId: string): void;
   dispose(): void;
 }
 
@@ -325,6 +332,8 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       list: (workspaceId, tabId) => options.claudeActivity?.get(workspaceId, tabId)?.agents ?? [],
       stop: async (workspaceId, tabId, agentId) =>
         (await options.stopPrintRun?.(workspaceId, tabId, agentId)) ?? false,
+      keepsSession: (workspaceId, tabId, runId) =>
+        options.claudeActivity?.printRunSource?.(workspaceId, tabId, runId)?.home !== undefined,
     },
     waits: {
       begin: (waiter, target, since) => waits.begin(waiter, target, since),
@@ -477,6 +486,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       return linked ? { ...context, status: `${context.status}\n${linked}` } : context;
     },
     noteInput: (workspaceId, tabId) => activity.noteInput(workspaceId, tabId),
+    noteResize: (workspaceId, tabId) => activity.noteResize(workspaceId, tabId),
     dispose: () => {
       off();
       offCancel();

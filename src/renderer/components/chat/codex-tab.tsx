@@ -6,13 +6,15 @@
 // conversation, in the strip a Claude tab has.
 
 import { ArrowLeft } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { defaultProfileId, profileOf } from "../../../shared/agent-profiles/profiles";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { placeLocalFile, showHeldLocalFile } from "../../services/agent-view/file-tabs";
 import { codexTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
+import { attachedOpens } from "../../services/chat/attach-folders";
+import { pruneAttachmentsOnce } from "../../services/chat/attach-retention";
 import { useStateBesideStream } from "../../services/chat/beside-stream";
 import type { PermissionAnswer } from "../../services/chat/claude/controller";
 import { codexCommandsListed, parseCodexCommand } from "../../services/chat/codex/commands";
@@ -24,7 +26,7 @@ import {
 } from "../../services/chat/codex/history";
 import { type CodexModel, originalsFor } from "../../services/chat/codex/model";
 import { runCodexCommand } from "../../services/chat/codex/run-command";
-import { filesThere } from "../../services/chat/file-presence";
+import { filesThere, useGoneFiles } from "../../services/chat/file-presence";
 import { goalViewOf } from "../../services/chat/goal";
 import {
   imageLook,
@@ -43,7 +45,7 @@ import {
 import { lookAreaOf } from "../../services/chat/look-area";
 import type { AssistantItem, PermissionRequest, UserItem } from "../../services/chat/model";
 import { followFileLink, openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
-import { agentsOf, imagesOf, outsideLinksOf } from "../../services/chat/panel";
+import { agentsOf, attachedImagesIn, imagesOf, outsideLinksOf } from "../../services/chat/panel";
 import { registerPanelToggle } from "../../services/chat/panel-toggle";
 import { usePlanCodexLimits } from "../../services/chat/plan-usage";
 import {
@@ -102,6 +104,7 @@ import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
 import { RewindDialog } from "./rewind-dialog";
 import { surfaceChatSendError } from "./send-error";
+import { type InstructionsChipSlot, SessionInstructionsChip } from "./session-instructions-chip";
 import { CodexSessionList } from "./session-list";
 import { StatusLine } from "./status-line";
 import { SummaryLine } from "./summary-line";
@@ -120,7 +123,12 @@ interface CodexTabViewProps {
 const SPLIT_FROM_PX = 900;
 
 export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabViewProps) {
-  const instructionsTab = useMemo(() => ({ workspaceId, tabId }), [workspaceId, tabId]);
+  const instructions = useCallback(
+    (slot: InstructionsChipSlot) => (
+      <SessionInstructionsChip workspaceId={workspaceId} tabId={tabId} {...slot} />
+    ),
+    [workspaceId, tabId],
+  );
   const { t } = useTranslation();
   const rootPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
@@ -161,7 +169,8 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
     if (!isVisible || opened.current) return;
     opened.current = true;
     void controller.open();
-  }, [isVisible, controller]);
+    pruneAttachmentsOnce(workspaceId);
+  }, [isVisible, controller, workspaceId]);
 
   const onAnswer = (request: PermissionRequest, answer: PermissionAnswer) => {
     void controller.answerPermission(request, answer).catch(surfaceChatSendError);
@@ -307,6 +316,10 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
     () => () => grantOutside(workspaceId, tabId, { files: [], dirs: [] }),
     [workspaceId, tabId],
   );
+  // The agent removes a tab's attached files as it closes: in a conversation gone on in a new
+  // tab, their chips only name them.
+  const attached = useMemo(() => attachedImagesIn(liveItems, props.cwd), [liveItems, props.cwd]);
+  const goneAttached = useGoneFiles(workspaceId, rootPath, attached);
   const latest = useRef({ state, rootPath, outside });
   latest.current = { state, rootPath, outside };
   // biome-ignore lint/correctness/useExhaustiveDependencies: the tab's state is read from `latest` when a link is followed
@@ -362,6 +375,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
       });
     };
     return {
+      opensAttached: attachedOpens(goneAttached, cwd),
       openFile(target) {
         follow(target, ({ path, ...line }) => {
           grant(path);
@@ -397,7 +411,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
         }
       },
     };
-  }, [workspaceId, tabId]);
+  }, [workspaceId, tabId, goneAttached]);
 
   const signIn = () => {
     // A browser on this machine cannot reach a sign-in an SSH host waits for.
@@ -703,6 +717,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
               model={state.model}
               actions={messageActions}
               items={childId ? (model.nativeTranscripts?.[childId] ?? []) : undefined}
+              itemsDone={shown !== undefined && shown.status !== "running"}
               reveal={callReveal ?? undefined}
               moves={props.moves}
               relayed={relayedOf(props)}
@@ -791,7 +806,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
             onRetry={(text) => controller.send(text)}
           />
           <Composer
-            instructionsTab={instructionsTab}
+            instructions={instructions}
             controller={controller}
             state={state}
             relayed={relayedOf(props)}

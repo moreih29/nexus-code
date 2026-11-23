@@ -129,7 +129,12 @@ export function mergeAgentInstructions(
   config: AgentInstructions,
   target: InstructionTarget,
 ): string {
-  const sections = instructionLayers(config, target)
+  return mergeInstructionLayers(instructionLayers(config, target));
+}
+
+/** The text an agent gets from layers in order, as the composer lists them. */
+export function mergeInstructionLayers(layers: readonly { title: string; text: string }[]): string {
+  const sections = layers
     .filter(({ text }) => text !== "")
     .map(({ title, text }) => `## ${title}\n${text}`);
   if (sections.length === 0) return "";

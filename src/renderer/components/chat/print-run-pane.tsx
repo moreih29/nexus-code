@@ -1,6 +1,8 @@
 // What a Claude or Codex tab's pane shows of a `claude -p` or `codex exec`
-// run its session started: its state, request, tools and answer, as the app
-// recorded them; with stopping it while it runs, and opening its session in
+// run its session started: its state, and the run's own session as the
+// conversation it is, read from where the run keeps it; until that is read,
+// and for a run that keeps none, its request, tools and answer as the app
+// recorded them. With stopping it while it runs, and opening its session in
 // a tab of its own once it ended.
 
 import { Square, SquareArrowOutUpRight } from "lucide-react";
@@ -8,6 +10,8 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { useNow } from "../../hooks/use-now";
+import type { ChatModel } from "../../services/chat/model";
+import { useRunConversation } from "../../services/chat/print-run-transcript";
 import { stopPrintRun } from "../../services/chat/print-runs";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
 import { AgentFlow, toolCount } from "../agent-list/agent-flow";
@@ -20,6 +24,16 @@ import {
 import { BannerDismissButton } from "../ui/banner";
 import { Button } from "../ui/button";
 import { ChatMarkdown } from "./chat-markdown";
+import { MessageList, type OlderMessages } from "./message-list";
+
+/** A run's session as the pane shows it. */
+export interface RunConversation {
+  model: ChatModel;
+  /** Its start is not here, and cannot be read. */
+  truncated?: boolean;
+  /** Messages before the first that can be read (another computer's run, a page at a time). */
+  older?: OlderMessages;
+}
 
 /** How many characters of a session id say which one it is. */
 const ID_SHOWN = 8;
@@ -33,6 +47,7 @@ export function PrintRunPane({
   visible,
   stopRun,
   openInTab: openThere,
+  conversation: given,
 }: {
   workspaceId: string;
   tabId: string;
@@ -48,9 +63,16 @@ export function PrintRunPane({
   stopRun?: (() => Promise<boolean>) | null;
   /** Goes on with its ended session in a tab of its own: here by default; null where it may not. */
   openInTab?: ((sessionId: string) => void) | null;
+  /**
+   * The run's session as a conversation: read here by default (the app's
+   * own run); another computer's is given, null while it has none.
+   */
+  conversation?: RunConversation | null;
 }) {
   const { t } = useTranslation();
   const running = run.end === undefined;
+  const own = useRunConversation(workspaceId, tabId, run, visible && given === undefined);
+  const conversation: RunConversation | null = given === undefined ? own : given;
   const now = useNow(visible && running);
   const [stopFailed, setStopFailed] = useState(false);
   const stopper = stopRun === undefined ? () => stopPrintRun(workspaceId, tabId, run.id) : stopRun;
@@ -79,11 +101,8 @@ export function PrintRunPane({
             : openClaudeTab(workspaceId, { cwd, sessionId: id })
       : openThere;
   return (
-    <div
-      className="app-scrollbar flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4"
-      data-testid="chat-print-run"
-    >
-      <header className="flex items-center gap-3">
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="chat-print-run">
+      <header className="flex shrink-0 items-center gap-3 px-4 pt-4 pb-2">
         <span
           className="min-w-0 flex-1 truncate font-mono text-app-micro text-muted-foreground"
           title={kind.join(" · ")}
@@ -113,20 +132,37 @@ export function PrintRunPane({
         </div>
       </header>
       {stopFailed && (
-        <div className="flex items-center gap-2 text-app-ui-sm text-muted-foreground">
+        <div className="flex shrink-0 items-center gap-2 px-4 pb-2 text-app-ui-sm text-muted-foreground">
           <span className="flex-1">{t("chat.run.stop_failed")}</span>
           <BannerDismissButton
             dismiss={{ label: t("action.dismiss"), onDismiss: () => setStopFailed(false) }}
           />
         </div>
       )}
-      <AgentFlow
-        agent={run}
-        now={now}
-        renderText={(text) => (
-          <ChatMarkdown text={text} workspaceId={workspaceId} cwd={cwd} rootPath={rootPath} />
-        )}
-      />
+      {conversation ? (
+        <MessageList
+          workspaceId={workspaceId}
+          cwd={cwd}
+          rootPath={rootPath}
+          history={null}
+          model={conversation.model}
+          historyTruncated={conversation.truncated}
+          older={conversation.older}
+        />
+      ) : (
+        <div
+          className="app-scrollbar flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-2 pb-4"
+          data-testid="chat-print-run-summary"
+        >
+          <AgentFlow
+            agent={run}
+            now={now}
+            renderText={(text) => (
+              <ChatMarkdown text={text} workspaceId={workspaceId} cwd={cwd} rootPath={rootPath} />
+            )}
+          />
+        </div>
+      )}
     </div>
   );
 }

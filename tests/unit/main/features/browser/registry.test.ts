@@ -94,13 +94,20 @@ describe("browser visibility IPC", () => {
     resetInMemoryIpc();
     await setupInMemoryRouter();
     attached = new Set();
-    registry = new BrowserTabRegistry({
-      contentView: {
-        addChildView: (view: FakeWebContentsView) => attached.add(view),
-        removeChildView: (view: FakeWebContentsView) => attached.delete(view),
-      },
-    } as unknown as BrowserWindow);
-    registerBrowserChannel(registry);
+    registry = new BrowserTabRegistry();
+    const contentView = {
+      addChildView: (view: FakeWebContentsView) => attached.add(view),
+      removeChildView: (view: FakeWebContentsView) => attached.delete(view),
+    };
+    registerBrowserChannel(
+      registry,
+      undefined,
+      (sender) =>
+        ({
+          contentView,
+          webContents: { id: sender.id, getZoomFactor: () => 1 },
+        }) as unknown as BrowserWindow,
+    );
     pair = createIpcPair();
     // Keep the app renderer's ID distinct from other tests' excluded page IDs.
     Object.defineProperty(pair.sender, "id", { value: nextContentsId++ });
@@ -291,5 +298,51 @@ describe("browser visibility IPC", () => {
     await Promise.resolve();
     expect(registry.get(tabId)?.loadFailure).toBeNull();
     expect(page.visible).toBe(true);
+  });
+});
+
+describe("browser tabs in two windows", () => {
+  function hostWindow(id: number) {
+    const attached = new Set<unknown>();
+    const win = {
+      contentView: {
+        addChildView: (view: unknown) => attached.add(view),
+        removeChildView: (view: unknown) => attached.delete(view),
+      },
+      webContents: { id, getZoomFactor: () => 1 },
+    } as unknown as BrowserWindow;
+    return { win, attached };
+  }
+
+  test("each tab shows in the window that opened it, hides with its overlay, and goes with it", async () => {
+    const registry = new BrowserTabRegistry();
+    const first = hostWindow(nextContentsId++);
+    const second = hostWindow(nextContentsId++);
+    const open = (id: string, host: ReturnType<typeof hostWindow>) => {
+      registry.create({ ...createArgs, tabId: id, win: host.win });
+      registry.setActive({ tabId: id, active: true });
+      return registry.get(id)!.view as unknown as FakeWebContentsView;
+    };
+    const a = open("tab-in-first", first);
+    const b = open("tab-in-second", second);
+    try {
+      expect([...first.attached]).toEqual([a]);
+      expect([...second.attached]).toEqual([b]);
+
+      await registry.suspendAll({ captureSnapshot: false, windowId: first.win.webContents.id });
+      expect(a.visible).toBe(false);
+      expect(b.visible).toBe(true);
+      expect(registry.resumeAll(second.win.webContents.id)).toEqual([]);
+      expect(a.visible).toBe(false);
+      registry.resumeAll(first.win.webContents.id);
+      expect(a.visible).toBe(true);
+
+      registry.disposeWindow(first.win.webContents.id);
+      expect(registry.get("tab-in-first")).toBeUndefined();
+      expect(registry.get("tab-in-second")).toBeDefined();
+      expect([...second.attached]).toEqual([b]);
+    } finally {
+      registry.disposeAll();
+    }
   });
 });

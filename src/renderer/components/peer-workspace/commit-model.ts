@@ -6,7 +6,8 @@ import { ipcCallResult } from "../../ipc/client";
 export type PeerCommit = RpcResult<"git.show">;
 export type PeerCommitPatch = RpcResult<"git.diff">;
 
-async function read<T>(signal: AbortSignal, run: () => Promise<IpcResult<T>>) {
+/** One peer read: a transport error is an unavailable result; a cancelled one rejects. */
+export async function read<T>(signal: AbortSignal, run: () => Promise<IpcResult<T>>) {
   signal.throwIfAborted();
   try {
     const result = await run();

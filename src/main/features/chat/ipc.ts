@@ -1,5 +1,6 @@
 // Claude tab IPC channel: renderer ↔ main ↔ the workspace's agent.
 
+import { ATTACH_FOLDER_LINK } from "../../../shared/chat/attach-errors";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
@@ -103,16 +104,46 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         });
       },
       attach: async (args: unknown) => {
-        const result = (await host.call("attach", validateArgs(c.attach.args, args))) as
-          | { path?: string }
-          | undefined;
+        const valid = validateArgs(c.attach.args, args);
+        let result: { path?: string } | undefined;
+        try {
+          result = (await host.call("attach", valid)) as { path?: string } | undefined;
+        } catch (error) {
+          const code = (error as { code?: unknown } | null)?.code;
+          if (code === ATTACH_FOLDER_LINK) {
+            return ipcErr(code, "The tab's attach folder is a link", { category: "failed", code });
+          }
+          throw error;
+        }
         if (!result?.path) throw new Error("the agent wrote no file");
         return ipcOk({ path: result.path });
       },
+      attachRoot: async (args: unknown) => {
+        const { workspaceId } = validateArgs(c.attachRoot.args, args);
+        return ipcOk({ root: await host.attachRoot(workspaceId) });
+      },
       pruneAttachments: async (args: unknown) => {
-        await host.call("pruneAttachments", validateArgs(c.pruneAttachments.args, args));
+        await host.pruneAttachments(validateArgs(c.pruneAttachments.args, args));
         return ipcOk(undefined);
       },
+      touchAttachments: async (args: unknown) => {
+        await host.attachmentCall("touchAttachments", validateArgs(c.touchAttachments.args, args));
+        return ipcOk(undefined);
+      },
+      removeAttachments: async (args: unknown) => {
+        await host.attachmentCall(
+          "removeAttachments",
+          validateArgs(c.removeAttachments.args, args),
+        );
+        return ipcOk(undefined);
+      },
+      historySlots: withProfileError(async (args: unknown) => {
+        const { workspaceId, agent, conversation, profileId } = validateArgs(
+          c.historySlots.args,
+          args,
+        );
+        return ipcOk(await host.historySlots(workspaceId, agent, conversation, profileId));
+      }),
       transcript: withProfileError(async (args: unknown) => {
         const { workspaceId, sessionId, profileId } = validateArgs(c.transcript.args, args);
         const result = (await host.transcript(workspaceId, sessionId, profileId)) as {
@@ -125,6 +156,19 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
           lines: result.lines ?? [],
           truncated: result.truncated === true,
         });
+      }),
+      peekTail: withProfileError(async (args: unknown) => {
+        const { workspaceId, agent, sessionId, profileId, ...page } = validateArgs(
+          c.peekTail.args,
+          args,
+        );
+        try {
+          return ipcOk(await host.peekTail(workspaceId, agent, sessionId, profileId, page));
+        } catch (error) {
+          const failure = agentCallError(error);
+          if (failure) return failure;
+          throw error;
+        }
       }),
       transcriptPage: withProfileError(async (args: unknown) => {
         const { workspaceId, sessionId, profileId, ...page } = validateArgs(
@@ -145,6 +189,14 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
           throw error;
         }
       }),
+      printRunTranscript: async (args: unknown) => {
+        const { workspaceId, tabId, runId, from } = validateArgs(c.printRunTranscript.args, args);
+        return ipcOk(await host.printRunTranscript(workspaceId, tabId, runId, from));
+      },
+      printRunReader: async (args: unknown, ctx?: { sender?: { id: number } }) => {
+        const { workspaceId, tabId, runId } = validateArgs(c.printRunReader.args, args);
+        return ipcOk(await host.startPrintRunReader(workspaceId, tabId, runId, ctx?.sender?.id));
+      },
       subagentTranscript: withProfileError(async (args: unknown) => {
         const { workspaceId, sessionId, agentId, toolUseId, profileId } = validateArgs(
           c.subagentTranscript.args,

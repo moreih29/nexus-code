@@ -305,6 +305,7 @@ export function GoalBar({ tab, onClear, onStatus, onClose }: GoalBarProps) {
           <IconButton
             label={open ? t("chat.goal.collapse") : t("chat.goal.expand")}
             size="xs"
+            aria-expanded={open}
             onClick={() => setOpen(!open)}
           >
             {open ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}

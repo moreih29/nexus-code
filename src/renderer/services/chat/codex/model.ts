@@ -728,6 +728,15 @@ function applyNativeAgent(
   m.tasks = { ...m.tasks, [id]: next };
 }
 
+/** The items a thread/read answer's turns show as (includeTurns), as a tab would. */
+export function codexThreadItems(result: unknown): ChatItem[] {
+  const thread = rec(rec(result)?.thread);
+  if (!thread) return [];
+  const draft = new Draft(emptyCodexModel());
+  applyThread(draft, { thread }, 0, false);
+  return draft.next.items;
+}
+
 function applyAgentTranscript(draft: CodexDraft, id: string, thread: Rec, seq: number): void {
   if (!Array.isArray(thread.turns)) return;
   const transcript = new Draft(emptyCodexModel());
@@ -836,6 +845,16 @@ function applyThread(draft: CodexDraft, result: Rec, seq: number, discoverAgents
     if (["completed", "interrupted", "failed"].includes(String(turn.status)))
       markHistoryBoundary(draft, turnId, turn.status === "completed", first);
   });
+}
+
+/**
+ * A thread read whole as a conversation of its own, as a resumed tab shows
+ * its turns: on a model no tab has, with nothing to fork, rewind or run.
+ */
+export function codexThreadModel(thread: { id: string; turns: unknown[] }): CodexModel {
+  const draft: CodexDraft = new Draft(emptyCodexModel());
+  applyThread(draft, { thread }, 0, false);
+  return draft.next;
 }
 
 /** Only the first input and the final answer can name whole-turn cuts. */

@@ -1,7 +1,9 @@
 import { create } from "zustand";
 import type { RemoteSession, RemoteWorkspace } from "../../../../packages/remote-protocol/src/rpc";
+import type { AgentListView } from "../../../shared/agent-list/view";
 import { type PeerWorkspace, peerWorkspaceId } from "../../../shared/fs/peer-url";
 import type { IpcResult } from "../../../shared/ipc/result";
+import type { ViewMode } from "../../../shared/types/panel";
 import type { LineAt } from "../../services/chat/links";
 import type {
   PeerGitFile,
@@ -43,7 +45,18 @@ export interface PeerSessionTab {
   pending?: number;
 }
 
-type PeerWorkspaceTab = PeerFileTab | PeerDiffTab | PeerCommitTab | PeerSessionTab;
+/** A note of that workspace, shown to read. */
+export interface PeerNoteTab {
+  type: "peer.note";
+  noteId: string;
+  /** As the list named it when opened; empty for a note not named yet. */
+  title: string;
+}
+
+type PeerWorkspaceTab = PeerFileTab | PeerDiffTab | PeerCommitTab | PeerSessionTab | PeerNoteTab;
+
+/** The files panel's views for another computer's workspace, as a local one's. */
+export type PeerFilesMode = "tree" | "search" | "git" | "agents" | "notes";
 
 export function peerTabId(tab: PeerWorkspaceTab): string {
   switch (tab.type) {
@@ -55,6 +68,8 @@ export function peerTabId(tab: PeerWorkspaceTab): string {
       return JSON.stringify([tab.type, tab.hash]);
     case "peer.session":
       return JSON.stringify([tab.type, tab.target.tabId]);
+    case "peer.note":
+      return JSON.stringify([tab.type, tab.noteId]);
   }
 }
 
@@ -74,6 +89,12 @@ interface PeerWorkspaceView {
   expanded: ReadonlySet<string>;
   gitStatus?: PeerGitStatus;
   gitError?: string;
+  /** The files panel's view; the tree until another is picked. */
+  filesMode?: PeerFilesMode;
+  /** Its agent list's view, once switched; Settings' default until then. */
+  agentListView?: AgentListView;
+  /** Source Control's list or tree, once switched; the local default until then. */
+  gitViewMode?: ViewMode;
 }
 
 export const EMPTY_PEER_VIEW: PeerWorkspaceView = {
@@ -102,6 +123,7 @@ interface PeerWorkspaceState {
   openFile: (id: string, path: string, at?: LineAt) => void;
   openDiff: (id: string, change: PeerGitFile, side: PeerGitSide) => void;
   openCommit: (id: string, commit: Pick<PeerCommitTab, "hash" | "subject">) => void;
+  openNote: (id: string, note: Pick<PeerNoteTab, "noteId" | "title">) => void;
   openSession: (id: string, target: RemoteTarget, requestedBefore?: number) => void;
   syncSessions: (
     target: PeerWorkspaceTarget,
@@ -115,6 +137,11 @@ interface PeerWorkspaceState {
   setGitResult: (id: string, result: IpcResult<PeerGitStatus>) => void;
   setFolder: (id: string, key: string, folder: PeerFolder | null) => void;
   toggleFolder: (id: string, path: string) => void;
+  /** Folds every folder, the root kept open, as the local tree's "Collapse Folders". */
+  collapseFolders: (id: string) => void;
+  setFilesMode: (id: string, mode: PeerFilesMode) => void;
+  setAgentListView: (id: string, view: AgentListView) => void;
+  setGitViewMode: (id: string, mode: ViewMode) => void;
 }
 
 export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
@@ -128,7 +155,7 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
 
   function openTab(
     id: string,
-    tab: PeerDiffTab | PeerCommitTab | PeerSessionTab,
+    tab: PeerDiffTab | PeerCommitTab | PeerSessionTab | PeerNoteTab,
     requestedBefore = 0,
   ) {
     updateView(id, (view) => {
@@ -218,6 +245,7 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
       }),
     openDiff: (id, change, side) => openTab(id, { ...change, type: "peer.diff", side }),
     openCommit: (id, { hash, subject }) => openTab(id, { type: "peer.commit", hash, subject }),
+    openNote: (id, { noteId, title }) => openTab(id, { type: "peer.note", noteId, title }),
     openSession: (id, target, requestedBefore) => {
       if (target.state !== "ended" && peerTargetId(target) === id) {
         openTab(id, { type: "peer.session", target }, requestedBefore);
@@ -328,6 +356,10 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
         else delete folders[key];
         return { ...view, folders };
       }),
+    collapseFolders: (id) =>
+      updateView(id, (view) =>
+        view.expanded.size === 0 ? view : { ...view, expanded: new Set() },
+      ),
     toggleFolder: (id, path) =>
       updateView(id, (view) => {
         const expanded = new Set(view.expanded);
@@ -335,5 +367,13 @@ export const usePeerWorkspaceStore = create<PeerWorkspaceState>((set, get) => {
         else expanded.add(path);
         return { ...view, expanded };
       }),
+    setFilesMode: (id, mode) =>
+      updateView(id, (view) => (view.filesMode === mode ? view : { ...view, filesMode: mode })),
+    setAgentListView: (id, next) =>
+      updateView(id, (view) =>
+        view.agentListView === next ? view : { ...view, agentListView: next },
+      ),
+    setGitViewMode: (id, mode) =>
+      updateView(id, (view) => (view.gitViewMode === mode ? view : { ...view, gitViewMode: mode })),
   };
 });

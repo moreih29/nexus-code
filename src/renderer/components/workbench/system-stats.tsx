@@ -15,6 +15,7 @@ import { cn } from "@/utils/cn";
 import type { SystemStats } from "../../../shared/system/stats";
 import {
   cpuLabel,
+  drawableStats,
   hostLabel,
   memoryLabel,
   memoryParts,
@@ -69,6 +70,9 @@ function StatsLine({
   );
 }
 
+/** The status bar's width from which it shows how busy the host is. */
+export const STATS_MIN_WIDTH = 576;
+
 /** Whether the element is at least `min` px wide, as it resizes. */
 export function useWiderThan(ref: RefObject<HTMLElement | null>, min: number): boolean {
   const [wide, setWide] = useState(true);
@@ -101,10 +105,24 @@ export function SystemStatsSegment({
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.location,
   );
   if (!stats) return null;
+  return <SystemStatsItem stats={stats} host={hostLabel(location)} />;
+}
+
+/** The status bar's item for numbers already read: a workspace's on another computer, too. */
+export function SystemStatsItem({
+  stats,
+  host,
+}: {
+  stats: SystemStats;
+  /** Whose numbers, first in the tooltip; this computer's when null. */
+  host: string | null;
+}): React.JSX.Element | null {
+  const drawn = drawableStats(stats);
+  if (!drawn) return null;
   return (
     <StatsLine
-      stats={stats}
-      host={hostLabel(location)}
+      stats={drawn}
+      host={host}
       className="h-full gap-2 px-2 text-app-ui-sm font-sans leading-none"
     />
   );
@@ -112,7 +130,8 @@ export function SystemStatsSegment({
 
 /** The agent view's sidebar foot: this machine. */
 export function SystemStatsFooter(): React.JSX.Element | null {
-  const stats = useSystemStats(undefined, true);
+  const read = useSystemStats(undefined, true);
+  const stats = read && drawableStats(read);
   if (!stats) return null;
   return (
     <StatsLine

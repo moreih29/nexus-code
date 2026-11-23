@@ -11,6 +11,7 @@ import {
 } from "../../../../../src/renderer/services/chat/chat-files";
 import { useFoundFiles } from "../../../../../src/renderer/services/chat/file-presence";
 import type { ImageBlock } from "../../../../../src/renderer/services/chat/model";
+import { IPC_RESULT_BRAND } from "../../../../../src/shared/ipc/result";
 import type { RoomState } from "../../../../../src/shared/remote/room";
 
 const { beforeOfHunks } = await import(
@@ -393,6 +394,36 @@ describe("another computer's chat, read from there", () => {
     const files = peerChatFiles(target, peerChatAccess("d1"));
     expect([...(await files.there(["C:\\w\\a.png"]))]).toEqual(["C:\\w\\a.png"]);
     expect(calls[0]?.args.path).toBe("C:\\w");
+  });
+
+  test("an attached file that computer no longer has is gone; one it cannot tell of is not", async () => {
+    const failed = (kind: string) => ({ [IPC_RESULT_BRAND]: true, ok: false, kind, message: kind });
+    answer = (method, args) => {
+      if (method !== "peerFilesRead") return {};
+      if (args.path === "/a/t1/1/kept.png")
+        return { kind: "bytes", path: args.path, data: "", offset: 0, size: 3 };
+      return failed(args.path === "/a/t1/2/gone.png" ? "not-found" : "unsupported");
+    };
+    const files = peerChatFiles(target, peerChatAccess("d1"));
+    const asked = ["/a/t1/1/kept.png", "/a/t1/2/gone.png", "/a/t1/3/older-host.png"];
+    expect([...((await files.gone?.(asked)) ?? [])]).toEqual(["/a/t1/2/gone.png"]);
+    // Its metadata alone, as its picture is read.
+    expect(calls.find((c) => c.args.path === "/a/t1/1/kept.png")?.args).toEqual({
+      deviceId: "d1",
+      workspaceId: "w1",
+      path: "/a/t1/1/kept.png",
+      as: "bytes",
+      length: 0,
+      versioned: true,
+    });
+    // An answer is kept a while; one that told nothing is asked again.
+    calls.length = 0;
+    await files.gone?.(asked);
+    expect(calls.map((c) => c.args.path)).toEqual(["/a/t1/3/older-host.png"]);
+    // Nothing is asked while that computer is away.
+    calls.length = 0;
+    expect([...((await peerChatFiles(target, null).gone?.(asked)) ?? [])]).toEqual([]);
+    expect(calls).toEqual([]);
   });
 
   test("mutable pictures share requests only while pending and overwrite mounted consumers", async () => {

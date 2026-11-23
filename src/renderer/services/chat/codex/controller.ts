@@ -24,8 +24,20 @@ import type { ChatChosen, CodexFork, ProfileMove } from "../../../../shared/type
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
+import {
+  pruneAttachmentsAfterAttach,
+  readOpenHistories,
+  removeConversationAttachments,
+} from "../attach-retention";
 import type { PermissionAnswer, RewindPreview } from "../claude/controller";
-import type { AssistantItem, ChatLine, ImageBlock, PermissionRequest, UserItem } from "../model";
+import type {
+  AssistantItem,
+  ChatItem,
+  ChatLine,
+  ImageBlock,
+  PermissionRequest,
+  UserItem,
+} from "../model";
 import {
   forgetPlanWait,
   ingestCodexPush,
@@ -71,6 +83,7 @@ import {
   codexHistoryBusy,
   codexServerVersion,
   emptyCodexForkPages,
+  readCodexThread,
   validCodexFork,
 } from "./history";
 import { invalidateCodexHistory } from "./history-catalog";
@@ -79,6 +92,7 @@ import {
   type CodexMode,
   type CodexModel,
   codexModelsOf,
+  codexThreadItems,
   emptyCodexModel,
   idKey,
   isThreadStatusChanged,
@@ -352,6 +366,11 @@ export class CodexController {
   private update(update: (prev: ChatTabState) => ChatTabState): void {
     if (this.disposed) return;
     useChatStore.getState().update(this.key, update);
+  }
+
+  /** Whether the tab is being opened: its log replayed, or its program started to show it. */
+  get isOpening(): boolean {
+    return this.opening !== null;
   }
 
   /** Shows the tab's conversation: the agent's log, else a new or resumed program. */
@@ -1009,11 +1028,52 @@ export class CodexController {
   /**
    * Deletes one of the folder's threads for good (thread/delete): Codex
    * removes its file, so it leaves `codex resume` too and gives back the space.
+   * The files attached to its messages go too, but those an open tab uses;
+   * read first, as nothing is left to read after. A thread that cannot be
+   * read leaves them to the prune of unused ones.
    */
   async deleteThread(threadId: string): Promise<void> {
     if (threadId === this.currentThread()) throw new Error("the tab's own thread");
     if (!(await this.ensureRunning())) throw new Error("Codex is not running");
+    const read = await this.readThreadWhole(threadId).catch(() => null);
+    const inherited = read ? await this.forkParentItems(threadId) : null;
+    // What open tabs' histories name, a fork's of this one too, read while it is there.
+    await readOpenHistories(this.target.workspaceId);
     await this.request("thread/delete", { threadId });
+    if (!read || !inherited) return;
+    const { workspaceId, cwd } = this.target;
+    await removeConversationAttachments(workspaceId, codexThreadItems(read), cwd, inherited).catch(
+      (error: Error) => log.warn(`removing thread ${threadId}'s attachments: ${error.message}`),
+    );
+  }
+
+  private async forkParentItems(threadId: string): Promise<ChatItem[] | null> {
+    const meta = await this.request("thread/read", { threadId, includeTurns: false }).catch(
+      () => null,
+    );
+    const thread = meta?.thread as { forkedFromId?: unknown } | undefined;
+    if (!thread) return null;
+    const parent = thread.forkedFromId;
+    if (parent === null || parent === undefined) return [];
+    if (typeof parent !== "string") return null;
+    const read = await this.readThreadWhole(parent).catch(() => null);
+    return read ? codexThreadItems(read) : null;
+  }
+
+  /**
+   * A thread's turns with their items, whole, as thread/read's answer holds
+   * them (codexThreadItems): a page at a time from a Codex that pages its
+   * history (thread/turns/list), which no longer hydrates a paginated thread
+   * whole; whole from one before (thread/read with includeTurns). Null when
+   * it cannot be read whole.
+   */
+  private async readThreadWhole(threadId: string): Promise<unknown> {
+    const thread = await readCodexThread(
+      (method, params) => this.request(method, params),
+      threadId,
+      codexServerVersion(this.model, this.state.version),
+    );
+    return thread ? { thread } : null;
   }
 
   /**
@@ -2141,6 +2201,7 @@ export class CodexController {
     const result = unwrapIpcResult(
       await ipcCallResult("chat", "attach", { workspaceId, tabId, name, data }),
     );
+    pruneAttachmentsAfterAttach(workspaceId);
     return result.path;
   }
 

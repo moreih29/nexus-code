@@ -1,4 +1,4 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { Fragment, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -202,9 +202,12 @@ export function AgentInstructionsPanel() {
             onChange={(text) => setDrafts((drafts) => ({ ...drafts, [key]: { scope, text } }))}
           />
           <details className="group">
-            <summary className="flex cursor-pointer list-none items-center gap-1 text-app-body">
-              <ChevronRight aria-hidden className="size-3 group-open:rotate-90" />
+            <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-app-body [&::-webkit-details-marker]:hidden">
               {t("instructions.preview")}
+              <ChevronDown
+                aria-hidden
+                className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
+              />
             </summary>
             <div className="mt-2 flex min-w-0 gap-1.5">
               <Select value={agent} onValueChange={(value) => setAgent(value as ChatAgent)}>

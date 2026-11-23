@@ -3,7 +3,7 @@
 // connection, so the view only reads what its controller has.
 
 import { ArrowLeft } from "lucide-react";
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { useBannerDismissal } from "../../hooks/use-banner-dismissal";
@@ -11,13 +11,14 @@ import { useStableHandlers } from "../../hooks/use-stable-handlers";
 import { placeLocalFile, showHeldLocalFile } from "../../services/agent-view/file-tabs";
 import { claudeTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
+import { attachedOpens } from "../../services/chat/attach-folders";
+import { pruneAttachmentsOnce } from "../../services/chat/attach-retention";
 import { useStateBesideStream } from "../../services/chat/beside-stream";
 import { configCommandOf } from "../../services/chat/claude/config";
 import {
   type ChatController,
   chatController,
   type PermissionAnswer,
-  pruneAttachmentsOnce,
 } from "../../services/chat/claude/controller";
 import { historyForDisplay } from "../../services/chat/claude/history";
 import {
@@ -25,7 +26,7 @@ import {
   useClaudeModelCatalog,
 } from "../../services/chat/claude/model-catalog";
 import { runAppCommand } from "../../services/chat/claude/run-command";
-import { filesThere } from "../../services/chat/file-presence";
+import { filesThere, useGoneFiles } from "../../services/chat/file-presence";
 import {
   imageLook,
   latestReadFile,
@@ -51,6 +52,7 @@ import {
 import {
   agentsOf,
   agentTranscript,
+  attachedImagesIn,
   changedFilesOf,
   imagesOf,
   jobOutputFiles,
@@ -111,6 +113,7 @@ import { QuickLook, type QuickLookList } from "./quick-look";
 import { RateLimitBanner } from "./rate-limit-banner";
 import { RewindDialog } from "./rewind-dialog";
 import { surfaceChatSendError } from "./send-error";
+import { type InstructionsChipSlot, SessionInstructionsChip } from "./session-instructions-chip";
 import { SessionList } from "./session-list";
 import { SidePanel } from "./side-panel";
 import { StatusLine } from "./status-line";
@@ -130,7 +133,12 @@ interface ClaudeTabViewProps {
 const PANEL_PARTS: ReadonlySet<RevealPart> = new Set(["context", "usage", "mcp", "status", "jobs"]);
 
 export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTabViewProps) {
-  const instructionsTab = useMemo(() => ({ workspaceId, tabId }), [workspaceId, tabId]);
+  const instructions = useCallback(
+    (slot: InstructionsChipSlot) => (
+      <SessionInstructionsChip workspaceId={workspaceId} tabId={tabId} {...slot} />
+    ),
+    [workspaceId, tabId],
+  );
   const { t } = useTranslation();
   const rootPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
@@ -454,6 +462,13 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     () => () => grantOutside(workspaceId, tabId, { files: [], dirs: [] }),
     [workspaceId, tabId],
   );
+  // The agent removes a tab's attached files as it closes: in a conversation gone on in a new
+  // tab, their chips only name them.
+  const attached = useMemo(
+    () => attachedImagesIn(history ? [...history.items, ...liveItems] : liveItems, props.cwd),
+    [history, liveItems, props.cwd],
+  );
+  const goneAttached = useGoneFiles(workspaceId, rootPath, attached);
   const latest = useRef({ state, place, rootPath, outside });
   latest.current = { state, place, rootPath, outside };
   // biome-ignore lint/correctness/useExhaustiveDependencies: the tab's state is read from `latest` when a link is followed
@@ -502,6 +517,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       );
     };
     return {
+      opensAttached: attachedOpens(goneAttached, cwd),
       openFile(target) {
         follow(target, ({ path, ...line }) => {
           grant(path);
@@ -561,7 +577,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         }
       },
     };
-  }, [workspaceId, tabId]);
+  }, [workspaceId, tabId, goneAttached]);
 
   // Claude Code's settings (/config), and the one a command opened them at.
   const [config, setConfig] = useState<{ focus?: string } | null>(null);
@@ -760,6 +776,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               toolStatuses={toolStatuses}
               actions={shown ? undefined : actions}
               items={shownTranscript}
+              itemsDone={shown !== undefined && shown.status !== "running"}
               reveal={shown ? null : callAsk}
               moves={props.moves}
               relayed={relayedOf(props)}
@@ -778,7 +795,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
                   : undefined
               }
               empty={
-                state.phase === "ready" || state.phase === "ended" ? (
+                !shown && (state.phase === "ready" || state.phase === "ended") ? (
                   <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
                     <ClaudeIcon className="size-8" />
                     <div className="text-app-body">{t("chat.empty.title")}</div>
@@ -870,7 +887,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
             />
           )}
           <Composer
-            instructionsTab={instructionsTab}
+            instructions={instructions}
             controller={controller}
             state={steady}
             fallbackModels={fallbackModels}

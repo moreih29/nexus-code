@@ -150,12 +150,13 @@ test("status counts families, shows differing glyphs and discloses idle children
   const [attention, running, done, idle] = sections(render(status()));
   expect(rows(attention ?? "")).toEqual([plan.title, question.title, result.title, deep.title]);
   expect(attention).toContain('class="tabular-nums">1</span>');
-  expect(attention).toContain(">4 under it<");
+  expect(attention).toContain('aria-label="4 conversations under it"');
   expect(attention).toContain("1 idle");
   expect(attention).toContain("↳ Test report");
   expect(attention).toContain('title="Parent · Test report"');
   expect(attention?.match(/data-testid="agent-sidebar-tree-line"/g)).toHaveLength(3);
-  expect(attention?.match(/data-testid="agent-sidebar-state"/g)).toHaveLength(3);
+  // Each row tells its own state, the group's too.
+  expect(attention?.match(/data-testid="agent-sidebar-state"/g)).toHaveLength(4);
   expect(rows(running ?? "")).toEqual([]);
   expect(rows(done ?? "")).toEqual([billing.title, notes.title]);
   expect(rows(idle ?? "")).toEqual([human.title, closed.title, peer.title]);
@@ -179,13 +180,12 @@ test.each([
   const html = render(status("", sessions));
   const caption = [
     ...html.matchAll(
-      /<div class="([^"]+)"><span class="([^"]+)"[^>]*data-testid="agent-sidebar-parent">([^<]+)<\/span>(.*?)<\/div>/g,
+      /<span class="([^"]+)"[^>]*data-testid="agent-sidebar-parent">([^<]+)<\/span><\/span><span class="([^"]+)">(.*?)<\/span><\/span><\/div>/g,
     ),
-  ].find((match) => match[3] === label);
-  expect(caption?.[1]?.split(" ")).toEqual(expect.arrayContaining(["flex", "min-w-0", "grow"]));
-  expect(caption?.[2]?.split(" ")).toEqual(
-    expect.arrayContaining(["max-w-[60%]", "shrink-0", "truncate"]),
-  );
+  ].find((match) => match[2] === label);
+  expect(caption?.[1]?.split(" ")).toEqual(expect.arrayContaining(["max-w-40", "truncate"]));
+  // What it last said gives way first, and goes with less than 3em left.
+  expect(caption?.[3]?.split(" ")).toEqual(expect.arrayContaining(["min-w-[3em]", "flex-1"]));
   expect(caption?.[4]).toContain(preview);
 });
 
@@ -204,10 +204,108 @@ test("workspace shows relocated rows once, keeps their worktree labels and uses 
   ]);
   expect(html).toContain('draggable="true" aria-label="Release plan"');
   expect(html).toContain('draggable="false" aria-label="Review tests"');
-  expect(html).toContain(">↳ 1 under Release plan<");
-  expect(html).toContain(">↳ 1 under Billing results<");
   expect(html.match(/data-testid="agent-sidebar-branch"/g)).toHaveLength(2);
   expect(html).not.toContain('data-testid="agent-sidebar-idle"');
+});
+
+test("a worktree holding only children has no group and no line naming their parents", () => {
+  const html = render(<WorkspaceGroups agents={agents()} activity={new Map()} query="" />);
+  expect(html).not.toContain(`aria-label="New agent in ${task.name}"`);
+  expect(html).not.toContain("under Release plan");
+  expect(html).not.toContain("under Billing results");
+  expect(html).not.toContain('data-testid="agent-sidebar-moved"');
+  // The worktree's conversations still show, each under its parent.
+  expect(rows(html)).toEqual(expect.arrayContaining([question.title, notes.title]));
+});
+
+test("a mixed worktree's group lists only its own conversations", () => {
+  const own = session("own", "Own check", "done", { workspaceId: task.id });
+  const html = render(
+    <WorkspaceGroups agents={agents([...local, own])} activity={new Map()} query="" />,
+  );
+  const group = html.split(`aria-label="New agent in ${task.name}"`)[1] ?? "";
+  expect(rows(group)).toEqual([own.title]);
+  expect(rows(html).filter((title) => title === question.title)).toHaveLength(1);
+  expect(rows(html.split(`aria-label="New agent in ${task.name}"`)[0] ?? "")).toEqual(
+    expect.arrayContaining([question.title, notes.title]),
+  );
+  expect(html).not.toContain("under Release plan");
+});
+
+test("a folded family tells inside its chip what of it works and waits, not its new results", () => {
+  const html = render(status(), [`family:${plan.key}`]);
+  const chip =
+    html.match(/<button[^>]*data-testid="agent-sidebar-fold-family">.*?<\/button>/)?.[0] ?? "";
+  expect(chip).toContain('aria-label="4 conversations under it · Working 1 · Needs you 1"');
+  expect(chip.match(/data-testid="agent-sidebar-summary"/g)).toHaveLength(2);
+  expect(chip).toContain(">4<");
+  expect(chip).not.toContain("lucide-circle-check");
+  // Unfolded, the chip tells only how many.
+  const open = render(status());
+  const openChip =
+    open.match(/<button[^>]*data-testid="agent-sidebar-fold-family">.*?<\/button>/)?.[0] ?? "";
+  expect(openChip).not.toContain('data-testid="agent-sidebar-summary"');
+});
+
+test("a row raised into a group by its children still tells its own state", () => {
+  const idlePlan = { ...plan, state: "idle", phase: "idle" as const };
+  const sessions = local.map((session) => (session.key === plan.key ? idlePlan : session));
+  const [attention = ""] = sections(render(status("", sessions)));
+  const row = attention.split('data-testid="agent-sidebar-item"')[1] ?? "";
+  expect(row).toContain('aria-label="Release plan"');
+  expect(row).toMatch(/role="img" aria-label="Idle"[^>]*data-testid="agent-sidebar-state"/);
+});
+
+test("by state, a root tells its place once and a child only a place elsewhere", () => {
+  const [attention = ""] = sections(render(status()));
+  const [, root = "", child = ""] = attention.split('data-testid="agent-sidebar-item"');
+  expect(root).toContain('data-testid="agent-sidebar-workspace"');
+  expect(child).toContain('data-testid="agent-sidebar-branch"');
+  expect(child).toContain(">feature/test<");
+  const workspace = render(<WorkspaceGroups agents={agents()} activity={new Map()} query="" />);
+  expect(workspace).not.toContain('data-testid="agent-sidebar-workspace"');
+});
+
+test("rows that need the user tell what for: a permission, a question, a plan, or a failure", () => {
+  const ask = session("ask", "Run the checks", "attention", { state: "permissionPending" });
+  const asked = session("asked", "Pick a cache key", "attention", { state: "needsInput" });
+  const plans = session("plans", "Roll back in steps", "attention", { state: "permissionPending" });
+  const broke = session("broke", "Status test", "attention", { state: "error" });
+  const working = session("working", "Release notes", "running");
+  const state = agentView.useAgentViewStore.getInitialState();
+  const viewStore = spyOn(agentView, "useAgentViewStore").mockImplementation((select) =>
+    select({ ...state, order: {}, folded: new Set() }),
+  );
+  const facts = spyOn(rowFacts, "useRowFacts").mockImplementation((row) =>
+    row.key === plans.key ? { ...NO_FACTS, wait: { kind: "plan", text: "Three steps" } } : NO_FACTS,
+  );
+  try {
+    const html = renderToStaticMarkup(status("", [ask, asked, plans, broke, working]));
+    const sign = (title: string) => {
+      const row = html
+        .split(`aria-label="${title}"`)[1]
+        ?.split('data-testid="agent-sidebar-item"')[0];
+      return row?.match(/<span role="img" aria-label="([^"]+)"[^>]*data-wait="([^"]+)"/)?.slice(1);
+    };
+    expect(sign(ask.title)).toEqual(["Permission request", "permission"]);
+    expect(sign(asked.title)).toEqual(["Question", "question"]);
+    expect(sign(plans.title)).toEqual(["Plan to approve", "plan"]);
+    expect(html).toContain("lucide-shield");
+    expect(html).toContain("lucide-message-circle-question");
+    expect(html).toContain("lucide-list-todo");
+    const failed = html.split(`aria-label="${broke.title}"`)[1] ?? "";
+    expect(failed).toMatch(/^[\s\S]*?text-\(--state-error-fg\)">Failed<\/span>/);
+    expect(sign(working.title)).toBeUndefined();
+    // By workspace too.
+    const byWorkspace = renderToStaticMarkup(
+      <WorkspaceGroups agents={agents([ask, plans])} activity={new Map()} query="" />,
+    );
+    expect(byWorkspace).toContain('data-wait="permission"');
+    expect(byWorkspace).toContain('data-wait="plan"');
+  } finally {
+    viewStore.mockRestore();
+    facts.mockRestore();
+  }
 });
 
 test("status reordering moves a root with its whole family", () => {
@@ -230,8 +328,9 @@ test("search exposes matching children and their ancestors through both saved fo
   const folds = ["status:attention", `family:${plan.key}`];
   const folded = render(status(), folds.slice(1));
   expect(rows(sections(folded)[0] ?? "")).toEqual([plan.title]);
+  // The folded chip tells what of the family works and waits on the user, not new results.
   const summary = sections(folded)[0]?.match(/data-testid="agent-sidebar-summary"/g);
-  expect(summary).toHaveLength(3);
+  expect(summary).toHaveLength(2);
   const found = render(status(" quiet "), folds);
   expect(rows(found)).toEqual([plan.title, quiet.title]);
   const workspace = render(
@@ -305,7 +404,7 @@ test("old layouts keep flat status order and row appearance", () => {
   const html = render(status("", [b, a, human]));
   expect(rows(html)).toEqual([a.title, b.title, human.title]);
   expect(html).not.toContain('data-testid="agent-sidebar-fold-family"');
-  expect(html).not.toContain('data-testid="agent-sidebar-state"');
+  expect(html.match(/data-testid="agent-sidebar-state"/g)).toHaveLength(3);
   expect(html).not.toContain('data-testid="agent-sidebar-tree-line"');
 });
 
@@ -352,7 +451,7 @@ test("workspace status uses the agent view's family grouping, idle disclosure an
   expect(html).toContain("↳ Test report");
   const folded = render(workspaceList("status"), [`family:${plan.key}`]);
   expect(sessionKeys(sections(folded)[0] ?? "")).toEqual([plan.key]);
-  expect(sections(folded)[0]?.match(/data-testid="agent-list-summary"/g)).toHaveLength(3);
+  expect(sections(folded)[0]?.match(/data-testid="agent-list-summary"/g)).toHaveLength(2);
   const match = render(workspaceList("status", "quiet"), [`family:${plan.key}`]);
   expect(sessionKeys(match)).toEqual([plan.key, quiet.key]);
 });
@@ -361,8 +460,10 @@ test("workspace tasks show moved conversations once under their parent and keep 
   const views = <WorkspaceGroups agents={agents()} activity={new Map()} query="" />;
   const html = render(workspaceList("task"));
   expect(sessionKeys(html)).toEqual(sessionKeys(render(views)));
-  expect(html).toContain("↳ 1 under Release plan");
-  expect(html).toContain("↳ 1 under Billing results");
+  // The task's card stays for its actions; its conversations run under their parents.
+  expect(html).toContain('aria-label="feature/test"');
+  expect(html).not.toContain("under Release plan");
+  expect(html).not.toContain("No conversations");
   expect(html).toContain('title="feature/test"');
   expect(html).toContain('title="Made by the conversation Release plan"');
   expect(html).not.toContain('data-testid="agent-list-idle"');
@@ -371,4 +472,95 @@ test("workspace tasks show moved conversations once under their parent and keep 
     question.key,
   ]);
   expect(render(workspaceList("task", "feature/test"))).toContain('aria-label="feature/test"');
+});
+
+test("the workspace view's status rows are two lines, with context, to-dos and subagents in their title", () => {
+  const state = agentView.useAgentViewStore.getInitialState();
+  const viewStore = spyOn(agentView, "useAgentViewStore").mockImplementation((select) =>
+    select({ ...state, order: {}, folded: new Set() }),
+  );
+  const facts = spyOn(rowFacts, "useRowFacts").mockReturnValue({
+    ...NO_FACTS,
+    context: 42,
+    todos: { done: 2, total: 5 },
+    subagents: 1,
+  });
+  try {
+    const html = renderToStaticMarkup(workspaceList("status"));
+    const row = html
+      .split('data-session-key="repo:plan"')[1]
+      ?.split('data-testid="agent-list-row"')[0];
+    expect(row).toContain('title="Release plan · Context 42% · To do 2/5 · Subagents 1"');
+    expect(row).not.toContain("lucide-list-checks");
+    expect(row).not.toContain("lucide-bot");
+    expect(row).not.toContain("42%</span>");
+    // A task's branch is its place; the workspace's own is not told.
+    const child = html
+      .split('data-session-key="task:question"')[1]
+      ?.split('data-testid="agent-list-row"')[0];
+    expect(child).toContain('data-testid="agent-list-branch"');
+    expect(row).not.toContain('data-testid="agent-list-branch"');
+    // A new result's buttons wait under the pointer, in its time's place.
+    const done = html
+      .split('data-session-key="repo:billing"')[1]
+      ?.split('data-testid="agent-list-row"')[0];
+    expect(done).toContain('aria-label="Mark as seen"');
+    expect(done).toMatch(/class="[^"]*\bhidden\b[^"]*group-hover\/row:flex[^"]*"><button/);
+  } finally {
+    viewStore.mockRestore();
+    facts.mockRestore();
+  }
+});
+
+test("a task card's row reads mark, title, branch, children, state and time in one line", () => {
+  const html = render(workspaceList("task"));
+  const rowOf = (key: string) =>
+    html.split(`data-session-key="${key}"`)[1]?.split('data-testid="agent-list-task-row"')[0] ?? "";
+  const plan = rowOf("repo:plan");
+  expect(plan).toContain('data-testid="agent-list-fold-family"');
+  expect(plan.indexOf(">Release plan<")).toBeLessThan(plan.indexOf("agent-list-fold-family"));
+  expect(plan.indexOf("agent-list-fold-family")).toBeLessThan(plan.indexOf('role="img"'));
+  const child = rowOf("task:question");
+  expect(child.indexOf(">Review tests<")).toBeLessThan(
+    child.indexOf('data-testid="agent-list-branch"'),
+  );
+  expect(child.indexOf('data-testid="agent-list-branch"')).toBeLessThan(
+    child.indexOf('role="img"'),
+  );
+  expect(child).toContain('data-wait="question"');
+  // No line of its own for the relations under a row.
+  expect(html).not.toMatch(/<div class="px-3"><div class="pointer-events-none relative flex/);
+});
+
+/** A state group's fold button, as the html renders it. */
+function groupHeads(html: string): string[] {
+  return [...html.matchAll(/<button[^>]*aria-expanded="(?:true|false)"[^>]*>(.*?)<\/button>/g)]
+    .map(([, inside]) => inside ?? "")
+    .filter((inside) => inside.includes('class="tabular-nums"'));
+}
+
+test("a state group's chevron leads its line, before its glyph, in the muted color", () => {
+  for (const html of [render(status()), render(workspaceList("status"))]) {
+    const [head = ""] = groupHeads(html);
+    const chevron = head.indexOf("lucide-chevron-down");
+    expect(chevron).toBeGreaterThanOrEqual(0);
+    expect(head.slice(chevron - 80, chevron)).not.toContain("tabular-nums");
+    expect(head.indexOf("Needs you")).toBeGreaterThan(chevron);
+    expect(head).toMatch(/lucide-chevron-down[^"]*text-muted-foreground/);
+  }
+  // Folded, it points the other way, still first.
+  const [folded = ""] = groupHeads(render(status(), ["status:attention"]));
+  expect(folded.indexOf("lucide-chevron-right")).toBeGreaterThanOrEqual(0);
+  expect(folded.indexOf("lucide-chevron-right")).toBeLessThan(folded.indexOf("Needs you"));
+});
+
+test("a family's chip and its quiet conversations open in place: down while folded, up while open", () => {
+  const chip = (html: string) =>
+    html.match(/<button[^>]*data-testid="agent-sidebar-fold-family">.*?<\/button>/)?.[0] ?? "";
+  expect(chip(render(status()))).toContain("lucide-chevron-up");
+  expect(chip(render(status(), [`family:${plan.key}`]))).toContain("lucide-chevron-down");
+  const idle =
+    render(status()).match(/<button[^>]*data-testid="agent-sidebar-idle">.*?<\/button>/)?.[0] ?? "";
+  expect(idle).toContain("lucide-chevron-down");
+  expect(idle).not.toContain("lucide-chevron-right");
 });

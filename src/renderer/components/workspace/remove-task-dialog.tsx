@@ -2,7 +2,9 @@
 //
 // Mounted once in GlobalRoots; `useTaskUIStore.openRemoveTask(taskId)` opens
 // it. A worktree with changes turns the dialog into a second confirmation,
-// since deleting it throws the changes away.
+// since deleting it throws the changes away. It names the conversations the
+// removal closes, and the parent each runs under elsewhere: the agent lists
+// show such a child under its parent, not in the task's group.
 
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -11,8 +13,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { MOUNT_CLICK_GRACE_MS } from "@/components/ui/confirm-dialog";
 import { Dialog } from "@/components/ui/dialog";
 import { DialogHeader } from "@/components/ui/dialog-header";
+import type { SessionFamily } from "../../services/agent-sessions/model";
+import { listed } from "../../services/agent-sessions/rows";
+import { sessionsInputNow } from "../../services/agent-sessions/use-inbox";
+import { buildAgents } from "../../services/agent-view/agents";
 import { countUnsavedBuffers } from "../../services/editor/save/unsaved-guard";
 import { removeTask } from "../../services/workspace/tasks";
+import { useTabActivityStore } from "../../state/stores/tab-activity";
 import { useTaskUIStore } from "../../state/stores/task-ui";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 
@@ -29,6 +36,7 @@ export function RemoveTaskDialogRoot(): React.JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [unsavedCount, setUnsavedCount] = useState(0);
+  const [closing, setClosing] = useState<readonly ClosingConversation[]>([]);
   const mountAtRef = useRef(0);
   const branchId = useId();
 
@@ -39,6 +47,12 @@ export function RemoveTaskDialogRoot(): React.JSX.Element {
     setBusy(false);
     setError(null);
     setUnsavedCount(countUnsavedBuffers(taskId));
+    setClosing(
+      closingConversations(
+        buildAgents(sessionsInputNow(useTabActivityStore.getState().activity)).families,
+        taskId,
+      ),
+    );
     mountAtRef.current = performance.now();
   }, [taskId]);
 
@@ -84,6 +98,7 @@ export function RemoveTaskDialogRoot(): React.JSX.Element {
         description={
           <>
             {t("task.remove_description")}
+            <ClosingConversations conversations={closing} />
             {unsavedCount > 0 && (
               <span className="mt-2 block text-foreground">
                 {t("workspace.remove_unsaved", { count: unsavedCount })}
@@ -129,5 +144,89 @@ export function RemoveTaskDialogRoot(): React.JSX.Element {
         </Button>
       </div>
     </Dialog>
+  );
+}
+
+/** A conversation the removal closes, with the parent it runs under elsewhere. */
+export interface ClosingConversation {
+  readonly key: string;
+  readonly title: string;
+  /** The conversation it is listed under, outside the task. */
+  readonly parent?: string;
+}
+
+const MAX_STEPS = 8;
+
+/**
+ * The conversations that run in the task, in its order, each with the
+ * nearest conversation above it that runs elsewhere, if it has one.
+ */
+export function closingConversations(
+  families: readonly SessionFamily[],
+  taskId: string,
+): ClosingConversation[] {
+  const sessions = families
+    .flatMap((family) => family.worktrees.flatMap((worktree) => worktree.sessions))
+    .filter(listed);
+  const byTab = new Map(sessions.map((session) => [session.tabId, session]));
+  return sessions
+    .filter((session) => session.workspaceId === taskId)
+    .map((session) => {
+      let current = session;
+      for (let step = 0; step < MAX_STEPS; step++) {
+        const opener = current.parent;
+        const parent = opener?.tabId && !opener.device ? byTab.get(opener.tabId) : undefined;
+        if (!parent || parent === session) break;
+        if (parent.workspaceId !== taskId)
+          return { key: session.key, title: session.title, parent: parent.title };
+        current = parent;
+      }
+      return { key: session.key, title: session.title };
+    });
+}
+
+const SHOWN = 4;
+
+/**
+ * How many conversations the removal closes, how many of them run under a
+ * parent elsewhere, and their names: `2 agent tabs · including 1 under “…”`.
+ */
+export function ClosingConversations({
+  conversations,
+}: {
+  conversations: readonly ClosingConversation[];
+}) {
+  const { t } = useTranslation();
+  if (conversations.length === 0) return null;
+  const under = new Map<string, number>();
+  for (const { parent } of conversations) {
+    if (parent) under.set(parent, (under.get(parent) ?? 0) + 1);
+  }
+  const summary = [
+    t("task.remove_agents", { count: conversations.length }),
+    ...[...under].map(([name, count]) => t("task.remove_agents_under", { name, count })),
+  ].join(" · ");
+  const more = conversations.length - SHOWN;
+  return (
+    <span className="mt-2 block text-foreground" data-testid="remove-task-conversations">
+      <span className="block">{summary}</span>
+      {conversations.slice(0, SHOWN).map(({ key, title, parent }) => (
+        <span key={key} className="flex min-w-0 items-center gap-1.5 pl-2">
+          <span className="min-w-0 truncate" title={title}>
+            {title}
+          </span>
+          {parent && (
+            <span className="max-w-[45%] shrink-0 truncate text-muted-foreground" title={parent}>
+              {t("agentView.list.parent", { name: parent })}
+            </span>
+          )}
+        </span>
+      ))}
+      {more > 0 && (
+        <span className="block pl-2 text-muted-foreground">
+          {t("task.remove_agents_more", { count: more })}
+        </span>
+      )}
+    </span>
   );
 }

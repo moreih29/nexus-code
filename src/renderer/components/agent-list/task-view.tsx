@@ -6,21 +6,16 @@
 // done in it.
 
 import {
-  ChevronDown,
-  ChevronRight,
   CornerDownRight,
   Ellipsis,
   FileDiff,
   Folder,
   GitBranch,
   Hourglass,
-  ListTodo,
-  MessageCircleQuestion,
   MessageSquarePlus,
-  Shield,
   SquareTerminal,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { copyTextViaIpc } from "@/utils/clipboard";
 import { cn } from "@/utils/cn";
@@ -39,13 +34,7 @@ import {
   sessionKey,
   type WorktreeEntry,
 } from "../../services/agent-sessions/model";
-import {
-  chatRowFacts,
-  groupOf,
-  hookRowFacts,
-  type RowFacts,
-  waitedOn,
-} from "../../services/agent-sessions/rows";
+import { chatRowFacts, groupOf, hookRowFacts, waitedOn } from "../../services/agent-sessions/rows";
 import { searchSessionTree, sessionTree } from "../../services/agent-sessions/session-tree";
 import type { WorktreeChanges } from "../../services/agent-sessions/use-family";
 import { workspaceTrees } from "../../services/agent-view/sidebar-tree";
@@ -61,10 +50,12 @@ import {
 } from "../ui/dropdown-menu";
 import { AgentRows } from "./agent-rows";
 import type { AgentListSelection } from "./selection";
-import { StateGlyph, stateColor, stateLabel, useDurationLabel } from "./session-status";
-import { SessionRelations, SessionTreeBranch } from "./session-tree-rows";
-import { AgentMark, ToolIcon } from "./status-view";
+import { PlaceTag } from "./session-row";
+import { SessionSign, stateColor, useDurationLabel } from "./session-status";
+import { FamilyFold, ParentCaption, SessionTreeBranch } from "./session-tree-rows";
+import { AgentMark } from "./status-view";
 import { TaskInfo } from "./task-info";
+import { TaskHeaderAction, TaskHeaderLine, TaskRowLine } from "./task-row-line";
 
 interface TaskViewProps {
   family: SessionFamily;
@@ -111,7 +102,7 @@ export function TaskView({
   }
   return (
     <div className="flex flex-col gap-3 p-2" data-testid="agent-list-task-view">
-      {groups.map(({ worktree, roots, moved }) => {
+      {groups.map(({ worktree, roots, hosted }) => {
         const id = worktree.workspace.id;
         const createdBy = worktree.workspace.task?.createdBy;
         const creator = createdBy
@@ -141,17 +132,8 @@ export function TaskView({
                 changes={changes.get(id)}
               />
             )}
-            {moved.map(({ key, title, count }) => (
-              <p
-                key={key}
-                className="truncate border-t border-border px-3 py-1.5 text-app-micro text-muted-foreground"
-                title={t("agentView.list.moved_family", { name: title, count })}
-                data-testid="agent-list-moved"
-              >
-                {t("agentView.list.moved_family", { name: title, count })}
-              </p>
-            ))}
-            {roots.length === 0 && moved.length === 0 && (
+            {/* A conversation listed under its parent elsewhere still runs here. */}
+            {roots.length === 0 && hosted === 0 && (
               <p className="border-t border-border px-3 py-1.5 text-app-ui-sm text-muted-foreground">
                 {t("agentList.task.no_conversations")}
               </p>
@@ -174,12 +156,21 @@ export function TaskView({
                         branch={
                           session.workspaceId === id ? undefined : branchOf.get(session.workspaceId)
                         }
+                        parent={<ParentCaption node={node} />}
+                        family={
+                          node.count > 0 && (
+                            <FamilyFold
+                              session={session}
+                              count={node.count}
+                              collapsed={collapsed}
+                              counts={node.counts}
+                              testPrefix="agent-list"
+                            />
+                          )
+                        }
                         selected={selection?.key === session.key}
                         onSelect={(from) => onSelect({ kind: "session", key: session.key }, from)}
                       />
-                      <div className="px-3">
-                        <SessionRelations node={node} collapsed={collapsed} />
-                      </div>
                       <AgentRows
                         agents={activity.get(session.key)?.agents ?? []}
                         selectedId={
@@ -249,44 +240,13 @@ function TaskHeader({
   const { workspace } = worktree;
   const name = worktreeName(worktree, branch);
   const path = workspace.task?.worktreePath ?? workspace.rootPath;
-  const Chevron = unfolded ? ChevronDown : ChevronRight;
   return (
-    <div
-      className="group/task relative flex min-w-0 items-center gap-2 px-3 py-2 text-app-ui-sm transition-colors hover:bg-[var(--state-hover-bg)]"
-      data-testid="agent-list-task-header"
-    >
-      {/* The header as one button behind its content, so its actions stay buttons. */}
-      <button
-        type="button"
-        aria-expanded={unfolded}
-        aria-label={name}
-        onClick={onToggle}
-        className="absolute inset-0 outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
-      />
-      <div className="pointer-events-none relative flex min-w-0 flex-1 items-center gap-2">
-        <Chevron aria-hidden className="-ml-1 size-3.5 shrink-0 text-muted-foreground" />
-        <WorktreeMark worktree={worktree} />
-        {/* The name keeps its width beside the branch or the creator, which
-            give way first, up to most of the line. */}
-        <span
-          className={cn(
-            "truncate font-medium text-foreground",
-            (worktree.isRoot && branch) || creator ? "max-w-[70%] shrink-0" : "min-w-0",
-          )}
-          title={name}
-        >
-          {name}
-        </span>
-        {worktree.isRoot && branch && (
-          <span
-            className="flex min-w-0 shrink items-center gap-1 rounded-(--radius-control) bg-muted px-1.5 font-mono text-app-micro text-muted-foreground @max-xs/agents:hidden"
-            title={branch}
-          >
-            <GitBranch aria-hidden className="size-3 shrink-0" />
-            <span className="truncate">{branch}</span>
-          </span>
-        )}
-        {creator && (
+    <TaskHeaderLine
+      name={name}
+      isRoot={worktree.isRoot}
+      branch={branch}
+      creator={
+        creator && (
           <span
             className="flex min-w-0 shrink items-center gap-1 text-app-micro text-muted-foreground @max-xs/agents:hidden"
             title={t("agentList.task.created_by", { title: creator.title })}
@@ -295,110 +255,80 @@ function TaskHeader({
             <AgentMark session={creator} className="size-3" />
             <span className="truncate">{creator.title}</span>
           </span>
-        )}
-      </div>
-      {changed > 0 && (
-        <span
-          className={cn(
-            "pointer-events-none relative flex shrink-0 items-center gap-1 text-app-micro text-muted-foreground tabular-nums",
-            menuOpen ? "hidden" : "group-focus-within/task:hidden group-hover/task:hidden",
-          )}
-          title={t("agentList.detail.changes", { count: changed })}
-        >
-          <FileDiff aria-hidden className="size-3.5" />
-          {changed}
-        </span>
-      )}
-      {/* The buttons stand over the header's padding, so showing them does
-          not make the line taller than its text. */}
-      <div
-        className={cn(
-          "relative -my-1 shrink-0 items-center gap-0.5",
-          menuOpen ? "flex" : "hidden group-focus-within/task:flex group-hover/task:flex",
-        )}
-      >
-        <HeaderAction
-          label={t("agentList.detail.show_changes")}
-          onClick={() => showChanges(workspace.id)}
-        >
-          <FileDiff aria-hidden className="size-3.5" />
-        </HeaderAction>
-        <HeaderAction
-          label={t("agentList.task.open_terminal")}
-          onClick={() => openWorktreeTerminal(workspace)}
-        >
-          <SquareTerminal aria-hidden className="size-3.5" />
-        </HeaderAction>
-        <HeaderAction
-          label={t("agentList.list.new_claude")}
-          onClick={() => openWorktreeChat(workspace)}
-        >
-          <MessageSquarePlus aria-hidden className="size-3.5" />
-        </HeaderAction>
-        <DropdownMenuRoot onOpenChange={setMenuOpen}>
-          <DropdownMenuTrigger>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              className="size-6"
-              title={t("agentList.task.more")}
-              aria-label={t("agentList.task.more")}
-            >
-              <Ellipsis aria-hidden className="size-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={() => void copyTextViaIpc(path)}>
-              {t("agentList.task.copy_path")}
-            </DropdownMenuItem>
-            {!worktree.isRoot && (
-              <DropdownMenuItem
-                className="text-(--state-error-fg)"
-                onSelect={() => removeTask(workspace.id)}
+        )
+      }
+      changed={changed}
+      unfolded={unfolded}
+      onToggle={onToggle}
+      menuOpen={menuOpen}
+      testId="agent-list-task-header"
+      actions={
+        <>
+          <TaskHeaderAction
+            label={t("agentList.detail.show_changes")}
+            onClick={() => showChanges(workspace.id)}
+          >
+            <FileDiff aria-hidden className="size-3.5" />
+          </TaskHeaderAction>
+          <TaskHeaderAction
+            label={t("agentList.task.open_terminal")}
+            onClick={() => openWorktreeTerminal(workspace)}
+          >
+            <SquareTerminal aria-hidden className="size-3.5" />
+          </TaskHeaderAction>
+          <TaskHeaderAction
+            label={t("agentList.list.new_claude")}
+            onClick={() => openWorktreeChat(workspace)}
+          >
+            <MessageSquarePlus aria-hidden className="size-3.5" />
+          </TaskHeaderAction>
+          <DropdownMenuRoot onOpenChange={setMenuOpen}>
+            <DropdownMenuTrigger>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                className="size-6"
+                title={t("agentList.task.more")}
+                aria-label={t("agentList.task.more")}
               >
-                {t("agentList.detail.remove_task")}
+                <Ellipsis aria-hidden className="size-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => void copyTextViaIpc(path)}>
+                {t("agentList.task.copy_path")}
               </DropdownMenuItem>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenuRoot>
-      </div>
-    </div>
-  );
-}
-
-/** One of a worktree header's actions, as an icon with its name for a title. */
-function HeaderAction({
-  label,
-  onClick,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Button
-      size="icon-sm"
-      variant="ghost"
-      className="size-6"
-      title={label}
-      aria-label={label}
-      onClick={onClick}
-    >
-      {children}
-    </Button>
+              {!worktree.isRoot && (
+                <DropdownMenuItem
+                  className="text-(--state-error-fg)"
+                  onSelect={() => removeTask(workspace.id)}
+                >
+                  {t("agentList.detail.remove_task")}
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenuRoot>
+        </>
+      }
+    />
   );
 }
 
 /**
- * A conversation in a line: its state, its mark and title, what it waits
- * on or runs, and how long it has been so.
+ * A conversation in a line, in the agent view's order: its mark and title,
+ * the branch it runs on where the card is another worktree's, its parent
+ * where the tree does not show it, the conversation its terminal waits to
+ * end, its children's chip, its state and how long. The title keeps the
+ * room it needs first; what follows it goes out of sight where it would not
+ * fit beside it.
  */
 export function TaskRow({
   session,
   activity,
   waitingOn,
   branch,
+  parent,
+  family,
   selected,
   onSelect,
 }: {
@@ -407,6 +337,8 @@ export function TaskRow({
   /** The conversation its terminal waits to end. */
   waitingOn: AgentSession | undefined;
   branch?: string;
+  parent?: ReactNode;
+  family?: ReactNode;
   selected: boolean;
   /** Picked, with its row. */
   onSelect: (from: HTMLElement) => void;
@@ -421,90 +353,46 @@ export function TaskRow({
         : hookRowFacts(undefined);
   const duration = useDurationLabel(session.since);
   const group = groupOf(session);
-  const quiet = group === "idle";
+  const tool = session.phase === "running" ? facts.tool : undefined;
   return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={(event) => onSelect(event.currentTarget)}
-      className={cn(
-        "flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left text-app-ui-sm transition-colors outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
-        selected ? "bg-[var(--sidebar-item-selected-bg)]" : "hover:bg-[var(--state-hover-bg)]",
-      )}
-      data-testid="agent-list-task-row"
-      data-session-key={session.key}
-    >
-      <span className="flex w-3.5 shrink-0 justify-center" title={stateLabel(session)}>
-        <StateGlyph state={session.state} />
-      </span>
-      <AgentMark session={session} />
-      <span
-        className={cn(
-          "min-w-0 truncate",
-          group === "attention" || group === "running" || group === "done"
-            ? "font-medium text-foreground"
-            : "text-foreground/90",
-        )}
-        title={session.title}
-      >
-        {session.title}
-      </span>
-      {branch && (
-        <span
-          title={branch}
-          className="flex min-w-0 items-center gap-0.5 rounded-full border border-border px-1.5 font-mono text-app-micro text-muted-foreground"
-        >
-          <GitBranch aria-hidden className="size-3 shrink-0" />
-          <span className="truncate">{branch}</span>
-        </span>
-      )}
-      {waitingOn && (
-        <span
-          className="flex min-w-0 shrink items-center gap-1 text-app-micro text-muted-foreground"
-          title={t("agentList.task.waiting_on", { title: waitingOn.title })}
-        >
-          <Hourglass aria-hidden className="size-3 shrink-0" />
-          <AgentMark session={waitingOn} className="size-3" />
-          <span className="truncate">{waitingOn.title}</span>
-        </span>
-      )}
-      <span className="ml-auto flex shrink-0 items-center gap-2">
-        <RowSign session={session} facts={facts} />
-        {duration && (
-          <span
-            className={cn(
-              "text-app-micro tabular-nums",
-              group === "attention" || group === "done"
-                ? stateColor(session.state)
-                : "text-muted-foreground",
-              quiet && "text-muted-foreground",
+    <TaskRowLine
+      mark={<AgentMark session={session} />}
+      title={session.title}
+      tooltip={tool ? `${session.title}\n${tool.name} ${tool.target ?? ""}`.trim() : session.title}
+      emphasized={group === "attention" || group === "running" || group === "done"}
+      tags={
+        (branch || parent || waitingOn) && (
+          <>
+            {branch && (
+              <PlaceTag place={{ kind: "branch", name: branch }} testId="agent-list-branch" />
             )}
-          >
-            {duration}
-          </span>
-        )}
-      </span>
-    </button>
+            {parent}
+            {waitingOn && (
+              <span
+                className="flex max-w-40 min-w-0 items-center gap-1"
+                title={t("agentList.task.waiting_on", { title: waitingOn.title })}
+              >
+                <Hourglass aria-hidden className="size-3 shrink-0" />
+                <AgentMark session={waitingOn} className="size-3" />
+                <span className="truncate">{waitingOn.title}</span>
+              </span>
+            )}
+          </>
+        )
+      }
+      family={family}
+      sign={<SessionSign session={session} facts={facts} />}
+      duration={duration}
+      durationClass={
+        group === "attention" || group === "done"
+          ? stateColor(session.state)
+          : "text-muted-foreground"
+      }
+      selected={selected}
+      aria-pressed={selected}
+      onSelect={onSelect}
+      testId="agent-list-task-row"
+      sessionKey={session.key}
+    />
   );
-}
-
-/** What the conversation waits on, or the kind of call it runs, as an icon. */
-function RowSign({ session, facts }: { session: AgentSession; facts: RowFacts }) {
-  const warn = "size-3.5 shrink-0 text-(--state-warning-fg)";
-  const wait = facts.wait;
-  if (wait?.kind === "question" || (!wait && session.state === "needsInput")) {
-    return <MessageCircleQuestion aria-hidden className={warn} />;
-  }
-  if (wait?.kind === "plan") return <ListTodo aria-hidden className={warn} />;
-  if (wait?.kind === "permission" || session.state === "permissionPending") {
-    return <Shield aria-hidden className={warn} />;
-  }
-  if (session.phase === "running" && facts.tool) {
-    return (
-      <span title={facts.tool.target ? `${facts.tool.name} ${facts.tool.target}` : facts.tool.name}>
-        <ToolIcon name={facts.tool.name} />
-      </span>
-    );
-  }
-  return null;
 }

@@ -81,10 +81,9 @@ test("peer choices keep their tabs and tree while local selection and persistenc
     store.toggleFolder(id, "/w/src");
     expect(useActiveStore.getState().activeWorkspaceId).toBeNull();
 
+    // ⌘W and ⌘T act on the peer workspace itself (tests/unit/renderer/commands).
     for (const command of [
-      COMMANDS.terminalNew,
       COMMANDS.fileSave,
-      COMMANDS.tabClose,
       COMMANDS.fileNew,
       COMMANDS.workspaceFocusNext,
       COMMANDS.sessionNextWaiting,
@@ -99,6 +98,11 @@ test("peer choices keep their tabs and tree while local selection and persistenc
     expect(useFilesStore.getState().trees).toBe(tree);
     expect(useUIStore.getState().filesPanelModes).toBe(mode);
     expect(call).not.toHaveBeenCalled();
+    // ⌘T asks the room whether that computer lets this one open a terminal; nothing local.
+    executeCommand(COMMANDS.terminalNew);
+    expect(call.mock.calls).toEqual([["remote", "room", undefined]]);
+    expect(useLayoutStore.getState().byWorkspace).toBe(layout);
+    expect(useTabsStore.getState().byWorkspace).toBe(tabs);
 
     selectPeerWorkspace({ ...target, deviceId: "other" });
     returnFromPeerWorkspace();
@@ -358,4 +362,24 @@ test("a newer complete list marks a never-listed background session gone and exc
   expect(view().tabs).toHaveLength(1);
   expect(view().sessions).toEqual([]);
   expect(view().activePath).toBe(JSON.stringify(["peer.session", "new"]));
+});
+
+test("each peer workspace keeps its files panel view while the app runs", () => {
+  const other: PeerWorkspaceTarget = {
+    ...target,
+    workspaceId: "w2",
+    workspace: { id: "w2", name: "Other", path: "/o" },
+  };
+  const store = usePeerWorkspaceStore.getState();
+  store.select(target, null);
+  store.setFilesMode(id, "git");
+  expect(usePeerWorkspaceStore.getState().views[id]?.filesMode).toBe("git");
+  store.select(other, null);
+  expect(usePeerWorkspaceStore.getState().views[peerTargetId(other)]?.filesMode).toBeUndefined();
+  store.setFilesMode(peerTargetId(other), "agents");
+  store.select(target, null);
+  expect(usePeerWorkspaceStore.getState().views[id]?.filesMode).toBe("git");
+  // Another account starts again from the tree.
+  store.setAccount("another");
+  expect(usePeerWorkspaceStore.getState().views[id]).toBeUndefined();
 });

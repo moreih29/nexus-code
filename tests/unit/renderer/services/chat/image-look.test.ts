@@ -187,3 +187,75 @@ describe("the files a look opens by path", () => {
     expect(look.paths).toEqual({ "image:1": "/out/side.png" });
   });
 });
+
+describe("images the chat shows in full, with no data", () => {
+  // A conversation as one had it: 10 images read, a mockup read then sent
+  // with one never read (outside the workspace), then 3 sent from inside it.
+  const before = Array.from({ length: 10 }, (_, i) => ({
+    file: `/ws/shot-${i}.png`,
+    image: block(`s${i}`),
+  }));
+  const tree = "/tmp/shots/tree.png";
+  const top = "/tmp/shots/top.png";
+  const shown = [
+    ...before,
+    { file: tree, image: block("tree") },
+    { file: top, placed: true as const },
+    { file: "/ws/a2.png", image: block("a2") },
+    { file: "/ws/ws-a2.png", image: block("ws-a2") },
+    { file: "/ws/mix.png", placed: true as const },
+  ];
+  // Nothing found at the moment: a lookup refused, as one the files' host is too busy for.
+  const none = async () => new Set<string>();
+
+  it("keeps a placed file a step away though no lookup finds it", () => {
+    const look = conversationLook(
+      [
+        { file: "/a.png", image: block("a") },
+        { file: top, placed: true },
+      ],
+      0,
+      () => false,
+    );
+    expect(look.files).toEqual(["image:1", top]);
+  });
+
+  it("opens each at its place among all of them, first, between and last", async () => {
+    const at = async (target: { file?: string; image?: ImageBlock }) => {
+      const look = await lookAtImage(shown, target, none);
+      return (
+        look && { count: look.files.length, number: look.index + 1, at: look.files[look.index] }
+      );
+    };
+    expect(await at({ image: before[0].image })).toEqual({ count: 15, number: 1, at: "image:1" });
+    expect(await at({ file: tree })).toEqual({ count: 15, number: 11, at: tree });
+    expect(await at({ file: top })).toEqual({ count: 15, number: 12, at: top });
+    expect(await at({ file: "/ws/mix.png" })).toEqual({
+      count: 15,
+      number: 15,
+      at: "/ws/mix.png",
+    });
+  });
+
+  it("steps from the first of the two sent to the second", async () => {
+    const look = await lookAtImage(shown, { file: tree }, none);
+    expect(look?.files[(look.index + 1) % look.files.length]).toBe(top);
+  });
+
+  it("looks up only the files it has no data or picture of", async () => {
+    const asked: string[][] = [];
+    const named = [...shown, { file: "/tmp/named.png" }];
+    const look = await lookAtImage(named, { file: tree }, async (files) => {
+      asked.push(files);
+      return new Set<string>();
+    });
+    expect(asked).toEqual([["/tmp/named.png"]]);
+    // One only named, and not found, is still left out.
+    expect(look?.files).toHaveLength(15);
+    expect(
+      await lookAtImage(shown, { file: tree }, async () => {
+        throw new Error("asked for nothing");
+      }),
+    ).not.toBeNull();
+  });
+});

@@ -207,3 +207,59 @@ describe("error handler — Canceled error is silent", () => {
     expect(logged.filter((l) => l.level === "error").length).toBeGreaterThan(0);
   });
 });
+
+describe("error handler — what an uncaught error leaves in the log", () => {
+  let windowStub: ReturnType<typeof makeWindowStub>;
+  let teardown: (() => void) | null = null;
+
+  beforeEach(() => {
+    logged.length = 0;
+    windowStub = makeWindowStub();
+    (globalThis as Record<string, unknown>).window = windowStub.stub;
+    teardown = installWindowErrorHandlers();
+  });
+
+  afterEach(() => {
+    teardown?.();
+    teardown = null;
+  });
+
+  const uncaught = () => {
+    const entries = logged.filter((l) => l.level === "error");
+    expect(entries).toHaveLength(1);
+    return entries[0]!;
+  };
+
+  test("an error keeps its name, file basename, line and column, nothing else", () => {
+    const error = new TypeError("token sk-secret-123 in C:\\Users\\kim\\notes.md");
+    const event = Object.assign(makeErrorEvent(error), {
+      message: "Uncaught TypeError: token sk-secret-123 in C:\\Users\\kim\\notes.md",
+      filename:
+        "file:///C:/Users/kim/AppData/Local/NexusCode/out/renderer/assets/index-abc.js?v=1#x",
+      lineno: 12,
+      colno: 34,
+    });
+    windowStub.invoke("error", event);
+    const entry = uncaught();
+    expect(entry.args).toContain(
+      'Uncaught renderer error name="TypeError" source="index-abc.js:12:34" errorNull=false resizeObserverLoop=false',
+    );
+    const text = JSON.stringify(entry.args);
+    for (const leaked of ["sk-secret-123", "kim", "AppData", "notes.md", "at ", "stack"]) {
+      expect(text).not.toContain(leaked);
+    }
+  });
+
+  test("a ResizeObserver loop with no error object says so", () => {
+    const event = Object.assign(makeErrorEvent(null), {
+      message: "ResizeObserver loop completed with undelivered notifications.",
+      filename: "",
+      lineno: 0,
+      colno: 0,
+    });
+    windowStub.invoke("error", event);
+    expect(uncaught().args).toContain(
+      'Uncaught renderer error name="none" source="none:0:0" errorNull=true resizeObserverLoop=true',
+    );
+  });
+});

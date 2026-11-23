@@ -4,7 +4,7 @@ import type { KeyboardEvent, MouseEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
 import type { RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
-import { SessionRelations } from "../../../../../src/renderer/components/agent-list/session-tree-rows";
+import { ParentCaption } from "../../../../../src/renderer/components/agent-list/session-tree-rows";
 import {
   fromSearch,
   StatusGroups,
@@ -13,11 +13,13 @@ import {
 import {
   PeerGroup,
   RemoteSessions,
+  RemoteTabLabel,
   workspaceGroups,
 } from "../../../../../src/renderer/components/agent-view/remote-sessions";
 import * as buttons from "../../../../../src/renderer/components/ui/button";
 import * as iconButtons from "../../../../../src/renderer/components/ui/icon-button";
 import * as ipc from "../../../../../src/renderer/ipc/client";
+import { sessionParentName } from "../../../../../src/renderer/services/agent-sessions/model";
 import { treeSessions } from "../../../../../src/renderer/services/agent-sessions/session-tree";
 import {
   activeKey,
@@ -27,11 +29,17 @@ import {
 import { RemoteResults } from "../../../../../src/renderer/services/agent-view/remote-results";
 import { remoteSessionTree } from "../../../../../src/renderer/services/agent-view/remote-session-tree";
 import * as account from "../../../../../src/renderer/services/remote/account";
-import { remoteDisplayName } from "../../../../../src/renderer/services/remote/display-name";
+import {
+  remoteDisplayName,
+  remoteTitle,
+} from "../../../../../src/renderer/services/remote/display-name";
 import * as room from "../../../../../src/renderer/services/remote/room";
 import * as view from "../../../../../src/renderer/state/stores/agent-view";
 import { useMountedWorkspacesStore } from "../../../../../src/renderer/state/stores/mounted-workspaces";
-import { useRemoteViewStore } from "../../../../../src/renderer/state/stores/remote-view";
+import {
+  listedRemoteTarget,
+  useRemoteViewStore,
+} from "../../../../../src/renderer/state/stores/remote-view";
 import * as tabs from "../../../../../src/renderer/state/stores/tabs";
 import type { RoomPeer } from "../../../../../src/shared/remote/room";
 
@@ -110,7 +118,7 @@ test("worktree children appear once under their opener and only their host's sav
       <PeerGroup peer={peer} sessions={{ status: "ready", list: treeList }} query="" />,
     );
   const html = render();
-  expect(html).toContain("↳ 1 under Plan the release");
+  expect(html).not.toContain("under Plan the release");
   expect(html).toContain('title="ship"');
   expect(html.match(/>Review the release<\/span>/g)).toHaveLength(1);
   expect(html).toContain("Read the docs");
@@ -127,6 +135,162 @@ test("worktree children appear once under their opener and only their host's sav
   } finally {
     store.mockRestore();
   }
+});
+
+test("a worktree holding only children makes no group and waits behind its parent's chip", () => {
+  const grouped = (sessions: RemoteSession[], query = "") =>
+    workspaceGroups(
+      { workspaces: [workspace, task], sessions },
+      { deviceId: host.id, query, opens: false, inPanel: () => false, worktreesIn: new Set() },
+    );
+  const quiet = grouped([parent, activeChild]);
+  expect(quiet.groups.map(([id]) => id)).toEqual([workspace.id]);
+  expect([...quiet.worktreeCounts]).toEqual([[workspace.id, 1]]);
+  expect(grouped([parent, activeChild], "review").groups.map(([id]) => id)).toEqual([workspace.id]);
+  const html = renderToStaticMarkup(
+    <PeerGroup
+      peer={host}
+      sessions={{ status: "ready", list: { ...treeList, sessions: [parent, activeChild] } }}
+      query=""
+    />,
+  );
+  expect(html.match(/data-testid="remote-workspace"/g)).toHaveLength(1);
+  expect(html).toContain('data-testid="remote-worktrees-toggle"');
+  expect(html).not.toContain("under Plan the release");
+  expect(html).toContain("Review the release");
+});
+
+test("a mixed worktree's group lists only its own conversations", () => {
+  const own = row("own", { workspaceId: task.id, title: "Check the defaults", state: "running" });
+  const { groups, worktreeCounts } = workspaceGroups(
+    { workspaces: [workspace, task], sessions: [parent, activeChild, own] },
+    { deviceId: host.id, query: "", opens: false, inPanel: () => false, worktreesIn: new Set() },
+  );
+  expect(groups.map(([id, rows]) => [id, rows.map((each) => each.tabId)])).toEqual([
+    [workspace.id, [parent.tabId]],
+    [task.id, [own.tabId]],
+  ]);
+  expect(worktreeCounts.size).toBe(0);
+  const html = renderToStaticMarkup(
+    <PeerGroup
+      peer={host}
+      sessions={{ status: "ready", list: { ...treeList, sessions: [parent, activeChild, own] } }}
+      query=""
+    />,
+  );
+  const [home = "", worktree = ""] = html.split('data-task=""');
+  expect(home).toContain("Review the release");
+  expect(worktree).toContain("Check the defaults");
+  expect(worktree).not.toContain("Review the release");
+  expect(html).not.toContain("under Plan the release");
+});
+
+function remoteStatus(list = treeList) {
+  return renderToStaticMarkup(
+    <StatusGroups
+      agents={emptyAgents}
+      activity={new Map()}
+      remote={[{ peer: host, list }]}
+      query=""
+      results={new RemoteResults()}
+    />,
+  );
+}
+
+/** Each row's markup, from its frame to the next row's. */
+function remoteRows(html: string): string[] {
+  return html.split('data-testid="remote-session-item"').slice(1);
+}
+
+test("by state, a family's root tells its computer and place once and a child only a place elsewhere", () => {
+  const [root = "", child = "", ...rest] = remoteRows(remoteStatus());
+  expect(rest).toHaveLength(0);
+  expect(root).toContain('data-testid="session-row-device"');
+  expect(root).toContain(">Remote host<");
+  expect(root).toMatch(/data-testid="session-row-place"><svg[^>]*lucide-folder/);
+  expect(child).not.toContain('data-testid="session-row-device"');
+  expect(child).toMatch(/data-testid="session-row-place"><svg[^>]*lucide-git-branch/);
+  expect(child).toContain(">ship<");
+  // No line of its own for the relations: the chip is in the row's second line.
+  expect(root).toMatch(
+    /data-testid="remote-session-fold-family"[\s\S]*<\/button><\/div><\/div><\/div>/,
+  );
+});
+
+test("every remote row tells its own state, a parent raised by its children too", () => {
+  const [root = "", child = ""] = remoteRows(remoteStatus());
+  // In the group that needs the user, raised there by its child, the parent still works.
+  expect(root).toContain('role="img" aria-label="Running"');
+  expect(child).toContain('role="img" aria-label="Needs you"');
+  const running = remoteRows(
+    remoteStatus({ ...treeList, sessions: [{ ...parent, tabId: "alone" }] }),
+  );
+  expect(running[0]).toContain('role="img" aria-label="Running"');
+});
+
+test("a folded remote family tells inside its chip what of it works and waits", () => {
+  const working = row("working", { state: "running", openedBy });
+  const done = row("done", { state: "new-result", openedBy });
+  const fold = `family:${remoteSessionKey({ deviceId: host.id, ...parent })}`;
+  const state = view.useAgentViewStore.getInitialState();
+  const store = spyOn(view, "useAgentViewStore").mockImplementation((select) =>
+    select({ ...state, folded: new Set([fold]) }),
+  );
+  try {
+    const html = remoteStatus({
+      ...treeList,
+      sessions: [parent, activeChild, idleChild, working, done],
+    });
+    const chip =
+      html.match(/<button[^>]*data-testid="remote-session-fold-family">.*?<\/button>/)?.[0] ?? "";
+    expect(chip).toContain('aria-label="4 conversations under it · Working 1 · Needs you 1"');
+    expect(chip.match(/data-testid="remote-session-summary"/g)).toHaveLength(2);
+    expect(chip).toContain("lucide-loader");
+    expect(chip).toContain("lucide-circle-alert");
+    expect(chip).not.toContain("lucide-circle-check");
+  } finally {
+    store.mockRestore();
+  }
+});
+
+test.each([
+  ["permission", "lucide-shield", "Needs you · Permission request"],
+  ["question", "lucide-message-circle-question", "Needs you · Question"],
+  ["plan", "lucide-list-todo", "Needs you · Plan to approve"],
+  [undefined, "lucide-circle-alert", "Needs you"],
+] as const)("another computer's row waiting on a %s tells it by its icon", (kind, icon, label) => {
+  const waiting = row("waiting", {
+    state: "needs-you",
+    title: "Snapshot check",
+    ...(kind ? { waiting: { kind, text: "Make new snapshots?" } } : {}),
+  });
+  const list = { workspaces: [workspace], sessions: [waiting] };
+  for (const html of [
+    remoteStatus(list),
+    renderToStaticMarkup(<PeerGroup peer={host} query="" sessions={{ status: "ready", list }} />),
+  ]) {
+    const sign = html.match(
+      /<span role="img" aria-label="([^"]+)"[^>]*data-testid="remote-session-wait"[^>]*>(<svg[^>]*>)/,
+    );
+    expect(sign?.[1]).toBe(label);
+    expect(sign?.[2]).toContain(icon);
+    if (kind) expect(html).toContain("Make new snapshots?");
+  }
+});
+
+test("a child row takes its tree line's width, so a long title ends in an ellipsis", () => {
+  const long = { ...activeChild, title: "Read the brief and run every check it lists" };
+  const html = renderToStaticMarkup(
+    <PeerGroup
+      peer={host}
+      sessions={{ status: "ready", list: { ...treeList, sessions: [parent, long] } }}
+      query=""
+    />,
+  );
+  const child = html.split('data-testid="remote-session-tree-line"')[1] ?? "";
+  const row = child.match(/<div class="([^"]+)"[^>]*data-testid="remote-session-item"/);
+  expect(row?.[1]?.split(" ")).toEqual(expect.arrayContaining(["w-full", "min-w-0"]));
+  expect(child).toMatch(/class="[^"]*\btruncate\b[^"]*"[^>]*>Read the brief and run every check/);
 });
 
 test("a local opener uses the account device ID, current title and actual workspace", () => {
@@ -372,7 +536,7 @@ test("local workspace rows keep a saved parent closed when the ID has no own tab
           parent: { kind: "tab" as const, workspaceId: workspace.id, tabId },
         },
       };
-      const html = renderToStaticMarkup(<SessionRelations node={node} collapsed={false} />);
+      const html = renderToStaticMarkup(<ParentCaption node={node} />);
       expect(html).toContain("↳ Saved · closed");
       expect(html).toContain("opacity-70");
     }
@@ -562,4 +726,72 @@ test("visible remote rows take arrow and edge keys, and Enter opens the first se
   );
   expect(rows[0]?.click).toHaveBeenCalledTimes(1);
   expect(rows[1]?.click).not.toHaveBeenCalled();
+});
+
+// A title an older app on another computer made kept the whole path.
+const OLD_BRIEF = "작업 지시서 /c/Users/demo/AppData/Local/Temp/qa-brief.md 를 읽고";
+const SHORT_BRIEF = "작업 지시서 qa-brief.md 를 읽고";
+// A title the user wrote: past a sentence's end and past sixty letters.
+const WRITTEN =
+  "C:\\Users\\demo\\notes\\release-plan.md 정리. 그다음 0.4.0 변경 사항을 세 묶음으로 나누고 릴리스 노트 초안을 써 주세요";
+
+test("another computer's title shows its paths shortened, and nothing else cut", () => {
+  expect(remoteTitle(OLD_BRIEF)).toBe(SHORT_BRIEF);
+  expect(WRITTEN.length).toBeGreaterThan(60);
+  expect(remoteTitle(WRITTEN)).toBe(
+    "release-plan.md 정리. 그다음 0.4.0 변경 사항을 세 묶음으로 나누고 릴리스 노트 초안을 써 주세요",
+  );
+  // Its lines are joined, as every label from another computer's is, not cut to the first.
+  expect(remoteTitle("첫 줄\n/Users/demo/out/report.md 둘째 줄")).toBe("첫 줄 report.md 둘째 줄");
+  expect(remoteTitle("/review src/app.ts")).toBe("/review src/app.ts");
+  expect(remoteTitle(undefined)).toBe("");
+});
+
+test.each([
+  OLD_BRIEF,
+  WRITTEN,
+  '"/Users/demo/My Docs/brief.md" 읽기',
+  "결과(/Users/demo/out/report.md) 확인",
+  "https://github.com/acme/app/pull/12 리뷰",
+])("a title shown once reads the same shown again: %s", (title) => {
+  expect(remoteTitle(remoteTitle(title))).toBe(remoteTitle(title));
+});
+
+test("rows, tabs and parents show another computer's titles shortened; what is kept stays whole", () => {
+  const brief = row("brief", { title: OLD_BRIEF, state: "running", since: 5 });
+  const [shown = ""] = remoteRows(remoteStatus({ workspaces: [workspace], sessions: [brief] }));
+  expect(shown).toContain(`>${SHORT_BRIEF}</span>`);
+  expect(shown).toContain(`aria-label="${SHORT_BRIEF}"`);
+  expect(shown).not.toContain("AppData");
+  // The workspace grouping's rows, and a search for what the row shows.
+  const grouped = renderToStaticMarkup(
+    <PeerGroup
+      peer={host}
+      sessions={{ status: "ready", list: { workspaces: [workspace], sessions: [brief] } }}
+      query="지시서 qa-brief"
+    />,
+  );
+  expect(grouped).toContain(`>${SHORT_BRIEF}</span>`);
+  // The tab keeps the title as that computer sent it, and shows it shortened.
+  const target = listedRemoteTarget(host, workspace, brief);
+  expect(target.title).toBe(OLD_BRIEF);
+  expect(renderToStaticMarkup(<RemoteTabLabel target={target} />)).toContain(
+    `>${SHORT_BRIEF}</span>`,
+  );
+  // A parent named by its child's opener, closed or on yet another computer.
+  const opener = { workspaceId: workspace.id, tabId: "1a2b3c4d-missing", name: OLD_BRIEF };
+  expect(remoteWithOpener(opener)).toContain(
+    `data-testid="remote-session-parent">↳ ${SHORT_BRIEF} · closed</span>`,
+  );
+  expect(remoteWithOpener({ ...opener, device: { id: "away", name: "Win Desk" } })).toContain(
+    `↳ <bdi>Win Desk</bdi> · <bdi>${SHORT_BRIEF}</bdi>`,
+  );
+});
+
+test("a conversation here opened from another computer names that parent shortened, a tab here as kept", () => {
+  const away = { kind: "tab" as const, tabId: "lead", name: OLD_BRIEF };
+  expect(sessionParentName({ ...away, device: { id: "windesk", name: "Win Desk" } })).toBe(
+    SHORT_BRIEF,
+  );
+  expect(sessionParentName(away)).toBe(OLD_BRIEF);
 });

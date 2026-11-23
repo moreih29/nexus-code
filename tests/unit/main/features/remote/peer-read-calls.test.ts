@@ -89,6 +89,27 @@ test.each([
     invalid: { workspaceId: "w1", hash: "HEAD" },
     result: { hash: "1234abcd", parents: [], subject: "First", author: "Ada", at: 1, files: [] },
   },
+  {
+    call: "peerSystemStats",
+    method: "system.stats",
+    params: { workspaceId: "w1" },
+    invalid: { workspaceId: 1 },
+    result: { cpu: 12.5, memUsed: 1, memTotal: 2 },
+  },
+  {
+    call: "peerNotesList",
+    method: "notes.list",
+    params: { workspaceId: "w1" },
+    invalid: { workspaceId: 1 },
+    result: { notes: [{ id: "n1", title: "Plan", updatedAt: 1 }] },
+  },
+  {
+    call: "peerNotesRead",
+    method: "notes.read",
+    params: { workspaceId: "w1", note: "n1" },
+    invalid: { workspaceId: "w1", note: "" },
+    result: { id: "n1", title: "Plan", updatedAt: 1, markdown: "# Plan", transcript: "" },
+  },
 ] as const)("$call validates and forwards $method with cancellation", async ({
   call,
   method,
@@ -122,6 +143,9 @@ test("the peer File and Git IPCs map only to read RPCs", () => {
     peerGitDiff: "git.diff",
     peerGitLog: "git.log",
     peerGitShow: "git.show",
+    peerSystemStats: "system.stats",
+    peerNotesList: "notes.list",
+    peerNotesRead: "notes.read",
   });
   const reads = new Set([
     "files.list",
@@ -132,12 +156,15 @@ test("the peer File and Git IPCs map only to read RPCs", () => {
     "git.diff",
     "git.log",
     "git.show",
+    "system.stats",
+    "notes.list",
+    "notes.read",
   ]);
   for (const method of Object.values(PEER_READ_METHODS)) {
     expect(reads.has(method)).toBe(true);
   }
   const methods = Object.keys(ipcContract.remote.call).filter((name) =>
-    /^peer(Files|Git)/.test(name),
+    /^peer(Files|Git|System|Notes)/.test(name),
   );
   expect(methods.toSorted()).toEqual(
     [...Object.keys(PEER_READ_METHODS), "peerFilesReadBytes"].sort(),

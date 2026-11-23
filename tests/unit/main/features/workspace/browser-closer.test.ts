@@ -136,6 +136,10 @@ function openTab(tabId: string, workspaceId: string): FakeWebContentsView {
     workspaceId,
     url: "https://example.com",
     partition: `persist:browser-${workspaceId}`,
+    win: {
+      contentView: { addChildView: () => {}, removeChildView: () => {} },
+      webContents: { id: 1 },
+    } as unknown as BrowserWindow,
   });
   return registry.get(tabId)!.view as unknown as FakeWebContentsView;
 }
@@ -146,10 +150,7 @@ function openTab(tabId: string, workspaceId: string): FakeWebContentsView {
 
 beforeEach(() => {
   events = [];
-  const win = {
-    contentView: { addChildView: () => {}, removeChildView: () => {} },
-  } as unknown as BrowserWindow;
-  initBrowserFeature(win);
+  initBrowserFeature();
 });
 
 describe("registerBrowserCloser — view destroy + clearStorageData", () => {

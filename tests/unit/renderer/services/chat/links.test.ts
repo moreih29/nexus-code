@@ -41,6 +41,15 @@ describe("chat links", () => {
     expect(resolveFilePath("a\\b.txt", "/w")).toBe("/w/a\\b.txt");
   });
 
+  test("a Windows network path is never one: a link cannot send a lookup to a server", () => {
+    const cwd = "C:/w/proj";
+    for (const link of ["\\\\server\\share\\a.png", "//server/share/a.png"]) {
+      const path = resolveFilePath(link, cwd);
+      expect(path?.startsWith("//")).toBe(false);
+      expect(path).toBe("/server/share/a.png");
+    }
+  });
+
   test("a line after a path is the link's line, not part of the file's name", () => {
     // As Codex 0.166 writes them on Windows: the path with slashes, then the line.
     expect(resolveFileLink("C:/w/proj/src/math.ts:2", "C:/w/proj")).toEqual({

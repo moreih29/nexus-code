@@ -20,8 +20,14 @@ import {
   PROFILE_DIR_ENV,
   SHAREABLE,
 } from "../../../shared/agent-profiles/profiles";
+import { isPrintRunReader, PRINT_RUN_READER_PREFIX } from "../../../shared/chat/print-run-reader";
 import { type ClaudeTurnResult, claudeTurnResult } from "../../../shared/claude/turn-result";
-import type { TranscriptPageResult } from "../../../shared/ipc/contract";
+import type {
+  ChatPeekTail,
+  PrintRunReaderResult,
+  PrintRunTranscriptResult,
+  TranscriptPageResult,
+} from "../../../shared/ipc/contract";
 import { createLogger } from "../../../shared/log/main";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { tryGetMainT } from "../../i18n";
@@ -33,6 +39,7 @@ import {
   codexConnectionCatalog,
   codexConnectionEnv,
 } from "../agent-profiles/connection-launch";
+import type { PrintRunSource } from "../claude/session-activity";
 import type { ChatAgentContext } from "../cli/commands/agent-context";
 import type { WindowsAgentFiles } from "../pty/windows-shell-shim";
 import type { HookInfo } from "../workspace/manager";
@@ -91,6 +98,65 @@ export interface ChatWorkspaceManager {
   getWrapperAgentBin(workspaceId: string): string | null;
   getWrapperShimDir(workspaceId: string): string | null;
   isLocal?(workspaceId: string): boolean;
+  /** The workspace's agent channel only while it is up: an SSH host is not dialed. */
+  peekAgentChannel?(workspaceId: string): Promise<AgentChannel | null>;
+  /**
+   * The host and user whose attach folder the workspace's agent writes in,
+   * the same for every workspace there (attachHostOf); null when unknown.
+   */
+  attachHost?(workspaceId: string): string | null;
+}
+
+/** How long an attached file no open tab uses stays unused before a prune removes it. */
+export const ATTACH_UNUSED_MS = 30 * 24 * 60 * 60 * 1000;
+/** The most a workspace's attached files hold; past it a prune removes the least recently used. */
+export const ATTACH_ROOM_BYTES = 1024 * 1024 * 1024;
+
+/**
+ * The attach root an agent told, or null when it names none. One on a network
+ * share (`\\server\share`, `//server/share`) counts as none: the app does not
+ * read slots from it (attachRootOf), so it could name none an open tab keeps,
+ * and nothing kept past its tab there would ever go.
+ */
+function namedRoot(root: unknown): string | null {
+  if (typeof root !== "string" || root === "") return null;
+  return /^[\\/]{2}/.test(root) ? null : root;
+}
+
+/** Removed workspaces whose attached files wait for an agent on their host to remove them. */
+export interface AttachCleanups {
+  add(host: string, workspaceId: string): void;
+  /** The workspaces waiting on the host. */
+  waiting(host: string): string[];
+  /** One no longer waits: its folder went. */
+  remove(host: string, workspaceId: string): void;
+}
+
+/** How many readers one tab's runs have at a time. */
+const PRINT_RUN_READERS = 2;
+
+/** What a run's reader is told: the handshake and reads of its thread, nothing that changes one. */
+const PRINT_RUN_READER_METHODS = new Set([
+  "initialize",
+  "initialized",
+  "thread/read",
+  "thread/turns/list",
+]);
+/** Those of them that name a thread: the reader's own, which main fills in. */
+const PRINT_RUN_READER_THREAD_METHODS = new Set(["thread/read", "thread/turns/list"]);
+
+/** A reader main started: whose run it reads, and the one thread it may. */
+interface PrintRunReader {
+  workspaceId: string;
+  /** The tab whose run it reads: it goes with that tab. */
+  ownerTabId: string;
+  threadId: string;
+  /** The window (its webContents id) whose pane asked for it; it goes with that window. */
+  opener?: number;
+}
+
+function readerRefused(message: string): Error {
+  return Object.assign(new Error(message), { code: "chat.reader-read-only" });
 }
 
 export interface ChatHostOptions {
@@ -107,6 +173,15 @@ export interface ChatHostOptions {
   onTurnResult?: (workspaceId: string, tabId: string, result: ClaudeTurnResult) => void;
   /** The lifecycle messages for a Claude chat's background tasks. */
   onTaskEvent?: (workspaceId: string, tabId: string, message: Record<string, unknown>) => void;
+  /**
+   * Where a tab's `claude -p` or `codex exec` run keeps its session, as the
+   * app recorded it from the run's start: undefined for a run not of that tab.
+   */
+  printRunSource?: (
+    workspaceId: string,
+    tabId: string,
+    runId: string,
+  ) => PrintRunSource | undefined;
   /** A tab's program exited. */
   onProgramExit?: (workspaceId: string, tabId: string) => void;
   /** Saved chat tabs that may still have a program even before their view opens. */
@@ -129,6 +204,8 @@ export interface ChatHostOptions {
     workspaceId: string,
     tabId: string,
   ) => { profileId?: string; instructions?: string } | undefined;
+  /** Where a removed workspace's attached files wait when its host's agent was not up. */
+  attachCleanups?: AttachCleanups;
 }
 
 export type StartResult =
@@ -174,8 +251,17 @@ export class ChatHost {
   /** Tabs whose new prompt file is not yet taken by a started program. */
   private readonly promptStarting = new Set<string>();
   private readonly closingTabs = new Map<string, Promise<unknown>>();
+  /**
+   * The readers that are up, by their tab id, oldest first: a tab's runs
+   * have at most PRINT_RUN_READERS (its pane's, and one another device
+   * reads by). One leaves as it closes or its program ends; all go with
+   * their tab, the window and the app.
+   */
+  private readonly printRunReaders = new Map<string, PrintRunReader>();
   /** Workspaces whose tabs have started a program through this host. */
   private readonly workspaces = new Set<string>();
+  /** What each agent connection answered chat.attachRoot with (askAttachRoot): asked once a connection. */
+  private readonly attachRoots = new WeakMap<AgentChannel, Promise<string | null | undefined>>();
   private readonly disposeProviderReady: () => void;
   private disposed = false;
 
@@ -515,6 +601,8 @@ export class ChatHost {
     removal?: WorkspaceChatClose,
   ): Promise<unknown> {
     const key = `${workspaceId}:${tabId}`;
+    if (isPrintRunReader(tabId)) this.printRunReaders.delete(tabId);
+    else this.closePrintRunReaders(workspaceId, tabId);
     const intent = this.tabIntents.get(key);
     const previous = this.closingTabs.get(key);
     if (previous && !intent && !removal) return previous;
@@ -536,19 +624,31 @@ export class ChatHost {
         ...(intent ? { tabGeneration: intent.generation } : {}),
       };
       if (removal) {
+        // A removed workspace's files go with its folder.
         const timeoutMs = removal.deadline - Date.now();
         if (timeoutMs <= 0) return removal.expired;
         return removal.channel.call("chat.close", params, { timeoutMs });
       }
-      const channel = await this.options.workspaceManager.tryGetAgentChannel(workspaceId);
-      return channel?.call("chat.close", params);
+      // A run's reader on a host out of reach dials none: what is left there
+      // is closed as the host connects again (prunePrintRunReaders).
+      const channel = isPrintRunReader(tabId)
+        ? ((await this.options.workspaceManager.peekAgentChannel?.(workspaceId)) ?? null)
+        : await this.options.workspaceManager.tryGetAgentChannel(workspaceId);
+      if (!channel) return undefined;
+      // Its conversation may go on in another tab, which names its files. Not
+      // where the agent names no attach root (a home it cannot name, or an
+      // agent from before): no prune there knows what a conversation names,
+      // so the files go with the tab, as they did. Kept when asking failed.
+      const kept = (await this.askAttachRoot(channel)) !== null;
+      return channel.call("chat.close", { ...params, ...(kept ? { keepAttachments: true } : {}) });
     };
     const run = (async () => {
       try {
         return await (removal ? Promise.race([close(), removal.expired]) : close());
       } finally {
         this.subscriptions.get(workspaceId)?.processes.delete(tabId);
-        this.options.onProgramExit?.(workspaceId, tabId);
+        // A run's reader is no tab: nothing waits on its exit.
+        if (!isPrintRunReader(tabId)) this.options.onProgramExit?.(workspaceId, tabId);
       }
     })();
     this.closingTabs.set(key, run);
@@ -565,6 +665,10 @@ export class ChatHost {
     message: Record<string, unknown>,
     layer: { profileId?: string; instructions?: string } = {},
   ): Promise<void> {
+    if (isPrintRunReader(tabId)) {
+      await this.sendToPrintRunReader(workspaceId, tabId, message);
+      return;
+    }
     const channel = await this.channelFor(workspaceId);
     if (message.type === "user" && layer.instructions !== undefined) {
       this.claudeInstructions.set(`${workspaceId}:${tabId}`, layer);
@@ -648,13 +752,240 @@ export class ChatHost {
     return update.text;
   }
 
-  async call(
-    method: "stop" | "close" | "replay" | "attach" | "pruneAttachments",
-    args: unknown,
-  ): Promise<unknown> {
+  async call(method: "stop" | "close" | "replay" | "attach", args: unknown): Promise<unknown> {
     const { workspaceId, tabId } = args as { workspaceId: string; tabId: string };
     if (method === "close") return this.closeTab(workspaceId, tabId);
     return (await this.channelFor(workspaceId)).call(`chat.${method}`, args);
+  }
+
+  /**
+   * Prunes the workspace's attached files (chat.pruneAttachments): those of
+   * no open tab, that no open tab's conversation names, once unused for
+   * ATTACH_UNUSED_MS (not with capOnly), and the least recently used past
+   * ATTACH_ROOM_BYTES. First the files of removed workspaces left for an
+   * agent on the same host go.
+   *
+   * Without keepSlots (the app did not know the root to name them by), only
+   * an agent that names no root prunes: one with a home it cannot name, or
+   * one from before. It removed each tab's files as the tab closed; those of
+   * every tab not open go, as they did. Nothing goes when asking the agent
+   * for its root failed.
+   */
+  async pruneAttachments({
+    workspaceId,
+    keepTabIds,
+    keepSlots,
+    capOnly = false,
+  }: {
+    workspaceId: string;
+    keepTabIds: string[];
+    keepSlots?: string[];
+    capOnly?: boolean;
+  }): Promise<void> {
+    const channel = await this.channelFor(workspaceId);
+    const root = await this.askAttachRoot(channel);
+    if (root === undefined) return;
+    if (root === null) {
+      // Nothing is kept past its tab there, so there is no room to make.
+      if (!capOnly) await channel.call("chat.pruneAttachments", { workspaceId, keepTabIds });
+      return;
+    }
+    // What the open conversations name is not known: nothing goes on a guess.
+    if (!keepSlots) return;
+    await this.removeWaitingAttachments(workspaceId, channel);
+    await channel.call("chat.pruneAttachments", {
+      workspaceId,
+      keepTabIds,
+      // An agent between (it tells its root, not this) removes every closed tab's files, as it did.
+      retain: {
+        keep: keepSlots,
+        maxAgeMs: capOnly ? 0 : ATTACH_UNUSED_MS,
+        maxBytes: ATTACH_ROOM_BYTES,
+      },
+    });
+  }
+
+  /**
+   * Touches or removes attached files by their slots. An agent from before
+   * has neither, nor kept a file past its tab: nothing to do there.
+   */
+  async attachmentCall(
+    method: "touchAttachments" | "removeAttachments",
+    args: { workspaceId: string; slots: string[] },
+  ): Promise<void> {
+    if (args.slots.length === 0) return;
+    const channel = await this.channelFor(args.workspaceId);
+    await channel.call(`chat.${method}`, args).catch((error: unknown) => {
+      if ((error as { code?: unknown } | null)?.code !== "unsupported-method") throw error;
+    });
+  }
+
+  /** Removes the folders of removed workspaces whose host is this workspace's. */
+  private async removeWaitingAttachments(
+    workspaceId: string,
+    channel: AgentChannel,
+  ): Promise<void> {
+    const cleanups = this.options.attachCleanups;
+    const host = this.options.workspaceManager.attachHost?.(workspaceId);
+    if (!cleanups || !host) return;
+    for (const removed of cleanups.waiting(host)) {
+      try {
+        await channel.call("chat.removeAttachments", {
+          workspaceId: removed,
+          slots: [],
+          all: true,
+        });
+      } catch (error) {
+        // An agent from before removed each tab's files as it closed: nothing waits there.
+        if ((error as { code?: unknown } | null)?.code !== "unsupported-method") {
+          // It waits on, for the next time.
+          log.warn(
+            `could not remove removed workspace ${removed}'s attached files: ${String(error)}`,
+          );
+          continue;
+        }
+      }
+      cleanups.remove(host, removed);
+    }
+  }
+
+  /**
+   * Removes a removed workspace's attached files, its whole folder; left for
+   * the next prune on the same host when its agent is not up or fails.
+   */
+  private async removeWorkspaceAttachments(
+    workspaceId: string,
+    channel: AgentChannel | null,
+    host: string | null,
+    deadline: number,
+  ): Promise<void> {
+    const wait = () => {
+      if (host) this.options.attachCleanups?.add(host, workspaceId);
+    };
+    if (!channel || deadline <= Date.now()) return wait();
+    const root = await this.askAttachRootBy(channel, deadline);
+    // An agent that names no root kept no file past its tab: they went as the tabs closed.
+    if (root === null) return;
+    const timeoutMs = deadline - Date.now();
+    if (root === undefined || timeoutMs <= 0) return wait();
+    try {
+      await channel.call(
+        "chat.removeAttachments",
+        { workspaceId, slots: [], all: true },
+        { timeoutMs },
+      );
+    } catch (error) {
+      // An agent from before removed each tab's files as it closed.
+      if ((error as { code?: unknown } | null)?.code === "unsupported-method") return;
+      log.warn(
+        `could not remove removed workspace ${workspaceId}'s attached files: ${String(error)}`,
+      );
+      wait();
+    }
+  }
+
+  /**
+   * Where the workspace's agent writes the files attached to a message, as
+   * the agent tells it (chat.attachRoot): it alone knows its NEXUS_CODE_HOME
+   * and home folder, on whatever host. Null with no agent up (an SSH host
+   * is not dialed for it), from an agent too old to tell, or when asking
+   * fails; asked again on the next connection, or after a failure.
+   */
+  async attachRoot(workspaceId: string): Promise<string | null> {
+    const channel = await this.options.workspaceManager
+      .peekAgentChannel?.(workspaceId)
+      .catch(() => null);
+    if (!channel) return null;
+    return (await this.askAttachRoot(channel)) ?? null;
+  }
+
+  /**
+   * The attach root the agent on `channel` tells (chat.attachRoot): null
+   * when it names none, from a home it cannot name or as an agent too old
+   * to tell, or one on a network share (namedRoot), which stays so for the
+   * connection; undefined when asking failed, which is asked again next time.
+   */
+  private askAttachRoot(channel: AgentChannel): Promise<string | null | undefined> {
+    const known = this.attachRoots.get(channel);
+    if (known) return known;
+    const asked = channel.ready
+      .then(() => channel.call<{ root?: unknown }>("chat.attachRoot", {}))
+      .then(
+        (result) => namedRoot(result?.root),
+        (error: unknown) => {
+          if ((error as { code?: unknown } | null)?.code === "unsupported-method") return null;
+          this.attachRoots.delete(channel);
+          return undefined;
+        },
+      );
+    this.attachRoots.set(channel, asked);
+    return asked;
+  }
+
+  /** askAttachRoot, but undefined once `deadline` passes. */
+  private async askAttachRootBy(
+    channel: AgentChannel,
+    deadline: number,
+  ): Promise<string | null | undefined> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<undefined>((resolve) => {
+      timer = setTimeout(resolve, Math.max(0, deadline - Date.now()), undefined);
+    });
+    try {
+      return await Promise.race([this.askAttachRoot(channel), late]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * The slots ("<tabId>/<n>") a conversation's whole history names, read by
+   * the agent from the history kept in the profile's folder (a Claude
+   * session) or home (a Codex thread): only their names come back. `found`
+   * is false while the agent has no history of it yet (a fork's own, just
+   * named): to be asked again. `truncated` tells that it names more than
+   * these. None from an agent too old to tell, nor in
+   * a profile since removed: a tab outlives its profile, and no history is
+   * read there.
+   */
+  async historySlots(
+    workspaceId: string,
+    agent: ChatAgent,
+    conversation: string,
+    profileId?: string,
+  ): Promise<{ slots: string[]; found: boolean; truncated: boolean }> {
+    let where: Record<string, string>;
+    try {
+      if (agent === "claude") {
+        where = { sessionId: conversation, ...this.configDir(workspaceId, profileId) };
+      } else {
+        const codexHome = this.profileDir(workspaceId, "codex", profileId);
+        where = { threadId: conversation, ...(codexHome ? { codexHome } : {}) };
+      }
+    } catch (error) {
+      if (error instanceof AgentProfileSelectionError)
+        return { slots: [], found: true, truncated: false };
+      throw error;
+    }
+    const channel = await this.channelFor(workspaceId);
+    const result = await channel
+      .call<{ slots?: unknown; found?: unknown; truncated?: unknown }>("chat.historySlots", {
+        workspaceId,
+        ...where,
+      })
+      .catch((error: unknown) => {
+        if ((error as { code?: unknown } | null)?.code === "unsupported-method") return null;
+        throw error;
+      });
+    const told = Array.isArray(result?.slots) ? result.slots : [];
+    const slots = told.filter(
+      (slot): slot is string => typeof slot === "string" && slot.length <= 300,
+    );
+    return {
+      slots: slots.slice(-5_000),
+      found: result?.found !== false,
+      truncated: result?.truncated === true || slots.length > 5_000,
+    };
   }
 
   async transcript(workspaceId: string, sessionId: string, profileId?: string): Promise<unknown> {
@@ -689,6 +1020,262 @@ export class ChatHost {
         lines: result.lines ?? [],
         truncated: result.truncated === true,
       };
+    }
+  }
+
+  /**
+   * The end of a chat's history, for a glance at its last turns: a Claude
+   * transcript's last page, or a Codex rollout's last events, which the
+   * agent reads from the file (no app-server). Read only from an agent that
+   * is up: an SSH or WSL host that is not connected is not dialed, and is
+   * told `offline`. An agent too old to read it gives neither.
+   */
+  async peekTail(
+    workspaceId: string,
+    agent: ChatAgent,
+    sessionId: string,
+    profileId: string | undefined,
+    page: { turns?: number; cursor?: string } = {},
+  ): Promise<ChatPeekTail> {
+    const channel = await this.options.workspaceManager.peekAgentChannel?.(workspaceId);
+    if (!channel) return { offline: true };
+    await channel.ready;
+    try {
+      if (agent === "claude") {
+        const claude = await channel.call<TranscriptPageResult>("chat.transcriptPage", {
+          sessionId,
+          ...this.configDir(workspaceId, profileId),
+          ...(page.cursor ? { cursor: page.cursor } : {}),
+        });
+        return { offline: false, claude };
+      }
+      const codexHome = this.profileDir(workspaceId, "codex", profileId);
+      const codex = await channel.call<NonNullable<ChatPeekTail["codex"]>>("chat.rolloutTail", {
+        threadId: sessionId,
+        ...(codexHome ? { codexHome } : {}),
+        ...(page.turns ? { turns: page.turns } : {}),
+      });
+      return { offline: false, codex };
+    } catch (error) {
+      if ((error as { code?: unknown } | null)?.code === "unsupported-method") {
+        return { offline: false };
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * The transcript of the tab's `claude -p` run `runId`, read on from
+   * `from` (where the last read ended): read where the run's own start
+   * said its session is kept, never where the renderer says. Not found for
+   * a run not of that tab, a `codex exec` run, or one that keeps none.
+   */
+  async printRunTranscript(
+    workspaceId: string,
+    tabId: string,
+    runId: string,
+    from: number | undefined,
+  ): Promise<PrintRunTranscriptResult> {
+    const none: PrintRunTranscriptResult = {
+      found: false,
+      lines: [],
+      next: 0,
+      reset: false,
+      truncated: false,
+    };
+    const source = this.options.printRunSource?.(workspaceId, tabId, runId);
+    if (source?.program !== "claude" || !source.sessionId || !source.home) return none;
+    // Only from an agent that is up: a host out of reach is not dialed for a
+    // pane's poll or another device's read, and the pane shows what the run told.
+    const channel = await this.upChannel(workspaceId);
+    if (!channel) return none;
+    try {
+      const result = await channel.call<{
+        found?: boolean;
+        lines?: unknown[];
+        next?: number;
+        reset?: boolean;
+        truncated?: boolean;
+      }>("chat.runTranscript", {
+        sessionId: source.sessionId,
+        configDir: source.home,
+        ...(from !== undefined ? { from } : {}),
+      });
+      return {
+        found: result.found === true,
+        lines: result.lines ?? [],
+        next: typeof result.next === "number" ? result.next : 0,
+        reset: result.reset === true,
+        truncated: result.truncated === true,
+      };
+    } catch (error) {
+      // An agent before chat.runTranscript: the pane shows what the run told.
+      if ((error as { code?: unknown } | null)?.code === "unsupported-method") return none;
+      throw error;
+    }
+  }
+
+  /** The workspace's agent channel while it is up, relayed from; null when it is out of reach. */
+  private async upChannel(workspaceId: string): Promise<AgentChannel | null> {
+    const channel = await this.options.workspaceManager.peekAgentChannel?.(workspaceId);
+    if (!channel) return null;
+    await channel.ready;
+    this.workspaces.add(workspaceId);
+    this.subscribe(workspaceId, channel);
+    return channel;
+  }
+
+  /**
+   * Starts a Codex app-server that reads the tab's `codex exec` run
+   * `runId`'s thread, with the run's own CODEX_HOME, as a tab's starts (an
+   * SSH or WSL host's too, while it is connected): its lines come as a chat
+   * tab's do, by the reader's tab id, which chat.close ends. Only for a tab
+   * that is open. Main keeps which thread it reads: send fills it in.
+   */
+  async startPrintRunReader(
+    workspaceId: string,
+    tabId: string,
+    runId: string,
+    opener?: number,
+  ): Promise<PrintRunReaderResult> {
+    const source = this.options.printRunSource?.(workspaceId, tabId, runId);
+    if (source?.program !== "codex" || !source.sessionId || !source.home) {
+      return { ok: false, reason: "none" };
+    }
+    // A run of a tab that closed has no pane to read it for.
+    if (this.disposed || !this.tabIntents.has(`${workspaceId}:${tabId}`)) {
+      return { ok: false, reason: "none" };
+    }
+    if (!(await this.upChannel(workspaceId))) return { ok: false, reason: "none" };
+    const readerTabId = `${PRINT_RUN_READER_PREFIX}${randomUUID()}`;
+    // Past the most a tab's runs have, the oldest still up goes.
+    const up = [...this.printRunReaders].filter(
+      ([, reader]) => reader.workspaceId === workspaceId && reader.ownerTabId === tabId,
+    );
+    for (const [old] of up.slice(0, Math.max(0, up.length + 1 - PRINT_RUN_READERS))) {
+      void this.closeTab(workspaceId, old).catch(() => {});
+    }
+    this.printRunReaders.set(readerTabId, {
+      workspaceId,
+      ownerTabId: tabId,
+      threadId: source.sessionId,
+      ...(opener !== undefined ? { opener } : {}),
+    });
+    const key = `${workspaceId}:${readerTabId}`;
+    const intent = this.openTab(key);
+    try {
+      const channel = await this.channelForStart(workspaceId, key, intent);
+      const windows = this.windowsHost(workspaceId);
+      const profileEnv = mergeAgentEnv(
+        windows,
+        await this.profileEnv(channel, this.profile("codex", undefined), windows),
+        { [PROFILE_DIR_ENV.codex]: source.home },
+      );
+      const cwd = source.cwd ?? source.home;
+      const found = await this.findBinary(channel, "codex", cwd, profileEnv, windows);
+      if (!found.path) {
+        this.tabIntents.delete(key);
+        this.printRunReaders.delete(readerTabId);
+        return { ok: false, reason: "not-found" };
+      }
+      const path = agentEnvValue(profileEnv, "PATH", windows) ?? found.envPath;
+      await this.spawn(key, intent, channel, {
+        workspaceId,
+        tabId: readerTabId,
+        cwd,
+        program: found.path,
+        args: ["app-server"],
+        env: mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path }),
+        resetLog: true,
+      });
+      return { ok: true, readerTabId };
+    } catch (error) {
+      void this.closeTab(workspaceId, readerTabId).catch(() => {});
+      return { ok: false, reason: "failed", message: (error as Error).message };
+    }
+  }
+
+  /**
+   * Tells a run's reader a read: only the handshake and the reads of a
+   * thread, and of those only the reader's own thread, which main puts in
+   * (a message naming another is refused). Nothing else of the message goes.
+   */
+  private async sendToPrintRunReader(
+    workspaceId: string,
+    readerTabId: string,
+    message: Record<string, unknown>,
+  ): Promise<void> {
+    const reader = this.printRunReaders.get(readerTabId);
+    if (!reader || reader.workspaceId !== workspaceId) throw readerRefused("no such reader");
+    const { method, id } = message;
+    if (typeof method !== "string" || !PRINT_RUN_READER_METHODS.has(method)) {
+      throw readerRefused("a run's reader only reads");
+    }
+    if (id !== undefined && typeof id !== "number" && typeof id !== "string") {
+      throw readerRefused("a run's reader only reads");
+    }
+    const given = message.params;
+    if (
+      given !== undefined &&
+      (typeof given !== "object" || given === null || Array.isArray(given))
+    ) {
+      throw readerRefused("a run's reader only reads");
+    }
+    let params = given as Record<string, unknown> | undefined;
+    if (PRINT_RUN_READER_THREAD_METHODS.has(method)) {
+      const named = params?.threadId;
+      if (named !== undefined && named !== reader.threadId) {
+        throw readerRefused("a run's reader reads its own run only");
+      }
+      params = { ...params, threadId: reader.threadId };
+    }
+    const channel = await this.upChannel(workspaceId);
+    if (!channel) throw readerRefused("the reader's host is out of reach");
+    await channel.call("chat.send", {
+      workspaceId,
+      tabId: readerTabId,
+      message: {
+        ...(id !== undefined ? { id } : {}),
+        method,
+        ...(params !== undefined ? { params } : {}),
+      },
+    });
+  }
+
+  /** Ends the readers of one tab's runs, or with no tab every reader (the app quits). */
+  closePrintRunReaders(workspaceId?: string, tabId?: string): void {
+    for (const [readerTabId, reader] of [...this.printRunReaders]) {
+      if (workspaceId !== undefined && reader.workspaceId !== workspaceId) continue;
+      if (tabId !== undefined && reader.ownerTabId !== tabId) continue;
+      void this.closeTab(reader.workspaceId, readerTabId).catch(() => {});
+    }
+  }
+
+  /** Ends the readers one window's panes asked for: it closed, or loads anew. */
+  closePrintRunReadersOf(opener: number): void {
+    for (const [readerTabId, reader] of [...this.printRunReaders]) {
+      if (reader.opener !== opener) continue;
+      void this.closeTab(reader.workspaceId, readerTabId).catch(() => {});
+    }
+  }
+
+  /**
+   * Ends the readers an agent still has that main does not know: left by an
+   * app that ended before closing them, on a daemon that outlived it.
+   */
+  private async prunePrintRunReaders(workspaceId: string, channel: AgentChannel): Promise<void> {
+    try {
+      const listed = await channel.call<{ sessions?: { tabId?: unknown }[] }>("chat.list", {
+        workspaceId,
+      });
+      for (const session of listed.sessions ?? []) {
+        const tabId = session.tabId;
+        if (typeof tabId !== "string" || !isPrintRunReader(tabId)) continue;
+        if (this.printRunReaders.has(tabId)) continue;
+        await channel.call("chat.close", { workspaceId, tabId }).catch(() => {});
+      }
+    } catch (error) {
+      log.warn(`could not list ${workspaceId}'s run readers: ${(error as Error).message}`);
     }
   }
 
@@ -954,27 +1541,43 @@ export class ChatHost {
     this.workspaces.delete(workspaceId);
     subscription?.dispose();
     this.subscriptions.delete(workspaceId);
-    if (tabIds.size === 0) return;
+    // Read while the workspace is still known.
+    const host = this.options.workspaceManager.attachHost?.(workspaceId) ?? null;
     const deadline = Date.now() + WORKSPACE_CHAT_CLOSE_MS;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const expired = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("chat.close timed out")), WORKSPACE_CHAT_CLOSE_MS);
-    });
-    const removal = { channel, deadline, expired };
-    const results = await Promise.allSettled(
-      Array.from(tabIds, (tabId) => this.closeTab(workspaceId, tabId, removal)),
-    ).finally(() => clearTimeout(timer));
-    for (const result of results) {
-      if (result.status === "rejected")
-        log.warn(
-          `could not close a chat in removed workspace ${workspaceId}: ${String(result.reason)}`,
+    if (tabIds.size > 0) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const expired = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("chat.close timed out")),
+          WORKSPACE_CHAT_CLOSE_MS,
         );
+      });
+      const removal = { channel, deadline, expired };
+      const results = await Promise.allSettled(
+        Array.from(tabIds, (tabId) => this.closeTab(workspaceId, tabId, removal)),
+      ).finally(() => clearTimeout(timer));
+      for (const result of results) {
+        if (result.status === "rejected")
+          log.warn(
+            `could not close a chat in removed workspace ${workspaceId}: ${String(result.reason)}`,
+          );
+      }
     }
+    // Its closed tabs' files stayed for conversations of its own, which go with it.
+    await this.removeWorkspaceAttachments(workspaceId, channel, host, deadline);
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    // The app's readers end with it: asked of each agent still connected.
+    for (const [readerTabId, reader] of this.printRunReaders) {
+      const channel = this.subscriptions.get(reader.workspaceId)?.channel;
+      void channel
+        ?.call("chat.close", { workspaceId: reader.workspaceId, tabId: readerTabId })
+        .catch(() => {});
+    }
+    this.printRunReaders.clear();
     this.oauth.dispose();
     this.disposeProviderReady();
     for (const subscription of this.subscriptions.values()) subscription.dispose();
@@ -1038,6 +1641,14 @@ export class ChatHost {
     const workspaceId = payload.workspaceId as string;
     const tabId = typeof payload.tabId === "string" ? payload.tabId : null;
     if (!tabId) return;
+    if (isPrintRunReader(tabId)) {
+      // A run's reader is no tab: it has no status. One whose program ended is up no longer.
+      if (event === "exit") {
+        this.printRunReaders.delete(tabId);
+        this.tabIntents.delete(`${workspaceId}:${tabId}`);
+      }
+      return;
+    }
     if (event === "exit") {
       // A restart's new file is not the exited program's.
       const key = `${workspaceId}:${tabId}`;
@@ -1094,6 +1705,7 @@ export class ChatHost {
       this.handleLifecycle(workspaceId, subscription, event),
     );
     this.subscriptions.set(workspaceId, subscription);
+    void this.prunePrintRunReaders(workspaceId, channel);
   }
 
   /**

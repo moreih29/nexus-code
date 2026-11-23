@@ -403,6 +403,20 @@ describe("a chat's job's output file", () => {
     expect(got.kind === "bytes" && Buffer.from(got.data, "base64").toString()).toBe("line 2");
   });
 
+  test("its metadata alone tells it is there, and a named file gone is not found", async () => {
+    const gone = "/tmp/claude-501/tasks/gone.output";
+    const meta = (path: string) =>
+      readFile(files(tree, null, { named: [output, gone] }), root, {
+        workspaceId: ws,
+        path,
+        as: "bytes",
+        length: 0,
+        versioned: true,
+      });
+    expect(await meta(output)).toMatchObject({ kind: "bytes", path: output, data: "", size: 14 });
+    await expect(meta(gone)).rejects.toMatchObject({ code: 1001 });
+  });
+
   test("and no other file beside it, nor one when no job tells it", async () => {
     await expect(
       readFile(files(tree, null, { named: [output] }), root, {

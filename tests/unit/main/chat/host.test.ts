@@ -1,5 +1,7 @@
 import { describe, expect, jest, mock, test } from "bun:test";
 import {
+  ATTACH_ROOM_BYTES,
+  ATTACH_UNUSED_MS,
   ChatHost,
   type ChatHostOptions,
   type ChatWorkspaceManager,
@@ -38,6 +40,7 @@ import type {
 import { liveAgents } from "../../../../src/renderer/services/agent-sessions/agents";
 import type { CustomConnection } from "../../../../src/shared/agent-profiles/connection";
 import type { AgentProfile } from "../../../../src/shared/agent-profiles/profiles";
+import { ipcContract } from "../../../../src/shared/ipc/contract";
 import { WorkspaceMetaSchema } from "../../../../src/shared/types/workspace";
 
 const WS = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -53,11 +56,22 @@ class FakeChannel implements AgentChannel {
   versionOutput = "2.1.318 (Claude Code)\n";
   versionWait?: Promise<void>;
   transcriptPageError?: string;
+  attachRootAnswer: unknown = {};
+  /** The tabs the agent says it has. */
+  listed: Array<{ workspaceId: string; tabId: string }> = [];
+  historySlotsAnswer: unknown = {};
+  attachRootError?: string;
+  /** Error codes thrown by method. */
+  readonly failures = new Map<string, string>();
   private readonly listeners = new Map<string, Set<ChannelEventCallback>>();
   private readonly lifecycle = new Set<ChannelLifecycleCallback>();
 
   async call<T = unknown>(method: string, params?: unknown): Promise<T> {
+    // Asked once as the agent connects, to close run readers left behind.
+    if (method === "chat.list") return { sessions: this.listed } as T;
     this.calls.push({ method, params });
+    const failure = this.failures.get(method);
+    if (failure) throw Object.assign(new Error(`${method} failed`), { code: failure });
     if (method === "lsp.findBinary") return this.found as T;
     if (method === "chat.exec") {
       await this.versionWait;
@@ -70,6 +84,13 @@ class FakeChannel implements AgentChannel {
       throw Object.assign(new Error("transcript page failed"), { code: this.transcriptPageError });
     }
     if (method === "chat.transcript") return { found: true, lines: [] } as T;
+    if (method === "chat.historySlots") return this.historySlotsAnswer as T;
+    if (method === "chat.attachRoot") {
+      if (this.attachRootError) {
+        throw Object.assign(new Error("attach root failed"), { code: this.attachRootError });
+      }
+      return this.attachRootAnswer as T;
+    }
     return {} as T;
   }
   fire(): void {}
@@ -152,6 +173,490 @@ test.each([
     await expect(page).rejects.toMatchObject({ code });
     expect(channel.calls.map((call) => call.method)).toEqual(["chat.transcriptPage"]);
   }
+});
+
+/** Lets what was started without being waited for go on. */
+const flushed = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe("a run's transcript", () => {
+  const RUN = "run-1";
+  type Source = ReturnType<NonNullable<ChatHostOptions["printRunSource"]>>;
+  const CODEX_RUN: Source = {
+    program: "codex",
+    running: false,
+    sessionId: "th-1",
+    home: "/home/u/.codex-work",
+    cwd: "/repo",
+  };
+  /** A host whose agent is up (or out of reach), with the tab's run `source`. */
+  function runSetup(source: Source, reached = true) {
+    let up = reached;
+    let dialed = 0;
+    let channel: FakeChannel | undefined;
+    const made = setup(
+      {
+        peekAgentChannel: async () => (up ? (channel ?? null) : null),
+        getAgentChannel: async () => {
+          dialed += 1;
+          if (!channel) throw new Error("no channel");
+          return channel;
+        },
+        // As the workspace manager's: it dials.
+        tryGetAgentChannel: async () => {
+          dialed += 1;
+          return up ? (channel ?? null) : null;
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      {
+        printRunSource: (ws, tab, run) =>
+          ws === WS && tab === TAB && run === RUN ? source : undefined,
+      },
+    );
+    channel = made.channel;
+    made.channel.found = { path: "/usr/bin/codex" };
+    const closes = () =>
+      made.channel.calls
+        .filter((call) => call.method === "chat.close")
+        .map((call) => (call.params as { tabId: string }).tabId);
+    const reader = async () => {
+      const started = await made.host.startPrintRunReader(WS, TAB, RUN);
+      if (!started.ok) throw new Error(`not started: ${started.reason}`);
+      return started.readerTabId;
+    };
+    return {
+      ...made,
+      dialed: () => dialed,
+      closes,
+      reader,
+      drop: () => {
+        up = false;
+      },
+    };
+  }
+  /** The same, with the tab the run is of open. */
+  async function openSetup(source: Source = CODEX_RUN) {
+    const made = runSetup(source);
+    await made.host.start(WS, TAB, "/repo", {});
+    made.channel.calls.length = 0;
+    return made;
+  }
+
+  test("is read where the run's own start said, by its session", async () => {
+    const { host, channel } = runSetup({
+      program: "claude",
+      running: true,
+      sessionId: "sess-0001",
+      home: "/home/u/.claude-work",
+    });
+    await host.printRunTranscript(WS, TAB, RUN, 120);
+    expect(channel.calls.filter((call) => call.method === "chat.runTranscript")).toEqual([
+      {
+        method: "chat.runTranscript",
+        params: { sessionId: "sess-0001", configDir: "/home/u/.claude-work", from: 120 },
+      },
+    ]);
+  });
+
+  test.each([
+    ["another tab's run", "22222222-2222-4222-8222-222222222222", RUN, undefined],
+    ["an unknown run", TAB, "run-9", undefined],
+    ["a codex exec run", TAB, RUN, { program: "codex", sessionId: "th-1", home: "/c" }],
+    ["a run that told no session", TAB, RUN, { program: "claude", home: "/c" }],
+    ["a run that keeps no session", TAB, RUN, { program: "claude", sessionId: "sess-0001" }],
+  ] as const)("is not read for %s", async (_name, tab, run, source) => {
+    const { host, channel } = runSetup(source ? { running: false, ...source } : undefined);
+    expect(await host.printRunTranscript(WS, tab, run, undefined)).toEqual({
+      found: false,
+      lines: [],
+      next: 0,
+      reset: false,
+      truncated: false,
+    });
+    expect(channel.calls.some((call) => call.method === "chat.runTranscript")).toBe(false);
+  });
+
+  test("a host out of reach is not dialed to read a run", async () => {
+    const claude = runSetup(
+      { program: "claude", running: true, sessionId: "sess-0001", home: "/c" },
+      false,
+    );
+    expect((await claude.host.printRunTranscript(WS, TAB, RUN, undefined)).found).toBe(false);
+    expect(claude.dialed()).toBe(0);
+    expect(claude.channel.calls).toEqual([]);
+
+    // The connection drops after the tab opened.
+    const codex = await openSetup();
+    const id = await codex.reader();
+    const before = codex.dialed();
+    codex.drop();
+    codex.channel.calls.length = 0;
+    expect(await codex.host.startPrintRunReader(WS, TAB, RUN)).toEqual({
+      ok: false,
+      reason: "none",
+    });
+    await expect(codex.host.send(WS, id, { id: 1, method: "thread/read" })).rejects.toThrow();
+    // Closing it dials none either: main forgets it, and the host's is closed as it connects.
+    await codex.host.call("close", { workspaceId: WS, tabId: id });
+    await expect(codex.host.send(WS, id, { id: 1, method: "thread/read" })).rejects.toMatchObject({
+      code: "chat.reader-read-only",
+    });
+    expect(codex.channel.calls).toEqual([]);
+    expect(codex.dialed()).toBe(before);
+  });
+
+  test("a codex exec run's reader starts with the run's CODEX_HOME", async () => {
+    const { host, channel } = await openSetup();
+    const started = await host.startPrintRunReader(WS, TAB, RUN);
+    if (!started.ok) throw new Error(`not started: ${started.reason}`);
+    // Which thread it reads is main's to know.
+    expect(Object.keys(started).sort()).toEqual(["ok", "readerTabId"]);
+    const start = channel.calls.find((call) => call.method === "chat.start")?.params as {
+      tabId: string;
+      cwd: string;
+      args: string[];
+      env: Record<string, string>;
+    };
+    expect(start.tabId).toBe(started.readerTabId);
+    expect(start.tabId).not.toBe(TAB);
+    expect(start.cwd).toBe("/repo");
+    expect(start.args).toEqual(["app-server"]);
+    expect(start.env.CODEX_HOME).toBe("/home/u/.codex-work");
+  });
+
+  test("a reader's tab id passes the IPC contract of chat.send and chat.close", async () => {
+    const { reader } = await openSetup();
+    const id = await reader();
+    const call = ipcContract.chat.call;
+    expect(
+      call.send.args.safeParse({
+        workspaceId: WS,
+        tabId: id,
+        message: { id: 1, method: "thread/read" },
+      }).success,
+    ).toBe(true);
+    expect(call.close.args.safeParse({ workspaceId: WS, tabId: id }).success).toBe(true);
+    expect(call.stop.args.safeParse({ workspaceId: WS, tabId: id }).success).toBe(false);
+    for (const tabId of ["print-run-reader-made-up", `${id}0`, `x${id}`, id.toUpperCase()]) {
+      expect(call.close.args.safeParse({ workspaceId: WS, tabId }).success).toBe(false);
+    }
+  });
+
+  test("a reader is told only reads of its own run's thread", async () => {
+    const { host, channel, reader } = await openSetup();
+    const id = await reader();
+    channel.calls.length = 0;
+    const sent = () =>
+      channel.calls
+        .filter((call) => call.method === "chat.send")
+        .map((call) => (call.params as { message: unknown }).message);
+
+    await host.send(WS, id, { id: 1, method: "thread/read", params: { includeTurns: true } });
+    await host.send(WS, id, {
+      id: 2,
+      method: "thread/turns/list",
+      params: { threadId: "th-1", limit: 50 },
+      extra: "dropped",
+    });
+    await host.send(WS, id, { method: "initialized" });
+    expect(sent()).toEqual([
+      { id: 1, method: "thread/read", params: { includeTurns: true, threadId: "th-1" } },
+      { id: 2, method: "thread/turns/list", params: { threadId: "th-1", limit: 50 } },
+      { method: "initialized" },
+    ]);
+
+    const refused = { code: "chat.reader-read-only" };
+    for (const message of [
+      { id: 3, method: "thread/read", params: { threadId: "th-other" } },
+      { id: 4, method: ["thread/read"], params: {} },
+      { id: 5, method: "turn/start", params: {} },
+      { id: 6, method: "thread/resume", params: { threadId: "th-1" } },
+      { id: 7, result: { decision: "accept" } },
+      { id: 8, method: "thread/read", params: ["th-other"] },
+      { id: { a: 1 }, method: "thread/read" },
+    ]) {
+      await expect(
+        host.send(WS, id, message as unknown as Record<string, unknown>),
+      ).rejects.toMatchObject(refused);
+    }
+    // A reader main did not start is none.
+    await expect(
+      host.send(WS, "print-run-reader-made-up", { id: 9, method: "thread/read" }),
+    ).rejects.toMatchObject(refused);
+    expect(sent()).toHaveLength(3);
+  });
+
+  test("no reader starts for a claude run, another tab's, or a tab that closed", async () => {
+    const claude = await openSetup({
+      program: "claude",
+      running: false,
+      sessionId: "s",
+      home: "/c",
+    });
+    expect(await claude.host.startPrintRunReader(WS, TAB, RUN)).toEqual({
+      ok: false,
+      reason: "none",
+    });
+    expect(await claude.host.startPrintRunReader(WS, TAB, "run-9")).toEqual({
+      ok: false,
+      reason: "none",
+    });
+
+    // The run's tab never opened here.
+    const unopened = runSetup(CODEX_RUN);
+    expect(await unopened.host.startPrintRunReader(WS, TAB, RUN)).toEqual({
+      ok: false,
+      reason: "none",
+    });
+    // And one that closed.
+    const closed = await openSetup();
+    await closed.host.call("close", { workspaceId: WS, tabId: TAB });
+    closed.channel.calls.length = 0;
+    expect(await closed.host.startPrintRunReader(WS, TAB, RUN)).toEqual({
+      ok: false,
+      reason: "none",
+    });
+    for (const made of [claude, unopened, closed]) {
+      expect(made.channel.calls.some((call) => call.method === "chat.start")).toBe(false);
+    }
+  });
+
+  test("a tab's runs have two readers up at most, and one that closed is not counted", async () => {
+    const { host, reader, closes } = await openSetup();
+    const a = await reader();
+    const b = await reader();
+    await host.call("close", { workspaceId: WS, tabId: b });
+    expect(closes()).toEqual([b]);
+    // B is gone: C takes its place, and A stays.
+    const c = await reader();
+    await flushed();
+    expect(closes()).toEqual([b]);
+    // With A and C up, the oldest makes room.
+    const d = await reader();
+    await flushed();
+    expect(closes()).toEqual([b, a]);
+    await host.send(WS, c, { id: 1, method: "thread/read" });
+    await host.send(WS, d, { id: 1, method: "thread/read" });
+    await expect(host.send(WS, a, { id: 1, method: "thread/read" })).rejects.toMatchObject({
+      code: "chat.reader-read-only",
+    });
+  });
+
+  test("a reader whose program ended is up no longer", async () => {
+    const { host, channel, reader, closes } = await openSetup();
+    const a = await reader();
+    const b = await reader();
+    channel.emit("chat.exit", { workspaceId: WS, tabId: a });
+    await expect(host.send(WS, a, { id: 1, method: "thread/read" })).rejects.toMatchObject({
+      code: "chat.reader-read-only",
+    });
+    // Its place is free: a third closes neither.
+    await reader();
+    await flushed();
+    expect(closes()).toEqual([]);
+    await host.send(WS, b, { id: 1, method: "thread/read" });
+  });
+
+  test("readers end with their tab, the window, and the app", async () => {
+    const tab = await openSetup();
+    const a = await tab.reader();
+    const b = await tab.reader();
+    await tab.host.call("close", { workspaceId: WS, tabId: TAB });
+    await flushed();
+    expect(tab.closes().sort()).toEqual([TAB, a, b].sort());
+
+    // A window that closes or loads anew ends the readers it asked for only.
+    const win = await openSetup();
+    const [mine, others] = [7, 8];
+    const start = async (opener: number) => {
+      const started = await win.host.startPrintRunReader(WS, TAB, RUN, opener);
+      if (!started.ok) throw new Error(`not started: ${started.reason}`);
+      return started.readerTabId;
+    };
+    const c = await start(mine);
+    const kept = await start(others);
+    win.host.closePrintRunReadersOf(mine);
+    await flushed();
+    expect(win.closes()).toEqual([c]);
+    await expect(win.host.send(WS, c, { id: 1, method: "thread/read" })).rejects.toMatchObject({
+      code: "chat.reader-read-only",
+    });
+    await win.host.send(WS, kept, { id: 1, method: "thread/read" });
+
+    const app = await openSetup();
+    const d = await app.reader();
+    app.host.dispose();
+    await flushed();
+    expect(app.closes()).toEqual([d]);
+    expect(await app.host.startPrintRunReader(WS, TAB, RUN)).toEqual({ ok: false, reason: "none" });
+  });
+
+  test("readers an agent still has from an app that ended are closed as it connects", async () => {
+    const made = runSetup(CODEX_RUN);
+    made.channel.listed = [
+      { workspaceId: WS, tabId: TAB },
+      { workspaceId: WS, tabId: "print-run-reader-left-behind" },
+    ];
+    await made.host.start(WS, TAB, "/repo", {});
+    await flushed();
+    expect(made.closes()).toEqual(["print-run-reader-left-behind"]);
+  });
+});
+
+describe("attachRoot", () => {
+  const asked = (channel: FakeChannel) =>
+    channel.calls.filter((call) => call.method === "chat.attachRoot").length;
+
+  test("is what the workspace's agent answers, asked once a connection", async () => {
+    let channel = new FakeChannel();
+    const { host } = setup({ peekAgentChannel: async () => channel });
+    channel.attachRootAnswer = { root: "C:\\Users\\k\\.nexus-code\\attach" };
+    expect(await host.attachRoot(WS)).toBe("C:\\Users\\k\\.nexus-code\\attach");
+    expect(await host.attachRoot(WS)).toBe("C:\\Users\\k\\.nexus-code\\attach");
+    expect(asked(channel)).toBe(1);
+    // A new connection is asked anew.
+    channel = new FakeChannel();
+    channel.attachRootAnswer = { root: "/home/k/elsewhere/attach" };
+    expect(await host.attachRoot(WS)).toBe("/home/k/elsewhere/attach");
+    expect(asked(channel)).toBe(1);
+  });
+
+  test("is null from an agent too old to tell, asked no more on that connection", async () => {
+    const channel = new FakeChannel();
+    channel.attachRootError = "unsupported-method";
+    const { host } = setup({ peekAgentChannel: async () => channel });
+    expect(await host.attachRoot(WS)).toBeNull();
+    expect(await host.attachRoot(WS)).toBeNull();
+    expect(asked(channel)).toBe(1);
+  });
+
+  test("is null on a network share, asked no more on that connection", async () => {
+    const channel = new FakeChannel();
+    channel.attachRootAnswer = { root: "\\\\server\\share\\Users\\k\\.nexus-code\\attach" };
+    const { host } = setup({ peekAgentChannel: async () => channel });
+    expect(await host.attachRoot(WS)).toBeNull();
+    expect(await host.attachRoot(WS)).toBeNull();
+    expect(asked(channel)).toBe(1);
+  });
+
+  test("is null when asking fails, and asked again the next time", async () => {
+    const channel = new FakeChannel();
+    channel.attachRootError = "transport.timeout";
+    const { host } = setup({ peekAgentChannel: async () => channel });
+    expect(await host.attachRoot(WS)).toBeNull();
+    channel.attachRootError = undefined;
+    channel.attachRootAnswer = { root: "/home/k/.nexus-code/attach" };
+    expect(await host.attachRoot(WS)).toBe("/home/k/.nexus-code/attach");
+    expect(asked(channel)).toBe(2);
+  });
+
+  test("is null with no agent up, or no answer in it, and dials no host", async () => {
+    const channel = new FakeChannel();
+    const dialed: string[] = [];
+    const { host } = setup({
+      peekAgentChannel: async () => null,
+      getAgentChannel: async (id) => {
+        dialed.push(id);
+        return channel;
+      },
+    });
+    expect(await host.attachRoot(WS)).toBeNull();
+    expect(dialed).toEqual([]);
+    const answered = setup({ peekAgentChannel: async () => channel });
+    expect(await answered.host.attachRoot(WS)).toBeNull();
+    expect(await setup().host.attachRoot(WS)).toBeNull();
+  });
+});
+
+describe("peekTail", () => {
+  const profiles: AgentProfile[] = [
+    { id: "work", agent: "claude", dir: "/profiles/work", name: "Work", color: "" },
+    { id: "side", agent: "codex", dir: "/profiles/side", name: "Side", color: "" },
+  ];
+  const profile = (id: string) => profiles.find((p) => p.id === id) ?? null;
+  const peeking = (channel: FakeChannel | null) => {
+    const dialed: string[] = [];
+    const { host } = setup(
+      {
+        peekAgentChannel: async () => channel,
+        getAgentChannel: async (id) => {
+          dialed.push(id);
+          return new FakeChannel();
+        },
+        tryGetAgentChannel: async (id) => {
+          dialed.push(id);
+          return null;
+        },
+      },
+      undefined,
+      undefined,
+      profile,
+    );
+    return { host, dialed };
+  };
+
+  test("reads a Claude transcript's last page in its profile's folder, starting nothing", async () => {
+    const channel = new FakeChannel();
+    const { host, dialed } = peeking(channel);
+    expect(await host.peekTail(WS, "claude", "session", "work", { turns: 3 })).toEqual({
+      offline: false,
+      claude: {} as never,
+    });
+    await host.peekTail(WS, "claude", "session", "work", { cursor: "c1" });
+    expect(channel.calls).toEqual([
+      {
+        method: "chat.transcriptPage",
+        params: { sessionId: "session", configDir: "/profiles/work" },
+      },
+      {
+        method: "chat.transcriptPage",
+        params: { sessionId: "session", configDir: "/profiles/work", cursor: "c1" },
+      },
+    ]);
+    expect(dialed).toEqual([]);
+  });
+
+  test("reads a Codex rollout's end in its profile's folder, with no app-server", async () => {
+    const channel = new FakeChannel();
+    const { host, dialed } = peeking(channel);
+    expect(await host.peekTail(WS, "codex", "thread", "side", { turns: 5 })).toEqual({
+      offline: false,
+      codex: {} as never,
+    });
+    expect(channel.calls).toEqual([
+      {
+        method: "chat.rolloutTail",
+        params: { threadId: "thread", codexHome: "/profiles/side", turns: 5 },
+      },
+    ]);
+    expect(dialed).toEqual([]);
+  });
+
+  test("a workspace whose host is not connected is offline, and is not dialed", async () => {
+    const { host, dialed } = peeking(null);
+    expect(await host.peekTail(WS, "claude", "session", undefined)).toEqual({ offline: true });
+    expect(await host.peekTail(WS, "codex", "thread", undefined)).toEqual({ offline: true });
+    expect(dialed).toEqual([]);
+    // A manager that cannot tell whether one is up dials none either.
+    expect(await setup().host.peekTail(WS, "codex", "thread", undefined)).toEqual({
+      offline: true,
+    });
+  });
+
+  test("an agent too old to read it gives neither history; another failure is told", async () => {
+    const channel = new FakeChannel();
+    const { host } = peeking(channel);
+    channel.transcriptPageError = "unsupported-method";
+    expect(await host.peekTail(WS, "claude", "session", undefined)).toEqual({ offline: false });
+    // Not read whole through chat.transcript, as a tab's own history is.
+    expect(channel.calls.map((call) => call.method)).toEqual(["chat.transcriptPage"]);
+    channel.transcriptPageError = "transport.timeout";
+    await expect(host.peekTail(WS, "claude", "session", undefined)).rejects.toMatchObject({
+      code: "transport.timeout",
+    });
+  });
 });
 
 describe("Claude instruction history", () => {
@@ -1327,5 +1832,284 @@ describe("ChatHost", () => {
     providerReady(WS);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(events).toEqual([]);
+  });
+});
+
+describe("attached files", () => {
+  const OTHER = "w-removed";
+  const ROOT = "/home/u/.nexus-code/attach";
+  function cleanups() {
+    const waiting: Array<{ host: string; workspaceId: string }> = [];
+    return {
+      waiting,
+      attachCleanups: {
+        add: (host: string, workspaceId: string) => waiting.push({ host, workspaceId }),
+        waiting: (host: string) =>
+          waiting.filter((entry) => entry.host === host).map((entry) => entry.workspaceId),
+        remove: (host: string, workspaceId: string) => {
+          const at = waiting.findIndex(
+            (entry) => entry.host === host && entry.workspaceId === workspaceId,
+          );
+          if (at >= 0) waiting.splice(at, 1);
+        },
+      },
+    };
+  }
+  /** A host whose agent tells `root` (null: names none; a string code: asking fails so). */
+  function rooted(root: string | null = ROOT, options: Partial<ChatHostOptions> = {}) {
+    const made = setup({ attachHost: () => "local" }, undefined, undefined, undefined, options);
+    if (root === "unsupported-method" || root === "request-failed") {
+      made.channel.attachRootError = root;
+    } else {
+      made.channel.attachRootAnswer = { root };
+    }
+    return made;
+  }
+  const callsOf = (channel: FakeChannel, method: string) =>
+    channel.calls.filter((call) => call.method === method).map((call) => call.params);
+  const agentCalls = (channel: FakeChannel) =>
+    channel.calls.filter((call) => call.method !== "chat.attachRoot");
+
+  test("closing a tab keeps its files; removing its workspace removes the folder", async () => {
+    const { host, channel } = rooted();
+    await host.start(WS, TAB, "/repo", {});
+    await host.call("close", { workspaceId: WS, tabId: TAB });
+    expect(callsOf(channel, "chat.close")).toEqual([
+      expect.objectContaining({ workspaceId: WS, tabId: TAB, keepAttachments: true }),
+    ]);
+
+    await host.start(WS, TAB, "/repo", {});
+    await host.closeWorkspace(WS, channel);
+    const closes = callsOf(channel, "chat.close") as Array<Record<string, unknown>>;
+    expect(closes).toHaveLength(2);
+    expect(closes[1]?.keepAttachments).toBeUndefined();
+    expect(callsOf(channel, "chat.removeAttachments")).toEqual([
+      { workspaceId: WS, slots: [], all: true },
+    ]);
+  });
+
+  test.each([
+    [null, false],
+    ["unsupported-method", false],
+    ["request-failed", true],
+  ] as const)("an agent whose root is %p keeps a closed tab's files: %p", async (root, kept) => {
+    const { host, channel } = rooted(root);
+    await host.start(WS, TAB, "/repo", {});
+    await host.call("close", { workspaceId: WS, tabId: TAB });
+    const [close] = callsOf(channel, "chat.close") as Array<Record<string, unknown>>;
+    expect(close?.keepAttachments).toBe(kept ? true : undefined);
+  });
+
+  test("a prune tells the agent what to keep and for how long", async () => {
+    const { host, channel } = rooted();
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB], keepSlots: ["t/1"] });
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [], keepSlots: [], capOnly: true });
+    // Not knowing what the open conversations name, nothing goes.
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB] });
+    expect(callsOf(channel, "chat.pruneAttachments")).toEqual([
+      {
+        workspaceId: WS,
+        keepTabIds: [TAB],
+        retain: { keep: ["t/1"], maxAgeMs: ATTACH_UNUSED_MS, maxBytes: ATTACH_ROOM_BYTES },
+      },
+      {
+        workspaceId: WS,
+        keepTabIds: [],
+        retain: { keep: [], maxAgeMs: 0, maxBytes: ATTACH_ROOM_BYTES },
+      },
+    ]);
+  });
+
+  test.each([
+    null,
+    "unsupported-method",
+  ] as const)("where the agent's root is %p, the files of tabs not open go, as they did", async (root) => {
+    const { host, channel } = rooted(root);
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB] });
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB], capOnly: true });
+    expect(callsOf(channel, "chat.pruneAttachments")).toEqual([
+      { workspaceId: WS, keepTabIds: [TAB] },
+    ]);
+  });
+
+  test.each([
+    "\\\\server\\share\\u\\.nexus-code\\attach",
+    "//server/share/u/.nexus-code/attach",
+  ])("a root on a network share (%p) is as none: files go as tabs close and prune as they did", async (root) => {
+    const { host, channel } = rooted(root);
+    await host.start(WS, TAB, "/repo", {});
+    await host.call("close", { workspaceId: WS, tabId: TAB });
+    const [close] = callsOf(channel, "chat.close") as Array<Record<string, unknown>>;
+    expect(close?.keepAttachments).toBeUndefined();
+
+    // The renderer names no slots from a root it cannot read them by.
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB] });
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB], capOnly: true });
+    expect(callsOf(channel, "chat.pruneAttachments")).toEqual([
+      { workspaceId: WS, keepTabIds: [TAB] },
+    ]);
+  });
+
+  test("a removed workspace's folder waits no more on a host whose agent is one from before", async () => {
+    const { waiting, attachCleanups } = cleanups();
+    const { host, channel } = rooted(ROOT, { attachCleanups });
+    await host.closeWorkspace(OTHER, null);
+    expect(waiting).toEqual([{ host: "local", workspaceId: OTHER }]);
+    // It removed each tab's files as the tab closed.
+    channel.failures.set("chat.removeAttachments", "unsupported-method");
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [], keepSlots: [] });
+    expect(waiting).toEqual([]);
+    expect(callsOf(channel, "chat.pruneAttachments")).toHaveLength(1);
+  });
+
+  test("no prune when asking the agent for its root fails", async () => {
+    const { host, channel } = rooted("request-failed");
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB], keepSlots: [] });
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB] });
+    expect(callsOf(channel, "chat.pruneAttachments")).toEqual([]);
+    // Asked again each time.
+    expect(callsOf(channel, "chat.attachRoot")).toHaveLength(2);
+  });
+
+  test("a removed workspace's folder waits for its host's next prune when it cannot go now", async () => {
+    const { waiting, attachCleanups } = cleanups();
+    const { host, channel } = rooted(ROOT, { attachCleanups });
+    await host.closeWorkspace(OTHER, null);
+    expect(waiting).toEqual([{ host: "local", workspaceId: OTHER }]);
+
+    channel.failures.set("chat.removeAttachments", "request-failed");
+    await host.closeWorkspace("w-failed", channel);
+    expect(waiting).toEqual([
+      { host: "local", workspaceId: OTHER },
+      { host: "local", workspaceId: "w-failed" },
+    ]);
+
+    // Still failing: both stay for the next time, as they were.
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [], keepSlots: [] });
+    expect(waiting).toEqual([
+      { host: "local", workspaceId: OTHER },
+      { host: "local", workspaceId: "w-failed" },
+    ]);
+
+    channel.failures.clear();
+    channel.calls.length = 0;
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB], keepSlots: ["t/1"] });
+    expect(waiting).toEqual([]);
+    expect(agentCalls(channel)).toEqual([
+      { method: "chat.removeAttachments", params: { workspaceId: OTHER, slots: [], all: true } },
+      {
+        method: "chat.removeAttachments",
+        params: { workspaceId: "w-failed", slots: [], all: true },
+      },
+      {
+        method: "chat.pruneAttachments",
+        params: {
+          workspaceId: WS,
+          keepTabIds: [TAB],
+          retain: { keep: ["t/1"], maxAgeMs: ATTACH_UNUSED_MS, maxBytes: ATTACH_ROOM_BYTES },
+        },
+      },
+    ]);
+  });
+
+  test("another host's removed workspaces wait for an agent there", async () => {
+    const { waiting, attachCleanups } = cleanups();
+    attachCleanups.add("ssh:u@h:22", OTHER);
+    const { host, channel } = rooted(ROOT, { attachCleanups });
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [], keepSlots: [], capOnly: true });
+    expect(waiting).toEqual([{ host: "ssh:u@h:22", workspaceId: OTHER }]);
+    expect(agentCalls(channel)).toEqual([
+      {
+        method: "chat.pruneAttachments",
+        params: {
+          workspaceId: WS,
+          keepTabIds: [],
+          retain: { keep: [], maxAgeMs: 0, maxBytes: ATTACH_ROOM_BYTES },
+        },
+      },
+    ]);
+  });
+
+  test.each([
+    null,
+    "unsupported-method",
+  ] as const)("an agent whose root is %p kept nothing for a removed workspace", async (root) => {
+    const { waiting, attachCleanups } = cleanups();
+    const { host, channel } = rooted(root, { attachCleanups });
+    await host.closeWorkspace(OTHER, channel);
+    expect(callsOf(channel, "chat.removeAttachments")).toEqual([]);
+    expect(waiting).toEqual([]);
+  });
+
+  test("a conversation's history slots are read in its profile's folder, none from an agent before", async () => {
+    const profiles: Record<string, AgentProfile> = {
+      "claude-p": {
+        id: "claude-p",
+        agent: "claude",
+        name: "P",
+        color: "blue",
+        dir: "/profiles/claude-p",
+        env: {},
+      } as AgentProfile,
+      "codex-p": {
+        id: "codex-p",
+        agent: "codex",
+        name: "P",
+        color: "blue",
+        dir: "/profiles/codex-p",
+        env: {},
+      } as AgentProfile,
+    };
+    const { host, channel } = setup({}, undefined, undefined, (id) => profiles[id] ?? null);
+    channel.historySlotsAnswer = { found: true, slots: ["t/1", 7, "x".repeat(301), "u/2"] };
+    const told = { slots: ["t/1", "u/2"], found: true, truncated: false };
+    expect(await host.historySlots(WS, "claude", "session-1", "claude-p")).toEqual(told);
+    expect(await host.historySlots(WS, "codex", "thread-1", "codex-p")).toEqual(told);
+    expect(callsOf(channel, "chat.historySlots")).toEqual([
+      { workspaceId: WS, sessionId: "session-1", configDir: "/profiles/claude-p" },
+      { workspaceId: WS, threadId: "thread-1", codexHome: "/profiles/codex-p" },
+    ]);
+    // A tab outlives its profile: no history is read there, and none asked for.
+    const none = { slots: [], found: true, truncated: false };
+    expect(await host.historySlots(WS, "claude", "s", "codex-p")).toEqual(none);
+    expect(await host.historySlots(WS, "codex", "t", "gone")).toEqual(none);
+    expect(callsOf(channel, "chat.historySlots")).toHaveLength(2);
+    // No history of it yet: told so, to be asked again.
+    channel.historySlotsAnswer = { found: false, slots: [] };
+    expect(await host.historySlots(WS, "claude", "session-1")).toEqual({
+      slots: [],
+      found: false,
+      truncated: false,
+    });
+    // More named than told: said so.
+    channel.historySlotsAnswer = { found: true, slots: ["t/1"], truncated: true };
+    expect(await host.historySlots(WS, "claude", "session-1")).toEqual({
+      slots: ["t/1"],
+      found: true,
+      truncated: true,
+    });
+
+    channel.failures.set("chat.historySlots", "unsupported-method");
+    expect(await host.historySlots(WS, "claude", "session-1")).toEqual(none);
+    channel.failures.set("chat.historySlots", "request-failed");
+    await expect(host.historySlots(WS, "claude", "session-1")).rejects.toThrow();
+  });
+
+  test("touching and removing slots skip an empty list and an agent from before", async () => {
+    const { host, channel } = setup();
+    await host.attachmentCall("touchAttachments", { workspaceId: WS, slots: [] });
+    expect(channel.calls).toEqual([]);
+
+    await host.attachmentCall("removeAttachments", { workspaceId: WS, slots: ["t/1"] });
+    expect(channel.calls).toEqual([
+      { method: "chat.removeAttachments", params: { workspaceId: WS, slots: ["t/1"] } },
+    ]);
+
+    channel.failures.set("chat.touchAttachments", "unsupported-method");
+    await host.attachmentCall("touchAttachments", { workspaceId: WS, slots: ["t/1"] });
+    channel.failures.set("chat.touchAttachments", "request-failed");
+    await expect(
+      host.attachmentCall("touchAttachments", { workspaceId: WS, slots: ["t/1"] }),
+    ).rejects.toThrow("chat.touchAttachments failed");
   });
 });

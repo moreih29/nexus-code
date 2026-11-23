@@ -1,4 +1,3 @@
-import { Folder, GitBranch } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { RemoteWorkspace } from "../../../../packages/remote-protocol/src/rpc";
@@ -12,7 +11,6 @@ import { cn } from "../../utils/cn";
 import {
   FamilyFold,
   SessionTreeBranch,
-  StateSummary,
   useParentCaption,
   visibleParentName,
 } from "../agent-list/session-tree-rows";
@@ -22,6 +20,17 @@ export interface RemoteTreeNavigation {
   readonly selfId?: string;
   readonly peers: ReadonlyMap<string, RoomPeer>;
   readonly connected: boolean;
+}
+
+/** What a row tells of its place in its family's tree, in its second line. */
+export interface RemoteRowTree {
+  readonly depth: number;
+  /** The workspace it runs in, where that is not where its family's root runs. */
+  readonly elsewhere?: RemoteWorkspace;
+  /** Its parent, where the tree does not show it: on another computer, closed, or too deep. */
+  readonly parent?: ReactNode;
+  /** Its children's chip. */
+  readonly family?: ReactNode;
 }
 
 export function RemoteSessionBranch({
@@ -39,7 +48,7 @@ export function RemoteSessionBranch({
   groupIdle?: boolean;
   navigation?: RemoteTreeNavigation;
   workspaceOf: (workspaceId: string) => RemoteWorkspace | undefined;
-  renderRow: (node: SessionTreeNode) => ReactNode;
+  renderRow: (node: SessionTreeNode, tree: RemoteRowTree) => ReactNode;
 }) {
   return (
     <SessionTreeBranch
@@ -48,75 +57,48 @@ export function RemoteSessionBranch({
       searching={searching}
       groupIdle={groupIdle}
       testPrefix="remote-session"
-      renderRow={(node, collapsed) => (
-        <>
-          {renderRow(node)}
-          <RemoteSessionRelations
-            node={node}
-            collapsed={collapsed}
-            navigation={navigation}
-            workspace={
-              node.session.workspaceId !== root.session.workspaceId
-                ? workspaceOf(node.session.workspaceId)
-                : undefined
-            }
-          />
-        </>
-      )}
+      renderRow={(node, collapsed) =>
+        renderRow(node, {
+          depth: node.depth,
+          elsewhere:
+            node.session.workspaceId !== root.session.workspaceId
+              ? workspaceOf(node.session.workspaceId)
+              : undefined,
+          parent: <RemoteParent node={node} navigation={navigation} />,
+          family: node.count > 0 && (
+            <FamilyFold
+              session={node.session}
+              count={node.count}
+              collapsed={collapsed}
+              counts={node.counts}
+              testPrefix="remote-session"
+            />
+          ),
+        })
+      }
     />
   );
 }
 
-function RemoteSessionRelations({
+/** A row's parent where the tree does not show it, or nothing. */
+function RemoteParent({
   node,
-  collapsed,
   navigation,
-  workspace,
 }: {
   node: SessionTreeNode;
-  collapsed: boolean;
   navigation?: RemoteTreeNavigation;
-  workspace?: RemoteWorkspace;
 }) {
   const parentName =
     visibleParentName(node) ??
     (node.depth === 0 && !node.session.parent?.tabId ? node.parentName : undefined);
-  const task = workspace?.parentId !== undefined;
-  const workspaceLabel = remoteDisplayName(
-    task ? (workspace?.git?.branch ?? workspace?.name) : workspace?.name,
-  );
-  const WorkspaceIcon = task ? GitBranch : Folder;
-  const { count, counts, session, parentClosed } = node;
-  if (!parentName && !parentClosed && !count && !workspaceLabel) return null;
+  if (!parentName && !node.parentClosed) return null;
   return (
-    <div className="flex min-w-0 items-center gap-1.5 px-2 pb-1 text-app-micro">
-      {workspaceLabel && (
-        <span
-          className="flex max-w-[45%] min-w-0 items-center gap-0.5 rounded-full border border-border px-1.5 font-mono text-muted-foreground"
-          title={workspaceLabel}
-        >
-          <WorkspaceIcon aria-hidden className="size-3 shrink-0" />
-          <span className="truncate">{workspaceLabel}</span>
-        </span>
-      )}
-      {(parentName || parentClosed) && (
-        <RemoteParentChip
-          name={parentName}
-          opener={session.parent}
-          closed={parentClosed}
-          navigation={navigation}
-        />
-      )}
-      {count > 0 && (
-        <FamilyFold
-          session={session}
-          count={count}
-          collapsed={collapsed}
-          testPrefix="remote-session"
-        />
-      )}
-      {collapsed && <StateSummary counts={counts} compact testPrefix="remote-session" />}
-    </div>
+    <RemoteParentChip
+      name={parentName}
+      opener={node.session.parent}
+      closed={node.parentClosed}
+      navigation={navigation}
+    />
   );
 }
 
@@ -178,13 +160,16 @@ function RemoteParentChip({
               title: name,
             })
         : undefined;
-  const className = "min-w-0 truncate text-muted-foreground";
+  const className = "max-w-40 min-w-0 shrink-[2] truncate text-muted-foreground";
   return onClick ? (
     <Button
       type="button"
       variant="ghost"
       title={hint}
-      className={cn(className, "h-auto max-w-full px-1 py-0 text-app-micro font-normal")}
+      className={cn(
+        className,
+        "pointer-events-auto -mx-1 h-4 px-1 py-0 text-app-micro font-normal",
+      )}
       data-testid="remote-session-parent"
       onClick={onClick}
     >

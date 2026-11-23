@@ -180,6 +180,16 @@ export function workspaceLocationKey(location: WorkspaceLocation): string {
 }
 
 /**
+ * The host and user whose agents share one attach folder
+ * (~/.nexus-code/attach there): every workspace on it, whatever its folder.
+ */
+export function attachHostOf(location: WorkspaceLocation): string {
+  if (location.kind === "local") return "local";
+  if (location.kind === "wsl") return `wsl:${location.distro}`;
+  return `ssh:${location.user ?? ""}@${location.host}:${location.port ?? 22}`;
+}
+
+/**
  * Narrows unknown JSON input to plain object records.
  */
 function isRecord(value: unknown): value is Record<string, unknown> {

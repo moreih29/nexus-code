@@ -1,7 +1,8 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { RefreshCw } from "lucide-react";
+import i18next from "i18next";
 import { type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { SHORTCUTS } from "@/keybindings/shortcut-labels";
 import { MAX_LIST_ENTRIES } from "../../../../packages/remote-protocol/src/rpc";
 import { ipcCallResult } from "../../ipc/client";
 import { refreshPeerSessions } from "../../services/remote/room";
@@ -15,15 +16,16 @@ import {
 import { copyText } from "../../utils/clipboard";
 import { peerPathKey, peerRelativePath } from "../../utils/peer-path";
 import { indentPaddingLeft, ROW_HEIGHT_PX } from "../files/file-tree/metrics";
+import { WorkspaceRootHeader } from "../files/file-tree/root-header";
 import { FileTreeRow } from "../files/file-tree/row";
 import { FileTreeVirtualBody } from "../files/file-tree/virtual-body";
+import type { MenuItemSpec } from "../ui/context-menu";
 import {
   ContextMenuContent,
   ContextMenuItems,
   ContextMenuRoot,
   ContextMenuTrigger,
 } from "../ui/context-menu";
-import { IconButton } from "../ui/icon-button";
 import { changedPeerGitParents, peerGitDecorations } from "./git-tree";
 import {
   loadPeerFolder,
@@ -62,10 +64,13 @@ export function PeerFileTree({
   const [errors, setErrors] = useState<Readonly<Record<string, PeerFolderError>>>({});
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   const [focused, setFocused] = useState(rootKey);
-  const [menuPath, setMenuPath] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ path: string; file: boolean } | null>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const rowIdPrefix = useId();
-  const rows = peerTreeRows({ root, title: workspace.name, ...view, collapsedRoot, errors });
+  // The root is the header above the tree, as locally; the rows are what it holds.
+  const rows = peerTreeRows({ root, title: workspace.name, ...view, collapsedRoot, errors }).slice(
+    1,
+  );
   const rowId = (key: string) => `${rowIdPrefix}-${encodeURIComponent(key)}`;
 
   const virtualizer = useVirtualizer({
@@ -219,16 +224,18 @@ export function PeerFileTree({
       readFolder.current(row.key, row.path);
     }
   }
+  function openFile(path: string) {
+    const key = peerPathKey(path);
+    const alreadyOpen = view.tabs.find(
+      (tab): tab is PeerFileTab => tab.type === "peer.file" && peerPathKey(tab.path) === key,
+    );
+    if (canRead || alreadyOpen) {
+      usePeerWorkspaceStore.getState().openFile(id, alreadyOpen?.path ?? path);
+    }
+  }
   function activate(row: PeerTreeEntry) {
     if (row.node.type === "dir") toggle(row);
-    if (row.node.type === "file") {
-      const alreadyOpen = view.tabs.find(
-        (tab): tab is PeerFileTab => tab.type === "peer.file" && peerPathKey(tab.path) === row.key,
-      );
-      if (canRead || alreadyOpen) {
-        usePeerWorkspaceStore.getState().openFile(id, alreadyOpen?.path ?? row.path);
-      }
-    }
+    if (row.node.type === "file") openFile(row.path);
   }
   function navigate(event: KeyboardEvent<HTMLDivElement>) {
     if (event.altKey || event.ctrlKey || event.metaKey || activeRow?.kind !== "entry") return;
@@ -294,19 +301,20 @@ export function PeerFileTree({
     }
   }
 
+  const rootPath = view.folders[rootKey]?.path ?? root;
   return (
     <ContextMenuRoot>
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex h-7 shrink-0 justify-end border-b border-border/50 px-1">
-          <IconButton
-            label={t("files:fileTree.header.refresh")}
-            size="sm"
-            disabled={!canRead}
-            onClick={() => refreshTree.current()}
-          >
-            <RefreshCw className="size-3.5" aria-hidden="true" />
-          </IconButton>
-        </div>
+      <div className="group/filetree flex min-h-0 flex-1 flex-col">
+        <ContextMenuTrigger>
+          <WorkspaceRootHeader
+            rootAbsPath={rootPath}
+            isExpanded={!collapsedRoot}
+            onToggle={() => usePeerWorkspaceStore.getState().toggleFolder(id, rootKey)}
+            onRefresh={() => refreshTree.current()}
+            onCollapseAll={() => usePeerWorkspaceStore.getState().collapseFolders(id)}
+            onContextMenu={() => setMenu({ path: rootPath, file: false })}
+          />
+        </ContextMenuTrigger>
         <ContextMenuTrigger>
           <div
             ref={scroll}
@@ -370,7 +378,7 @@ export function PeerFileTree({
                     }}
                     onContextMenu={() => {
                       setFocused(row.key);
-                      setMenuPath(row.path);
+                      setMenu({ path: row.path, file: row.node.type === "file" });
                     }}
                   />
                 );
@@ -379,25 +387,44 @@ export function PeerFileTree({
           </div>
         </ContextMenuTrigger>
       </div>
-      {menuPath !== null && (
+      {menu !== null && (
         <ContextMenuContent>
-          <ContextMenuItems
-            items={[
-              {
-                kind: "item",
-                label: t("files:fileTree.menu.copyPath"),
-                onSelect: () => copyText(menuPath),
-              },
-              {
-                kind: "item",
-                label: t("files:fileTree.menu.copyRelativePath"),
-                onSelect: () =>
-                  copyText(peerRelativePath(menuPath, view.folders[rootKey]?.path ?? root)),
-              },
-            ]}
-          />
+          <ContextMenuItems items={peerTreeMenu(menu, rootPath, () => openFile(menu.path))} />
         </ContextMenuContent>
       )}
     </ContextMenuRoot>
   );
+}
+
+/**
+ * A row's right-click menu, the local tree's that only look: a file's
+ * Open, then its path and its path in the workspace, with the local
+ * shortcuts' labels.
+ */
+export function peerTreeMenu(
+  target: { path: string; file: boolean },
+  root: string,
+  open: () => void,
+): MenuItemSpec[] {
+  const t = i18next.t.bind(i18next);
+  return [
+    ...(target.file
+      ? ([
+          { kind: "item", label: t("files:fileTree.menu.open"), onSelect: open },
+          { kind: "separator" },
+        ] satisfies MenuItemSpec[])
+      : []),
+    {
+      kind: "item",
+      label: t("files:fileTree.menu.copyPath"),
+      shortcut: SHORTCUTS.copyPath,
+      onSelect: () => copyText(target.path),
+    },
+    {
+      kind: "item",
+      label: t("files:fileTree.menu.copyRelativePath"),
+      shortcut: SHORTCUTS.copyRelativePath,
+      onSelect: () => copyText(peerRelativePath(target.path, root)),
+    },
+  ];
 }

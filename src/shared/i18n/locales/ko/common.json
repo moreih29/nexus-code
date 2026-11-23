@@ -216,6 +216,10 @@
     "error_invalid_name": "이름에 글자나 숫자를 넣으세요.",
     "remove_title": "작업 “{{name}}”을(를) 삭제하시겠습니까?",
     "remove_description": "터미널과 에이전트 탭을 닫고 워크트리 폴더를 삭제합니다.",
+    "remove_agents_one": "에이전트 탭 {{count}}개",
+    "remove_agents_other": "에이전트 탭 {{count}}개",
+    "remove_agents_under": "‘{{name}}’ 아래 {{count}}개 포함",
+    "remove_agents_more": "외 {{count}}개",
     "remove_branch": "브랜치 {{branch}}도 삭제",
     "remove_dirty": "작업을 삭제하면 커밋하지 않은 변경 사항도 사라집니다.",
     "remove": "삭제",
@@ -558,6 +562,11 @@
       "exited": "종료"
     },
     "estimated": "{{label}} (추정)",
+    "wait": {
+      "permission": "권한 요청",
+      "question": "질문",
+      "plan": "계획 승인"
+    },
     "duration": {
       "now": "방금",
       "minutes": "{{count}}분",
@@ -1430,7 +1439,7 @@
       "none_in_profile": "이 프로필의 이 폴더에 대화가 없습니다.",
       "none": "이 폴더에 이어갈 대화가 없습니다.",
       "delete": "이 대화 삭제",
-      "delete_hint": "삭제하면 되돌릴 수 없습니다.",
+      "delete_hint": "첨부 파일도 함께 삭제 · 되돌릴 수 없음",
       "deleting": "지우는 중…",
       "delete_failed": "대화 삭제 실패. {{message}}"
     },
@@ -1954,8 +1963,8 @@
       "held": "패널에 있음 (다른 탭 뒤)",
       "failed": "실패",
       "hidden": "{{count}}개 숨김",
-      "children": "하위 {{count}}",
-      "toggle_children": "하위 대화 접기 · 펼치기",
+      "children_one": "하위 대화 {{count}}",
+      "children_other": "하위 대화 {{count}}",
       "idle_children": "대기 {{count}}",
       "parent": "↳ {{name}}",
       "parent_hint": "상위 대화 · {{name}}",
@@ -1963,8 +1972,7 @@
       "closed_conversation": "닫힌 대화",
       "remote_parent": "↳ {{device}} · {{name}}",
       "this_computer": "이 컴퓨터",
-      "parent_closed_state": "닫힘",
-      "moved_family": "↳ ‘{{name}}’ 아래 {{count}}"
+      "parent_closed_state": "닫힘"
     },
     "pane": {
       "close": "패널 닫기",
@@ -2123,7 +2131,6 @@
     "quickOpenPrompt": "그 컴퓨터의 파일 이름 또는 경로",
     "quickOpenEmpty": "일치하는 파일 없음",
     "gitNoStageCommit": "스테이징 · 커밋 없음",
-    "gitUnstaged": "스테이징 안 된 변경 사항",
     "gitDetached": "분리된 HEAD",
     "gitDivergence": "앞섬 {{ahead}} · 뒤처짐 {{behind}}",
     "gitTruncated": "파일 목록 일부만",
@@ -2136,7 +2143,6 @@
     "gitOutsideWorkspace": "워크스페이스 밖",
     "gitCommitMissing": "커밋 없음",
     "gitNoCommits": "커밋 기록 없음",
-    "sessionGone": "없어짐",
-    "noSessions": "세션 없음"
+    "sessionGone": "없어짐"
   }
 }

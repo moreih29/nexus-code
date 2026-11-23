@@ -9,6 +9,7 @@
  */
 
 import i18next from "i18next";
+import { type ChatPeek, fitPeek } from "../../../../packages/remote-protocol/src";
 import {
   isDefaultProfileId,
   portableProfileDir,
@@ -24,7 +25,7 @@ import { sameFolder } from "../../../shared/fs/drive-path";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { LimitResume } from "../../../shared/types/layout";
 import { toolSummary } from "../../components/chat/tool-row";
-import { ipcCallResult } from "../../ipc/client";
+import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { chatPropsWithProfile } from "../../state/operations/tabs";
 import {
   saveSessionInstructions,
@@ -36,7 +37,7 @@ import {
   tildePath,
   useAgentProfilesStore,
 } from "../../state/stores/agent-profiles";
-import { useTabsStore } from "../../state/stores/tabs";
+import { type Tab, useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import {
   type AgentTabController,
@@ -44,6 +45,7 @@ import {
   agentTabController,
 } from "../chat/agent-tab";
 import { conversationMarkdown } from "../chat/app-commands";
+import { attachRootOf, attachSlotOf } from "../chat/attach-folders";
 import { existingChatController, type ForkPoint } from "../chat/claude/controller";
 import { borrowedClaudeModels, useClaudeModelCatalog } from "../chat/claude/model-catalog";
 import { firstVersionOf } from "../chat/claude/versions";
@@ -78,6 +80,13 @@ import {
   viewToolOf,
 } from "../remote/chat-page";
 import { chatPanelOf } from "../remote/chat-panel";
+import {
+  ClaudeTail,
+  peekOfChat,
+  peekOfRollout,
+  peekTurnCount,
+  peekUnavailable,
+} from "../remote/chat-peek";
 import { eachTimeItCan, startChatWatch, stopChatWatch, tabSource } from "../remote/chat-watch";
 import {
   claudeSessions,
@@ -87,6 +96,7 @@ import {
   tabWithSession,
 } from "../remote/history";
 import { cliProfileName } from "../remote/profile-name";
+import { runPageOf } from "../remote/run-page";
 import { type ChatSettingsPlan, chatChoicesOf, planChatSettings } from "./chat-settings";
 import {
   type ChatTabExtras,
@@ -183,9 +193,22 @@ function infoOf(
 }
 
 /**
+ * Whether the tab is still being opened only to show it: its log replayed,
+ * or its program started, with nothing sent to it. That is no turn.
+ * Closing a tab brings the one used before it to the front, which opens
+ * it; read as working, it would flash as running in other devices' lists.
+ */
+function openingToShow(workspaceId: string, tabId: string, target: AgentTabController): boolean {
+  const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+  return (
+    target.controller.isOpening && chat?.phase === "starting" && !sendUnseen(workspaceId, tabId)
+  );
+}
+
+/**
  * Where a Claude or Codex tab stands without opening its program, as
  * chat.state with `peek` tells it: a tab not opened since the app started
- * reads idle.
+ * reads idle, and one being opened to show it reads as before.
  */
 export function peekChatInfo(
   workspaceId: string,
@@ -194,10 +217,80 @@ export function peekChatInfo(
 ): CliChatInfo & { waitingId?: string } {
   const target = agentTabController(workspaceId, tabId);
   if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
-  if (!opened(workspaceId, tabId)) {
+  if (!opened(workspaceId, tabId) || openingToShow(workspaceId, tabId, target)) {
     return withProfile(workspaceId, tabId, chatInfoOf(target.agent, undefined, false));
   }
   return infoOf(workspaceId, tabId, target, includeWaitingId);
+}
+
+/**
+ * A tab's last turns from the end of its history as its agent keeps it
+ * (chat.peekTail), for one whose conversation the app does not hold: the
+ * tab is not opened, and its program not started. A workspace on a host
+ * that is not connected is told offline; a chat that never ran, or whose
+ * record is gone, missing.
+ */
+async function storedPeek(
+  workspaceId: string,
+  tab: Extract<Tab, { type: "claude" | "codex" }>,
+  turns: number | undefined,
+): Promise<ChatPeek> {
+  const { props } = tab;
+  const sessionId = tab.type === "claude" ? tab.props.sessionId : tab.props.threadId;
+  if (!sessionId) return peekUnavailable("missing");
+  const read = async (cursor?: string) =>
+    unwrapIpcResult(
+      await ipcCallResult("chat", "peekTail", {
+        workspaceId,
+        agent: tab.type,
+        sessionId,
+        ...(props.profileId ? { profileId: props.profileId } : {}),
+        turns: peekTurnCount(turns),
+        ...(cursor ? { cursor } : {}),
+      }),
+    );
+  const tail = await read();
+  if (tail.offline) return peekUnavailable("offline");
+  const relayed = relayedOf(props);
+  if (tail.codex) return peekOfRollout(tail.codex, relayed, turns);
+  if (!tail.claude) return peekUnavailable("missing");
+  const claude = new ClaudeTail(tail.claude);
+  try {
+    for (let cursor = claude.cursor; cursor; cursor = claude.cursor) {
+      const page = (await read(cursor)).claude;
+      if (!page) break;
+      claude.prepend(page);
+    }
+  } catch {
+    // The transcript changed as it was read: what was read of it is told.
+  }
+  return claude.peek(relayed, turns);
+}
+
+/**
+ * A Claude or Codex tab's last turns at a glance: from the conversation an
+ * open tab holds, else from the end of its history. Never opens the tab.
+ */
+export async function peekChat(
+  workspaceId: string,
+  tabId: string,
+  turns?: number,
+): Promise<ChatPeek> {
+  const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+  if (tab?.type !== "claude" && tab?.type !== "codex") {
+    throw new UiRequestError("that tab is not a Claude or Codex tab");
+  }
+  const source = tabSource(workspaceId, tabId, tab.type);
+  const open = source ? peekOfChat(source, turns) : undefined;
+  if (open && (open.turns.length > 0 || open.status.running)) return open;
+  const stored = await storedPeek(workspaceId, tab, turns);
+  if (!open) return stored;
+  // Open, with its conversation not in yet (its log is still read): its history's turns, as it
+  // stands, or why there are none to read (its host is not connected, it never ran).
+  if (stored.turns.length === 0) {
+    return stored.unavailable ? { ...open, unavailable: stored.unavailable } : open;
+  }
+  return fitPeek({ ...open, turns: stored.turns, ...(stored.more ? { more: true } : {}) });
 }
 
 /**
@@ -628,12 +721,21 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     };
   },
 
+  "chat.peek": ({ workspaceId, tabId, turns }) => peekChat(workspaceId, tabId, turns),
+
   "chat.page": async ({ workspaceId, tabId, before, limit }) => {
     const target = await readableTab(workspaceId, tabId);
     const read = () => chatPageOf(sourceOf(workspaceId, tabId, target.agent), { before, limit });
     if (target.agent !== "claude") return read();
     // A subagent that ended opens on the device from the page it read: with its messages.
     return pageWithSubagents(read, (ids) => readSubagents(target, ids));
+  },
+
+  "chat.runPage": async ({ workspaceId, tabId, runId, before, limit }) => {
+    if (!agentTabController(workspaceId, tabId)) {
+      throw new UiRequestError("that tab is not a Claude or Codex tab");
+    }
+    return runPageOf(workspaceId, tabId, runId, { before, limit });
   },
 
   "chat.watch": async ({ workspaceId, tabId, watchId, limit, appends }) => {
@@ -844,6 +946,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       .getState()
       .workspaces.find((w) => w.id === workspaceId)?.rootPath;
     const files = new Set<string>();
+    const attachRoot = root ? await attachRootOf(workspaceId) : null;
     for (const tab of Object.values(useTabsStore.getState().byWorkspace[workspaceId] ?? {})) {
       if (tab.type !== "claude" && tab.type !== "codex") continue;
       const chat = useChatStore.getState().tabs[chatKey(workspaceId, tab.id)];
@@ -857,9 +960,14 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         const path = jobOutputFile(job, tools);
         if (path) files.add(path);
       }
-      // As the tab's own previews read them (outsideLinksOf), its HTML files' folders aside.
+      // As the tab's own previews read them (outsideLinksOf), its HTML files' folders aside;
+      // of the images the user attached, only those the agent wrote for a message, of this
+      // tab or of another the conversation went on from: a device that sends a message names
+      // in it whatever path it likes, yet one that may send it could have the agent read more.
+      const attached = (file: string) =>
+        attachRoot !== null && attachSlotOf(attachRoot, workspaceId, file) !== null;
       if (root)
-        for (const file of outsideLinksOf(items, tools, tab.props.cwd, root).files) {
+        for (const file of outsideLinksOf(items, tools, tab.props.cwd, root, [], attached).files) {
           files.add(file);
         }
     }

@@ -17,6 +17,8 @@ import {
   MAX_BYTES_CHUNK,
   MAX_IMAGE_EDGE,
   MAX_MARK_SEEN,
+  MAX_PEEK_BYTES,
+  MAX_PEEK_TURNS,
   MAX_SESSION_AGENTS,
   MAX_UPLOAD_BYTES,
   olderConnection,
@@ -333,6 +335,155 @@ describe("the methods", () => {
     expect(CAPABILITIES).toContain(capability);
     expect(MAX_MARK_SEEN).toBe(500);
     expect(result.parse({ marked: 0 })).toEqual({ marked: 0 });
+  });
+
+  test("system.stats tells a workspace's host's CPU and memory, and takes no agent sender", () => {
+    const { capability, params, result } = RPC_METHODS["system.stats"];
+    expect(capability).toBe("system.stats");
+    expect(CAPABILITIES).toContain(capability);
+    expect(params.parse({ workspaceId: "w" })).toEqual({ workspaceId: "w" });
+    expect(params.safeParse({}).success).toBe(false);
+    // An agent's `from` is dropped, so the room refuses an agent's request.
+    const from = { workspaceId: "w2", tabId: "t", kind: "tab" };
+    expect(params.parse({ workspaceId: "w", from })).toEqual({ workspaceId: "w" });
+    const stats = { cpu: 12.5, memUsed: 1024, memTotal: 4096 };
+    expect(result.parse(stats)).toEqual(stats);
+    expect(result.parse({ ...stats, cpu: null })).toEqual({ ...stats, cpu: null });
+    for (const wrong of [
+      { ...stats, cpu: 101 },
+      { ...stats, cpu: -1 },
+      { ...stats, memUsed: -1 },
+      { ...stats, memTotal: 0 },
+      { cpu: 1, memUsed: 1 },
+    ]) {
+      expect(result.safeParse(wrong).success).toBe(false);
+    }
+  });
+
+  const peekTurn = {
+    user: { text: "Fix the relay timeout", images: 0 },
+    reply: "Done: a ping every 15 s.",
+    tools: { Bash: 2, Edit: 1 },
+  };
+  const peek = { status: { running: false, phase: "ready" }, turns: [peekTurn] };
+  const tools = (n: number) =>
+    Object.fromEntries(Array.from({ length: n }, (_, i) => [`t${i}`, 1]));
+  test.each([
+    ["no turns named", {}, true],
+    ["one turn", { turns: 1 }, true],
+    ["the most turns", { turns: MAX_PEEK_TURNS }, true],
+    ["no turns", { turns: 0 }, false],
+    ["more than the most turns", { turns: MAX_PEEK_TURNS + 1 }, false],
+    ["part of a turn", { turns: 1.5 }, false],
+    ["turns as text", { turns: "3" }, false],
+    ["an agent's read", { from: { kind: "tab", workspaceId: "w2", tabId: "t2" } }, true],
+  ])("chat.peek asks for %s", (_label, more, valid) => {
+    const params = { workspaceId: "w", tabId: "t", ...more };
+    expect(RPC_METHODS["chat.peek"].params.safeParse(params).success).toBe(valid);
+  });
+  test.each([
+    ["a turn", peek, true],
+    ["no turns", { ...peek, turns: [] }, true],
+    [
+      "earlier turns, files and other tools",
+      {
+        ...peek,
+        more: true,
+        turns: [{ ...peekTurn, user: { ...peekTurn.user, files: 2 }, otherTools: 3 }],
+      },
+      true,
+    ],
+    [
+      "a reply being written and a permission waiting",
+      {
+        status: { running: true, streaming: "…the heartbeat" },
+        turns: [],
+        waiting: { kind: "permission", tool: "Bash" },
+      },
+      true,
+    ],
+    [
+      "another sender's message",
+      { ...peek, turns: [{ received: { from: "Lead", text: "Go" }, reply: "", tools: {} }] },
+      true,
+    ],
+    [
+      "what came before the first message",
+      { ...peek, turns: [{ reply: "Done", tools: {} }] },
+      true,
+    ],
+    ["a host not connected", { ...peek, turns: [], unavailable: "offline" }, true],
+    ["no history", { ...peek, turns: [], unavailable: "missing" }, true],
+    ["another reason", { ...peek, turns: [], unavailable: "closed" }, false],
+    ["the most turns", { ...peek, turns: Array(MAX_PEEK_TURNS).fill(peekTurn) }, true],
+    [
+      "more than the most turns",
+      { ...peek, turns: Array(MAX_PEEK_TURNS + 1).fill(peekTurn) },
+      false,
+    ],
+    ["more: false", { ...peek, more: false }, false],
+    [
+      "a user text at its limit in emoji",
+      { ...peek, turns: [{ ...peekTurn, user: { text: "😀".repeat(1000), images: 0 } }] },
+      true,
+    ],
+    [
+      "a user text over its limit",
+      { ...peek, turns: [{ ...peekTurn, user: { text: "a".repeat(1001), images: 0 } }] },
+      false,
+    ],
+    ["a reply at its limit", { ...peek, turns: [{ ...peekTurn, reply: "가".repeat(2000) }] }, true],
+    [
+      "a reply over its limit",
+      { ...peek, turns: [{ ...peekTurn, reply: "a".repeat(2001) }] },
+      false,
+    ],
+    [
+      "a received text over its limit",
+      {
+        ...peek,
+        turns: [{ received: { from: "Lead", text: "a".repeat(301) }, reply: "", tools: {} }],
+      },
+      false,
+    ],
+    [
+      "a reply being written over its limit",
+      { ...peek, status: { running: true, streaming: "a".repeat(1001) } },
+      false,
+    ],
+    [
+      "no files counted as 0",
+      { ...peek, turns: [{ ...peekTurn, user: { text: "", images: 0, files: 0 } }] },
+      false,
+    ],
+    ["the most tools", { ...peek, turns: [{ ...peekTurn, tools: tools(8) }] }, true],
+    ["more than the most tools", { ...peek, turns: [{ ...peekTurn, tools: tools(9) }] }, false],
+    [
+      "a tool name over its limit",
+      { ...peek, turns: [{ ...peekTurn, tools: { ["x".repeat(65)]: 1 } }] },
+      false,
+    ],
+    ["a tool called no times", { ...peek, turns: [{ ...peekTurn, tools: { Bash: 0 } }] }, false],
+    ["other tools as 0", { ...peek, turns: [{ ...peekTurn, otherTools: 0 }] }, false],
+  ])("chat.peek answers with %s", (_label, answer, valid) => {
+    expect(RPC_METHODS["chat.peek"].result.safeParse(answer).success).toBe(valid);
+  });
+
+  test("chat.peek has its own capability, which a hello tells; what an open chat waits on may be left out", () => {
+    const { capability, result } = RPC_METHODS["chat.peek"];
+    expect(capability).toBe("chat.peek");
+    expect(CAPABILITIES).toContain(capability);
+    expect(MAX_PEEK_BYTES).toBe(14 * 1024);
+    const parsed = result.parse({ ...peek, waiting: { kind: "review", tool: "Bash" } });
+    expect(parsed.waiting).toBeUndefined();
+    expect(parsed.turns).toEqual([peekTurn]);
+    // An agent's read keeps who reads, so the serving device checks it as chat.read's.
+    const from = { kind: "tab", workspaceId: "w2", tabId: "t2" } as const;
+    expect(RPC_METHODS["chat.peek"].params.parse({ workspaceId: "w", tabId: "t", from })).toEqual({
+      workspaceId: "w",
+      tabId: "t",
+      from,
+    });
   });
 
   test("sessions.list carries the consent prompts waiting on the user; an older list has none", () => {

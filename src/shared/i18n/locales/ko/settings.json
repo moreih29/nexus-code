@@ -1049,7 +1049,10 @@
       "label": "이 세션",
       "preview": "합쳐진 내용 보기",
       "apply": "적용",
-      "applies": "다음 메시지부터 들어갑니다"
+      "applies": "다음 메시지부터 들어갑니다",
+      "loadFailed": "지시 불러오기 실패",
+      "remoteLayers": "위 항목은 {{device}}의 설정에서 편집",
+      "remoteUpdate": "이 세션 지시를 고치려면 {{device}}의 NexusCode 업데이트 필요"
     }
   },
   "profileRules": {

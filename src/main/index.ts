@@ -90,7 +90,7 @@ import { registerSystemChannel } from "./features/shell/ipc";
 import { registerSshAuthPromptIpcChannels, SshAuthPromptHub } from "./features/ssh/auth-prompt";
 import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
 import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
-import { systemStatsHandler } from "./features/system-stats";
+import { type SystemStatsSources, systemStats, systemStatsHandler } from "./features/system-stats";
 import { LocalStats } from "./features/system-stats/local";
 import { registerTaskChannel } from "./features/tasks/ipc";
 import { installUpdatesDomain, type UpdatesDomainHandle } from "./features/updates";
@@ -115,6 +115,7 @@ import {
 } from "./features/window/app-windows";
 import { registerWindowChannel } from "./features/window/ipc";
 import { logChildProcessDeaths } from "./features/window/page-health";
+import { wireAppWindow } from "./features/window/wire-app-window";
 import { registerWorkspaceChannel } from "./features/workspace/ipc";
 import { WorkspaceManager } from "./features/workspace/manager";
 import { registerWslChannel } from "./features/wsl/ipc";
@@ -225,6 +226,20 @@ let stopLoopMonitor: (() => void) | null = null;
 let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
 let chatHost: ChatHost | null = null;
+
+function openAppWindow(): BrowserWindow {
+  const win = createMainWindow(stateService.getState());
+  wireAppWindow(win, {
+    closeRunReadersOf: (opener) => chatHost?.closePrintRunReadersOf(opener),
+    pauseAutofetch: (paused) => gitAutofetch?.setGlobalPaused(paused),
+    closeBrowserTabsOf: (owner) => {
+      const registry = getBrowserRegistry();
+      registry?.disposeWindow(owner);
+      if (!hasAppWindow()) registry?.disposeAll();
+    },
+  });
+  return win;
+}
 let agentProfiles: { dispose(): void } | null = null;
 let profileConnectionKeys: ConnectionKeys | undefined;
 /** What the sealed files open with; on macOS, read only when the user knows it is coming. */
@@ -492,18 +507,20 @@ registerSshBrowseHandlers(
 );
 registerSshAuthPromptIpcChannels(sshAuthPromptHub);
 registerWslChannel(sshBrowseRegistry, forwardBroadcast);
+// How busy a workspace's host is: for the status bar here, and other devices' (system.stats).
+const systemStatsSources: SystemStatsSources = {
+  local: new LocalStats(),
+  isLocal: (workspaceId) => workspaceManager.isLocal(workspaceId),
+  exists: (workspaceId) => workspaceManager.getName(workspaceId) !== null,
+  // Looking never connects a workspace, as the ports' look does not.
+  remote: async (workspaceId) => {
+    const channel = await workspaceManager.peekAgentChannel(workspaceId);
+    return channel ? channel.call("system.stats", {}) : null;
+  },
+};
 registerSystemChannel({
-  openNewWindow: () => createMainWindow(stateService.getState()),
-  stats: systemStatsHandler({
-    local: new LocalStats(),
-    isLocal: (workspaceId) => workspaceManager.isLocal(workspaceId),
-    exists: (workspaceId) => workspaceManager.getName(workspaceId) !== null,
-    // Looking never connects a workspace, as the ports' look does not.
-    remote: async (workspaceId) => {
-      const channel = await workspaceManager.peekAgentChannel(workspaceId);
-      return channel ? channel.call("system.stats", {}) : null;
-    },
-  }),
+  openNewWindow: () => openAppWindow(),
+  stats: systemStatsHandler(systemStatsSources),
 });
 registerWindowChannel(closePersistence);
 registerClipboardChannel();
@@ -806,6 +823,7 @@ app.whenReady().then(async () => {
       return repository ? repository.status() : null;
     },
     fs: (workspaceId) => workspaceManager.getFs(workspaceId),
+    stats: (workspaceId) => systemStats(systemStatsSources, workspaceId),
     repository: async (workspaceId) => (await gitRegistry?.getOrDetect(workspaceId)) ?? null,
     noteFile: async (workspaceId, noteId, src) => {
       if (!notesFeature) throw new Error("notes are not ready");
@@ -950,6 +968,7 @@ app.whenReady().then(async () => {
       claudeSetup.noteInput(workspaceId, tabId, data);
       cliFeature?.noteInput(workspaceId, tabId);
     },
+    onResize: (workspaceId, tabId) => cliFeature?.noteResize(workspaceId, tabId),
     ports: portWatcher,
     forwards,
     profileEnv: async (workspaceId, profileId) =>
@@ -994,6 +1013,29 @@ app.whenReady().then(async () => {
       },
     },
     ...(isWindows() ? { promptFiles: createPromptFiles() } : {}),
+    attachCleanups: {
+      add: (host, workspaceId) => {
+        const waiting = stateService.getState().attachCleanups ?? [];
+        if (waiting.some((entry) => entry.host === host && entry.workspaceId === workspaceId))
+          return;
+        // The oldest give way: an agent there may never come up again.
+        stateService.setState({
+          attachCleanups: [...waiting, { host, workspaceId }].slice(-200),
+        });
+      },
+      waiting: (host) =>
+        (stateService.getState().attachCleanups ?? [])
+          .filter((entry) => entry.host === host)
+          .map((entry) => entry.workspaceId),
+      remove: (host, workspaceId) => {
+        const waiting = stateService.getState().attachCleanups ?? [];
+        const rest = waiting.filter(
+          (entry) => entry.host !== host || entry.workspaceId !== workspaceId,
+        );
+        if (rest.length === waiting.length) return;
+        stateService.setState({ attachCleanups: rest.length > 0 ? rest : undefined });
+      },
+    },
     savedClaudeInstructions: (workspaceId, tabId) => {
       const tab = stateService
         .getState()
@@ -1007,6 +1049,8 @@ app.whenReady().then(async () => {
     onTaskEvent: (workspaceId, tabId, message) =>
       claudeSetup.activity.noteTask(workspaceId, tabId, message),
     onProgramExit: (workspaceId, tabId) => claudeSetup.noteProgramExit(workspaceId, tabId),
+    printRunSource: (workspaceId, tabId, runId) =>
+      claudeSetup.activity.printRunSource(workspaceId, tabId, runId),
   });
   workspaceManager.setChatSessionCloser(
     (workspaceId, channel) => chatHost?.closeWorkspace(workspaceId, channel) ?? Promise.resolve(),
@@ -1029,8 +1073,7 @@ app.whenReady().then(async () => {
   registerLspChannel(lspHost, stateService);
 
   // Pass persisted appState so titleBarOverlay color matches the user's saved theme.
-  const mainWin = createMainWindow(stateService.getState());
-  wireAutofetchWindowFocus(mainWin);
+  openAppWindow();
 
   // Create the browser permission prompt manager.  The broadcast function and
   // workspace storage setter are injected so the manager has no Electron import.
@@ -1045,9 +1088,7 @@ app.whenReady().then(async () => {
     },
   });
 
-  // Initialise the embedded browser tab subsystem.  Must be called after the
-  // main window is created so the registry can hold a strong reference to it.
-  initBrowserFeature(mainWin, {
+  initBrowserFeature({
     permissionDeps: {
       getGlobalGrant: (permission) =>
         stateService.getState().browserPermissionGrants?.[permission] === true,
@@ -1066,34 +1107,12 @@ app.whenReady().then(async () => {
   // workspace context is deleted. Must be called after initBrowserFeature so
   // the registry singleton is available.
   registerBrowserCloser(workspaceManager);
-  mainWin.on("closed", () => {
-    getBrowserRegistry()?.disposeAll();
-  });
 
   // With every window closed, as macOS keeps the app running: a click on its
   // Dock icon, or a second launch, opens one again.
   reopenAppWindow = () => {
     if (quitStarted || hasAppWindow()) return;
-    const newWin = createMainWindow(stateService.getState());
-    wireAutofetchWindowFocus(newWin);
-    // Reuse the existing permission manager with the new window.
-    initBrowserFeature(newWin, {
-      permissionDeps: {
-        getGlobalGrant: (permission) =>
-          stateService.getState().browserPermissionGrants?.[permission] === true,
-        getRemembered: (ws, origin, permission) => {
-          if (!workspaceStorage.isOpen(ws)) return null;
-          return workspaceStorage.getOriginPermission(ws, origin, permission);
-        },
-        promptManager: browserPermissionManager,
-      },
-      promptManager: browserPermissionManager,
-      workspaceStorage,
-      globalStorage,
-    });
-    newWin.on("closed", () => {
-      getBrowserRegistry()?.disposeAll();
-    });
+    openAppWindow();
   };
   app.on("activate", reopenAppWindow);
 });
@@ -1177,18 +1196,4 @@ async function shutDownMain(): Promise<void> {
       closePersistence.remainingQuitMs(),
     );
   }
-}
-
-/**
- * BrowserWindow focus/blur globally pauses only scheduler due checks. Any
- * in-flight fetch continues through the repository queue; focus recomputes
- * next due times instead of replaying missed background work immediately.
- */
-function wireAutofetchWindowFocus(win: BrowserWindow): void {
-  win.on("blur", () => {
-    gitAutofetch?.setGlobalPaused(true);
-  });
-  win.on("focus", () => {
-    gitAutofetch?.setGlobalPaused(false);
-  });
 }

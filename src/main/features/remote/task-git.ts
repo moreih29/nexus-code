@@ -1,8 +1,9 @@
 /**
- * How each task's branch stands, for the sessions' list other devices see:
- * its branch, how far ahead and behind its upstream, and how many files it
- * changed and did not commit. The list is read every second while watched,
- * far more often than git should run, so each task's facts are kept and
+ * How each workspace's branch stands, for the sessions' list other devices
+ * see: its branch, how far ahead and behind its upstream, and how many files
+ * it changed and did not commit. A task and a root workspace alike, as this
+ * computer's own title and status bar show both. The list is read every second while watched,
+ * far more often than git should run, so each workspace's facts are kept and
  * looked at again only once they are REFRESH_MS old, in the background:
  * the list shows what was last seen, and the next read the newer facts.
  */
@@ -44,9 +45,8 @@ export class TaskGit {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /** The task's facts as last seen, asking git again when they are old; none for a workspace that is no task. */
+  /** The workspace's facts as last seen, asking git again when they are old; none where it is no repository. */
   facts = (workspace: WorkspaceMeta): TaskGitFacts | undefined => {
-    if (!workspace.task) return undefined;
     const kept = this.kept.get(workspace.id);
     if (!kept || (!kept.asking && this.now() - kept.at >= REFRESH_MS)) this.refresh(workspace.id);
     return kept?.facts ?? undefined;

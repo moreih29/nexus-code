@@ -32,6 +32,7 @@ import {
   InstructionEditSchema,
   InstructionTextSchema,
 } from "../chat/instructions";
+import { PRINT_RUN_READER_TAB_ID } from "../chat/print-run-reader";
 import {
   ACTIVITY_TEXT_MAX_CHARS,
   PermissionAnswerSchema,
@@ -333,6 +334,10 @@ const WorkspaceIdSchema = z.object({ id: WorkspaceIdPrimitive });
 const PtyWorkspaceTabSchema = z.object({
   workspaceId: WorkspaceIdPrimitive,
   tabId: z.guid(),
+});
+const ChatTabOrReaderSchema = z.object({
+  workspaceId: WorkspaceIdPrimitive,
+  tabId: z.union([z.guid(), z.string().regex(PRINT_RUN_READER_TAB_ID)]),
 });
 
 const FsMutationRelPathSchema = z
@@ -657,6 +662,62 @@ const transcriptPageResult = z.object({
 });
 
 export type TranscriptPageResult = z.infer<typeof transcriptPageResult>;
+
+/** An event of a Codex thread's rollout, as the agent's chat.rolloutTail cuts it down. */
+const rolloutEvent = z.object({
+  /** turn: a turn began; user, agent: a message; tool: a call. */
+  kind: z.string(),
+  turnId: z.string().optional(),
+  text: z.string().optional(),
+  images: NonnegativeIntegerSchema.optional(),
+  clientId: z.string().optional(),
+  /** The call's kind, as the app-server names its item (commandExecution, fileChange…). */
+  tool: z.string().optional(),
+  /** How a patch changes each file: add, delete, update. */
+  changes: z.array(z.string()).optional(),
+  server: z.string().optional(),
+  name: z.string().optional(),
+});
+export type RolloutEvent = z.infer<typeof rolloutEvent>;
+
+/**
+ * The end of a chat's history as its agent keeps it, read for a glance at
+ * its last turns (chat.peekTail): a Claude transcript's last page, or a
+ * Codex rollout's last events. `offline`: the workspace's host is not
+ * connected, and was not dialed. Neither history: an agent too old to read it.
+ */
+const chatPeekTail = z.object({
+  offline: z.boolean(),
+  claude: transcriptPageResult.optional(),
+  codex: z
+    .object({ found: z.boolean(), events: z.array(rolloutEvent), more: z.boolean().optional() })
+    .optional(),
+});
+export type ChatPeekTail = z.infer<typeof chatPeekTail>;
+
+const printRunTranscriptResult = z.object({
+  found: z.boolean(),
+  lines: z.array(z.unknown()),
+  /** Where the next read goes on: its `from`. */
+  next: NonnegativeIntegerSchema,
+  /** The file was shorter than `from`: `lines` are its whole again. */
+  reset: z.boolean(),
+  /** Past the cap: only the last lines. */
+  truncated: z.boolean(),
+});
+
+export type PrintRunTranscriptResult = z.infer<typeof printRunTranscriptResult>;
+
+const printRunReaderResult = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true), readerTabId: z.string() }),
+  z.object({
+    ok: z.literal(false),
+    reason: z.enum(["none", "not-found", "failed"]),
+    message: z.string().optional(),
+  }),
+]);
+
+export type PrintRunReaderResult = z.infer<typeof printRunReaderResult>;
 
 const notesContracts = {
   /**
@@ -1110,7 +1171,7 @@ const coreIpcContract = {
       ),
       /** Writes one message to the program as a line. */
       send: call(
-        PtyWorkspaceTabSchema.extend({
+        ChatTabOrReaderSchema.extend({
           message: z.record(z.string(), z.unknown()),
           profileId: z.string().max(64).optional(),
           instructions: InstructionTextSchema.optional(),
@@ -1120,7 +1181,7 @@ const coreIpcContract = {
       /** Ends the tab's program; its log stays, to show and to start again on. */
       stop: call(PtyWorkspaceTabSchema, z.void()),
       /** Ends the tab's program and forgets its log: the tab was closed. */
-      close: call(PtyWorkspaceTabSchema, z.void()),
+      close: call(ChatTabOrReaderSchema, z.void()),
       /** Sends the tab's log again as `line` events, after `afterSeq`. */
       replay: call(
         PtyWorkspaceTabSchema.extend({ afterSeq: NonnegativeIntegerSchema.optional() }),
@@ -1134,7 +1195,8 @@ const coreIpcContract = {
       /**
        * Writes a file attached to a message where the tab's program can read
        * it (on an SSH host, a file from this machine), and returns its path
-       * there. The agent removes it when the tab closes.
+       * there. It stays after the tab closes, for the conversation to go on
+       * elsewhere, until pruneAttachments or removeAttachments removes it.
        */
       attach: call(
         PtyWorkspaceTabSchema.extend({
@@ -1144,13 +1206,71 @@ const coreIpcContract = {
         }),
         z.object({ path: z.string() }),
       ),
-      /** Removes the attached files of the workspace's Claude tabs that are no longer open. */
+      /**
+       * The folder the workspace's agent writes attached files in, on its
+       * host, as the agent tells it (chat.attachRoot):
+       * <workspaceId>/<tabId>/<n>/<name> below it. Null with no agent up
+       * (an SSH host is not dialed for it) or one too old to tell.
+       */
+      attachRoot: call(
+        z.object({ workspaceId: WorkspaceIdPrimitive }),
+        z.object({ root: z.string().nullable() }),
+      ),
+      /**
+       * Removes the workspace's attached files not in use: those of no open
+       * tab (keepTabIds) that no open tab's conversation names (keepSlots,
+       * "<tabId>/<n>"), once unused for 30 days, and the least recently used
+       * of them past 1 GiB. capOnly leaves the 30 days aside. Without
+       * keepSlots (no attach root known to name them by), only an agent that
+       * names no root prunes, as an agent from before does: the files of
+       * every tab no longer open go.
+       */
       pruneAttachments: call(
         z.object({
           workspaceId: WorkspaceIdPrimitive,
           keepTabIds: z.array(z.string().max(128)).max(10_000),
+          keepSlots: z.array(z.string().max(300)).max(5_000).optional(),
+          capOnly: z.boolean().optional(),
         }),
         z.void(),
+      ),
+      /** Marks attached files ("<tabId>/<n>" slots) used now, as a conversation naming them is shown. */
+      touchAttachments: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          slots: z.array(z.string().max(300)).max(5_000),
+        }),
+        z.void(),
+      ),
+      /** Removes attached files ("<tabId>/<n>" slots), as their conversation is deleted. */
+      removeAttachments: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          slots: z.array(z.string().max(300)).max(5_000),
+        }),
+        z.void(),
+      ),
+      /**
+       * The attached files ("<tabId>/<n>" slots) a conversation's whole
+       * history names, as its agent reads them from the history kept on
+       * the workspace's host (a Claude session in the profile's folder, a
+       * Codex thread in its home): what a tab that has loaded only its last
+       * pages keeps. Empty from an agent too old to tell. `found` is false
+       * while the agent has no history of it yet: to be asked again.
+       * `truncated`: it names more than these, so what it names is not known.
+       */
+      historySlots: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          agent: z.enum(["claude", "codex"]),
+          conversation: z.string().max(128),
+          profileId: z.string().max(64).optional(),
+        }),
+        z.object({
+          slots: z.array(z.string().max(300)).max(5_000),
+          found: z.boolean(),
+          truncated: z.boolean(),
+        }),
       ),
       /**
        * Where a Claude session is kept on the workspace's host, for a program
@@ -1192,6 +1312,33 @@ const coreIpcContract = {
           truncated: z.boolean(),
         }),
       ),
+      /**
+       * The transcript of a tab's `claude -p` run, read on from `from` (the
+       * last read's `next`), from where the run's start said its session is
+       * kept: the renderer names the run, never a path.
+       */
+      printRunTranscript: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          tabId: z.string().max(128),
+          runId: z.string().max(200),
+          from: NonnegativeIntegerSchema.optional(),
+        }),
+        printRunTranscriptResult,
+      ),
+      /**
+       * Starts a Codex app-server that reads a tab's `codex exec` run's
+       * thread with the run's CODEX_HOME: its lines come by `readerTabId`,
+       * which chat.send writes to and chat.close ends.
+       */
+      printRunReader: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          tabId: z.string().max(128),
+          runId: z.string().max(200),
+        }),
+        printRunReaderResult,
+      ),
       /** An internal page of a Claude transcript, from newest to oldest. */
       transcriptPage: call(
         z.object({
@@ -1204,6 +1351,22 @@ const coreIpcContract = {
           before: z.array(z.string().max(128)).optional(),
         }),
         transcriptPageResult,
+      ),
+      /**
+       * The end of a chat's history, for another device's glance at its last
+       * turns (chat.peek): read without starting its program, and without
+       * connecting to a workspace's host that is not connected.
+       */
+      peekTail: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          agent: z.enum(["claude", "codex"]),
+          sessionId: z.string().max(128),
+          profileId: z.string().max(64).optional(),
+          turns: z.number().int().min(1).max(10).optional(),
+          cursor: z.string().max(128).optional(),
+        }),
+        chatPeekTail,
       ),
       /**
        * One subagent's messages, which Claude Code keeps apart from its
@@ -2853,6 +3016,11 @@ const remoteContracts = {
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.run"].params),
         RPC_METHODS["chat.run"].result,
       ),
+      /** One of those runs as the conversation its own session holds, a page at a time. */
+      peerChatRunRead: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.runRead"].params),
+        RPC_METHODS["chat.runRead"].result,
+      ),
       /** Stops one of those runs. */
       peerChatStopRun: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.stopRun"].params),
@@ -2952,6 +3120,20 @@ const remoteContracts = {
           .merge(RPC_METHODS["chat.profile"].params.omit({ from: true })),
         RPC_METHODS["chat.profile"].result,
       ),
+      /** Another device's chat's instructions: the combined text, and from 0.16.0 its layers. */
+      peerChatInstructions: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.instructions"].params.omit({ from: true })),
+        RPC_METHODS["chat.instructions"].result,
+      ),
+      /** Replaces another device's chat's session instructions, as the user. */
+      peerChatInstructionsSet: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.instructions.set"].params.omit({ from: true })),
+        RPC_METHODS["chat.instructions.set"].result,
+      ),
       /** An image of another device's chat: a message's or a tool's, by its place there. */
       peerChatImage: call(
         z
@@ -2973,6 +3155,11 @@ const remoteContracts = {
       peerFilesSearch: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.search"].params),
         RPC_METHODS["files.search"].result,
+      ),
+      /** How busy another device's workspace's host is, for its status bar. */
+      peerSystemStats: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["system.stats"].params),
+        RPC_METHODS["system.stats"].result,
       ),
       /** A file of another device's workspace, as its chats name it. */
       peerFilesRead: call(
@@ -3017,6 +3204,20 @@ const remoteContracts = {
       peerGitShow: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["git.show"].params),
         RPC_METHODS["git.show"].result,
+      ),
+      /** The notes of another device's workspace, the last changed first: to read, not to change. */
+      peerNotesList: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["notes.list"].params.omit({ from: true })),
+        RPC_METHODS["notes.list"].result,
+      ),
+      /** One of those notes as Markdown, with what its recording heard. */
+      peerNotesRead: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["notes.read"].params.omit({ from: true, transcriptOnly: true })),
+        RPC_METHODS["notes.read"].result,
       ),
       /** The past conversations another device's workspace can resume. */
       peerHistory: call(

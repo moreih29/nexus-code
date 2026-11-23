@@ -79,6 +79,11 @@ export function App() {
   const agentView = useAgentViewStore((s) => s.mode === "agents");
   const peers = usePeerWorkbench(!sidebarHidden, !agentView);
   const activePeer = peers.active;
+  // What the computer of the peer workspace shown lists of its sessions, while it is watched.
+  const peerListing =
+    activePeer && Object.hasOwn(peers.lists, activePeer.deviceId)
+      ? peers.lists[activePeer.deviceId]
+      : undefined;
   const peerNeedsUpdate = peers.reachable && !peers.filesSupported;
   const peerGitNeedsUpdate = peers.reachable && !peers.gitSupported;
   const foldedPeers = useWorkspaceSidebarFolds((s) => s.foldedPeers);
@@ -245,6 +250,9 @@ export function App() {
                   <PeerWorkspaceTitle
                     target={activePeer}
                     workspaces={peers.workspaces}
+                    sessions={
+                      peerListing?.status === "ready" ? peerListing.list.sessions : undefined
+                    }
                     canSelectTask={peers.reachable && !peers.missing}
                     maxWidth={maxWidth}
                   />
@@ -332,9 +340,13 @@ export function App() {
                     canReadGit={
                       !agentView && !filesPanelHidden && peers.reachable && peers.gitSupported
                     }
+                    canReadNotes={
+                      !agentView && !filesPanelHidden && peers.reachable && peers.notesSupported
+                    }
                     gitUpdateNeeded={peerGitNeedsUpdate}
                     refreshGit={peers.refreshGit}
                     sessionHint={peers.sessionHint}
+                    listing={peerListing}
                   />
                 ) : undefined
               }

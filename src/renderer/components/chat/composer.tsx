@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import {
   memo,
+  type ReactNode,
   useCallback,
   useContext,
   useEffect,
@@ -53,6 +54,7 @@ import {
   type TypedToken,
 } from "../../services/chat/composer-input";
 import { watchFileDrop } from "../../services/chat/file-drop";
+import { fileKind } from "../../services/chat/links";
 import {
   type CommandInfo,
   type ImageBlock,
@@ -85,12 +87,13 @@ import { IconButton } from "../ui/icon-button";
 import { Keycap } from "../ui/keycap";
 import { showToast } from "../ui/toast";
 import { type ChatAgent, ChatAgentContext, useAgentContext } from "./chat-agent";
+import { useChatLinks } from "./chat-links";
 import { type CompletionItem, CompletionMenu } from "./completion-menu";
 import { COMPOSER_CHIP_CLASS } from "./composer-chip";
 import { fitTextHeight, observeTextHeight } from "./composer-height";
 import { DictationOverlay, MicButton, useComposerDictation } from "./dictation";
 import { surfaceChatSendError } from "./send-error";
-import { type InstructionsTab, SessionInstructionsChip } from "./session-instructions-chip";
+import type { InstructionsChipSlot } from "./session-instructions-chip";
 
 /** What the composer drives: a Claude tab's controller, or a Codex tab's. */
 export interface ComposerController {
@@ -166,7 +169,8 @@ interface ComposerProps {
   state: ChatTabState;
   /** A local Claude tab can borrow its profile's options while its own list is missing. */
   fallbackModels?: readonly ModelInfo[];
-  instructionsTab?: InstructionsTab;
+  /** The instructions chip, given how it fits: a chat here's or another device's. */
+  instructions?: (slot: InstructionsChipSlot) => ReactNode;
   /** The messages other agents sent through the nexus command: one waiting shows without its line. */
   relayed?: readonly RelayedMessage[];
   /** The program runs on this machine, where an attached file's path can be read. */
@@ -229,7 +233,7 @@ export const Composer = memo(function Composer({
   controller,
   state,
   fallbackModels,
-  instructionsTab,
+  instructions,
   relayed,
   local,
   placeholder,
@@ -307,7 +311,7 @@ export const Composer = memo(function Composer({
     setMenuOf((now) => (open ? part : now === part ? null : now));
   const fit = useFitStep(
     footerRef,
-    `${model.permissionMode}|${picker.label}|${model.effort}|${picker.models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}|${dictation.phase}|${!!instructionsTab}`,
+    `${model.permissionMode}|${picker.label}|${model.effort}|${picker.models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}|${dictation.phase}|${!!instructions}`,
     FIT.WRAP,
   );
 
@@ -880,13 +884,7 @@ export const Composer = memo(function Composer({
                   title={attachment.path ?? attachment.file.name}
                   data-testid="chat-attachment"
                 >
-                  <FileText className="size-4 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate">{attachment.file.name}</div>
-                    <div className="text-app-micro text-muted-foreground">
-                      {formatBytes(attachment.file.size)}
-                    </div>
-                  </div>
+                  <AttachmentLabel file={attachment.file} />
                   <IconButton
                     label={t("chat.composer.remove_file")}
                     size="xs"
@@ -968,13 +966,12 @@ export const Composer = memo(function Composer({
                 onMenu={onMenu("effort")}
               />
             )}
-            {instructionsTab && (fit < FIT.NO_INSTRUCTIONS || kept("instructions")) && (
-              <SessionInstructionsChip
-                {...instructionsTab}
-                compact={fit >= FIT.TRUNCATE_MODE}
-                onMenu={onMenu("instructions")}
-              />
-            )}
+            {instructions &&
+              (fit < FIT.NO_INSTRUCTIONS || kept("instructions")) &&
+              instructions({
+                compact: fit >= FIT.TRUNCATE_MODE,
+                onMenu: onMenu("instructions"),
+              })}
             {fit < FIT.WRAP && <div className="flex-1" />}
             {fit < FIT.NO_ADD && (
               <AddMenu
@@ -1086,6 +1083,40 @@ function useRevealedMenu(
     else setOpen(true);
   }, [reveal]);
   return [open, setOpen];
+}
+
+/**
+ * An attached file's icon, name and size. An image opens in quick look
+ * from the file itself, before the message goes, where the tab has quick look.
+ */
+function AttachmentLabel({ file }: { file: File }) {
+  const { t } = useTranslation();
+  const links = useChatLinks();
+  const body = (
+    <>
+      <FileText className="size-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate">{file.name}</div>
+        <div className="text-app-micro text-muted-foreground">{formatBytes(file.size)}</div>
+      </div>
+    </>
+  );
+  if (!links || fileKind(file.name) !== "image") return body;
+  const look = () =>
+    void base64Of(file).then((data) =>
+      links.openImages([{ mediaType: file.type || "image/png", data }], 0),
+    );
+  return (
+    <button
+      type="button"
+      onClick={look}
+      aria-label={`${t("chat.links.look")}: ${file.name}`}
+      className="flex min-w-0 flex-1 cursor-zoom-in items-center gap-1.5 rounded-(--radius-control) text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      data-testid="chat-attachment-look"
+    >
+      {body}
+    </button>
+  );
 }
 
 /** The + menu: attach a file, mention one, or start a command. */

@@ -377,6 +377,11 @@ export interface CliClaudeAgents {
    * app holds no watch of it to tell.
    */
   stop(workspaceId: string, tabId: string, agentId: string): Promise<boolean>;
+  /**
+   * Whether a `claude -p` or `codex exec` run of the tab's said it keeps a
+   * session: one that goes on may have none to read yet.
+   */
+  keepsSession?(workspaceId: string, tabId: string, runId: string): boolean;
 }
 
 /** An SSH workspace's ports forwarded to this machine (pty/forwards.ts). */

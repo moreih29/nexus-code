@@ -12,9 +12,11 @@ import {
   CircleAlert,
   CircleCheck,
   CircleX,
+  ListTodo,
   Loader,
   type LucideIcon,
   MessageCircleQuestion,
+  Shield,
   TriangleAlert,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -22,6 +24,7 @@ import { cn } from "@/utils/cn";
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import { sharedClock, useSharedClock } from "../../hooks/use-now";
 import type { AgentSession } from "../../services/agent-sessions/model";
+import type { RowFacts } from "../../services/agent-sessions/rows";
 
 interface StateLook {
   Icon: LucideIcon;
@@ -143,6 +146,89 @@ export function FailureLabel() {
   return (
     <span className="shrink-0 text-app-micro whitespace-nowrap text-(--state-error-fg)">
       {t("agentView.list.failed")}
+    </span>
+  );
+}
+
+/** What a conversation waits on the user for: a permission, an answer, or a plan's approval. */
+export type WaitKind = "permission" | "question" | "plan";
+
+const WAIT_ICONS: Record<WaitKind, LucideIcon> = {
+  permission: Shield,
+  question: MessageCircleQuestion,
+  plan: ListTodo,
+};
+
+/** What a conversation of this computer waits on the user for, by its request or its state. */
+export function waitKindOf(
+  session: Pick<AgentSession, "state">,
+  facts: Pick<RowFacts, "wait">,
+): WaitKind | undefined {
+  const wait = facts.wait;
+  if (wait?.kind === "question" || (!wait && session.state === "needsInput")) return "question";
+  if (wait?.kind === "plan") return "plan";
+  if (wait?.kind === "permission" || session.state === "permissionPending") return "permission";
+  return undefined;
+}
+
+/**
+ * What a conversation waits on the user for, as an icon: a shield for a
+ * permission, a question's bubble, a plan's list; the attention glyph where
+ * the kind is not told (an older computer's session).
+ */
+export function WaitSign({
+  kind,
+  label,
+  testId,
+}: {
+  kind: WaitKind | undefined;
+  label: string;
+  testId?: string;
+}) {
+  const Icon = kind ? WAIT_ICONS[kind] : CircleAlert;
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      title={label}
+      className="inline-flex"
+      data-testid={testId}
+      data-wait={kind}
+    >
+      <Icon
+        aria-hidden
+        width={12}
+        height={12}
+        strokeWidth={1.5}
+        className="shrink-0 text-(--state-warning-fg)"
+      />
+    </span>
+  );
+}
+
+/**
+ * A conversation's own state beside its time: its glyph, the words for a
+ * failed turn, or, waiting on the user, what for.
+ */
+export function SessionSign({
+  session,
+  facts,
+  testId,
+}: {
+  session: Pick<AgentSession, "state" | "estimated" | "phase">;
+  facts: Pick<RowFacts, "wait">;
+  testId?: string;
+}) {
+  if (session.state === "error") return <FailureLabel />;
+  const wait = session.phase === "attention" ? waitKindOf(session, facts) : undefined;
+  if (wait)
+    return (
+      <WaitSign kind={wait} label={i18next.t(`common:agentList.wait.${wait}`)} testId={testId} />
+    );
+  const label = stateLabel(session);
+  return (
+    <span role="img" aria-label={label} title={label} className="inline-flex" data-testid={testId}>
+      <StateGlyph state={session.state} />
     </span>
   );
 }

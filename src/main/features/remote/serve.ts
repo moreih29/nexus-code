@@ -74,8 +74,10 @@ import {
   chatRuns,
   chatTool,
   listHistory,
+  peekChat,
   previewChatRewind,
   readChat,
+  readChatRun,
   readEvents,
 } from "./serving/chat-details";
 import { fitsAsResult, tabOf, unavailable, workspaceOf } from "./serving/common";
@@ -143,6 +145,7 @@ export {
   listHistory,
   previewChatRewind,
   readChat,
+  readChatRun,
   readEvents,
   runDetailOf,
   runRowOf,
@@ -163,6 +166,8 @@ export { createWorkspace } from "./serving/workspaces";
 const AGENT_READS: ReadonlySet<string> = new Set([
   "sessions.list",
   "chat.read",
+  "chat.peek",
+  "chat.runRead",
   "chat.wait",
   "terminal.read",
   "terminal.wait",
@@ -247,7 +252,12 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     // An agent's request: let through as the user set it, and shown as that agent's.
     // A read is only taken where agents are (the room saw to that): nothing to ask.
     const by = (params as { from?: AgentSender } | undefined)?.from;
-    if ((method === "sessions.reorder" || method === "sessions.markSeen") && by !== undefined) {
+    if (
+      (method === "sessions.reorder" ||
+        method === "sessions.markSeen" ||
+        method === "system.stats") &&
+      by !== undefined
+    ) {
       throw new RpcFailure(RpcErrorCode.Forbidden, `${method} is not taken from agents`);
     }
     let relay: RelaySender | undefined;
@@ -524,6 +534,8 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         );
       case "chat.read":
         return readChat(s, request.params as RpcParams<"chat.read">, from);
+      case "chat.peek":
+        return peekChat(s, request.params as RpcParams<"chat.peek">, from);
       case "terminal.read":
         return readTerminal(s, request.params as RpcParams<"terminal.read">, from);
       case "chat.send":
@@ -550,6 +562,19 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "files.find":
       case "files.search":
         return serveFileSearch(s, request, watches, searching);
+      case "system.stats": {
+        // Only where the workspace's files may be read.
+        if (!watches.files || !watches.stats) {
+          throw new RpcFailure(RpcErrorCode.MethodNotFound, "system.stats is not served here");
+        }
+        const { workspaceId } = params as RpcParams<"system.stats">;
+        if (!workspaceOf(s, workspaceId)) {
+          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        }
+        const stats = await watches.stats(workspaceId);
+        if (!stats) throw new RpcFailure(RpcErrorCode.Unavailable, "the host cannot tell now");
+        return stats;
+      }
       case "git.status":
       case "git.diff":
       case "git.log":
@@ -652,6 +677,8 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         return chatRuns(s, request.params as RpcParams<"chat.runs">);
       case "chat.run":
         return chatRun(s, request.params as RpcParams<"chat.run">);
+      case "chat.runRead":
+        return readChatRun(s, request.params as RpcParams<"chat.runRead">, from);
       case "chat.stopRun":
         return stopChatRun(s, request.params as RpcParams<"chat.stopRun">);
       case "chat.rewindPreview":

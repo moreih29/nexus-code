@@ -91,7 +91,13 @@ func subagentPath(dir, sessionID, agentID, toolUseID string) string {
 	if dir == "" {
 		return ""
 	}
-	folders, _ := filepath.Glob(filepath.Join(dir, "projects", "*", sessionID, "subagents"))
+	// Read by name, not matched as a pattern (see transcriptPath).
+	projects := filepath.Join(dir, "projects")
+	entries, _ := os.ReadDir(projects)
+	folders := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		folders = append(folders, filepath.Join(projects, entry.Name(), sessionID, "subagents"))
+	}
 	if agentID != "" {
 		paths := make([]string, 0, len(folders))
 		for _, folder := range folders {
@@ -103,8 +109,13 @@ func subagentPath(dir, sessionID, agentID, toolUseID string) string {
 	}
 	var paths []string
 	for _, folder := range folders {
-		metas, _ := filepath.Glob(filepath.Join(folder, "agent-*.meta.json"))
-		for _, meta := range metas {
+		files, _ := os.ReadDir(folder)
+		for _, file := range files {
+			name := file.Name()
+			if !strings.HasPrefix(name, "agent-") || !strings.HasSuffix(name, ".meta.json") {
+				continue
+			}
+			meta := filepath.Join(folder, name)
 			if subagentCallOf(meta) == toolUseID {
 				paths = append(paths, strings.TrimSuffix(meta, ".meta.json")+".jsonl")
 			}
@@ -158,7 +169,17 @@ func transcriptPath(dir, sessionID string) string {
 	if dir == "" {
 		return ""
 	}
-	matches, _ := filepath.Glob(filepath.Join(dir, "projects", "*", sessionID+".jsonl"))
+	// Read by name, not matched as a pattern: a folder named with `*` or `[`
+	// is that folder only.
+	projects := filepath.Join(dir, "projects")
+	entries, err := os.ReadDir(projects)
+	if err != nil {
+		return ""
+	}
+	matches := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		matches = append(matches, filepath.Join(projects, entry.Name(), sessionID+".jsonl"))
+	}
 	return newestFile(matches)
 }
 

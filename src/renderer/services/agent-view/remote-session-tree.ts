@@ -7,7 +7,7 @@ import {
   searchSessionTree,
   sessionTree,
 } from "../agent-sessions/session-tree";
-import { remoteDisplayName } from "../remote/display-name";
+import { remoteDisplayName, remoteTitle } from "../remote/display-name";
 import { remoteSessionKey } from "./layout";
 
 export const GROUP_OF: Record<SessionState, RowGroup> = {
@@ -40,7 +40,7 @@ export function remoteSessionTree(
     if (!opener) return undefined;
     const { kind = "tab", agent, device } = opener;
     const parent = device ? undefined : rowsByTab.get(opener.tabId);
-    const name = remoteDisplayName(parent?.title) || remoteDisplayName(opener.name);
+    const name = remoteTitle(parent?.title) || remoteTitle(opener.name);
     if (device)
       return { ...opener, kind, name, device: { ...device, name: remoteDisplayName(device.name) } };
     const parentKey = parent && remoteSessionKey({ deviceId, ...parent });
@@ -52,7 +52,7 @@ export function remoteSessionTree(
     key,
     workspaceId: session.workspaceId,
     tabId: key,
-    title: remoteDisplayName(session.title),
+    title: remoteTitle(session.title),
     parent: openerOf(session.openedBy),
     kind: session.kind,
     agent: session.kind === "terminal" ? session.agent : session.kind,

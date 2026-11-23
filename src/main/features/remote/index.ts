@@ -15,6 +15,7 @@ import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
 import { type AccountKeyState, deviceLabel } from "../../../shared/remote/account";
 import type { RoomState } from "../../../shared/remote/room";
+import type { SystemStats } from "../../../shared/system/stats";
 import type { PhonePushPolicy, RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
 import type { CliRemote, CliServices } from "../cli/context";
@@ -191,6 +192,8 @@ export async function registerRemoteChannel(options: {
   fs?: (workspaceId: string) => Promise<FsProvider>;
   /** A workspace's repository, for the git other devices read; null where it is none. */
   repository?: (workspaceId: string) => Promise<RemoteRepository | null>;
+  /** How busy a workspace's host is, as its status bar shows; null while it cannot tell. */
+  stats?: (workspaceId: string) => Promise<SystemStats | null>;
   /** The app's color theme now, by its id: a phone may follow it. */
   theme?: () => string | undefined;
   /** A file of a note's folder (a recording's take), for its second pass; throws if it is not there. */
@@ -403,6 +406,7 @@ export async function registerRemoteChannel(options: {
           options.allowTerminal.get(),
           options.agents.get() !== "deny",
           push.enabled(),
+          options.fs !== undefined,
         ),
       connect: (handlers) => {
         relay = new RelayConnection({
@@ -419,6 +423,7 @@ export async function registerRemoteChannel(options: {
         terminals: terminalWatches,
         ...(git ? { git } : {}),
         ...(options.fs ? { files: { fs: options.fs, shrink: shrinkImage } } : {}),
+        ...(options.stats ? { stats: options.stats } : {}),
         ...(options.repository && options.fs
           ? {
               repositories: {
@@ -718,6 +723,10 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerChatRun.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.run", params));
       },
+      peerChatRunRead: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatRunRead.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.runRead", params));
+      },
       peerChatStopRun: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatStopRun.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.stopRun", params));
@@ -853,6 +862,14 @@ export async function registerRemoteChannel(options: {
       peerChatProfile: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatProfile.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.profile", params));
+      },
+      peerChatInstructions: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatInstructions.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.instructions", params));
+      },
+      peerChatInstructionsSet: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatInstructionsSet.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.instructions.set", params));
       },
       peerChatAttach: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatAttach.args, args);

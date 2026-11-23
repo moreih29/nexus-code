@@ -565,8 +565,9 @@ describe("local workspace grouping", () => {
         workingHtml.indexOf("Task working"),
       );
       expect(failedRow).not.toContain('data-testid="agent-sidebar-state"');
-      expect(failedRow).toContain("Local error details");
-      expect(failedRow).toContain("lucide-triangle-alert");
+      // The failure is told once, by the words beside the time; the error reads in red.
+      expect(failedRow).toMatch(/text-\(--state-error-fg\)"><span[^>]*>Local error details/);
+      expect(failedRow).not.toContain("lucide-triangle-alert");
       expect(failedRow).toContain(">just now<");
       expect(workingHtml).not.toContain("Local idle");
       expect(workingHtml).not.toContain("Task idle");
@@ -776,7 +777,7 @@ describe("the agent view's other computers", () => {
         <RemoteSessionRow session={session({ state: "needs-you" })} />
       </I18nextProvider>,
     );
-    expect(html).toContain(`class="sr-only">${ko.t("agentList.group.attention")}</span>`);
+    expect(html).toContain(`role="img" aria-label="${ko.t("agentList.group.attention")}"`);
   });
 
   test("orders both groups and only offers reordering with multiple online computers outside search", () => {
@@ -1320,6 +1321,16 @@ describe("the agent view's other computers", () => {
     expect(headings[0]).toContain("font-semibold");
     expect(headings[1]).toContain("lucide-git-branch");
     expect(headings[1]).toContain("fix/login ↑2 ●");
+    // Its fold leads with its chevron, as a tree's, and the whole line up to its chips folds it.
+    const fold =
+      headings[1]?.match(/data-testid="remote-workspace-fold">([\s\S]*?)<\/button>/)?.[1] ?? "";
+    const chevron = fold.indexOf("lucide-chevron-down");
+    expect(chevron).toBeGreaterThanOrEqual(0);
+    expect(chevron).toBeLessThan(fold.indexOf("lucide-git-branch"));
+    expect(fold.indexOf("lucide-git-branch")).toBeLessThan(fold.indexOf(">api-fix<"));
+    expect(fold).toContain("fix/login ↑2 ●");
+    // The computer's own chevron, a line up, is as large as a local workspace's.
+    expect(html.match(/<svg[^>]*lucide-chevron-down[^>]*>/)?.[0]).toContain("size-3.5");
   });
 
   test("hangs active worktrees under their known parent, even if it has no sessions", () => {
