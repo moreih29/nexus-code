@@ -1051,8 +1051,8 @@
       "apply": "Apply",
       "applies": "Applies from the next message.",
       "loadFailed": "Could not load instructions",
-      "remoteLayers": "Edit the layers above in Settings on {{device}}.",
-      "remoteUpdate": "Update NexusCode on {{device}} to edit this session's instructions."
+      "remoteLayers": "Edit the layers above in Settings on {{device}}",
+      "remoteUpdate": "Update NexusCode on {{device}} to edit this session's instructions"
     }
   },
   "profileRules": {

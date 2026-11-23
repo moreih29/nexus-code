@@ -103,7 +103,7 @@ test("reads the other computer's layers, shown only, and its session layer to ed
     expect(text).toContain("All agents");
     expect(text).toContain("Profile · work");
     expect(text).toContain("Workspace · api");
-    expect(text).toContain("Edit the layers above in Settings on Work PC.");
+    expect(text).toContain("Edit the layers above in Settings on Work PC");
     // That computer's layers open nowhere here.
     expect(text).not.toContain("Edit in Settings");
     expect(panel.querySelector("textarea")?.value).toBe("Keep it short");
