@@ -6,10 +6,14 @@ import type { PeerWorkspaceTarget } from "../../state/stores/peer-workspace";
 import { SearchInput } from "../files/search/input";
 import { SearchResultsList } from "../files/search/results-list";
 import { unsupportedSearchPatternReason } from "../files/search/search-error-text";
+import {
+  SearchFailedMessage,
+  SearchIdleMessage,
+  SearchNoResultsMessage,
+} from "../files/search/state-messages";
 import { useGlobalSearchHotkey } from "../files/search/use-global-search-hotkey";
 import { validateRegexPattern } from "../files/search/validate-regex-pattern";
 import { Button } from "../ui/button";
-import { EmptyState } from "../ui/empty-state";
 import {
   markMissingPeer,
   openPeerResult,
@@ -225,10 +229,13 @@ export function PeerSearchPanel({
         </p>
       )}
       {errorMessage && canRead && (
-        <p role="status" className="px-2 py-1 text-app-ui-sm text-muted-foreground">
-          {errorMessage}
-        </p>
+        <SearchFailedMessage
+          message={errorMessage}
+          // A computer that cannot search this way says so again on a retry.
+          onRetry={unsupported ? undefined : () => void search()}
+        />
       )}
+      {!query && !results && !running && !error && !invalidFilters && <SearchIdleMessage />}
       {results && (
         <div className="px-2 py-1 text-app-ui-sm text-muted-foreground" role="status">
           {files("search.status.results", {
@@ -262,7 +269,7 @@ export function PeerSearchPanel({
           firstRowFocusRef={firstRow}
         />
       ) : results && !running && !error ? (
-        <EmptyState title={files("search.state.noResults")} tone="status" />
+        <SearchNoResultsMessage />
       ) : null}
     </div>
   );

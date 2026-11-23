@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { RpcResult } from "../../../../../packages/remote-protocol/src/rpc";
 import { SearchInput } from "../../../../../src/renderer/components/files/search/input";
 import { SearchResultsList } from "../../../../../src/renderer/components/files/search/results-list";
+import { SearchFailedMessage } from "../../../../../src/renderer/components/files/search/state-messages";
 import { PeerSearchPanel } from "../../../../../src/renderer/components/peer-workspace/search-panel";
 import * as ipc from "../../../../../src/renderer/ipc/client";
 import type { PeerWorkspaceTarget } from "../../../../../src/renderer/state/stores/peer-workspace";
@@ -99,6 +100,11 @@ function mountPanel() {
         render(),
         SearchResultsList,
       )?.props.results.map((group) => group.relPath) ?? [],
+    failed: () =>
+      findChild<React.ComponentProps<typeof SearchFailedMessage> & { children?: React.ReactNode }>(
+        render(),
+        SearchFailedMessage,
+      )?.props,
     markup: () => renderToStaticMarkup(render()),
   };
 }
@@ -204,4 +210,45 @@ test("peer search filters open in place, with no platform triangle: a chevron do
     .match(/<summary([^>]*)>(.*?)<\/summary>/);
   expect(summary?.[1]).toContain("list-none");
   expect(summary?.[2]).toMatch(/^Search filters<svg[^>]*lucide-chevron-down/);
+});
+
+test("peer search says what the local one says: before a search, with nothing found, and on a failure", async () => {
+  const call = spyOn(ipc, "ipcCallResult")
+    .mockResolvedValueOnce(ipcOk({ files: [], truncated: false }))
+    .mockResolvedValueOnce(ipcErr("unavailable", "gone"))
+    .mockResolvedValueOnce(ipcOk({ files: [], truncated: false }));
+  try {
+    const panel = mountPanel();
+    expect(panel.markup()).toContain("Search across workspace");
+    panel.input().onChange("test");
+    expect(panel.markup()).not.toContain("Search across workspace");
+    panel.input().onEnter();
+    await Promise.resolve();
+    expect(panel.markup()).toContain("No results found");
+    expect(panel.markup()).toContain("Try a different search term.");
+
+    panel.input().onEnter();
+    await Promise.resolve();
+    expect(panel.markup()).toContain("Retry");
+    panel.failed()?.onRetry?.();
+    expect(call).toHaveBeenCalledTimes(3);
+  } finally {
+    call.mockRestore();
+  }
+});
+
+test("an unsupported peer search offers no retry", async () => {
+  const call = spyOn(ipc, "ipcCallResult").mockResolvedValue(
+    ipcErr("unsupported", "MethodNotFound"),
+  );
+  try {
+    const panel = mountPanel();
+    panel.input().onChange("test");
+    panel.input().onEnter();
+    await Promise.resolve();
+    expect(panel.failed()?.onRetry).toBeUndefined();
+    expect(panel.markup()).not.toContain("Retry");
+  } finally {
+    call.mockRestore();
+  }
 });

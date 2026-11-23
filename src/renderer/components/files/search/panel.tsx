@@ -16,7 +16,6 @@
  *    and the inline empty/no-results/error states.
  */
 
-import { CircleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { revealEditorAt } from "@/services/editor/tabs";
@@ -34,6 +33,7 @@ import { shouldHandleArrowDown } from "./arrow-down-handoff";
 import { SearchInput } from "./input";
 import { SearchResultsList } from "./results-list";
 import { searchErrorText } from "./search-error-text";
+import { SearchFailedMessage, SearchIdleMessage, SearchNoResultsMessage } from "./state-messages";
 import { SearchStatusHeader } from "./status-header";
 import { useGlobalSearchHotkey } from "./use-global-search-hotkey";
 import { useLoaderDelay } from "./use-loader-delay";
@@ -275,36 +275,16 @@ export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps)
       )}
 
       <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-        {isEmpty && (
-          <p className="px-4 py-4 text-app-ui-sm text-muted-foreground text-center">
-            {t("search.state.idle")}
-          </p>
-        )}
+        {isEmpty && <SearchIdleMessage />}
 
         {isError && session && (
-          <div className="px-4 py-4 flex flex-col items-center gap-2">
-            <CircleAlert className="size-4 text-destructive" aria-hidden="true" />
-            <p className="text-app-ui-sm text-muted-foreground text-center">
-              {searchErrorText(session.errorMessage, t)}
-            </p>
-            <button
-              type="button"
-              className="text-app-ui-sm text-primary underline underline-offset-2"
-              onClick={() => runSearch(inputValue, options)}
-            >
-              {t("search.state.retry")}
-            </button>
-          </div>
+          <SearchFailedMessage
+            message={searchErrorText(session.errorMessage, t)}
+            onRetry={() => runSearch(inputValue, options)}
+          />
         )}
 
-        {isNoResults && (
-          <div className="px-4 py-4 text-center flex flex-col gap-1">
-            <p className="text-app-ui-sm text-foreground">{t("search.state.noResults")}</p>
-            <p className="text-app-ui-sm text-muted-foreground">
-              {t("search.state.noResultsHint")}
-            </p>
-          </div>
-        )}
+        {isNoResults && <SearchNoResultsMessage />}
 
         {hasResults && session && (
           <SearchResultsList
