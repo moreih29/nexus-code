@@ -105,6 +105,17 @@ export const ATTACH_UNUSED_MS = 30 * 24 * 60 * 60 * 1000;
 /** The most a workspace's attached files hold; past it a prune removes the least recently used. */
 export const ATTACH_ROOM_BYTES = 1024 * 1024 * 1024;
 
+/**
+ * The attach root an agent told, or null when it names none. One on a network
+ * share (`\\server\share`, `//server/share`) counts as none: the app does not
+ * read slots from it (attachRootOf), so it could name none an open tab keeps,
+ * and nothing kept past its tab there would ever go.
+ */
+function namedRoot(root: unknown): string | null {
+  if (typeof root !== "string" || root === "") return null;
+  return /^[\\/]{2}/.test(root) ? null : root;
+}
+
 /** Removed workspaces whose attached files wait for an agent on their host to remove them. */
 export interface AttachCleanups {
   add(host: string, workspaceId: string): void;
@@ -823,8 +834,8 @@ export class ChatHost {
   /**
    * The attach root the agent on `channel` tells (chat.attachRoot): null
    * when it names none, from a home it cannot name or as an agent too old
-   * to tell, which stays so for the connection; undefined when asking
-   * failed, which is asked again next time.
+   * to tell, or one on a network share (namedRoot), which stays so for the
+   * connection; undefined when asking failed, which is asked again next time.
    */
   private askAttachRoot(channel: AgentChannel): Promise<string | null | undefined> {
     const known = this.attachRoots.get(channel);
@@ -832,7 +843,7 @@ export class ChatHost {
     const asked = channel.ready
       .then(() => channel.call<{ root?: unknown }>("chat.attachRoot", {}))
       .then(
-        (result) => (typeof result?.root === "string" && result.root !== "" ? result.root : null),
+        (result) => namedRoot(result?.root),
         (error: unknown) => {
           if ((error as { code?: unknown } | null)?.code === "unsupported-method") return null;
           this.attachRoots.delete(channel);

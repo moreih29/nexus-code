@@ -175,9 +175,9 @@ describe("attachRoot", () => {
   test("is what the workspace's agent answers, asked once a connection", async () => {
     let channel = new FakeChannel();
     const { host } = setup({ peekAgentChannel: async () => channel });
-    channel.attachRootAnswer = { root: "\\\\server\\share\\Users\\k\\.nexus-code\\attach" };
-    expect(await host.attachRoot(WS)).toBe("\\\\server\\share\\Users\\k\\.nexus-code\\attach");
-    expect(await host.attachRoot(WS)).toBe("\\\\server\\share\\Users\\k\\.nexus-code\\attach");
+    channel.attachRootAnswer = { root: "C:\\Users\\k\\.nexus-code\\attach" };
+    expect(await host.attachRoot(WS)).toBe("C:\\Users\\k\\.nexus-code\\attach");
+    expect(await host.attachRoot(WS)).toBe("C:\\Users\\k\\.nexus-code\\attach");
     expect(asked(channel)).toBe(1);
     // A new connection is asked anew.
     channel = new FakeChannel();
@@ -189,6 +189,15 @@ describe("attachRoot", () => {
   test("is null from an agent too old to tell, asked no more on that connection", async () => {
     const channel = new FakeChannel();
     channel.attachRootError = "unsupported-method";
+    const { host } = setup({ peekAgentChannel: async () => channel });
+    expect(await host.attachRoot(WS)).toBeNull();
+    expect(await host.attachRoot(WS)).toBeNull();
+    expect(asked(channel)).toBe(1);
+  });
+
+  test("is null on a network share, asked no more on that connection", async () => {
+    const channel = new FakeChannel();
+    channel.attachRootAnswer = { root: "\\\\server\\share\\Users\\k\\.nexus-code\\attach" };
     const { host } = setup({ peekAgentChannel: async () => channel });
     expect(await host.attachRoot(WS)).toBeNull();
     expect(await host.attachRoot(WS)).toBeNull();
@@ -1487,6 +1496,24 @@ describe("attached files", () => {
     "unsupported-method",
   ] as const)("where the agent's root is %p, the files of tabs not open go, as they did", async (root) => {
     const { host, channel } = rooted(root);
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB] });
+    await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB], capOnly: true });
+    expect(callsOf(channel, "chat.pruneAttachments")).toEqual([
+      { workspaceId: WS, keepTabIds: [TAB] },
+    ]);
+  });
+
+  test.each([
+    "\\\\server\\share\\u\\.nexus-code\\attach",
+    "//server/share/u/.nexus-code/attach",
+  ])("a root on a network share (%p) is as none: files go as tabs close and prune as they did", async (root) => {
+    const { host, channel } = rooted(root);
+    await host.start(WS, TAB, "/repo", {});
+    await host.call("close", { workspaceId: WS, tabId: TAB });
+    const [close] = callsOf(channel, "chat.close") as Array<Record<string, unknown>>;
+    expect(close?.keepAttachments).toBeUndefined();
+
+    // The renderer names no slots from a root it cannot read them by.
     await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB] });
     await host.pruneAttachments({ workspaceId: WS, keepTabIds: [TAB], capOnly: true });
     expect(callsOf(channel, "chat.pruneAttachments")).toEqual([
