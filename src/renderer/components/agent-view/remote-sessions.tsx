@@ -1545,26 +1545,36 @@ export function RemoteTabLabel({
   target: RemoteTarget;
   showDevice?: boolean;
 }) {
-  const { t } = useTranslation();
   const Icon =
     target.kind === "claude" ? ClaudeIcon : target.kind === "codex" ? CodexIcon : SquareTerminal;
-  const { state } = target;
-  const group = state ? GROUP_OF[state] : "idle";
-  const ended = target.kind === "terminal" && state === "ended";
   return (
     <>
       {showDevice && <DeviceChip name={target.deviceName} />}
       <Icon aria-hidden className="size-3 shrink-0" />
       <span className="min-w-0 truncate">{remoteTitle(target.title)}</span>
-      {state && (ended || group !== "idle") && (
-        <span
-          role="img"
-          aria-label={t(`agentView.remote.state.${state}`)}
-          className="inline-flex shrink-0"
-        >
-          <StateGlyph state={ended ? "exited" : GROUP_STATE[group]} className={GROUP_TINT[group]} />
-        </span>
-      )}
+      <RemoteStateGlyph target={target} />
     </>
+  );
+}
+
+/**
+ * Another computer's session's state on its tab, while it is active or its
+ * terminal has ended; nothing while it is idle. A workspace on another
+ * computer marks its session tabs with it too.
+ */
+export function RemoteStateGlyph({ target }: { target: Pick<RemoteTarget, "kind" | "state"> }) {
+  const { t } = useTranslation();
+  const { state } = target;
+  const group = state ? GROUP_OF[state] : "idle";
+  const ended = target.kind === "terminal" && state === "ended";
+  if (!state || (!ended && group === "idle")) return null;
+  return (
+    <span
+      role="img"
+      aria-label={t(`agentView.remote.state.${state}`)}
+      className="inline-flex shrink-0"
+    >
+      <StateGlyph state={ended ? "exited" : GROUP_STATE[group]} className={GROUP_TINT[group]} />
+    </span>
   );
 }

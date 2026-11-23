@@ -68,7 +68,7 @@ export function RemoteNewMenu({
   const shellsKey = `${peer.id}/${workspace.id}`;
   const [profiles, setProfiles] = useState(() => knownProfiles.get(peer.id) ?? null);
   const [shells, setShells] = useState(() => knownShells.get(shellsKey) ?? null);
-  if (!chats && !terminals) return null;
+  if (!chats && !terminals && !children) return null;
 
   const load = () => {
     if (chats) {

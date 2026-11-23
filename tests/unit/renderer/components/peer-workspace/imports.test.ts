@@ -31,6 +31,8 @@ const remote = "services/remote";
 const restricted = [agentView, remote];
 const allowedImports: readonly [file: string, module: string, ...names: string[]][] = [
   ["panel.tsx", `${agentView}/remote-new-menu`, "RemoteNewMenu"],
+  ["panel.tsx", `${agentView}/remote-session-actions`, "PeerSessionRef", "renamePeerSession"],
+  ["panel.tsx", `${agentView}/remote-sessions`, "RemoteStateGlyph"],
   ["session-tab.tsx", `${agentView}/remote-pane`, "RemoteSessionPane"],
   ["session-tab.tsx", `${agentView}/remote-session-host`, "RemoteSessionHost"],
   ["sessions-panel.tsx", `${agentView}/remote-new-menu`, "RemoteNewMenu"],
@@ -69,7 +71,7 @@ const allowedImports: readonly [file: string, module: string, ...names: string[]
   ["status-bar.tsx", `${remote}/peer-git-status`, "PeerGitStatus"],
   ["git-tree.ts", `${remote}/peer-git-status`, "isPeerGitConflict", "PeerGitStatus"],
   ["panel.tsx", `${remote}/display-name`, "remoteTitle"],
-  ["panel.tsx", `${remote}/room`, "PeerReach"],
+  ["panel.tsx", `${remote}/room`, "PeerReach", "peerServes"],
   ["quick-open.tsx", `${remote}/peer-quick-open`, "subscribePeerQuickOpen"],
   ["quick-open.tsx", `${remote}/room`, "PeerReach"],
   ["room.ts", `${remote}/account`, "remoteAccountKey", "useRemoteAccount"],

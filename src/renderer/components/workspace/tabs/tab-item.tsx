@@ -27,6 +27,13 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenuContent,
+  ContextMenuItems,
+  ContextMenuRoot,
+  ContextMenuTrigger,
+  type MenuItemSpec,
+} from "@/components/ui/context-menu";
 import { tooltipProps } from "@/components/ui/tooltip";
 import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
@@ -363,6 +370,10 @@ interface ReadonlyTabItemProps {
   value: string;
   label: string;
   icon: React.ReactNode;
+  /** Its session's state, where it has one to tell: after the icon, as a local tab's. */
+  glyph?: React.ReactNode;
+  /** Its right-click menu, where it has one. */
+  menu?: readonly MenuItemSpec[];
   onClose: () => void;
 }
 
@@ -370,17 +381,34 @@ export function TabItem(props: TabItemProps | ReadonlyTabItemProps) {
   return "readOnly" in props ? <ReadonlyTabItem {...props} /> : <LocalTabItem {...props} />;
 }
 
-function ReadonlyTabItem({ value, label, icon, onClose }: ReadonlyTabItemProps) {
-  return (
+function ReadonlyTabItem({ value, label, icon, glyph, menu, onClose }: ReadonlyTabItemProps) {
+  const item = (
     <div className="group relative flex h-full items-center" data-tab-id={value}>
-      <RadixTabs.Trigger value={value} className={TAB_TRIGGER_CLASS}>
+      <RadixTabs.Trigger
+        value={value}
+        className={cn(TAB_TRIGGER_CLASS, "data-[state=inactive]:[&_[data-tab-icon]]:opacity-65")}
+      >
         {icon}
+        {glyph && (
+          <span data-tab-icon className="inline-flex">
+            {glyph}
+          </span>
+        )}
         <span className="min-w-0 max-w-64 truncate" title={label}>
           {label}
         </span>
       </RadixTabs.Trigger>
       <TabCloseButton onClose={onClose} />
     </div>
+  );
+  if (!menu?.length) return item;
+  return (
+    <ContextMenuRoot>
+      <ContextMenuTrigger>{item}</ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItems items={[...menu]} />
+      </ContextMenuContent>
+    </ContextMenuRoot>
   );
 }
 
