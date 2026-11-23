@@ -292,6 +292,22 @@ func TestAttachmentCallsNameSlotsByTheirGrammar(t *testing.T) {
 	}
 }
 
+func TestAttachRefusesATabNoSlotCanName(t *testing.T) {
+	root := useAttachRoot(t)
+	service := New()
+	for _, tabID := range []string{"tab.", "tab one", "t:1", strings.Repeat("a", 129), "탭"} {
+		if _, err := attach(t, service, tabID, "a.txt", []byte("a")); err == nil {
+			t.Errorf("attached to tab %q", tabID)
+		}
+	}
+	if entries, _ := os.ReadDir(filepath.Join(root, "ws")); len(entries) != 0 {
+		t.Fatalf("folders made: %v", entries)
+	}
+	if _, err := attach(t, service, strings.Repeat("a", 128), "a.txt", []byte("a")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestAttachmentCallsNameSlotsAsTheFolderWritesThem(t *testing.T) {
 	useAttachRoot(t)
 	service := New()

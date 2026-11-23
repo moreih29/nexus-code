@@ -86,6 +86,10 @@ func (s *Service) Attach(_ context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A folder a slot's name can name (slotDir): any other would never go.
+	if !slotTab.MatchString(key.tabID) {
+		return nil, protocolError("chat.attach tabId is not a tab's id")
+	}
 	name, ok := plainName(p.Name)
 	if !ok {
 		return nil, protocolError("chat.attach name must be a file name")
