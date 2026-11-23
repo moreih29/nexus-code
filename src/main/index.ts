@@ -35,6 +35,7 @@ import type { ChatHost } from "./features/chat/host";
 import { instructionsFor } from "./features/chat/instructions";
 import { registerChatChannel } from "./features/chat/ipc";
 import { createPromptFiles } from "./features/chat/prompt-files";
+import { endRunReadersWithWindow } from "./features/chat/run-reader-windows";
 import { setupClaudeFeature } from "./features/claude/index";
 import { type CliFeature, setupCliFeature } from "./features/cli";
 import type { CliRemote } from "./features/cli/context";
@@ -225,6 +226,12 @@ let stopLoopMonitor: (() => void) | null = null;
 let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
 let chatHost: ChatHost | null = null;
+
+function openAppWindow(): BrowserWindow {
+  const win = createMainWindow(stateService.getState());
+  endRunReadersWithWindow(win, (opener) => chatHost?.closePrintRunReadersOf(opener));
+  return win;
+}
 let agentProfiles: { dispose(): void } | null = null;
 let profileConnectionKeys: ConnectionKeys | undefined;
 /** What the sealed files open with; on macOS, read only when the user knows it is coming. */
@@ -504,7 +511,7 @@ const systemStatsSources: SystemStatsSources = {
   },
 };
 registerSystemChannel({
-  openNewWindow: () => createMainWindow(stateService.getState()),
+  openNewWindow: () => openAppWindow(),
   stats: systemStatsHandler(systemStatsSources),
 });
 registerWindowChannel(closePersistence);
@@ -1058,7 +1065,7 @@ app.whenReady().then(async () => {
   registerLspChannel(lspHost, stateService);
 
   // Pass persisted appState so titleBarOverlay color matches the user's saved theme.
-  const mainWin = createMainWindow(stateService.getState());
+  const mainWin = openAppWindow();
   wireAutofetchWindowFocus(mainWin);
 
   // Create the browser permission prompt manager.  The broadcast function and
@@ -1095,18 +1102,6 @@ app.whenReady().then(async () => {
   // workspace context is deleted. Must be called after initBrowserFeature so
   // the registry singleton is available.
   registerBrowserCloser(workspaceManager);
-  // A window that closes or loads anew leaves no pane to read a run for:
-  // the readers it asked for end, and another window's go on.
-  const endRunReaders = (win: BrowserWindow) => {
-    const opener = win.webContents.id;
-    win.on("closed", () => chatHost?.closePrintRunReadersOf(opener));
-    win.webContents.on("did-start-navigation", (details) => {
-      if (details.isMainFrame && !details.isSameDocument) {
-        chatHost?.closePrintRunReadersOf(opener);
-      }
-    });
-  };
-  endRunReaders(mainWin);
   mainWin.on("closed", () => {
     getBrowserRegistry()?.disposeAll();
   });
@@ -1115,7 +1110,7 @@ app.whenReady().then(async () => {
   // Dock icon, or a second launch, opens one again.
   reopenAppWindow = () => {
     if (quitStarted || hasAppWindow()) return;
-    const newWin = createMainWindow(stateService.getState());
+    const newWin = openAppWindow();
     wireAutofetchWindowFocus(newWin);
     // Reuse the existing permission manager with the new window.
     initBrowserFeature(newWin, {
@@ -1132,7 +1127,6 @@ app.whenReady().then(async () => {
       workspaceStorage,
       globalStorage,
     });
-    endRunReaders(newWin);
     newWin.on("closed", () => {
       getBrowserRegistry()?.disposeAll();
     });

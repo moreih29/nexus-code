@@ -496,6 +496,12 @@ func attachmentCallsFollowNo(t *testing.T, junction func(t *testing.T, link, tar
 	if _, err := attach(t, service, "1", "new.txt", []byte("n")); err == nil {
 		t.Fatal("a file was attached below a junction workspace")
 	}
+	if _, err := attach(t, service, "fresh", "new.txt", []byte("n")); err == nil {
+		t.Fatal("a file was attached in a new tab below a junction workspace")
+	}
+	if _, err := os.Lstat(filepath.Join(outside, "fresh")); err == nil {
+		t.Fatal("attaching made a tab's folder through a junction workspace")
+	}
 	closeTab(t, service, "1")
 	untouched("closing a tab below a junction workspace")
 	slotsCallOf(t, service.RemoveAttachments, SlotsParams{WorkspaceID: "ws", All: true})

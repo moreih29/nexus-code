@@ -40,6 +40,7 @@ import type {
 import { liveAgents } from "../../../../src/renderer/services/agent-sessions/agents";
 import type { CustomConnection } from "../../../../src/shared/agent-profiles/connection";
 import type { AgentProfile } from "../../../../src/shared/agent-profiles/profiles";
+import { ipcContract } from "../../../../src/shared/ipc/contract";
 import { WorkspaceMetaSchema } from "../../../../src/shared/types/workspace";
 
 const WS = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -323,6 +324,24 @@ describe("a run's transcript", () => {
     expect(start.cwd).toBe("/repo");
     expect(start.args).toEqual(["app-server"]);
     expect(start.env.CODEX_HOME).toBe("/home/u/.codex-work");
+  });
+
+  test("a reader's tab id passes the IPC contract of chat.send and chat.close", async () => {
+    const { reader } = await openSetup();
+    const id = await reader();
+    const call = ipcContract.chat.call;
+    expect(
+      call.send.args.safeParse({
+        workspaceId: WS,
+        tabId: id,
+        message: { id: 1, method: "thread/read" },
+      }).success,
+    ).toBe(true);
+    expect(call.close.args.safeParse({ workspaceId: WS, tabId: id }).success).toBe(true);
+    expect(call.stop.args.safeParse({ workspaceId: WS, tabId: id }).success).toBe(false);
+    for (const tabId of ["print-run-reader-made-up", `${id}0`, `x${id}`, id.toUpperCase()]) {
+      expect(call.close.args.safeParse({ workspaceId: WS, tabId }).success).toBe(false);
+    }
   });
 
   test("a reader is told only reads of its own run's thread", async () => {
