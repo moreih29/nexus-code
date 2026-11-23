@@ -1555,7 +1555,10 @@ Refused (Unavailable) while it works or waits on the user, unless
 `stop` (since 0.13.0, when its panel's `can.moveNow`): its turn stops
 then, as its chip there does. Refused too when it runs with that
 profile already; a profile its agent does not have is InvalidParams.
-Only the user's: an agent does not send it. The session's `profile`
+An agent may send it (with `from`): the serving device's agent policy
+applies as for other chat writes, so under `allow` nothing is asked,
+under `ask` the user is asked, and under `deny` it is refused
+(Forbidden). The session's `profile`
 (sessions.list, sessions.watch) follows. From 0.10.0.
 
 **`RPC_METHODS."chat.config"`**
