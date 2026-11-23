@@ -4,6 +4,7 @@ import { Slot } from "radix-ui";
 import type * as React from "react";
 
 import { cn } from "@/utils/cn";
+import { tooltipProps } from "./tooltip";
 
 const buttonVariants = cva(
   "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-(--radius-control) font-medium font-sans transition-all outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
@@ -46,11 +47,15 @@ function Button({
   loading = false,
   children,
   disabled,
+  tooltip,
+  shortcut,
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean;
     loading?: boolean;
+    tooltip?: string;
+    shortcut?: string | null;
   }) {
   const Comp = asChild ? Slot.Root : "button";
 
@@ -61,6 +66,7 @@ function Button({
       data-size={size}
       disabled={disabled ?? loading}
       className={cn(buttonVariants({ variant, size, className }))}
+      {...(tooltip ? { "aria-label": tooltip, ...tooltipProps(tooltip, shortcut) } : {})}
       {...props}
     >
       {loading ? (

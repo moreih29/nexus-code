@@ -1,11 +1,9 @@
 import {
-  Check,
   ChevronDown,
   ChevronUp,
   CircleCheck,
   CircleX,
   Clock,
-  Copy,
   Pause,
   Play,
   Target,
@@ -27,8 +25,8 @@ import {
 } from "../../services/chat/goal";
 import { chatKey, useChatStore } from "../../services/chat/store";
 import { formatTokens } from "../../services/chat/usage-line";
-import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
+import { CopyButton } from "../ui/copy-button";
 import { IconButton } from "../ui/icon-button";
 import { showToast } from "../ui/toast";
 
@@ -115,7 +113,6 @@ export function GoalBar({ tab, onClear, onStatus, onClose }: GoalBarProps) {
   const { t } = useTranslation();
   const { goal } = tab;
   const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const now = useNow(ticks(tab), 1000);
   const status = shownStatus(tab);
@@ -242,17 +239,12 @@ export function GoalBar({ tab, onClear, onStatus, onClose }: GoalBarProps) {
         {meta}
         <span className="flex shrink-0 items-center">
           {open && (
-            <IconButton
-              label={copied ? t("chat.goal.copied") : t("chat.goal.copy")}
+            <CopyButton
+              text={goal.objective}
+              label={t("chat.goal.copy")}
+              copiedLabel={t("chat.goal.copied")}
               size="xs"
-              onClick={() => {
-                copyText(goal.objective);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1200);
-              }}
-            >
-              {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-            </IconButton>
+            />
           )}
           {open && onStatus && !goal.ended && (
             <IconButton

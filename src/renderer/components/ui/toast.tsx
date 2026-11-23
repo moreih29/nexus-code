@@ -232,8 +232,7 @@ export function ToastRoot(): React.JSX.Element | null {
                 size="icon-sm"
                 className="size-5 shrink-0 -mr-1 -mt-0.5 hover:bg-foreground/10"
                 onClick={() => dismissToast(toast.id)}
-                aria-label={t("action.dismiss")}
-                title={t("action.dismiss")}
+                tooltip={t("action.dismiss")}
               >
                 <X className="size-3.5" aria-hidden="true" />
               </Button>

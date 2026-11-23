@@ -29,9 +29,8 @@ export function ViewModeToggle({
       type="button"
       variant="ghost"
       size="icon-sm"
-      aria-label={toggleLabel}
       aria-pressed={isTree}
-      title={toggleLabel}
+      tooltip={toggleLabel}
       disabled={disabled}
       className={cn("shrink-0", isTree && TOGGLE_ON_CLASS)}
       onClick={() => onViewModeChange(computeNextViewMode(viewMode))}

@@ -41,9 +41,8 @@ export function FilesPanelModeBar<Mode extends FilesPanelMode>({
             key={mode}
             variant="ghost"
             size="icon-sm"
-            aria-label={label}
             aria-pressed={isActive}
-            title={label}
+            tooltip={label}
             className={cn(
               "relative min-w-0 shrink",
               isActive && [

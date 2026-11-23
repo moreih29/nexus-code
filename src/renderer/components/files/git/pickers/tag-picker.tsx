@@ -1,15 +1,12 @@
 import i18next from "i18next";
-import { AlertDialog as RadixAlertDialog } from "radix-ui";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "@/components/ui/dialog";
-import { DialogHeader } from "@/components/ui/dialog-header";
 import type { Tag } from "../../../../../shared/git/types";
 import { useGitStore } from "../../../../state/stores/git";
 import { Button } from "../../../ui/button";
+import { showConfirmDialog } from "../../../ui/confirm-dialog";
 import { FormDialog, type FormDialogField, type FormDialogValues } from "../../../ui/form-dialog";
 import { CommandPalette } from "../../../ui/palette/command-palette";
-import { useDialogFocusReturn } from "../../../ui/use-dialog-focus-return";
 import { RefPicker } from "./ref-picker";
 import {
   createTagPickerSource,
@@ -81,7 +78,6 @@ export function TagPicker({
   const [createRequest, setCreateRequest] = useState<CreateTagRequest | null>(null);
   const [createRef, setCreateRef] = useState("HEAD");
   const [refPickerOpen, setRefPickerOpen] = useState(false);
-  const [deleteRequest, setDeleteRequest] = useState<DeleteTagRequest | null>(null);
   const createTagFields = useMemo(() => buildCreateTagFields(), []);
   const createInitialValues = useMemo(
     () => ({
@@ -107,10 +103,29 @@ export function TagPicker({
           setCreateRequest({ defaultName });
         },
         requestDelete: (item, target) => {
-          setDeleteRequest(deleteRequestFromTarget(item, target));
+          const request = deleteRequestFromTarget(item, target);
+          void confirmTagDelete(request).then((confirmed) => {
+            if (!confirmed) return;
+            void confirmTagDeleteRequest(request, {
+              workspaceId,
+              deleteTag,
+              deleteRemoteTag,
+              onDeleted: () => onRequestReopen?.(),
+            });
+          });
         },
       }),
-    [workspaceId, mode, selectedRemote, listTags, listRemoteTags, onRevealTag],
+    [
+      workspaceId,
+      mode,
+      selectedRemote,
+      listTags,
+      listRemoteTags,
+      deleteTag,
+      deleteRemoteTag,
+      onRevealTag,
+      onRequestReopen,
+    ],
   );
 
   async function submitCreateTag(values: FormDialogValues): Promise<void> {
@@ -161,22 +176,6 @@ export function TagPicker({
           setRefPickerOpen(false);
         }}
       />
-      <TagDeleteConfirmDialog
-        request={deleteRequest}
-        busy={inFlightKind === "deleteTag" || inFlightKind === "deleteRemoteTag"}
-        onCancel={() => setDeleteRequest(null)}
-        onConfirm={(request) => {
-          void confirmTagDeleteRequest(request, {
-            workspaceId,
-            deleteTag,
-            deleteRemoteTag,
-            onDeleted: () => {
-              setDeleteRequest(null);
-              onRequestReopen?.();
-            },
-          });
-        }}
-      />
     </>
   );
 }
@@ -208,100 +207,24 @@ export function CreateTagRefSelector({
   );
 }
 
-function TagDeleteConfirmDialog({
-  request,
-  busy = false,
-  onCancel,
-  onConfirm,
-}: {
-  request: DeleteTagRequest | null;
-  busy?: boolean;
-  onCancel: () => void;
-  onConfirm: (request: DeleteTagRequest) => void;
-}) {
-  const returnFocus = useDialogFocusReturn(request !== null);
-  return (
-    <RadixAlertDialog.Root
-      open={request !== null}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen) onCancel();
-      }}
-    >
-      <RadixAlertDialog.Portal>
-        <RadixAlertDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
-        <RadixAlertDialog.Content
-          className={dialogContentClass("md", true)}
-          onCloseAutoFocus={returnFocus}
-        >
-          {request ? (
-            <TagDeleteConfirmContent
-              request={request}
-              busy={busy}
-              onCancel={onCancel}
-              onConfirm={() => onConfirm(request)}
-            />
-          ) : null}
-        </RadixAlertDialog.Content>
-      </RadixAlertDialog.Portal>
-    </RadixAlertDialog.Root>
-  );
-}
-
-export function TagDeleteConfirmContent({
-  request,
-  busy = false,
-  onCancel,
-  onConfirm,
-}: {
-  request: DeleteTagRequest;
-  busy?: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const { t } = useTranslation("files");
-  const isRemote = request.kind === "remote";
-  const targetLabel = isRemote
-    ? `${request.remote}/${request.item.tag.name}`
-    : request.item.tag.name;
-
-  return (
-    <>
-      <DialogHeader
-        alert
-        title={
-          isRemote
-            ? t("git.tagPicker.deleteConfirm.titleRemote", { name: targetLabel })
-            : t("git.tagPicker.deleteConfirm.titleLocal", { name: targetLabel })
-        }
-        description={
-          isRemote
-            ? t("git.tagPicker.deleteConfirm.descriptionRemote", {
-                name: request.item.tag.name,
-                remote: request.remote,
-              })
-            : t("git.tagPicker.deleteConfirm.descriptionLocal", {
-                name: request.item.tag.name,
-                sha: request.item.tag.sha.slice(0, 7),
-              })
-        }
-      />
-      <div className="mt-5 flex justify-end gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          autoFocus
-          disabled={busy}
-          onClick={onCancel}
-        >
-          {t("git.tagPicker.deleteConfirm.cancel")}
-        </Button>
-        <Button type="button" variant="destructive" size="sm" disabled={busy} onClick={onConfirm}>
-          {t("git.tagPicker.deleteConfirm.confirm")}
-        </Button>
-      </div>
-    </>
-  );
+function confirmTagDelete(request: DeleteTagRequest): Promise<boolean> {
+  const t = i18next.t.bind(i18next);
+  const name = request.item.tag.name;
+  const remote = request.kind === "remote";
+  return showConfirmDialog({
+    title: remote
+      ? t("files:git.tagPicker.deleteConfirm.titleRemote", { name: `${request.remote}/${name}` })
+      : t("files:git.tagPicker.deleteConfirm.titleLocal", { name }),
+    description: remote
+      ? t("files:git.tagPicker.deleteConfirm.descriptionRemote", { name, remote: request.remote })
+      : t("files:git.tagPicker.deleteConfirm.descriptionLocal", {
+          name,
+          sha: request.item.tag.sha.slice(0, 7),
+        }),
+    cancelLabel: t("files:git.tagPicker.deleteConfirm.cancel"),
+    confirmLabel: t("files:git.tagPicker.deleteConfirm.confirm"),
+    variant: "destructive",
+  });
 }
 
 function deleteRequestFromTarget(
