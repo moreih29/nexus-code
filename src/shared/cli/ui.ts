@@ -840,6 +840,7 @@ export interface CliUiOps {
     args: {
       workspaceId: string;
       tabId: string;
+      runId?: string;
       ref:
         | { kind: "user"; itemKey: string; index: number }
         | { kind: "tool"; toolUseId: string; index: number }
@@ -852,7 +853,13 @@ export interface CliUiOps {
     result: CliChatImage & { version?: string; notModified?: true };
   };
   "chat.toolCall": {
-    args: { workspaceId: string; tabId: string; toolUseId: string; maxText: number };
+    args: {
+      workspaceId: string;
+      tabId: string;
+      toolUseId: string;
+      maxText: number;
+      runId?: string;
+    };
     result: ViewToolCall;
   };
   "chat.original": {
@@ -860,7 +867,7 @@ export interface CliUiOps {
     result: { found: boolean; before: string | null };
   };
   "chat.tool": {
-    args: { workspaceId: string; tabId: string; ref: string };
+    args: { workspaceId: string; tabId: string; ref: string; runId?: string };
     result: CliChatTool;
   };
   "events.read": {

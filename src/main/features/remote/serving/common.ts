@@ -23,6 +23,7 @@ export const SERVES: readonly Capability[] = [
   "push",
   "system.stats",
   "chat.peek",
+  "profiles.usage.people",
 ];
 
 export function servesWith(
@@ -64,6 +65,29 @@ export async function tabOf(
     throw new RpcFailure(RpcErrorCode.NotFound, `no such ${kinds.join(" or ")} tab`);
   }
   return tab;
+}
+
+export const NO_RUN_SESSION = /^no session of run /;
+
+export function chatRunOf(
+  services: CliServices,
+  workspaceId: string,
+  tabId: string,
+  runId: string,
+): { noSession: () => RpcFailure } {
+  const run = services.claudeAgents
+    .list(workspaceId, tabId)
+    .find((agent) => agent.kind === "print" && agent.id === runId);
+  if (!run) throw new RpcFailure(RpcErrorCode.NotFound, `no run ${runId}: it is not kept`);
+  const mayCome =
+    run.end === undefined &&
+    (services.claudeAgents.keepsSession?.(workspaceId, tabId, runId) ?? false);
+  return {
+    noSession: () =>
+      mayCome
+        ? new RpcFailure(RpcErrorCode.Unavailable, `run ${runId} has no session to read yet`)
+        : new RpcFailure(RpcErrorCode.NotFound, `run ${runId} keeps no session to read`),
+  };
 }
 
 export function workspaceOf(services: CliServices, workspaceId: string): WorkspaceMeta | undefined {

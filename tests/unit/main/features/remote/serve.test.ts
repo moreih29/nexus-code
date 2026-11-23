@@ -230,7 +230,7 @@ describe("an agent's request whose device waits for the user", () => {
   });
 });
 
-test("profile usage follows the receiving device's agent read policy", async () => {
+test("profile usage follows the receiving device's agent read policy, and people read it too", async () => {
   const calls: [string, unknown][] = [];
   const s = {
     ...services(),
@@ -245,7 +245,8 @@ test("profile usage follows the receiving device's agent read policy", async () 
   const from = { workspaceId: "other-workspace", tabId: "other-tab", kind: "tab" };
   const request = { from: "d", method: "profiles.usage" as const, params };
   expect(servesWith(false, false, true)).toContain("profiles.usage");
-  await expect(serve(request)).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+  expect(servesWith(false)).toContain("profiles.usage.people");
+  await expect(serve(request)).resolves.toEqual({ profiles: [] });
   await expect(serve({ ...request, params: { ...params, from } })).resolves.toEqual({
     profiles: [],
   });
@@ -253,7 +254,49 @@ test("profile usage follows the receiving device's agent read policy", async () 
   await expect(serve({ ...request, params: { ...params, from } })).rejects.toMatchObject({
     code: RpcErrorCode.Forbidden,
   });
-  expect(calls).toEqual([["chat.usage", params]]);
+  expect(calls).toEqual([
+    ["chat.usage", params],
+    ["chat.usage", params],
+  ]);
+});
+
+test("people read profile usage without agents and without the agent policy", async () => {
+  const calls: [string, unknown][] = [];
+  const usage = {
+    profiles: [
+      {
+        id: "p1",
+        name: "Work",
+        agent: "claude",
+        status: "fresh",
+        fetchedAt: 10,
+        limits: [{ kind: "five_hour", percent: 12, resetsAt: 99, fetchedAt: 10, stale: false }],
+      },
+    ],
+  };
+  const s = {
+    ...services(),
+    ui: async (op: string, args: unknown) => {
+      calls.push([op, args]);
+      return usage;
+    },
+  } as CliServices;
+  const serve = serveWith(() => s, { agents: new AgentGate({ policy: () => "deny" }) });
+  const result = await serve({
+    from: "phone",
+    method: "profiles.usage",
+    params: { agent: "claude", refresh: true },
+  });
+  expect(result).toEqual(usage);
+  expect(RPC_METHODS["profiles.usage"].result.parse(result)).toEqual(usage);
+  expect(calls).toEqual([["chat.usage", { agent: "claude", refresh: true }]]);
+  await expect(
+    serveWith(() => s)({
+      from: "phone",
+      method: "profiles.usage",
+      params: { workspaceId: "nope" },
+    }),
+  ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
 });
 
 describe("the sessions list's renderer deadline", () => {
@@ -3187,5 +3230,158 @@ describe("chat.runRead", () => {
 
   test("it is asked under the chat.read capability", () => {
     expect(RPC_METHODS["chat.runRead"].capability).toBe("chat.read");
+  });
+});
+
+describe("a run's tool calls and images", () => {
+  const tab = { workspaceId: "w1", tabId: "t1" };
+  const tool = {
+    id: "tu1",
+    name: "Bash",
+    input: {},
+    status: "done",
+    parentToolUseId: null,
+    result: { text: "ran", isError: false, images: [] },
+  };
+  function runServices(
+    answer: (op: string, args: Record<string, unknown>) => unknown,
+    run: Partial<AgentRun> = {},
+    keeps = false,
+  ) {
+    const base = services();
+    const asked: [string, Record<string, unknown>][] = [];
+    const s = {
+      ...base,
+      claudeAgents: {
+        list: (_ws: string, tab: string) =>
+          tab === "t1"
+            ? [agentRun({ id: "run-1", kind: "print", ...run }), agentRun({ id: "sub-1" })]
+            : tab === "t4"
+              ? [agentRun({ id: "run-4", kind: "print" })]
+              : [],
+        stop: async () => false,
+        keepsSession: () => keeps,
+      },
+      ui: async (op: string, args: Record<string, unknown> & { workspaceId: string }) => {
+        if (op === "tabs.list") return base.ui(op, args);
+        asked.push([op, args]);
+        return answer(op, args);
+      },
+    } as unknown as CliServices;
+    return { serve: serveWith(() => s), asked };
+  }
+  const ref = { kind: "tool", toolUseId: "tu1", index: 0 } as const;
+
+  test("finds a tool call and an image in the run it names", async () => {
+    const { serve, asked } = runServices((op) =>
+      op === "chat.image" ? { mediaType: "image/png", data: "AAAA" } : tool,
+    );
+    expect(
+      await serve({
+        from: "d",
+        method: "chat.tool",
+        params: { ...tab, toolUseId: "tu1", runId: "run-1" },
+      }),
+    ).toMatchObject({ id: "tu1", result: { text: "ran" } });
+    expect(
+      await serve({ from: "d", method: "chat.image", params: { ...tab, ref, runId: "run-1" } }),
+    ).toEqual({ mediaType: "image/png", data: "AAAA" });
+    expect(asked.map(([op, args]) => [op, args.runId])).toEqual([
+      ["chat.toolCall", "run-1"],
+      ["chat.image", "run-1"],
+    ]);
+  });
+
+  test("without a run, looks in the chat as before", async () => {
+    const { serve, asked } = runServices((op) =>
+      op === "chat.image" ? { mediaType: "image/png", data: "AAAA" } : tool,
+    );
+    await serve({ from: "d", method: "chat.tool", params: { ...tab, toolUseId: "tu1" } });
+    await serve({ from: "d", method: "chat.image", params: { ...tab, ref } });
+    expect(asked.map(([op]) => op)).toEqual(["chat.toolCall", "chat.image"]);
+    for (const [, args] of asked) expect(args).not.toHaveProperty("runId");
+  });
+
+  test("the CLI's form of a call names the run too", async () => {
+    const { serve, asked } = runServices(() => ({
+      i: 3,
+      toolUseId: "tu1",
+      name: "Bash",
+      status: "done",
+      input: {},
+      result: { text: "ran", isError: false },
+    }));
+    expect(
+      await serve({
+        from: "d",
+        method: "chat.tool",
+        params: { ...tab, toolUseId: "3", runId: "run-1", cli: true },
+      }),
+    ).toMatchObject({ id: "tu1", index: 3 });
+    expect(asked).toEqual([["chat.tool", { ...tab, ref: "3", runId: "run-1" }]]);
+  });
+
+  test.each([
+    ["another chat's run", "run-4"],
+    ["a subagent", "sub-1"],
+    ["an unknown run", "run-9"],
+  ])("finds nothing in %s, and reads nothing", async (_name, runId) => {
+    const { serve, asked } = runServices(() => tool);
+    await expect(
+      serve({ from: "d", method: "chat.tool", params: { ...tab, toolUseId: "tu1", runId } }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+    await expect(
+      serve({ from: "d", method: "chat.image", params: { ...tab, ref, runId } }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+    expect(asked).toEqual([]);
+  });
+
+  test("a call or image the run does not hold is not found", async () => {
+    const { serve } = runServices((op) => {
+      throw new Error(
+        op === "chat.image" ? "no such image in that run" : "no tool call tu9 in that run",
+      );
+    });
+    await expect(
+      serve({
+        from: "d",
+        method: "chat.tool",
+        params: { ...tab, toolUseId: "tu9", runId: "run-1" },
+      }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+    await expect(
+      serve({ from: "d", method: "chat.image", params: { ...tab, ref, runId: "run-1" } }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+  });
+
+  test("a run with no session to read answers as chat.runRead does", async () => {
+    const read = (run: Partial<AgentRun>, keeps: boolean, method: "chat.tool" | "chat.image") =>
+      runServices(
+        () => {
+          throw new Error("no session of run run-1 to read");
+        },
+        run,
+        keeps,
+      ).serve({
+        from: "d",
+        method,
+        params:
+          method === "chat.tool"
+            ? { ...tab, toolUseId: "tu1", runId: "run-1" }
+            : { ...tab, ref, runId: "run-1" },
+      });
+    for (const method of ["chat.tool", "chat.image"] as const) {
+      await expect(read({ end: undefined }, true, method)).rejects.toMatchObject({
+        code: RpcErrorCode.Unavailable,
+      });
+      await expect(read({ end: 200 }, true, method)).rejects.toMatchObject({
+        code: RpcErrorCode.NotFound,
+      });
+    }
+  });
+
+  test("they stay under the chat.read capability", () => {
+    expect(RPC_METHODS["chat.tool"].capability).toBe("chat.read");
+    expect(RPC_METHODS["chat.image"].capability).toBe("chat.read");
   });
 });

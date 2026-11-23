@@ -5,7 +5,7 @@ import { PositiveIntegerSchema } from "./validation.js";
 
 export const PROTOCOL_VERSION = 2;
 
-export const SCHEMA_VERSION = "0.29.0";
+export const SCHEMA_VERSION = "0.30.0";
 
 export const ROOM_KEY_INFO = "nexus-remote/room-key/v1";
 
@@ -33,6 +33,7 @@ export const CAPABILITIES = [
   "push",
   "system.stats",
   "chat.peek",
+  "profiles.usage.people",
 ] as const;
 export const CapabilitySchema = z.string();
 export type Capability = (typeof CAPABILITIES)[number];

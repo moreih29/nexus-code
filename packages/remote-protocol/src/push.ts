@@ -10,7 +10,7 @@ export type PushKind = z.infer<typeof PushKindSchema>;
 export const PUSH_EVENT_ID_PATTERN = /^[A-Za-z0-9_-]{16,43}$/;
 
 export const PUSH_TTL_SECONDS = {
-  consent: { min: 5, max: 120 },
+  consent: { min: 5, max: 86400 },
   request: { min: 5, max: 900 },
   result: { min: 5, max: 1800 },
 } as const;

@@ -362,6 +362,8 @@ export const AGENT_CONSENT_MS = 90_000;
 
 export const UNTIMED_CONSENT_SCHEMA = "0.29.0";
 
+export const RUN_ITEMS_SCHEMA = "0.30.0";
+
 export const REQUEST_CANCEL = "request.cancel";
 export const RequestCancelSchema = z.object({ id: RpcIdSchema });
 export type RequestCancel = z.infer<typeof RequestCancelSchema>;
@@ -857,6 +859,7 @@ export const RPC_METHODS = {
     params: z.object({
       ...TabRef,
       toolUseId: z.string(),
+      runId: z.string().max(200).optional(),
       cli: z.literal(true).optional(),
       ...ReadBy,
     }),
@@ -886,6 +889,7 @@ export const RPC_METHODS = {
     params: z.object({
       ...TabRef,
       ...ReadBy,
+      runId: z.string().max(200).optional(),
       maxEdge: PositiveIntegerSchema.check(z.lte(MAX_IMAGE_EDGE)).optional(),
       versioned: z.literal(true).optional(),
       ifVersion: z.string().min(1).max(128).optional(),

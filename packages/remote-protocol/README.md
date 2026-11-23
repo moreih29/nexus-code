@@ -21,6 +21,10 @@ Sealing is XChaCha20-Poly1305. The key is the room key, derived from the account
 
 Since schema 0.18.0 the envelope also carries `conn` (`SenderConnectionSchema`): `boot`, random and made once as the sender's room starts, and `n`, its connection count in that run, raised with each new epoch. A device takes nothing of a sender's epoch whose `conn` has the same `boot` as the one it heard last and an `n` no higher (`olderConnection()`). Otherwise a relay that held an older connection's messages and sent them after the newer's would turn the receiver back to the older epoch, and the receiver would drop the newer connection's messages until one of the two connected again. With another `boot` (the sender started again) or no `conn` on either side (a device before 0.18.0), the epochs alone decide, as before. The field is optional and devices before 0.18.0 leave it out when they parse, so the protocol version stays 2.
 
+Schema 0.14.0 adds the `files.write` capability and file writes from agents: `files.write.begin` names a destination file whose parent folder exists and its size (at most `MAX_FILE_WRITE_BYTES`) and gets an `uploadId`; `files.write.chunk` sends positioned base64 pieces; `files.write.end` checks the whole file's `sha256` and puts it in place; `files.write.abort` drops it. `files.mkdir` makes one folder, and is done when it already is one. `begin` and `mkdir` need an agent sender (`from`) and the method's capability, so a device serves `files.write` only where it takes agents' requests and chat control; the pieces, end and abort take `agents`, and an upload keeps the permission its begin got. The destination stays inside the workspace's folder and goes through no symbolic link. With `anywhere: true` (`FileScope.anywhere`), `files.list`, `files.read`, `files.write.begin` and `files.mkdir` take an absolute path on the serving device instead, and need `terminal.control`. Older devices do not know the methods and drop `anywhere`.
+
+Schema 0.15.0 adds the `agents.cli` capability: a device takes the nexus CLI's reads from another device's agents (`from`, `ReadBy`) under the receiving device's agent policy. It adds `notes.read`, `notes.transcript` and `chat.instructions`, and `ReadBy` on `profiles.list` (which also takes `workspaceId` and tells `workspaceDefault` and `path`), `chat.settings`, `chat.commands`, `chat.panel` and `chat.tool` (which also takes `cli: true` for the CLI's form of a call and answers its `index`). `chat.fileSuggestions` moves from `chat.control` to `chat.read`, and `terminal.shells` from `terminal.control` to `terminal.read`. A CLI asks a device for these only when its hello lists `agents.cli`.
+
 Schema 0.16.0 adds the `settings.instructions` capability and RPC. An agent can read the ordered instruction layers and combined text for a new chat in a workspace on another device when that device accepts agent requests. The read accepts an optional `profileId`. The capability also advertises support for `layer: "profile"` with a `profileId` in `settings.instructions.set`. Profile writes require fresh approval on the receiving device.
 
 Schema 0.17.0 adds the `profiles.usage` capability and RPC. An agent can read the receiving device's profile names, usage windows, and observation times when that device accepts agent requests. The request can select a workspace host and refresh the snapshot through the provider's CLI.
@@ -47,9 +51,13 @@ Schema 0.26.0 adds `system.stats` and its capability: how busy a workspace's hos
 
 Schema 0.27.0 adds `chat.peek` and its capability: a chat's last turns at a glance, for a preview. Send `{ workspaceId, tabId, turns? }`, 1 to 5 turns, 3 when left out. The serving device reads them from the chat's history without opening the tab, starting its program or connecting to a workspace's host, waits for no subagent and sends no tool results. Each turn has the user's message (up to 1,000 characters, with its image and file counts) or another sender's (up to 300), the agent's last words (up to 2,000) and its tool calls counted by name (the 8 most called, `otherTools` for the rest). `status` has `running`, `phase` and the end of the reply being written (up to 1,000). `more` says earlier turns exist, `waiting` what an open chat waits on, and `unavailable` why none could be read: `offline` for a host not connected, `missing` for no history. The answer, as JSON in UTF-8, fits in 14 KiB (`MAX_PEEK_BYTES`): the oldest turns go first, then replies, user texts, the reply being written and received texts are cut, in that order. Characters are code points, and a cut text ends with "…" (the reply being written begins with it). `fitPeek` makes the cuts and fits an answer in the budget, and `peekTools` counts a turn's tools. An agent's read carries `from`, as with `chat.read`. A device serves `chat.peek` only where it serves `chat.read`, and reads no more than `chat.read` does. Ask it only of a device whose hello serves `chat.peek`, and `chat.read` of one that does not.
 
+From schema 0.27.0, a host fills a workspace's `git` in the sessions' list (`RemoteWorkspaceSchema.git`: branch, ahead, behind, uncommitted) for a root workspace too, not only for a task; none where the folder is no repository. The wire format is unchanged: an older host tells it for tasks only, and a reader shows none where it is absent.
+
 Schema 0.28.0 adds `chat.runRead`: a page of one of a chat's `claude -p` or `codex exec` runs, read from the run's own session, as `chat.read` gives one of the chat. It needs the `chat.read` capability, finds the run only among the runs of the chat it names, and answers NotFound for any other run and for one that keeps no session. A request with `from` goes through the checks `chat.read`'s does. Older hosts do not know the method; `chat.run` still tells the run's summary.
 
 Schema 0.29.0 takes the time limit off the consent prompts an agent's request (`from`) waits on. A host asks its user until they answer, the requester sends the `request.cancel` notification (`REQUEST_CANCEL`, `{ id }` of the request as last sent), or the requester leaves the room or comes back with a new connection; then it closes the prompt and does nothing. A requester waits for the answer without a limit and sends `request.cancel` when it stops waiting. Both do so only with a device whose hello says 0.29.0 or later (`UNTIMED_CONSENT_SCHEMA`); with an older one, the host still turns a prompt down after `AGENT_CONSENT_MS` and the requester waits that long. In the sessions' list, a host's untimed prompt has `expiresAt` a day past `at`, for older readers; a reader should not count prompts down nor drop them by time, as the next list leaves out a prompt that no longer waits. Such a prompt also carries `untimed: true`, so a reader can tell it from a prompt of an older requester, which a 0.29.0 host still turns down at `expiresAt` (90 seconds); the field is absent otherwise, and readers before 0.29.0 drop it as an unknown key. Older devices drop `request.cancel`.
+
+Schema 0.30.0 lets `chat.tool` and `chat.image` take an optional `runId`, the id `chat.runs` gives one of the chat's `claude -p` or `codex exec` runs. With it, the host looks for the tool call or image in that run's own session, as `chat.runRead` reads it, instead of in the conversation: a `toolUseId`, or a ref's `itemKey` and `toolUseId`, are then the ones a `chat.runRead` page gives. Both still need the `chat.read` capability. The host finds the run only among the runs of the chat it names and answers NotFound for any other run, a subagent, and a tool call or image the run does not hold; for a run that keeps no session to read it answers as `chat.runRead` does (Unavailable while a running run's session may still come, NotFound otherwise). A `held` ref with `runId` is never found. A host before 0.30.0 drops `runId` as an unknown key and looks in the conversation, so a reader sends `runId` only to a device whose hello says 0.30.0 or later (`RUN_ITEMS_SCHEMA`). No capability is added. The same version raises `PUSH_TTL_SECONDS.consent.max` from 120 to 86400 seconds: a computer sends the push for a consent prompt with no time limit for what is left of a day from the prompt's `at`, and for a prompt with a limit until that limit as before. A server before 0.30.0 clamps the TTL to 120 seconds; a computer that sees a consent push with a TTL over 120 refused with HTTP 400 sends it once more, with the same id and a TTL of 120. Every push for one consent prompt, a retry or the 120-second resend alike, carries the same `id` (`PUSH_EVENT_ID_PATTERN`), and a computer stops sending it once the prompt is answered or withdrawn. People may read `profiles.usage` from 0.30.0 on: a host that takes their requests lists the new capability `profiles.usage.people` (beside `profiles.usage`, which hosts since 0.17.0 list and which takes only agents' requests there); an agent's request is taken as before, under the `agents` capability and its policy. The answer is the same for both and carries no account email or keys: per profile its `id`, the `name` the user gave it, `agent`, `status`, `fetchedAt` and the usage `limits`.
 
 A consent prompt in the sessions' list (`RemoteConsent`) is a change waiting on the user of the serving device. An agent of another device of the account may have asked for it, or a nexus command changing another workspace there, or that device's agent manager. The user answers it there, or from the device that lists it when `answerable` (`consent.answer`). An agent's request (`from`, `AgentSender`) to a control method takes the `agents` capability instead of the method's own. The serving device may ask its user first or turn the request down. `at` and `expiresAt` use the serving device's clock. `expiresInMs` is `expiresAt` minus the time the list was sent, so a reader needs no shared clock. A serving device before 0.29.0 turns a prompt down at `expiresAt` and drops it from the list. `AGENT_CONSENT_MS` (90 seconds) is how long a host asks a requester before 0.29.0 before turning the request down. Such a requester waits that long, plus a little more.
 
@@ -353,6 +361,11 @@ chat.peek: a chat's last turns at a glance, read without opening it. A
 device serves it only where it serves chat.read, and reads no more
 than chat.read does; an agent's request (`from`) is taken as chat.read's
 is. Since 0.27.0.
+
+**`CAPABILITIES`**
+
+profiles.usage.people: profiles.usage is taken from people too, not
+only from agents. Served wherever profiles.usage is. Since 0.30.0.
 
 **`HelloSchema`**
 
@@ -778,6 +791,11 @@ with it, so it goes only to one of 0.12.0 or later.
 **`TERMINAL_KEYS`**
 
 The keys terminal.input presses by name, as `nexus terminal key` names them.
+
+**`RUN_ITEMS_SCHEMA`**
+
+The first schema version whose hosts take `runId` in chat.tool and
+chat.image (0.30.0). A reader compares a device's hello `schema` with it.
 
 **`MAX_AGENT_REQUESTS_PER_MINUTE`**
 
@@ -1268,6 +1286,10 @@ The one a workspace runs with unless told otherwise.
 **`RPC_METHODS."profiles.usage"`**
 
 Subscription limits last observed for the profiles on a workspace host.
+Before 0.30.0 only an agent's request (`from`) is taken; a device that
+lists `profiles.usage.people` takes people's too. The answer names each
+profile by its id and the name the user gave it, never by an account's
+email or keys.
 
 **`RPC_METHODS."profiles.usage".result.profiles.fetchedAt`**
 
@@ -1348,6 +1370,15 @@ Its side panel now; a watch sends it again in chat.update as it changes.
 
 One tool call with as much of its result as a frame takes.
 
+**`RPC_METHODS."chat.tool".params.runId`**
+
+One of the chat's runs (chat.runs): the call is looked for in that run's
+own session, as chat.runRead reads it, not in the conversation. NotFound
+for a run that is not one of that chat's; for a run with no session to
+read, as chat.runRead. Since 0.30.0; send it only to a device whose hello
+says RUN_ITEMS_SCHEMA or later, as an older one drops it and looks in the
+conversation.
+
 **`RPC_METHODS."chat.original"`**
 
 A file the chat changed as it was before its first change, for its
@@ -1374,6 +1405,12 @@ An image of the chat, made small enough for a frame: a user message's
 0.13.0) a message's held for after the turn (panel.held, by its id). With
 `maxEdge`, drawn smaller (as a JPEG) till its longer side is at most
 that many pixels, for a thumbnail; one already that small goes as it is.
+
+**`RPC_METHODS."chat.image".params.runId`**
+
+One of the chat's runs (chat.runs): the image is looked for in that run's
+own session, by the item keys and tool call ids a chat.runRead page gives.
+A `held` ref is never found there. Since 0.30.0, as chat.tool's `runId`.
 
 **`RPC_METHODS."chat.image".params.maxEdge`**
 
@@ -2741,10 +2778,18 @@ Registration and send may also return 429 when rate limited.
 **`PUSH_EVENT_ID_PATTERN`**
 
 A computer makes 22 base64url characters from 16 random bytes and keeps the same id on retries.
+It makes one id per thing that waits on the user (a consent prompt, or a
+chat's waiting request) and sends every push for it again with that id, so
+the server may use the id as the APNs `apns-collapse-id` (at most 43
+bytes, under APNs' 64). It stops sending once the prompt is answered or
+withdrawn, or the request no longer waits; something that waits again
+later gets a new id.
 
 **`PUSH_TTL_SECONDS`**
 
 The server clamps each notification's TTL to its kind's range, in seconds.
+A consent's longest is a day since 0.30.0 (120 seconds before), for a
+prompt that waits until its user answers.
 
 **`PushRegistrationSchema`**
 

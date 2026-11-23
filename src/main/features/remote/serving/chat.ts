@@ -19,7 +19,15 @@ import { folderIn } from "../files";
 import { type FolderSystem, folderToAdd, SYSTEM_FOLDERS } from "../folders";
 import { MAX_MESSAGE_BYTES, RpcFailure } from "../room";
 import type { Uploads } from "../uploads";
-import { ENVELOPE_BYTES, fitsAsResult, tabOf, unavailable, workspaceOf } from "./common";
+import {
+  chatRunOf,
+  ENVELOPE_BYTES,
+  fitsAsResult,
+  NO_RUN_SESSION,
+  tabOf,
+  unavailable,
+  workspaceOf,
+} from "./common";
 
 let lastWaitReceiptAt = Number.NEGATIVE_INFINITY;
 
@@ -145,13 +153,15 @@ const IMAGE_CHARS = MAX_MESSAGE_BYTES - ENVELOPE_BYTES - 256;
 
 export async function chatImage(
   services: CliServices,
-  { workspaceId, tabId, ref, maxEdge, versioned, ifVersion }: RpcParams<"chat.image">,
+  { workspaceId, tabId, runId, ref, maxEdge, versioned, ifVersion }: RpcParams<"chat.image">,
 ): Promise<RpcResult<"chat.image">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const run = runId !== undefined ? chatRunOf(services, workspaceId, tabId, runId) : undefined;
   const image = await services
     .ui("chat.image", {
       workspaceId,
       tabId,
+      ...(runId !== undefined ? { runId } : {}),
       ref,
       maxChars: IMAGE_CHARS,
       ...(maxEdge !== undefined ? { maxEdge } : {}),
@@ -160,6 +170,7 @@ export async function chatImage(
     })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
+      if (run && NO_RUN_SESSION.test(message)) throw run.noSession();
       if (/no such image/.test(message)) throw new RpcFailure(RpcErrorCode.NotFound, message);
       return unavailable(error);
     });
