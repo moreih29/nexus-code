@@ -19,8 +19,10 @@ import {
   ProfileConnectionSchema,
 } from "../../../../shared/agent-profiles/connection";
 import type { AgentProfile } from "../../../../shared/agent-profiles/profiles";
+import { keychainLocked } from "../../../../shared/keychain";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { ipcCallResult } from "../../../ipc/client";
+import { useKeychain } from "../../../services/keychain";
 
 interface ModelRow extends ConnectionModel {
   rowId: string;
@@ -93,6 +95,12 @@ export function useProfileConnection(agent: ChatAgent, profile: AgentProfile | n
     setKeyEdit(value === undefined ? undefined : { target, value });
   const keyStatus =
     savedKey?.target === target && savedKey?.profileId === profileId ? savedKey?.status : undefined;
+  // Read again once the keychain opens: locked, the saved key does not show.
+  const keychainOpen = useKeychain((s) => s.status?.state === "open");
+  // An API-key profile kept as it was saves while the keychain is locked: its key stays.
+  const keysLocked = useKeychain((s) => keychainLocked(s.status, "profileKeys"));
+  const keptLockedKey = key === undefined && original?.method === "api-key" && keysLocked;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the keychain opening asks again
   useEffect(() => {
     let active = true;
     void ipcCallResult("agentProfiles", "connectionKeyStatus", { profileId, target }).then(
@@ -103,7 +111,7 @@ export function useProfileConnection(agent: ChatAgent, profile: AgentProfile | n
     return () => {
       active = false;
     };
-  }, [profileId, target]);
+  }, [profileId, target, keychainOpen]);
 
   const [rows, setRows] = useState<ModelRow[]>(
     () => originalCustom?.models.map((model) => ({ ...model, rowId: model.id })) ?? [blankModel()],
@@ -216,7 +224,7 @@ export function useProfileConnection(agent: ChatAgent, profile: AgentProfile | n
     next.success &&
     !reasoningModelIdError &&
     (method === "account" || keyValid) &&
-    (method !== "api-key" || key === null || !!key || !!keyPlaceholder) &&
+    (method !== "api-key" || key === null || !!key || !!keyPlaceholder || keptLockedKey) &&
     (method !== "custom" ||
       (headers !== null &&
         query !== null &&

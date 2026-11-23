@@ -18,6 +18,7 @@ import {
   type GitHelperPromptState,
   useGitHelperPrompts,
 } from "./files/git/hooks/use-helper-prompts";
+import { KeychainRoot } from "./keychain/keychain-root";
 import { NoteSummaryNotifications } from "./notes/summary-notifications";
 import { WorkspaceSymbolPaletteRoot } from "./symbol-palette/workspace-symbol-palette";
 import { ConfirmDialogRoot } from "./ui/confirm-dialog";
@@ -50,6 +51,7 @@ export const GlobalRoots = memo(function GlobalRoots(): React.JSX.Element {
       <SshAuthPromptsRoot />
       <LspLogDialogRoot />
       <ToastRoot />
+      <KeychainRoot />
       <NoteSummaryNotifications />
       <TooltipRoot />
       <LinkMenuRoot />

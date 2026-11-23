@@ -840,6 +840,29 @@
       "failed": "Update failed"
     }
   },
+  "keychain": {
+    "prompt": {
+      "title": "Open the keychain?",
+      "description": "Kept in the macOS keychain · {{items}}",
+      "hint": "Enter your login password in the next macOS window and choose \"Always Allow\". Asked once after the app's signature changes",
+      "later": "Later",
+      "continue": "Continue"
+    },
+    "items": {
+      "remote": "Remote sign-in",
+      "profileKeys": "Profile API keys",
+      "voices": "Remembered voices"
+    },
+    "asking": "Checking the keychain · Choose \"Always Allow\" in the macOS window.",
+    "locked": {
+      "title": "Keychain locked",
+      "remote": "Remote off · saved sign-in not opened yet",
+      "profileKeys": "Keychain locked · saved API key not opened yet",
+      "voices": "Name suggestions off · remembered voices not opened yet",
+      "refused": "Refused in macOS · asked again after the app restarts",
+      "open": "Open"
+    }
+  },
   "chat": {
     "tab_title": "Claude",
     "copy": "Copy",

@@ -18,7 +18,9 @@ import {
 } from "../../../shared/notes/voice-names";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import type { StateService } from "../../infra/storage/state-service";
-import { electronSecretBox, type Kept, SealedFile, type SecretBox } from "../remote/sealed-file";
+import { SEALED_FILES } from "../keychain/files";
+import type { Keychain } from "../keychain/gate";
+import { type Kept, KeychainLockedError, SealedFile, type SecretBox } from "../remote/sealed-file";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const VoiceFileSchema = z.object({ version: z.literal(1), people: z.array(RememberedVoiceSchema) });
@@ -28,6 +30,10 @@ interface Preferences {
   read(): VoiceNameSettings;
   write(value: VoiceNameSettings): void;
 }
+
+/** The keychain as the voices wait on it; always open where none asks first. */
+type VoicesKeychain = Pick<Keychain, "isOpen" | "unlock">;
+const ALWAYS_OPEN: VoicesKeychain = { isOpen: () => true, unlock: async () => true };
 
 export class RememberedVoices {
   private people: RememberedVoice[] | undefined;
@@ -39,17 +45,62 @@ export class RememberedVoices {
     private readonly prefs: Preferences,
     private readonly changed: (status: VoiceNameStatus) => void,
     private readonly now = Date.now,
+    private readonly keychain: VoicesKeychain = ALWAYS_OPEN,
   ) {}
 
-  private run<T>(task: (people: RememberedVoice[]) => T | Promise<T>): Promise<T> {
-    const next = this.pending
-      .catch(() => {})
-      .then(async () => {
-        this.people ??= (await this.file?.load())?.people ?? [];
-        return task(this.people);
-      });
+  /** One at a time, in order. */
+  private queue<T>(task: () => T | Promise<T>): Promise<T> {
+    const next = this.pending.catch(() => {}).then(task);
     this.pending = next;
     return next;
+  }
+
+  /**
+   * The people, read once. While the keychain is not open, a read in the
+   * background waits (null) and one for what the user does throws
+   * KeychainLockedError. A locked read is not kept as none, so nothing
+   * written after it drops the people sealed.
+   */
+  private async load(user: boolean): Promise<RememberedVoice[] | null> {
+    if (this.people) return this.people;
+    if (this.file && !this.keychain.isOpen()) {
+      if (!user) return null;
+      throw new KeychainLockedError();
+    }
+    this.people = (await this.file?.load())?.people ?? [];
+    return this.people;
+  }
+
+  /**
+   * For what the user does: opens a locked keychain before taking a place in
+   * line, since the reads the opening starts may be in it.
+   */
+  private async opened(): Promise<void> {
+    if (this.file && !this.keychain.isOpen()) await this.keychain.unlock();
+  }
+
+  /** For what the user does: the people, the keychain opened first. */
+  private async run<T>(task: (people: RememberedVoice[]) => T | Promise<T>): Promise<T> {
+    await this.opened();
+    return this.queue(async () => task((await this.load(true)) ?? []));
+  }
+
+  /**
+   * For what the app does by itself: the people if they can be read without
+   * asking, null otherwise. A refusal meanwhile is none here, unless told to
+   * throw it (a read that waits for the next opening).
+   */
+  private peek<T>(
+    task: (people: RememberedVoice[] | null) => T | Promise<T>,
+    refused: "none" | "throw" = "none",
+  ): Promise<T> {
+    return this.queue(async () => {
+      const people = await this.load(false).catch((error: unknown) => {
+        if (refused === "none" && error instanceof KeychainLockedError) return null;
+        throw error;
+      });
+      return task(people);
+    });
   }
 
   private async save(people: RememberedVoice[], invalidate: boolean): Promise<void> {
@@ -75,20 +126,22 @@ export class RememberedVoices {
   }
 
   status(): Promise<VoiceNameStatus> {
-    return this.run(() => this.snapshot());
+    return this.peek(() => this.snapshot());
   }
 
   list(): Promise<VoiceNamePerson[]> {
-    return this.run((people) =>
-      people.flatMap(({ name, recordings }) => {
+    return this.peek((people) =>
+      (people ?? []).flatMap(({ name, recordings }) => {
         const latest = recordings[0];
         return latest ? [{ name, count: recordings.length, lastHeard: latest.recordedAt }] : [];
       }),
     );
   }
 
-  consent(allowed: boolean): Promise<VoiceNameStatus> {
-    return this.run(() => {
+  /** Agreeing opens a locked keychain, as remembering a voice will need it. */
+  async consent(allowed: boolean): Promise<VoiceNameStatus> {
+    if (allowed) await this.opened();
+    return this.queue(async () => {
       const before = this.prefs.read();
       if (this.file && before.consent === "pending") {
         this.prefs.write({
@@ -121,17 +174,24 @@ export class RememberedVoices {
   }
 
   match({ revision, ...candidates }: z.infer<typeof VoiceNameMatchArgsSchema>) {
-    return this.run((people) => {
+    return this.peek((people) => {
       const { consent, suggest } = this.prefs.read();
       if (!this.file || consent !== "allowed" || !suggest || revision !== this.revision) return [];
-      return suggestVoiceNames(people, candidates);
+      return people ? suggestVoiceNames(people, candidates) : [];
     });
   }
 
-  learn({ revision, ...sample }: z.infer<typeof VoiceNameLearnArgsSchema>): Promise<boolean> {
-    return this.run(async (people) => {
+  /** Remembering a voice opens a locked keychain; false while it stays locked. */
+  async learn({ revision, ...sample }: z.infer<typeof VoiceNameLearnArgsSchema>): Promise<boolean> {
+    if (this.prefs.read().consent === "allowed") await this.opened();
+    return this.queue(async () => {
       const { consent, expire } = this.prefs.read();
       if (!this.file || revision !== this.revision || consent !== "allowed") return false;
+      const people = await this.load(true).catch((error: unknown) => {
+        if (error instanceof KeychainLockedError) return null;
+        throw error;
+      });
+      if (!people) return false;
       if (expire && sample.recordedAt <= this.now() - VOICE_NAME_RETENTION_MS) return false;
       const at = people.findIndex((p) => p.name === sample.name);
       const updated = withRememberedVoice(people[at], sample);
@@ -152,7 +212,7 @@ export class RememberedVoices {
   }
 
   clear(): Promise<void> {
-    return this.run(() => {
+    return this.queue(() => {
       this.file?.clear();
       this.people = [];
       this.notify(true);
@@ -166,8 +226,11 @@ export class RememberedVoices {
     if (people.length !== current.length) await this.save(current, true);
   }
 
+  /** Forgets voices not heard for a year; run once the keychain is open (Keychain.whenOpen). */
   prune(): Promise<void> {
-    return this.run((people) => this.sweep(people));
+    return this.peek(async (people) => {
+      if (people) await this.sweep(people);
+    }, "throw");
   }
 
   async waitForWrites(): Promise<void> {
@@ -180,28 +243,33 @@ export function openVoiceMemoryFile(
   box: SecretBox | null,
 ): Kept<VoiceFile> | null {
   return box?.available
-    ? new SealedFile(join(userData, "remembered-voices.bin"), box, VoiceFileSchema)
+    ? new SealedFile(join(userData, SEALED_FILES.voices), box, VoiceFileSchema)
     : null;
 }
 
 export function registerRememberedVoices(
   userData: string,
   state: Pick<StateService, "getState" | "commitState">,
-  createBox = electronSecretBox,
+  keychain: Keychain,
 ) {
   const prefs: Preferences = {
     read: () => state.getState().rememberedVoices ?? VoiceNameSettingsSchema.parse({}),
     write: (rememberedVoices) => state.commitState({ rememberedVoices }),
   };
-  const ready = createBox()
-    .catch(() => null)
-    .then((box) => {
-      const file = openVoiceMemoryFile(userData, box);
-      return new RememberedVoices(file, prefs, (status) =>
-        broadcast("voiceMemory", "changed", status),
-      );
+  const changed = (status: VoiceNameStatus) => broadcast("voiceMemory", "changed", status);
+  const voices = new RememberedVoices(
+    openVoiceMemoryFile(userData, keychain.box),
+    prefs,
+    changed,
+    Date.now,
+    keychain,
+  );
+  // Once the keychain opens: the voices are read, pruned, and counted for the windows.
+  const prune = () =>
+    void keychain.whenOpen("voices", async () => {
+      await voices.prune();
+      changed(await voices.status());
     });
-  const prune = () => void ready.then((voices) => voices.prune()).catch(() => {});
   prune();
   const timer = setInterval(prune, DAY_MS);
   timer.unref();
@@ -213,7 +281,6 @@ export function registerRememberedVoices(
   async function claimConsent(
     owner?: WebContents,
   ): Promise<{ prompt: boolean; status: VoiceNameStatus }> {
-    const voices = await ready;
     while (true) {
       const status = await voices.status();
       if (
@@ -248,12 +315,11 @@ export function registerRememberedVoices(
   register("voiceMemory", {
     keepOnRendererClose: ["consent", "configure", "learn", "remove", "clear"],
     call: {
-      status: async () => ipcOk(await (await ready).status()),
-      list: async () => ipcOk(await (await ready).list()),
+      status: async () => ipcOk(await voices.status()),
+      list: async () => ipcOk(await voices.list()),
       claimConsent: async (_args, ctx) => ipcOk(await claimConsent(ctx?.sender)),
       consent: async (args, ctx) => {
         const { allowed } = validateArgs(c.consent.args, args);
-        const voices = await ready;
         const prompt = consentPrompt;
         if (!prompt || prompt.owner !== ctx?.sender) return ipcOk(await voices.status());
         try {
@@ -264,21 +330,21 @@ export function registerRememberedVoices(
       },
       configure: async (args) => {
         const patch = validateArgs(c.configure.args, args);
-        return ipcOk(await (await ready).configure(patch));
+        return ipcOk(await voices.configure(patch));
       },
       match: async (args) => {
         const query = validateArgs(c.match.args, args);
-        return ipcOk(await (await ready).match(query));
+        return ipcOk(await voices.match(query));
       },
       learn: async (args) => {
         const sample = validateArgs(c.learn.args, args);
-        return ipcOk(await (await ready).learn(sample));
+        return ipcOk(await voices.learn(sample));
       },
       remove: async (args) => {
         const { name } = validateArgs(c.remove.args, args);
-        return ipcOk(await (await ready).remove(name));
+        return ipcOk(await voices.remove(name));
       },
-      clear: async () => ipcOk(await (await ready).clear()),
+      clear: async () => ipcOk(await voices.clear()),
     },
     listen: { changed: {} },
   });
@@ -289,6 +355,6 @@ export function registerRememberedVoices(
       clearInterval(timer);
       consentPrompt?.release();
     },
-    waitForWrites: async () => (await ready).waitForWrites(),
+    waitForWrites: () => voices.waitForWrites(),
   };
 }
