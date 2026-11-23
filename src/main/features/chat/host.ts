@@ -635,7 +635,11 @@ export class ChatHost {
         if (timeoutMs <= 0) return removal.expired;
         return removal.channel.call("chat.close", params, { timeoutMs });
       }
-      const channel = await this.options.workspaceManager.tryGetAgentChannel(workspaceId);
+      // A run's reader on a host out of reach dials none: what is left there
+      // is closed as the host connects again (prunePrintRunReaders).
+      const channel = isPrintRunReader(tabId)
+        ? ((await this.options.workspaceManager.peekAgentChannel?.(workspaceId)) ?? null)
+        : await this.options.workspaceManager.tryGetAgentChannel(workspaceId);
       if (!channel) return undefined;
       // Its conversation may go on in another tab, which names its files. Not
       // where the agent names no attach root (a home it cannot name, or an

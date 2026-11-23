@@ -200,6 +200,11 @@ describe("a run's transcript", () => {
           if (!channel) throw new Error("no channel");
           return channel;
         },
+        // As the workspace manager's: it dials.
+        tryGetAgentChannel: async () => {
+          dialed += 1;
+          return up ? (channel ?? null) : null;
+        },
       },
       undefined,
       undefined,
@@ -292,6 +297,11 @@ describe("a run's transcript", () => {
       reason: "none",
     });
     await expect(codex.host.send(WS, id, { id: 1, method: "thread/read" })).rejects.toThrow();
+    // Closing it dials none either: main forgets it, and the host's is closed as it connects.
+    await codex.host.call("close", { workspaceId: WS, tabId: id });
+    await expect(codex.host.send(WS, id, { id: 1, method: "thread/read" })).rejects.toMatchObject({
+      code: "chat.reader-read-only",
+    });
     expect(codex.channel.calls).toEqual([]);
     expect(codex.dialed()).toBe(before);
   });
