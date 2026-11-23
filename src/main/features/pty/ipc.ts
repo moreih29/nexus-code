@@ -9,7 +9,6 @@ import { ForwardError, type PortForwards } from "./forwards";
 import { injectHarnessTerminalEnv } from "./harness-env";
 import type { WorkspaceNameLookup } from "./osc-notification";
 import { OscNotificationDispatcher } from "./osc-notification";
-import type { PtyRecorderSink } from "./recorder";
 import { applyShellPathShim } from "./shell-shim";
 import {
   detectShells,
@@ -27,7 +26,6 @@ type SpawnRequest = ReturnType<typeof validateArgs<typeof c.spawn.args>>;
 
 export interface PtyChannelOptions {
   agentHost: PtyHostHandle;
-  recorder?: PtyRecorderSink;
   workspaceManager?: WorkspaceNameLookup & {
     connect(id: string): Promise<void>;
     getAgentChannel(workspaceId: string): Promise<unknown>;
@@ -50,16 +48,8 @@ export interface PtyChannelOptions {
   forwards?: PortForwards;
 }
 
-const NO_RECORDER: PtyRecorderSink = {
-  start() {},
-  appendData() {},
-  handleResize() {},
-  stop() {},
-};
-
 export function registerPtyChannel(options: PtyChannelOptions): void {
   const { agentHost } = options;
-  const recorder = options.recorder ?? NO_RECORDER;
   const wm = options.workspaceManager;
   const sessionShellPaths = new Map<string, string>();
   const sessionKey = (workspaceId: string, tabId: string) => `${workspaceId}:${tabId}`;
@@ -86,7 +76,6 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
       chunk: string;
       replay?: boolean;
     };
-    recorder.appendData(workspaceId, tabId, chunk);
     if (!replay) dispatcher.handleChunk(workspaceId, tabId, chunk);
     broadcast(
       "pty",
@@ -102,7 +91,6 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
       code: number | null;
     };
     broadcast("pty", "exit", { workspaceId, tabId, code });
-    recorder.stop(workspaceId, tabId);
     sessionShellPaths.delete(sessionKey(workspaceId, tabId));
   });
 
@@ -151,7 +139,6 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
         { NEXUS_TERMINAL_PROFILE_ID: profile ?? "" },
       );
     }
-    recorder.start(workspaceId, tabId, cols, rows);
     if (wm) await wm.getAgentChannel(workspaceId);
     const wrapperBinDir = wm?.getWrapperBinDir(workspaceId) ?? null;
     const wrapperAgentBin = wm?.getWrapperAgentBin(workspaceId) ?? null;
@@ -213,32 +200,27 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
       }
     }
 
-    try {
-      const result = (await agentHost.call("spawn", {
-        workspaceId,
-        tabId,
-        cwd,
-        cols,
-        rows,
-        env: enrichedEnv,
-        ...(shell !== undefined ? { shell: shell.path } : {}),
-        ...(shimmedArgs !== undefined && shimmedArgs.length > 0 ? { args: shimmedArgs } : {}),
-      })) as { pid: number; attached?: boolean };
-      const key = sessionKey(workspaceId, tabId);
-      if (result.attached) {
-        const running = sessionShellPaths.get(key);
-        return { pid: result.pid, ...(running !== undefined ? { shellPath: running } : {}) };
-      }
-      if (shellPath !== undefined) sessionShellPaths.set(key, shellPath);
-      return {
-        pid: result.pid,
-        ...(shellPath !== undefined ? { shellPath } : {}),
-        ...(missingShell !== undefined ? { missingShell } : {}),
-      };
-    } catch (error) {
-      recorder.stop(workspaceId, tabId);
-      throw error;
+    const result = (await agentHost.call("spawn", {
+      workspaceId,
+      tabId,
+      cwd,
+      cols,
+      rows,
+      env: enrichedEnv,
+      ...(shell !== undefined ? { shell: shell.path } : {}),
+      ...(shimmedArgs !== undefined && shimmedArgs.length > 0 ? { args: shimmedArgs } : {}),
+    })) as { pid: number; attached?: boolean };
+    const key = sessionKey(workspaceId, tabId);
+    if (result.attached) {
+      const running = sessionShellPaths.get(key);
+      return { pid: result.pid, ...(running !== undefined ? { shellPath: running } : {}) };
     }
+    if (shellPath !== undefined) sessionShellPaths.set(key, shellPath);
+    return {
+      pid: result.pid,
+      ...(shellPath !== undefined ? { shellPath } : {}),
+      ...(missingShell !== undefined ? { missingShell } : {}),
+    };
   };
 
   register("pty", {
@@ -274,7 +256,6 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
         const { workspaceId, tabId, cols, rows } = validateArgs(c.resize.args, args);
         options.onResize?.(workspaceId, tabId);
         await agentHost.call("resize", { workspaceId, tabId, cols, rows });
-        recorder.handleResize(workspaceId, tabId, cols, rows);
         return ipcOk(undefined);
       },
 

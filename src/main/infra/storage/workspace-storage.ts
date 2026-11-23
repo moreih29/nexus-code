@@ -74,12 +74,6 @@ export class WorkspaceStorage {
 
     const workspaceDir = path.join(this.baseDir, workspaceId);
 
-    if (process.env.NEXUS_RESET_STORAGE === "1" && fs.existsSync(workspaceDir)) {
-      const backupName = `backup-${Date.now()}`;
-      const backupDir = path.join(this.baseDir, backupName);
-      fs.renameSync(workspaceDir, backupDir);
-    }
-
     fs.mkdirSync(workspaceDir, { recursive: true });
 
     const dbPath = path.join(workspaceDir, "state.db");

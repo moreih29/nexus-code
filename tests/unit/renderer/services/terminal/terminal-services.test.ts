@@ -135,6 +135,9 @@ const { subscribeTerminalReopenRequest } = await import(
   "../../../../../src/renderer/services/terminal/reopen-requests"
 );
 const { closeGroup } = await import("../../../../../src/renderer/state/operations");
+const { closeGroupWithConfirm } = await import(
+  "../../../../../src/renderer/services/editor/save/close-tab"
+);
 const { startTerminalExitListener } = await import(
   "../../../../../src/renderer/state/terminal-exit"
 );
@@ -495,6 +498,66 @@ describe("services/terminal open and close", () => {
     expect(wsTabs?.[left.tabId]).toBeDefined();
     expect(wsTabs?.[right.tabId]).toBeUndefined();
     expect(wsTabs?.[editor.id]).toBeUndefined();
+  });
+
+  it("killTerminalSessions kills only the terminal sessions it is given", () => {
+    const first = openTerminal({ workspaceId: WS, cwd: "/workspace/a" });
+    const second = openTerminal({ workspaceId: WS, cwd: "/workspace/b" });
+    const editor = useTabsStore.getState().createTab(WS, {
+      type: "editor",
+      props: { workspaceId: WS, filePath: "/workspace/file.ts" },
+    });
+
+    useTabsStore.getState().killTerminalSessions(WS, [second.tabId, editor.id]);
+
+    expect(killCalls()).toEqual([
+      { channel: "pty", method: "kill", args: { workspaceId: WS, tabId: second.tabId } },
+    ]);
+    expect(useTabsStore.getState().byWorkspace[WS]?.[first.tabId]).toBeDefined();
+    expect(useTabsStore.getState().byWorkspace[WS]?.[second.tabId]).toBeDefined();
+  });
+
+  describe("closeGroupWithConfirm", () => {
+    beforeEach(() => {
+      confirmRequests.length = 0;
+      confirmReply = true;
+    });
+
+    afterEach(() => {
+      mockForegroundProcessName = "lazygit";
+    });
+
+    function terminalInSecondGroup(): { groupId: string; tabId: string; leftTabId: string } {
+      const left = openTerminal({ workspaceId: WS, cwd: "/workspace/left" });
+      const groupId = useLayoutStore.getState().splitGroup(WS, left.groupId, "horizontal", "after");
+      const right = openTerminal({ workspaceId: WS, cwd: "/workspace/right" }, { groupId });
+      return { groupId, tabId: right.tabId, leftTabId: left.tabId };
+    }
+
+    it("asks before killing a program running in the group and keeps the group on cancel", async () => {
+      mockForegroundProcessName = "sleep";
+      const { groupId, tabId } = terminalInSecondGroup();
+      confirmReply = false;
+
+      expect(await closeGroupWithConfirm(WS, groupId)).toBe("cancelled");
+      expect(confirmRequests).toEqual(["Closing the terminal also terminates “sleep”."]);
+      expect(killCalls()).toEqual([]);
+      expect(useTabsStore.getState().byWorkspace[WS]?.[tabId]).toBeDefined();
+    });
+
+    it("closes the group once the running program may end", async () => {
+      mockForegroundProcessName = "sleep";
+      const { groupId, tabId, leftTabId } = terminalInSecondGroup();
+
+      expect(await closeGroupWithConfirm(WS, groupId)).toBe("closed");
+      expect(confirmRequests).toHaveLength(1);
+      expect(killCalls()).toEqual([
+        { channel: "pty", method: "kill", args: { workspaceId: WS, tabId } },
+      ]);
+      const wsTabs = useTabsStore.getState().byWorkspace[WS];
+      expect(wsTabs?.[tabId]).toBeUndefined();
+      expect(wsTabs?.[leftTabId]).toBeDefined();
+    });
   });
 
   it("terminal controller dispose does not kill the PTY session", async () => {

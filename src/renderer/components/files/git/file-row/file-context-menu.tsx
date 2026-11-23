@@ -185,23 +185,7 @@ export function buildGitGroupContextMenuItems(
   actions: GitGroupContextMenuActions,
 ): GitMenuSpec[] {
   const t = i18next.t.bind(i18next);
-  if (groupKey === "merge") {
-    return collapseGitMenuSeparators([
-      {
-        kind: "item",
-        label: t("files:git.contextMenu.stageAllResolved"),
-        disabled: true,
-        onSelect: actions.stageAll ?? noop,
-      },
-      { kind: "separator" },
-      {
-        kind: "item",
-        label: t("files:git.contextMenu.stashChangesInGroup"),
-        disabled: true,
-        onSelect: actions.stashGroup ?? noop,
-      },
-    ]);
-  }
+  if (groupKey === "merge") return [];
 
   const items: GitMenuSpec[] = [];
   if (groupKey === "staged" && actions.unstageAll) {

@@ -35,7 +35,6 @@ export interface EditorPalette {
   peekViewEditorMatchHighlightBackground: string;
   peekViewResultMatchHighlightBackground: string;
   peekViewResultBackground: string;
-  linkForeground: string;
   linkActiveForeground: string;
   selectionBackground: string;
   inactiveSelectionBackground: string;
@@ -296,7 +295,6 @@ export function buildEditorPalette(source: ThemeSource): EditorPalette {
     peekViewEditorMatchHighlightBackground: tier(0.2),
     peekViewResultMatchHighlightBackground: tier(0.12),
     peekViewResultBackground: toHex8(source.bg.secondary),
-    linkForeground: toHex8(source.accent),
     linkActiveForeground: toHex8(source.fg.primary),
     selectionBackground: toHex8(source.selection),
     inactiveSelectionBackground: scaleAlpha(source.selection, 0.5),

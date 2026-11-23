@@ -3,8 +3,11 @@ import { showToast } from "@/components/ui/toast";
 import { closeChatTab } from "@/services/chat/claude/controller";
 import { closeCodexTab } from "@/services/chat/codex/controller";
 import { closeTerminalWithConfirm } from "@/services/terminal";
+import { closeGroup } from "@/state/operations/groups";
 import { closeTab } from "@/state/operations/tabs";
 import { flushStatePersistence } from "@/state/persistence";
+import { useLayoutStore } from "@/state/stores/layout";
+import { findLeaf } from "@/state/stores/layout/helpers";
 import { useTabsStore } from "@/state/stores/tabs";
 import type { CloseTabOutcome } from "./close-handler";
 import {
@@ -50,5 +53,24 @@ export async function closeTabWithConfirm(
     closeTab(workspaceId, tabId);
   }
 
+  return "closed";
+}
+
+const CONFIRMED_ON_GROUP_CLOSE = new Set(["editor", "untitled", "editor.diff", "terminal"]);
+
+export async function closeGroupWithConfirm(
+  workspaceId: string,
+  groupId: string,
+): Promise<CloseTabOutcome> {
+  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
+  const leaf = layout ? findLeaf(layout.root, groupId) : null;
+  if (!leaf) return "closed";
+  for (const tabId of [...leaf.tabIds]) {
+    const type = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId]?.type;
+    if (type === undefined || !CONFIRMED_ON_GROUP_CLOSE.has(type)) continue;
+    const outcome = await closeTabWithConfirm(workspaceId, tabId);
+    if (outcome !== "closed") return outcome;
+  }
+  closeGroup(workspaceId, groupId);
   return "closed";
 }

@@ -5,6 +5,7 @@ import { cn } from "@/utils/cn";
 import type { GitExpandedGroupKey } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import {
+  buildGitGroupContextMenuItems,
   type GitContextMenuPoint,
   GitGroupContextMenu,
   pointFromButtonRect,
@@ -46,6 +47,14 @@ export function GitGroupHeader({
 }: GitGroupHeaderProps) {
   const { t } = useTranslation("files");
   const [contextMenuPoint, setContextMenuPoint] = useState<GitContextMenuPoint | null>(null);
+  const menuActions = {
+    stageAll: onStageAll,
+    unstageAll: onUnstageAll,
+    discardAll: onDiscardAll,
+    addToGitignore: onAddToGitignore,
+    stashGroup: onStashGroup,
+  };
+  const hasMenu = !readOnly && buildGitGroupContextMenuItems(groupKey, menuActions).length > 0;
 
   return (
     <div className="group flex h-7 items-center gap-1 px-2 text-app-ui-sm text-muted-foreground hover:bg-[var(--state-hover-bg)] focus-within:bg-[var(--state-hover-bg)]">
@@ -55,7 +64,7 @@ export function GitGroupHeader({
         aria-expanded={expanded}
         onClick={onToggle}
         onContextMenu={
-          readOnly
+          !hasMenu
             ? undefined
             : (event) => {
                 event.preventDefault();
@@ -111,34 +120,32 @@ export function GitGroupHeader({
               <Trash2 className="size-3.5" aria-hidden="true" />
             </Button>
           ) : null}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="size-6"
-            tooltip={t("git.groups.groupActions", { label })}
-            aria-haspopup="menu"
-            aria-expanded={contextMenuPoint !== null}
-            onClick={(event) => {
-              event.stopPropagation();
-              setContextMenuPoint(pointFromButtonRect(event.currentTarget.getBoundingClientRect()));
-            }}
-          >
-            <MoreHorizontal className="size-3.5" aria-hidden="true" />
-          </Button>
+          {hasMenu ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="size-6"
+              tooltip={t("git.groups.groupActions", { label })}
+              aria-haspopup="menu"
+              aria-expanded={contextMenuPoint !== null}
+              onClick={(event) => {
+                event.stopPropagation();
+                setContextMenuPoint(
+                  pointFromButtonRect(event.currentTarget.getBoundingClientRect()),
+                );
+              }}
+            >
+              <MoreHorizontal className="size-3.5" aria-hidden="true" />
+            </Button>
+          ) : null}
         </div>
       )}
-      {!readOnly && (
+      {hasMenu && (
         <GitGroupContextMenu
           point={contextMenuPoint}
           groupKey={groupKey}
-          actions={{
-            stageAll: onStageAll,
-            unstageAll: onUnstageAll,
-            discardAll: onDiscardAll,
-            addToGitignore: onAddToGitignore,
-            stashGroup: onStashGroup,
-          }}
+          actions={menuActions}
           onClose={() => setContextMenuPoint(null)}
         />
       )}
