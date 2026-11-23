@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nexus-code/nexus-code/internal/agentpaths"
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // Files attached to a Claude or Codex tab's message are sent to the agent
@@ -76,6 +77,8 @@ type PruneAttachParams struct {
 	Retain *RetainParams `json:"retain,omitempty"`
 }
 
+var errAttachFolderLinked = proto.NewError("chat.attach-folder-link", "chat.attach: the tab's attach folder is not a folder of its own")
+
 // Attach writes one file for a tab's message and returns its path.
 func (s *Service) Attach(_ context.Context, raw json.RawMessage) (any, error) {
 	var p AttachParams
@@ -122,7 +125,7 @@ func (s *Service) Attach(_ context.Context, raw json.RawMessage) (any, error) {
 			return nil, requestFailed("chat.attach: %v", err)
 		}
 		if !realDir(step) {
-			return nil, requestFailed("chat.attach: the tab's attach folder is not a folder of its own")
+			return nil, errAttachFolderLinked
 		}
 	}
 	// Each file gets a folder of its own, so two of one name both stay.

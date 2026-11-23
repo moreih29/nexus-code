@@ -105,3 +105,48 @@ test("chat.send and chat.close take a run reader's tab id and refuse other names
     host.dispose();
   }
 });
+
+test("chat.attach refused for a linked attach folder is a failure with its code, not a bug", async () => {
+  setupRouter();
+  const handler = ipcCall;
+  if (!handler) throw new Error("IPC call handler was not installed");
+  const refusing = {
+    ready: Promise.resolve(),
+    on: () => () => {},
+    onLifecycle: () => () => {},
+    call: async () => {
+      throw Object.assign(
+        new Error("chat.attach: the tab's attach folder is not a folder of its own"),
+        {
+          code: "chat.attach-folder-link",
+        },
+      );
+    },
+  };
+  const host = registerChatChannel({
+    workspaceManager: {
+      getAgentChannel: async () => refusing as never,
+      tryGetAgentChannel: async () => refusing as never,
+      onProviderReady: () => () => {},
+      getSpawnHookInfo: async () => null,
+      getWrapperBinDir: () => null,
+      getWrapperAgentBin: () => null,
+      getWrapperShimDir: () => null,
+    },
+  });
+  try {
+    const result = (await handler({}, "chat", "attach", {
+      workspaceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      tabId: "11111111-1111-4111-8111-111111111111",
+      name: "a.txt",
+      data: "eA==",
+    })) as { ok: boolean; kind?: string; category?: string };
+    expect(result).toMatchObject({
+      ok: false,
+      kind: "chat.attach-folder-link",
+      category: "failed",
+    });
+  } finally {
+    host.dispose();
+  }
+});
