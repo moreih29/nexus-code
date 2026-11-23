@@ -51,7 +51,7 @@ func setFakeGitExecutable(t *testing.T, fixture string) {
 		t.Setenv("PATHEXT", ".EXE")
 	}
 	path := filepath.Join(dir, name)
-	if err := os.Link(exe, path); err != nil {
+	if runtime.GOOS == "windows" || os.Link(exe, path) != nil {
 		data, err := os.ReadFile(exe)
 		if err != nil {
 			t.Fatal(err)
