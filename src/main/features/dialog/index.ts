@@ -7,16 +7,10 @@ import { register, validateArgs } from "../../infra/ipc-router";
 
 const c = ipcContract.dialog.call;
 
-/**
- * The renderer builds Windows default paths as `C:/work/demo/x`; the native
- * dialog wants backslashes.
- */
 function toNativeDefaultPath(defaultPath: string | undefined): string | undefined {
   return defaultPath && toNativeDrivePath(defaultPath);
 }
 
-// Electron opens a dialog given no defaultPath in Downloads, and the OS no
-// longer brings back the folder the last one was in, so the dialogs remember it.
 let lastFolder: string | undefined;
 
 function startPath(defaultPath: string | undefined): string | undefined {
@@ -27,7 +21,6 @@ function rememberFolderOf(chosen: string | undefined): void {
   if (chosen) lastFolder = path.dirname(chosen);
 }
 
-/** Forgets the remembered folder, so each test starts from none. */
 export function forgetLastDialogFolder(): void {
   lastFolder = undefined;
 }
@@ -65,8 +58,6 @@ export function registerDialogChannel(): void {
           title: opts.title ?? t("dialog:saveFile.title"),
           defaultPath: startPath(opts.defaultPath),
           filters: opts.filters,
-          // The renderer overwrites the picked file, so every platform must
-          // ask first; macOS and Windows always do, Linux only on request.
           properties: ["showOverwriteConfirmation"],
         });
         rememberFolderOf(result.filePath);

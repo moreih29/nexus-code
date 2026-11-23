@@ -31,7 +31,6 @@ func writeHistory(t *testing.T, path string, lines ...string) {
 	}
 }
 
-// jsonText is s as a JSON string's body, as a history writes it.
 func jsonText(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b[1 : len(b)-1])
@@ -42,15 +41,12 @@ func TestHistorySlotsReadsAClaudeTranscriptWhole(t *testing.T) {
 	config := t.TempDir()
 	ws := filepath.Join(root, "ws")
 	session := "11111111-aaaa-4aaa-8aaa-111111111111"
-	big := strings.Repeat("x", 3*historyChunk) // a line far past any line buffer
+	big := strings.Repeat("x", 3*historyChunk)
 	writeHistory(t, filepath.Join(config, "projects", "-repo", session+".jsonl"),
 		`{"type":"user","message":{"content":"look\n\n@`+jsonText(filepath.Join(ws, "early", "1", "a.png"))+`"}}`,
 		`{"type":"user","message":{"content":[{"type":"image","source":{"data":"`+big+`"}}]}}`,
-		// A tool's answer names one too: kept as well.
 		`{"type":"user","message":{"content":[{"type":"tool_result","content":"`+jsonText(filepath.Join(ws, "tool", "2", "b.txt"))+`"}]}}`,
-		// Again, later: it counts where it was last named.
 		`{"type":"user","message":{"content":"@`+jsonText(filepath.Join(ws, "early", "1", "a.png"))+`"}}`,
-		// Not slots: another workspace, a folder of a tab, a name past the grammar.
 		`{"x":"`+jsonText(filepath.Join(root, "ws2", "t", "1", "c.png"))+`"}`,
 		`{"x":"`+jsonText(filepath.Join(ws, "t", "d.png"))+`"}`,
 		`{"x":"`+jsonText(filepath.Join(ws, strings.Repeat("t", 129), "1", "e.png"))+`"}`,
@@ -61,7 +57,6 @@ func TestHistorySlotsReadsAClaudeTranscriptWhole(t *testing.T) {
 	if !got.Found || got.Truncated || !reflect.DeepEqual(got.Slots, want) {
 		t.Fatalf("got %+v, want %v", got, want)
 	}
-	// No such session: none, not found.
 	none := historySlotsOf(t, HistorySlotsParams{WorkspaceID: "ws", SessionID: "22222222-bbbb-4bbb-8bbb-222222222222", ConfigDir: config})
 	if none.Found || len(none.Slots) != 0 || none.Slots == nil {
 		t.Fatalf("got %+v", none)
@@ -86,16 +81,12 @@ func TestHistorySlotsFindsAWindowsHomeAsWritten(t *testing.T) {
 	ws := `C:\Users\Me\.nexus-code\attach\ws`
 	path := filepath.Join(t.TempDir(), "h.jsonl")
 	writeHistory(t, path,
-		// JSON-escaped backslashes, as a rollout or transcript writes them.
 		`{"t":"@C:\\Users\\Me\\.nexus-code\\attach\\ws\\a\\1\\x.png"}`,
-		// Slashes, a drive letter in another case, as the app writes a path.
 		`{"t":"@c:/users/me/.nexus-code/attach/ws/b/2/y.png"}`,
-		// Slashes JSON-escaped.
 		`{"t":"@C:\/Users\/Me\/.nexus-code\/attach\/ws\/c\/3\/z.png"}`,
-		// JSON kept as text in JSON (a tool's output): each backslash is four.
 		`{"out":"`+jsonText(`{"file":"`+jsonText(ws+`\d\4\w.png`)+`"}`)+`"}`,
 	)
-	slots, truncated, err := historySlots(path, ws)
+	slots, truncated, err := historySlots(filepath.Dir(path), path, nil, ws)
 	if err != nil || truncated || !reflect.DeepEqual(slots, []string{"a/1", "b/2", "c/3", "d/4"}) {
 		t.Fatalf("slots %v truncated %v err %v", slots, truncated, err)
 	}
@@ -109,7 +100,7 @@ func TestHistorySlotsKeepsTheLastNamedPastTheCap(t *testing.T) {
 	}
 	path := filepath.Join(t.TempDir(), "h.jsonl")
 	writeHistory(t, path, lines...)
-	slots, truncated, err := historySlots(path, ws)
+	slots, truncated, err := historySlots(filepath.Dir(path), path, nil, ws)
 	if err != nil || !truncated || len(slots) != maxAttachSlots || slots[0] != "t/11" {
 		t.Fatalf("len %d first %v truncated %v err %v", len(slots), slots[:1], truncated, err)
 	}
@@ -137,7 +128,7 @@ func TestHistorySlotsReadsANameAcrossChunks(t *testing.T) {
 	for _, at := range []int{historyChunk - 10, historyChunk - len(ws) - 3, 2*historyChunk - 1} {
 		name := ws + "/tab-x/7/f.png"
 		writeHistory(t, path, strings.Repeat("y", at)+name)
-		slots, _, err := historySlots(path, ws)
+		slots, _, err := historySlots(filepath.Dir(path), path, nil, ws)
 		if err != nil || !reflect.DeepEqual(slots, []string{"tab-x/7"}) {
 			t.Fatalf("at %d: slots %v err %v", at, slots, err)
 		}

@@ -33,7 +33,6 @@ describe("another computer's chat's banner", () => {
         onRestart={() => {}}
       />,
     );
-    // What it wrote, folded under its details as a chat here has them.
     expect(html).toContain("Details");
     expect(html).toContain("Restart");
   });

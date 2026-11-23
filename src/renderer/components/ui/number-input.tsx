@@ -1,13 +1,3 @@
-// src/renderer/components/ui/number-input.tsx — Token-sealed numeric stepper.
-//
-// Single-line numeric input with ▲/▼ stepper buttons. Used in Settings for
-// font size (where a slider hid the value behind discrete tick marks) and
-// any future field whose value is "type the number you want, clamp to range".
-//
-// Design seal: control-radius border, no shadow, focus ring via --ring,
-// stepper buttons use ghost hover overlay. Clamped to [min, max] on commit.
-// Up/Down arrow keys step by `step`; Shift+Arrow steps by `step * 10`.
-
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -18,24 +8,13 @@ interface NumberInputProps {
   onChange: (next: number) => void;
   min: number;
   max: number;
-  /** Stepper increment (default 1). */
   step?: number;
-  /** Accessible label. */
   ariaLabel?: string;
-  /** Suffix shown to the right of the number (e.g. "px"). */
   suffix?: string;
-  /** Forwarded id (for <label htmlFor>). */
   id?: string;
   className?: string;
 }
 
-/**
- * Value to commit for the typed text, or null to keep the current value.
- * Snaps to the `step` grid from `min` and clamps to the range: settings
- * such as font size are stored as integers, so an accepted "13.5" applied
- * until the write failed validation and then reverted on restart. Blank
- * text is not 0.
- */
 export function parseNumberInputText(
   raw: string,
   { min, max, step }: { min: number; max: number; step: number },
@@ -60,9 +39,6 @@ export function NumberInput({
   className,
 }: NumberInputProps) {
   const { t } = useTranslation();
-  // Local text state lets the user type intermediate strings ("" while
-  // clearing, "1" mid-typing of "16") without the parent receiving invalid
-  // numbers. Committed on blur / Enter / stepper click.
   const [text, setText] = useState<string>(String(value));
 
   useEffect(() => {

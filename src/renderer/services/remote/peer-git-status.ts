@@ -31,7 +31,6 @@ const pendingByDevice = new Map<
 >();
 
 function startStatus(peer: PeerWorkspace): Promise<GitStatusResult> {
-  // A caller can stop waiting, but the device slot stays occupied until its reply.
   const load = async (): Promise<GitStatusResult> => {
     try {
       return await ipcCallResult("remote", "peerGitStatus", peer);
@@ -44,7 +43,6 @@ function startStatus(peer: PeerWorkspace): Promise<GitStatusResult> {
   return request;
 }
 
-/** An on-demand read shares a matching poll or waits for another workspace's read. */
 export async function readPeerGitStatus(
   peer: PeerWorkspace,
   signal?: AbortSignal,
@@ -99,8 +97,6 @@ export function watchPeerGitStatus(
     if (!visible() || unsupported) return;
     const pending = pendingByDevice.get(peer.deviceId)?.request;
     if (pending) {
-      // A manual or session-triggered read may be newer than the pending result.
-      // Coalesce those triggers into one follow-up. A tick never queues work.
       if (queue && waitingFor !== pending) {
         waitingFor = pending;
         void pending.then(() => {
@@ -120,8 +116,6 @@ export function watchPeerGitStatus(
     host.clearInterval(timer);
     if (!visible()) {
       waitingFor = undefined;
-      // Keep the device slot until its request settles. Cancelling the local
-      // wait would not stop the host from running Git.
       visibilityEpoch++;
       return;
     }

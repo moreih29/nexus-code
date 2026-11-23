@@ -1,8 +1,3 @@
-/**
- * What nexus browser pick says of an element: the selector the page builds
- * for it, run here on a small stand-in for the DOM, and the block the
- * command prints.
- */
 import { describe, expect, test } from "bun:test";
 import {
   cleanPicked,
@@ -13,25 +8,18 @@ import {
   withoutControls,
 } from "../../../../../src/main/features/cli/browser/pick";
 
-/** A CSS escape or string body read back: \\hex (and one space after it), or \\char. */
 function cssUnescape(s: string): string {
   return s.replace(/\\([0-9a-fA-F]{1,6}) ?|\\(.)/g, (_, hex: string | undefined, ch: string) =>
     hex ? String.fromCodePoint(Number.parseInt(hex, 16)) : ch,
   );
 }
 
-/**
- * Just enough of an element for DESCRIBE_PICKED, with a matcher for the
- * selectors it writes: tags, #id, .class, [attr="value"], :nth-of-type(n)
- * and " > ".
- */
 class FakeElement {
   readonly nodeType = 1;
   parentNode: FakeElement | FakeDocument | null = null;
   readonly children: FakeElement[] = [];
   outerHTML = "";
   innerText = "";
-  /** The shadow root it is in, when it is in one. */
   shadowRoot: object | null = null;
 
   constructor(
@@ -110,7 +98,6 @@ class FakeDocument {
 
 type Spec = [tag: string, attrs?: Record<string, string>, ...children: Spec[]];
 
-/** A document of `body`'s children; returns it with its elements by their "key" attribute. */
 function page(...body: Spec[]): { doc: FakeDocument; at: Record<string, FakeElement> } {
   const doc = new FakeDocument();
   const at: Record<string, FakeElement> = {};
@@ -140,7 +127,6 @@ function describeIn(doc: FakeDocument, el: FakeElement): PickedDetails {
   return fn.call(el);
 }
 
-/** The selector built for `key`, after checking that it finds that element alone. */
 function selectorOf(built: ReturnType<typeof page>, key: string): string {
   const el = built.at[key] as FakeElement;
   const { selector } = describeIn(built.doc, el);
@@ -204,7 +190,6 @@ describe("the picked element's selector", () => {
   });
 
   test("escapes attribute values as CSS, so a control character cannot match another element", () => {
-    // JSON would write \u0001, which CSS reads as the letter u: "xu0001y".
     const built = page(
       ["button", { "data-testid": "xu0001y" }],
       ["button", { key: "odd", "data-testid": 'x\u0001y"z' }],

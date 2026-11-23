@@ -1,7 +1,3 @@
-// The conversation of a Claude tab: what it showed before (history), what
-// the running program has said, and the reply streaming in. It stays at the
-// bottom while the user is there, and leaves them be once they scroll up.
-
 import {
   Bot,
   Brain,
@@ -12,7 +8,6 @@ import {
   CircleCheck,
   CircleSlash,
   CircleX,
-  Copy,
   FileText,
   GitFork,
   MessageSquareShare,
@@ -35,6 +30,7 @@ import { profileOf } from "../../../shared/agent-profiles/profiles";
 import type { RelayedMessage } from "../../../shared/chat/relay";
 import { shownNoteText } from "../../../shared/notes/line-report";
 import type { ProfileMove } from "../../../shared/types/layout";
+import { shortId } from "../../../shared/util/short-id";
 import { sharedClock, useSharedClock } from "../../hooks/use-now";
 import { revealInWorkspace } from "../../services/agent-sessions/actions";
 import { artifactOf } from "../../services/chat/artifact";
@@ -79,16 +75,12 @@ import { showPeerSession } from "../../services/remote/show-peer";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { isAgentViewShown } from "../../state/stores/agent-view";
 import { useTabsStore } from "../../state/stores/tabs";
-import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
-import {
-  DATE_AND_TIME,
-  DATE_ONLY,
-  dateTimeFormat,
-  relativeTimeFormat,
-} from "../../utils/intl-format";
+import { DATE_AND_TIME, dateTimeFormat } from "../../utils/intl-format";
+import { relativeTime } from "../../utils/time-format";
 import { ProfileDot, profileName } from "../agent-profiles/profile-badge";
 import { SaveAnswerMenu } from "../notes/save-answer-menu";
+import { CopyButton } from "../ui/copy-button";
 import { IconButton } from "../ui/icon-button";
 import { ToggleChevron } from "../ui/toggle-chevron";
 import { AnswerExtrasView } from "./answer-extras";
@@ -107,63 +99,42 @@ const NO_TOOL_STATUSES: ToolRowStatuses = {};
 
 interface MessageListProps {
   workspaceId: string;
-  /** The tab the conversation is, if it is one. */
   tabId?: string;
   cwd: string;
   rootPath: string;
   history: ChatModel | null;
   model: ChatModel;
   toolStatuses?: ToolRowStatuses;
-  /** Shown when there is no message yet. */
   empty?: React.ReactNode;
   actions?: MessageActions;
-  /** In place of the conversation: an agent's transcript. */
   items?: ChatItem[];
-  /** Whether the agent of `items` ended: its answer then ends with its files, as a turn's does. */
   itemsDone?: boolean;
-  /** A call to bring into view and light up, as the side panel asks. */
   reveal?: CallReveal | null;
-  /** Where the conversation went on in another profile: a line after the message. */
   moves?: readonly ShownMove[];
-  /** The messages other agents sent through the nexus command: shown as received. */
   relayed?: readonly RelayedMessage[];
-  /**
-   * Messages before the first of the conversation's that are not here yet
-   * (another computer's chat, read a page at a time): asked for as the
-   * rendered ones are, once those all show.
-   */
   older?: OlderMessages;
-  /** The conversation has a missing prefix before any messages that can be loaded. */
   historyTruncated?: boolean;
 }
 
 export interface OlderMessages {
   count?: number;
-  /** A local transcript cursor has an unknown number of preceding messages. */
   hasEarlier?: boolean;
   loading: boolean;
   load(): void;
 }
 
-/**
- * A move as the line shows it: by its profile here, or by `label`, a
- * profile of another computer's (whose chat this one shows).
- */
 export type ShownMove = ProfileMove & { label?: string };
 
-/** A call asked to be seen in the conversation; each ask its own seq, so asking again shows it again. */
 export interface CallReveal {
   toolUseId: string;
   seq: number;
 }
 
-/** The ask, with the calls the asked one runs under: a subagent's call shows as its Agent call. */
 interface ShownCall {
   ids: ReadonlySet<string>;
   seq: number;
 }
 
-/** The asked call and the calls it runs under, innermost first. */
 function callChain(toolUseId: string, tools: Record<string, ToolCall>): string[] {
   const chain: string[] = [];
   for (let id: string | null | undefined = toolUseId; id && !chain.includes(id); ) {
@@ -173,10 +144,8 @@ function callChain(toolUseId: string, tools: Record<string, ToolCall>): string[]
   return chain;
 }
 
-/** How long the list waits for a folded run to open before it looks for the call. */
 const REVEAL_FRAMES = 2;
 
-/** Brings the row of the innermost call of `chain` into the middle of `view`, and lights it up. */
 function showCallRow(view: HTMLElement, content: HTMLElement, chain: readonly string[]): boolean {
   for (const id of chain) {
     const row = content.querySelector<HTMLElement>(`[data-tool-use-id="${CSS.escape(id)}"]`);
@@ -184,7 +153,6 @@ function showCallRow(view: HTMLElement, content: HTMLElement, chain: readonly st
     const offset = row.getBoundingClientRect().top - view.getBoundingClientRect().top;
     view.scrollTop += offset - Math.max(0, (view.clientHeight - row.offsetHeight) / 2);
     row.classList.remove("chat-call-flash");
-    // A reflow between, so asking again starts the light over.
     void row.offsetWidth;
     row.classList.add("chat-call-flash");
     row.addEventListener("animationend", () => row.classList.remove("chat-call-flash"), {
@@ -195,31 +163,19 @@ function showCallRow(view: HTMLElement, content: HTMLElement, chain: readonly st
   return false;
 }
 
-/** What the user can do from a message. */
 export interface MessageActions {
-  /** A turn runs: a rewind waits for it. */
   running: boolean;
-  /** The tab has a session to fork from. */
   canFork: boolean;
-  /** Absent where the conversation forks into no tab. */
   onFork?: (item: UserItem | AssistantItem) => void;
   canForkItem?: (item: UserItem | AssistantItem) => boolean;
   canRewindItem?: (item: UserItem) => boolean;
-  /** Absent where the conversation cannot be rewound from here. */
   onRewind?: (item: UserItem) => void;
   onRecoverSubmission?: (itemKey: string) => void;
-  /** Sends a running command or subagent to the background. */
   onBackground?: (toolUseId: string) => void;
-  /** Tool calls that wait for the user to allow them, which have not started. */
   waiting?: ReadonlySet<string>;
-  /**
-   * What shows a task that ended (its agent's transcript, its job in the
-   * side panel), when the tab still knows the task.
-   */
   taskShower?: (item: TaskEndItem) => (() => void) | undefined;
 }
 
-/** What sends a call to the background, unless it waits to be allowed. */
 function backgroundOf(actions: MessageActions | undefined, toolUseId: string) {
   return actions?.waiting?.has(toolUseId) ? undefined : actions?.onBackground;
 }
@@ -246,15 +202,10 @@ export function MessageList({
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
-  // Where the code last scrolled to; its scroll event is not the user's.
   const ownTop = useRef<number | null>(null);
-  // Where the view last was, whoever moved it.
   const lastTop = useRef(0);
-  // Whether what shows before the first message is up.
   const emptyShown = useRef(false);
   const [showJump, setShowJump] = useState(false);
-  // Earlier messages asked for beyond the last WINDOW_ITEMS, and where the
-  // view was when they were, to stay on what it showed.
   const [more, setMore] = useState(0);
   const anchor = useRef<{
     height: number;
@@ -278,19 +229,16 @@ export function MessageList({
     const down = scrolledDown(el, lastTop.current);
     lastTop.current = el.scrollTop;
     if (emptyShown.current) {
-      // Looking through the past sessions; a conversation that comes starts at its bottom.
       stuck.current = true;
       setShowJump(false);
       return;
     }
     if (isOwnScroll(el, ownTop.current)) {
-      // Ours, a frame late: what came in since goes down too.
       if (stuck.current) toBottom();
       return;
     }
     ownTop.current = null;
     if (stuck.current && down) {
-      // The browser giving back a scroll it cut short; only scrolling up leaves the bottom.
       toBottom();
       return;
     }
@@ -299,10 +247,6 @@ export function MessageList({
     setShowJump(!atBottom);
   }, [toBottom]);
 
-  // Growth from any source (a new item, a streamed word, an opened row)
-  // keeps a stuck view at the bottom, and so does the view getting shorter
-  // (a permission request docked under it). What shows before the first
-  // message (the welcome, the past sessions) reads from the top.
   useLayoutEffect(() => {
     const content = contentRef.current;
     const view = scrollRef.current;
@@ -315,7 +259,6 @@ export function MessageList({
     return () => observer.disconnect();
   }, [toBottom]);
 
-  // Sending a message brings the view back down.
   const lastUser = lastUserKey(model.items);
   useEffect(() => {
     if (!lastUser) return;
@@ -327,7 +270,6 @@ export function MessageList({
     () => (items ? [] : withRelayed(history?.items ?? [], relayed)),
     [items, history, relayed],
   );
-  // A message Claude has not read yet waits above the box, not here.
   const liveItems = useMemo(
     () =>
       items ??
@@ -349,9 +291,6 @@ export function MessageList({
     () => (history ? { ...history.tools, ...model.tools } : model.tools),
     [history, model.tools],
   );
-  // What each finished turn's answer ends with, an agent's once it ended. A chat here shows
-  // an image file's picture on its card wherever the file is; another computer's, only from
-  // its workspace.
   const turnDone = items ? itemsDone : !model.running && !streaming;
   const chatFiles = useChatFiles();
   const extras = useMemo(
@@ -367,9 +306,6 @@ export function MessageList({
     [items, history, model.items, tools, cwd, rootPath, turnDone, chatFiles],
   );
   const shownItems = useMemo(() => [...historyItems, ...liveItems], [historyItems, liveItems]);
-  // Only the last messages render (see message-window); earlier ones when
-  // asked for. While the view is up the list, messages that come in do not
-  // take its top away from under it, up to a point (shownStart).
   const heldStart = useRef(0);
   const size = WINDOW_ITEMS + more;
   const start = shownStart({
@@ -381,10 +317,7 @@ export function MessageList({
   });
   heldStart.current = start;
   const windowItems = useMemo(() => shownItems.slice(start), [shownItems, start]);
-  // Calls in a row fold into one line, which may take in later messages' calls.
   const shown = useMemo(() => foldToolRuns(windowItems, tools), [windowItems, tools]);
-  // Each move after the last item of the message it follows; one whose
-  // message is not shown (an agent's transcript, a conversation cleared) is not.
   const movesAfter = useMemo(() => {
     const after = new Map<ChatItem, ShownMove[]>();
     if (items || !moves) return after;
@@ -394,15 +327,12 @@ export function MessageList({
     }
     return after;
   }, [items, moves, shownItems]);
-  // An image a turn shows twice is in full only the first time.
   const earlier = useMemo(
     () => imagesShownEarlier(windowItems, tools, cwd),
     [windowItems, tools, cwd],
   );
-  // The calls the side panel asked to see: a folded run that holds one opens.
   const latestTools = useRef(tools);
   latestTools.current = tools;
-  // A reply's relative links are found from where the agent's shell went too.
   const placesOf = usePlacesOf(tools);
   const shownCall = useMemo<ShownCall | undefined>(
     () =>
@@ -411,7 +341,6 @@ export function MessageList({
         : undefined,
     [reveal],
   );
-  // A call asked for in a message before the rendered ones renders it first.
   const latestItems = useRef(shownItems);
   latestItems.current = shownItems;
   const latestStart = useRef(start);
@@ -434,14 +363,12 @@ export function MessageList({
       const view = scrollRef.current;
       const content = contentRef.current;
       if (!view || !content) return;
-      // Leaves the bottom, as scrolling up does.
       stuck.current = false;
       showCallRow(view, content, [...shownCall.ids]);
     };
     frame = requestAnimationFrame(look);
     return () => cancelAnimationFrame(frame);
   }, [shownCall]);
-  // Those not here yet are read in when all the rendered ones show.
   const unread = older?.count ?? 0;
   const showEarlier = useCallback(() => {
     const el = scrollRef.current;
@@ -467,7 +394,6 @@ export function MessageList({
     if (start > 0) setMore((m) => m + WINDOW_ITEMS);
     else older?.load();
   }, [start, older, historyItems.length]);
-  // Messages read in before the first ones render at once.
   const wasUnread = useRef(unread);
   useLayoutEffect(() => {
     const count = wasUnread.current - unread;
@@ -479,7 +405,6 @@ export function MessageList({
     const before = anchor.current?.historyCount;
     if (before === undefined || older?.loading) return;
     const added = historyItems.length - before;
-    // A page that completed a tool or only carried part of a large row can add no items.
     if (added > 0) {
       historyRead.current = true;
       setMore((m) => m + added);
@@ -487,7 +412,6 @@ export function MessageList({
       anchor.current = null;
     }
   }, [historyItems.length, older?.loading]);
-  // Keep the same row at the same height, even when live items also arrived below it.
   useLayoutEffect(() => {
     const el = scrollRef.current;
     const was = anchor.current;
@@ -503,9 +427,6 @@ export function MessageList({
     lastTop.current = el.scrollTop;
   }, [more]);
 
-  // Each message, memoized, renders only when it, these or its part of the
-  // sources (item-view) change: not for a streamed chunk, a call of
-  // another message's, or its tab shown or hidden.
   const wholeConversation = items === undefined;
   const ctx = useMemo<ItemContext>(
     () => ({ workspaceId, tabId, cwd, rootPath, actions, wholeConversation }),
@@ -542,7 +463,6 @@ export function MessageList({
           ref={contentRef}
           className={cn(
             "mx-auto flex max-w-[860px] flex-col gap-3 px-4 py-4",
-            // Room for an empty conversation's notice to sit in the middle.
             nothing && empty ? "min-h-full" : undefined,
           )}
         >
@@ -621,7 +541,6 @@ function lastUserKey(items: ChatItem[]): string | undefined {
   return undefined;
 }
 
-/** What every message of a list renders with. */
 interface ItemContext {
   workspaceId: string;
   tabId: string | undefined;
@@ -634,7 +553,6 @@ interface ItemContext {
 interface ItemProps {
   item: ChatItem;
   ctx: ItemContext;
-  /** An assistant message's part of the list's sources. */
   view: ItemView | undefined;
 }
 
@@ -672,25 +590,17 @@ function sameItem(a: ItemProps, b: ItemProps): boolean {
   return a.item === b.item && a.ctx === b.ctx && sameView(a.view, b.view);
 }
 
-/** The origins the app names; another is named as the CLI names it. */
 const NAMED_SOURCES: ReadonlySet<string> = new Set(["peer", "channel", "coordinator"]);
 
-/** The lines of a received message shown before it is opened. */
 const RECEIVED_LINES = 6;
 
-/**
- * A message someone else sent Claude (another session, a channel, the
- * coordinator): on the left as Claude's are, since the user did not write
- * it, and tinted, with who sent it over it.
- */
 function ReceivedBubble({ item }: { item: ReceivedItem }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const { kind, name } = item.from;
-  // Named, it reads "NAME · sent from another session"; unnamed, what it is says it all.
   const what = NAMED_SOURCES.has(kind)
     ? t(`chat.received.${name ? "from_" : ""}${kind}`)
-    : t("chat.received.from_other", { kind });
+    : t("chat.received.from_kind", { kind });
   const long = item.text.split("\n").length > RECEIVED_LINES || item.text.length > 600;
   return (
     <div className="group/received flex flex-col items-start gap-1" data-testid="chat-received">
@@ -734,23 +644,17 @@ function ReceivedBubble({ item }: { item: ReceivedItem }) {
       </div>
       <div className="flex items-center gap-1 text-app-micro text-muted-foreground opacity-0 group-focus-within/received:opacity-100 group-hover/received:opacity-100">
         <MessageTime at={item.at} />
-        <CopyButton text={item.text} />
+        {item.text && <CopyButton text={item.text} label={t("chat.copy")} />}
       </div>
     </div>
   );
 }
 
-/** Shows a tab, in its workspace or in the agent view while that is up. */
 function showTab(workspaceId: string, tabId: string): void {
   if (isAgentViewShown()) revealTabById(workspaceId, tabId);
   else revealInWorkspace({ workspaceId, tabId });
 }
 
-/**
- * Who sent a message through the nexus command: the manager, or the tab or
- * terminal its agent runs in, by the name it has now, which a click shows;
- * by the name it had once it is closed.
- */
 function RelaySenderLine({ from }: { from: MessageSource }) {
   const { t } = useTranslation();
   const { workspaceId, tabId, device } = from;
@@ -764,7 +668,6 @@ function RelaySenderLine({ from }: { from: MessageSource }) {
   if (from.kind === "app") {
     return <span className="shrink-0">{t("chat.received.app")}</span>;
   }
-  // One whose tab could not be told is named by none: the ids it gave are any process's to give.
   if (from.kind === "terminal" && !from.agent) {
     return <span className="shrink-0">{t("chat.received.unknown")}</span>;
   }
@@ -799,10 +702,6 @@ function RelaySenderLine({ from }: { from: MessageSource }) {
   );
 }
 
-/**
- * Who sent a message from another computer of the user's: "COMPUTER · TAB",
- * which a click shows in the agent view, as its list's Other computers does.
- */
 function PeerSenderLine({
   from,
   device,
@@ -836,7 +735,7 @@ function PeerSenderLine({
               tabId,
               kind:
                 from.kind === "terminal" ? "terminal" : from.agent === "codex" ? "codex" : "claude",
-              title: from.name ?? tabId.slice(0, 8),
+              title: from.name ?? shortId(tabId),
             })
           }
         >
@@ -850,7 +749,6 @@ function PeerSenderLine({
   );
 }
 
-/** What a task was, as its end names it (`Background command "npm test" completed`). */
 function namedIn(summary: string | undefined): string | undefined {
   return summary?.match(/"([\s\S]+)"/)?.[1];
 }
@@ -861,10 +759,6 @@ const AGENT_TASKS: ReadonlySet<string> = new Set([
   "in_process_teammate",
 ]);
 
-/**
- * A task that ended while Claude did not wait for it, on one line: the news
- * wakes Claude, and what it says next answers it. A click shows the task.
- */
 function TaskEndRow({ item, ctx }: { item: TaskEndItem; ctx: ItemContext }) {
   const { t } = useTranslation();
   const show = ctx.actions?.taskShower?.(item);
@@ -914,7 +808,6 @@ function TaskEndRow({ item, ctx }: { item: TaskEndItem; ctx: ItemContext }) {
   );
 }
 
-/** A shell command the user ran in the terminal's Claude Code, and what it printed. */
 function ShellCard({ item }: { item: ShellItem }) {
   const { t } = useTranslation();
   const out = [item.stdout, item.stderr].filter(Boolean).join("\n");
@@ -941,12 +834,6 @@ function ShellCard({ item }: { item: ShellItem }) {
   );
 }
 
-/**
- * A file a sent message attached, as a chip of its name. An image opens in
- * quick look among the conversation's images; while the message goes to
- * another device the chip names no path yet, and opens nothing, as one in
- * another computer's chat that computer does not serve (opensAttached).
- */
 function AttachedFile({ path, sending }: { path: string; sending: boolean }) {
   const { t } = useTranslation();
   const links = useChatLinks();
@@ -1051,7 +938,7 @@ function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
         <div className="flex items-center gap-1 text-app-micro text-muted-foreground">
           <div className="flex items-center gap-1 opacity-0 group-focus-within/user:opacity-100 group-hover/user:opacity-100">
             <MessageTime at={item.at} />
-            <CopyButton text={item.text} />
+            {item.text && <CopyButton text={item.text} label={t("chat.copy")} />}
             {actions?.onRewind && (actions.canRewindItem?.(item) ?? taken) && (
               <IconButton
                 label={actions.running ? t("chat.rewind.busy") : t("chat.rewind.action")}
@@ -1100,14 +987,12 @@ function AssistantMessage({
     .filter((b) => b.type === "text")
     .map((b) => (b as { text: string }).text)
     .join("\n\n");
-  // A fork from here keeps the answer whole: only from one that ends in text.
   const forkable =
     ctx.actions?.canFork &&
     ctx.actions.onFork !== undefined &&
     (ctx.actions.canForkItem?.(item) ??
       (item.uuid !== undefined && item.blocks.at(-1)?.type === "text"));
   const { blocks, extras } = view;
-  // Its calls went into a run an earlier message shows.
   if (blocks.length === 0 && !extras) return null;
   return (
     <div className="group/assistant flex flex-col">
@@ -1153,7 +1038,7 @@ function AssistantMessage({
       )}
       {text && (
         <div className="mt-1 flex items-center gap-1 text-app-micro text-muted-foreground opacity-0 group-focus-within/assistant:opacity-100 group-hover/assistant:opacity-100">
-          <CopyButton text={text} />
+          <CopyButton text={text} label={t("chat.copy")} />
           {forkable && ctx.actions && (
             <IconButton
               label={t("chat.fork.from_assistant")}
@@ -1172,17 +1057,11 @@ function AssistantMessage({
   );
 }
 
-/** A run's key: its first call's, which stays as calls join it. */
 function runKey(blocks: AssistantBlock[]): string {
   const first = blocks.find((block) => block.type === "tool");
   return first?.type === "tool" ? first.toolUseId : "";
 }
 
-/**
- * Calls in a row as one line that says what they did, and opens to show
- * each. A call still going shows under it while folded, so the turn's
- * progress stays in sight.
- */
 function ToolRun({
   blocks,
   ctx,
@@ -1194,7 +1073,6 @@ function ToolRun({
 }) {
   const [open, setOpen] = useState(false);
   const { tools, toolStatuses } = view;
-  // Opens when the side panel asks to see a call of the run's.
   const asked = view.asked;
   // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once; a call joining the run later does not open it again
   useEffect(() => {
@@ -1238,7 +1116,6 @@ function ToolRun({
   );
 }
 
-/** A call as a row: one that asked the user shows what they said. */
 function CallRow({
   toolUseId,
   ctx,
@@ -1248,20 +1125,15 @@ function CallRow({
 }: {
   toolUseId: string;
   ctx: ItemContext;
-  /** Its call and the calls it runs, by id; more is fine. */
   tools: Readonly<Record<string, ToolCall>>;
   toolStatuses: ToolRowStatuses;
-  /** The image files it sends that its turn showed before. */
   shownEarlier?: ReadonlySet<string>;
 }) {
   const tool = tools[toolUseId];
-  // A page it published to claude.ai shows as a card; running or failed, it is a row as any call.
   const page = artifactOf(tool, ctx.cwd);
   if (page) {
     return <ArtifactCard page={page} workspaceId={ctx.workspaceId} rootPath={ctx.rootPath} />;
   }
-  // The files it sent the user show as they would there; running or
-  // failed, it is a row as any call.
   if (tool?.name === SEND_FILES_TOOL && tool.status === "done") {
     return (
       <SentFiles
@@ -1296,11 +1168,6 @@ function CallRow({
   );
 }
 
-/**
- * A stretch of the model's thinking, folded. The API leaves its text out
- * unless Claude Code asks for a summary, and older versions cannot ask:
- * such a block says only that the model thought, with nothing to unfold.
- */
 export function Thinking({ text, live = false }: { text: string; live?: boolean }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -1345,7 +1212,6 @@ function Streaming({
   ctx: ItemContext;
   tools: Record<string, ToolCall>;
   toolStatuses: ToolRowStatuses;
-  /** What the last turn shows in full so far, which it shows as chips. */
   shownEarlier: ReadonlySet<string>;
 }) {
   const blocks = Object.entries(streaming.blocks)
@@ -1380,24 +1246,19 @@ function Streaming({
   );
 }
 
-/** The notices that report trouble, in its hue; the rest stay quiet. */
 const NOTICE_TINT: Partial<Record<NoticeItem["code"], string>> = {
   error: "text-[var(--state-error-fg)]",
   dropped: "text-[var(--state-warning-fg)]",
   interrupted: "text-[var(--state-warning-fg)]",
 };
 
-/** Notices whose detail, the program's own words, is shown only on hover. */
 const DETAIL_IN_TOOLTIP: ReadonlySet<NoticeItem["code"]> = new Set(["exited", "not_resumed"]);
 
-/** Where the conversation went on in another profile: its dot, its name, and when. */
 function MoveLine({ move }: { move: ShownMove }) {
   const { t } = useTranslation();
   const agent = useContext(ChatAgentContext);
-  // The default profile is made anew each time: the config is what holds still.
   const config = useAgentProfilesStore((s) => s.config);
   const own = profileOf(config, agent, move.profileId);
-  // Another computer's profile has no colour here.
   const profile = move.label === undefined ? own : { ...own, color: "gray" as const };
   const name = move.label ?? profileName(own, t);
   return (
@@ -1433,53 +1294,16 @@ function Notice({ item }: { item: NoticeItem }) {
   );
 }
 
-function CopyButton({ text }: { text: string }) {
-  const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  if (!text) return null;
-  return (
-    <IconButton
-      label={t("chat.copy")}
-      onClick={() => {
-        copyText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1200);
-      }}
-    >
-      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-    </IconButton>
-  );
-}
-
-/** When a message was sent: relative, exact on hover. */
 function MessageTime({ at }: { at?: number }) {
-  const { t, i18n } = useTranslation();
+  const { i18n } = useTranslation();
   const now = useSharedClock(messageClock);
   if (at === undefined) return null;
   const exact = dateTimeFormat(i18n.language, DATE_AND_TIME).format(at);
   return (
     <time dateTime={new Date(at).toISOString()} title={exact} className="px-1 tabular-nums">
-      {relativeTime(at, now, i18n.language, t("chat.time.now"))}
+      {relativeTime(at, now, i18n.language)}
     </time>
   );
 }
 
-const MINUTE_MS = 60_000;
-const HOUR_MS = 60 * MINUTE_MS;
-const DAY_MS = 24 * HOUR_MS;
-
-/** A time as "3분 전", or its date once it is a week old. */
-export function relativeTime(at: number, now: number, locale: string, justNow: string): string {
-  const ago = now - at;
-  if (ago < MINUTE_MS) return justNow;
-  const format = relativeTimeFormat(locale, RELATIVE);
-  if (ago < HOUR_MS) return format.format(-Math.floor(ago / MINUTE_MS), "minute");
-  if (ago < DAY_MS) return format.format(-Math.floor(ago / HOUR_MS), "hour");
-  if (ago < 7 * DAY_MS) return format.format(-Math.floor(ago / DAY_MS), "day");
-  return dateTimeFormat(locale, DATE_ONLY).format(at);
-}
-
-const RELATIVE: Intl.RelativeTimeFormatOptions = { numeric: "auto" };
-
-// One clock for every message's time, ticking while any is shown.
 const messageClock = sharedClock(30_000);

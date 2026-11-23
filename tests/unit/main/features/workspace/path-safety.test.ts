@@ -4,7 +4,6 @@ import type { WorkspaceManager } from "../../../../../src/main/features/workspac
 import { resolveLocalWorkspacePath } from "../../../../../src/main/features/workspace/path-safety";
 
 const WS = "00000000-0000-0000-0000-0000000000ac";
-// An absolute path on the host OS: /repo, or a drive's \repo on Windows.
 const ROOT = path.resolve("/repo");
 
 const manager = {

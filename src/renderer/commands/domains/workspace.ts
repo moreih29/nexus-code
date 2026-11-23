@@ -13,15 +13,6 @@ import {
   visibleWorkspaces,
 } from "../../state/stores/workspaces";
 
-/**
- * Cycle the active workspace by `delta` slots within the sidebar's
- * sorted order (pinned rows above unpinned, preserving the store's
- * existing `compareSortKey` order). Wraps at both ends so ⌘⌃↑ from
- * the first workspace lands on the last, and vice-versa.
- *
- * If the selection is missing from the list, start at the natural end
- * for the direction. A task counts as its parent's row.
- */
 export function cycleActiveWorkspace(delta: 1 | -1): void {
   if (usePeerWorkspaceStore.getState().active) return;
   const all = useWorkspacesStore.getState().workspaces;
@@ -33,7 +24,6 @@ export function cycleActiveWorkspace(delta: 1 | -1): void {
 
   let nextIndex: number;
   if (currentIndex < 0) {
-    // Active not in the list — start at the natural end based on direction.
     nextIndex = delta === 1 ? 0 : workspaces.length - 1;
   } else {
     nextIndex = (currentIndex + delta + workspaces.length) % workspaces.length;

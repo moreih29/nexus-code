@@ -20,13 +20,11 @@ interface LocalHookRefresh {
   resolve: () => void;
 }
 
-/** Owns local providers and their hook refreshes across agent restarts. */
 export class LocalWorkspaceConnections {
   readonly localChannels = new Map<string, AgentChannel>();
 
   private readonly localProviderReady = new Map<string, Promise<void>>();
 
-  /** One wait per local reconnect, until the replacement's hooks are known. */
   private readonly localHookRefreshes = new WeakMap<AgentChannel, LocalHookRefresh>();
 
   constructor(
@@ -36,14 +34,12 @@ export class LocalWorkspaceConnections {
     private readonly localAgentCommandResolver: WorkspaceLocalAgentCommandResolver,
   ) {}
 
-  /** Releases the local channel after its workspace context is closed. */
   remove(workspaceId: string): void {
     this.localChannels.get(workspaceId)?.dispose();
     this.localChannels.delete(workspaceId);
     this.localProviderReady.delete(workspaceId);
   }
 
-  /** Releases all remaining local channels at app shutdown. */
   close(): void {
     for (const channel of this.localChannels.values()) {
       channel.dispose();
@@ -52,7 +48,6 @@ export class LocalWorkspaceConnections {
     this.localProviderReady.clear();
   }
 
-  /** Returns the hooks for the channel about to start a chat or terminal. */
   async getSpawnHookInfo(
     workspaceId: string,
     channel: AgentChannel,
@@ -69,9 +64,6 @@ export class LocalWorkspaceConnections {
     return this.hooks.getHookInfo(workspaceId);
   }
 
-  /**
-   * Starts the local agent and wires the context only after the ready handshake.
-   */
   async ensureLocalProviderReady(ctx: WorkspaceContext): Promise<void> {
     const meta = ctx.getMeta();
     if (meta.location.kind !== "local") {
@@ -96,9 +88,6 @@ export class LocalWorkspaceConnections {
     }
   }
 
-  /**
-   * Owns the explicit local boot sequence: spawn → ready → context provider.
-   */
   private async startLocalProvider(ctx: WorkspaceContext, meta: WorkspaceMeta): Promise<void> {
     if (meta.location.kind !== "local") {
       return;
@@ -151,7 +140,6 @@ export class LocalWorkspaceConnections {
       }
       channel.dispose();
       if (shimStarted && !this.state.isLiveContext(meta.id, ctx)) {
-        // The workspace was removed before its pending shim write finished.
         this.state.removeShimDirQuietly(meta.id);
       }
       throw error;
@@ -171,9 +159,6 @@ export class LocalWorkspaceConnections {
     this.state.notifyProviderReady(meta.id, provider);
   }
 
-  /**
-   * Handles terminal local channel lifecycle events and restores the inert provider.
-   */
   private handleLocalChannelLifecycle(
     workspaceId: string,
     channel: AgentChannel,
@@ -212,8 +197,6 @@ export class LocalWorkspaceConnections {
       return;
     }
 
-    // Teardown is reserved for genuine terminal events (`exit`, `failure`).
-    // Heartbeat quality signals leave the provider and its watches wired.
     if (event.type !== "exit" && event.type !== "failure") {
       return;
     }
@@ -221,17 +204,13 @@ export class LocalWorkspaceConnections {
     this.localChannels.delete(workspaceId);
     this.localProviderReady.delete(workspaceId);
     this.finishLocalHookRefresh(channel);
-    // Stale hookInfo is invalid once the channel dies — the next boot fills it again.
-    // Keeping it could let a spawn right after reconnect put a dead socket path in the env.
     this.hooks.clear(workspaceId);
     ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
-    // Clean up the PTY shim directory — fire-and-forget, errors are swallowed as a warn.
     this.state.removeShimDir(workspaceId).catch((err: unknown) => {
       log.warn(`shim dir removal failed for ${workspaceId}: ${(err as Error).message}`);
     });
   }
 
-  /** Refreshes the endpoint for the process that just completed its handshake. */
   private async refreshLocalHooks(
     workspaceId: string,
     channel: AgentChannel,
@@ -252,7 +231,6 @@ export class LocalWorkspaceConnections {
     }
   }
 
-  /** Releases chat callers so they can check whether their channel is still current. */
   private finishLocalHookRefresh(channel: AgentChannel): void {
     const refresh = this.localHookRefreshes.get(channel);
     this.localHookRefreshes.delete(channel);

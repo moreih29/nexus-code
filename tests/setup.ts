@@ -1,16 +1,3 @@
-// Global test setup — preloaded by bunfig.toml.
-//
-// Purpose:
-// 1. Enable React's act() environment so RTL render calls do not flood stdout
-//    with "current testing environment is not configured to support act(...)".
-
-// ---------------------------------------------------------------------------
-// i18next — initialise the singleton with English translations so any module
-// that calls i18next.t() or useTranslation() at invocation time receives real
-// strings instead of the key itself (or undefined on an uninitialised instance).
-// The files.json namespace is loaded here as it is used by the files components
-// under test. init() resolves instantly because all resources are bundled.
-// ---------------------------------------------------------------------------
 import i18next from "i18next";
 import { initReactI18next } from "react-i18next";
 import { createI18n } from "../src/shared/i18n/index";
@@ -22,31 +9,8 @@ import { createI18n } from "../src/shared/i18n/index";
   }
 }
 
-// 2. Filter out the React useSyncExternalStore "result of getSnapshot should be
-//    cached" warning. Our slot-registry returns reference-stable values (HTMLElement
-//    or null) per (workspaceId, leafId) key, so the warning is a false positive
-//    triggered by RTL re-render churn under happy-dom. Suppressing it locally
-//    keeps test output readable; production code is unaffected.
-// 3. Stub @xterm/* leaf modules. The real xterm Terminal / addons need a live
-//    browser rendering context; under happy-dom they activate without one and
-//    then throw asynchronously ("Unhandled error between tests": TypeError
-//    evaluating 'a.indexOf'), which bun attributes to whichever unrelated test
-//    runs next. All three addons and the core Terminal are leaf third-party
-//    modules, so stubbing them uniformly here removes the flake without touching
-//    production code. Tests that inject their own createTerminal dep are unaffected.
-// 4. Stub window.matchMedia. happy-dom provides window but not matchMedia.
-//    The theme store (src/renderer/state/stores/theme.ts) calls
-//    window.matchMedia("(prefers-color-scheme: dark)") at module-init time, so
-//    any test file that transitively imports the theme store crashes if matchMedia
-//    is absent. Adding it globally here is the correct single-point fix.
-
 import { mock } from "bun:test";
 
-// ---------------------------------------------------------------------------
-// @xterm/xterm — stub the Terminal class so the real xterm renderer never runs
-// under happy-dom. The fake covers every method on the TerminalLike interface
-// (controller.ts lines 21-31) plus every other call site found in source.
-// ---------------------------------------------------------------------------
 const disposable = { dispose(): void {} };
 
 mock.module("@xterm/xterm", () => ({
@@ -106,10 +70,6 @@ mock.module("@xterm/xterm", () => ({
   },
 }));
 
-// ---------------------------------------------------------------------------
-// @xterm/addon-ligatures — the real module is heavy (~200KB) and probes
-// `navigator.fonts`; stub it so terminal tests stay light and deterministic.
-// ---------------------------------------------------------------------------
 mock.module("@xterm/addon-ligatures", () => ({
   LigaturesAddon: class LigaturesAddon {
     activate(): void {}
@@ -117,9 +77,6 @@ mock.module("@xterm/addon-ligatures", () => ({
   },
 }));
 
-// ---------------------------------------------------------------------------
-// @xterm/addon-fit — uses DOM measurement APIs absent under happy-dom.
-// ---------------------------------------------------------------------------
 mock.module("@xterm/addon-fit", () => ({
   FitAddon: class FitAddon {
     activate(): void {}
@@ -130,23 +87,6 @@ mock.module("@xterm/addon-fit", () => ({
     }
   },
 }));
-
-// ---------------------------------------------------------------------------
-// window.matchMedia — happy-dom provides window but not matchMedia.
-// The theme store reads matchMedia at module-init time, so every test that
-// transitively imports it would crash without this stub.
-//
-// Several test files replace globalThis.window with a plain IPC-stub object;
-// when those files run before a file that imports the theme store for the
-// first time, window.matchMedia is missing.  We intercept window assignments
-// via a setter so matchMedia is always injected into any replacement window.
-//
-// Implementation note: setup.ts (preload) runs before happy-dom initialises
-// window, so `window` is undefined at preload time.  We must preserve the
-// original getter so that the real happy-dom window is still accessible after
-// we wrap the accessor.  Additionally, we inject matchMedia lazily via the
-// getter so it is available on the initial happy-dom window as well.
-// ---------------------------------------------------------------------------
 
 function makeMatchMediaStub() {
   return (_query: string): MediaQueryList =>
@@ -179,45 +119,23 @@ function ensureMatchMedia(win: unknown): void {
   }
 }
 
-// Install a window getter/setter that:
-//  • Forwards reads to the ORIGINAL getter (preserves happy-dom's window).
-//  • On writes (test files replacing globalThis.window), ensures matchMedia
-//    is available on the new window object.
-//
-// The accessor is intentionally non-configurable so that `delete globalThis.window`
-// in test cleanup code does not silently remove it.  Test files that previously
-// deleted globalThis.window to "restore" the pre-test undefined state should
-// instead assign `undefined` via the setter — the getter returns the same
-// `undefined` result, satisfying the intent of the cleanup.
 (function patchWindowAccessor() {
   const existing = Object.getOwnPropertyDescriptor(globalThis, "window");
   const originalGet = existing?.get;
 
-  // If there's already a getter, wrap it; otherwise capture the current value.
   let _override: unknown = null;
   let _hasOverride = false;
 
   Object.defineProperty(globalThis, "window", {
-    configurable: false, // Prevent delete from removing the accessor.
+    configurable: false,
     enumerable: true,
     get(): unknown {
       if (_hasOverride) return _override;
-      // Delegate to the original getter (which returns happy-dom's window).
       const win = originalGet ? originalGet.call(globalThis) : undefined;
-      // Lazily inject matchMedia into the happy-dom window.
       ensureMatchMedia(win);
       return win;
     },
     set(value: unknown) {
-      // Tests that replace globalThis.window with a partial IPC stub
-      // (e.g. {ipc: {...}}) inadvertently strip the happy-dom DOM APIs
-      // (addEventListener, removeEventListener, etc.). Subsequent test
-      // files that render React components calling window.addEventListener
-      // then TypeError.
-      //
-      // Inject minimum DOM API stubs into the override so global hotkey
-      // listeners and similar don't crash. Tests that need real DOM should
-      // not override window at all (rely on happy-dom).
       if (value !== null && typeof value === "object") {
         const v = value as Record<string, unknown>;
         if (typeof v.addEventListener !== "function") {
@@ -237,9 +155,6 @@ function ensureMatchMedia(win: unknown): void {
   });
 })();
 
-// happy-dom does not provide MutationObserver, so this is a no-op stub. browser-suspend-auto
-// installs a MutationObserver on document.body at bootstrap; whether the observer actually
-// runs is outside the scope of this test, so a no-op is enough.
 (globalThis as Record<string, unknown>).MutationObserver ??= class MutationObserver {
   constructor(_cb: unknown) {}
   observe(_target: unknown, _options?: unknown): void {}
@@ -249,24 +164,6 @@ function ensureMatchMedia(win: unknown): void {
   }
 };
 
-// ---------------------------------------------------------------------------
-// file-icon.tsx stub — this module uses Vite-specific APIs (import.meta.glob
-// and *.svg?react imports) that are unavailable under Bun's test runner.
-// We stub the entire module with a minimal implementation so that any test
-// file that transitively imports row.tsx / tab-item.tsx / result-file-row.tsx
-// / tree-row.tsx (all of which now use FileIcon) doesn't crash at module eval.
-//
-// The stub FileIcon renders a real Lucide icon using resolveLucide from the
-// pure resolver module (file-icon-resolvers.ts) — preserving the className /
-// tone / size behaviour tested by existing component tests.
-//
-// Tests that specifically verify FileIcon + Material theme behaviour import
-// file-icon-resolvers.ts directly (pure, no Vite deps) and do not need this stub.
-// ---------------------------------------------------------------------------
-// The module path must match what the consuming files (row.tsx, tab-item.tsx, etc.)
-// resolve to. Bun normalises relative imports to absolute paths so using the
-// absolute path here works regardless of which file triggers the load.
-// import.meta.dir is the directory of this setup.ts file (tests/).
 const FILE_ICON_MODULE_PATH = `${import.meta.dir}/../src/renderer/components/files/file-tree/file-icon.tsx`;
 const FILE_ICON_RESOLVERS_PATH = `${import.meta.dir}/../src/renderer/components/files/file-tree/file-icon-resolvers`;
 
@@ -306,35 +203,7 @@ mock.module(FILE_ICON_MODULE_PATH, () => {
   return { FileIcon, resolveLucide, resolveMaterialIconName: () => null };
 });
 
-// ---------------------------------------------------------------------------
-// electron — canonical hermetic stub
-//
-// Electron is a native host module that is never available under bun:test.
-// Tests that import main-process modules (ipc-router, pty/ipc, lsp/ipc, …)
-// indirectly require electron through lazy `require("electron")` calls inside
-// function bodies (setupRouter, broadcast, initMainLogger, etc.).
-//
-// Without this stub the first test file to trigger such a require receives
-// bun's native electron shim, which may be incomplete (e.g. missing ipcMain
-// or webContents).  Subsequent files that register their own mock.module call
-// may or may not win the race depending on bun's internal evaluation order.
-//
-// Registering a complete, no-op stub here in the preload ensures that:
-//   1. Every test file starts from a consistent baseline.
-//   2. Files that need spy mocks (pty-channel, ipc-shim-integration, …) can
-//      override individual exports via their own mock.module — bun replaces
-//      the values of the exports named here (see the eager import below).
-//   3. Files that only need webContents.getAllWebContents (lsp-channel, …)
-//      do not need their own mock.module at all.
-//
-// Surface decisions — derived by grepping every tests/unit/main/**/*.test.ts
-// for `mock.module("electron")` and collecting all top-level keys and nested
-// method names used across those files.
-// ---------------------------------------------------------------------------
 mock.module("electron", () => ({
-  // app — used by: get-agent-bin-dir, workspace/*, error-safety-net,
-  //               pty-channel, ipc-shim-integration, ipc-wrapper-env,
-  //               claude/hook-handler, show-save-dialog
   app: {
     isPackaged: false,
     getPath: (_name: string): string => "/tmp/nexus-test",
@@ -344,14 +213,11 @@ mock.module("electron", () => ({
     quit: (): void => {},
   },
 
-  // Remote feature registration imports these Electron services.
   nativeImage: {},
   shell: {},
   systemPreferences: {},
   safeStorage: {},
 
-  // ipcMain — used by: setupRouter() in pty-channel, ipc-shim-integration,
-  //                    ipc-wrapper-env, show-save-dialog
   ipcMain: {
     on: (_channel: string, _listener: unknown): void => {},
     handle: (_channel: string, _listener: unknown): void => {},
@@ -360,7 +226,6 @@ mock.module("electron", () => ({
     emit: (_channel: string, ..._args: unknown[]): boolean => false,
   },
 
-  // ipcRenderer — used by renderer-side code that is loaded in some main tests
   ipcRenderer: {
     invoke: async (_channel: string, ..._args: unknown[]): Promise<unknown> => null,
     on: (_channel: string, _listener: unknown): void => {},
@@ -368,27 +233,22 @@ mock.module("electron", () => ({
     removeListener: (_channel: string, _listener: unknown): void => {},
   },
 
-  // webContents — used by broadcast() in ipc-router, lsp-channel, pty-channel
   webContents: {
     getAllWebContents: (): Array<{ isDestroyed(): boolean; send(..._args: unknown[]): void }> => [],
   },
 
-  // BrowserWindow — used by claude/hook-handler
   BrowserWindow: {
     getFocusedWindow: (): null => null,
     getAllWindows: (): unknown[] => [],
   },
 
-  // Browser driver imports these to capture tabs and find the window they are in.
   BaseWindow: class BaseWindow {},
   screen: {},
 
-  // Menu — used by features/window/ipc
   Menu: {
     getApplicationMenu: (): null => null,
   },
 
-  // Notification — used by claude/hook-handler
   Notification: class Notification {
     title = "";
     body = "";
@@ -402,19 +262,16 @@ mock.module("electron", () => ({
     show(): void {}
   },
 
-  // protocol — used by custom-protocols/nexus-workspace-ssh
   protocol: {
     registerSchemesAsPrivileged: (_schemes: unknown[]): void => {},
     handle: (_scheme: string, _handler: unknown): void => {},
   },
 
-  // net — used by custom-protocols/nexus-workspace-ssh
   net: {
     fetch: async (_url: string, _options?: unknown): Promise<Response> =>
       new Response(null, { status: 500 }),
   },
 
-  // dialog — used by features/dialog/show-save-dialog
   dialog: {
     showSaveDialog: async (
       _window: unknown,
@@ -429,11 +286,8 @@ mock.module("electron", () => ({
     }),
   },
 
-  // WebContentsView — used by features/browser/evaluate-permission, security,
-  //                   registry-destroy-dispose, workspace/browser-closer
   WebContentsView: class WebContentsView {},
 
-  // session — used by workspace/browser-closer
   session: {
     fromPartition: (_partition: string) => ({
       clearStorageData: async (): Promise<void> => {},
@@ -441,11 +295,6 @@ mock.module("electron", () => ({
   },
 }));
 
-// Load electron now so its export names are fixed by the stub above. Bun fixes
-// a mocked module's export names when it first loads; a later mock.module can
-// replace their values but not add names. Without this, the first test file to
-// load electron (with its own narrower mock) would leave later files without
-// e.g. `dialog` or `WebContentsView`.
 await import("electron");
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

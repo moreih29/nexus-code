@@ -1,12 +1,3 @@
-// ---------------------------------------------------------------------------
-// SQLite schema migrations
-//
-// Each migration is identified by a version number and is idempotent.
-// The _meta table records schemaVersion so migrations only run once.
-// ---------------------------------------------------------------------------
-
-// Minimal synchronous SQLite interface shared by better-sqlite3 (production)
-// and bun:sqlite (unit tests).
 export interface SqliteStatement {
   run(...args: unknown[]): unknown;
   get(...args: unknown[]): unknown;
@@ -24,17 +15,11 @@ export interface Migration {
   up: (db: SqliteDb) => void;
 }
 
-/**
- * Returns true when the named table already has the requested column.
- */
 function hasColumn(db: SqliteDb, tableName: string, columnName: string): boolean {
   const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as { name: string }[];
   return columns.some((column) => column.name === columnName);
 }
 
-/**
- * Adds and backfills the workspace location JSON column from legacy root_path.
- */
 function migrateWorkspaceLocations(db: SqliteDb): void {
   if (!hasColumn(db, "workspaces", "location")) {
     db.exec("ALTER TABLE workspaces ADD COLUMN location TEXT;");
@@ -50,12 +35,7 @@ function migrateWorkspaceLocations(db: SqliteDb): void {
   }
 }
 
-// Migration history.
-//
-// Once a version has shipped, do NOT edit it — add a follow-up version instead.
-// Each `up` runs in its own transaction implicitly via applyMigrations.
 export const MIGRATIONS: Migration[] = [
-  // Initial workspace metadata schema.
   {
     version: 1,
     up: (db) => {
@@ -77,23 +57,16 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
-  // Drop unused `category` column. Requires SQLite >= 3.35 for
-  // ALTER TABLE ... DROP COLUMN — both better-sqlite3 (>= 9.x) and
-  // bun:sqlite ship newer SQLite, so this is safe in both runtimes.
   {
     version: 2,
     up: (db) => {
       db.exec(`ALTER TABLE workspaces DROP COLUMN category;`);
     },
   },
-  // Add discriminated workspace locations while preserving legacy root_path.
   {
     version: 3,
     up: migrateWorkspaceLocations,
   },
-  // Add entry-point persistence tables — folder_bookmarks and connection_profiles.
-  // These tables are intentionally decoupled from the workspaces table (no FK)
-  // so that hard-deleting a workspace never cascades into entry-point history.
   {
     version: 4,
     up: (db) => {
@@ -134,87 +107,50 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
-  // Extend folder_bookmarks to support SSH remote-path bookmarks.
-  //
-  // Adds a `kind` discriminant (default 'local') so that all pre-existing rows
-  // are automatically backfilled to kind='local' by SQLite's ADD COLUMN DEFAULT
-  // — no separate UPDATE loop is required or permitted.
-  //
-  // The single abs_path UNIQUE index is replaced with two partial UNIQUE indexes:
-  //   - local variant: (abs_path) WHERE kind='local'
-  //   - ssh variant:   (connection_profile_id, abs_path) WHERE kind='ssh'
-  //
-  // The recency index (favorite, last_used_at DESC) is retained unchanged.
   {
     version: 5,
     up: (db) => {
-      // Add kind column with DEFAULT 'local' — SQLite backfills existing rows automatically.
       if (!hasColumn(db, "folder_bookmarks", "kind")) {
         db.exec(`ALTER TABLE folder_bookmarks ADD COLUMN kind TEXT NOT NULL DEFAULT 'local';`);
       }
 
-      // Add connection_profile_id column — NULL for local bookmarks.
       if (!hasColumn(db, "folder_bookmarks", "connection_profile_id")) {
         db.exec(`ALTER TABLE folder_bookmarks ADD COLUMN connection_profile_id TEXT NULL;`);
       }
 
-      // Drop the old single-column abs_path unique index — it covers only the
-      // local variant and would conflict with the new partial indexes below.
       db.exec(`DROP INDEX IF EXISTS idx_folder_bookmarks_abs_path;`);
 
-      // Partial UNIQUE index for local bookmarks: one abs_path per local kind.
       db.exec(`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_folder_bookmarks_local_path
           ON folder_bookmarks (abs_path) WHERE kind = 'local';
       `);
 
-      // Partial UNIQUE index for SSH bookmarks: one remote abs_path per connection profile.
       db.exec(`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_folder_bookmarks_ssh_path
           ON folder_bookmarks (connection_profile_id, abs_path) WHERE kind = 'ssh';
       `);
     },
   },
-  // Add explicit sort ordering columns to workspaces so that the sidebar can
-  // support user-driven drag-and-drop reordering within each pinned/unpinned group.
-  //
-  // Two columns are kept separate (one per group) so the ORDER BY expression can
-  // pick the appropriate key per row without a self-join:
-  //   - sort_order        — ordering key for the unpinned group
-  //   - pinned_sort_order — ordering key for the pinned group
-  //
-  // Both default to 0 so that existing rows are distinguishable from explicitly
-  // positioned rows.  The backfill assigns step-1024 values (1024, 2048, ...)
-  // only to rows that are still at the default 0, treating non-zero values as
-  // already-positioned from a previous migration run (idempotent).
   {
     version: 6,
     up: (db) => {
       const txn = (db as unknown as { transaction: (fn: () => void) => () => void }).transaction(
         () => {
-          // Add sort_order column — default 0 means "not yet positioned".
           if (!hasColumn(db, "workspaces", "sort_order")) {
             db.exec("ALTER TABLE workspaces ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;");
           }
 
-          // Add pinned_sort_order column — mirrors sort_order but for the pinned group.
           if (!hasColumn(db, "workspaces", "pinned_sort_order")) {
             db.exec(
               "ALTER TABLE workspaces ADD COLUMN pinned_sort_order INTEGER NOT NULL DEFAULT 0;",
             );
           }
 
-          // Composite index used by the sidebar list query:
-          //   ORDER BY pinned DESC, (CASE pinned WHEN 1 THEN pinned_sort_order ELSE sort_order END) ASC
           db.exec(`
           CREATE INDEX IF NOT EXISTS idx_workspaces_order
             ON workspaces (pinned DESC, sort_order ASC);
         `);
 
-          // Backfill: assign step-1024 positions to rows that have not yet been
-          // positioned (both sort columns still at their DEFAULT 0).
-          // Rows are sorted by last_opened_at DESC so the most-recently-used
-          // workspace gets the smallest (earliest) position in its group.
           const unpositioned = db
             .prepare(
               `SELECT id, pinned
@@ -229,8 +165,6 @@ export const MIGRATIONS: Migration[] = [
             "UPDATE workspaces SET pinned_sort_order = ? WHERE id = ?",
           );
 
-          // Assign positions within each group independently so that both groups
-          // start at 1024 and increment by 1024 per row.
           let unpinnedCounter = 0;
           let pinnedCounter = 0;
 
@@ -249,8 +183,6 @@ export const MIGRATIONS: Migration[] = [
       txn();
     },
   },
-  // Tasks: a workspace on a git worktree of another workspace keeps its
-  // parent and branch here, as JSON. NULL for ordinary workspaces.
   {
     version: 7,
     up: (db) => {
@@ -259,9 +191,6 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
-  // The agent list's timeline: what each terminal's agent did over time.
-  // end_at is NULL while a span lasts; spans are kept for a day. The
-  // timeline is gone and nothing writes or reads the table any more.
   {
     version: 8,
     up: (db) => {
@@ -282,18 +211,12 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
-  // The agent a span is of (JSON, SpanAgent), when not its terminal's session.
   {
     version: 9,
     up: (db) => {
       db.exec(`ALTER TABLE session_spans ADD COLUMN agent TEXT`);
     },
   },
-  // A workspace's color replaces its tone (subdued, default, prominent, pinned),
-  // which no screen used: every workspace starts as "auto", whatever its tone
-  // was. The `color_tone` column stays, unused, so an older build opening the
-  // same database still inserts into it (it has a DEFAULT) and a downgrade is
-  // safe; nothing reads or writes it now. Idempotent.
   {
     version: 10,
     up: (db) => {
@@ -305,7 +228,6 @@ export const MIGRATIONS: Migration[] = [
 ];
 
 export function applyMigrations(db: SqliteDb): void {
-  // Bootstrap: ensure _meta exists before reading schemaVersion.
   db.exec(`
     CREATE TABLE IF NOT EXISTS _meta (
       key   TEXT NOT NULL PRIMARY KEY,

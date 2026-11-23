@@ -1,4 +1,3 @@
-/** A task made behind the user's view: a plain shell opens no tab until the task is shown. */
 import { afterAll, beforeEach, expect, spyOn, test } from "bun:test";
 import type { TerminalOpener } from "../../../../../src/shared/chat/relay";
 

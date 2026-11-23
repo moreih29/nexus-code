@@ -1,7 +1,3 @@
-/**
- * Tab-domain commands: close (one / others / saved / all), pin toggle.
- */
-
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { cacheUriFor } from "../../services/editor/model/cache";
@@ -14,14 +10,6 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { closeTabById, getActiveTabContext } from "../context";
 import { runPeerTabCommand } from "./peer-workspace";
 
-/**
- * Cycle the active tab one slot inside the active group's `tabIds` by
- * `delta`, wrapping at both ends. No-op when the group has 0 or 1 tabs,
- * or when there is no active tab context (no workspace / no active leaf).
- *
- * Mirrors `cycleActiveWorkspace` in shape so the two navigation pairs
- * behave consistently (wrap-around, single-slot delta).
- */
 function cycleActiveTab(delta: 1 | -1): void {
   const ctx = getActiveTabContext();
   if (!ctx) {
@@ -32,8 +20,6 @@ function cycleActiveTab(delta: 1 | -1): void {
   if (tabIds.length < 2) return;
 
   const currentIndex = tabIds.indexOf(ctx.tabId);
-  // Active tab id not found in the leaf (mid-removal race) — fall back
-  // to the natural end so the keystroke still feels responsive.
   const nextIndex =
     currentIndex < 0
       ? delta === 1
@@ -68,7 +54,6 @@ export function registerTabCommands(): Array<() => void> {
         runPeerTabCommand("closeOthers");
         return;
       }
-      // Pin protection mirrors `useGroupActions.closeOthers`.
       const wsRecord = useTabsStore.getState().byWorkspace[ctx.wsId] ?? {};
       const others = ctx.leaf.tabIds.filter((id) => id !== ctx.tabId && !wsRecord[id]?.isPinned);
       for (const id of others) {
@@ -78,9 +63,6 @@ export function registerTabCommands(): Array<() => void> {
     }),
 
     registerCommand(COMMANDS.tabCloseSaved, () => {
-      // Close every editor tab in the active group whose buffer is
-      // clean. No confirms — saved-clean tabs by definition have no
-      // unsaved work. Mirrors `useGroupActions.closeSaved`.
       const ctx = getActiveTabContext();
       if (!ctx) return;
       const wsRecord = useTabsStore.getState().byWorkspace[ctx.wsId] ?? {};
@@ -93,8 +75,6 @@ export function registerTabCommands(): Array<() => void> {
     }),
 
     registerCommand(COMMANDS.tabCloseAll, async () => {
-      // VSCode "Close All Editors": closes pinned tabs too — pin only
-      // protects against bulk Close Others / Close-to-Right gestures.
       const ctx = getActiveTabContext();
       if (!ctx) {
         runPeerTabCommand("closeAll");

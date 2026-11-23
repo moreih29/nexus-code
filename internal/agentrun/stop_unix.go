@@ -12,9 +12,6 @@ import (
 	"syscall"
 )
 
-// StopDaemon asks the daemon listening on sock to exit and waits for its
-// reply. It returns false, without error, when nothing listens there: no
-// socket, or one left by a daemon that is gone.
 func StopDaemon(ctx context.Context, sock string) (bool, error) {
 	var dialer net.Dialer
 	conn, err := dialer.DialContext(ctx, "unix", sock)
@@ -28,13 +25,11 @@ func StopDaemon(ctx context.Context, sock string) (bool, error) {
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
 	}
-	// Close the connection when ctx is canceled, so a blocked read returns.
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
-	// The daemon greets every dialer with its Ready frame first.
 	if !sc.Scan() {
 		return false, fmt.Errorf("agent.stopDaemon: no ready frame: %w", scanErr(sc))
 	}
@@ -42,7 +37,6 @@ func StopDaemon(ctx context.Context, sock string) (bool, error) {
 	if _, err := conn.Write([]byte(`{"id":"` + id + `","method":"agent.shutdown"}` + "\n")); err != nil {
 		return false, fmt.Errorf("agent.stopDaemon: write: %w", err)
 	}
-	// Events and heartbeats may come before the reply.
 	for sc.Scan() {
 		var frame struct {
 			ID    string          `json:"id"`
@@ -59,7 +53,6 @@ func StopDaemon(ctx context.Context, sock string) (bool, error) {
 	return false, fmt.Errorf("agent.stopDaemon: no reply: %w", scanErr(sc))
 }
 
-// scanErr is why a scan ended: its error, or EOF when it has none.
 func scanErr(sc *bufio.Scanner) error {
 	if err := sc.Err(); err != nil {
 		return err

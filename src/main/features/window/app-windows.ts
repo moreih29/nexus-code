@@ -1,14 +1,7 @@
 import type { BrowserWindow } from "electron";
 
-// Main app windows, most recently focused last. Popups opened by embedded
-// browser tabs are BrowserWindows too, so "the focused window" or "the first
-// window" is not necessarily the app: menu commands sent there are dropped,
-// and a popup left open counts as an app window on macOS activate.
 const appWindows: BrowserWindow[] = [];
 
-/**
- * Records `win` as an app window until it closes.
- */
 export function trackAppWindow(win: BrowserWindow): void {
   appWindows.push(win);
   win.on("focus", () => {
@@ -22,12 +15,10 @@ export function trackAppWindow(win: BrowserWindow): void {
   });
 }
 
-/** The app window that has focus, or null while anything else has it. */
 export function getFocusedAppWindow(): BrowserWindow | null {
   return appWindows.find((win) => !win.isDestroyed() && win.isFocused()) ?? null;
 }
 
-/** The app window to act on: the focused one, else the one focused last. */
 export function getActiveAppWindow(): BrowserWindow | null {
   const focused = getFocusedAppWindow();
   if (focused) return focused;
@@ -38,7 +29,6 @@ export function getActiveAppWindow(): BrowserWindow | null {
   return null;
 }
 
-/** Brings the app window to act on to the front, restored. */
 export function showAppWindow(): void {
   const win = getActiveAppWindow();
   if (!win) return;
@@ -47,7 +37,6 @@ export function showAppWindow(): void {
   win.focus();
 }
 
-/** The open app windows. */
 export function getAppWindows(): BrowserWindow[] {
   return appWindows.filter((win) => !win.isDestroyed());
 }
@@ -56,7 +45,6 @@ export function appWindowOf(contents: { readonly id: number }): BrowserWindow | 
   return appWindows.find((win) => !win.isDestroyed() && win.webContents.id === contents.id) ?? null;
 }
 
-/** Whether any app window is open. */
 export function hasAppWindow(): boolean {
   return appWindows.some((win) => !win.isDestroyed());
 }

@@ -86,14 +86,8 @@ exit 128
 	}
 }
 
-// TestStreamingHandlersStopGitWhenReadingStops covers handlers that stopped
-// reading git's output early (an event emit failed because the dialer was
-// gone, or the progress scanner gave up) and then called cmd.Wait() with git
-// still running: git blocked on the full pipe, so the handler, the git
-// process and the stream id leaked forever.
 func TestStreamingHandlersStopGitWhenReadingStops(t *testing.T) {
 	fakeDir := t.TempDir()
-	// Endless output; the only way for this "git" to exit is to be killed.
 	writeFakeGit(t, fakeDir, `#!/bin/sh
 case "$1" in
 log) exec yes "$(printf 'abc\037a\037\037n\037e\0372020-01-01T00:00:00Z\037s\037b\037\036')" ;;

@@ -16,17 +16,10 @@ import { cliExecutableName, POSIX_CLI_LAUNCHER } from "../src/shared/cli/launche
 import { CODEX_WRAPPER } from "../src/shared/codex/wrapper";
 
 const DEFAULT_VERSION = "0.1.0";
-// Manifest metadata follows the single source of truth in envelope.ts —
-// an independent literal here drifted to "1" while the wire went to "2".
 const DEFAULT_PROTOCOL_VERSION = AGENT_PROTOCOL_VERSION;
-// The LTS line the SSH hosts' Node runtime comes from. Node 20 reached end of
-// life in April 2026 and got no fix in the October 2026 security release.
-// Node 24 needs glibc 2.28 on Linux, as 20 did, and macOS 13.5.
 const NODE_MAJOR = 24;
-// nodejs.org serves its releases under two paths, which its CDN caches apart.
 const NODE_DIST_BASE_URLS = ["https://nodejs.org/dist", "https://nodejs.org/download/release"];
 
-/** The hosts an SSH workspace runs on; each also gets a Node runtime. */
 const SSH_HOST_TARGETS = [
   { os: "linux", arch: "amd64" },
   { os: "linux", arch: "arm64" },
@@ -34,7 +27,6 @@ const SSH_HOST_TARGETS = [
   { os: "darwin", arch: "arm64" },
 ] as const satisfies readonly AgentArtifactPlatform[];
 
-/** The SSH hosts, plus Windows, where the agent serves only the local app. */
 export const AGENT_BUILD_TARGETS = [
   ...SSH_HOST_TARGETS,
   { os: "windows", arch: "amd64" },
@@ -52,12 +44,6 @@ const LSP_BUNDLES = [
     extraDependencies: ["typescript"],
   },
   {
-    // basedpyright is a community fork of microsoft/pyright that adds the
-    // language-server features Microsoft keeps behind closed-source Pylance —
-    // most importantly the semanticTokensProvider that the renderer relies
-    // on for syntax-aware colouring. The fork preserves pyright's bin names
-    // (`pyright-langserver`) and `langserver.index.js` entry path, so the
-    // launcher and manifest lookup keys stay byte-identical.
     name: "pyright-langserver",
     packageName: "basedpyright",
     languages: ["python"],
@@ -95,25 +81,14 @@ const LSP_BUNDLES = [
   },
 ] as const;
 
-/** Text replaced in a file of a bundled server once it is installed. */
 interface LspBundlePatch {
-  /** The file, relative to the bundle's directory. */
   readonly file: string;
   readonly from: string;
   readonly to: string;
-  /** How often `from` occurs; another count fails the build. */
   readonly count: number;
 }
 
-/**
- * Fixes to bundled servers, by bundle name. A version whose code differs
- * fails the build, so the fix is looked at again rather than lost.
- */
 const LSP_BUNDLE_PATCHES: Readonly<Record<string, readonly LspBundlePatch[]>> = {
-  // The server matches schema globs with picomatch but without `dot: true`,
-  // so `**/compose.yaml` never matches a path through a folder whose name
-  // starts with a dot. A task's worktree is under ~/.nexus-code/worktrees,
-  // so none of its YAML files got a schema.
   "yaml-language-server": [
     {
       file: "node_modules/yaml-language-server/out/server/src/languageservice/services/yamlSchemaService.js",
@@ -170,11 +145,6 @@ export async function buildAgentDistribution(
 ): Promise<void> {
   const rootDir = options.rootDir ?? path.resolve(import.meta.dir, "..");
   const outDir = options.outDir ?? path.join(rootDir, "dist", "agent");
-  // The agent binary version is derived from the app version (package.json). This value
-  // determines manifest.version → the remote install path (agent-<version>-os-arch) and the
-  // serverVersion in the Ready handshake. With a fixed value (DEFAULT_VERSION), every release
-  // would overwrite the same remote path in place and KEEP_REMOTE_VERSIONS pruning would be
-  // meaningless. The compatibility contract itself is handled by the separate protocolVersion.
   const version = options.version ?? (await readAppVersion(rootDir)) ?? DEFAULT_VERSION;
   const protocolVersion = options.protocolVersion ?? DEFAULT_PROTOCOL_VERSION;
   const run = dependencies.run ?? runCommand;
@@ -188,7 +158,6 @@ export async function buildAgentDistribution(
   const nodeArtifacts = await downloadNodeRuntimes({ outDir, nodeVersion }, dependencies.fetch);
   const lspArtifacts = await buildLspBundles({ rootDir, outDir, run });
 
-  // Place the claude wrapper script at bin/claude.
   const wrapperArtifact = await copyClaudeWrapper({ rootDir, outDir });
   await writeCliLauncher(outDir);
   await writeCodexWrapper(outDir);
@@ -205,10 +174,6 @@ export async function buildAgentDistribution(
   console.log(`Built agent distribution in ${outDir}`);
 }
 
-/**
- * Copies scripts/assets/claude-wrapper.sh to <outDir>/bin/claude and
- * sets its execute permission (0o755). Throws an error if the file is missing.
- */
 export async function copyClaudeWrapper(args: {
   readonly rootDir: string;
   readonly outDir: string;
@@ -226,10 +191,6 @@ export async function copyClaudeWrapper(args: {
   return { path: path.join("bin", "claude"), ...metadata };
 }
 
-/**
- * Writes the nexus command to <outDir>/bin/nexus, next to the claude wrapper
- * on the app's terminals' PATH. Windows terminals get theirs at runtime.
- */
 export async function writeCliLauncher(outDir: string): Promise<void> {
   const dest = path.join(outDir, "bin", "nexus");
   await fs.mkdir(path.dirname(dest), { recursive: true });
@@ -237,10 +198,6 @@ export async function writeCliLauncher(outDir: string): Promise<void> {
   await fs.chmod(dest, 0o755);
 }
 
-/**
- * Writes the codex wrapper to <outDir>/bin/codex, beside the claude wrapper.
- * Git Bash on Windows gets a copy at runtime (pty/windows-shell-shim.ts).
- */
 export async function writeCodexWrapper(outDir: string): Promise<void> {
   const dest = path.join(outDir, "bin", "codex");
   await fs.mkdir(path.dirname(dest), { recursive: true });
@@ -313,8 +270,6 @@ async function buildAgentBinaries(args: {
       [
         "build",
         "-tags=netgo,osusergo",
-        // The agent reports this version on its Ready frame and keys its SSH
-        // daemon's run files by it, as computeWsId does on this side.
         `-ldflags=-s -w -X github.com/nexus-code/nexus-code/internal/proto.ServerVersion=${args.version}`,
         "-o",
         path.join(args.outDir, name),
@@ -322,21 +277,11 @@ async function buildAgentBinaries(args: {
       ],
       {
         cwd: args.rootDir,
-        // CGO_ENABLED=0 forces a fully static binary. Without it the linux/amd64
-        // target is a *native* build on the CI runner, where Go defaults
-        // CGO_ENABLED to 1; because the agent imports "net" (and os/user), the
-        // binary then dynamically links the runner's glibc and requires that
-        // exact version at runtime — failing on older distros such as Ubuntu
-        // 20.04 (glibc 2.31) with "version `GLIBC_x.xx' not found". The
-        // netgo/osusergo tags keep the net and os/user resolvers in pure Go so
-        // disabling cgo does not silently change name resolution behavior.
         env: { ...process.env, GOOS: target.os, GOARCH: target.arch, CGO_ENABLED: "0" },
       },
     );
     artifacts.push({ ...target, path: name });
     if (target.os === "windows") {
-      // The nexus command of local Windows terminals, beside the agent it is
-      // named after (main/features/cli/launchers.ts).
       await args.run(
         "go",
         [
@@ -367,10 +312,7 @@ async function downloadNodeRuntimes(
   const runtimeDir = path.join(args.outDir, "runtime");
   await fs.mkdir(runtimeDir, { recursive: true });
   const artifacts: RuntimeArtifactInput[] = [];
-  // A tarball can be pieced together from several attempts over two paths,
-  // so it must match the SHA-256 nodejs.org lists for it.
   const checksums = await nodeChecksums(args.nodeVersion, fetchFn);
-  // CI keeps the tarballs here between runs, so most runs fetch none of them.
   const cacheDir = process.env.NODE_RUNTIME_CACHE_DIR;
 
   for (const target of SSH_HOST_TARGETS) {
@@ -406,7 +348,6 @@ async function downloadNodeRuntimes(
   return artifacts;
 }
 
-/** The SHA-256 of each file in a Node release, by file name, from its SHASUMS256.txt. */
 async function nodeChecksums(
   nodeVersion: string,
   fetchFn: typeof fetch,
@@ -425,8 +366,6 @@ async function nodeChecksums(
   return checksums;
 }
 
-// On Windows, use the bsdtar that ships as System32\tar.exe. Git Bash puts
-// GNU tar first on PATH, and GNU tar reads "C:\..." as host "C" and fails.
 function tarCommand(): string {
   if (process.platform !== "win32") return "tar";
   return path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
@@ -443,11 +382,6 @@ async function buildLspBundles(args: {
   const artifacts: LspArtifactInput[] = [];
   for (const bundle of LSP_BUNDLES) {
     const version = await installedPackageVersion(args.rootDir, bundle.packageName);
-    // Install once into the published extracted directory so local agent
-    // launches reuse it as a node module tree, then tar from that same
-    // tree for SSH uploads. Avoids the previous pattern of installing
-    // into a throwaway staging dir and only shipping the archive — local
-    // mode could not consume the archive directly.
     const extractedDir = path.join(lspOutDir, `${bundle.name}-${version}`);
     await fs.rm(extractedDir, { recursive: true, force: true });
     await fs.mkdir(extractedDir, { recursive: true });
@@ -518,7 +452,6 @@ async function installedPackageVersion(rootDir: string, packageName: string): Pr
   return packageJson.version;
 }
 
-/** NODE_RUNTIME_VERSION when set, else the latest LTS release of NODE_MAJOR. */
 async function nodeRuntimeVersion(fetchFn: typeof fetch): Promise<string> {
   return (
     normalizeNodeVersion(process.env.NODE_RUNTIME_VERSION ?? "") ??
@@ -558,7 +491,6 @@ async function downloadFile(
   destination: string,
   fetchFn: typeof fetch,
 ): Promise<void> {
-  // What the attempts so far received; a later attempt asks for the rest.
   let chunks: Uint8Array[] = [];
   let received = 0;
   const payload = await fetchWithRetry(
@@ -594,17 +526,11 @@ async function downloadFile(
   await fs.writeFile(destination, payload);
 }
 
-/** The first byte and the file's size from a 206's `bytes <first>-<last>/<size>`. */
 function contentRange(response: Response): { start: number; size: number } | undefined {
   const match = /^bytes (\d+)-\d+\/(\d+)$/.exec(response.headers.get("content-range") ?? "");
   return match ? { start: Number(match[1]), size: Number(match[2]) } : undefined;
 }
 
-// A download from nodejs.org has stalled in CI, for half an hour before the
-// socket reset and again on each retry of the same URL. So an attempt that
-// goes without data for a while is dropped, each attempt has a deadline, and
-// the next attempt asks for the file under nodejs.org's other path, for only
-// the bytes the attempts before it did not get.
 const FETCH_ATTEMPTS = 4;
 const FETCH_STALL_TIMEOUT_MS = 30_000;
 const FETCH_ATTEMPT_TIMEOUT_MS = 5 * 60_000;
@@ -650,10 +576,6 @@ function nodeDistPlatform(target: AgentArtifactPlatform): string {
   return `${os}-${arch}`;
 }
 
-/**
- * Reads the version from package.json and uses it as the default agent version. If reading
- * or parsing fails, returns undefined so the caller falls back to DEFAULT_VERSION.
- */
 async function readAppVersion(rootDir: string): Promise<string | undefined> {
   try {
     const raw = await fs.readFile(path.join(rootDir, "package.json"), "utf8");
@@ -728,7 +650,6 @@ function requiredValue(argv: readonly string[], index: number, flag: string): st
 
 if (import.meta.main) {
   const argv = process.argv.slice(2);
-  // CI keys its cache of the Node runtimes by the version this prints.
   const task =
     argv[0] === "--print-node-version"
       ? nodeRuntimeVersion(fetch).then((nodeVersion) => console.log(nodeVersion))

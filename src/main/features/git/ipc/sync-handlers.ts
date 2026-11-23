@@ -1,7 +1,3 @@
-/**
- * Sync handlers — fetch, pull, and push through the queued GitRepository.
- */
-
 import type {
   GitFetchAllResult,
   GitSyncResult,
@@ -18,14 +14,6 @@ import { handleGitHandlerError, withRepo } from "./git-result";
 
 const c = ipcContract.git.call;
 
-/**
- * Builds the fetch handler; successful remote ref updates are followed by a
- * status refresh before the renderer call resolves.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object so the router stays log-silent. The renderer's ipcCallResult path
- * receives this as an IpcErrResult and unwrapGitResult converts it to a thrown Error.
- */
 export function fetchHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -35,17 +23,6 @@ export function fetchHandler(
   });
 }
 
-/**
- * Builds the explicit fetch-all handler used by "Fetch now" actions. It
- * routes through the autofetch scheduler when available so sticky failure
- * state and manual pause clearing stay in one place.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see fetchHandler for rationale.
- *
- * Left manual: early-return branch before getOrDetect when autofetch is
- * present, plus non-standard refreshStatus return value.
- */
 export function fetchAllHandler(
   registry: GitRegistry,
   autofetch?: GitAutofetchScheduler,
@@ -68,13 +45,6 @@ export function fetchAllHandler(
   };
 }
 
-/**
- * Builds the pull handler; the typed PullResult is returned only after the
- * post-pull status snapshot has been broadcast.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see fetchHandler for rationale.
- */
 export function pullHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -85,15 +55,6 @@ export function pullHandler(
   );
 }
 
-/**
- * Builds the push handler; auth/conflict failures surface from GitRepository
- * while successful pushes refresh status before returning PushResult. The
- * `publish` flag forwards to GitRepository.push so the renderer's
- * "Publish branch?" dialog can wire up an upstream in one round-trip.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see fetchHandler for rationale.
- */
 export function pushHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -105,17 +66,6 @@ export function pushHandler(
   );
 }
 
-/**
- * Builds the primary Sync handler. The repository method owns pull→push in a
- * single queue slot; this handler refreshes status even on typed pull
- * failures so conflict rows are visible before the error banner renders.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see fetchHandler for rationale.
- *
- * Left manual: inner try/catch refreshes status on failure path — unique shape
- * not covered by withRepo.
- */
 export function syncHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {

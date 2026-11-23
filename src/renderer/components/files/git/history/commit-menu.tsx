@@ -1,23 +1,13 @@
-/**
- * Commit context menu shared by History rows, row toolbar buttons, and the
- * detail toolbar. Mixed and hard reset are intentionally not present.
- */
 import i18next from "i18next";
-import { AlertDialog as RadixAlertDialog } from "radix-ui";
-import { useState } from "react";
-import { useTranslation } from "react-i18next";
 import type { CommitDetail, LogEntry } from "../../../../../shared/git/types";
 import { copyText } from "../../../../utils/clipboard";
-import { Button } from "../../../ui/button";
-import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../../../ui/dialog";
-import { DialogHeader } from "../../../ui/dialog-header";
+import { showConfirmDialog } from "../../../ui/confirm-dialog";
 import {
   DropdownMenuAtPoint,
   DropdownMenuItem,
   type DropdownMenuPoint,
   DropdownMenuSeparator,
 } from "../../../ui/dropdown-menu";
-import { useDialogFocusReturn } from "../../../ui/use-dialog-focus-return";
 
 export type HistoryCommitMenuPoint = DropdownMenuPoint;
 
@@ -47,54 +37,40 @@ export type HistoryCommitConfirmRequest =
   | { kind: "checkout"; sha: string; shortSha: string }
   | { kind: "reset-soft"; sha: string; shortSha: string };
 
-/** Renders the commit menu at its point and owns its confirm dialogs. */
 export function HistoryCommitMenu({ target, actions, onClose }: HistoryCommitMenuProps) {
-  const [confirm, setConfirm] = useState<HistoryCommitConfirmRequest | null>(null);
-
+  const confirmThenRun = (request: HistoryCommitConfirmRequest) => {
+    void confirmHistoryCommit(request).then((confirmed) => {
+      if (!confirmed) return;
+      if (request.kind === "checkout") actions.checkoutDetached(request.sha);
+      else actions.resetSoft(request.sha);
+    });
+  };
   const items = target
     ? buildHistoryCommitMenuItems(target.entry, target.detail, actions, {
-        requestCheckout: (request) => setConfirm(request),
-        requestResetSoft: (request) => setConfirm(request),
+        requestCheckout: confirmThenRun,
+        requestResetSoft: confirmThenRun,
       })
     : [];
 
   return (
-    <>
-      <DropdownMenuAtPoint point={target?.point ?? null} onClose={onClose}>
-        {items.map((item, index) =>
-          item.kind === "separator" ? (
-            <DropdownMenuSeparator key={separatorKey(items, index)} />
-          ) : (
-            <DropdownMenuItem
-              key={item.label}
-              className={item.destructive ? "git-destructive-text" : undefined}
-              onSelect={item.onSelect}
-            >
-              {item.label}
-            </DropdownMenuItem>
-          ),
-        )}
-      </DropdownMenuAtPoint>
-      <HistoryCommitConfirmDialog
-        request={confirm}
-        onCancel={() => setConfirm(null)}
-        onConfirm={(request) => {
-          setConfirm(null);
-          if (request.kind === "checkout") {
-            actions.checkoutDetached(request.sha);
-          } else {
-            actions.resetSoft(request.sha);
-          }
-        }}
-      />
-    </>
+    <DropdownMenuAtPoint point={target?.point ?? null} onClose={onClose}>
+      {items.map((item, index) =>
+        item.kind === "separator" ? (
+          <DropdownMenuSeparator key={separatorKey(items, index)} />
+        ) : (
+          <DropdownMenuItem
+            key={item.label}
+            className={item.destructive ? "git-destructive-text" : undefined}
+            onSelect={item.onSelect}
+          >
+            {item.label}
+          </DropdownMenuItem>
+        ),
+      )}
+    </DropdownMenuAtPoint>
   );
 }
 
-/**
- * Builds the menu model. Tests assert this list so mixed/hard reset cannot
- * accidentally appear when the UI grows.
- */
 export function buildHistoryCommitMenuItems(
   entry: LogEntry,
   detail: CommitDetail | null | undefined,
@@ -140,14 +116,12 @@ export function buildHistoryCommitMenuItems(
   ];
 }
 
-/** Builds a stable separator key from neighboring labels. */
 function separatorKey(items: readonly HistoryCommitMenuSpec[], index: number): string {
   const before = closestMenuLabel(items, index, -1) ?? "start";
   const after = closestMenuLabel(items, index, 1) ?? "end";
   return `separator:${before}:${after}`;
 }
 
-/** Finds the nearest item label before or after a separator. */
 function closestMenuLabel(
   items: readonly HistoryCommitMenuSpec[],
   index: number,
@@ -160,68 +134,22 @@ function closestMenuLabel(
   return null;
 }
 
-/** Renders the detached checkout and soft-reset confirmations. */
-function HistoryCommitConfirmDialog({
-  request,
-  onCancel,
-  onConfirm,
-}: {
-  request: HistoryCommitConfirmRequest | null;
-  onCancel: () => void;
-  onConfirm: (request: HistoryCommitConfirmRequest) => void;
-}) {
-  const { t } = useTranslation("files");
-  const title =
-    request?.kind === "checkout"
-      ? t("git.history.menu.confirmCheckout.title", { sha: request.shortSha })
-      : t("git.history.menu.confirmResetSoft.title", { sha: request?.shortSha ?? "" });
-  const description =
-    request?.kind === "checkout"
-      ? t("git.history.menu.confirmCheckout.description")
-      : t("git.history.menu.confirmResetSoft.description");
-  const confirmLabel =
-    request?.kind === "checkout"
-      ? t("git.history.menu.confirmCheckout.confirmLabel")
-      : t("git.history.menu.confirmResetSoft.confirmLabel");
-  const returnFocus = useDialogFocusReturn(request !== null);
-
-  return (
-    <RadixAlertDialog.Root
-      open={request !== null}
-      onOpenChange={(open) => {
-        if (!open) onCancel();
-      }}
-    >
-      <RadixAlertDialog.Portal>
-        <RadixAlertDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
-        <RadixAlertDialog.Content
-          className={dialogContentClass("sm", true)}
-          onCloseAutoFocus={returnFocus}
-        >
-          <DialogHeader alert title={title} description={description} />
-          <div className="mt-5 flex justify-end gap-2">
-            <RadixAlertDialog.Cancel asChild>
-              <Button type="button" variant="ghost" size="sm" autoFocus>
-                {request?.kind === "checkout"
-                  ? t("git.history.menu.confirmCheckout.cancel")
-                  : t("git.history.menu.confirmResetSoft.cancel")}
-              </Button>
-            </RadixAlertDialog.Cancel>
-            <RadixAlertDialog.Action asChild>
-              <Button
-                type="button"
-                variant={request?.kind === "reset-soft" ? "destructive" : "default"}
-                size="sm"
-                onClick={() => {
-                  if (request) onConfirm(request);
-                }}
-              >
-                {confirmLabel}
-              </Button>
-            </RadixAlertDialog.Action>
-          </div>
-        </RadixAlertDialog.Content>
-      </RadixAlertDialog.Portal>
-    </RadixAlertDialog.Root>
-  );
+export function confirmHistoryCommit(request: HistoryCommitConfirmRequest): Promise<boolean> {
+  const t = i18next.t.bind(i18next);
+  if (request.kind === "checkout") {
+    return showConfirmDialog({
+      title: t("files:git.history.menu.confirmCheckout.title", { sha: request.shortSha }),
+      description: t("files:git.history.menu.confirmCheckout.description"),
+      cancelLabel: t("files:git.history.menu.confirmCheckout.cancel"),
+      confirmLabel: t("files:git.history.menu.confirmCheckout.confirmLabel"),
+      focus: "cancel",
+    });
+  }
+  return showConfirmDialog({
+    title: t("files:git.history.menu.confirmResetSoft.title", { sha: request.shortSha }),
+    description: t("files:git.history.menu.confirmResetSoft.description"),
+    cancelLabel: t("files:git.history.menu.confirmResetSoft.cancel"),
+    confirmLabel: t("files:git.history.menu.confirmResetSoft.confirmLabel"),
+    variant: "destructive",
+  });
 }

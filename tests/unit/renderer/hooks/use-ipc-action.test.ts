@@ -1,17 +1,3 @@
-/**
- * Scenario tests for useIpcAction lifecycle guarantees.
- *
- * TESTING STRATEGY
- * ----------------
- * The hook's async state machine — the guarantee that loading never gets stuck,
- * that cancellation suppresses UI, that double-submit is blocked, and that
- * unmount discards results.  These drive the real hook through a minimal
- * React hook dispatcher (no renderer), following browser-view.test.tsx: a
- * transparent `react` mock forwards every hook to React's current-dispatcher
- * slot, and `mountHook()` points that slot at a slot-indexed dispatcher
- * while the hook body runs.
- */
-
 import { describe, expect, it, mock } from "bun:test";
 import type { EffectCallback } from "react";
 import type {
@@ -21,10 +7,6 @@ import type {
 import { createAbortError } from "../../../../src/shared/abort";
 import { appErrorCancelled, appErrorFailed } from "../../../../src/shared/error/app-error";
 
-// ---------------------------------------------------------------------------
-// Hook harness
-// ---------------------------------------------------------------------------
-
 interface HookDispatcher {
   useRef(initial: unknown): { current: unknown };
   useState(initial: unknown): [unknown, (next: unknown) => void];
@@ -33,8 +15,6 @@ interface HookDispatcher {
   useEffect(fn: EffectCallback, deps?: readonly unknown[]): void;
 }
 
-// React's current-dispatcher slot, read off the (possibly already-mocked)
-// react module namespace so we point at the object the runtime uses.
 const currentReact = await import("react");
 const reactInternals = (
   currentReact as unknown as {
@@ -42,9 +22,6 @@ const reactInternals = (
   }
 ).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
 
-// Transparent delegating mock — overrides any leaked global react hook mock
-// (e.g. use-drag-source.test.ts). Outside our render the slot holds React's
-// real dispatcher, so other test files are unaffected.
 mock.module("react", () => ({
   ...currentReact,
   useRef: (init: unknown) => reactInternals.H?.useRef(init),
@@ -57,12 +34,6 @@ mock.module("react", () => ({
 
 const { useIpcAction } = await import("../../../../src/renderer/hooks/use-ipc-action");
 
-/**
- * Mounts useIpcAction under a minimal dispatcher. State setters store the value
- * for the next render(). Dependency-less effects run after every render;
- * effects with a dependency array (the hook only has `[]`) run once on mount
- * and their cleanups run on unmount().
- */
 function mountHook<T>(options?: UseIpcActionOptions<T>): {
   render: () => UseIpcActionReturn<T>;
   unmount: () => void;
@@ -134,12 +105,10 @@ function mountHook<T>(options?: UseIpcActionOptions<T>): {
   };
 }
 
-/** Drains the hook's async IIFE (microtasks) before inspecting state. */
 function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-/** An action that stays in flight until the test settles it. */
 function deferredAction<T>(): {
   action: (signal: AbortSignal) => Promise<T>;
   signal: () => AbortSignal | undefined;
@@ -163,18 +132,12 @@ function deferredAction<T>(): {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Scenario tests — async state machine
-// ---------------------------------------------------------------------------
-
 describe("useIpcAction — loading never sticks", () => {
   it("transitions to error when the first await succeeds but the second throws", async () => {
     const hook = mountHook<string>();
 
     hook.render().run(async () => {
-      // First await succeeds.
       await Promise.resolve("step-one-ok");
-      // Second await throws — this is the class of bug the hook must catch.
       throw new Error("step-two-exploded");
     });
     await flush();
@@ -208,7 +171,6 @@ describe("useIpcAction — double-submit prevention", () => {
   it("ignores a second run() in the same tick while the first is in flight", async () => {
     const hook = mountHook<string>();
     const first = deferredAction<string>();
-    // Both calls come from one render, as a double click does before React re-renders.
     const { run } = hook.render();
 
     run(first.action);
@@ -242,7 +204,6 @@ describe("useIpcAction — cancellation", () => {
     expect(pending.signal()?.aborted).toBe(true);
     expect(hook.render().state).toEqual({ status: "idle" });
 
-    // Resolve the original promise after cancel — must not change state.
     pending.resolve("late");
     await flush();
 
@@ -286,7 +247,6 @@ describe("useIpcAction — unmount: discards in-flight result", () => {
     pending.resolve("late-value");
     await flush();
 
-    // No setState and no onSuccess after unmount — the last state is still loading.
     expect(received).toEqual([]);
     expect(hook.render().state.status).toBe("loading");
   });
@@ -312,18 +272,15 @@ describe("useIpcAction — superseded controller is discarded", () => {
     const second = deferredAction<string>();
 
     hook.render().run(first.action);
-    // Cancel the first to free the in-flight gate, then start a second.
     hook.render().cancel();
     hook.render().run(second.action);
     expect(hook.render().state.status).toBe("loading");
 
-    // Resolve the first action late (after it was superseded by cancel + new run).
     first.resolve("stale-value");
     await flush();
 
     expect(hook.render().state.status).toBe("loading");
 
-    // Resolve the second — it wins.
     second.resolve("fresh-value");
     await flush();
 

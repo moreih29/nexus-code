@@ -1,7 +1,3 @@
-/**
- * Sticky History search input. Debouncing is owned by HistoryPanel so tests
- * can exercise the input as a pure controlled component.
- */
 import { useTranslation } from "react-i18next";
 import { SearchInput } from "../../../ui/search-input";
 
@@ -12,7 +8,6 @@ interface HistorySearchProps {
   onClear: () => void;
 }
 
-/** Renders the commit search box used for SHA-prefix and message grep search. */
 export function HistorySearch({ value, disabled = false, onChange, onClear }: HistorySearchProps) {
   const { t } = useTranslation("files");
   return (

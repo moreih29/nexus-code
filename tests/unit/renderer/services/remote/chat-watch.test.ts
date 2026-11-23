@@ -1,4 +1,3 @@
-/** A watched chat's changes: found by the store's objects, sent as an update. */
 import { describe, expect, test } from "bun:test";
 import type {
   ChatPage,
@@ -59,7 +58,6 @@ const source = (model: Partial<ChatModel>) => ({
   title: "T",
   chat: { ...emptyTabState(), model: { ...emptyModel(), ...model } },
 });
-/** An update put in a page, which must find what it appends to. */
 const put = (page: ChatPage, update: ChatUpdate): ChatPage => {
   const next = applyUpdate(page, update);
   if (!next) throw new Error("the update found nothing to append to");
@@ -214,7 +212,6 @@ describe("text that only grew, sent as what it grew by", () => {
     const change = changesOf(sentOf(before, 0), sentOf(after, 0), true);
     expect(change?.items).toEqual([]);
     expect(change?.appends).toEqual([{ index: 1, block: 0, text: "lo" }]);
-    // Without appends, the whole item, as before.
     const whole = changesOf(sentOf(before, 0), sentOf(after, 0));
     expect(whole?.items.map((i) => i.index)).toEqual([1]);
     expect(whole?.appends).toBeUndefined();
@@ -235,7 +232,6 @@ describe("text that only grew, sent as what it grew by", () => {
     expect(both?.status && "streaming" in both.status).toBe(false);
     expect(both?.streamAppends).toEqual([{ block: 0, text: "llo" }]);
 
-    // Without appends, the whole status.
     const whole = changesOf(sentOf(before, 0), sentOf(grown, 0));
     expect(whole?.status?.streaming?.blocks[0]?.text).toBe("Hello");
     expect(whole?.streamAppends).toBeUndefined();
@@ -400,7 +396,6 @@ describe("putting an update in a page", () => {
       ],
     } as ViewItem);
     expect(next?.status.streaming?.blocks[0]?.text).toBe("Hey");
-    // Untouched: the page it was put in.
     expect(said.status.streaming?.blocks[0]?.text).toBe("He");
   });
 
@@ -466,7 +461,6 @@ describe("a watched chat's earlier items", () => {
   });
 
   test("watched again, the items shown before its last ones stay in front", () => {
-    // Shown from the start; the watch again gives the last four of a longer chat.
     const old = pageOf(0, 12);
     const fresh = { ...pageOf(10, 14), panel: { jobs: [] } };
     const next = keepEarlier(old, fresh);
@@ -481,14 +475,10 @@ describe("a watched chat's earlier items", () => {
 
   test("watched again, a page that does not meet or agree with the old one stands alone", () => {
     const fresh = pageOf(10, 14);
-    // A gap between them.
     expect(keepEarlier(pageOf(0, 8), fresh)).toBe(fresh);
-    // Another item where the new one starts: the chat was rewound and went on.
     const changed = pageOf(10, 14, [{ kind: "notice", key: "other", code: "x" }, ...notes(11, 14)]);
     expect(keepEarlier(pageOf(0, 12), changed)).toBe(changed);
-    // The old page starts no earlier.
     expect(keepEarlier(pageOf(10, 12), fresh)).toBe(fresh);
-    // An empty new page short of the old one's end.
     const empty = pageOf(5, 5, []);
     expect(keepEarlier(pageOf(0, 8), empty)).toBe(empty);
   });
@@ -508,7 +498,6 @@ describe("asking again as the watched tab's program comes to take questions", ()
     check();
     check();
     expect(acted).toBe(1);
-    // Its program ended and started again (the app restarted it with the next message).
     can = false;
     check();
     can = true;

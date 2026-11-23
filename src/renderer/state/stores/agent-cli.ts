@@ -1,9 +1,3 @@
-/**
- * The nexus command's settings, mirrored from AppState for the Agent CLI
- * settings panel. Hydrated at bootstrap; the panel persists changes through
- * appState.set, and main reads AppState on every nexus command.
- */
-
 import { create } from "zustand";
 import type { AppState } from "../../../shared/types/app-state";
 

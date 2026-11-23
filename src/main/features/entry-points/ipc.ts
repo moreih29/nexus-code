@@ -1,8 +1,3 @@
-/**
- * entry-points channel — registers folder bookmark and connection profile
- * IPC handlers, delegating all persistence to GlobalStorage (T1).
- */
-
 import { ipcContract } from "../../../shared/ipc/contract";
 import { register, validateArgs } from "../../infra/ipc-router";
 import type { GlobalStorage } from "../../infra/storage/global-storage";
@@ -10,10 +5,6 @@ import type { GlobalStorage } from "../../infra/storage/global-storage";
 const fb = ipcContract.folderBookmark.call;
 const cp = ipcContract.connectionProfile.call;
 
-/**
- * Register folderBookmark and connectionProfile IPC channels, wired to the
- * provided GlobalStorage instance.
- */
 export function registerEntryPointsChannels(storage: GlobalStorage): void {
   register("folderBookmark", {
     call: {

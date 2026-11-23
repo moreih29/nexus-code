@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// replyDeadlineConn expires writes immediately whenever a deadline is set.
 type replyDeadlineConn struct {
 	net.Conn
 	deadline time.Time
@@ -19,7 +18,6 @@ func (c *replyDeadlineConn) SetWriteDeadline(deadline time.Time) error {
 	return c.Conn.SetWriteDeadline(time.Now())
 }
 
-// TestReplyDeadlineBoundsBlockedHookAndCLI covers a client that never reads.
 func TestReplyDeadlineBoundsBlockedHookAndCLI(t *testing.T) {
 	for _, kind := range []string{"hook", "cli"} {
 		t.Run(kind, func(t *testing.T) {

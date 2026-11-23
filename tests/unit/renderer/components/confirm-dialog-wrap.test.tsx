@@ -1,4 +1,3 @@
-/** The confirmation's text keeps Korean words whole through the header's class merge. */
 import { expect, test } from "bun:test";
 import { Dialog } from "radix-ui";
 import { renderToStaticMarkup } from "react-dom/server";

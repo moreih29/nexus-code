@@ -1,12 +1,3 @@
-// The agent list of a workspace on another computer: the local list's
-// header, views and group headings over what that computer tells. Its
-// conversations and its tasks' are in it, by state or by task; a row opens
-// its session in the workspace's tabs. Where that computer lets this one
-// control its chats, the header starts a conversation there and a row's
-// menu renames or closes it; a worktree's header starts one in it, or a
-// terminal where terminals are controlled. No tasks are made or removed
-// from here, and no permissions answered.
-
 import {
   ChevronDown,
   Ellipsis,
@@ -44,8 +35,9 @@ import type { RemoteTarget } from "../../state/stores/remote-view";
 import { useTerminalStore } from "../../state/stores/terminal";
 import { useUIStore } from "../../state/stores/ui";
 import { AgentRows } from "../agent-list/agent-rows";
-import { StatusGroupHeading } from "../agent-list/status-view";
+import { ListNote, StatusSections } from "../agent-list/status-view";
 import { TaskHeaderAction, TaskHeaderLine } from "../agent-list/task-row-line";
+import { TaskSections, worktreeName } from "../agent-list/task-view";
 import { ViewSwitch } from "../agent-list/view-switch";
 import { RemoteNewMenu } from "../agent-view/remote-new-menu";
 import {
@@ -82,11 +74,6 @@ import { PeerTaskInfo } from "./task-info";
 
 type Listing = { workspaces: readonly RemoteWorkspace[]; sessions: readonly RemoteSession[] };
 
-/**
- * The workspace's family as that computer lists it: the workspace its
- * tasks are of, then the tasks, with their sessions. Until it has listed
- * them all, the sessions of the workspace shown.
- */
 export function peerFamilyListing(
   target: PeerWorkspaceTarget,
   listing: PeerSessions | undefined,
@@ -108,7 +95,6 @@ export function peerFamilyListing(
   return shownSessions && { workspaces: [target.workspace], sessions: shownSessions };
 }
 
-/** The workspace its tasks are of: a new conversation starts there, as the local list's does. */
 export function peerFamilyRoot(
   target: PeerWorkspaceTarget,
   family: Listing | undefined,
@@ -124,7 +110,6 @@ export function PeerSessionsPanel({
 }: {
   target: PeerWorkspaceTarget;
   peer?: RoomPeer;
-  /** What that computer lists of its sessions, while it is watched. */
   listing?: PeerSessions;
 }) {
   const { t } = useTranslation();
@@ -162,7 +147,6 @@ export function PeerSessionsPanel({
       showPeerWorkspaceSession(target, opened);
       return;
     }
-    // Another worktree's: its workspace, with its list and the session open, as a local row does.
     const workspace = family?.workspaces.find(({ id }) => id === opened.workspaceId);
     if (!workspace) return;
     const next = peerTarget(target.accountKey, device, workspace);
@@ -171,7 +155,6 @@ export function PeerSessionsPanel({
     showPeerWorkspaceSession(next, opened);
   };
 
-  // A worktree's changes: its workspace's Source Control, with the file's diff open.
   const showChanges = (workspace: RemoteWorkspace, file?: PeerGitFile) => {
     let at = id;
     if (workspace.id !== target.workspaceId) {
@@ -226,8 +209,6 @@ export function PeerSessionsPanel({
           workspace={workspace}
           resultFeed={results}
           compact={compact}
-          // By state, a task's conversation tells its branch, as the local list's does; by
-          // task its card says it, and a row only where it runs in another worktree.
           tree={
             compact
               ? tree
@@ -245,7 +226,6 @@ export function PeerSessionsPanel({
           onOpenSession={open}
         />
       );
-      // Renamed and closed as it is controlled: a chat with the chats, a terminal with the terminals.
       const controls = peerServes(
         device,
         session.kind === "terminal" ? "terminal.control" : "chat.control",
@@ -327,11 +307,9 @@ export function PeerSessionsPanel({
 type RenderSession = (
   session: RemoteSession,
   tree: Parameters<Parameters<typeof RemoteSessionBranch>[0]["renderRow"]>[1],
-  /** In one line, as the task view's rows are. */
   compact?: boolean,
 ) => ReactNode;
 
-/** By state, under the local list's group headings; the folds are the local list's. */
 function PeerStatusView({
   device,
   list,
@@ -350,83 +328,59 @@ function PeerStatusView({
   const familyFolds = useAgentViewStore((s) => s.folded);
   const searching = query.trim() !== "";
   const { groups } = statusGroups([], [{ peer: device, list }], query, () => false);
-  if (groups.every(({ rows }) => rows.length === 0)) {
-    return (
-      <p className="p-4 text-app-ui-sm text-muted-foreground">
-        {searching ? t("agentList.list.no_match") : t("agentList.none")}
-      </p>
-    );
-  }
   return (
-    <div className="flex flex-col gap-3 p-2" data-testid="peer-agent-list-status-view">
-      {groups.map(({ group, rows }) => {
-        const label = t(`agentList.group.${group}`);
+    <StatusSections
+      searching={searching}
+      empty={<ListNote>{searching ? t("agentList.list.no_match") : t("agentList.none")}</ListNote>}
+      testId="peer-agent-list-status-view"
+      sections={groups.map(({ group, rows }) => {
         const remoteRows = rows.flatMap((row) => (row.kind === "remote" ? [row] : []));
-        if (remoteRows.length === 0) {
-          // A search tells only what it found.
-          if (searching) return null;
-          return (
-            <section key={group} aria-label={label}>
-              <StatusGroupHeading group={group} count={0} folded={false} />
-            </section>
-          );
-        }
-        // A search shows what it found, folded groups too.
-        const folded = !searching && folds.has(group);
-        return (
-          <section key={group} aria-label={label} className="flex flex-col gap-1">
-            <StatusGroupHeading
-              group={group}
-              count={remoteRows.length}
-              folded={folded}
-              onMarkRead={
-                group === "done"
-                  ? () =>
-                      results.markSeen(
-                        remoteRows.flatMap((row) =>
-                          [...treeSessions([row.node])].flatMap((member) => {
-                            const session = row.byKey.get(member.key);
-                            return session
-                              ? [
-                                  {
-                                    deviceId: device.id,
-                                    session,
-                                    hostReceipts: peerServes(device, "sessions.markSeen"),
-                                  },
-                                ]
-                              : [];
-                          }),
-                        ),
-                      )
-                  : undefined
-              }
-            />
-            {!folded &&
-              remoteRows.map((row) => (
-                <RemoteSessionBranch
-                  key={row.node.session.key}
-                  root={row.node}
-                  folded={familyFolds}
-                  searching={searching}
-                  groupIdle
-                  workspaceOf={(id) => row.workspaces.get(id)}
-                  renderRow={(node, tree) => {
-                    const session = row.byKey.get(node.session.key);
-                    return session ? renderSession(session, tree) : null;
-                  }}
-                />
-              ))}
-          </section>
-        );
+        return {
+          group,
+          count: remoteRows.length,
+          folded: !searching && folds.has(group),
+          onToggle: () => useUIStore.getState().toggleAgentListGroup(group),
+          onMarkRead:
+            group === "done"
+              ? () =>
+                  results.markSeen(
+                    remoteRows.flatMap((row) =>
+                      [...treeSessions([row.node])].flatMap((member) => {
+                        const session = row.byKey.get(member.key);
+                        return session
+                          ? [
+                              {
+                                deviceId: device.id,
+                                session,
+                                hostReceipts: peerServes(device, "sessions.markSeen"),
+                              },
+                            ]
+                          : [];
+                      }),
+                    ),
+                  )
+              : undefined,
+          body: () =>
+            remoteRows.map((row) => (
+              <RemoteSessionBranch
+                key={row.node.session.key}
+                root={row.node}
+                folded={familyFolds}
+                searching={searching}
+                groupIdle
+                workspaceOf={(id) => row.workspaces.get(id)}
+                renderRow={(node, tree) => {
+                  const session = row.byKey.get(node.session.key);
+                  return session ? renderSession(session, tree) : null;
+                }}
+              />
+            )),
+        };
       })}
-    </div>
+    />
   );
 }
 
-/**
- * By task: the workspace, then each of its tasks, headed by its name or
- * branch and its uncommitted changes, as the local list's task view.
- */
 function PeerTaskView({
   device,
   peer,
@@ -437,7 +391,6 @@ function PeerTaskView({
   onShowChanges,
 }: {
   device: RoomPeer;
-  /** That computer while it is in reach. */
   peer?: RoomPeer;
   list: { workspaces: RemoteWorkspace[]; sessions: RemoteSession[] };
   query: string;
@@ -445,8 +398,6 @@ function PeerTaskView({
   onOpenSession: (opened: RemoteTarget) => void;
   onShowChanges: (workspace: RemoteWorkspace, file?: PeerGitFile) => void;
 }) {
-  const { t } = useTranslation();
-  // Unfolded worktrees are kept with the local list's, under the peer workspace's own id.
   const unfolded = useUIStore((s) => s.agentListUnfoldedTasks);
   const familyFolds = useAgentViewStore((s) => s.folded);
   const needle = query.trim().toLowerCase();
@@ -463,30 +414,23 @@ function PeerTaskView({
     rootsOf.set(at, [...(rootsOf.get(at) ?? []), root]);
   }
   const workspaceOf = (id: string) => list.workspaces.find((workspace) => workspace.id === id);
-  // Empty worktrees can still be found by name.
   const shown = list.workspaces.filter(
     (workspace) =>
       !searching ||
       rootsOf.has(workspace.id) ||
-      worktreeName(workspace).toLowerCase().includes(needle),
+      peerWorktreeName(workspace).toLowerCase().includes(needle),
   );
-  if (shown.length === 0) {
-    return (
-      <p className="p-4 text-app-ui-sm text-muted-foreground">{t("agentList.list.no_match")}</p>
-    );
-  }
   return (
-    <div className="flex flex-col gap-3 p-2" data-testid="peer-agent-list-task-view">
-      {shown.map((workspace) => {
+    <TaskSections
+      testId="peer-agent-list-task-view"
+      sections={shown.map((workspace) => {
         const here = rootsOf.get(workspace.id) ?? [];
         const foldId = peerWorkspaceId(device.id, workspace.id);
         const open = unfolded.has(foldId);
-        return (
-          <section
-            key={workspace.id}
-            aria-label={worktreeName(workspace)}
-            className="overflow-hidden rounded-(--radius-raised) border border-border"
-          >
+        return {
+          key: workspace.id,
+          name: peerWorktreeName(workspace),
+          header: (
             <PeerTaskHeading
               workspace={workspace}
               peer={peer}
@@ -495,57 +439,44 @@ function PeerTaskView({
               onOpenSession={onOpenSession}
               onShowChanges={() => onShowChanges(workspace)}
             />
-            {open && (
-              <PeerTaskInfo
-                deviceId={device.id}
-                workspace={workspace}
-                canRead={peerServes(peer, "git")}
-                onOpenFile={(file) => onShowChanges(workspace, file)}
-                onShowChanges={() => onShowChanges(workspace)}
-              />
-            )}
-            {here.length === 0 && (
-              <p className="border-t border-border px-3 py-1.5 text-app-ui-sm text-muted-foreground">
-                {t("agentList.task.no_conversations")}
-              </p>
-            )}
-            {here.map((root) => (
-              <RemoteSessionBranch
-                key={root.session.key}
-                root={root}
-                folded={familyFolds}
-                searching={searching}
-                workspaceOf={workspaceOf}
-                renderRow={(node, tree) => {
-                  const session = byKey.get(node.session.key);
-                  return session ? (
-                    <div className="border-t border-border">
-                      {renderSession(session, tree, true)}
-                    </div>
-                  ) : null;
-                }}
-              />
-            ))}
-          </section>
-        );
+          ),
+          info: open && (
+            <PeerTaskInfo
+              deviceId={device.id}
+              workspace={workspace}
+              canRead={peerServes(peer, "git")}
+              onOpenFile={(file) => onShowChanges(workspace, file)}
+              onShowChanges={() => onShowChanges(workspace)}
+            />
+          ),
+          empty: here.length === 0,
+          rows: here.map((root) => (
+            <RemoteSessionBranch
+              key={root.session.key}
+              root={root}
+              folded={familyFolds}
+              searching={searching}
+              workspaceOf={workspaceOf}
+              renderRow={(node, tree) => {
+                const session = byKey.get(node.session.key);
+                return session ? (
+                  <div className="border-t border-border">{renderSession(session, tree, true)}</div>
+                ) : null;
+              }}
+            />
+          )),
+        };
       })}
-    </div>
+    />
   );
 }
 
-/** A worktree's name: the workspace's own, or a task's branch. */
-function worktreeName(workspace: RemoteWorkspace): string {
+function peerWorktreeName(workspace: RemoteWorkspace): string {
   return remoteDisplayName(
-    workspace.parentId === undefined ? workspace.name : (workspace.git?.branch ?? workspace.name),
+    worktreeName(workspace.name, workspace.parentId === undefined, workspace.git?.branch),
   );
 }
 
-/**
- * A worktree's header, the local list's: its name, branch and uncommitted
- * changes, folding its facts open or shut. Under the pointer it offers what
- * can be done there from here: its changes, a terminal and a conversation
- * where that computer lets this one control them, and its folder's path.
- */
 function PeerTaskHeading({
   workspace,
   peer,
@@ -555,7 +486,6 @@ function PeerTaskHeading({
   onShowChanges,
 }: {
   workspace: RemoteWorkspace;
-  /** That computer while it is in reach. */
   peer?: RoomPeer;
   unfolded: boolean;
   onToggle: () => void;
@@ -563,7 +493,6 @@ function PeerTaskHeading({
   onShowChanges: () => void;
 }) {
   const { t } = useTranslation();
-  // Its actions stay while their menu is open, which takes the pointer and the keyboard.
   const [menuOpen, setMenuOpen] = useState(false);
   const branch = workspace.git?.branch;
   const where: PeerWorkspaceRef | undefined = peer && {
@@ -575,7 +504,7 @@ function PeerTaskHeading({
   };
   return (
     <TaskHeaderLine
-      name={worktreeName(workspace)}
+      name={peerWorktreeName(workspace)}
       isRoot={workspace.parentId === undefined}
       branch={branch ? remoteDisplayName(branch) : undefined}
       changed={workspace.git?.uncommitted ?? 0}
@@ -610,8 +539,7 @@ function PeerTaskHeading({
                 size="icon-sm"
                 variant="ghost"
                 className="size-6"
-                title={t("agentList.task.more")}
-                aria-label={t("agentList.task.more")}
+                tooltip={t("agentList.task.more")}
               >
                 <Ellipsis aria-hidden className="size-3.5" />
               </Button>
@@ -628,19 +556,12 @@ function PeerTaskHeading({
   );
 }
 
-/**
- * A new conversation there, as the local list's: [+] with the default agent
- * (Settings' "Default agent"; Claude when that is a terminal), and the menu
- * of either agent with the profiles there. Only where that computer lets
- * this one control its chats.
- */
 function PeerNewChat({
   peer,
   workspace,
   onOpenSession,
 }: {
   peer: RoomPeer;
-  /** The workspace its tasks are of: where the local list starts one too. */
   workspace: RemoteWorkspace;
   onOpenSession: (opened: RemoteTarget) => void;
 }) {
@@ -661,8 +582,7 @@ function PeerNewChat({
       <Button
         size="icon-sm"
         className="w-auto gap-1 rounded-r-none px-2 @max-[200px]/agents:px-1.5"
-        title={label}
-        aria-label={label}
+        tooltip={label}
         onClick={() => void newPeerChat(where, agent, undefined, onOpenSession)}
         data-testid="peer-agent-list-new-chat"
         data-agent={agent}
@@ -679,8 +599,7 @@ function PeerNewChat({
           <Button
             size="icon-sm"
             className="w-6 rounded-l-none border-l border-primary-foreground/25"
-            aria-label={t("agentList.list.new_chat")}
-            title={t("agentList.list.new_chat")}
+            tooltip={t("agentList.list.new_chat")}
           >
             <ChevronDown aria-hidden className="size-3.5" />
           </Button>

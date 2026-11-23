@@ -5,7 +5,6 @@ import { runFsCall } from "./fs-result";
 
 const c = ipcContract.fs.call;
 
-/** Registers a directory watch and returns any expected failure in the call envelope. */
 export function watchHandler(watcher: AgentFsWatcher) {
   return (args: unknown, ctx?: CallContext) => {
     const { workspaceId, relPath, panel } = validateArgs(c.watch.args, args);
@@ -13,7 +12,6 @@ export function watchHandler(watcher: AgentFsWatcher) {
   };
 }
 
-/** Removes a directory watch through the same call contract. */
 export function unwatchHandler(watcher: AgentFsWatcher) {
   return (args: unknown, ctx?: CallContext) => {
     const { workspaceId, relPath, panel } = validateArgs(c.unwatch.args, args);

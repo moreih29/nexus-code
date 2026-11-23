@@ -1,5 +1,3 @@
-// The agentProfiles IPC channel: Settings' view of the profiles on this machine.
-
 import os from "node:os";
 import { shell } from "electron";
 import {
@@ -50,7 +48,7 @@ export function registerAgentProfilesChannel(
     try {
       baseUrl = normalizeConnectionUrl(probe.agent, probe.baseUrl);
     } catch {
-      return undefined; // Let the probe return its structured address error.
+      return undefined;
     }
     const saved = findProfile(state, probe.profileId);
     if (saved?.agent !== probe.agent) return undefined;

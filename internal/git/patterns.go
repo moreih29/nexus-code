@@ -2,10 +2,8 @@ package git
 
 import "regexp"
 
-// stderrPatterns holds the compiled regex catalog for one GitErrorKind.
 type stderrPatterns []*regexp.Regexp
 
-// mustCompileStderrPatterns compiles a Git stderr regex group at package init.
 func mustCompileStderrPatterns(patterns ...string) stderrPatterns {
 	compiled := make(stderrPatterns, 0, len(patterns))
 	for _, pattern := range patterns {
@@ -14,7 +12,6 @@ func mustCompileStderrPatterns(patterns ...string) stderrPatterns {
 	return compiled
 }
 
-// Matches reports whether any regex in the catalog group matches stderr.
 func (patterns stderrPatterns) Matches(stderr string) bool {
 	for _, pattern := range patterns {
 		if pattern.MatchString(stderr) {

@@ -15,30 +15,19 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// ---------------------------------------------------------------------------
-// git.info — system git binary path and version
-// ---------------------------------------------------------------------------
-
-// InfoResult carries the resolved git binary path and version string.
 type InfoResult struct {
 	BinaryPath    string `json:"binaryPath"`
 	BinaryVersion string `json:"binaryVersion"`
 }
 
-// Info resolves the system git binary path and version and returns them.
-// Returns null (nil, nil) when git is absent — the TS side maps nil to null.
 func (s *Service) Info(ctx context.Context, raw json.RawMessage) (any, error) {
 	path, version, err := resolveSystemGit(ctx)
 	if err != nil || path == "" {
-		// Absent git is not a protocol error — return null so TS maps it to null.
 		return nil, nil
 	}
 	return InfoResult{BinaryPath: path, BinaryVersion: version}, nil
 }
 
-// resolveSystemGit locates the git binary on PATH, or on Windows in its
-// install location, and returns its path and version string. Returns
-// ("", "", nil) when git cannot be found.
 func resolveSystemGit(ctx context.Context) (string, string, error) {
 	candidates := gitCandidates()
 	for _, candidate := range candidates {
@@ -50,7 +39,6 @@ func resolveSystemGit(ctx context.Context) (string, string, error) {
 	return "", "", nil
 }
 
-// gitCandidates returns a de-duplicated ordered list of paths to probe.
 func gitCandidates() []string {
 	seen := make(map[string]struct{})
 	var out []string
@@ -66,17 +54,14 @@ func gitCandidates() []string {
 		out = append(out, p)
 	}
 
-	// Prefer PATH-located git first.
 	if found, err := exec.LookPath("git"); err == nil {
 		add(found)
 	}
 
-	// Windows fallback: Git's own install locations.
 	for _, p := range gitInstallPaths(runtime.GOOS, os.Getenv) {
 		add(p)
 	}
 
-	// Unix fallback.
 	if runtime.GOOS != "windows" {
 		add("/usr/bin/git")
 	}
@@ -84,8 +69,6 @@ func gitCandidates() []string {
 	return out
 }
 
-// inspectGitCandidate runs `git --version` on the candidate and parses the
-// output. Returns ("", "", false) when the candidate fails.
 func inspectGitCandidate(ctx context.Context, candidate string) (string, string, bool) {
 	abs, err := filepath.Abs(candidate)
 	if err != nil {
@@ -108,10 +91,8 @@ func inspectGitCandidate(ctx context.Context, candidate string) (string, string,
 	return abs, version, true
 }
 
-// parseGitVersionOutput extracts the version token from `git --version` output.
 func parseGitVersionOutput(output string) string {
 	line := strings.TrimSpace(output)
-	// Take only the first line in case of multi-line output.
 	if idx := strings.IndexAny(line, "\r\n"); idx >= 0 {
 		line = line[:idx]
 	}
@@ -123,29 +104,16 @@ func parseGitVersionOutput(output string) string {
 	return version
 }
 
-// ---------------------------------------------------------------------------
-// git.detect — repository detection for a workspace root
-// ---------------------------------------------------------------------------
-
-// DetectParams carries the workspace directory to probe.
 type DetectParams struct {
 	Cwd string `json:"cwd"`
 }
 
-// DetectResult mirrors src/shared/types/git.ts RepoInfoSchema for the repo case.
-// Non-repo and error cases return the non-repo variant; a host without git
-// returns the git-missing variant.
 type DetectResult struct {
 	Kind     string `json:"kind"`
 	TopLevel string `json:"topLevel,omitempty"`
 	GitDir   string `json:"gitDir,omitempty"`
 }
 
-// Detect runs `git rev-parse --show-toplevel --git-dir` in the given cwd and
-// returns a RepoInfo-compatible object, its paths in cwd's path space (see
-// logicalTopLevel). Non-repository directories return { kind: "non-repo" }
-// rather than an error, and a host with no git on the PATH returns
-// { kind: "git-missing" }, so the app can say to install it.
 func (s *Service) Detect(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p DetectParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil || strings.TrimSpace(p.Cwd) == "" {
@@ -157,7 +125,6 @@ func (s *Service) Detect(ctx context.Context, raw json.RawMessage) (any, error) 
 		return DetectResult{Kind: "git-missing"}, nil
 	}
 	if err != nil {
-		// Any git error (including "not a git repository") maps to non-repo.
 		return DetectResult{Kind: "non-repo"}, nil
 	}
 
@@ -168,9 +135,6 @@ func (s *Service) Detect(ctx context.Context, raw json.RawMessage) (any, error) 
 	}, nil
 }
 
-// runRevParse executes `git rev-parse --show-toplevel --git-dir --show-cdup`
-// in cwd. Returns the absolute toplevel and gitdir paths on success, reached
-// from cwd by the path cwd was given in (see logicalTopLevel).
 func runRevParse(ctx context.Context, cwd string) (topLevel, gitDir string, err error) {
 	cmd := exec.CommandContext(ctx, gitBinary(), "rev-parse", "--show-toplevel", "--git-dir", "--show-cdup")
 	cmd.Dir = cwd
@@ -205,8 +169,6 @@ func runRevParse(ctx context.Context, cwd string) (topLevel, gitDir string, err 
 		}
 	}
 
-	// --show-cdup prints an empty line at the top level, which the trailing
-	// newline trim drops.
 	cdup := ""
 	if len(lines) > 2 {
 		cdup = lines[2]
@@ -217,9 +179,6 @@ func runRevParse(ctx context.Context, cwd string) (topLevel, gitDir string, err 
 	return logical, rebasePath(gd, tl, logical), nil
 }
 
-// runGitProbe checks Apple's Git launcher for an active developer directory
-// before running it. On a fresh Mac starting the launcher itself can prompt
-// to install Command Line Tools. Third-party Git works independently.
 func runGitProbe(ctx context.Context, goos string, cmd *exec.Cmd, run func(*exec.Cmd) error) error {
 	if cmd.Err != nil {
 		return cmd.Err
@@ -247,15 +206,6 @@ func runGitProbe(ctx context.Context, goos string, cmd *exec.Cmd, run func(*exec
 	return run(cmd)
 }
 
-// logicalTopLevel returns the repository root git reports — with symlinks
-// resolved, so /private/tmp/repo on macOS for a workspace opened at /tmp/repo
-// — as reached from cwd by the path cwd was given in: /tmp/repo. Workspace
-// file paths are built from that path, so a root that spells it differently
-// can neither be stripped from nor joined onto them. cdup is
-// `git rev-parse --show-cdup` run in cwd.
-//
-// Falls back to git's root when walking up from cwd does not land on the same
-// directory, as for a workspace that is a symlink into the middle of a tree.
 func logicalTopLevel(cwd, cdup, topLevel string) string {
 	if !filepath.IsAbs(cwd) {
 		return topLevel
@@ -275,8 +225,6 @@ func logicalTopLevel(cwd, cdup, topLevel string) string {
 	return candidate
 }
 
-// rebasePath moves path from under root `from` to the same place under `to`.
-// Paths outside `from` are returned unchanged.
 func rebasePath(path, from, to string) string {
 	rel, err := filepath.Rel(from, path)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
@@ -285,11 +233,7 @@ func rebasePath(path, from, to string) string {
 	return filepath.Join(to, rel)
 }
 
-// parseRevParseLines splits the two-line rev-parse output, stripping the
-// trailing newline that git always appends. Each line is also stripped of
-// any trailing carriage return so Windows CRLF output is handled correctly.
 func parseRevParseLines(output string) []string {
-	// Strip trailing newlines before splitting.
 	output = strings.TrimRight(output, "\r\n")
 	parts := strings.Split(output, "\n")
 	for i, p := range parts {
@@ -298,9 +242,6 @@ func parseRevParseLines(output string) []string {
 	return parts
 }
 
-// normalizeDetectedPath converts a possibly-relative git path to an absolute
-// path anchored at cwd. Git emits relative paths for some repo shapes (e.g.
-// bare repos or nested worktrees).
 func normalizeDetectedPath(cwd, value string) string {
 	value = strings.TrimRight(value, "\r")
 	if filepath.IsAbs(value) {

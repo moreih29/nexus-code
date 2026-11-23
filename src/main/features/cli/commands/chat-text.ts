@@ -1,4 +1,3 @@
-/** How chat commands put a Claude or Codex tab into words, this computer's or another's. */
 import type { CliChatChoices, CliChatInfo } from "../../../../shared/cli/ui";
 import { CHAT_MODES } from "../../../../shared/sessions/chat-modes";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
@@ -9,7 +8,6 @@ export const AGENT_NAMES: Readonly<Record<ChatAgent, string>> = {
   codex: "Codex",
 };
 
-/** How a tab stands, in a sentence. */
 export function chatStateText(
   tab: { readonly title: string },
   info: Pick<CliChatInfo, "agent" | "state" | "message" | "failure" | "limitResume">,
@@ -34,7 +32,6 @@ export function chatStateText(
   }
 }
 
-/** What a turn that failed on the API needs, and what the app does about it, in a line. */
 export function failureText(
   info: Pick<CliChatInfo, "failure" | "limitResume">,
   now: number = Date.now(),
@@ -71,7 +68,6 @@ export function failureText(
   }
 }
 
-/** What a tab runs with, and what it takes, as chat set prints it. */
 export function choicesText(tab: { readonly title: string }, choices: CliChatChoices): string {
   const lines = [
     `${AGENT_NAMES[choices.agent]} in ${tab.title}:`,
@@ -81,7 +77,6 @@ export function choicesText(tab: { readonly title: string }, choices: CliChatCho
   ];
   if (choices.models.length > 0) {
     const width = Math.max(...choices.models.map((m) => m.value.length));
-    // A model's name, when it says more than its value.
     const named = (m: { value: string; name: string }) =>
       m.name.toLowerCase() === m.value.toLowerCase()
         ? m.value

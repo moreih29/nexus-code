@@ -1,12 +1,3 @@
-// Binary agent is the workspace-bound Go process that the
-// Electron main reaches over a per-workspace NDJSON channel
-// (stdin/stdout in production; SSH-tunneled stdio for remote workspaces).
-//
-// This entry file is intentionally thin: it parses the workspace root
-// from argv, builds the fs registry, hands off to stdioserver, and
-// emits the boot Ready frame. Everything past that — request scanning,
-// goroutine dispatch, response serialization, signal handling — lives
-// in internal/stdioserver so this file stays at a glance-readable size.
 package main
 
 import (
@@ -14,9 +5,11 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/nexus-code/nexus-code/internal/agentpaths"
 	"github.com/nexus-code/nexus-code/internal/agentrun"
 	agentchat "github.com/nexus-code/nexus-code/internal/chat"
 	"github.com/nexus-code/nexus-code/internal/cliclient"
@@ -35,38 +28,27 @@ import (
 )
 
 func main() {
-	// What the agent was started with stays with it: on Linux it brings
-	// along Chromium's descriptors, which would reach every terminal.
 	inheritfd.CloseOnExec()
 	if code, handled := hookclient.PrintChildHelper(os.Args[1:]); handled {
 		os.Exit(code)
 	}
 
-	// hook 서브커맨드 분기 — PTY/FS/Git/LSP 서비스 init 전에 처리해 빠른 시작을 보장한다.
-	// Claude Code는 hook 이벤트 발생 시 `agent hook <subcommand>` 형태로 호출한다.
 	if len(os.Args) >= 2 && os.Args[1] == "hook" {
 		os.Exit(hookclient.Run(os.Args[2:]))
 	}
 
-	// A `claude -p` run inside a tab's Claude session runs under
-	// `agent print-run <claude> <args>` (claude-wrapper.sh).
 	if len(os.Args) >= 2 && os.Args[1] == "print-run" {
 		os.Exit(hookclient.RunPrint(os.Args[2:]))
 	}
 
-	// A `codex exec` run inside a tab's Claude session runs under
-	// `agent exec-run <codex> <args>` (the codex wrapper).
 	if len(os.Args) >= 2 && os.Args[1] == "exec-run" {
 		os.Exit(hookclient.RunCodexExec(os.Args[2:]))
 	}
 
-	// The nexus command in the app's terminals runs `agent cli <args>`.
 	if len(os.Args) >= 2 && os.Args[1] == "cli" {
 		os.Exit(cliclient.Run(os.Args[2:]))
 	}
 
-	// In the MSIX package, git starts the app as its commit message editor
-	// through this, since only the agent has an alias that git can run.
 	if len(os.Args) >= 2 && os.Args[1] == "package-run" {
 		os.Exit(runPackageProgram(os.Args[2:]))
 	}
@@ -75,23 +57,15 @@ func main() {
 		os.Exit(code)
 	}
 
-	// agentLogger writes structured JSON to stderr. Every record carries the
-	// fixed marker attribute "src":"agent-log" so that the parent process
-	// (pipe.ts) can distinguish these structured lines from panic output and
-	// classifier text that also arrive on the same stderr stream.
 	agentLogger := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("src", "agent-log")
 
 	args := parseRunArgs(os.Args)
 
-	// --daemon <root>: start as a background daemon (setsid, flock, unix socket).
-	// This path never returns — the daemon serves dialers until the reattach
-	// grace period expires or SIGTERM arrives.
 	if args.daemonRoot != "" {
 		runDaemon(args.daemonRoot)
-		return // unreachable; runDaemon calls os.Exit
+		return
 	}
 
-	// Resolve the socket on the host using the same paths as the daemon.
 	if args.dialRoot != "" {
 		paths, err := agentrun.For(args.dialRoot, proto.ServerVersion)
 		if err == nil {
@@ -105,23 +79,18 @@ func main() {
 		return
 	}
 
-	// --dial <sock>: relay stdin/stdout to an existing daemon's Unix socket.
-	// This is the SSH exec command that replaces the direct agent invocation
-	// once a daemon is running on the remote host.
 	if args.dialSock != "" {
 		runDialer(args.dialSock)
-		return // unreachable; runDialer calls os.Exit
+		return
 	}
 
-	// Local stdio mode (no --daemon / --dial flags): the classical agent
-	// path where the Electron main process forks the agent directly with
-	// stdin/stdout connected.
 	if args.root == "" {
 		agentLogger.Error("Usage: agent [--idle-watchdog] <rootPath>")
 		os.Exit(2)
 	}
 	root := args.root
 	idleWatchdog := args.idleWatchdog
+	endOrphanedPrograms(root, agentLogger)
 
 	fsys, err := agentfs.New(root)
 	if err != nil {
@@ -138,8 +107,6 @@ func main() {
 		os.Exit(2)
 	}
 
-	// hookserver를 시작한다. 실패(소켓 경로 초과 등)하면 경고만 로그하고
-	// hook 비활성화 모드로 계속 운영한다 — agent 기본 기능은 영향 없음.
 	var hooksrv *hookserver.Server
 	if hs, err := hookserver.New(hookserver.AgentKey(root), nil); err != nil {
 		agentLogger.Warn("hookserver unavailable", "err", err)
@@ -159,21 +126,12 @@ func main() {
 		hookserver.Register(d, hooksrv)
 	}
 
-	// hook.getInfo — pull 기반 RPC. TS 클라이언트가 ready 이후 언제든 호출해
-	// hookserver의 소켓 경로와 토큰을 얻는다. push 이벤트 방식 대신 이 pull
-	// 방식을 사용하면 listener 등록 시점 race가 발생하지 않는다.
-	// hooksrv가 nil이면 newHookGetInfoHandler(nil)로 전달해야 인터페이스 nil
-	// 비교가 올바르게 동작한다(*T → interface 변환 시 nil 포인터는 non-nil 인터페이스).
 	var hookProvider hookInfoProvider
 	if hooksrv != nil {
 		hookProvider = hooksrv
 	}
 	d.Register("hook.getInfo", newHookGetInfoHandler(hookProvider))
 
-	// ping — client keepalive. The TS client calls this periodically so the
-	// idle watchdog (StartIdleWatchdog below) can tell a live-but-idle session
-	// from a vanished client. The handler is a no-op; merely receiving the line
-	// resets the agent's lastInbound timestamp.
 	d.Register("ping", func(_ context.Context, _ json.RawMessage) (any, error) {
 		return struct{}{}, nil
 	})
@@ -186,12 +144,8 @@ func main() {
 	chat.SetConnectionSink(host.Context(), host.EmitEvent)
 	search.SetEventSink(host.EmitEvent)
 	if hooksrv != nil {
-		// hookserver의 EventSink를 host가 생성된 뒤 연결한다.
-		// 다른 서비스(fs/git/pty)의 SetEventSink와 같은 패턴.
 		hooksrv.SetEventSink(host.EmitEvent)
 	}
-	// Every stdio exit path ends at os.Exit. Start independent cleanup in
-	// parallel so a slow watcher or shell cannot keep other children alive.
 	host.RegisterShutdownHook(func() {
 		var cleanup sync.WaitGroup
 		for _, closeService := range []func(){pty.Close, chat.Close, lsp.Close, fsys.Close, git.Close} {
@@ -204,33 +158,15 @@ func main() {
 		cleanup.Wait()
 	})
 	if hooksrv != nil {
-		// SIGTERM 경로는 os.Exit가 defer를 우회하므로 shutdown hook으로 등록한다.
-		// hookserver는 /tmp/nexus-h-*.sock 파일을 생성하므로 정리하지 않으면
-		// 재부팅 시 다른 pid → 다른 경로가 되어 orphan 소켓이 누적된다.
-		// 정상 EOF 종료에서도 동일 경로로 실행되므로 defer는 제거하고 hook 일원화한다.
 		host.RegisterShutdownHook(func() { _ = hooksrv.Close() })
 	}
 	host.InstallSigtermHandler()
 
-	// Idle watchdog limit. Advertised to the client in the Ready frame so it
-	// pings every limit/6; only enabled for SSH (idleWatchdog flag), where a
-	// vanished client may leave the connection lingering without stdin EOF. 0
-	// when disabled — the client reads that as "do not ping".
-	//
-	// The limit is 300 s, matching the daemon reattach grace period (issue 1
-	// decision): in direct SSH mode (no daemon) this still reaps a stuck session,
-	// just with the same fuse as the daemon so behaviour is consistent.
 	idleWatchdogMs := 0
 	if idleWatchdog {
 		idleWatchdogMs = int((300 * time.Second) / time.Millisecond)
 	}
 
-	// Ready frame must reach the client before any other output so the
-	// channel handshake on the TS side can settle. A write failure here
-	// is unrecoverable — without a Ready, the client will time out.
-	// methods 목록과 heartbeat 판정 기준(5s), idle watchdog 한도를 함께 전달해
-	// 클라이언트가 pull 기반 hook.getInfo 호출과 keepalive ping을 결정하도록 한다.
-	// The local stdio agent advertises features without a reattach epoch.
 	if err := host.WriteFrame(
 		proto.Ready(d.Methods(), proto.HeartbeatAdvertiseMs, idleWatchdogMs, 0, []string{agentchat.RunCapability}),
 	); err != nil {
@@ -238,18 +174,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Heartbeat 송신은 광고한 판정 기준(5s)보다 짧은 4s 간격 — 도착 지터에
-	// ~1s 마진을 줘서 클라이언트의 degraded(1-miss) 체크가 경계에 걸리지
-	// 않게 한다. 근거는 proto.HeartbeatSendMs 주석 참조. ctx 취소(드레인)
-	// 시 자동 정지한다.
 	host.StartHeartbeat(proto.HeartbeatSendMs * time.Millisecond)
 
-	// Idle watchdog (SSH only): self-terminate if the client sends nothing for
-	// the limit. The client pings every limit/6 (derived from the advertised
-	// idleWatchdogMs in pipe.ts), so a healthy idle session resets the timer ~6×
-	// per window; only a vanished client (half-open TCP, hung process, sleep)
-	// with no stdin EOF trips it, preventing an orphaned remote agent from
-	// holding its binary. Disabled locally, where parent death arrives as EOF.
 	if idleWatchdog {
 		host.StartIdleWatchdog(300 * time.Second)
 	}
@@ -257,18 +183,12 @@ func main() {
 	host.Run()
 }
 
-// hookInfoProvider 는 hook.getInfo handler가 hookserver에서 필요한 메서드만
-// 추상화한 인터페이스다. *hookserver.Server가 이를 구현하며, 테스트에서는
-// 독립적인 fake 구현으로 대체할 수 있다.
 type hookInfoProvider interface {
 	WaitReady(ctx context.Context) error
 	SocketPath() string
 	Token() string
 }
 
-// newHookGetInfoHandler 는 hook.getInfo dispatch handler를 반환한다.
-// hs가 nil이면 즉시 CodeUnavailable 에러를 반환하는 핸들러를 반환한다.
-// 정상 시 5초 timeout으로 WaitReady를 기다린 후 socketPath + token을 반환한다.
 func newHookGetInfoHandler(hs hookInfoProvider) dispatch.Handler {
 	return func(ctx context.Context, _ json.RawMessage) (any, error) {
 		if hs == nil {
@@ -279,55 +199,22 @@ func newHookGetInfoHandler(hs hookInfoProvider) dispatch.Handler {
 		if err := hs.WaitReady(waitCtx); err != nil {
 			return nil, proto.NewError(proto.CodeUnavailable, "hookserver not ready: "+err.Error())
 		}
-		// The daemon's 0600 socket trusts this user, whose processes can
-		// already read the user's files. The master hook token can be returned
-		// over that connection without a separate connection token.
 		return map[string]any{
 			"socketPath": hs.SocketPath(),
 			"token":      hs.Token(),
-			// Tabs are started with their own tokens (hookserver.TabToken).
-			"tabTokens": true,
+			"tabTokens":  true,
 		}, nil
 	}
 }
 
-// runArgs holds the parsed result of parseRunArgs.
 type runArgs struct {
-	// root is the workspace root path for local stdio mode.
-	// Non-empty only when neither --daemon nor --dial is present.
-	root string
-	// idleWatchdog enables the idle watchdog in local stdio mode.
-	// Ignored in --daemon and --dial modes.
+	root         string
 	idleWatchdog bool
-	// daemonRoot is the workspace root for `--daemon <root>` mode.
-	// Non-empty triggers the daemon execution path.
-	daemonRoot string
-	// dialSock is the Unix socket path for `--dial <sock>` mode.
-	// Non-empty triggers the dialer execution path.
-	dialSock string
-	// dialRoot is the workspace root for `--dial-workspace <root>` mode.
-	dialRoot string
+	daemonRoot   string
+	dialSock     string
+	dialRoot     string
 }
 
-// parseRunArgs extracts the workspace root and option flags from argv for the
-// long-lived agent (after the hook/askpass subcommands have been ruled out).
-// The recognised modes are:
-//
-//   - Local stdio (default): first non-flag positional is the root.
-//     --idle-watchdog enables self-termination when the client vanishes.
-//
-//   - Daemon: --daemon <rootPath> starts a background daemon (setsid + flock +
-//     Unix socket). Only the SSH remote launch path uses this.
-//
-//   - Dialer: --dial <sockPath> connects to an existing daemon's Unix socket
-//     and relays stdin/stdout. The SSH exec command uses this instead of
-//     launching the agent directly once a daemon is running.
-//
-// --idle-watchdog is set only by the SSH remote launch command
-// (buildRemoteAgentCommand in ssh-bootstrap), never by the local launch. It is
-// what gates the idle watchdog so a local agent — whose parent death already
-// arrives as stdin EOF (plus Pdeathsig on Linux) — never self-terminates on a
-// transient main-thread stall or a laptop wake.
 func parseRunArgs(argv []string) runArgs {
 	var args runArgs
 	for i := 1; i < len(argv); i++ {
@@ -359,9 +246,6 @@ func parseRunArgs(argv []string) runArgs {
 	return args
 }
 
-// askpassExitFromArgv detects both the explicit `agent --askpass <socket>`
-// helper mode and the Git-compatible env mode used when GIT_ASKPASS can only
-// name an executable path.
 func askpassExitFromArgv(argv []string) (int, bool) {
 	if len(argv) >= 3 && argv[1] == "--askpass" {
 		return agentgit.RunAskpassHelper(argv[2], argv[3:], os.Stdout, os.Stderr), true
@@ -370,4 +254,22 @@ func askpassExitFromArgv(argv []string) (int, bool) {
 		return agentgit.RunAskpassHelper(socketPath, argv[1:], os.Stdout, os.Stderr), true
 	}
 	return 0, false
+}
+
+func endOrphanedPrograms(root string, logger *slog.Logger) {
+	runDir, err := agentpaths.RunDir()
+	if err != nil {
+		logger.Warn("cannot track chat programs", "err", err)
+		return
+	}
+	ended, err := agentchat.TrackOwnedPrograms(
+		filepath.Join(runDir, "programs"),
+		agentrun.WsID(root, proto.ServerVersion),
+	)
+	if len(ended) > 0 {
+		logger.Info("ended chat programs a dead agent left running", "pids", ended)
+	}
+	if err != nil {
+		logger.Warn("cannot track chat programs", "err", err)
+	}
 }

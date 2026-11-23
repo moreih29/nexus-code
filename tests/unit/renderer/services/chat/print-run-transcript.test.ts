@@ -134,10 +134,8 @@ describe("a codex run's thread, read without loading it", () => {
 
 describe("a codex run's reader kept up for its pane", () => {
   const MODEL = { items: [] } as unknown as ChatModel;
-  /** A keeper whose readers and clock are the test's. */
   function kept(running = true, reached: Array<boolean | "failed"> = []) {
     const state = { running, ups: 0, opens: 0 };
-    /** What the next opens give: a reader, or none (out of reach). */
     const reach = [...reached];
     const readers: Array<{ die(): void; closed: boolean; model: ChatModel | null }> = [];
     const waits: Array<{ run(): void; ms: number }> = [];
@@ -186,7 +184,6 @@ describe("a codex run's reader kept up for its pane", () => {
       },
     });
     const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
-    /** Lets the one wait pending run out; its length. */
     const pass = async () => {
       const wait = waits.shift();
       wait?.run();
@@ -199,7 +196,6 @@ describe("a codex run's reader kept up for its pane", () => {
   test("one that did not start is asked for again for as long as the run goes on", async () => {
     const k = kept(true, [false, false, false, false, false, true]);
     await k.settled();
-    // More times than a reader that ended is started again: not reached is not ended.
     for (let n = 0; n < 5; n += 1) expect(await k.pass()).toBe(RUN_READ_INTERVAL_MS);
     expect(k.state.opens).toBe(6);
     expect(k.state.ups).toBe(1);
@@ -220,7 +216,6 @@ describe("a codex run's reader kept up for its pane", () => {
   });
 
   test("one that was started and did not come up is started a few times only", async () => {
-    // Even while the run goes on: each is a program started and ended.
     const k = kept(true, Array(10).fill("failed"));
     await k.settled();
     let passed = 0;
@@ -236,7 +231,6 @@ describe("a codex run's reader kept up for its pane", () => {
   test("one that ended is closed and another started, counted anew after a read", async () => {
     const k = kept();
     await k.settled();
-    // Each ends after a read that gave the thread: never out of attempts.
     for (let n = 0; n < RUN_READER_ATTEMPTS + 2; n += 1) {
       expect(await k.keeper.read()).toBe(MODEL);
       k.readers[n]?.die();
@@ -245,7 +239,6 @@ describe("a codex run's reader kept up for its pane", () => {
       expect(await k.pass()).toBe(RUN_READER_AGAIN_MS);
     }
     expect(k.state.ups).toBe(RUN_READER_ATTEMPTS + 3);
-    // With no read between, a few times only: one start is spent already.
     for (;;) {
       k.readers[k.readers.length - 1]?.die();
       if (k.waits.length === 0) break;

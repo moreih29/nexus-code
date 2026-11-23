@@ -41,8 +41,7 @@
       "confirm": "Delete"
     },
     "addFailed": "Couldn't add it to the note: {{message}}",
-    "photoAdded": "A photo came in from your phone",
-    "linkHint": "Hold ⌘ or Ctrl and click to open"
+    "photoAdded": "A photo came in from your phone"
   },
   "slash": {
     "title": "Add a block",

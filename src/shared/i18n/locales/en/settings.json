@@ -5,7 +5,6 @@
     "editor": "Editor",
     "languageServers": "Language Servers",
     "terminal": "Terminal",
-    "workspaces": "Workspaces",
     "notifications": "Notifications",
     "notes": "Notes",
     "browserPermissions": "Browser Permissions",
@@ -22,7 +21,6 @@
     "close": "Close settings",
     "search": {
       "placeholder": "Search",
-      "clear": "Clear search",
       "empty": "No matches."
     },
     "nav": "Settings navigation",
@@ -293,6 +291,7 @@
       "destination": " in {{to}}",
       "deny": "Don't allow",
       "session": "Allow until restart",
+      "allow_choices": "Allow options",
       "allow": "Allow",
       "once": "Allow once",
       "timeout": "It is turned down if not answered in {{seconds}} seconds.",
@@ -352,6 +351,62 @@
         "noteRecordStop": "pause or stop the recording of the note \"{{detail}}\"",
         "sandboxExecution": "run a command outside its sandbox"
       },
+      "headline": {
+        "open": "Open {{detail}}",
+        "diff": "Open the changes of {{detail}}",
+        "commit": "Open the commit {{detail}}",
+        "terminalNew": "Open a terminal",
+        "terminalInput": "Type into the terminal \"{{detail}}\"",
+        "fileWrite": "Write \"{{detail}}\"",
+        "fileWriteTree": "Create or copy files into \"{{detail}}\"",
+        "fileMkdir": "Create the folder \"{{detail}}\"",
+        "fileRead": "Read \"{{detail}}\" outside the workspace",
+        "fileReadTree": "Read the folder tree \"{{detail}}\" outside the workspace",
+        "chatNew": "Open a {{detail}} tab",
+        "chatInput": "Send a message to the tab \"{{detail}}\"",
+        "tabClose": "Close the tab \"{{detail}}\"",
+        "tabSave": "Save the tab \"{{detail}}\"",
+        "tabRevert": "Drop the unsaved changes of the tab \"{{detail}}\"",
+        "browserOpen": "Open {{detail}} in a browser tab",
+        "browserNavigate": "Move the browser tab \"{{detail}}\"",
+        "browserControl": "Click, type or run scripts in the browser tab \"{{detail}}\"",
+        "portForward": "Start or stop forwarding port {{detail}}",
+        "layout": "Rearrange its groups ({{detail}})",
+        "groupClose": "Close group {{detail}} and its tabs",
+        "tabRename": "Rename the tab \"{{detail}}\"",
+        "tabPin": "Pin or unpin the tab \"{{detail}}\"",
+        "worktreeNew": "Create the task \"{{detail}}\"",
+        "worktreeRemove": "Delete the task and its worktree folder",
+        "worktreeRemoveBranch": "Delete the task, its worktree folder and its branch",
+        "workspaceRemove": "Remove the workspace from the app, keeping its folders",
+        "workspaceEdit": "Rename the workspace or change its color",
+        "workspacePin": "Pin or unpin the workspace",
+        "workspaceMove": "Move the workspace in the sidebar",
+        "permissionAllow": "Allow {{detail}}",
+        "permissionDeny": "Deny {{detail}}",
+        "chatInterrupt": "Stop the turn of the tab \"{{detail}}\"",
+        "chatSettings": "Change the model, effort or mode of the tab \"{{detail}}\"",
+        "instructionsEdit": "Change instructions for {{detail}}",
+        "chatMode": "Change the permission mode of the tab {{detail}}",
+        "chatProfile": "Change the profile of the tab {{detail}}, going on with its conversation",
+        "chatProfileNew": "Change the profile of the tab {{detail}}, starting a new conversation",
+        "profileAdd": "Add the agent profile \"{{detail}}\"",
+        "chatRewind": "Rewind the tab {{detail}} to before that message",
+        "chatRewindFiles": "Rewind the tab {{detail}} and its files to before that message",
+        "chatFork": "Copy the conversation of the tab \"{{detail}}\" into a new tab",
+        "chatBackground": "Send {{detail}} to the background",
+        "chatTaskStop": "Stop the task {{detail}}",
+        "chatRemoteControlToggle": "Toggle Remote Control for \"{{detail}}\"",
+        "chatRemoteControlOn": "Turn on Remote Control of the tab \"{{detail}}\"",
+        "chatRemoteControlOff": "Turn off Remote Control of the tab \"{{detail}}\"",
+        "noteNew": "Make the note \"{{detail}}\"",
+        "noteWrite": "Write into the note \"{{detail}}\"",
+        "noteSpeakers": "Edit speakers in the note \"{{detail}}\"",
+        "voiceNamesDelete": "Delete remembered voiceprints ({{detail}})",
+        "noteRecord": "Record into the note \"{{detail}}\" with the microphone",
+        "noteRecordStop": "Pause or stop the recording of the note \"{{detail}}\"",
+        "sandboxExecution": "Run a command outside its sandbox"
+      },
       "permission_title": "Answer another session's permission request?",
       "mode_title": "Let an agent loosen a session's permission mode?",
       "profile_title": "Let an agent change a tab's profile?",
@@ -372,13 +427,12 @@
       "answered_session": "Allowed until restart on {{device}}.",
       "answered_deny": "Turned down on {{device}}.",
       "manager_description": "The manager asks to {{action}}{{destination}}.",
-      "action_other": "make a change ({{kind}})",
       "sandbox_title": "Let an agent run a command outside its sandbox?",
       "sandbox_denied": "The user denied running this command outside the sandbox.",
-      "sandbox_timeout": "The approval to run this command outside the sandbox timed out. Try again when the user can approve it in NexusCode.",
+      "sandbox_unasked": "NexusCode could not ask for approval to run this command outside the sandbox. Try again when the user can approve it in NexusCode.",
       "sandbox_description": "Review the command requested by \"{{tab}}\" in {{from}} to run in {{to}}.",
-      "sandbox_deadline": "Respond within {{seconds}} seconds to allow this request.",
-      "sandbox_description_same_workspace": "Review the command requested by \"{{tab}}\" in {{from}}."
+      "sandbox_description_same_workspace": "Review the command requested by \"{{tab}}\" in {{from}}.",
+      "action_unknown": "make a change ({{kind}})"
     },
     "heading": "nexus CLI"
   },
@@ -449,7 +503,6 @@
       "prompt": "Press the desired key combination",
       "promptSecond": "Press the second key of the chord",
       "commit": "Save",
-      "cancel": "Cancel",
       "unsupported": "Unsupported key",
       "hint": "Enter to save · Esc to cancel"
     },
@@ -728,7 +781,6 @@
       "env": "Environment variables (optional)",
       "envPlaceholder": "KEY=value, one per line",
       "envReserved": "NEXUS_ variables are reserved by NexusCode.",
-      "create": "Create and sign in",
       "save": "Save"
     },
     "loginDialog": {
@@ -833,7 +885,7 @@
         },
         "sandboxNetwork": {
           "label": "Sandbox network access",
-          "hint": "Outbound connections in workspace-write mode"
+          "hint": "Outbound connections in Workspace only mode"
         },
         "webSearch": {
           "label": "Web search",
@@ -859,42 +911,8 @@
         }
       },
       "options": {
-        "permissionMode": {
-          "default": "Default",
-          "plan": "Plan",
-          "acceptEdits": "Accept edits",
-          "auto": "Auto",
-          "dontAsk": "Don't ask"
-        },
         "outputStyle": {
           "default": "Default"
-        },
-        "approvalPolicy": {
-          "on-request": "Ask when needed",
-          "never": "Never ask",
-          "untrusted": "Ask for untrusted commands"
-        },
-        "sandboxMode": {
-          "read-only": "Read only",
-          "workspace-write": "Workspace only",
-          "danger-full-access": "Full access"
-        },
-        "webSearch": {
-          "disabled": "Off",
-          "cached": "Cached",
-          "indexed": "Indexed",
-          "live": "Live"
-        },
-        "reasoningSummary": {
-          "auto": "Auto",
-          "concise": "Concise",
-          "detailed": "Detailed",
-          "none": "Hidden"
-        },
-        "verbosity": {
-          "low": "Short",
-          "medium": "Medium",
-          "high": "Long"
         }
       }
     },
@@ -1062,8 +1080,6 @@
     "rulesDescription": "Workspace > deeper folder > SSH host > default",
     "add": "Add rule",
     "addFolder": "Folder…",
-    "addSsh": "SSH host…",
-    "addWorkspace": "Workspace…",
     "target": "Target",
     "inherit": "Use default",
     "applies": "Applies to",
@@ -1078,7 +1094,6 @@
     "hint": "For new conversations · on an SSH host, sign in on that host",
     "pickSsh": "Choose an SSH host",
     "pickWorkspace": "Choose a workspace",
-    "noneLeft": "Nothing left to add",
     "results": "Results",
     "resultsCount": "{{count}} workspaces"
   },

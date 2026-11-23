@@ -22,14 +22,10 @@ export interface RemoteTreeNavigation {
   readonly connected: boolean;
 }
 
-/** What a row tells of its place in its family's tree, in its second line. */
 export interface RemoteRowTree {
   readonly depth: number;
-  /** The workspace it runs in, where that is not where its family's root runs. */
   readonly elsewhere?: RemoteWorkspace;
-  /** Its parent, where the tree does not show it: on another computer, closed, or too deep. */
   readonly parent?: ReactNode;
-  /** Its children's chip. */
   readonly family?: ReactNode;
 }
 
@@ -80,7 +76,6 @@ export function RemoteSessionBranch({
   );
 }
 
-/** A row's parent where the tree does not show it, or nothing. */
 function RemoteParent({
   node,
   navigation,

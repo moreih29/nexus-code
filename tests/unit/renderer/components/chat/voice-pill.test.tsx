@@ -1,4 +1,3 @@
-/** The mic while a dictation runs: the pill that shows it listening and finishes it. */
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -24,7 +23,6 @@ describe("the voice pill", () => {
     expect(html).toContain('data-phase="listening"');
     expect(html).toContain('aria-label="Finish voice input"');
     expect(html).toContain(">0:12<");
-    // On hover, what a click does.
     expect(html).toContain(">Finish<");
     expect(html).toContain(">Enter<");
     expect(html).not.toContain("destructive");
@@ -34,7 +32,6 @@ describe("the voice pill", () => {
   test("the clock warns as the server's limit nears", () => {
     expect(pill()).not.toContain("state-warning-fg");
     expect(pill({ elapsedMs: 600_000 - VOICE_LIMIT_WARNING_MS })).toContain("state-warning-fg");
-    // A limit not told: no warning.
     expect(pill({ elapsedMs: 599_000, limitMs: null })).not.toContain("state-warning-fg");
   });
 

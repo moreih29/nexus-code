@@ -1,5 +1,3 @@
-/** nexus note list|read|path: the workspace's notes, kept by the app. */
-
 import path from "node:path";
 import type { RpcResult } from "../../../../../packages/remote-protocol/src";
 import type {
@@ -18,6 +16,7 @@ import {
 } from "../../../../shared/notes/transcript";
 import type { NoteAsset, NoteContent, NoteSummary } from "../../../../shared/notes/types";
 import { noteMarkdown } from "../../notes/store";
+import { type AskNotes, readWholeNote, readWholeTranscript } from "../../remote/peer-notes";
 import { CliUsageError, exactArgs, type ParsedArgs } from "../args";
 import { type CliContext, CliError, mayChange, pick, resolveWorkspace } from "../context";
 import { ago, oneLine, table } from "../format";
@@ -38,7 +37,6 @@ import {
 import { WORKSPACE_FLAG } from "./flags";
 import { noteReport } from "./note-report";
 
-/** When a note was last written: how long ago within two days, else its date. */
 function when(at: number, now: number): string {
   if (now - at < 48 * 3600 * 1000) return ago(at, now);
   return new Date(at).toISOString().slice(0, 10);
@@ -47,7 +45,6 @@ function when(at: number, now: number): string {
 const NOTE_ARG_HELP =
   "A note is named by its id, an id prefix, or its title (as nexus note list shows them).";
 
-/** What a note has in it, in a few words. */
 export function contentsOf(note: Pick<NoteSummary, "counts" | "recording">): string {
   const { sketches, files, images, todos, todosDone } = note.counts;
   const parts: string[] = [];
@@ -73,6 +70,10 @@ async function findNote(
     "note",
   );
   return ctx.services.notes.read(workspaceId, found.id);
+}
+
+function askNotes(ctx: CliContext, device: Parameters<typeof askPeerCli>[1]): AskNotes {
+  return (method, params) => askPeerCli(ctx, device, method, params);
 }
 
 async function notePeer(ctx: CliContext, flags: ParsedArgs["flags"]) {
@@ -147,11 +148,15 @@ const read: CliCommand = {
     const [selector] = exactArgs(positionals, "note") as [string];
     const peer = await notePeer(ctx, flags);
     if (peer) {
-      const note = await askPeerCli(ctx, peer.device, "notes.read", {
-        workspaceId: peer.workspace.id,
-        note: selector,
-        transcriptOnly: flags.transcript === true,
-      });
+      const { recordings: _recordings, ...note } = await readWholeNote(
+        askNotes(ctx, peer.device),
+        peer.device.schema,
+        {
+          workspaceId: peer.workspace.id,
+          note: selector,
+          transcriptOnly: flags.transcript === true,
+        },
+      );
       const text =
         flags.transcript === true
           ? note.transcript || `${named(note)} has no recordings.`
@@ -206,7 +211,7 @@ const noteTranscript: CliCommand = {
     const recordingId = typeof flags.recording === "string" ? flags.recording : undefined;
     const peer = await notePeer(ctx, flags);
     if (peer) {
-      const note = await askPeerCli(ctx, peer.device, "notes.transcript", {
+      const note = await readWholeTranscript(askNotes(ctx, peer.device), peer.device.schema, {
         workspaceId: peer.workspace.id,
         note: selector,
         recording: recordingId,
@@ -279,7 +284,6 @@ const notePath: CliCommand = {
   },
 };
 
-/** A note as the text names it: its title and id. */
 function named(note: { readonly id: string; readonly title: string }): string {
   return note.title ? `"${note.title}" (${note.id})` : note.id;
 }
@@ -383,7 +387,6 @@ const UNDER_FLAG = {
   description: "At the end of the part under this heading (its text), not of the note",
 } as const;
 
-/** A heading --under names, checked against the note before anything is written. */
 function underFlag(flags: ParsedArgs["flags"], note: NoteContent): string | undefined {
   const under = flags.under as string | undefined;
   if (under === undefined) return undefined;
@@ -394,7 +397,6 @@ function underFlag(flags: ParsedArgs["flags"], note: NoteContent): string | unde
   return under;
 }
 
-/** A Markdown link's path as a file's: "chart%20a.png" is "chart a.png". */
 function decoded(src: string): string {
   try {
     return decodeURI(src);
@@ -403,7 +405,6 @@ function decoded(src: string): string {
   }
 }
 
-/** A file of the caller's computer, read where its terminal runs, put into the note. */
 async function putFile(
   ctx: CliContext,
   workspaceId: string,
@@ -451,7 +452,6 @@ const noteWrite: CliCommand = {
     for (const image of imagesOf(blocks)) {
       const src = String(image.attrs?.src ?? "");
       if (/^(https?:|data:)/i.test(src) || src === "") {
-        // A picture on the web: linked, as a note keeps only its own files.
         const alt = String(image.attrs?.alt ?? "");
         image.type = "paragraph";
         image.content = src.startsWith("http")
@@ -514,7 +514,6 @@ const noteAdd: CliCommand = {
   },
 };
 
-/** The recorder as note record tells it. */
 async function recorderText(ctx: CliContext, recorder: CliRecorder): Promise<string> {
   if (recorder.phase === "idle" || !recorder.workspaceId || !recorder.noteId) {
     const can =
@@ -588,12 +587,15 @@ const noteRecord: CliCommand = {
         .catch(() => ({ id: now.noteId as string, title: "" }));
       const change = { detail: note.title || note.id };
       if (act === "resume") {
-        await ctx.services.askUser({
-          fromWorkspaceId: ctx.caller.workspaceId,
-          fromTabId: ctx.caller.tabId,
-          toWorkspaceId: workspace.id,
-          change: { kind: "noteRecord", ...change, eachTime: true },
-        });
+        await ctx.services.askUser(
+          {
+            fromWorkspaceId: ctx.caller.workspaceId,
+            fromTabId: ctx.caller.tabId,
+            toWorkspaceId: workspace.id,
+            change: { kind: "noteRecord", ...change, eachTime: true },
+          },
+          ctx.signal,
+        );
       } else {
         await mayChange(ctx, workspace, { kind: "noteRecordStop", ...change });
       }
@@ -602,18 +604,20 @@ const noteRecord: CliCommand = {
     }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const note = await findNote(ctx, workspace.id, selector as string);
-    // The microphone: the user's to allow, each time.
-    await ctx.services.askUser({
-      fromWorkspaceId: ctx.caller.workspaceId,
-      fromTabId: ctx.caller.tabId,
-      toWorkspaceId: workspace.id,
-      change: {
-        kind: "noteRecord",
-        eachTime: true,
-        detail: note.title || note.id,
-        ...(participants !== undefined ? { body: `Participants: ${participants}` } : {}),
+    await ctx.services.askUser(
+      {
+        fromWorkspaceId: ctx.caller.workspaceId,
+        fromTabId: ctx.caller.tabId,
+        toWorkspaceId: workspace.id,
+        change: {
+          kind: "noteRecord",
+          eachTime: true,
+          detail: note.title || note.id,
+          ...(participants !== undefined ? { body: `Participants: ${participants}` } : {}),
+        },
       },
-    });
+      ctx.signal,
+    );
     const recorder = await ctx.services.ui(
       "note.recorder",
       {
@@ -628,7 +632,6 @@ const noteRecord: CliCommand = {
   },
 };
 
-/** How long a recording may take to start: the microphone, maybe macOS asking for it, the server. */
 const RECORD_START_MS = 90_000;
 
 const RECORDING_FLAG = {
@@ -827,12 +830,19 @@ const voiceNamesDelete: CliCommand = {
         { name: name ?? null, device: deviceRef(device) },
       );
     }
-    await ctx.services.askUser({
-      fromWorkspaceId: ctx.caller.workspaceId,
-      fromTabId: ctx.caller.tabId,
-      toWorkspaceId: ctx.caller.workspaceId,
-      change: { kind: "voiceNamesDelete", detail: name ?? "all remembered names", eachTime: true },
-    });
+    await ctx.services.askUser(
+      {
+        fromWorkspaceId: ctx.caller.workspaceId,
+        fromTabId: ctx.caller.tabId,
+        toWorkspaceId: ctx.caller.workspaceId,
+        change: {
+          kind: "voiceNamesDelete",
+          detail: name ?? "all remembered names",
+          eachTime: true,
+        },
+      },
+      ctx.signal,
+    );
     const result = await ctx.services.ui("note.voiceNames", {
       action: { op: "delete", ...(name !== undefined ? { name } : {}) },
     });

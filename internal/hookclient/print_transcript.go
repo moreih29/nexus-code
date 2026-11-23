@@ -1,12 +1,5 @@
 package hookclient
 
-// A `claude -p` run whose output does not tell its tools, in text or json,
-// tells them in its transcript: Claude Code writes each message of the run
-// as it goes, `--bare` or not, to <config>/projects/<project>/<session
-// id>.jsonl, a line each, in the shape stream-json prints them. print-run
-// gives such a run a session id, unless it has one, so it knows the file,
-// and follows it beside the run.
-
 import (
 	"crypto/rand"
 	"encoding/hex"
@@ -14,41 +7,32 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/claudefiles"
 )
 
-// printTranscriptPoll is how often a run's transcript is looked for, and
-// then read for what was written to it; a variable, so tests can look more
-// often.
 var printTranscriptPoll = 200 * time.Millisecond
 
-// printTranscript follows a run's transcript.
 type printTranscript struct {
-	// projects is Claude Code's directory of projects, one directory each.
-	projects string
-	// name is the transcript's name in its project's directory.
-	name string
-	// from is where in it the run's part starts: its end before the run,
-	// for a run that goes on a session.
+	config     string
+	sessionID  string
 	from       int64
 	stop, done chan struct{}
 }
 
-// newPrintTranscript is the transcript of the session `sessionID`; nil when
-// Claude Code's directory is not known.
 func newPrintTranscript(sessionID string) *printTranscript {
 	dir := claudeConfigDir()
 	if dir == "" {
 		return nil
 	}
 	return &printTranscript{
-		projects: filepath.Join(dir, "projects"),
-		name:     sessionID + ".jsonl",
-		stop:     make(chan struct{}),
-		done:     make(chan struct{}),
+		config:    dir,
+		sessionID: sessionID,
+		stop:      make(chan struct{}),
+		done:      make(chan struct{}),
 	}
 }
 
-// claudeConfigDir is claude's directory: CLAUDE_CONFIG_DIR, else ~/.claude.
 func claudeConfigDir() string {
 	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
 		return dir
@@ -60,7 +44,6 @@ func claudeConfigDir() string {
 	return filepath.Join(home, ".claude")
 }
 
-// absoluteDir is dir made absolute, "" when it is "" or cannot be.
 func absoluteDir(dir string) string {
 	if dir == "" {
 		return ""
@@ -72,15 +55,10 @@ func absoluteDir(dir string) string {
 	return abs
 }
 
-// follow hands each line written to the transcript to `watch` as it comes,
-// once it is found, which it tells `found` of, until the run's end.
 func (tr *printTranscript) follow(watch *printWatch, found func()) {
 	followFile(tr.open, tr.from, watch.line, found, tr.stop, tr.done)
 }
 
-// followFile hands each line written to the file `open` finds to `line` as
-// it comes, from `from` in it, once it is found, which it tells `found` of,
-// until `stop` closes; then it closes `done`.
 func followFile(
 	open func() *os.File,
 	from int64,
@@ -129,26 +107,18 @@ func followFile(
 	}
 }
 
-// open opens the transcript in whichever project's directory it is: the
-// run's directory names it, as Claude Code spells it.
 func (tr *printTranscript) open() *os.File {
-	entries, err := os.ReadDir(tr.projects)
+	path, info := claudefiles.FindSession(tr.config, tr.sessionID)
+	if path == "" {
+		return nil
+	}
+	file, _, err := claudefiles.Open(claudefiles.ProjectsDir(tr.config), path, info)
 	if err != nil {
 		return nil
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		if file, err := os.Open(filepath.Join(tr.projects, entry.Name(), tr.name)); err == nil {
-			return file
-		}
-	}
-	return nil
+	return file
 }
 
-// startAtEnd has the transcript followed from where it is now: a run that
-// goes on a session adds to its transcript.
 func (tr *printTranscript) startAtEnd() {
 	file := tr.open()
 	if file == nil {
@@ -160,8 +130,6 @@ func (tr *printTranscript) startAtEnd() {
 	}
 }
 
-// end reads the rest of the transcript once the run is over, and waits up
-// to `wait` for it: false when it did not finish.
 func (tr *printTranscript) end(wait time.Duration) bool {
 	close(tr.stop)
 	timer := time.NewTimer(wait)
@@ -174,8 +142,6 @@ func (tr *printTranscript) end(wait time.Duration) bool {
 	}
 }
 
-// newSessionID is a new session id for claude (a random UUID); empty when
-// none could be made.
 func newSessionID() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {

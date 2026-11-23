@@ -1,7 +1,3 @@
-// What an app command shows above the composer: /btw's answer, /help's
-// list, /memory's files, /tasks' sessions. One at a time; the next command
-// replaces it.
-
 import { FileText, LoaderCircle, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { CommandCard } from "../../services/chat/store";

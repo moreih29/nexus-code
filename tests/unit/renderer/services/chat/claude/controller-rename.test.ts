@@ -1,9 +1,3 @@
-/**
- * The session's name, as Claude says it has one: /rename, the tab's own
- * rename, or a named session taken up again. The tab takes it as the
- * user's name for it, and does not send it back.
- */
-
 import { describe, expect, test } from "bun:test";
 import { ChatController } from "../../../../../../src/renderer/services/chat/claude/controller";
 import type { ChatLine } from "../../../../../../src/renderer/services/chat/model";
@@ -45,7 +39,6 @@ describe("session_title_changed", () => {
   test("the tab's name taken from the session is not sent back", async () => {
     const { c } = controller();
     c.receive(titled("My work"));
-    // No program runs here: a rename that went on would have to start one.
     expect(await c.renameSession("My work")).toBe(true);
     c.dispose();
   });

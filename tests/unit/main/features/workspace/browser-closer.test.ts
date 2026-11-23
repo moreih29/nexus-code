@@ -1,28 +1,9 @@
-/**
- * Unit tests for the browser workspace closer installed by registerBrowserCloser.
- *
- * Acceptance criteria:
- *   1. when the closer is called, the views and popups of that workspaceId are destroyed
- *   2. clearStorageData is called once for that partition
- *   3. clearStorageData is guaranteed to run after destroy completes
- *   4. WorkspaceManager.remove() runs the registered closer
- *
- * Drives the real registerBrowserCloser against the real BrowserTabRegistry
- * created by initBrowserFeature. Only electron's WebContentsView and session
- * are faked; tabs are opened through the real registry.create() path.
- */
-
 import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import os from "node:os";
 import path from "node:path";
 import type { BrowserWindow } from "electron";
 
-// ---------------------------------------------------------------------------
-// Electron mock — must come before importing the browser feature.
-// ---------------------------------------------------------------------------
-
-/** Ordered log of webContents closes and partition clears. */
 let events: string[] = [];
 let nextWebContentsId = 1;
 
@@ -52,7 +33,6 @@ class FakeWebContents {
   }
   setWindowOpenHandler(): void {}
   setBackgroundThrottling(): void {}
-  // Still loading, so the scrollbar CSS waits for did-finish-load.
   isLoading(): boolean {
     return true;
   }
@@ -85,10 +65,6 @@ mock.module("electron", () => ({
   },
 }));
 
-// ---------------------------------------------------------------------------
-// Dynamic imports (after mock.module)
-// ---------------------------------------------------------------------------
-
 const { getBrowserRegistry, initBrowserFeature, registerBrowserCloser } = await import(
   "../../../../../src/main/features/browser"
 );
@@ -98,10 +74,6 @@ const { WorkspaceStorage } = await import(
 );
 const { openTestState } = await import("../../../../helpers/test-state");
 const { WorkspaceManager } = await import("../../../../../src/main/features/workspace/manager");
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 const WORKSPACE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
@@ -118,7 +90,6 @@ function makeManager() {
   return { manager, globalDb };
 }
 
-/** Installs the closer on a bare `setBrowserCloser` sink and returns it. */
 function captureCloser(): (workspaceId: string) => Promise<void> {
   let closer: ((workspaceId: string) => Promise<void>) | undefined;
   registerBrowserCloser({
@@ -143,10 +114,6 @@ function openTab(tabId: string, workspaceId: string): FakeWebContentsView {
   });
   return registry.get(tabId)!.view as unknown as FakeWebContentsView;
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 beforeEach(() => {
   events = [];
@@ -186,7 +153,6 @@ describe("registerBrowserCloser — WorkspaceManager wiring", () => {
 
     manager.remove(meta.id);
 
-    // Views are destroyed before remove() returns; only the clear is async.
     expect(tab.webContents.closed).toBe(true);
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     expect(events).toContain(`clear:persist:browser-${meta.id}`);

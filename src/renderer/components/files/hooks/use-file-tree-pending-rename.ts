@@ -1,5 +1,3 @@
-/** State + transitions for an in-flight inline rename row. */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { renamePath } from "@/services/fs-mutations";
 import { useFilesStore } from "@/state/stores/files";
@@ -28,11 +26,6 @@ export function useFileTreePendingRename({
     [rootAbsPath],
   );
 
-  // Connects the global F2 keybinding → store bridge.
-  // Calls startRename whenever pendingRenameRequest.requestId changes.
-  // Thanks to the requestId indirection, the useEffect fires again even when the same absPath
-  // is entered through F2 after an Esc cancel (with absPath alone as the dep, the same value
-  // would not fire again).
   const lastHandledRequestId = useRef<number | null>(null);
   const pendingRenameRequest = useFilesStore((s) => s.pendingRenameRequest);
   useEffect(() => {

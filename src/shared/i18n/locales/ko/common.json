@@ -9,21 +9,17 @@
     "delete": "삭제",
     "edit": "편집",
     "back": "뒤로",
-    "next": "다음",
     "retry": "다시 시도",
     "remove": "제거",
-    "reload": "새로 고침",
-    "reopen": "다시 열기",
     "reopenAll": "모두 다시 열기",
     "copy": "복사",
     "copy_details": "세부 정보 복사",
-    "show_details": "세부 정보",
+    "show_details": "자세히",
     "hide_details": "세부 정보 숨기기",
     "open_log": "로그 열기",
     "connect": "연결 →",
     "connecting": "연결 중…",
     "retry_save": "저장 재시도",
-    "close_tab": "탭 닫기",
     "mark_resolved": "해결됨으로 표시",
     "reveal_in_finder": "Finder에서 표시",
     "reveal_in_explorer": "파일 탐색기에서 표시",
@@ -95,12 +91,6 @@
     "staged": "{{count}}개 스테이징됨",
     "modified": "{{count}}개 수정됨",
     "untracked": "{{count}}개 추적되지 않음",
-    "errors": "오류 {{count}}개",
-    "warnings": "경고 {{count}}개",
-    "error_one": "오류 {{count}}개",
-    "error_other": "오류 {{count}}개",
-    "warning_one": "경고 {{count}}개",
-    "warning_other": "경고 {{count}}개",
     "op_staging": "스테이징 중…",
     "op_unstaging": "스테이징 해제 중…",
     "op_discarding": "되돌리는 중…",
@@ -120,7 +110,7 @@
     "op_rebasing": "리베이스 중…",
     "op_cherry_picking": "체리픽 중…",
     "op_aborting": "중단 중…",
-    "op_continuing": "계속 중…",
+    "op_continuing": "계속하는 중…",
     "op_refreshing": "새로 고침 중…",
     "op_initializing": "초기화 중…",
     "op_working": "작업 중…",
@@ -129,11 +119,15 @@
     "ports_ssh_note": "{{host}}의 포트입니다. 열거나 복사하면 이 컴퓨터로 포워딩합니다.",
     "ports_not_listed": "포워딩만 유지 중",
     "ports_forwarded": "이 컴퓨터: {{url}}",
-    "ports_forward_paused": "이 컴퓨터: {{url}} (다시 연결되면 재개)",
+    "ports_forward_paused": "이 컴퓨터: {{url}} (다시 연결되면 복구)",
     "ports_open": "브라우저 탭에서 열기",
     "ports_copy": "URL 복사",
     "ports_forward": "이 컴퓨터로 포워딩",
-    "ports_unforward": "포워딩 중지"
+    "ports_unforward": "포워딩 중지",
+    "error_one": "오류 {{count}}개",
+    "error_other": "오류 {{count}}개",
+    "warning_one": "경고 {{count}}개",
+    "warning_other": "경고 {{count}}개"
   },
   "titleBar": {
     "open_settings": "설정 열기",
@@ -193,14 +187,14 @@
     }
   },
   "forward": {
-    "not_connected": "{{host}}에 연결되어 있지 않아 포트 {{port}}를 열 수 없습니다.",
-    "failed": "포트 {{port}}를 이 컴퓨터로 포워딩하지 못했습니다: {{error}}"
+    "not_connected": "{{host}}에 연결되어 있지 않아 {{port}}번 포트를 열 수 없습니다.",
+    "failed": "{{port}}번 포트를 이 컴퓨터로 포워딩하지 못했습니다: {{error}}"
   },
   "task": {
     "switcher_aria": "작업 전환",
     "new": "새 작업…",
     "remove_current": "이 작업 삭제…",
-    "show_agent_list": "에이전트 목록 보기",
+    "show_agent_list": "에이전트 목록",
     "ports_title": "열린 포트 {{ports}}",
     "new_title": "새 작업",
     "new_description": "{{name}}의 {{branch}}에서 브랜치와 워크트리를 만들고 그 안에서 작업을 엽니다.",
@@ -211,10 +205,10 @@
     "prompt_placeholder": "에이전트에게 맡길 일",
     "prompt_helper": "작업의 {{agent}} 탭에 첫 메시지로 보냅니다.",
     "create": "만들기",
-    "error_not_a_repo": "{{name}}은(는) Git 저장소 안에 있지 않습니다.",
+    "error_not_a_repo": "{{name}} 폴더가 Git 저장소 안에 있지 않습니다.",
     "error_not_connected": "먼저 {{name}}에 연결하세요.",
     "error_invalid_name": "이름에 글자나 숫자를 넣으세요.",
-    "remove_title": "작업 “{{name}}”을(를) 삭제하시겠습니까?",
+    "remove_title": "작업 “{{name}}” 삭제?",
     "remove_description": "터미널과 에이전트 탭을 닫고 워크트리 폴더를 삭제합니다.",
     "remove_agents_one": "에이전트 탭 {{count}}개",
     "remove_agents_other": "에이전트 탭 {{count}}개",
@@ -237,7 +231,7 @@
     }
   },
   "workspace": {
-    "remove_title": "Nexus에서 “{{name}}”을(를) 제거하시겠습니까?",
+    "remove_title": "Nexus에서 “{{name}}” 제거?",
     "remove_description": "워크스페이스 등록을 제거합니다. 폴더는 디스크에 남습니다.",
     "remove_unsaved_one": "파일 {{count}}개의 미저장 변경을 잃습니다.",
     "remove_unsaved_other": "파일 {{count}}개의 미저장 변경을 잃습니다.",
@@ -263,7 +257,6 @@
     "add_to_favorites": "즐겨찾기에 추가",
     "remove_from_favorites": "즐겨찾기에서 제거",
     "remove_from_list": "목록에서 제거",
-    "could_not_open": "워크스페이스를 열 수 없습니다.",
     "profile_not_found": "연결 프로필을 찾을 수 없습니다."
   },
   "ssh": {
@@ -273,7 +266,7 @@
     "title_host_key": "SSH 호스트 키 신뢰",
     "auth_failed": "인증에 실패했습니다. 다시 시도하세요.",
     "label_password": "비밀번호",
-    "label_passphrase": "암호화 키 비밀번호",
+    "label_passphrase": "키 암호",
     "caps_lock": "Caps Lock이 켜져 있습니다",
     "continue": "계속",
     "trust": "신뢰",
@@ -303,7 +296,6 @@
     "invalid_host": "유효한 호스트 또는 user@host를 입력하세요.",
     "loading_connections": "연결 로딩 중…",
     "error": {
-      "unknown_error": "문제가 발생했습니다. 다시 시도하세요.",
       "connect_failed": "호스트에 연결할 수 없습니다. 주소와 네트워크를 확인한 후 다시 시도하세요.",
       "auth_failed": "인증에 실패했습니다. 자격 증명 또는 인증 파일을 확인하고 다시 시도하세요.",
       "session_expired": "SSH 세션이 만료되었습니다. 뒤로 이동하여 다시 연결하세요.",
@@ -325,8 +317,6 @@
     "no_matching_folders": "일치하는 폴더 없음",
     "this_folder_empty": "이 폴더는 비어 있습니다.",
     "truncated": "일부 항목이 숨겨졌습니다 (목록이 잘렸습니다).",
-    "back_to_reconnect": "‹ 뒤로를 사용하여 재연결하세요.",
-    "use_back": "사용하여",
     "to_reconnect": "재연결하세요.",
     "add_workspace": "워크스페이스 추가",
     "adding": "추가 중…"
@@ -341,7 +331,7 @@
   },
   "editor": {
     "file_path": "파일 경로",
-    "loading": "로딩 중…",
+    "loading": "불러오는 중…",
     "binary_file": "이진 파일을 표시할 수 없습니다.",
     "loading_diff": "diff 로딩 중…",
     "diff_too_large": "파일이 너무 커서 diff를 표시할 수 없습니다.",
@@ -369,7 +359,7 @@
     "loading_commit": "커밋 세부정보 로딩 중…",
     "merge_commit": "병합 커밋 (부모 {{count}}개)",
     "close_tab": "탭 닫기",
-    "commit_not_found": "커밋 {{sha}}을(를) 저장소에서 찾을 수 없습니다",
+    "commit_not_found": "커밋 {{sha}}: 저장소에서 찾을 수 없습니다",
     "commit_load_failed": "커밋 세부정보 로드에 실패했습니다.",
     "dirty_diff_position": "변경 {{index}}/{{count}}",
     "dirty_diff_previous": "이전 변경",
@@ -400,7 +390,6 @@
     "pick_send_to": "요소를 보낼 터미널",
     "pick_no_agent": "에이전트 터미널이 없어 요소 정보를 클립보드에 복사했습니다.",
     "pick_terminal_closed": "그 터미널이 아직 열리지 않았습니다. 요소를 클립보드에 복사했습니다.",
-    "pick_failed": "요소를 선택하지 못했습니다: {{message}}",
     "downloaded": "{{file}} 다운로드 완료"
   },
   "tabBar": {
@@ -428,7 +417,6 @@
     "split_down": "아래로 분할",
     "copy_path": "경로 복사",
     "copy_relative_path": "상대 경로 복사",
-    "terminal_ended_suffix": "·",
     "terminal_ended_aria": ", 터미널 종료됨",
     "new_codex": "새 Codex 대화",
     "hidden_tabs_one": "가려진 탭 {{count}}개",
@@ -544,7 +532,6 @@
   },
   "agentList": {
     "none": "대화 없음",
-    "count": "{{label}} {{count}}",
     "view_label": "보기",
     "view": {
       "status": "상태별",
@@ -574,8 +561,6 @@
       "days": "{{count}}일"
     },
     "agent_unknown": "에이전트",
-    "changed_files": "변경 {{count}}",
-    "column_empty": "없음",
     "detail": {
       "show_terminal": "터미널로 이동",
       "show_changes": "변경 보기",
@@ -603,8 +588,8 @@
         "stopped": "중단됨",
         "failed": "실패"
       },
-      "tools_one": "도구 {{count}}",
-      "tools_other": "도구 {{count}}",
+      "tools_one": "도구 {{count}}개",
+      "tools_other": "도구 {{count}}개",
       "tools_failed_one": "도구 {{count}} · 실패 {{failed}}",
       "tools_failed_other": "도구 {{count}} · 실패 {{failed}}",
       "agent_crumb": "서브에이전트",
@@ -613,8 +598,8 @@
         "answer_pending": "서브에이전트의 최종 응답 대기 중",
         "answer_pending_run": "이 실행의 최종 응답 대기 중",
         "answer_none": "최종 응답 없음",
-        "tools_untold": "이 실행의 도구 호출은 알 수 없습니다. -c나 검색어로 세션을 이어갔거나 세션 기록을 남기지 않는 실행입니다.",
-        "tools_untold_codex": "이 실행의 도구 호출은 알 수 없습니다. 세션을 남기지 않거나(--ephemeral) 출력을 터미널에 바로 쓰는 실행입니다.",
+        "tools_untold": "이 실행의 도구 호출은 알 수 없습니다. -c나 검색어로 대화를 이어갔거나 대화 기록을 남기지 않는 실행입니다.",
+        "tools_untold_codex": "이 실행의 도구 호출은 알 수 없습니다. 대화를 남기지 않거나(--ephemeral) 출력을 터미널에 바로 쓰는 실행입니다.",
         "denied": "거부됨",
         "more_tools": "이전 활동 {{count}}개 더 보기",
         "fewer_tools": "최근 활동만 보기",
@@ -623,7 +608,8 @@
         "permission_hint_claude": "Claude 탭에서 서브에이전트의 권한 요청에 답하세요."
       },
       "parent": "{{title}}의 서브에이전트",
-      "close_card": "닫기"
+      "close_card": "닫기",
+      "run_crumb": "실행"
     },
     "permission": {
       "title": "권한 요청",
@@ -631,8 +617,8 @@
       "allow": "허용",
       "allow_always": "항상 허용",
       "always_hint": "항상 허용: {{what}}",
-      "always_session": "{{rule}} (이 세션 동안)",
-      "mode_accept_edits": "이 세션 동안 편집 자동 허용",
+      "always_session": "{{rule}} (이 대화 동안)",
+      "mode_accept_edits": "이 대화 동안 편집 자동 허용",
       "mode": "{{mode}} 모드",
       "directory": "{{path}} 디렉터리",
       "deny": "거부…",
@@ -675,23 +661,8 @@
       "more": "더 보기",
       "copy_path": "경로 복사",
       "more_in_git": "외 {{count}}개 · 소스 제어에서 보기"
-    }
-  },
-  "claudeStatus": {
-    "running": "Claude: 작업 중",
-    "completed": "Claude: 새 결과",
-    "needsInput": "Claude: 응답 필요",
-    "permissionPending": "Claude: 권한 요청",
-    "error": "Claude: 오류",
-    "idle": "Claude: 대기"
-  },
-  "codexStatus": {
-    "running": "Codex: 작업 중",
-    "completed": "Codex: 새 결과",
-    "needsInput": "Codex: 응답 필요",
-    "permissionPending": "Codex: 권한 요청",
-    "error": "Codex: 오류",
-    "idle": "Codex: 대기"
+    },
+    "state_of": "{{agent}}: {{state}}"
   },
   "claudeNotification": {
     "needsAttention": "주의가 필요합니다",
@@ -747,7 +718,7 @@
     "outside_workspace": "워크스페이스 밖의 파일이라 재생할 수 없습니다.",
     "load_failed": "이 파일을 재생할 수 없습니다. 지원하지 않는 형식일 수 있습니다.",
     "file_changed": "파일이 바뀌었어요",
-    "reload": "다시 불러오기"
+    "reload": "새로 고침"
   },
   "pdfPreview": {
     "outside_workspace": "워크스페이스 밖의 PDF라 미리 볼 수 없습니다.",
@@ -781,8 +752,6 @@
   },
   "markdown": {
     "copy_code": "코드 복사",
-    "copy": "복사",
-    "copied": "복사됨",
     "expand_section": "섹션 펼치기",
     "collapse_section": "섹션 접기",
     "copy_link": "이 섹션 링크 복사",
@@ -817,7 +786,7 @@
     }
   },
   "conflictDialog": {
-    "title": "저장 충돌 — {{filename}}이(가) 디스크에서 변경되었습니다",
+    "title": "저장 충돌 — 디스크에서 바뀐 파일 {{filename}}",
     "description": "편집 중 디스크의 파일이 바뀌었습니다.",
     "reload_from_disk": "디스크에서 새로 고침",
     "overwrite": "덮어쓰기"
@@ -835,7 +804,7 @@
     "restart": "지금 다시 시작",
     "installFailed": "업데이트 설치 실패 · 릴리스 페이지에서 내려받으세요.",
     "openReleasePage": "릴리스 페이지 열기",
-    "upToDate": "최신 버전 사용 중",
+    "upToDate": "최신 상태",
     "failed": "업데이트 확인 실패",
     "failedHttp": "업데이트 확인 실패 · HTTP {{status}}",
     "failedNetwork": "업데이트 확인 실패 · 네트워크 연결을 확인하세요.",
@@ -882,13 +851,12 @@
     "thinking": "생각",
     "thinking_live": "생각 중…",
     "received": {
-      "peer": "다른 세션에서 온 메시지",
+      "peer": "다른 대화에서 온 메시지",
       "channel": "채널에서 온 메시지",
       "coordinator": "코디네이터가 보낸 메시지",
-      "from_peer": "세션에서 온 메시지",
+      "from_peer": "다른 대화에서 온 메시지",
       "from_channel": "채널에서 온 메시지",
       "from_coordinator": "코디네이터가 보낸 메시지",
-      "from_other": "{{kind}}(으)로 온 메시지",
       "tab": "다른 탭에서 온 메시지",
       "from_tab": "탭에서 온 메시지",
       "from_terminal": "터미널의 {{agent}}에서 온 메시지",
@@ -898,7 +866,8 @@
       "closed": "닫힌 탭",
       "show_tab": "보낸 탭으로 이동",
       "more": "전체 보기",
-      "less": "접기"
+      "less": "접기",
+      "from_kind": "{{kind}} 메시지"
     },
     "task_end": {
       "job_completed": "백그라운드 작업 완료",
@@ -917,7 +886,7 @@
       "peer_accepted": "호스트에서 수락함",
       "peer_accepted_queued": "호스트 대기열에 추가됨",
       "peer_failed": "전송하지 못했습니다",
-      "peer_unconfirmed": "전송 여부를 확인할 수 없습니다",
+      "peer_unconfirmed": "전송 여부 미확인",
       "peer_recover": "초안 복원",
       "peer_limit": "메시지를 더 보내려면 최근 초안을 복원하세요",
       "sent": "보냄",
@@ -959,9 +928,9 @@
       "status": {
         "active": "진행 중",
         "waiting": "대기 중",
-        "paused": "멈춤",
+        "paused": "일시 정지",
         "blocked": "막힘",
-        "usageLimited": "사용량 한도",
+        "usageLimited": "사용량 한도 도달",
         "budgetLimited": "토큰 예산 소진",
         "met": "달성",
         "failed": "이룰 수 없음"
@@ -969,11 +938,11 @@
       "tokens": "{{used}} 토큰",
       "budget": "{{used}} / {{budget}} 토큰",
       "copy": "목표 복사",
-      "copied": "복사함",
+      "copied": "복사됨",
       "clear": "목표 지우기",
       "clear_running": "목표 지우기 — 진행 중인 응답을 멈춥니다",
       "pause": "목표 멈추기",
-      "resume": "목표 이어 가기",
+      "resume": "목표 이어하기",
       "expand": "목표 펼치기",
       "collapse": "목표 접기",
       "dismiss": "닫기",
@@ -1015,7 +984,7 @@
     "permission": {
       "aria": "권한 요청",
       "from_subagent": "서브에이전트의 요청",
-      "page": "{{total}}개 중 {{current}}",
+      "page": "{{current}}/{{total}}",
       "previous": "이전 요청",
       "next": "다음 요청",
       "allow": "허용",
@@ -1025,13 +994,12 @@
       "deny_stop": "거부하고 중단",
       "deny_placeholder": "대신 무엇을 할지 Claude에게 알려주세요 (선택)",
       "back": "뒤로",
-      "suggest_mode": "{{mode}}(으)로 전환",
+      "suggest_mode": "모드 전환: {{mode}}",
       "suggest_dirs": "{{dirs}} 허용",
       "suggest_session": "Codex가 다시 시작될 때까지 묻지 않고 허용합니다",
       "deny_placeholder_codex": "대신 무엇을 할지 Codex에게 알려주세요 (선택)",
-      "back_esc": "뒤로 (Esc)",
       "deny_reason": "거부 이유",
-      "allow_always_one": "하나만 항상 허용"
+      "allow_always_single": "하나만 항상 허용"
     },
     "question": {
       "other": "다른 답변",
@@ -1055,10 +1023,10 @@
       "send_feedback": "보내기",
       "approve": "승인",
       "accept_edits": "편집 자동 수락",
-      "approve_other": "다른 승인 방법",
       "waiting": "승인 대기",
       "approved": "계획 승인됨",
-      "declined": "계획 수정 요청"
+      "declined": "계획 수정 요청",
+      "approve_more": "다른 승인 방법"
     },
     "status": {
       "working": "작업 중",
@@ -1089,7 +1057,7 @@
     "rate_limit": {
       "warning": "사용량 한도에 가까워졌습니다",
       "warning_until": "사용량 한도에 가까워졌습니다 · {{time}}에 초기화",
-      "rejected": "사용량 한도에 도달했습니다",
+      "rejected": "사용량 한도 도달",
       "rejected_until": "사용량 한도에 도달했습니다 · {{time}}에 초기화",
       "dismiss": "닫기 · 한도가 초기화될 때까지 숨김"
     },
@@ -1099,8 +1067,7 @@
       "auth_no_code": "인증 실패로 작업이 중단되었습니다 · 로그인 상태나 API 키를 확인한 뒤 다시 보내세요",
       "request": "API가 요청을 거부했습니다 ({{code}}) · 같은 요청은 다시 실패합니다 · 요청을 고치거나 /compact로 대화를 줄인 뒤 보내세요",
       "retry": "다시 시도",
-      "retry_prompt": "직전 요청이 일시적인 오류로 중단되었습니다. 멈춘 곳부터 이어서 진행해 주세요.",
-      "dismiss": "닫기"
+      "retry_prompt": "직전 요청이 일시적인 오류로 중단되었습니다. 멈춘 곳부터 이어서 진행해 주세요."
     },
     "limit_resume": {
       "waiting": "사용량 한도 · {{time}}에 이어서 진행",
@@ -1113,7 +1080,7 @@
       "status": "한도 대기 · {{time}}"
     },
     "twin": {
-      "message": "이 세션이 터미널 탭에서도 열려 있습니다. 양쪽에서 이어가면 대화가 갈라집니다.",
+      "message": "이 대화가 터미널 탭에서도 열려 있습니다. 양쪽에서 이어가면 대화가 갈라집니다.",
       "show": "터미널 보기"
     },
     "phase": {
@@ -1123,7 +1090,7 @@
       "restart": "다시 시작",
       "not_found": "이 워크스페이스가 실행되는 곳에서 Claude Code를 찾지 못했습니다. 설치한 뒤 다시 시도하세요.",
       "failed": "Claude를 시작하지 못했습니다.",
-      "old_version": "Claude Code {{version}}은(는) 이 탭에서 쓸 수 없습니다. {{min}} 이상이 필요합니다.",
+      "old_version": "이 탭에서 쓸 수 없는 Claude Code 버전입니다({{version}}). {{min}} 이상이 필요합니다.",
       "retry": "다시 시도"
     },
     "queue": {
@@ -1137,7 +1104,7 @@
       "images_one": "이미지 {{count}}개",
       "images_other": "이미지 {{count}}개",
       "edit": "편집",
-      "remove": "삭제",
+      "remove": "제거",
       "take_back": "입력창 맨 앞에서 ↑: 마지막 메시지 편집",
       "already_read": "이미 읽힌 메시지라 꺼낼 수 없습니다."
     },
@@ -1150,9 +1117,8 @@
       "send": "보내기",
       "steer": "이번 턴에 보내기",
       "queue": "대기열에 넣기",
-      "stop": "중단",
+      "stop": "중지",
       "remove_image": "이미지 제거",
-      "image_too_large": "{{name}}은(는) Claude가 읽을 수 있는 크기보다 큽니다.",
       "add": "추가",
       "attach_file": "이미지나 파일 첨부",
       "mention_file": "파일 참조",
@@ -1161,7 +1127,7 @@
       "no_commands": "일치하는 명령이 없습니다",
       "files": "파일",
       "remove_file": "파일 제거",
-      "file_too_large": "{{name}}은(는) 보낼 수 있는 파일 크기(20MB)보다 큽니다.",
+      "file_too_large": "보낼 수 있는 파일 크기(20MB)보다 큰 파일입니다: {{name}}",
       "too_many_attachments": "한 메시지에는 이미지와 파일을 합쳐 {{max}}개까지 첨부할 수 있습니다.",
       "drop_title": "여기에 놓아 첨부",
       "drop_hint": "이미지와 파일을 메시지에 붙입니다",
@@ -1170,20 +1136,7 @@
     "mode": {
       "aria": "권한 모드",
       "label": "권한 모드",
-      "auto": "자동",
-      "auto_hint": "허용 여부를 Claude가 판단합니다",
-      "default": "수동",
-      "default_hint": "변경하기 전에 항상 확인",
-      "acceptEdits": "편집 자동 수락",
-      "acceptEdits_hint": "모든 파일 편집을 자동으로 수락",
-      "plan": "계획",
-      "plan_hint": "변경하기 전에 계획 세우기",
-      "bypassPermissions": "권한 무시",
-      "bypassPermissions_hint": "아무것도 묻지 않음",
-      "bypass_blocked": "설정이나 정책으로 꺼져 있습니다",
-      "bypass_confirm_title": "모든 권한 확인을 건너뛸까요?",
-      "bypass_confirm_body": "Claude가 확인 없이 파일을 편집하고 삭제·네트워크 명령을 실행합니다. 격리된 환경에서만 사용하세요.",
-      "bypass_confirm": "권한 무시"
+      "bypass_blocked": "설정이나 정책으로 꺼져 있습니다"
     },
     "model": {
       "aria": "모델",
@@ -1234,12 +1187,12 @@
       "now": "방금"
     },
     "panel": {
-      "aria": "세션 정보",
+      "aria": "대화 정보",
       "show": "사이드 패널 보기",
       "hide": "사이드 패널 숨기기",
       "more": "{{count}}개 더 보기",
       "less": "접기",
-      "stop": "중단",
+      "stop": "중지",
       "stop_failed": "백그라운드 작업 중지 실패",
       "needs_version": "Claude Code {{version}} 이상이 필요합니다",
       "status": {
@@ -1262,9 +1215,9 @@
         "account_unknown": "알 수 없음",
         "account_check": "계정 및 사용량 새로 고침",
         "branch": "브랜치",
-        "session": "세션",
-        "copy_session": "세션 ID 복사",
-        "fork_session": "세션 전체를 포크",
+        "session": "대화",
+        "copy_session": "대화 ID 복사",
+        "fork_session": "대화 전체를 포크",
         "model": "모델",
         "profile": "프로필",
         "version": "버전",
@@ -1273,7 +1226,7 @@
       "context": {
         "title": "컨텍스트",
         "unknown": "아직 측정되지 않았습니다",
-        "tokens_used": "토큰 {{used}}개 사용",
+        "tokens_used": "토큰 {{used}} 사용",
         "compact_busy_codex": "Codex 응답 후 압축 가능",
         "tokens": "{{max}} 중 {{used}} 토큰",
         "free": "압축 전까지 {{count}} 토큰 남음",
@@ -1282,7 +1235,7 @@
       },
       "running": {
         "title": "실행 중",
-        "ended": "종료됨",
+        "ended": "종료",
         "search": "검색",
         "no_match": "없음",
         "background": "백그라운드",
@@ -1319,7 +1272,7 @@
         "title": "할 일",
         "completed": "완료",
         "in_progress": "진행 중",
-        "pending": "대기"
+        "pending": "할 일"
       },
       "results": {
         "title": "결과물",
@@ -1333,19 +1286,14 @@
         "cost": "이 탭 비용 (정가 기준)",
         "cost_hint": "Claude Code가 API 정가로 계산한 추정치입니다. 구독 플랜은 이 금액으로 청구되지 않습니다.",
         "none": "표시할 한도 정보가 없습니다",
-        "resets": "{{time}} 초기화",
-        "kind": {
-          "session": "현재 세션",
-          "weekly_all": "이번 주 전체 모델",
-          "weekly_scoped": "이번 주 {{scope}}"
-        }
+        "resets": "{{time}} 초기화"
       },
       "mcp": {
         "title": "MCP",
         "none": "MCP 서버가 없습니다",
         "refresh": "MCP 상태 새로 고침",
         "reload": "MCP 설정 다시 불러오기",
-        "refreshing": "새로 고치는 중…",
+        "refreshing": "새로 고침 중…",
         "unread": "아직 MCP 상태를 확인하지 않았습니다",
         "login_failed": "{{name}}에 로그인할 수 없습니다",
         "reconnect": "다시 연결",
@@ -1374,14 +1322,14 @@
       "aria": "서브에이전트",
       "main": "메인",
       "finished": "완료 {{count}}",
-      "permission_waiting": "메인 대화에 응답을 기다리는 권한 요청이 있습니다",
+      "permission_waiting": "메인 대화의 권한 요청",
       "to_main": "메인으로",
-      "input_to_main": "입력한 메시지는 메인 대화로 보내집니다",
+      "input_to_main": "메인 대화로 보낼 메시지",
       "summary": {
         "agents_one": "서브에이전트 {{count}}",
         "agents_other": "서브에이전트 {{count}}",
-        "jobs_one": "작업 {{count}}",
-        "jobs_other": "작업 {{count}}",
+        "jobs_one": "작업 {{count}}개",
+        "jobs_other": "작업 {{count}}개",
         "todos": "할 일 {{done}}/{{total}}",
         "context": "컨텍스트 {{percent}}%"
       }
@@ -1399,16 +1347,16 @@
       "copied_image": "이미지를 복사했습니다",
       "copy_image_unread": "이미지를 읽지 못했습니다",
       "copy_image_failed": "이미지를 복사하지 못했습니다: {{error}}",
-      "changes": "세션 전과 비교",
-      "revert": "이 파일을 세션 전으로 되돌리기",
+      "changes": "대화 전과 비교",
+      "revert": "이 파일을 대화 전으로 되돌리기",
       "revert_busy": "Claude가 작업하는 동안에는 되돌릴 수 없습니다",
       "revert_busy_codex": "Codex가 작업하는 동안에는 되돌릴 수 없습니다",
-      "revert_title": "{{name}}을(를) 되돌릴까요?",
-      "revert_description": "이 세션이 바꾸기 전 내용으로 돌아갑니다. 그 뒤 Claude나 사용자가 바꾼 내용은 사라집니다.",
-      "revert_description_codex": "이 세션이 바꾸기 전 내용으로 돌아갑니다. 그 뒤 Codex나 사용자가 바꾼 내용은 사라집니다.",
+      "revert_title": "{{name}} 파일을 되돌릴까요?",
+      "revert_description": "이 대화가 바꾸기 전 내용으로 돌아갑니다. 그 뒤 Claude나 사용자가 바꾼 내용은 사라집니다.",
+      "revert_description_codex": "이 대화가 바꾸기 전 내용으로 돌아갑니다. 그 뒤 Codex나 사용자가 바꾼 내용은 사라집니다.",
       "revert_confirm": "되돌리기",
-      "reverted": "{{name}}을(를) 되돌렸습니다",
-      "revert_failed": "{{name}}을(를) 되돌리지 못했습니다: {{error}}"
+      "reverted": "{{name}} 파일을 되돌렸습니다",
+      "revert_failed": "{{name}} 파일을 되돌리지 못했습니다: {{error}}"
     },
     "links": {
       "look": "빠른 보기",
@@ -1431,7 +1379,7 @@
       "more": "{{count}}개 더 보기",
       "resume_queued": "다른 대화를 이어가기 전에 대기 중인 메시지를 회수하세요.",
       "resume_failed": "대화를 이어가지 못했습니다. {{message}}",
-      "show": "이전 대화 이어가기 · {{count}}개",
+      "show": "이전 대화 이어하기 · {{count}}개",
       "all_profiles": "전체",
       "show_others": "다른 프로필의 대화 · {{count}}개",
       "title_query": "이전 대화 · “{{query}}”",
@@ -1445,7 +1393,7 @@
     },
     "commands": {
       "close": "닫기",
-      "working": "처리 중…",
+      "working": "작업 중…",
       "btw_empty": "/btw 뒤에 질문을 입력하세요",
       "btw_none": "응답이 오지 않았습니다. 다시 시도하거나 대화에서 물어보세요.",
       "copy_none": "복사할 응답이 없습니다",
@@ -1454,14 +1402,14 @@
       "export_user": "사용자",
       "export_exists": "{{name}} 파일이 이미 있습니다",
       "exported": "{{name}}에 저장했습니다",
-      "memory_none": "불러온 메모리 파일이 없습니다. 폴더의 `CLAUDE.md`는 세션이 시작될 때 읽습니다.",
+      "memory_none": "불러온 메모리 파일이 없습니다. 폴더의 `CLAUDE.md`는 대화가 시작될 때 읽습니다.",
       "help_intro": "탭이 직접 처리하는 명령입니다. Claude Code의 명령은 `/`를 입력하면 나옵니다.",
       "add_dir_empty": "/add-dir 뒤에 폴더를 입력하세요",
       "added_dir": "이 탭에서 Claude가 {{path}}에서도 작업할 수 있습니다",
       "no_rules": "권한 규칙이 없습니다.",
       "not_in_effect": "적용 안 됨",
       "directories": "작업 폴더",
-      "permissions_edit": "규칙은 설정 파일에 있습니다. 파일을 수정하면 세션에 바로 반영됩니다.",
+      "permissions_edit": "규칙은 설정 파일에 있습니다. 파일을 수정하면 대화에 바로 반영됩니다.",
       "no_hooks": "설정된 훅이 없습니다.",
       "sandbox_on": "이 탭의 샌드박스를 켰습니다",
       "sandbox_off": "이 탭의 샌드박스를 껐습니다",
@@ -1481,7 +1429,7 @@
         "policySettings": "정책",
         "cliArg": "명령줄",
         "command": "명령",
-        "session": "이 세션",
+        "session": "이 대화",
         "added": "이 탭 (/add-dir)"
       },
       "describe": {
@@ -1489,7 +1437,7 @@
         "copy": "Claude의 마지막 응답(또는 끝에서 N번째) 복사",
         "export": "대화를 폴더 안 Markdown 파일로 저장",
         "diff": "커밋하지 않은 변경 보기",
-        "memory": "세션이 읽는 메모리 파일(CLAUDE.md) 열기",
+        "memory": "대화가 읽는 메모리 파일(CLAUDE.md) 열기",
         "permissions": "권한 규칙과 Claude가 작업할 수 있는 폴더 보기",
         "add-dir": "이 탭에서 Claude가 다른 폴더에서도 작업하게 하기",
         "hooks": "실행되는 훅 보기",
@@ -1498,10 +1446,10 @@
         "exit": "이 탭 닫기",
         "fork": "이 대화를 새 탭으로 복사",
         "subtask": "지금까지의 대화를 이어받은 Claude 포크에게 작업 맡기기",
-        "tasks": "실행 중인 작업과 이 폴더의 백그라운드 세션 보기",
-        "workflows": "이 세션의 워크플로",
-        "background": "이 세션을 Claude Code 백그라운드 서비스로 보내고 탭 닫기",
-        "skills": "이 세션의 스킬",
+        "tasks": "실행 중인 작업과 이 폴더의 백그라운드 대화 보기",
+        "workflows": "이 대화의 워크플로",
+        "background": "이 대화를 Claude Code 백그라운드 서비스로 보내고 탭 닫기",
+        "skills": "이 대화의 스킬",
         "plugin": "설치된 플러그인 켜기·끄기, 업데이트, 제거, 설치",
         "upgrade": "요금제 업그레이드 (claude.ai 열기)",
         "update": "Claude Code 업데이트 (터미널)",
@@ -1509,32 +1457,32 @@
         "feedback": "버그 신고·피드백 (GitHub 이슈 열기)",
         "login": "로그인·계정 전환 (터미널)",
         "logout": "로그아웃 (터미널)",
-        "teleport": "claude.ai의 세션 이어받기 (터미널)",
+        "teleport": "claude.ai의 대화 이어받기 (터미널)",
         "install-github-app": "Claude GitHub Actions 설정 (터미널)",
         "install-slack-app": "Claude Slack 앱 설치 (터미널)",
         "setup-bedrock": "Amazon Bedrock 설정 (터미널)",
         "setup-vertex": "Google Vertex AI 설정 (터미널)",
-        "web-setup": "GitHub로 클라우드 세션 설정 (터미널)",
+        "web-setup": "GitHub로 클라우드 대화 설정 (터미널)",
         "remote-env": "클라우드 에이전트 기본 환경 선택 (터미널)",
         "autofix-pr": "PR을 지켜보며 실패한 검사 고치기 (터미널)",
-        "resume": "이 폴더의 이전 세션을 이 탭에서 이어가기",
-        "status": "버전, 모델, 계정, 원격 제어 등 이 세션의 상태 보기",
-        "plan": "Plan 모드로 바꾸기, 또는 이 세션의 계획 보기·열기",
-        "branch": "이 대화를 지금 시점에서 분기해 새 탭으로 열기",
-        "remote-control": "휴대폰이나 claude.ai/code에서 이 세션 조작하기 (켜고 끄기)",
+        "resume": "이 폴더의 이전 대화를 이 탭에서 이어하기",
+        "status": "버전, 모델, 계정, 원격 제어 등 이 대화의 상태 보기",
+        "plan": "Plan 모드로 바꾸기, 또는 이 대화의 계획 보기·열기",
+        "branch": "이 대화를 지금 시점에서 포크해 새 탭으로 열기",
+        "remote-control": "휴대폰이나 claude.ai/code에서 이 대화 조작하기 (켜고 끄기)",
         "privacy-settings": "개인정보 설정 보기·바꾸기 (claude.ai 열기)",
-        "ultraplan": "클라우드 세션에서 고칠 수 있는 계획 작성 (터미널)"
+        "ultraplan": "클라우드 대화에서 고칠 수 있는 계획 작성 (터미널)"
       },
       "fork_none": "먼저 메시지를 보내세요. 아직 복사할 대화가 없습니다.",
       "subtask_empty": "하위 작업에 맡길 일을 입력하세요: /subtask <작업>",
       "background_busy": "백그라운드로 보내려면 응답을 기다리거나 중지하세요.",
-      "background_empty": "먼저 메시지를 보내거나 백그라운드 세션에 줄 프롬프트를 입력하세요: /background <프롬프트>",
+      "background_empty": "먼저 메시지를 보내거나 백그라운드 대화에 줄 프롬프트를 입력하세요: /background <프롬프트>",
       "background_sent": "백그라운드로 보냈습니다 ({{id}}). /tasks에서 볼 수 있습니다.",
-      "tasks_title": "이 세션에서 실행 중",
+      "tasks_title": "이 대화에서 실행 중",
       "tasks_none": "실행 중인 작업이 없습니다.",
-      "workflows_title": "이 세션의 워크플로",
+      "workflows_title": "이 대화의 워크플로",
       "workflows_none": "실행된 워크플로가 없습니다.",
-      "background_title": "이 폴더의 백그라운드 세션",
+      "background_title": "이 폴더의 백그라운드 대화",
       "background_none": "없음",
       "open": "열기",
       "stop": "중지",
@@ -1564,7 +1512,7 @@
       "plugin_disable": "끄기",
       "plugin_update": "업데이트",
       "plugin_uninstall": "제거",
-      "plugin_uninstall_title": "{{name}}을(를) 제거할까요?",
+      "plugin_uninstall_title": "플러그인 {{name}} 제거?",
       "plugin_uninstall_body": "플러그인을 제거합니다. 다시 설치할 때를 위해 저장된 데이터는 남겨 둡니다.",
       "marketplace_title": "마켓플레이스",
       "marketplace_hint": "Claude Code의 /plugin으로 플러그인을 찾아 설치합니다.",
@@ -1572,7 +1520,7 @@
       "resume_busy": "응답 후 다른 대화를 이어갈 수 있습니다.",
       "plan_on": "Plan 모드를 켰습니다.",
       "plan_none": "아직 작성된 계획이 없습니다.",
-      "plan_title": "이 세션의 계획",
+      "plan_title": "이 대화의 계획",
       "plan_needs_version": "계획을 보려면 Claude Code {{version}} 이상이 필요합니다.",
       "remote_on": "Remote Control을 켰습니다.",
       "remote_off": "Remote Control을 껐습니다.",
@@ -1587,21 +1535,10 @@
       "ended": "Codex가 실행 중이 아닙니다. 메시지를 보내면 다시 시작합니다.",
       "not_found": "이 워크스페이스가 실행되는 곳에서 Codex를 찾지 못했습니다. 설치(npm install -g @openai/codex)한 뒤 다시 시도하세요.",
       "failed": "Codex를 시작하지 못했습니다.",
-      "old_version": "Codex {{version}}은(는) 이 탭에서 쓸 수 없습니다. {{min}} 이상이 필요합니다.",
+      "old_version": "이 탭에서 쓸 수 없는 Codex 버전입니다({{version}}). {{min}} 이상이 필요합니다.",
       "signed_out": "Codex에 로그인되어 있지 않습니다. 터미널에서 로그인한 뒤 다시 확인하세요.",
       "sign_in": "터미널에서 로그인",
       "sign_in_check": "다시 확인",
-      "mode": {
-        "readOnly": "읽기 전용",
-        "readOnly_hint": "파일을 읽고 명령을 읽기 전용으로 실행하며, 편집이나 인터넷 접속에는 승인이 필요합니다",
-        "auto": "자동",
-        "auto_hint": "폴더 안에서 편집하고 명령을 실행하며, 폴더 밖이나 네트워크가 필요하면 묻습니다",
-        "fullAccess": "전체 권한",
-        "fullAccess_hint": "샌드박스 없이 묻지 않고 무엇이든 실행합니다",
-        "bypass_confirm_title": "Codex에 전체 권한을 줄까요?",
-        "bypass_confirm_body": "Codex가 샌드박스 밖에서 확인 없이 모든 파일을 수정하고 명령을 실행하며 네트워크에 접속합니다. 격리된 환경에서만 사용하세요.",
-        "bypass_confirm": "전체 권한 주기"
-      },
       "commands": {
         "describe": {
           "model": "모델 고르기 (이 탭만)",
@@ -1611,7 +1548,7 @@
           "effort": "추론 수준 고르기 (이 탭만)",
           "config": "Codex 프로필의 대화 기본값 편집",
           "new": "이 탭에서 새 대화 시작",
-          "resume": "이 폴더의 이전 대화를 이 탭에서 이어가기",
+          "resume": "이 폴더의 이전 대화를 이 탭에서 이어하기",
           "fork": "이 대화를 새 탭으로 복사",
           "rename": "이 대화의 이름 바꾸기",
           "compact": "컨텍스트 한도에 닿지 않게 대화를 요약",
@@ -1635,7 +1572,7 @@
           "default": "기본 모드",
           "usage": "인수 없이 /plan 또는 /default를 입력하세요."
         },
-        "fast_restart": "Fast를 설정하려면 이 Codex 세션을 다시 시작하세요.",
+        "fast_restart": "Fast를 설정하려면 이 Codex 대화를 다시 시작하세요.",
         "fast_usage": "/fast, /fast on, /fast off 또는 /fast status를 입력하세요.",
         "fast_on": "Fast 켜짐",
         "fast_off": "Fast 꺼짐",
@@ -1649,24 +1586,24 @@
         "goal_cleared": "목표를 지웠습니다.",
         "goal_paused": "목표를 멈췄습니다.",
         "goal_resumed": "목표를 다시 이어갑니다.",
-        "goal_tokens": "{{used}} 토큰 사용",
+        "goal_tokens": "토큰 {{used}} 사용",
         "goal_status": {
           "active": "진행 중",
-          "paused": "멈춤",
+          "paused": "일시 정지",
           "blocked": "막힘",
-          "usageLimited": "사용량 한도",
+          "usageLimited": "사용량 한도 도달",
           "budgetLimited": "토큰 예산 소진",
           "complete": "완료"
         },
         "status": {
           "collaboration": "협업 모드",
           "model": "모델",
-          "effort": "추론",
+          "effort": "추론 강도",
           "folder": "폴더",
           "thread": "대화",
           "version": "버전",
           "account": "계정",
-          "signed_out": "로그인하지 않음",
+          "signed_out": "로그인 필요",
           "context": "컨텍스트"
         },
         "mcp_title_one": "MCP 서버 {{count}}개",
@@ -1723,7 +1660,7 @@
       "apply_count": "{{count}}개 적용",
       "default": "기본값",
       "on": "켬",
-      "off": "끔",
+      "off": "끄기",
       "show": "펼치기",
       "hide": "접기",
       "group": {
@@ -1760,7 +1697,7 @@
         "progressBar": "터미널 진행 표시",
         "tips": "팁 표시",
         "reduceMotion": "움직임 줄이기",
-        "recap": "세션 요약",
+        "recap": "대화 요약",
         "prStatus": "PR 상태 표시줄",
         "copyFullResponse": "/copy 선택 건너뛰기",
         "copyOnSelect": "선택하면 복사",
@@ -1792,9 +1729,6 @@
       "option": {
         "outputStyle": {
           "default": "기본"
-        },
-        "permissionMode": {
-          "dontAsk": "묻지 않음"
         },
         "worktreeBaseRef": {
           "fresh": "최신 기본 브랜치",
@@ -1868,7 +1802,7 @@
           "model_post_turn_compact_threshold_percent": "턴 종료 시 압축 (%)",
           "model_context_window": "모델 컨텍스트 창",
           "model_reasoning_summary": "추론 요약",
-          "model_verbosity": "응답 상세도",
+          "model_verbosity": "답 길이",
           "plan_mode_reasoning_effort": "계획 모드 추론 강도"
         },
         "descriptions": {
@@ -1879,46 +1813,6 @@
           "model_reasoning_summary": "지원하는 모델의 추론 요약 상세도를 설정합니다.",
           "model_verbosity": "지원하는 모델의 응답 상세도를 설정합니다.",
           "plan_mode_reasoning_effort": "Codex가 계획 모드에서 사용할 추론 강도를 선택합니다."
-        },
-        "options": {
-          "approval_policy": {
-            "on-request": "요청 시",
-            "untrusted": "신뢰할 수 없는 명령",
-            "never": "묻지 않음",
-            "granular": "세부 설정"
-          },
-          "sandbox_mode": {
-            "read-only": "읽기 전용",
-            "workspace-write": "워크스페이스 쓰기",
-            "danger-full-access": "전체 접근"
-          },
-          "service_tier": {
-            "default": "표준",
-            "priority": "빠름",
-            "ultrafast": "매우 빠름",
-            "flex": "Flex"
-          },
-          "web_search": {
-            "disabled": "사용 안 함",
-            "cached": "캐시",
-            "indexed": "인덱스",
-            "live": "실시간"
-          },
-          "model_auto_compact_token_limit_scope": {
-            "total": "전체 컨텍스트",
-            "body_after_prefix": "유지된 부분 이후"
-          },
-          "model_reasoning_summary": {
-            "auto": "자동",
-            "concise": "간략하게",
-            "detailed": "자세하게",
-            "none": "끄기"
-          },
-          "model_verbosity": {
-            "low": "낮음",
-            "medium": "보통",
-            "high": "높음"
-          }
         }
       }
     },
@@ -1928,7 +1822,7 @@
       "folder": "설정 폴더",
       "rule": "적용 규칙",
       "switchTo": "다른 프로필로 전환",
-      "continueIn": "다른 프로필로 이어가기",
+      "continueIn": "다른 프로필로 이어하기",
       "newChat": "새 대화",
       "stops": "진행 중인 응답은 멈춥니다",
       "moved": "{{name}} 프로필로 이어감",
@@ -1976,19 +1870,22 @@
     },
     "pane": {
       "close": "패널 닫기",
-      "remove": "패널에서 빼기 (세션은 계속됨)",
-      "remove_file": "패널에서 파일 제거",
+      "remove": "패널에서 빼기",
+      "remove_file": "패널에서 파일 빼기",
       "show_file_tab": "파일 탭으로 이동",
       "empty": "빈 패널",
       "empty_hint": "목록에서 에이전트를 고르거나 여기로 끌어 놓으세요",
-      "open_list": "목록 열기"
+      "open_list": "목록 열기",
+      "remove_others": "다른 탭 패널에서 빼기",
+      "remove_right": "오른쪽 탭 패널에서 빼기",
+      "remove_all": "모두 패널에서 빼기"
     },
     "ended": {
-      "message": "{{agent}} 세션 종료",
+      "message": "{{agent}} 대화 종료",
       "agent": "에이전트",
       "resume": "이어하기",
       "resume_title": "터미널에 {{line}} 입력",
-      "resume_manual_title": "세션을 이어가려면 터미널에서 이 명령을 실행하세요."
+      "resume_manual_title": "대화를 이어가려면 터미널에서 이 명령을 실행하세요."
     },
     "remote": {
       "title": "다른 컴퓨터",
@@ -2001,13 +1898,6 @@
       "loading": "불러오는 중…",
       "unavailable": "원격 응답 없음",
       "empty": "대화 없음",
-      "state": {
-        "needs-you": "응답 필요",
-        "running": "실행 중",
-        "new-result": "새 결과",
-        "idle": "대기",
-        "ended": "종료"
-      },
       "worktreesShow_one": "{{workspace}}의 작업 {{count}}개 펼치기",
       "worktreesShow_other": "{{workspace}}의 작업 {{count}}개 펼치기",
       "worktreesHide_one": "{{workspace}}의 작업 {{count}}개 접기",
@@ -2019,29 +1909,29 @@
       "terminalInput": "터미널에 입력",
       "terminalViewOnly": "{{device}}에서 터미널 조작을 허용하지 않아 보기만 됩니다",
       "viewOnlyNote": "{{device}}에서 다른 기기의 조작을 허용하지 않아 보기만 됩니다.",
-      "gone": "닫힌 세션입니다",
+      "gone": "닫힌 대화입니다",
       "placeholder": "{{send}} {{device}}에 보내기 · {{newLine}} 줄바꿈 · / 명령 · @ 파일",
       "placeholder_codex": "{{send}} {{device}}에 보내기 · {{newLine}} 줄바꿈 · @ 파일",
       "terminalArgument": "그 컴퓨터의 터미널에 그대로 넘길 수 없는 글자가 있습니다: 따옴표, $, %, & 같은 글자를 빼고 다시 입력하세요.",
       "exitTitle": "{{device}}의 대화 탭을 닫을까요?",
-      "exitBody": "그 컴퓨터에서 이 탭을 닫습니다. 세션은 남아서 나중에 이어 갈 수 있습니다.",
+      "exitBody": "그 컴퓨터에서 이 탭을 닫습니다. 대화는 남아서 나중에 이어갈 수 있습니다.",
       "exitConfirm": "탭 닫기",
       "failed": "전달하지 못했습니다: {{message}}",
       "filesRefused": "그 컴퓨터의 앱이 이전 버전이라 이미지만 보낼 수 있습니다",
       "noChanges": "이 대화에서 변경한 파일이 없습니다.",
-      "offline": "{{device}}이(가) 오프라인입니다",
+      "offline": "{{device}} 오프라인",
       "disconnected": "서버에 연결되지 않음",
       "outdated": "이 버전으로는 연결할 수 없습니다",
-      "offlineLast": "{{device}}이(가) 오프라인입니다. 마지막으로 받은 내용을 보여 줍니다.",
+      "offlineLast": "{{device}} 오프라인 · 마지막으로 받은 내용",
       "disconnectedLast": "서버에 연결되지 않았습니다. 마지막으로 받은 내용을 보여 줍니다.",
       "offlineTag": "오프라인",
       "profileBusy": "응답 후 또는 요청에 답한 뒤 변경할 수 있습니다.",
-      "localAddress": "{{url}}은(는) {{device}}의 주소입니다. 그 컴퓨터에서 여세요",
+      "localAddress": "{{device}}의 주소입니다: {{url}}. 그 컴퓨터에서 여세요.",
       "newIn": "{{name}}에 새로 열기",
       "closeTerminalTitle": "{{device}}의 터미널을 닫을까요?",
       "closeTerminalBody": "그 컴퓨터에서 닫힙니다.",
       "consentThere": "{{device}}에서 답하세요",
-      "consentGone": "이미 답했거나 시간이 지났습니다"
+      "consentGone": "이미 답했거나 취소된 요청"
     }
   },
   "releaseNotes": {
@@ -2142,7 +2032,77 @@
     "gitPatchTruncated": "바뀐 부분 일부만",
     "gitOutsideWorkspace": "워크스페이스 밖",
     "gitCommitMissing": "커밋 없음",
-    "gitNoCommits": "커밋 기록 없음",
     "sessionGone": "없어짐"
+  },
+  "agentConfig": {
+    "claude": {
+      "permissionMode": {
+        "auto": "자동",
+        "auto_hint": "허용 여부를 Claude가 판단합니다",
+        "default": "수동",
+        "default_hint": "변경하기 전에 항상 확인",
+        "acceptEdits": "편집 자동 수락",
+        "acceptEdits_hint": "모든 파일 편집을 자동으로 수락",
+        "plan": "계획",
+        "plan_hint": "변경하기 전에 계획 세우기",
+        "bypassPermissions": "권한 무시",
+        "bypassPermissions_hint": "아무것도 묻지 않음",
+        "bypass_confirm_title": "모든 권한 확인을 건너뛸까요?",
+        "bypass_confirm_body": "Claude가 확인 없이 파일을 편집하고 삭제·네트워크 명령을 실행합니다. 격리된 환경에서만 사용하세요.",
+        "bypass_confirm": "권한 무시",
+        "dontAsk": "묻지 않음"
+      }
+    },
+    "codex": {
+      "mode": {
+        "readOnly": "읽기 전용",
+        "readOnly_hint": "파일을 읽고 명령을 읽기 전용으로 실행하며, 편집이나 인터넷 접속에는 승인이 필요합니다",
+        "auto": "자동",
+        "auto_hint": "폴더 안에서 편집하고 명령을 실행하며, 폴더 밖이나 네트워크가 필요하면 묻습니다",
+        "fullAccess": "전체 권한",
+        "fullAccess_hint": "샌드박스 없이 묻지 않고 무엇이든 실행합니다",
+        "bypass_confirm_title": "Codex에 전체 권한을 줄까요?",
+        "bypass_confirm_body": "Codex가 샌드박스 밖에서 확인 없이 모든 파일을 수정하고 명령을 실행하며 네트워크에 접속합니다. 격리된 환경에서만 사용하세요.",
+        "bypass_confirm": "전체 권한 주기"
+      },
+      "approval_policy": {
+        "untrusted": "신뢰하지 않는 명령만 묻기",
+        "on-request": "필요할 때 묻기",
+        "never": "묻지 않기",
+        "granular": "세부 설정"
+      },
+      "sandbox_mode": {
+        "read-only": "읽기 전용",
+        "workspace-write": "워크스페이스만 쓰기",
+        "danger-full-access": "전체 권한"
+      },
+      "web_search": {
+        "disabled": "끄기",
+        "cached": "캐시",
+        "indexed": "인덱스",
+        "live": "실시간"
+      },
+      "model_reasoning_summary": {
+        "auto": "자동",
+        "concise": "간단히",
+        "detailed": "자세히",
+        "none": "숨김"
+      },
+      "model_verbosity": {
+        "low": "짧게",
+        "medium": "보통",
+        "high": "길게"
+      },
+      "service_tier": {
+        "default": "표준",
+        "priority": "빠름",
+        "ultrafast": "매우 빠름",
+        "flex": "Flex"
+      },
+      "model_auto_compact_token_limit_scope": {
+        "total": "전체 컨텍스트",
+        "body_after_prefix": "유지된 부분 이후"
+      }
+    }
   }
 }

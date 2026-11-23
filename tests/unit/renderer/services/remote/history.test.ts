@@ -1,4 +1,3 @@
-/** The conversations of the past another device may go on with: merged, matched and named. */
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import {
   CODEX_CATALOG_TTL_MS,

@@ -1,7 +1,3 @@
-/**
- * A tab's rename box starts from the tab's name when editing starts and then
- * holds what is typed, even when a terminal's title changes meanwhile.
- */
 import { describe, expect, test } from "bun:test";
 import {
   followRenameDraft,
@@ -20,7 +16,6 @@ describe("a tab's rename box", () => {
 
   test("keeps what is typed when the terminal's title changes mid-edit", () => {
     const typed: RenameDraft = { editing: true, value: "my serv" };
-    // A shell sets the title per command (OSC 0/2) while the user types.
     expect(followRenameDraft(typed, true, "vim server.ts")).toBe(typed);
     expect(followRenameDraft(typed, true, "zsh")).toBe(typed);
   });

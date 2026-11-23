@@ -29,7 +29,6 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
   ipcListen: () => () => {},
 }));
 
-/** Simulates a model instance with edits and undo surviving view disposal. */
 function makeModel(content: string) {
   const history = [content];
   const listeners = new Set<(event: { changes: [] }) => void>();
@@ -90,7 +89,6 @@ const { readFileForModel } = await import(
   "../../../../../../src/renderer/services/editor/model/file-loader"
 );
 
-/** Registers a remote workspace without connecting to a host. */
 function addWorkspace(): void {
   useWorkspacesStore.getState().upsert({
     id: workspaceId,
@@ -121,7 +119,6 @@ test("open SSH file and Untitled models keep dirty edits and Undo across session
     fileModel.edit("dirty file");
     untitledModel.edit("dirty untitled");
 
-    // Simulate ContentPool unmounting and releasing its last references.
     workspaces.setConnectionStatus(workspaceId, "held-then-expired");
     releaseModel(file);
     releaseModel(untitled);
@@ -158,7 +155,6 @@ test("a save invalidates an older encoding reopen and keeps the last applied enc
   addWorkspace();
   try {
     await acquireModel(file);
-    // Applying a different encoding can leave the text and model version unchanged.
     expect(await reloadModelFromDisk(file, "windows-1252")).toBe(true);
     expect((await readFileForModel(file)).encoding).toBe("windows-1252");
 

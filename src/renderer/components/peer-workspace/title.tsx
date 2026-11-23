@@ -1,9 +1,3 @@
-// The title bar's name of a workspace on another computer, as a local
-// one's task switcher: the workspace, then the task shown after a branch
-// mark, and the computer it is on; always a menu. The menu lists the
-// workspace and its tasks, each with its state and branch, then the agent
-// list. A task is not made or removed from here.
-
 import { Check, ChevronDown, GitBranch } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { RemoteSession, RemoteWorkspace } from "../../../../packages/remote-protocol/src/rpc";
@@ -35,7 +29,6 @@ export function PeerWorkspaceTitle({
 }: {
   target: PeerWorkspaceTarget;
   workspaces?: readonly RemoteWorkspace[];
-  /** That computer's sessions, for each workspace's state in the menu. */
   sessions?: readonly RemoteSession[];
   canSelectTask: boolean;
   maxWidth?: number;
@@ -72,7 +65,6 @@ export function PeerWorkspaceTitle({
               <span className="truncate">{workspace.name}</span>
             </>
           )}
-          {/* Which computer it is on, and that it is only looked at, as the workbench tells. */}
           <span
             className="inline-flex h-[18px] min-w-0 items-center gap-1 rounded-full border border-border px-1.5 text-app-micro text-muted-foreground"
             title={`${deviceName} · ${t("peerWorkspace.readOnly")}`}

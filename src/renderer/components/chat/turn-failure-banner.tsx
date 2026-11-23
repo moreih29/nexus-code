@@ -1,10 +1,3 @@
-// Over the composer once a turn failed on the API: what went wrong and what
-// helps. A transient error (a rate limit, an overloaded or failing server, a
-// dropped connection) outlasted the program's own retries: trying again may
-// help, and the banner offers it. A refused sign-in or request does not
-// mend by trying again: the banner says what to fix. The plan's usage limit
-// has its own banner.
-
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type BannerScope, useBannerDismissal } from "../../hooks/use-banner-dismissal";
@@ -14,7 +7,6 @@ import { Banner } from "../ui/banner";
 
 type Translate = ReturnType<typeof useTranslation>["t"];
 
-/** The failure a banner is shown for: the last turn's, while no other runs. */
 export function shownFailure(model: ChatModel) {
   if (model.running) return undefined;
   const failure = model.lastResult?.failure;
@@ -22,7 +14,6 @@ export function shownFailure(model: ChatModel) {
   return failure;
 }
 
-/** The reason in the status line's words, with the HTTP status: "Server overloaded (529)". */
 function reasonText(status: number | undefined, t: Translate): string {
   const reason = t(`chat.status.retry_reason.${retryReasonOf(status)}`);
   return status === undefined ? reason : t("chat.status.retry_code", { reason, code: status });
@@ -35,7 +26,6 @@ export function TurnFailureBanner({
 }: {
   scope: BannerScope;
   model: ChatModel;
-  /** Sends the agent a message to go on, as the user would. */
   onRetry: (text: string) => Promise<void>;
 }) {
   const { t } = useTranslation();

@@ -1,7 +1,6 @@
 import type { TranscriptPageResult } from "../../../../shared/ipc/contract";
 import { historyModel } from "./history";
 
-/** An agent snapshot's rows, from oldest to newest. The live log is kept separately. */
 export class TranscriptPages {
   readonly snapshot: string;
   readonly truncated: boolean;
@@ -24,7 +23,6 @@ export class TranscriptPages {
     this.prepend(page);
   }
 
-  /** A batch can be abandoned without moving the displayed history's boundary. */
   copy(): TranscriptPages {
     const batch = new TranscriptPages(
       {

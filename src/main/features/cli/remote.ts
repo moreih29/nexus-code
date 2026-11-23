@@ -1,8 +1,3 @@
-/**
- * The nexus command on another computer of the user's (--device): which
- * device a flag names, asking it through the remote's room, and its
- * failures as the command tells them, with their exit codes.
- */
 import {
   AGENT_CONSENT_MS,
   type AgentSender,
@@ -15,8 +10,10 @@ import {
   type RpcMethod,
   type RpcParams,
   type RpcResult,
+  UNTIMED_CONSENT_SCHEMA,
 } from "../../../../packages/remote-protocol/src";
 import { PROFILE_USAGE_REFRESH_TIMEOUT_MS } from "../../../shared/cli/ui";
+import { speaks } from "../../../shared/remote/room";
 import { fileVerifyTimeoutMs, isFileTransferMethod, needsFileConsent } from "../remote/file-io";
 import { type CliContext, type CliDevice, CliError, pick } from "./context";
 import { ago } from "./format";
@@ -31,16 +28,11 @@ export const DEVICE_FLAG = {
 
 export const NOT_IN_ROOM = "this computer is not in the remote room (Settings › Remote)";
 
-/** How long a request an agent sends waits: the user there may be asked first. */
 const AGENT_REQUEST_MS = AGENT_CONSENT_MS + 10_000;
-// Commands whose renderer work can take 60 seconds after the approval.
 const PEER_APPLY_MS = AGENT_CONSENT_MS + 70_000;
-/** How long a wait's request waits: its own time and the way there and back. */
 const WAIT_REQUEST_MS = MAX_WAIT_MS + 5_000;
-// The peer may need to verify a maximum-size upload and then commit it.
 const FILE_WRITE_END_REQUEST_MS = fileVerifyTimeoutMs(MAX_FILE_WRITE_BYTES) + 35_000;
 
-/** A device as JSON names it beside what came from it. */
 export function deviceRef(device: CliDevice): { id: string; name: string } {
   return { id: device.id, name: device.name };
 }
@@ -49,7 +41,6 @@ function notInRoom(): CliError {
   return new CliError(NOT_IN_ROOM, 3, { error: "not-in-room" });
 }
 
-/** "Mac mini" is offline (last seen 12m ago), exit 3. */
 export function offline(device: CliDevice, now: number): CliError {
   const seen = device.lastSeen !== undefined ? ` (last seen ${ago(device.lastSeen, now)})` : "";
   return new CliError(`"${device.name}" is offline${seen}`, 3, {
@@ -59,17 +50,11 @@ export function offline(device: CliDevice, now: number): CliError {
   });
 }
 
-/** The account's devices; a CliError when this computer is not in its room. */
 export async function listDevices(ctx: CliContext): Promise<CliDevice[]> {
   if (!ctx.services.remote.inRoom()) throw notInRoom();
   return ctx.services.remote.devices();
 }
 
-/**
- * The other computer a --device flag names, by id, id prefix or name; null
- * when the flag is left out (this computer). Naming this computer is an
- * error: the command is to be run without the flag.
- */
 export async function resolveDevice(
   ctx: CliContext,
   selector: string | undefined,
@@ -82,10 +67,6 @@ export async function resolveDevice(
   return device;
 }
 
-/**
- * The device a selector names, by id, id prefix or name; then by the name it
- * signed in with, which its alias is shown in place of.
- */
 export function pickDevice(devices: readonly CliDevice[], selector: string): CliDevice {
   try {
     return pick(
@@ -103,23 +84,12 @@ export function pickDevice(devices: readonly CliDevice[], selector: string): Cli
   }
 }
 
-/** The --device flag as a command reads it. */
 export function deviceFlag(flags: Record<string, unknown>): string | undefined {
   return typeof flags.device === "string" ? flags.device : undefined;
 }
 
-/**
- * Who runs the command, as the other computer is told it: what it does
- * there is an agent's, gated by that computer's setting for agents. So is
- * what the user runs at a shell of theirs: the command is what agents run,
- * and one in a terminal that is no Claude Code or Codex is not told from
- * the user, so it goes as an agent in that terminal. So does one in a
- * terminal an agent on another computer opened: that agent's tab is no tab
- * here to name.
- */
 export async function agentSenderOf(ctx: CliContext): Promise<AgentSender> {
   const sender = await senderOf(ctx);
-  // The app sends on its own, never through the command.
   if (!sender || sender.kind === "app" || sender.device) {
     const { workspaceId, tabId } = ctx.caller;
     return { kind: "terminal", workspaceId, tabId };
@@ -133,13 +103,11 @@ export async function agentSenderOf(ctx: CliContext): Promise<AgentSender> {
   };
 }
 
-/** An error of the protocol's, as the room rejects a request with. */
 function rpcCode(error: unknown): number | undefined {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === "number" ? code : undefined;
 }
 
-/** A failure of a request to `device`, as the command tells it. */
 function failureOf(device: CliDevice, method: RpcMethod, error: unknown, now: number): Error {
   if (error instanceof CliError) return error;
   const message = error instanceof Error ? error.message : String(error);
@@ -158,7 +126,6 @@ function failureOf(device: CliDevice, method: RpcMethod, error: unknown, now: nu
         message,
       });
     case RpcErrorCode.Unavailable:
-      // This computer left its room, or the other one did.
       if (message === "not in the room" || message === "left the room") return notInRoom();
       if (message.includes("device is not in the room")) return offline(device, now);
       if (/(?:no answer|did not answer) in time/.test(message)) {
@@ -195,7 +162,6 @@ function failureOf(device: CliDevice, method: RpcMethod, error: unknown, now: nu
   }
 }
 
-/** What an agent reads of another device, said as an agent's. */
 const AGENT_READS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   "sessions.list",
   "chat.read",
@@ -226,13 +192,6 @@ const AGENT_READS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   "browser.permissions",
 ]);
 
-/**
- * Asks `device` for `method`: a request with `from` waits on its user's
- * consent, a wait on its own time. Offline, older and refusing devices
- * are CliErrors as the command tells them. A consent prompt is never
- * answered from here: the user answers it in the app, and an agent does
- * not allow itself.
- */
 export async function askDevice<M extends RpcMethod>(
   ctx: CliContext,
   device: CliDevice,
@@ -250,7 +209,6 @@ export async function askDevice<M extends RpcMethod>(
   }
   const now = ctx.services.clock.now();
   if (!device.online) throw offline(device, now);
-  // A read says who reads: a device whose user turned agents down is read by people alone.
   const reads = AGENT_READS.has(method);
   const params =
     reads && (given as { from?: AgentSender }).from === undefined
@@ -274,43 +232,57 @@ export async function askDevice<M extends RpcMethod>(
     (params as { permissionMode?: string }).permissionMode !== undefined
   )
     requirePeerCli(ctx, device);
+  const slow = [
+    "worktree.new",
+    "worktree.remove",
+    "notes.speakers",
+    "notes.voiceSuggestions.list",
+    "notes.voiceSuggestions.change",
+  ].includes(method);
+  const applies =
+    from !== undefined &&
+    [
+      "chat.rewind",
+      "chat.command",
+      "chat.remoteControl",
+      "chat.send",
+      "chat.configure",
+      "chat.new",
+      "chat.profile",
+      "settings.instructions.set",
+      "notes.voiceNames.delete",
+    ].includes(method);
+  const asksUser =
+    applies ||
+    (from !== undefined &&
+      !reads &&
+      (!isFileTransferMethod(method) || needsFileConsent(method, params as { anywhere?: true })));
   let timeoutMs =
     method === "chat.wait" || method === "terminal.wait"
       ? WAIT_REQUEST_MS
       : method === "files.write.end"
         ? FILE_WRITE_END_REQUEST_MS
-        : [
-              "worktree.new",
-              "worktree.remove",
-              "notes.speakers",
-              "notes.voiceSuggestions.list",
-              "notes.voiceSuggestions.change",
-            ].includes(method)
+        : slow
           ? AGENT_REQUEST_MS + 5 * 60_000
-          : from &&
-              [
-                "chat.rewind",
-                "chat.command",
-                "chat.remoteControl",
-                "chat.send",
-                "chat.configure",
-                "chat.new",
-                "chat.profile",
-                "settings.instructions.set",
-                "notes.voiceNames.delete",
-              ].includes(method)
+          : applies
             ? PEER_APPLY_MS
-            : from &&
-                !reads &&
-                (!isFileTransferMethod(method) ||
-                  needsFileConsent(method, params as { anywhere?: true }))
+            : asksUser
               ? AGENT_REQUEST_MS
               : undefined;
   if (method === "profiles.usage" && (params as RpcParams<"profiles.usage">).refresh) {
     timeoutMs = PROFILE_USAGE_REFRESH_TIMEOUT_MS + 5_000;
   }
+  if (asksUser && method !== "files.write.end" && speaks(device.schema, UNTIMED_CONSENT_SCHEMA)) {
+    timeoutMs = Number.POSITIVE_INFINITY;
+  }
   try {
-    return await ctx.services.remote.request(device.id, method, params, timeoutMs, signal);
+    return await ctx.services.remote.request(
+      device.id,
+      method,
+      params,
+      timeoutMs,
+      signal ?? ctx.signal,
+    );
   } catch (error) {
     signal?.throwIfAborted();
     const failure = failureOf(device, method, error, ctx.services.clock.now());
@@ -319,7 +291,6 @@ export async function askDevice<M extends RpcMethod>(
   }
 }
 
-/** An operation that needs an advertised version of the peer's agent CLI contract. */
 export function requirePeerCli(
   ctx: CliContext,
   device: CliDevice,
@@ -334,7 +305,6 @@ export function requirePeerCli(
   }
 }
 
-/** Like askDevice for operations added to the expanded agent CLI contract. */
 export function askPeerCli<M extends RpcMethod>(
   ctx: CliContext,
   device: CliDevice,
@@ -347,7 +317,6 @@ export function askPeerCli<M extends RpcMethod>(
 
 type WithoutSender<T> = T extends unknown ? Omit<T, "from"> : never;
 
-/** A CLI change on the receiving device, attributed to the caller. */
 export async function changePeerCli<M extends RpcMethod>(
   ctx: CliContext,
   device: CliDevice,
@@ -364,7 +333,6 @@ export async function changePeerCli<M extends RpcMethod>(
   );
 }
 
-/** A device's workspaces and sessions, as its sessions.list tells them. */
 export async function peerSessions(
   ctx: CliContext,
   device: CliDevice,
@@ -373,7 +341,6 @@ export async function peerSessions(
   return askDevice(ctx, device, "sessions.list", {}, signal);
 }
 
-/** The workspace a --workspace flag names on `device`; "." is no workspace there. */
 export function pickPeerWorkspace(
   device: CliDevice,
   workspaces: readonly RemoteWorkspace[],
@@ -396,18 +363,12 @@ export async function peerWorkspace(ctx: CliContext, device: CliDevice, selector
   return pickPeerWorkspace(device, workspaces, typeof selector === "string" ? selector : undefined);
 }
 
-/** A session of another device, found as `<tab> --workspace <ws> --device <d>` names it. */
 export interface PeerTab {
   readonly device: CliDevice;
   readonly workspace: RemoteWorkspace;
   readonly session: RemoteSession;
 }
 
-/**
- * The session a tab selector names on `device`: in the workspace
- * --workspace names, or among all of its sessions when that is left out.
- * `kinds` narrows it to chats or terminals.
- */
 export async function resolvePeerTab(
   ctx: CliContext,
   device: CliDevice,

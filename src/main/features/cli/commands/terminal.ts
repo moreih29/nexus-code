@@ -1,6 +1,6 @@
-/** nexus tab ..., nexus terminal ... and nexus session list. */
 import type { CliChatInfo, CliTabInfo } from "../../../../shared/cli/ui";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import { shortId } from "../../../../shared/util/short-id";
 import { isAgentSession, type TerminalState, terminalState } from "../agent-state";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
 import {
@@ -11,7 +11,6 @@ import {
   placementFor,
   resolveTab,
   resolveWorkspace,
-  shortId,
 } from "../context";
 import { ago, oneLine, table } from "../format";
 import { KEY_NAMES_HELP, keySequence } from "../keys";
@@ -52,12 +51,10 @@ import {
 } from "./terminal-remote";
 import { orderedWorkspaces } from "./workspace";
 
-/** The tabs of a workspace, as the renderer has them. */
 export async function workspaceTabs(ctx: CliContext, workspaceId: string): Promise<CliTabInfo[]> {
   return (await ctx.services.ui("tabs.list", { workspaceId })).tabs;
 }
 
-/** The terminal a selector names in a workspace. */
 export async function resolveTerminal(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -67,7 +64,6 @@ export async function resolveTerminal(
   return resolveTab(ctx, tabs, selector, `terminal in ${workspace.name}`);
 }
 
-/** A tab a selector names in a workspace, of any type. */
 export async function resolveAnyTab(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -81,11 +77,6 @@ export async function resolveAnyTab(
   );
 }
 
-/**
- * Refuses to type into a terminal that is not another's to type into: the
- * caller's own, one that has exited, and a Claude Code waiting for the user
- * to allow a tool, which is the user's answer to give.
- */
 function checkTypable(ctx: CliContext, workspace: WorkspaceMeta, tab: CliTabInfo): void {
   if (tab.id === ctx.caller.tabId) {
     throw new CliError("that is this terminal; nexus types only into other terminals");
@@ -94,11 +85,6 @@ function checkTypable(ctx: CliContext, workspace: WorkspaceMeta, tab: CliTabInfo
   refuseWhileAsking(ctx, workspace, tab);
 }
 
-/**
- * Refuses typing into a terminal whose Claude Code waits for the user to
- * allow a tool: what is typed would answer it. Asked again just before the
- * keys go, as it may have come to wait while the user was asked.
- */
 function refuseWhileAsking(ctx: CliContext, workspace: WorkspaceMeta, tab: CliTabInfo): void {
   if (ctx.services.claudeStatus(workspace.id, tab.id)?.status === "permissionPending") {
     throw new CliError(
@@ -136,12 +122,10 @@ function waitTimes(flags: ParsedArgs["flags"]): { timeoutMs: number; quietMs: nu
   return { timeoutMs, quietMs };
 }
 
-/** --quiet, for another computer, which has its own default otherwise. */
 function quietGiven(flags: ParsedArgs["flags"], times: { quietMs: number }): { quietMs?: number } {
   return flags.quiet === undefined ? {} : { quietMs: times.quietMs };
 }
 
-/** A wait's result as the command prints it; exit 124 when the wait ran out. */
 function waitOutput(text: string, json: Record<string, unknown>, result: WaitResult): CliOutput {
   return output(
     text,
@@ -150,7 +134,6 @@ function waitOutput(text: string, json: Record<string, unknown>, result: WaitRes
   );
 }
 
-/** The workspaces a listing covers: --all, --workspace, or the caller's. */
 function scope(ctx: CliContext, flags: { all?: unknown; workspace?: unknown }): WorkspaceMeta[] {
   if (flags.all === true) return orderedWorkspaces(ctx.services.listWorkspaces());
   return [resolveWorkspace(ctx, flags.workspace as string | undefined)];
@@ -181,7 +164,6 @@ async function terminalRows(
   return rows;
 }
 
-/** A task's branch and the workspace it is a task of, for a session's JSON. */
 function taskJson(workspace: WorkspaceMeta) {
   return workspace.task
     ? { branch: workspace.task.branch, parentWorkspaceId: workspace.task.parentId }
@@ -238,7 +220,6 @@ const tabList: CliCommand = {
   },
 };
 
-/** What `tab save` and `tab revert` act on: the tab named, or with --all each unsaved one. */
 async function unsavedTargets(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -253,7 +234,6 @@ async function unsavedTargets(
   return (await workspaceTabs(ctx, workspace.id)).filter((t) => t.unsaved === true);
 }
 
-/** A file's path as the user would write it: inside the workspace, from its root. */
 function shownPath(workspace: WorkspaceMeta, filePath: string): string {
   const root = rendererRoot(workspace);
   return filePath.startsWith(`${root}/`) ? filePath.slice(root.length + 1) : filePath;
@@ -347,7 +327,6 @@ const tabShow: CliCommand = {
 
 type BulkClose = "others" | "right" | "saved" | "all";
 
-/** Which of --others, --saved and --all a tab close asks for; none for one tab. */
 function bulkCloseFlag(flags: ParsedArgs["flags"]): BulkClose | null {
   const given = (["others", "right", "saved", "all"] as const).filter(
     (name) => flags[name] === true,
@@ -356,11 +335,6 @@ function bulkCloseFlag(flags: ParsedArgs["flags"]): BulkClose | null {
   return given[0] ?? null;
 }
 
-/**
- * The tabs a bulk close closes, as the tab bar's menu closes them: the
- * other tabs of `of`'s group but the pinned ones; the editors with nothing
- * unsaved; or every tab. Without `of`, of every group.
- */
 function bulkTargets(
   tabs: readonly CliTabInfo[],
   bulk: BulkClose,
@@ -381,7 +355,6 @@ function bulkTargets(
   }
 }
 
-/** Closes tabs one by one, saying which were left open and why. */
 async function closeTabs(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -636,7 +609,6 @@ const terminalNew: CliCommand = {
       kind: "terminalNew",
       ...(command ? { body: command } : {}),
     });
-    // An agent's terminal stays its: what runs nexus in it, --command or not, is that agent.
     const openedBy = openerOf(await senderOf(ctx));
     const { tabId } = await ctx.services.ui("terminal.open", {
       workspaceId: workspace.id,
@@ -734,7 +706,6 @@ const terminalSend: CliCommand = {
       detail: tab.title,
       body: enter ? `${text}\n` : text,
     });
-    // Last, right before the keys go: nothing awaited between.
     refuseWhileAsking(ctx, workspace, tab);
     const startedAt = ctx.services.clock.now();
     await ctx.services.ui("terminal.input", {
@@ -778,7 +749,6 @@ const terminalKey: CliCommand = {
       detail: tab.title,
       body: keys.join(" "),
     });
-    // Last, right before the keys go: nothing awaited between.
     refuseWhileAsking(ctx, workspace, tab);
     await ctx.services.ui("terminal.input", {
       workspaceId: workspace.id,
@@ -859,7 +829,6 @@ interface ChatRow {
   readonly info: CliChatInfo;
 }
 
-/** The Claude and Codex tabs of `workspaces`; one not opened since the app started reads idle. */
 async function chatRows(ctx: CliContext, workspaces: readonly WorkspaceMeta[]): Promise<ChatRow[]> {
   const rows: ChatRow[] = [];
   for (const workspace of workspaces) {
@@ -908,7 +877,6 @@ const sessionList: CliCommand = {
       SESSION_HEADER,
       sessions.map((s) => s.cells),
     );
-    // The other computers' sessions are a command away, said under the text only.
     const hint =
       flags.json === true || flags.jsonl === true || flags.workspace !== undefined
         ? ""
@@ -922,7 +890,6 @@ const sessionList: CliCommand = {
 
 const SESSION_HEADER = ["ID", "WORKSPACE", "TITLE", "AGENT", "STATE", "SINCE", "LAST"];
 
-/** session list --device: another computer's sessions, or every computer's with "all". */
 async function deviceSessionList(
   ctx: CliContext,
   selector: string,
@@ -935,7 +902,6 @@ async function deviceSessionList(
   const listed = all ? await listDevices(ctx) : [(await resolveDevice(ctx, selector)) as CliDevice];
   const named = listed[0] as CliDevice;
   if (!all && !named.online) throw offline(named, ctx.services.clock.now());
-  // Every computer's: those offline are counted in a line, not listed one by one.
   const devices = listed.filter((d) => !d.self && d.online);
   const away = listed.filter((d) => !d.self && !d.online).length;
   const self = listed.find((d) => d.self);
@@ -971,7 +937,6 @@ async function deviceSessionList(
   );
 }
 
-/** This computer's agent sessions in `workspaces`, as session list lists them. */
 async function localSessions(
   ctx: CliContext,
   workspaces: readonly WorkspaceMeta[],
@@ -979,7 +944,6 @@ async function localSessions(
   const now = Date.now();
   const you = (tab: CliTabInfo, state: string) =>
     tab.id === ctx.caller.tabId ? `${state} (you)` : state;
-  // A workspace's terminals, then its Claude and Codex tabs.
   const sessions: Array<{ workspace: WorkspaceMeta; cells: string[]; json: object }> = [
     ...(await terminalRows(ctx, workspaces))
       .filter((r) => isAgentSession(r.state))

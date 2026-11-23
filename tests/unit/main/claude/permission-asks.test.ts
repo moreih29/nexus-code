@@ -1,8 +1,3 @@
-/**
- * The permission requests main holds for an answer from the sessions tab:
- * what each one shows, how an answer reads to Claude Code, and when one is
- * let go of.
- */
 import { describe, expect, mock, test } from "bun:test";
 import { answerHook } from "../../../../src/main/features/claude/hook-handler";
 import {
@@ -88,7 +83,6 @@ describe("PermissionAsks", () => {
   test("refuses an answer it cannot give", async () => {
     const { asks, sent } = makeAsks();
     asks.hold("ws", "t1", "h1", "a1", "call", { tool_name: "Bash" });
-    // Another session's, a subagent's turn to stop, and rules Claude Code did not offer.
     expect(await asks.answer("ws", "t2", "h1", "allow")).toBe(false);
     expect(await asks.answer("ws", "t1", "h1", "denyStop")).toBe(false);
     expect(await asks.answer("ws", "t1", "h1", "allowAlways")).toBe(false);

@@ -1,9 +1,3 @@
-/**
- * A Codex tab is called by its conversation's first message: a message sent
- * to a thread resumed after the app restarted, which shows the messages it
- * had, leaves the tab's name as it was. The real ipc client is spread under
- * a spy.
- */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
@@ -27,7 +21,6 @@ afterEach(() => {
   for (const c of live.splice(0)) c.dispose();
 });
 
-/** A Codex tab running its thread, showing `items`, and the titles it was given. */
 function tab(items: unknown[]) {
   const titles: string[] = [];
   const c = new CodexController(

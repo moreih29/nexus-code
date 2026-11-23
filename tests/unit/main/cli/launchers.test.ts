@@ -1,8 +1,3 @@
-/**
- * The Windows nexus command: nexus.exe copied out beside Git Bash's script,
- * in the launchers' directory and Git Bash's, and that script, which keeps
- * Git Bash's hands off the arguments.
- */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -68,8 +63,6 @@ describe("writeWindowsCli", () => {
   });
 });
 
-// The launcher is tested under sh where there is one, with a fake cygpath,
-// and in Git Bash itself on Windows.
 const describeOnPosix = describe.skipIf(process.platform === "win32");
 const GIT_BASH = path.join(
   process.env.ProgramFiles ?? "C:\\Program Files",
@@ -80,7 +73,6 @@ const GIT_BASH = path.join(
 const describeInGitBash = describe.skipIf(process.platform !== "win32" || !fs.existsSync(GIT_BASH));
 
 describeOnPosix("Git Bash's launcher", () => {
-  // Prints what nexus.exe would be handed: the variables, then each argument.
   function program(dir: string): string {
     return write(
       path.join(dir, "nexus.exe"),
@@ -115,7 +107,6 @@ describeOnPosix("Git Bash's launcher", () => {
       "#!/bin/sh\nprintf '%s\\n' 'C:\\Program Files\\Git\\'\n",
       0o755,
     );
-    // A quote in the program's path survives the script's quoting.
     const result = run(path.join(tmp, "it's here"), [fakeBin], ["/review", "a b", "it's"]);
 
     expect(result.stderr).toBe("");
@@ -141,7 +132,6 @@ describeOnPosix("Git Bash's launcher", () => {
 
 describeInGitBash("Git Bash's launcher in Git Bash", () => {
   test("keeps Git Bash from rewriting the arguments, and says where / is", () => {
-    // The program is this one, a Windows program, as nexus.exe is.
     const launcher = write(path.join(tmp, "nexus"), windowsGitBashLauncher(process.execPath));
     const code =
       "console.log(JSON.stringify({ argv: process.argv, root: process.env.NEXUS_MSYS_ROOT }))";

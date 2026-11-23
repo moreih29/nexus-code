@@ -1,4 +1,3 @@
-/** What this device serves the others: its sessions, as the CLI's services see them. */
 import { describe, expect, jest, test } from "bun:test";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -24,7 +23,7 @@ import {
   PhotoQuota,
   type RemoteNotes,
 } from "../../../../../src/main/features/remote/notes";
-import { MAX_MESSAGE_BYTES } from "../../../../../src/main/features/remote/room";
+import { MAX_MESSAGE_BYTES, RpcFailure } from "../../../../../src/main/features/remote/room";
 import {
   chatRun,
   chatRuns,
@@ -149,7 +148,89 @@ test("a peer editing a task's workspace instructions asks for and changes the pa
   ]);
 });
 
-test("profile usage follows the receiving device's agent read policy", async () => {
+describe("an agent's request whose device waits for the user", () => {
+  const edit = {
+    from: "d",
+    method: "settings.instructions.set" as const,
+    params: {
+      workspaceId: "w2",
+      layer: "workspace" as const,
+      text: "",
+      from: { kind: "tab" as const, workspaceId: "other-workspace", tabId: "other-tab" },
+    },
+  };
+
+  function serving(answer: (signal?: AbortSignal) => Promise<string>) {
+    const calls: string[] = [];
+    const asks: { timeoutMs: number | undefined; bridge: number | undefined }[] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string) => {
+        calls.push(op);
+        return {};
+      },
+      consents: {
+        ...base.consents,
+        ask: async (
+          args: { timeoutMs?: number },
+          bridgeTimeoutMs?: number,
+          signal?: AbortSignal,
+        ) => {
+          calls.push("consent.ask");
+          asks.push({ timeoutMs: args.timeoutMs, bridge: bridgeTimeoutMs });
+          return { answer: await answer(signal) };
+        },
+      },
+    } as unknown as CliServices;
+    const serve = serveWith(() => s, { agents: new AgentGate({ policy: () => "ask" }) });
+    return { serve, calls, asks };
+  }
+
+  test("asks with no time limit, and the user's answer goes as given", async () => {
+    const { serve, calls, asks } = serving(async () => "once");
+    const controller = new AbortController();
+    await expect(serve({ ...edit, waits: true, signal: controller.signal })).resolves.toEqual({});
+    expect(asks).toEqual([{ timeoutMs: undefined, bridge: Number.POSITIVE_INFINITY }]);
+    expect(calls).toEqual(["consent.ask", "settings.instructions.set"]);
+  });
+
+  test("the device gone while the user is asked: the prompt closes, nothing is changed", async () => {
+    const controller = new AbortController();
+    const { serve, calls } = serving(
+      (signal) =>
+        new Promise((_, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+    );
+    const served = serve({ ...edit, waits: true, signal: controller.signal });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort(
+      new RpcFailure(RpcErrorCode.Unavailable, "the requesting device left the room"),
+    );
+    await expect(served).rejects.toMatchObject({
+      code: RpcErrorCode.Unavailable,
+      message: "the requesting device left the room",
+    });
+    expect(calls).toEqual(["consent.ask"]);
+  });
+
+  test("allowed after the device called it off: nothing is changed", async () => {
+    const controller = new AbortController();
+    const { serve, calls } = serving(async () => {
+      controller.abort(
+        new RpcFailure(RpcErrorCode.Unavailable, "the requesting device called it off"),
+      );
+      return "once";
+    });
+    await expect(serve({ ...edit, waits: true, signal: controller.signal })).rejects.toMatchObject({
+      message: "the requesting device called it off",
+    });
+    expect(calls).toEqual(["consent.ask"]);
+  });
+});
+
+test("profile usage follows the receiving device's agent read policy, and people read it too", async () => {
   const calls: [string, unknown][] = [];
   const s = {
     ...services(),
@@ -164,7 +245,8 @@ test("profile usage follows the receiving device's agent read policy", async () 
   const from = { workspaceId: "other-workspace", tabId: "other-tab", kind: "tab" };
   const request = { from: "d", method: "profiles.usage" as const, params };
   expect(servesWith(false, false, true)).toContain("profiles.usage");
-  await expect(serve(request)).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+  expect(servesWith(false)).toContain("profiles.usage.people");
+  await expect(serve(request)).resolves.toEqual({ profiles: [] });
   await expect(serve({ ...request, params: { ...params, from } })).resolves.toEqual({
     profiles: [],
   });
@@ -172,7 +254,49 @@ test("profile usage follows the receiving device's agent read policy", async () 
   await expect(serve({ ...request, params: { ...params, from } })).rejects.toMatchObject({
     code: RpcErrorCode.Forbidden,
   });
-  expect(calls).toEqual([["chat.usage", params]]);
+  expect(calls).toEqual([
+    ["chat.usage", params],
+    ["chat.usage", params],
+  ]);
+});
+
+test("people read profile usage without agents and without the agent policy", async () => {
+  const calls: [string, unknown][] = [];
+  const usage = {
+    profiles: [
+      {
+        id: "p1",
+        name: "Work",
+        agent: "claude",
+        status: "fresh",
+        fetchedAt: 10,
+        limits: [{ kind: "five_hour", percent: 12, resetsAt: 99, fetchedAt: 10, stale: false }],
+      },
+    ],
+  };
+  const s = {
+    ...services(),
+    ui: async (op: string, args: unknown) => {
+      calls.push([op, args]);
+      return usage;
+    },
+  } as CliServices;
+  const serve = serveWith(() => s, { agents: new AgentGate({ policy: () => "deny" }) });
+  const result = await serve({
+    from: "phone",
+    method: "profiles.usage",
+    params: { agent: "claude", refresh: true },
+  });
+  expect(result).toEqual(usage);
+  expect(RPC_METHODS["profiles.usage"].result.parse(result)).toEqual(usage);
+  expect(calls).toEqual([["chat.usage", { agent: "claude", refresh: true }]]);
+  await expect(
+    serveWith(() => s)({
+      from: "phone",
+      method: "profiles.usage",
+      params: { workspaceId: "nope" },
+    }),
+  ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
 });
 
 describe("the sessions list's renderer deadline", () => {
@@ -246,7 +370,6 @@ describe("the sessions list's renderer deadline", () => {
     const { list, incompleteWorkspaces } = await snapshotSessions(s, undefined);
     expect(reads).toEqual([["sessions.snapshot", { workspaceIds: ["w1", "w2", "w3"] }]]);
     expect(list.sessions.map((row) => row.tabId)).toEqual(["chat-0", "chat-1"]);
-    // The chats it could not read leave their workspace incomplete.
     expect(incompleteWorkspaces).toEqual(new Set(["w1"]));
   });
 
@@ -625,14 +748,12 @@ describe("serving the sessions", () => {
     expect(list.workspaces.filter((w) => w.pinned).map((w) => w.id)).toEqual(["d", "b"]);
   });
 
-  // A terminal not started (t6) is not listed: it has nothing to show until its workspace is opened.
   test("lists the chats and terminals of every workspace, in the app's order", async () => {
     const git = (w: { id: string }) =>
       w.id === "w2" ? { branch: "feat", ahead: 2, behind: 0, uncommitted: 3 } : undefined;
     const list = await listSessions(services(), git);
     expect(list.workspaces.map((w) => w.id)).toEqual(["w1", "w2", "w3"]);
     expect(list.workspaces[0]).toEqual({ id: "w1", name: "app", path: "/src/app" });
-    // A task names its parent and how its branch stands.
     expect(list.workspaces[1]).toMatchObject({
       parentId: "w1",
       git: { branch: "feat", ahead: 2, behind: 0, uncommitted: 3 },
@@ -658,8 +779,6 @@ describe("serving the sessions", () => {
         since: 5,
         last: "Allow rm?",
         agent: "claude",
-        // What the terminal's Claude Code asks, as the app holds it: nothing to allow always,
-        // and the session's own, which denying may stop.
         waiting: {
           kind: "permission",
           text: "Bash rm -rf dist",
@@ -668,7 +787,6 @@ describe("serving the sessions", () => {
           subagent: false,
         },
       },
-      // A terminal with only its shell: no agent, which the lists keep out of sight.
       { workspaceId: "w1", tabId: "t5", kind: "terminal", title: "bash", state: "idle" },
       {
         workspaceId: "w2",
@@ -713,6 +831,34 @@ describe("serving the sessions", () => {
     }
   });
 
+  test("a prompt without a time limit is listed as untimed, a timed one is not", async () => {
+    const request = {
+      fromWorkspaceId: "w1",
+      fromTabId: "t2",
+      toWorkspaceId: "w2",
+      change: { kind: "terminalNew" },
+    };
+    const pending: PendingConsent[] = [
+      { id: "open", at: 1000, request: { ...request, id: "open" } },
+      {
+        id: "timed",
+        at: 1000,
+        expiresAt: 91_000,
+        request: { ...request, timeoutMs: 90_000, id: "timed" },
+      },
+    ];
+    const listed = (await serveWith(() => services(pending), {
+      controls: () => ({ chat: true, terminal: true }),
+    })({ from: "phone", method: "sessions.list", params: {} })) as {
+      consents: { id: string; untimed?: true }[];
+    };
+    expect(listed.consents.map(({ id, untimed }) => ({ id, untimed }))).toEqual([
+      { id: "open", untimed: true },
+      { id: "timed", untimed: undefined },
+    ]);
+    expect(listed.consents[1]).not.toHaveProperty("untimed");
+  });
+
   test("with the consent prompts waiting on the user, as the device asking may answer them", async () => {
     const pending: PendingConsent[] = [
       {
@@ -745,7 +891,6 @@ describe("serving the sessions", () => {
       answerable: false,
       from: { workspaceName: "app", name: "zsh" },
     });
-    // A terminal's change needs the terminals' controls too.
     await expect(
       serve({ chat: true, terminal: false })({
         from: "phone",
@@ -800,7 +945,6 @@ describe("serving the sessions", () => {
       });
     await expect(read()).rejects.toMatchObject({ code: 1002 });
     await expect(read("deny")).rejects.toMatchObject({ code: 1002 });
-    // Only what an agent would change is asked about: a read goes ahead.
     expect(await read("ask")).toHaveProperty("workspaces");
     expect(await read("allow")).toHaveProperty("workspaces");
     expect(asked).not.toContain("consent.ask");
@@ -808,7 +952,6 @@ describe("serving the sessions", () => {
 });
 
 describe("serving a chat and a terminal to read", () => {
-  /** The services, recording the UI requests other than the tabs' list. */
   function recording(answer: (op: string) => unknown = () => ({ text: "$ ls" })) {
     const asked: [string, unknown][] = [];
     const base = services();
@@ -846,7 +989,6 @@ describe("serving a chat and a terminal to read", () => {
     const peek = (params: object) => serveWith(() => s)({ from: "d", method: "chat.peek", params });
     expect(await peek({ workspaceId: "w1", tabId: "t1" })).toEqual(peeked);
     expect(await peek({ workspaceId: "w2", tabId: "t4", turns: 5 })).toEqual(peeked);
-    // One request of the window, and none that opens or reads the tab whole.
     expect(asked).toEqual([
       ["chat.peek", { workspaceId: "w1", tabId: "t1" }],
       ["chat.peek", { workspaceId: "w2", tabId: "t4", turns: 5 }],
@@ -862,7 +1004,6 @@ describe("serving a chat and a terminal to read", () => {
         workspaceId: "w1",
         tabId: "t1",
         turns: 2,
-        // A device cannot point the read at a history of its choosing.
         threadId: "01a1c494-518d-7651-938d-00031c0ec9fb",
         sessionId: "0b0f8a52-2b8e-4a4f-9d3e-0c4f2f6f6a22",
         codexHome: "/etc",
@@ -949,7 +1090,6 @@ describe("serving a chat and a terminal to read", () => {
       expect(asked).toEqual([]);
       await read("ask");
       await read("allow");
-      // Only the read itself: the user is asked nothing.
       expect(asked.map(([op]) => op)).toEqual(
         method === "chat.peek" ? ["chat.peek", "chat.peek"] : ["chat.page", "chat.page"],
       );
@@ -989,7 +1129,6 @@ describe("serving a chat and a terminal to read", () => {
     expect(await read({ workspaceId: "w1", tabId: "t2" })).toEqual({ text: "$ ls" });
     await read({ workspaceId: "w1", tabId: "t2", lines: 50 });
     expect(asked.map(([, a]) => (a as { lines: number }).lines)).toEqual([1000, 50]);
-    // With its colors, when asked.
     await read({ workspaceId: "w1", tabId: "t2", ansi: true });
     expect(asked.at(-1)?.[1]).toMatchObject({ ansi: true });
   });
@@ -1138,7 +1277,6 @@ describe("serving how busy a workspace's host is", () => {
     });
     const request = { from: "d", method: "system.stats" as const };
     expect(await serve({ ...request, params: { workspaceId: "w1" } })).toEqual(stats);
-    // While the host cannot tell, it says so.
     await expect(serve({ ...request, params: { workspaceId: "w2" } })).rejects.toMatchObject({
       code: RpcErrorCode.Unavailable,
     });
@@ -1191,6 +1329,7 @@ describe("serving a workspace's notes", () => {
               title: `note ${i}`,
               updatedAt: 1000 - i,
               excerpt: "not sent",
+              ...(i === 1 ? { recording: { recordings: 2, ms: 5000, people: 3 } } : {}),
             }))
           : [],
       attach: async (workspaceId, noteId, _bytes, ext, name) => {
@@ -1213,7 +1352,8 @@ describe("serving a workspace's notes", () => {
       notes: object[];
     };
     expect(listed.notes).toHaveLength(MAX_LISTED_NOTES);
-    expect(listed.notes[0]).toEqual({ id: "n0", title: "note 0", updatedAt: 1000 });
+    expect(listed.notes[0]).toEqual({ id: "n0", title: "note 0", updatedAt: 1000, recordings: 0 });
+    expect(listed.notes[1]).toEqual({ id: "n1", title: "note 1", updatedAt: 999, recordings: 2 });
     await expect(ask(remote, "notes.list", { workspaceId: "nope" })).rejects.toMatchObject({
       code: RpcErrorCode.NotFound,
     });
@@ -1284,7 +1424,6 @@ describe("serving a workspace's notes", () => {
     const attach = (from: string) => serve({ from, method: "notes.attach", params: photo });
     for (let i = 0; i < MAX_PHOTOS_PER_MINUTE; i++) await attach("phone");
     await expect(attach("phone")).rejects.toMatchObject({ code: RpcErrorCode.Unavailable });
-    // Another device has its own share.
     await attach("tablet");
     now += 60_000;
     await attach("phone");
@@ -1398,7 +1537,6 @@ describe("serving a workspace's files found, and a commit", () => {
       code: 1003,
       message: expect.stringContaining("2 searches running"),
     });
-    // Another device's goes.
     const other = find("e");
     await Bun.sleep(0);
     for (const done of pending.splice(0)) done();
@@ -1595,7 +1733,6 @@ describe("serving one tool call", () => {
         if (op === "tabs.list") return base.ui("tabs.list", args);
         if (args.toolUseId === "nope") throw new Error("no tool call nope in that tab");
         asked.push(args.maxText ?? 0);
-        // A result of quotes, twice as long in JSON as it is.
         const text = '"'.repeat(Math.min(args.maxText ?? 0, 600_000));
         return {
           id: "tu1",
@@ -1827,7 +1964,6 @@ describe("rewinding, forking and more of a Claude chat", () => {
       signedOut: false,
     });
     expect(asked).toEqual([["chat.checkSignIn", codex]]);
-    // A Claude chat has no sign-in to check.
     await expect(serve({ from: "d", method: "chat.checkSignIn", params: tab })).rejects.toThrow();
   });
 
@@ -1862,7 +1998,6 @@ describe("rewinding, forking and more of a Claude chat", () => {
     expect(await serve({ from: "d", method: "chat.config", params: tab })).toEqual({ config });
     const set = { ...tab, set: { changes: { verbose: true } } };
     await serve({ from: "d", method: "chat.config", params: set });
-    // A Codex chat's defaults, the same way; a terminal has none.
     const codex = { workspaceId: "w2", tabId: "t4" };
     await serve({ from: "d", method: "chat.config", params: codex });
     await expect(
@@ -1946,7 +2081,6 @@ describe("when a message goes, and the ones held for after the turn", () => {
     await serve({ from: "d", method: "chat.send", params: { ...tab, text: "now", when: "now" } });
     await serve({ from: "d", method: "chat.send", params: { ...tab, text: "next" } });
     expect(asked).toEqual([
-      // Held, it says which device held it: dropped if control from there is turned off.
       ["chat.send", { ...tab, text: "hi", user: true, when: "after", device: "d" }],
       ["chat.send", { ...tab, text: "now", user: true, when: "now" }],
       ["chat.send", { ...tab, text: "next", user: true }],
@@ -2032,7 +2166,6 @@ describe("when a message goes, and the ones held for after the turn", () => {
     expect(await serve({ from: "d", method: "chat.hurry", params: tab })).toEqual({});
     expect(asked).toEqual([
       ["chat.unqueue", { ...tab, id: "q1" }],
-      // Changed there, it is that device's user's now.
       ["chat.editHeld", { ...tab, id: "q2", text: "b", device: "d" }],
       ["chat.withdraw", { ...tab, itemKey: "u3" }],
       ["chat.hurry", tab],
@@ -2207,7 +2340,6 @@ describe("serving a chat's slash commands", () => {
     ]);
     await expect(add("/")).rejects.toMatchObject({ code: 1002 });
     await expect(add("~")).rejects.toMatchObject({ code: 1002 });
-    // A relative one is from the chat's folder: here the workspace's, as chat.state tells none.
     const relative = commandServicesWith(withRoot);
     await add("sub", relative.serve);
     expect(relative.asked.at(-1)).toEqual([
@@ -2252,7 +2384,6 @@ describe("serving a chat's controls", () => {
 
   test("sends as the user, who may write while the chat asks", async () => {
     const { serve, asked } = recording();
-    // When it took it, for a chat.wait's `after`.
     expect(
       await serve({ from: "d", method: "chat.send", params: { ...tab, text: "go on" } }),
     ).toEqual({ at: 1000 });
@@ -2278,7 +2409,6 @@ describe("serving a chat's controls", () => {
       tabId: "bt",
     };
     const params = { ...tab, text: "run the tests", from };
-    // Not taken where no gate says agents may.
     await expect(
       serveWith(() => s)({ from: "d", method: "chat.send", params }),
     ).rejects.toMatchObject({ code: 1002 });
@@ -2286,7 +2416,6 @@ describe("serving a chat's controls", () => {
       agents: new AgentGate({ policy: () => "allow" }),
       deviceName: (id) => (id === "d" ? "MacBook" : undefined),
     });
-    // A delayed message keeps the sender and the host can drop it when control is disabled.
     await expect(
       serve({ from: "d", method: "chat.send", params: { ...params, when: "after" } }),
     ).resolves.toMatchObject({});
@@ -2300,7 +2429,6 @@ describe("serving a chat's controls", () => {
         from: { ...from, device: { id: "d", name: "MacBook" } },
       },
     ]);
-    // Its settings never as the user's: no mode that lets everything run.
     await serve({
       from: "d",
       method: "chat.configure",
@@ -2478,7 +2606,6 @@ describe("serving a chat's controls", () => {
         method: "chat.upload.chunk",
         params: { uploadId, offset, data: bytes.toString("base64") },
       });
-    // Another device's upload is none of its.
     await expect(chunk("other", 0, csv)).rejects.toMatchObject({ code: -32602 });
     await chunk("d", 0, csv.subarray(0, 3));
     await chunk("d", 3, csv.subarray(3));
@@ -2869,7 +2996,6 @@ describe("serving the sessions' changes", () => {
   });
 
   test("as many as go in a frame: the first after `since`, else the last", async () => {
-    // Long titles: 500 changes then take more than a frame.
     const many = Array.from({ length: 500 }, (_, i) => ({
       ...event(i + 1, "x".repeat(500)),
       title: "t".repeat(2000),
@@ -3065,7 +3191,6 @@ describe("chat.runRead", () => {
     await expect(read({ end: undefined }, true)).rejects.toMatchObject({
       code: RpcErrorCode.Unavailable,
     });
-    // One that ended, or that keeps none, has none.
     await expect(read({ end: 200 }, true)).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
     await expect(read({ end: undefined }, false)).rejects.toMatchObject({
       code: RpcErrorCode.NotFound,
@@ -3107,5 +3232,158 @@ describe("chat.runRead", () => {
 
   test("it is asked under the chat.read capability", () => {
     expect(RPC_METHODS["chat.runRead"].capability).toBe("chat.read");
+  });
+});
+
+describe("a run's tool calls and images", () => {
+  const tab = { workspaceId: "w1", tabId: "t1" };
+  const tool = {
+    id: "tu1",
+    name: "Bash",
+    input: {},
+    status: "done",
+    parentToolUseId: null,
+    result: { text: "ran", isError: false, images: [] },
+  };
+  function runServices(
+    answer: (op: string, args: Record<string, unknown>) => unknown,
+    run: Partial<AgentRun> = {},
+    keeps = false,
+  ) {
+    const base = services();
+    const asked: [string, Record<string, unknown>][] = [];
+    const s = {
+      ...base,
+      claudeAgents: {
+        list: (_ws: string, tab: string) =>
+          tab === "t1"
+            ? [agentRun({ id: "run-1", kind: "print", ...run }), agentRun({ id: "sub-1" })]
+            : tab === "t4"
+              ? [agentRun({ id: "run-4", kind: "print" })]
+              : [],
+        stop: async () => false,
+        keepsSession: () => keeps,
+      },
+      ui: async (op: string, args: Record<string, unknown> & { workspaceId: string }) => {
+        if (op === "tabs.list") return base.ui(op, args);
+        asked.push([op, args]);
+        return answer(op, args);
+      },
+    } as unknown as CliServices;
+    return { serve: serveWith(() => s), asked };
+  }
+  const ref = { kind: "tool", toolUseId: "tu1", index: 0 } as const;
+
+  test("finds a tool call and an image in the run it names", async () => {
+    const { serve, asked } = runServices((op) =>
+      op === "chat.image" ? { mediaType: "image/png", data: "AAAA" } : tool,
+    );
+    expect(
+      await serve({
+        from: "d",
+        method: "chat.tool",
+        params: { ...tab, toolUseId: "tu1", runId: "run-1" },
+      }),
+    ).toMatchObject({ id: "tu1", result: { text: "ran" } });
+    expect(
+      await serve({ from: "d", method: "chat.image", params: { ...tab, ref, runId: "run-1" } }),
+    ).toEqual({ mediaType: "image/png", data: "AAAA" });
+    expect(asked.map(([op, args]) => [op, args.runId])).toEqual([
+      ["chat.toolCall", "run-1"],
+      ["chat.image", "run-1"],
+    ]);
+  });
+
+  test("without a run, looks in the chat as before", async () => {
+    const { serve, asked } = runServices((op) =>
+      op === "chat.image" ? { mediaType: "image/png", data: "AAAA" } : tool,
+    );
+    await serve({ from: "d", method: "chat.tool", params: { ...tab, toolUseId: "tu1" } });
+    await serve({ from: "d", method: "chat.image", params: { ...tab, ref } });
+    expect(asked.map(([op]) => op)).toEqual(["chat.toolCall", "chat.image"]);
+    for (const [, args] of asked) expect(args).not.toHaveProperty("runId");
+  });
+
+  test("the CLI's form of a call names the run too", async () => {
+    const { serve, asked } = runServices(() => ({
+      i: 3,
+      toolUseId: "tu1",
+      name: "Bash",
+      status: "done",
+      input: {},
+      result: { text: "ran", isError: false },
+    }));
+    expect(
+      await serve({
+        from: "d",
+        method: "chat.tool",
+        params: { ...tab, toolUseId: "3", runId: "run-1", cli: true },
+      }),
+    ).toMatchObject({ id: "tu1", index: 3 });
+    expect(asked).toEqual([["chat.tool", { ...tab, ref: "3", runId: "run-1" }]]);
+  });
+
+  test.each([
+    ["another chat's run", "run-4"],
+    ["a subagent", "sub-1"],
+    ["an unknown run", "run-9"],
+  ])("finds nothing in %s, and reads nothing", async (_name, runId) => {
+    const { serve, asked } = runServices(() => tool);
+    await expect(
+      serve({ from: "d", method: "chat.tool", params: { ...tab, toolUseId: "tu1", runId } }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+    await expect(
+      serve({ from: "d", method: "chat.image", params: { ...tab, ref, runId } }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+    expect(asked).toEqual([]);
+  });
+
+  test("a call or image the run does not hold is not found", async () => {
+    const { serve } = runServices((op) => {
+      throw new Error(
+        op === "chat.image" ? "no such image in that run" : "no tool call tu9 in that run",
+      );
+    });
+    await expect(
+      serve({
+        from: "d",
+        method: "chat.tool",
+        params: { ...tab, toolUseId: "tu9", runId: "run-1" },
+      }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+    await expect(
+      serve({ from: "d", method: "chat.image", params: { ...tab, ref, runId: "run-1" } }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+  });
+
+  test("a run with no session to read answers as chat.runRead does", async () => {
+    const read = (run: Partial<AgentRun>, keeps: boolean, method: "chat.tool" | "chat.image") =>
+      runServices(
+        () => {
+          throw new Error("no session of run run-1 to read");
+        },
+        run,
+        keeps,
+      ).serve({
+        from: "d",
+        method,
+        params:
+          method === "chat.tool"
+            ? { ...tab, toolUseId: "tu1", runId: "run-1" }
+            : { ...tab, ref, runId: "run-1" },
+      });
+    for (const method of ["chat.tool", "chat.image"] as const) {
+      await expect(read({ end: undefined }, true, method)).rejects.toMatchObject({
+        code: RpcErrorCode.Unavailable,
+      });
+      await expect(read({ end: 200 }, true, method)).rejects.toMatchObject({
+        code: RpcErrorCode.NotFound,
+      });
+    }
+  });
+
+  test("they stay under the chat.read capability", () => {
+    expect(RPC_METHODS["chat.tool"].capability).toBe("chat.read");
+    expect(RPC_METHODS["chat.image"].capability).toBe("chat.read");
   });
 });

@@ -6,11 +6,6 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// Integration tests using real temp git repos
-// ---------------------------------------------------------------------------
-
-// TestWorkflowMergeConflict verifies a conflicting merge returns result:"conflicts".
 func TestWorkflowMergeConflict(t *testing.T) {
 	t.Parallel()
 	root := newConflictRepo(t)
@@ -32,7 +27,6 @@ func TestWorkflowMergeConflict(t *testing.T) {
 	}
 }
 
-// TestWorkflowMergeAlreadyInProgress verifies already-in-progress error.
 func TestWorkflowMergeAlreadyInProgress(t *testing.T) {
 	t.Parallel()
 	root := newConflictRepo(t)

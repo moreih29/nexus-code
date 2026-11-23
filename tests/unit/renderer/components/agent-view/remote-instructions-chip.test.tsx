@@ -43,7 +43,6 @@ function answer(
 
 let spy: { mockRestore(): void } | undefined;
 let popover: { mockRestore(): void } | undefined;
-// Radix's portal does not mount in the test DOM: the panel shows in place while open.
 beforeEach(() => {
   popover = spyOn(popovers, "Popover").mockImplementation(
     ({ open, onOpenChange, trigger, children, testId }) => (
@@ -81,7 +80,6 @@ async function render(root: import("react-dom/client").Root, controls: boolean) 
   );
 }
 
-// The test DOM answers no match with undefined, not null.
 const chipOf = (host: HTMLElement) =>
   host.querySelector<HTMLButtonElement>('[data-testid="session-instructions-chip"]')!;
 const panelOf = (host: HTMLElement) =>
@@ -104,7 +102,6 @@ test("reads the other computer's layers, shown only, and its session layer to ed
     expect(text).toContain("Profile · work");
     expect(text).toContain("Workspace · api");
     expect(text).toContain("Edit the layers above in Settings on Work PC");
-    // That computer's layers open nowhere here.
     expect(text).not.toContain("Edit in Settings");
     expect(panel.querySelector("textarea")?.value).toBe("Keep it short");
   });
@@ -126,7 +123,6 @@ test("saves the session layer as the user, without an agent sender", async () =>
     const set = calls.find(({ channel }) => channel === "peerChatInstructionsSet");
     expect(set?.args).toEqual({ ...chat, text: "" });
     expect(panelOf(host)).toBeNull();
-    // A blank session layer is none: the count drops it.
     expect(chipOf(host).textContent).toBe("Instructions 2");
   });
 });
@@ -199,7 +195,6 @@ test("does not read a computer whose hello leaves out chat.read", async () => {
   } finally {
     listen.mockRestore();
   }
-  // Taken as yes until the hello says, then no.
   expect(seen[0]).toBe(true);
   expect(seen.at(-1)).toBe(false);
 });

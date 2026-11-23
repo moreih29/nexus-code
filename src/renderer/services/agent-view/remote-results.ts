@@ -13,6 +13,7 @@ import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useAppFocusStore } from "../../state/stores/app-focus";
 import {
   observePeerSessions,
+  peerRejoins,
   peerServes,
   refreshPeerSessions,
   useRemoteRoom,
@@ -105,7 +106,6 @@ interface ReceiptWatch {
   stop(): void;
 }
 
-/** The sidebar and any open panes share the account's receipts to each host. */
 class ReadReceipts {
   private readonly watches = new Map<string, ReceiptWatch>();
   private readonly waiting = new Map<string, Map<string, QueuedReceipt>>();
@@ -215,7 +215,6 @@ class ReadReceipts {
       this.saved.update(changes);
       refreshPeerSessions(deviceId);
     } catch {
-      // A rejected IPC call is retried on the same terms as a failed response.
     } finally {
       this.sending.delete(deviceId);
       if (!delivered && watch && this.watches.get(deviceId) === watch)
@@ -261,7 +260,6 @@ class ReadReceipts {
     if (!watch || watch.rejoin !== rejoin) {
       if (current) this.stopWatch(deviceId, current);
       let remaining: ReadonlySet<string> | undefined;
-      // A shared listing can deliver its cached snapshot during subscribe.
       watch = { rejoin, users: 0, stop: () => {} };
       this.watches.set(deviceId, watch);
       watch.stop = observePeerSessions(deviceId, rejoin, (listing) => {
@@ -292,7 +290,6 @@ function receiptsFor(accountKey: string): ReadReceipts {
   return accountReceipts.receipts;
 }
 
-/** Both receipt-aware hosts and older hosts feed the remote sidebar's result rows. */
 export class RemoteResults {
   private readonly changes = createListenerBus();
   private readonly history = new Map<string, Map<string, ResultState>>();
@@ -356,7 +353,6 @@ export class RemoteResults {
         running.add(key);
         const history = this.history.get(deviceId);
         const outcome = history?.get(key);
-        // A read can finish before a listing that still reports this turn as running.
         if (
           !wasRunning?.has(key) &&
           outcome &&
@@ -397,7 +393,6 @@ export class RemoteResults {
     return urgent;
   }
 
-  /** Only a read that started after a listing change can settle its provisional result. */
   settleAfterRead(deviceId: string): () => void {
     const pending = [...(this.pending.get(deviceId) ?? [])];
     return () => {
@@ -431,7 +426,6 @@ export class RemoteResults {
         if (this.seen.get(key)) seenChanges.set(key, null);
         continue;
       }
-      // Terminal success already comes from the live listing. Keep legacy errors until a new turn.
       const outcome =
         event.to === "error" || (event.kind !== "terminal" && event.to === "completed")
           ? event.to
@@ -448,7 +442,6 @@ export class RemoteResults {
     if (changed || seenChanges.size > 0) this.changed();
   }
 
-  /** A restarted host already returns the first page when its cursor is behind ours. */
   acceptPage(deviceId: string, page: EventPage): boolean {
     const since = this.cursor(deviceId);
     const reset = since > page.cursor;
@@ -458,7 +451,6 @@ export class RemoteResults {
     return page.more && next !== undefined && next > (reset ? 0 : since);
   }
 
-  /** Use the live state first. Older listings report quiet chats as idle even after a result. */
   session(
     deviceId: string,
     row: RemoteSession,
@@ -583,14 +575,11 @@ export function markVisibleRemoteResult(
     if (value.undated ? !before?.undated : value.at > (before?.at ?? -Infinity))
       seen.update(new Map([[key, value]]));
   } else if (session.kind !== "terminal" && session.state === "idle") {
-    // Listings and the event log can timestamp the same result differently.
-    // Match the viewed listing on peers that report its time.
     const value = { at: before?.at ?? 0, listedAt: session.since ?? null };
     seen.update(new Map([[key, value]]));
   }
 }
 
-/** An open pane already watches its listing, even while the sidebar is hidden. */
 export function useRemotePaneSeen(
   deviceId: string,
   session: RemoteSession | undefined,
@@ -602,7 +591,7 @@ export function useRemotePaneSeen(
   const peer = room?.peers.find((p) => p.id === deviceId);
   const hostReceipts = peerServes(peer, RECEIPTS);
   const online = room?.status === "online" && peer?.online === true;
-  const rejoin = peer?.rejoins ?? 0;
+  const rejoin = peerRejoins(peer);
   useEffect(() => {
     if (accountKey !== null && hostReceipts && online && visible)
       return receiptsFor(accountKey).watch(deviceId, rejoin);
@@ -685,7 +674,6 @@ export function watchResults(
   };
 }
 
-/** Shares the live listings and reads the event log after a listing changes. */
 export function useRemoteResults(
   peers: readonly RoomPeer[],
   shown: boolean,
@@ -695,7 +683,7 @@ export function useRemoteResults(
   useAgentViewStore((state) => state.remoteSeen);
   useSyncExternalStore(results.subscribe, results.snapshot, results.snapshot);
   const connections = JSON.stringify(
-    peers.map((peer) => [peer.id, peer.rejoins ?? 0, peerServes(peer, RECEIPTS)]),
+    peers.map((peer) => [peer.id, peerRejoins(peer), peerServes(peer, RECEIPTS)]),
   );
   useEffect(() => {
     if (!shown) return;

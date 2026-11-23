@@ -1,6 +1,3 @@
-// ModelEntry lifecycle — creation, disk load, external-change reconcile, cleanup.
-// Owns: model creation, dirty-tracker attachment, LSP open/change/close, fs subscription.
-
 import { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
 import { isLspEnabledForWorkspace } from "../../../state/stores/lsp-settings";
 import { type FileErrorCode, parseFileErrorCode } from "../../../utils/file-error";
@@ -34,9 +31,6 @@ import {
 import { readAndPlaceContent } from "./read-and-place-content";
 import type { ModelEntry, ModelEntryDeps, SharedModelState } from "./types";
 
-// Types (ModelEntry, ModelEntryDeps, SharedModelPhase, SharedModelState) live in
-// ./types to break circular-import cycles with attach-* helpers and cache.ts.
-// Re-export them so callers that imported from entry continue to compile.
 export type { ModelEntry, ModelEntryDeps, SharedModelPhase, SharedModelState } from "./types";
 
 const defaultModelEntryDeps: ModelEntryDeps = {
@@ -63,25 +57,11 @@ const defaultModelEntryDeps: ModelEntryDeps = {
   absolutePathToFileUri,
 };
 
-/**
- * Map an arbitrary thrown value into the channel-error vocabulary the
- * UI knows how to render. The dirty-tracker, fs IPC, and Monaco model
- * code all surface failures with a `code:` prefix in the message; this
- * helper normalizes that prefix into a `FileErrorCode` and falls back
- * to "unknown" when no prefix is present.
- */
 export function errorCodeFromUnknown(error: unknown): FileErrorCode {
   const message = error instanceof Error ? error.message : String(error);
   return parseFileErrorCode(message);
 }
 
-/**
- * Stable snapshot of an entry suitable for `useSyncExternalStore`'s
- * `getSnapshot` contract. Returns the current phase, the live model
- * (only while phase === "ready" — callers don't see mid-load state),
- * the error code, and the read-only flag. The shape is intentionally
- * narrow so React's referential equality check stays meaningful.
- */
 export function snapshot(entry: ModelEntry): SharedModelState {
   return {
     phase: entry.phase,
@@ -92,11 +72,6 @@ export function snapshot(entry: ModelEntry): SharedModelState {
   };
 }
 
-/**
- * Fan a state-change event out to every `useSyncExternalStore`
- * subscriber listening on this entry. Called after any field that
- * `snapshot` reads is mutated.
- */
 export function notifySubscribers(entry: ModelEntry): void {
   for (const subscriber of entry.subscribers) {
     subscriber();
@@ -107,27 +82,10 @@ function depsFor(entry: ModelEntry): ModelEntryDeps {
   return entry.deps ?? defaultModelEntryDeps;
 }
 
-/**
- * Re-issue didOpen against the LSP host for entries whose server-side
- * state was dropped (LRU eviction) or that loaded while their language was
- * off. Wraps `rehydrateEntryLspOpened` with the entry's resolved deps so
- * callers in the cache layer can trigger respawn without threading deps
- * themselves. No-op when the entry is already opened, disposed, has no
- * model yet, or its language is off.
- */
 export function rehydrateEntry(entry: ModelEntry): Promise<void> {
   return rehydrateEntryLspOpened(entry, depsFor(entry));
 }
 
-/**
- * Construct a fresh `ModelEntry` and kick off its load. The returned
- * entry is in `phase: "loading"` and its `loadPromise` resolves once
- * `loadEntry` has either filled in the model + LSP/fs wiring (success)
- * or moved the entry to `phase: "error"` with an `errorCode` (failure).
- * Callers should subscribe before awaiting `loadPromise` so the
- * loading→ready transition fires through the same notify path as
- * later updates.
- */
 export function createEntry(
   input: EditorInput,
   cacheUri: string,
@@ -140,12 +98,6 @@ export function createEntry(
     | "external";
   const readOnly = input.readOnly === true;
   const entryInput = input;
-  // cacheUri carries the workspace-scoped `nexus-ws://` scheme that
-  // identifies this entry uniquely per (workspace, file) pair. lspUri is
-  // the canonical `file://` form we use in IPC payloads and forward to
-  // the LSP server; it is workspace-blind by design. Both forms refer to
-  // the same underlying file path on disk — only the routing context
-  // differs.
   const lspUri = deps.absolutePathToFileUri(input.filePath);
   const entry: ModelEntry = {
     input: entryInput,
@@ -174,24 +126,6 @@ export function createEntry(
   return entry;
 }
 
-/**
- * Construct a `ModelEntry` for an untitled (unsaved, no-backing-file) buffer.
- *
- * Unlike `createEntry`, this path:
- *   - Does NOT perform any fs I/O — the model starts with empty content.
- *   - Does NOT attach an LSP bridge — untitled buffers have no file URI to
- *     route to the language server.
- *   - Does NOT subscribe to fs.changed events — there is no file on disk
- *     to watch.
- *   - Immediately moves the entry to `phase: "ready"`.
- *   - Sets up the dirty tracker against the empty model's current alt id, so
- *     the buffer starts CLEAN. It becomes dirty only once the user actually
- *     edits content (and clean again if they undo back to empty). This mirrors
- *     VSCode: an untouched untitled editor closes without a save prompt.
- *
- * The `cacheUri` (= monacoUri) should be `untitled://{workspaceId}/Untitled-{N}`
- * — produced by `untitledCacheUriFor` from workspace-uri.ts.
- */
 export function createUntitledEntry(
   input: EditorInput,
   cacheUri: string,
@@ -206,9 +140,6 @@ export function createUntitledEntry(
   const entry: ModelEntry = {
     input,
     cacheUri,
-    // lspUri is unused for untitled entries — no LSP routing ever happens.
-    // We set it to the cacheUri as a safe non-empty placeholder so
-    // cleanupEntry's unregisterKnownModelUri call is harmless.
     lspUri: cacheUri,
     monacoUri,
     languageId: model.getLanguageId(),
@@ -227,13 +158,6 @@ export function createUntitledEntry(
     readOnly: false,
   };
 
-  // Attach the dirty tracker so downstream consumers (tab indicator,
-  // save service, close-handler) can observe dirty state normally. The
-  // tracker seeds savedAlternativeVersionId to the empty model's current
-  // alt id, so the buffer starts clean (isDirty=false) and only flips to
-  // dirty when the user types. cmd+s on untitled routes to
-  // saveUntitledModel directly (not the dirty-gated saveModel), so an
-  // empty untitled can still be saved-as despite starting clean.
   deps.attachDirtyTracker({
     cacheUri,
     model,
@@ -241,23 +165,11 @@ export function createUntitledEntry(
     loadedSize: 0,
   });
 
-  // Register the cacheUri in the LSP known-model map so that any
-  // provider dispatching on URI can find this entry (even though we
-  // skip LSP for untitled, registration keeps unregisterKnownModelUri
-  // consistent at cleanup time).
   deps.registerKnownModelUri(cacheUri);
 
   return entry;
 }
 
-/**
- * Load the file behind `entry`: read content, place it into a Monaco
- * model, and attach dirty-tracker + LSP didOpen + fs.changed watching.
- * Each phase is delegated to a stage helper in this directory so this
- * function reads as a linear coordinator. On any failure the entry
- * moves to `phase: "error"` with the mapped error code; on disposal
- * mid-load we abandon early without writing partial state.
- */
 async function loadEntry(entry: ModelEntry): Promise<void> {
   const deps = depsFor(entry);
   try {
@@ -295,10 +207,6 @@ async function loadEntry(entry: ModelEntry): Promise<void> {
       reconcileExternalChange(entry).catch(() => {});
     });
 
-    // Subscribe to git.statusChanged so that app-initiated workflow mutations
-    // (merge, rebase, cherry-pick) trigger reconciliation even when the file's
-    // parent directory is not watched by the file-tree watcher and no fs.changed
-    // event arrives. Only workspace-origin entries track working-tree files.
     if (entry.origin === "workspace") {
       entry.gitUnsubscribe = deps.attachGitSubscription(entry, deps, () => {
         reconcileIfStatChanged(entry).catch(() => {});
@@ -315,18 +223,6 @@ async function loadEntry(entry: ModelEntry): Promise<void> {
   }
 }
 
-/**
- * Re-read the file from disk after fs.changed fires and merge the
- * result back into the entry. If the on-disk content matches the buffer
- * (i.e. the user's edits are identical to the new disk version, or the
- * change originated from the editor's own save) the function is a
- * no-op. If the buffer has unsaved local edits we leave it alone and
- * visible whatever happened on disk — diverged, turned binary, deleted or
- * unreadable — since conflict resolution is the save layer's job, not the
- * loader's. Hiding it behind an error or binary phase (a `git checkout`
- * round trip deletes and recreates the file) left the edits unreachable:
- * the editor showed the error state and save found no model.
- */
 export async function reconcileExternalChange(entry: ModelEntry): Promise<void> {
   if (entry.disposed) return;
   const deps = depsFor(entry);
@@ -341,13 +237,9 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
   try {
     const result = await deps.readFileForModel(entry.input);
     if (entry.disposed) return;
-    // A formatter or checkout fires several fs.changed events and reads can
-    // resolve out of order; a newer read (or a save) owns the result.
     if (entry.diskReadSeq !== seq) return;
 
     if (hasUnsavedEdits()) {
-      // Do not overwrite the user's work. Record the current disk state so
-      // the save layer can detect and surface a conflict to the user.
       entry.phase = "ready";
       entry.errorCode = undefined;
       entry.diskDiverged = { mtime: result.mtime, size: result.sizeBytes };
@@ -367,8 +259,6 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
     applyDiskText(entry, model, result);
   } catch (error) {
     if (entry.disposed || entry.diskReadSeq !== seq) return;
-    // The edits exist only in this buffer; keep it editable so the user can
-    // save it (recreating the file) instead of losing it to the error state.
     if (hasUnsavedEdits()) return;
     entry.phase = "error";
     entry.errorCode = errorCodeFromUnknown(error);
@@ -376,15 +266,6 @@ export async function reconcileExternalChange(entry: ModelEntry): Promise<void> 
   }
 }
 
-/**
- * git.statusChanged-triggered variant of `reconcileExternalChange`. That event
- * is workspace-wide (any working-tree change refreshes status), so doing a full
- * read of every open file on each one is wasted IPC and string work that grows
- * with file size. Stat first, and only reconcile when this file's mtime/size
- * moved away from the dirty tracker's loaded baseline (kept current by load,
- * save and reload). Any stat failure falls through to the full reconcile,
- * which owns error handling.
- */
 export async function reconcileIfStatChanged(entry: ModelEntry): Promise<void> {
   if (entry.disposed) return;
   const deps = depsFor(entry);
@@ -395,18 +276,10 @@ export async function reconcileIfStatChanged(entry: ModelEntry): Promise<void> {
       if (entry.disposed) return;
       if (stat.mtime === loaded.loadedMtime && stat.size === loaded.loadedSize) return;
     }
-  } catch {
-    // Fall through.
-  }
+  } catch {}
   await reconcileExternalChange(entry);
 }
 
-/**
- * Apply a manual read only while it still owns the generation and the
- * buffer is unchanged since the request. An explicit revert authorizes
- * discarding existing edits. Reopening with an encoding requires a clean
- * buffer when the encoding is chosen.
- */
 export async function reloadEntryFromDisk(
   entry: ModelEntry,
   encoding?: TextEncoding,
@@ -420,7 +293,6 @@ export async function reloadEntryFromDisk(
   entry.diskReadSeq = seq;
   const model = entry.model;
   const version = model?.getVersionId();
-  // getVersionId also changes on undo/redo, even when the text matches again.
   const isCurrent = () =>
     !entry.disposed &&
     entry.diskReadSeq === seq &&
@@ -454,7 +326,6 @@ export async function reloadEntryFromDisk(
   }
 }
 
-/** Install accepted disk text and update the model's save baseline. */
 function applyDiskText(
   entry: ModelEntry,
   model: NonNullable<ModelEntry["model"]>,
@@ -492,14 +363,6 @@ async function notifyDidCloseAfterDidOpen(entry: ModelEntry): Promise<void> {
   }
 }
 
-/**
- * Tear down everything `loadEntry` attached: fs subscription, LSP
- * didChange disposable, dirty tracker, cacheUri/lspUri map entries,
- * and the LSP didClose notification. Idempotent — second call is a
- * no-op via the `disposed` flag. didClose is sequenced after the
- * pending didOpen completes when the entry is closed mid-open, so the
- * server never sees a close-before-open.
- */
 export function cleanupEntry(entry: ModelEntry): void {
   if (entry.disposed) return;
   entry.disposed = true;

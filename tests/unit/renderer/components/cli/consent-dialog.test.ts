@@ -1,4 +1,3 @@
-/** A consent prompt answered on another device of the user's comes down here, saying so. */
 import { describe, expect, mock, test } from "bun:test";
 import i18next from "i18next";
 import { Dialog as RadixDialog } from "radix-ui";
@@ -16,11 +15,17 @@ import type { DialogProps } from "../../../../../src/renderer/components/ui/dial
 import { type ToastInput, watchToasts } from "../../../../../src/renderer/components/ui/toast";
 import { consentDetailsOf } from "../../../../../src/shared/cli/consent-copy";
 
-// Static rendering omits the portal. Keep the Radix context for the dialog header.
 mock.module("../../../../../src/renderer/components/ui/dialog", () => ({
   Dialog: ({ open, children }: DialogProps) =>
-    open ? createElement(RadixDialog.Root, { open }, children) : null,
+    createElement(
+      RadixDialog.Root,
+      { open },
+      createElement("section", { "data-open": String(open) }, children),
+    ),
 }));
+
+const buttonLabels = (html: string) =>
+  Array.from(html.matchAll(/<button[^>]*>([^<]*)<\/button>/g), ([, label]) => label);
 
 const prompt = (id?: string) => ({
   ...(id ? { id } : {}),
@@ -40,15 +45,54 @@ for (const [eachTime, labels] of [
     const asked = askCliConsent({ ...request, change: { ...request.change, eachTime } });
     try {
       const html = renderToStaticMarkup(createElement(CliConsentDialogRoot));
-      expect(
-        Array.from(html.matchAll(/<button[^>]*>([^<]*)<\/button>/g), ([, label]) => label),
-      ).toEqual(labels);
+      expect(buttonLabels(html)).toEqual(labels);
     } finally {
       settleCliConsent("button-labels", "deny");
       await asked;
     }
   });
 }
+
+test("an answered prompt keeps its own title and choices while the dialog closes", async () => {
+  const asked = askCliConsent({
+    ...prompt("closing"),
+    change: { kind: "chatMode", detail: '"Review" (default → acceptEdits)', eachTime: true },
+  });
+  const open = renderToStaticMarkup(createElement(CliConsentDialogRoot));
+  settleCliConsent("closing", "once");
+  expect(await asked).toBe("once");
+  const closing = renderToStaticMarkup(createElement(CliConsentDialogRoot));
+  expect(open).toContain('data-open="true"');
+  expect(closing).toContain('data-open="false"');
+  expect(buttonLabels(closing)).toEqual(["Don&#x27;t allow", "Allow"]);
+  expect(closing.replace('data-open="false"', 'data-open="true"')).toBe(open);
+});
+
+describe("a prompt without a time limit", () => {
+  test("stays until the user answers, and says nothing of a time limit", async () => {
+    const { timeoutMs: _, ...request } = prompt("untimed");
+    let answer: string | undefined;
+    const asked = askCliConsent(request).then((a) => {
+      answer = a;
+      return a;
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(answer).toBeUndefined();
+      const html = renderToStaticMarkup(createElement(CliConsentDialogRoot));
+      expect(html).not.toContain("turned down");
+      expect(html).not.toContain("seconds");
+    } finally {
+      settleCliConsent("untimed", "once");
+    }
+    expect(await asked).toBe("once");
+  });
+
+  test("a timed one, from a computer that does not wait longer, is turned down after it", async () => {
+    const answer = await askCliConsent({ ...prompt("timed"), timeoutMs: 5 });
+    expect(answer).toBe("timeout");
+  });
+});
 
 describe("settling a consent prompt from another device", () => {
   test("the prompt resolves to that answer, and a toast names the device", async () => {
@@ -57,7 +101,6 @@ describe("settling a consent prompt from another device", () => {
     try {
       const first = askCliConsent(prompt("c1"));
       const second = askCliConsent(prompt("c2"));
-      // One waiting its turn is settled too.
       expect(settleCliConsent("c2", "deny", "iPhone")).toBe(true);
       expect(await second).toBe("deny");
       expect(settleCliConsent("c1", "session", "iPhone")).toBe(true);
@@ -99,7 +142,6 @@ describe("settling a consent prompt from another device", () => {
       expect(await asked).toBe("once");
       expect(settleCliConsent("c3", "deny", "iPhone")).toBe(false);
       expect(settleCliConsent("gone", "once", "iPhone")).toBe(false);
-      // Settled without a device's name: no toast.
       expect(toasts).toEqual([]);
     } finally {
       stop();
@@ -142,10 +184,10 @@ test("instruction edits and profile additions use the same Korean sentence as ot
   const edit = t("agentCli.consent.action.instructionsEdit", { detail });
   const add = t("agentCli.consent.action.profileAdd", { detail: "QA Codex" });
   expect(describeConsent(t, prompt(), edit, consentNamesTarget(change.kind))).toBe(
-    'app의 터미널 "zsh"이(가) 모든 에이전트 지시 바꾸기를 하려고 합니다.',
+    'app의 터미널 "zsh": 모든 에이전트 지시 바꾸기를 하려고 합니다.',
   );
   expect(describeConsent(t, prompt(), add, consentNamesTarget("profileAdd"))).toBe(
-    'app의 터미널 "zsh"이(가) 에이전트 프로필 "QA Codex" 추가를 하려고 합니다.',
+    'app의 터미널 "zsh": 에이전트 프로필 "QA Codex" 추가를 하려고 합니다.',
   );
   expect(body).toBe("지시 비우기");
 });

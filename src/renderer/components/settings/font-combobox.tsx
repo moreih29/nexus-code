@@ -1,18 +1,3 @@
-// src/renderer/components/settings/font-combobox.tsx — An installed font, by name.
-//
-// The field the font settings' "Other…" opens: what is typed narrows a list
-// of the fonts installed here, under the field, and a font takes effect only
-// once it is picked (a click, or Enter on the one marked), or its whole name
-// is typed. Typing alone changes nothing, so the editor, the terminal and the
-// chat tabs are not laid out again on every key. Where the fonts cannot be
-// listed, the name typed is taken as it is, on Enter or on leaving.
-//
-// A font is found by its other names too (맑은 고딕 for Malgun Gothic), shown
-// beside it, and taken by the name listed. A whole name the list has not,
-// that the browser still draws a font for, is taken as typed; not when the
-// font it draws is Times, which Chrome on macOS puts in place of a name the
-// system half knows.
-
 import { Popover as RadixPopover } from "radix-ui";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -27,13 +12,8 @@ import {
   matchFamilies,
 } from "../../services/editor/runtime/local-fonts";
 
-/** Most fonts listed at once; typing narrows the rest. */
 const MAX_LISTED = 200;
 
-/**
- * The installed families: undefined while read, null when they cannot be
- * listed; and their other names, once the system has said them.
- */
 function useLocalFonts(): {
   families: readonly string[] | null | undefined;
   aliases: FontAliases;
@@ -63,7 +43,6 @@ export function FontCombobox({
   placeholder,
 }: {
   id: string;
-  /** The font in effect, by name; "" for none. */
   value: string;
   onPick: (family: string) => void;
   placeholder: string;
@@ -74,11 +53,9 @@ export function FontCombobox({
   const listRef = useRef<HTMLDivElement>(null);
   const { families, aliases } = useLocalFonts();
   const [text, setText] = useState(value);
-  // Whether the text is a query, typed since the list opened, or the font in effect.
   const [typed, setTyped] = useState(false);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
-  // The font changed elsewhere (reset): the field shows it.
   const [shownFor, setShownFor] = useState(value);
   if (shownFor !== value) {
     setShownFor(value);
@@ -91,10 +68,8 @@ export function FontCombobox({
     [families, typed, text, aliases],
   );
   const listed = matches.slice(0, MAX_LISTED);
-  // The font in effect as listed: one set by another of its names is marked too.
   const current = families ? (familyNamed(families, value, aliases) ?? value) : value;
 
-  // The font marked stays in sight as the arrows move it.
   useEffect(() => {
     if (!open || active < 0) return;
     listRef.current
@@ -105,7 +80,6 @@ export function FontCombobox({
   const show = () => {
     setOpen(true);
     setTyped(false);
-    // Opened on the font in effect, it is marked among them all.
     setActive(families && value ? families.indexOf(current) : -1);
   };
 
@@ -116,10 +90,6 @@ export function FontCombobox({
     if (family !== value) onPick(family);
   };
 
-  /**
-   * Leaves the name typed: a font's whole name, or one the browser draws a
-   * font for, takes it; anything else goes back to the font in effect.
-   */
   const settle = () => {
     setOpen(false);
     const name = text.trim();
@@ -159,7 +129,6 @@ export function FontCombobox({
       if (marked) pick(marked);
       else settle();
     } else if (event.key === "Escape" && open) {
-      // The list closes, not the settings.
       event.preventDefault();
       event.stopPropagation();
       setOpen(false);
@@ -208,7 +177,6 @@ export function FontCombobox({
           side="bottom"
           align="start"
           sideOffset={4}
-          // The keyboard stays in the field.
           onOpenAutoFocus={(event) => event.preventDefault()}
           onCloseAutoFocus={(event) => event.preventDefault()}
           onInteractOutside={(event) => {
@@ -239,7 +207,6 @@ export function FontCombobox({
                   role="option"
                   aria-selected={index === active}
                   data-index={index}
-                  // A press keeps the keyboard in the field.
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => pick(family)}
                   onMouseMove={() => index !== active && setActive(index)}

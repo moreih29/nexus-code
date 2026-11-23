@@ -1,5 +1,3 @@
-/** Flags several commands share. */
-
 export const WORKSPACE_FLAG = {
   type: "string",
   value: "WORKSPACE",

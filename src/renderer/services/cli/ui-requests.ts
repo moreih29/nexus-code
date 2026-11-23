@@ -1,10 +1,3 @@
-/**
- * The renderer's side of the nexus CLI: main asks, through cli:uiRequest,
- * for what only the renderer has — the tabs, the layout and the terminals'
- * screens — or to change it (./actions), and gets its answer through
- * cli.uiRespond.
- */
-
 import { ipcCallResult, ipcListen } from "@/ipc/client";
 import { useBrowserRuntimeStore } from "@/state/stores/browser-runtime";
 import { allLeaves } from "@/state/stores/layout/helpers";
@@ -71,7 +64,6 @@ function tabInfo(workspaceId: string, tab: Tab, groupId: string, shown: boolean)
   }
 }
 
-/** A workspace's tabs, in layout order unless the remote sessions list asks for its own order. */
 export function listTabs(
   workspaceId: string,
   agentOrder?: true,
@@ -112,7 +104,6 @@ export function listTabs(
   return [...ordered, ...remaining.values()];
 }
 
-/** The finished turns the user has not looked at, by workspace and tab (sessions.results). */
 function unreadResultsMap(): Record<string, Record<string, number>> {
   const unread: Record<string, Record<string, number>> = Object.create(null);
   for (const { session, since } of unreadResults(inboxNow())) {
@@ -170,7 +161,6 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
     }),
   "sessions.markSeen": async ({ seen }) => {
     const results = acknowledgedResults(inboxNow(), seen);
-    // A receipt can follow a listing before the session log's debounce has recorded completion.
     if (results.length === 0) return { marked: 0 };
     recordSessionEvents();
     for (const { session, since } of results) markSessionRead(session, since);
@@ -186,11 +176,6 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   ...viewHandlers,
 };
 
-/**
- * Requests that only read: nothing on screen moves, so the keyboard stays
- * where it is without the frames of checks restoreFocus schedules. The
- * remote sessions' list reads some of them every second.
- */
 export const READ_ONLY_OPS: ReadonlySet<string> = new Set<CliUiOp>([
   "tabs.list",
   "terminal.read",
@@ -210,25 +195,11 @@ export const READ_ONLY_OPS: ReadonlySet<string> = new Set<CliUiOp>([
   "problems.list",
 ]);
 
-/** Removes the cli:uiRequest listener installed last, if it is still there. */
 let stopListening: (() => void) | null = null;
 
-// Hot reload may load this module anew; its listener goes with the old one.
 import.meta.hot?.dispose(() => stopListening?.());
 
-/**
- * Installs the cli:uiRequest listener, in place of one installed before.
- * Requests wait until startup restores layouts and the workspace list and selection.
- * Returns the unlisten function.
- *
- * A request leaves the keyboard where it was: one that splits the group of
- * the terminal it came from would otherwise leave that terminal without
- * focus (see ../keep-focus). One that only reads cannot drop it.
- */
 export function startCliUiListener(ready: Promise<void>): () => void {
-  // One listener, however often the app boots: a second would carry out
-  // each request again, typing or sending twice. The dev build's hot reload
-  // boots the app again with each edit.
   stopListening?.();
   const stopRevision = startSessionsRevision();
   const stop = ipcListen("cli", "uiRequest", ({ requestId, op, args }) => {

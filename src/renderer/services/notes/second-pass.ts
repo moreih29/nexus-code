@@ -1,11 +1,3 @@
-/**
- * A recording's second pass: each take's file goes once more to the server,
- * whole, for a more accurate text and voices. Its lines are replaced by what
- * comes back (the names given carry over by time), and the server is told
- * to drop the file and the text. A pass under way is kept in the transcript
- * (the take's transcriptionId), so it is picked up again when the note is
- * opened after the app was closed.
- */
 import i18next from "i18next";
 import { create } from "zustand";
 import { isLongEnoughToSummarize } from "../../../shared/notes/summary";
@@ -23,12 +15,9 @@ import {
   useTranscriptsStore,
 } from "./transcripts";
 
-/** How often a pass under way is asked after. */
 export const POLL_MS = 4000;
-/** How long the pass waits before a summary can use the saved transcript so far. */
 export const GIVE_UP_MS = 45 * 60_000;
 
-/** The recordings whose second pass runs, by id. */
 export const useSecondPassStore = create<{ running: Record<string, true> }>(() => ({
   running: {},
 }));
@@ -64,14 +53,12 @@ function tell(reason: Extract<TranscribeResult, { status: "failed" }>["reason"] 
   showToast({ kind: "error", message: i18next.t(`notes:transcript.passFailed.${reason}`) });
 }
 
-/** Whether a recording has a take that can still go for a second pass, or one under way. */
 export function canSecondPass(recording: {
   takes: readonly { token?: string; pass: string }[];
 }): boolean {
   return recording.takes.some((t) => (t.pass === "none" && t.token) || t.pass === "pending");
 }
 
-/** Finishes a recording's second pass, if needed, then requests its automatic summary. */
 export async function runSecondPass(
   workspaceId: string,
   noteId: string,
@@ -111,8 +98,6 @@ export async function runSecondPass(
           ["token"],
         );
       } else {
-        // A used or old token is no good again; anything else (over the month's
-        // minutes, too many passes under way, no network) may be tried again.
         const spent = result.reason === "expired" || result.reason === "too-big";
         setTake(
           workspaceId,
@@ -133,12 +118,10 @@ export async function runSecondPass(
     if (result === "complete" && latest.takes.some((take) => take.pass === "pending")) return;
     if (!isLongEnoughToSummarize(latest)) return;
     await flushTranscript(workspaceId, noteId, false, true);
-    // Another window can finish the same persisted pass. Main admits only one run.
     await notesApi.summarize(workspaceId, noteId, recordingId, "auto").catch(() => {
       showToast({ kind: "error", message: i18next.t("notes:summary.actionFailed") });
     });
   } catch {
-    // flushTranscript already reports failed writes. Do not summarize unsaved text.
   } finally {
     useSecondPassStore.setState((s) => {
       const { [recordingId]: _done, ...rest } = s.running;
@@ -165,7 +148,6 @@ async function waitForPasses(
       const id = t.transcriptionId as string;
       const asked = await ipcCallResult("remote", "voiceTranscription", { id });
       if (!asked.ok) {
-        // Gone from the server (a day passed, or the account went): it cannot come now.
         if (asked.kind === "not-found") {
           setTake(workspaceId, noteId, recordingId, index, { pass: "error" }, ["transcriptionId"]);
           if (!told) tell("expired");
@@ -204,7 +186,6 @@ async function waitForPasses(
       try {
         await flushTranscript(workspaceId, noteId, true, true);
       } catch {
-        // Keep the job available for another attempt. Preserve edits made during the write.
         updateRecording(workspaceId, noteId, recordingId, (r) => {
           if (r === completed) return previous;
           if (r.takes[index] !== completed.takes[index]) return r;
@@ -215,7 +196,6 @@ async function waitForPasses(
         });
         return;
       }
-      // The text is here: the server and its provider can let the file and the text go.
       void ipcCallResult("remote", "voiceTranscriptionDrop", { id });
     }
     const current = recordingOf(workspaceId, noteId, recordingId);
@@ -226,7 +206,6 @@ async function waitForPasses(
   return "timed-out";
 }
 
-/** Picks up the passes of a note's recordings left under way (the app was closed meanwhile). */
 export async function resumeSecondPasses(workspaceId: string, noteId: string): Promise<void> {
   const file = await loadTranscript(workspaceId, noteId);
   for (const r of file.recordings) {

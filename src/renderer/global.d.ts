@@ -38,7 +38,6 @@ interface IpcBridge {
 
   onStreamEvent(streamId: IpcRequestId, callback: (event: IpcStreamEvent) => void): () => void;
 
-  /** Subscribes to a broadcast event; returns the unsubscribe. */
   listen<C extends ListenChannels, E extends ListenEvents<C>>(
     channel: C,
     event: E,
@@ -47,28 +46,13 @@ interface IpcBridge {
 }
 
 interface HostBridge {
-  /** process.platform from the preload — "darwin" | "win32" | "linux" | ... */
   platform: NodeJS.Platform;
-  /** Whether the app runs from an MSIX package: the Microsoft Store build. */
   windowsStore?: boolean;
-  /**
-   * Whether this window was created transparent on Linux (window opacity under
-   * 100%). Its frame then draws no window controls; the titlebar draws them.
-   */
   transparentWindow?: boolean;
-  /**
-   * Whether this window is opaque on Windows before 11 22H2, which has no
-   * system backdrop: the window opacity has no effect in it.
-   */
   opaqueWindow?: boolean;
 }
 
 interface FilesBridge {
-  /**
-   * Resolve the absolute filesystem path of a File obtained from a drag-and-drop
-   * (or file input) DataTransfer. Backed by Electron's `webUtils.getPathForFile`
-   * — the supported replacement for the removed `File.path` property.
-   */
   getPathForFile(file: File): string;
 }
 
@@ -79,7 +63,6 @@ declare global {
     files: FilesBridge;
   }
 
-  // Vite env variables used in renderer.
   interface ImportMetaEnv {
     readonly DEV: boolean;
     readonly PROD: boolean;

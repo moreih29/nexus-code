@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 
-// ---------------------------------------------------------------------------
-// Shims — must run before any store import
-// ---------------------------------------------------------------------------
-
 (globalThis as Record<string, unknown>).window = {
   ipc: {
     call: () => Promise.resolve(null),
@@ -11,10 +7,6 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
     off: () => {},
   },
 };
-
-// ---------------------------------------------------------------------------
-// Mock ipcCallResult before importing the store
-// ---------------------------------------------------------------------------
 
 const mockIpcCallResult = mock((_channel: string, _method: string, _args: unknown) =>
   Promise.resolve({ ok: true as const, value: [] }),
@@ -28,24 +20,12 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
   canUseIpcBridge: () => false,
 }));
 
-// ---------------------------------------------------------------------------
-// Imports after mocks
-// ---------------------------------------------------------------------------
-
 import { ensureRoot, loadChildren } from "../../../../../../src/renderer/state/operations/files";
 import { useFilesStore } from "../../../../../../src/renderer/state/stores/files";
 import type { DirEntry } from "../../../../../../src/shared/fs/types";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 const WS_ID = "00000000-0000-0000-0000-000000000001";
 const ROOT = "/workspace/project";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function dirEntry(name: string, type: DirEntry["type"] = "file"): DirEntry {
   return { name, type };
@@ -69,10 +49,6 @@ function setupReaddir(responses: Map<string, DirEntry[]>) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Scenario 10: ensureRoot concurrent calls deduplicate
-// ---------------------------------------------------------------------------
-
 describe("Scenario 10: ensureRoot concurrent calls deduplicate", () => {
   beforeEach(resetStore);
 
@@ -86,16 +62,9 @@ describe("Scenario 10: ensureRoot concurrent calls deduplicate", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Scenario 11: loadChildren concurrent calls coalesce
-// ---------------------------------------------------------------------------
-
 describe("Scenario 11: loadChildren concurrent calls coalesce", () => {
   beforeEach(resetStore);
 
-  // A request that arrives while a readdir is in flight may reflect a change
-  // newer than that read, so it is not dropped: all such requests collapse
-  // into ONE follow-up read after the in-flight one settles.
   it("collapses concurrent calls into the in-flight readdir plus one follow-up", async () => {
     setupReaddir(new Map([["", [dirEntry("a.txt", "file")]]]));
 

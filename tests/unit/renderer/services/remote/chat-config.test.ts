@@ -68,11 +68,9 @@ describe("a chat's settings told to another device", () => {
       kind: "boolean",
       value: true,
     });
-    // A key the app does not know goes last, set nowhere.
     expect(config.keys.at(-1)).toEqual({ key: "newKey", group: "other", kind: "boolean" });
     expect(config.model).toBe("claude-opus-5-5");
     expect(config.outputStyles).toEqual(["default", "Mine"]);
-    // Only the default efforts, nothing else of the settings.
     expect(config.efforts).toEqual({ level: "low", byModel: { "claude-opus-5-5": "xhigh" } });
     expect(JSON.stringify(config)).not.toContain("SECRET");
   });
@@ -129,7 +127,6 @@ describe("the changes another device saves", () => {
 
   test("a default effort the model then run takes, but max", () => {
     expect(configSetOf({ changes: {}, effort: "xhigh" }, told()).effort).toBe("xhigh");
-    // The new default model's levels.
     expect(configSetOf({ changes: { model: "sonnet" }, effort: "high" }, told()).effort).toBe(
       "high",
     );

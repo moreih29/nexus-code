@@ -1,7 +1,3 @@
-/**
- * nexus chat new, read, send and wait: the app's Claude and Codex tabs,
- * driven from a terminal as their composer drives them.
- */
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import type { CliCaller } from "../../../../src/main/features/cli/context";
@@ -40,7 +36,6 @@ function uiArgs(app: FakeApp, op: string): unknown {
   return app.uiCalls.find((c) => c.op === op)?.args;
 }
 
-/** An app with a Claude tab "Fix the login" in "app", standing as `info` says. */
 function withChat(info: Partial<CliChatInfo> = {}): FakeApp {
   const app = fakeApp();
   const chat: CliTabInfo = {
@@ -198,7 +193,6 @@ describe("chat wait", () => {
   });
 });
 
-/** What the Claude tab "Fix the login" runs with: Sonnet, in the default mode. */
 function withChoices(info: Partial<CliChatInfo> = {}): FakeApp {
   const app = withChat(info);
   app.chatChoices.set(CHAT_TAB, {
@@ -386,7 +380,6 @@ describe("delegating a chat mode", () => {
     Outcome,
     Outcome,
   ][] = [
-    // Caller, mode, target, requested mode, verified, chat new, chat set.
     ["claude", "auto", "claude", "acceptEdits", true, "grant", "grant"],
     ["claude", "acceptEdits", "claude", "auto", true, "ask", "ask"],
     ["codex", "auto", "claude", "auto", true, "sandbox", "sandbox"],
@@ -692,14 +685,12 @@ describe("who sends a message", () => {
   test("one that could be any process's, or names no terminal or chat tab, is an agent's, not the user's", async () => {
     const app = withChat();
     const unknown = (tabId: string) => ({ kind: "terminal", workspaceId: APP, tabId });
-    // The user's shell, but the request came without that tab's token: any process may say it.
     expect(
       await senderOf(contextFor(app, [], { workspaceId: APP, tabId: SHELL_TAB, verified: false })),
     ).toEqual(unknown(SHELL_TAB));
     expect(
       await senderOf(contextFor(app, [], { workspaceId: APP, tabId: SHELL_TAB, verified: true })),
     ).toBeUndefined();
-    // No such tab.
     const gone = "99999999-0000-4000-8000-000000000099";
     expect(await senderOf(contextFor(app, [], { workspaceId: APP, tabId: gone }))).toEqual(
       unknown(gone),
@@ -709,8 +700,6 @@ describe("who sends a message", () => {
   test("an agent a terminal started that has said nothing yet is found by the terminal's program now", async () => {
     const app = withChat();
     const at = contextFor(app, [], { workspaceId: APP, tabId: SHELL_TAB });
-    // codex exec runs its first command before any output: the terminal's
-    // state still has the shell, the foreground has codex.
     app.foreground.set(SHELL_TAB, "codex");
     expect(await senderOf(at)).toEqual({
       kind: "terminal",
@@ -736,7 +725,6 @@ describe("who sends a message", () => {
       from: { kind: "terminal", agent: "claude", tabId: CLAUDE_TAB },
       openedBy: { kind: "terminal", agent: "claude", workspaceId: APP, tabId: CLAUDE_TAB },
     });
-    // Whether it waits to read the answer is told only where it is known.
     expect((uiArgs(app, "chat.open") as { from: object }).from).not.toHaveProperty("waits");
     const user = withChat();
     await nexus(user, ["chat", "send", "eeee", "run the tests"]);
@@ -772,12 +760,10 @@ describe("who sends a message", () => {
     const opened = await nexus(app, ["terminal", "new", "--command", "make test"], claude);
     expect(opened.exitCode).toBe(0);
     expect(uiArgs(app, "terminal.open")).toMatchObject({ command: "make test", openedBy: opener });
-    // The user opening one: theirs, as the tab keeps no opener.
     const user = withChat();
     await nexus(user, ["terminal", "new"]);
     expect(uiArgs(user, "terminal.open")).not.toHaveProperty("openedBy");
 
-    // The terminal it opened runs a shell, or the command, which runs nexus.
     app.tabs[APP]?.push({
       id: NEW_TAB,
       type: "terminal",
@@ -793,18 +779,15 @@ describe("who sends a message", () => {
     expect(app.uiCalls.findLast((c) => c.op === "chat.send")?.args).toMatchObject({
       from: { ...opener, waits: false },
     });
-    // A terminal opened from it is the same agent's.
     app.uiCalls.length = 0;
     await nexus(app, ["terminal", "new"], inIt);
     expect(uiArgs(app, "terminal.open")).toMatchObject({ openedBy: opener });
-    // An agent started in it is that agent, as in any terminal.
     app.foreground.set(NEW_TAB, "codex");
     expect(await senderOf(contextFor(app, [], inIt))).toMatchObject({
       kind: "terminal",
       agent: "codex",
       tabId: NEW_TAB,
     });
-    // A request without its token could be any process's, as anywhere.
     app.foreground.set(NEW_TAB, "zsh");
     expect(await senderOf(contextFor(app, [], { ...inIt, verified: false }))).toEqual({
       kind: "terminal",
@@ -828,19 +811,15 @@ describe("who sends a message", () => {
 });
 
 describe("chat set --profile", () => {
-  test("asks the user each time, then has the tab go on in that profile, or start anew with --new", async () => {
+  test("has the tab go on in that profile, or start anew with --new, without asking", async () => {
     const app = withChat();
-    app.answers.push("once", "once");
     const result = await nexus(app, ["chat", "set", "eeee", "--profile", "Work"]);
     expect(result.stdout).toBe(
       'Fix the login (eeeeeeee) now runs with the profile "Work"; its conversation goes on there.\n',
     );
     const fresh = await nexus(app, ["chat", "set", "eeee", "--profile", "Work", "--new"]);
     expect(fresh.stdout).toContain('"Work", in a new conversation.');
-    expect(app.asked.map((r) => r.change)).toEqual([
-      { kind: "chatProfile", detail: '"Fix the login" (default → Work)', eachTime: true },
-      { kind: "chatProfileNew", detail: '"Fix the login" (default → Work)', eachTime: true },
-    ]);
+    expect(app.asked).toEqual([]);
     const calls = app.uiCalls.filter((c) => c.op === "chat.profile").map((c) => c.args);
     expect(calls).toEqual([
       { workspaceId: APP, tabId: CHAT_TAB, profile: "Work", fresh: false, dryRun: true },
@@ -850,12 +829,52 @@ describe("chat set --profile", () => {
     ]);
   });
 
-  test("changes nothing the user did not allow, a profile the agent lacks, or its own tab's", async () => {
-    const denied = withChat();
-    expect((await nexus(denied, ["chat", "set", "eeee", "--profile", "Work"])).stderr).toBe(
-      "nexus: the user did not allow it\n",
-    );
-    expect(denied.uiCalls.filter((c) => c.op === "chat.profile")).toHaveLength(1);
+  test("still asks for a mode that lets more run", async () => {
+    const app = withChoices();
+    await nexus(app, ["chat", "set", "eeee", "--profile", "Work"]);
+    app.answers.push("once");
+    const mode = await nexus(app, ["chat", "set", "eeee", "--mode", "acceptEdits"]);
+    expect(mode.exitCode).toBe(0);
+    expect(app.asked.map((r) => r.change.kind)).toEqual(["chatMode"]);
+  });
+
+  test("follows the cross-workspace policy for a tab in another workspace", async () => {
+    const inApi = (policy: "allow" | "ask" | "deny") => {
+      const app = withChat();
+      const tab = app.tabs[APP]?.find((t) => t.id === CHAT_TAB);
+      if (tab) {
+        app.tabs[APP] = app.tabs[APP]?.filter((t) => t !== tab) ?? [];
+        app.tabs[API]?.push(tab);
+      }
+      app.settings.crossWorkspace = policy;
+      return app;
+    };
+    const set = ["chat", "set", "eeee", "--profile", "Work", "--workspace", "api"];
+    const denied = inApi("deny");
+    expect((await nexus(denied, set)).stderr).toContain("changing other workspaces is turned off");
+    expect(denied.uiCalls.filter((c) => c.op === "chat.profile")).toEqual([]);
+    const refused = inApi("ask");
+    expect((await nexus(refused, set)).stderr).toBe("nexus: the user did not allow it\n");
+    expect(refused.uiCalls.filter((c) => c.op === "chat.profile")).toEqual([]);
+    const asked = inApi("ask");
+    asked.answers.push("once");
+    expect((await nexus(asked, set)).exitCode).toBe(0);
+    expect(asked.asked.map((r) => r.change.kind)).toEqual(["chatSettings"]);
+    const allowed = inApi("allow");
+    expect((await nexus(allowed, set)).exitCode).toBe(0);
+    expect(allowed.asked).toEqual([]);
+  });
+
+  test("a sandboxed caller still asks to act outside its sandbox", async () => {
+    const app = withChat();
+    const caller = addCaller(app, "codex", "readOnly", true);
+    const result = await nexus(app, ["chat", "set", "eeee", "--profile", "Work"], caller);
+    expect(result.exitCode).toBe(1);
+    expect(app.asked.map((r) => r.change.kind)).toEqual(["sandboxExecution"]);
+    expect(app.uiCalls.filter((c) => c.op === "chat.profile")).toHaveLength(1);
+  });
+
+  test("changes nothing for a profile the agent lacks, or its own tab's", async () => {
     const lacking = withChat();
     const none = await nexus(lacking, ["chat", "set", "eeee", "--profile", "nope"]);
     expect(none.stderr).toContain('claude has no profile "nope"');
@@ -1184,7 +1203,7 @@ describe("sandbox execution approvals", () => {
     expect(app.asked.map((r) => r.change.eachTime)).toEqual([undefined, true]);
   });
 
-  test("still asks each time for permission answers, looser modes and profile changes", async () => {
+  test("still asks each time for permission answers and looser modes, not profile changes", async () => {
     const app = withChoices({
       state: "asking",
       message: "asks to run Bash",
@@ -1196,13 +1215,16 @@ describe("sandbox execution approvals", () => {
     for (const command of [
       ["chat", "answer", "eeee", "allow"],
       ["chat", "set", "eeee", "--mode", "acceptEdits"],
-      ["chat", "set", "eeee", "--profile", "Work"],
     ]) {
       app.answers.push("session");
       expect((await nexus(app, command, caller)).exitCode).toBe(1);
       expect(app.asked.at(-1)?.change).toMatchObject({ kind: "sandboxExecution", eachTime: true });
     }
-    expect(app.asked).toHaveLength(4);
+    app.answers.length = 0;
+    expect((await nexus(app, ["chat", "set", "eeee", "--profile", "Work"], caller)).exitCode).toBe(
+      0,
+    );
+    expect(app.asked).toHaveLength(3);
   });
 
   test("stores the sandbox approval from a combined prompt without granting workspace changes", async () => {
@@ -1224,7 +1246,7 @@ describe("sandbox execution approvals", () => {
     ]);
   });
 
-  test("workspace approval still requires sandbox consent and one-time approval expires", async () => {
+  test("workspace approval still requires sandbox consent and one-time approval is asked again", async () => {
     const app = withChat();
     const caller = addCaller(app, "codex", "auto", true);
     app.answers.push("session");
@@ -1233,10 +1255,10 @@ describe("sandbox execution approvals", () => {
     ).toBe(0);
     const run = () =>
       nexus(app, ["terminal", "new", "--command", "make test", "--workspace", "api"], caller);
-    app.answers.push("once", "timeout", "session");
+    app.answers.push("once", "deny", "session");
     expect((await run()).exitCode).toBe(0);
     expect((await run()).stderr).toBe(
-      "nexus: The approval to run this command outside the sandbox timed out. Try again when the user can approve it in NexusCode.\n",
+      "nexus: The user denied running this command outside the sandbox.\n",
     );
     expect((await run()).exitCode).toBe(0);
     expect((await run()).exitCode).toBe(0);

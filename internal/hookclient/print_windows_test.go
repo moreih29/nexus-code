@@ -13,8 +13,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// TestTreeHelper is the process a tree test runs: it starts a child that
-// waits, writes the child's pid to NEXUS_TREE_PID_FILE, and waits itself.
 func TestTreeHelper(t *testing.T) {
 	switch os.Getenv("NEXUS_TREE_HELPER") {
 	case "parent":
@@ -35,8 +33,6 @@ func TestTreeHelper(t *testing.T) {
 	}
 }
 
-// startTree runs the helper's tree, held as a run's program is; it returns
-// the program and its child, opened to wait on.
 func startTree(t *testing.T) (*exec.Cmd, *processTree, windows.Handle) {
 	t.Helper()
 	pidFile := filepath.Join(t.TempDir(), "pid")

@@ -7,12 +7,10 @@ if (!/^[A-F0-9]{40}$/.test(identity ?? "")) {
 if (!APPLE_API_KEY || !APPLE_API_KEY_ID || !APPLE_API_ISSUER || !statSync(APPLE_API_KEY).isFile()) {
   throw new Error("Developer ID packaging requires an API key file, key ID and issuer ID for notarization");
 }
-// electron-builder checks Apple ID credentials before API credentials.
 if (process.env.APPLE_ID || process.env.APPLE_APP_SPECIFIC_PASSWORD) {
   throw new Error("Clear Apple ID credentials to use App Store Connect API key notarization");
 }
 
-/** @type {import("electron-builder").Configuration} */
 module.exports = {
   extends: "./electron-builder.yml",
   afterPack: "build/after-pack-developer-id.cjs",
@@ -26,14 +24,10 @@ module.exports = {
     entitlementsInherit: "build/entitlements.mac.inherit.plist",
     preAutoEntitlements: false,
     notarize: true,
-    // afterPack signs these Mach-O files before hashing the agents. The
-    // default signer also visits non-Mach-O files inside Resources.
     signIgnore: "/NexusCode\\.app/Contents/Resources/",
   },
   dmg: {
     sign: true,
-    // Stapling changes the DMG after electron-builder runs. MacUpdater uses
-    // the ZIP, so only the ZIP goes into the update feed in this mode.
     writeUpdateInfo: false,
   },
 };

@@ -1,12 +1,3 @@
-/**
- * Unit tests for the dispatcher (`src/renderer/keybindings/dispatcher.ts`).
- *
- * The resolver is tested in its own file; this file
- * focuses on dispatcher orchestration: keystroke → command, chord
- * lifecycle (Escape, mismatch, expiry), and the boolean return that
- * drives the listener's `stopImmediatePropagation()` decision.
- */
-
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import {
   __resetCommandsForTests,
@@ -87,16 +78,6 @@ afterEach(() => {
   __resetChordStateForTests();
 });
 
-// ---------------------------------------------------------------------------
-// handleGlobalKeyDown — IME composition guard
-// ---------------------------------------------------------------------------
-//
-// While a Korean/Japanese IME is composing in the helper textarea, firing a shortcut makes
-// `preventDefault + stopImmediatePropagation` break the textarea's composition state,
-// which causes duplicated or stuck Hangul input. No key may be claimed during composition;
-// every key must pass through untouched. The key point is that `matchesEvent` matches on
-// `e.code` (the physical key), so a shortcut like `Cmd+R` still hits while typing Hangul.
-
 describe("handleGlobalKeyDown — IME composition guard", () => {
   it("does NOT claim Cmd+R when isComposing is true (would otherwise fire files.refresh)", () => {
     const spies = setupCommandSpies();
@@ -108,8 +89,6 @@ describe("handleGlobalKeyDown — IME composition guard", () => {
   });
 
   it("does NOT claim Cmd+R when keyCode is 229 (legacy Chromium IME fallback)", () => {
-    // In older Chromium the isComposing flag is set late on some keydown events —
-    // keyCode === 229 alone must be enough to identify an IME composition.
     const spies = setupCommandSpies();
     const e = makeEvent("Process", { metaKey: true, code: "KeyR", keyCode: 229 });
     const claimed = handleGlobalKeyDown(e as unknown as KeyboardEvent);
@@ -119,8 +98,6 @@ describe("handleGlobalKeyDown — IME composition guard", () => {
   });
 
   it("DOES claim Cmd+R after composition ends (isComposing false, keyCode normal)", () => {
-    // Right after composition ends, pressing the same key again must work as usual.
-    // Regression case checking that the guard is not too broad.
     const spies = setupCommandSpies();
     const e = makeEvent("r", { metaKey: true, code: "KeyR" });
     const claimed = handleGlobalKeyDown(e as unknown as KeyboardEvent);
@@ -128,10 +105,6 @@ describe("handleGlobalKeyDown — IME composition guard", () => {
     expect(spies[COMMANDS.filesRefresh]).toHaveBeenCalledTimes(1);
   });
 });
-
-// ---------------------------------------------------------------------------
-// handleGlobalKeyDown — KeyChord (⌘K …)
-// ---------------------------------------------------------------------------
 
 describe("handleGlobalKeyDown — KeyChord", () => {
   it("Escape during pending cancels the chord without firing", () => {
@@ -146,7 +119,6 @@ describe("handleGlobalKeyDown — KeyChord", () => {
       expect(spies[id]).not.toHaveBeenCalled();
     }
 
-    // After cancel, a fresh ⌘W resolves to tab.close (not tab.closeAll).
     const after = makeEvent("w", { metaKey: true, code: "KeyW" });
     handleGlobalKeyDown(after as unknown as KeyboardEvent);
     expect(spies[COMMANDS.tabClose]).toHaveBeenCalledTimes(1);
@@ -158,7 +130,6 @@ describe("handleGlobalKeyDown — KeyChord", () => {
     handleGlobalKeyDown(
       makeEvent("k", { metaKey: true, code: "KeyK" }) as unknown as KeyboardEvent,
     );
-    // Random "a" — no chord exists for it. Should swallow + clear.
     const stray = makeEvent("a", { code: "KeyA" });
     handleGlobalKeyDown(stray as unknown as KeyboardEvent);
     expect(stray.defaultPrevented).toBe(true);
@@ -166,7 +137,6 @@ describe("handleGlobalKeyDown — KeyChord", () => {
       expect(spies[id]).not.toHaveBeenCalled();
     }
 
-    // Pending cleared — fresh ⌘W resolves normally.
     const after = makeEvent("w", { metaKey: true, code: "KeyW" });
     handleGlobalKeyDown(after as unknown as KeyboardEvent);
     expect(spies[COMMANDS.tabClose]).toHaveBeenCalledTimes(1);
@@ -180,23 +150,17 @@ describe("handleGlobalKeyDown — KeyChord", () => {
     handleGlobalKeyDown(
       makeEvent("k", { metaKey: true, code: "KeyK" }) as unknown as KeyboardEvent,
     );
-    // Advance past the chord timeout (1500ms).
     now += 2000;
 
     const second = makeEvent("u", { code: "KeyU" });
     handleGlobalKeyDown(second as unknown as KeyboardEvent);
 
-    // No chord fires (pending expired); plain "u" matches no single
-    // binding either, so nothing happens at all.
     for (const id of Object.values(COMMANDS)) {
       expect(spies[id]).not.toHaveBeenCalled();
     }
   });
 
   it("Cmd+K enters pending even when focus is inside an editable (chord is intentional)", () => {
-    // Phase 2 removed the editable guard from the chord pipeline:
-    // ⌘K is never accidentally typed, so even from inside Monaco /
-    // an input we treat it as the user beginning a chord.
     const spies = setupCommandSpies();
     const target = { tagName: "INPUT" } as HTMLElement;
     const leader = makeEvent("k", { metaKey: true, code: "KeyK", target });
@@ -209,13 +173,6 @@ describe("handleGlobalKeyDown — KeyChord", () => {
     expect(spies[COMMANDS.tabClose]).not.toHaveBeenCalled();
   });
 });
-
-// ---------------------------------------------------------------------------
-// handleGlobalKeyDown — chords in the editor (Win/Linux)
-// ---------------------------------------------------------------------------
-//
-// On Win/Linux a chord leader pressed in the editor goes to Monaco, which
-// resolves its own Ctrl+K chords and the app's (bound there by app-chords.ts).
 
 describe("handleGlobalKeyDown — chords in the editor (Win/Linux)", () => {
   const editor = {
@@ -232,7 +189,6 @@ describe("handleGlobalKeyDown — chords in the editor (Win/Linux)", () => {
     expect(handleGlobalKeyDown(leader as unknown as KeyboardEvent)).toBe(false);
     expect(leader.defaultPrevented).toBe(false);
 
-    // Ctrl+W would close the tab on its own; as the chord's second key it is Monaco's.
     const second = makeEvent("w", { ctrlKey: true, code: "KeyW", target: editor });
     expect(handleGlobalKeyDown(second as unknown as KeyboardEvent)).toBe(false);
     expect(second.defaultPrevented).toBe(false);
@@ -277,7 +233,7 @@ describe("handleGlobalKeyDown — chords in the editor (Win/Linux)", () => {
     handleGlobalKeyDown(
       makeEvent("k", { ctrlKey: true, code: "KeyK", target: editor }) as unknown as KeyboardEvent,
     );
-    now += 6000; // past Monaco's 5 s chord timeout
+    now += 6000;
 
     const after = makeEvent("w", { ctrlKey: true, code: "KeyW", target: editor });
     expect(handleGlobalKeyDown(after as unknown as KeyboardEvent)).toBe(true);

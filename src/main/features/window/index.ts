@@ -25,26 +25,11 @@ import { opensTransparentOnLinux } from "./linux-transparency";
 import { isAllowedMainWindowNavigation } from "./navigation";
 import { DEATH_WINDOW_MS, pageDiedQuestion, reloadsPage, watchPageHealth } from "./page-health";
 
-// Custom titlebar height (px) — must match TitleBar component's h-9 (36px)
-// and titleBarOverlay.height on Win/Linux for visual alignment.
 const TITLEBAR_HEIGHT = 36;
 
 const logger = createLogger("window-open-handler");
 
 export const closePersistence = new ClosePersistence((message) => logger.warn(message));
-
-// ---------------------------------------------------------------------------
-// titleBarOverlay color helpers
-//
-// Win/Linux: titleBarOverlay.color must be a hex literal — Electron does not
-// parse OKLCH or CSS var() for this property. ThemeSource values are all
-// authored as hex literals in theme-sources.ts, so we can pass them through
-// directly.
-//
-// Mapping:
-//   bg     ← ThemeSource.bg.secondary  (backdrop / titlebar chrome surface)
-//   symbol ← ThemeSource.fg.muted      (window-control symbol colour)
-// ---------------------------------------------------------------------------
 
 function getTitleBarColors(themePreference: AppState["themePreference"]): {
   bg: string;
@@ -58,25 +43,16 @@ function getTitleBarColors(themePreference: AppState["themePreference"]): {
   return { bg: source.bg.secondary, symbol: source.fg.muted };
 }
 
-// The windows Electron draws the controls of, each with whether a backdrop
-// shows through its overlay.
 const overlayBackdrops = new WeakMap<BrowserWindow, boolean>();
 
-/** The overlay colors of a window, for the theme and its backdrop. */
 function titleBarOverlayColors(
   themePreference: AppState["themePreference"],
   backdrop: boolean,
 ): { color: string; symbolColor: string } {
   const { bg, symbol } = getTitleBarColors(themePreference);
-  // Over a backdrop the overlay is clear instead: the controls then sit on
-  // the renderer titlebar, which follows the theme and the opacity.
   return { color: backdrop ? "#00000000" : bg, symbolColor: symbol };
 }
 
-/**
- * Repaints the window controls Electron draws on Windows and Linux in the
- * theme's colors; a window keeps the ones it opened with otherwise.
- */
 export function updateTitleBarOverlays(themePreference: AppState["themePreference"]): void {
   for (const win of getAppWindows()) {
     const backdrop = overlayBackdrops.get(win);
@@ -85,11 +61,6 @@ export function updateTitleBarOverlays(themePreference: AppState["themePreferenc
   }
 }
 
-/**
- * Where the app's windows load their page from: the renderer's files, or in
- * dev the electron-vite dev server (ELECTRON_RENDERER_URL). The window's
- * Content-Security-Policy goes with that page (app-csp.ts).
- */
 export function appPage(): AppPage {
   return {
     indexPath: join(__dirname, "../renderer/index.html"),
@@ -102,53 +73,26 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   const backdrop = supportsWindowsBackdrop();
   const linuxTransparent = opensTransparentOnLinux(appState?.windowOpacity);
 
-  // `transparent` is a constructor-only Electron option — it must be set at
-  // window creation time. We always enable it on macOS so the renderer can
-  // freely adjust --window-opacity at runtime via CSS color-mix without ever
-  // requiring an app restart. At 100% opacity the surfaces paint fully opaque
-  // and the desktop is invisible — visually equivalent to a non-transparent
-  // window (minus the native shadow, an acceptable trade for restart-free UX).
-  // Windows 11 22H2+ gets the same live opacity over a system backdrop instead.
-  // Linux has no backdrop, and a transparent window there loses its frame, so
-  // it opens transparent only while the saved opacity is under 100%. Older
-  // Windows has no backdrop either: its window stays opaque.
   const opaqueOnWindows = isWindows() && !backdrop;
 
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
     show: false,
-    // Frameless chrome — renderer paints its own titlebar. Native window
-    // controls are preserved per-OS:
-    //   - macOS: hiddenInset keeps the traffic lights interactive at top-left.
-    //   - Win/Linux: titleBarOverlay renders themed min/max/close at top-right.
-    //   - Transparent Linux: Electron draws no overlay; the renderer titlebar
-    //     draws the controls itself.
     titleBarStyle: mac ? "hiddenInset" : "hidden",
     ...(mac || linuxTransparent
       ? {
-          // Transparent window. Wherever the renderer paints transparent, the
-          // desktop shows through CRISPLY with no blur/frost. On X11 without a
-          // compositor it shows black instead.
           transparent: true,
           backgroundColor: "#00000000",
         }
       : {
           titleBarOverlay: {
-            // Match the renderer titlebar's chrome background for the active theme.
-            // Hex literal required — Electron does not accept OKLCH or CSS vars here.
             ...titleBarOverlayColors(appState?.themePreference, backdrop),
             height: TITLEBAR_HEIGHT,
           },
         }),
     ...(backdrop
       ? {
-          // Windows 11 22H2+: the system acrylic shows, blurred, wherever the
-          // renderer paints translucent. `transparent` would show the desktop
-          // as macOS does, but on Windows it drops the native frame: no snap,
-          // shadow or rounded corners, and maximize becomes a resize. DWM
-          // draws the acrylic only while the window is active; an inactive
-          // window gets a solid fill.
           backgroundMaterial: "acrylic",
           backgroundColor: "#00000000",
         }
@@ -168,8 +112,6 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   trackAppWindow(win);
   if (!mac && !linuxTransparent) overlayBackdrops.set(win, backdrop);
 
-  // A page whose renderer died leaves the window empty while the app runs
-  // on: load it again, and ask once it keeps dying.
   watchPageHealth(win, {
     askReload: async (deaths) => {
       const t = getMainT();
@@ -199,8 +141,6 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   });
 
   if (linuxTransparent) {
-    // The renderer titlebar draws this window's controls; keep its maximize
-    // button in step with the window.
     const sendMaximized = () => {
       win.webContents.send("ipc:event", "window", "maximizedChanged", {
         maximized: win.isMaximized(),
@@ -210,10 +150,6 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
     win.on("unmaximize", sendMaximized);
   }
 
-  // electron-vite dev server injects ELECTRON_RENDERER_URL during `dev`. A
-  // packaged build ignores it: launched from a shell that still has it set,
-  // it would hand the preload (full IPC, terminal spawn included) to whatever
-  // serves that port, such as a repository's own dev server.
   const { indexPath, devServerUrl } = appPage();
   if (devServerUrl !== undefined) {
     win.loadURL(devServerUrl);
@@ -221,18 +157,12 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
     win.loadFile(indexPath);
   }
 
-  // The app is a single page and never navigates its window; any page that
-  // got loaded into it would run with the preload. In dev, the dev server may
-  // reload its own page.
   win.webContents.on("will-navigate", (event, url) => {
     if (isAllowedMainWindowNavigation(url, devServerUrl)) return;
     event.preventDefault();
     logger.warn("Blocked main window navigation");
   });
 
-  // The renderer cancels unload (quit, window close, reload) while buffers
-  // are unsaved. Electron cancels silently, so ask here; preventDefault lets
-  // the unload go ahead when the user chooses to discard.
   win.on("close", (event) => closePersistence.interceptClose(event, win));
   win.webContents.on("will-prevent-unload", (event) => {
     const t = getMainT();
@@ -248,14 +178,6 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
     else closePersistence.cancelQuit();
   });
 
-  // Popups need fresh user input, like Chrome's popup blocker: a previewed
-  // page calling window.open from a timer would otherwise open browser tabs
-  // without limit. Preview and markdown link clicks call window.open from the
-  // click handler itself, so they always follow the input; a link the app
-  // looks up first (an MCP sign-in page) may come up to APP_ACTIVATION_MS
-  // later. One input lets one popup through; typing does not. Input in the
-  // HTML preview's page, which runs out of process, counts too, but only
-  // for its own links, and the app's only for the app's (./activation).
   const activation = new UserActivation();
   watchActivation(win.webContents, activation);
 

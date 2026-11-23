@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   attachHostOf,
+  locationLabel,
   rootPathFromLocation,
   WorkspaceLocationSchema,
   WorkspaceMetaSchema,
@@ -80,5 +81,19 @@ describe("attachHostOf", () => {
     expect(ssh()).toBe("ssh:u@h:22");
     expect(ssh(22)).toBe("ssh:u@h:22");
     expect(ssh(2222)).toBe("ssh:u@h:2222");
+  });
+});
+
+describe("locationLabel", () => {
+  test("names a remote place the same way everywhere, alias first", () => {
+    const ssh = { kind: "ssh" as const, host: "10.0.0.2", user: "me", remotePath: "/srv" };
+    expect(locationLabel({ kind: "local", rootPath: "/x" })).toBeNull();
+    expect(locationLabel(ssh)).toBe("me@10.0.0.2");
+    expect(locationLabel({ ...ssh, user: undefined })).toBe("10.0.0.2");
+    expect(locationLabel({ ...ssh, configAlias: "box" })).toBe("box");
+    expect(locationLabel({ ...ssh, configAlias: "box" }, { prefix: true })).toBe("ssh: box");
+    expect(
+      locationLabel({ kind: "wsl", distro: "Ubuntu", remotePath: "/home" }, { prefix: true }),
+    ).toBe("wsl: Ubuntu");
   });
 });

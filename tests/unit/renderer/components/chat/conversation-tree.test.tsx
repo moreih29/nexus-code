@@ -3,11 +3,11 @@ import i18next from "i18next";
 import { Tabs } from "radix-ui";
 import type { ComponentProps, MouseEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SessionSidePanel } from "../../../../../src/renderer/components/agent-view/remote-side-panel";
 import {
   ConversationChildren,
   ConversationParentChip,
 } from "../../../../../src/renderer/components/chat/conversation-tree";
+import { SessionSidePanel } from "../../../../../src/renderer/components/chat/session-side-panel";
 import * as buttons from "../../../../../src/renderer/components/ui/button";
 import { TabItem } from "../../../../../src/renderer/components/workspace/tabs/tab-item";
 import * as ipc from "../../../../../src/renderer/ipc/client";

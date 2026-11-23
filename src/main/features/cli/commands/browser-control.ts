@@ -1,16 +1,12 @@
-/**
- * nexus browser snapshot/inspect/click/hover/drag/scroll/fill/type/press/
- * upload/dialog/screenshot/eval/console/wait/pick: reading and driving the
- * page in a browser tab.
- */
 import type { CliTabInfo } from "../../../../shared/cli/ui";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import { shortId } from "../../../../shared/util/short-id";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
 import { dialogText } from "../browser/dialog";
 import type { BrowserScroll, BrowserWaitCondition } from "../browser/driver";
 import { BROWSER_KEYS_HELP } from "../browser/keys";
 import { cancelledText, cleanPicked, formatPick } from "../browser/pick";
-import { type CliContext, CliError, mayChange, resolveWorkspace, shortId } from "../context";
+import { type CliContext, CliError, mayChange, resolveWorkspace } from "../context";
 import { callerPath } from "../paths";
 import { type CliCommand, output } from "../registry";
 import { mayExecute } from "../sandbox";
@@ -22,7 +18,6 @@ export const PAGE_FLAGS = { tab: TAB_FLAG, workspace: WORKSPACE_FLAG } as const;
 const DEFAULT_SNAPSHOT_LINES = 400;
 const DEFAULT_BROWSER_WAIT_MS = 30_000;
 const MAX_BROWSER_WAIT_MS = 10 * 60_000;
-/** A pick waits on a person, so longer than a wait on the page. */
 const DEFAULT_PICK_WAIT_MS = 2 * 60_000;
 
 interface Page {
@@ -30,7 +25,6 @@ interface Page {
   readonly tab: CliTabInfo;
 }
 
-/** The browser tab a command is about; `changes` asks consent for another workspace's. */
 export async function pageOf(
   ctx: CliContext,
   flags: ParsedArgs["flags"],
@@ -42,7 +36,6 @@ export async function pageOf(
   return { workspace, tab };
 }
 
-/** Text from the words after the command, or from standard input for "-". */
 function textOf(ctx: CliContext, words: readonly string[], what: string): string {
   if (words.length === 0) throw new CliUsageError(`missing <${what}>`);
   if (words.length === 1 && words[0] === "-")
@@ -102,7 +95,6 @@ const browserSnapshot: CliCommand = {
   },
 };
 
-/** Where a picture of an element of `tab` goes, in the temp directory. */
 function picturePath(ctx: CliContext, tab: CliTabInfo, kind: string): string {
   return callerPath(
     ctx,
@@ -163,7 +155,6 @@ const browserClick: CliCommand = {
   },
 };
 
-/** What a command that acted on a page gives with --json. */
 function acted(page: Page, done: { url: string; navigated: boolean }) {
   return {
     tabId: page.tab.id,

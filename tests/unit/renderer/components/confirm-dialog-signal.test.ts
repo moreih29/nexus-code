@@ -1,4 +1,3 @@
-/** A confirmation whose question was settled elsewhere closes unanswered. */
 import { expect, test } from "bun:test";
 import { showConfirmDialog } from "../../../../src/renderer/components/ui/confirm-dialog";
 

@@ -50,7 +50,6 @@ function render(activity: Activity, onBackground?: (id: string) => void): string
   );
 }
 
-/** The markup of one of the two sections. */
 function part(html: string, which: "commands" | "agents"): string {
   const at = html.indexOf(`data-testid="panel-${which}"`);
   expect(at).toBeGreaterThan(-1);
@@ -58,7 +57,6 @@ function part(html: string, which: "commands" | "agents"): string {
   return html.slice(at, end);
 }
 
-/** What a fold counts: running, then ended. */
 function counts(html: string): [string | undefined, string | undefined] {
   return [
     /data-testid="panel-running-count">(\d+)</.exec(html)?.[1],
@@ -108,11 +106,8 @@ describe("the tasks and agents sections", () => {
     expect(agents).toContain("Cover the payments module");
     expect(agents).toContain("general-purpose");
     expect(counts(agents)).toEqual(["2", "2"]);
-    // An icon alone, named for what it does.
     expect(html.match(/aria-label="Send to background"/g)).toHaveLength(1);
-    // The job and the subagent that run beside the turn.
     expect(html.match(/data-testid="running-background"/g)).toHaveLength(2);
-    // What ended is folded: its rows are not drawn until it opens.
     expect(html).toContain("Ended");
     expect(html).not.toContain("Plan the refactor");
     expect(html).not.toContain("bun run lint");
@@ -136,7 +131,6 @@ describe("the tasks and agents sections", () => {
       expect(counts(section)).toEqual(["0", "0"]);
       expect(section.match(/aria-disabled="true"/g)).toHaveLength(2);
     }
-    // With nothing running, the fold of what runs is a 0 under what ended's count.
     const quiet = part(
       render(activityOf({ agents: ended, jobs: [], tools: {}, items: [] })),
       "agents",

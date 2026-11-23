@@ -25,12 +25,14 @@ export class PendingRequestMap<TKey, TResult> {
     onTimeout?: () => Error;
   }): Promise<TResult> {
     return new Promise<TResult>((resolve, reject) => {
-      const timer = this.scheduler.setTimeout(() => {
-        this.pending.delete(key);
-        const error = onTimeout?.() ?? new Error(`Request timed out (key: ${String(key)})`);
-        reject(error);
-      }, timeoutMs);
-      (timer as { unref?: () => void }).unref?.();
+      const timer = Number.isFinite(timeoutMs)
+        ? this.scheduler.setTimeout(() => {
+            this.pending.delete(key);
+            const error = onTimeout?.() ?? new Error(`Request timed out (key: ${String(key)})`);
+            reject(error);
+          }, timeoutMs)
+        : undefined;
+      (timer as { unref?: () => void } | undefined)?.unref?.();
 
       this.pending.set(key, { resolve, reject, timer });
     });
@@ -67,7 +69,6 @@ export class PendingRequestMap<TKey, TResult> {
     return this.pending.size;
   }
 
-  /** Releases the oldest outstanding entry and its timer. */
   rejectOldest(error: Error): void {
     const first = this.pending.keys().next();
     if (!first.done) this.reject(first.value, error);

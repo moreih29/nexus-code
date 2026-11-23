@@ -1,7 +1,3 @@
-// Runs the Codex tab's own commands (codex-commands.ts) where the tab is:
-// a request to its app-server, a card above the composer, the clipboard,
-// a file, the git view, another tab.
-
 import i18next from "i18next";
 import { showConfirmDialog } from "../../../components/ui/confirm-dialog";
 import { showToast } from "../../../components/ui/toast";
@@ -38,15 +34,12 @@ export interface CodexCommandContext {
   cwd: string;
   rootPath: string;
   profileId?: string;
-  /** The whole conversation: what was loaded before, then this run's. */
   items: readonly ChatItem[];
   tools: Readonly<Record<string, ToolCall>>;
-  /** A tool call's one line, as the conversation shows it. */
   summarize: (tool: ToolCall) => string;
   openFileTab: (path: string) => void;
 }
 
-/** The ones that start a turn, or start the thread again: not while a turn runs. */
 const IDLE_ONLY = new Set(["new", "compact", "review", "init"]);
 
 export async function runCodexCommand(
@@ -88,13 +81,11 @@ export async function runCodexCommand(
       await controller.newThread();
       return;
     case "fork": {
-      // The thread so far, in a tab of its own; this one stays as it is.
       if (!threadId || controller.model.items.length === 0) {
         showToast({ kind: "warning", message: t("chat.commands.fork_none") });
         return;
       }
       const shown = useTabsStore.getState().byWorkspace[ctx.workspaceId]?.[ctx.tabId]?.title;
-      // The fork runs with the model and effort the tab shows.
       const chosen = controller.inheritedChoice();
       openCodexTab(ctx.workspaceId, {
         cwd: ctx.cwd,
@@ -195,7 +186,6 @@ export async function runCodexCommand(
   }
 }
 
-/** Fast is a thread setting. The model catalog supplies the tier ID and its usage terms. */
 async function runFast(controller: CodexController, args: string): Promise<void> {
   const t = i18next.t.bind(i18next);
   const action = args.trim().toLowerCase();
@@ -219,7 +209,6 @@ async function runFast(controller: CodexController, args: string): Promise<void>
     try {
       await controller.setServiceTier(threadId, enabled && tier ? tier.id : "default");
     } catch (err) {
-      // A process reattached after an app update may still have the old handshake.
       if (err instanceof Error && err.message.includes("experimentalApi")) {
         throw new Error(t("chat.codex.commands.fast_restart"));
       }
@@ -233,7 +222,6 @@ async function runFast(controller: CodexController, args: string): Promise<void>
   });
 }
 
-/** /goal: the thread's goal shown, set, paused or resumed, or cleared. */
 async function runGoal(ctx: CodexCommandContext, title: string, args: string): Promise<void> {
   const t = i18next.t.bind(i18next);
   const { controller } = ctx;
@@ -243,7 +231,6 @@ async function runGoal(ctx: CodexCommandContext, title: string, args: string): P
     return;
   }
   const goal = goalCommandOf(args);
-  // A goal shown before is out of date once it changes.
   if (goal.kind !== "show" && controller.state.card?.title.startsWith("/goal")) {
     controller.closeCard();
   }
@@ -299,7 +286,6 @@ async function runGoal(ctx: CodexCommandContext, title: string, args: string): P
   }
 }
 
-/** /export: the conversation as Markdown, in a file under the tab's folder. */
 async function exportConversation(ctx: CodexCommandContext, name: string): Promise<void> {
   const t = i18next.t.bind(i18next);
   const relPath = exportRelPath(
@@ -331,7 +317,6 @@ async function exportConversation(ctx: CodexCommandContext, name: string): Promi
   showToast({ kind: "info", message: t("chat.commands.exported", { name: relPath }) });
 }
 
-/** /mcp: the MCP servers Codex has, how each stands, and how many tools it gives. */
 async function showMcp(ctx: CodexCommandContext, title: string): Promise<void> {
   const t = i18next.t.bind(i18next);
   const { controller } = ctx;
@@ -367,7 +352,6 @@ async function showMcp(ctx: CodexCommandContext, title: string): Promise<void> {
   }
 }
 
-/** /skills: the skills Codex finds for the folder, each to open. */
 async function showSkills(ctx: CodexCommandContext, title: string): Promise<void> {
   const t = i18next.t.bind(i18next);
   const { controller } = ctx;

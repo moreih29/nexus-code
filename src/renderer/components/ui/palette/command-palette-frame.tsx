@@ -17,10 +17,6 @@ export interface CommandPaletteFrameProps<TItem extends PaletteItem> {
   maxQueryLength?: number;
   onQueryChange?: (query: string) => void;
   onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void;
-  /**
-   * Fires when the user clicks the modal overlay (the dimmed area outside
-   * the dialog content). Used to dismiss the palette on outside click.
-   */
   onOverlayClick?: () => void;
   onHoverItem?: (index: number) => void;
   onAcceptItem?: (index: number) => void;
@@ -69,9 +65,6 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
         aria-label={t("palette.close_aria")}
         tabIndex={-1}
         className="absolute inset-0 h-full w-full cursor-default bg-transparent"
-        // Outside-click dismissal: the overlay button fills the viewport
-        // behind the dialog content, so pressing it means the user clicked
-        // outside the palette and expects it to close.
         onMouseDown={(event) => {
           event.preventDefault();
           onOverlayClick?.();
@@ -158,9 +151,6 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
                       </div>
                     </div>
                     {item.kindLabel ? (
-                      // A small badge, in the row's language and case: it may be
-                      // a translated kind ("현재") or the user's data (a SHA, a
-                      // branch name), so it is never capitalised.
                       <div
                         className={cn(
                           "self-start shrink-0 rounded-full border border-border px-1.5 text-app-micro leading-4",

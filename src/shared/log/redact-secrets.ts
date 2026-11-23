@@ -1,4 +1,3 @@
-/** Masks credential-shaped values before writing an external diagnostic to a log. */
 export function redactLogSecrets(text: string): string {
   return text
     .replace(/(\b[a-z][a-z\d+.-]*:\/\/)[^\s/?"'<>#]+@/gi, "$1[redacted]@")

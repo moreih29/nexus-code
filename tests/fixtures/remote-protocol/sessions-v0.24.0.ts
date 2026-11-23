@@ -1,5 +1,3 @@
-// Session listing schemas from remote-protocol-v0.24.0 (1d5b593a7).
-// Keep this reader independent of the current wire schemas.
 import { z } from "zod";
 
 const NumberSchema = z.custom<number>().check(({ value, issues }) => {

@@ -1,7 +1,3 @@
-/**
- * closeDiffWithConfirm — a diff against the working tree edits the file, so
- * closing the last tab that shows its unsaved edits asks first.
- */
 import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import { cacheUriFor } from "../../../../../src/renderer/services/editor/model/cache";
 import {

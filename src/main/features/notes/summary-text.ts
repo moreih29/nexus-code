@@ -46,8 +46,6 @@ export function summaryArgs(language: string, model?: string, apiKey = false): s
     '{"disableAllHooks":true}',
     "--disable-slash-commands",
     "--no-session-persistence",
-    // Keep profile authentication in its config directory while skipping
-    // settings that load plugins, hooks, credential helpers or extra env.
     "--setting-sources",
     "",
     ...(model ? ["--model", model] : []),
@@ -157,16 +155,13 @@ function readJSON(text: string): unknown {
 }
 
 function plainText(text: string): string {
-  return (
-    markdownText(text.replace(DIRECTION_CONTROLS, ""))
-      // Parsed text can itself contain markup from escaped punctuation or entities.
-      .replace(DIRECTION_CONTROLS, "")
-      .replace(/<\/?[a-z][^<>]*>|<!--[\s\S]*?-->/gi, "")
-      .replace(/\b(?:[a-z][a-z0-9+.-]*:\/\/|www\.)[^\s<>]+/gi, "")
-      .replace(/[\p{Cc}\s]/gu, " ")
-      .replace(/ +/g, " ")
-      .trim()
-  );
+  return markdownText(text.replace(DIRECTION_CONTROLS, ""))
+    .replace(DIRECTION_CONTROLS, "")
+    .replace(/<\/?[a-z][^<>]*>|<!--[\s\S]*?-->/gi, "")
+    .replace(/\b(?:[a-z][a-z0-9+.-]*:\/\/|www\.)[^\s<>]+/gi, "")
+    .replace(/[\p{Cc}\s]/gu, " ")
+    .replace(/ +/g, " ")
+    .trim();
 }
 
 function resetsAtOf(text: string, now: number): number | undefined {

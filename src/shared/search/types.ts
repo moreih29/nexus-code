@@ -31,8 +31,6 @@ export const FileMatchSchema = z.object({
     z.object({
       range: SearchRangeSchema,
       preview: z.string(),
-      // Column where `preview` begins when the agent cut a long line down to
-      // a window around the match; `range` stays relative to the whole line.
       previewStart: NonnegativeIntegerSchema.optional(),
     }),
   ),

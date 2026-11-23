@@ -1,0 +1,473 @@
+import { afterEach, expect, mock, test } from "bun:test";
+import { type RelaySender, relayedText } from "../../../../../src/shared/chat/relay";
+
+(globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
+
+type Message = Record<string, unknown> & { params?: Record<string, unknown> };
+const sent: Message[] = [];
+let respond: ((message: Message) => void) | undefined;
+let started: (() => void) | undefined;
+let replay: () => unknown = () => ({ found: true, running: true, lastSeq: 0 });
+const unreachable = Symbol("unreachable");
+
+const realIpc = await import("../../../../../src/renderer/ipc/client");
+mock.module("../../../../../src/renderer/ipc/client", () => ({
+  ...realIpc,
+  ipcListen: () => () => {},
+  ipcCallResult: (_channel: string, method: string, args: Record<string, unknown>) => {
+    if (method === "send") {
+      const message = args.message as Message;
+      sent.push(message);
+      respond?.(message);
+    }
+    if (method === "replay") {
+      const value = replay();
+      return Promise.resolve(
+        value === unreachable
+          ? { ok: false, kind: "internal", message: "the agent host is not reachable" }
+          : { ok: true, value },
+      );
+    }
+    if (method === "start") {
+      started?.();
+      return Promise.resolve({
+        ok: true,
+        value: { ok: true, pid: 1, attached: false, version: null },
+      });
+    }
+    if (method === "codexStart") {
+      return Promise.resolve({
+        ok: true,
+        value: { ok: true, pid: 1, attached: false, version: null },
+      });
+    }
+    return Promise.resolve({ ok: true, value: undefined });
+  },
+}));
+
+const { ChatController } = await import(
+  "../../../../../src/renderer/services/chat/claude/controller"
+);
+const { CodexController } = await import(
+  "../../../../../src/renderer/services/chat/codex/controller"
+);
+const { useChatStore } = await import("../../../../../src/renderer/services/chat/store");
+const { RESYNC_RETRY_MS } = await import("../../../../../src/renderer/services/chat/tab-core");
+
+type Tab = InstanceType<typeof ChatController> | InstanceType<typeof CodexController>;
+
+let nextTab = 0;
+let lineSeq = 1000;
+const live: Tab[] = [];
+
+afterEach(() => {
+  for (const c of live.splice(0)) c.dispose();
+  sent.length = 0;
+  respond = undefined;
+  started = undefined;
+  replay = () => ({ found: true, running: true, lastSeq: 0 });
+});
+
+interface Harness {
+  tab: Tab;
+  delivered(): string[];
+  turnEnd(): Message;
+}
+
+async function claudeTab(
+  hooks: ConstructorParameters<typeof ChatController>[1] = {},
+): Promise<Harness> {
+  const tab = new ChatController(
+    {
+      workspaceId: "ws-reconnect",
+      tabId: `claude-${++nextTab}`,
+      cwd: "/p",
+      sessionId: "s",
+    },
+    hooks,
+  );
+  live.push(tab);
+  respond = (message) => {
+    if (message.type === "control_request") {
+      queueMicrotask(() => {
+        if (tab.state.phase === "held") return;
+        tab.receive({
+          seq: ++lineSeq,
+          dir: "out",
+          message: {
+            type: "control_response",
+            response: { subtype: "success", request_id: message.request_id, response: {} },
+          },
+        } as never);
+      });
+    }
+    if (message.type !== "user") return;
+    queueMicrotask(() => tab.receive({ seq: ++lineSeq, dir: "in", message } as never));
+  };
+  started = () =>
+    tab.receive({ seq: ++lineSeq, dir: "sys", message: { event: "start", pid: 2 } } as never);
+  await tab.open();
+  tab.receive({
+    seq: ++lineSeq,
+    dir: "in",
+    message: { type: "user", uuid: "first", message: { content: "Start" } },
+  });
+  tab.flushNow();
+  return {
+    tab,
+    delivered: () =>
+      sent.flatMap((message) =>
+        message.type === "user" ? [String((message.message as { content: unknown }).content)] : [],
+      ),
+    turnEnd: () => ({ type: "result", subtype: "success", is_error: false, result: "done" }),
+  };
+}
+
+async function codexTab(): Promise<Harness> {
+  const tab = new CodexController({
+    workspaceId: "ws-reconnect",
+    tabId: `codex-${++nextTab}`,
+    cwd: "/p",
+    threadId: "t1",
+  });
+  live.push(tab);
+  respond = (message) => {
+    if (message.id === undefined) return;
+    const result =
+      message.method === "thread/resume"
+        ? { thread: { id: "t1" }, model: "gpt-5.5", reasoningEffort: "high" }
+        : message.method === "turn/start"
+          ? { turn: { id: "turn-1" } }
+          : message.method === "config/read"
+            ? { config: {} }
+            : {};
+    queueMicrotask(() => {
+      if (message.method === "initialize") {
+        tab.receive({ seq: ++lineSeq, dir: "sys", message: { event: "start", pid: 1 } } as never);
+      }
+      tab.receive({ seq: ++lineSeq, dir: "in", message } as never);
+      tab.receive({ seq: ++lineSeq, dir: "out", message: { id: message.id, result } } as never);
+    });
+  };
+  useChatStore.getState().update(tab.key, (prev) => ({ ...prev, phase: "ended" }));
+  await tab.sendWithTiming("Start", [], "next", undefined, undefined, "first-id");
+  sent.length = 0;
+  return {
+    tab,
+    delivered: () =>
+      sent.flatMap(({ method, params }) =>
+        method === "turn/start" || method === "turn/steer"
+          ? [(params?.input as { text: string }[])[0]?.text ?? ""]
+          : [],
+      ),
+    turnEnd: () => ({
+      method: "turn/completed",
+      params: { threadId: "t1", turn: { id: "turn-1", status: "completed" } },
+    }),
+  };
+}
+
+test.each([
+  ["claude", claudeTab],
+  ["codex", codexTab],
+] as const)("%s sends the next held message once it reconnects after its turn ended", async (_agent, open) => {
+  const { tab, delivered, turnEnd } = await open();
+  expect(tab.state.model.running).toBe(true);
+  tab.enqueue("after the turn");
+  await Bun.sleep(0);
+  expect(delivered()).toEqual([]);
+
+  tab.held();
+  tab.enqueue("while away");
+  await Bun.sleep(0);
+  expect(delivered()).toEqual([]);
+
+  replay = () => {
+    const seq = ++lineSeq;
+    tab.receive({ seq, dir: "out", replay: true, message: turnEnd() } as never);
+    return { found: true, running: true, lastSeq: seq };
+  };
+  await tab.resync();
+  await Bun.sleep(0);
+
+  expect(tab.state.phase).toBe("ready");
+  expect(delivered()).toEqual(["after the turn"]);
+  expect(tab.state.queue.map(({ text, status }) => ({ text, status }))).toEqual([
+    { text: "while away", status: undefined },
+  ]);
+});
+
+test.each([
+  ["claude", claudeTab],
+  ["codex", codexTab],
+] as const)("%s keeps a message held while away and sends it once it reconnects", async (_agent, open) => {
+  const { tab, delivered, turnEnd } = await open();
+  const seq = ++lineSeq;
+  tab.receive({ seq, dir: "out", message: turnEnd() } as never);
+  tab.flushNow();
+  expect(tab.state.model.running).toBe(false);
+
+  tab.held();
+  tab.enqueue("while away");
+  await Bun.sleep(0);
+  expect(delivered()).toEqual([]);
+  expect(tab.state.queue.map(({ text, status }) => ({ text, status }))).toEqual([
+    { text: "while away", status: undefined },
+  ]);
+
+  replay = () => ({ found: true, running: true, lastSeq: seq });
+  await tab.resync();
+  await Bun.sleep(0);
+
+  expect(tab.state.phase).toBe("ready");
+  expect(delivered()).toEqual(["while away"]);
+  expect(tab.state.queue).toEqual([]);
+});
+
+test.each([
+  ["claude", "the program ended", claudeTab, { found: true, running: false }],
+  ["codex", "the program ended", codexTab, { found: true, running: false }],
+  ["claude", "the program is gone", claudeTab, { found: false, running: false }],
+  ["codex", "the program is gone", codexTab, { found: false, running: false }],
+] as const)("%s sends a message held while away when it reconnects to find %s", async (_agent, _end, open, found) => {
+  const { tab, delivered, turnEnd } = await open();
+  const seq = ++lineSeq;
+  tab.receive({ seq, dir: "out", message: turnEnd() } as never);
+  tab.flushNow();
+  expect(tab.state.model.running).toBe(false);
+
+  tab.held();
+  tab.enqueue("while away");
+  await Bun.sleep(0);
+  expect(delivered()).toEqual([]);
+
+  replay = () => {
+    if (!found.found) return { ...found, lastSeq: 0 };
+    const exit = ++lineSeq;
+    tab.receive({
+      seq: exit,
+      dir: "sys",
+      replay: true,
+      message: { event: "exit", code: 0 },
+    } as never);
+    return { ...found, lastSeq: exit };
+  };
+  await tab.resync();
+  await Bun.sleep(20);
+
+  expect(delivered()).toEqual(["while away"]);
+  expect(tab.state.queue).toEqual([]);
+});
+
+test.each([
+  ["claude", claudeTab],
+  ["codex", codexTab],
+] as const)("%s tries again when it cannot catch up after a reconnect, then sends the held message", async (_agent, open) => {
+  const { tab, delivered, turnEnd } = await open();
+  const seq = ++lineSeq;
+  tab.receive({ seq, dir: "out", message: turnEnd() } as never);
+  tab.flushNow();
+
+  tab.held();
+  tab.enqueue("while away");
+  await Bun.sleep(0);
+
+  let asked = 0;
+  replay = () => {
+    asked += 1;
+    return asked === 1 ? unreachable : { found: true, running: true, lastSeq: seq };
+  };
+  await tab.resync();
+  await Bun.sleep(0);
+  expect(tab.state.phase).toBe("held");
+  expect(delivered()).toEqual([]);
+
+  await Bun.sleep((RESYNC_RETRY_MS[0] ?? 0) + 50);
+
+  expect(asked).toBe(2);
+  expect(tab.state.phase).toBe("ready");
+  expect(delivered()).toEqual(["while away"]);
+  expect(tab.state.queue).toEqual([]);
+});
+
+test("codex steers a prompt held for a tool into the turn its restarted program runs, after that turn's next tool", async () => {
+  const { tab, delivered } = await codexTab();
+  const codex = tab as InstanceType<typeof CodexController>;
+  expect(tab.state.model.running).toBe(true);
+  await codex.sendWithTiming("after a tool", [], "next", undefined, undefined, "after-tool");
+  expect(tab.state.queue[0]?.afterTool).toBeGreaterThan(0);
+
+  tab.held();
+  replay = () => ({ found: false, running: false, lastSeq: 0 });
+  lineSeq = 0;
+  const program = respond;
+  respond = (message) => {
+    program?.(message);
+    if (message.method !== "thread/resume") return;
+    queueMicrotask(() =>
+      tab.receive({
+        seq: ++lineSeq,
+        dir: "out",
+        message: { method: "turn/started", params: { threadId: "t1", turn: { id: "turn-2" } } },
+      } as never),
+    );
+  };
+  await tab.resync();
+  await Bun.sleep(20);
+
+  expect(tab.state.model.running).toBe(true);
+  expect(sent.some((message) => message.method === "thread/resume")).toBe(true);
+  expect(delivered()).toEqual([]);
+  expect(
+    tab.state.queue.map(({ text, status, afterTool }) => ({ text, status, afterTool })),
+  ).toEqual([{ text: "after a tool", status: undefined, afterTool: 0 }]);
+
+  tab.receive({
+    seq: ++lineSeq,
+    dir: "out",
+    message: {
+      method: "item/completed",
+      params: {
+        threadId: "t1",
+        turnId: "turn-2",
+        item: { id: "cmd", type: "commandExecution", command: "pwd", status: "completed" },
+      },
+    },
+  } as never);
+  await Bun.sleep(20);
+
+  expect(
+    sent.filter(({ method }) => method === "turn/steer").map(({ params }) => params),
+  ).toMatchObject([
+    { threadId: "t1", expectedTurnId: "turn-2", input: [{ type: "text", text: "after a tool" }] },
+  ]);
+  expect(tab.state.queue).toEqual([]);
+});
+
+function sentUser(): { uuid: string; text: string }[] {
+  return sent.flatMap((message) =>
+    message.type === "user"
+      ? [
+          {
+            uuid: String(message.uuid),
+            text: String((message.message as { content: unknown }).content),
+          },
+        ]
+      : [],
+  );
+}
+
+async function unreadPair(): Promise<{
+  tab: InstanceType<typeof ChatController>;
+  read: string[];
+}> {
+  const { tab } = await claudeTab();
+  const claude = tab as InstanceType<typeof ChatController>;
+  expect(claude.state.model.running).toBe(true);
+  await claude.send("first after the tool");
+  await claude.send("second after the tool");
+  await Bun.sleep(0);
+  claude.flushNow();
+  expect(
+    claude.state.model.items.filter((item) => item.kind === "user" && item.queued),
+  ).toHaveLength(2);
+  return { tab: claude, read: sentUser().map(({ uuid }) => uuid) };
+}
+
+test.each([
+  ["is gone", { found: false, running: false }],
+  ["ended", { found: true, running: false }],
+] as const)("claude sends messages its program never read once, in order, to the program started after the old one %s", async (_end, found) => {
+  const { tab, read } = await unreadPair();
+
+  tab.held();
+  replay = () => {
+    if (!found.found) return { ...found, lastSeq: 0 };
+    const exit = ++lineSeq;
+    tab.receive({
+      seq: exit,
+      dir: "sys",
+      replay: true,
+      message: { event: "exit", code: 1 },
+    } as never);
+    return { ...found, lastSeq: exit };
+  };
+  await tab.resync();
+  await Bun.sleep(20);
+
+  expect(sentUser()).toEqual([
+    { uuid: read[0], text: "first after the tool" },
+    { uuid: read[1], text: "second after the tool" },
+    { uuid: read[0], text: "first after the tool" },
+    { uuid: read[1], text: "second after the tool" },
+  ]);
+  expect(tab.state.queue).toEqual([]);
+  const shown = [...(tab.state.history?.items ?? []), ...tab.state.model.items];
+  expect(shown.flatMap((item) => (item.kind === "user" ? [item.text] : []))).toEqual([
+    "Start",
+    "first after the tool",
+    "second after the tool",
+  ]);
+});
+
+test("claude sends messages its program never read once when the program exits while the tab watches", async () => {
+  const { tab, read } = await unreadPair();
+
+  tab.receive({ seq: ++lineSeq, dir: "sys", message: { event: "exit", code: 1 } } as never);
+  tab.flushNow();
+  await Bun.sleep(20);
+
+  expect(sentUser().slice(2)).toEqual([
+    { uuid: read[0], text: "first after the tool" },
+    { uuid: read[1], text: "second after the tool" },
+  ]);
+  expect(tab.state.queue).toEqual([]);
+});
+
+test("claude does not send again a message its program read before it exited", async () => {
+  const { tab, read } = await unreadPair();
+  tab.receive({
+    seq: ++lineSeq,
+    dir: "out",
+    message: { type: "command_lifecycle", command_uuid: read[0], state: "started" },
+  } as never);
+  tab.flushNow();
+
+  tab.receive({ seq: ++lineSeq, dir: "sys", message: { event: "exit", code: 1 } } as never);
+  tab.flushNow();
+  await Bun.sleep(20);
+
+  expect(sentUser().slice(2)).toEqual([{ uuid: read[1], text: "second after the tool" }]);
+  expect(tab.state.queue).toEqual([]);
+});
+
+test("claude sends a relayed message its program never read again under the same sender", async () => {
+  const relayed = new Map<string, RelaySender>();
+  const { tab } = await claudeTab({
+    onRelayed: (record) => relayed.set(record.id, record.from),
+    relayedFrom: (id) => relayed.get(id),
+  });
+  const claude = tab as InstanceType<typeof ChatController>;
+  const from: RelaySender = {
+    kind: "tab",
+    agent: "codex",
+    name: "Reviewer",
+    workspaceId: "ws-other",
+    tabId: "tab-other",
+  };
+  await claude.send("look at this", [], from);
+  await Bun.sleep(0);
+  claude.flushNow();
+  const [first] = sentUser();
+
+  claude.receive({ seq: ++lineSeq, dir: "sys", message: { event: "exit", code: 1 } } as never);
+  claude.flushNow();
+  expect(claude.state.queue[0]).toMatchObject({ text: "look at this", from });
+  await Bun.sleep(20);
+
+  expect(sentUser()).toEqual([
+    first,
+    { uuid: first?.uuid, text: relayedText(from, "look at this") },
+  ]);
+  expect(claude.state.queue).toEqual([]);
+});

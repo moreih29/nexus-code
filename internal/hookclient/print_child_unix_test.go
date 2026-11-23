@@ -15,7 +15,6 @@ import (
 	"time"
 )
 
-// TestMain dispatches the private bootstrap for child processes of the test binary.
 func TestMain(m *testing.M) {
 	if code, handled := PrintChildHelper(os.Args[1:]); handled {
 		os.Exit(code)
@@ -23,8 +22,6 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// TestPrintWrapperKillStopsChild uses an idle process with no hook server or
-// pipe writes after startup, so only wrapper-death handling can stop it.
 func TestPrintWrapperKillStopsChild(t *testing.T) {
 	if os.Getenv("NEXUS_TEST_PRINT_PARENT_DEATH") == "1" {
 		os.Exit(RunPrint([]string{"/bin/sh", "-c", `printf '%s\n' "$$"; exec /bin/sleep 60`}))

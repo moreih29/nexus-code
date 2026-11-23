@@ -2,59 +2,19 @@ import { useRef } from "react";
 import { cn } from "@/utils/cn";
 import { useDragHandle } from "./use-drag-handle";
 
-// ---------------------------------------------------------------------------
-// Pixel-based resize handle (for fixed-width / fixed-height panels)
-//
-// Owns: drag math (start value + delta px → new px width), ←/→ keyboard
-//       nudge, double-click reset.
-// Caller owns: state storage, persistence, clamping. The handle calls back
-//              with raw (unclamped) widths and lets the caller clamp inside
-//              `onResize`.
-//
-// `value` is used for aria-valuenow + initial closure capture; we keep it in
-// a ref so mouseup can read the *latest* value after re-renders (avoids
-// stale closure on the persist commit).
-// ---------------------------------------------------------------------------
-
 interface ResizeHandleProps {
   value: number;
   min: number;
   max: number;
-  /**
-   * Called on mousemove (persist=false) and on mouseup commit (persist=true).
-   * Caller is responsible for clamping; pass through to the store directly.
-   */
   onResize: (width: number, persist: boolean) => void;
-  /** Optional double-click reset (e.g. restore to default width). */
   onReset?: () => void;
   ariaLabel: string;
-  /**
-   * Override absolute positioning; default puts the handle on the right edge
-   * of the parent and centers the hit-area across the boundary.
-   */
   className?: string;
-  /**
-   * Controls hit-area alignment relative to the parent's right edge.
-   * - 'rightCentered' (default): translates +1/2 width outward, centering the
-   *   hit-area on the boundary (shared 50/50 between parent and neighbour).
-   * - 'rightInside': translates -1/2 width inward, keeping the hit-area fully
-   *   inside the parent so it does not overlap the adjacent panel.
-   * - 'leftCentered': on the parent's left edge, centered in the gap there,
-   *   for a panel at the right of the window: dragging left widens it.
-   * Only applies when orientation="vertical".
-   */
   placement?: "rightCentered" | "rightInside" | "leftCentered";
-  /**
-   * Axis of the sash line.
-   * - 'vertical' (default): a vertical divider dragged left/right (col-resize).
-   * - 'horizontal': a horizontal divider dragged up/down (row-resize).
-   */
   orientation?: "vertical" | "horizontal";
 }
 
 const POSITION_CLASS = {
-  // +3px past the 50% shift so the handle centers in the 6px island gap
-  // (the panel's right edge is the gap's *left* edge, not its centre).
   rightCentered:
     "group absolute right-0 top-0 h-full w-2 cursor-col-resize translate-x-[calc(50%+3px)] [-webkit-app-region:no-drag]",
   rightInside:
@@ -78,15 +38,12 @@ export function ResizeHandle({
   placement,
   orientation = "vertical",
 }: ResizeHandleProps) {
-  // Refs avoid stale closures in document listeners.
   const startValueRef = useRef(0);
   const valueRef = useRef(value);
-  // Mirror prop on every render so the mouseup commit uses the latest store value.
   valueRef.current = value;
 
   const onResizeRef = useRef(onResize);
   onResizeRef.current = onResize;
-  // A handle on the left edge widens its panel as it goes left.
   const sign = orientation === "vertical" && placement === "leftCentered" ? -1 : 1;
 
   const { isDragging, handleMouseDown } = useDragHandle({
@@ -98,7 +55,6 @@ export function ResizeHandle({
       onResizeRef.current(startValueRef.current + sign * deltaPx, false);
     },
     onDragEnd: () => {
-      // Persist the latest (post-clamp) value via the caller.
       onResizeRef.current(valueRef.current, true);
     },
   });
@@ -132,19 +88,12 @@ export function ResizeHandle({
       ? POSITION_CLASS.horizontal
       : POSITION_CLASS[placement ?? "rightCentered"];
 
-  // Default (rightCentered): the w-2 (8px) hit-area is centered in the 6px
-  // island gap; a w-0.5 (2px) indicator centers within it at right-[3px].
-  // rightInside: the indicator instead sits flush at the panel's right edge
-  // (right-[-4px] cancels the -translate-x-1/2 inward shift).
   const indicatorEdge =
     placement === "rightInside"
       ? "right-[-4px]"
       : placement === "leftCentered"
         ? "left-[3px]"
         : "right-[3px]";
-  // Islands model: the gap between panels IS the separator — there is no
-  // resting divider line. The indicator appears only on hover (drag
-  // affordance) and stays solid while dragging (active feedback).
   const indicatorClass =
     orientation === "horizontal"
       ? isDragging

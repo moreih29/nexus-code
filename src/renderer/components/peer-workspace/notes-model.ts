@@ -6,7 +6,6 @@ import { read } from "./commit-model";
 export type PeerNoteRow = RpcResult<"notes.list">["notes"][number];
 export type PeerNote = RpcResult<"notes.read">;
 
-/** How often a shown list is read again: that computer tells no change of its notes. */
 export const PEER_NOTES_REFRESH_MS = 20_000;
 
 export function listPeerNotes({ deviceId, workspaceId }: PeerWorkspace, signal: AbortSignal) {

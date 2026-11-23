@@ -1,13 +1,9 @@
-/**
- * nexus agent-context: the note a Claude Code session started in the app
- * gets about nexus, printed by the SessionStart hook the claude wrapper adds
- * (scripts/assets/claude-wrapper.sh). Prints nothing when the setting is off.
- */
 import { noteLabel } from "../../../../shared/notes/line-report";
 import type { NoteConversation } from "../../../../shared/notes/links";
 import { NOTE_ID_RE } from "../../../../shared/notes/types";
+import { shortId } from "../../../../shared/util/short-id";
 import { instructionSessionId } from "../../chat/instructions";
-import { type CliNotes, type CliServices, resolveWorkspace, shortId } from "../context";
+import { type CliNotes, type CliServices, resolveWorkspace } from "../context";
 import { type CliCommand, output } from "../registry";
 
 const agentContext: CliCommand = {
@@ -93,7 +89,6 @@ export async function linkedNoteGuidance(notes: CliNotes, tab: NoteConversation)
   return `This conversation is linked to the note ${title} · nexus note read ${note.noteId}`;
 }
 
-/** Reads the hosting app's settings and the chat's own workspace and tab. */
 export function chatAgentContext(
   settings: { enabled: boolean; agentContext: boolean },
   services: Pick<CliServices, "listWorkspaces" | "remote">,
@@ -132,7 +127,6 @@ function locationOf(
   return `You are running in a ${kind} of NexusCode (workspace ${label}, ${kind} ${shortId(tabId)}).`;
 }
 
-/** Shared CLI guidance for wrapped terminals and Codex chat tabs. */
 function agentContextNote(heading: string, inRoom: boolean): string {
   return [
     heading,

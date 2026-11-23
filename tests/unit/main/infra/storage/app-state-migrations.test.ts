@@ -1,9 +1,3 @@
-/**
- * App state an earlier version stored loads in this version: the agent
- * list's fields under the names it had as the "sessions" tab, and its tab,
- * which is now a view of the files panel, gone from the layout.
- */
-
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
@@ -18,7 +12,6 @@ const TERMINAL = "123e4567-e89b-12d3-a456-426614174003";
 
 const terminalTab = { id: TERMINAL, type: "terminal", title: "터미널", props: { cwd: "/tmp" } };
 
-/** A layout with a terminal and, when its type is given, an agent list tab shown in front. */
 function layoutWith(listType?: string) {
   return {
     root: { kind: "leaf", id: LEAF, tabIds: [TERMINAL, LIST], activeTabId: LIST },

@@ -1,9 +1,6 @@
-// One panel of the agent view: a tab bar of the agents it holds, from any
-// workspace, and below it the one in front — the very tab its workspace
-// shows, moved here. Taking an agent out of the panel leaves it running.
-// It holds another computer's sessions as tabs too, drawn here.
-
+import i18next from "i18next";
 import { Columns2, Rows2, SquareArrowOutUpRight, X } from "lucide-react";
+import { Tabs as RadixTabs } from "radix-ui";
 import { memo, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { SplitLeaf } from "@/engine";
@@ -32,12 +29,8 @@ import { useAgentViewStore } from "@/state/stores/agent-view";
 import { useRemoteTarget, useRemoteViewStore } from "@/state/stores/remote-view";
 import { type EditorTab, useTabsStore } from "@/state/stores/tabs";
 import { useUIStore } from "@/state/stores/ui";
-import {
-  rootWorkspaceId,
-  selectIsWorkspaceOnline,
-  selectWorkspaceConnectionStatus,
-  useWorkspacesStore,
-} from "@/state/stores/workspaces";
+import { rootWorkspaceId, useWorkspace, useWorkspacesStore } from "@/state/stores/workspaces";
+import { copyTextViaIpc } from "@/utils/clipboard";
 import { cn } from "@/utils/cn";
 import { beginDragInFlight } from "@/utils/drag-in-flight";
 import { listenForPaneActivation } from "@/utils/pane-activation";
@@ -45,19 +38,19 @@ import { basename } from "@/utils/path";
 import { toSlashPath } from "../../../shared/fs/drive-path";
 import { isRemoteFileKey, parseRemoteFileKey } from "../../../shared/fs/remote-file-key";
 import { COMMANDS } from "../../../shared/keybindings/commands";
-import { retryWorkspaceConnection } from "../../state/operations/workspace-selection";
 import type { DropZone } from "../../types/workbench-dnd";
 import { StateGlyph, stateLabel } from "../agent-list/session-status";
 import { AgentMark } from "../agent-list/status-view";
 import { FileIcon } from "../files/file-tree/file-icon";
 import { Button } from "../ui/button";
-import { EmptyState } from "../ui/empty-state";
+import type { MenuItemSpec } from "../ui/context-menu";
 import { IconButton } from "../ui/icon-button";
 import { AGENT_VIEW_SLOTS, slotRegistry } from "../workspace/content/slot-registry";
 import { DropIndicator } from "../workspace/dnd/drop-indicator";
 import { zoneFromCoords } from "../workspace/dnd/use-drop-target";
+import { OfflineWorkspace, useWorkspaceOffline } from "../workspace/offline-workspace";
 import { OverflowTabsMenu } from "../workspace/tabs/overflow-tabs-menu";
-import { TabIcon, useTabDirty } from "../workspace/tabs/tab-item";
+import { TabIcon, TabItem, useTabDirty } from "../workspace/tabs/tab-item";
 import {
   agentDragKey,
   insertionIndex,
@@ -76,8 +69,6 @@ function update(change: (layout: AgentLayout) => AgentLayout): void {
   useAgentViewStore.getState().update(change);
 }
 
-// Memo: the view renders for each change of the agents' or the layout's,
-// and a panel only when its own leaf, the agents or the ended ones change.
 export const AgentPane = memo(function AgentPane({
   leaf,
   agents,
@@ -125,13 +116,9 @@ export const AgentPane = memo(function AgentPane({
   }, [outerEl, leaf.id]);
 
   const [dropZone, setDropZone] = useState<DropZone | null>(null);
-  // Over the tab bar a drag shows where among the tabs it goes, as a
-  // workspace's tab bar does; over the content, which part of the panel.
   const [insertion, setInsertion] = useState<TabInsertion | null>(null);
   useEffect(() => {
     if (!outerEl) return;
-    // Every element the drag passes enters and leaves; it left the panel
-    // once the count is back to none.
     let depth = 0;
     const reset = () => {
       depth = 0;
@@ -142,7 +129,6 @@ export const AgentPane = memo(function AgentPane({
       const slot = slotElRef.current;
       return slot ? zoneFromCoords(slot.getBoundingClientRect(), e.clientX, e.clientY) : "center";
     };
-    /** Where among the tabs the drag goes, when it is over the tab bar. */
     const insertionOf = (e: DragEvent): TabInsertion | null => {
       const bar = barRef.current;
       const strip = stripRef.current;
@@ -159,7 +145,6 @@ export const AgentPane = memo(function AgentPane({
     };
     const onOver = (e: DragEvent) => {
       if (!isAgentDrag(e.dataTransfer)) return;
-      // Ahead of the content's own drop handling (a terminal takes files).
       e.preventDefault();
       e.stopPropagation();
       if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
@@ -192,8 +177,6 @@ export const AgentPane = memo(function AgentPane({
       ) {
         return;
       }
-      // On the tab bar: where its line showed. On the content: an edge splits
-      // the panel toward it, the middle puts the agent last.
       update((layout) =>
         at
           ? placeKey(layout, key, leaf.id, undefined, insertionIndex(leaf.tabIds, key, at.before))
@@ -220,15 +203,14 @@ export const AgentPane = memo(function AgentPane({
     focusPanelTab(key);
   };
   const remove = (key: string) => update((layout) => removeKey(layout, key));
+  const removeAll = (keys: readonly string[]) =>
+    update((layout) => keys.reduce((next, key) => removeKey(next, key), layout));
   const splitTo = (direction: "right" | "down") =>
     update((layout) => splitLeaf(layout, leaf.id, direction));
 
-  // When every agent here is from one workspace, its chip is shown once,
-  // ahead of the tabs, instead of on each of them.
   const workspaceIds = new Set(leaf.tabIds.map((key) => parseSessionKey(key)?.workspaceId));
   const [onlyWorkspace] = workspaceIds;
   const sharedWorkspace = workspaceIds.size === 1 ? onlyWorkspace : undefined;
-  // So with another computer's sessions, when they are all this panel holds.
   const sharedDevice = useRemoteViewStore((s) => {
     const targets = leaf.tabIds.map((key) => s.targets.get(key));
     const first = targets[0];
@@ -247,49 +229,53 @@ export const AgentPane = memo(function AgentPane({
       <div ref={barRef} className="flex h-9 shrink-0 items-center gap-1 overflow-hidden px-1.5">
         {sharedWorkspace && <WorkspaceChip workspaceId={sharedWorkspace} className="ml-1" />}
         {sharedDevice !== undefined && <DeviceChip name={sharedDevice} className="ml-1" />}
-        <div
-          ref={stripRef}
-          className="relative flex h-full min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          style={{ maskImage: fadeMask(overflow) }}
+        <RadixTabs.Root
+          value={leaf.activeTabId ?? ""}
+          onValueChange={(key) => update((layout) => selectKey(layout, leaf.id, key))}
+          className="flex h-full min-w-0 flex-1 items-center"
         >
-          {leaf.tabIds.map((key) =>
-            isRemoteKey(key) ? (
-              <RemoteTab
-                key={key}
-                sessionKey={key}
-                active={key === leaf.activeTabId}
-                showDevice={sharedDevice === undefined}
-                onSelect={() => select(key)}
-                onRemove={() => remove(key)}
+          <div
+            ref={stripRef}
+            className="relative h-full min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            style={{ maskImage: fadeMask(overflow) }}
+          >
+            <RadixTabs.List
+              aria-label={t("tabBar.open_tabs")}
+              className="flex h-full w-max items-center gap-0.5"
+            >
+              {leaf.tabIds.map((key, index) => {
+                const menu = panelTabMenu(leaf.tabIds, index, removeAll);
+                return isRemoteKey(key) ? (
+                  <RemoteTab
+                    key={key}
+                    sessionKey={key}
+                    showDevice={sharedDevice === undefined}
+                    menu={menu}
+                    onRemove={() => remove(key)}
+                  />
+                ) : isRemoteFileKey(key) ? (
+                  <RemoteFileTab key={key} fileKey={key} menu={menu} onRemove={() => remove(key)} />
+                ) : (
+                  <AgentTab
+                    key={key}
+                    sessionKey={key}
+                    agents={agents}
+                    showWorkspace={sharedWorkspace === undefined}
+                    menu={menu}
+                    onRemove={() => remove(key)}
+                  />
+                );
+              })}
+            </RadixTabs.List>
+            {insertion && (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute top-0 bottom-0 w-0.5 bg-primary"
+                style={{ left: insertion.x, transform: "translateX(-1px)" }}
               />
-            ) : isRemoteFileKey(key) ? (
-              <RemoteFileTab
-                key={key}
-                fileKey={key}
-                active={key === leaf.activeTabId}
-                onSelect={() => select(key)}
-                onRemove={() => remove(key)}
-              />
-            ) : (
-              <AgentTab
-                key={key}
-                sessionKey={key}
-                agents={agents}
-                active={key === leaf.activeTabId}
-                showWorkspace={sharedWorkspace === undefined}
-                onSelect={() => select(key)}
-                onRemove={() => remove(key)}
-              />
-            ),
-          )}
-          {insertion && (
-            <div
-              aria-hidden
-              className="pointer-events-none absolute top-0 bottom-0 w-0.5 bg-primary"
-              style={{ left: insertion.x, transform: "translateX(-1px)" }}
-            />
-          )}
-        </div>
+            )}
+          </div>
+        </RadixTabs.Root>
         <OverflowTabsMenu
           hidden={overflow.hidden}
           renderTab={(key) =>
@@ -339,13 +325,10 @@ export const AgentPane = memo(function AgentPane({
         </div>
       </div>
 
-      {/* Where the front agent's tab is moved in (see ContentHost). */}
       <div ref={slotRef} data-agent-slot={leaf.id} className="relative min-h-0 min-w-0 flex-1">
         {leaf.tabIds.length === 0 && <EmptyPane />}
         {front && <OfflinePane workspaceId={front.workspaceId} />}
         {viewShown && frontFile && <RemoteFilePane key={leaf.activeTabId} file={frontFile} />}
-        {/* Each kept while its tab is in the panel, as a chat here is: its draft,
-            drawer and goal stay its own. Only the front one is read. */}
         {leaf.tabIds.filter(isRemoteKey).map((key) => (
           <RemotePaneHost
             key={key}
@@ -364,14 +347,12 @@ export const AgentPane = memo(function AgentPane({
         />
       )}
 
-      {/* The panel of the agent the pointer is on in the list. */}
       {lit && (
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 z-20 rounded-(--radius-island) border-2 border-dashed border-[var(--state-selected-indicator)]"
         />
       )}
-      {/* The veil of a panel the keyboard is not in, as a workspace's groups have. */}
       {split && !isActive && (
         <div
           aria-hidden
@@ -382,11 +363,10 @@ export const AgentPane = memo(function AgentPane({
   );
 });
 
-/** The workspace an agent is from: its name, with its color's dot. */
 function WorkspaceChip({ workspaceId, className }: { workspaceId: string; className?: string }) {
-  const name = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.name);
+  const name = useWorkspace(workspaceId, (w) => w?.name);
   const rootId = useWorkspacesStore((s) => rootWorkspaceId(s.workspaces, workspaceId));
-  const color = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === rootId)?.color);
+  const color = useWorkspace(rootId, (w) => w?.color);
   return (
     <span
       className={cn(
@@ -404,13 +384,10 @@ function WorkspaceChip({ workspaceId, className }: { workspaceId: string; classN
   );
 }
 
-/** What a local tab shows, or null once its tab is gone. */
 function useLocalTabInfo(key: string, agents: Agents) {
   const ref = parseSessionKey(key);
   const tab = useTabsStore((s) => (ref ? s.byWorkspace[ref.workspaceId]?.[ref.tabId] : undefined));
-  const workspaceName = useWorkspacesStore((s) =>
-    ref ? s.workspaces.find((w) => w.id === ref.workspaceId)?.name : undefined,
-  );
+  const workspaceName = useWorkspace(ref?.workspaceId, (w) => w?.name);
   if (!ref || !tab) return null;
   if (tab.type === "editor") return { kind: "file" as const, ref, tab };
   if (tab.type !== "claude" && tab.type !== "codex" && tab.type !== "terminal") return null;
@@ -439,10 +416,6 @@ function useLocalTabInfo(key: string, agents: Agents) {
   };
 }
 
-/**
- * An agent's workspace chip (unless the panel shows it once for all), mark,
- * title and state: its tab's face, and its row in the overflow menu.
- */
 function AgentTabLabel({
   sessionKey,
   agents,
@@ -487,17 +460,14 @@ function EditorTabLabel({ tab, showWorkspace }: { tab: EditorTab; showWorkspace:
 function AgentTab({
   sessionKey: key,
   agents,
-  active,
   showWorkspace,
-  onSelect,
+  menu,
   onRemove,
 }: {
   sessionKey: string;
   agents: Agents;
-  active: boolean;
-  /** Off when the panel shows the one workspace of all its agents. */
   showWorkspace: boolean;
-  onSelect: () => void;
+  menu: PanelTabMenu;
   onRemove: () => void;
 }) {
   const info = useLocalTabInfo(key, agents);
@@ -511,10 +481,9 @@ function AgentTab({
   return (
     <PanelTab
       sessionKey={key}
-      active={active}
       title={title}
       file={info.kind === "file"}
-      onSelect={onSelect}
+      menu={menu}
       onRemove={onRemove}
     >
       <AgentTabLabel sessionKey={key} agents={agents} showWorkspace={showWorkspace} />
@@ -538,32 +507,22 @@ function RemoteFileTabFace({ fileKey }: { fileKey: string }) {
 
 function RemoteFileTab({
   fileKey,
-  active,
-  onSelect,
+  menu,
   onRemove,
 }: {
   fileKey: string;
-  active: boolean;
-  onSelect: () => void;
+  menu: PanelTabMenu;
   onRemove: () => void;
 }) {
   const file = parseRemoteFileKey(fileKey);
   if (!file) return null;
   return (
-    <PanelTab
-      sessionKey={fileKey}
-      active={active}
-      title={file.path}
-      file
-      onSelect={onSelect}
-      onRemove={onRemove}
-    >
+    <PanelTab sessionKey={fileKey} title={file.path} file menu={menu} onRemove={onRemove}>
       <RemoteFileTabFace fileKey={fileKey} />
     </PanelTab>
   );
 }
 
-/** A panel's tab of another computer's session, hidden while another tab is in front. */
 function RemotePaneHost({
   sessionKey,
   front,
@@ -582,25 +541,20 @@ function RemotePaneHost({
   );
 }
 
-/** Another computer's session's face, or null once this run of the app no longer knows it. */
 function RemoteTabFace({ sessionKey, showDevice }: { sessionKey: string; showDevice: boolean }) {
   const target = useRemoteTarget(sessionKey);
   return target ? <RemoteTabLabel target={target} showDevice={showDevice} /> : null;
 }
 
-/** A tab of another computer's session, named with its computer and workspace. */
 function RemoteTab({
   sessionKey: key,
-  active,
   showDevice,
-  onSelect,
+  menu,
   onRemove,
 }: {
   sessionKey: string;
-  active: boolean;
-  /** Off when the panel shows the one computer of all its sessions. */
   showDevice: boolean;
-  onSelect: () => void;
+  menu: PanelTabMenu;
   onRemove: () => void;
 }) {
   const target = useRemoteTarget(key);
@@ -608,9 +562,8 @@ function RemoteTab({
   return (
     <PanelTab
       sessionKey={key}
-      active={active}
       title={`${remoteTitle(target.title)} · ${target.deviceName} · ${target.workspaceName}`}
-      onSelect={onSelect}
+      menu={menu}
       onRemove={onRemove}
     >
       <RemoteTabLabel target={target} showDevice={showDevice} />
@@ -618,68 +571,81 @@ function RemoteTab({
   );
 }
 
-/** A panel's tab: its face, dragged to another panel, closed with its button or a middle click. */
 function PanelTab({
   sessionKey: key,
-  active,
   title,
   file,
-  onSelect,
+  menu,
   onRemove,
   children,
 }: {
   sessionKey: string;
-  active: boolean;
   title: string;
   file?: boolean;
-  onSelect: () => void;
+  menu: PanelTabMenu;
   onRemove: () => void;
   children: ReactNode;
 }) {
   const { t } = useTranslation();
   return (
-    <div
-      data-agent-tab={key}
-      className={cn(
-        "group relative flex h-7 max-w-64 shrink-0 items-center rounded-(--radius-raised) text-app-ui-sm whitespace-nowrap transition-colors",
-        active
-          ? "bg-[var(--tab-active-bg)] text-foreground after:absolute after:right-2 after:bottom-0 after:left-2 after:h-0.5 after:rounded-full after:bg-[var(--state-selected-indicator)] after:content-['']"
-          : "text-muted-foreground hover:bg-[var(--tab-hover-bg)] hover:text-foreground",
-      )}
-    >
-      <button
-        type="button"
-        draggable
-        aria-current={active || undefined}
-        title={title}
-        onClick={onSelect}
-        onAuxClick={(e) => {
-          if (e.button === 1) onRemove();
-        }}
-        onDragStart={(e) => {
-          setAgentDrag(e.dataTransfer, key);
-          beginDragInFlight();
-        }}
-        className="flex h-full min-w-0 items-center gap-1.5 rounded-(--radius-raised) pr-7 pl-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-      >
-        {children}
-      </button>
-      <IconButton
-        label={t(file ? "agentView.pane.remove_file" : "agentView.pane.remove")}
-        size="xs"
-        onClick={onRemove}
-        className={cn(
-          "absolute right-1",
-          active ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
-        )}
-      >
-        <X aria-hidden className="size-3" />
-      </IconButton>
-    </div>
+    <TabItem
+      readOnly
+      value={key}
+      label={title}
+      title={title}
+      face={<span className="flex min-w-0 max-w-64 items-center gap-1.5">{children}</span>}
+      closeLabel={t(file ? "agentView.pane.remove_file" : "agentView.pane.remove")}
+      menu={menu(file ? title : undefined)}
+      tabAttrs={{ "data-agent-tab": key }}
+      onDragStart={(dataTransfer) => {
+        setAgentDrag(dataTransfer, key);
+        beginDragInFlight();
+      }}
+      onActivate={() => focusPanelTab(key)}
+      onClose={onRemove}
+    />
   );
 }
 
-/** The words of the button that goes to an agent's tab, by its tab's type, as the agent list says them. */
+type PanelTabMenu = (path?: string) => MenuItemSpec[];
+
+export function panelTabMenu(
+  keys: readonly string[],
+  index: number,
+  remove: (keys: readonly string[]) => void,
+): PanelTabMenu {
+  const t = i18next.t.bind(i18next);
+  const key = keys[index];
+  return (path) => [
+    {
+      kind: "item",
+      label: t(path !== undefined ? "agentView.pane.remove_file" : "agentView.pane.remove"),
+      onSelect: () => remove([key]),
+    },
+    {
+      kind: "item",
+      label: t("agentView.pane.remove_others"),
+      onSelect: () => remove(keys.filter((each) => each !== key)),
+    },
+    {
+      kind: "item",
+      label: t("agentView.pane.remove_right"),
+      onSelect: () => remove(keys.slice(index + 1)),
+    },
+    { kind: "item", label: t("agentView.pane.remove_all"), onSelect: () => remove(keys) },
+    ...(path !== undefined
+      ? [
+          { kind: "separator" as const },
+          {
+            kind: "item" as const,
+            label: t("tabBar.copy_path"),
+            onSelect: () => void copyTextViaIpc(path),
+          },
+        ]
+      : []),
+  ];
+}
+
 function goToTabLabel(type: string | undefined): string {
   if (type === "editor") return "agentView.pane.show_file_tab";
   if (type === "claude") return "agentList.detail.show_claude_tab";
@@ -687,7 +653,6 @@ function goToTabLabel(type: string | undefined): string {
   return "agentList.detail.show_terminal";
 }
 
-/** What an empty panel says: where its agents come from, and a way back to the list when it is hidden. */
 function EmptyPane() {
   const { t } = useTranslation();
   const listHidden = useUIStore((s) => s.sidebarHidden);
@@ -710,40 +675,11 @@ function EmptyPane() {
   );
 }
 
-/**
- * In place of the agent of a remote workspace not connected: its tab is not
- * there to show until the workspace connects.
- */
 function OfflinePane({ workspaceId }: { workspaceId: string }) {
-  const { t } = useTranslation();
-  const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
-  const online = useWorkspacesStore((s) => selectIsWorkspaceOnline(s, workspaceId));
-  const status = useWorkspacesStore((s) => selectWorkspaceConnectionStatus(s, workspaceId));
-  if (!workspace || workspace.location.kind === "local" || online) return null;
-  const connecting = status === "connecting" || status === "reconnecting";
-  const failed = status === "error" || status === "held-then-expired";
-  const isWsl = workspace.location.kind === "wsl";
-  const label =
-    workspace.location.kind === "ssh"
-      ? `${workspace.location.user ? `${workspace.location.user}@` : ""}${workspace.location.host}`
-      : workspace.location.distro;
-  const connect = () => retryWorkspaceConnection(workspaceId);
+  if (!useWorkspaceOffline(workspaceId)) return null;
   return (
-    <div className="absolute inset-0 flex island-surface">
-      <EmptyState
-        title={failed ? t("panel.connection_failed") : workspace.name}
-        description={
-          failed
-            ? t(isWsl ? "panel.could_not_start_wsl" : "panel.could_not_connect", { label })
-            : t(isWsl ? "panel.wsl_workspace" : "panel.ssh_workspace", { label })
-        }
-        actionLabel={
-          connecting ? t("action.connecting") : failed ? t("action.retry") : t("action.connect")
-        }
-        onAction={connect}
-        disabled={connecting}
-        tone="status"
-      />
+    <div className="absolute inset-0 flex items-center justify-center island-surface">
+      <OfflineWorkspace workspaceId={workspaceId} />
     </div>
   );
 }

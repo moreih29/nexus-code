@@ -35,7 +35,6 @@ export interface CallContext {
   requestId?: string;
   signal?: AbortSignal;
   correlationId?: string;
-  /** The renderer that called; window handlers act on its window. */
   sender?: WebContents;
 }
 
@@ -101,7 +100,6 @@ interface ChannelDef {
   call: CallHandlers;
   listen: ListenHandlers;
   stream?: StreamHandlers;
-  /** Writes that must finish if their initiating renderer goes away. */
   keepOnRendererClose?: readonly string[];
 }
 
@@ -116,7 +114,6 @@ type RegisterChannelDef<C extends string> = C extends ContractChannelName
   ? RegisteredChannelDef<C>
   : ChannelDef;
 
-/** Signals argument validation failure to the IPC boundary. */
 export class IpcValidationError extends Error {
   readonly kind = "invalid-args" as const;
   readonly category = "invalid-input" as const;
@@ -245,7 +242,6 @@ export function setupRouter(): void {
   );
 }
 
-/** Records masked diagnostic detail while exposing only a correlation ID and safe message. */
 function reportCallBug(procedure: string, correlationId: string, detail: string): IpcErrResult {
   log.error(`ipc:call — ${procedure}: ${redactLogSecrets(detail)}`, { correlationId });
   return ipcErr("bug", "An unexpected error occurred", { category: "bug", correlationId });
@@ -258,7 +254,6 @@ interface SenderLifetime {
 
 const senderLifetimes = new WeakMap<WebContents, SenderLifetime>();
 
-/** Owns pending work with one destroy listener per renderer. */
 function trackSender(sender: WebContents | undefined, abandon: () => void): () => void {
   if (!sender?.once) return () => {};
   if (sender.isDestroyed()) {
@@ -429,14 +424,12 @@ async function runStream(
   }
 }
 
-/** Drops routing and renderer ownership before waiting for handler cleanup. */
 function detachStream(key: string, pendingStream: PendingStream): void {
   pendingStream.closed = true;
   if (pendingStreamControllers.get(key) === pendingStream) pendingStreamControllers.delete(key);
   pendingStream.releaseSender?.();
 }
 
-/** Returns an unfinished iterator once, including one supplied after cancellation. */
 async function closeStreamGenerator(pendingStream: PendingStream): Promise<void> {
   if (!pendingStream.generator || pendingStream.generatorDone) return;
   pendingStream.generatorDone = true;
@@ -517,18 +510,8 @@ function errorToAppError(error: unknown): AppError {
   return { category: "bug", message: "Unknown stream error" };
 }
 
-/**
- * WebContents that show third-party pages: embedded browser tabs, their
- * popups and DevTools. They have no preload, so no page script can read an
- * event, but broadcasts carry terminal output, OAuth redirect URLs, page
- * snapshots and SSH prompts, and none of that belongs in the renderer
- * process of an arbitrary website. Keyed by id; ids are never reused.
- */
 const excludedFromBroadcast = new Set<number>();
 
-/**
- * Keeps app broadcasts out of `wc` for the rest of its life.
- */
 export function excludeFromBroadcast(wc: WebContents): void {
   if (excludedFromBroadcast.has(wc.id)) return;
   excludedFromBroadcast.add(wc.id);
@@ -545,13 +528,10 @@ export function broadcast(channelName: string, event: string, args: unknown): vo
     if (wc.isDestroyed() || excludedFromBroadcast.has(wc.id)) continue;
     try {
       wc.send("ipc:event", channelName, event, args);
-    } catch {
-      /* render frame disposed */
-    }
+    } catch {}
   }
 }
 
-/** Parses handler arguments and lets the router envelope validation failures. */
 export function validateArgs<T extends z.ZodType>(schema: T, args: unknown): z.infer<T> {
   const parsed = schema.safeParse(args, validationErrorOptions);
   if (!parsed.success) {

@@ -1,11 +1,3 @@
-/**
- * A sketch block: a drawing among a note's text, drawn where it is. At rest
- * it is its picture (sketches/<id>.svg); clicked, it becomes an Excalidraw
- * canvas in place, with its tools on top, its height dragged from the
- * bottom edge, and a full-screen button for a bigger drawing. Each change is
- * saved (the scene and the picture); "Done", or a click outside, puts it
- * back to rest.
- */
 import { mergeAttributes, Node } from "@tiptap/core";
 import { NodeViewWrapper, type ReactNodeViewProps, ReactNodeViewRenderer } from "@tiptap/react";
 import i18next from "i18next";
@@ -28,7 +20,6 @@ const SAVE_DELAY_MS = 600;
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
     sketch: {
-      /** Puts a new sketch here, open to draw in. */
       insertSketch: () => ReturnType;
     };
   }
@@ -46,7 +37,6 @@ export const Sketch = Node.create<AssetNodeOptions>({
     src: { default: "" },
     title: { default: "" },
     height: { default: 320 },
-    /** Opens it to draw in as soon as it shows (a sketch just inserted). */
     autoEdit: { default: false, rendered: false },
   }),
   parseHTML: () => [{ tag: "div[data-sketch]" }],
@@ -67,7 +57,6 @@ export const Sketch = Node.create<AssetNodeOptions>({
   },
   addNodeView() {
     return ReactNodeViewRenderer(SketchView, {
-      // While it is drawn in, every event in it is Excalidraw's, not the text editor's.
       stopEvent: ({ event }) =>
         Boolean((event.target as HTMLElement | null)?.closest?.("[data-sketch-editing]")),
     });
@@ -253,7 +242,6 @@ function SketchEditor({
 
   const onChange = useCallback(
     (scene: SketchScene) => {
-      // Excalidraw calls onChange for every pointer move; only a changed scene is saved.
       const v = scene.elements.reduce((sum, e) => sum + e.version, 0) + scene.elements.length;
       if (loadedVersion.current === null) {
         loadedVersion.current = v;
@@ -272,7 +260,6 @@ function SketchEditor({
     void flush().finally(() => onDoneRef.current());
   }, [flush]);
 
-  // A click outside it is done too.
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
       const target = e.target as HTMLElement | null;

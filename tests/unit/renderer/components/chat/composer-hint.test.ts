@@ -1,4 +1,3 @@
-/** What an empty composer tells of its keys, and what each does with a message during a turn. */
 import { describe, expect, test } from "bun:test";
 import i18next from "i18next";
 import { modelPickerOf } from "../../../../../src/renderer/services/chat/model-picker";

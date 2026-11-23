@@ -1,9 +1,3 @@
-// TablePreview — a .csv or .tsv file as a table.
-//
-// The first row is the header. Columns take the width of their widest
-// field among the first rows, within a cap, and keep it as the table
-// scrolls (see DataGrid).
-
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { columnWidths, parseDelimited } from "@/services/editor/preview/delimited";

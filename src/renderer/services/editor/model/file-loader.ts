@@ -1,6 +1,3 @@
-// File content loading and external-change reconciliation.
-// Owns readFile via fs IPC, encoding detection, and fs.changed event-driven reload.
-
 import i18next from "i18next";
 import { FS_ERROR, fsErrorMessage } from "../../../../shared/fs/errors";
 import type { FileContent, FsChangedEvent } from "../../../../shared/fs/types";
@@ -8,7 +5,7 @@ import { workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../../ipc/client";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
-import { relPath } from "../../../utils/path";
+import { relativeTo } from "../../../utils/path";
 import {
   bytesFromBase64,
   decodeBytes,
@@ -18,10 +15,8 @@ import {
 } from "../encoding/text-encoding";
 import type { EditorInput } from "../types";
 
-/** A file's text, decoded, and the encoding it was read in. */
 export type FileLoadResult = Omit<FileContent, "encoding" | "bytes"> & { encoding: TextEncoding };
 
-/** The encoding each file was reopened or saved in while its workspace remains open. */
 const encodingOverrides = new Map<string, Map<string, TextEncoding>>();
 
 registerWorkspaceCleanup((workspaceId) => {
@@ -32,7 +27,6 @@ function overrideKey(input: EditorInput): string {
   return workspaceUriFor(input.workspaceId, input.filePath);
 }
 
-/** Remembers the encoding from an applied reopen or a successful save. */
 export function setEncodingOverride(input: EditorInput, encoding: TextEncoding): void {
   const { workspaceId } = input;
   if (!useWorkspacesStore.getState().workspaces.some((workspace) => workspace.id === workspaceId)) {
@@ -44,18 +38,12 @@ export function setEncodingOverride(input: EditorInput, encoding: TextEncoding):
   encodingOverrides.set(workspaceId, overrides);
 }
 
-/** The user's languages, the app's first, for guessing an encoding. */
 function userLanguages(): string[] {
   const languages = [i18next.language];
   if (typeof navigator !== "undefined") languages.push(...(navigator.languages ?? []));
   return languages.filter(Boolean);
 }
 
-/**
- * The text of a read: as the agent sent it for UTF-8, or decoded from its
- * bytes for any other encoding, the one the file was reopened in when it
- * was, else the one its bytes most likely are in.
- */
 export function decodeFileContent(result: FileContent, override?: TextEncoding): FileLoadResult {
   const { bytes: base64, encoding, ...rest } = result;
   if (encoding !== "bytes" && override === undefined) return { ...rest, encoding };
@@ -85,10 +73,9 @@ export function workspaceRootForInput(input: EditorInput): string {
 }
 
 export function relPathForInput(input: EditorInput): string {
-  return relPath(input.filePath, workspaceRootForInput(input));
+  return relativeTo(input.filePath, workspaceRootForInput(input));
 }
 
-/** Reads using the requested encoding or the override current when the read starts. */
 export async function readFileForModel(
   input: EditorInput,
   encoding = encodingOverrides.get(input.workspaceId)?.get(overrideKey(input)),
@@ -104,7 +91,6 @@ export async function readFileForModel(
   return decodeFileContent(content, encoding);
 }
 
-/** mtime/size only — cheap probe for "did this file change since we loaded it". */
 export async function statFileForModel(
   input: EditorInput,
 ): Promise<{ mtime: string; size: number }> {
@@ -137,11 +123,6 @@ export function subscribeFsChanged(
   });
 }
 
-/**
- * Subscribes to `git.statusChanged` broadcasts for the entry's workspace.
- * Called after a workflow mutation (merge/rebase/cherry-pick) completes and
- * the main process has re-broadcast git status. Returns an unsubscribe fn.
- */
 export function subscribeGitStatusChanged(input: EditorInput, onChanged: () => void): () => void {
   return ipcListen("git", "statusChanged", (event) => {
     if (event.workspaceId !== input.workspaceId) return;

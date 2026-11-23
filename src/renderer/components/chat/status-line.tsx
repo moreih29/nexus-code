@@ -1,6 +1,3 @@
-// The running turn in one line: what the agent is doing, for how long, and how
-// much it has written. Shown only while a turn runs.
-
 import { LoaderCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNow } from "../../hooks/use-now";
@@ -37,10 +34,8 @@ export function StatusLine({ model }: { model: ChatModel }) {
       aria-live="polite"
       data-testid="chat-status"
     >
-      {/* Clipped, so the turning icon's corners never make the dock scroll. */}
       <span className="inline-flex size-3.5 shrink-0 items-center justify-center overflow-hidden">
         {waiting ? (
-          // Waiting on the user, not working: the list's needs-you glyph, still.
           <StateGlyph state={GROUP_STATE.attention} className={GROUP_TINT.attention} />
         ) : (
           <LoaderCircle className="size-3.5 animate-spin text-[var(--state-loading-indicator)]" />
@@ -58,7 +53,6 @@ export function StatusLine({ model }: { model: ChatModel }) {
 
 type Translate = ReturnType<typeof useTranslation>["t"];
 
-/** Time since the latest signal when model generation is the only visible activity. */
 export function generatingElapsed(model: ChatModel, now: number): number | undefined {
   const turn = model.turn;
   if (!model.running || turn?.lastActivityAt === undefined) return undefined;
@@ -78,10 +72,6 @@ export function generatingElapsed(model: ChatModel, now: number): number | undef
   return elapsed;
 }
 
-/**
- * A retry in a line: which try of how many, why ("요청 한도 초과 (429)"),
- * and how long until it goes, while the program waits.
- */
 export function retryText(retry: TurnRetry, t: Translate, now: number): string {
   const parts = [
     retry.maxRetries

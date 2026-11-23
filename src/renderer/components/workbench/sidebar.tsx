@@ -5,7 +5,7 @@ import { useShallow } from "zustand/shallow";
 import { cn } from "@/utils/cn";
 import type { ClaudeStatus, StatusEntry } from "../../../shared/claude/status";
 import { appErrorFailed } from "../../../shared/error/app-error";
-import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { locationLabel, type WorkspaceMeta } from "../../../shared/types/workspace";
 import { workspaceColorToken } from "../../../shared/types/workspace-color";
 import { useIpcAction } from "../../hooks/use-ipc-action";
 import { ipcCallResult } from "../../ipc/client";
@@ -32,7 +32,7 @@ import { WorkspaceStatusGlyph } from "../sidebar/workspace-status-glyph";
 import { ContextMenuRoot, ContextMenuTrigger } from "../ui/context-menu";
 import { IconButton } from "../ui/icon-button";
 import { useContextMenuHandoff } from "../ui/use-context-menu-handoff";
-import { formatSshSecondaryLine, formatSshTooltip } from "../workspace/add-workspace/ssh-helpers";
+import { formatSshTooltip } from "../workspace/add-workspace/ssh-helpers";
 import { RowDropSlot } from "./dnd/row-drop-slot";
 import { buildSlotsForGroup, type SlotInfo, useWorkspaceRowDnd } from "./dnd/use-workspace-row-dnd";
 import { PinToggle } from "./pin-toggle";
@@ -41,19 +41,9 @@ import { WorkspaceMenuContent } from "./workspace-menu";
 import { WorkspaceNameInput } from "./workspace-name-input";
 import { useWorkspaceRename, useWorkspaceUpdate } from "./workspace-rename";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/** Stable empty task list, so a row without tasks keeps its props. */
 const NO_TASKS: readonly string[] = [];
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
 interface SidebarProps {
-  /** All workspaces; a task is listed as part of its parent's row. */
   workspaces: WorkspaceMeta[];
   peerSection?: React.ReactNode;
   activeWorkspaceId: string | null;
@@ -62,13 +52,8 @@ interface SidebarProps {
   onRemoveWorkspace: (id: string) => void;
 }
 
-// ---------------------------------------------------------------------------
-// WorkspaceRow component — split into its own component so it can use hooks
-// ---------------------------------------------------------------------------
-
 interface WorkspaceRowProps {
   ws: WorkspaceMeta;
-  /** The workspace's tasks, which the row stands for too. */
   taskIds: readonly string[];
   isActive: boolean;
   isDragSource: boolean;
@@ -79,20 +64,6 @@ interface WorkspaceRowProps {
   onRemoveWorkspace: (id: string) => void;
 }
 
-/**
- * Workspace sidebar row component.
- *
- * 4-5 line grid card (SSH adds a user@host line in between):
- * line 1: [Icon 16] ws.name
- * (SSH only) user@host
- * line 2: path — local: last 2 segments of rootPath, SSH: last 2 segments of remotePath
- * line 3: [GitBranch icon] branch (only when present)
- * line 4: [Glyph] message preview (not rendered when both are missing, cut at 50 chars)
- *
- * The SSH card follows the same information structure as the local card, except that
- * user@host is added as one line right below the workspace name. The primary text is
- * ws.name for both (same as local).
- */
 function WorkspaceRow({
   ws,
   taskIds,
@@ -109,9 +80,6 @@ function WorkspaceRow({
   const isWsl = ws.location.kind === "wsl";
   const Icon = isSsh ? Server : isWsl ? SquareTerminal : Folder;
 
-  // The primary text is ws.name for both local and SSH. The SSH card adds a separate
-  // user@host line right below the workspace name. The tooltip is the richer one, with the
-  // full context (SSH connection info + remote path; the absolute path for local).
   const sshLocation = ws.location.kind === "ssh" ? ws.location : null;
   const wslDistro = ws.location.kind === "wsl" ? ws.location.distro : null;
   const primaryText = ws.name;
@@ -125,18 +93,8 @@ function WorkspaceRow({
     : wslDistro
       ? `${t("wsl.identity", { distro: wslDistro })}\n${ws.rootPath}`
       : ws.rootPath;
-  // One line shown under the card name: user@host for SSH, the distribution for WSL. null for local.
-  const hostLine = sshLocation
-    ? formatSshSecondaryLine({
-        user: sshLocation.user,
-        host: sshLocation.host,
-      })
-    : wslDistro
-      ? t("wsl.identity", { distro: wslDistro })
-      : null;
+  const hostLine = locationLabel(ws.location, { prefix: true });
 
-  // Subscribe to the Claude session aggregate status — only the workspace and its tasks
-  // slice, to avoid thrashing.
   const statusSlices = useClaudeStatusStore(
     useShallow((s) => [s.byWorkspace[ws.id], ...taskIds.map((id) => s.byWorkspace[id])]),
   );
@@ -149,21 +107,13 @@ function WorkspaceRow({
     );
   }, [wsTabs, ws.id]);
 
-  // Status shown in the glyph — only when it is in WORKSPACE_VISIBLE_STATUSES.
-  // If wsTabs is undefined (a workspace that never had a StatusEntry), the aggregate is null
-  // so no glyph is rendered. Only workspaces that have started a session at least once show a glyph.
   const glyphStatus =
     aggregate && WORKSPACE_VISIBLE_STATUSES.includes(aggregate.status) ? aggregate.status : null;
 
-  // Inferred status of agent terminals with no Claude status (Codex etc.) and the status of
-  // Codex tabs — shown in the glyph instead when it is stronger.
   const estimatedStatus = useEstimatedWorkspaceGlyph([ws.id, ...taskIds]);
   const codexStatus = useCodexWorkspaceStatus([ws.id, ...taskIds]);
   const shownGlyph = cardGlyph(glyphStatus, estimatedStatus, codexStatus);
 
-  // Message shown on the card's 4th line — the latest StatusEntry's message turned into a
-  // one-line plain text with no markdown symbols, cut at 50 chars, with an ellipsis added
-  // when it exceeds 50. With several tabs, the message of the most recently changed entry is used.
   const previewMessage = useMemo(() => {
     if (!wsTabs) return null;
     const entries = Object.values(wsTabs);
@@ -177,18 +127,13 @@ function WorkspaceRow({
     return line.length > 50 ? `${line.slice(0, 50)}…` : line;
   }, [wsTabs]);
 
-  // Get the current branch name from the git session.
   const branchName = useGitStore((s) => {
     const session = s.sessions.get(ws.id);
     return session?.branchInfo?.current ?? session?.status?.branch?.current ?? null;
   });
 
-  // One path line — only the last 2 segments for both local and SSH (secondaryWorkspaceText
-  // handles both).
   const pathLine = useMemo(() => secondaryWorkspaceText(ws), [ws]);
 
-  // For permissionPending/error, show a 2px colored border-l on the card's left.
-  // Handled exclusively with the active card's --state-selected-indicator border-l.
   const attentionBorderClass =
     !isActive && glyphStatus === "permissionPending"
       ? "border-l-[var(--state-warning-fg)]"
@@ -196,18 +141,11 @@ function WorkspaceRow({
         ? "border-l-[var(--state-error-fg)]"
         : null;
 
-  // For needsInput, line 1 (the name) is emphasized with font-semibold.
   const nameEmphasis = glyphStatus === "needsInput";
 
-  // "Clear notifications" action — the Claude wrapper hook cannot control every situation
-  // perfectly, so this is the path for users to recover manually when an indicator gets stuck
-  // in a stale state. The main broker (the authoritative state) must be cleared, otherwise a
-  // snapshot or rebroadcast revives it; the local store is cleared immediately too, so the glyph
-  // disappears right away without waiting for the IPC round trip.
   const { run: runResetStatus } = useIpcAction<void>({});
   function resetStatus() {
     const workspaceIds = [ws.id, ...taskIds];
-    // Remove the local indicator immediately — idempotent with main's cleared broadcast.
     for (const workspaceId of workspaceIds) {
       useClaudeStatusStore.getState().clearWorkspace(workspaceId);
     }
@@ -226,28 +164,17 @@ function WorkspaceRow({
     });
   }
 
-  // Rename and color go through workspace.update; the store follows its broadcast.
   const updateWorkspace = useWorkspaceUpdate(ws);
-  // Inline rename: the name line becomes a field; the menu hands focus over to it.
   const handoff = useContextMenuHandoff();
   const rename = useWorkspaceRename(ws, updateWorkspace);
 
-  // The workspace's own color tints its icon; "auto" keeps the row as it was.
   const colorToken = workspaceColorToken(ws.color);
 
-  // "Clear" only makes sense when there is a glyph or a preview message.
   const hasStatusToReset = glyphStatus !== null || previewMessage !== null;
 
   return (
     <ContextMenuRoot key={ws.id}>
       <ContextMenuTrigger>
-        {/*
-          The outer div is the drag handle for the entire row.
-          `cursor-grab` signals draggability at rest; `cursor-grabbing`
-          overrides it while this row is being dragged.
-          PinToggle and Remove button carry draggable={false} so clicking
-          them never accidentally starts a drag.
-        */}
         <div
           className={cn(
             "relative group mx-2",
@@ -255,7 +182,6 @@ function WorkspaceRow({
             isDragSource && "cursor-grabbing opacity-40",
           )}
           {...(rowDragProps as React.HTMLAttributes<HTMLDivElement>)}
-          // Dragging would take the mouse from the name being typed.
           {...(rename.renaming ? { draggable: false } : {})}
         >
           <button
@@ -263,32 +189,15 @@ function WorkspaceRow({
             aria-current={isActive ? "page" : undefined}
             onClick={() => onSelectWorkspace(ws.id)}
             className={cn(
-              // base layout — reserves a left accent bar (border-l-2 transparent) so the width stays stable.
               "block w-full px-3 py-2.5 rounded-(--radius-control) border-l-2 border-l-transparent",
-              // text + interaction
               "text-left cursor-pointer select-none font-sans transition-colors",
               "text-foreground",
-              // selected: sidebar.item.selected.bg + a 2px left accent in state.selected.indicator.
               isActive
                 ? "bg-[var(--sidebar-item-selected-bg)] border-l-[var(--state-selected-indicator)]"
-                : cn(
-                    // inactive: transparent bg + hover
-                    "bg-transparent hover:bg-[var(--state-hover-bg)]",
-                    // 2px left border for attention states (exclusive with active)
-                    attentionBorderClass,
-                  ),
+                : cn("bg-transparent hover:bg-[var(--state-hover-bg)]", attentionBorderClass),
             )}
           >
-            {/*
-              2-column grid:
-              - col 1: 16px (ssh/local icon only — the glyph moved to the message line)
-              - col 2: variable-width text (name / path / branch / glyph+message)
-
-              The glyph is no longer stacked vertically in the left column — it belongs with the message
-              semantically, so it moves inline onto the 4th line.
-            */}
             <span className="grid grid-cols-[16px_minmax(0,1fr)] items-start gap-2">
-              {/* col 1: ssh/wsl/local icon + (for SSH·WSL) connection status indicator */}
               <span className="flex flex-col items-center gap-1 mt-0.5">
                 <Icon
                   className="size-4 shrink-0 text-muted-foreground"
@@ -298,10 +207,7 @@ function WorkspaceRow({
                 {(isSsh || isWsl) && <ConnectionStatusDot status={connectionStatus} />}
               </span>
 
-              {/* Text area — variable height, 1 to 4 lines */}
               <span className="min-w-0">
-                {/* Line 1: workspace name — Pin·X float at the end of this line, so the name only
-                    makes room for what is visible. */}
                 <span
                   className={cn(
                     "block text-app-body-emphasis truncate min-w-0",
@@ -312,8 +218,6 @@ function WorkspaceRow({
                   )}
                 >
                   {rename.renaming ? (
-                    // It sits in the row's button: keys stay here so Space and the arrows do not
-                    // reach it.
                     <WorkspaceNameInput
                       rename={rename}
                       className="m-0 w-full border-0 bg-transparent p-0 text-foreground outline-none"
@@ -323,8 +227,6 @@ function WorkspaceRow({
                   )}
                 </span>
 
-                {/* SSH·WSL only: user@host or the distribution on one line (right below the name).
-                    Not rendered for local. */}
                 {hostLine && (
                   <span
                     className={cn(
@@ -336,7 +238,6 @@ function WorkspaceRow({
                   </span>
                 )}
 
-                {/* Line 2: path */}
                 <span
                   className={cn(
                     "block text-app-micro mt-0.5 line-clamp-1 truncate",
@@ -347,8 +248,6 @@ function WorkspaceRow({
                   {pathLine}
                 </span>
 
-                {/* Line 3: branch + task count — only when present. The GitBranch icon is a visual
-                    affordance. */}
                 {(branchName || taskIds.length > 0) && (
                   <span
                     className={cn(
@@ -377,7 +276,6 @@ function WorkspaceRow({
                   </span>
                 )}
 
-                {/* Line 4: glyph + message — only when at least one of them is present */}
                 {(shownGlyph || previewMessage) && (
                   <span
                     className={cn(
@@ -399,10 +297,6 @@ function WorkspaceRow({
             </span>
           </button>
 
-          {/*
-            Pin·X sit at the right end of the name line. A pinned row normally has only the Pin at the
-            very end; on hover (or keyboard focus inside the row) the X takes that spot and the Pin moves left.
-          */}
           <PinToggle
             pinned={ws.pinned}
             workspaceName={ws.name}
@@ -416,7 +310,6 @@ function WorkspaceRow({
             )}
           />
 
-          {/* Remove button — fades in on hover. */}
           <IconButton
             label={t("sidebar.remove_workspace", { name: ws.name })}
             size="xs"
@@ -446,12 +339,6 @@ function WorkspaceRow({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
-// Memo: the app renders on every view switch, and the sidebar, kept while
-// hidden, would render again for nothing.
 export const Sidebar = memo(function Sidebar({
   workspaces: allWorkspaces,
   peerSection,
@@ -465,24 +352,12 @@ export const Sidebar = memo(function Sidebar({
   const connectionStatusByWorkspaceId = useWorkspacesStore((s) => s.connectionStatusByWorkspaceId);
   const workspaces = useMemo(() => visibleWorkspaces(allWorkspaces), [allWorkspaces]);
   const taskIdsByParent = useMemo(() => groupTaskIds(allWorkspaces), [allWorkspaces]);
-  // The row the active workspace belongs to.
   const activeRowId = activeWorkspaceId && rootWorkspaceId(allWorkspaces, activeWorkspaceId);
 
-  // Pin toggle action — shared hook instance; IPC call is fire-and-forget since
-  // workspace.changed / workspace.reordered broadcasts update the store.
   const { run: runPinToggle } = useIpcAction<WorkspaceMeta>({
-    onSuccess: () => {
-      // Store is updated via broadcast listeners in the workspaces store —
-      // no local state update needed here.
-    },
+    onSuccess: () => {},
   });
 
-  /**
-   * Flips the pinned state of a workspace by calling workspace.update.
-   * Errors are surfaced as a toast so the sidebar row stays uncluttered.
-   * The store is updated via the workspace.changed broadcast listener —
-   * no local state mutation is needed here.
-   */
   function togglePin(ws: WorkspaceMeta) {
     runPinToggle(async (signal) => {
       const result = await ipcCallResult(
@@ -500,15 +375,8 @@ export const Sidebar = memo(function Sidebar({
     });
   }
 
-  // Reorder action — called by the DnD hook when the user commits a drop.
-  // The store is updated via workspace.reordered / workspace.changed broadcasts.
   const { run: runReorder } = useIpcAction<WorkspaceMeta>({});
 
-  /**
-   * Calls workspace.reorder IPC with the resolved beforeId/afterId and
-   * targetGroup. Cross-group drops automatically flip the pinned flag on
-   * the server (manager.ts handles this).
-   */
   function handleReorder(args: {
     id: string;
     beforeId?: string;
@@ -526,9 +394,6 @@ export const Sidebar = memo(function Sidebar({
     });
   }
 
-  // DnD hook — drag source / drop target state for the slot-based DnD model.
-  // workspaces is passed so the hook can suppress no-op slots (those adjacent
-  // to the source row in the same group).
   const { dragSourceId, activeSlotKey, getRowDragSourceProps, getSlotDropProps, isSlotSuppressed } =
     useWorkspaceRowDnd({
       workspaces,
@@ -537,21 +402,13 @@ export const Sidebar = memo(function Sidebar({
 
   const isDragging = dragSourceId !== null;
 
-  // Split workspaces into pinned and unpinned groups; the server-returned order
-  // within each group is already correct (sort_order / pinned_sort_order ASC).
   const { pinnedGroup, unpinnedGroup } = splitWorkspaceGroups(workspaces);
   const hasBothGroups = pinnedGroup.length > 0 && unpinnedGroup.length > 0;
-  // Show section labels only when both groups are present AND the sidebar is wide enough.
   const showLabels = hasBothGroups && sidebarWidth >= 200;
 
-  // Pre-compute slot lists once per render so renderWorkspaceRow can index in.
   const pinnedSlots = buildSlotsForGroup(pinnedGroup, "pinned");
   const unpinnedSlots = buildSlotsForGroup(unpinnedGroup, "unpinned");
 
-  /**
-   * Renders a slot if it's not suppressed for the current source. Returning
-   * null keeps the DOM minimal when nothing should be drop-targetable.
-   */
   function renderSlot(slot: SlotInfo) {
     if (isSlotSuppressed(slot)) return null;
     return (
@@ -566,23 +423,14 @@ export const Sidebar = memo(function Sidebar({
   }
 
   return (
-    // Islands model (design.md §2): <aside> is a transparent positioning shell;
-    // island surface lives on the inner wrapper so overflow-hidden clips content
-    // without clipping the absolute-positioned <SidebarResizeHandle>.
     <aside className="relative shrink-0 flex flex-col" style={{ width: sidebarWidth }}>
       <div className="relative flex flex-col flex-1 min-h-0 island-surface rounded-(--radius-island) overflow-hidden">
-        {/* Empty state — centered against the full island (matches files panel
-            and welcome screen); pointer-events-none keeps the bottom Add button
-            clickable underneath the inset-0 overlay. */}
         {workspaces.length === 0 && !peerSection && (
           <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-app-ui-sm text-muted-foreground pointer-events-none">
             <div style={{ whiteSpace: "pre-line" }}>{t("sidebar.no_workspaces")}</div>
           </div>
         )}
         <div className="py-3 flex-1 overflow-y-auto app-scrollbar">
-          {/* Pinned group — rendered first; always float to the top of the list.
-              For N rows, pinnedSlots has N+1 entries; the indices align as
-              [slot 0, row 0, slot 1, row 1, ..., row N-1, slot N]. */}
           {showLabels && pinnedGroup.length > 0 && (
             <div className="text-app-label text-muted-foreground uppercase px-4 py-1">
               {t("sidebar.pinned")}
@@ -610,7 +458,6 @@ export const Sidebar = memo(function Sidebar({
             </React.Fragment>
           ))}
 
-          {/* Gap + optional "Recent" label between groups — only when both are non-empty. */}
           {hasBothGroups && (
             <div
               className={cn(
@@ -670,17 +517,8 @@ export const Sidebar = memo(function Sidebar({
   );
 });
 
-// ---------------------------------------------------------------------------
-// Connection status dot
-// ---------------------------------------------------------------------------
-
-/**
- * Renders the compact SSH connection indicator with text for assistive tech.
- */
 function ConnectionStatusDot({ status }: { status: WorkspaceConnectionStatus }) {
   const { t } = useTranslation();
-  // "unstable" has its own tooltip copy ("연결 확인 중…"); all others use the
-  // generic "SSH workspace, <status>" string.
   const label =
     status === "unstable" ? t("sidebar.ssh_status_unstable") : t("sidebar.ssh_status", { status });
   const isTransient = status === "connecting" || status === "reconnecting" || status === "unstable";
@@ -690,21 +528,14 @@ function ConnectionStatusDot({ status }: { status: WorkspaceConnectionStatus }) 
       aria-label={label}
       title={label}
       className={cn(
-        // Placed inline right below the SSH icon. ring-background keeps contrast with the
-        // hover/active background color.
         "size-2 rounded-full ring-1 ring-background",
         connectionStatusClassName(status),
-        // While connecting/reconnecting/unstable, a subtle pulse shows that it is in progress.
         isTransient && "motion-safe:animate-pulse",
       )}
     />
   );
 }
 
-/**
- * Maps sidebar display statuses to measured OKLCH token colors.
- * Exported for unit-test coverage of the "unstable" semantic-token path.
- */
 export function connectionStatusClassName(status: WorkspaceConnectionStatus): string {
   switch (status) {
     case "connected":
@@ -718,28 +549,16 @@ export function connectionStatusClassName(status: WorkspaceConnectionStatus): st
     case "idle":
       return "bg-[var(--color-workspace-connection-idle)]";
     case "unstable":
-      // Transient warning indicator — uses semantic state.warning.fg token
-      // per design spec (raw --color-workspace-connection-* token forbidden).
       return "bg-[var(--state-warning-fg)]";
   }
 }
 
-/**
- * Builds the card's single path line. Same rule for local and SSH: only the last two
- * segments of the absolute path are shown (breadcrumb context). SSH's user@host is a separate
- * line at the top of the card, so it is not handled here.
- */
 function secondaryWorkspaceText(workspace: WorkspaceMeta): string {
   const path =
     workspace.location.kind !== "local" ? workspace.location.remotePath : workspace.rootPath;
   return path.split("/").filter(Boolean).slice(-2).join("/");
 }
 
-// ---------------------------------------------------------------------------
-// Tasks
-// ---------------------------------------------------------------------------
-
-/** The task ids of each workspace that has tasks. */
 function groupTaskIds(workspaces: readonly WorkspaceMeta[]): Map<string, string[]> {
   const byParent = new Map<string, string[]>();
   for (const workspace of workspaces) {
@@ -752,11 +571,6 @@ function groupTaskIds(workspaces: readonly WorkspaceMeta[]): Map<string, string[
   return byParent;
 }
 
-/**
- * The glyph a workspace card shows: Claude's state, or a Codex tab's when
- * that is stronger, or the state Codex and other agents' output tells in a
- * terminal when that is stronger still, marked as estimated.
- */
 export function cardGlyph(
   claude: ClaudeStatus | null,
   estimated: EstimatedGlyph | null,
@@ -777,10 +591,6 @@ export function cardGlyph(
   return { status: estimated, estimated: true };
 }
 
-/**
- * Merges the Claude status records of a workspace and its tasks into one,
- * keyed by tab id. Undefined when none of them has a record.
- */
 export function mergeStatusSlices(
   slices: readonly (Record<string, StatusEntry> | undefined)[],
 ): Record<string, StatusEntry> | undefined {
@@ -789,17 +599,6 @@ export function mergeStatusSlices(
   return Object.assign({}, ...present);
 }
 
-// ---------------------------------------------------------------------------
-// Group split — pure, exported for unit tests
-// ---------------------------------------------------------------------------
-
-/**
- * Splits a flat workspace list into pinned and unpinned groups.
- *
- * The caller's list is assumed to arrive in display order (pinned first,
- * then unpinned, both groups sorted by their respective sort columns).
- * This function only partitions — it does not re-sort.
- */
 export function splitWorkspaceGroups(workspaces: WorkspaceMeta[]): {
   pinnedGroup: WorkspaceMeta[];
   unpinnedGroup: WorkspaceMeta[];

@@ -1,9 +1,3 @@
-/**
- * "+N" after a strip of tabs that runs on out of sight: a menu of the tabs
- * not wholly shown. Picking one brings it to the front, where the strip
- * scrolls to it, and the pick moves the keyboard into it.
- */
-
 import { ChevronDown } from "lucide-react";
 import { type ReactNode, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -21,16 +15,11 @@ export function OverflowTabsMenu({
   renderTab,
   onSelect,
 }: {
-  /** The tabs out of sight, in strip order. */
   hidden: readonly string[];
-  /** A tab's row in the menu: its icon and title. */
   renderTab: (id: string) => ReactNode;
-  /** Brings the tab to the front and the keyboard into it. */
   onSelect: (id: string) => void;
 }) {
   const { t } = useTranslation();
-  // Set on a pick, whose tab takes the keyboard: the menu must not hand it
-  // back to this button as it closes.
   const picked = useRef(false);
   if (hidden.length === 0) return null;
   const label = t("tabBar.hidden_tabs", { count: hidden.length });

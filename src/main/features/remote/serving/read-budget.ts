@@ -1,6 +1,7 @@
 import { RpcErrorCode, type RpcMethod } from "../../../../../packages/remote-protocol/src";
 import type { CliUiOp, CliUiOps } from "../../../../shared/cli/ui";
 import { createLogger } from "../../../../shared/log/main";
+import { shortId } from "../../../../shared/util/short-id";
 import type { CliServices } from "../../cli/context";
 import { RpcFailure } from "../room";
 
@@ -10,7 +11,6 @@ const WARNING_INTERVAL_MS = 30_000;
 const warnedAt = new Map<RpcMethod, number>();
 export const RENDERER_READ_MAX_MS = 2_000;
 
-/** Shares a deadline across the renderer reads that make up a remote answer. */
 export class ReadBudget {
   private readonly started = performance.now();
   private readonly slow = new Map<CliUiOp, { count: number; timeouts: number; maxMs: number }>();
@@ -82,7 +82,7 @@ export class ReadBudget {
     if (this.slow.size === 0 && skipped === 0 && elapsed < SLOW_UI_MS) return;
     if (now - (warnedAt.get(this.method) ?? -Infinity) < WARNING_INTERVAL_MS) return;
     warnedAt.set(this.method, now);
-    const peer = this.from ? ` peer=${this.from.slice(0, 8)}` : "";
+    const peer = this.from ? ` peer=${shortId(this.from)}` : "";
     const details = [...this.slow].map(
       ([op, stats]) => `${op} count=${stats.count} timeouts=${stats.timeouts} maxMs=${stats.maxMs}`,
     );

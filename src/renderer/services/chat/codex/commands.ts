@@ -1,8 +1,3 @@
-// Commands the Codex tab runs itself: Codex's slash commands, which its
-// app-server leaves to the client, done with the server's requests or the
-// tab's own views. Codex's terminal-only ones (theme, keymap, vim, pets,
-// statusline…) are left out. Pure, for the tab and its tests.
-
 import {
   CODEX_COMMANDS,
   CODEX_REMOTE_COMMANDS,
@@ -12,14 +7,12 @@ import type { CommandInfo } from "../model";
 import { collaborationModeOf } from "./collaboration";
 import type { CodexModel } from "./model";
 
-// The list lives in the protocol package, which the mobile app shares.
 export { CODEX_COMMANDS, CODEX_REMOTE_COMMANDS };
 
 function namesOf(command: AppCommand): string[] {
   return [command.name, ...(command.aliases ?? [])];
 }
 
-/** The commands as the composer's `/` menu lists them. */
 export function codexCommandsListed(
   describe: (name: string) => string,
   collaboration = false,
@@ -34,7 +27,6 @@ export function codexCommandsListed(
 
 const COMMAND_RE = /^\/(\S+)(?:\s+([\s\S]*))?$/;
 
-/** The command a message calls, and what follows it; null for a message to send. */
 export function parseCodexCommand(text: string): { name: string; args: string } | null {
   const match = COMMAND_RE.exec(text.trim());
   if (!match) return null;
@@ -43,7 +35,6 @@ export function parseCodexCommand(text: string): { name: string; args: string } 
   return command ? { name: command.name, args: (match[2] ?? "").trim() } : null;
 }
 
-/** What Codex's /init sends (codex-cli 0.167). */
 export const CODEX_INIT_PROMPT = `Generate a file named AGENTS.md that serves as a contributor guide for this repository.
 Before writing, check whether AGENTS.md already exists in the current working directory. If it does, do not overwrite or modify it.
 Your goal is to produce a clear, concise, and well-structured document with descriptive headings and actionable explanations for each section.
@@ -87,7 +78,6 @@ Commit & Pull Request Guidelines
 (Optional) Add other sections if relevant, such as Security & Configuration Tips, Architecture Overview, or Agent-Specific Instructions.
 `;
 
-/** What /review looks at: the uncommitted changes, or what the words given ask for. */
 export function reviewTargetOf(
   args: string,
 ): { type: "uncommittedChanges" } | { type: "custom"; instructions: string } {
@@ -101,7 +91,6 @@ export type GoalCommand =
   | { kind: "status"; status: "paused" | "active" }
   | { kind: "set"; objective: string };
 
-/** /goal's words: show the goal, clear, pause or resume it, or set a new one. */
 export function goalCommandOf(args: string): GoalCommand {
   const words = args.trim();
   switch (words.toLowerCase()) {
@@ -125,7 +114,6 @@ export interface ThreadGoal {
   tokenBudget?: number;
 }
 
-/** thread/goal/get's goal, or null when the thread has none. */
 export function goalOf(result: unknown): ThreadGoal | null {
   const goal = (result as { goal?: Record<string, unknown> | null } | null)?.goal;
   if (!goal || typeof goal.objective !== "string") return null;
@@ -139,14 +127,11 @@ export function goalOf(result: unknown): ThreadGoal | null {
 
 export interface CodexMcpServer {
   name: string;
-  /** connected, failed, notLoggedIn…: the connection's state, else the sign-in's. */
   status: string;
   tools: number;
-  /** Present when this server supports OAuth and has no saved credentials. */
   needsLogin?: boolean;
 }
 
-/** mcpServerStatus/list's servers. */
 export function mcpServersOf(result: unknown): CodexMcpServer[] {
   const data = (result as { data?: unknown } | null)?.data;
   if (!Array.isArray(data)) return [];
@@ -170,13 +155,11 @@ export function mcpServersOf(result: unknown): CodexMcpServer[] {
 export interface CodexSkill {
   name: string;
   description: string;
-  /** user, repo, system, admin. */
   scope: string;
   path?: string;
   enabled: boolean;
 }
 
-/** skills/list's skills, each once though more than one folder lists it. */
 export function codexSkillsOf(result: unknown): CodexSkill[] {
   const data = (result as { data?: unknown } | null)?.data;
   if (!Array.isArray(data)) return [];
@@ -204,7 +187,6 @@ export function codexSkillsOf(result: unknown): CodexSkill[] {
   return skills;
 }
 
-/** /status: the thread's settings and what it has used, as Markdown lines. */
 export function codexStatusMarkdown(model: CodexModel, cwd: string, t: Words): string {
   const rows: [string, string | undefined][] = [
     [t("chat.codex.commands.status.model"), model.model],

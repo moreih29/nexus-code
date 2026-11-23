@@ -93,7 +93,6 @@ export function averageVoice(vectors: readonly ArrayLike<number>[]): number[] | 
   return Number.isFinite(norm) && norm > 0 ? Array.from(total, (v) => v / norm) : null;
 }
 
-/** Match prints to the current transcript's assignments, including manual edits. */
 export function speakerPrints(
   recording: Pick<TranscriptRecording, "lines">,
   samples: readonly VoiceSample[],
@@ -143,7 +142,6 @@ export function voiceNameCandidates(
   return { named: [...named], speakers };
 }
 
-/** Only the strongest unambiguous match for each name may be shown in a recording. */
 export function suggestVoiceNames(
   profiles: readonly Pick<RememberedVoice, "name" | "average">[],
   candidates: ReturnType<typeof voiceNameCandidates>,

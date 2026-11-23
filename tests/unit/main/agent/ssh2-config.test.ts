@@ -1,7 +1,3 @@
-/**
- * The ssh2 client's view of OpenSSH settings, and of the `ssh` command lines
- * it stands in for.
- */
 import { describe, expect, it } from "bun:test";
 import path from "node:path";
 import { buildSshArgs } from "../../../../src/main/infra/agent/ssh/master";

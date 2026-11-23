@@ -115,7 +115,6 @@ export function ProfileConnectionSection({
   draft: ProfileConnectionDraft;
 }) {
   const { t } = useTranslation("settings");
-  // The saved key is in a keychain not open yet: none shows until it opens.
   const keysLocked = useKeychainLocked("profileKeys");
   const keychainRefused = useKeychainRefused();
   const group = useId();

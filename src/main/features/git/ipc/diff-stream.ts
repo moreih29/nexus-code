@@ -1,6 +1,3 @@
-/**
- * Diff stream handler — wraps GitRepository.diff for bounded IPC chunks.
- */
 import type {
   InferArgs,
   InferComplete,
@@ -20,10 +17,6 @@ type DiffStreamHandler = (
   ctx: StreamContext,
 ) => AsyncGenerator<DiffStreamProgress, DiffStreamComplete, unknown>;
 
-/**
- * Builds the diff stream handler. It forwards repository DiffChunk batches
- * without re-batching so the repository's 1 MB maximum remains the boundary.
- */
 export function diffStream(registry: GitRegistry): DiffStreamHandler {
   return async function* (
     { workspaceId, spec }: DiffStreamArgs,

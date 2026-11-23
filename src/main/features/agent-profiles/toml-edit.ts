@@ -1,16 +1,3 @@
-/**
- * A minimal TOML editor for config.toml. The repo has no TOML library, and
- * the file is the user's own (comments, blank lines, the order of keys,
- * tables of other settings): a key is read, set or removed by editing its own
- * line, and every other byte stays.
- *
- * It scans the file statement by statement (tables, key = value, with dotted
- * and quoted keys, strings of every kind, arrays and inline tables skipped
- * whole) to know where each key is; a file it cannot scan is "broken", and
- * a key whose shape it cannot change safely (an inline table, an array, a
- * table defined in parts) is "unsupported": the caller says to edit the file.
- */
-
 export type TomlScalar = string | number | boolean;
 
 export class TomlSyntaxError extends Error {
@@ -25,21 +12,15 @@ export class TomlSyntaxError extends Error {
 type ValueKind = "string" | "int" | "bool" | "other";
 
 interface Statement {
-  /** The table (header) the statement is in. */
   table: string[];
-  /** The key as written, dotted parts apart. */
   key: string[];
-  /** table + key. */
   full: string[];
-  /** The start of the statement's line, and the end of its last line (after its newline). */
   lineStart: number;
   lineEnd: number;
   valueStart: number;
   valueEnd: number;
   kind: ValueKind;
-  /** The scalar, when the value is one this editor reads (string, integer, boolean). */
   value?: TomlScalar;
-  /** An inline table or an array. */
   composite: boolean;
 }
 
@@ -70,7 +51,6 @@ function lineEndOf(text: string, offset: number): number {
   return at < 0 ? text.length : at + 1;
 }
 
-/** Reads a basic string ("…") at `i`; returns its text and where it ends. */
 function readBasicString(text: string, i: number): { value: string; end: number } {
   let out = "";
   let p = i + 1;
@@ -114,7 +94,6 @@ function readLiteralString(text: string, i: number): { value: string; end: numbe
   return { value: text.slice(i + 1, close), end: close + 1 };
 }
 
-/** A """…""" or '''…''' string at `i`; its text is not read (the caller needs only where it ends). */
 function skipMultiline(text: string, i: number, quote: string): number {
   const fence = quote.repeat(3);
   let p = i + 3;
@@ -122,7 +101,6 @@ function skipMultiline(text: string, i: number, quote: string): number {
     const at = text.indexOf(fence, p);
     if (at < 0) throw new TomlSyntaxError("unterminated multi-line string", i);
     if (quote === '"') {
-      // An escaped quote does not close it.
       let backslashes = 0;
       for (let q = at - 1; q >= p && text[q] === "\\"; q--) backslashes++;
       if (backslashes % 2 === 1) {
@@ -130,14 +108,12 @@ function skipMultiline(text: string, i: number, quote: string): number {
         continue;
       }
     }
-    // Up to two more quotes may belong to the string's end.
     let end = at + 3;
     while (end < at + 5 && text[end] === quote) end++;
     return end;
   }
 }
 
-/** Skips spaces, newlines and comments between the items of an array or inline table. */
 function skipSpaceAndComments(text: string, i: number, newlines: boolean): number {
   let p = i;
   for (;;) {
@@ -198,10 +174,8 @@ function readValue(text: string, i: number): ValueRead {
       else throw new TomlSyntaxError("bad inline table", p);
     }
   }
-  // A bare value: a boolean, a number, a date.
   let p = i;
   while (p < text.length && !/[\s,\]}#]/.test(text[p] as string)) p++;
-  // A date-time may have a space between its date and time.
   if (/^\d{4}-\d\d-\d\d$/.test(text.slice(i, p)) && /^ \d\d:\d\d/.test(text.slice(p, p + 6))) {
     p += 1;
     while (p < text.length && !/[\s,\]}#]/.test(text[p] as string)) p++;
@@ -230,7 +204,6 @@ function readValue(text: string, i: number): ValueRead {
   throw new TomlSyntaxError(`bad value ${raw}`, i);
 }
 
-/** A dotted key (`a . "b".c`) at `i`; its parts and where it ends. */
 function readKey(text: string, i: number): { parts: string[]; end: number } {
   const parts: string[] = [];
   let p = i;
@@ -261,7 +234,6 @@ function readKey(text: string, i: number): { parts: string[]; end: number } {
   }
 }
 
-/** The end of a statement's line: spaces and a comment only. */
 function endOfStatement(text: string, i: number): number {
   let p = i;
   while (isSpace(text[p])) p++;
@@ -273,7 +245,6 @@ function endOfStatement(text: string, i: number): number {
   return p;
 }
 
-/** Scans the file; throws TomlSyntaxError when it is not TOML this editor can follow. */
 function scan(text: string): Scan {
   const statements: Statement[] = [];
   const headers: Header[] = [];
@@ -342,10 +313,8 @@ function startsWith(path: readonly string[], prefix: readonly string[]): boolean
 export type TomlRead =
   | { state: "absent" }
   | { state: "value"; value: TomlScalar }
-  /** The key is there in a shape this editor does not read or change. */
   | { state: "unsupported" };
 
-/** The value at `path`. Throws TomlSyntaxError for a file that is not TOML. */
 export function readTomlKey(text: string, path: readonly string[]): TomlRead {
   return readFrom(scan(text), path);
 }
@@ -355,7 +324,6 @@ function readFrom(found: Scan, path: readonly string[]): TomlRead {
   const below =
     found.statements.some((s) => s.full.length > path.length && startsWith(s.full, path)) ||
     found.headers.some((h) => startsWith(h.path, path) && h.path.length > path.length);
-  // A table or inline table where a value is, or the key set twice.
   const parentSet = found.statements.some(
     (s) => s.full.length < path.length && startsWith(path, s.full),
   );
@@ -382,10 +350,6 @@ function formatKey(part: string): string {
   return /^[A-Za-z0-9_-]+$/.test(part) ? part : JSON.stringify(part);
 }
 
-/**
- * Sets each edit's key to its value, or removes it (value undefined), and
- * leaves the rest of the text as it is.
- */
 export function editToml(text: string, edits: readonly TomlEdit[]): TomlEditResult {
   let current = text;
   for (const edit of edits) {
@@ -434,7 +398,6 @@ function editOne(text: string, edit: TomlEdit): TomlEditResult {
   const parent = path.slice(0, -1);
   const withNewline = (s: string) => (s.endsWith("\n") || s === "" ? s : s + eol);
 
-  // A top-level key goes after the last top-level statement, or before the first table.
   if (parent.length === 0) {
     const top = found.statements.filter((s) => s.table.length === 0);
     const line = `${formatKey(key)} = ${formatValue(value)}${eol}`;
@@ -442,7 +405,6 @@ function editOne(text: string, edit: TomlEdit): TomlEditResult {
     if (last) return insertAt(text, last.lineEnd, line, eol);
     const firstHeader = found.headers[0];
     if (!firstHeader) return { ok: true, text: withNewline(text) + line };
-    // Before the comments just above the first table, which belong to it.
     let at = firstHeader.lineStart;
     while (at > 0) {
       const prev = lineStartOf(text, at - 1);
@@ -453,7 +415,6 @@ function editOne(text: string, edit: TomlEdit): TomlEditResult {
     return { ok: true, text: text.slice(0, at) + line + eol + text.slice(at) };
   }
 
-  // Into a table that has a header: after its last key, or right below the header.
   const header = found.headers.find((h) => !h.array && samePath(h.path, parent));
   const dottedSibling = [...found.statements]
     .reverse()
@@ -464,12 +425,10 @@ function editOne(text: string, edit: TomlEdit): TomlEditResult {
     const line = `${formatKey(key)} = ${formatValue(value)}${eol}`;
     return insertAt(text, last ? last.lineEnd : header.lineEnd, line, eol);
   }
-  // The table is made by dotted keys at the top: a dotted key next to them.
   if (dottedSibling) {
     const line = `${[...dottedSibling.key.slice(0, -1), key].map(formatKey).join(".")} = ${formatValue(value)}${eol}`;
     return insertAt(text, dottedSibling.lineEnd, line, eol);
   }
-  // No table yet: a new one at the end of the file.
   const block = `[${parent.map(formatKey).join(".")}]${eol}${formatKey(key)} = ${formatValue(value)}${eol}`;
   const body = withNewline(text);
   const gap = body === "" || body.endsWith(`${eol}${eol}`) ? "" : eol;
@@ -477,13 +436,11 @@ function editOne(text: string, edit: TomlEdit): TomlEditResult {
 }
 
 function insertAt(text: string, at: number, line: string, eol: string): TomlEditResult {
-  // `at` is a line end; the last line may have none.
   const head = text.slice(0, at);
   const lead = head === "" || head.endsWith("\n") ? "" : eol;
   return { ok: true, text: head + lead + line + text.slice(at) };
 }
 
-/** Whether the text is TOML this editor can follow. */
 export function checkToml(text: string): string | null {
   try {
     scan(text);

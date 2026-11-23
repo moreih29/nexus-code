@@ -1,5 +1,3 @@
-/** Which input lets the app window open a link in the browser. */
-
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import {
@@ -43,12 +41,10 @@ describe("input that lets a link open", () => {
   });
 
   test("not Enter or Space held down, as each source tells it", () => {
-    // before-input-event
     expect(activates({ type: "keyDown", key: "Enter", isAutoRepeat: true })).toBe(false);
     expect(
       activates({ type: "keyDown", key: " ", isAutoRepeat: true, modifiers: ["isautorepeat"] }),
     ).toBe(false);
-    // input-event
     expect(
       activates({ type: "rawKeyDown", key: "Enter", modifiers: ["isautorepeat", "numlock"] }),
     ).toBe(false);
@@ -119,7 +115,6 @@ describe("the window's activation", () => {
     contents.emit("before-input-event", {}, { type: "keyDown", key: "Shift" });
     contents.emit("before-input-event", {}, { type: "keyDown", key: "Enter", isAutoRepeat: true });
     contents.emit("before-mouse-event", {}, { type: "mouseMove" });
-    // before-input-event and before-mouse-event give these, once.
     contents.emit("input-event", {}, { type: "rawKeyDown", key: "Enter" });
     contents.emit("input-event", {}, { type: "mouseDown" });
     expect(activation.take()).toBe(false);
@@ -130,9 +125,7 @@ describe("where a window.open may follow the keyboard", () => {
   test("a previewed page's link only from the page, the app's own only from the app", () => {
     expect(opensHere(true, false)).toBe(true);
     expect(opensHere(false, true)).toBe(true);
-    // Enter typed in the editor: the page's timer does not get it.
     expect(opensHere(true, true)).toBe(false);
-    // Keys in the page do not let the app's frame open a link for it.
     expect(opensHere(false, false)).toBe(false);
   });
 });

@@ -1,8 +1,3 @@
-/**
- * Search input row: <input> + clear button + option toggles.
- * Exposes an optional inline regex-error message below the input.
- */
-
 import { X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -24,12 +19,7 @@ interface SearchInputProps {
   onToggleOption: (
     key: keyof Pick<SearchOptions, "isCaseSensitive" | "isWordMatch" | "isRegExp">,
   ) => void;
-  /**
-   * Called when the user presses ↓ in the search input. The parent should
-   * blur the input and move focus to the first row of the results list.
-   */
   onArrowDown?: () => void;
-  /** View-mode toggle props forwarded to SearchOptionsToggles. */
   viewMode: ViewMode;
   onViewModeChange: (next: ViewMode) => void;
   viewModeDisabled?: boolean;
@@ -67,8 +57,6 @@ export function SearchInput({
 
   return (
     <div className="px-2 pt-2 pb-1 flex flex-col gap-1">
-      {/* The toggles wrap onto a second line when the panel is too narrow to
-          leave the query a usable width next to them. */}
       <div
         className={cn(
           "flex flex-wrap items-center gap-0.5 rounded border bg-background transition-colors",

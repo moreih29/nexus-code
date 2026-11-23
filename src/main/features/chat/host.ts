@@ -1,6 +1,3 @@
-// Main-process side of the Claude tabs: starts each tab's program through
-// the workspace's agent and relays its chat.* events to the renderer.
-
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { gte } from "semver";
@@ -71,9 +68,7 @@ import type { PromptFiles } from "./prompt-files";
 
 const log = createLogger("chat-host");
 
-/** How long `claude --version` may take: a first run can unpack itself. */
 const VERSION_TIMEOUT_MS = 20_000;
-/** The first Claude Code release with modelPicker in --settings. */
 const CUSTOM_CLAUDE_FROM = "2.1.242";
 
 function missingApiKeyMessage(): string {
@@ -82,11 +77,8 @@ function missingApiKeyMessage(): string {
     "Set the profile API key in Settings."
   );
 }
-/** How long workspace removal waits for its chats, including queued requests. */
 const WORKSPACE_CHAT_CLOSE_MS = 5000;
-/** How long a `claude` command may take: an install fetches the plugin. */
 const COMMAND_TIMEOUT_MS = 30_000;
-/** The agent needs time to close the child's pipes and return its timed-out result. */
 const COMMAND_REPLY_TIMEOUT_MS = COMMAND_TIMEOUT_MS + 5_000;
 
 export interface ChatWorkspaceManager {
@@ -98,60 +90,38 @@ export interface ChatWorkspaceManager {
   getWrapperAgentBin(workspaceId: string): string | null;
   getWrapperShimDir(workspaceId: string): string | null;
   isLocal?(workspaceId: string): boolean;
-  /** The workspace's agent channel only while it is up: an SSH host is not dialed. */
   peekAgentChannel?(workspaceId: string): Promise<AgentChannel | null>;
-  /**
-   * The host and user whose attach folder the workspace's agent writes in,
-   * the same for every workspace there (attachHostOf); null when unknown.
-   */
   attachHost?(workspaceId: string): string | null;
 }
 
-/** How long an attached file no open tab uses stays unused before a prune removes it. */
 export const ATTACH_UNUSED_MS = 30 * 24 * 60 * 60 * 1000;
-/** The most a workspace's attached files hold; past it a prune removes the least recently used. */
 export const ATTACH_ROOM_BYTES = 1024 * 1024 * 1024;
 
-/**
- * The attach root an agent told, or null when it names none. One on a network
- * share (`\\server\share`, `//server/share`) counts as none: the app does not
- * read slots from it (attachRootOf), so it could name none an open tab keeps,
- * and nothing kept past its tab there would ever go.
- */
 function namedRoot(root: unknown): string | null {
   if (typeof root !== "string" || root === "") return null;
   return /^[\\/]{2}/.test(root) ? null : root;
 }
 
-/** Removed workspaces whose attached files wait for an agent on their host to remove them. */
 export interface AttachCleanups {
   add(host: string, workspaceId: string): void;
-  /** The workspaces waiting on the host. */
   waiting(host: string): string[];
-  /** One no longer waits: its folder went. */
   remove(host: string, workspaceId: string): void;
 }
 
-/** How many readers one tab's runs have at a time. */
 const PRINT_RUN_READERS = 2;
 
-/** What a run's reader is told: the handshake and reads of its thread, nothing that changes one. */
 const PRINT_RUN_READER_METHODS = new Set([
   "initialize",
   "initialized",
   "thread/read",
   "thread/turns/list",
 ]);
-/** Those of them that name a thread: the reader's own, which main fills in. */
 const PRINT_RUN_READER_THREAD_METHODS = new Set(["thread/read", "thread/turns/list"]);
 
-/** A reader main started: whose run it reads, and the one thread it may. */
 interface PrintRunReader {
   workspaceId: string;
-  /** The tab whose run it reads: it goes with that tab. */
   ownerTabId: string;
   threadId: string;
-  /** The window (its webContents id) whose pane asked for it; it goes with that window. */
   opener?: number;
 }
 
@@ -162,34 +132,19 @@ function readerRefused(message: string): Error {
 export interface ChatHostOptions {
   workspaceManager: ChatWorkspaceManager;
   broadcast: (event: string, args: unknown) => void;
-  /** On Windows, where local claude runs without the bash wrapper. */
   windowsAgentFiles?: () => Promise<WindowsAgentFiles | null>;
-  /**
-   * On Windows, where a tab's instructions go to claude in a file: the
-   * command line has no room for them once escaped.
-   */
   promptFiles?: PromptFiles;
-  /** The result a Claude chat reported on its stream. */
   onTurnResult?: (workspaceId: string, tabId: string, result: ClaudeTurnResult) => void;
-  /** The lifecycle messages for a Claude chat's background tasks. */
   onTaskEvent?: (workspaceId: string, tabId: string, message: Record<string, unknown>) => void;
-  /**
-   * Where a tab's `claude -p` or `codex exec` run keeps its session, as the
-   * app recorded it from the run's start: undefined for a run not of that tab.
-   */
   printRunSource?: (
     workspaceId: string,
     tabId: string,
     runId: string,
   ) => PrintRunSource | undefined;
-  /** A tab's program exited. */
   onProgramExit?: (workspaceId: string, tabId: string) => void;
-  /** Saved chat tabs that may still have a program even before their view opens. */
   knownChatTabs?: (workspaceId: string) => readonly string[];
-  /** The agent profile of that id, as the app state has it; null when gone. */
   profile?: (id: string) => AgentProfile | null;
   connectionKey?: (id: string, target: string | undefined) => Promise<string | undefined>;
-  /** CLI guidance for the node hosting this chat tab, when enabled in Settings. */
   agentContext?: (
     workspaceId: string,
     tabId: string,
@@ -204,7 +159,6 @@ export interface ChatHostOptions {
     workspaceId: string,
     tabId: string,
   ) => { profileId?: string; instructions?: string } | undefined;
-  /** Where a removed workspace's attached files wait when its host's agent was not up. */
   attachCleanups?: AttachCleanups;
 }
 
@@ -212,7 +166,6 @@ export type StartResult =
   | { ok: true; pid: number; attached: boolean; version: string | null; canonicalCwd?: string }
   | { ok: false; reason: "not-found" | "failed"; message: string };
 
-/** A profile choice that is no longer valid for this agent. */
 export class AgentProfileSelectionError extends Error {}
 
 interface Subscription {
@@ -227,13 +180,39 @@ interface TabIntent {
   starts: Set<Promise<unknown>>;
 }
 
+interface Launch {
+  key: string;
+  intent: TabIntent;
+  channel: AgentChannel;
+  profile: AgentProfile;
+  windows: boolean;
+  apiKey: string | undefined;
+  profileEnv: Record<string, string>;
+  program: string;
+  path: string | undefined;
+  env: Record<string, string>;
+  version: string | null;
+}
+
+type PreparedLaunch =
+  | ({ ok: true } & Launch)
+  | { ok: false; reason: "not-found" | "failed"; message: string };
+
+function launchConnectionEnv(
+  profile: AgentProfile,
+  apiKey: string | undefined,
+): Record<string, string> {
+  return profile.agent === "claude"
+    ? claudeConnectionEnv(profile.connection, apiKey)
+    : codexConnectionEnv(profile.connection, apiKey);
+}
+
 interface WorkspaceChatClose {
   readonly channel: AgentChannel | null;
   readonly deadline: number;
   readonly expired: Promise<never>;
 }
 
-/** Owns chat programs and events for the desktop's workspace channels. */
 export class ChatHost {
   readonly oauth = new OAuthCallbacks();
   private readonly subscriptions = new Map<string, Subscription>();
@@ -246,28 +225,17 @@ export class ChatHost {
     string,
     { launch: string; sessionId?: string; digest: string | null }
   >();
-  /** The prompt file of each Claude tab's current program. */
+  private readonly codexProfiles = new Map<string, string>();
   private readonly promptFiles = new Map<string, string>();
-  /** Tabs whose new prompt file is not yet taken by a started program. */
   private readonly promptStarting = new Set<string>();
   private readonly closingTabs = new Map<string, Promise<unknown>>();
-  /**
-   * The readers that are up, by their tab id, oldest first: a tab's runs
-   * have at most PRINT_RUN_READERS (its pane's, and one another device
-   * reads by). One leaves as it closes or its program ends; all go with
-   * their tab, the window and the app.
-   */
   private readonly printRunReaders = new Map<string, PrintRunReader>();
-  /** Workspaces whose tabs have started a program through this host. */
   private readonly workspaces = new Set<string>();
-  /** What each agent connection answered chat.attachRoot with (askAttachRoot): asked once a connection. */
   private readonly attachRoots = new WeakMap<AgentChannel, Promise<string | null | undefined>>();
   private readonly disposeProviderReady: () => void;
   private disposed = false;
 
   constructor(private readonly options: ChatHostOptions) {
-    // A new agent (a reconnect that needed a new one, or a reauth) knows
-    // nothing of this host's subscription; the tabs check what it has.
     this.disposeProviderReady = options.workspaceManager.onProviderReady((workspaceId) => {
       if (!this.workspaces.has(workspaceId)) return;
       void this.options.workspaceManager
@@ -294,33 +262,12 @@ export class ChatHost {
     profileId?: string,
     instructions?: string,
   ): Promise<StartResult> {
-    let profile: AgentProfile;
-    try {
-      profile = this.profile("claude", profileId);
-    } catch (error) {
-      return { ok: false, reason: "failed", message: (error as Error).message };
-    }
-    const key = `${workspaceId}:${tabId}`;
-    const intent = this.openTab(key);
-    const channel = await this.channelForStart(workspaceId, key, intent);
+    const launch = await this.prepareLaunch("claude", workspaceId, tabId, cwd, { profileId });
+    if (!launch.ok) return launch;
+    const { key, intent, channel, profile, windows, profileEnv, path, version } = launch;
+    const { program: claude, env: launchEnv } = launch;
     const { workspaceManager } = this.options;
-    const windows = this.windowsHost(workspaceId);
     const withoutWrapper = windows && this.options.windowsAgentFiles !== undefined;
-
-    let profileEnv: Record<string, string>;
-    try {
-      profileEnv = await this.profileEnv(channel, profile, windows, true);
-    } catch (error) {
-      return { ok: false, reason: "failed", message: (error as Error).message };
-    }
-    const found = await this.findBinary(channel, "claude", cwd, profileEnv, windows);
-    if (!found.path) {
-      return { ok: false, reason: "not-found", message: "claude was not found on the PATH" };
-    }
-
-    const path = agentEnvValue(profileEnv, "PATH", windows) ?? found.envPath;
-    const launchEnv = mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path });
-    const version = await this.probeVersion(channel, "claude", cwd, found.path, launchEnv);
 
     if (resume.usageOnly) {
       try {
@@ -328,7 +275,7 @@ export class ChatHost {
           workspaceId,
           tabId,
           cwd,
-          program: found.path,
+          program: claude,
           args: claudeTabArgs(resume),
           env: launchEnv,
         });
@@ -350,11 +297,10 @@ export class ChatHost {
     }
     const wrapperBinDir = workspaceManager.getWrapperBinDir(workspaceId);
     const agentBin = workspaceManager.getWrapperAgentBin(workspaceId);
-    let program = found.path;
+    let program = claude;
     let hooksSettings: string | undefined;
     let gitBash: { wrapperDir: string; bashEnv: string } | undefined;
     if (withoutWrapper) {
-      // cmd and PowerShell pass claude the hooks file the same way.
       const files = await this.options.windowsAgentFiles?.();
       hooksSettings = files?.settingsPath;
       const shimDir = workspaceManager.getWrapperShimDir(workspaceId);
@@ -362,8 +308,6 @@ export class ChatHost {
         gitBash = { wrapperDir: files.binDir, bashEnv: hostJoin(shimDir, "bashenv", true) };
       }
     } else if (wrapperBinDir !== null) {
-      // The wrapper adds the hooks and the tab's mark, then runs the claude
-      // version probe selected.
       program = hostJoin(wrapperBinDir, "claude", false);
     }
     try {
@@ -380,7 +324,7 @@ export class ChatHost {
         withoutWrapper,
         ...(gitBash ? { gitBash } : {}),
       });
-      if (program !== found.path) env.NEXUS_CLAUDE_PROGRAM = found.path;
+      if (program !== claude) env.NEXUS_CLAUDE_PROGRAM = claude;
       const combined = this.options.instructions?.(workspaceId, profile, instructions) ?? "";
       const sourceId = resume.fork ? claudeResumeId(resume.resume) : undefined;
       const sourceDigest = sourceId
@@ -396,8 +340,7 @@ export class ChatHost {
       const modelPicker = claudeModelPicker(profile.connection);
       let settings = hooksSettings;
       if (modelPicker) {
-        if (program !== found.path) {
-          // The shell wrapper adds its hooks to this JSON before passing --settings.
+        if (program !== claude) {
           env.NEXUS_CLAUDE_MODEL_PICKER = JSON.stringify(modelPicker);
         } else {
           const hooks = hooksSettings ? JSON.parse(await readFile(hooksSettings, "utf8")) : {};
@@ -413,7 +356,6 @@ export class ChatHost {
           promptFile = await files.write(tabId, claudeTabPrompt(combined));
           this.promptFiles.set(key, promptFile);
         } catch {
-          // Not the error's text: it may name the file.
           log.warn("instructions file could not be written");
           this.promptStarting.delete(key);
         }
@@ -451,7 +393,6 @@ export class ChatHost {
       } finally {
         this.promptStarting.delete(key);
       }
-      // A program the agent still ran took no new prompt.
       if (result.attached === true) await this.removePromptFile(key);
       return { ok: true, pid: result.pid, attached: result.attached === true, version };
     } catch (err) {
@@ -459,7 +400,6 @@ export class ChatHost {
     }
   }
 
-  /** Removes the tab's prompt file, once its program has read it or is gone. */
   private async removePromptFile(key: string): Promise<void> {
     const file = this.promptFiles.get(key);
     if (file === undefined) return;
@@ -467,57 +407,18 @@ export class ChatHost {
     await this.options.promptFiles?.remove(file);
   }
 
-  /**
-   * Runs a Codex tab's `codex app-server`, or attaches to the one the agent
-   * still runs for it. The tab speaks its JSON-RPC over the same log. The
-   * server runs with the tab's marks, as a Claude tab's claude does, so the
-   * `claude -p` and `codex exec` runs its commands start are the tab's
-   * agents; one the agent still runs keeps the environment it started with.
-   */
   async startCodex(
     workspaceId: string,
     tabId: string,
     cwd: string,
     options: { resetLog?: boolean; connectionChanged?: boolean; profileId?: string },
   ): Promise<StartResult> {
-    let profile: AgentProfile;
-    try {
-      profile = this.profile("codex", options.profileId);
-    } catch (error) {
-      return { ok: false, reason: "failed", message: (error as Error).message };
-    }
-    const key = `${workspaceId}:${tabId}`;
-    const intent = this.openTab(key);
-    const channel = await this.channelForStart(workspaceId, key, intent);
-    const windows = this.windowsHost(workspaceId);
-    let profileEnv: Record<string, string>;
-    let apiKey: string | undefined;
-    try {
-      profileEnv = await this.profileEnv(channel, profile, windows);
-      apiKey = await this.profileConnectionKey(profile);
-      if (profile.connection?.method === "api-key" && !apiKey)
-        throw new Error(missingApiKeyMessage());
-      profileEnv = mergeAgentEnv(
-        windows,
-        profileEnv,
-        codexConnectionEnv(profile.connection, apiKey),
-      );
-    } catch (error) {
-      return { ok: false, reason: "failed", message: (error as Error).message };
-    }
-    const found = await this.findBinary(channel, "codex", cwd, profileEnv, windows);
-    if (!found.path) {
-      return { ok: false, reason: "not-found", message: "codex was not found on the PATH" };
-    }
-    const path = agentEnvValue(profileEnv, "PATH", windows) ?? found.envPath;
-    const version = await this.probeVersion(
-      channel,
-      "codex",
-      cwd,
-      found.path,
-      mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path }),
-    );
-
+    const launch = await this.prepareLaunch("codex", workspaceId, tabId, cwd, {
+      profileId: options.profileId,
+    });
+    if (!launch.ok) return launch;
+    const { key, intent, channel, profile, windows, apiKey, profileEnv, path, version } = launch;
+    this.codexProfiles.set(key, profile.id);
     const { workspaceManager } = this.options;
     try {
       await this.closingTabs.get(key);
@@ -544,7 +445,7 @@ export class ChatHost {
         workspaceId,
         tabId,
         cwd,
-        program: found.path,
+        program: launch.program,
         args,
         env: mergeAgentEnv(windows, profileEnv, env),
         ...(options.resetLog ? { resetLog: true } : {}),
@@ -562,7 +463,70 @@ export class ChatHost {
     }
   }
 
-  /** Marks a tab as wanted before any asynchronous startup preparation. */
+  private async prepareLaunch(
+    agent: ChatAgent,
+    workspaceId: string,
+    tabId: string,
+    cwd: string,
+    options: { profileId?: string; home?: string; probeVersion?: boolean; connection?: boolean },
+  ): Promise<PreparedLaunch> {
+    let profile: AgentProfile;
+    try {
+      profile = this.profile(agent, options.profileId);
+    } catch (error) {
+      return { ok: false, reason: "failed", message: (error as Error).message };
+    }
+    const key = `${workspaceId}:${tabId}`;
+    const intent = this.openTab(key);
+    const channel = await this.channelForStart(workspaceId, key, intent);
+    const windows = this.windowsHost(workspaceId);
+    let apiKey: string | undefined;
+    let profileEnv: Record<string, string>;
+    try {
+      if (options.connection !== false) {
+        apiKey = await this.profileConnectionKey(profile);
+        if (profile.connection?.method === "api-key" && !apiKey) {
+          throw new Error(missingApiKeyMessage());
+        }
+      }
+      profileEnv = await this.profileEnv(
+        channel,
+        profile,
+        windows,
+        options.connection === false ? {} : launchConnectionEnv(profile, apiKey),
+      );
+    } catch (error) {
+      return { ok: false, reason: "failed", message: (error as Error).message };
+    }
+    if (options.home !== undefined) {
+      profileEnv = mergeAgentEnv(windows, profileEnv, { [PROFILE_DIR_ENV[agent]]: options.home });
+    }
+    const found = await this.findBinary(channel, agent, cwd, profileEnv, windows);
+    if (!found.path) {
+      return { ok: false, reason: "not-found", message: `${agent} was not found on the PATH` };
+    }
+    const path = agentEnvValue(profileEnv, "PATH", windows) ?? found.envPath;
+    const env = mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path });
+    const version =
+      options.probeVersion === false
+        ? null
+        : await this.probeVersion(channel, agent, cwd, found.path, env);
+    return {
+      ok: true,
+      key,
+      intent,
+      channel,
+      profile,
+      windows,
+      apiKey,
+      profileEnv,
+      program: found.path,
+      path,
+      env,
+      version,
+    };
+  }
+
   private openTab(key: string): TabIntent {
     const known = this.tabIntents.get(key);
     if (known) return known;
@@ -571,7 +535,6 @@ export class ChatHost {
     return intent;
   }
 
-  /** Starts only the still-wanted tab. */
   private async spawn(
     key: string,
     intent: TabIntent,
@@ -594,7 +557,6 @@ export class ChatHost {
     }
   }
 
-  /** Invalidates preparation at once and closes any start already sent to the agent. */
   private async closeTab(
     workspaceId: string,
     tabId: string,
@@ -608,9 +570,9 @@ export class ChatHost {
     if (previous && !intent && !removal) return previous;
     this.tabIntents.delete(key);
     this.claudeInstructions.delete(key);
+    this.codexProfiles.delete(key);
     this.claudeInstructionUpdates.delete(key);
     const close = async () => {
-      // Whatever follows, the closed tab's file has no use.
       await this.removePromptFile(key);
       if (removal?.channel === null) return;
       if (previous) {
@@ -624,21 +586,14 @@ export class ChatHost {
         ...(intent ? { tabGeneration: intent.generation } : {}),
       };
       if (removal) {
-        // A removed workspace's files go with its folder.
         const timeoutMs = removal.deadline - Date.now();
         if (timeoutMs <= 0) return removal.expired;
         return removal.channel.call("chat.close", params, { timeoutMs });
       }
-      // A run's reader on a host out of reach dials none: what is left there
-      // is closed as the host connects again (prunePrintRunReaders).
       const channel = isPrintRunReader(tabId)
         ? ((await this.options.workspaceManager.peekAgentChannel?.(workspaceId)) ?? null)
         : await this.options.workspaceManager.tryGetAgentChannel(workspaceId);
       if (!channel) return undefined;
-      // Its conversation may go on in another tab, which names its files. Not
-      // where the agent names no attach root (a home it cannot name, or an
-      // agent from before): no prune there knows what a conversation names,
-      // so the files go with the tab, as they did. Kept when asking failed.
       const kept = (await this.askAttachRoot(channel)) !== null;
       return channel.call("chat.close", { ...params, ...(kept ? { keepAttachments: true } : {}) });
     };
@@ -647,7 +602,6 @@ export class ChatHost {
         return await (removal ? Promise.race([close(), removal.expired]) : close());
       } finally {
         this.subscriptions.get(workspaceId)?.processes.delete(tabId);
-        // A run's reader is no tab: nothing waits on its exit.
         if (!isPrintRunReader(tabId)) this.options.onProgramExit?.(workspaceId, tabId);
       }
     })();
@@ -702,7 +656,6 @@ export class ChatHost {
     });
   }
 
-  /** The hook reports changes against conversation history and restores them after compaction. */
   claudeHookInstructions(
     workspaceId: string,
     tabId: string,
@@ -735,15 +688,12 @@ export class ChatHost {
 
     if (hook.phase === "start") {
       const fork = launchState.fork;
-      // A full fork inherits the source digest. A fork at a message may have
-      // omitted that block, so remember that its digest is unknown.
       if (sessionId && fork && sessionId !== fork.sessionId && previous === undefined)
         remember(fork.digest);
       return "";
     }
     const restoring = hook.phase === "restore";
     const profile = this.instructionProfile("claude", layer.profileId);
-    // Claude can submit a prompt without going through send(), so prefer the saved session text.
     const session = saved?.instructions ?? layer.instructions;
     const text = this.options.instructions(workspaceId, profile, session);
     const update = claudeInstructionUpdate(launchState.systemDigest, previous, text, restoring);
@@ -758,19 +708,6 @@ export class ChatHost {
     return (await this.channelFor(workspaceId)).call(`chat.${method}`, args);
   }
 
-  /**
-   * Prunes the workspace's attached files (chat.pruneAttachments): those of
-   * no open tab, that no open tab's conversation names, once unused for
-   * ATTACH_UNUSED_MS (not with capOnly), and the least recently used past
-   * ATTACH_ROOM_BYTES. First the files of removed workspaces left for an
-   * agent on the same host go.
-   *
-   * Without keepSlots (the app did not know the root to name them by), only
-   * an agent that names no root prunes: one with a home it cannot name, or
-   * one from before. It removed each tab's files as the tab closed; those of
-   * every tab not open go, as they did. Nothing goes when asking the agent
-   * for its root failed.
-   */
   async pruneAttachments({
     workspaceId,
     keepTabIds,
@@ -786,17 +723,14 @@ export class ChatHost {
     const root = await this.askAttachRoot(channel);
     if (root === undefined) return;
     if (root === null) {
-      // Nothing is kept past its tab there, so there is no room to make.
       if (!capOnly) await channel.call("chat.pruneAttachments", { workspaceId, keepTabIds });
       return;
     }
-    // What the open conversations name is not known: nothing goes on a guess.
     if (!keepSlots) return;
     await this.removeWaitingAttachments(workspaceId, channel);
     await channel.call("chat.pruneAttachments", {
       workspaceId,
       keepTabIds,
-      // An agent between (it tells its root, not this) removes every closed tab's files, as it did.
       retain: {
         keep: keepSlots,
         maxAgeMs: capOnly ? 0 : ATTACH_UNUSED_MS,
@@ -805,10 +739,6 @@ export class ChatHost {
     });
   }
 
-  /**
-   * Touches or removes attached files by their slots. An agent from before
-   * has neither, nor kept a file past its tab: nothing to do there.
-   */
   async attachmentCall(
     method: "touchAttachments" | "removeAttachments",
     args: { workspaceId: string; slots: string[] },
@@ -820,7 +750,6 @@ export class ChatHost {
     });
   }
 
-  /** Removes the folders of removed workspaces whose host is this workspace's. */
   private async removeWaitingAttachments(
     workspaceId: string,
     channel: AgentChannel,
@@ -836,9 +765,7 @@ export class ChatHost {
           all: true,
         });
       } catch (error) {
-        // An agent from before removed each tab's files as it closed: nothing waits there.
         if ((error as { code?: unknown } | null)?.code !== "unsupported-method") {
-          // It waits on, for the next time.
           log.warn(
             `could not remove removed workspace ${removed}'s attached files: ${String(error)}`,
           );
@@ -849,10 +776,6 @@ export class ChatHost {
     }
   }
 
-  /**
-   * Removes a removed workspace's attached files, its whole folder; left for
-   * the next prune on the same host when its agent is not up or fails.
-   */
   private async removeWorkspaceAttachments(
     workspaceId: string,
     channel: AgentChannel | null,
@@ -864,7 +787,6 @@ export class ChatHost {
     };
     if (!channel || deadline <= Date.now()) return wait();
     const root = await this.askAttachRootBy(channel, deadline);
-    // An agent that names no root kept no file past its tab: they went as the tabs closed.
     if (root === null) return;
     const timeoutMs = deadline - Date.now();
     if (root === undefined || timeoutMs <= 0) return wait();
@@ -875,7 +797,6 @@ export class ChatHost {
         { timeoutMs },
       );
     } catch (error) {
-      // An agent from before removed each tab's files as it closed.
       if ((error as { code?: unknown } | null)?.code === "unsupported-method") return;
       log.warn(
         `could not remove removed workspace ${workspaceId}'s attached files: ${String(error)}`,
@@ -884,13 +805,6 @@ export class ChatHost {
     }
   }
 
-  /**
-   * Where the workspace's agent writes the files attached to a message, as
-   * the agent tells it (chat.attachRoot): it alone knows its NEXUS_CODE_HOME
-   * and home folder, on whatever host. Null with no agent up (an SSH host
-   * is not dialed for it), from an agent too old to tell, or when asking
-   * fails; asked again on the next connection, or after a failure.
-   */
   async attachRoot(workspaceId: string): Promise<string | null> {
     const channel = await this.options.workspaceManager
       .peekAgentChannel?.(workspaceId)
@@ -899,12 +813,6 @@ export class ChatHost {
     return (await this.askAttachRoot(channel)) ?? null;
   }
 
-  /**
-   * The attach root the agent on `channel` tells (chat.attachRoot): null
-   * when it names none, from a home it cannot name or as an agent too old
-   * to tell, or one on a network share (namedRoot), which stays so for the
-   * connection; undefined when asking failed, which is asked again next time.
-   */
   private askAttachRoot(channel: AgentChannel): Promise<string | null | undefined> {
     const known = this.attachRoots.get(channel);
     if (known) return known;
@@ -922,7 +830,6 @@ export class ChatHost {
     return asked;
   }
 
-  /** askAttachRoot, but undefined once `deadline` passes. */
   private async askAttachRootBy(
     channel: AgentChannel,
     deadline: number,
@@ -938,16 +845,6 @@ export class ChatHost {
     }
   }
 
-  /**
-   * The slots ("<tabId>/<n>") a conversation's whole history names, read by
-   * the agent from the history kept in the profile's folder (a Claude
-   * session) or home (a Codex thread): only their names come back. `found`
-   * is false while the agent has no history of it yet (a fork's own, just
-   * named): to be asked again. `truncated` tells that it names more than
-   * these. None from an agent too old to tell, nor in
-   * a profile since removed: a tab outlives its profile, and no history is
-   * read there.
-   */
   async historySlots(
     workspaceId: string,
     agent: ChatAgent,
@@ -1014,7 +911,6 @@ export class ChatHost {
       const result = await channel.call<
         Pick<TranscriptPageResult, "found" | "lines" | "truncated">
       >("chat.transcript", args);
-      // The renderer applies its cut to the old agent's unpaged result.
       return {
         found: result.found === true,
         lines: result.lines ?? [],
@@ -1023,13 +919,6 @@ export class ChatHost {
     }
   }
 
-  /**
-   * The end of a chat's history, for a glance at its last turns: a Claude
-   * transcript's last page, or a Codex rollout's last events, which the
-   * agent reads from the file (no app-server). Read only from an agent that
-   * is up: an SSH or WSL host that is not connected is not dialed, and is
-   * told `offline`. An agent too old to read it gives neither.
-   */
   async peekTail(
     workspaceId: string,
     agent: ChatAgent,
@@ -1064,12 +953,6 @@ export class ChatHost {
     }
   }
 
-  /**
-   * The transcript of the tab's `claude -p` run `runId`, read on from
-   * `from` (where the last read ended): read where the run's own start
-   * said its session is kept, never where the renderer says. Not found for
-   * a run not of that tab, a `codex exec` run, or one that keeps none.
-   */
   async printRunTranscript(
     workspaceId: string,
     tabId: string,
@@ -1085,8 +968,6 @@ export class ChatHost {
     };
     const source = this.options.printRunSource?.(workspaceId, tabId, runId);
     if (source?.program !== "claude" || !source.sessionId || !source.home) return none;
-    // Only from an agent that is up: a host out of reach is not dialed for a
-    // pane's poll or another device's read, and the pane shows what the run told.
     const channel = await this.upChannel(workspaceId);
     if (!channel) return none;
     try {
@@ -1109,13 +990,11 @@ export class ChatHost {
         truncated: result.truncated === true,
       };
     } catch (error) {
-      // An agent before chat.runTranscript: the pane shows what the run told.
       if ((error as { code?: unknown } | null)?.code === "unsupported-method") return none;
       throw error;
     }
   }
 
-  /** The workspace's agent channel while it is up, relayed from; null when it is out of reach. */
   private async upChannel(workspaceId: string): Promise<AgentChannel | null> {
     const channel = await this.options.workspaceManager.peekAgentChannel?.(workspaceId);
     if (!channel) return null;
@@ -1125,13 +1004,6 @@ export class ChatHost {
     return channel;
   }
 
-  /**
-   * Starts a Codex app-server that reads the tab's `codex exec` run
-   * `runId`'s thread, with the run's own CODEX_HOME, as a tab's starts (an
-   * SSH or WSL host's too, while it is connected): its lines come as a chat
-   * tab's do, by the reader's tab id, which chat.close ends. Only for a tab
-   * that is open. Main keeps which thread it reads: send fills it in.
-   */
   async startPrintRunReader(
     workspaceId: string,
     tabId: string,
@@ -1142,13 +1014,11 @@ export class ChatHost {
     if (source?.program !== "codex" || !source.sessionId || !source.home) {
       return { ok: false, reason: "none" };
     }
-    // A run of a tab that closed has no pane to read it for.
     if (this.disposed || !this.tabIntents.has(`${workspaceId}:${tabId}`)) {
       return { ok: false, reason: "none" };
     }
     if (!(await this.upChannel(workspaceId))) return { ok: false, reason: "none" };
     const readerTabId = `${PRINT_RUN_READER_PREFIX}${randomUUID()}`;
-    // Past the most a tab's runs have, the oldest still up goes.
     const up = [...this.printRunReaders].filter(
       ([, reader]) => reader.workspaceId === workspaceId && reader.ownerTabId === tabId,
     );
@@ -1161,31 +1031,28 @@ export class ChatHost {
       threadId: source.sessionId,
       ...(opener !== undefined ? { opener } : {}),
     });
-    const key = `${workspaceId}:${readerTabId}`;
-    const intent = this.openTab(key);
+    const cwd = source.cwd ?? source.home;
+    const remembered = this.codexProfiles.get(`${workspaceId}:${tabId}`);
     try {
-      const channel = await this.channelForStart(workspaceId, key, intent);
-      const windows = this.windowsHost(workspaceId);
-      const profileEnv = mergeAgentEnv(
-        windows,
-        await this.profileEnv(channel, this.profile("codex", undefined), windows),
-        { [PROFILE_DIR_ENV.codex]: source.home },
-      );
-      const cwd = source.cwd ?? source.home;
-      const found = await this.findBinary(channel, "codex", cwd, profileEnv, windows);
-      if (!found.path) {
-        this.tabIntents.delete(key);
+      const launch = await this.prepareLaunch("codex", workspaceId, readerTabId, cwd, {
+        profileId: remembered && this.options.profile?.(remembered) ? remembered : undefined,
+        home: source.home,
+        probeVersion: false,
+        connection: false,
+      });
+      if (!launch.ok && launch.reason === "not-found") {
+        this.tabIntents.delete(`${workspaceId}:${readerTabId}`);
         this.printRunReaders.delete(readerTabId);
         return { ok: false, reason: "not-found" };
       }
-      const path = agentEnvValue(profileEnv, "PATH", windows) ?? found.envPath;
-      await this.spawn(key, intent, channel, {
+      if (!launch.ok) throw new Error(launch.message);
+      await this.spawn(launch.key, launch.intent, launch.channel, {
         workspaceId,
         tabId: readerTabId,
         cwd,
-        program: found.path,
+        program: launch.program,
         args: ["app-server"],
-        env: mergeAgentEnv(windows, profileEnv, path === undefined ? {} : { PATH: path }),
+        env: launch.env,
         resetLog: true,
       });
       return { ok: true, readerTabId };
@@ -1195,11 +1062,6 @@ export class ChatHost {
     }
   }
 
-  /**
-   * Tells a run's reader a read: only the handshake and the reads of a
-   * thread, and of those only the reader's own thread, which main puts in
-   * (a message naming another is refused). Nothing else of the message goes.
-   */
   private async sendToPrintRunReader(
     workspaceId: string,
     readerTabId: string,
@@ -1242,7 +1104,6 @@ export class ChatHost {
     });
   }
 
-  /** Ends the readers of one tab's runs, or with no tab every reader (the app quits). */
   closePrintRunReaders(workspaceId?: string, tabId?: string): void {
     for (const [readerTabId, reader] of [...this.printRunReaders]) {
       if (workspaceId !== undefined && reader.workspaceId !== workspaceId) continue;
@@ -1251,7 +1112,6 @@ export class ChatHost {
     }
   }
 
-  /** Ends the readers one window's panes asked for: it closed, or loads anew. */
   closePrintRunReadersOf(opener: number): void {
     for (const [readerTabId, reader] of [...this.printRunReaders]) {
       if (reader.opener !== opener) continue;
@@ -1259,10 +1119,6 @@ export class ChatHost {
     }
   }
 
-  /**
-   * Ends the readers an agent still has that main does not know: left by an
-   * app that ended before closing them, on a daemon that outlived it.
-   */
   private async prunePrintRunReaders(workspaceId: string, channel: AgentChannel): Promise<void> {
     try {
       const listed = await channel.call<{ sessions?: { tabId?: unknown }[] }>("chat.list", {
@@ -1324,7 +1180,6 @@ export class ChatHost {
     return channel.call("chat.claudeConfig", config);
   }
 
-  /** Runs one of the `claude` commands a tab may (`claude agents`, `claude plugin`…) in the folder. */
   async cli(
     workspaceId: string,
     cwd: string,
@@ -1334,7 +1189,7 @@ export class ChatHost {
     const profile = this.profile("claude", profileId);
     const channel = await this.channelFor(workspaceId);
     const windows = this.windowsHost(workspaceId);
-    const env = await this.profileEnv(channel, profile, windows);
+    const env = await this.commandEnv(channel, profile, windows);
     const found = await this.findBinary(channel, "claude", cwd, env, windows);
     if (!found.path) throw new Error("claude was not found on the PATH");
     return channel.call(
@@ -1376,7 +1231,6 @@ export class ChatHost {
     return channel.call("chat.fileSizes", { paths });
   }
 
-  /** Only workspaces on this Windows machine use case-insensitive environment names. */
   private windowsHost(workspaceId: string): boolean {
     return (
       (process.platform === "win32" || this.options.windowsAgentFiles !== undefined) &&
@@ -1384,7 +1238,6 @@ export class ChatHost {
     );
   }
 
-  /** Selects the same executable for the probe and for launching the provider. */
   private findBinary(
     channel: AgentChannel,
     agent: ChatAgent,
@@ -1400,7 +1253,6 @@ export class ChatHost {
     });
   }
 
-  /** Probes the selected executable in its profile's environment before adding launch flags. */
   private async probeVersion(
     channel: AgentChannel,
     agent: ChatAgent,
@@ -1423,7 +1275,6 @@ export class ChatHost {
     }
   }
 
-  /** Rejects explicit stale choices and resolves omitted IDs to the stored default. */
   private profile(agent: ChatAgent, profileId: string | undefined): AgentProfile {
     const id = profileId ?? defaultProfileId(agent);
     const profile = this.options.profile?.(id);
@@ -1440,25 +1291,21 @@ export class ChatHost {
     throw error;
   }
 
-  /** A running tab can outlive its profile. Deleted profiles have no layer. */
   private instructionProfile(agent: ChatAgent, profileId: string | undefined): AgentProfile {
     const id = profileId ?? defaultProfileId(agent);
     const profile = this.options.profile?.(id);
     return profile?.agent === agent ? profile : { id, agent, dir: "", name: "", color: "" };
   }
 
-  /** Selects the same folder when reading history as when starting a profile. */
   private profileDir(workspaceId: string, agent: ChatAgent, profileId: string | undefined): string {
     return profileDirectory(this.profile(agent, profileId), this.windowsHost(workspaceId));
   }
 
-  /** The Claude profile's folder, as the agent's readers take it. */
   private configDir(workspaceId: string, profileId: string | undefined): { configDir?: string } {
     const configDir = this.profileDir(workspaceId, "claude", profileId);
     return configDir ? { configDir } : {};
   }
 
-  /** A terminal in an agent profile uses the same variables and folder as its chat. */
   async terminalProfileEnv(
     workspaceId: string,
     profileId: string | undefined,
@@ -1474,30 +1321,30 @@ export class ChatHost {
     }
     const channel = await this.options.workspaceManager.getAgentChannel(workspaceId);
     await channel.ready;
-    return this.profileEnv(channel, profile, this.windowsHost(workspaceId));
+    return this.commandEnv(channel, profile, this.windowsHost(workspaceId));
   }
 
-  /** Prepares named profile folders on the workspace host and overlays their directory variable. */
+  private async commandEnv(
+    channel: AgentChannel,
+    profile: AgentProfile,
+    windows: boolean,
+  ): Promise<Record<string, string>> {
+    const connectionEnv =
+      profile.agent === "claude"
+        ? claudeConnectionEnv(profile.connection, await this.profileConnectionKey(profile))
+        : {};
+    return this.profileEnv(channel, profile, windows, connectionEnv);
+  }
+
   private async profileEnv(
     channel: AgentChannel,
     profile: AgentProfile,
     windows: boolean,
-    requireApiKey = false,
+    connectionEnv: Record<string, string>,
   ): Promise<Record<string, string>> {
     const { agent } = profile;
     const key = PROFILE_DIR_ENV[agent];
-    const connection = agent === "claude" ? profile.connection : undefined;
-    const apiKey =
-      connection && connection.method !== "account"
-        ? await this.profileConnectionKey(profile)
-        : undefined;
-    if (requireApiKey && connection?.method === "api-key" && !apiKey)
-      throw new Error(missingApiKeyMessage());
-    const env = mergeAgentEnv(
-      windows,
-      profileVariables(profile.env, windows),
-      claudeConnectionEnv(connection, apiKey),
-    );
+    const env = mergeAgentEnv(windows, profileVariables(profile.env, windows), connectionEnv);
     let dir = profileDirectory(profile, windows);
     if (profile.dir.trim() !== "") {
       const result = await channel.call<{ dir: string; failed?: string[] }>("chat.profileDir", {
@@ -1527,7 +1374,6 @@ export class ChatHost {
     );
   }
 
-  /** Closes tracked and restored chats before the workspace's agent is torn down. */
   async closeWorkspace(workspaceId: string, channel: AgentChannel | null): Promise<void> {
     const subscription = this.subscriptions.get(workspaceId);
     const tabIds = new Set(this.options.knownChatTabs?.(workspaceId));
@@ -1541,7 +1387,6 @@ export class ChatHost {
     this.workspaces.delete(workspaceId);
     subscription?.dispose();
     this.subscriptions.delete(workspaceId);
-    // Read while the workspace is still known.
     const host = this.options.workspaceManager.attachHost?.(workspaceId) ?? null;
     const deadline = Date.now() + WORKSPACE_CHAT_CLOSE_MS;
     if (tabIds.size > 0) {
@@ -1563,14 +1408,12 @@ export class ChatHost {
           );
       }
     }
-    // Its closed tabs' files stayed for conversations of its own, which go with it.
     await this.removeWorkspaceAttachments(workspaceId, channel, host, deadline);
   }
 
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    // The app's readers end with it: asked of each agent still connected.
     for (const [readerTabId, reader] of this.printRunReaders) {
       const channel = this.subscriptions.get(reader.workspaceId)?.channel;
       void channel
@@ -1586,7 +1429,6 @@ export class ChatHost {
     this.tabIntents.clear();
   }
 
-  /** Drops exit and result events that belong to a replaced program. */
   private acceptProcessEvent(event: string, payload: Record<string, unknown>): boolean {
     const { workspaceId, tabId, replay } = payload;
     if (typeof workspaceId !== "string" || typeof tabId !== "string") return true;
@@ -1621,7 +1463,6 @@ export class ChatHost {
     return channel;
   }
 
-  /** Releases an intent whose start could not reach a workspace agent. */
   private async channelForStart(
     workspaceId: string,
     key: string,
@@ -1636,13 +1477,11 @@ export class ChatHost {
     }
   }
 
-  /** What the hooks leave untold of a tab's Claude: a turn stopped, the program gone. */
   private noteForStatus(event: string, payload: Record<string, unknown>): void {
     const workspaceId = payload.workspaceId as string;
     const tabId = typeof payload.tabId === "string" ? payload.tabId : null;
     if (!tabId) return;
     if (isPrintRunReader(tabId)) {
-      // A run's reader is no tab: it has no status. One whose program ended is up no longer.
       if (event === "exit") {
         this.printRunReaders.delete(tabId);
         this.tabIntents.delete(`${workspaceId}:${tabId}`);
@@ -1650,7 +1489,6 @@ export class ChatHost {
       return;
     }
     if (event === "exit") {
-      // A restart's new file is not the exited program's.
       const key = `${workspaceId}:${tabId}`;
       if (!this.promptStarting.has(key)) void this.removePromptFile(key);
       this.options.onProgramExit?.(workspaceId, tabId);
@@ -1669,13 +1507,11 @@ export class ChatHost {
     this.options.onTurnResult?.(workspaceId, tabId, claudeTurnResult(message));
   }
 
-  /** Relays one channel's chat events, once per channel. */
   private subscribe(workspaceId: string, channel: AgentChannel): void {
     const existing = this.subscriptions.get(workspaceId);
     if (existing?.channel === channel || this.disposed) return;
     existing?.dispose();
 
-    // An agent speaks only for its own workspace's tabs.
     const relay = (event: string) => (payload: unknown) => {
       const claimed = (payload as { workspaceId?: unknown } | null)?.workspaceId;
       if (claimed !== workspaceId) {
@@ -1708,11 +1544,6 @@ export class ChatHost {
     void this.prunePrintRunReaders(workspaceId, channel);
   }
 
-  /**
-   * A dropped connection holds the tabs. A replacement local process needs
-   * its hook endpoint before the tabs can resume. A surviving daemon can
-   * replay immediately.
-   */
   private handleLifecycle(
     workspaceId: string,
     subscription: Subscription,
@@ -1731,7 +1562,6 @@ export class ChatHost {
         }
         this.options.broadcast("resync", { workspaceId });
         return;
-      // A new daemon behind the same channel: the tabs find it has no logs.
       case "held-then-expired":
         this.options.broadcast("resync", { workspaceId });
         return;
@@ -1746,7 +1576,6 @@ export class ChatHost {
     }
   }
 
-  /** Resyncs only if this ready event still belongs to the live connection. */
   private async resyncAfterHooks(workspaceId: string, subscription: Subscription): Promise<void> {
     const { revision, channel } = subscription;
     try {

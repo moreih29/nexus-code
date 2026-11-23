@@ -11,8 +11,6 @@ import (
 	"testing"
 )
 
-// TestMain lets the test binary stand in for rustup: a test copies it in as
-// rustup and links its proxies to it, and findBinary runs `rustup which`.
 func TestMain(m *testing.M) {
 	if strings.TrimSuffix(filepath.Base(os.Args[0]), ".exe") == "rustup" {
 		os.Exit(fakeRustup(os.Args[1:]))
@@ -20,9 +18,6 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// fakeRustup answers `rustup which <tool>`. The toolchain has the tool when
-// the directory it runs in has a file named has-<tool>, as a
-// rust-toolchain.toml there picks a toolchain.
 func fakeRustup(args []string) int {
 	if len(args) != 2 || args[0] != "which" {
 		return 2
@@ -35,9 +30,6 @@ func fakeRustup(args []string) int {
 	return 0
 }
 
-// installRustup puts a copy of the test binary in dir as rustup and returns
-// its path. A copy, not a link: Windows cannot delete a link of the running
-// test binary when the test is done.
 func installRustup(t *testing.T, dir string) string {
 	t.Helper()
 	self, err := os.Executable()
@@ -61,8 +53,6 @@ func installRustup(t *testing.T, dir string) string {
 	return rustup
 }
 
-// linkRustupProxy links a proxy for tool to the rustup in its directory, as
-// rustup installs them, and returns its path.
 func linkRustupProxy(t *testing.T, rustup, tool string) string {
 	t.Helper()
 	proxy := filepath.Join(filepath.Dir(rustup), tool+filepath.Ext(rustup))
@@ -95,7 +85,6 @@ func TestFindBinaryTriesTheUsersPathFirst(t *testing.T) {
 	if got := findBinary("gopls", theirs, "", []string{filepath.Dir(onPath)}); got != theirs {
 		t.Fatalf("findBinary() = %q, want the user's %q", got, theirs)
 	}
-	// Nothing where the user said: the search goes on.
 	missing := filepath.Join(root, "nowhere", "gopls")
 	if got := findBinary("gopls", missing, "", []string{filepath.Dir(onPath)}); got != onPath {
 		t.Fatalf("findBinary() = %q, want %q", got, onPath)
@@ -151,20 +140,17 @@ func TestFindBinarySkipsARustupProxyWhoseToolchainLacksTheTool(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// No rust-analyzer component: the proxy only prints an error.
 	if got := findBinary("rust-analyzer", "", work, []string{cargoBin}); got != "" {
 		t.Fatalf("findBinary() = %q, a proxy for a tool the toolchain lacks", got)
 	}
 	if got := findBinary("rust-analyzer", proxy, work, nil); got != "" {
 		t.Fatalf("findBinary() = %q for the user's path to such a proxy", got)
 	}
-	// The search goes on past it.
 	elsewhere := writeExecutable(t, filepath.Join(root, "elsewhere"), "rust-analyzer")
 	if got := findBinary("rust-analyzer", "", work, []string{cargoBin, filepath.Dir(elsewhere)}); got != elsewhere {
 		t.Fatalf("findBinary() = %q, want %q", got, elsewhere)
 	}
 
-	// The toolchain picked in the workspace has it.
 	if err := os.WriteFile(filepath.Join(work, "has-rust-analyzer"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +162,6 @@ func TestFindBinarySkipsARustupProxyWhoseToolchainLacksTheTool(t *testing.T) {
 func TestFindBinaryDoesNotAskRustupAboutAServerOfItsOwn(t *testing.T) {
 	root := t.TempDir()
 	bin := filepath.Join(root, "bin")
-	// A rustup that would say no, beside a rust-analyzer that is not its proxy.
 	installRustup(t, bin)
 	server := writeExecutable(t, bin, "rust-analyzer")
 
@@ -192,7 +177,6 @@ func TestFindBinaryGivesTheServerTheInstallDirectories(t *testing.T) {
 	t.Setenv("PATH", "")
 	t.Setenv("GOBIN", "")
 	t.Setenv("GOPATH", "")
-	// No login shell to ask.
 	t.Setenv("SHELL", filepath.Join(home, "no-shell"))
 	gopls := writeExecutable(t, filepath.Join(home, "go", "bin"), "gopls")
 
@@ -208,7 +192,6 @@ func TestFindBinaryGivesTheServerTheInstallDirectories(t *testing.T) {
 	if envPath[0] != filepath.Dir(gopls) {
 		t.Fatalf("EnvPath = %q, want the binary's directory first", result.EnvPath)
 	}
-	// Where rustup puts cargo, though no PATH names it.
 	if !slices.Contains(envPath, filepath.Join(home, ".cargo", "bin")) {
 		t.Fatalf("EnvPath = %q leaves out ~/.cargo/bin", result.EnvPath)
 	}
@@ -258,7 +241,6 @@ func TestLoginShellPathIsAskedEachTime(t *testing.T) {
 	t.Setenv("SHELL", shell)
 
 	for _, want := range []string{"/usr/bin:/bin", "/usr/bin:/bin:/usr/local/go/bin"} {
-		// The user sets up the PATH of a tool they just installed.
 		if err := os.WriteFile(pathFile, []byte(want), 0o644); err != nil {
 			t.Fatal(err)
 		}

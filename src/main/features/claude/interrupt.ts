@@ -1,51 +1,25 @@
-/**
- * Claude Code runs no hook when the user interrupts a turn, so its state
- * would stay "running" until the next prompt. An interrupting key typed into
- * the terminal (Esc, or Ctrl-C from the keyboard or the agent list),
- * followed shortly by a sign from Claude that the turn ended, sets it back
- * to idle. Claude prints "Interrupted" once it has answered something; before
- * that it puts the prompt back in its input instead, and either way its
- * terminal title gets back the idle mark it shows between turns.
- *
- * Denying a permission dialog of the session's own turn ("No", picked with
- * any key) interrupts the turn the same way, and no hook tells it either.
- * The dialog's title already shows the idle mark, so there only the line
- * counts.
- */
 import { showsClaudeIdleTitle } from "./idle-title";
 import type { ClaudeStatusBroker } from "./status";
 
-/** How long after the key Claude's sign counts. */
 export const INTERRUPT_WINDOW_MS = 3_000;
 
-/** The states a turn is in while it can be interrupted. */
 const INTERRUPTIBLE = new Set(["running", "permissionPending"]);
 
-/** The end of the output kept, since a chunk can end inside a title. */
 const TAIL_CHARS = 64;
 
-/** Esc alone is the key; longer input starting with it is an escape sequence. */
 function isInterruptKey(data: string): boolean {
   return data === "\x1b" || data.includes("\x03");
 }
 
-/** A cell output moved the cursor over instead of writing it. */
 const HOLE = "\0";
 
-/**
- * The lines Claude prints under the turn it stopped: "⎿  Interrupted · What
- * should Claude do instead?", or "⎿  Interrupted by user" in older versions.
- * Only those lines count, since a tool's output can say "Interrupted" too.
- */
 const INTERRUPTED_LINES = [
   "Interrupted · What should Claude do instead?",
   "⎿  Interrupted by user",
 ];
 
-/** How many of a line's cells can be holes for it to still count. */
 const HOLES_ALLOWED = 1 / 4;
 
-/** Whether `row` shows `line`, a hole standing for any cell. */
 function rowShows(row: string, line: string): boolean {
   const cells = Array.from(row);
   const want = Array.from(line);
@@ -62,23 +36,15 @@ function rowShows(row: string, line: string): boolean {
   return false;
 }
 
-/** A CSI sequence: parameters, intermediates, final. */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: CSI sequences start with ESC
 const CSI_AT = /\x1b\[([0-?]*)[ -/]*([@-~])/y;
-/** An OSC sequence, ended by BEL or ST. */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: OSC sequences start with ESC
 const OSC_AT = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/y;
 
-/**
- * The text output writes on the row its cursor is on. A redraw writes only
- * the cells that change and moves the cursor over the rest, so a line comes
- * with holes where it shows what was there already: blanks, and letters too.
- */
 class RowReader {
   private cells: string[] = [];
   private col = 0;
 
-  /** Reads `chunk`, telling each row it wrote on as it leaves it, and the last. */
   read(chunk: string, onRow: (row: string) => void): void {
     let i = 0;
     while (i < chunk.length) {
@@ -106,9 +72,7 @@ class RowReader {
     OSC_AT.lastIndex = at;
     if (OSC_AT.exec(chunk)) return OSC_AT.lastIndex;
     const next = chunk[at + 1];
-    // A charset choice, as ESC ( B, takes one more character.
     if (next !== undefined && "()*+".includes(next)) return at + 3;
-    // Restoring a saved cursor, or a reverse index, moves it to another row.
     if (next === "8" || next === "M") this.newRow(onRow, 0);
     return at + 2;
   }
@@ -140,7 +104,6 @@ class RowReader {
         this.newRow(onRow, (second ?? 1) - 1);
         break;
       case "K":
-        // Erasing to the end of the line, or all of it.
         if (params === "2") this.cells = [];
         else if (params === "" || params === "0") this.cells.splice(this.col);
         break;
@@ -166,17 +129,13 @@ class RowReader {
 }
 
 interface Armed {
-  /** When the window closes. */
   readonly deadline: number;
-  /** Whether Claude's idle title counts as the sign, as for an interrupting key. */
   readonly byTitle: boolean;
-  /** The end of the output so far, for a title split between chunks. */
   tail: string;
   readonly rows: RowReader;
 }
 
 export class ClaudeInterruptWatcher {
-  /** Each armed terminal's window and what it has printed since, keyed by workspace and tab. */
   private readonly armed = new Map<string, Armed>();
 
   constructor(
@@ -184,12 +143,10 @@ export class ClaudeInterruptWatcher {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /** Input typed into a terminal. */
   noteInput(workspaceId: string, tabId: string, data: string): void {
     const status = this.broker.get(workspaceId, tabId)?.status;
     if (status === undefined || !INTERRUPTIBLE.has(status)) return;
     const byKey = isInterruptKey(data);
-    // At a permission dialog any key can pick "No".
     if (!byKey && status !== "permissionPending") return;
     this.armed.set(`${workspaceId}:${tabId}`, {
       deadline: this.now() + INTERRUPT_WINDOW_MS,
@@ -199,7 +156,6 @@ export class ClaudeInterruptWatcher {
     });
   }
 
-  /** Output a terminal printed. */
   noteOutput(workspaceId: string, tabId: string, chunk: string): void {
     const key = `${workspaceId}:${tabId}`;
     const armed = this.armed.get(key);
@@ -224,7 +180,6 @@ export class ClaudeInterruptWatcher {
     return shown;
   }
 
-  /** Forgets a terminal that ended. */
   forget(workspaceId: string, tabId: string): void {
     this.armed.delete(`${workspaceId}:${tabId}`);
   }

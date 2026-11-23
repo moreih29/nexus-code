@@ -41,13 +41,11 @@ export const ConnectionModelSchema = z.object({
 });
 export type ConnectionModel = z.infer<typeof ConnectionModelSchema>;
 
-/** Whether Claude Code's capability-rule grammar can name this model exactly. */
 export function claudeReasoningModelIdSupported(id: string): boolean {
   const normalized = id.replace(/\[1m\]$/i, "");
   return !/[;,=]/.test(normalized) && !normalized.endsWith("*");
 }
 
-/** The effort levels a custom model offers, from the conservative default to its configured maximum. */
 export function connectionReasoningLevels(reasoning: ConnectionModel["reasoning"]): string[] {
   switch (reasoning) {
     case "max":
@@ -97,7 +95,6 @@ export function connectionDefaultModel(
   return profile.connection?.method === "custom" ? profile.connection.defaultModel : undefined;
 }
 
-/** A saved key follows its provider and the exact endpoint and auth method it was entered for. */
 export function connectionKeyTarget(
   agent: ChatAgent,
   connection:
@@ -155,7 +152,6 @@ export function connectionPreset(agent: ChatAgent, preset: ConnectionPreset) {
   };
 }
 
-/** Keep gateway path prefixes and reject credentials, query, and fragments in the base URL. */
 export function normalizeConnectionUrl(agent: ChatAgent, address: string): string {
   const url = new URL(address.trim());
   if (

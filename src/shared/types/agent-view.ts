@@ -6,17 +6,9 @@ import {
 } from "../../../packages/remote-protocol/src/validation";
 import { isRemoteFileKey, parseRemoteFileKey } from "../fs/remote-file-key";
 
-// ---------------------------------------------------------------------------
-// The agent view: the agents of every workspace side by side, in panels split
-// the way a workspace's groups are. Its panels hold tabs from any workspace
-// and peer files. A local tab uses its `${workspaceId}:${tabId}` key.
-// ---------------------------------------------------------------------------
-
-/** Which view the window shows: its workspaces, or the agents of all of them. */
 export const AgentViewModeSchema = z.enum(["workspace", "agents"]);
 export type AgentViewMode = z.infer<typeof AgentViewModeSchema>;
 
-/** A session key: the workspace's id and the tab's, joined by a colon. */
 const SessionKeySchema = z
   .string()
   .max(200)
@@ -42,7 +34,6 @@ export type RemoteFileSnapshot = z.infer<typeof RemoteFileSnapshotSchema>;
 export interface AgentViewLeaf {
   kind: "leaf";
   id: string;
-  /** Tab keys in panel order. */
   tabIds: string[];
   activeTabId: string | null;
 }
@@ -79,11 +70,6 @@ export const AgentViewNodeSchema: z.ZodType<AgentViewNode> = z.lazy(() =>
   ]),
 );
 
-/**
- * A terminal agent that ended while a panel held it, as the panel tells it
- * and takes it up again: kept over a restart, since the terminal comes back
- * a shell and nothing else tells what ran there.
- */
 export const EndedAgentSnapshotSchema = z.object({
   agent: z.enum(["claude", "codex"]).optional(),
   sessionId: z.string().max(200).optional(),
@@ -95,7 +81,6 @@ export const MAX_REMOTE_SEEN = 500;
 const RemoteSeenResultSchema = z.object({
   at: z.number(),
   undated: z.literal(true).optional(),
-  /** The quiet chat's listing timestamp when its open pane saw it. */
   listedAt: z.number().nullable().optional(),
 });
 export type RemoteSeenResult = z.infer<typeof RemoteSeenResultSchema>;
@@ -112,10 +97,8 @@ function isPeerFold(key: string): boolean {
   );
 }
 
-/** Preserve a stable peer fold when the remote IDs exceed the stored key limit. */
 export function boundedPeerFoldKey(key: string): string {
   if (key.length <= MAX_FOLD_KEY_LENGTH) return key;
-  // FNV-1a over UTF-16 units. This only identifies a fold preference.
   let hash = 0xcbf29ce484222325n;
   for (let i = 0; i < key.length; i++) {
     hash = BigInt.asUintN(64, (hash ^ BigInt(key.charCodeAt(i))) * 0x100000001b3n);
@@ -123,7 +106,6 @@ export function boundedPeerFoldKey(key: string): string {
   return `peer-hash:${hash.toString(16)}`;
 }
 
-/** Keep local folds and the latest peer folds, in the order they were stored. */
 export function normalizeAgentViewFolds(values: Iterable<unknown>): string[] {
   const keys = new Set<string>();
   for (const value of values) {
@@ -145,20 +127,13 @@ export const AgentViewSnapshotSchema = z.object({
   root: AgentViewNodeSchema,
   activeLeafId: z.guid(),
   remoteFiles: z.record(RemoteFileKeySchema, RemoteFileSnapshotSchema).optional().catch(undefined),
-  // The ended agents the panels show, by session key. Ones this version
-  // cannot read are dropped rather than costing the panels.
   ended: z.record(SessionKeySchema, EndedAgentSnapshotSchema).optional().catch(undefined),
-  // The order the list's agents were dragged into, by the workspace (or
-  // task) they run in. A workspace can have more tabs than a single panel.
   order: z.record(z.string().max(200), z.array(SessionKeySchema)).optional().catch(undefined),
   peerOrder: z
     .object({ accountKey: z.string(), ids: z.array(DeviceIdSchema) })
     .optional()
     .catch(undefined),
-  // How the list groups its agents: by their state, or by their workspace.
-  // Absent, or one this version lacks = by state.
   grouping: z.string().max(32).optional().catch(undefined),
-  // The list's folded groups, keyed by status, workspace, family, peer or peer-ws.
   folded: z.array(z.unknown()).transform(normalizeAgentViewFolds).optional().catch(undefined),
   remoteSeen: z
     .object({

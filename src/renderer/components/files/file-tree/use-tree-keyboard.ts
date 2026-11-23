@@ -1,18 +1,4 @@
-/**
- * WAI-ARIA tree keyboard interaction hook.
- *
- * Implements the ARIA authoring practices for the `tree` role:
- * https://www.w3.org/WAI/ARIA/apg/patterns/treeview/
- *
- * No I/O. The hook is a pure input→output computation over the rows array
- * plus React state. Callers own the DOM refs and any focus restoration.
- */
-
 import { useCallback } from "react";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export interface TreeKeyboardRow {
   kind: "dir" | "file" | "match" | "leaf";
@@ -43,26 +29,6 @@ export interface UseTreeKeyboardResult {
   getRowProps: (idx: number) => TreeRowProps;
 }
 
-// ---------------------------------------------------------------------------
-// Key handling
-// ---------------------------------------------------------------------------
-
-/**
- * Applies one keydown to a WAI-ARIA tree. The hook's `onKeyDown` delegates
- * here; it is exported so the key map can be tested without React.
- *
- * Key bindings (ARIA tree pattern):
- *  ↑ / ↓   Move focus up / down (no wrap-around at edges).
- *  ←       If dir and expanded → collapse (onToggle). If collapsed or file
- *           → move to parent dir row.
- *  →       If dir and collapsed → expand (onToggle). If expanded → move to
- *           first child.
- *  Home    Move to first row.
- *  End     Move to last row.
- *  Enter   dir → toggle, file/leaf/match → activate.
- *  Space   Activate current row (mirrors browser default Enter for buttons
- *           but kept here for consistency with ARIA practices).
- */
 export function handleTreeKey(
   e: Pick<KeyboardEvent, "key" | "preventDefault">,
   opts: UseTreeKeyboardOptions,
@@ -91,10 +57,8 @@ export function handleTreeKey(
       if (!current) break;
       if (current.kind === "dir") {
         if (!current.isExpanded) {
-          // Expand.
           onToggle(current.relPath, true);
         } else {
-          // Already expanded → move to first child.
           const firstChild = rows.findIndex(
             (r, i) => i > focusedIndex && r.parentRelPath === current.relPath,
           );
@@ -108,10 +72,8 @@ export function handleTreeKey(
       e.preventDefault();
       if (!current) break;
       if (current.kind === "dir" && current.isExpanded) {
-        // Collapse.
         onToggle(current.relPath, false);
       } else {
-        // Move to parent dir.
         const parentRelPath = current.parentRelPath;
         if (parentRelPath !== undefined && parentRelPath !== "") {
           const parentIdx = rows.findIndex((r) => r.relPath === parentRelPath);
@@ -156,14 +118,6 @@ export function handleTreeKey(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
-
-/**
- * Returns keyboard event handler and per-row ARIA prop getter for a
- * WAI-ARIA tree widget. See `handleTreeKey` for the key bindings.
- */
 export function useTreeKeyboard(opts: UseTreeKeyboardOptions): UseTreeKeyboardResult {
   const { rows, focusedIndex, onMove, onToggle, onActivate } = opts;
 

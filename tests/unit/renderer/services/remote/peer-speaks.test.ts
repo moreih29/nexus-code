@@ -1,7 +1,3 @@
-/**
- * Whether another device speaks a protocol version: one before 0.13.1 drops
- * terminal.open's `profile`, so its terminals do not sign a chat's profile in.
- */
 import { describe, expect, test } from "bun:test";
 import type { RoomPeer } from "../../../../../src/shared/remote/room";
 

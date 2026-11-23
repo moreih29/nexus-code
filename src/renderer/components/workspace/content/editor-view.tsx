@@ -21,10 +21,10 @@ import { toggleTaskMarker } from "../../../services/editor/preview/task-toggle";
 import { useGitSession, useGitStore } from "../../../state/stores/git";
 import { usePreviewDefaultsStore } from "../../../state/stores/preview-defaults";
 import { useTabsStore } from "../../../state/stores/tabs";
-import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { useWorkspace, useWorkspacesStore } from "../../../state/stores/workspaces";
 import { cn } from "../../../utils/cn";
 import { fileErrorMessage } from "../../../utils/file-error";
-import { relPath } from "../../../utils/path";
+import { relativeTo } from "../../../utils/path";
 import { HtmlPreview } from "../../editor/preview/html-preview";
 import { ImagePreview } from "../../editor/preview/image-preview";
 import { JsonTreePreview } from "../../editor/preview/json-tree-preview";
@@ -39,7 +39,6 @@ import { EditorBreadcrumbs } from "./editor-breadcrumbs";
 import { ReadOnlyBanner } from "./read-only-banner";
 import { useEditorMount } from "./use-editor-mount";
 
-// Re-export for consumers (including drift-prone tests).
 export { createCrossFileOpenCodeEditorOpener } from "../../../services/editor/tabs/cross-file-opener";
 
 const MarkdownPreview = lazy(() =>
@@ -56,18 +55,7 @@ const NotebookPreview = lazy(() =>
 interface EditorViewProps {
   filePath: string;
   workspaceId: string;
-  /**
-   * Owning tab id, threaded through by ContentHost. Used to read/write the
-   * per-tab `viewMode` (raw/preview) in the tabs store. Splits of the same
-   * file can therefore hold one tab in raw mode and another in preview
-   * mode independently.
-   */
   tabId: string;
-  /**
-   * Model origin forwarded to the shared-model cache. Defaults to "workspace"
-   * when omitted. Must be "untitled" for unsaved new-file buffers so the
-   * cache routes to `createUntitledEntry` (no fs I/O, no LSP, immediate ready).
-   */
   origin?: "workspace" | "external" | "untitled";
 }
 
@@ -77,23 +65,9 @@ const editorOptions = {
   fontFamily: fontFamily.monoBody,
   scrollBeyondLastLine: false,
   automaticLayout: true,
-  // Monaco's standalone editor disables LSP semantic tokens by default —
-  // 'semanticHighlighting.enabled' defaults to 'configuredByTheme' which
-  // requires a theme-level `semanticHighlighting` flag, but that property
-  // does NOT exist on IStandaloneThemeData and is silently dropped by
-  // monaco.editor.defineTheme(). Setting the editor option directly is the
-  // canonical way to enable semantic-tokens rendering, per Monaco's
-  // official sample (microsoft/monaco-editor PR #2103). Without this flag,
-  // registerDocumentSemanticTokensProvider keeps being called but Monaco
-  // discards the returned tokens entirely.
   "semanticHighlighting.enabled": true,
 } satisfies Monaco.editor.IStandaloneEditorConstructionOptions;
 
-/**
- * Returns whether the current file is listed as conflicted in the git merge
- * group for this workspace. Uses `repoInfo.topLevel` to compute the
- * git-relative path that matches `GitStatusEntry.relPath`.
- */
 function useIsFileConflicted(filePath: string, workspaceId: string): boolean {
   const session = useGitSession(workspaceId);
   if (!session?.status) return false;
@@ -106,50 +80,12 @@ function useIsFileConflicted(filePath: string, workspaceId: string): boolean {
 
   if (!repoRoot) return false;
 
-  const gitRelPath = relPath(filePath, repoRoot);
+  const gitRelPath = relativeTo(filePath, repoRoot);
   return session.status.merge.some(
     (entry) => entry.relPath === gitRelPath && entry.conflictType !== null,
   );
 }
 
-/**
- * Tracks whether the Monaco model's current text contains conflict markers.
- * Subscribes to `onDidChangeContent` so the value updates in real time as the
- * user accepts conflict blocks.
- *
- * `model.isDisposed()` guards every `getValue()` call. The shared-model cache
- * disposes the underlying TextModel asynchronously (refcount drop, workspace
- * cleanup, external-model eviction) and the React state can still hold the
- * stale reference for one render — without the guard, the passive effect
- * mounts against a disposed model and Monaco throws "Model is disposed!",
- * which bubbles into the workspace ErrorBoundary and causes dev-mode error
- * recovery to remount the editor subtree in a loop.
- */
-/**
- * Live-tracks the Monaco model's text as React state, coalesced to one
- * update per animation frame. Used by the Preview panes so raw edits flow
- * into the rendered output without re-reading `model.getValue()` on every
- * render. External-change reconciliation also fires `onDidChangeContent`
- * once the cache replaces the buffer, so this single subscription covers
- * both "user typed" and "file changed on disk" reflows.
- *
- * EAGER RESYNC ON MODEL IDENTITY CHANGE
- *   `useEffect` runs after commit, so the first render after a raw→preview
- *   toggle would otherwise show the stale `""` source until the effect
- *   fires. For `<iframe>` consumers (HtmlPreview) that initial empty
- *   document can latch and the pane stays blank. We use the "adjust state
- *   during render" pattern (React docs §Derived State) to pull the new
- *   model's value synchronously whenever its identity changes.
- *
- * A PREVIEW IN A VIEW (`view`)
- *   Given the element the preview shows in, the text is held while that
- *   element is out of sight (a tab in the background is parked at 0×0) and
- *   read again as it comes back, before it paints, so a background preview
- *   parses nothing and a shown one is never behind. While the text keeps
- *   changing (typing in a split, an agent writing), updates are spaced by
- *   what the last one cost: a light document still follows every frame, a
- *   heavy one leaves the main thread twice its render time between.
- */
 export function useModelSource(
   model: Monaco.editor.ITextModel | null,
   view?: React.RefObject<HTMLElement | null>,
@@ -164,7 +100,6 @@ export function useModelSource(
     setSource(model && !model.isDisposed() ? model.getValue() : "");
   }
 
-  // What the last update cost, from setting the text to its commit.
   const updateCost = useRef(0);
   const updateAskedAt = useRef<number | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: measures each commit of a new text
@@ -180,7 +115,6 @@ export function useModelSource(
 
     let rafId: number | null = null;
     let timerId: ReturnType<typeof setTimeout> | null = null;
-    // Out of sight, as the view's size last reported; text left unread meanwhile.
     let parked = false;
     let behind = false;
     let lastUpdate = 0;
@@ -189,7 +123,6 @@ export function useModelSource(
       lastUpdate = performance.now();
       updateAskedAt.current = lastUpdate;
       setSource((shown) => {
-        // The same text commits nothing, so there is no cost to measure.
         if (shown === text) updateAskedAt.current = null;
         return text;
       });
@@ -217,12 +150,8 @@ export function useModelSource(
       if (wait > 0) timerId = setTimeout(flush, wait);
       else rafId = requestAnimationFrame(flush);
     });
-    // Reported after layout and before paint: text read as the view comes
-    // back is drawn in the frame that shows it.
     const resize = viewEl
       ? new ResizeObserver(([entry]) => {
-          // A view taken out of the document (the editor shows its loading
-          // state) is not watched any more: the text follows as it did before.
           parked =
             viewEl.isConnected && entry.contentRect.width === 0 && entry.contentRect.height === 0;
           if (parked || !behind || model.isDisposed()) return;
@@ -254,8 +183,6 @@ function useModelHasMarkers(model: Monaco.editor.ITextModel | null): boolean {
     }
     setHasMarkers(hasConflictMarkers(model.getValue()));
     const disposable = model.onDidChangeContent(() => {
-      // The change event can fire one tick before the cache disposes the model
-      // (reload-from-disk → cleanup paths). Re-check before touching it.
       if (model.isDisposed()) return;
       setHasMarkers(hasConflictMarkers(model.getValue()));
     });
@@ -279,10 +206,6 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
     phase,
   });
 
-  // Conflict-resolved banner state — only computed when the file is writable
-  // and git reports it conflicted. The banner ignores `hasMarkers` otherwise,
-  // and the scan is a full-buffer getValue() + search on EVERY content change,
-  // which is a real per-keystroke cost on large files.
   const isConflicted = useIsFileConflicted(filePath, workspaceId);
   const hasMarkers = useModelHasMarkers(!readOnly && isConflicted ? (model ?? null) : null);
   const markResolved = useGitStore((s) => s.markResolved);
@@ -297,10 +220,6 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
     phase === "ready",
   );
 
-  // ----- Raw/Preview view-mode wiring (plan 60) ----------------------------
-  // previewSupport stays stable for a given filePath because EditorView keys
-  // on filePath; computing it inline avoids a memo. View mode reads from the
-  // tabs store so split tabs of the same file can hold independent modes.
   const previewSupport = isPreviewable(filePath);
   const storedViewMode = useTabsStore((s) =>
     s.byWorkspace[workspaceId]?.[tabId]?.type === "editor"
@@ -313,17 +232,10 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
     defaultViewMode(filePath, viewDefaults);
   const setViewMode = useTabsStore((s) => s.setViewMode);
 
-  // Live markdown/html/svg source — subscribed only when actually previewing,
-  // since react-markdown re-parses on every state update and we don't want to
-  // pay that cost when the user keeps the toggle on Raw.
   const showPreview = viewMode === "preview" && previewSupport === "supported";
   const viewRef = useRef<HTMLDivElement | null>(null);
   const previewSource = useModelSource(showPreview ? (model ?? null) : null, viewRef);
 
-  // Toggle a GFM task checkbox from the markdown preview back into the model.
-  // The edit goes through `pushEditOperations` so it lands on the undo stack
-  // and marks the buffer dirty — identical to the user typing the change in
-  // the editor. Suppressed when the model is read-only.
   const onToggleTask = useCallback(
     (modelLine: number) => {
       if (!model || model.isDisposed() || readOnly) return;
@@ -350,10 +262,7 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
     [model, readOnly],
   );
 
-  // Workspace root for link/image resolution inside the markdown renderer.
-  const workspaceRootAbsPath = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
-  );
+  const workspaceRootAbsPath = useWorkspace(workspaceId, (w) => w?.rootPath ?? "");
 
   if (phase === "loading" || (phase === "ready" && !model)) {
     return <EmptyState title={t("editor.loading")} tone="status" className="min-h-0" />;
@@ -382,7 +291,7 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
         : (useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId)?.rootPath ??
           null);
     if (!repoRoot) return;
-    void markResolved(workspaceId, [relPath(filePath, repoRoot)]);
+    void markResolved(workspaceId, [relativeTo(filePath, repoRoot)]);
   }
 
   return (
@@ -391,7 +300,6 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
         <ReadOnlyBanner
           dismiss={readOnlyNotice.dismiss}
           onRevealInFinder={() => {
-            // Fire-and-forget: reveal in OS is a one-shot shell action with no UI feedback.
             void ipcCallResult("system", "revealInOS", { absPath: filePath });
           }}
         />
@@ -405,14 +313,6 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
         />
       )}
 
-      {/*
-        Toolbar row — always shown for editor tabs. Left: workspace-relative
-        breadcrumb so the user can locate the file at a glance. Right: the
-        Raw/Preview toggle, present only when the file extension supports
-        rendering (markdown/html/svg). For non-previewable files the row
-        still appears so the breadcrumb keeps a consistent location across
-        all editor tabs.
-      */}
       <div className="flex items-center justify-between gap-2 overflow-hidden px-2 py-1 border-b border-[var(--surface-island-border)]">
         <EditorBreadcrumbs filePath={filePath} workspaceRootAbsPath={workspaceRootAbsPath} />
         {previewSupport !== "none" && (
@@ -427,11 +327,6 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
         )}
       </div>
 
-      {/*
-        Keep Monaco mounted at all times — toggling to Preview only hides it
-        via CSS. Unmounting would tear down the model attachment and force a
-        heavyweight re-create cycle when the user toggles back to Raw.
-      */}
       <div className={cn("flex-1 min-h-0", showPreview && "hidden")}>
         <Editor
           height="100%"
@@ -463,29 +358,10 @@ interface ImageEditorViewProps {
   workspaceId: string;
 }
 
-/**
- * Editor surface for raster image files. Renders the same breadcrumb
- * toolbar row as the text editor so split tabs feel consistent, and hands
- * off the file body to ImagePreview (custom-protocol `<img>`).
- *
- * The toolbar's right slot — which holds the Raw/Preview toggle for text
- * tabs — is repurposed here as a resolution chip ("3840 × 2160"). Pixel
- * dimensions are reported up from ImagePreview's onLoad callback so the
- * image fetch isn't duplicated. Each split tab carries its own resolution
- * because ImageEditorView mounts per split.
- *
- * No model acquisition, no Monaco mount, no raw/preview toggle — images
- * are non-editable in v1.
- */
 export function ImageEditorView({ filePath, workspaceId }: ImageEditorViewProps) {
-  const workspaceRootAbsPath = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
-  );
+  const workspaceRootAbsPath = useWorkspace(workspaceId, (w) => w?.rootPath ?? "");
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
 
-  // useCallback so ImagePreview's onLoad doesn't re-fire on every parent
-  // render. The image's intrinsic size is stable for a given filePath
-  // (the host keys EditorView on filePath, so a new file = new instance).
   const handleNaturalSize = useCallback((size: { w: number; h: number }) => {
     setNaturalSize(size);
   }, []);
@@ -507,11 +383,6 @@ export function ImageEditorView({ filePath, workspaceId }: ImageEditorViewProps)
   );
 }
 
-/**
- * Compact width × height label rendered on the right of the image
- * editor's toolbar row. Uses U+00D7 (×) for typographic correctness and
- * tabular-nums so digits don't shift as the value lands.
- */
 function ImageResolutionChip({ size }: { size: { w: number; h: number } }) {
   const { t } = useTranslation();
   const label = `${size.w} × ${size.h}`;
@@ -530,15 +401,9 @@ interface PreviewPaneProps {
   workspaceId: string;
   workspaceRootAbsPath: string;
   source: string;
-  /** Forwarded to MarkdownPreview for interactive task checkboxes. */
   onToggleTask?: (modelLine: number) => void;
 }
 
-/**
- * Dispatches the concrete preview component based on the file's extension.
- * Pulled out so EditorView's render stays linear and the dispatch table is
- * easy to extend (e.g. adding `.json` schema preview later).
- */
 export function PreviewPane({
   filePath,
   workspaceId,

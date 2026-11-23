@@ -1,5 +1,3 @@
-/** nexus browser network: the requests a browser tab's pages made. */
-
 import { CliUsageError } from "../args";
 import type { RequestDetails } from "../browser/driver";
 import { type NetworkEntry, requestFailed } from "../browser/network-log";
@@ -9,7 +7,6 @@ import { clockTime, PAGE_FLAGS, pageOf } from "./browser-control";
 
 const DEFAULT_LAST = 50;
 const DEFAULT_BODY_CHARS = 4_000;
-/** How much of a URL a line of the list shows. */
 const URL_CHARS = 100;
 
 const browserNetwork: CliCommand = {

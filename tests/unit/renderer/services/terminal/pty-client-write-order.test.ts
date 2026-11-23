@@ -1,8 +1,3 @@
-/**
- * Terminal input reaches the PTY in the order it was typed: one write per
- * session is in flight at a time, since the agent may run two writes sent
- * back to back in either order.
- */
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 
 interface WriteCall {
@@ -37,7 +32,6 @@ const { forgetSession, writeSession } = await import(
   "../../../../../src/renderer/services/terminal/pty-client"
 );
 
-/** Lets the settled write's continuation run. */
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 beforeEach(() => {

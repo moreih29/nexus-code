@@ -17,19 +17,11 @@ const (
 	shutdownRequestTimeout = 750 * time.Millisecond
 	shutdownExitGrace      = 750 * time.Millisecond
 
-	// outputDrainGrace bounds how long an exited server's stdout and stderr
-	// are still read: normally until EOF, which is immediate, but a child
-	// of the server can hold the pipes open. Kept under shutdownExitGrace
-	// so a graceful shutdown still sees the exit in time.
 	outputDrainGrace = 500 * time.Millisecond
 
-	// stderrTailBytes caps the in-memory stderr ring buffer per server.
-	// 8 KB is enough to capture a typical Node/Python panic trace without
-	// growing unbounded for chatty servers.
 	stderrTailBytes = 8 * 1024
 )
 
-// EventSink is the callback lsp uses to push server messages back to Electron.
 type EventSink func(event string, payload any) error
 
 type SpawnParams struct {
@@ -40,30 +32,12 @@ type SpawnParams struct {
 	WorkspaceRoot string   `json:"workspaceRoot"`
 	IdleTimeoutMs *int     `json:"idleTimeoutMs,omitempty"`
 
-	// CorrelationID is opaque to the agent. The TS client supplies it so
-	// pre-spawn-resolution events (server-pushed messages emitted while
-	// initialize is still in flight) can be attributed to the requesting
-	// workspace+language pair before serverId is known.
 	CorrelationID string `json:"correlationId,omitempty"`
 
-	// Capabilities is the LSP client capabilities object the client wants
-	// embedded into the `initialize` request. The agent does not interpret
-	// any of its fields — it is forwarded verbatim under the `capabilities`
-	// key. When empty, the agent sends an empty object so the LSP server
-	// still sees a valid initialize message. Defining client capabilities
-	// is method-specific knowledge owned by the Electron side; see
-	// `src/shared/lsp/client-capabilities.ts`.
 	Capabilities json.RawMessage `json:"capabilities,omitempty"`
 
-	// InitializationOptions is the server's own configuration, which the
-	// agent sends as the `initializationOptions` of `initialize` without
-	// reading it. Some settings take effect only there, such as
-	// typescript-language-server's tsserver options.
 	InitializationOptions json.RawMessage `json:"initializationOptions,omitempty"`
 
-	// Env adds to the agent's own environment, taking precedence over it.
-	// The app sets ELECTRON_RUN_AS_NODE here to run a server's script on
-	// its own runtime.
 	Env map[string]string `json:"env,omitempty"`
 }
 
@@ -73,22 +47,17 @@ type SpawnResult struct {
 	ServerInfo   *ServerInfo     `json:"serverInfo,omitempty"`
 }
 
-// ServerInfo is the name and version a server gives in its initialize
-// result, when it gives them.
 type ServerInfo struct {
 	Name    string `json:"name"`
 	Version string `json:"version,omitempty"`
 }
 
-// StatsResult answers lsp.stats.
 type StatsResult struct {
 	Servers []ServerStats `json:"servers"`
 }
 
 type ServerStats struct {
 	ServerID string `json:"serverId"`
-	// RSSBytes is the resident memory of the server and of the processes
-	// it started.
 	RSSBytes uint64 `json:"rssBytes"`
 }
 
@@ -97,10 +66,6 @@ type SendParams struct {
 	Message  json.RawMessage `json:"message"`
 }
 
-// NotifyParams is the wire shape for lsp.notify — identical to SendParams.
-// The separate method name signals that the caller is sending an LSP
-// notification and does not await a meaningful response; the handler
-// forwards the message and returns a void ack without blocking the caller.
 type NotifyParams = SendParams
 
 type CancelParams struct {
@@ -131,26 +96,16 @@ type ServerRequestPayload struct {
 	Params         json.RawMessage `json:"params,omitempty"`
 }
 
-// ServerAssignedPayload is emitted exactly once per spawn, immediately after
-// the agent assigns a serverId and before initialize runs. Clients use it to
-// bind serverId↔correlationId so they can route messages that arrive while
-// the spawn call is still in flight.
 type ServerAssignedPayload struct {
 	ServerID      string `json:"serverId"`
 	CorrelationID string `json:"correlationId,omitempty"`
 }
 
-// ServerExitedPayload is emitted when an LSP server process terminates
-// (clean shutdown, crash, or kill). Reason is best-effort human text; the
-// stderrTail field carries the last few KB of stderr to help diagnosis.
 type ServerExitedPayload struct {
 	ServerID   string `json:"serverId"`
 	Reason     string `json:"reason,omitempty"`
 	StderrTail string `json:"stderrTail,omitempty"`
-	// Shutdown is set when the agent stopped the server: it sat idle past
-	// its timeout, or the client asked. Any other exit is the server's own,
-	// a crash above all.
-	Shutdown bool `json:"shutdown,omitempty"`
+	Shutdown   bool   `json:"shutdown,omitempty"`
 }
 
 type jsonRPCError struct {

@@ -1,6 +1,3 @@
-/**
- * Scenario tests for the singleton SSH auth prompt FIFO controller.
- */
 import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import {

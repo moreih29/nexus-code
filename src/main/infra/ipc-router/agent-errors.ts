@@ -2,14 +2,12 @@ import { type IpcErrResult, ipcErr } from "../../../shared/ipc/result";
 import { type SshErrorCode, SshErrorCodeSchema } from "../../../shared/ssh/errors";
 import { messageForSshErrorCode } from "../agent/pipe";
 
-/** Reads a known SSH or agent transport code without exposing raw stderr. */
 export function sshErrorCode(error: unknown): SshErrorCode | undefined {
   if (typeof error !== "object" || error === null || !("code" in error)) return;
   const parsed = SshErrorCodeSchema.safeParse(error.code);
   return parsed.success ? parsed.data : undefined;
 }
 
-/** Recognizes cancellation even when the SSH transport wrapped the prompt error. */
 function isAuthCancellation(error: unknown): boolean {
   const seen = new Set<Error>();
   while (error instanceof Error && !seen.has(error)) {
@@ -20,7 +18,6 @@ function isAuthCancellation(error: unknown): boolean {
   return false;
 }
 
-/** Envelopes expected agent failures while leaving unexpected exceptions to the router. */
 export function agentCallError(
   error: unknown,
   kind: "unavailable" | "auth-failed" | "connection-failed" = "unavailable",

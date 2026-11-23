@@ -1,8 +1,3 @@
-/**
- * Asks the renderer to do what only it can for a nexus command, and waits
- * for its answer: main sends "cli:uiRequest" to the app's window and the
- * renderer calls cli.uiRespond.
- */
 import type { CliUiOp, CliUiOps, CliUiRespondArgs } from "../../../shared/cli/ui";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import { limitLog } from "../../../shared/log/limit";
@@ -11,7 +6,6 @@ import { CliError } from "./context";
 
 const timeouts = limitLog(createLogger("cli-bridge"));
 
-/** How long the renderer has to answer. */
 const UI_TIMEOUT_MS = 15_000;
 
 export interface UiWindow {
@@ -19,8 +13,17 @@ export interface UiWindow {
     readonly id?: number;
     send(channel: string, ...args: unknown[]): void;
     focus(): void;
+    on?(event: RendererGoneEvent, listener: () => void): unknown;
+    removeListener?(event: RendererGoneEvent, listener: () => void): unknown;
   };
 }
+
+type RendererGoneEvent = "did-navigate" | "render-process-gone" | "destroyed";
+const RENDERER_GONE_EVENTS: readonly RendererGoneEvent[] = [
+  "did-navigate",
+  "render-process-gone",
+  "destroyed",
+];
 
 const replyKey = (requestId: string, senderId?: number): string =>
   senderId === undefined ? requestId : `${senderId}:${requestId}`;
@@ -41,7 +44,7 @@ export class RendererBridge {
   }
 
   async askIn<K extends CliUiOp>(
-    contents: Pick<UiWindow["webContents"], "id" | "send"> | undefined,
+    contents: Pick<UiWindow["webContents"], "id" | "send" | "on" | "removeListener"> | undefined,
     op: K,
     args: CliUiOps[K]["args"],
     timeoutMs: number,
@@ -69,17 +72,24 @@ export class RendererBridge {
         signal?.reason instanceof Error ? signal.reason : new CliError("the command was cancelled"),
       );
     signal?.addEventListener("abort", cancel, { once: true });
+    const gone = () =>
+      this.pending.reject(key, new CliError("NexusCode's window was reloaded or closed"));
+    const watchGone = !Number.isFinite(timeoutMs);
+    if (watchGone) for (const event of RENDERER_GONE_EVENTS) contents.on?.(event, gone);
     try {
       contents.send("ipc:event", "cli", "uiRequest", { requestId, op, args });
     } catch (error) {
       this.pending.reject(key, error instanceof Error ? error : new Error(String(error)));
     }
-    const response = await answer.finally(() => signal?.removeEventListener("abort", cancel));
+    const response = await answer.finally(() => {
+      signal?.removeEventListener("abort", cancel);
+      if (watchGone)
+        for (const event of RENDERER_GONE_EVENTS) contents.removeListener?.(event, gone);
+    });
     if (!response.ok) throw new CliError(response.error ?? `${op} failed`);
     return response.value as CliUiOps[K]["result"];
   }
 
-  /** Takes the renderer's answer to one request. */
   resolve(response: CliUiRespondArgs, senderId?: number): void {
     this.pending.resolve(replyKey(response.requestId, senderId), response);
   }

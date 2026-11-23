@@ -1,6 +1,3 @@
-// Remote chat reads are scoped to a live connection. Versioned attachment
-// candidates can be checked again while the peer stays in the room.
-
 import { useCallback, useSyncExternalStore } from "react";
 import type { RemoteAccountState } from "../../../shared/remote/account";
 import type { RoomState } from "../../../shared/remote/room";
@@ -14,6 +11,7 @@ import {
   type RemoteImageRef,
   remoteImageKey,
 } from "../chat/model";
+import { peerRejoins } from "./room";
 
 interface ReadAccess {
   id: number;
@@ -147,7 +145,6 @@ function peerReads<T>(limits?: CacheLimits<T>, maxActive = MAX_ACTIVE) {
       const request = new Promise<T>((resolve, reject) => {
         const start = () => {
           active++;
-          // Start after recording the promise, including when IPC throws immediately.
           Promise.resolve().then(run).then(resolve, reject);
         };
         if (active < maxActive) start();
@@ -159,8 +156,6 @@ function peerReads<T>(limits?: CacheLimits<T>, maxActive = MAX_ACTIVE) {
   };
 }
 
-// Budget the retained strings at up to two bytes per code unit plus entry
-// limits for object/collection overhead. Mutable pictures only share IPC in flight.
 const IMAGE_EDGE = 2048;
 interface Attachment {
   image: ImageBlock;
@@ -169,7 +164,6 @@ interface Attachment {
 
 const attachments = peerReads<Attachment>({
   revalidate: true,
-  // Each read gets fresh version proof, even after the peer returns to the room.
   scope: (access) => access.scopeId,
   entries: 128,
   bytes: 16 * 1024 * 1024,
@@ -190,10 +184,8 @@ const folderNames = peerReads<ReadonlySet<string>>({
   },
 });
 
-// The host limits concurrent whole-file image reads and queues only a few.
 const pictures = peerReads<ImageBlock>(undefined, 8);
 
-// Whether a file that computer serves by its name is there, for a while.
 const presence = peerReads<boolean>({
   entries: 512,
   bytes: 256 * 1024,
@@ -264,7 +256,6 @@ export function peerImageLoader(
   );
 }
 
-/** A path's folder and name, by either separator (that computer may be Windows). */
 function splitPath(path: string): { dir: string; name: string } | null {
   const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
   if (cut < 0 || cut === path.length - 1) return null;
@@ -300,8 +291,6 @@ export function peerChatFiles(
         inDir.push({ path, name: parts.name });
         byDir.set(parts.dir, inDir);
       }
-      // Large lookups still get a chance to visit each folder, without
-      // starting an IPC for every directory at once.
       const dirs = [...byDir];
       const found = new Set<string>();
       for (let i = 0; i < dirs.length && !current.signal.aborted; i += MAX_ACTIVE) {
@@ -321,7 +310,6 @@ export function peerChatFiles(
       const missing = new Set<string>();
       await Promise.all(
         paths.map(async (path) => {
-          // Its metadata alone, read as its picture would be: within what that computer serves.
           const there = await presence
             .read(current, key(path), async (signal) => {
               const result = await ipcCallResult(
@@ -332,7 +320,6 @@ export function peerChatFiles(
               );
               if (result.ok) return true;
               if (result.kind === "not-found") return false;
-              // An older computer, a denial, the room: nothing is told of the file.
               throw new Error(result.message);
             })
             .catch(() => true);
@@ -343,7 +330,6 @@ export function peerChatFiles(
     },
     picture(path) {
       return pictures.read(current, key(path), async (signal) => {
-        // Main checks the current file and its access on every distinct read.
         const result = await ipcCallResult(
           "remote",
           "peerFilesRead",
@@ -406,7 +392,7 @@ function reset(peer: WatchedPeer, connection: string | null, reads: string | nul
 function updatePeer(id: string, watcher: WatchedPeer, refresh = false) {
   const peer = room?.status === "online" ? room.peers.find((p) => p.id === id) : undefined;
   const serves = peer?.serves?.slice().sort();
-  const connection = peer?.online ? JSON.stringify([peer.rejoins ?? 0, peer.schema, serves]) : null;
+  const connection = peer?.online ? JSON.stringify([peerRejoins(peer), peer.schema, serves]) : null;
   const allowed = serves?.filter((method) => method === "chat.read" || method === "files");
   const reads = peer ? JSON.stringify(allowed ?? ["chat.read", "files"]) : null;
   if (

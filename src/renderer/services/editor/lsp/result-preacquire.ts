@@ -1,57 +1,15 @@
-// Pre-acquire monaco models for cross-file LSP result URIs (definition,
-// references) before returning them to monaco. Without this, monaco's peek
-// widget calls `ITextModelService.createModelReference(uri)` on each result
-// to render an inline preview, and standalone monaco's default text-model
-// service throws "Model not found" because we have not yet created models
-// for those URIs (our model-cache only fires on app-level acquireModel).
-//
-// Strategy:
-//   1. Inspect each result Location, derive an EditorInput
-//      (workspace vs external is decided by isWithinWorkspace against the
-//      source workspace's root).
-//   2. Await acquireModel for all results in parallel. By the time the
-//      provider returns, models exist in monaco's registry.
-//   3. Schedule a release after PEEK_PREACQUIRE_HOLD_MS. The hold window
-//      is long enough for peek to render and (if the user navigates) for
-//      the opener's own acquireModel to take a real reference. Short
-//      enough that an unused pre-acquire releases promptly.
-//
-// Dependency injection: the deps map is required (no default). Production
-// callers receive a pre-built closure from the installation seam
-// (monaco-compensations.ts). Tests pass their own deps map to avoid
-// process-global mock.module pollution of model-cache exports — Bun's
-// `mock.module` replaces modules across all test files in the same
-// process, so we deliberately keep production-side mocks limited to
-// shared modules whose exports are stable.
-//
-// Long-term, this whole module becomes unnecessary once we migrate to
-// monaco-vscode-api with an IFileService overlay (separate effort).
-
 import type * as Monaco from "monaco-editor";
 import { isWithinWorkspace } from "../../../utils/path";
 import type { EditorInput } from "../types";
 
-/**
- * How long pre-acquired models are held before scheduled release.
- * Exposed for tests (override via fake timers).
- */
 export const PEEK_PREACQUIRE_HOLD_MS = 30_000;
 
-/**
- * Most result files pre-acquired per request. Each one is a file read, an
- * LSP didOpen/didClose and fs/git watchers, and the peek waits for all of
- * them, so references to a common symbol (hundreds of files) took seconds
- * to appear, longer over SSH. The peek opens on the first results; files
- * past the cap show without an inline preview and still open on click.
- */
 export const PEEK_PREACQUIRE_MAX_FILES = 20;
 
-/** Monaco's CancellationToken, reduced to what this module reads. */
 export interface PreAcquireCancellation {
   readonly isCancellationRequested: boolean;
 }
 
-/** Minimal cache metadata needed to derive a target EditorInput. */
 export interface CacheEntryMeta {
   workspaceId: string;
 }
@@ -72,25 +30,9 @@ function inputForLocation(
   if (workspaceRoot !== null && isWithinWorkspace(filePath, workspaceRoot)) {
     return { workspaceId, filePath };
   }
-  // Outside workspace → external read-only (mirrors the opener's branch in
-  // editor-view.tsx so the same file resolves to the same ModelEntry whether
-  // pre-acquire or the opener creates it first).
   return { workspaceId, filePath, origin: "external", readOnly: true };
 }
 
-/**
- * Pre-acquire monaco models for cross-file LSP result locations.
- *
- * @param locations Result locations from a definition / references provider.
- * @param sourceCacheUri The `model.uri.toString()` of the model that fired
- *        the provider. Used to look up the source workspace and to filter
- *        out self-references.
- * @param deps Injectable dependency map. Production callers supply
- *        {@link defaultPreAcquireDeps} from the installation seam
- *        (monaco-compensations.ts); tests pass their own mock deps.
- * @param token The provider's cancellation token; a cancelled request
- *        (the user moved on) acquires nothing.
- */
 export async function preAcquireLocationModels(
   locations: readonly Monaco.languages.Location[],
   sourceCacheUri: string,
@@ -105,9 +47,6 @@ export async function preAcquireLocationModels(
   const { workspaceId } = sourceMeta;
   const workspaceRoot = deps.workspaceRootForId(workspaceId);
 
-  // Dedupe by absolute path. A single LSP query can return multiple ranges
-  // in the same file (e.g., a re-export pointing to both `class Path` and
-  // its `__all__` entry); we only need to load each path once.
   const seenPaths = new Set<string>();
   const inputs: EditorInput[] = [];
 
@@ -129,11 +68,7 @@ export async function preAcquireLocationModels(
       try {
         await deps.acquireModel(input);
         scheduleRelease(input, deps.releaseModel);
-      } catch {
-        // Pre-acquire is best-effort. A failed load (missing file, EACCES,
-        // etc.) leaves the entry in an error phase; peek will show the row
-        // without inline preview rather than throwing.
-      }
+      } catch {}
     }),
   );
 }
@@ -142,9 +77,6 @@ function scheduleRelease(input: EditorInput, release: PreAcquireDeps["releaseMod
   setTimeout(() => {
     try {
       release(input);
-    } catch {
-      // Defensive — entry may have been force-disposed by a workspace
-      // close that fired between pre-acquire and the scheduled release.
-    }
+    } catch {}
   }, PEEK_PREACQUIRE_HOLD_MS);
 }

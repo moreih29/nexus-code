@@ -156,7 +156,6 @@ test("the chat hooks for Agents and the workspace hand off one live watch", asyn
     status: "online",
     peers: [{ id: chat.deviceId, name: "Peer", platform: "linux", online: true }],
   });
-  const rejoins = spyOn(room, "usePeerRejoins").mockReturnValue(0);
   const agents = mountChat(chat);
   const workspace = mountChat(chat);
   try {
@@ -182,7 +181,6 @@ test("the chat hooks for Agents and the workspace hand off one live watch", asyn
     workspace.stop();
     await settled();
     expect(active.size).toBe(0);
-    rejoins.mockRestore();
     online.mockRestore();
     listen.mockRestore();
     call.mockRestore();

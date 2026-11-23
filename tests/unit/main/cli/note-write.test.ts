@@ -1,7 +1,3 @@
-/**
- * nexus note new, show, write, add and record: an agent makes a note, puts
- * text and files into it, and records into it, as the user allows.
- */
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";

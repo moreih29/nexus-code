@@ -1,9 +1,7 @@
-/** The files outside a workspace its chats name, which another device may then read there. */
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 const globals = globalThis as Record<string, unknown>;
 const saved = globals.window;
-/** The attach root main answers chat.attachRoot with. */
 let attachRoot: string | null = null;
 globals.window = {
   ...((saved as object | undefined) ?? {}),
@@ -95,7 +93,6 @@ describe("chat.outsideFiles", () => {
 
   const ATTACH = "/Users/me/.nexus-code/attach";
 
-  /** The c1 tab's conversation with these messages the user sent after what it had. */
   function userSent(...texts: string[]) {
     const chat = useChatStore.getState().tabs[chatKey("w1", "c1")];
     const items = texts.map((text, i) => sent(`u${i}`, text));
@@ -114,7 +111,6 @@ describe("chat.outsideFiles", () => {
   test("of the images the user attached, only those in the workspace's attach folder under the agent's root", async () => {
     attachRoot = ATTACH;
     const ours = `${ATTACH}/w1/c1/2/shot.png`;
-    // The conversation went on here from another tab, whose message named its own.
     const before = `${ATTACH}/w1/other-tab/1/theirs.png`;
     userSent(
       `look\n\n@${ours}`,
@@ -139,10 +135,8 @@ describe("chat.outsideFiles", () => {
   test("a file's name, as another device chose it, takes nothing out of the tab's folder", async () => {
     attachRoot = ATTACH;
     userSent(
-      // Read as a link, %2F is a "/": these name /tmp/attach/w1/c1/1/y.png and 7/e/f.png.
       `@${ATTACH}/w1/c1/1/x${"%2F..".repeat(12)}%2Ftmp%2Fattach%2Fw1%2Fc1%2F1%2Fy.png`,
       `@${ATTACH}/w1/c1/7/e%2Ff.png`,
-      // A link ends at # and ?, and :12 is its line: these name 4/a, 5/c.png and 6/d.png.
       `@${ATTACH}/w1/c1/4/a#b.png`,
       `@${ATTACH}/w1/c1/5/c.png?x=1`,
       `@${ATTACH}/w1/c1/6/d.png:12`,
@@ -169,7 +163,6 @@ describe("chat.outsideFiles", () => {
     expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/./7/b.png`)).toBeNull();
     expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w2/c1/7/b.png`)).toBeNull();
     expect(attachSlotOf(ATTACH, "w1", "/tmp/attach/w1/c1/7/b.png")).toBeNull();
-    // As the agent names slots: a tab of at most 128 letters, digits, "_" or "-", at most 9 digits.
     const long = "t".repeat(128);
     expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/${long}/123456789/b.png`)).toBe(
       `${long}/123456789`,
@@ -180,7 +173,6 @@ describe("chat.outsideFiles", () => {
     expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/c1./7/b.png`)).toBeNull();
     expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/c1:s/7/b.png`)).toBeNull();
     expect(attachSlotOf(ATTACH, "w1", `${ATTACH}/w1/c 1/7/b.png`)).toBeNull();
-    // A Windows root, as main answers it, is written as resolveFilePath writes paths.
     attachRoot = "c:\\Users\\me\\.nexus-code\\attach\\";
     const root = await attachRootOf("w1");
     expect(root).toBe("C:/Users/me/.nexus-code/attach");
@@ -192,7 +184,6 @@ describe("chat.outsideFiles", () => {
   test("another computer's tab tells the attached files that computer serves by their place", () => {
     expect(attachShaped("w1", `${ATTACH}/w1/c1/2/b.png`)).toBe(true);
     expect(attachShaped("w1", "C:/Users/me/.nexus-code/attach/w1/c1/2/b.png")).toBe(true);
-    // Another tab's, where the conversation began.
     expect(attachShaped("w1", `${ATTACH}/w1/c2/2/b.png`)).toBe(true);
     expect(attachShaped("w1", "/Users/me/Desktop/b.png")).toBe(false);
     expect(attachShaped("w1", `${ATTACH}/w2/c1/2/b.png`)).toBe(false);
@@ -200,7 +191,6 @@ describe("chat.outsideFiles", () => {
   });
 
   test("under a Windows network home, no attachment is served: links never reach a share", async () => {
-    // As the agent there answers: its home on a share.
     attachRoot = "\\\\server\\share\\Users\\k\\.nexus-code\\attach";
     useWorkspacesStore.setState({
       workspaces: [{ id: "w2", name: "win", rootPath: "C:\\work" }],

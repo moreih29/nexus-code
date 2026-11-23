@@ -21,7 +21,6 @@ type expectedClassifiedError struct {
 	Hint    map[string]interface{} `json:"hint"`
 }
 
-// TestClassifyStderrFixtures verifies every manually authored stderr fixture.
 func TestClassifyStderrFixtures(t *testing.T) {
 	fixtureRoot := fixtureDir("stderr")
 	cases, err := os.ReadDir(fixtureRoot)
@@ -67,7 +66,6 @@ func TestClassifyStderrFixtures(t *testing.T) {
 	t.Logf("loaded %d stderr fixtures", loaded)
 }
 
-// TestRunStdoutOverflowIsClassifiedData guards the run.go transport envelope.
 func TestRunStdoutOverflowIsClassifiedData(t *testing.T) {
 	service := New(t.TempDir())
 	var result any
@@ -96,8 +94,6 @@ func TestRunStdoutOverflowIsClassifiedData(t *testing.T) {
 	}
 }
 
-// runOverflowingGitLauncher keeps the child alive even after its output
-// pipe closes. Run must stop the child before the checkout can be removed.
 func runOverflowingGitLauncher(t *testing.T, service *Service) (any, error) {
 	t.Helper()
 	setupInheritedPipeFixture(t)
@@ -118,7 +114,6 @@ func runOverflowingGitLauncher(t *testing.T, service *Service) (any, error) {
 		t.Fatal("Git child never connected:", err)
 	}
 	defer conn.Close()
-	// Let the child exceed the output limit once it holds the working directory.
 	if _, err := conn.Write([]byte{1}); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +140,6 @@ func runOverflowingGitLauncher(t *testing.T, service *Service) (any, error) {
 	}
 }
 
-// hintMap marshals a Go hint through JSON so its shape matches fixture JSON.
 func hintMap(t *testing.T, hint *ActionHint) map[string]interface{} {
 	t.Helper()
 	if hint == nil {
@@ -163,7 +157,6 @@ func hintMap(t *testing.T, hint *ActionHint) map[string]interface{} {
 	return decoded
 }
 
-// normalizeMap gives stable empty-object equality for JSON-derived maps.
 func normalizeMap(value map[string]interface{}) {
 	keys := make([]string, 0, len(value))
 	for key := range value {
@@ -177,7 +170,6 @@ func normalizeMap(value map[string]interface{}) {
 	}
 }
 
-// TestGitFailureMasksCredentials checks both stderr and the argv fallback.
 func TestGitFailureMasksCredentials(t *testing.T) {
 	result := buildRunResult("", "fatal: https://user:fake-password@example.test/a?token=fake-query&ok=1 Authorization: Bearer fake-auth API_KEY=\"fake with space\" APP_TOKEN=fake-token APP_SECRET=fake-secret", 1, nil)
 	for _, got := range []string{result.Stderr, result.ErrorMessage} {

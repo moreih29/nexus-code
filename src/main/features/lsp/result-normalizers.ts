@@ -1,9 +1,3 @@
-// Normalizers turn the raw JSON the LSP server returns into the shape the
-// shared LSP schemas expect. Servers vary in how strictly they implement
-// the spec — some return Hover.contents as a string, others as
-// MarkupContent, others as the legacy MarkedString[]. Centralizing the
-// reshape here keeps the host class free of branching per method.
-
 import { z } from "zod";
 import { createLogger } from "../../../shared/log/main";
 import {
@@ -43,11 +37,6 @@ export function normalizeDefinitionResult(raw: unknown): unknown {
   });
 }
 
-/**
- * Null when there is no signature to show. Servers send null for fields
- * they leave empty (gopls' documentation, basedpyright's activeParameter
- * when no parameter is typed), which the schemas take only where LSP does.
- */
 export function normalizeSignatureHelpResult(raw: unknown): unknown {
   if (!isObjectLike(raw) || !Array.isArray(raw.signatures)) return null;
   const signatures = raw.signatures.flatMap((signature) => {
@@ -87,12 +76,6 @@ export function normalizeDocumentSymbolResult(raw: unknown): unknown {
   const hierarchical = z.array(DocumentSymbolSchema).safeParse(raw);
   if (hierarchical.success) return hierarchical.data;
 
-  // Servers that don't advertise (or ignore) hierarchical support fall back
-  // to the legacy SymbolInformation[] shape per LSP spec. Convert each entry
-  // into a flat DocumentSymbol so downstream consumers — which only know the
-  // hierarchical schema — still get a usable outline. Parent/child links are
-  // lost (SymbolInformation only carries containerName), but a flat outline
-  // beats an empty one.
   const flat = z.array(SymbolInformationSchema).safeParse(raw);
   if (flat.success) {
     return flat.data.map((info) => ({
@@ -134,11 +117,6 @@ export function normalizeCompletionResult(raw: unknown): CompletionList {
   };
 }
 
-/**
- * Keeps each field that parses and drops the rest: a server that sends
- * `null` for a field it leaves out, or a field in a newer shape, still
- * gets its item shown.
- */
 export function normalizeCompletionItem(raw: unknown): CompletionItem | null {
   if (!isObjectLike(raw) || typeof raw.label !== "string") return null;
   const item: Record<string, unknown> = { label: raw.label };

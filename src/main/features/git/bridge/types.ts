@@ -1,8 +1,3 @@
-/**
- * Git executor contract shared by repository coordinators and bridge-backed
- * implementations. Electron keeps queueing and UI orchestration; executors own
- * the actual git process on the workspace host.
- */
 import type {
   CommitDetail,
   DiffChunk,
@@ -35,9 +30,7 @@ export interface GitProcessOptions {
   readonly cwd: string;
   readonly args: readonly string[];
   readonly env?: NodeJS.ProcessEnv;
-  /** True lets caller-provided askpass/editor helpers handle prompts. */
   readonly interactive?: boolean;
-  /** True streams stderr chunks instead of stdout while preserving final stderr classification. */
   readonly streamStderr?: boolean;
   readonly stdoutCapBytes?: number;
   readonly signal?: AbortSignal;
@@ -99,7 +92,6 @@ export interface GitCommitDetailOptions {
 
 export interface GitChangeStatsOptions {
   readonly cwd: string;
-  /** The branch HEAD is counted ahead of and behind. */
   readonly base?: string;
   readonly signal?: AbortSignal;
 }
@@ -233,10 +225,6 @@ export interface GitConflictMarkResolvedOptions {
   readonly signal?: AbortSignal;
 }
 
-// ---------------------------------------------------------------------------
-// Branch operation option interfaces
-// ---------------------------------------------------------------------------
-
 export interface GitBranchCreateOptions {
   readonly cwd: string;
   readonly name: string;
@@ -269,7 +257,6 @@ export interface GitBranchRenameOptions {
 export interface GitBranchSetUpstreamOptions {
   readonly cwd: string;
   readonly branch: string;
-  /** null unsets the upstream; a string sets it to the given remote/ref. */
   readonly upstream: string | null;
   readonly signal?: AbortSignal;
 }

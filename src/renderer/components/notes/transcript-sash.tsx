@@ -1,9 +1,3 @@
-/**
- * The line between a note's text and its transcript, dragged (or moved with the arrow keys) to
- * give either more room; a double click puts it back. One is on the transcript's left edge, shown
- * where the note is wide and the transcript beside the text; the other on its top edge, shown where
- * it is narrow and the transcript under the text.
- */
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -19,7 +13,6 @@ import {
 import { KEYBOARD_NUDGE_PX } from "../ui/resize-handle";
 import { useDragHandle } from "../ui/use-drag-handle";
 
-/** The least width the note's text keeps beside the transcript. */
 export const NOTE_TEXT_MIN = 320;
 
 export function TranscriptSash({
@@ -33,9 +26,7 @@ export function TranscriptSash({
   const width = useUIStore((s) => s.noteTranscriptWidth);
   const share = useUIStore((s) => s.noteTranscriptShare);
   const start = useRef(0);
-  // The note's body, the text and the transcript in it.
   const body = () => panel.current?.parentElement ?? null;
-  // Toward the text (left, or up) the transcript grows.
   const resize = (grow: number, persist: boolean, from: number) => {
     const ui = useUIStore.getState();
     const box = body();

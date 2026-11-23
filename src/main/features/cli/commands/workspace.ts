@@ -1,4 +1,3 @@
-/** nexus status, nexus workspace ... and nexus worktree ... (the app's tasks). */
 import type { CliTaskStart, CliView } from "../../../../shared/cli/ui";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../shared/types/workspace";
 import {
@@ -7,6 +6,7 @@ import {
   type WorkspaceColor,
   WorkspaceColorSchema,
 } from "../../../../shared/types/workspace-color";
+import { shortId } from "../../../../shared/util/short-id";
 import { compareWorkspaceOrder } from "../../../../shared/workspace-order";
 import { CliUsageError, exactArgs } from "../args";
 import {
@@ -17,7 +17,6 @@ import {
   mayChange,
   pick,
   resolveWorkspace,
-  shortId,
   type WorkspaceMove,
 } from "../context";
 import { table } from "../format";
@@ -39,7 +38,6 @@ import { chatAgentFlag } from "./chat";
 import { WORKSPACE_FLAG } from "./flags";
 import { groupsOf } from "./layout";
 
-/** A workspace as --json shows it. */
 export function workspaceJson(ctx: CliContext, workspace: WorkspaceMeta) {
   const shown = ctx.services.shownTab();
   return {
@@ -73,22 +71,16 @@ function marks(ctx: CliContext, workspace: WorkspaceMeta): string {
     .join(",");
 }
 
-/** Workspaces in the sidebar's order, pinned first, with each one's worktrees right under it. */
 export function orderedWorkspaces(workspaces: readonly WorkspaceMeta[]): WorkspaceMeta[] {
   const roots = workspaces.filter((w) => !w.task).sort(compareWorkspaceOrder);
   const ordered: WorkspaceMeta[] = [];
   for (const root of roots) {
     ordered.push(root, ...workspaces.filter((w) => w.task?.parentId === root.id));
   }
-  // A worktree whose parent is gone still shows.
   for (const w of workspaces) if (!ordered.includes(w)) ordered.push(w);
   return ordered;
 }
 
-/**
- * The view the window shows, and in the agent view how many panels it
- * has; null when the window does not answer.
- */
 async function viewSeen(ctx: CliContext): Promise<{ view: CliView; panels: number } | null> {
   try {
     const { view, root } = await ctx.services.ui("agentView.get", {});
@@ -139,7 +131,6 @@ const status: CliCommand = {
   },
 };
 
-/** workspace list --device: another computer's workspaces, as its sessions.list tells them. */
 async function peerWorkspaceList(ctx: CliContext, device: CliDevice): Promise<CliOutput> {
   const { workspaces } = await peerSessions(ctx, device);
   const rows = workspaces.map((w) => [
@@ -190,7 +181,6 @@ const workspaceCurrent: CliCommand = {
   },
 };
 
-/** Shows a workspace to the user. */
 async function show(ctx: CliContext, workspace: WorkspaceMeta) {
   await ctx.services.ui("workspace.show", { workspaceId: workspace.id });
   return output(
@@ -209,7 +199,6 @@ const workspaceSwitch: CliCommand = {
   },
 };
 
-/** A workspace and its worktrees: the one a worktree belongs to, or the workspace itself. */
 function worktreeFamily(ctx: CliContext, workspace: WorkspaceMeta): WorkspaceMeta[] {
   const all = ctx.services.listWorkspaces();
   const root = workspace.task
@@ -254,7 +243,6 @@ const worktreeSwitch: CliCommand = {
   },
 };
 
-/** The one of a workspace and its worktrees `selector` names: by branch, id or name. */
 function pickWorktree(family: readonly WorkspaceMeta[], selector: string): WorkspaceMeta {
   return (
     family.find((w) => w.task?.branch === selector) ??
@@ -268,7 +256,6 @@ function pickWorktree(family: readonly WorkspaceMeta[], selector: string): Works
   );
 }
 
-/** Making or removing a worktree waits on git, which a big repository keeps busy. */
 const TASK_TIMEOUT_MS = 5 * 60_000;
 
 const worktreeNew: CliCommand = {
@@ -333,12 +320,10 @@ const worktreeNew: CliCommand = {
         { ...created, device: deviceRef(device), ...(wait ? { wait } : {}) },
       );
     }
-    // A worktree of a worktree branches off the workspace they belong to.
     const [parent] = worktreeFamily(
       ctx,
       resolveWorkspace(ctx, flags.workspace as string | undefined),
     ) as [WorkspaceMeta];
-    // What the task would run and be told, shown whole to a user asked.
     const body = [flags.command as string | undefined, prompt]
       .filter((part): part is string => part !== undefined && part.trim() !== "")
       .join("\n\n");
@@ -348,7 +333,6 @@ const worktreeNew: CliCommand = {
       ...(start && "command" in start && start.command.trim() ? { terminal: true } : {}),
       ...(body !== "" ? { body } : {}),
     });
-    // An agent's prompt shows as its in the task's tab, and the agent there is told.
     const sender = await senderOf(ctx);
     const from = prompt.trim() !== "" ? sender : undefined;
     const openedBy = openerOf(sender);
@@ -375,7 +359,6 @@ const worktreeNew: CliCommand = {
     }
     const made = ctx.services.listWorkspaces().find((w) => w.id === workspaceId);
     const where = made?.task ? ` on branch ${made.task.branch}, at ${made.task.worktreePath}` : "";
-    // Its tab is in another workspace, which tab commands are told.
     const reach = `--workspace ${shortId(workspaceId)}`;
     const id = tabId !== undefined ? shortId(tabId) : "";
     let runs: string;
@@ -404,22 +387,15 @@ const worktreeNew: CliCommand = {
   },
 };
 
-/**
- * A task name for the worktree Claude Code names: a subagent's worktree is
- * "agent-" and its long id, which keeps its first seven characters, as a short
- * commit id does.
- */
 export function claudeWorktreeName(name: string): string {
   const agent = /^agent-([0-9a-f]{8,})$/i.exec(name);
   return agent ? `agent-${agent[1].slice(0, 7)}` : name;
 }
 
-/** The folder Claude Code is to work in: the task's own, on its host. */
 function taskFolder(task: WorkspaceMeta): string {
   return task.location.kind === "local" ? task.location.rootPath : task.location.remotePath;
 }
 
-/** The text of `key` in a Claude Code hook's JSON on stdin. */
 function hookField(ctx: CliContext, event: string, key: string): string {
   let value: unknown;
   try {
@@ -433,7 +409,6 @@ function hookField(ctx: CliContext, event: string, key: string): string {
   return value.trim();
 }
 
-/** A folder as written, without the separators it may end in. */
 const bare = (folder: string) => folder.replace(/(?<=.)[\\/]+$/, "");
 
 const worktreeClaudeCreate: CliCommand = {
@@ -596,7 +571,6 @@ const worktreeRemove: CliCommand = {
   },
 };
 
-/** A folder on the host `beside`'s workspace is on, reached the same way. */
 function locationBeside(beside: WorkspaceLocation, folder: string): WorkspaceLocation {
   return beside.kind === "local"
     ? { kind: "local", rootPath: folder }
@@ -609,7 +583,6 @@ const COLOR_FLAG = {
   description: `One of ${WORKSPACE_COLORS.join(", ")}, or ${WORKSPACE_COLOR_AUTO} for the app's own pick`,
 } as const;
 
-/** The color a --color flag names; undefined when it is not given. */
 export function colorFlag(value: unknown): WorkspaceColor | undefined {
   if (value === undefined) return undefined;
   const parsed = WorkspaceColorSchema.safeParse(String(value).trim().toLowerCase());
@@ -688,7 +661,6 @@ const workspaceRemove: CliCommand = {
   },
 };
 
-/** A workspace the sidebar has a row for: a worktree is shown under its workspace's. */
 function sidebarWorkspace(ctx: CliContext, selector: string): WorkspaceMeta {
   const workspace = resolveWorkspace(ctx, selector);
   const parentId = workspace.task?.parentId;
@@ -771,7 +743,6 @@ const workspaceEdit: CliCommand = {
   },
 };
 
-/** What a group of the sidebar is called. */
 const GROUP_NAMES = { pinned: "pinned workspaces", unpinned: "workspaces not pinned" } as const;
 
 const workspaceMove: CliCommand = {

@@ -1,30 +1,15 @@
-/**
- * Pure line-change arithmetic behind staging part of a file — VSCode's
- * "Stage Change" / "Stage Selected Ranges" and their unstage counterparts.
- *
- * Staging a change writes a new index version: the index text with that
- * change taken from the working text. Unstaging writes the index text with
- * the change put back to HEAD's. Both are {@link applyLineChanges} over the
- * changes the caller picked with {@link selectChanges}.
- *
- * Kept free of the monaco runtime so it can be unit-tested.
- */
-
 import type { DirtyChange } from "../dirty-diff/types";
 
-/** 1-based lines `[startLineNumber, endLineNumberExclusive)`; empty at an insertion point. */
 export interface LineRange {
   readonly startLineNumber: number;
   readonly endLineNumberExclusive: number;
 }
 
-/** Lines of the original text that became lines of the modified text. */
 export interface LineChange {
   readonly original: LineRange;
   readonly modified: LineRange;
 }
 
-/** The slice of monaco's `ILineChange` (from `IDiffEditor.getLineChanges()`) we read. */
 export interface MonacoLineChangeLike {
   readonly originalStartLineNumber: number;
   readonly originalEndLineNumber: number;
@@ -40,7 +25,6 @@ function isEmpty(range: LineRange): boolean {
   return range.startLineNumber === range.endLineNumberExclusive;
 }
 
-/** A dirty-diff change, whose empty side is an insertion point before its start line. */
 export function lineChangeOfDirty(change: DirtyChange): LineChange {
   const side = (start: number, end: number) => lineRange(start, end === 0 ? start : end + 1);
   return {
@@ -49,7 +33,6 @@ export function lineChangeOfDirty(change: DirtyChange): LineChange {
   };
 }
 
-/** A diff editor change, whose empty side sits after its start line. */
 export function lineChangeOfMonaco(change: MonacoLineChangeLike): LineChange {
   const side = (start: number, end: number) =>
     end === 0 ? lineRange(start + 1, start + 1) : lineRange(start, end + 1);
@@ -59,19 +42,10 @@ export function lineChangeOfMonaco(change: MonacoLineChangeLike): LineChange {
   };
 }
 
-/** The change with its sides swapped: the way back from modified to original. */
 export function invertLineChange(change: LineChange): LineChange {
   return { original: change.modified, modified: change.original };
 }
 
-/**
- * The part of `change` whose modified lines fall in `range`, or null.
- *
- * A deletion counts when `range` reaches the line on either side of its gap.
- * A change cut short keeps its original lines line by line when both sides
- * have as many; otherwise all of them, replaced by just the chosen lines —
- * VSCode's heuristic.
- */
 export function intersectLineChange(change: LineChange, range: LineRange): LineChange | null {
   const { original, modified } = change;
   if (isEmpty(modified)) {
@@ -90,11 +64,6 @@ export function intersectLineChange(change: LineChange, range: LineRange): LineC
   return { original: lineRange(from, from + (end - start)), modified: lineRange(start, end) };
 }
 
-/**
- * The parts of `changes` (ordered, as a diff yields them) that `ranges` of
- * modified lines pick. Each change takes its part from the first range that
- * reaches it, so the results never overlap.
- */
 export function selectChanges(
   changes: readonly LineChange[],
   ranges: readonly LineRange[],
@@ -112,7 +81,6 @@ export function selectChanges(
   return selected;
 }
 
-/** `text` split into lines as monaco splits a model, with the break after each. */
 export function splitLines(text: string): { lines: string[]; breaks: string[] } {
   const lines: string[] = [];
   const breaks: string[] = [];
@@ -127,14 +95,6 @@ export function splitLines(text: string): { lines: string[]; breaks: string[] } 
   return { lines, breaks };
 }
 
-/**
- * `original` with each of `changes` (ordered, non-overlapping) replaced by
- * the modified lines it maps to.
- *
- * Untouched lines keep their own line breaks; lines taken from the modified
- * text get the original's first line break, or `fallbackEol` for an original
- * of one line. A missing final newline stays missing unless a change moves it.
- */
 export function applyLineChanges(
   original: string,
   modifiedLines: readonly string[],
@@ -166,10 +126,6 @@ export function applyLineChanges(
   return out.map((line, i) => (i < out.length - 1 ? line + outBreaks[i] : line)).join("");
 }
 
-/**
- * The modified lines an editor selection covers. A selection that ends at the
- * start of a line leaves that line out, as VSCode's does.
- */
 export function selectedLineRange(selection: {
   startLineNumber: number;
   endLineNumber: number;

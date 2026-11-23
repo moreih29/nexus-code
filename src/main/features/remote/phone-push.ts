@@ -12,7 +12,7 @@ import type { PhonePushPolicy } from "../../../shared/types/app-state";
 import type { CliServices } from "../cli/context";
 import type { RemoteAccount } from "./account";
 import { type ConsentControls, refusalFor } from "./consents";
-import { UnreachableError } from "./errors";
+import { ServerError, UnreachableError } from "./errors";
 import { snapshotSessions } from "./serving/sessions";
 
 const log = createLogger("remote-push");
@@ -21,6 +21,7 @@ const DISCOVERY_MS = 60_000;
 const CONSENT_GRACE_MS = 10_000;
 const REQUEST_GRACE_MS = 20_000;
 const REQUEST_TTL = 600;
+const CONSENT_TTL_BEFORE_0_30 = 120;
 const SEND_TIMEOUT_MS = 20_000;
 
 type Kind = "consent" | "request";
@@ -32,6 +33,7 @@ interface PushEvent {
   expiresAt: number;
   attempts: number;
   done: boolean;
+  shortTtl?: boolean;
   sending?: AbortController;
 }
 
@@ -67,7 +69,6 @@ interface PhonePushDeps {
   now?: () => number;
 }
 
-/** Observes pending work locally. Only the delivery envelope goes to the server. */
 export class PhonePush {
   private readonly now: () => number;
   private readonly stopScreenLockListener: (() => void) | undefined;
@@ -98,7 +99,6 @@ export class PhonePush {
     return this.active;
   }
 
-  /** A device can appear in presence before it connects to the room itself. */
   presence(devices: readonly AccountDevice[]): void {
     this.hasPresence = true;
     this.setDevices(devices);
@@ -167,7 +167,13 @@ export class PhonePush {
     for (const prompt of pending) {
       let event = this.consents.get(prompt.id);
       if (!event) {
-        event = createEvent(prompt.at + (away ? 0 : CONSENT_GRACE_MS), prompt.expiresAt - 2_000);
+        const readyAt = prompt.at + (away ? 0 : CONSENT_GRACE_MS);
+        event = createEvent(
+          readyAt,
+          prompt.expiresAt !== undefined
+            ? prompt.expiresAt - 2_000
+            : prompt.at + PUSH_TTL_SECONDS.consent.max * 1_000,
+        );
         this.consents.set(prompt.id, event);
       }
       if (!this.active || refusalFor(prompt, controls) !== null) {
@@ -207,7 +213,6 @@ export class PhonePush {
         if (!this.disposed && this.token === token && !this.hasPresence) this.setDevices(devices);
       }
     } catch {
-      // Keep the last confirmed features on a transient discovery error.
     } finally {
       if (this.discovering === token) this.discovering = undefined;
     }
@@ -310,7 +315,6 @@ export class PhonePush {
         else this.send("request", event);
       }
     } catch {
-      // A snapshot that failed does not confirm a request is still waiting.
     } finally {
       this.polling = false;
       this.scheduleRequests(revision === this.revision ? next : 0);
@@ -319,8 +323,10 @@ export class PhonePush {
 
   private send(kind: Kind, event: PushEvent): void {
     const remaining = event.expiresAt - this.now();
-    const ttl =
-      kind === "request" && event.attempts === 0 ? REQUEST_TTL : Math.floor(remaining / 1_000);
+    const ttl = Math.min(
+      kind === "request" && event.attempts === 0 ? REQUEST_TTL : Math.floor(remaining / 1_000),
+      event.shortTtl ? CONSENT_TTL_BEFORE_0_30 : PUSH_TTL_SECONDS[kind].max,
+    );
     if (remaining < PUSH_TTL_SECONDS[kind].min * 1_000) {
       event.done = true;
       return;
@@ -343,7 +349,16 @@ export class PhonePush {
         else log.info(`${kind} sent=${result.sent} skipped=${result.skipped}`);
       } catch (error) {
         if (controller.signal.aborted) return;
-        if (!(error instanceof UnreachableError) || event.attempts >= 2) {
+        if (
+          kind === "consent" &&
+          !event.shortTtl &&
+          ttl > CONSENT_TTL_BEFORE_0_30 &&
+          error instanceof ServerError &&
+          error.status === 400
+        ) {
+          event.shortTtl = true;
+          log.info(`${kind} ttl=${CONSENT_TTL_BEFORE_0_30} after refusal`);
+        } else if (!(error instanceof UnreachableError) || event.attempts >= 2) {
           event.done = true;
           log.warn(`${kind} failed=1`);
         }

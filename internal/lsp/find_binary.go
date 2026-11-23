@@ -11,55 +11,36 @@ import (
 	"runtime"
 	"strings"
 	"time"
-)
 
-// The servers the app does not bundle, such as gopls and rust-analyzer, are
-// found on the host the agent runs on, local or remote: where the user said,
-// on the PATH, on the PATH a login shell sets up, then where their installers
-// put them. A GUI app and an SSH session both start with less on the PATH
-// than the user's terminal has; `go install` puts gopls in ~/go/bin, which
-// the PATH often leaves out.
+	"github.com/nexus-code/nexus-code/internal/proto"
+)
 
 const loginShellTimeout = 5 * time.Second
 
-// rustupWhichTimeout bounds asking rustup whether a toolchain has a tool.
 const rustupWhichTimeout = 10 * time.Second
 
-// loginPathMarker sets the PATH apart from whatever the shell's startup
-// files print.
 const loginPathMarker = "__NEXUS_LOGIN_PATH__"
 
 type FindBinaryParams struct {
-	// Name is the command to find, such as "gopls".
-	Name string `json:"name"`
-	// Path is where the user said it is, "~" standing for their home. It is
-	// tried first; when nothing is there the search goes on.
-	Path string `json:"path,omitempty"`
-	// SearchPath is an optional PATH from an agent profile, tried before the host paths.
-	SearchPath string `json:"searchPath,omitempty"`
-	// Dir is where the server will run, the workspace root. A rustup proxy
-	// picks its toolchain there.
-	Dir string `json:"dir,omitempty"`
-	// ExcludeAgentWrappers also removes wrapper directories from the returned PATH.
-	ExcludeAgentWrappers bool `json:"excludeAgentWrappers,omitempty"`
+	Name                 string `json:"name"`
+	Path                 string `json:"path,omitempty"`
+	SearchPath           string `json:"searchPath,omitempty"`
+	Dir                  string `json:"dir,omitempty"`
+	ExcludeAgentWrappers bool   `json:"excludeAgentWrappers,omitempty"`
 }
 
 type FindBinaryResult struct {
-	// Path is the binary found, empty when none was.
-	Path string `json:"path"`
-	// EnvPath is a PATH for the server: the binary's directory, the login
-	// shell's PATH and the agent's own, then where installers put tools.
-	// gopls runs go, and rust-analyzer cargo.
+	Path    string `json:"path"`
 	EnvPath string `json:"envPath,omitempty"`
 }
 
 func (s *Service) FindBinary(_ context.Context, raw json.RawMessage) (any, error) {
 	var p FindBinaryParams
-	if err := decodeParams(raw, &p, "lsp.findBinary params must include name"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "lsp.findBinary params must include name"); err != nil {
 		return nil, err
 	}
 	if p.Name == "" || strings.ContainsAny(p.Name, `/\`+"\x00") {
-		return nil, protocolError("lsp.findBinary name must be a command name")
+		return nil, proto.ProtocolError("lsp.findBinary name must be a command name")
 	}
 
 	home, _ := os.UserHomeDir()
@@ -77,8 +58,6 @@ func (s *Service) FindBinary(_ context.Context, raw json.RawMessage) (any, error
 	if path == "" {
 		return FindBinaryResult{}, nil
 	}
-	// The install directories last: go in /usr/local/go/bin is missed by a
-	// PATH no login shell gave, as a GUI app's is when the shell fails.
 	lists := append([]string{filepath.Dir(path), shellPath, os.Getenv("PATH")}, dirs...)
 	envPath := joinPathLists(lists...)
 	if p.ExcludeAgentWrappers {
@@ -110,7 +89,6 @@ func hasAgentWrapper(dir string) bool {
 
 func findBinary(name, userPath, workDir string, dirs []string) string {
 	if userPath != "" {
-		// On Windows "gopls" stands for "gopls.exe", as in a shell.
 		for _, candidate := range executableNames(userPath) {
 			if canRunServer(candidate, workDir) && !isAgentWrapper(name, candidate) {
 				return candidate
@@ -130,8 +108,6 @@ func findBinary(name, userPath, workDir string, dirs []string) string {
 	return ""
 }
 
-// isAgentWrapper keeps CLI selection on the real executable even when wrappers
-// appear on the login shell's or profile's PATH.
 func isAgentWrapper(name, path string) bool {
 	if name != "claude" && name != "codex" {
 		return false
@@ -151,13 +127,6 @@ func canRunServer(path, workDir string) bool {
 	return isExecutableFile(path) && !isRustupProxyWithoutTool(path, workDir)
 }
 
-// isRustupProxyWithoutTool reports whether path is a rustup proxy whose
-// toolchain lacks the tool. ~/.cargo/bin/rust-analyzer is rustup itself
-// under the tool's name, there whether the rust-analyzer component is or
-// not; without it the proxy prints an error and exits, and the user would
-// be told the server keeps failing, not that it is missing and how to add
-// it. rustup picks the toolchain by the directory it runs in, as the server
-// will in workDir.
 func isRustupProxyWithoutTool(path, workDir string) bool {
 	rustup := rustupOf(path)
 	if rustup == "" {
@@ -172,14 +141,10 @@ func isRustupProxyWithoutTool(path, workDir string) bool {
 	cmd := exec.CommandContext(ctx, rustup, "which", tool)
 	cmd.Dir = workDir
 	err := cmd.Run()
-	// Only rustup's own no counts: a rustup that does not start or answer in
-	// time leaves the proxy to the server's start, as before.
 	var exitErr *exec.ExitError
 	return ctx.Err() == nil && errors.As(err, &exitErr)
 }
 
-// rustupOf returns the rustup beside path when path is a link of it, as
-// rustup's proxies are; empty otherwise.
 func rustupOf(path string) string {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -193,7 +158,6 @@ func rustupOf(path string) string {
 	return ""
 }
 
-// searchDirs lists where to look, in order.
 func searchDirs(home, shellPath string) []string {
 	dirs := filepath.SplitList(os.Getenv("PATH"))
 	dirs = append(dirs, filepath.SplitList(shellPath)...)
@@ -249,7 +213,6 @@ func expandHome(path, home string) string {
 	return path
 }
 
-// joinPathLists joins PATH lists, each directory once, in order.
 func joinPathLists(lists ...string) string {
 	seen := map[string]bool{}
 	var dirs []string
@@ -264,12 +227,6 @@ func joinPathLists(lists ...string) string {
 	return strings.Join(dirs, string(os.PathListSeparator))
 }
 
-// loginShellPath is the PATH the user's login shell sets up; empty on
-// Windows, which has none, and when the shell fails or takes too long.
-//
-// It is asked each time a server is looked for, not once per agent: an
-// agent on a remote host outlives the app, and the user told a server is
-// missing installs it, sets up its PATH and starts it again.
 func loginShellPath() string {
 	if runtime.GOOS == "windows" {
 		return ""
@@ -280,9 +237,7 @@ func loginShellPath() string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), loginShellTimeout)
 	defer cancel()
-	// -i too: many put their PATH in .zshrc or .bashrc.
 	cmd := exec.CommandContext(ctx, shell, "-ilc", `printf '%s%s' "`+loginPathMarker+`" "$PATH"`)
-	// A process the startup files left running can hold the output open.
 	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
 	if err != nil {

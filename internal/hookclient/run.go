@@ -1,14 +1,3 @@
-// Package hookclient는 Go agent 바이너리가 `agent hook <subcommand>` 로
-// 호출될 때 실행되는 경량 entrypoint를 제공한다.
-//
-// Claude Code는 hook 이벤트 발생 시 이 바이너리를 subprocess로 spawn하고,
-// stdin으로 JSON payload를 전달한다. 이 패키지는:
-//  1. ENV에서 연결 정보를 읽어 agent의 Unix 도메인 소켓에 접속한다.
-//  2. hook 이벤트를 NDJSON 한 줄로 송신한다.
-//  3. 응답 한 줄을 대기해 stdout write 및 종료코드 결정을 처리한다.
-//
-// PTY/FS/Git/LSP 서비스를 일절 init하지 않으므로 시작 지연이 없다.
-// 연결 실패 등 어떤 경우라도 Claude Code를 죽이지 않는 silent fallback을 우선한다.
 package hookclient
 
 import (
@@ -24,37 +13,21 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// 환경 변수 키 상수 — hook 클라이언트가 읽는 연결 정보 집합.
 const (
-	envAgentSocket = "NEXUS_AGENT_SOCKET"
-	envHookToken   = "NEXUS_HOOK_TOKEN"
-	envWorkspaceID = "NEXUS_WORKSPACE_ID"
-	envTabID       = "NEXUS_TAB_ID"
-	// envClaudePrint is "1" in a `claude -p` run (claude-wrapper.sh).
-	envClaudePrint = "NEXUS_CLAUDE_PRINT"
-	// envClaudeEntrypoint is what Claude Code tells its child processes of
-	// how it runs: "sdk-cli" in a `claude -p` run, "cli" interactive. It
-	// marks the `-p` runs no wrapper marks, as cmd's claude macro starts
-	// them on Windows.
+	envAgentSocket      = "NEXUS_AGENT_SOCKET"
+	envHookToken        = "NEXUS_HOOK_TOKEN"
+	envWorkspaceID      = "NEXUS_WORKSPACE_ID"
+	envTabID            = "NEXUS_TAB_ID"
+	envClaudePrint      = "NEXUS_CLAUDE_PRINT"
 	envClaudeEntrypoint = "CLAUDE_CODE_ENTRYPOINT"
 
-	// permissionRequestSubcmd 는 긴 blocking timeout이 필요한 서브커맨드 이름.
 	permissionRequestSubcmd = "permission-request"
 
-	// permissionTimeout 은 permission-request 서브커맨드에 적용하는 최대 대기 시간.
-	// The agent answers by its own deadline (an hour) first.
 	permissionTimeout = time.Hour + 10*time.Second
 
-	// defaultTimeout 은 그 외 모든 서브커맨드에 적용하는 기본 대기 시간.
 	defaultTimeout = 15 * time.Second
 )
 
-// hookRequest 는 agent의 hookserver로 전송하는 NDJSON 요청 프레임이다.
-// 필드명은 shared/claude/status.ts의 HookRequestSchema와 일치한다.
-//
-// AssistantText는 Stop subcommand에서만 채운다 — hookclient가 payload의
-// transcript_path를 직접 읽어 마지막 assistant 메시지를 추출한 결과.
-// 다른 subcommand에서는 빈 문자열이며 omitempty로 wire에서 생략된다.
 type hookRequest struct {
 	Type          string          `json:"type"`
 	Token         string          `json:"token"`
@@ -63,32 +36,18 @@ type hookRequest struct {
 	Subcommand    string          `json:"subcommand"`
 	Payload       json.RawMessage `json:"payload"`
 	AssistantText string          `json:"assistantText,omitempty"`
-	// AgentMessages is what the subagent of a hook's call wrote so far, the
-	// latest of it, read from its transcript (agent_messages.go).
-	AgentMessages []agentMessage `json:"agentMessages,omitempty"`
-	// Print marks a hook of a `claude -p` run, whose PermissionRequest no
-	// dialog answers: main answers it at once rather than wait on the user.
-	Print bool `json:"print,omitempty"`
+	AgentMessages []agentMessage  `json:"agentMessages,omitempty"`
+	Print         bool            `json:"print,omitempty"`
 }
 
-// stopSubcmd 는 Claude 응답 종료 hook 이벤트의 subcommand 이름.
-// Stop hook 진입 시점에만 transcript 파싱을 수행한다.
 const stopSubcmd = "stop"
 
-// stopPayload 는 Stop hook payload에서 transcript 경로를 추출하기 위한 부분 스키마.
-// Claude Code는 snake_case로 보내며, 다른 자동화 시스템이 camelCase를 보낼 수도
-// 있어 둘 다 받는다(cmux의 firstString(keys: ["transcript_path","transcriptPath"])
-// 패턴 차용).
 type stopPayload struct {
-	TranscriptPath      string `json:"transcript_path"`
-	TranscriptPathCamel string `json:"transcriptPath"`
-	// LastAssistantMessage is Claude's final answer of the turn; nil when the
-	// payload has none, as from versions before it was added.
+	TranscriptPath       string  `json:"transcript_path"`
+	TranscriptPathCamel  string  `json:"transcriptPath"`
 	LastAssistantMessage *string `json:"last_assistant_message"`
 }
 
-// hookResponse 는 agent로부터 받는 NDJSON 응답 프레임이다.
-// 필드명은 shared/claude/status.ts의 HookResponseSchema와 일치한다.
 type hookResponse struct {
 	OK       bool   `json:"ok"`
 	Stdout   string `json:"stdout,omitempty"`
@@ -96,45 +55,32 @@ type hookResponse struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// Run 은 `agent hook <subcommand> [args...]` 엔트리포인트다.
-//
-// args[0]이 서브커맨드명이며, Claude Code는 나머지 인자를 전달하지 않는다.
-// ENV 미설정 · 소켓 없음 · 연결 실패 등 모든 오류는 silent fallback(exit 0)으로
-// 처리해 Claude Code 프로세스를 죽이지 않는다.
 func Run(args []string) int {
-	// 서브커맨드 추출 — 없으면 빈 문자열로 진행해 agent가 분류하도록 위임한다.
 	subcommand := ""
 	if len(args) > 0 {
 		subcommand = args[0]
 	}
 
-	// SendMessage's hook is decided from the call alone, without the agent.
 	if subcommand == sendMessageSubcmd {
 		return runSendMessage(os.Stdin, os.Stdout)
 	}
 
-	// ENV에서 연결 정보 읽기.
 	socketPath := os.Getenv(envAgentSocket)
 	token := os.Getenv(envHookToken)
 	workspaceID := os.Getenv(envWorkspaceID)
 	tabID := os.Getenv(envTabID)
 
-	// 4개 중 하나라도 비어 있으면 stdin을 drain한 뒤 즉시 exit 0한다.
-	// hook이 설치되지 않은 환경과 동일한 효과를 내며 Claude를 죽이지 않는다.
 	if socketPath == "" || token == "" || workspaceID == "" || tabID == "" {
 		drainStdin()
 		return 0
 	}
 
-	// stdin에서 Claude Code가 전달한 hook 이벤트 JSON payload를 읽는다.
 	payload, err := readStdinPayload(os.Stdin)
 	if err != nil {
-		// payload 읽기 실패는 경고만 출력하고 silent fallback한다.
 		fmt.Fprintf(os.Stderr, "nexus hook: stdin read failed: %v\n", err)
 		return 0
 	}
 
-	// 서브커맨드에 따라 timeout을 결정한다.
 	timeout := chooseTimeout(subcommand)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -142,44 +88,30 @@ func Run(args []string) int {
 	return runWithContext(ctx, socketPath, token, workspaceID, tabID, subcommand, payload)
 }
 
-// runWithContext 는 실제 소켓 통신 및 응답 처리를 수행한다.
-// context timeout이 dial+write+read 전체에 적용된다.
 func runWithContext(
 	ctx context.Context,
 	socketPath, token, workspaceID, tabID, subcommand string,
 	payload json.RawMessage,
 ) int {
-	// Unix 도메인 소켓에 dial한다.
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "unix", socketPath)
 	if err != nil {
-		// 소켓 없음·연결 거부는 silent fallback — Claude를 죽이지 않는다.
 		fmt.Fprintf(os.Stderr, "nexus hook: connect failed: %v\n", err)
 		return 0
 	}
 	defer conn.Close()
 
-	// context deadline을 소켓 I/O deadline으로도 설정한다.
 	if deadline, ok := ctx.Deadline(); ok {
 		if err := conn.SetDeadline(deadline); err != nil {
 			fmt.Fprintf(os.Stderr, "nexus hook: set deadline failed: %v\n", err)
 		}
 	}
 
-	// Stop hook은 payload에 응답 본문이 들어있지 않다 — transcript_path만 제공.
-	// 사이드바 카드 응답 미리보기를 위해 같은 호스트에서 transcript jsonl을 직접
-	// 읽어 마지막 assistant 메시지 텍스트를 추출한다. SSH 워크스페이스에서도
-	// hookclient는 원격 호스트에서 실행되므로 transcript 경로도 같은 fs에 있어
-	// 호스트별 라우팅이 필요 없다.
-	//
-	// 어떤 실패든 silent fallback — assistantText 빈 문자열로 두고 hook 흐름은
-	// 그대로 진행한다(omitempty로 wire에서 생략됨).
 	assistantText := ""
 	if subcommand == stopSubcmd {
 		assistantText = stopAssistantText(payload)
 	}
 
-	// NDJSON 요청 한 줄을 송신한다.
 	req := hookRequest{
 		Type:          "hook",
 		Token:         token,
@@ -196,10 +128,8 @@ func runWithContext(
 		return 0
 	}
 
-	// 응답 한 줄을 대기한다.
 	resp, err := readNDJSON(conn)
 	if err != nil {
-		// timeout 포함 — stderr 경고 후 exit 1로 Claude Code에 실패를 전달한다.
 		fmt.Fprintf(os.Stderr, "nexus hook: recv failed: %v\n", err)
 		return 1
 	}
@@ -207,14 +137,12 @@ func runWithContext(
 	return handleResponse(resp)
 }
 
-// handleResponse 는 hook 응답 프레임을 해석해 종료코드를 결정한다.
 func handleResponse(resp hookResponse) int {
 	if !resp.OK {
 		fmt.Fprintf(os.Stderr, "nexus hook: agent error: %s\n", resp.Error)
 		return 1
 	}
 
-	// stdout이 있으면 그대로 쓴다 — Claude Code가 hook 응답으로 읽는다.
 	if resp.Stdout != "" {
 		if _, err := io.WriteString(os.Stdout, resp.Stdout); err != nil {
 			fmt.Fprintf(os.Stderr, "nexus hook: stdout write failed: %v\n", err)
@@ -222,15 +150,12 @@ func handleResponse(resp hookResponse) int {
 		}
 	}
 
-	// exitCode가 명시된 경우 그 값을 사용하고, 미명시면 0으로 처리한다.
 	if resp.ExitCode != nil {
 		return *resp.ExitCode
 	}
 	return 0
 }
 
-// chooseTimeout 은 서브커맨드 이름을 보고 적절한 timeout을 반환한다.
-// permission-request 는 사용자 결정 대기 시간이 길어 별도 긴 timeout을 사용한다.
 func chooseTimeout(subcommand string) time.Duration {
 	if subcommand == permissionRequestSubcmd {
 		return permissionTimeout
@@ -238,7 +163,6 @@ func chooseTimeout(subcommand string) time.Duration {
 	return defaultTimeout
 }
 
-// writeNDJSON 은 v를 JSON으로 직렬화해 개행 문자와 함께 w에 쓴다.
 func writeNDJSON(w io.Writer, v any) error {
 	bw := bufio.NewWriter(w)
 	enc := json.NewEncoder(bw)
@@ -249,7 +173,6 @@ func writeNDJSON(w io.Writer, v any) error {
 	return bw.Flush()
 }
 
-// readNDJSON 은 r에서 개행으로 구분된 NDJSON 한 줄을 읽어 hookResponse로 파싱한다.
 func readNDJSON(r io.Reader) (hookResponse, error) {
 	scanner := bufio.NewScanner(r)
 	if !scanner.Scan() {
@@ -265,8 +188,6 @@ func readNDJSON(r io.Reader) (hookResponse, error) {
 	return resp, nil
 }
 
-// readStdinPayload bounds buffering by the largest hook frame the server
-// accepts. Drain excess input so the hook caller can finish writing its pipe.
 func readStdinPayload(in io.Reader) (json.RawMessage, error) {
 	data, err := io.ReadAll(io.LimitReader(in, proto.MaxHookRequestBytes+1))
 	if err != nil {
@@ -279,24 +200,15 @@ func readStdinPayload(in io.Reader) (json.RawMessage, error) {
 		return nil, fmt.Errorf("payload exceeds the %d-byte hook request limit", proto.MaxHookRequestBytes)
 	}
 	if len(data) == 0 {
-		// 빈 stdin은 빈 JSON object로 대체한다.
 		return json.RawMessage("{}"), nil
 	}
 	return json.RawMessage(data), nil
 }
 
-// drainStdin 은 stdin을 모두 읽어 버린다.
-// Claude Code가 파이프 상대방이 읽지 않은 채 닫힐 때 SIGPIPE를 받지 않도록 한다.
 func drainStdin() {
 	_, _ = io.Copy(io.Discard, os.Stdin)
 }
 
-// stopAssistantText is the answer a Stop hook reports. Claude Code puts it in
-// the payload as last_assistant_message; older versions only give the
-// transcript, read once it settles. Reading the transcript holds the hook
-// back for up to transcriptStableMaxWait, long enough for the next turn's
-// hooks to reach the app first, so the payload's answer is taken when there
-// is one.
 func stopAssistantText(payload json.RawMessage) string {
 	var p stopPayload
 	if len(payload) > 0 && json.Unmarshal(payload, &p) == nil && p.LastAssistantMessage != nil {
@@ -308,9 +220,6 @@ func stopAssistantText(payload json.RawMessage) string {
 	return ""
 }
 
-// transcriptPathFromPayload 는 payload에서 transcript 경로를 추출한다.
-// Claude Code의 snake_case(`transcript_path`)와 일부 호환 시스템의
-// camelCase(`transcriptPath`) 모두 시도한다. payload 파싱 실패는 silent.
 func transcriptPathFromPayload(payload json.RawMessage) string {
 	if len(payload) == 0 {
 		return ""

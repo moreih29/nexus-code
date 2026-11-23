@@ -1,9 +1,4 @@
-/**
- * BranchPicker delete flow tests cover the local force-warning retry and
- * remote delete routing without mounting Radix portal internals.
- */
 import { describe, expect, it, mock } from "bun:test";
-import type { Dispatch, SetStateAction } from "react";
 import {
   type BranchDeleteRequest,
   buildBranchDeleteDialogView,
@@ -30,52 +25,61 @@ it("offers branch creation when opened with the legacy checkout mode", async () 
 });
 
 describe("BranchPicker delete confirmation flow", () => {
-  it("deletes a fully merged local branch without force and closes the request", async () => {
+  it("deletes a fully merged local branch without force after one confirmation", async () => {
     const deleteBranch = mock(async () => {});
     const deleteRemoteBranch = mock(async () => {});
-    const state = deleteState({ kind: "local", name: "feature", force: false });
-    const request = state.current;
-    if (!request) throw new Error("expected delete request");
+    const asked = confirmations(true);
 
-    await confirmBranchDelete(request, {
-      workspaceId: "ws-1",
-      deleteBranch,
-      deleteRemoteBranch,
-      setDeleteRequest: state.set,
-    });
+    await confirmBranchDelete(
+      { kind: "local", name: "feature", force: false },
+      { workspaceId: "ws-1", deleteBranch, deleteRemoteBranch, confirm: asked.confirm },
+    );
 
+    expect(asked.requests).toEqual([{ kind: "local", name: "feature", force: false }]);
     expect(deleteBranch.mock.calls).toEqual([["ws-1", "feature", false]]);
     expect(deleteRemoteBranch).not.toHaveBeenCalled();
-    expect(state.current).toBeNull();
   });
 
-  it("turns not-fully-merged local failures into a warning modal then retries force=true", async () => {
+  it("does nothing when the confirmation is cancelled", async () => {
+    const deleteBranch = mock(async () => {});
+    const asked = confirmations(false);
+
+    await confirmBranchDelete(
+      { kind: "local", name: "feature", force: false },
+      {
+        workspaceId: "ws-1",
+        deleteBranch,
+        deleteRemoteBranch: async () => {},
+        confirm: asked.confirm,
+      },
+    );
+
+    expect(deleteBranch).not.toHaveBeenCalled();
+  });
+
+  it("asks again with a force warning when the branch is not fully merged, then retries force=true", async () => {
     const deleteBranch = mock(async (_workspaceId: string, _name: string, force?: boolean) => {
       if (force !== true) {
         throw { kind: "branch-not-fully-merged", message: "not fully merged" };
       }
     });
-    const deleteRemoteBranch = mock(async () => {});
-    const state = deleteState({ kind: "local", name: "feature", force: false });
-    const request = state.current;
-    if (!request) throw new Error("expected delete request");
+    const asked = confirmations(true, true);
 
-    await confirmBranchDelete(request, {
-      workspaceId: "ws-1",
-      deleteBranch,
-      deleteRemoteBranch,
-      setDeleteRequest: state.set,
-    });
+    await confirmBranchDelete(
+      { kind: "local", name: "feature", force: false },
+      {
+        workspaceId: "ws-1",
+        deleteBranch,
+        deleteRemoteBranch: async () => {},
+        confirm: asked.confirm,
+      },
+    );
 
-    expect(state.current).toEqual({
-      kind: "local",
-      name: "feature",
-      force: true,
-    });
-    const warningRequest = state.current;
-    if (!warningRequest) throw new Error("expected force warning request");
-    const warningView = buildBranchDeleteDialogView(warningRequest);
-    expect(warningView).toEqual({
+    expect(asked.requests).toEqual([
+      { kind: "local", name: "feature", force: false },
+      { kind: "local", name: "feature", force: true },
+    ]);
+    expect(buildBranchDeleteDialogView(asked.requests[1])).toEqual({
       title: "Branch is not fully merged",
       description: [
         "Branch 'feature' is not fully merged.",
@@ -84,69 +88,78 @@ describe("BranchPicker delete confirmation flow", () => {
       confirmLabel: "Delete",
       forceWarning: true,
     });
-
-    await confirmBranchDelete(warningRequest, {
-      workspaceId: "ws-1",
-      deleteBranch,
-      deleteRemoteBranch,
-      setDeleteRequest: state.set,
-    });
-
     expect(deleteBranch.mock.calls).toEqual([
       ["ws-1", "feature", false],
       ["ws-1", "feature", true],
     ]);
-    expect(state.current).toBeNull();
+  });
+
+  it("does not delete with force when the force warning is cancelled", async () => {
+    const deleteBranch = mock(async (_workspaceId: string, _name: string, force?: boolean) => {
+      if (force !== true) {
+        throw { kind: "branch-not-fully-merged", message: "not fully merged" };
+      }
+    });
+    const asked = confirmations(true, false);
+
+    await confirmBranchDelete(
+      { kind: "local", name: "feature", force: false },
+      {
+        workspaceId: "ws-1",
+        deleteBranch,
+        deleteRemoteBranch: async () => {},
+        confirm: asked.confirm,
+      },
+    );
+
+    expect(deleteBranch.mock.calls).toEqual([["ws-1", "feature", false]]);
   });
 
   it("does not offer force delete on an error name alone", async () => {
-    const request: BranchDeleteRequest = { kind: "local", name: "feature", force: false };
-    const state = deleteState(request);
-    await confirmBranchDelete(request, {
-      workspaceId: "ws-1",
-      deleteBranch: async () => {
-        throw Object.assign(new Error("delete failed"), { name: "branch-not-fully-merged" });
+    const asked = confirmations(true, true);
+    await confirmBranchDelete(
+      { kind: "local", name: "feature", force: false },
+      {
+        workspaceId: "ws-1",
+        deleteBranch: async () => {
+          throw Object.assign(new Error("delete failed"), { name: "branch-not-fully-merged" });
+        },
+        deleteRemoteBranch: async () => {},
+        confirm: asked.confirm,
       },
-      deleteRemoteBranch: async () => {},
-      setDeleteRequest: state.set,
-    });
-    expect(state.current).toBeNull();
+    );
+    expect(asked.requests).toHaveLength(1);
   });
 
   it("routes remote delete confirmation to deleteRemoteBranch", async () => {
     const deleteBranch = mock(async () => {});
     const deleteRemoteBranch = mock(async () => {});
-    const state = deleteState({ kind: "remote", remote: "origin", name: "feature" });
-    const request = state.current;
-    if (!request) throw new Error("expected delete request");
 
-    await confirmBranchDelete(request, {
-      workspaceId: "ws-1",
-      deleteBranch,
-      deleteRemoteBranch,
-      setDeleteRequest: state.set,
-    });
+    await confirmBranchDelete(
+      { kind: "remote", remote: "origin", name: "feature" },
+      {
+        workspaceId: "ws-1",
+        deleteBranch,
+        deleteRemoteBranch,
+        confirm: confirmations(true).confirm,
+      },
+    );
 
     expect(deleteRemoteBranch.mock.calls).toEqual([["ws-1", "origin", "feature"]]);
     expect(deleteBranch).not.toHaveBeenCalled();
-    expect(state.current).toBeNull();
   });
 });
 
-/**
- * Creates a tiny React setState-compatible holder for delete request tests.
- */
-function deleteState(initial: BranchDeleteRequest): {
-  current: BranchDeleteRequest | null;
-  set: Dispatch<SetStateAction<BranchDeleteRequest | null>>;
+function confirmations(...answers: boolean[]): {
+  requests: BranchDeleteRequest[];
+  confirm: (request: BranchDeleteRequest) => Promise<boolean>;
 } {
-  let current: BranchDeleteRequest | null = initial;
+  const requests: BranchDeleteRequest[] = [];
   return {
-    get current() {
-      return current;
-    },
-    set(value) {
-      current = typeof value === "function" ? value(current) : value;
+    requests,
+    confirm: async (request) => {
+      requests.push(request);
+      return answers[requests.length - 1] ?? false;
     },
   };
 }

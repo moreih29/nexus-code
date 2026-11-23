@@ -1,9 +1,3 @@
-/**
- * The scheduler over the app's stores: a Claude tab the usage limit
- * stopped keeps when to go on, and at that time the app asks the plan's
- * usage again and sends the message, or puts it off while the limit holds.
- * Asking and sending are stubbed (limitResumeIo).
- */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import i18next from "i18next";
 import { createElement, isValidElement, type ReactElement } from "react";
@@ -46,7 +40,6 @@ const io = { ...limitResumeIo };
 let sent: { tabId: string; text: string }[] = [];
 let slept: number[] = [];
 let asks = 0;
-/** What the plan's usage tells when asked: the reset of a limit still used up, or none. */
 let stillBlockedUntil: number | undefined;
 
 beforeEach(() => {
@@ -90,7 +83,6 @@ afterEach(() => {
   }));
 });
 
-/** A Claude tab whose last turn the limit stopped `ago` ms back, its limit resetting at `resetsAt`. */
 function stoppedTab(ago: number, resetsAt: number | undefined): string {
   const tab = useTabsStore.getState().createTab(WS, {
     type: "claude",
@@ -116,10 +108,6 @@ function stoppedTab(ago: number, resetsAt: number | undefined): string {
   return tab.id;
 }
 
-/**
- * A stopped tab whose time to go on came: kept before (as a restart finds
- * it in the layout), its time a second ago.
- */
 function dueTab(ago = 3 * 3_600_000): string {
   const resetsAt = Date.now() - 2 * RESUME_AFTER_MS;
   const tabId = stoppedTab(ago, resetsAt);
@@ -143,7 +131,6 @@ function recordOf(tabId: string) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-/** Renders the view to capture the handler wired to its actual X button. */
 function clickResumeDismiss(scope: string[], record: LimitResume) {
   let click: (() => void) | undefined;
   function Probe() {

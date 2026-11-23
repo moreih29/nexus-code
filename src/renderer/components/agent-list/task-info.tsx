@@ -1,9 +1,3 @@
-// Agent list — a worktree's facts, unfolded under its header in the task
-// view: how far a task has gone from its workspace's branch, its folder,
-// and its uncommitted changes in lines, the first few files of them, each
-// by its name, then its folder; a file opens its diff, the rest is in
-// source control.
-
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -12,11 +6,10 @@ import type { FileLineStats } from "../../../shared/git/types";
 import { showChanges, showFileChange } from "../../services/agent-sessions/actions";
 import type { WorktreeEntry } from "../../services/agent-sessions/model";
 import { useChangeStats, type WorktreeChanges } from "../../services/agent-sessions/use-family";
+import { tooltipProps } from "../ui/tooltip";
 
-/** How many changed files show before "N more". */
 const FILES_SHOWN = 5;
 
-/** How each change's letter is tinted: added green, deleted red, modified amber. */
 const CODE_TINT: Record<string, string> = {
   A: "text-emerald-500",
   "?": "text-emerald-500",
@@ -35,12 +28,10 @@ export function TaskInfo({
 }: {
   worktree: WorktreeEntry;
   branch: string | undefined;
-  /** The workspace's branch, which a task is compared with. */
   base: string | undefined;
   changes: WorktreeChanges | undefined;
 }) {
   const { workspace } = worktree;
-  // Read only while it is unfolded, as the detail panel read it while shown.
   const stats = useChangeStats(workspace.id, base, true);
   const path = workspace.task?.worktreePath ?? workspace.rootPath;
   const files = changes?.files ?? [];
@@ -65,7 +56,6 @@ export function TaskInfo({
           relPath: file.relPath,
           code: file.code,
           lines: (
-            // Narrow, a file's lines give their room to its name; the total stays.
             <LineCounts
               lines={lines.get(file.relPath)}
               className="ml-auto @max-[200px]/agents:hidden"
@@ -81,11 +71,6 @@ export function TaskInfo({
   );
 }
 
-/**
- * A worktree's facts as drawn: its folder, how it stands, and the first of
- * its changed files, with the rest a step away in source control. Shared
- * with another computer's worktree, which tells fewer of them.
- */
 export function TaskInfoLines({
   label,
   path,
@@ -97,14 +82,11 @@ export function TaskInfoLines({
   onShowChanges,
   testId,
 }: {
-  /** The folder, after its branch for the workspace itself. */
   label: string;
   path: string;
   standing?: ReactNode;
   total?: ReactNode;
-  /** The first changed files; undefined until its changes are known. */
   files: readonly { relPath: string; code: string; lines?: ReactNode }[] | undefined;
-  /** How many files changed in all. */
   count: number;
   onOpenFile: (relPath: string) => void;
   onShowChanges: () => void;
@@ -119,7 +101,7 @@ export function TaskInfoLines({
     >
       <div className="flex min-w-0 items-center gap-1.5 pr-3 pl-8 text-muted-foreground">
         {standing}
-        <span className="min-w-0 truncate font-mono" title={path}>
+        <span className="min-w-0 truncate font-mono" {...tooltipProps(path)}>
           {label}
         </span>
         {total}
@@ -133,7 +115,7 @@ export function TaskInfoLines({
             <li key={file.relPath}>
               <button
                 type="button"
-                title={file.relPath}
+                {...tooltipProps(file.relPath)}
                 onClick={() => onOpenFile(file.relPath)}
                 className="flex w-full min-w-0 items-center gap-2 py-0.5 pr-3 pl-8 text-left transition-colors outline-none hover:bg-[var(--state-hover-bg)] focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
               >
@@ -165,11 +147,6 @@ export function TaskInfoLines({
   );
 }
 
-/**
- * A changed file as its name, then its folder dimmed, on one line cut at
- * its end: where the panel is narrow the folder goes first, so the name
- * stays readable.
- */
 function FilePath({ relPath }: { relPath: string }) {
   const slash = relPath.lastIndexOf("/");
   const name = relPath.slice(slash + 1);
@@ -182,13 +159,12 @@ function FilePath({ relPath }: { relPath: string }) {
   );
 }
 
-/** A task's commits ahead of and behind its workspace's branch, as ↑2 ↓1 vs main. */
 function AheadBehind({ ahead, behind, base }: { ahead: number; behind: number; base: string }) {
   const { t } = useTranslation();
   return (
     <span
       className="flex shrink-0 items-center gap-1.5 tabular-nums"
-      title={t("agentList.detail.ahead_behind", { ahead, behind, branch: base })}
+      {...tooltipProps(t("agentList.detail.ahead_behind", { ahead, behind, branch: base }))}
       data-testid="task-ahead-behind"
     >
       <span className="flex items-center">
@@ -203,7 +179,6 @@ function AheadBehind({ ahead, behind, base }: { ahead: number; behind: number; b
   );
 }
 
-/** The lines all the files add and delete. */
 function totalLines(files: readonly FileLineStats[]): FileLineStats {
   let added = 0;
   let deleted = 0;
@@ -214,7 +189,6 @@ function totalLines(files: readonly FileLineStats[]): FileLineStats {
   return { path: "", added, deleted };
 }
 
-/** +12 −3, the parts that are not zero; "binary" for a binary file. */
 function LineCounts({
   lines,
   className,
@@ -235,7 +209,7 @@ function LineCounts({
   return (
     <span
       className={cn("flex shrink-0 gap-1.5 font-mono tabular-nums", className)}
-      title={t("agentList.detail.lines", { added: lines.added, deleted: lines.deleted })}
+      {...tooltipProps(t("agentList.detail.lines", { added: lines.added, deleted: lines.deleted }))}
     >
       {lines.added > 0 && <span className="text-emerald-500">+{lines.added}</span>}
       {lines.deleted > 0 && <span className="text-(--state-error-fg)">{`−${lines.deleted}`}</span>}

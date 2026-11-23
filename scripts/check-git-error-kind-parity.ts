@@ -20,9 +20,6 @@ export interface GitErrorKindParityResult {
 const DEFAULT_GO_FILE = path.join(process.cwd(), "internal/git/errors.go");
 const DEFAULT_FIXTURE_ROOT = path.join(process.cwd(), "tests/fixtures/git/stderr");
 
-/**
- * Checks that TypeScript's GitErrorKindSchema and Go's Kind constants do not drift.
- */
 export function checkGitErrorKindParity(
   options: GitErrorKindParityOptions = {},
 ): GitErrorKindParityResult {
@@ -51,9 +48,6 @@ export function checkGitErrorKindParity(
   };
 }
 
-/**
- * Parses internal/git/errors.go and returns string values assigned to Kind constants.
- */
 export function readGoKindConstants(goFile: string): string[] {
   const source = readFileSync(goFile, "utf8");
   const kinds: string[] = [];
@@ -64,9 +58,6 @@ export function readGoKindConstants(goFile: string): string[] {
   return kinds;
 }
 
-/**
- * Reads expected.json files under tests/fixtures/git/stderr and collects top-level kind values.
- */
 export function readFixtureKinds(fixtureRoot: string): string[] {
   if (!existsSync(fixtureRoot)) return [];
 

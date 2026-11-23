@@ -100,7 +100,6 @@ func previewFileStamp(file *os.File, info os.FileInfo, versioned bool) (previewS
 	if !versioned || stamp.inode == 0 {
 		return stamp, false
 	}
-	// Don't rely on the filesystem cache of a network share.
 	root, err := windows.UTF16PtrFromString(filepath.VolumeName(file.Name()) + `\`)
 	var volume [16]uint16
 	return stamp, err == nil && windows.GetDriveType(root) == windows.DRIVE_FIXED &&

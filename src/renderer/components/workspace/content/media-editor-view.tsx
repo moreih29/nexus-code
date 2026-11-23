@@ -1,10 +1,6 @@
-// The editor surface of an audio or video file: the breadcrumb toolbar the
-// other editors have, its right slot showing the file's length (and a
-// video's frame size), and the player below. Media files are not editable.
-
 import { type ReactNode, useState } from "react";
 import { type MediaKind, mediaDuration } from "../../../services/editor/preview/media";
-import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { useWorkspace } from "../../../state/stores/workspaces";
 import { type MediaInfo, MediaPreview } from "../../editor/preview/media-preview";
 import { EditorBreadcrumbs } from "./editor-breadcrumbs";
 
@@ -23,9 +19,7 @@ export function MediaEditorView({
   kind,
   breadcrumbs,
 }: MediaEditorViewProps) {
-  const workspaceRootAbsPath = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
-  );
+  const workspaceRootAbsPath = useWorkspace(workspaceId, (w) => w?.rootPath ?? "");
   const [info, setInfo] = useState<MediaInfo | null>(null);
   const label = info && mediaLabel(info);
 
@@ -54,7 +48,6 @@ export function MediaEditorView({
   );
 }
 
-/** "1920 × 1080 · 1:23" for a video, "1:23" for audio. */
 function mediaLabel(info: MediaInfo): string {
   const parts: string[] = [];
   if (info.width > 0 && info.height > 0) parts.push(`${info.width} × ${info.height}`);

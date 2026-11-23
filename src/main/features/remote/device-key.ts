@@ -1,9 +1,3 @@
-/**
- * Account keys v2 on this device (packages/remote-protocol's
- * ACCOUNT_KEYS.md, "Version 2"): its X25519 key pair, certificates under
- * the account key, envelopes that carry a new account key to one device,
- * and the frames of a pairing through a QR code.
- */
 import { createHmac, hkdfSync, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   aadOf,
@@ -30,17 +24,11 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-// ---------------------------------------------------------------------------
-// The device's key pair
-// ---------------------------------------------------------------------------
-
-/** This device's X25519 key pair, base64url. */
 export interface DeviceKeyPair {
   readonly secretKey: string;
   readonly publicKey: string;
 }
 
-/** A new key pair; `secret` (32 bytes) only for tests. */
 export async function newDeviceKeyPair(secret?: Uint8Array): Promise<DeviceKeyPair> {
   const lib = await sodium();
   const secretKey = secret ?? lib.randombytes_buf(lib.crypto_scalarmult_SCALARBYTES);
@@ -50,18 +38,11 @@ export async function newDeviceKeyPair(secret?: Uint8Array): Promise<DeviceKeyPa
   };
 }
 
-/** X25519 of one side's secret key and the other's public key; throws on an all-zero secret. */
 async function shared(secretKey: string, publicKey: string): Promise<Uint8Array> {
   const lib = await sodium();
-  // libsodium refuses a public key that makes an all-zero secret.
   return lib.crypto_scalarmult(fromBase64Url(secretKey), fromBase64Url(publicKey));
 }
 
-// ---------------------------------------------------------------------------
-// Certificates
-// ---------------------------------------------------------------------------
-
-/** Who a certificate is of. */
 export interface CertSubject {
   readonly userId: string;
   readonly deviceId: string;
@@ -69,7 +50,6 @@ export interface CertSubject {
   readonly kid: number;
 }
 
-/** The certificate of `subject` under the account key `accountKey`, which must be of version `subject.kid`. */
 export function certOf(accountKey: Uint8Array, subject: CertSubject): string {
   const certKey = hkdf(accountKey, DEVICE_CERT_KEY_INFO);
   return createHmac("sha256", certKey)
@@ -77,7 +57,6 @@ export function certOf(accountKey: Uint8Array, subject: CertSubject): string {
     .digest("base64url");
 }
 
-/** Whether `key`, of the device `deviceId`, is vouched for by the account key of its version. */
 export function certChecks(
   accountKey: Uint8Array,
   userId: string,
@@ -90,15 +69,6 @@ export function certChecks(
   return sameBytes(want, fromBase64Url(key.cert));
 }
 
-// ---------------------------------------------------------------------------
-// Envelopes
-// ---------------------------------------------------------------------------
-
-/**
- * Seals the account key `key` (version `kid`) for the device `to`, from
- * this device `from`, whose key `from.key` is vouched for under version
- * kid - 1. `nonce` only for tests.
- */
 export async function sealEnvelope(options: {
   readonly userId: string;
   readonly key: Uint8Array;
@@ -134,11 +104,6 @@ export async function sealEnvelope(options: {
   }
 }
 
-/**
- * Opens an envelope for this device `self`, which holds the account key
- * `held`: only one of the version after it, from a device whose key that
- * key vouches for. Null when it is not, or does not open.
- */
 export async function openEnvelope(options: {
   readonly userId: string;
   readonly envelope: KeyEnvelope;
@@ -174,28 +139,20 @@ export async function openEnvelope(options: {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Pairing
-// ---------------------------------------------------------------------------
-
-/** A new pairing code's secret (32 bytes), base64url. */
 export function newPairSecret(): string {
   return toBase64Url(randomBytes(32));
 }
 
-/** The key a pairing's frames are sealed with: of the code's secret, the account, and the device showing it. */
 export function pairKeyOf(secret: string, userId: string, shownBy: string): Uint8Array {
   return hkdf(fromBase64Url(secret), pairKeyInfoOf(userId, shownBy));
 }
 
-/** A pairing frame's routing, as the relay delivers it. */
 export interface PairRouting {
   readonly from: string;
   readonly to: string;
   readonly seq: number;
 }
 
-/** Seals a pairing message for a relay frame of kid PAIR_KID. `nonce` only for tests. */
 export async function sealPair(
   pairKey: Uint8Array,
   routing: PairRouting,
@@ -214,7 +171,6 @@ export async function sealPair(
   return { nonce: toBase64Url(n), box: toBase64Url(box) };
 }
 
-/** Opens a pairing frame; null when it does not open, or holds no pairing message. */
 export async function openPair(
   pairKey: Uint8Array,
   frame: PairRouting & { readonly kid: number; readonly nonce: string; readonly box: string },

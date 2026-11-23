@@ -25,10 +25,7 @@ type RunParams struct {
 	Env            map[string]string `json:"env,omitempty"`
 	Interactive    bool              `json:"interactive,omitempty"`
 	StdoutCapBytes int64             `json:"stdoutCapBytes,omitempty"`
-	// RunID, when set, lets git.cancel stop the command and tags its askpass
-	// prompts; see startRun. Push, pull and the other prompting methods take
-	// the same field.
-	RunID string `json:"runId,omitempty"`
+	RunID          string            `json:"runId,omitempty"`
 }
 
 type RunResult struct {
@@ -40,8 +37,6 @@ type RunResult struct {
 	ErrorMessage string      `json:"errorMessage,omitempty"`
 }
 
-// Run executes one git command and returns stdout/stderr plus Git's exit code.
-// Non-zero Git exits are classified data, not transport failures.
 func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 	params, err := parseRunParams(raw)
 	if err != nil {
@@ -82,7 +77,6 @@ func (s *Service) Run(ctx context.Context, raw json.RawMessage) (any, error) {
 	return buildRunResult(stdout.String(), stderr.String(), code, params.Args), nil
 }
 
-// outputLimitResult uses the existing classification for generic Git calls.
 func outputLimitResult(stderr string, limit int64) RunResult {
 	return RunResult{
 		Stderr:       stderr,
@@ -92,7 +86,6 @@ func outputLimitResult(stderr string, limit int64) RunResult {
 	}
 }
 
-// buildRunResult attaches classification fields when Git exits unsuccessfully.
 func buildRunResult(stdout string, stderr string, code int, args []string) RunResult {
 	result := RunResult{Stdout: stdout, Stderr: redact.Credentials(stderr), Code: code}
 	if code == 0 {
@@ -109,15 +102,10 @@ func buildRunResult(stdout string, stderr string, code int, args []string) RunRe
 	return result
 }
 
-// capture runs one git command with the given args and returns stdout, stderr,
-// exit code, and any fatal (non-git) error. It honours ctx cancellation with
-// the same precedence as the rest of the package: ctx.Err() is checked before
-// inspecting the exit code.
 func (s *Service) capture(ctx context.Context, cwd string, args []string, interactive bool) (stdout, stderr string, code int, err error) {
 	return s.captureEnv(ctx, cwd, args, nil, interactive)
 }
 
-// captureEnv is capture with extra environment overrides for the child git.
 func (s *Service) captureEnv(ctx context.Context, cwd string, args []string, env map[string]string, interactive bool) (stdout, stderr string, code int, err error) {
 	cmd, err := s.command(ctx, args, cwd, env, interactive)
 	if err != nil {
@@ -126,10 +114,6 @@ func (s *Service) captureEnv(ctx context.Context, cwd string, args []string, env
 	return runCapturedCommand(ctx, cmd)
 }
 
-// gitError converts a non-zero git exit into a typed CodedError using the
-// stderr classifier + MessageForKind ladder. It is the shared error constructor
-// for runBranchCommand, runWorkflowGit callers, and statusGitOutput.
-// Fallback message format: "git <args> exited with code <N>".
 func gitError(args []string, stderr string, code int) error {
 	kind := Classify(stderr)
 	message := MessageForKind(kind, MessageContext{Stderr: stderr, Args: args, ExitCode: &code})
@@ -165,8 +149,6 @@ func validateGitArgs(args []string) error {
 	return nil
 }
 
-// literalPathspecs is for commands constructed here from selected file names.
-// Raw git.run and git.stream callers own their argument semantics.
 var literalPathspecs = map[string]string{"GIT_LITERAL_PATHSPECS": "1"}
 
 func selectedPathEnv(paths []string) map[string]string {
@@ -224,9 +206,6 @@ func (s *Service) resolveCwd(ctx context.Context, cwd string) (string, error) {
 	return "", proto.ProtocolError("git cwd must stay inside the workspace or its detected repository root")
 }
 
-// gitTopLevel returns the repository root of root in the path space git.detect
-// reports it in (see logicalTopLevel), so a cwd or gitDir taken from it
-// passes the checks against it.
 func gitTopLevel(ctx context.Context, root string) (string, error) {
 	cmd := exec.CommandContext(ctx, gitBinary(), "rev-parse", "--show-toplevel", "--show-cdup")
 	cmd.Dir = root
@@ -277,9 +256,6 @@ func (s *Service) commandAskpass() (commandAskpass, error) {
 	return commandAskpass{helperPath: helperPath, socketPath: socketPath}, nil
 }
 
-// askpassHelperPath returns the program git starts as the askpass helper:
-// this executable, or, when it runs from an MSIX package, the package's
-// alias for it, since git has no identity to run the package's files with.
 func askpassHelperPath() (string, error) {
 	if alias, ok := msix.AgentAlias(); ok {
 		return alias, nil
@@ -317,19 +293,10 @@ func gitEnv(overrides map[string]string, interactive bool, askpass commandAskpas
 	return withSafeGitConfig(env)
 }
 
-// safeGitConfig pins repo-config settings that make git execute a command
-// on its own. The agent runs `git status` as soon as a folder is opened,
-// so a `.git/config` that arrived with the folder (an archive or shared
-// drive, not a clone — clone never copies it) could otherwise run code
-// without any user action. Passed as command-line config, which wins over
-// repo config.
 var safeGitConfig = [][2]string{
 	{"core.fsmonitor", "false"},
 }
 
-// withSafeGitConfig appends safeGitConfig through GIT_CONFIG_COUNT /
-// GIT_CONFIG_KEY_n / GIT_CONFIG_VALUE_n (git 2.31+; older git ignores
-// them), after any entries the inherited environment already defines.
 func withSafeGitConfig(env []string) []string {
 	count, err := strconv.Atoi(envValue(env, "GIT_CONFIG_COUNT"))
 	if err != nil || count < 0 {
@@ -364,12 +331,10 @@ func appendOrReplaceEnv(env []string, key string, value string) []string {
 	return append(env, prefix+value)
 }
 
-// gitExitCode separates Git's exit status from command startup and I/O errors.
 func gitExitCode(state *os.ProcessState, err error) (int, error) {
 	if err == nil {
 		return 0, nil
 	}
-	// WaitDelay can close pipes inherited by a helper after Git succeeded.
 	if errors.Is(err, exec.ErrWaitDelay) && state != nil {
 		return state.ExitCode(), nil
 	}
@@ -384,7 +349,7 @@ func mapGitStartError(err error, args []string) error {
 	if errors.Is(err, exec.ErrNotFound) {
 		return classifiedFailure(KindGitMissing, "git executable not found")
 	}
-	return proto.CodedError{Code: proto.CodeRequestFailed, Msg: redact.Credentials(err.Error())}
+	return proto.CodedError{Code: proto.CodeRequestFailed, Msg: redact.Credentials(proto.Reason(err))}
 }
 
 type cappedBuffer struct {
@@ -394,12 +359,10 @@ type cappedBuffer struct {
 	cancel   context.CancelFunc
 }
 
-// String returns the captured stdout prefix.
 func (b *cappedBuffer) String() string {
 	return b.buf.String()
 }
 
-// Write records stdout until the configured cap and detects overflow.
 func (b *cappedBuffer) Write(p []byte) (int, error) {
 	if remaining := b.cap - int64(b.buf.Len()); int64(len(p)) > remaining {
 		b.overflow = true

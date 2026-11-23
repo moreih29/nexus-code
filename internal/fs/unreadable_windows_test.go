@@ -9,9 +9,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// makeUnreadable writes a file at path that the test cannot open: Windows
-// ignores the mode bits, so the file is held open, shared with no one, until
-// the test ends.
 func makeUnreadable(t *testing.T, path string) {
 	t.Helper()
 	must(t, os.WriteFile(path, []byte("x"), 0o644))

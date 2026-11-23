@@ -1,6 +1,3 @@
-// Who each profile is signed in as on this machine, as Settings shows it:
-// read when a page asks, kept until it asks again.
-
 import { create } from "zustand";
 import type { AgentProfile } from "../../../shared/agent-profiles/profiles";
 import { type AgentProfileStatus, isPersonalOrgName } from "../../../shared/agent-profiles/status";
@@ -45,11 +42,6 @@ function planName(plan: string | undefined): string | undefined {
   return PLAN_NAMES[plan.toLowerCase()] ?? plan.charAt(0).toUpperCase() + plan.slice(1);
 }
 
-/**
- * What a signed-in status reads as: Claude's organization and plan ("RTM ·
- * Team"; a personal organization by that word), Codex's account and plan.
- * `title` is what a tooltip adds: the organization's own name, the email.
- */
 export function statusSummary(
   agent: AgentProfile["agent"],
   status: Extract<AgentProfileStatus, { state: "signed-in" }>,

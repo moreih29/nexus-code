@@ -31,7 +31,6 @@ function row(status: AgentProfileStatus): string {
   );
 }
 
-/** The button the label names, as the markup has it. */
 function button(html: string, label: string): string | undefined {
   return html.match(new RegExp(`<button[^>]*aria-label="${label}"[^>]*>`))?.[0];
 }
@@ -50,7 +49,6 @@ describe("ProfileRow", () => {
     const html = row({ state: "signed-out" });
 
     expect(html).toContain(">Sign in</button>");
-    // Its place stays, hidden, so the rows' buttons line up.
     const again = button(html, "Sign Work in again");
     expect(again).toContain(' disabled=""');
     expect(again).toContain(" invisible");

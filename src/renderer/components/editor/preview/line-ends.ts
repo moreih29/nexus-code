@@ -1,9 +1,3 @@
-// The ends a line on a slide can have: PowerPoint's arrowheads, a
-// triangle, a stealth arrow, an open arrow, a diamond or an oval, each
-// sized in line widths. pptxtojson reads them off the line but draws a
-// line as its path alone, so they are worked out here from the path: where
-// it starts and ends, and which way it runs there.
-
 export interface LineEnd {
   type?: string;
   width?: string;
@@ -20,20 +14,10 @@ export type EndMark =
   | { kind: "polyline"; points: Point[] }
   | { kind: "ellipse"; center: Point; rx: number; ry: number; angle: number };
 
-/** Line widths in an end's width or length, small, medium or large. */
 const SIZES: Record<string, number> = { sm: 2, med: 3, lg: 5 };
 
-/**
- * The width, in points, that a thinner line's ends are sized by, as
- * LibreOffice sizes them, so that a hairline's arrow still shows.
- */
 const MIN_BASE_PT = 2;
 
-/**
- * How far into a filled head the line stops, as a share of its length:
- * far enough that the line's square end is under the head, not past its
- * sides.
- */
 const SHORTEN: Record<string, number> = { triangle: 0.6, stealth: 0.5 };
 
 const KINDS = new Set(["triangle", "stealth", "arrow", "diamond", "oval"]);
@@ -46,10 +30,6 @@ interface Command {
   nums: number[];
 }
 
-/**
- * The path's commands, if it is an open one of absolute moves, lines and
- * curves: a closed shape has no ends, and anything else is not read.
- */
 function parsePath(d: string): Command[] | null {
   const tokens = d.match(/[A-Za-z]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g) ?? [];
   const commands: Command[] = [];
@@ -66,7 +46,6 @@ function parsePath(d: string): Command[] | null {
     if (nums.length === ARITY[op]) {
       commands.push({ op, nums });
       nums = [];
-      // Pairs after a move's first are lines to them.
       if (op === "M") op = "L";
     }
   }
@@ -86,15 +65,10 @@ function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-/** The first point in `points` away from `from`, which gives the way the path leaves it. */
 function firstApart(from: Point, points: Point[]): Point | undefined {
   return points.find((point) => distance(point, from) > 1e-6);
 }
 
-/**
- * The mark drawn at `tip` for an end of a line `width` points wide that
- * reaches the tip from `from`'s side, and how far back the line stops.
- */
 export function endMark(
   end: LineEnd,
   tip: Point,
@@ -105,7 +79,6 @@ export function endMark(
   if (!KINDS.has(kind)) return null;
   const run = distance(tip, from);
   if (run === 0) return null;
-  // u points out of the line at its tip; n across it.
   const u = { x: (tip.x - from.x) / run, y: (tip.y - from.y) / run };
   const n = { x: -u.y, y: u.x };
   const base = Math.max(width, MIN_BASE_PT);
@@ -157,11 +130,6 @@ export function endMark(
   }
 }
 
-/**
- * A line's path with its ends drawn: the path, shortened where a head
- * covers its end, and the marks to draw over it; null when the line has
- * no ends to draw, or a path they cannot be put on.
- */
 export function lineEnds(
   d: string,
   width: number,

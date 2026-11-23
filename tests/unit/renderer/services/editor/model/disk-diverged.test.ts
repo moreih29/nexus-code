@@ -1,11 +1,3 @@
-// Tests for diskDiverged tracking in ModelEntry:
-//   - reconcileExternalChange records diskDiverged when buffer is dirty
-//   - reconcileExternalChange clears diskDiverged on clean reload
-//   - reloadEntryFromDisk always replaces buffer and clears diskDiverged
-//
-// We inject deps directly to avoid touching the real dirty-tracker, file-loader,
-// or Monaco singleton — keeping this test self-contained and fast.
-
 import { describe, expect, mock, test } from "bun:test";
 import type {
   ModelEntry,
@@ -17,13 +9,6 @@ import {
 } from "../../../../../../src/renderer/services/editor/model/entry";
 import type { FileLoadResult } from "../../../../../../src/renderer/services/editor/model/file-loader";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Minimal Monaco model stub — only the surface entry.ts reads.
- */
 function makeModel(value: string) {
   let content = value;
   let version = 1;
@@ -39,9 +24,6 @@ function makeModel(value: string) {
   };
 }
 
-/**
- * Build a stub deps bag. `readFileForModel` can be overridden per test.
- */
 function makeDeps(overrides: Partial<ModelEntryDeps> = {}): ModelEntryDeps {
   return {
     attachDirtyTracker: () => ({
@@ -79,10 +61,6 @@ function makeDeps(overrides: Partial<ModelEntryDeps> = {}): ModelEntryDeps {
   };
 }
 
-/**
- * Build a minimal ModelEntry that is already in the "ready" phase so
- * reconcileExternalChange / reloadEntryFromDisk can run their full body.
- */
 function makeEntry(modelValue: string, lastLoadedValue: string, deps: ModelEntryDeps): ModelEntry {
   const model = makeModel(modelValue);
   return {
@@ -106,10 +84,6 @@ function makeEntry(modelValue: string, lastLoadedValue: string, deps: ModelEntry
   };
 }
 
-// ---------------------------------------------------------------------------
-// reconcileExternalChange — dirty buffer (dirty bail path)
-// ---------------------------------------------------------------------------
-
 describe("reconcileExternalChange — dirty buffer", () => {
   test("records diskDiverged with disk mtime/size and notifies subscribers", async () => {
     const deps = makeDeps({
@@ -122,7 +96,6 @@ describe("reconcileExternalChange — dirty buffer", () => {
         }),
     });
 
-    // Buffer value differs from lastLoadedValue → simulates dirty edits
     const entry = makeEntry("edited-by-user", "original-from-disk", deps);
 
     let notified = false;
@@ -134,16 +107,10 @@ describe("reconcileExternalChange — dirty buffer", () => {
 
     expect(entry.diskDiverged).toEqual({ mtime: "T-new", size: 99 });
     expect(notified).toBe(true);
-    // Buffer must not be touched
     expect(entry.model?.getValue()).toBe("edited-by-user");
-    // lastLoadedValue must not be updated
     expect(entry.lastLoadedValue).toBe("original-from-disk");
   });
 });
-
-// ---------------------------------------------------------------------------
-// reconcileExternalChange — clean buffer (non-dirty reload path)
-// ---------------------------------------------------------------------------
 
 describe("reconcileExternalChange — clean buffer", () => {
   test("clears diskDiverged and updates buffer when buffer matches lastLoadedValue", async () => {
@@ -157,9 +124,7 @@ describe("reconcileExternalChange — clean buffer", () => {
         }),
     });
 
-    // Buffer matches lastLoadedValue → not dirty
     const entry = makeEntry("same-content", "same-content", deps);
-    // Pre-set a stale diskDiverged to verify it gets cleared
     entry.diskDiverged = { mtime: "T-stale", size: 5 };
 
     await reconcileExternalChange(entry);
@@ -169,10 +134,6 @@ describe("reconcileExternalChange — clean buffer", () => {
     expect(entry.model?.getValue()).toBe("new-from-disk");
   });
 });
-
-// ---------------------------------------------------------------------------
-// reloadEntryFromDisk — always replaces buffer
-// ---------------------------------------------------------------------------
 
 describe("reloadEntryFromDisk", () => {
   test("keeps edits made while reopening with another encoding", async () => {
@@ -272,7 +233,6 @@ describe("reloadEntryFromDisk", () => {
         }),
     });
 
-    // Buffer is "dirty" (different from lastLoadedValue)
     const entry = makeEntry("user-edits-here", "base", deps);
     entry.diskDiverged = { mtime: "T-disk-v2", size: 88 };
 
@@ -295,9 +255,7 @@ describe("reloadEntryFromDisk", () => {
     const entry = makeEntry("content", "content", deps);
     entry.disposed = true;
 
-    // Should not throw
     await reloadEntryFromDisk(entry);
-    // Model unchanged
     expect(entry.model?.getValue()).toBe("content");
   });
 
@@ -317,15 +275,10 @@ describe("reloadEntryFromDisk", () => {
 
     await reloadEntryFromDisk(entry);
 
-    // setValue should not be called — buffer already matches
     expect(entry.model?.getValue()).toBe("same-as-buffer");
     expect(entry.diskDiverged).toBeUndefined();
   });
 });
-
-// ---------------------------------------------------------------------------
-// Mixed line endings — the model reads back other text than the disk's
-// ---------------------------------------------------------------------------
 
 describe("reconcileExternalChange — mixed line endings", () => {
   test("takes a later change on disk once a file with mixed line endings is loaded", async () => {
@@ -339,7 +292,6 @@ describe("reconcileExternalChange — mixed line endings", () => {
           isBinary: false,
         }),
     });
-    // Monaco gives every line of such a file one line ending.
     let text = "";
     const model = {
       getValue: () => text,

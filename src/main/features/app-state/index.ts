@@ -20,54 +20,14 @@ import { restoreLayoutOrigins } from "./layout-origins";
 const c = ipcContract.appState.call;
 
 export interface AppStateChannelOptions {
-  /** Current workspace metadata for restoring legacy layout records. */
   listWorkspaces?: () => WorkspaceMeta[];
-  /**
-   * Invoked synchronously after a `set` call that includes a `language`
-   * field, with the newly requested language value.
-   *
-   * The main/index.ts wiring uses this to:
-   *   (a) call getMainI18n().changeLanguage(lang) so subsequent t() calls
-   *       resolve to the new locale immediately;
-   *   (b) reinstall the native application menu with the updated labels;
-   *   (c) broadcast `appState.languageChanged` to all renderer windows.
-   */
   onLanguageChanged?: (language: AppState["language"] & string) => void;
-  /**
-   * Invoked synchronously after a `set` call that includes a
-   * `keybindingOverrides` field, with the new override list.
-   *
-   * The main/index.ts wiring uses this to:
-   *   (a) reinstall the native application menu so accelerator labels
-   *       reflect the effective bindings;
-   *   (b) broadcast `appState.keybindingsChanged` to all renderer
-   *       windows so each recompiles its dispatcher tables.
-   */
   onKeybindingsChanged?: (overrides: NonNullable<AppState["keybindingOverrides"]>) => void;
-  /**
-   * Invoked synchronously after a `set` call that includes an
-   * `editorKeybindingOverrides` field, with the new override list.
-   *
-   * The main/index.ts wiring uses this only to broadcast
-   * `appState.editorKeybindingsChanged` to all renderer windows so each
-   * re-reconciles Monaco. No native-menu rebuild — editor commands are
-   * not menu items.
-   */
   onEditorKeybindingsChanged?: (
     overrides: NonNullable<AppState["editorKeybindingOverrides"]>,
   ) => void;
-  /**
-   * Invoked after a `set` call that includes `terminalShell` or
-   * `terminalShells`, even to clear them. The main/index.ts wiring
-   * broadcasts `appState.terminalShellsChanged` to all renderer windows.
-   */
   onTerminalShellsChanged?: () => void;
-  /** Invoked after a `set` call that includes `agentProfiles`. */
   onAgentProfilesChanged?: () => void;
-  /**
-   * Invoked after a `set` call that includes `themePreference`, with the
-   * new theme. The main/index.ts wiring repaints the window controls.
-   */
   onThemeChanged?: (theme: NonNullable<AppState["themePreference"]>) => void;
 }
 
@@ -83,7 +43,6 @@ export function registerAppStateChannel(
         return opts.listWorkspaces ? restoreLayoutOrigins(state, opts.listWorkspaces()) : state;
       },
       set: (args: unknown) => {
-        // The workspace may have been removed while the renderer was saving.
         const input = isPlainRecord(args) ? args : undefined;
         const rawLayouts = input?.layoutByWorkspace;
         const layouts = isPlainRecord(rawLayouts) ? rawLayouts : undefined;
@@ -132,33 +91,23 @@ export function registerAppStateChannel(
           patch.agentInstructions = instructionEdits?.reduce(withInstruction, config) ?? config;
         }
         if (patch.layoutByWorkspace) {
-          // Archive a conversation's saved session layer for opening it again from history.
           const history = rememberChatInstructions(state, patch.layoutByWorkspace, workspaceIds);
           if (history) patch.chatInstructionHistory = history;
         }
         try {
-          // Only validate layouts supplied by this window, then merge them into
-          // the latest state without replacing another window's layouts.
           stateService.setState(patch, { workspaceIds });
         } catch (error) {
           return ipcErr("state-write-failed", String(error), { category: "failed" });
         }
 
-        // Detect a language change and invoke the injected callback so the
-        // caller can update the main-process i18n instance, rebuild the menu,
-        // and broadcast to all renderer windows — without this module needing
-        // to know about i18n, menus, or IPC broadcasting directly.
         if (patch.language !== undefined && opts.onLanguageChanged !== undefined) {
           opts.onLanguageChanged(patch.language);
         }
 
-        // Same pattern for keybinding overrides: menu rebuild + broadcast
-        // are owned by the caller so this module stays IPC-only.
         if (patch.keybindingOverrides !== undefined && opts.onKeybindingsChanged !== undefined) {
           opts.onKeybindingsChanged(patch.keybindingOverrides);
         }
 
-        // Editor (Monaco) overrides: broadcast-only, no menu involvement.
         if (
           patch.editorKeybindingOverrides !== undefined &&
           opts.onEditorKeybindingsChanged !== undefined
@@ -166,7 +115,6 @@ export function registerAppStateChannel(
           opts.onEditorKeybindingsChanged(patch.editorKeybindingOverrides);
         }
 
-        // Shells: clearing one sends the key with no value, so test for the key.
         if ("terminalShell" in patch || "terminalShells" in patch) {
           opts.onTerminalShellsChanged?.();
         }

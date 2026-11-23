@@ -54,7 +54,6 @@ interface LeafBounds {
   bottom: number;
 }
 
-/** Find the leaf sharing the most of the requested edge with the source. */
 export function adjacentLeaf(
   tree: SplitNode,
   leafId: string,

@@ -9,12 +9,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// hangUp is done by closing the master: Linux hangs the terminal up then,
-// sending its session leader, the shell, SIGHUP and SIGCONT.
 func (c *child) hangUp() {}
 
-// sessionProcesses lists the processes in session sid but its leader, as
-// /proc shows them.
 func sessionProcesses(sid int) []int {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {

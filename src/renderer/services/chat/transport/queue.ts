@@ -6,24 +6,16 @@ export interface QueuedMessage {
   id: string;
   text: string;
   images: ImageBlock[];
-  /** Codex may steer after a tool completion later than this log sequence. */
   afterTool?: number;
-  /** The Codex submission ID if a refused steer moved this message to the queue. */
   clientUserMessageId?: string;
   status?: "sending" | "failed" | "unconfirmed";
   error?: string;
-  /** The agent that sent it through the nexus command, when one did. */
   from?: RelaySender;
-  /**
-   * The user's other computer it was held from, when it was: it is dropped
-   * if control from other computers is turned off before it goes.
-   */
   device?: string;
 }
 
 const MAX_CANCELLED_SUBMISSIONS = 4096;
 
-/** Removes a held message and lets its waiter distinguish cancellation from delivery. */
 export function cancelQueuedMessage(state: ChatTabState, id: string): ChatTabState {
   return {
     ...state,
@@ -35,19 +27,16 @@ export function cancelQueuedMessage(state: ChatTabState, id: string): ChatTabSta
   };
 }
 
-/** Reads the failure code the chat IPC carried across the process boundary. */
 export function chatSendErrorKind(error: unknown): string | undefined {
   const kind = (error as { kind?: unknown } | null)?.kind;
   return typeof kind === "string" ? kind : undefined;
 }
 
-/** The agent knows no bytes of the requested message reached the program. */
 export function isChatWriteRejected(error: unknown): boolean {
   const kind = chatSendErrorKind(error);
   return kind === "chat.stdin-write-failed" || kind === "chat.not-running";
 }
 
-/** Keeps the payload available for recovery until delivery has been confirmed. */
 export function dispatchQueuedMessage(
   queue: readonly QueuedMessage[],
   update: (change: (prev: ChatTabState) => ChatTabState) => void,

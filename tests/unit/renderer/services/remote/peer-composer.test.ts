@@ -1,4 +1,3 @@
-/** This app's own composer driving another computer's chat, through the room. */
 import { describe, expect, test } from "bun:test";
 import type { ChatCommand, ChatSettings } from "../../../../../packages/remote-protocol/src";
 import { emptyModel } from "../../../../../src/renderer/services/chat/model";
@@ -30,7 +29,6 @@ const settings: ChatSettings = {
   },
 };
 
-/** A PNG's base64 whose header says 2 by 2. */
 function png(): string {
   const b = Buffer.alloc(32, 1);
   b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13], 0);
@@ -126,7 +124,6 @@ describe("the composer of another computer's chat", () => {
     await made.sendNow?.("now");
     await made.readHeldNow?.();
     expect(await made.withdraw?.("u3")).toBe(true);
-    // Its images come back with it, read before it is taken; one not given is left out.
     expect(await made.takeBackQueued?.("q1")).toEqual({
       id: "q1",
       text: "the whole text",
@@ -339,7 +336,6 @@ describe("the composer of another computer's chat", () => {
       call,
     });
     expect(await made.fileSuggestions("app")).toEqual(["src/app.ts", "/home/me/repo/docs/app.md"]);
-    // Asked once: the next @ goes to files.find straight; an empty one lists nothing.
     expect(await made.fileSuggestions("app")).toHaveLength(2);
     expect(await made.fileSuggestions(" ")).toEqual([]);
     expect(calls).toEqual(["peerChatFileSuggestions", "peerFilesFind", "peerFilesFind"]);
@@ -442,7 +438,6 @@ describe("an @ from a device before 0.13.0", () => {
     const sub = { root: "/home/me/repo", cwd: "/home/me/repo/pkg" };
     expect(mentionOf("pkg/a.ts", sub)).toBe("a.ts");
     expect(mentionOf("other/a.ts", sub)).toBe("/home/me/repo/other/a.ts");
-    // A folder whose name only starts with the workspace's is not in it.
     expect(mentionOf("a.ts", { root: "/home/me/repo", cwd: "/home/me/repo2" })).toBe(
       "/home/me/repo/a.ts",
     );

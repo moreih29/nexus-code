@@ -65,7 +65,6 @@ func TestRunSendMessage_WritesTheDecisionAndExitsZero(t *testing.T) {
 	}
 }
 
-// TestRunSendMessageDeniesOversizedInput checks the tool hook's fail-closed response.
 func TestRunSendMessageDeniesOversizedInput(t *testing.T) {
 	input := strings.NewReader(string(payloadOf("SendMessage", "teammate")) + strings.Repeat(" ", 16<<20))
 	var out bytes.Buffer

@@ -1,12 +1,3 @@
-// lsp-status-segment.tsx — the status bar's language server item.
-//
-// Shows the server of the active editor's language in this workspace: its
-// name, a spinner while it starts or loads the project, a warning when it
-// failed. Clicking it opens a menu with the server's state and memory, and
-// the actions on it: restart, turn off in this workspace, show the log, open
-// the settings. Renders nothing for a file no server serves, or while
-// language servers are off altogether.
-
 import { AlertTriangle, Braces, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -19,6 +10,7 @@ import {
 } from "../../../shared/lsp/config";
 import { isLspLanguageOn, isLspLanguageOnForWorkspace } from "../../../shared/lsp/settings";
 import type { LspServerStatus } from "../../../shared/lsp/status";
+import { formatBytes } from "../../../shared/util/format-bytes";
 import { ipcCallResult } from "../../ipc/client";
 import { dismissLspFailureToast } from "../../state/operations/lsp-status";
 import { useLayoutStore } from "../../state/stores/layout";
@@ -29,7 +21,6 @@ import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { useTabsStore } from "../../state/stores/tabs";
 import { Popover } from "../ui/popover";
 
-/** The language of the file in the workspace's active editor, if a server serves it. */
 function useActiveEditorLanguage(workspaceId: string): BuiltinLspPresetLanguageId | null {
   const layout = useLayoutStore((s) => s.byWorkspace[workspaceId]);
   const tabs = useTabsStore((s) => s.byWorkspace[workspaceId]);
@@ -54,7 +45,6 @@ function segmentState(
   if (status.state === "failed") return "failed";
   if (status.state === "starting" || progress) return "busy";
   if (status.state === "running") return "running";
-  // Crashed, or stopping to restart: the next server is on its way.
   if (status.stopReason === "crashed" || status.stopReason === "restart") return "busy";
   return "idle";
 }
@@ -142,10 +132,6 @@ function describeState(
   return t(`lsp.state.stopped.${status.stopReason ?? "idle"}`);
 }
 
-function formatMegabytes(bytes: number): string {
-  return `${Math.round(bytes / (1024 * 1024))} MB`;
-}
-
 const MENU_ITEM_CLASS =
   "flex w-full items-center px-2 py-1 rounded-(--radius-control) text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none";
 
@@ -169,12 +155,10 @@ function LspStatusPopover({
   const [memory, setMemory] = useState<number | null>(null);
   const running = status?.state === "running";
 
-  // The server's failure toast says what this popover says, over its actions.
   useEffect(() => {
     dismissLspFailureToast(workspaceId, languageId);
   }, [workspaceId, languageId]);
 
-  // Asked once per opening: ps on macOS, a process walk on Windows.
   useEffect(() => {
     if (!running) return;
     let cancelled = false;
@@ -207,7 +191,7 @@ function LspStatusPopover({
         {server && <span className="text-app-ui-sm text-muted-foreground truncate">{server}</span>}
         <span className="text-app-ui-sm text-muted-foreground">
           {describeState(t, on, status, progress)}
-          {running && memory !== null && ` · ${t("lsp.memory", { size: formatMegabytes(memory) })}`}
+          {running && memory !== null && ` · ${t("lsp.memory", { size: formatBytes(memory) })}`}
         </span>
         {status?.state === "failed" &&
           (install ? (

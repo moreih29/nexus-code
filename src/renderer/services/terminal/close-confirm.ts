@@ -5,13 +5,8 @@ import { useTabsStore } from "@/state/stores/tabs";
 import { isLoginShell } from "../../../shared/pty/login-shell";
 import { closeTerminal } from "./open-terminal";
 
-/** How long to wait for the agent's answer before closing without asking. */
 const FOREGROUND_LOOKUP_TIMEOUT_MS = 1000;
 
-/**
- * The program holding the terminal's foreground, or null when its shell does
- * (nothing is running) or the agent cannot tell in time.
- */
 export async function runningProgram(workspaceId: string, tabId: string): Promise<string | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<string>((resolve) => {
@@ -26,11 +21,6 @@ export async function runningProgram(workspaceId: string, tabId: string): Promis
   return name !== "" && !isLoginShell(name) ? name : null;
 }
 
-/**
- * Close a terminal tab, first asking when a program is still running in it
- * (VSCode's terminal.integrated.confirmOnKill): closing kills the session,
- * and with it whatever the user left running.
- */
 export async function closeTerminalWithConfirm(
   workspaceId: string,
   tabId: string,

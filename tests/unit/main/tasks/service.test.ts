@@ -14,12 +14,8 @@ import type { WorkspaceCreateOptions } from "../../../../src/main/features/works
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 import { newLocalGitRepository } from "../features/git/helpers/local-semantic-executor";
 
-// Each test makes real repositories and worktrees, which a slow CI runner
-// (Windows) takes past bun's 5 s default for.
 setDefaultTimeout(30_000);
 
-// An empty global config keeps the developer's out. Not os.devNull: git for
-// Windows cannot open \\.\nul.
 const emptyConfig = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "nexus-gitconfig-")), "config");
 fs.writeFileSync(emptyConfig, "");
 
@@ -42,7 +38,6 @@ let repoDir: string;
 let worktreesRoot: string;
 
 beforeAll(() => {
-  // realpath: git reports /private/var on macOS where tmpdir says /var.
   tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "nexus-tasks-")));
   repoDir = path.join(tmp, "repo");
   worktreesRoot = path.join(tmp, "worktrees");
@@ -58,7 +53,6 @@ afterAll(() => {
   fs.rmSync(path.dirname(emptyConfig), { recursive: true, force: true });
 });
 
-/** A manager holding metas in memory, and the parent workspace in it. */
 function setup(parentRoot = repoDir) {
   const workspaces: WorkspaceMeta[] = [];
   const parent: WorkspaceMeta = {
@@ -105,7 +99,6 @@ function setup(parentRoot = repoDir) {
       workspaceId === parent.id
         ? newLocalGitRepository(workspaceId, repoDir, path.join(repoDir, ".git"), "git")
         : null,
-    // The removal's tries in the same order, a hundred times faster.
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms / 100)),
   };
   return { deps, parent, workspaces, removed };
@@ -200,8 +193,6 @@ describe("removeTask", () => {
     const { deps, parent } = setup();
     const task = await createTask(deps, { parentId: parent.id, name: "held" });
     const worktreePath = task.task?.worktreePath ?? "";
-    // As on Windows when a closing program still holds the folder: git
-    // deletes the files and its record, fails on the folder, and says so.
     let failed = false;
     const held: TaskServiceDeps = {
       ...deps,
@@ -232,8 +223,6 @@ describe("removeTask", () => {
     const { deps, parent } = setup();
     const task = await createTask(deps, { parentId: parent.id, name: "waiting" });
     const worktreePath = task.task?.worktreePath ?? "";
-    // As on Windows when Claude Code's WorktreeRemove hook asks for the
-    // removal: the claude waiting on it has the folder for its cwd.
     let holding = true;
     const held: TaskServiceDeps = {
       ...deps,

@@ -27,9 +27,6 @@ function getGitGroupLabel(key: GitExpandedGroupKey): string {
   }
 }
 
-/**
- * Build the visible Source Control groups in fixed VSCode-style order.
- */
 export function buildGitGroups(status: GitStatus | null | undefined): GitGroupDescriptor[] {
   if (!status) return [];
   return GIT_GROUP_KEYS.map((key) => ({
@@ -39,9 +36,6 @@ export function buildGitGroups(status: GitStatus | null | undefined): GitGroupDe
   })).filter((group) => group.entries.length > 0);
 }
 
-/**
- * Derive the single-letter badge shown for an entry in a specific group.
- */
 export function getGitStatusCode(groupKey: GitExpandedGroupKey, entry: GitStatusEntry): string {
   if (groupKey === "merge") return "!";
   if (groupKey === "untracked") return "?";
@@ -49,16 +43,10 @@ export function getGitStatusCode(groupKey: GitExpandedGroupKey, entry: GitStatus
   return code && code !== "." ? code : "M";
 }
 
-/**
- * Return the unique relPaths used by store operations for a set of rows.
- */
 export function collectGitEntryPaths(entries: readonly GitStatusEntry[]): string[] {
   return Array.from(new Set(entries.map((entry) => entry.relPath)));
 }
 
-/**
- * Human-readable row label, including the old path when Git reports a rename.
- */
 export function formatGitEntryPath(entry: GitStatusEntry): string {
   return entry.oldRelPath ? `${entry.oldRelPath} → ${entry.relPath}` : entry.relPath;
 }

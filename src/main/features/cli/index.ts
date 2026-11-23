@@ -1,8 +1,3 @@
-/**
- * The nexus CLI in main: takes the "cli.request" events the workspaces'
- * agents relay from their terminals, runs the command, and answers through
- * the same agent.
- */
 import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import type { BrowserWindow } from "electron";
@@ -25,6 +20,7 @@ import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 import type { ListeningPort } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { WorkspaceColor } from "../../../shared/types/workspace-color";
+import { shortId } from "../../../shared/util/short-id";
 import type { AgentChannel } from "../../infra/agent/channel";
 import { register, validateArgs } from "../../infra/ipc-router";
 import { getBrowserRegistry, onBrowserTabCreated } from "../browser";
@@ -50,7 +46,6 @@ import {
   type CliNotes,
   type CliRemote,
   type CliServices,
-  shortId,
 } from "./context";
 import { listedAt } from "./listed";
 import { notifyTab } from "./notifier";
@@ -64,7 +59,6 @@ import { WaitRegistry } from "./waits";
 const log = createLogger("cli");
 const slowRequests = limitLog(log);
 
-/** How long a pick started from a browser tab's button waits for the click. */
 const BUTTON_PICK_MS = 10 * 60_000;
 
 const DISABLED: CliResult = {
@@ -74,10 +68,6 @@ const DISABLED: CliResult = {
 };
 
 export interface SetupCliFeatureOptions {
-  /**
-   * Relays the agents' "cli.request" and "cli.cancel" events and the terminals' output, and
-   * asks a terminal's agent which program holds its foreground.
-   */
   agentHost: ActivitySource & {
     call(method: string, args: unknown): Promise<unknown>;
     hasWorkspaceSessions?(workspaceId: string): boolean;
@@ -102,7 +92,6 @@ export interface SetupCliFeatureOptions {
     connect(id: string): Promise<void>;
   };
   claudeBroker: ClaudeStatusBroker;
-  /** The agents of Claude sessions, for nexus agent. */
   claudeActivity?: {
     get(workspaceId: string, tabId: string): { agents: readonly AgentRun[] } | null;
     printRunSource?(
@@ -111,7 +100,6 @@ export interface SetupCliFeatureOptions {
       runId: string,
     ): { home?: string } | undefined;
   };
-  /** The permission requests the terminals' Claude sessions hold for the app to answer. */
   claudeAsks?: {
     list(workspaceId: string, tabId: string): readonly PermissionAsk[];
     answer(
@@ -121,50 +109,37 @@ export interface SetupCliFeatureOptions {
       answer: PermissionAnswer,
     ): Promise<boolean>;
   };
-  /** The user's other computers, once the remote is set up; none before. */
   remote?: () => CliRemote | null;
   onConsentsChanged?: () => void;
-  /** Stops a session's running `claude -p` run; false when the app cannot tell it to. */
   stopPrintRun?: (workspaceId: string, tabId: string, agentId: string) => Promise<boolean>;
   activeContext: ActiveContextStore;
   appVersion: string;
   profileConnections: CliServices["profileConnections"];
   notificationsEnabled: () => boolean;
-  /** The nexus settings (Settings › Agents), read on every command. */
   settings: () => {
     enabled: boolean;
     crossWorkspace: CrossWorkspacePolicy;
     agentContext: boolean;
   };
-  /** The app window the renderer side of the CLI runs in. */
   getWindow: () => Pick<BrowserWindow, "webContents"> | null;
-  /** Whether the app has focus. */
   isAppFocused: () => boolean;
-  /** Brings the app's window forward. */
   focusWindow: () => void;
-  /** Sends an event to the renderer. */
   broadcast: (channel: string, event: string, args: unknown) => void;
-  /** Looks at the ports the programs in a workspace's terminals listen on. */
   ports: { refresh(workspaceId: string): Promise<readonly ListeningPort[]> };
-  /** The SSH workspaces' ports forwarded to this machine. */
   forwards: CliForwards;
   claudeInstructions?: CliServices["claudeInstructions"];
   terminalClaudeInstructions?: CliServices["terminalClaudeInstructions"];
-  /** The workspaces' notes. */
   notes: CliNotes;
 }
 
 export interface CliFeature {
-  /** What the commands work with: the remote serves its own requests with them too. */
   readonly services: CliServices;
   agentContextForChat(
     workspaceId: string,
     tabId: string,
     session?: string,
   ): Promise<ChatAgentContext | undefined>;
-  /** A key typed into a terminal (activity.ts). */
   noteInput(workspaceId: string, tabId: string): void;
-  /** A terminal's new size (activity.ts). */
   noteResize(workspaceId: string, tabId: string): void;
   dispose(): void;
 }
@@ -189,7 +164,6 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   );
   const waits = new WaitRegistry(agentHost);
   const startedAgents = new StartedAgents(agentHost);
-  // Every consent prompt, kept by id while it waits, for another device to answer too.
   const consents = new ConsentPrompts({
     ask: (args, timeoutMs, signal) => bridge.ask("consent.ask", args, timeoutMs, signal),
     settle: async (id, answer, by) =>
@@ -198,16 +172,10 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   });
   const askConsent = async (
     { fromWorkspaceId, fromTabId, toWorkspaceId, change }: ChangeRequest,
-    timeoutMs: number,
     signal?: AbortSignal,
   ) =>
-    (
-      await consents.ask(
-        { fromWorkspaceId, fromTabId, toWorkspaceId, change, timeoutMs },
-        undefined,
-        signal,
-      )
-    ).answer;
+    (await consents.ask({ fromWorkspaceId, fromTabId, toWorkspaceId, change }, undefined, signal))
+      .answer;
   const consent = new CrossWorkspaceConsent({
     policy: () => options.settings().crossWorkspace,
     ask: askConsent,
@@ -249,7 +217,6 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
         try {
           const result = await browser.pick(tabId, { timeoutMs: BUTTON_PICK_MS });
           if ("cancelled" in result) return ipcOk({ cancelled: result.cancelled });
-          // The click left the keyboard in the page; the agent's terminal is next.
           options.getWindow()?.webContents.focus();
           const screenshot = await pickPicture(tabId, result.picked);
           return ipcOk({ text: formatPick(result.picked, screenshot, shortId(tabId)) });
@@ -267,11 +234,6 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     listen: { uiRequest: {} },
   });
 
-  /**
-   * Saves the picture of an element picked with a tab's button where the
-   * agent can read it: this machine's temp directory, so only for a local
-   * workspace. An agent on an SSH host or in WSL gets none.
-   */
   const pickPicture = async (tabId: string, picked: PickedElement): Promise<string | undefined> => {
     const workspaceId = getBrowserRegistry()?.get(tabId)?.workspaceId;
     const workspace = workspaceManager.list().find((w) => w.id === workspaceId);
@@ -416,7 +378,6 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     return runCli(CLI_COMMANDS, { caller, invocation: request, services, signal });
   };
 
-  /** The requests still running, to abort when their client goes. */
   const running = new Map<string, AbortController>();
 
   const respond = async (workspaceId: string, requestId: string, response: CliResult) => {

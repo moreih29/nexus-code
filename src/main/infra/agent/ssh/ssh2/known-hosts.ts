@@ -1,14 +1,3 @@
-/**
- * Host-key checks against OpenSSH's known_hosts files, for the ssh2 client.
- *
- * The ssh2 client reads and writes the same files `ssh` does, so a host
- * trusted through either is trusted by both. Entries are matched as OpenSSH
- * matches them: comma-separated host patterns with `*` and `?` wildcards and
- * `!` negation, hashed `|1|salt|hash` names, and `[host]:port` for a port
- * other than 22. `@revoked` keys are refused; `@cert-authority` lines are
- * skipped, since the client does not check host certificates.
- */
-
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -16,28 +5,23 @@ import path from "node:path";
 export type HostKeyStatus =
   | { readonly kind: "known" }
   | { readonly kind: "unknown" }
-  /** The host has a different key of the same type: it may be impersonated. */
   | { readonly kind: "changed"; readonly file: string; readonly line: number }
   | { readonly kind: "revoked"; readonly file: string; readonly line: number };
 
-/** The name a host's keys are listed under: `host`, or `[host]:port` off port 22. */
 export function knownHostName(hostname: string, port: number): string {
   return port === 22 ? hostname : `[${hostname}]:${port}`;
 }
 
-/** The key type a wire-format public key names, such as `ssh-ed25519`. */
 export function hostKeyType(key: Buffer): string {
   if (key.length < 4) return "unknown";
   const length = key.readUInt32BE(0);
   return key.subarray(4, 4 + length).toString("ascii");
 }
 
-/** OpenSSH's fingerprint form for a key: `SHA256:` and unpadded base64. */
 export function hostKeyFingerprint(key: Buffer): string {
   return `SHA256:${createHash("sha256").update(key).digest("base64").replace(/=+$/, "")}`;
 }
 
-/** Checks `key` for the host listed as `name` in each file, in order. */
 export async function checkHostKey(
   files: readonly string[],
   name: string,
@@ -72,7 +56,6 @@ export async function checkHostKey(
   return status;
 }
 
-/** Appends `key` for the host listed as `name`, hashing the name when asked. */
 export async function addHostKey(
   file: string,
   name: string,
@@ -86,9 +69,7 @@ export async function addHostKey(
   try {
     const existing = await fs.readFile(file, "utf8");
     if (existing.length > 0 && !existing.endsWith("\n")) prefix = "\n";
-  } catch {
-    // A new file.
-  }
+  } catch {}
   await fs.appendFile(file, prefix + line, { mode: 0o600 });
 }
 
@@ -114,7 +95,6 @@ function parseEntry(line: string): KnownHostEntry | null {
   return { marker, hosts: fields[0], type: fields[1], key: Buffer.from(fields[2], "base64") };
 }
 
-/** Whether a known_hosts host field lists `name`, as OpenSSH reads it. */
 export function matchesHost(hosts: string, name: string): boolean {
   if (hosts.startsWith("|1|")) {
     const [, , salt, hash] = hosts.split("|");

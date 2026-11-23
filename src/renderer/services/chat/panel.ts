@@ -1,13 +1,10 @@
-// What a Claude tab's side panel and agent strip show, read from its model:
-// the agents and tasks the CLI reports, the to-do list Claude keeps, the
-// files it changed, and what its replies point at.
-
 import { RELAY_MARK } from "../../../shared/chat/relay";
 import type { AgentRun } from "../../../shared/claude/activity";
+import { isUnder, slashWindowsPath } from "../../../shared/fs/relative-path";
 import { splitAttachments } from "./composer-input";
 import { imageFileOf, type ShownImage } from "./image-look";
 import { linkPlaceIndex, linkPlaces } from "./link-places";
-import { fileKind, isUnder, resolveFilePath, slashWindowsPath } from "./links";
+import { fileKind, resolveFilePath } from "./links";
 import {
   type AssistantBlock,
   type AssistantItem,
@@ -36,10 +33,8 @@ function num(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-/** The tools that start a subagent. */
 export const AGENT_TOOLS = new Set(["Agent", "Task"]);
 
-/** Task types that are agents, shown in the strip and 에이전트, not 작업. */
 const AGENT_TASK_TYPES = new Set([
   "local_agent",
   "remote_agent",
@@ -50,7 +45,6 @@ const AGENT_TASK_TYPES = new Set([
 export type AgentStatus = "running" | "completed" | "failed" | "stopped";
 
 export interface AgentRow {
-  /** The Agent call it runs under, which its messages and tools point at. */
   toolUseId: string;
   taskId?: string;
   description: string;
@@ -60,18 +54,11 @@ export interface AgentRow {
   startedAt?: number;
   endedAt?: number;
   toolCount: number;
-  /** The tool it runs now, as "Bash ls". */
   currentTool?: string;
-  /** The end of what it last wrote. */
   lastText?: string;
   prompt?: string;
   teammate: boolean;
-  /** Where a run's model is served, when not by its program's own API. */
   endpoint?: string;
-  /**
-   * A `claude -p` or `codex exec` run the session started, which has no
-   * Agent call (chat/print-runs.ts).
-   */
   run?: AgentRun;
 }
 
@@ -92,11 +79,6 @@ function agentStatus(task: TaskInfo | undefined, tool: ToolCall | undefined): Ag
   }
 }
 
-/**
- * When a call began and how a task it started ended, as the conversation
- * tells them: by the message that made the call, and by the news of the
- * task's end. For a call no task of the tab's tells (one of a transcript).
- */
 interface CallTimes {
   started: Map<string, number>;
   ended: Map<string, { at?: number; status: string }>;
@@ -117,12 +99,10 @@ function callTimesOf(items: readonly ChatItem[]): CallTimes {
   return { started, ended };
 }
 
-/** A task's end as an agent's: killed is stopped. */
 function endStatus(status: string): AgentStatus {
   return status === "completed" ? "completed" : status === "failed" ? "failed" : "stopped";
 }
 
-/** The subagents and teammates of the session, in the order they started. */
 export function agentsOf(
   model: Pick<ChatModel, "tasks" | "tools" | "agentItems" | "items">,
 ): AgentRow[] {
@@ -151,8 +131,6 @@ export function agentsOf(
     let startedAt = task?.startedAt;
     let endedAt = task?.endedAt;
     if (!task && tool) {
-      // A call no task tells, as a transcript has it: its times from the
-      // conversation, and how it ended from the news of it.
       times ??= callTimesOf(model.items);
       startedAt = times.started.get(toolUseId);
       const end = times.ended.get(toolUseId);
@@ -184,7 +162,6 @@ export function agentsOf(
     if (tool.parentToolUseId || !AGENT_TOOLS.has(tool.name)) continue;
     row(tool.id, tool, tasksByTool.get(tool.id));
   }
-  // Teammates and agents the CLI reports with no Agent call in sight.
   for (const task of Object.values(model.tasks)) {
     if (!AGENT_TASK_TYPES.has(task.type)) continue;
     const id = task.toolUseId ?? task.taskId;
@@ -193,10 +170,6 @@ export function agentsOf(
   return rows;
 }
 
-/**
- * The subagents of a history (a transcript, or the log of a program before
- * this one): none of them runs any more, whatever its call last said.
- */
 export function pastAgentsOf(
   history: Pick<ChatModel, "tasks" | "tools" | "agentItems" | "items">,
 ): AgentRow[] {
@@ -205,7 +178,6 @@ export function pastAgentsOf(
   );
 }
 
-/** A tab's agents: its history's, then its program's, then the runs it started; each once. */
 export function joinAgents(
   past: readonly AgentRow[],
   live: readonly AgentRow[],
@@ -235,7 +207,6 @@ function lastTextOf(items: AssistantItem[] | undefined): string | undefined {
   return undefined;
 }
 
-/** What an agent's pane shows: the prompt it got, then its messages. */
 export function agentTranscript(model: Pick<ChatModel, "agentItems">, agent: AgentRow): ChatItem[] {
   const prompt: UserItem[] = agent.prompt
     ? [
@@ -252,21 +223,15 @@ export function agentTranscript(model: Pick<ChatModel, "agentItems">, agent: Age
   return [...prompt, ...(model.agentItems[agent.toolUseId] ?? [])];
 }
 
-/**
- * Background Bash runs, workflows and the like: the tasks that are not agents.
- * Background commands come from the current run's live model and are not restored from history.
- */
 export function jobsOf(model: Pick<ChatModel, "tasks">): TaskInfo[] {
   return Object.values(model.tasks).filter((task) => !AGENT_TASK_TYPES.has(task.type));
 }
 
-/** The exit code a job's end tells, as "… completed (exit code 0)" does. */
 export function exitCodeOf(summary: string | undefined): number | undefined {
   const code = summary?.match(/exit code (-?\d+)/i)?.[1];
   return code === undefined ? undefined : Number(code);
 }
 
-/** The command a job runs, as the Bash call that started it gave it. */
 export function jobCommand(
   job: Pick<TaskInfo, "toolUseId">,
   tools: Record<string, ToolCall>,
@@ -275,10 +240,6 @@ export function jobCommand(
   return str(rec(tool?.input)?.command);
 }
 
-/**
- * Where the CLI writes a job's output: what its end said, or while it runs,
- * what the result of the call that started it said.
- */
 export function jobOutputFile(job: TaskInfo, tools: Record<string, ToolCall>): string | undefined {
   if (job.outputFile) return job.outputFile;
   const text = job.toolUseId ? tools[job.toolUseId]?.result?.text : undefined;
@@ -286,7 +247,6 @@ export function jobOutputFile(job: TaskInfo, tools: Record<string, ToolCall>): s
   return path || undefined;
 }
 
-/** The output files of the session's jobs, which its tab lets the side panel read. */
 export function jobOutputFiles(
   model: Pick<ChatModel, "tasks">,
   tools: Record<string, ToolCall>,
@@ -300,14 +260,9 @@ export function jobOutputFiles(
 export interface TodoItem {
   id: string;
   content: string;
-  /** pending, in_progress or completed. */
   status: string;
 }
 
-/**
- * The to-do list Claude keeps: TodoWrite's latest list, or the items
- * TaskCreate added and TaskUpdate changed (2.1.318 has those instead).
- */
 export function todosOf(tools: Record<string, ToolCall>): TodoItem[] {
   let todos: TodoItem[] = [];
   for (const tool of Object.values(tools)) {
@@ -345,20 +300,14 @@ const EDIT_TOOLS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
 
 export interface ChangedFile {
   path: string;
+  rawPath?: string;
   added: number;
   removed: number;
-  /** Written new by the session. */
   created: boolean;
-  /**
-   * The file before the session first changed it: null when the session
-   * wrote it new, absent when the change did not say (a notebook's).
-   */
   before?: string | null;
-  /** The calls that changed it, oldest first. */
   toolUseIds: string[];
 }
 
-/** The files the session's edits changed, in the order it first touched them. */
 export function changedFilesOf(tools: Record<string, ToolCall>): ChangedFile[] {
   const files = new Map<string, ChangedFile>();
   for (const tool of Object.values(tools)) {
@@ -366,11 +315,11 @@ export function changedFilesOf(tools: Record<string, ToolCall>): ChangedFile[] {
     const input = rec(tool.input) ?? {};
     const named = str(input.file_path) ?? str(input.notebook_path);
     if (!named) continue;
-    // One file whichever way its edits wrote a Windows path.
     const path = slashWindowsPath(named);
     const structured = rec(tool.result?.structured);
     const file = files.get(path) ?? {
       path,
+      ...(named !== path ? { rawPath: named } : {}),
       added: 0,
       removed: 0,
       created: false,
@@ -395,7 +344,6 @@ export function changedFilesOf(tools: Record<string, ToolCall>): ChangedFile[] {
   return [...files.values()];
 }
 
-/** The lines a done edit added and removed; undefined for any other call. */
 export function editCounts(tool: ToolCall): { added: number; removed: number } | undefined {
   if (!EDIT_TOOLS.has(tool.name) || tool.status !== "done") return undefined;
   const structured = rec(tool.result?.structured);
@@ -427,22 +375,14 @@ function patchCounts(patch: unknown): { added: number; removed: number } {
   return { added, removed };
 }
 
-/**
- * What a session made or pointed at. A file is shown only once it is found
- * to be one (./file-presence): a reply may name a path that is gone, a
- * folder, or a file on another machine.
- */
 export interface ResultEntry {
   kind: "file" | "url";
-  /** An absolute path, a path as the reply wrote it, or a URL. */
   target: string;
-  /** A file the session wrote new. */
   created: boolean;
 }
 
 const URL_RE = /\bhttps?:\/\/[^\s<>()[\]"'`]+[^\s<>()[\]"'`.,;:!?]/g;
 const LINK_RE = /\]\((<[^>\n]+>|[^)\s]+)\)/g;
-/** An image a reply shows in its text, by markdown's ![alt](path). */
 const IMAGE_RE = /!\[[^\]]*\]\((<[^>\n]+>|[^)\s]+)\)/g;
 const CODE_RE = /`([^`\n]+)`/g;
 
@@ -453,10 +393,6 @@ function linkTarget(match: RegExpMatchArray): string {
   return target.startsWith("<") && target.endsWith(">") ? target.slice(1, -1) : target;
 }
 
-/**
- * A path a reply names: absolute, or relative with a folder or an extension.
- * A lone `/word` is a command (`/config`, `/model`), not a file.
- */
 function looksLikePath(text: string): boolean {
   if (/[\r\n\t]/.test(text) || text.length > 300) return false;
   const path = text.replace(/[#?].*$/, "").replace(/:\d+(?::\d+)?$/, "");
@@ -466,11 +402,9 @@ function looksLikePath(text: string): boolean {
   }
   if (/^[A-Za-z]:[\\/]/.test(path)) return path.length > 3;
   if (path.startsWith("file:///")) return path.length > "file:///".length;
-  // Either slash parts a relative path, as a Windows agent writes it (src\a.ts).
   return /^[\w. %-]+([\\/][\w. %-]+)*\.[A-Za-z0-9]{1,8}$/.test(path);
 }
 
-/** The tools that take one file by its path, to read or to change it. */
 const FILE_TOOLS = new Set([
   "Read",
   "NotebookRead",
@@ -481,10 +415,8 @@ const FILE_TOOLS = new Set([
   "NotebookEdit",
 ]);
 
-/** The tool that puts files in front of the user, as Claude Code offers it with Remote Control on. */
 export const SEND_FILES_TOOL = "SendUserFile";
 
-/** The files a SendUserFile call put in front of the user, as it named them. */
 export function sentFilesOf(tool: ToolCall): string[] {
   if (tool.name !== SEND_FILES_TOOL) return [];
   const files = rec(tool.input)?.files;
@@ -493,15 +425,10 @@ export function sentFilesOf(tool: ToolCall): string[] {
     : [];
 }
 
-/** A path as a set of paths holds it: a Windows one whatever its case. */
 function pathKey(path: string): string {
   return /^[A-Za-z]:\//.test(path) ? path.toLowerCase() : path;
 }
 
-/**
- * The files the session's file tools took (read, wrote, edited, sent the
- * user), by absolute path as `pathKey` has it.
- */
 export function touchedFiles(tools: Record<string, ToolCall>, cwd: string): Set<string> {
   const touched = new Set<string>();
   const take = (named: string) => {
@@ -518,14 +445,6 @@ export function touchedFiles(tools: Record<string, ToolCall>, cwd: string): Set<
   return touched;
 }
 
-/**
- * What the session made and pointed at: the files it wrote new or sent the
- * user, then the paths and URLs in its replies, each once, in the order
- * they came. A reply points at a file by linking it; a path it only writes
- * in backticks is mentioned, not shown, unless it is a file the session's
- * tools took (`touched`): a command it ran, or a server's file, is not one
- * to open.
- */
 export function resultsOf(
   items: ChatItem[],
   tools: Record<string, ToolCall>,
@@ -570,11 +489,6 @@ export function resultsOf(
   return results;
 }
 
-/**
- * `results` with each file once, however its path was written (`long.txt`,
- * `/p/long.txt`): under the first name it had, made new if it ever was. A
- * file is the one `pathOf` finds a target names, by default from `cwd`.
- */
 export function distinctResults(
   results: readonly ResultEntry[],
   cwd: string,
@@ -596,14 +510,6 @@ export function distinctResults(
   return out;
 }
 
-/**
- * The files a message the user sent attached (the mentions of its last
- * paragraph, splitAttachments), by absolute path from `cwd`. None while it
- * goes to another device, whose chips name no path yet, nor in a message
- * another agent sent through the nexus command (its first line
- * RELAY_MARK's): what it names, that agent wrote, and the user attached
- * nothing to it.
- */
 export function attachedFilesOf(item: UserItem, cwd: string): string[] {
   if (item.optimistic || item.text.startsWith(RELAY_MARK)) return [];
   return splitAttachments(item.text).files.flatMap((named) => {
@@ -612,12 +518,10 @@ export function attachedFilesOf(item: UserItem, cwd: string): string[] {
   });
 }
 
-/** The image files a message the user sent attached (attachedFilesOf). */
 export function attachedImagesOf(item: UserItem, cwd: string): string[] {
   return attachedFilesOf(item, cwd).filter((path) => fileKind(path) === "image");
 }
 
-/** The image files the user attached to the conversation's messages (attachedImagesOf), each once. */
 export function attachedImagesIn(items: readonly ChatItem[], cwd: string): string[] {
   const files = new Set<string>();
   for (const item of items) {
@@ -626,25 +530,10 @@ export function attachedImagesIn(items: readonly ChatItem[], cwd: string): strin
   return [...files];
 }
 
-/** Most agents within agents whose images are looked for. */
 const MAX_AGENT_DEPTH = 4;
 
-/** The tools that look at an image file. */
 const LOOK_TOOLS = new Set(["Read", "ViewImage"]);
 
-/**
- * Every image a conversation shows, each once (each read of a file its own),
- * in the order it came: the
- * ones the user pasted or attached, the ones its tools gave (as the file a Read of one
- * took, its data kept for when the file is gone), and the image files it
- * sent the user, wrote new, or showed or pointed at in a reply, as
- * resultsOf takes them. An agent's images come where it was called
- * (`agentItems`, by the call's id). An image file the conversation shows
- * in full where it names it (placedImages: sent the user, or ![alt](path)
- * in a reply) is `placed`, as one the user attached is where `served` lets
- * it (another computer's tab: those that computer serves). Any other is
- * looked up: the agent removes a tab's attached files as the tab closes.
- */
 export function imagesOf(
   items: readonly ChatItem[],
   tools: Record<string, ToolCall>,
@@ -656,7 +545,6 @@ export function imagesOf(
   const byFile = new Map<string, number>();
   const seen = new Set<ImageBlock>();
   const touched = touchedFiles(tools, cwd);
-  /** `placed`: the image files the part naming it shows in full. */
   const addFile = (named: string, image?: ImageBlock, placed?: ReadonlySet<string>) => {
     const file = resolveFilePath(named, cwd);
     if (!file || fileKind(file) !== "image") return;
@@ -672,7 +560,6 @@ export function imagesOf(
     } else if (image && !out[at].image) {
       out[at] = { ...out[at], image };
     } else if (image) {
-      // Another read of the same file, which gave another image.
       byFile.set(file, out.length);
       out.push({ file, image });
     } else if (shows && !out[at].placed) {
@@ -688,7 +575,6 @@ export function imagesOf(
     for (const item of items) {
       if (item.kind === "user") {
         for (const image of item.images) addData(image);
-        // A chip served shows the file, as a card does: no lookup decides whether it stays.
         const attached = attachedImagesOf(item, cwd);
         const placed = new Set(attached.filter(served));
         for (const file of attached) addFile(file, undefined, placed);
@@ -711,7 +597,6 @@ export function imagesOf(
           if (read) addFile(read, image);
           else addData(image);
         }
-        // A Codex ViewImage gives no data back: the file is the image it looked at.
         if (read && given.length === 0 && LOOK_TOOLS.has(tool.name)) addFile(read);
         const sent = new Set(placedImages(block, tools, cwd));
         for (const file of sentFilesOf(tool)) addFile(file, undefined, sent);
@@ -728,11 +613,6 @@ export function imagesOf(
   return out;
 }
 
-/**
- * The files a reply's text points at, in the order it names them, as
- * resultsOf takes them: linked (or shown, ![alt](path)), or in backticks
- * when the session's tools took them.
- */
 function filesNamedIn(text: string, cwd: string, touched: ReadonlySet<string>): string[] {
   const named: { at: number; path: string }[] = [];
   for (const match of text.matchAll(LINK_RE)) {
@@ -748,10 +628,6 @@ function filesNamedIn(text: string, cwd: string, touched: ReadonlySet<string>): 
   return named.sort((a, b) => a.at - b.at).map(({ path }) => path);
 }
 
-/**
- * The image files a part of a reply shows in full where it is: the files a
- * done SendUserFile call sent, or what its text shows (![alt](path)).
- */
 function placedImages(
   block: AssistantBlock,
   tools: Record<string, ToolCall>,
@@ -768,22 +644,11 @@ function placedImages(
   });
 }
 
-/** The image files a conversation would show twice in one turn. */
 export interface ImagesShownEarlier {
-  /**
-   * By a text block, or a SendUserFile call's id: the image files it shows
-   * that an earlier part of its turn showed in full, which it shows as a
-   * chip instead. Only parts that have any are in it.
-   */
   byPart: ReadonlyMap<AssistantBlock | string, ReadonlySet<string>>;
-  /** What the last turn shows in full so far: a message still streaming shows these as chips. */
   inLastTurn: ReadonlySet<string>;
 }
 
-/**
- * Where a turn shows an image file again: a SendUserFile call and its text
- * both showing one, say. The first showing is in full; the rest are chips.
- */
 export function imagesShownEarlier(
   items: readonly ChatItem[],
   tools: Record<string, ToolCall>,
@@ -808,43 +673,21 @@ export function imagesShownEarlier(
   return { byPart, inLastTurn: seen };
 }
 
-/** An image a tool gave. */
 export interface GivenImage {
   image: ImageBlock;
-  /** The image file it is, by its absolute path, when the tool read it from one. */
   file?: string;
 }
 
-/** What an answer ends with: the files its turn made and named, and the images its tools gave. */
 export interface AnswerExtras {
-  /** Absolute paths, written new first, then linked: each shows once it is found. */
   files: string[];
-  /**
-   * By a file of `files` a reply named by a relative path, the other places
-   * it may be, the likeliest first (link-places): where the agent's shell
-   * went. The card is of the first found, when the file is not.
-   */
   elsewhere?: Record<string, string[]>;
   images: GivenImage[];
 }
 
-/** Most file cards under one answer. */
 export const MAX_ANSWER_FILES = 8;
-/** Most files an answer's cards are picked from: some named may be no files. */
 const MAX_ANSWER_CANDIDATES = 2 * MAX_ANSWER_FILES;
-/** Most images under one answer. */
 export const MAX_ANSWER_IMAGES = 4;
 
-/**
- * For each finished turn, what its last answer ends with, by that answer's
- * item. The last turn counts once `lastDone`: while it runs, its answer is
- * not the last yet. An image a tool read from a file the answer names is
- * left to that file's card, where the card shows its picture: in the
- * workspace (`root`), or anywhere when `cardsAnywhere` (a chat here, whose
- * previews read the files it names); one the turn shows where it is (sent,
- * or in its text), to that. A file read more than once shows as it was read
- * last.
- */
 export function answerExtras(
   items: ChatItem[],
   tools: Record<string, ToolCall>,
@@ -862,8 +705,6 @@ export function answerExtras(
     if (!answer) return;
     const named: string[] = [];
     const given: (GivenImage & { from?: string; call: string })[] = [];
-    // What the turn shows where it is, as a file it sent or an image in its
-    // text, gets no card of its own.
     const shown = new Set<string>();
     const showHere = (target: string) => {
       const path = resolveFilePath(target, cwd);
@@ -899,7 +740,6 @@ export function answerExtras(
       files.push(path);
       if (others.length > 0) elsewhere[path] = others;
     }
-    // The call that read each file last.
     const lastRead = new Map<string, string>();
     for (const { from, call } of given) if (from) lastRead.set(from, call);
     const carded = (from: string) => files.includes(from) && (cardsAnywhere || isUnder(from, root));
@@ -929,25 +769,14 @@ export function answerExtras(
   return out;
 }
 
-/** What a Claude tab lets the previews read outside the workspace. */
 export interface OutsideLinks {
   files: string[];
-  /** The folders of its HTML files, whose pages load their siblings. */
   dirs: string[];
 }
 
-/** Most files and folders one tab grants; the newest are kept. */
 export const MAX_OUTSIDE_FILES = 2000;
 export const MAX_OUTSIDE_DIRS = 200;
 
-/**
- * The files outside the workspace (`root`) that a session names: the ones
- * its tools took, its replies point at (a relative path at each place it
- * may name, link-places), the images the user attached to a message (those
- * `attached` lets, when given), and `looked` (opened from the tab
- * otherwise). An HTML file's folder comes too, unless it holds the
- * workspace, as the home folder does.
- */
 export function outsideLinksOf(
   items: ChatItem[],
   tools: Record<string, ToolCall>,
@@ -966,7 +795,6 @@ export function outsideLinksOf(
       if (abs) named.add(abs);
     }
   }
-  // An image the user attached to a message opens in quick look among the others.
   for (const item of items) {
     if (item.kind !== "user") continue;
     for (const file of attachedImagesOf(item, cwd)) if (attached?.(file) ?? true) named.add(file);
@@ -995,12 +823,10 @@ export interface ContextSummary {
   used: ContextCategory[];
   totalTokens: number;
   maxTokens: number;
-  /** Tokens left before auto-compact starts. */
   free?: number;
   percentage?: number;
 }
 
-/** get_context_usage's answer, as the panel shows it. */
 export function contextOf(usage: unknown): ContextSummary | null {
   const body = rec(usage);
   if (!body || !Array.isArray(body.categories)) return null;

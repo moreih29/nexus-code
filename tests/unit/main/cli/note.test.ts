@@ -1,4 +1,3 @@
-/** nexus note list|read|path: the workspace's notes, as agents read them. */
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { contentsOf } from "../../../../src/main/features/cli/commands/note";

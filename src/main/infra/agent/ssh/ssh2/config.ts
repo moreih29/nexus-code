@@ -1,16 +1,3 @@
-/**
- * A host's effective OpenSSH client settings, for the ssh2 client.
- *
- * `ssh -G` prints the settings OpenSSH itself would connect with — the user's
- * ~/.ssh/config with its Host and Match blocks and Include files, over
- * OpenSSH's defaults — so the ssh2 client connects where `ssh` would without
- * a config parser of its own. Without an OpenSSH client the host is used as
- * given, with OpenSSH's defaults.
- *
- * NEXUS_SSH_CONFIG names a config file to read in place of ~/.ssh/config
- * (`ssh -F`), to try the client against a test host.
- */
-
 import { execFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -25,18 +12,14 @@ export interface SshTarget {
 export type StrictHostKeyChecking = "ask" | "yes" | "accept-new" | "no";
 
 export interface SshHostConfig {
-  /** The host as the user named it, for prompts. */
   readonly host: string;
   readonly hostname: string;
   readonly port: number;
   readonly user: string;
   readonly identityFiles: readonly string[];
   readonly identitiesOnly: boolean;
-  /** The agent socket or pipe, or null for none. */
   readonly identityAgent: string | null;
-  /** The agent to forward to the host (ForwardAgent), or null for none. */
   readonly forwardAgent: string | null;
-  /** Jump hosts in order, as `[user@]host[:port]`. */
   readonly proxyJump: readonly string[];
   readonly proxyCommand: string | null;
   readonly connectTimeoutMs: number | null;
@@ -49,7 +32,6 @@ export interface SshHostConfig {
 }
 
 export interface ResolveSshHostConfigDependencies {
-  /** Runs `ssh -G`; resolves its stdout, or null when there is no OpenSSH client. */
   readonly printConfig?: (args: readonly string[]) => Promise<string | null>;
   readonly homedir?: string;
   readonly platform?: NodeJS.Platform;
@@ -69,7 +51,6 @@ const DEFAULT_IDENTITY_FILES = [
 
 const WINDOWS_AGENT_PIPE = "\\\\.\\pipe\\openssh-ssh-agent";
 
-/** The setting that turns each authentication method on or off. */
 const AUTHENTICATION_SETTINGS: Readonly<Record<string, string>> = {
   publickey: "pubkeyauthentication",
   "keyboard-interactive": "kbdinteractiveauthentication",
@@ -98,7 +79,6 @@ export async function resolveSshHostConfig(
   });
 }
 
-/** Splits `ssh -G` output into its keys, each with every value given. */
 export function parsePrintedConfig(output: string): Map<string, string[]> {
   const settings = new Map<string, string[]>();
   for (const line of output.split(/\r?\n/)) {
@@ -177,8 +157,6 @@ function buildHostConfig(
       first("preferredauthentications") ?? "publickey,keyboard-interactive,password",
       ",",
     ).filter((method) => {
-      // PubkeyAuthentication, KbdInteractiveAuthentication and
-      // PasswordAuthentication turn a method off; -G prints yes/no or true/false.
       const setting = AUTHENTICATION_SETTINGS[method];
       const value = setting ? first(setting)?.toLowerCase() : undefined;
       return value !== "no" && value !== "false";
@@ -186,10 +164,6 @@ function buildHostConfig(
   };
 }
 
-/**
- * The agent to ask for keys: IdentityAgent when set, else SSH_AUTH_SOCK, else
- * on Windows the OpenSSH agent service's pipe.
- */
 function resolveIdentityAgent(
   configured: string | undefined,
   platform: NodeJS.Platform,
@@ -205,10 +179,6 @@ function resolveIdentityAgent(
   return platform === "win32" ? WINDOWS_AGENT_PIPE : null;
 }
 
-/**
- * The agent ForwardAgent forwards: none for no, the agent used to log in for
- * yes, else the socket or pipe it names, as a path or an environment variable.
- */
 function resolveForwardAgent(
   configured: string | undefined,
   identityAgent: string | null,
@@ -222,7 +192,6 @@ function resolveForwardAgent(
   return expand(configured);
 }
 
-/** Expands the `~`, `%` tokens and `__PROGRAMDATA__` OpenSSH allows in paths. */
 function expandPath(
   value: string,
   tokens: {
@@ -274,7 +243,6 @@ function noneToNull(value: string | undefined): string | null {
   return value === undefined || value.toLowerCase() === "none" ? null : value;
 }
 
-/** Runs the OpenSSH client's `ssh -G`; null when it is missing or fails. */
 function printOpenSshConfig(args: readonly string[]): Promise<string | null> {
   return new Promise((resolve) => {
     execFile(

@@ -1,19 +1,5 @@
 package chat
 
-// How long attached files stay (attach.go). The app tells what is in use:
-// the folders of the tabs still open, and the slots their conversations
-// name, which a prune keeps and marks used. Each other slot's file time is
-// when it was last used, moved on by chat.touchAttachments as a
-// conversation that names it is shown or sent to; a prune removes those
-// unused for longer than it is told, then, past the room it is given, the
-// least recently used. chat.removeAttachments removes the slots of a
-// deleted conversation, or a removed workspace's folder.
-//
-// A slot is "<tabId>/<n>" below the workspace's folder: one folder holding
-// one file. Nothing else is touched or removed by a slot's name, and no
-// link is followed: a slot, its tab's folder and the workspace's folder
-// must each be a folder, and the file a regular file.
-
 import (
 	"context"
 	"encoding/json"
@@ -23,55 +9,39 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// maxAttachSlots caps how many slots one call names.
 const maxAttachSlots = 5000
 
-// attachGrace is how long a prune leaves a slot without its file, or an
-// empty tab's folder, after the folder last changed: a tab opened after the
-// app told which are open may be attaching a file there now.
 const attachGrace = 10 * time.Minute
 
-// RetainParams is chat.pruneAttachments' retain.
 type RetainParams struct {
-	// Keep are the slots ("<tabId>/<n>") the open tabs' conversations name.
-	Keep []string `json:"keep"`
-	// MaxAgeMs is how long a slot not kept may go unused; 0 = no limit.
-	MaxAgeMs int64 `json:"maxAgeMs"`
-	// MaxBytes is the most the workspace's slots may hold; past it the
-	// least recently used not kept go. 0 = no limit.
-	MaxBytes int64 `json:"maxBytes"`
+	Keep     []string `json:"keep"`
+	MaxAgeMs int64    `json:"maxAgeMs"`
+	MaxBytes int64    `json:"maxBytes"`
 }
 
-// PruneResult is chat.pruneAttachments' answer with retain.
 type PruneResult struct {
 	Removed int `json:"removed"`
 }
 
-// SlotsParams is the wire shape for chat.touchAttachments and
-// chat.removeAttachments.
 type SlotsParams struct {
 	WorkspaceID string   `json:"workspaceId"`
 	Slots       []string `json:"slots"`
-	// All removes the workspace's whole folder (chat.removeAttachments).
-	All bool `json:"all,omitempty"`
+	All         bool     `json:"all,omitempty"`
 }
 
-// SlotsResult tells how many slots a call touched or removed.
 type SlotsResult struct {
 	Count int `json:"count"`
 }
 
-// A slot is "<tabId>/<n>": a tab of at most 128 letters, digits, "_" or
-// "-", and at most 9 digits, as the app reads them (attach-folders.ts). A
-// name no system folds or reads more in (case aside), which fits a call.
 var (
 	slotTab    = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 	slotNumber = regexp.MustCompile(`^[0-9]{1,9}$`)
 )
 
-// TouchAttachments marks the named slots used now.
 func (s *Service) TouchAttachments(_ context.Context, raw json.RawMessage) (any, error) {
 	p, wsDir, err := slotsCall(raw, "chat.touchAttachments")
 	if err != nil {
@@ -94,19 +64,17 @@ func (s *Service) TouchAttachments(_ context.Context, raw json.RawMessage) (any,
 	return SlotsResult{Count: count}, nil
 }
 
-// RemoveAttachments removes the named slots, or the workspace's folder.
 func (s *Service) RemoveAttachments(_ context.Context, raw json.RawMessage) (any, error) {
 	p, wsDir, err := slotsCall(raw, "chat.removeAttachments")
 	if err != nil {
 		return nil, err
 	}
 	if p.All {
-		// A link in its place goes, not what it points at.
 		if _, err := os.Lstat(wsDir); err != nil {
 			return SlotsResult{}, nil
 		}
 		if err := os.RemoveAll(wsDir); err != nil {
-			return nil, requestFailed("chat.removeAttachments: %v", err)
+			return nil, proto.RequestFailed("chat.removeAttachments: %s", proto.Reason(err))
 		}
 		return SlotsResult{Count: 1}, nil
 	}
@@ -121,40 +89,31 @@ func (s *Service) RemoveAttachments(_ context.Context, raw json.RawMessage) (any
 			if os.RemoveAll(dir) == nil {
 				count++
 			}
-			// The tab's folder goes with its last slot.
 			_ = os.Remove(filepath.Dir(dir))
 		}
 	}
 	return SlotsResult{Count: count}, nil
 }
 
-// slotsCall reads a call that names slots, and the workspace's folder.
 func slotsCall(raw json.RawMessage, method string) (SlotsParams, string, error) {
 	var p SlotsParams
-	if err := decodeParams(raw, &p, method+" params must include workspaceId and slots"); err != nil {
+	if err := proto.DecodeParams(raw, &p, method+" params must include workspaceId and slots"); err != nil {
 		return p, "", err
 	}
 	workspaceID, ok := plainName(strings.TrimSpace(p.WorkspaceID))
 	if !ok {
-		return p, "", protocolError(method + " workspaceId is required")
+		return p, "", proto.ProtocolError(method + " workspaceId is required")
 	}
 	if len(p.Slots) > maxAttachSlots {
-		return p, "", protocolError(method + " names too many slots")
+		return p, "", proto.ProtocolError(method + " names too many slots")
 	}
 	root, err := attachRoot()
 	if err != nil {
-		return p, "", requestFailed("%s: %v", method, err)
+		return p, "", proto.RequestFailed("%s: %s", method, proto.Reason(err))
 	}
 	return p, filepath.Join(root, workspaceID), nil
 }
 
-// pruneRetained removes, below the workspace's folder wsDir, the slots not
-// in use: those of no tab in keepTabs and not in retain.Keep that have gone
-// unused longer than retain.MaxAgeMs, then the least recently used of them
-// while the slots hold more than retain.MaxBytes. The slots in use are
-// marked used now. A slot without its one file, which no message can name,
-// goes too, and a tab's emptied folder, but neither within attachGrace of
-// its folder's last change. It answers how many slots went.
 func pruneRetained(wsDir string, keepTabs map[string]bool, retain RetainParams, now time.Time) int {
 	if !realDir(wsDir) {
 		return 0
@@ -165,10 +124,9 @@ func pruneRetained(wsDir string, keepTabs map[string]bool, retain RetainParams, 
 	}
 	maxAge := time.Duration(retain.MaxAgeMs) * time.Millisecond
 	type unused struct {
-		dir  string
-		size int64
-		used time.Time
-		// fresh: the tab's folder changed within attachGrace before this prune.
+		dir   string
+		size  int64
+		used  time.Time
 		fresh bool
 	}
 	var loose []unused
@@ -182,7 +140,6 @@ func pruneRetained(wsDir string, keepTabs map[string]bool, retain RetainParams, 
 			continue
 		}
 		openTab := keepTabs[tab.Name()]
-		// Read before this prune removes anything in it.
 		fresh := changedWithin(tabDir, now, attachGrace)
 		slots, _ := os.ReadDir(tabDir)
 		for _, entry := range slots {
@@ -200,7 +157,7 @@ func pruneRetained(wsDir string, keepTabs map[string]bool, retain RetainParams, 
 				continue
 			}
 			if !ok && changedWithin(dir, now, attachGrace) {
-				continue // its file may be on the way
+				continue
 			}
 			if !ok || (maxAge > 0 && now.Sub(info.ModTime()) > maxAge) {
 				if os.RemoveAll(dir) == nil {
@@ -212,7 +169,6 @@ func pruneRetained(wsDir string, keepTabs map[string]bool, retain RetainParams, 
 			loose = append(loose, unused{dir: dir, size: info.Size(), used: info.ModTime(), fresh: fresh})
 		}
 		if !openTab && !fresh {
-			// Goes once its last slot has: an open tab may be writing one.
 			_ = os.Remove(tabDir)
 		}
 	}
@@ -235,18 +191,12 @@ func pruneRetained(wsDir string, keepTabs map[string]bool, retain RetainParams, 
 	return removed
 }
 
-// slotDir is the folder of slot "<tabId>/<n>" below the workspace's folder
-// wsDir: none for any other name, nor where it or its tab's folder is not a
-// folder of its own (a link). Each name must be one the folder holds as it
-// is written (names): a system that folds case, or drops a trailing dot,
-// would otherwise find "TAB/1" at tab/1, which an open tab "tab" keeps.
 func slotDir(wsDir, slot string, names dirNames) (string, bool) {
 	tabID, n, ok := strings.Cut(slot, "/")
 	if !ok || !slotTab.MatchString(tabID) || !slotNumber.MatchString(n) {
 		return "", false
 	}
 	tabDir := filepath.Join(wsDir, tabID)
-	// One segment below the workspace's folder, whatever the system reads in it.
 	if filepath.Dir(tabDir) != filepath.Clean(wsDir) || filepath.Base(tabDir) != tabID {
 		return "", false
 	}
@@ -257,8 +207,6 @@ func slotDir(wsDir, slot string, names dirNames) (string, bool) {
 	return dir, true
 }
 
-// dirNames holds, for each folder read, the names of what is in it as the
-// system wrote them; read once a call.
 type dirNames map[string]map[string]bool
 
 func (d dirNames) has(dir, name string) bool {
@@ -274,7 +222,6 @@ func (d dirNames) has(dir, name string) bool {
 	return held[name]
 }
 
-// slotFile is the one regular file in a slot's folder.
 func slotFile(dir string) (string, os.FileInfo, bool) {
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) != 1 {
@@ -288,13 +235,11 @@ func slotFile(dir string) (string, os.FileInfo, bool) {
 	return path, info, true
 }
 
-// changedWithin reports whether path (not followed) changed less than d before now.
 func changedWithin(path string, now time.Time, d time.Duration) bool {
 	info, err := os.Lstat(path)
 	return err == nil && now.Sub(info.ModTime()) < d
 }
 
-// realDir reports whether path is a folder, not a link to one.
 func realDir(path string) bool {
 	info, err := os.Lstat(path)
 	return err == nil && info.IsDir()

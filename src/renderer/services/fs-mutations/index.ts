@@ -1,11 +1,3 @@
-/**
- * Public surface of the fs-mutations service group.
- *
- * Each operation is one file (reveal here; rename/delete/new-file
- * arriving in later steps). Callers import from this barrel so future
- * file moves stay invisible.
- */
-
 export { confirmAndDeleteBatch, confirmAndDeletePath } from "./confirm-delete";
 export type { CopyFileInput } from "./copy-file";
 export { copyPathWithAutoRename } from "./copy-file";

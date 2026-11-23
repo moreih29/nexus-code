@@ -1,8 +1,3 @@
-/**
- * The page the browser shows once it is back from the sign-in: the app's own
- * words for how the sign-in ended (it waits for the app, for a while), in the
- * app's language, and nothing the query sent.
- */
 import { describe, expect, test } from "bun:test";
 import {
   callbackFailure,
@@ -20,7 +15,6 @@ const en = resources.en.settings.remote.account;
 const SIGN_IN_HELP_KO = "https://nexuscode.gradiendo.com/support/#sign-in";
 const SIGN_IN_HELP_EN = "https://nexuscode.gradiendo.com/en/support/#sign-in";
 
-/** The page's visible text, tags dropped. */
 const textOf = (html: string) =>
   html
     .replace(/<style>[\s\S]*?<\/style>/, "")
@@ -102,8 +96,6 @@ describe("the page", () => {
     expect(html).toContain(ko.browser.closeTab);
     expect(html.includes(ko.approvedOnly)).toBe(approvedOnly);
     expect(html).not.toContain("<script");
-    // Everything it shows is the app's own: no address, no image to load, and no link but
-    // support's for a failure it explains, at the app's own address.
     const help = (SIGN_IN_HELP_FAILURES as readonly string[]).includes(outcome);
     expect(html.match(/(?:src|href)=/g) ?? []).toHaveLength(help ? 1 : 0);
     expect(html.includes(`<a href="${SIGN_IN_HELP_KO}"`)).toBe(help);
@@ -130,7 +122,6 @@ describe("the page", () => {
     ["rejected", "en", SIGN_IN_HELP_EN, "Learn more"],
   ] as const)("links %s to support's sign-in section in %s", (outcome, language, url, label) => {
     const html = page(outcome, language);
-    // A new tab the page does not reach back into, and no script to open it.
     expect(html).toContain(
       `<p class="more"><a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a></p>`,
     );
@@ -150,7 +141,6 @@ describe("the page", () => {
     ["google", "ko", "승인되면 같은 Google 계정으로 다시 로그인하세요."],
     ["apple", "ko", "승인되면 같은 Apple 계정으로 다시 로그인하세요."],
     ["github", "en", "Once approved, sign in again with the same GitHub account."],
-    // The dev sign-in has no name to give, and an app started anew knows none.
     ["dev", "ko", ko.failure.pending_approval.body],
     [undefined, "en", en.failure.pending_approval.body],
   ] as const)("names a pending approval's sign-in %s", (provider, language, body) => {
@@ -170,7 +160,6 @@ describe("the page", () => {
   });
 
   test("escapes its words", () => {
-    // The not_invited body has an apostrophe in English.
     expect(page("not_invited", "en")).toContain("server&#39;s admin");
   });
 
@@ -206,7 +195,6 @@ describe("the callback's answer", () => {
     expect(
       Object.fromEntries(Object.keys(PAGE_HEADERS).map((h) => [h, res.headers.get(h)])),
     ).toEqual(PAGE_HEADERS);
-    // No directive governs where the page goes, so the link opens.
     expect(PAGE_HEADERS["content-security-policy"]).not.toMatch(/navigate-to|form-action|sandbox/);
     const html = await res.text();
     expect(html).toBe(page("rejected", "en"));
@@ -222,13 +210,11 @@ describe("the callback's answer", () => {
       sent = true;
       return res.text();
     });
-    // The callback is the sign-in's at once; the page is not sent until told.
     expect(await listener.result).toMatchObject({ code: "c1" });
     await new Promise((r) => setTimeout(r, 30));
     expect(sent).toBe(false);
     listener.report("too_many_devices");
     expect(await shown).toBe(page("too_many_devices", "en"));
-    // Shown again (a reload), it says the same at once; a later report changes nothing.
     listener.report("signed-in");
     const again = await fetch(`${listener.redirectUri}?code=c1&state=s1`);
     expect(await again.text()).toBe(page("too_many_devices", "en"));
@@ -249,7 +235,6 @@ describe("the callback's answer", () => {
     const res = await fetch(`${listener.redirectUri}?code=c1&state=s1`);
     expect(await res.text()).toBe(page("in-app", "ko"));
     expect(await listener.result).toMatchObject({ code: "c1" });
-    // The app tells too late: the page already said to look there.
     listener.report("signed-in");
   });
 

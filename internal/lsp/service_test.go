@@ -17,28 +17,17 @@ type recordedEvent struct {
 	payload any
 }
 
-// TestServiceNotifyForwardsWithoutBlockingCaller verifies the lsp.notify handler:
-// it forwards the LSP notification to the child process and returns a void ack
-// without semantic content — the TS caller fires and forgets, but the handler
-// must still deliver the message to the LSP server process.
 func TestServiceNotifyForwardsWithoutBlockingCaller(t *testing.T) {
 	recordPath := filepath.Join(t.TempDir(), "notify-record.jsonl")
 	service, events := newTestService(t)
 	result := spawnFakeServer(t, service, "roundtrip", nil, recordPath)
 
-	// Send a textDocument/didOpen notification via the lsp.notify path.
 	notification := json.RawMessage(`{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///tmp/main.go","languageId":"go","version":1,"text":"package main\n"}}}`)
 	if _, err := service.Notify(context.Background(), mustJSON(t, NotifyParams{ServerID: result.ServerID, Message: notification})); err != nil {
 		t.Fatalf("Notify() error = %v", err)
 	}
 
-	// The fake server for "roundtrip" echoes requests and records to the file.
-	// A notification with no id will not produce an echo, but the service should
-	// have forwarded it. Verify by checking the lsp.message event emitted for the
-	// notification (the fake server in roundtrip mode echoes back the message).
-	// Since textDocument/didOpen is a notification, we only assert the call returns
-	// without error — the fake server may not produce a response for it.
-	_ = events // events channel is wired but we only assert no error above
+	_ = events
 
 	if _, err := service.Shutdown(context.Background(), mustJSON(t, ShutdownParams{ServerID: result.ServerID})); err != nil {
 		t.Fatalf("Shutdown() error = %v", err)
@@ -47,7 +36,6 @@ func TestServiceNotifyForwardsWithoutBlockingCaller(t *testing.T) {
 
 func TestSpawnAddsEnvOverTheAgents(t *testing.T) {
 	service, _ := newTestService(t)
-	// Without the spawn's own value the helper would not act as a server.
 	t.Setenv("NEXUS_LSP_FAKE_SERVER", "0")
 
 	params := SpawnParams{
@@ -116,9 +104,6 @@ func TestServerRequestCorrelationRestoresOriginalWireID(t *testing.T) {
 }
 
 func TestSpawnEmitsServerAssignedBeforeReturning(t *testing.T) {
-	// The host needs to bind serverId↔correlationId before initialize
-	// completes so server-pushed events arriving during initialize can be
-	// routed without falling back to a "first pending spawn" heuristic.
 	service, events := newTestService(t)
 	correlationID := "corr-abc"
 
@@ -152,9 +137,6 @@ func TestSpawnEmitsServerAssignedBeforeReturning(t *testing.T) {
 }
 
 func TestShutdownEmitsServerExited(t *testing.T) {
-	// serverExited is the signal the TS host uses to drop in-flight
-	// requests and forget the server; verify it fires for a clean
-	// shutdown path (idle timer test already covers the kill path).
 	service, events := newTestService(t)
 	result := spawnFakeServer(t, service, "roundtrip", nil, "")
 
@@ -172,8 +154,6 @@ func TestShutdownEmitsServerExited(t *testing.T) {
 	}
 }
 
-// The client restarts a server that crashed but not one that sat idle, and
-// tells the two apart by Shutdown.
 func TestIdleExitSaysTheAgentStoppedTheServer(t *testing.T) {
 	service, events := newTestService(t)
 	idleMs := 100
@@ -185,10 +165,6 @@ func TestIdleExitSaysTheAgentStoppedTheServer(t *testing.T) {
 	}
 }
 
-// cmd.Wait closes the stdout and stderr pipes as soon as the server exits.
-// Run alongside the readers, it cut off whatever they had not consumed yet:
-// the end of the crash output that serverExited carries as StderrTail, and
-// the last messages the server wrote.
 func TestServerExitKeepsFinalOutput(t *testing.T) {
 	service, events := newTestService(t)
 	result := spawnFakeServer(t, service, "crash", nil, "")
@@ -234,10 +210,6 @@ func tail(s string, n int) string {
 }
 
 func TestJSONRPCIDKeyRejectsNullID(t *testing.T) {
-	// null id was previously accepted as a valid key, which let a buggy
-	// or malicious server pollute the pending-internal map under a
-	// literal "null" key. Reject it explicitly; string and numeric ids
-	// remain valid.
 	if _, ok := jsonRPCIDKey(json.RawMessage("null")); ok {
 		t.Fatal("jsonRPCIDKey should reject null id")
 	}
@@ -423,8 +395,6 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 	return data
 }
 
-// A restarted agent receives the calls queued for the one it replaced; its
-// servers must not answer to the old servers' ids.
 func TestServerIDsDifferBetweenServices(t *testing.T) {
 	first, second := New(), New()
 	if a, b := first.nextServerID(), second.nextServerID(); a == b {

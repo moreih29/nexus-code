@@ -6,7 +6,6 @@ import {
   type SshTarget,
 } from "../../../src/main/infra/agent/ssh/ssh2/config";
 
-/** `ssh -G` as a stub: records its arguments and prints `output`. */
 function printedConfig(output: string): {
   calls: string[][];
   resolve: (target: SshTarget) => ReturnType<typeof resolveSshHostConfig>;
@@ -33,8 +32,6 @@ describe("resolveSshUser", () => {
   });
 
   it("takes a host-only target's user from ssh -G, as ssh would log in", async () => {
-    // The user may come from an Include file or a `Host *` block, which only
-    // OpenSSH's own resolution sees.
     const ssh = printedConfig("host dev\nhostname 10.0.0.5\nuser qa\nport 2230\n");
     expect(await resolveSshUser({ host: "dev", port: 2230 }, ssh.resolve)).toBe("qa");
     expect(ssh.calls).toEqual([["-G", "-p", "2230", "--", "dev"]]);

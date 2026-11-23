@@ -1,8 +1,3 @@
-/**
- * A command run in another computer's terminal for a chat there (a sign-in
- * banner, a /login) opens in the chat's profile there: by its name, or the
- * agent's only profile when the chat names none, never a guess.
- */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cancelTabFocus } from "../../../../../src/renderer/services/tab-focus";
 import { __resetAgentViewForTests } from "../../../../../src/renderer/state/stores/agent-view";

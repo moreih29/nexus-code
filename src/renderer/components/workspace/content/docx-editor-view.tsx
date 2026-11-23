@@ -1,8 +1,5 @@
-// The editor surface of a Word document: the breadcrumb toolbar the other
-// editors have, and its pages below. Documents are not editable.
-
 import type { ReactNode } from "react";
-import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { useWorkspace } from "../../../state/stores/workspaces";
 import { DocxPreview } from "../../editor/preview/docx-preview";
 import { PreviewFindScope } from "../../editor/preview/preview-find";
 import { EditorBreadcrumbs } from "./editor-breadcrumbs";
@@ -14,9 +11,7 @@ interface DocxEditorViewProps {
 }
 
 export function DocxEditorView({ filePath, workspaceId, breadcrumbs }: DocxEditorViewProps) {
-  const workspaceRootAbsPath = useWorkspacesStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
-  );
+  const workspaceRootAbsPath = useWorkspace(workspaceId, (w) => w?.rootPath ?? "");
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between gap-2 overflow-hidden px-2 py-1 border-b border-[var(--surface-island-border)]">

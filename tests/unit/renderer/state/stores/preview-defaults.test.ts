@@ -1,8 +1,3 @@
-/**
- * The view each format with a preview opens in: a format this version does
- * not know is dropped on load.
- */
-
 import { afterEach, describe, expect, it } from "bun:test";
 import { usePreviewDefaultsStore } from "../../../../../src/renderer/state/stores/preview-defaults";
 

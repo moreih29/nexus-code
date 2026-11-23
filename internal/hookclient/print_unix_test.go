@@ -20,15 +20,11 @@ import (
 	"time"
 )
 
-// frameServer answers every hook frame sent to it, as the agent's
-// hookserver would, and keeps them. It holds a run's watch unanswered, as
-// the hookserver does, and logs it and its closing among the frames.
 type frameServer struct {
 	mu     sync.Mutex
 	frames []hookRequest
 	log    []string
-	// watch is the latest run's watch.
-	watch net.Conn
+	watch  net.Conn
 }
 
 func newFrameServer(t *testing.T) (*frameServer, string) {
@@ -65,14 +61,12 @@ func newFrameServer(t *testing.T) (*frameServer, string) {
 	return fs, srv.socketPath
 }
 
-// answerWatch writes `answer` on the latest watch, as the agent answers one.
 func (fs *frameServer) answerWatch(answer string) {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 	_, _ = fs.watch.Write([]byte(answer + "\n"))
 }
 
-// hold keeps a watch open until its client closes it.
 func (fs *frameServer) hold(conn net.Conn) {
 	defer conn.Close()
 	_, _ = io.Copy(io.Discard, conn)
@@ -81,7 +75,6 @@ func (fs *frameServer) hold(conn net.Conn) {
 	fs.mu.Unlock()
 }
 
-// logged is what the server heard, in order.
 func (fs *frameServer) logged() string {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -106,8 +99,6 @@ func (fs *frameServer) told(t *testing.T) []toldFrame {
 	return told
 }
 
-// fakeClaude writes a script that stands for claude. Claude Code's
-// directory, where a run's transcript is looked for, is the test's own.
 func fakeClaude(t *testing.T, body string) string {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -142,7 +133,6 @@ func TestRunPrint_PassesTheRunOnAndTellsIt(t *testing.T) {
 	if stdout.String() != stream {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
-	// It starts a session of its own, given its id.
 	given := regexp.MustCompile(`^from stdin\nargs: --session-id ([0-9a-f-]{36}) -p review it --output-format stream-json --verbose\n$`).
 		FindStringSubmatch(stderr.String())
 	if given == nil {
@@ -179,7 +169,6 @@ func TestRunPrint_PassesTheRunOnAndTellsIt(t *testing.T) {
 
 func TestRunPrint_TextRunTellsItsOutputAsItsAnswer(t *testing.T) {
 	fs, socket := newFrameServer(t)
-	// Output that reads as stream-json is a text run's answer all the same.
 	out := "{\"type\":\"result\",\"result\":\"no\"}\nLooks fine.\n"
 	claude := fakeClaude(t, `printf '%s' '`+out+`'`)
 	var stdout bytes.Buffer
@@ -207,7 +196,6 @@ func TestRunPrint_LeavesATerminalToClaude(t *testing.T) {
 		t.Skip("/dev/null is no character device here")
 	}
 	fs, socket := newFrameServer(t)
-	// Claude finds the terminal it was given: its stdout is the device itself.
 	claude := fakeClaude(t, `[ -c /dev/stdout ] || exit 9; echo answer`)
 	code, _ := runPrint(claude, []string{"-p", "hi"}, strings.NewReader(""), tty, &bytes.Buffer{},
 		newPrintTeller(socket, "tok", "ws", "t1"))
@@ -237,7 +225,6 @@ func TestRunPrint_TellsTheSignalClaudeDiedOf(t *testing.T) {
 func TestRunPrint_TellsTheSignalTheRunGot(t *testing.T) {
 	fs, socket := newFrameServer(t)
 	started := filepath.Join(t.TempDir(), "started")
-	// Claude ends by the signal with an exit code of its own.
 	claude := fakeClaude(t, `trap 'exit 143' TERM; touch "`+started+`"; sleep 5 >/dev/null 2>&1 & wait`)
 	go func() {
 		for i := 0; i < 100; i++ {
@@ -270,7 +257,6 @@ func TestRunPrint_HoldsAWatchUntilItsEnd(t *testing.T) {
 			&bytes.Buffer{}, newPrintTeller(socket, "tok", "ws", "t1"))
 		ran <- code
 	}()
-	// The app knows of the run before it is watched.
 	waitFor(t, func() bool { return fs.logged() == "print-start,print-watch" })
 	if err := os.WriteFile(filepath.Join(dir, "go"), nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -278,11 +264,9 @@ func TestRunPrint_HoldsAWatchUntilItsEnd(t *testing.T) {
 	if code := <-ran; code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	// Its end is told before the watch closes.
 	waitFor(t, func() bool { return fs.logged() == "print-start,print-watch,print-end,print-watch closed" })
 }
 
-// waitFor waits up to 2s for ok.
 func waitFor(t *testing.T, ok func() bool) {
 	t.Helper()
 	for i := 0; i < 100; i++ {
@@ -294,9 +278,6 @@ func waitFor(t *testing.T, ok func() bool) {
 	t.Fatal("timed out")
 }
 
-// transcriptClaude is a claude that writes the transcript of the session
-// it is given, `first` and then, once the test made the file `go` in dir,
-// `rest`, then prints `out`, and its arguments to stderr.
 func transcriptClaude(t *testing.T, dir string, first, rest []string, out string) string {
 	t.Helper()
 	for name, lines := range map[string][]string{"first": first, "rest": rest} {
@@ -327,7 +308,6 @@ func TestRunPrint_FollowsATextRunsTranscript(t *testing.T) {
 			&stderr, newPrintTeller(socket, "tok", "ws", "t1"))
 		ran <- code
 	}()
-	// Its tools are told as it runs them.
 	waitFor(t, func() bool { return strings.HasSuffix(fs.logged(), "print-tool-use") })
 	if err := os.WriteFile(filepath.Join(dir, "go"), nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -386,9 +366,9 @@ func TestRunPrint_FollowsTheSessionTheRunWasGiven(t *testing.T) {
 	}
 	claude := transcriptClaude(t, dir, transcriptLines, nil, "")
 	var stderr bytes.Buffer
-	runPrint(claude, []string{"-p", "hi", "--session-id", "s1"}, strings.NewReader(""), &bytes.Buffer{},
+	runPrint(claude, []string{"-p", "hi", "--session-id", sessionA}, strings.NewReader(""), &bytes.Buffer{},
 		&stderr, newPrintTeller(socket, "tok", "ws", "t1"))
-	if stderr.String() != "args: -p hi --session-id s1\n" {
+	if stderr.String() != "args: -p hi --session-id "+sessionA+"\n" {
 		t.Fatalf("claude ran with %q", stderr.String())
 	}
 	if told := fs.told(t); len(told) != 9 || told[8].Payload["answer"] != "It is fine.\nShip it." {
@@ -403,7 +383,6 @@ func TestRunPrint_ARunThatGoesOnASessionIsFollowedFromWhereItWas(t *testing.T) {
 		t.Fatal(err)
 	}
 	claude := transcriptClaude(t, dir, transcriptLines[5:], nil, "")
-	// The session's transcript as its first run left it.
 	project := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "-repo")
 	if err := os.MkdirAll(project, 0o755); err != nil {
 		t.Fatal(err)
@@ -427,7 +406,6 @@ func TestRunPrint_ARunThatGoesOnASessionIsFollowedFromWhereItWas(t *testing.T) {
 		told[len(told)-1].Payload["answer"] != "It is fine.\nShip it." {
 		t.Fatalf("told %v", got)
 	}
-	// Only what this run added is told: not the first run's tool call.
 	for _, frame := range told {
 		if frame.Subcommand == "print-tool-use" {
 			t.Fatalf("told %v", got)
@@ -436,8 +414,6 @@ func TestRunPrint_ARunThatGoesOnASessionIsFollowedFromWhereItWas(t *testing.T) {
 }
 
 func TestRunPrint_AppStopsTheRunByItsWatch(t *testing.T) {
-	// A claude that ends on the interrupt, or once the test made the file
-	// `go` in dir; `trap` is how it takes the interrupt.
 	run := func(t *testing.T, trap, answer string, then func(dir string)) map[string]any {
 		fs, socket := newFrameServer(t)
 		dir := t.TempDir()
@@ -450,7 +426,6 @@ func TestRunPrint_AppStopsTheRunByItsWatch(t *testing.T) {
 			ran <- told[len(told)-1].Payload
 		}()
 		waitFor(t, func() bool { return fs.logged() == "print-start,print-watch" })
-		// Once claude has set its trap.
 		waitFor(t, func() bool {
 			_, err := os.Stat(filepath.Join(dir, "ready"))
 			return err == nil
@@ -467,8 +442,6 @@ func TestRunPrint_AppStopsTheRunByItsWatch(t *testing.T) {
 	}
 
 	t.Run("an answer to stop it interrupts claude", func(t *testing.T) {
-		// Whether claude dies of it or exits on it, the run reads interrupted.
-		// A shell waiting on its sleep holds the interrupt; this one dies of it, as claude.
 		end := run(t, `trap 'trap - INT; kill -INT $$' INT; `, `{"ok":true,"stdout":"stop"}`,
 			func(string) {})
 		if end["signal"] != "interrupt" {
@@ -537,16 +510,11 @@ func (f toldFrame) String() string {
 	return f.Subcommand + string(b)
 }
 
-// A run started with a signal ignored — `nohup claude -p …`, or one run in
-// the background of a script — leaves it ignored for claude: taking it to
-// pass on would bring it back, and the closed terminal's hangup would end
-// the run nohup was there to keep.
 func TestRunPrint_LeavesAnIgnoredSignalIgnored(t *testing.T) {
 	for _, sig := range []syscall.Signal{syscall.SIGHUP, syscall.SIGINT} {
 		t.Run(sig.String(), func(t *testing.T) {
 			signal.Ignore(sig)
 			t.Cleanup(func() {
-				// Back to Go's own handling of it, which Reset alone does not undo.
 				c := make(chan os.Signal, 1)
 				signal.Notify(c, sig)
 				signal.Stop(c)

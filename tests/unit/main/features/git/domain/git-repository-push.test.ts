@@ -1,13 +1,9 @@
-/**
- * Push guardrail tests for GitRepository argv construction.
- */
 import { describe, expect, it } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { newLocalGitRepository } from "../helpers/local-semantic-executor";
 
-// The fake git these tests run is a /bin/sh script, which Windows cannot run.
 describe.skipIf(process.platform === "win32")("GitRepository push guardrails", () => {
   it("uses --force-with-lease for explicit force pushes", async () => {
     const fixture = makeFakeRepo();
@@ -46,7 +42,6 @@ describe.skipIf(process.platform === "win32")("GitRepository push guardrails", (
   });
 });
 
-/** Creates a temp repository root with a push-logging git executable. */
 function makeFakeRepo(): { root: string; gitDir: string; gitBin: string } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-git-push-guard-"));
   const gitDir = path.join(root, ".git");
@@ -76,12 +71,10 @@ esac
   return { root, gitDir, gitBin };
 }
 
-/** Reads fake git log lines. */
 function readLog(root: string): string[] {
   return fs.readFileSync(path.join(root, "git.log"), "utf8").split("\n").filter(Boolean);
 }
 
-/** Quotes a shell literal for generated test scripts. */
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }

@@ -1,14 +1,3 @@
-/**
- * git.ts — thin assembly and public entry point for the git store.
- *
- * Composes four slice creators (session lifecycle, operations, queries,
- * panel UI) via a shared context object that holds the single controllers
- * map + all operation lifecycle primitives.
- *
- * All public types and the useGitStore/useGitSession exports remain at
- * this path so git-event-subscriptions.ts, git-draft-persistence.ts, and
- * all component consumers need no import changes.
- */
 import { create } from "zustand";
 import type {
   BranchList,
@@ -53,11 +42,6 @@ import type {
   PendingNonFFRetry,
 } from "./types";
 
-// ---------------------------------------------------------------------------
-// Public types — re-exported from git/types.ts so consumers keep the same
-// import path ("./git" resolves to git.ts which re-exports everything).
-// ---------------------------------------------------------------------------
-
 export type {
   CommitOptions,
   CreateBranchOptions,
@@ -68,10 +52,6 @@ export type {
   GitStoreError,
   PendingNonFFRetry,
 };
-
-// ---------------------------------------------------------------------------
-// GitState interface
-// ---------------------------------------------------------------------------
 
 interface GitState {
   sessions: Map<string, GitSession>;
@@ -183,10 +163,6 @@ interface GitState {
   closeAllForWorkspace: (workspaceId: string) => void;
 }
 
-// ---------------------------------------------------------------------------
-// Store assembly
-// ---------------------------------------------------------------------------
-
 export const useGitStore = create<GitState>((set, get) => {
   registerWorkspaceCleanup((id) => {
     get().closeAllForWorkspace(id);
@@ -207,15 +183,6 @@ export const useGitStore = create<GitState>((set, get) => {
 installGitEventSubscriptions();
 installCommitDraftFlushListeners();
 
-// ---------------------------------------------------------------------------
-// Selector helper
-// ---------------------------------------------------------------------------
-
-/**
- * Subscribes to a single workspace's git session slice. Returns `undefined`
- * before `loadInitial` has run for that workspace — callers should treat the
- * absence as "git not yet initialised" rather than "no git repo".
- */
 export function useGitSession(workspaceId: string): GitSession | undefined {
   return useGitStore((s) => s.sessions.get(workspaceId));
 }

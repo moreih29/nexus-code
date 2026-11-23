@@ -1,9 +1,3 @@
-/**
- * Remotes flyout for GitMoreMenu, including the read-only current-remote
- * list, the Add Remote action, and a nested Remove Remote picker that lets
- * the user explicitly choose which remote to delete before the parent
- * dialog appears.
- */
 import { useTranslation } from "react-i18next";
 import {
   DropdownMenuItem,

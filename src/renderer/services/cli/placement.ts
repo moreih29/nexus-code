@@ -1,12 +1,3 @@
-/**
- * Where a tab the nexus CLI opens goes. The command came from a terminal the
- * user may be watching, so a tab that is shown goes beside it, not over it.
- *
- * While the window shows the agent view, a session (a Claude or Codex tab,
- * a terminal) shows there; anything else shows in its workspace, the
- * window switching to the workspaces for it.
- */
-
 import { openTabInNewSplit } from "@/state/operations/tabs";
 import { useActiveStore } from "@/state/stores/active";
 import { isAgentViewShown, useAgentViewStore } from "@/state/stores/agent-view";
@@ -23,14 +14,12 @@ export interface TabPlace {
   readonly tabId: string;
 }
 
-/** The group holding `tabId` in a workspace's layout. */
 export function groupOf(workspaceId: string, tabId: string): string | null {
   const layout = useLayoutStore.getState().byWorkspace[workspaceId];
   if (!layout) return null;
   return allLeaves(layout.root).find((leaf) => leaf.tabIds.includes(tabId))?.id ?? null;
 }
 
-/** The tabs of a workspace that `match`, group by group. */
 export function findTabs(workspaceId: string, match: (tab: Tab) => boolean): TabPlace[] {
   const layout = useLayoutStore.getState().byWorkspace[workspaceId];
   const records = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
@@ -45,16 +34,10 @@ export function findTabs(workspaceId: string, match: (tab: Tab) => boolean): Tab
   return places;
 }
 
-/** The caller of a command whose placement names it, as a session. */
 function callerOf(workspaceId: string, placement: CliPlacement) {
   return placement.besideTabId ? { workspaceId, tabId: placement.besideTabId } : null;
 }
 
-/**
- * Leaves the agent view for `workspaceId`, to show a tab there. A caller
- * the agent view showed comes to the front of its group, so what opens
- * goes beside it, and keeps the keyboard it had.
- */
 export function leaveAgentView(workspaceId: string, callerTabId?: string): void {
   const callerShown =
     callerTabId !== undefined && isShownInAgentView(workspaceId, callerTabId) ? callerTabId : null;
@@ -69,19 +52,12 @@ export function leaveAgentView(workspaceId: string, callerTabId?: string): void 
   if (callerShown !== null && callerGroup !== null) requestTabFocus(callerShown);
 }
 
-/** Adds a new tab as the one its group shows, leaving the active group alone. */
 function attachShown(workspaceId: string, groupId: string, args: CreateTabArgs): string {
   const tab = useTabsStore.getState().createTab(workspaceId, args);
   useLayoutStore.getState().attachTab(workspaceId, groupId, tab.id);
   return tab.id;
 }
 
-/**
- * Opens a new tab. In the background it goes behind the tab the caller's
- * group shows. Shown, it goes in the active group, unless that is the
- * caller's: then in another group, or in a new one split off to the right,
- * so the caller's terminal stays in view.
- */
 export function openTab(workspaceId: string, args: CreateTabArgs, placement: CliPlacement): string {
   if (!placement.background && isAgentViewShown()) {
     if (holdsInAgentView(args.type)) {
@@ -102,7 +78,6 @@ export function openTab(workspaceId: string, args: CreateTabArgs, placement: Cli
     const tab = useTabsStore.getState().createTab(workspaceId, args);
     const store = useLayoutStore.getState();
     store.attachTab(workspaceId, groupId, tab.id);
-    // Attaching shows the tab; the group goes back to what it showed.
     if (shown) {
       store.setActiveTabInGroup({ workspaceId, groupId, tabId: shown, activateGroup: false });
     }
@@ -118,11 +93,6 @@ export function openTab(workspaceId: string, args: CreateTabArgs, placement: Cli
   return tabId;
 }
 
-/**
- * Shows a tab that is already open in place of a new one, when one is open
- * outside the caller's group (showing one inside it would hide the caller).
- * Null when there is none.
- */
 export function showOpenTab(
   workspaceId: string,
   places: readonly TabPlace[],

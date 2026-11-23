@@ -1,12 +1,7 @@
-/**
- * RefPickerSource — shared picker source for "create branch from ref" style
- * flows. It intentionally combines moving labels (branches/tags) with recent
- * immutable commits while returning only the selected ref string to callers.
- */
 import i18next from "i18next";
 import type { BranchList, LogEntry, Tag } from "../../../../../shared/git/types";
+import { relativeTime } from "../../../../utils/time-format";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
-import { relativeTime } from "../utils/relative-time";
 
 export type RefPickKind = "branch" | "remote" | "tag" | "commit";
 
@@ -24,10 +19,6 @@ export interface CreateRefPickerSourceInput {
   acceptRef: (ref: string, item: RefPickItem) => void;
 }
 
-/**
- * Builds the git.ref-picker source used by create-from-ref and later ref-pivot
- * flows. Empty query eagerly loads a bounded branch/tag/recent-commit set.
- */
 export function createRefPickerSource(
   input: CreateRefPickerSourceInput,
 ): PaletteSource<RefPickItem> {
@@ -62,9 +53,6 @@ export function createRefPickerSource(
   };
 }
 
-/**
- * Converts local and remote branches into ref picker items.
- */
 function branchItems(branches: BranchList | undefined): RefPickItem[] {
   if (!branches) return [];
   const current = branches.current?.current ?? null;
@@ -96,9 +84,6 @@ function branchItems(branches: BranchList | undefined): RefPickItem[] {
   ];
 }
 
-/**
- * Converts tag metadata into ref picker items.
- */
 function tagItems(tags: readonly Tag[]): RefPickItem[] {
   return [...tags]
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -113,9 +98,6 @@ function tagItems(tags: readonly Tag[]): RefPickItem[] {
     }));
 }
 
-/**
- * Converts recent commits into ref picker items.
- */
 function commitItems(commits: readonly LogEntry[]): RefPickItem[] {
   return commits.map((commit) => ({
     id: `commit:${commit.sha}`,
@@ -128,9 +110,6 @@ function commitItems(commits: readonly LogEntry[]): RefPickItem[] {
   }));
 }
 
-/**
- * Case-insensitive query matcher spanning labels, details, refs, and SHAs.
- */
 function matchesRefQuery(item: RefPickItem, lowerQuery: string): boolean {
   if (lowerQuery.length === 0) return true;
   return [item.label, item.description, item.detail, item.kindLabel, item.ref, item.sha]

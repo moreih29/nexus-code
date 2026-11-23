@@ -2,18 +2,6 @@ import { z } from "zod";
 import { NonnegativeIntegerSchema } from "../../../packages/remote-protocol/src/validation";
 import { DocumentUriSchema } from "./primitives";
 
-// ---------------------------------------------------------------------------
-// SemanticTokens — LSP §3.16 textDocument/semanticTokens/full
-//
-// The server returns a flat `data` array in the LSP relative-encoding format:
-//   [deltaLine, deltaStartChar, length, tokenTypeIndex, tokenModifiersBitfield]
-// for each token. The client-capability advertisement (client-capabilities.ts)
-// requests full-document mode only; delta (edits) mode is not used.
-// ---------------------------------------------------------------------------
-
-// Renderer → main IPC argument shape for semantic-tokens requests. The
-// `workspaceId` field scopes the request to a specific workspace's LSP
-// server (see text-document.ts for the same pattern on other requests).
 export const SemanticTokensArgsSchema = z.object({
   workspaceId: z.string(),
   uri: DocumentUriSchema,
@@ -26,120 +14,51 @@ export const SemanticTokensResultSchema = z.object({
 });
 export type SemanticTokensResult = z.infer<typeof SemanticTokensResultSchema>;
 
-// ---------------------------------------------------------------------------
-// Canonical client token-type legend (standard LSP 3.16 order).
-//
-// This is the single source of truth shared by:
-//   - The renderer provider (getLegend() → Monaco uses these as token-type
-//     names to look up in the theme rules).
-//   - The agent-side remap (translates the server's own legend indices to
-//     canonical indices so the renderer never sees server-specific ordering).
-//
-// The names are standard LSP token type strings. Monaco's theme rules in
-// monaco-theme.ts use the same strings as token rule names, so the mapping
-// is direct.
-//
-// Legend → palette role mapping (design.md §15.1, frozen 15-role set):
-//   namespace                             → syntaxNamespace
-//   type / class / enum / interface /
-//     struct / typeParameter              → syntaxType
-//   parameter / variable                  → syntaxVariable
-//   property / enumMember                 → syntaxProperty
-//   function / method / macro             → syntaxFunction (macro folded)
-//   keyword / modifier / decorator        → syntaxKeyword  (folded)
-//   comment                               → syntaxComment
-//   string / regexp                       → syntaxString   (regexp folded)
-//   number                                → syntaxNumber
-//   operator                              → syntaxOperator
-//   event / label                         → syntaxVariable (folded)
-//
-// Pyright extension tokens (last block before sentinel): pyright emits custom
-// token types beyond LSP 3.16 standard. We accept them into the canonical
-// legend so they survive the remap step; monaco-theme.ts buildSyntaxRules then
-// maps them to existing palette roles (intrinsic/magicFunction → syntaxFunction,
-// builtinConstant → syntaxKeyword, self/clsParameter → syntaxVariable).
-// Without this extension pyright's tokens would fall to the sentinel and
-// import-references like `os.getenv(...)` would render with no semantic colour.
-// ---------------------------------------------------------------------------
 export const CANONICAL_TOKEN_TYPES: readonly string[] = [
-  "namespace", // 0
-  "type", // 1
-  "class", // 2
-  "enum", // 3
-  "interface", // 4
-  "struct", // 5
-  "typeParameter", // 6
-  "parameter", // 7
-  "variable", // 8
-  "property", // 9
-  "enumMember", // 10
-  "event", // 11
-  "function", // 12
-  "method", // 13
-  "macro", // 14
-  "keyword", // 15
-  "modifier", // 16
-  "comment", // 17
-  "string", // 18
-  "number", // 19
-  "regexp", // 20
-  "operator", // 21
-  "decorator", // 22
-  "label", // 23
-  // Pyright extensions (24-28): not in LSP 3.16 but emitted by pyright.
-  "intrinsic", // 24 — pyright: stdlib functions (print, len, etc.)
-  "builtinConstant", // 25 — pyright: True, False, None, Ellipsis, NotImplemented
-  "selfParameter", // 26 — pyright: `self` parameter
-  "clsParameter", // 27 — pyright: `cls` parameter
-  "magicFunction", // 28 — pyright: __init__, __str__, dunder methods
-  // Sentinel slot (last index): used for token types that are not in the
-  // canonical list. Keeping the tuple in the output preserves delta-chain
-  // integrity (LSP data is delta-encoded; dropping a tuple shifts every
-  // subsequent token's position). Monaco has no theme rule for "unknown" so
-  // sentinel tokens receive no semantic colour and fall back to Monarch
-  // highlighting — the correct behaviour for unrecognised types.
-  "unknown", // 29  sentinel — no theme rule; Monarch fallback
+  "namespace",
+  "type",
+  "class",
+  "enum",
+  "interface",
+  "struct",
+  "typeParameter",
+  "parameter",
+  "variable",
+  "property",
+  "enumMember",
+  "event",
+  "function",
+  "method",
+  "macro",
+  "keyword",
+  "modifier",
+  "comment",
+  "string",
+  "number",
+  "regexp",
+  "operator",
+  "decorator",
+  "label",
+  "intrinsic",
+  "builtinConstant",
+  "selfParameter",
+  "clsParameter",
+  "magicFunction",
+  "unknown",
 ] as const;
 
-/** Index of the sentinel slot in CANONICAL_TOKEN_TYPES. */
 export const SENTINEL_TOKEN_TYPE_INDEX = 29;
 
-// ---------------------------------------------------------------------------
-// remapSemanticTokenData
-//
-// Translates a semantic token data array (5-element tuples) from server-legend
-// indices to canonical-legend indices.
-//
-// Each tuple: [deltaLine, deltaStartChar, length, tokenTypeIndex, modifierBits]
-//
-// LSP data is DELTA-encoded: deltaLine and deltaStartChar are relative to the
-// PREVIOUS token. Removing a tuple shifts the positions of every subsequent
-// token — corrupting all highlighting after the first dropped token.
-//
-// Therefore every input tuple produces exactly one output tuple. For tokens
-// whose server type name is not in the canonical list (or whose server index
-// is out-of-bounds), the tokenTypeIndex is rewritten to SENTINEL_TOKEN_TYPE_INDEX
-// ("unknown"). Monaco has no theme rule for "unknown", so those tokens receive
-// no semantic colour and fall back to Monarch highlighting — the correct
-// behaviour. The delta chain is never disturbed.
-//
-// Modifiers are passed through unchanged (client legend declares empty
-// tokenModifiers, so all modifier bits are effectively 0 from Monaco's view).
-// ---------------------------------------------------------------------------
 export function remapSemanticTokenData(
   data: readonly number[],
   serverTokenTypes: readonly string[],
   canonicalTokenTypes: readonly string[],
 ): number[] {
-  // Build a lookup: canonical name → canonical index (O(n) build, O(1) lookup).
   const canonicalIndex = new Map<string, number>();
   for (let i = 0; i < canonicalTokenTypes.length; i++) {
     canonicalIndex.set(canonicalTokenTypes[i] as string, i);
   }
 
-  // The sentinel index is the last slot in canonicalTokenTypes. If the caller
-  // passes a list without a sentinel, fall back to the last index (still
-  // produces no colour as long as that name has no theme rule).
   const sentinelIdx = canonicalTokenTypes.length - 1;
 
   const result: number[] = [];
@@ -155,7 +74,6 @@ export function remapSemanticTokenData(
     const typeName = serverTokenTypes[serverTypeIdx];
     const canonIdx = typeName === undefined ? undefined : canonicalIndex.get(typeName);
 
-    // Always emit a tuple — delta chain must stay intact.
     result.push(deltaLine, deltaStartChar, length, canonIdx ?? sentinelIdx, modifierBits);
   }
   return result;

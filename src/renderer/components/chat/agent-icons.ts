@@ -1,14 +1,5 @@
-// Claude's and Codex's own marks, for the tabs and menus that open them.
-// They are made as lucide icons so they sit wherever a lucide icon does;
-// both are filled shapes, so the paths fill and draw no stroke.
-//
-// Claude: the Simple Icons path (CC0), in Claude's own color whatever the
-// theme. Codex: the LobeHub icon path (MIT), in the text color like the
-// other tab icons, as its mark is drawn in one color.
-
 import { createLucideIcon } from "lucide-react";
 
-/** Claude's color, as Claude draws its mark. */
 const CLAUDE_COLOR = "#D97757";
 
 export const ClaudeIcon = createLucideIcon("claude", [

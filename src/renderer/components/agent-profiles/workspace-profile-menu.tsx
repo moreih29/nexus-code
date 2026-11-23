@@ -1,7 +1,3 @@
-// A workspace's "Agent profiles ›" submenu in the sidebar: for each agent,
-// "Follow rules" (with the profile the rules give now) or a profile of its
-// own, which makes a rule for the workspace. New conversations take it.
-
 import { Fragment, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -35,7 +31,6 @@ import { ProfileDot, profileName } from "./profile-badge";
 
 const AGENT_NAMES = { claude: "Claude", codex: "Codex" } as const;
 
-/** Where a profile the rules give comes from, in a few words. */
 export function sourceLabel(
   source: ProfileSource,
   config: AgentProfiles,
@@ -61,7 +56,6 @@ export function WorkspaceProfileMenu({ workspace }: { workspace: WorkspaceMeta }
     [workspace.id],
   );
   const own = ruleOfTarget(config, target);
-  // What the rules give with the workspace's own rule left out.
   const withoutOwn = useMemo(
     () => (own ? { ...config, rules: config.rules.filter((r) => r.id !== own.id) } : config),
     [config, own],

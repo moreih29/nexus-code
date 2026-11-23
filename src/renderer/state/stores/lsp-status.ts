@@ -1,7 +1,3 @@
-// Each language server's status, mirrored from main (lsp:serverStatus), and
-// the work it reports through $/progress (services/lsp-ux/server-ux-router).
-// The status bar and the hover read it.
-
 import { create } from "zustand";
 import type { LspServerStatus } from "../../../shared/lsp/status";
 
@@ -12,11 +8,8 @@ export interface LspProgress {
 }
 
 interface LspStatusState {
-  /** Keyed by lspStatusKey. */
   statuses: Record<string, LspServerStatus>;
-  /** The work a server reports, until it ends. Keyed by lspStatusKey. */
   progress: Record<string, LspProgress>;
-  /** Main's statuses at launch; one broadcast since stays. */
   hydrate(statuses: LspServerStatus[]): void;
   setStatus(status: LspServerStatus): void;
   setProgress(workspaceId: string, languageId: string, progress: LspProgress | null): void;
@@ -38,7 +31,6 @@ export const useLspStatusStore = create<LspStatusState>((set) => ({
   progress: {},
 
   hydrate(statuses) {
-    // A status broadcast while the list was on its way is newer.
     set((s) => ({
       statuses: {
         ...Object.fromEntries(
@@ -52,7 +44,6 @@ export const useLspStatusStore = create<LspStatusState>((set) => ({
   setStatus(status) {
     const key = lspStatusKey(status.workspaceId, status.languageId);
     set((s) => {
-      // A stopped server reports nothing more; work it left unfinished ends.
       const { [key]: _ended, ...progress } = s.progress;
       return {
         statuses: { ...s.statuses, [key]: status },
@@ -77,7 +68,6 @@ export const useLspStatusStore = create<LspStatusState>((set) => ({
   },
 }));
 
-/** Whether the server is not ready to answer yet: starting, or loading. */
 export function isLspServerBusy(workspaceId: string, languageId: string): boolean {
   const key = lspStatusKey(workspaceId, languageId);
   const { statuses, progress } = useLspStatusStore.getState();

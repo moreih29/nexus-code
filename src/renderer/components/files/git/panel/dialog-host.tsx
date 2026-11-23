@@ -1,14 +1,3 @@
-/**
- * GitDialogHost renders all modal dialogs that the git panel orchestrates.
- * It owns no state — state lives in useGitDialogs / useGitPanelPickers.
- * All git store calls are passed in as callbacks from the thin container.
- *
- * 12 logical dialogs: discard, removeRemote, forcePush, branchPicker,
- * mergeTargetPicker, rebaseTargetPicker, commitPicker, commitBranchPicker,
- * branchCreateFromPicker, stashPicker, tagPicker, mergeOptions, publish,
- * emptyCommit, branchCreate, stashGroup, addRemote.
- */
-
 import i18next from "i18next";
 import type { GitExpandedGroupKey, GitMergeMode, Tag } from "../../../../../shared/git/types";
 import type { GitPushOptions } from "../../../../state/stores/git";
@@ -31,44 +20,26 @@ import type { GitDialogsState } from "./use-dialogs";
 
 export interface GitDialogHostCallbacks {
   workspaceId: string;
-  /** Runs the confirmed discard. */
   onDiscard: (relPaths: string[], source?: GitExpandedGroupKey) => void;
-  /** Runs the confirmed remove remote. */
   onRemoveRemote: (remote: string) => void;
-  /** Runs the confirmed force push. */
   onForcePush: (options: GitPushOptions) => void;
-  /** Opens the branch-create dialog (after prefetching the branch list). */
   onOpenBranchCreateDialog: (fromRef?: string) => void;
-  /** Closes the branch-create dialog (also invalidates the in-flight branch list load). */
   onCloseBranchCreateDialog: () => void;
-  /** Runs branch creation. */
   onCreateBranch: (workspaceId: string, name: string, fromRef?: string) => Promise<void>;
-  /** Called when the user confirms a merge mode selection. */
   onConfirmMergeOption: (mode: GitMergeMode) => void;
-  /** Runs push-with-publish. */
   onConfirmPublish: () => void;
-  /** Runs empty commit with the given message. */
   onConfirmEmptyCommit: (message: string) => void;
-  /** Runs stash-group with the given paths and message. */
   onConfirmStashGroup: (paths: string[], message: string) => void;
-  /** Runs add-remote. */
   onConfirmAddRemote: (name: string, url: string) => void;
-  /** Retargets the History panel to the selected tag. */
   onRevealTagInHistory: (tag: Tag) => void;
 
-  // Source objects for command palettes
   mergeTargetSource: PaletteSource<MergeTargetPickItem>;
   rebaseTargetSource: PaletteSource<RebaseTargetPickItem>;
   commitPickerSource: PaletteSource<CommitPickItem>;
   commitBranchSource: PaletteSource<MergeTargetPickItem>;
 
-  // Form fields for the add-remote dialog
   addRemoteFields: FormDialogField[];
 
-  // In-flight busy flags for each dialog
-  discardBusy: boolean;
-  removeRemoteBusy: boolean;
-  forcePushBusy: boolean;
   branchCreateBusy: boolean;
   mergeBusy: boolean;
   publishBusy: boolean;
@@ -148,9 +119,6 @@ export function GitDialogHost({ dialogs, pickers, callbacks }: GitDialogHostProp
     commitPickerSource,
     commitBranchSource,
     addRemoteFields,
-    discardBusy,
-    removeRemoteBusy,
-    forcePushBusy,
     branchCreateBusy,
     mergeBusy,
     publishBusy,
@@ -163,7 +131,6 @@ export function GitDialogHost({ dialogs, pickers, callbacks }: GitDialogHostProp
     <>
       <ConfirmDiscardDialog
         request={discardRequest}
-        busy={discardBusy}
         onCancel={() => setDiscardRequest(null)}
         onConfirm={(request) => {
           setDiscardRequest(null);
@@ -172,7 +139,6 @@ export function GitDialogHost({ dialogs, pickers, callbacks }: GitDialogHostProp
       />
       <ConfirmDiscardDialog
         request={removeRemoteRequest?.confirm ?? null}
-        busy={removeRemoteBusy}
         onCancel={() => setRemoveRemoteRequest(null)}
         onConfirm={() => {
           const remote = removeRemoteRequest?.remote;
@@ -192,7 +158,6 @@ export function GitDialogHost({ dialogs, pickers, callbacks }: GitDialogHostProp
               }
             : null
         }
-        busy={forcePushBusy}
         onCancel={() => setForcePushRequest(null)}
         onConfirm={() => {
           const options = forcePushRequest;

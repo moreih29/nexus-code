@@ -1,22 +1,3 @@
-/**
- * Voice input's socket to the server (GET /voice), held here rather than
- * in the renderer: the server refuses an upgrade with a status and a JSON
- * error (403 quota_exceeded, 429 too_many_sessions, 503 voice_unavailable),
- * which `ws` reads and a page's WebSocket cannot. The renderer sends the
- * captured audio; what the server says comes back as events. One session
- * at a time: the app has one place being dictated into (and, in a second
- * VoiceSessions, one note being recorded).
- *
- * A note's recording also goes once more, whole, to the server for a
- * second pass (POST /voice/transcriptions), which is asked after until it
- * is done and then deleted there.
- *
- * The server hears with three layers of terms: its own, the account's
- * (GET/PUT /voice/terms, edited in the settings), and, when the user turned
- * it on, the names of the moment (the account's computers and workspaces),
- * which go in the body of the ticket a session opens with: never in the
- * socket's URL, which the server's edge logs.
- */
 import { randomUUID } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
 import WebSocket from "ws";
@@ -51,14 +32,10 @@ import { retryAfterSeconds, SocketRetryAfter } from "./retry-after";
 import { askTicket } from "./ticket";
 import { voiceNamesOf } from "./voice-names";
 
-/** How long the server has to say `ready` once the socket is open. */
 export const READY_TIMEOUT_MS = 10_000;
-/** How long after `end` the socket is closed if the server has not finished. */
 export const END_TIMEOUT_MS = 8_000;
-/** A voice rate limit without a Retry-After header still pauses new sessions. */
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
 
-/** The part of a `ws` socket used here, so a test can stand in for it. */
 export interface VoiceSocket {
   readonly readyState: number;
   send(data: string | Uint8Array): void;
@@ -74,7 +51,6 @@ export interface VoiceSocket {
   ): this;
 }
 
-/** The refused upgrade's response, as much of it as is read. */
 export interface UpgradeRefusal {
   statusCode?: number;
   headers: IncomingHttpHeaders;
@@ -86,13 +62,8 @@ export interface UpgradeRefusal {
 
 export interface VoiceSessionsDeps {
   account: Pick<RemoteAccount, "state" | "info" | "request" | "upload" | "route" | "recheckSignIn">;
-  /** What the sessions are for; a note's carry voices, times and a second pass. */
   purpose?: VoicePurpose;
   emit(event: VoiceEvent): void;
-  /**
-   * The names of the moment to send with a session's ticket: none unless the
-   * user turned it on. A failure sends none.
-   */
   names?: () => Promise<readonly string[]>;
   socket?: (url: string) => VoiceSocket;
   retryAfter?: SocketRetryAfter;
@@ -104,7 +75,6 @@ interface Open {
   endTimer?: ReturnType<typeof setTimeout>;
 }
 
-/** Why the server refused the upgrade, from its status and its body's `error`. */
 export function refusalOf(status: number | undefined, code: string | undefined): VoiceFailure {
   if (status === 429) return code === "too_many_sessions" ? "busy" : "rate-limited";
   if (status === 401 || code === "unauthorized" || code === "not_invited") return "signed-out";
@@ -114,11 +84,6 @@ export function refusalOf(status: number | undefined, code: string | undefined):
   return "failed";
 }
 
-/**
- * Why the server refused a second pass, from its status and its body's
- * `error`: over the month's minutes and too many under way leave the token
- * good for later; a used or old one does not.
- */
 export function transcribeRefusalOf(error: ServerError): TranscribeFailure {
   if (error.code === "quota_exceeded") return "quota";
   if (error.status === 429 || error.code === "too_many_transcriptions") return "busy";
@@ -127,11 +92,6 @@ export function transcribeRefusalOf(error: ServerError): TranscribeFailure {
   return "failed";
 }
 
-/**
- * The body of the POST /relay/ticket a voice session opens with: the names
- * to listen for, deduped, at most MAX_VOICE_NAMES, each clipped; no body
- * without names, as the relay's ticket is asked.
- */
 export function ticketBody(names: readonly string[]): { voiceTerms: string[] } | undefined {
   const voiceTerms = voiceNamesOf([names]);
   return voiceTerms.length > 0 ? { voiceTerms } : undefined;
@@ -143,7 +103,6 @@ function failed(reason: VoiceFailure, message: string): VoiceStartResult {
 
 export class VoiceSessions {
   private open: Open | null = null;
-  /** A start under way, so a second click does not open a second socket. */
   private starting = false;
   private readonly retryAfter: SocketRetryAfter;
 
@@ -151,12 +110,10 @@ export class VoiceSessions {
     this.retryAfter = deps.retryAfter ?? new SocketRetryAfter();
   }
 
-  /** Whether `id` is this one's open session. */
   has(id: string): boolean {
     return this.open?.id === id;
   }
 
-  /** Opens a session in `language`: ready with the rate to send at, or why not. */
   async start(language: string): Promise<VoiceStartResult> {
     if (this.open || this.starting) return failed("in-use", "voice input is already on");
     this.starting = true;
@@ -173,7 +130,6 @@ export class VoiceSessions {
     if (state.status !== "signed-in") return failed("signed-out", "not signed in to NexusCode");
     if (this.retryAfter.remaining() > 0) return this.rateLimited();
     let ticket: string;
-    // Gathered while the server is asked what it offers.
     const names = (this.deps.names?.() ?? Promise.resolve([])).catch(() => []);
     try {
       const info = await account.info();
@@ -268,7 +224,6 @@ export class VoiceSessions {
         });
       });
       socket.on("error", (error) => {
-        // Not reached before it answered: the next try goes by the next way, when there is one.
         if (!settled) account.route.unreachable(url.toString());
         settle(failed("network", error.message));
       });
@@ -310,7 +265,6 @@ export class VoiceSessions {
     return failed("rate-limited", "the server limited voice connection attempts");
   }
 
-  /** Sends audio to the open session; audio for another, or after it ended, is dropped. */
   audio(id: string, audio: Uint8Array): void {
     const open = this.open;
     if (!open || open.id !== id || open.endTimer || open.socket.readyState !== WebSocket.OPEN) {
@@ -319,7 +273,6 @@ export class VoiceSessions {
     open.socket.send(audio);
   }
 
-  /** The user stopped: the server sends what is left of the text, then `done`, then closes. */
   stop(id: string): void {
     const open = this.open;
     if (!open || open.id !== id || open.endTimer) return;
@@ -327,37 +280,25 @@ export class VoiceSessions {
     open.endTimer = setTimeout(() => open.socket.close(1000), END_TIMEOUT_MS);
   }
 
-  /** Drops the session without waiting for the rest of its text. */
   cancel(id?: string): void {
     const open = this.open;
     if (!open || (id !== undefined && open.id !== id)) return;
     open.socket.close(1000);
   }
 
-  /** This month's voice minutes: used, and allowed. */
   async usage(): Promise<VoiceUsage> {
     return VoiceUsageSchema.parse(await this.deps.account.request("GET", "/voice/usage"));
   }
 
-  /** The account's recognition terms, shared by all its devices. */
   async terms(): Promise<string[]> {
     return VoiceTermsSchema.parse(await this.deps.account.request("GET", "/voice/terms")).terms;
   }
 
-  /**
-   * Replaces the account's recognition terms: the list as the server kept
-   * it (trimmed, duplicates in any case dropped).
-   */
   async setTerms(terms: readonly string[]): Promise<string[]> {
     return VoiceTermsSchema.parse(await this.deps.account.request("PUT", "/voice/terms", { terms }))
       .terms;
   }
 
-  /**
-   * Sends a note's recording (one session's audio) for a second pass, with
-   * the token that session's `done` gave: the transcription's id, or why
-   * not.
-   */
   async transcribe(
     recording: Uint8Array,
     type: string,
@@ -383,14 +324,12 @@ export class VoiceSessions {
     }
   }
 
-  /** A second pass: pending, done with its segments, or failed. */
   async transcription(id: string): Promise<Transcription> {
     return TranscriptionSchema.parse(
       await this.deps.account.request("GET", `/voice/transcriptions/${encodeURIComponent(id)}`),
     );
   }
 
-  /** Has the server (and its provider) drop a second pass's recording and text. */
   async dropTranscription(id: string): Promise<void> {
     await this.deps.account.request("DELETE", `/voice/transcriptions/${encodeURIComponent(id)}`);
   }

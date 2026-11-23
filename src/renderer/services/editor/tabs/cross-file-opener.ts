@@ -8,7 +8,6 @@ export interface ResourceUriLike {
   toString(): string;
 }
 
-/** Where Monaco wants the opened file's cursor: a range or a position. */
 export type SelectionOrPosition = MonacoRange | { lineNumber: number; column: number };
 
 export interface CrossFileOpenCodeEditorOpener {
@@ -102,10 +101,8 @@ export function createCrossFileOpenCodeEditorOpener({
       const workspaceRoot = getWorkspaceRoot();
 
       if (workspaceRoot !== null && isWithinWorkspace(filePath, workspaceRoot)) {
-        // Go to Definition and the like land on the symbol, not line 1.
         openEditor({ workspaceId, filePath }, toRange(selectionOrPosition));
       } else {
-        // Fire-and-forget: Monaco requires a synchronous boolean return.
         openExternal({ workspaceId, filePath });
       }
       return true;

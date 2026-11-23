@@ -4,10 +4,6 @@ import type { AppState } from "../../../shared/types/app-state";
 import { ipcCallResult } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 const log = createLogger("ui");
 
 export const SIDEBAR_WIDTH_MIN = 180;
@@ -18,18 +14,12 @@ export const FILES_PANEL_WIDTH_MIN = 160;
 export const FILES_PANEL_WIDTH_MAX = 600;
 export const FILES_PANEL_WIDTH_DEFAULT = 240;
 
-/** A note's transcript beside its text (the note wide): its width. */
 export const NOTE_TRANSCRIPT_WIDTH_MIN = 220;
 export const NOTE_TRANSCRIPT_WIDTH_MAX = 900;
 export const NOTE_TRANSCRIPT_WIDTH_DEFAULT = 340;
-/** A note's transcript under its text (the note narrow): its share of the note's height. */
 export const NOTE_TRANSCRIPT_SHARE_MIN = 0.15;
 export const NOTE_TRANSCRIPT_SHARE_MAX = 0.85;
 export const NOTE_TRANSCRIPT_SHARE_DEFAULT = 0.45;
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function clampSidebar(value: number): number {
   return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, value));
@@ -50,15 +40,10 @@ function clampTranscriptShare(value: number): number {
 }
 
 function saved(partial: Partial<AppState>): void {
-  // Fire-and-forget: local state is source of truth; appState is the durable store.
   void ipcCallResult("appState", "set", partial).then((result) => {
     if (!result.ok) log.warn(`appState set failed: ${result.message}`);
   });
 }
-
-// ---------------------------------------------------------------------------
-// State shape
-// ---------------------------------------------------------------------------
 
 interface HydrateOpts {
   sidebarWidth?: number;
@@ -72,7 +57,6 @@ interface HydrateOpts {
   filesPanelModeByWorkspace?: Readonly<Record<string, string>>;
 }
 
-/** What the files panel shows: the file tree, search, source control, the agent list, or the notes. */
 export type FilesPanelMode = "tree" | "search" | "git" | "agents" | "notes";
 
 const FILES_PANEL_MODES: readonly FilesPanelMode[] = ["tree", "search", "git", "agents", "notes"];
@@ -81,7 +65,6 @@ function isFilesPanelMode(value: string): value is FilesPanelMode {
   return (FILES_PANEL_MODES as readonly string[]).includes(value);
 }
 
-/** The stored views, but for one this version lacks: that workspace shows the tree. */
 function restoredModes(
   stored: Readonly<Record<string, string>> | undefined,
 ): Map<string, FilesPanelMode> {
@@ -97,53 +80,27 @@ export const FILES_PANEL_MODE_DEFAULT: FilesPanelMode = "tree";
 interface UIState {
   sidebarWidth: number;
   filesPanelWidth: number;
-  /** A note's transcript: its width beside the text, its share of the height under it. */
   noteTranscriptWidth: number;
   noteTranscriptShare: number;
-  /**
-   * Visibility flags for the two left-hand columns. `false` (visible) is
-   * the default; the ⌘B / ⌘⇧B commands flip these. Widths persist
-   * independently so re-opening restores the user's drag-set width.
-   */
   sidebarHidden: boolean;
   filesPanelHidden: boolean;
-  /** The agent list's groups the user folded, in every workspace; the others are open. */
   agentListFoldedGroups: ReadonlySet<string>;
-  /** The worktrees (workspace ids) the task view shows unfolded; the others are folded. */
   agentListUnfoldedTasks: ReadonlySet<string>;
-  /** Per-workspace files-panel view mode, kept across restarts; missing → the default. */
   filesPanelModes: Map<string, FilesPanelMode>;
   hydrate(opts: HydrateOpts): void;
   setSidebarWidth(width: number, persist?: boolean): void;
   setFilesPanelWidth(width: number, persist?: boolean): void;
   setNoteTranscriptWidth(width: number, persist?: boolean): void;
   setNoteTranscriptShare(share: number, persist?: boolean): void;
-  /** Folds an agent list's group, or opens it again. Persists. */
   toggleAgentListGroup(group: string): void;
-  /** Unfolds a worktree's facts in the task view, or folds them again. Persists. */
   toggleAgentListTask(workspaceId: string): void;
   setFilesPanelMode(workspaceId: string, mode: FilesPanelMode): void;
-  /** Toggle the Files Panel (tree/search/git/agents column) visibility. Persists. */
   toggleFilesPanel(): void;
-  /** Shows or hides one of the two columns. Persists. */
   setPanelHidden(panel: "sidebar" | "files", hidden: boolean): void;
-  /**
-   * "Sidebar" in the VSCode sense — toggle both columns together. If
-   * either is currently hidden, show both; otherwise hide both. Persists
-   * both flags in one IPC write.
-   */
   toggleSidebar(): void;
 }
 
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
-
 export const useUIStore = create<UIState>((set, get) => {
-  // Drop workspace-keyed UI state when its workspace is removed, so a
-  // future workspace reusing an id (or a stale entry sticking around in
-  // memory) can't surface another workspace's view mode. The central
-  // registry owns the IPC listener; here we only declare what to do.
   registerWorkspaceCleanup((id) => {
     set((state) => {
       if (!state.filesPanelModes.has(id)) return state;
@@ -202,7 +159,6 @@ export const useUIStore = create<UIState>((set, get) => {
       const next = clampSidebar(width);
       set({ sidebarWidth: next });
       if (persist) {
-        // Fire-and-forget: local state is source of truth; appState is the durable store.
         void ipcCallResult("appState", "set", { sidebarWidth: next }).then((result) => {
           if (!result.ok) log.warn(`appState set failed: ${result.message}`);
         });
@@ -213,7 +169,6 @@ export const useUIStore = create<UIState>((set, get) => {
       const next = clampFilesPanel(width);
       set({ filesPanelWidth: next });
       if (persist) {
-        // Fire-and-forget: local state is source of truth; appState is the durable store.
         void ipcCallResult("appState", "set", { filesPanelWidth: next }).then((result) => {
           if (!result.ok) log.warn(`appState set failed: ${result.message}`);
         });
@@ -260,7 +215,6 @@ export const useUIStore = create<UIState>((set, get) => {
       const next = new Map(modes);
       next.set(workspaceId, mode);
       set({ filesPanelModes: next });
-      // Kept across restarts, as the agent list's view is.
       void ipcCallResult("appState", "set", {
         filesPanelModeByWorkspace: Object.fromEntries(next),
       }).then((result) => {
@@ -288,8 +242,6 @@ export const useUIStore = create<UIState>((set, get) => {
     },
 
     toggleSidebar() {
-      // If anything is hidden, reveal everything; otherwise hide everything.
-      // Mirrors VSCode's ⌘B semantics on a layout with two columns.
       let nextSidebarHidden = false;
       let nextFilesPanelHidden = false;
       set((state) => {

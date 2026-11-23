@@ -53,7 +53,7 @@ func (s *Service) AddToGitignore(ctx context.Context, raw json.RawMessage) (any,
 		prefix += "\n"
 	}
 	if err := atomicWriteText(ignorePath, prefix+pattern+"\n"); err != nil {
-		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: err.Error()}
+		return nil, proto.CodedError{Code: proto.CodeRequestFailed, Msg: proto.Reason(err)}
 	}
 	return AddToGitignoreResult{Added: true, AlreadyIgnored: false}, nil
 }
@@ -69,7 +69,6 @@ func readExistingGitignore(ignorePath string) (string, error) {
 	return string(buf), nil
 }
 
-// atomicWriteText retains an existing file's mode while replacing its contents.
 func atomicWriteText(targetPath string, content string) error {
 	mode := os.FileMode(0o644)
 	info, err := os.Stat(targetPath)
@@ -91,7 +90,6 @@ func atomicWriteText(targetPath string, content string) error {
 		return err
 	}
 	if info != nil {
-		// OpenFile applied the umask. A replacement keeps the previous mode.
 		if err := os.Chmod(tmpPath, mode); err != nil {
 			return err
 		}

@@ -6,32 +6,10 @@ import { createCrossFileOpenCodeEditorOpener } from "../../../../services/editor
 import { installConflictCodelensForEditor } from "./install-conflict-codelens";
 import { installDirtyDiffForEditor } from "./install-dirty-diff";
 
-/**
- * Installs the Monaco-side integrations that turn a bare editor instance
- * into a full nexus-code editor surface:
- *
- *   - Cross-file `openCodeEditor` opener — replaces the default
- *     `editor.openCodeEditor` (which is a no-op when there's no
- *     editorService) so Cmd-click on an LSP definition opens the target
- *     file in our tab system.
- *   - Save action — exposes "Save File" in Monaco's F1 palette for this
- *     editor's `EditorInput`. The ⌘S keystroke itself is owned by the
- *     global dispatcher (COMMANDS.fileSave), not by Monaco.
- *
- * Returns a single disposer the caller drives on unmount or when the
- * editor instance is replaced. Save action is intentionally NOT disposed
- * — it's a Monaco command bound to this editor, garbage-collected with
- * the editor itself.
- */
 export interface InstallEditorIntegrationsInput {
   editor: Monaco.editor.IStandaloneCodeEditor;
   monaco: typeof Monaco;
   input: EditorInput;
-  /**
-   * Late-bound resolver — `useEditorMount` keeps the latest workspaceId in
-   * a ref so cross-file navigation always reads the current value, not the
-   * one captured at install time.
-   */
   getWorkspaceId: () => string;
   getWorkspaceRoot: () => string | null;
 }
@@ -55,14 +33,8 @@ export function installEditorIntegrations({
 
   const saveAction = installEditorSaveAction(editor, input);
 
-  // Install the conflict-resolution CodeLens + decoration provider. Activates
-  // only when the current model contains Git conflict markers; disposal is
-  // managed by the returned compositeDisposable so it tears down on unmount.
   const conflictCodelensDisposable = installConflictCodelensForEditor(editor, monaco);
 
-  // Install the VSCode-style dirty-diff gutter markers + inline peek. Shows
-  // line-level changes vs the HEAD baseline; inert for untracked / non-repo
-  // files (baseline resolves to null).
   const dirtyDiffDisposable = installDirtyDiffForEditor({
     editor,
     monaco,

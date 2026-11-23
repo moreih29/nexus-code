@@ -1,48 +1,20 @@
-/**
- * Thin wrapper over Radix `DropdownMenu` that fixes the visual style for the
- * whole app. Mirrors the structure of {@link ContextMenuRoot} / {@link ContextMenuContent}
- * / {@link ContextMenuItem} so the two menus stay visually consistent.
- *
- * BROWSER-OVERLAY SUSPEND
- * Handled centrally by `services/browser/suspend-auto.ts`'s
- * MutationObserver — it watches body for any Radix popper container and
- * claims a suspend slot while one is present, so embedded browser views
- * are hidden under DOM menus without per-wrapper wiring.
- *
- * Public surface: DropdownMenuRoot · DropdownMenuTrigger · DropdownMenuContent
- *                 DropdownMenuAtPoint
- *                 DropdownMenuItem · DropdownMenuCheckboxItem
- *                 DropdownMenuRadioGroup · DropdownMenuRadioItem
- *                 DropdownMenuShortcut · DropdownMenuLabel · DropdownMenuText
- *                 DropdownMenuSeparator
- *                 DropdownMenuSub · DropdownMenuSubTrigger · DropdownMenuSubContent
- */
 import { Check, ChevronRight } from "lucide-react";
 import { DropdownMenu as RadixDropdownMenu } from "radix-ui";
 import { createContext, useCallback, useContext, useLayoutEffect, useRef } from "react";
 import { cn } from "@/utils/cn";
 import { tooltipProps } from "./tooltip";
 
-// A menu taller than the room the window gives it scrolls (a long list of
-// hidden tabs, say) instead of running off the window.
 const CONTENT_CLASS =
   "bg-popover text-popover-foreground border border-border rounded-(--radius-control) shadow-none py-1 min-w-[180px] z-(--layer-floating) max-h-(--radix-dropdown-menu-content-available-height) overflow-y-auto app-scrollbar";
 
-// A disabled item still takes the pointer, for the tooltip that says why it
-// is off; Radix neither highlights nor selects it.
 const ITEM_CLASS =
   "flex items-center justify-between px-2 py-1 rounded-(--radius-control) cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-[var(--state-hover-bg)] data-[disabled]:opacity-50";
 
 const SEPARATOR_CLASS = "h-px bg-border my-1";
 
-// ---------------------------------------------------------------------------
-// Root
-// ---------------------------------------------------------------------------
-
 interface DropdownMenuRootProps {
   children: React.ReactNode;
   onOpenChange?: (open: boolean) => void;
-  /** Set to open and close the menu from code; left out, the trigger does. */
   open?: boolean;
 }
 
@@ -54,10 +26,6 @@ export function DropdownMenuRoot({ children, onOpenChange, open }: DropdownMenuR
   );
 }
 
-// ---------------------------------------------------------------------------
-// Trigger
-// ---------------------------------------------------------------------------
-
 interface DropdownMenuTriggerProps {
   children: React.ReactNode;
 }
@@ -66,21 +34,6 @@ export function DropdownMenuTrigger({ children }: DropdownMenuTriggerProps) {
   return <RadixDropdownMenu.Trigger asChild>{children}</RadixDropdownMenu.Trigger>;
 }
 
-// ---------------------------------------------------------------------------
-// Content
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Running an item's action
-// ---------------------------------------------------------------------------
-
-/**
- * How a picked item runs its action. Left to the menu, it runs once the
- * menu has closed and the keyboard is back on its trigger (or the row it
- * opened from). A dialog or a picker the action opens then takes the
- * keyboard from a menu that no longer holds it, and gives it back to the
- * trigger when it closes, not to the picked item, which is gone by then.
- */
 type RunItem = (action: () => void) => void;
 
 function runNow(action: () => void): void {
@@ -89,7 +42,6 @@ function runNow(action: () => void): void {
 
 const RunItemContext = createContext<RunItem>(runNow);
 
-/** The action an item queued, for the menu to run once it has closed. */
 function useQueuedItemAction(): {
   queue: RunItem;
   take: () => (() => void) | null;
@@ -108,20 +60,9 @@ function useQueuedItemAction(): {
 
 interface DropdownMenuContentProps {
   children: React.ReactNode;
-  /**
-   * Forwarded to Radix `DropdownMenu.Content`, for a menu that hands the
-   * keyboard off itself; its items then run their actions at once, while
-   * the menu is still open. Left out, the menu runs a picked item's action
-   * after closing, once the keyboard is back on the trigger; closed any
-   * other way, it puts the keyboard back on the trigger only when nothing
-   * else took it.
-   */
   onCloseAutoFocus?: (event: Event) => void;
-  /** Alignment relative to the trigger. Defaults to "start". */
   align?: "start" | "center" | "end";
-  /** Side the menu appears on. Defaults to "bottom". */
   side?: "top" | "right" | "bottom" | "left";
-  /** Gap between trigger and menu. Defaults to 4. */
   sideOffset?: number;
 }
 
@@ -144,8 +85,6 @@ export function DropdownMenuContent({
           onCloseAutoFocus ??
           ((event) => {
             const action = itemAction.take();
-            // Radix puts the keyboard on the trigger right after this
-            // handler; the microtask runs the action after that.
             if (action) queueMicrotask(action);
             else keepFocusTakenElsewhere(event);
           })
@@ -159,36 +98,17 @@ export function DropdownMenuContent({
   );
 }
 
-/** Lets the trigger have the keyboard back only when it went nowhere else. */
 function keepFocusTakenElsewhere(event: Event): void {
   const focused = document.activeElement;
   if (focused && focused !== document.body) event.preventDefault();
 }
 
-// ---------------------------------------------------------------------------
-// Menu at a point
-// ---------------------------------------------------------------------------
-
 export interface DropdownMenuPoint {
   readonly x: number;
   readonly y: number;
-  /**
-   * The menu's top corner on the point: its start (the default) or its
-   * end, for a menu that drops from a button and lines up with its right.
-   */
   readonly align?: "start" | "end";
 }
 
-/**
- * A menu that opens at a point rather than under its own trigger: where a
- * row was right-clicked, or under a button its caller measured. It is open
- * while `point` is set; a pick, Escape or a click elsewhere calls `onClose`.
- *
- * Closing puts the keyboard back where it was when the menu opened: the
- * row, or the button. A picked item's action runs after that, as in
- * DropdownMenuContent. Non-modal, so a right-click on another row closes
- * this menu and opens one there.
- */
 export function DropdownMenuAtPoint({
   point,
   onClose,
@@ -201,7 +121,6 @@ export function DropdownMenuAtPoint({
   const open = point !== null;
   const returnFocusTo = useRef<HTMLElement | null>(null);
   const itemAction = useQueuedItemAction();
-  // Before the menu takes the keyboard: its content mounts after this.
   useLayoutEffect(() => {
     if (!open) return;
     const focused = document.activeElement;
@@ -247,10 +166,6 @@ export function DropdownMenuAtPoint({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Shortcut hint (inline-end of an item)
-// ---------------------------------------------------------------------------
-
 interface DropdownMenuShortcutProps {
   children: React.ReactNode;
 }
@@ -259,17 +174,11 @@ export function DropdownMenuShortcut({ children }: DropdownMenuShortcutProps) {
   return <span className="text-muted-foreground ml-4 font-mono text-app-ui-sm">{children}</span>;
 }
 
-// ---------------------------------------------------------------------------
-// Item
-// ---------------------------------------------------------------------------
-
 interface DropdownMenuItemProps {
   children: React.ReactNode;
   disabled?: boolean;
   onSelect?: () => void;
-  /** Its tooltip: why a disabled item is off. */
   tooltip?: string;
-  /** Over the item's text, as a destructive action's colour. */
   className?: string;
 }
 
@@ -293,11 +202,6 @@ export function DropdownMenuItem({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Checkbox and radio items
-// ---------------------------------------------------------------------------
-
-/** The check before a checkbox or radio item, its place kept when unset. */
 function ItemCheck() {
   return (
     <span className="flex size-3.5 shrink-0 items-center justify-center">
@@ -308,10 +212,6 @@ function ItemCheck() {
   );
 }
 
-/**
- * An option that is on or off. Setting it leaves the menu open, so several
- * can be set in one go.
- */
 export function DropdownMenuCheckboxItem({
   children,
   checked,
@@ -334,7 +234,6 @@ export function DropdownMenuCheckboxItem({
   );
 }
 
-/** One choice of several; picking one closes the menu. */
 export function DropdownMenuRadioGroup({
   children,
   value,
@@ -366,11 +265,6 @@ export function DropdownMenuRadioItem({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Label
-// ---------------------------------------------------------------------------
-
-/** A heading over the items after it; not an item, so arrow keys skip it. */
 export function DropdownMenuLabel({ children }: { children: React.ReactNode }) {
   return (
     <RadixDropdownMenu.Label className="px-2 pt-1.5 pb-0.5 text-app-label text-muted-foreground uppercase">
@@ -379,11 +273,6 @@ export function DropdownMenuLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Separator
-// ---------------------------------------------------------------------------
-
-/** A line of text in the menu that is not an item: a list it shows, a note. */
 export function DropdownMenuText({
   children,
   muted = false,
@@ -407,15 +296,10 @@ export function DropdownMenuSeparator() {
   return <RadixDropdownMenu.Separator className={SEPARATOR_CLASS} />;
 }
 
-// ---------------------------------------------------------------------------
-// Submenu
-// ---------------------------------------------------------------------------
-
 export function DropdownMenuSub({ children }: { children: React.ReactNode }) {
   return <RadixDropdownMenu.Sub>{children}</RadixDropdownMenu.Sub>;
 }
 
-/** An item that opens its submenu, with a chevron at the end. */
 export function DropdownMenuSubTrigger({
   children,
   disabled,
@@ -423,7 +307,6 @@ export function DropdownMenuSubTrigger({
 }: {
   children: React.ReactNode;
   disabled?: boolean;
-  /** Its tooltip: why a disabled submenu is off. */
   tooltip?: string;
 }) {
   return (

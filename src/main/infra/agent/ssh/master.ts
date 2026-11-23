@@ -40,21 +40,6 @@ export interface SshControlMaster {
 
 const CONTROL_EXIT_UNLINK_FALLBACK_MS = 5_000;
 
-/**
- * Keepalive options applied to every long-lived ssh invocation (the agent
- * channel and the persistent ControlMaster). Without these, a client that dies
- * abnormally (force-kill, sleep, network drop) leaves the remote agent — and
- * the binary it holds — alive until the kernel's default TCP timeout (hours),
- * which then blocks the next launch's re-upload. ServerAliveInterval probes the
- * peer at the SSH layer; after ServerAliveCountMax unanswered probes ssh exits,
- * the remote session tears down, and the agent gets stdin EOF.
- *
- * Interval lowered from 15 s to 5 s (CountMax kept at 3) so that a silent
- * network drop is detected in ~15 s instead of ~45 s. This is coordinated with
- * the agent's heartbeat interval (5 s, advertised in the Ready frame) and the
- * manager's "degraded" trigger (1 missed heartbeat ≈ 5 s) so that the UI
- * shows "unstable" before SSH itself declares the connection dead.
- */
 const SSH_KEEPALIVE_ARGS: readonly string[] = [
   "-o",
   "ServerAliveInterval=5",
@@ -62,12 +47,6 @@ const SSH_KEEPALIVE_ARGS: readonly string[] = [
   "ServerAliveCountMax=3",
 ];
 
-/**
- * Spawns the SSH client for direct stdin/stdout NDJSON exchange. Interactive
- * ControlMaster authentication and socket reuse live in `ssh-master`'s
- * controlMaster helpers and in `ssh-auth-pty`; this function builds the
- * batch-mode client over the resulting socket.
- */
 export function spawnSshMaster(
   options: SshMasterOptions,
   dependencies: SshMasterDependencies = {},
@@ -79,9 +58,6 @@ export function spawnSshMaster(
   });
 }
 
-/**
- * Creates the OpenSSH argument list without invoking a shell locally.
- */
 export function buildSshArgs(options: SshMasterOptions): string[] {
   const args = ["-o", "BatchMode=yes", ...SSH_KEEPALIVE_ARGS];
   if (options.controlPath) {
@@ -97,17 +73,10 @@ export function buildSshArgs(options: SshMasterOptions): string[] {
   return args;
 }
 
-/**
- * Creates a process-owned ControlMaster descriptor that can later send
- * `ssh -O exit` and remove the socket path exactly once.
- */
 export function createSshControlMaster(
   options: Omit<SshMasterOptions, "remoteCommand"> & { readonly controlPath?: string },
   dependencies: SshMasterDependencies = {},
 ): SshControlMaster {
-  // ownsTempDir: if we made controlPath with createControlPath(), its
-  // parent nexus-ssh-XXXX/ temp directory is ours too — dispose removes the whole directory.
-  // When the caller passed controlPath, only the socket file is removed.
   const ownsTempDir = options.controlPath === undefined;
   const controlPath = options.controlPath ?? createControlPath();
   let disposed = false;
@@ -129,20 +98,12 @@ export function createSshControlMaster(
         unlinkAfterControlExit(child, controlPath, ownsTempDir, dependencies.unlink);
         child.stdin.end();
         return;
-      } catch {
-        // Cleanup below is still attempted if OpenSSH is unavailable or fails.
-      }
+      } catch {}
       tryUnlink(controlPath, ownsTempDir, dependencies.unlink);
     },
   };
 }
 
-/**
- * Removes the ControlMaster socket after OpenSSH has processed `-O exit`.
- * Immediate unlink can race the master shutdown and leave a ControlPersist
- * process alive until its timeout, so the normal path waits for close/exit and
- * the fallback handles a stuck exit helper.
- */
 function unlinkAfterControlExit(
   child: ChildProcessWithoutNullStreams,
   controlPath: string,
@@ -167,7 +128,6 @@ function unlinkAfterControlExit(
   }
 }
 
-/** Builds the interactive auth command that backgrounds a persistent master. */
 export function buildSshControlMasterArgs(
   options: Omit<SshMasterOptions, "remoteCommand"> & { readonly controlPath: string },
 ): string[] {
@@ -189,7 +149,6 @@ export function buildSshControlMasterArgs(
   return args;
 }
 
-/** Builds the dispose command for an existing ControlMaster socket. */
 export function buildSshControlExitArgs(
   options: Omit<SshMasterOptions, "remoteCommand"> & { readonly controlPath: string },
 ): string[] {
@@ -200,9 +159,6 @@ export function buildSshControlExitArgs(
   return args;
 }
 
-/**
- * Renders the OpenSSH destination from an optional user and host.
- */
 export function sshDestination(options: Pick<SshMasterOptions, "host" | "user">): string {
   return options.user ? `${options.user}@${options.host}` : options.host;
 }
@@ -212,32 +168,8 @@ function createControlPath(): string {
   return path.join(dir, "control.sock");
 }
 
-/** Timeout for the unix-socket liveness probe during the startup sweep. */
 const SWEEP_PROBE_TIMEOUT_MS = 1_000;
 
-/**
- * Sweeps orphaned `nexus-ssh-*` control-socket directories left in tmpRoot by
- * app instances that exited without running dispose() (crash, SIGKILL,
- * force-quit during dev). dispose() already removes the directory on the
- * normal path, so anything this sweep finds is either litter or belongs to a
- * concurrently running instance — telling those apart is the whole job:
- *
- *  - Empty directory → the master exited and removed its own socket, only the
- *    mkdtemp shell is left. Removed with non-recursive rmdir, which fails
- *    atomically if another process drops a file in between — no TOCTOU.
- *  - Directory holding only `control.sock` → probe the socket with a unix
- *    connect. A live ControlMaster (possibly owned by ANOTHER running app
- *    instance — dev and packaged builds share os.tmpdir()) accepts the
- *    connection and the directory is left alone. ECONNREFUSED/ENOENT means
- *    no listener — a crashed master's stale socket — so the directory goes.
- *    A probe timeout counts as live: uncertain → keep.
- *  - Anything else inside → not our layout, never touched.
- *
- * New masters always mkdtemp a fresh directory and never adopt an existing
- * one, so removing a dead directory cannot race a starting master.
- *
- * Best-effort: every failure is swallowed; this must never block startup.
- */
 export async function sweepStaleControlDirs(tmpRoot: string = os.tmpdir()): Promise<void> {
   let entries: fs.Dirent[];
   try {
@@ -265,15 +197,9 @@ async function sweepOneControlDir(dir: string): Promise<void> {
         await fs.promises.rm(dir, { recursive: true, force: true });
       }
     }
-  } catch {
-    // Best-effort sweep — the directory may have been removed concurrently.
-  }
+  } catch {}
 }
 
-/**
- * Resolves true when something accepts a connection on the unix socket
- * (or when the probe is inconclusive), false only on a definite refusal.
- */
 function probeUnixSocket(sockPath: string): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = net.createConnection(sockPath);
@@ -301,23 +227,13 @@ function tryUnlink(
       return;
     }
     if (ownsTempDir) {
-      // The nexus-ssh-XXXX/ directory is a throwaway that createControlPath() made to hold
-      // this one socket — unlinking only the socket would leave an empty directory
-      // in os.tmpdir() for every connection, so remove the whole directory.
       fs.rmSync(path.dirname(controlPath), { recursive: true, force: true });
       return;
     }
     fs.unlinkSync(controlPath);
-  } catch {
-    // The socket may already be gone after a failed or clean master exit.
-  }
+  } catch {}
 }
 
-/**
- * Production spawn adapter: OpenSSH's binaries, or the ssh2 client where it
- * stands in for them (ssh2/index.ts). Tests can inject a fake child through
- * dependencies.
- */
 export function defaultSpawnSsh(
   command: string,
   args: string[],

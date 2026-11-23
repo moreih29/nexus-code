@@ -17,8 +17,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// TestLocalEOFKillsLanguageServer verifies that the local agent reaps an LSP
-// child that stays alive after stdin closes before exiting itself.
 func TestLocalEOFKillsLanguageServer(t *testing.T) {
 	root := t.TempDir()
 	bin := agentBinary(t)
@@ -103,8 +101,6 @@ func TestLocalEOFKillsLanguageServer(t *testing.T) {
 	childReaped = true
 }
 
-// TestLocalShutdownLanguageServerHelper runs a child that initializes normally
-// and deliberately survives closed stdin.
 func TestLocalShutdownLanguageServerHelper(t *testing.T) {
 	if os.Getenv("NEXUS_TEST_LOCAL_SHUTDOWN_LSP") != "1" {
 		return

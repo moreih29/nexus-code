@@ -32,12 +32,6 @@ export type TestSshBootstrap = (
 interface WorkspaceChannelDependencies {
   readonly createSshChannel?: TestSshCreateChannel;
   readonly sshBootstrap?: TestSshBootstrap;
-  /**
-   * Browse-session registry, supplied in production so a workspace created
-   * from an SSH directory picker can claim that session's authenticated
-   * ControlMaster instead of opening a second, separately-authenticated
-   * connection.
-   */
   readonly browseRegistry?: SshBrowseSessionRegistry;
 }
 
@@ -60,10 +54,6 @@ export function registerWorkspaceChannel(
         const browseSessionId =
           "sshBrowseSessionId" in createArgs ? createArgs.sshBrowseSessionId : undefined;
         if (browseSessionId && meta.location.kind === "ssh" && dependencies.browseRegistry) {
-          // Reuse the browse session's authenticated ControlMaster so the
-          // workspace's first connection does not prompt for credentials
-          // again. A null result (session expired/already claimed) simply
-          // falls back to a fresh authenticated connection.
           const master = dependencies.browseRegistry.claimMaster(browseSessionId);
           if (master) {
             manager.adoptSshControlMaster(meta.id, master);
@@ -76,20 +66,12 @@ export function registerWorkspaceChannel(
         const browseSessionId =
           "sshBrowseSessionId" in createArgs ? createArgs.sshBrowseSessionId : undefined;
 
-        // ── Local or directory-picker SSH (already authenticated) ─────────────
-        // When a browse session id is supplied the user already authenticated
-        // via the SSH directory picker; use the legacy create+claimMaster path
-        // which reuses that session's ControlMaster without a second prompt.
-        // The legacy `{ rootPath }` shape is always a local folder.
         if (!("location" in createArgs) || createArgs.location.kind !== "ssh") {
-          // Local: commit immediately — no connection step needed.
           const meta = manager.create(createArgs);
           return ipcOk(meta);
         }
 
         if (browseSessionId && dependencies.browseRegistry) {
-          // Directory-picker SSH: workspace is pre-authenticated via the
-          // browse session. Commit then adopt the ControlMaster.
           const meta = manager.create(createArgs);
           const master = dependencies.browseRegistry.claimMaster(browseSessionId);
           if (master) {
@@ -98,9 +80,6 @@ export function registerWorkspaceChannel(
           return ipcOk(meta);
         }
 
-        // ── Standalone SSH (reconnect bookmark or new server) ─────────────────
-        // Auth-before-commit path: run SSH bootstrap before persisting so a
-        // cancelled or failed authentication never creates an orphaned entry.
         try {
           const meta = await manager.createAndConnectSsh(createArgs);
           return ipcOk(meta);
@@ -120,8 +99,6 @@ export function registerWorkspaceChannel(
       },
       remove: async (args: unknown) => {
         const { id } = validateArgs(c.remove.args, args);
-        // remove() is idempotent — a missing workspace is silently ignored.
-        // Return ipcOk so the router passes this through without logging.
         await manager.remove(id);
         return ipcOk(undefined);
       },
@@ -139,7 +116,6 @@ export function registerWorkspaceChannel(
   });
 }
 
-/** Report connection and selection outcomes through the IPC result envelope. */
 function workspaceConnectionHandler(manager: WorkspaceManager, action: "activate" | "connect") {
   return async (args: unknown) => {
     const { id } = validateArgs(c[action].args, args);
@@ -157,15 +133,6 @@ function workspaceConnectionHandler(manager: WorkspaceManager, action: "activate
   };
 }
 
-/**
- * Builds the SSH workspace validation handler with an injectable channel
- * factory so unit tests can exercise lifecycle behavior without OpenSSH.
- *
- * Cancellation (signal aborted or AbortError) is returned as
- * ipcErr("cancelled") so the router stays log-silent — the invariant
- * "a log = real bug" is preserved now that the router's special-case
- * AbortError branch has been removed.
- */
 export function testSshHandler(
   createChannel: TestSshCreateChannel = createSshChannel,
   sshBootstrap: TestSshBootstrap = ensureRemoteAgent,
@@ -216,8 +183,6 @@ export function testSshHandler(
       return { ok: true } satisfies TestSshResult;
     } catch (error) {
       if (signal?.aborted || isAbortError(error)) {
-        // User-initiated cancellation — return ipcErr so the router stays
-        // silent. The renderer uses ipcCallResult to branch on kind "cancelled".
         return ipcErr("cancelled", "SSH validation cancelled");
       }
       return sshFailureResult(error);
@@ -231,9 +196,6 @@ export function testSshHandler(
   };
 }
 
-/**
- * Converts SSH transport and server failures to the public testSsh result.
- */
 function sshFailureResult(error: unknown): TestSshResult {
   const code = sshErrorCode(error) ?? "ssh.unknown";
   return {

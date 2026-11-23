@@ -1,9 +1,3 @@
-/**
- * Renderer hook for Git helper prompts.
- *
- * It listens to askpass/editor broadcasts, keeps a single FIFO of pending
- * prompts, and sends renderer responses back through the typed IPC contract.
- */
 import i18next from "i18next";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { AskpassPrompt, GitEditorPrompt } from "../../../../../shared/git/types";
@@ -59,10 +53,6 @@ let promptQueue: readonly GitHelperPromptQueueItem[] = [];
 let promptSnapshot: GitHelperPromptSnapshot = EMPTY_PROMPT_SNAPSHOT;
 const promptSubscribers = new Set<() => void>();
 
-/**
- * Returns true when a helper prompt belongs to this GitPanel's workspace.
- * Prompts without a workspace id are accepted as process-wide fallbacks.
- */
 export function isPromptForWorkspace(
   prompt: { readonly workspaceId?: string },
   workspaceId: string,
@@ -70,10 +60,6 @@ export function isPromptForWorkspace(
   return !prompt.workspaceId || prompt.workspaceId === workspaceId;
 }
 
-/**
- * Computes the queue-occupancy banner copy from currently active helper
- * prompts.
- */
 export function gitHelperOccupancyMessage(args: {
   readonly credentialPrompt: AskpassPrompt | null;
   readonly editorPrompt: GitEditorPrompt | null;
@@ -83,10 +69,6 @@ export function gitHelperOccupancyMessage(args: {
   return null;
 }
 
-/**
- * Computes the panel-local queue-occupancy banner from the globally active
- * prompt snapshot without installing another renderer IPC listener.
- */
 export function gitHelperOccupancyMessageForWorkspace(args: {
   readonly workspaceId: string;
   readonly pendingCredentialPrompts?: readonly AskpassPrompt[];
@@ -108,19 +90,10 @@ export function gitHelperOccupancyMessageForWorkspace(args: {
   return null;
 }
 
-/**
- * Returns the current global helper prompt snapshot for tests and external
- * store subscriptions.
- */
 export function getGitHelperPromptSnapshot(): GitHelperPromptSnapshot {
   return promptSnapshot;
 }
 
-/**
- * Subscribes to global helper prompt state. This is intentionally separate
- * from renderer IPC broadcasts so Source Control panels can show occupancy
- * banners without becoming additional askpass/editor response owners.
- */
 function subscribeGitHelperPromptSnapshot(listener: () => void): () => void {
   promptSubscribers.add(listener);
   return () => {
@@ -128,9 +101,6 @@ function subscribeGitHelperPromptSnapshot(listener: () => void): () => void {
   };
 }
 
-/**
- * Installs the global renderer listeners for Git helper prompts.
- */
 export function installGitHelperPromptListeners(listen: typeof ipcListen = ipcListen): () => void {
   const unlistenAskpass = listen("askpass", "prompt", (prompt) => {
     enqueuePrompt({ kind: "credential", prompt });
@@ -152,10 +122,6 @@ export function installGitHelperPromptListeners(listen: typeof ipcListen = ipcLi
   };
 }
 
-/**
- * Source Control panel hook for showing the helper prompt queue-occupancy
- * banner. It observes global prompt state and does not register IPC listeners.
- */
 export function useGitHelperOccupancy(workspaceId: string): string | null {
   const snapshot = useGitHelperPromptSnapshot();
   return useMemo(
@@ -171,10 +137,6 @@ export function useGitHelperOccupancy(workspaceId: string): string | null {
   );
 }
 
-/**
- * Installs global prompt listeners and owns the only renderer response path.
- * Mount once from GlobalRoots so credential prompts work without GitPanel mounted.
- */
 export function useGitHelperPrompts(
   deps: GitHelperPromptDeps = DEFAULT_PROMPT_DEPS,
 ): GitHelperPromptState {
@@ -189,7 +151,6 @@ export function useGitHelperPrompts(
       const prompt = credentialPrompt;
       if (!prompt) return;
       clearCredentialPrompt(prompt.promptId);
-      // Fire-and-forget: send credential to main; errors logged only.
       void call("askpass", "respond", { promptId: prompt.promptId, value }).then((result) => {
         if (!result.ok) log.error(`credential response failed: ${result.message}`);
       });
@@ -201,7 +162,6 @@ export function useGitHelperPrompts(
     const prompt = credentialPrompt;
     if (!prompt) return;
     clearCredentialPrompt(prompt.promptId);
-    // Fire-and-forget: cancel credential prompt in main; errors logged only.
     void call("askpass", "cancel", { promptId: prompt.promptId }).then((result) => {
       if (!result.ok) log.error(`credential cancel failed: ${result.message}`);
     });
@@ -212,7 +172,6 @@ export function useGitHelperPrompts(
       const prompt = editorPrompt;
       if (!prompt) return;
       clearEditorPrompt(prompt.promptId);
-      // Fire-and-forget: send commit message to main; errors logged only.
       void call("editor", "save", { promptId: prompt.promptId, content }).then((result) => {
         if (!result.ok) log.error(`commit message save failed: ${result.message}`);
       });
@@ -224,7 +183,6 @@ export function useGitHelperPrompts(
     const prompt = editorPrompt;
     if (!prompt) return;
     clearEditorPrompt(prompt.promptId);
-    // Fire-and-forget: cancel commit editor in main; errors logged only.
     void call("editor", "cancel", { promptId: prompt.promptId }).then((result) => {
       if (!result.ok) log.error(`commit message cancel failed: ${result.message}`);
     });
@@ -246,19 +204,12 @@ export function useGitHelperPrompts(
   };
 }
 
-/**
- * Test-only reset helper. Production code should let the helper lifecycle
- * update prompt state through IPC broadcasts and user responses.
- */
 export function __resetGitHelperPromptsForTests(): void {
   promptQueue = [];
   promptSnapshot = EMPTY_PROMPT_SNAPSHOT;
   notifyPromptSubscribers();
 }
 
-/**
- * Reads the global helper prompt snapshot from React safely.
- */
 function useGitHelperPromptSnapshot(): GitHelperPromptSnapshot {
   return useSyncExternalStore(
     subscribeGitHelperPromptSnapshot,
@@ -267,10 +218,6 @@ function useGitHelperPromptSnapshot(): GitHelperPromptSnapshot {
   );
 }
 
-/**
- * Adds a helper prompt to the FIFO, replacing duplicate prompt ids in place so
- * a retransmitted broadcast cannot create two response opportunities.
- */
 function enqueuePrompt(nextItem: GitHelperPromptQueueItem): void {
   updatePromptQueue((current) => {
     const duplicateIndex = current.findIndex(
@@ -284,10 +231,6 @@ function enqueuePrompt(nextItem: GitHelperPromptQueueItem): void {
   });
 }
 
-/**
- * Applies an atomic prompt-queue update and rebuilds the active snapshot from
- * the first pending item.
- */
 function updatePromptQueue(
   update: (current: readonly GitHelperPromptQueueItem[]) => readonly GitHelperPromptQueueItem[],
 ): void {
@@ -298,10 +241,6 @@ function updatePromptQueue(
   notifyPromptSubscribers();
 }
 
-/**
- * Creates the public snapshot while preserving the existing active prompt
- * fields consumed by the dialog components.
- */
 function createPromptSnapshot(queue: readonly GitHelperPromptQueueItem[]): GitHelperPromptSnapshot {
   const activePrompt = queue[0] ?? null;
   return {
@@ -314,28 +253,18 @@ function createPromptSnapshot(queue: readonly GitHelperPromptQueueItem[]): GitHe
   };
 }
 
-/**
- * Clears a credential prompt by id and promotes the next queued prompt.
- */
 function clearCredentialPrompt(promptId: string): void {
   updatePromptQueue((current) =>
     current.filter((item) => item.kind !== "credential" || item.prompt.promptId !== promptId),
   );
 }
 
-/**
- * Clears an editor prompt by id and promotes the next queued prompt.
- */
 function clearEditorPrompt(promptId: string): void {
   updatePromptQueue((current) =>
     current.filter((item) => item.kind !== "editor" || item.prompt.promptId !== promptId),
   );
 }
 
-/**
- * Notifies subscribers outside the live set iteration so unsubscribe during
- * notification cannot skip listeners.
- */
 function notifyPromptSubscribers(): void {
   for (const listener of [...promptSubscribers]) listener();
 }

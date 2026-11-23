@@ -33,9 +33,7 @@ import {
   usageLimitsOf,
 } from "../../../../../src/renderer/services/chat/panel";
 import { type RelaySender, relayedText } from "../../../../../src/shared/chat/relay";
-
-// Lines shaped as Claude Code 2.1.318 sent them for a turn that made two
-// to-dos, ran `sleep` in the background and an async general-purpose agent.
+import { shownPath } from "../../../../../src/shared/fs/relative-path";
 
 let seq = 0;
 function out(message: Record<string, unknown>): ChatLine {
@@ -195,7 +193,6 @@ describe("chat panel", () => {
     });
     expect(jobsOf(model).map((t) => t.taskId)).toEqual(["b1"]);
 
-    // The program's end ends what it ran.
     const exited = applyLines(model, [
       { seq: 100, dir: "sys", at: 9000, message: { event: "exit", code: 0 } },
     ]);
@@ -207,7 +204,6 @@ describe("chat panel", () => {
     const model = turn();
     const job = model.tasks.b1;
     expect(jobCommand(job, model.tools)).toBe("sleep 25; echo done");
-    // A result that does not say where tells no file.
     expect(jobOutputFile(job, model.tools)).toBeUndefined();
     expect(jobOutputFiles(model, model.tools)).toEqual([]);
 
@@ -234,7 +230,6 @@ describe("chat panel", () => {
       }),
     ]);
     expect(jobOutputFile(ended.tasks.b1, ended.tools)).toBe(path);
-    // An agent's task is no job, and its output is not read.
     expect(jobOutputFiles(ended, ended.tools)).toEqual([path]);
   });
 
@@ -252,7 +247,6 @@ describe("chat panel", () => {
       lastText: "4",
       teammate: false,
     });
-    // Its messages stay out of the main thread, and make its pane.
     expect(model.items.some((item) => item.kind === "assistant" && item.messageId === "s2")).toBe(
       false,
     );
@@ -337,9 +331,11 @@ describe("chat panel", () => {
       assistant("m1", [
         { type: "tool_use", id: "e", name: "Edit", input: { file_path: "C:\\p\\a.ts" } },
         { type: "tool_use", id: "e2", name: "Edit", input: { file_path: "C:/p/a.ts" } },
+        { type: "tool_use", id: "e3", name: "Edit", input: { file_path: "c:\\p\\a.ts" } },
       ]),
       result("e", "ok", { structuredPatch: [{ oldStart: 1, lines: ["-a", "+b"] }] }),
       result("e2", "ok", { structuredPatch: [{ oldStart: 1, lines: ["-b", "+c"] }] }),
+      result("e3", "ok", { structuredPatch: [{ oldStart: 1, lines: ["-c", "+d"] }] }),
       assistant("m2", [
         { type: "tool_use", id: "r", name: "Read", input: { file_path: "C:\\P\\SRC\\B.ts" } },
         {
@@ -349,13 +345,40 @@ describe("chat panel", () => {
       ]),
     ]);
     expect(changedFilesOf(model.tools)).toEqual([
-      { path: "C:/p/a.ts", added: 2, removed: 2, created: false, toolUseIds: ["e", "e2"] },
+      {
+        path: "C:/p/a.ts",
+        rawPath: "C:\\p\\a.ts",
+        added: 3,
+        removed: 3,
+        created: false,
+        toolUseIds: ["e", "e2", "e3"],
+      },
     ]);
-    // A Windows path is the file the tools took whatever its case.
     expect(resultsOf(model.items, model.tools, "C:\\p")).toEqual([
       { kind: "file", target: "C:\\p\\a.ts", created: false },
       { kind: "file", target: "src\\b.ts", created: false },
     ]);
+  });
+
+  test.each([
+    [
+      "\\\\wsl.localhost\\Ubuntu\\tmp\\x.ts",
+      "C:\\p",
+      "//wsl.localhost/Ubuntu/tmp/x.ts",
+      "\\\\wsl.localhost\\Ubuntu\\tmp\\x.ts",
+    ],
+    ["d:\\work\\y.ts", "C:\\p", "D:/work/y.ts", "d:\\work\\y.ts"],
+    ["c:\\p\\src\\a.ts", "C:\\p", "C:/p/src/a.ts", "src/a.ts"],
+    ["/home/me/p/src/a.ts", "/home/me/p", "/home/me/p/src/a.ts", "src/a.ts"],
+    ["/Users/me/tmp/x.ts", "/Users/me/p", "/Users/me/tmp/x.ts", "/Users/me/tmp/x.ts"],
+  ])("shows %s from %s using the tool path", (named, cwd, path, label) => {
+    const model = applyLines(emptyModel(), [
+      assistant("m1", [{ type: "tool_use", id: "e", name: "Edit", input: { file_path: named } }]),
+      result("e", "ok", {}),
+    ]);
+    const [file] = changedFilesOf(model.tools);
+    expect(file?.path).toBe(path);
+    expect(shownPath(file?.rawPath ?? file?.path ?? "", cwd)).toBe(label);
   });
 
   test("results are the files written new, then what the replies point at", () => {
@@ -405,7 +428,6 @@ describe("chat panel", () => {
     ]);
     expect(resultsOf(model.items, model.tools, "/p")).toEqual([
       { kind: "file", target: "build/notes.json", created: false },
-      // Linked in a later reply.
       { kind: "file", target: "package.json", created: false },
     ]);
   });
@@ -489,14 +511,11 @@ describe("chat panel", () => {
         extras.files,
         extras.images.length,
       ]);
-    // `docs/a.pdf` only mentioned is no card.
     expect(answers(true)).toEqual([
       ["m3", ["/p/out/chart.md"], 1],
       ["m4", ["/p/b.md"], 0],
     ]);
-    // The running turn's answer is not the last yet.
     expect(answers(false)).toEqual([["m3", ["/p/out/chart.md"], 1]]);
-    // The image a Read gave opens as the file it read.
     const [first] = answerExtras(model.items, model.tools, "/p", "/p", true).values();
     expect(first.images).toEqual([
       { image: { mediaType: "image/png", data: "AAAA" }, file: "/p/shot.png" },
@@ -546,13 +565,10 @@ describe("chat panel", () => {
       ).values();
       return extras?.images.map(({ image, file }) => [image.data, file]);
     };
-    // Read again, the mockup shows once, as it was read last. Another computer's chat shows no
-    // picture on the card of a file outside its workspace, so the image stays.
     expect(images(false)).toEqual([
       ["BBBB", "/tmp/shot.png"],
       ["CCCC", "/tmp/mock.png"],
     ]);
-    // A chat here shows it on the card of the file the answer links.
     expect(images(true)).toEqual([["BBBB", "/tmp/shot.png"]]);
   });
 
@@ -563,7 +579,6 @@ describe("chat panel", () => {
       dir: "in",
       message: { type: "user", message: { role: "user", content: "send me the chart" } },
     };
-    // As claude 2.1.319 sends them with Remote Control on.
     const send = {
       files: ["out/chart.png", "/tmp/report.pdf"],
       caption: "The chart",
@@ -595,17 +610,14 @@ describe("chat panel", () => {
       "a.png",
     ]);
     expect(sentFilesOf({ ...model.tools.s, name: "Read" })).toEqual([]);
-    // A send that failed put nothing in front of the user.
     expect(resultsOf(model.items, model.tools, "/p")).toEqual([
       { kind: "file", target: "out/chart.png", created: false },
       { kind: "file", target: "/tmp/report.pdf", created: false },
       { kind: "file", target: "out/plot.png", created: false },
       { kind: "file", target: "notes.md", created: false },
     ]);
-    // What shows where the turn put it gets no card at its end.
     const [extras] = answerExtras(model.items, model.tools, "/p", "/p", true).values();
     expect(extras.files).toEqual(["/p/notes.md"]);
-    // A file sent from outside the workspace is one its previews read.
     expect(outsideLinksOf(model.items, model.tools, "/p", "/p").files).toEqual(["/tmp/report.pdf"]);
   });
 
@@ -634,7 +646,6 @@ describe("chat panel", () => {
       "/var/out/report.htm",
       "/home/u/index.html",
     ]);
-    // The home folder holds the workspace, so it is not granted whole.
     expect(links.dirs).toEqual(["/tmp/site", "/var/out"]);
     expect(outsideLinksOf(model.items, model.tools, "/home/u/p", "")).toEqual({
       files: [],
@@ -685,8 +696,6 @@ describe("chat panel", () => {
       { kind: "session", percent: 15, resetsAt: "2026-11-05T19:20:00Z", active: false },
       { kind: "weekly_scoped", scope: "Fable", percent: 0, active: false },
     ]);
-    // The usage endpoint failed: Claude Code tells the windows of the API's
-    // last response headers, with at most a model's own week in the list.
     expect(
       usageLimitsOf({
         rate_limits: {
@@ -738,11 +747,9 @@ describe("links written from where the agent's shell went", () => {
     ]);
     const [extras] = answerExtras(model.items, model.tools, "/p", "/p", true).values();
     expect(extras.files).toEqual(["/p/outputs/a.png", "/p/run.log"]);
-    // The card is of the first of these found, when the file is not in the chat's folder.
     expect(extras.elsewhere).toEqual({
       "/p/outputs/a.png": ["/tmp/x/outputs/a.png", "/p/tracks/P/outputs/a.png"],
     });
-    // The previews may read it where the shell went outside the workspace.
     expect(outsideLinksOf(model.items, model.tools, "/p", "/p").files).toEqual([
       "/tmp/x/outputs/a.png",
     ]);
@@ -815,9 +822,6 @@ describe("distinctResults", () => {
 });
 
 describe("the subagents of a history", () => {
-  // A transcript's calls, which no task tells: a subagent that ran in its
-  // turn, one sent to the background whose end came as news, and one the
-  // program left running when it ended.
   const history: ChatModel = {
     ...emptyModel(),
     items: [
@@ -883,7 +887,6 @@ describe("the subagents of a history", () => {
     expect(rows.map((row) => [row.toolUseId, row.status, row.startedAt, row.endedAt])).toEqual([
       ["sync", "completed", 1_000, 5_000],
       ["async", "failed", 1_000, 9_000],
-      // Its program ended: it runs no more.
       ["cut", "stopped", 1_000, undefined],
     ]);
     expect(rows[0]).toMatchObject({ description: "Plan it", subagentType: "Plan" });
@@ -963,7 +966,6 @@ describe("imagesOf, the images a chat shows in full", () => {
       "/ws",
     );
     expect(shown).toEqual([
-      // Read, then sent: shown from its data.
       { file: "/tmp/s/tree.png", image: tree, placed: true },
       { file: "/tmp/s/top.png", placed: true },
       { file: "/tmp/s/shown.png", placed: true },
@@ -1027,7 +1029,6 @@ describe("images the user attached to a message", () => {
       "/ws/shots/b.webp",
       "/tmp/a/my shot.png",
     ]);
-    // A mention in the text is no attachment, nor one a message going to another device names.
     expect(attachedImagesOf(user("see @/tmp/a/big.png here") as never, "/ws")).toEqual([]);
     const going = user("@/tmp/a/big.png", [], { optimistic: { fileNames: ["big.png"] } });
     expect(attachedImagesOf(going as never, "/ws")).toEqual([]);
@@ -1052,8 +1053,6 @@ describe("images the user attached to a message", () => {
     ]);
   });
 
-  // As the model holds a message another agent sent through the nexus command: the user's, its
-  // first line the one that says who sent it (withRelayed shows it as received only on screen).
   const tab: RelaySender = { kind: "tab", agent: "claude", name: "Other", tabId: "t2" };
   const relayed = (text: string) => user(relayedText(tab, text));
 

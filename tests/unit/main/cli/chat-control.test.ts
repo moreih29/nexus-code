@@ -1,10 +1,3 @@
-/**
- * What else nexus does with the app's Claude and Codex tabs, as their own
- * buttons do: a message's timing and files, a held or unread message taken
- * back or changed, a rewind, a fork, a call sent to the background, a task
- * stopped, Remote Control, slash commands, past conversations, the side
- * panel; and a terminal's Claude Code answered.
- */
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -45,7 +38,6 @@ function calls(app: FakeApp, op: string): unknown[] {
   return app.uiCalls.filter((c) => c.op === op).map((c) => c.args);
 }
 
-/** An app with a tab "Fix the login" (Claude unless `type`) in "app", standing as `info` says. */
 function withChat(info: Partial<CliChatInfo> = {}, type: "claude" | "codex" = "claude"): FakeApp {
   const app = fakeApp();
   const chat: CliTabInfo = {
@@ -74,7 +66,6 @@ function withChat(info: Partial<CliChatInfo> = {}, type: "claude" | "codex" = "c
       },
     ],
   });
-  // Entries 0 and 3 are the user's messages (items u0, u3); 1 and 2 the agent's (a1).
   app.uiAnswers.set("chat.entryItem", (args) => {
     const { i } = args as { i: number };
     if (i === 0) return { itemKey: "u0", kind: "user", text: "Fix the login redirect" };
@@ -565,7 +556,6 @@ describe("chat panel", () => {
     expect(panelText("T", { ...base, limitResume: { state: "gave_up", tries: 3 } }, now)).toContain(
       "Usage limit: still reached after 3 tries; the app no longer goes on by itself",
     );
-    // A state a later version tells: nothing said of it.
     expect(panelText("T", { ...base, limitResume: { state: "snoozed" } }, now)).toBe(
       "T: its panel is empty.",
     );

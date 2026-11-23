@@ -1,10 +1,3 @@
-/**
- * Pure helper tests for selection.ts.
- *
- * Each function is pure (no React, no Zustand) so these tests run in
- * plain Node/Bun with no shims required.
- */
-
 import { describe, expect, it } from "bun:test";
 import {
   emptySelection,
@@ -14,15 +7,7 @@ import {
 } from "../../../../../../src/renderer/state/stores/files/selection";
 import type { FileSelection } from "../../../../../../src/renderer/state/stores/files/types";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const flatPaths = ["/r/a", "/r/b", "/r/c", "/r/d", "/r/e"];
-
-// ---------------------------------------------------------------------------
-// getOperablePaths
-// ---------------------------------------------------------------------------
 
 describe("getOperablePaths", () => {
   it("returns [...paths] when paths is non-empty (paths takes precedence over focus)", () => {
@@ -46,10 +31,6 @@ describe("getOperablePaths", () => {
     expect(getOperablePaths(emptySelection())).toEqual([]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// extendSelection
-// ---------------------------------------------------------------------------
 
 describe("extendSelection", () => {
   it("selects the closed range [anchor, target] in forward direction", () => {
@@ -75,7 +56,6 @@ describe("extendSelection", () => {
     const base = singleSelection("/outside");
     const sel = extendSelection(base, "/outside", "/r/c", flatPaths);
     expect(sel.focus).toBe("/r/c");
-    // singleSelection now seeds paths with the chosen path.
     expect(sel.paths.size).toBe(1);
     expect(sel.paths.has("/r/c")).toBe(true);
   });

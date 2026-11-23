@@ -1,10 +1,3 @@
-/**
- * The conversations of the past in a workspace's folder, for another
- * device to go on with one (chat.history, chat.resume): Claude Code's
- * sessions as a Claude tab's list reads them, in each Claude profile's
- * folder, and the threads each Codex profile lists through app-server.
- */
-
 import { type AgentProfiles, profilesOf } from "../../../shared/agent-profiles/profiles";
 import type { CliPastSession } from "../../../shared/cli/ui";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
@@ -16,10 +9,8 @@ import { readCodexHistoryCatalog } from "../chat/codex/history-catalog";
 import { type ListedSession, sessionMatches } from "../chat/sessions";
 import { UiRequestError } from "../cli/handler";
 
-/** How many a list gives when it does not say. */
 export const DEFAULT_HISTORY = 50;
 
-/** Merged from each profile's list: newest first, each session once. */
 export function mergedSessions(lists: readonly (readonly ListedSession[])[]): ListedSession[] {
   const seen = new Set<string>();
   return lists
@@ -32,13 +23,8 @@ export function mergedSessions(lists: readonly (readonly ListedSession[])[]): Li
     });
 }
 
-/** The most of a first prompt the list gives: enough to tell one session from another. */
 const FIRST_PROMPT_CHARS = 300;
 
-/**
- * The list as the protocol gives it: those that match, at most `limit`,
- * each with the tab it is open in (`openIn`), as a tab's own list marks it.
- */
 export function pastSessionsOf(
   listed: readonly ListedSession[],
   cwd: string,
@@ -69,7 +55,6 @@ export function pastSessionsOf(
     });
 }
 
-/** Claude Code's sessions of the folder, in each of the profiles' folders. */
 export async function claudeSessions(
   workspaceId: string,
   cwd: string,
@@ -88,7 +73,6 @@ export async function claudeSessions(
   return mergedSessions(lists.map((list) => list ?? []));
 }
 
-/** Codex threads of the folder, each listed under the profile that keeps it. */
 export async function codexThreads(
   workspaceId: string,
   cwd: string,
@@ -104,7 +88,6 @@ export async function codexThreads(
   return listed.filter((s) => s.sessionId !== own);
 }
 
-/** Reuses the folder's raw catalog rows while a peer refines its search. */
 export function peerCodexThreads(
   workspace: WorkspaceMeta,
   config: AgentProfiles,
@@ -144,7 +127,6 @@ async function readCodexProfiles(
   return mergedSessions(lists.map((list) => list ?? []));
 }
 
-/** The tab that has the session open already; none when no tab does. */
 export function tabWithSession(
   workspaceId: string,
   agent: ChatAgent,

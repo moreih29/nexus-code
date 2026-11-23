@@ -1,7 +1,7 @@
 {
   "name": "nexus-code",
   "productName": "NexusCode",
-  "version": "0.40.0",
+  "version": "0.41.0",
   "description": "Multi-workspace VSCode-style editor. Monaco editor + terminal in one window.",
   "homepage": "https://nexuscode.gradiendo.com/",
   "license": "MIT",
@@ -17,7 +17,8 @@
     "lint:tw": "bun run scripts/check-tailwind-syntax.ts && bun run scripts/check-off-grid-spacing.ts && bun run scripts/check-typography-roles.ts",
     "format": "biome format --write .",
     "check": "biome check --write .",
-    "check:ci": "biome check . && bun run lint:tw",
+    "check:ci": "biome check . && bun run lint:tw && bun run check:comments",
+    "check:comments": "bun run scripts/strip-comments.ts --check",
     "clean": "rm -rf out dist *.tsbuildinfo",
     "postinstall": "install-electron && electron-rebuild -f -w node-pty,better-sqlite3",
     "test": "bun test tests/unit tests/integration",

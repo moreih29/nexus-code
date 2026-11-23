@@ -8,10 +8,6 @@ import type {
 import { ipcStream } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
 export type SearchStatus = "idle" | "running" | "done" | "error";
 
 export interface FileGroup {
@@ -44,42 +40,21 @@ export interface SearchSession {
 
 interface SearchState {
   sessions: Map<string, SearchSession>;
-  /** Per-workspace expanded directory paths — session-scoped, NOT persisted. */
   expandedDirsByWorkspace: Map<string, Set<string>>;
   startSearch: (workspaceId: string, query: string, options: SearchOptions) => void;
   cancelSearch: (workspaceId: string) => void;
-  /**
-   * Drop the entire search session — aborts any in-flight stream and removes
-   * the workspace's session entry. Use this when the user clears the search
-   * input (X button, Esc, or backspaced to empty); `cancelSearch` only flips
-   * status to idle and keeps the existing results around.
-   */
   clearSearch: (workspaceId: string) => void;
   toggleGroup: (workspaceId: string, relPath: string) => void;
   closeAllForWorkspace: (workspaceId: string) => void;
-  /** Toggle a directory's expanded state (session-scoped, not persisted). */
   toggleExpandedDir: (workspaceId: string, relPath: string) => void;
 }
 
-// ---------------------------------------------------------------------------
-// Module-scoped AbortController map — lives outside zustand so abort() calls
-// never trigger a state re-render.
-// ---------------------------------------------------------------------------
-
 const controllers = new Map<string, AbortController>();
-
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
 
 export const useSearchStore = create<SearchState>((set, get) => {
   registerWorkspaceCleanup((id) => {
     get().closeAllForWorkspace(id);
   });
-
-  // ------------------------------------------------------------------
-  // Internal helpers — closed over set/get.
-  // ------------------------------------------------------------------
 
   function appendBatch(wsId: string, batch: FileMatch[]): void {
     const session = get().sessions.get(wsId);
@@ -102,7 +77,6 @@ export const useSearchStore = create<SearchState>((set, get) => {
       addedMatches += fm.matches.length;
     }
 
-    // Preserve insertion order: updated groups first, new ones appended.
     const nextResults = [...session.results.map((g) => groupMap.get(g.relPath) ?? g)];
     for (const fm of batch) {
       if (!session.results.some((g) => g.relPath === fm.relPath)) {
@@ -300,7 +274,6 @@ export const useSearchStore = create<SearchState>((set, get) => {
       set((state) => {
         const nextSessions = new Map(state.sessions);
         nextSessions.delete(wsId);
-        // Reset expandedDirs (session-scoped) for this workspace.
         const nextExpandedDirs = new Map(state.expandedDirsByWorkspace);
         nextExpandedDirs.delete(wsId);
         if (!state.sessions.has(wsId) && !state.expandedDirsByWorkspace.has(wsId)) return state;
@@ -310,24 +283,10 @@ export const useSearchStore = create<SearchState>((set, get) => {
   };
 });
 
-// ---------------------------------------------------------------------------
-// Selector helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Subscribes to a single workspace's search session slice. Returns `undefined`
- * when no search has been performed yet for that workspace; consumers should
- * fall back to an idle view in that case.
- */
 export function useSearchSession(workspaceId: string): SearchSession | undefined {
   return useSearchStore((s) => s.sessions.get(workspaceId));
 }
 
-/**
- * Subscribes to the expanded directories set for a workspace.
- * Returns an empty frozen set when none exists yet (stable reference —
- * avoids React getSnapshot warning).
- */
 const EMPTY_EXPANDED_DIRS: ReadonlySet<string> = Object.freeze(new Set<string>());
 
 export function useSearchExpandedDirs(workspaceId: string): ReadonlySet<string> {

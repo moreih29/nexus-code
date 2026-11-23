@@ -1,16 +1,3 @@
-/**
- * Under another computer's terminal, while its Claude Code asks for leave
- * (its session's `waiting.requestId`): what it asks, and the answers, as
- * this computer's agent list words and draws a terminal agent's request
- * (permission-asks). An answer goes as terminal.answer, an answer for an
- * agent and no typing, so it is chat.control's: it works where the
- * computer lets this one only look at its terminals. Allowing it always is
- * offered where Claude Code offers it, and denying it to stop the turn
- * where it is not a subagent's (all of them from a computer before
- * protocol 0.13.2, which does not tell). The terminal's own prompt can
- * answer it too; a request answered there or over is told.
- */
-
 import { CircleAlert } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -22,7 +9,6 @@ import { Button } from "../ui/button";
 
 export type TerminalDecision = RpcParams<"terminal.answer">["decision"];
 
-/** The tool a request is for and what it is for, as its one line tells them ("Bash npm test"). */
 export function askParts(text: string): { tool: string; target: string } {
   const at = text.indexOf(" ");
   return at < 0
@@ -36,9 +22,7 @@ export function RemoteTerminalAsk({
   onAnswered,
 }: {
   ask: TerminalAsk;
-  /** Sends the answer there. */
   onAnswer: (decision: TerminalDecision) => Promise<IpcResult<unknown>>;
-  /** It went through: the card leaves, before the list says the request is gone. */
   onAnswered: () => void;
 }) {
   const { t } = useTranslation();

@@ -1,23 +1,21 @@
-/**
- * Another computer's consent prompts in the agent view's list, told in the
- * words of this computer's own prompt: who asks to do what, all of what it
- * would run, the seconds left, and the answers it allows; or, where this
- * computer may not answer it, where to.
- */
-import { describe, expect, spyOn, test } from "bun:test";
+import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import i18next from "i18next";
-import type { MouseEvent } from "react";
+import { act, type MouseEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RemoteConsent, RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
 import * as buttons from "../../../../../src/renderer/components/ui/button";
 import * as ipc from "../../../../../src/renderer/ipc/client";
 import { ipcOk } from "../../../../../src/shared/ipc/result";
+import { withTestDom } from "../../../../helpers/test-dom";
 
 const {
   PeerConsentCard,
   RemoteConsentCard,
+  CONSENT_SWAP_HOLD_MS,
+  ConsentPages,
   consentActionOf,
   consentFromChat,
+  consentHeadlineOf,
   consentSentenceOf,
   usePeerConsents,
 } = await import("../../../../../src/renderer/components/agent-view/remote-consents");
@@ -36,6 +34,8 @@ const consent = (over: Partial<RemoteConsent> = {}): RemoteConsent => ({
   answerable: true,
   ...over,
 });
+
+const card0 = (text: string) => <span key={text}>{text}</span>;
 
 const card = (c: RemoteConsent) =>
   renderToStaticMarkup(
@@ -88,7 +88,8 @@ describe("another computer's consent in the sidebar and chat", () => {
       expect(sidebar()).toContain("The Claude tab");
       renderButton.mockClear();
       expect(chat()).toContain("The Claude tab");
-      const allow = renderButton.mock.calls.at(-1)?.[0].onClick;
+      const allow = renderButton.mock.calls.find(([props]) => props.children === "Allow")?.[0]
+        .onClick;
       expect(allow).toBeDefined();
       allow?.({} as MouseEvent<HTMLButtonElement>);
       await Promise.resolve();
@@ -99,7 +100,7 @@ describe("another computer's consent in the sidebar and chat", () => {
       });
       expect(sidebar()).toBe("");
       expect(chat()).toBe("");
-      expect(renderToStaticMarkup(<Cards deviceId="d3" />)).toContain("Allow once");
+      expect(renderToStaticMarkup(<Cards deviceId="d3" />)).toContain(">Allow<");
     } finally {
       renderButton.mockRestore();
       call.mockRestore();
@@ -112,7 +113,6 @@ describe("what another computer's consent prompt says", () => {
     expect(consentActionOf(t, { kind: "tabClose", detail: "Review" })).toBe(
       'close the tab "Review"',
     );
-    // A kind this version does not know is named as it came.
     expect(consentActionOf(t, { kind: "teleport", detail: "x" })).toBe("make a change (teleport)");
   });
 
@@ -152,24 +152,73 @@ describe("what another computer's consent prompt says", () => {
     expect(consentSentenceOf(t, prompt, "api", sessions)).toContain(`The ${agent} tab "Review"`);
     expect(
       consentSentenceOf(i18next.getFixedT("ko", "settings"), prompt, "api", sessions),
-    ).toContain(`app의 ${agent} 탭 "Review"이(가)`);
+    ).toContain(`app의 ${agent} 탭 "Review":`);
     expect(consentSentenceOf(t, prompt, "api", sessions.slice(0, 2))).toContain(
       'The terminal "Review"',
     );
   });
 
-  test("a card: its question, all it would run, the seconds left, and the three answers", () => {
+  test("a card: what it would do, who asks, what it would run, and the answers", () => {
     const html = card(consent());
-    expect(html).toContain("Allow an agent to change another workspace?");
-    expect(html).toMatch(/<p class="[^"]*break-keep \[overflow-wrap:anywhere\][^"]*">The terminal/);
-    expect(html).toContain("rm -rf dist\nbun run build");
-    // The body scrolls, as the prompt's box does.
-    expect(html).toMatch(/<pre class="[^"]*overflow-auto/);
-    expect(html).toContain("It is turned down if not answered in 42 seconds.");
-    expect(html).toContain("Don&#x27;t allow");
-    expect(html).toContain("Allow until restart");
-    expect(html).toContain("Allow once");
+    expect(html).toContain('aria-label="Allow an agent to change another workspace?"');
+    expect(html).toContain('class="rounded-(--radius-raised) border border-border border-l-2');
+    expect(html).toMatch(
+      /<span class="font-semibold[^"]*">Type into the terminal &quot;dev&quot;<\/span>/,
+    );
+    expect(html).toContain(">zsh → api<");
+    expect(html).toContain(
+      '<p class="sr-only">The terminal &quot;zsh&quot; in app asks to type into the terminal &quot;dev&quot; in api.</p>',
+    );
+    expect(html).toMatch(/aria-expanded="true"[^>]*>rm -rf dist\nbun run build<\/button>/);
+    expect(html).not.toContain("It is turned down if not answered");
+    expect(html).toMatch(/>Deny<\/button>.*>Allow<\/button>.*aria-label="Allow options"/s);
+    expect(html).not.toContain("Allow once");
     expect(html).not.toContain("remote-consent-there");
+  });
+
+  test("among several computers' prompts a card names the computer it is on", () => {
+    const placed = (c: RemoteConsent) =>
+      renderToStaticMarkup(
+        <RemoteConsentCard
+          consent={c}
+          device="Work PC"
+          workspaceName="api"
+          showDevice
+          onAnswer={() => Promise.resolve({ ok: true } as never)}
+          onSettled={() => {}}
+        />,
+      );
+    const tags = (html: string) =>
+      [
+        ...html.matchAll(
+          /data-testid="session-row-device"><svg[\s\S]*?<\/svg><span class="truncate">([^<]*)</g,
+        ),
+      ].map((match) => match[1]);
+    expect(tags(card(consent()))).toEqual([]);
+    expect(tags(placed(consent()))).toEqual(["Work PC"]);
+    expect(placed(consent())).toContain(">zsh → api<");
+    const device = { id: "d3", name: "Laptop" };
+    const from = { ...consent().from, device };
+    expect(tags(card(consent({ from })))).toEqual(["Laptop"]);
+    const both = placed(consent({ from }));
+    expect(tags(both)).toEqual(["Laptop", "Work PC"]);
+    expect(both).toMatch(/>zsh →<.*>Work PC<.*>api</s);
+    const manager = { workspaceId: "w-app", tabId: "t-m", manager: true };
+    expect(tags(placed(consent({ from: manager })))).toEqual(["Work PC"]);
+  });
+
+  test("headlines come from their own keys, the question when a kind has none", () => {
+    const ko = i18next.getFixedT("ko", "settings");
+    expect(consentHeadlineOf(ko, { kind: "terminalInput", detail: "dev" }, "")).toBe(
+      '터미널 "dev"에 입력',
+    );
+    expect(consentHeadlineOf(t, { kind: "teleport" }, "Question?")).toBe("Question?");
+    expect(consentHeadlineOf(t, { kind: "chatRewind", detail: "Review" }, "")).toBe(
+      "Rewind the tab Review to before that message",
+    );
+    expect(consentHeadlineOf(ko, { kind: "chatRewind", detail: "Review" }, "")).toBe(
+      "탭 Review 되감기(그 메시지 전으로)",
+    );
   });
 
   test("its question follows what it asks, as the prompt's does", () => {
@@ -224,29 +273,313 @@ describe("what another computer's consent prompt says", () => {
     );
   });
 
-  test("one asked about each time offers Don't allow and Allow", () => {
+  test("one asked about each time offers Deny and Allow, with no other choices", () => {
     const html = card(consent({ eachTime: true }));
-    expect(html).toContain("Don&#x27;t allow</button>");
-    expect(html).not.toContain("Allow until restart");
-    expect(html).not.toContain("Allow once");
+    expect(html).toContain(">Deny</button>");
+    expect(html).not.toContain("Allow options");
     expect(html).toMatch(/data-variant="default"[^>]*hover:bg-primary\/90[^>]*>Allow<\/button>/);
   });
 
-  test("sandbox approval offers the same choices in the same order", () => {
+  test("sandbox approval asks its question as the headline, with the same choices", () => {
     const change = { kind: "sandboxExecution", body: "nexus terminal new" };
     const html = card(consent({ change }));
-    expect(html).toContain("Let an agent run a command outside its sandbox?");
-    expect(html).toMatch(/Don&#x27;t allow.*Allow until restart.*Allow once/s);
-    expect(card(consent({ change, eachTime: true }))).not.toContain("Allow until restart");
+    expect(html).toContain('aria-label="Let an agent run a command outside its sandbox?"');
+    expect(html).toMatch(/font-semibold[^"]*">Run a command outside its sandbox</);
+    expect(html).toMatch(/>Deny<\/button>.*>Allow<\/button>.*Allow options/s);
+    expect(card(consent({ change, eachTime: true }))).not.toContain("Allow options");
   });
 
   test("one this computer may not answer says where to, with no answers", () => {
     const html = card(consent({ answerable: false }));
     expect(html).toContain("Answer it on Work PC");
-    expect(html).not.toContain("<button");
+    expect(html).not.toContain(">Deny<");
+    expect(html).not.toContain(">Allow<");
   });
 
-  test("one run out is gone", () => {
-    expect(card(consent({ expiresInMs: 0 }))).toBe("");
+  test("one past its expiresAt still shows until the list leaves it out", () => {
+    const html = card(consent({ expiresInMs: 0 }));
+    expect(html).toContain(">Allow<");
+    expect(html).not.toContain("seconds");
+  });
+
+  test("several in one place show one at a time, with a pager", () => {
+    const one = renderToStaticMarkup(<ConsentPages place="p">{[card0("a")]}</ConsentPages>);
+    expect(one).not.toContain("remote-consent-pages");
+    const two = renderToStaticMarkup(
+      <ConsentPages place="p">{[card0("a"), card0("b")]}</ConsentPages>,
+    );
+    expect(two).toContain("1 of 2");
+    expect(two).toContain('aria-label="Previous request"');
+    expect(two).toContain(">a<");
+    expect(two).not.toContain(">b<");
+  });
+});
+
+describe("several consent prompts in one place", () => {
+  const prompt = (id: string) =>
+    consent({ id, eachTime: true, change: { kind: "chatInput", detail: id.toUpperCase() } });
+
+  let run = 0;
+  beforeEach(() => {
+    run += 1;
+  });
+
+  function Pages({
+    ids,
+    answers,
+    pending = false,
+    change,
+  }: {
+    ids: string[];
+    answers: string[];
+    pending?: boolean;
+    change?: RemoteConsent["change"];
+  }) {
+    if (ids.length === 0) return null;
+    return (
+      <ConsentPages place={`pages-${run}`}>
+        {ids.map((id) => (
+          <RemoteConsentCard
+            key={id}
+            consent={change ? { ...prompt(id), change } : prompt(id)}
+            device="Work PC"
+            workspaceName="api"
+            onAnswer={(answer) => {
+              answers.push(`${id}:${answer}`);
+              return pending ? new Promise(() => {}) : Promise.resolve(ipcOk({}));
+            }}
+            onSettled={() => {}}
+          />
+        ))}
+      </ConsentPages>
+    );
+  }
+
+  const headline = (host: HTMLElement) => host.querySelector(".font-semibold")?.textContent;
+  const page = (host: HTMLElement) =>
+    host.querySelector('[data-testid="remote-consent-pages"] span')?.textContent;
+  const find = (host: HTMLElement, label: string) => {
+    const button = Array.from(host.querySelectorAll("button")).find(
+      (node) => node.textContent === label || node.getAttribute("aria-label") === label,
+    );
+    expect(button).toBeDefined();
+    return button as HTMLButtonElement;
+  };
+  const press = async (host: HTMLElement, label: string) => {
+    const button = find(host, label);
+    await act(async () => button.click());
+  };
+  const clickWith = async (host: HTMLElement, label: string, detail: number) => {
+    const button = find(host, label);
+    const event = document.createEvent("MouseEvent");
+    event.initEvent("click", true, true);
+    Object.defineProperty(event, "detail", { value: detail });
+    await act(async () => {
+      button.dispatchEvent(event);
+    });
+  };
+
+  test("the card in view stays when a new prompt arrives before or after it", async () => {
+    await withTestDom(async (host, root) => {
+      const answers: string[] = [];
+      await act(async () => root.render(<Pages ids={["a", "b"]} answers={answers} />));
+      await press(host, "Next request");
+      expect(headline(host)).toContain('"B"');
+      await act(async () => root.render(<Pages ids={["c", "a", "b"]} answers={answers} />));
+      expect(headline(host)).toContain('"B"');
+      expect(page(host)).toBe("3 of 3");
+      await act(async () => root.render(<Pages ids={["c", "a", "b", "d"]} answers={answers} />));
+      expect(headline(host)).toContain('"B"');
+      expect(page(host)).toBe("3 of 4");
+      await act(async () => root.render(<Pages ids={["c", "a", "d"]} answers={answers} />));
+      expect(headline(host)).toContain('"D"');
+      await act(async () => root.render(<Pages ids={["c", "a"]} answers={answers} />));
+      expect(headline(host)).toContain('"A"');
+    });
+  });
+
+  test("a card that takes the place of one gone elsewhere ignores answers for a moment", async () => {
+    const now = spyOn(performance, "now").mockReturnValue(10_000);
+    try {
+      await withTestDom(async (host, root) => {
+        const answers: string[] = [];
+        await act(async () => root.render(<Pages ids={["a", "b"]} answers={answers} />));
+        await act(async () => root.render(<Pages ids={["b"]} answers={answers} />));
+        expect(headline(host)).toContain('"B"');
+        await press(host, "Allow");
+        expect(answers).toEqual([]);
+        now.mockReturnValue(10_000 + CONSENT_SWAP_HOLD_MS);
+        await press(host, "Allow");
+        expect(answers).toEqual(["b:once"]);
+      });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  test("no pause after the user answers one or pages to another", async () => {
+    const now = spyOn(performance, "now").mockReturnValue(10_000);
+    try {
+      await withTestDom(async (host, root) => {
+        const answers: string[] = [];
+        await act(async () => root.render(<Pages ids={["a", "b", "c"]} answers={answers} />));
+        await press(host, "Allow");
+        await act(async () => root.render(<Pages ids={["b", "c"]} answers={answers} />));
+        expect(headline(host)).toContain('"B"');
+        await press(host, "Deny");
+        expect(answers).toEqual(["a:once", "b:deny"]);
+        await act(async () => root.render(<Pages ids={["c", "d"]} answers={answers} />));
+        await act(async () => {
+          now.mockReturnValue(10_000 + CONSENT_SWAP_HOLD_MS);
+        });
+        await press(host, "Next request");
+        expect(headline(host)).toContain('"D"');
+        await press(host, "Allow");
+        expect(answers).toEqual(["a:once", "b:deny", "d:once"]);
+      });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  test("a prompt that comes right after the one in view went away elsewhere is held too", async () => {
+    const now = spyOn(performance, "now").mockReturnValue(10_000);
+    try {
+      await withTestDom(async (host, root) => {
+        const answers: string[] = [];
+        await act(async () => root.render(<Pages ids={["a"]} answers={answers} />));
+        await act(async () => root.render(<Pages ids={[]} answers={answers} />));
+        now.mockReturnValue(10_050);
+        await act(async () => root.render(<Pages ids={["b"]} answers={answers} />));
+        now.mockReturnValue(10_100);
+        await press(host, "Allow");
+        expect(answers).toEqual([]);
+        now.mockReturnValue(10_000 + CONSENT_SWAP_HOLD_MS);
+        await press(host, "Allow");
+        expect(answers).toEqual(["b:once"]);
+      });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  test("a prompt after one the user answered and that then left is not held", async () => {
+    const now = spyOn(performance, "now").mockReturnValue(10_000);
+    try {
+      await withTestDom(async (host, root) => {
+        const answers: string[] = [];
+        await act(async () => root.render(<Pages ids={["a"]} answers={answers} />));
+        await press(host, "Allow");
+        await act(async () => root.render(<Pages ids={[]} answers={answers} />));
+        await act(async () => root.render(<Pages ids={["b"]} answers={answers} />));
+        await press(host, "Allow");
+        expect(answers).toEqual(["a:once", "b:once"]);
+      });
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  test("the card in view keeps its state when a second prompt arrives", async () => {
+    await withTestDom(async (host, root) => {
+      const answers: string[] = [];
+      const change = { kind: "terminalInput", detail: "dev", body: "a\nb" } as const;
+      await act(async () =>
+        root.render(<Pages ids={["a"]} answers={answers} change={change} pending />),
+      );
+      const deny = find(host, "Deny");
+      await press(host, "Allow");
+      expect(answers).toEqual(["a:once"]);
+      await act(async () =>
+        root.render(<Pages ids={["a", "b"]} answers={answers} change={change} pending />),
+      );
+      expect(deny.isConnected).toBe(true);
+      expect(deny.disabled).toBe(true);
+      await press(host, "Allow");
+      await press(host, "Deny");
+      expect(answers).toEqual(["a:once"]);
+      await act(async () =>
+        root.render(<Pages ids={["a"]} answers={answers} change={change} pending />),
+      );
+      expect(deny.isConnected).toBe(true);
+    });
+  });
+
+  test("the second click of a double click answers nothing, a key press does", async () => {
+    await withTestDom(async (host, root) => {
+      const answers: string[] = [];
+      await act(async () => root.render(<Pages ids={["a", "b"]} answers={answers} />));
+      await clickWith(host, "Allow", 2);
+      expect(answers).toEqual([]);
+      await clickWith(host, "Deny", 0);
+      expect(answers).toEqual(["a:deny"]);
+      await act(async () => root.render(<Pages ids={["b"]} answers={answers} />));
+      await clickWith(host, "Allow", 1);
+      expect(answers).toEqual(["a:deny", "b:once"]);
+    });
+  });
+});
+
+describe("what another computer's prompt would run", () => {
+  const shownBody = (host: HTMLElement) =>
+    host.querySelector<HTMLButtonElement>("button[aria-expanded]");
+
+  async function cardWith(body: string, widths?: { scroll: number; client: number }) {
+    let result: { expanded: string | null | undefined; className: string | undefined } = {
+      expanded: undefined,
+      className: undefined,
+    };
+    await withTestDom(async (host, root) => {
+      const proto = Object.getPrototypeOf(document.createElement("button"));
+      const saved = ["scrollWidth", "clientWidth"].map(
+        (name) => [name, Object.getOwnPropertyDescriptor(proto, name)] as const,
+      );
+      if (widths) {
+        Object.defineProperty(proto, "scrollWidth", {
+          configurable: true,
+          get: () => widths.scroll,
+        });
+        Object.defineProperty(proto, "clientWidth", {
+          configurable: true,
+          get: () => widths.client,
+        });
+      }
+      try {
+        await act(async () =>
+          root.render(
+            <RemoteConsentCard
+              consent={consent({ change: { kind: "terminalInput", detail: "dev", body } })}
+              device="Work PC"
+              workspaceName="api"
+              onAnswer={() => Promise.resolve(ipcOk({}))}
+              onSettled={() => {}}
+            />,
+          ),
+        );
+        result = {
+          expanded: shownBody(host)?.getAttribute("aria-expanded"),
+          className: shownBody(host)?.className,
+        };
+      } finally {
+        for (const [name, descriptor] of saved) {
+          if (descriptor) Object.defineProperty(proto, name, descriptor);
+          else Reflect.deleteProperty(proto, name);
+        }
+      }
+    });
+    return result;
+  }
+
+  test("a command of several lines shows whole, scrolling past the chat card's height", async () => {
+    const shown = await cardWith("echo ok\nrm -rf ~");
+    expect(shown.expanded).toBe("true");
+    expect(shown.className).toContain("max-h-40 overflow-auto whitespace-pre-wrap");
+  });
+
+  test("a one-line command opens when it does not fit, and stays on one line when it does", async () => {
+    expect((await cardWith("x".repeat(400), { scroll: 900, client: 200 })).expanded).toBe("true");
+    const fits = await cardWith("bun run build", { scroll: 120, client: 200 });
+    expect(fits.expanded).toBe("false");
+    expect(fits.className).toContain("whitespace-nowrap");
   });
 });

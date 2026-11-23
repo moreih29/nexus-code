@@ -1,11 +1,5 @@
-/**
- * An element the user picks in a browser tab, for nexus browser pick: where
- * it is, a CSS selector that finds it again, and the block an agent reads.
- */
-
 import type { PickedComponent } from "./component";
 
-/** A box in CSS pixels. */
 export interface Box {
   readonly x: number;
   readonly y: number;
@@ -13,38 +7,26 @@ export interface Box {
   readonly height: number;
 }
 
-/** What the page tells of the picked element (DESCRIBE_PICKED). */
 export interface PickedDetails {
   readonly tag: string;
-  /**
-   * Matches it alone in its document. Null for an element in a shadow root,
-   * which no document selector reaches, or when no selector finds it alone.
-   */
   readonly selector: string | null;
   readonly inShadow: boolean;
   readonly text: string;
   readonly html: string;
-  /** Where it is in the tab, from the top left of what the tab shows. */
   readonly box: Box;
-  /** The part of the page a picture of it takes, in page coordinates; null when none of it shows. */
   readonly clip: Box | null;
 }
 
 export interface PickedElement extends PickedDetails {
   readonly url: string;
   readonly title: string;
-  /** Its role and name in the accessibility tree, as browser snapshot prints them. */
   readonly role: string;
   readonly name: string;
-  /** The ref browser click, fill and type take for it. */
   readonly ref: string;
-  /** A PNG of it, base64; absent when none could be taken. */
   readonly png?: string;
-  /** The UI component it is in, when a framework's build tells it. */
   readonly component?: PickedComponent;
 }
 
-/** Why no element was picked. */
 export type PickCancel =
   | "escape"
   | "timeout"
@@ -56,18 +38,10 @@ export type PickCancel =
 
 export type PickResult = { readonly picked: PickedElement } | { readonly cancelled: PickCancel };
 
-/** Room left around the element in its picture. */
 const PICTURE_MARGIN = 8;
 const MAX_TEXT = 200;
 const MAX_HTML = 300;
 
-/**
- * Runs in the page on the picked element. The selector is the element's own
- * id, test id, aria-label or name when that finds it alone, or else a path
- * of child steps up to the nearest ancestor that has one, or as far up as
- * it takes to find only the element. An element in a shadow root gets none,
- * as browser click looks selectors up in the document.
- */
 export const DESCRIBE_PICKED = `function () {
   const el = this;
   const inShadow = el.getRootNode() !== document;
@@ -147,10 +121,6 @@ export const DESCRIBE_PICKED = `function () {
   };
 }`;
 
-/**
- * `s` without control characters but line breaks and tabs: a page's text,
- * printed to a terminal, must not carry escape sequences into it.
- */
 export function withoutControls(s: string): string {
   // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what it removes.
   return s.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, "");
@@ -170,7 +140,6 @@ function cleanComponent(component: PickedComponent): PickedComponent {
   };
 }
 
-/** `el` with every text the page gave it free of control characters. */
 export function cleanPicked(el: PickedElement): PickedElement {
   return {
     ...el,
@@ -186,19 +155,13 @@ export function cleanPicked(el: PickedElement): PickedElement {
   };
 }
 
-/** Roles that say nothing of an element; its tag says more. */
 const VAGUE_ROLES = new Set(["", "generic", "none", "presentation"]);
 
-/** How output names the element: `button "Sign in"`, or its tag when its role says nothing. */
 export function pickedLabel(el: Pick<PickedElement, "role" | "name" | "tag">): string {
   const what = VAGUE_ROLES.has(el.role) ? el.tag : el.role;
   return el.name === "" ? what : `${what} ${JSON.stringify(el.name)}`;
 }
 
-/**
- * The block nexus browser pick prints; `screenshot` is where its picture was
- * saved. `tab` names the browser tab, for a reader who did not pick it.
- */
 export function formatPick(picked: PickedElement, screenshot?: string, tab?: string): string {
   const el = cleanPicked(picked);
   const lines = [
@@ -234,7 +197,6 @@ function selectorText(el: PickedElement): string {
     : "none found; use the ref";
 }
 
-/** Why a pick ended without an element, said for the agent. */
 export function cancelledText(reason: Exclude<PickCancel, "timeout">): string {
   switch (reason) {
     case "escape":

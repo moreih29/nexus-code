@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-// makeUnreadable writes a file at path that the test cannot open.
 func makeUnreadable(t *testing.T, path string) {
 	t.Helper()
 	if os.Geteuid() == 0 {

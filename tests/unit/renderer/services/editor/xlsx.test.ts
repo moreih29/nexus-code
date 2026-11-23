@@ -14,7 +14,6 @@ const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
 const R_NS = 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
 const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
-/** A workbook file from its sheets' XML, with what else a workbook has. */
 function workbook({
   sheets,
   strings = [],

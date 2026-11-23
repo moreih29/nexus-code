@@ -1,18 +1,9 @@
-/**
- * Whether nexus may change a workspace other than its terminal's own. The
- * Agents setting answers, or, set to "ask", the user does: for this once,
- * or for every change from that workspace to that one until the app
- * restarts.
- */
 import type { CliChange, CliConsentAnswer } from "../../../shared/cli/ui";
 import type { AppState } from "../../../shared/types/app-state";
 import { tryGetMainT } from "../../i18n";
 import { CliError } from "./context";
 
 export type CrossWorkspacePolicy = AppState["cliCrossWorkspace"];
-
-/** How long the user has to answer before the change is turned down. */
-export const CONSENT_TIMEOUT_MS = 90_000;
 
 export interface ChangeRequest {
   readonly fromWorkspaceId: string;
@@ -27,37 +18,28 @@ export interface ChangeRequest {
 
 export interface ConsentDeps {
   policy(): CrossWorkspacePolicy;
-  ask(request: ChangeRequest, timeoutMs: number, signal?: AbortSignal): Promise<CliConsentAnswer>;
+  ask(request: ChangeRequest, signal?: AbortSignal): Promise<CliConsentAnswer>;
   sandboxSession(workspaceId: string, tabId: string, signal?: AbortSignal): Promise<string | null>;
 }
 
-function refusal(answer: CliConsentAnswer, sandbox: boolean): CliError {
-  if (sandbox) {
-    const t = tryGetMainT();
-    return new CliError(
-      answer === "timeout"
-        ? (t?.("settings:agentCli.consent.sandbox_timeout") ??
-            "The approval to run this command outside the sandbox timed out. Try again when the user can approve it in NexusCode.")
-        : (t?.("settings:agentCli.consent.sandbox_denied") ??
-            "The user denied running this command outside the sandbox."),
-    );
-  }
+function refusal(sandbox: boolean, unasked = false): CliError {
+  if (!sandbox) return new CliError("the user did not allow it");
+  const t = tryGetMainT();
   return new CliError(
-    answer === "timeout"
-      ? "the user did not answer in time; nothing was changed"
-      : "the user did not allow it",
+    unasked
+      ? (t?.("settings:agentCli.consent.sandbox_unasked") ??
+          "NexusCode could not ask for approval to run this command outside the sandbox. Try again when the user can approve it in NexusCode.")
+      : (t?.("settings:agentCli.consent.sandbox_denied") ??
+          "The user denied running this command outside the sandbox."),
   );
 }
 
 export class CrossWorkspaceConsent {
-  /** "from>to" pairs of workspaces the user allowed until restart. */
   private readonly allowed = new Set<string>();
-  /** Caller tab and destination to the caller's approved session. */
   private readonly sandboxAllowed = new Map<string, string>();
 
   constructor(private readonly deps: ConsentDeps) {}
 
-  /** Resolves when the change may go ahead; a CliError saying why when not. */
   async check(request: ChangeRequest, signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
     const policy = this.deps.policy();
@@ -73,13 +55,6 @@ export class CrossWorkspaceConsent {
     }
   }
 
-  /**
-   * Asks the user about `request` whatever the setting, unless they allowed
-   * that workspace's changes to that one until restart: for what the setting
-   * does not let through, as an answer to another session's permission
-   * request, a looser mode or another profile, in the caller's own workspace
-   * too. Resolves when allowed; a CliError saying why when not.
-   */
   async ask(request: ChangeRequest, signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
     if (request.change.kind === "sandboxExecution") {
@@ -107,7 +82,6 @@ export class CrossWorkspaceConsent {
           { fromWorkspaceId, fromTabId, toWorkspaceId, change: sandbox.workspaceChange },
           signal,
         );
-        // The workspace prompt may have waited across a conversation change.
         if ((await readSession()) !== session) {
           signal?.throwIfAborted();
           return this.askSandbox(request, false, signal);
@@ -117,7 +91,6 @@ export class CrossWorkspaceConsent {
       return;
     }
 
-    // A fresh sandbox prompt also authorizes this one change under the workspace policy.
     const approval = session ? request : { ...request, change: { ...change, eachTime: true } };
     const answer = await this.prompt(approval, signal);
     if (answer === "session" && session) {
@@ -130,12 +103,13 @@ export class CrossWorkspaceConsent {
   private async prompt(request: ChangeRequest, signal?: AbortSignal): Promise<"once" | "session"> {
     signal?.throwIfAborted();
     const sandbox = request.change.kind === "sandboxExecution";
-    const answer = await this.deps.ask(request, CONSENT_TIMEOUT_MS, signal).catch((error) => {
+    const answer = await this.deps.ask(request, signal).catch((error) => {
+      signal?.throwIfAborted();
       if (!sandbox) throw error;
-      return "timeout" as const;
+      return null;
     });
     signal?.throwIfAborted();
     if (answer === "once" || (answer === "session" && !request.change.eachTime)) return answer;
-    throw refusal(answer, sandbox);
+    throw refusal(sandbox, answer === null);
   }
 }

@@ -10,8 +10,6 @@ import (
 	"testing"
 )
 
-// writeAgentTranscript writes a session's transcript and its subagent's, as
-// Claude Code keeps them, and gives the session's path.
 func writeAgentTranscript(t *testing.T, agentID, content string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -104,8 +102,6 @@ func TestReadAgentMessages_KeepsTheLatest(t *testing.T) {
 }
 
 func TestReadAgentMessages_ReadsTheTail(t *testing.T) {
-	// A transcript longer than what is read: its latest lines are, not the
-	// line cut where the read starts.
 	big := strings.Repeat("x", int(agentTranscriptTail))
 	content := `{"uuid":"old","message":{"role":"assistant","content":[{"type":"text","text":"` + big + `"}]}}` + "\n" +
 		`{"uuid":"new","message":{"role":"assistant","content":[{"type":"text","text":"latest"}]}}` + "\n"

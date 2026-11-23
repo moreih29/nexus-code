@@ -1,8 +1,3 @@
-/**
- * nexus settings list and get over the renderer's settings: one asked for
- * by its key alone, and one that could not be read (the account's voice
- * terms, signed out) told as such rather than as empty.
- */
 import { expect, test } from "bun:test";
 import { SCHEMA_VERSION } from "../../../../packages/remote-protocol/src";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
@@ -30,7 +25,6 @@ const SETTINGS: CliSettingInfo[] = [
   },
 ];
 
-/** The app, its renderer answering settings.list with SETTINGS. */
 function withSettings(): FakeApp {
   const app = fakeApp();
   const ui = app.services.ui;

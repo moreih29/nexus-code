@@ -1,8 +1,3 @@
-/**
- * Close Group must not drop unsaved buffers: editor and untitled tabs go
- * through the dirty-aware close first, and a cancel or failed save keeps the
- * group open.
- */
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 
 (globalThis as Record<string, unknown>).window = {
@@ -19,9 +14,6 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 
 let closeOutcome: "closed" | "cancelled" | "save-failed" = "closed";
 const closeCalls: string[] = [];
-// close-tab dispatches editor tabs to close-handler; mocking the handler (as
-// bulk-close-cancel.test.ts does) keeps the real dispatcher in the chain and
-// leaves close-tab unmocked for other test files.
 const fakeClose = async (workspaceId: string, tabId: string) => {
   closeCalls.push(tabId);
   if (closeOutcome === "closed") {

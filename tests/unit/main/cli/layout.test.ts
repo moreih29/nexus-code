@@ -1,9 +1,3 @@
-/**
- * nexus arranging the workbench: layout show/split/resize/even/close, tab
- * move/rename/pin, the panels, reveal and problems, against a fake app whose
- * "app" workspace is split in two columns: g1 (zsh, Claude) | g2 (index.ts,
- * Vite App).
- */
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";
@@ -13,7 +7,6 @@ async function nexus(app: FakeApp, argv: string[]) {
   return runCli(CLI_COMMANDS, contextFor(app, argv));
 }
 
-/** nexus in a terminal of "app" with its root at C:\w\app, as Windows spells it. */
 async function nexusOnWindows(app: FakeApp, argv: string[]) {
   const ctx = contextFor(app, argv, undefined, { cwd: "C:\\w\\app" });
   const workspaces = WORKSPACES.map((w) =>
@@ -72,7 +65,6 @@ describe("panels, reveal and problems", () => {
 
   test("problems lists a Windows workspace's files relative to its root too", async () => {
     const app = fakeApp();
-    // The renderer names the file from the root spelled C:/w/app.
     app.problems.push({
       filePath: "C:/w/app/src/a.ts",
       line: 3,

@@ -1,9 +1,3 @@
-/**
- * The nexus CLI's requests for notes that only the window can answer: show
- * one to the user, and the recorder (what it records, start, pause, go on,
- * stop). A note's text and files are main's (nexus note write, add).
- */
-
 import type { CliRecorder, CliUiOp } from "../../../shared/cli/ui";
 import { type ToastInput, watchToasts } from "../../components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
@@ -86,7 +80,6 @@ export const noteHandlers: { [K in NoteOp]: CliUiHandler<K> } = {
         if (s.phase !== "idle" && (s.workspaceId !== workspaceId || s.noteId !== noteId)) {
           throw new UiRequestError("another note records now: one at a time");
         }
-        // Shown, its recorder in view: the user sees it record and can stop it.
         showNote(workspaceId, noteId);
         const said: ToastInput[] = [];
         const stopWatching = watchToasts((toast) => said.push(toast));

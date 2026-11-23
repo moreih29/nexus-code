@@ -37,7 +37,6 @@ async function updater() {
 test("an update link that the system cannot open returns a recoverable error", async () => {
   const ipc = await updater();
   const failure = Promise.reject(new Error("The URL could not be opened"));
-  // The fixture's rejected work is observed even if the handler ignores it.
   void failure.catch(() => {});
   openExternal.mockImplementationOnce(() => failure);
 

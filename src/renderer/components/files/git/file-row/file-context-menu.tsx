@@ -1,10 +1,3 @@
-/**
- * Git file/group context menus for the Source Control panel.
- *
- * The panel keeps which row's menu is open, and where; the menu is the shared
- * DropdownMenuAtPoint. Its items come from builders that tests assert
- * without a DOM.
- */
 import i18next from "i18next";
 import type { GitExpandedGroupKey } from "../../../../../shared/git/types";
 import { revealInOSLabel } from "../../../../utils/reveal-label";
@@ -39,7 +32,6 @@ export interface GitFileContextMenuActions {
   readonly stage?: () => void;
   readonly unstage?: () => void;
   readonly discard?: () => void;
-  /** Absent where the file is not on this computer, as with addToGitignore where nothing is written. */
   readonly revealInOS?: () => void;
   readonly copyPath: () => void;
   readonly copyRelativePath: () => void;
@@ -74,7 +66,6 @@ interface GitGroupContextMenuProps {
   onClose: () => void;
 }
 
-/** Renders a file-row context menu at the pointer or kebab position. */
 export function GitFileContextMenu({ point, groupKey, actions, onClose }: GitFileContextMenuProps) {
   return (
     <GitContextMenuPopover
@@ -85,7 +76,6 @@ export function GitFileContextMenu({ point, groupKey, actions, onClose }: GitFil
   );
 }
 
-/** Renders a group-header context menu at the pointer or kebab position. */
 export function GitGroupContextMenu({
   point,
   groupKey,
@@ -101,16 +91,12 @@ export function GitGroupContextMenu({
   );
 }
 
-/** Builds the file-row menu with group-specific hide rules. */
 export function buildGitFileContextMenuItems(
   groupKey: GitExpandedGroupKey,
   actions: GitFileContextMenuActions,
 ): GitMenuSpec[] {
   const t = i18next.t.bind(i18next);
   if (groupKey === "merge") {
-    // Conflict rows open the in-app editor with the conflict-resolution
-    // CodeLens UI — there is no external-editor escape hatch for this group.
-    // Read-only (no discard), only its diff opens.
     if (!actions.discard) {
       return [
         { kind: "item", label: t("files:git.contextMenu.openDiff"), onSelect: actions.openChanges },
@@ -194,7 +180,6 @@ export function buildGitFileContextMenuItems(
   return collapseGitMenuSeparators(items);
 }
 
-/** Builds the group-header menu, keeping unsupported future operations disabled. */
 export function buildGitGroupContextMenuItems(
   groupKey: GitExpandedGroupKey,
   actions: GitGroupContextMenuActions,
@@ -266,17 +251,14 @@ export function buildGitGroupContextMenuItems(
   return collapseGitMenuSeparators(items);
 }
 
-/** Converts a mouse event into a fixed-position context-menu anchor point. */
 export function pointFromMouseEvent(event: React.MouseEvent): GitContextMenuPoint {
   return { x: event.clientX, y: event.clientY };
 }
 
-/** The point under a kebab button that its menu's right edge lines up with. */
 export function pointFromButtonRect(rect: DOMRect): GitContextMenuPoint {
   return { x: rect.right, y: rect.bottom + 2, align: "end" };
 }
 
-/** Renders the menu at its point. */
 function GitContextMenuPopover({ point, items, onClose }: GitContextMenuPopoverProps) {
   return (
     <DropdownMenuAtPoint point={point} onClose={onClose}>
@@ -301,7 +283,6 @@ function GitContextMenuPopover({ point, items, onClose }: GitContextMenuPopoverP
   );
 }
 
-/** Removes leading/trailing/consecutive separators from generated menus. */
 function collapseGitMenuSeparators(items: GitMenuSpec[]): GitMenuSpec[] {
   const out: GitMenuSpec[] = [];
   for (const item of items) {
@@ -314,7 +295,6 @@ function collapseGitMenuSeparators(items: GitMenuSpec[]): GitMenuSpec[] {
   return out;
 }
 
-/** Finds the closest previous item label to anchor a separator React key. */
 function previousMenuLabel(items: GitMenuSpec[], index: number): string | null {
   for (let i = index - 1; i >= 0; i -= 1) {
     const item = items[i];
@@ -323,5 +303,4 @@ function previousMenuLabel(items: GitMenuSpec[], index: number): string | null {
   return null;
 }
 
-/** No-op placeholder for disabled future menu hooks. */
 function noop(): void {}

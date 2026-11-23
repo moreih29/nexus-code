@@ -6,7 +6,6 @@ import koCommon from "../../../../../src/shared/i18n/locales/ko/common.json";
 import koSettings from "../../../../../src/shared/i18n/locales/ko/settings.json";
 import type { UpdateProgress, UpdateStatus } from "../../../../../src/shared/updates/status";
 
-// The Vite define the panel prints; Bun test has no bundler pass.
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "1.2.3";
 
 const { AboutPanel, UpdateSection, VersionRow } = await import(
@@ -16,16 +15,11 @@ const { AboutPanel, UpdateSection, VersionRow } = await import(
 const globals = globalThis as { window?: unknown };
 const originalWindow = globals.window;
 
-/**
- * Renders the panel under the preload's host info.
- */
 function renderWithHost(host: { platform: NodeJS.Platform; windowsStore?: boolean }): string {
   globals.window = { host };
   return renderToStaticMarkup(<AboutPanel />);
 }
 
-// The panel reads the updates store, which a server render sees only in its
-// initial state; the section showing a status is rendered on its own.
 function renderStatus(status: UpdateStatus, progress: UpdateProgress | null = null): string {
   return renderToStaticMarkup(<UpdateSection status={status} progress={progress} />);
 }
@@ -35,10 +29,6 @@ afterEach(() => {
 });
 
 describe("AboutPanel's website links", () => {
-  /**
-   * The panel's links to the site: label, address, and that each opens in a
-   * new tab, marked as leaving the app.
-   */
   function siteLinks(html: string): [string, string][] {
     return Array.from(
       html.matchAll(
@@ -60,7 +50,6 @@ describe("AboutPanel's website links", () => {
       ["Support", "https://nexuscode.gradiendo.com/en/support/"],
       ["Privacy Policy", "https://nexuscode.gradiendo.com/en/privacy/"],
     ]);
-    // A Microsoft Store install has them too.
     expect(siteLinks(renderWithHost({ platform: "win32", windowsStore: true }))).toHaveLength(3);
   });
 
@@ -82,7 +71,6 @@ describe("AboutPanel's website links", () => {
 });
 
 describe("AboutPanel's groups", () => {
-  /** The groups' titles, top to bottom. */
   function titles(html: string): string[] {
     return Array.from(html.matchAll(/<h3 [^>]*>([^<]+)<\/h3>/g), (m) => m[1] ?? "");
   }
@@ -90,12 +78,10 @@ describe("AboutPanel's groups", () => {
   test("puts the app first, then its updates, the website and the logs, each titled", () => {
     const html = renderWithHost({ platform: "darwin" });
     expect(titles(html)).toEqual(["Updates", "Links", "Logs"]);
-    // The app above them all, its release notes beside it.
     expect(html.indexOf("NexusCode")).toBeLessThan(html.indexOf(">Updates<"));
     expect(html.indexOf('data-testid="about-release-notes"')).toBeLessThan(
       html.indexOf(">Updates<"),
     );
-    // The version heads the updates, the auto check under it.
     expect(html.indexOf(">Updates<")).toBeLessThan(html.indexOf("Version 1.2.3"));
     expect(html.indexOf("Version 1.2.3")).toBeLessThan(
       html.indexOf("Automatically check for updates"),
@@ -133,7 +119,6 @@ describe("AboutPanel updates", () => {
     expect(html).not.toContain("Check for Updates");
   });
 
-  /** The version row as `status` and `progress` show it, outside the Store. */
   function renderRow(status: UpdateStatus | null, progress: UpdateProgress | null = null): string {
     return renderToStaticMarkup(
       <VersionRow status={status} progress={progress} storeManaged={false} />,
@@ -142,9 +127,7 @@ describe("AboutPanel updates", () => {
 
   test("the version row keeps its label and wraps its buttons in a narrow window", () => {
     const html = renderRow({ kind: "installFailed", releaseUrl: "https://example.invalid/r" });
-    // The label holds a minimum width instead of shrinking to nothing...
     expect(html).toContain("min-w-40");
-    // ...and the buttons wrap, beside the label or under it.
     expect(html).toContain("flex-wrap");
     expect(html).toContain("max-w-full");
   });
@@ -154,7 +137,6 @@ describe("AboutPanel updates", () => {
     expect(html).toContain("Version 1.2.3");
     expect(html).toContain("Up to date");
     expect(html).toContain("Check for Updates");
-    // Before any check the version stands alone, with the check beside it.
     const unchecked = renderRow(null);
     expect(unchecked).toContain("Version 1.2.3");
     expect(unchecked).toContain("Check for Updates");
@@ -172,7 +154,6 @@ describe("AboutPanel updates", () => {
     expect(html).toContain("Version 1.3.0 available");
     expect(html).toContain(">Update<");
     expect(html).not.toContain("Check for Updates");
-    // The release notes are the app's, above.
     expect(html).not.toContain("Release Notes");
   });
 
@@ -217,8 +198,6 @@ describe("AboutPanel updates", () => {
 });
 
 describe("the update wording", () => {
-  // Where an update stands reads on the About page, the title bar's update
-  // popover, the release notes, the Remote page and the toasts.
   const ko: [string, string][] = [
     ...Object.entries(koCommon.updates).filter(
       (entry): entry is [string, string] => typeof entry[1] === "string",
@@ -244,9 +223,7 @@ describe("the update wording", () => {
           <VersionRow status={status} progress={null} storeManaged={false} />
         </I18nextProvider>,
       );
-    expect(row({ kind: "current", trigger: "manual", current: "1.2.3" })).toContain(
-      ">최신 버전 사용 중<",
-    );
+    expect(row({ kind: "current", trigger: "manual", current: "1.2.3" })).toContain(">최신 상태<");
     expect(
       row({
         kind: "newer",

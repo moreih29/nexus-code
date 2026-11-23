@@ -1,23 +1,3 @@
-/**
- * Reveal-flow unit tests.
- *
- * Covers two layers:
- *
- *   1. `revealRange` — the focus / setSelection / revealRangeInCenter call
- *      sequence on a single editor.
- *
- *   2. `registerRevealTarget` + `requestEditorReveal` — the registry that
- *      replaced the earlier broadcast-bus design. The bus broadcasted
- *      every reveal to every subscribed editor; with ContentHost keeping
- *      inactive editors mounted in a view park, the FIRST subscriber to
- *      claim a pending reveal was usually a parked (visibility:hidden)
- *      editor whose `editor.focus()` silently no-oped — leaving the
- *      visible editor unaware that anything had been requested. The
- *      registry keeps one editor per tab of a (workspaceId, filePath) and
- *      routes each reveal to the named tab, or to the most recently
- *      mounted editor when no tab is named.
- */
-
 import { afterAll, describe, expect, it, mock } from "bun:test";
 import {
   registerRevealTarget,
@@ -25,7 +5,6 @@ import {
 } from "../../../../../src/renderer/services/editor/tabs/pending-reveal";
 import { __resetPendingEditorRevealsForTests } from "../../../../../src/renderer/services/editor/tabs/testing";
 
-// revealRange keeps centering for a few frames; frames here are drawn by hand.
 const frames: FrameRequestCallback[] = [];
 const originalRaf = globalThis.requestAnimationFrame;
 globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) =>
@@ -40,7 +19,6 @@ interface StubEditor {
   revealRangeInCenter: ReturnType<typeof mock>;
   getLayoutInfo: () => { height: number };
   onDidLayoutChange: (listener: (layout: { height: number }) => void) => { dispose(): void };
-  /** Lays the editor out at `height`, telling its layout listeners. */
   layOut(height: number): void;
 }
 
@@ -83,15 +61,10 @@ describe("requestEditorReveal — pending queue when no target is registered", (
     const editor = makeStubEditor();
     const input = { workspaceId: "ws-1", filePath: "/abs/lead.toml" };
 
-    // No editor live yet — mirrors a search-match click that opens a new tab
-    // before Monaco has finished mounting.
     requestEditorReveal({ ...input, range: RANGE_A });
 
-    // Stub editor must NOT have been touched: nothing is registered yet.
     expect(editor.focus).not.toHaveBeenCalled();
 
-    // Editor finishes mounting and registers itself; the queued reveal must
-    // be flushed against this editor as part of registration.
     registerRevealTarget(input, editor as never);
 
     expect(editor.setSelection).toHaveBeenLastCalledWith(RANGE_A);
@@ -108,8 +81,6 @@ describe("requestEditorReveal — pending queue when no target is registered", (
 
     registerRevealTarget(input, editor as never);
 
-    // Only the latest range should land — the user clicked the second match
-    // before the editor mounted, so RANGE_A is no longer relevant.
     expect(editor.setSelection).toHaveBeenCalledTimes(1);
     expect(editor.setSelection).toHaveBeenLastCalledWith(RANGE_B);
     expect(editor.revealRangeInCenter).toHaveBeenLastCalledWith(RANGE_B);
@@ -124,10 +95,6 @@ describe("registerRevealTarget — last-mount-wins and identity-checked unregist
     const input = { workspaceId: "ws-1", filePath: "/abs/lead.toml" };
 
     registerRevealTarget(input, oldEditor as never);
-    // A second mount for the same file (e.g. preview-slot reuse remounts
-    // EditorView, or HMR / leak left an old EditorView alive in the view
-    // park) overwrites the registry entry. Subsequent reveals MUST go to
-    // the new (visible) editor — not the old one.
     registerRevealTarget(input, newEditor as never);
 
     requestEditorReveal({ ...input, range: RANGE_A });
@@ -148,9 +115,6 @@ describe("registerRevealTarget — last-mount-wins and identity-checked unregist
     const unregisterOld = registerRevealTarget(input, oldEditor as never);
     registerRevealTarget(input, newEditor as never);
 
-    // Old editor finally unmounts AFTER the new one already registered.
-    // The cleanup must use an identity check so it doesn't accidentally
-    // delete the new owner's entry.
     unregisterOld();
 
     requestEditorReveal({ ...input, range: RANGE_B });
@@ -168,12 +132,10 @@ describe("registerRevealTarget — last-mount-wins and identity-checked unregist
     const unregister = registerRevealTarget(input, firstEditor as never);
     unregister();
 
-    // No editor live — request should queue.
     requestEditorReveal({ ...input, range: RANGE_A });
     expect(firstEditor.focus).not.toHaveBeenCalled();
     expect(secondEditor.focus).not.toHaveBeenCalled();
 
-    // Re-mount drains the queue.
     registerRevealTarget(input, secondEditor as never);
     expect(secondEditor.setSelection).toHaveBeenLastCalledWith(RANGE_A);
     expect(secondEditor.revealRangeInCenter).toHaveBeenLastCalledWith(RANGE_A);

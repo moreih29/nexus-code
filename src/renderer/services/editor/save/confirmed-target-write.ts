@@ -1,6 +1,5 @@
 import type { ExpectedFileStateContract, WriteFileResult } from "../../../../shared/fs/types";
 
-/** Confirm a collision in the target workspace before retrying against that exact file state. */
 export async function writeConfirmedSaveTarget(
   write: (expected: ExpectedFileStateContract) => Promise<WriteFileResult>,
   confirmReplacement: () => Promise<boolean>,

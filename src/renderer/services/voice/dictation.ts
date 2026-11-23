@@ -1,12 +1,3 @@
-/**
- * Voice input, one dictation at a time across the window: the microphone
- * is captured here and sent to main's voice socket, and what the server
- * hears comes back as finals and a partial, kept in this store for the
- * composer that owns the dictation to show. When the dictation ends, its
- * text stays with that composer (`ended`); nothing is ever sent for the
- * user. Failures are told in a toast.
- */
-
 import i18next from "i18next";
 import { create } from "zustand";
 import type { VoicePurpose } from "../../../../packages/remote-protocol/src/voice";
@@ -21,29 +12,23 @@ import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { voiceAvailability, voiceAvailabilityNow } from "./availability";
 import { type Capture, CaptureError, openMicrophone, startCapture } from "./capture";
 
-/** How long after stopping the rest of the text may take before the dictation ends anyway. */
 export const STOP_TIMEOUT_MS = 10_000;
 
 export type DictationPhase = "idle" | "starting" | "listening" | "stopping";
 
-/** A finished dictation's text, for its owner to keep. */
 export interface EndedDictation {
   owner: string;
   finals: string;
   partial: string;
-  /** Counts endings, so the same text twice is still seen as new. */
   seq: number;
 }
 
 interface DictationState {
   phase: DictationPhase;
-  /** The composer dictated into. */
   owner: string | null;
   finals: string;
   partial: string;
-  /** How loud the microphone is, 0 to 1, while listening. */
   level: number;
-  /** When it began to listen, and how long the server lets it run (Unix ms, ms); null meanwhile. */
   listeningSince: number | null;
   limitMs: number | null;
   ended: EndedDictation | null;
@@ -64,11 +49,8 @@ interface Session {
   owner: string;
   id: string | null;
   capture: Capture | null;
-  /** Revocations received while waiting for IPC to return the session's id. */
   revokedBeforeStart?: Set<string>;
-  /** Releases the microphone while the audio worklet is still starting. */
   releaseStartingStream?: () => void;
-  /** Stopped (or dropped) while still starting: the start undoes itself. */
   abandoned: boolean;
   stopTimer?: ReturnType<typeof setTimeout>;
   levelTimer?: ReturnType<typeof setInterval>;
@@ -78,7 +60,6 @@ let session: Session | null = null;
 let endedCount = 0;
 let listening = false;
 
-/** Tells why voice input did not start or stopped, with the way out where there is one. */
 export function tellFailure(
   reason: VoiceFailure | CaptureError["reason"],
   purpose: VoicePurpose = "dictation",
@@ -170,7 +151,6 @@ function onEvent({ id, event }: VoiceEvent): void {
       return;
     case "closed": {
       const stopping = useDictationStore.getState().phase === "stopping";
-      // 4001: the sign-in ended. Anything but a finished session while still listening: it dropped.
       if (event.code === VOICE_CLOSE_SIGNED_OUT) tellFailure("signed-out");
       else if (event.code !== 1000 && !stopping) {
         showToast({ kind: "error", message: i18next.t("common:voice.failure.dropped") });
@@ -181,7 +161,6 @@ function onEvent({ id, event }: VoiceEvent): void {
   }
 }
 
-/** Ends the dictation: its text stays with its owner. */
 function finish(): void {
   const ending = session;
   if (!ending) return;
@@ -202,12 +181,7 @@ function finish(): void {
   });
 }
 
-/**
- * Starts dictating into `owner` in `language`; while one dictation runs,
- * any click stops it.
- */
 export async function toggleDictation(owner: string, language: string): Promise<void> {
-  // One at a time: a click anywhere while one runs stops it, its text kept where it was.
   if (session) {
     stopDictation();
     return;
@@ -298,15 +272,10 @@ async function startDictation(owner: string, language: string): Promise<void> {
   });
 }
 
-/**
- * Stops listening: the microphone goes off at once, and the server sends
- * the rest of the text before the dictation ends.
- */
 export function stopDictation(): void {
   const current = session;
   if (!current) return;
   if (!current.id || !current.capture) {
-    // Still starting: the start undoes itself when it comes back.
     current.abandoned = true;
     session = null;
     useDictationStore.setState({ phase: "idle", owner: null, finals: "", partial: "" });
@@ -325,7 +294,6 @@ export function stopDictation(): void {
   }, STOP_TIMEOUT_MS);
 }
 
-/** Drops the dictation of `owner` (its composer went away): what was heard is lost. */
 export function cancelDictation(owner: string): void {
   const current = session;
   if (!current || current.owner !== owner) return;
@@ -338,10 +306,6 @@ export function cancelDictation(owner: string): void {
   useDictationStore.setState({ phase: "idle", owner: null, finals: "", partial: "", level: 0 });
 }
 
-// ---------------------------------------------------------------------------
-// The shortcut's target: the composer focused last
-// ---------------------------------------------------------------------------
-
 interface Target {
   owner: string;
   toggle(): void;
@@ -350,7 +314,6 @@ interface Target {
 const targets = new Map<string, Target>();
 let lastFocused: string | null = null;
 
-/** A composer that can be dictated into, for the shortcut; returns its removal. */
 export function registerDictationTarget(target: Target): () => void {
   targets.set(target.owner, target);
   return () => {
@@ -363,7 +326,6 @@ export function focusedDictationTarget(owner: string): void {
   lastFocused = owner;
 }
 
-/** The shortcut: stops the dictation running, or starts one in the composer focused last. */
 export function toggleDictationByShortcut(): boolean {
   if (session) {
     stopDictation();

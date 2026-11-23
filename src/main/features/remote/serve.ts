@@ -1,8 +1,3 @@
-/**
- * What this device serves the account's other devices: its sessions, with
- * the same services the nexus CLI uses.
- */
-
 import {
   type AgentSender,
   RpcErrorCode,
@@ -14,10 +9,11 @@ import {
   workspaceInstructionTarget,
 } from "../../../shared/chat/instructions";
 import type { RelaySender } from "../../../shared/chat/relay";
-import { PROFILE_USAGE_REFRESH_TIMEOUT_MS } from "../../../shared/cli/ui";
+import { type CliUiOps, PROFILE_USAGE_REFRESH_TIMEOUT_MS } from "../../../shared/cli/ui";
+import { shortId } from "../../../shared/util/short-id";
 import type { CliServices } from "../cli/context";
 import { openerOf } from "../cli/sender";
-import { type AgentRequest, relaySenderOf } from "./agent-gate";
+import { type AgentRequest, lifetimeOf, relaySenderOf } from "./agent-gate";
 import { Attachments } from "./attachments";
 import { answerConsent } from "./consents";
 import { isFileTransferMethod } from "./file-io";
@@ -162,7 +158,6 @@ export { listSessions, sessionAgents } from "./serving/sessions";
 export { DEFAULT_TERMINAL_LINES, readTerminal } from "./serving/terminal";
 export { createWorkspace } from "./serving/workspaces";
 
-/** What an agent reads (`from`, since 0.12.0): taken where agents are, with no prompt. */
 const AGENT_READS: ReadonlySet<string> = new Set([
   "sessions.list",
   "chat.read",
@@ -195,7 +190,6 @@ const AGENT_READS: ReadonlySet<string> = new Set([
   "browser.permissions",
 ]);
 
-/** A single deadline for reads that can cross both the renderer and the file system. */
 const READ_DEADLINES: Partial<Record<RpcMethod, number>> = {
   "chat.commands": 12_000,
   "chat.panel": 12_000,
@@ -220,14 +214,12 @@ const READ_DEADLINES: Partial<Record<RpcMethod, number>> = {
   "browser.permissions": 12_000,
 };
 
-/** Answers another device's request with this device's services. */
 export function serveWith(services: () => CliServices | null, watches: RemoteServeOptions = {}) {
   const { chats, sessions, terminals, git } = watches;
   const attachments = watches.attachments ?? new Attachments();
   const uploads = watches.uploads ?? new Uploads(attachments);
   const fileWrites = watches.fileWrites ?? new FileWrites();
   const photoQuota = watches.photoQuota ?? new PhotoQuota();
-  /** files.find and files.search running now, by the device that asked. */
   const searching = new Map<string, number>();
   async function dispatch(services: CliServices, request: RemoteServeRequest) {
     const { from, method } = request;
@@ -249,9 +241,8 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     if (terminals && method === "terminal.unwatch") {
       return terminals.unwatch(from, params as RpcParams<"terminal.unwatch">);
     }
-    // An agent's request: let through as the user set it, and shown as that agent's.
-    // A read is only taken where agents are (the room saw to that): nothing to ask.
     const by = (params as { from?: AgentSender } | undefined)?.from;
+    if (by && request.signal) s = askingWhileWanted(s, request.signal);
     if (
       (method === "sessions.reorder" ||
         method === "sessions.markSeen" ||
@@ -265,11 +256,9 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     if (by && !watches.agents) {
       throw new RpcFailure(RpcErrorCode.Forbidden, "agents' requests are not taken here");
     }
-    // File controls ask in their handlers, after validating their scope.
     const agentOnly =
       method === "settings.instructions" ||
       method === "settings.instructions.set" ||
-      method === "profiles.usage" ||
       method === "notes.voiceNames.delete";
     if (agentOnly && !by)
       throw new RpcFailure(RpcErrorCode.Forbidden, "an agent sender is required");
@@ -284,7 +273,6 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         if (!workspace) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
         const target = workspaceInstructionTarget(workspace, workspaces);
         if (!target) throw new RpcFailure(RpcErrorCode.NotFound, "no parent workspace");
-        // Ask for consent on the workspace whose instructions will be changed.
         params = { ...edit, workspaceId: target.id };
       }
     }
@@ -292,30 +280,33 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
     const readOnly = AGENT_READS.has(method);
     if (by && (readOnly || checkInHandler)) watches.agents?.checkRead();
     if (by && watches.agents && !readOnly && !checkInHandler) {
-      const device = { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) };
+      const device = { id: from, name: watches.deviceName?.(from) ?? shortId(from) };
       relay = relaySenderOf(by, device);
       expectedMode = await watches.agents.check(s, {
         device,
         method,
         params: params as AgentRequest["params"],
+        ...lifetimeOf(request),
       });
     }
     const checkCurrent = () => {
       if (request.isCurrent?.() === false) {
         throw new RpcFailure(RpcErrorCode.Unavailable, "the requesting device left the room");
       }
+      request.signal?.throwIfAborted();
     };
     if (by && !readOnly && !checkInHandler) {
       checkCurrent();
+      const asking = s;
       s = {
-        ...services,
+        ...asking,
         ui: (op, args, timeoutMs) => {
           checkCurrent();
-          return services.ui(op, args, timeoutMs);
+          return asking.ui(op, args, timeoutMs);
         },
         answerClaudeAsk: (...args) => {
           checkCurrent();
-          return services.answerClaudeAsk(...args);
+          return asking.answerClaudeAsk(...args);
         },
       };
     }
@@ -330,7 +321,6 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "sessions.markSeen": {
         checkCurrent();
         const receipt = params as RpcParams<"sessions.markSeen">;
-        // Lists made from here on leave these read, though the renderer is still taking them.
         const held = holdReceipts(s, receipt.seen);
         try {
           const result = await s.ui("sessions.markSeen", receipt);
@@ -349,7 +339,6 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
         const { workspaceId, agent, profileId } = params as RpcParams<"settings.instructions">;
         if (!workspaceOf(s, workspaceId))
           throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
-        // The renderer uses the selected workspace for profile rules and resolves its layer separately.
         return s
           .ui("settings.instructions", { workspaceId, agent, ...(profileId ? { profileId } : {}) })
           .catch(unavailable);
@@ -528,7 +517,7 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "consent.answer":
         return answerConsent(
           s,
-          { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) },
+          { id: from, name: watches.deviceName?.(from) ?? shortId(from) },
           controls,
           request.params as RpcParams<"consent.answer">,
         );
@@ -563,7 +552,6 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "files.search":
         return serveFileSearch(s, request, watches, searching);
       case "system.stats": {
-        // Only where the workspace's files may be read.
         if (!watches.files || !watches.stats) {
           throw new RpcFailure(RpcErrorCode.MethodNotFound, "system.stats is not served here");
         }
@@ -620,7 +608,6 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "chat.interrupt":
         return interruptChat(s, request.params as RpcParams<"chat.interrupt">);
       case "chat.restart":
-        // The user's own, as chat.mcp.
         return restartChat(s, request.params as RpcParams<"chat.restart">);
       case "chat.checkSignIn":
         return checkChatSignIn(s, request.params as RpcParams<"chat.checkSignIn">);
@@ -709,10 +696,8 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
       case "chat.remoteControl":
         return setChatRemoteControl(s, request.params as RpcParams<"chat.remoteControl">);
       case "chat.mcp":
-        // The user's own: the room refuses an agent's, as its params have no `from`.
         return workChatMcp(s, request.params as RpcParams<"chat.mcp">);
       case "chat.config":
-        // The user's own, as chat.mcp.
         return workChatConfig(s, request.params as RpcParams<"chat.config">);
       case "history.list":
         return listHistory(s, request.params as RpcParams<"history.list">);
@@ -762,3 +747,17 @@ export function serveWith(services: () => CliServices | null, watches: RemoteSer
 export { DEFAULT_EVENTS } from "./serving/chat-details";
 export { MAX_SEARCHES_PER_DEVICE } from "./serving/files";
 export type { WorkspaceGit } from "./serving/sessions";
+
+function askingWhileWanted(services: CliServices, signal: AbortSignal): CliServices {
+  return {
+    ...services,
+    ui: (op, args, timeoutMs) =>
+      op === "consent.ask"
+        ? (services.consents.ask(
+            args as CliUiOps["consent.ask"]["args"],
+            timeoutMs,
+            signal,
+          ) as Promise<CliUiOps[typeof op]["result"]>)
+        : services.ui(op, args, timeoutMs),
+  };
+}

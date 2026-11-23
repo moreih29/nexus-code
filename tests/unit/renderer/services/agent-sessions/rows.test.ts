@@ -1,4 +1,3 @@
-/** The agent lists' groups: an agent whose terminal ended is not listed. */
 import { describe, expect, test } from "bun:test";
 import type { AgentSession } from "../../../../../src/renderer/services/agent-sessions/model";
 import {

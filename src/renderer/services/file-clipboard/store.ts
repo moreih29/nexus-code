@@ -1,15 +1,5 @@
-/**
- * Zustand store for the file clipboard (cut/copy buffer).
- *
- * Auto-clears on workspace switch via a `useActiveStore.subscribe` hook.
- */
-
 import { create } from "zustand";
 import { useActiveStore } from "@/state/stores/active";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export interface ClipboardEntry {
   relPath: string;
@@ -31,20 +21,12 @@ export interface FileClipboardState {
   clear: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// Init
-// ---------------------------------------------------------------------------
-
 const init: Pick<FileClipboardState, "kind" | "workspaceId" | "entries" | "sourceRootPath"> = {
   kind: null,
   workspaceId: "",
   entries: [],
   sourceRootPath: "",
 };
-
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
 
 export const useFileClipboardStore = create<FileClipboardState>((set) => ({
   ...init,
@@ -57,10 +39,6 @@ export const useFileClipboardStore = create<FileClipboardState>((set) => ({
     set(init);
   },
 }));
-
-// ---------------------------------------------------------------------------
-// Auto-clear on workspace switch
-// ---------------------------------------------------------------------------
 
 useActiveStore.subscribe((state, prev) => {
   if (state.activeWorkspaceId !== prev.activeWorkspaceId) {

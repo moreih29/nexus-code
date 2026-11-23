@@ -1,9 +1,3 @@
-// Servers ask the client for a `workspace/configuration` slice via
-// dotted section names ("python.analysis.typeCheckingMode"). The host
-// stores per-(workspace, language) initialization options and then
-// resolves arbitrary dotted lookups against the flattened map. Lives
-// in its own module so the host class only handles the storage policy.
-
 export function flattenInitializationOptions(
   value: unknown,
   prefix = "",

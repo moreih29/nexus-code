@@ -1,10 +1,3 @@
-// The title bar's update button: shown only while there is an update to
-// take — a newer version, its download, the restart that installs it, or
-// an install that failed. The app checks every few hours while it runs, and
-// tells of a version with a toast only once; this is where it stays.
-// Clicking it shows where the update stands with its actions, as Settings ›
-// About does.
-
 import { CircleArrowUp, RotateCw, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -30,7 +23,6 @@ export function UpdateButton() {
   const progress = useUpdatesStore((s) => s.progress);
   const ignoredVersion = useUpdatesStore((s) => s.ignoredVersion);
   const [open, setOpen] = useState(false);
-  // The Microsoft Store updates its own install.
   const shown =
     window.host?.windowsStore === true ? null : updateButtonOf(status, progress, ignoredVersion);
   if (!shown) return null;

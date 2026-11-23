@@ -1,10 +1,3 @@
-/**
- * Agent profiles: a Claude or Codex config folder (CLAUDE_CONFIG_DIR,
- * CODEX_HOME), each with its own sign-in, history and settings; and the
- * rules that pick a workspace's profile for each agent. Every agent has a
- * profile in its default folder, which sets no variable at all.
- */
-
 import { z } from "zod";
 import type { ChatAgent } from "../sessions/task-agent";
 import type { WorkspaceLocation } from "../types/workspace";
@@ -12,38 +5,29 @@ import { ProfileConnectionSchema } from "./connection";
 
 export const PROFILE_AGENTS = ["claude", "codex"] as const satisfies readonly ChatAgent[];
 
-/** The colors a profile's dot may have; the renderer maps each to a token. */
 export const PROFILE_COLORS = ["blue", "violet", "green", "amber", "rose", "cyan", "gray"] as const;
 export type ProfileColor = (typeof PROFILE_COLORS)[number];
 
-/** The variable that points each agent at a profile's folder. */
 export const PROFILE_DIR_ENV: Record<ChatAgent, string> = {
   claude: "CLAUDE_CONFIG_DIR",
   codex: "CODEX_HOME",
 };
 
-/** The default folder each agent uses when its variable is unset. */
 export const DEFAULT_PROFILE_DIR: Record<ChatAgent, string> = {
   claude: "~/.claude",
   codex: "~/.codex",
 };
 
-/**
- * What a profile's folder may link from the default folder, so the profiles
- * share it: instructions, settings, skills… Sign-ins and history stay apart.
- */
 export const SHAREABLE: Record<ChatAgent, readonly string[]> = {
   claude: ["CLAUDE.md", "settings.json", "skills", "agents", "commands", "plugins"],
   codex: ["AGENTS.md", "config.toml", "prompts", "skills", "rules"],
 };
 
-/** What a new profile links unless the user unticks it. */
 export const SHARED_BY_DEFAULT: Record<ChatAgent, readonly string[]> = {
   claude: ["CLAUDE.md", "settings.json", "skills", "agents", "commands"],
   codex: ["AGENTS.md", "config.toml", "prompts", "skills"],
 };
 
-/** The id of an agent's profile in its default folder. */
 export function defaultProfileId(agent: ChatAgent): string {
   return `${agent}-default`;
 }
@@ -64,17 +48,11 @@ const EnvKeySchema = z
 const agentProfileSchema = z.object({
   id: ProfileIdSchema,
   agent: z.enum(PROFILE_AGENTS),
-  /** The user's name for it; "" on the default profile = its usual name. */
   name: z.string().max(40),
-  /** A PROFILE_COLORS name, kept as a plain string for colors to come. */
   color: z.string().max(16),
-  /** The config folder, "~/" for the home folder; "" = the default folder. */
   dir: z.string().max(1024),
-  /** What the folder links from the default folder (SHAREABLE names). */
   shared: z.array(z.string().max(64)).max(32).optional(),
-  /** Runtime connection metadata. The API key is stored separately. */
   connection: ProfileConnectionSchema.optional(),
-  /** More variables the agent runs with. */
   env: z.record(EnvKeySchema, z.string().max(4096)).optional(),
 });
 export type AgentProfile = z.infer<typeof agentProfileSchema>;
@@ -82,9 +60,7 @@ export const AgentProfileSchema: z.ZodType<AgentProfile> = agentProfileSchema;
 
 export const ProfileTargetSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("workspace"), workspaceId: z.guid() }),
-  /** A local folder and every folder under it. */
   z.object({ kind: z.literal("folder"), path: z.string().min(1).max(1024) }),
-  /** Every workspace on an SSH host, by the name it was reached by. */
   z.object({ kind: z.literal("ssh"), host: z.string().min(1).max(255) }),
 ]);
 export type ProfileTarget = z.infer<typeof ProfileTargetSchema>;
@@ -93,13 +69,11 @@ export type ProfileTargetKind = ProfileTarget["kind"];
 export const ProfileRuleSchema = z.object({
   id: z.string().min(1).max(64),
   target: ProfileTargetSchema,
-  /** The profile each agent gets; absent = the next rule's, or the default. */
   claude: ProfileIdSchema.optional(),
   codex: ProfileIdSchema.optional(),
 });
 export type ProfileRule = z.infer<typeof ProfileRuleSchema>;
 
-/** An array that drops the entries it cannot read, rather than failing whole. */
 function lenientArray<T extends z.ZodType>(item: T, max: number) {
   return z.preprocess(
     (value) =>
@@ -113,7 +87,6 @@ function lenientArray<T extends z.ZodType>(item: T, max: number) {
 const agentProfilesSchema = z.object({
   profiles: lenientArray(AgentProfileSchema, MAX_AGENT_PROFILES),
   rules: lenientArray(ProfileRuleSchema, 512),
-  /** Each agent's profile where no rule says; absent = the default profile. */
   defaults: z.object({ claude: ProfileIdSchema.optional(), codex: ProfileIdSchema.optional() }),
 });
 export type AgentProfiles = z.infer<typeof agentProfilesSchema>;
@@ -123,7 +96,6 @@ export const EMPTY_AGENT_PROFILES: AgentProfiles = { profiles: [], rules: [], de
 
 const DEFAULT_COLORS: Record<ChatAgent, ProfileColor> = { claude: "blue", codex: "cyan" };
 
-/** An agent's profiles, its default-folder one first. */
 export function profilesOf(config: AgentProfiles, agent: ChatAgent): AgentProfile[] {
   const id = defaultProfileId(agent);
   const stored = config.profiles.find((p) => p.id === id);
@@ -139,7 +111,6 @@ export function profilesOf(config: AgentProfiles, agent: ChatAgent): AgentProfil
   return [first, ...config.profiles.filter((p) => p.agent === agent && p.id !== id)];
 }
 
-/** The agent's profile of that id; the default one for an id it has not. */
 export function profileOf(
   config: AgentProfiles,
   agent: ChatAgent,
@@ -149,31 +120,21 @@ export function profileOf(
   return all.find((p) => p.id === id) ?? (all[0] as AgentProfile);
 }
 
-/** Whether the agent has a profile of that id. */
 export function hasProfile(config: AgentProfiles, agent: ChatAgent, id: string): boolean {
   return profilesOf(config, agent).some((p) => p.id === id);
 }
 
-// ---------------------------------------------------------------------------
-// Which profile a workspace gets
-// ---------------------------------------------------------------------------
-
-/** What a rule matches a workspace by. */
 export interface ProfileWorkspace {
   id: string;
   location: WorkspaceLocation;
-  /** The workspace a task was made from: a task follows its rules too. */
   parent?: { id: string; location: WorkspaceLocation } | undefined;
 }
 
 export interface MatchOptions {
-  /** Paths compare without case, and with either slash. */
   windows?: boolean;
-  /** The home folder, for a folder rule written with "~". */
   home?: string;
 }
 
-/** Why a workspace has its profile: the rule that set it, or none. */
 export type ProfileSource =
   | { kind: "workspace"; ruleId: string }
   | { kind: "folder"; ruleId: string }
@@ -195,7 +156,6 @@ function normalizePath(path: string, options: MatchOptions): string {
   return p === "" ? "/" : p;
 }
 
-/** How deep the folder is when `path` lies in it (0 = the root), else -1. */
 export function folderDepth(folder: string, path: string, options: MatchOptions = {}): number {
   const dir = normalizePath(folder, options);
   const target = normalizePath(path, options);
@@ -212,12 +172,10 @@ function sshNames(location: WorkspaceLocation): string[] {
     .map((name) => name.toLowerCase());
 }
 
-/** The workspace and the one its task was made from, its own first. */
 function subjects(ws: ProfileWorkspace): { id: string; location: WorkspaceLocation }[] {
   return ws.parent ? [ws, ws.parent] : [ws];
 }
 
-/** Whether the rule's target takes in the workspace. */
 export function ruleMatches(
   rule: ProfileRule,
   ws: ProfileWorkspace,
@@ -240,11 +198,6 @@ export function ruleMatches(
   });
 }
 
-/**
- * The rule that sets the agent's profile for the workspace: one for the
- * workspace itself, then the deepest folder it is in, then its SSH host. A
- * rule that leaves the agent out, or names a profile gone, is passed over.
- */
 export function ruleFor(
   config: AgentProfiles,
   agent: ChatAgent,
@@ -272,7 +225,6 @@ export function ruleFor(
   return usable.find((r) => r.target.kind === "ssh");
 }
 
-/** The profile the agent runs with in the workspace, and why. */
 export function resolveProfile(
   config: AgentProfiles,
   agent: ChatAgent,
@@ -289,11 +241,6 @@ export function resolveProfile(
   return { profile: profileOf(config, agent, config.defaults[agent]), source: { kind: "default" } };
 }
 
-// ---------------------------------------------------------------------------
-// Edits
-// ---------------------------------------------------------------------------
-
-/** The config with the profile added, or put in place of the one of its id. */
 export function withProfile(config: AgentProfiles, profile: AgentProfile): AgentProfiles {
   const at = config.profiles.findIndex((p) => p.id === profile.id);
   const profiles = [...config.profiles];
@@ -302,14 +249,12 @@ export function withProfile(config: AgentProfiles, profile: AgentProfile): Agent
   return { ...config, profiles };
 }
 
-/** The config without the profile, nor any rule or default naming it. */
 function namedIt(rule: ProfileRule, id: string): boolean {
   return rule.claude === id || rule.codex === id;
 }
 
 export function withoutProfile(config: AgentProfiles, id: string): AgentProfiles {
   if (isDefaultProfileId(id)) return config;
-  // A rule left with no agent by this goes; one the user left empty stays.
   const rules = config.rules.flatMap((rule) => {
     if (!namedIt(rule, id)) return [rule];
     const next = { ...rule };
@@ -332,7 +277,6 @@ function sameTarget(a: ProfileTarget, b: ProfileTarget, options: MatchOptions): 
   return false;
 }
 
-/** The rule for the target, if there is one. */
 export function ruleOfTarget(
   config: AgentProfiles,
   target: ProfileTarget,
@@ -341,11 +285,6 @@ export function ruleOfTarget(
   return config.rules.find((rule) => sameTarget(rule.target, target, options));
 }
 
-/**
- * The config with the target's rule giving the agent that profile; `null`
- * leaves the agent to the next rule, and a rule left with no agent goes
- * unless `keepEmpty` (Settings keeps a rule the user is still filling in).
- */
 export function withRuleProfile(
   config: AgentProfiles,
   target: ProfileTarget,
@@ -369,7 +308,6 @@ export function withRuleProfile(
   return { ...config, rules };
 }
 
-/** A folder name for a new profile's folder: "~/.claude-personal". */
 export function suggestedProfileDir(
   agent: ChatAgent,
   name: string,
@@ -392,24 +330,17 @@ export function suggestedProfileDir(
   }
 }
 
-/**
- * A profile folder as it is kept: one in the home as "~/…", which every
- * host reads, whatever its separator. A folder picked on Windows comes as
- * "~\.claude-work"; any other folder stays as given.
- */
 export function portableProfileDir(dir: string): string {
   const trimmed = dir.trim();
   return trimmed.startsWith("~\\") ? trimmed.replace(/\\/g, "/") : trimmed;
 }
 
-/** Whether a profile folder is the agent's default folder, which only the default profile has. */
 export function isDefaultDir(agent: ChatAgent, dir: string, options: MatchOptions = {}): boolean {
   const trimmed = dir.trim();
   if (trimmed === "") return true;
   return normalizePath(trimmed, options) === normalizePath(DEFAULT_PROFILE_DIR[agent], options);
 }
 
-/** Whether a folder can be assigned to a non-default profile of this agent. */
 export function profileDirConflict(
   agent: ChatAgent,
   dir: string,
@@ -428,7 +359,6 @@ export function profileDirConflict(
   if (taken.some((other) => other.trim() && normalized(other) === target)) return "taken";
 }
 
-/** How a shareable entry reads in a list: a folder with its slash. */
 export const SHARABLE_LABELS: Readonly<Record<string, string>> = {
   skills: "skills/",
   agents: "agents/",

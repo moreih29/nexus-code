@@ -1,7 +1,3 @@
-/**
- * What a terminal is doing, in one word: Claude Code's state from its hooks,
- * or, for Codex and other CLIs, what its output and notifications show.
- */
 import { describeTerminal, type TerminalState } from "../../../shared/sessions/agent-state";
 import type { CliServices } from "./context";
 

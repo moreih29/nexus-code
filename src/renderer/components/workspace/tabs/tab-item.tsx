@@ -1,18 +1,12 @@
-import i18next from "i18next";
 import {
-  CircleAlert,
-  CircleCheck,
   File,
   FileDiff,
   GitCommit,
   Globe,
-  Loader,
   Lock,
   type LucideIcon,
-  MessageCircleQuestion,
   NotebookPen,
   SquareTerminal,
-  TriangleAlert,
   X,
 } from "lucide-react";
 import { Tabs as RadixTabs } from "radix-ui";
@@ -56,7 +50,8 @@ import { useTabGitDecoration } from "../../../state/stores/git/use-tab-decoratio
 import { useTabEditingStore } from "../../../state/stores/tab-editing";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
 import { MIME_TAB, type TabDragPayload } from "../../../types/workbench-dnd";
-import { codexStatusLabel, estimatedLabel } from "../../agent-list/session-status";
+import { codexStatusLabel, estimatedLabel, StateGlyph } from "../../agent-list/session-status";
+import { programStateLabel } from "../../agent-list/state-look";
 import { TabProfileMark } from "../../agent-profiles/tab-profile";
 import { ClaudeIcon, CodexIcon } from "../../chat/agent-icons";
 import { GoalTabBadge } from "../../chat/goal-bar";
@@ -64,14 +59,6 @@ import { FileIcon } from "../../files/file-tree/file-icon";
 import { kindToColorVar } from "../../files/file-tree/git-decoration";
 import { followRenameDraft, type RenameDraft } from "./rename-draft";
 
-/**
- * Browser tab favicon: the page-advertised URL if there is one, otherwise the default
- * Globe icon. A URL that fails to load (404 / blocked / malformed) falls back to Globe
- * through onError.
- *
- * Keyed by faviconUrl where it is drawn, so a new URL starts it over and is tried again.
- * 12px (size-3) with shrink-0 so it lines up with the text inside the tab chip.
- */
 function BrowserFaviconIcon({ faviconUrl }: { faviconUrl: string | null }) {
   const [errored, setErrored] = useState(false);
 
@@ -98,16 +85,6 @@ function BrowserFaviconIcon({ faviconUrl }: { faviconUrl: string | null }) {
   );
 }
 
-/**
- * Picks the icon for each tab type. Browser and editor tabs return null.
- *
- *  - terminal: SquareTerminal (one icon for all terminals)
- *  - editor: null — rendered as <FileIcon> in the render path below (theme-aware)
- *  - editor.diff: FileDiff (stands for side-by-side comparison)
- *  - git.commit: GitCommit
- *  - untitled: File (an empty file that has not been saved)
- *  - browser: null — the favicon component handles it in a separate slot
- */
 function tabTypeIcon(tab: Tab): LucideIcon | null {
   if (tab.type === "terminal") return SquareTerminal;
   if (tab.type === "editor.diff") return FileDiff;
@@ -116,14 +93,9 @@ function tabTypeIcon(tab: Tab): LucideIcon | null {
   if (tab.type === "claude") return ClaudeIcon;
   if (tab.type === "codex") return CodexIcon;
   if (tab.type === "note") return NotebookPen;
-  return null; // editor (handled via FileIcon) and browser (handled via BrowserFaviconIcon)
+  return null;
 }
 
-/**
- * A tab's type icon: a browser tab's favicon, an editor tab's file icon
- * (theme-aware), otherwise its type's lucide icon. The tab strip's overflow
- * menu shows it too.
- */
 export function TabIcon({ tab }: { tab: Tab }) {
   const faviconUrl = useBrowserRuntimeStore((s) =>
     tab.type === "browser" ? (s.runtimes.get(tab.id)?.faviconUrl ?? null) : null,
@@ -183,11 +155,6 @@ function PinIcon() {
   );
 }
 
-/**
- * Subscribe to dirty state for an editor tab, or for the working-tree file a
- * diff tab edits. Returns false for other tabs and for tabs whose model has
- * not yet been attached (the tracker creates entries lazily on model load).
- */
 export function useTabDirty(tab: Tab): boolean {
   const diffWorkingFile = useDiffWorkingFile(tab.type === "editor.diff" ? tab.props : null);
   const filePath = tab.type === "editor" ? tab.props.filePath : diffWorkingFile;
@@ -203,33 +170,6 @@ export function useTabDirty(tab: Tab): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }
 
-/**
- * Returns the aria-label text for a Claude status.
- * Screen readers read an explicit label such as "Claude: permission request".
- */
-function claudeAriaLabel(status: ClaudeStatus): string {
-  switch (status) {
-    case "running":
-      return i18next.t("claudeStatus.running");
-    case "completed":
-      return i18next.t("claudeStatus.completed");
-    case "needsInput":
-      return i18next.t("claudeStatus.needsInput");
-    case "permissionPending":
-      return i18next.t("claudeStatus.permissionPending");
-    case "error":
-      return i18next.t("claudeStatus.error");
-    case "idle":
-      return i18next.t("claudeStatus.idle");
-  }
-}
-
-/**
- * Claude status glyph component. Returns null when idle so the slot is not rendered at all.
- *
- * Glyph size is 12px (size-3) per design.md §14. Colors reference semantic CSS variables.
- * The glyph shape and the color are combined for redundant encoding.
- */
 function ClaudeGlyph({
   status,
   estimated = false,
@@ -237,84 +177,19 @@ function ClaudeGlyph({
 }: {
   status: ClaudeStatus;
   estimated?: boolean;
-  /** A Codex tab's state, read from its conversation: named as Codex's. */
   codex?: boolean;
 }) {
   if (status === "idle") return null;
-
-  // The parent attaches the aria-label to a span without tabindex, so role="img" +
-  // aria-label lets screen readers read the content. A status inferred from output (Codex
-  // etc.) is marked "(추정)" like session tabs, and is also shown on hover.
   const label = estimated
     ? estimatedLabel(status)
     : codex
       ? codexStatusLabel(status)
-      : claudeAriaLabel(status);
-  const title = estimated ? label : undefined;
-
-  if (status === "running") {
-    return (
-      <span role="img" aria-label={label} title={title}>
-        <Loader
-          width={12}
-          height={12}
-          strokeWidth={1.5}
-          className="shrink-0 text-(--state-loading-indicator) motion-safe:animate-spin"
-        />
-      </span>
-    );
-  }
-  if (status === "completed") {
-    return (
-      <span role="img" aria-label={label} title={title}>
-        <CircleCheck
-          width={12}
-          height={12}
-          strokeWidth={1.5}
-          className="shrink-0 text-(--tab-claude-attention-fg)"
-        />
-      </span>
-    );
-  }
-  if (status === "needsInput") {
-    // It shares the attention color token with completed (static check), so the pulse motion
-    // and the icon shape (MessageCircleQuestion) add the visual distinction.
-    return (
-      <span role="img" aria-label={label} className="motion-safe:animate-pulse">
-        <MessageCircleQuestion
-          width={12}
-          height={12}
-          strokeWidth={1.5}
-          className="shrink-0 text-(--tab-claude-attention-fg)"
-        />
-      </span>
-    );
-  }
-  if (status === "permissionPending") {
-    return (
-      <span role="img" aria-label={label}>
-        <CircleAlert
-          width={12}
-          height={12}
-          strokeWidth={1.5}
-          className="shrink-0 text-(--state-warning-fg)"
-        />
-      </span>
-    );
-  }
-  if (status === "error") {
-    return (
-      <span role="img" aria-label={label}>
-        <TriangleAlert
-          width={12}
-          height={12}
-          strokeWidth={1.5}
-          className="shrink-0 text-(--state-error-fg)"
-        />
-      </span>
-    );
-  }
-  return null;
+      : programStateLabel("claude", status);
+  return (
+    <span role="img" aria-label={label} title={estimated ? label : undefined}>
+      <StateGlyph state={status} />
+    </span>
+  );
 }
 
 export interface TabItemProps {
@@ -322,46 +197,23 @@ export interface TabItemProps {
   leafId: string;
   tab: Tab;
   displayTitle: string;
-  /**
-   * Muted secondary text appended after the label as `· {suffix}`. The caller decides it:
-   *   - two or more external editor tabs with the same basename → parent directory name.
-   *   - diff tab (editor.diff) → the `leftRef..rightRef` ref pair.
-   */
   parentDirSuffix?: string;
   onCloseTab: (id: string) => void;
   onTabContextMenu?: (tabId: string, event: React.MouseEvent) => void;
 }
 
 const TAB_TRIGGER_CLASS = cn(
-  // chip layout — h-7 inset within the h-9 bar; rounded so the active /
-  // hover surface reads as a raised chip (JetBrains Islands tab).
-  // pr-7 reserves space for the absolute close button.
-  // relative: positioning context for the active-state ::after underline.
   "relative flex items-center gap-2 pl-3 pr-7 h-7 rounded-(--radius-raised)",
-  // text
   "text-app-ui-sm whitespace-nowrap select-none cursor-pointer",
-  // reset button defaults
   "bg-transparent",
-  // rest (inactive): flat, muted text — no surface
   "text-muted-foreground",
-  // hover: chip-shaped surface highlight (light-theme safe, design.md §8)
   "hover:bg-[var(--tab-hover-bg)] hover:text-foreground",
-  // active (selected): filled raised chip + foreground text. Surface +
-  // colour change satisfy §8 redundant encoding. The fill is a
-  // within-island raised surface (not a canvas/island swap), so no
-  // depth reversal — design.md §2 is about canvas↔island, not this.
   "data-[state=active]:bg-[var(--tab-active-bg)] data-[state=active]:text-foreground",
-  // active accent underline — JetBrains Islands canon (EditorTabs.underline*):
-  // 2px tall bottom-edge line, inset 8px on each side, fully rounded ends.
-  // Shares the --state-selected-indicator token with the sidebar, keeping the color
-  // vocabulary "this blue means active" while only the position varies (vertical list =
-  // left 2px, horizontal tabs = bottom 2px). The position cue survives in grayscale.
   "data-[state=active]:after:content-['']",
   "data-[state=active]:after:absolute data-[state=active]:after:left-2 data-[state=active]:after:right-2",
   "data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5",
   "data-[state=active]:after:rounded-full",
   "data-[state=active]:after:bg-[var(--state-selected-indicator)]",
-  // focus
   "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50",
 );
 
@@ -369,11 +221,15 @@ interface ReadonlyTabItemProps {
   readOnly: true;
   value: string;
   label: string;
-  icon: React.ReactNode;
-  /** Its session's state, where it has one to tell: after the icon, as a local tab's. */
+  icon?: React.ReactNode;
   glyph?: React.ReactNode;
-  /** Its right-click menu, where it has one. */
+  face?: React.ReactNode;
+  title?: string;
+  closeLabel?: string;
   menu?: readonly MenuItemSpec[];
+  tabAttrs?: Readonly<Record<`data-${string}`, string>>;
+  onDragStart?: (dataTransfer: DataTransfer) => void;
+  onActivate?: () => void;
   onClose: () => void;
 }
 
@@ -381,24 +237,48 @@ export function TabItem(props: TabItemProps | ReadonlyTabItemProps) {
   return "readOnly" in props ? <ReadonlyTabItem {...props} /> : <LocalTabItem {...props} />;
 }
 
-function ReadonlyTabItem({ value, label, icon, glyph, menu, onClose }: ReadonlyTabItemProps) {
+function ReadonlyTabItem({
+  value,
+  label,
+  icon,
+  glyph,
+  face,
+  title,
+  closeLabel,
+  menu,
+  tabAttrs,
+  onDragStart,
+  onActivate,
+  onClose,
+}: ReadonlyTabItemProps) {
   const item = (
-    <div className="group relative flex h-full items-center" data-tab-id={value}>
+    <div className="group relative flex h-full items-center" data-tab-id={value} {...tabAttrs}>
       <RadixTabs.Trigger
         value={value}
+        title={title}
+        draggable={onDragStart !== undefined}
+        onDragStart={onDragStart && ((event) => onDragStart(event.dataTransfer))}
+        onClick={onActivate}
+        onAuxClick={(event) => {
+          if (event.button === 1) onClose();
+        }}
         className={cn(TAB_TRIGGER_CLASS, "data-[state=inactive]:[&_[data-tab-icon]]:opacity-65")}
       >
-        {icon}
-        {glyph && (
-          <span data-tab-icon className="inline-flex">
-            {glyph}
-          </span>
+        {face ?? (
+          <>
+            {icon}
+            {glyph && (
+              <span data-tab-icon className="inline-flex">
+                {glyph}
+              </span>
+            )}
+            <span className="min-w-0 max-w-64 truncate" title={label}>
+              {label}
+            </span>
+          </>
         )}
-        <span className="min-w-0 max-w-64 truncate" title={label}>
-          {label}
-        </span>
       </RadixTabs.Trigger>
-      <TabCloseButton onClose={onClose} />
+      <TabCloseButton onClose={onClose} label={closeLabel} />
     </div>
   );
   if (!menu?.length) return item;
@@ -412,7 +292,6 @@ function ReadonlyTabItem({ value, label, icon, glyph, menu, onClose }: ReadonlyT
   );
 }
 
-// Memo: the bar renders as which tabs fit changes, which changes no tab.
 const LocalTabItem = memo(function LocalTabItem({
   workspaceId,
   leafId,
@@ -448,33 +327,22 @@ const LocalTabItem = memo(function LocalTabItem({
   const dirty = useTabDirty(tab);
   const terminalEnded = tab.type === "terminal" && Boolean(tab.props.dead);
 
-  // Subscribe to the Claude session status — extract only the status string primitive
   const brokerStatus = useClaudeStatusStore(
     (state) => selectStatusForTab(state, workspaceId, tab.id)?.status,
   );
   const chatStatus = useChatTabStatus(workspaceId, tab);
-  // A Claude chat's streamed completion and its hook can have different timestamps.
   const claudeStatus =
     tab.type === "claude" && brokerStatus === "completed"
       ? (chatStatus ?? brokerStatus)
       : brokerStatus;
 
-  // Agent terminals with no Claude status (Codex etc.) show a status inferred from output.
   const estimatedStatus = useEstimatedTabGlyph(workspaceId, tab, claudeStatus === undefined);
 
-  // Codex tabs show the status read from the conversation.
   const codexStatus = tab.type === "codex" && chatStatus !== "idle" ? chatStatus : undefined;
 
-  // permissionPending background tint — a 6% warning color overlay on the tab background.
   const isPermissionPending =
     claudeStatus === "permissionPending" || codexStatus === "permissionPending";
 
-  // Browser tab favicon — looked up in the runtime store only when type === "browser".
-  // Always null for other types (the selector is always called to avoid a conditional hook).
-
-  // Git decoration — same semantics as file tree rows: the editor tab's working-tree state
-  // (modified / added / deleted / untracked / conflict / renamed) colors the label, and
-  // files matching .gitignore are dimmed with opacity-50. Non-editor tabs get an empty result.
   const { decoration: gitDecoration, isIgnored: gitIgnored } = useTabGitDecoration(tab);
   const labelColor =
     gitDecoration !== undefined
@@ -483,24 +351,7 @@ const LocalTabItem = memo(function LocalTabItem({
         ? kindToColorVar("ignored")
         : undefined;
 
-  // ---------------------------------------------------------------------
-  // Inline rename — terminal and Claude tabs only. Entered by double-click or "Rename Tab".
-  //
-  // Both entry triggers go through the same store (useTabEditingStore.editingTabId), so
-  // either path enters the same mode. Only one tab can be edited at a time (the store
-  // holds a single id).
-  //
-  // Key handling:
-  //   - Enter / blur: commit — renameTab(workspaceId, tabId, value)
-  //     * An empty string is read by the store as clearing customTitle → back to processTitle / defaultTitle
-  //   - Escape: cancel — the value is not applied
-  // ---------------------------------------------------------------------
   const isEditing = useTabEditingStore((s) => s.editingTabId === tab.id);
-  // Input value: the customTitle the user set earlier if any, otherwise the
-  // title, as they are when editing starts (no stale value from an earlier
-  // edit session is kept). displayTitle may include a parent-dir suffix etc.,
-  // which the caller adds, so the edit input uses tab.customTitle ?? tab.title.
-  // Read only then: a terminal's title changing mid-edit must not reset it.
   const [renameDraft, setRenameDraft] = useState<RenameDraft>(() => ({
     editing: false,
     value: tab.customTitle ?? tab.title,
@@ -513,10 +364,8 @@ const LocalTabItem = memo(function LocalTabItem({
   }
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // On entering edit mode: focus/select the input.
   useEffect(() => {
     if (!isEditing) return;
-    // Focus on the next paint — guaranteed to be after the input mounts.
     const id = requestAnimationFrame(() => {
       inputRef.current?.focus();
       inputRef.current?.select();
@@ -533,8 +382,6 @@ const LocalTabItem = memo(function LocalTabItem({
     useTabEditingStore.getState().cancelEditing();
   }
 
-  // VSCode anchors the drag image at (0, 0) of the tab DOM so the cursor sits
-  // at the top-left corner, leaving room for drop-border feedback.
   const { onDragStart } = useDragSource({
     mime: MIME_TAB,
     payload,
@@ -551,10 +398,6 @@ const LocalTabItem = memo(function LocalTabItem({
       draggable
       onDragStart={onDragStart}
       onContextMenu={(e) => onTabContextMenu?.(tab.id, e)}
-      // Double-click behavior depends on the tab type:
-      //  - terminal, claude: enter inline rename (same path as the context menu Rename)
-      //  - other isPreview tabs: promote-from-preview, as in VSCode
-      // terminal and claude tabs are never isPreview, so the two branches are mutually exclusive.
       onDoubleClick={() => {
         if (tab.type === "terminal" || tab.type === "claude" || tab.type === "codex") {
           useTabEditingStore.getState().startEditing(tab.id);
@@ -567,27 +410,14 @@ const LocalTabItem = memo(function LocalTabItem({
     >
       <RadixTabs.Trigger
         value={tab.id}
-        // A click (or Enter / Space) hands focus to the tab's content so the
-        // user can type right away. Not on arrow keys: Radix activates the tab
-        // as the user arrows through the strip, and focus must stay there. Not
-        // on the second click of a double-click either, which starts a rename
-        // that focuses its own input, nor while the name is being edited.
         onClick={(e) => {
           if (e.detail <= 1 && !e.ctrlKey && !isEditing) requestTabFocus(tab.id);
         }}
         aria-label={terminalEnded ? `${displayTitle}${t("tabBar.terminal_ended_aria")}` : undefined}
         className={cn(
           TAB_TRIGGER_CLASS,
-          // preview tab + active: the italic label already signals "temporarily active", so the
-          // underline alpha is lowered to 60% as a secondary cue for "selection not settled".
-          // When it turns dirty and promoteFromPreview runs, isPreview=false restores it.
           tab.isPreview && "data-[state=active]:after:opacity-60",
-          // The secondary icons of an inactive tab (Pin/Lock/Claude glyph) are attenuated to 65%
-          // alpha — matches JB canon `EditorTabs.unselectedAlpha`. The active tab keeps full tone
-          // so visual priority is clear. The text is already dimmed with text-muted-foreground, so
-          // no extra opacity is applied (avoids double dimming).
           "data-[state=inactive]:[&_[data-tab-icon]]:opacity-65",
-          // permissionPending tab background warning tint — 6% opacity, a secondary redundant encoding.
           isPermissionPending && "bg-(--state-warning-bg)/[0.06]",
         )}
       >
@@ -596,7 +426,6 @@ const LocalTabItem = memo(function LocalTabItem({
             <PinIcon />
           </span>
         )}
-        {/* Type icon — placed first (after the pin) so the tab type is recognizable at a glance. */}
         <TabIcon tab={tab} />
         {tab.type === "editor" && (tab.props.readOnly || tab.props.origin === "external") && (
           <span data-tab-icon role="img" aria-label={t("tabBar.read_only_aria")}>
@@ -609,8 +438,6 @@ const LocalTabItem = memo(function LocalTabItem({
             />
           </span>
         )}
-        {/* Claude status glyph slot — not rendered when idle. The data-tab-icon marker
-                   attenuates it to 65% alpha on inactive tabs (the active tab keeps full tone). */}
         {claudeStatus && claudeStatus !== "idle" && (
           <span data-tab-icon className="inline-flex">
             <ClaudeGlyph status={claudeStatus} />
@@ -627,16 +454,12 @@ const LocalTabItem = memo(function LocalTabItem({
           </span>
         )}
         {isEditing ? (
-          // Inline rename input — it sits inside the trigger, so stopPropagation keeps click/keyboard
-          // events from bubbling to RadixTabs.Trigger. Enter commits, Escape cancels, and blur
-          // commits (macOS text field convention).
           <input
             ref={inputRef}
             value={editValue}
             onChange={(e) => setEditValue(e.target.value)}
             onKeyDown={(e) => {
               if (isImeComposing(e)) {
-                // Enter/Escape that ends a composition belongs to the IME.
                 e.stopPropagation();
               } else if (e.key === "Enter") {
                 e.preventDefault();
@@ -647,39 +470,26 @@ const LocalTabItem = memo(function LocalTabItem({
                 e.stopPropagation();
                 cancelEdit();
               } else {
-                // Other keys are left to the input but not allowed to bubble to the trigger
-                // (avoids keybinding conflicts such as ArrowLeft/Right switching tabs).
                 e.stopPropagation();
               }
             }}
-            // The field sits in the tab's <button>: releasing Space in it
-            // would press the button, whose click hands the focus to the
-            // tab's content mid-name ("renamed t").
             onKeyUp={(e) => {
               if (e.key === " ") e.preventDefault();
             }}
             onBlur={() => commitEdit(editValue)}
             onClick={(e) => e.stopPropagation()}
-            // In input mode the input should show naturally even when the parent trigger is in the
-            // active state, so it uses a transparent background + inline width.
             className="bg-transparent outline-none border-0 px-0 m-0 w-32 text-app-ui-sm text-foreground"
             aria-label={t("tabBar.rename_tab")}
             spellCheck={false}
           />
         ) : (
           <span
-            // A long title (a chat's first message, a page's title) is cut
-            // to a tab's width; the whole of it shows on hover.
             title={title}
             className={cn(
               "min-w-0 max-w-64 truncate",
               tab.isPreview && "italic",
-              // The label of an ignored file's tab recedes — the same signal as file tree rows.
               gitIgnored && "opacity-50",
             )}
-            // The inline color beats both the active tab's text-foreground and the inactive tab's
-            // text-muted-foreground cascade (the git color survives in the selected state too). When
-            // undefined, the existing color is inherited.
             style={labelColor ? { color: labelColor } : undefined}
           >
             {displayTitle}
@@ -700,8 +510,6 @@ const LocalTabItem = memo(function LocalTabItem({
         {(tab.type === "claude" || tab.type === "codex") && !isEditing && (
           <TabProfileMark agent={tab.type} profileId={tab.props.profileId} />
         )}
-        {/* Dirty indicator — inline after label so it never overlaps the close button.
-            Always visible when dirty (including on hover), per design.md §7 redundant encoding. */}
         {dirty && (
           <span aria-hidden className="flex items-center justify-center size-2 shrink-0">
             <span className="size-2 rounded-full bg-[var(--tab-modified-dot)]" />
@@ -709,9 +517,6 @@ const LocalTabItem = memo(function LocalTabItem({
         )}
       </RadixTabs.Trigger>
 
-      {/* Close button — sibling of trigger (never nested inside trigger).
-          Always positioned separately from the dirty dot (no replacement).
-          Hit target is min-w-6 min-h-6 (24px) per design requirement. */}
       <TabCloseButton
         onClose={() => onCloseTab(tab.id)}
         shortcut={shortcutFor(COMMANDS.tabClose)}
@@ -720,9 +525,17 @@ const LocalTabItem = memo(function LocalTabItem({
   );
 });
 
-function TabCloseButton({ onClose, shortcut }: { onClose: () => void; shortcut?: string }) {
+function TabCloseButton({
+  onClose,
+  shortcut,
+  label: given,
+}: {
+  onClose: () => void;
+  shortcut?: string;
+  label?: string;
+}) {
   const { t } = useTranslation();
-  const label = t("tabBar.close_tab");
+  const label = given ?? t("tabBar.close_tab");
   return (
     <Button
       variant="ghost"

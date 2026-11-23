@@ -1,32 +1,19 @@
-/**
- * Log mel filter bank features as Kaldi computes them (torchaudio's
- * compliance.kaldi.fbank with its defaults): 25 ms frames every 10 ms, each
- * with its DC offset removed, pre-emphasized (0.97), under a Povey window,
- * zero-padded to 512 and turned into its power spectrum, then 80 mel bands
- * from 20 Hz to the Nyquist frequency, logged. The voice print model was
- * trained on these, the mean over time taken away (meanNormalized).
- *
- * Pure: no IO here.
- */
-
 export const SAMPLE_RATE = 16_000;
 export const MEL_BINS = 80;
-const FRAME = 400; // 25 ms
-const SHIFT = 160; // 10 ms
+const FRAME = 400;
+const SHIFT = 160;
 const FFT = 512;
 const PREEMPHASIS = 0.97;
 const LOW_HZ = 20;
-const EPSILON = 1.1920928955078125e-7; // float32's
+const EPSILON = 1.1920928955078125e-7;
 
 const mel = (hz: number) => 1127 * Math.log(1 + hz / 700);
 
-/** The Povey window: a Hann window (not periodic) to the power of 0.85. */
 const WINDOW = Float64Array.from(
   { length: FRAME },
   (_, n) => (0.5 - 0.5 * Math.cos((2 * Math.PI * n) / (FRAME - 1))) ** 0.85,
 );
 
-/** Each band's weights over the spectrum's bins (the last bin, the Nyquist one, has none). */
 const BANKS: { first: number; weights: Float64Array }[] = (() => {
   const bins = FFT / 2;
   const width = SAMPLE_RATE / FFT;
@@ -55,7 +42,6 @@ const BANKS: { first: number; weights: Float64Array }[] = (() => {
   return banks;
 })();
 
-/** The bit-reversed order of FFT's indices, and its twiddles. */
 const BITS = Math.log2(FFT);
 const REVERSED = Uint16Array.from({ length: FFT }, (_, i) => {
   let r = 0;
@@ -65,7 +51,6 @@ const REVERSED = Uint16Array.from({ length: FFT }, (_, i) => {
 const COS = Float64Array.from({ length: FFT / 2 }, (_, k) => Math.cos((2 * Math.PI * k) / FFT));
 const SIN = Float64Array.from({ length: FFT / 2 }, (_, k) => -Math.sin((2 * Math.PI * k) / FFT));
 
-/** In place: the FFT of (re, im), FFT long. */
 function fft(re: Float64Array, im: Float64Array): void {
   for (let i = 0; i < FFT; i++) {
     const j = REVERSED[i] as number;
@@ -100,12 +85,10 @@ function fft(re: Float64Array, im: Float64Array): void {
   }
 }
 
-/** How many frames `samples` samples make: none if under one frame. */
 export function frameCount(samples: number): number {
   return samples < FRAME ? 0 : 1 + Math.floor((samples - FRAME) / SHIFT);
 }
 
-/** The features of 16 kHz audio (samples from -1 to 1): frames × MEL_BINS, row by row. */
 export function fbank(audio: Float32Array): Float32Array {
   const frames = frameCount(audio.length);
   const out = new Float32Array(frames * MEL_BINS);
@@ -148,7 +131,6 @@ export function fbank(audio: Float32Array): Float32Array {
   return out;
 }
 
-/** In place: each band's mean over the frames taken away. */
 export function meanNormalized(features: Float32Array): Float32Array {
   const frames = features.length / MEL_BINS;
   if (!frames) return features;

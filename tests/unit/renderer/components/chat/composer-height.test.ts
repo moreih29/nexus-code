@@ -11,7 +11,6 @@ function textarea() {
     style: { height: "52px", overflowY: "" },
     closest: () => null,
     get scrollHeight() {
-      // At this width, the classic scrollbar intermittently adds a line.
       if (this.style.overflowY === "hidden") return 52;
       return this.style.height === "52px" || this.clientWidth === 52 ? 71 : 52;
     },

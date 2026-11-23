@@ -1,9 +1,3 @@
-/**
- * Servers the app does not bundle, gopls and rust-analyzer: the host asks
- * the workspace's agent to find them, where the user said or on its host's
- * PATH, and gives up at once on one that is not installed.
- */
-
 import { describe, expect, test } from "bun:test";
 import { startAgentLspHost } from "../../../../../src/main/features/lsp/agent-host";
 import type {
@@ -117,7 +111,6 @@ describe("system language servers", () => {
       args: [],
       env: { PATH: "/home/u/go/bin:/usr/bin" },
     });
-    // Nothing to upload to a remote host: the user installed it there.
     expect(remoteAsked()).toBe(false);
   });
 
@@ -155,7 +148,6 @@ describe("system language servers", () => {
     });
     expect(resets.some((r) => r.reopen)).toBe(false);
 
-    // Opening another file does not look again until a restart.
     await open();
     expect(channel.methods().filter((m) => m === "lsp.findBinary")).toHaveLength(1);
   });
@@ -179,7 +171,6 @@ describe("system language servers", () => {
     channel.serverInfo = { name: "gopls", version: "v0.21.1" };
     await open();
 
-    // The user points the setting at another binary, which does not start.
     channel.found = { path: "/usr/local/go/bin/go" };
     channel.spawnError = new Error("lsp server exited: exit status 2");
     host.restartLanguage(WORKSPACE_ID, "go");

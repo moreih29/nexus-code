@@ -23,7 +23,6 @@ let now = 1_000_000;
 const KEY = "claude|local|claude-default";
 const LIMITS = { rate_limits: { limits: [{ kind: "session", percent: 40 }] } };
 
-/** A tab of KEY's profile that answers with `answer`, counting its asks. */
 function source(
   answer: () => Promise<unknown>,
   { key = KEY, ready = true, busy = false, agent = "claude" as const } = {},
@@ -63,7 +62,6 @@ describe("a profile's key", () => {
     expect(planUsageKey("claude", undefined, undefined)).toBe(KEY);
     expect(planUsageKey("codex", undefined, "work")).toBe("codex|local|work");
     expect(planUsageKey("claude", ssh, "work")).toBe("claude|ssh:me@box:22|work");
-    // Another folder on the same host is the same profile.
     expect(planUsageKey("claude", otherFolder, "work")).toBe(planUsageKey("claude", ssh, "work"));
     expect(planUsageKey("claude", wsl, undefined)).toBe("claude|wsl:Ubuntu|claude-default");
   });
@@ -120,7 +118,6 @@ describe("asking for a profile's usage", () => {
     expect(minutes.at(-1)).toBeLessThanOrEqual(17);
     for (let i = 1; i < waits.length; i++)
       expect(waits[i]).toBeGreaterThanOrEqual(waits[i - 1] * 0.8);
-    // Nor does the user's ask go past a failure's wait.
     now += FORCED_GAP_MS;
     await wantPlanUsage(KEY, { force: true });
     expect(tab.asks).toBe(6);
@@ -304,13 +301,11 @@ describe("every minute", () => {
     source(() => Promise.resolve(answer));
     await wantPlanUsage(KEY);
     const heard = entry()?.claude;
-    // How long the session ran, and a reset told a little differently, show nothing new.
     answer = said(40, "2026-11-12T01:00:00.031681+00:00", 61_000);
     now += POLL_MS;
     await wantPlanUsage(KEY);
     expect(entry()?.claude).toBe(heard as Record<string, unknown>);
     expect(entry()?.fetchedAt).toBe(now);
-    // Another percent does.
     answer = said(41, "2026-11-12T01:00:00.031681+00:00", 121_000);
     now += POLL_MS;
     await wantPlanUsage(KEY);
@@ -362,14 +357,12 @@ describe("every minute", () => {
       pollPlanUsage();
       await settle();
       expect(watched.asks).toBe(2);
-      // Only the profile watched.
       expect(other.asks).toBe(0);
       stop();
       now += POLL_MS;
       pollPlanUsage();
       await settle();
       expect(watched.asks).toBe(2);
-      // Its tab gone, nothing.
       watchPlanUsageAfar("w2", () => null);
       await settle();
       expect(watched.asks + other.asks).toBe(2);

@@ -1,6 +1,5 @@
 import path from "node:path";
 
-/** Files a peer opened must also be read without following links in the editor. */
 const guarded = new Map<string, { windows: boolean; paths: Set<string> }>();
 
 function key(relPath: string, windows: boolean): string {

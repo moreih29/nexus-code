@@ -35,8 +35,6 @@ function writeFixtureKind(root: string, kind: string): string {
 
 describe("checkGitErrorKindParity", () => {
   test("the real TS schema, Go constants, and stderr fixtures agree", () => {
-    // Go file and fixture root fall back to the checker's defaults, which
-    // resolve from the cwd (the repo root under `bun test`).
     const result = checkGitErrorKindParity({
       tsKinds: [...GitErrorKindSchema.options],
     });

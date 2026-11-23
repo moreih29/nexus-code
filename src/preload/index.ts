@@ -11,11 +11,9 @@ type StreamEvent = {
 type StreamEventCallback = (event: StreamEvent) => void;
 type IpcRequestId = string;
 
-// key: `${channel}:${event}` → Set of callbacks
 const listeners = new Map<string, Set<ListenCallback>>();
 const streamListeners = new Map<string, StreamEventCallback>();
 
-// Single ipc:event subscription — demultiplexes into per-key sets
 ipcRenderer.on("ipc:event", (_event, channelName: string, eventName: string, args: unknown) => {
   const key = `${channelName}:${eventName}`;
   const set = listeners.get(key);
@@ -24,9 +22,6 @@ ipcRenderer.on("ipc:event", (_event, channelName: string, eventName: string, arg
       try {
         cb(args);
       } catch (err) {
-        // Isolate listener failures so one buggy subscriber does not
-        // abort the rest of the fanout, and tag the log with the
-        // channel:event key so we can find the offending site quickly.
         console.error(`[ipc:event listener threw] key=${key}`, err, "args=", args);
       }
     }
@@ -76,10 +71,6 @@ const ipcApi = {
     };
   },
 
-  // Returns the unsubscribe instead of offering an `off(callback)`:
-  // contextBridge wraps a renderer function in a fresh proxy on every
-  // crossing, so a later `off` never receives the object stored here and
-  // could not remove it. The closure holds the stored proxy itself.
   listen(channelName: string, eventName: string, callback: ListenCallback): () => void {
     const key = `${channelName}:${eventName}`;
     let set = listeners.get(key);
@@ -99,8 +90,6 @@ const ipcApi = {
 
 contextBridge.exposeInMainWorld("ipc", ipcApi);
 
-// Static host info — exposed once at preload time so the renderer can adapt
-// chrome (e.g. titlebar padding) without an IPC round-trip.
 contextBridge.exposeInMainWorld("host", {
   platform: process.platform as NodeJS.Platform,
   windowsStore: process.windowsStore === true,
@@ -108,10 +97,6 @@ contextBridge.exposeInMainWorld("host", {
   opaqueWindow: process.argv.includes(OPAQUE_WINDOW_ARG),
 });
 
-// File-path resolver. Electron 32+ removed the non-standard `File.path`
-// property, so the renderer can no longer read an OS-dropped file's absolute
-// path directly. `webUtils.getPathForFile()` is the supported replacement and
-// must run in the preload (it is not exposed to the isolated renderer world).
 contextBridge.exposeInMainWorld("files", {
   getPathForFile(file: File): string {
     return webUtils.getPathForFile(file);

@@ -104,7 +104,6 @@ describe("resolveProfile", () => {
       kind: "folder",
       ruleId: "r1",
     });
-    // A sibling whose name starts the same is not inside.
     expect(resolveProfile(c, "claude", local(WS_A, "/Users/me/workshop"), options).source).toEqual({
       kind: "default",
     });
@@ -186,7 +185,6 @@ describe("edits", () => {
     c = withRuleProfile(c, target, "claude", null, newId);
     c = withRuleProfile(c, target, "codex", null, newId);
     expect(c.rules).toEqual([]);
-    // Settings keeps a rule it is still filling in.
     c = withRuleProfile(c, target, "codex", null, newId, {}, true);
     expect(c.rules).toEqual([{ id: "rule-2", target }]);
   });

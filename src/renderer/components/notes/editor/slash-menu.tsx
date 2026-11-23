@@ -1,7 +1,3 @@
-/**
- * The "/" menu: typing "/" in a note offers the blocks to add there, filtered
- * by what follows it; arrows and Enter pick one, Escape closes it.
- */
 import { type Editor, Extension, type Range } from "@tiptap/core";
 import { ReactRenderer } from "@tiptap/react";
 import Suggestion, { type SuggestionKeyDownProps, type SuggestionProps } from "@tiptap/suggestion";
@@ -28,15 +24,12 @@ import { cn } from "@/utils/cn";
 export interface SlashItem {
   id: string;
   icon: typeof Type;
-  /** Words it is also found by, besides its label. */
   keywords: string;
   run: (editor: Editor, range: Range) => void;
 }
 
 export interface SlashMenuOptions {
-  /** Asks for files to put into the note. */
   pickFiles: (editor: Editor) => void;
-  /** Asks for images to put into the note. */
   pickImages: (editor: Editor) => void;
 }
 

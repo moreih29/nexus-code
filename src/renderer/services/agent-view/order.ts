@@ -1,18 +1,11 @@
-/**
- * The order of the agent view's list: session keys by workspace or task,
- * and device IDs for the other computers. New rows come after saved rows.
- */
-
 import type { RoomPeer } from "../../../shared/remote/room";
 
-/** The orders by workspace id. */
 export type AgentOrder = Readonly<Record<string, readonly string[]>>;
 
 export const NO_ORDER: AgentOrder = {};
 
 export type DropEdge = "before" | "after";
 
-/** `sessions` in `order`: those it names first, as it names them, then the rest. */
 export function orderSessions<T extends { readonly key: string }>(
   sessions: readonly T[],
   order: readonly string[] | undefined,
@@ -22,7 +15,6 @@ export function orderSessions<T extends { readonly key: string }>(
 
 type OrderedPeer = Pick<RoomPeer, "id" | "name" | "online">;
 
-/** Default to online first and names within each group until the user sets an order. */
 export function orderPeers<T extends OrderedPeer>(
   peers: readonly T[],
   order: readonly string[] | undefined,
@@ -44,11 +36,9 @@ function orderRows<T>(
     .filter((row) => rank.has(keyOf(row)))
     .sort((a, b) => (rank.get(keyOf(a)) ?? 0) - (rank.get(keyOf(b)) ?? 0));
   const ordered = [...listed, ...rows.filter((row) => !rank.has(keyOf(row)))];
-  // The same array while nothing moved, so what is built from it is kept.
   return ordered.every((row, i) => row === rows[i]) ? rows : ordered;
 }
 
-/** `keys` with `moved` put just before or after `target`; as they were when either is missing. */
 export function moveKey(
   keys: readonly string[],
   moved: string,
@@ -63,7 +53,6 @@ export function moveKey(
   return rest;
 }
 
-/** Move among online slots, using the room roster to drop removed IDs. */
 export function movePeer(
   peers: readonly OrderedPeer[],
   order: readonly string[],
@@ -84,7 +73,6 @@ export function movePeer(
   return reordered === ids ? order : reordered;
 }
 
-/** Reorders the named slots, keeping all other keys in place. */
 export function reorderSubset<T>(
   rows: readonly T[],
   requested: readonly string[],
@@ -102,7 +90,6 @@ export function reorderSubset<T>(
   return reordered.every((row, i) => row === rows[i]) ? rows : reordered;
 }
 
-/** What was stored, keeping only the agents `alive` knows, and the orders with any left. */
 export function orderFromStore(
   stored: AgentOrder | undefined,
   alive: (key: string) => boolean,
@@ -116,7 +103,6 @@ export function orderFromStore(
   return Object.keys(order).length > 0 ? order : NO_ORDER;
 }
 
-/** The orders as AppState keeps them. */
 export function orderToStore(order: AgentOrder): Record<string, string[]> {
   return Object.fromEntries(Object.entries(order).map(([id, keys]) => [id, [...keys]]));
 }

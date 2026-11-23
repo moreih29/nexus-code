@@ -1,21 +1,15 @@
-/**
- * Another computer's consent prompts (sessions.list's `consents`), at the
- * top of its group in the agent view's list: an agent asks to change
- * something there, and the user may answer from here as at that computer
- * (consent.answer). Each is told in the words and look of this computer's
- * own prompt (consent-dialog): what it asks, what it would run or write
- * (all of it, in a box that scrolls), the seconds left before it counts as
- * turned down, and the answers it allows ("until restart" not for one
- * asked about each time). Its own agent's too: the user answers it here as
- * from any other computer. One this computer may not answer (one too long
- * to be sent whole, one the settings there keep from here, or its own
- * agent's where that computer runs an older NexusCode) shows, to be
- * answered at that computer.
- */
-
 import i18next, { type TFunction } from "i18next";
-import { ShieldQuestion } from "lucide-react";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { ChevronDown, Shield } from "lucide-react";
+import {
+  createContext,
+  type MouseEvent,
+  type ReactElement,
+  useContext,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useTranslation } from "react-i18next";
 import type {
   ConsentAnswer,
@@ -26,10 +20,12 @@ import { consentDetailsOf } from "../../../shared/cli/consent-copy";
 import type { CliChangeKind } from "../../../shared/cli/ui";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { createListenerBus } from "../../../shared/util/listener-bus";
-import { useNow } from "../../hooks/use-now";
+import { shortId } from "../../../shared/util/short-id";
 import { ipcCallResult } from "../../ipc/client";
 import { refreshPeerSessions } from "../../services/remote/room";
 import { cn } from "../../utils/cn";
+import { DeviceTag } from "../agent-list/session-row";
+import { PERMISSION_CARD_CLASS, RequestPager } from "../chat/permission-card";
 import {
   CONSENT_CONFIRM_BUTTON_CLASS,
   CONSENT_DESCRIPTION_CLASS,
@@ -38,8 +34,13 @@ import {
   describeConsent,
 } from "../cli/consent-dialog";
 import { Button } from "../ui/button";
+import {
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRoot,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 
-/** How long a prompt found answered or over still shows, saying so. */
 const GONE_SHOWN_MS = 1500;
 
 const consentChanges = createListenerBus();
@@ -47,7 +48,6 @@ let settledConsents: ReadonlySet<string> = new Set();
 const settledSnapshot = () => settledConsents;
 const consentKey = (deviceId: string, id: string) => JSON.stringify([deviceId, id]);
 
-/** Leaves answered prompts out of every view, including one still showing an older list. */
 export function usePeerConsents(
   deviceId: string,
   consents: readonly RemoteConsent[] | undefined,
@@ -61,7 +61,6 @@ export function useConsentIsPending() {
   return (deviceId: string, id: string) => !settled.has(consentKey(deviceId, id));
 }
 
-/** Matches the agent that asked on the serving device, using its workspace and tab. */
 export function consentFromChat(
   { from }: RemoteConsent,
   { workspaceId, tabId }: { workspaceId: string; tabId: string },
@@ -75,12 +74,14 @@ export function PeerConsentCard({
   device,
   workspaceName,
   sessions,
+  showDevice,
 }: {
   consent: RemoteConsent;
   deviceId: string;
   device: string;
   workspaceName: string;
   sessions: readonly RemoteSession[] | undefined;
+  showDevice?: boolean;
 }) {
   return (
     <RemoteConsentCard
@@ -88,6 +89,7 @@ export function PeerConsentCard({
       device={device}
       workspaceName={workspaceName}
       sessions={sessions}
+      showDevice={showDevice}
       onAnswer={(answer) =>
         ipcCallResult("remote", "peerConsentAnswer", { deviceId, id: consent.id, answer })
       }
@@ -102,21 +104,113 @@ export function PeerConsentCard({
   );
 }
 
-/** What the agent asks to do, as the prompt here words it; a kind this app does not know, by its name. */
 export function consentActionOf(t: TFunction<"settings">, change: RemoteConsent["change"]): string {
   const key = `agentCli.consent.action.${change.kind}`;
   return i18next.exists(key, { ns: "settings" })
     ? t(key as `agentCli.consent.action.${CliChangeKind}`, {
         detail: consentDetailsOf(t, change).detail,
       })
-    : t("agentCli.consent.action_other", { kind: change.kind });
+    : t("agentCli.consent.action_unknown", { kind: change.kind });
 }
 
-/**
- * Who asks to do what, and where (`to`, the workspace there it would
- * change), as the prompt here says it: an agent of another computer by
- * that computer, the agent manager as itself, else a tab of a workspace.
- */
+export function consentHeadlineOf(
+  t: TFunction<"settings">,
+  change: RemoteConsent["change"],
+  title: string,
+): string {
+  const key = `agentCli.consent.headline.${change.kind}`;
+  return i18next.exists(key, { ns: "settings" })
+    ? t(key as `agentCli.consent.headline.${CliChangeKind}`, {
+        detail: consentDetailsOf(t, change).detail,
+      })
+    : title;
+}
+
+export const CONSENT_SWAP_HOLD_MS = 500;
+
+interface ConsentPage {
+  held: () => boolean;
+  answering: () => void;
+}
+
+const ConsentPageContext = createContext<ConsentPage>({
+  held: () => false,
+  answering: () => {},
+});
+
+const leftUnanswered = new Map<string, number>();
+
+export function ConsentPages({
+  place,
+  children,
+}: {
+  place: string;
+  children: readonly ReactElement[];
+}) {
+  const keys = children.map((child) => String(child.key));
+  const view = useRef<{ key?: string; index: number }>({ index: 0 });
+  const answered = useRef<string | undefined>(undefined);
+  const hold = useRef<{ key: string; until: number } | null>(null);
+  const [, repaint] = useState(0);
+  const before = view.current;
+  const found = before.key === undefined ? -1 : keys.indexOf(before.key);
+  const shown = found >= 0 ? found : Math.min(before.index, Math.max(0, keys.length - 1));
+  const shownKey = keys[shown];
+  useLayoutEffect(() => {
+    const previous = view.current;
+    if (
+      previous.key !== undefined &&
+      shownKey !== undefined &&
+      previous.key !== shownKey &&
+      !keys.includes(previous.key) &&
+      answered.current !== previous.key
+    )
+      hold.current = { key: shownKey, until: performance.now() + CONSENT_SWAP_HOLD_MS };
+    view.current = { key: shownKey, index: shown };
+  });
+  useLayoutEffect(() => {
+    const left = leftUnanswered.get(place);
+    leftUnanswered.delete(place);
+    const first = view.current.key;
+    if (first !== undefined && left !== undefined) {
+      const until = left + CONSENT_SWAP_HOLD_MS;
+      if (performance.now() < until) hold.current = { key: first, until };
+    }
+    return () => {
+      const last = view.current.key;
+      if (last !== undefined && answered.current !== last)
+        leftUnanswered.set(place, performance.now());
+    };
+  }, [place]);
+  const page: ConsentPage = {
+    held: () =>
+      hold.current !== null &&
+      hold.current.key === shownKey &&
+      performance.now() < hold.current.until,
+    answering: () => {
+      answered.current = shownKey;
+    },
+  };
+  const paged = children.length > 1;
+  return (
+    <ConsentPageContext.Provider value={page}>
+      <div className="flex flex-col gap-1" data-testid={paged ? "remote-consent-pages" : undefined}>
+        {paged && (
+          <RequestPager
+            shown={shown}
+            total={children.length}
+            onShow={(index) => {
+              view.current = { key: keys[index], index };
+              repaint((n) => n + 1);
+            }}
+          />
+        )}
+        {children[shown] ?? null}
+      </div>
+    </ConsentPageContext.Provider>
+  );
+}
+
 export function consentSentenceOf(
   t: TFunction<"settings">,
   consent: RemoteConsent,
@@ -134,8 +228,8 @@ export function consentSentenceOf(
   return describeConsent(
     t,
     {
-      fromWorkspace: from.workspaceName ?? from.workspaceId.slice(0, 8),
-      fromTab: from.name ?? from.tabId.slice(0, 8),
+      fromWorkspace: from.workspaceName ?? shortId(from.workspaceId),
+      fromTab: from.name ?? shortId(from.tabId),
       ...(kind === "claude" || kind === "codex" ? { fromAgent: kind } : {}),
       ...(from.device ? { fromDevice: from.device.name } : {}),
       toWorkspace: to,
@@ -152,33 +246,37 @@ export function RemoteConsentCard({
   device,
   workspaceName,
   sessions,
+  showDevice = false,
   onAnswer,
   onSettled,
 }: {
   consent: RemoteConsent;
-  /** The computer that asks the user. */
   device: string;
-  /** The name of its workspace the prompt would change. */
   workspaceName: string;
-  /** The serving computer's sessions, which identify the asking tab. */
   sessions?: readonly RemoteSession[] | undefined;
-  /** Sends the answer there. */
+  showDevice?: boolean;
   onAnswer: (answer: ConsentAnswer) => Promise<IpcResult<unknown>>;
-  /** Answered here, or found answered there: every view leaves it out. */
   onSettled: () => void;
 }) {
   const { t } = useTranslation("settings");
   const { t: tc } = useTranslation();
-  // When it counts as turned down, by this computer's clock: what it had left as the list came.
-  const deadline = useMemo(() => Date.now() + consent.expiresInMs, [consent.expiresInMs]);
-  const now = useNow(true);
-  const seconds = Math.max(0, Math.ceil((deadline - now) / 1000));
   const [busy, setBusy] = useState<ConsentAnswer | null>(null);
+  const [gone, setGone] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  // Run out: it was turned down there, and goes with the next list.
-  if (seconds === 0 && busy === null) return null;
+  const { body } = consentDetailsOf(t, consent.change);
+  const [open, setOpen] = useState(() => body?.includes("\n") === true);
+  const toggled = useRef(false);
+  const bodyBox = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    const box = bodyBox.current;
+    if (!box || !body || open || toggled.current) return;
+    if (box.scrollWidth > box.clientWidth) setOpen(true);
+  }, [body, open]);
 
+  const page = useContext(ConsentPageContext);
   const answer = async (choice: ConsentAnswer) => {
+    if (busy !== null || gone || page.held()) return;
+    page.answering();
     setBusy(choice);
     setFailure(null);
     const result = await onAnswer(choice);
@@ -188,73 +286,133 @@ export function RemoteConsentCard({
     }
     setBusy(null);
     if (result.kind === "not-found") {
+      setGone(true);
       setFailure(tc("agentView.remote.consentGone"));
       setTimeout(onSettled, GONE_SHOWN_MS);
       return;
     }
     setFailure(tc("agentView.remote.failed", { message: result.message }));
   };
-  const button = (
-    choice: ConsentAnswer,
-    label: string,
-    variant: "default" | "outline" | "ghost",
-  ) => (
-    <Button
-      variant={variant}
-      size="sm"
-      className={choice === "once" ? CONSENT_CONFIRM_BUTTON_CLASS : undefined}
-      loading={busy === choice}
-      disabled={busy !== null}
-      onClick={() => void answer(choice)}
-    >
-      {label}
-    </Button>
-  );
+  const answerOnce = (event: MouseEvent, choice: ConsentAnswer) => {
+    if (event.detail > 1) return;
+    void answer(choice);
+  };
+  const idle = busy === null && !gone;
 
   const title = t(consentTitleOf(consent.change.kind, Boolean(consent.from.device)));
-  const { body } = consentDetailsOf(t, consent.change);
+  const headline = consentHeadlineOf(t, consent.change, title);
+  const sentence = consentSentenceOf(t, consent, workspaceName, sessions);
+  const { from } = consent;
+  const asker = from.manager && !from.device ? undefined : (from.name ?? shortId(from.tabId));
   return (
-    <section
-      aria-label={title}
-      className="flex flex-col gap-2 rounded-(--radius-raised) border border-(--state-warning-fg)/40 bg-(--state-warning-fg)/5 p-3"
-      data-testid="remote-consent"
-    >
-      <span className="flex min-w-0 items-start gap-2 text-app-ui-sm text-(--state-warning-fg)">
-        <ShieldQuestion aria-hidden className="mt-0.5 size-3 shrink-0" />
-        <span>{title}</span>
-      </span>
-      <p className={cn("text-app-ui-sm text-foreground", CONSENT_DESCRIPTION_CLASS)}>
-        {consentSentenceOf(t, consent, workspaceName, sessions)}
-      </p>
-      {body && (
-        // What an answer lets run, whole: its first line can hide the rest.
-        <pre className="app-scrollbar max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-(--radius-control) bg-muted px-2 py-1.5 font-mono text-app-ui-sm text-foreground">
-          {body}
-        </pre>
-      )}
-      <p className="text-app-micro text-muted-foreground">
-        {t("agentCli.consent.timeout", { seconds })}
-      </p>
-      {consent.answerable ? (
-        <span className="flex flex-wrap justify-end gap-2">
-          {button("deny", t("agentCli.consent.deny"), "ghost")}
-          {!consent.eachTime && button("session", t("agentCli.consent.session"), "outline")}
-          {button(
-            "once",
-            t(consent.eachTime ? "agentCli.consent.allow" : "agentCli.consent.once"),
-            "default",
-          )}
-        </span>
-      ) : (
-        <p className="text-app-micro text-muted-foreground" data-testid="remote-consent-there">
-          {tc("agentView.remote.consentThere", { device })}
-        </p>
-      )}
-      {failure && (
-        <p role="alert" className="text-app-micro text-(--state-error-fg)">
-          {failure}
-        </p>
-      )}
+    <section aria-label={title} className={PERMISSION_CARD_CLASS} data-testid="remote-consent">
+      <div className="flex flex-col gap-2">
+        <div className="flex items-start gap-2">
+          <Shield aria-hidden className="mt-0.5 size-4 shrink-0 text-[var(--state-warning-fg)]" />
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className={cn("font-semibold text-foreground", CONSENT_DESCRIPTION_CLASS)}>
+              {headline}
+            </span>
+            <span
+              aria-hidden
+              className="flex min-w-0 items-center gap-1.5 text-app-micro text-muted-foreground"
+              title={sentence}
+            >
+              {(from.device || showDevice) && (
+                <DeviceTag className="shrink-0" name={from.device?.name ?? device} />
+              )}
+              {asker && from.device && showDevice ? (
+                <>
+                  <span className="min-w-0 truncate">{`${asker} →`}</span>
+                  <DeviceTag className="shrink-0" name={device} />
+                  <span className="min-w-0 truncate">{workspaceName}</span>
+                </>
+              ) : (
+                <span className="min-w-0 truncate">
+                  {asker ? `${asker} → ${workspaceName}` : workspaceName}
+                </span>
+              )}
+            </span>
+            <p className="sr-only">{sentence}</p>
+          </div>
+        </div>
+        {body && (
+          <button
+            ref={bodyBox}
+            type="button"
+            aria-expanded={open}
+            title={open ? undefined : body}
+            onClick={() => {
+              toggled.current = true;
+              setOpen(!open);
+            }}
+            className={cn(
+              "block w-full min-w-0 rounded-(--radius-control) bg-background px-2 py-1 text-left font-mono text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              open
+                ? "app-scrollbar max-h-40 overflow-auto whitespace-pre-wrap break-all"
+                : "overflow-hidden text-ellipsis whitespace-nowrap",
+            )}
+          >
+            {body}
+          </button>
+        )}
+        {consent.answerable ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              loading={busy === "deny"}
+              disabled={!idle}
+              onClick={(event) => answerOnce(event, "deny")}
+            >
+              {tc("chat.permission.deny_send")}
+            </Button>
+            <span className="inline-flex">
+              <Button
+                size="sm"
+                className={cn(CONSENT_CONFIRM_BUTTON_CLASS, !consent.eachTime && "rounded-r-none")}
+                loading={busy === "once"}
+                disabled={!idle}
+                onClick={(event) => answerOnce(event, "once")}
+              >
+                {t("agentCli.consent.allow")}
+              </Button>
+              {!consent.eachTime && (
+                <DropdownMenuRoot>
+                  <DropdownMenuTrigger>
+                    <Button
+                      size="sm"
+                      className={cn(
+                        CONSENT_CONFIRM_BUTTON_CLASS,
+                        "rounded-l-none border-l border-l-primary-foreground/25 px-1.5",
+                      )}
+                      loading={busy === "session"}
+                      disabled={!idle}
+                      tooltip={t("agentCli.consent.allow_choices")}
+                    >
+                      <ChevronDown aria-hidden className="size-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem disabled={!idle} onSelect={() => void answer("session")}>
+                      {t("agentCli.consent.session")}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenuRoot>
+              )}
+            </span>
+          </div>
+        ) : (
+          <p className="text-app-micro text-muted-foreground" data-testid="remote-consent-there">
+            {tc("agentView.remote.consentThere", { device })}
+          </p>
+        )}
+        {failure && (
+          <p role="alert" className="text-app-micro text-(--state-error-fg)">
+            {failure}
+          </p>
+        )}
+      </div>
     </section>
   );
 }

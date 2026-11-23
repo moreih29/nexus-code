@@ -99,11 +99,8 @@ test("does not use a partial Git patch as a full chat original", async () => {
 });
 
 test.each([
-  // Git tells LF lines of a file checked out with CRLF (core.autocrlf=true).
   { now: "one\r\nTWO\r\nthree\r\nfour\r\n", before: "one\r\ntwo\r\nthree\r\n" },
-  // CRLF kept in Git as well: the lines match as they are.
   { now: "one\r\nTWO\r\nthree\r\nfour\r\n", before: "one\r\ntwo\r\nthree\r\n", gitCr: true },
-  // Mixed line endings are not guessed at.
   { now: "one\r\nTWO\nthree\r\nfour\r\n", before: undefined },
 ])("a chat comparison of a CRLF working file from a Git diff ($now)", async ({
   now,

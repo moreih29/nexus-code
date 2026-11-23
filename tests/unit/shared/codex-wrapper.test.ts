@@ -1,8 +1,3 @@
-/**
- * The codex wrapper: which codex it runs, and when it adds --no-daemon. Each
- * test puts a fake codex on PATH that prints its arguments, and whose help
- * has the option or not, as a newer or an older codex.
- */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -45,7 +40,6 @@ function write(file: string, text: string, mode = 0o755): string {
   return file;
 }
 
-/** A codex that prints its arguments a line each; FAKE_OLD makes it one without --no-daemon. */
 const FAKE_CODEX = `#!/bin/sh
 if [ "$1" = --help ]; then
   echo "Usage: codex [OPTIONS] [PROMPT]"
@@ -56,7 +50,6 @@ echo "real codex"
 for arg in "$@"; do echo "arg: $arg"; done
 `;
 
-/** The wrapper's directory and the real codex's, as they stand on PATH. */
 function install(): { wrapperDir: string; realDir: string } {
   const wrapperDir = path.join(tmp, "wrapper");
   const realDir = path.join(tmp, "real");
@@ -152,7 +145,6 @@ describeOnPosix("codex wrapper", () => {
   });
 
   describe("codex exec inside a tab's Claude session", () => {
-    /** An agent that prints its arguments, as the fake codex does. */
     function agent(): string {
       return write(
         path.join(tmp, "agent"),
@@ -209,7 +201,6 @@ describeOnPosix("codex wrapper", () => {
 });
 
 describeInGitBash("codex wrapper — Git Bash on Windows", () => {
-  // Bash starts slowly on Windows: the test waits as long as its spawn may.
   test("starts codex with --no-daemon", () => {
     const { wrapperDir, realDir } = install();
     const result = spawnSync(GIT_BASH, [path.join(wrapperDir, "codex"), "hi"], {
@@ -227,7 +218,6 @@ describeInGitBash("codex wrapper — Git Bash on Windows", () => {
 });
 
 describeOnWindows("PowerShell's codex function", () => {
-  /** Runs `calls` after the function in Windows PowerShell, with a fake codex.cmd on PATH. */
   function runPowerShell(calls: string): string {
     const realDir = path.join(tmp, "real");
     write(
@@ -264,11 +254,6 @@ describeOnWindows("PowerShell's codex function", () => {
     return result.stdout.replaceAll("\r", "");
   }
 
-  // One start of Windows PowerShell, which is slow to start, for every
-  // case: the function asks codex for its options on each call, so the last
-  // one, after FAKE_OLD is set, meets a codex without the option. Running
-  // codex.cmd this often can still outlast bun's 5 s on a CI runner, so the
-  // test waits as long as its spawn may.
   test("adds --no-daemon unless codex refuses it or lacks it", () => {
     expect(
       runPowerShell(

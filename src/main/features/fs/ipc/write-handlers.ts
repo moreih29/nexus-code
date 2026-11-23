@@ -1,4 +1,3 @@
-/** Write adapters envelope both provider startup and the agent operation. */
 import { ipcContract } from "../../../../shared/ipc/contract";
 import { validateArgs } from "../../../infra/ipc-router";
 import type { WorkspaceManager } from "../../workspace/manager";
@@ -6,7 +5,6 @@ import { runFsCall } from "./fs-result";
 
 const c = ipcContract.fs.call;
 
-/** Runs the agent's writeFile operation on the selected workspace. */
 export function writeFileHandler(manager: WorkspaceManager) {
   return (args: unknown) => {
     const { workspaceId, relPath, content, expected, bytes } = validateArgs(c.writeFile.args, args);
@@ -17,7 +15,6 @@ export function writeFileHandler(manager: WorkspaceManager) {
   };
 }
 
-/** Runs the agent's createFile operation on the selected workspace. */
 export function createFileHandler(manager: WorkspaceManager) {
   return (args: unknown) => {
     const { workspaceId, relPath } = validateArgs(c.createFile.args, args);
@@ -28,7 +25,6 @@ export function createFileHandler(manager: WorkspaceManager) {
   };
 }
 
-/** Runs the agent's mkdir operation on the selected workspace. */
 export function mkdirHandler(manager: WorkspaceManager) {
   return (args: unknown) => {
     const { workspaceId, relPath, recursive } = validateArgs(c.mkdir.args, args);
@@ -39,7 +35,6 @@ export function mkdirHandler(manager: WorkspaceManager) {
   };
 }
 
-/** Runs the agent's unlink operation on the selected workspace. */
 export function unlinkHandler(manager: WorkspaceManager) {
   return (args: unknown) => {
     const { workspaceId, relPath } = validateArgs(c.unlink.args, args);
@@ -50,7 +45,6 @@ export function unlinkHandler(manager: WorkspaceManager) {
   };
 }
 
-/** Runs the agent's rmdir operation on the selected workspace. */
 export function rmdirHandler(manager: WorkspaceManager) {
   return (args: unknown) => {
     const { workspaceId, relPath } = validateArgs(c.rmdir.args, args);
@@ -61,7 +55,6 @@ export function rmdirHandler(manager: WorkspaceManager) {
   };
 }
 
-/** Runs the agent's rename operation on the selected workspace. */
 export function renameHandler(manager: WorkspaceManager) {
   return (args: unknown) => {
     const { workspaceId, fromRelPath, toRelPath, overwrite } = validateArgs(c.rename.args, args);
@@ -72,7 +65,6 @@ export function renameHandler(manager: WorkspaceManager) {
   };
 }
 
-/** Runs the agent's copyFile operation on the selected workspace. */
 export function copyFileHandler(manager: WorkspaceManager) {
   return (args: unknown) => {
     const { workspaceId, fromRelPath, toRelPath, overwrite } = validateArgs(c.copyFile.args, args);
@@ -83,7 +75,6 @@ export function copyFileHandler(manager: WorkspaceManager) {
   };
 }
 
-/** Runs the agent's removeAll operation on the selected workspace. */
 export function removeAllHandler(manager: WorkspaceManager) {
   return (args: unknown) => {
     const { workspaceId, relPath } = validateArgs(c.removeAll.args, args);

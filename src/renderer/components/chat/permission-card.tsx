@@ -1,12 +1,3 @@
-// What the agent asks before a tool runs: the call, and the user's answer.
-// AskUserQuestion is answered with choices and ExitPlanMode with the plan's
-// approval; every other tool is allowed, allowed for good, or denied.
-//
-// The card takes the keyboard as a request shows, unless the user is typing
-// somewhere else: Enter gives the answer on the button marked ↵, the number
-// keys pick a question's options, and Esc leaves a reason being written. A
-// key the card has no use for goes on to the tab's message box.
-
 import {
   ArrowLeft,
   ArrowRight,
@@ -42,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Keycap } from "../ui/keycap";
+import { tooltipProps } from "../ui/tooltip";
 import { useAgentContext } from "./chat-agent";
 import { ChatMarkdown } from "./chat-markdown";
 import { Highlighted } from "./code-highlight";
@@ -52,9 +44,9 @@ interface PermissionCardProps {
   workspaceId: string;
   cwd: string;
   rootPath: string;
-  /** Whether the session accepts a permission mode along with plan approval. */
   planModeOptions?: boolean;
   onAnswer: (request: PermissionRequest, answer: PermissionAnswer) => void;
+  onToMain?: () => void;
 }
 
 export function PermissionCard({
@@ -64,6 +56,7 @@ export function PermissionCard({
   rootPath,
   planModeOptions = true,
   onAnswer,
+  onToMain,
 }: PermissionCardProps) {
   const { t } = useTranslation();
   const [index, setIndex] = useState(0);
@@ -76,34 +69,27 @@ export function PermissionCard({
 
   return (
     <section
-      className="rounded-(--radius-raised) border border-border border-l-2 border-l-[var(--state-warning-border)] bg-popover p-3 text-app-ui-sm focus-within:border-ring focus-within:border-l-[var(--state-warning-border)]"
+      className={PERMISSION_CARD_CLASS}
       aria-label={t("chat.permission.aria")}
       data-testid="chat-permission"
     >
-      {requests.length > 1 && (
-        <div className="mb-2 flex items-center justify-end gap-1 text-app-micro text-muted-foreground">
+      {onToMain && !request.agentId && (
+        <div
+          className="mb-2 flex items-center gap-2 text-app-micro text-muted-foreground"
+          data-testid="chat-permission-main"
+        >
+          <span className="min-w-0 flex-1 truncate">{t("chat.strip.permission_waiting")}</span>
           <button
             type="button"
-            disabled={shown === 0}
-            onClick={() => setIndex(shown - 1)}
-            title={t("chat.permission.previous")}
-            aria-label={t("chat.permission.previous")}
-            className="rounded-(--radius-control) p-0.5 hover:bg-[var(--state-hover-bg)] disabled:opacity-40"
+            onClick={onToMain}
+            className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 font-medium whitespace-nowrap hover:bg-[var(--state-hover-bg)]"
           >
-            <ChevronLeft className="size-3.5" />
-          </button>
-          <span>{t("chat.permission.page", { current: shown + 1, total: requests.length })}</span>
-          <button
-            type="button"
-            disabled={shown === requests.length - 1}
-            onClick={() => setIndex(shown + 1)}
-            title={t("chat.permission.next")}
-            aria-label={t("chat.permission.next")}
-            className="rounded-(--radius-control) p-0.5 hover:bg-[var(--state-hover-bg)] disabled:opacity-40"
-          >
-            <ChevronRight className="size-3.5" />
+            {t("chat.strip.to_main")}
           </button>
         </div>
+      )}
+      {requests.length > 1 && (
+        <RequestPager shown={shown} total={requests.length} onShow={setIndex} className="mb-2" />
       )}
       {request.toolName === "AskUserQuestion" ? (
         <QuestionForm key={request.requestId} request={request} onAnswer={onAnswer} />
@@ -124,61 +110,84 @@ export function PermissionCard({
   );
 }
 
+export const PERMISSION_CARD_CLASS =
+  "rounded-(--radius-raised) border border-border border-l-2 border-l-[var(--state-warning-border)] bg-popover p-3 text-app-ui-sm focus-within:border-ring focus-within:border-l-[var(--state-warning-border)]";
+
+export function RequestPager({
+  shown,
+  total,
+  onShow,
+  className,
+}: {
+  shown: number;
+  total: number;
+  onShow: (index: number) => void;
+  className?: string;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-end gap-1 text-app-micro text-muted-foreground",
+        className,
+      )}
+    >
+      <button
+        type="button"
+        disabled={shown === 0}
+        onClick={() => onShow(shown - 1)}
+        aria-label={t("chat.permission.previous")}
+        {...tooltipProps(t("chat.permission.previous"))}
+        className="rounded-(--radius-control) p-0.5 hover:bg-[var(--state-hover-bg)] disabled:opacity-40"
+      >
+        <ChevronLeft className="size-3.5" />
+      </button>
+      <span>{t("chat.permission.page", { current: shown + 1, total })}</span>
+      <button
+        type="button"
+        disabled={shown === total - 1}
+        onClick={() => onShow(shown + 1)}
+        aria-label={t("chat.permission.next")}
+        {...tooltipProps(t("chat.permission.next"))}
+        className="rounded-(--radius-control) p-0.5 hover:bg-[var(--state-hover-bg)] disabled:opacity-40"
+      >
+        <ChevronRight className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
 interface FormProps {
   request: PermissionRequest;
   onAnswer: (request: PermissionRequest, answer: PermissionAnswer) => void;
 }
 
-// ---------------------------------------------------------------------------
-// The keyboard
-// ---------------------------------------------------------------------------
-
-/** The chat tab `el` is in; none in the agent list's detail panel. */
 function chatTabOf(el: Element): Element | null {
   return el.closest(
     '[data-testid="claude-tab"], [data-testid="codex-tab"], [data-testid="remote-chat"]',
   );
 }
 
-/** A text field with nothing in it: the user is not typing there. */
 function isEmptyField(el: Element): boolean {
   return (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) && el.value === "";
 }
 
-/** The message box of the chat tab `tab`. */
 function composerOf(tab: Element | null): HTMLTextAreaElement | null {
   return tab?.querySelector<HTMLTextAreaElement>('[data-testid="chat-composer"] textarea') ?? null;
 }
 
-/**
- * Puts the keyboard in the chat tab `tab` as the user brings it to the
- * front: with the request waiting on them, so its keys work at once, else
- * in the message box. A request that showed while the tab was hidden never
- * took it.
- */
 export function focusChatTab(tab: Element | null): void {
   const card = tab?.querySelector<HTMLElement>('[data-testid="chat-permission"] [tabindex="-1"]');
   if (card) takeKeys(card, tab);
   else composerOf(tab)?.focus({ preventScroll: true });
 }
 
-/** Gives the card `card` its keys back, as a step in it ends. */
 function giveKeys(card: HTMLElement | null): void {
   if (card) takeKeys(card, chatTabOf(card));
 }
 
-/** The card each message box passes its keys on to, and how it stops. */
 const passing = new WeakMap<HTMLTextAreaElement, { card: Element; stop: () => void }>();
 
-/**
- * Gives `card` the keys: the message box of `tab` takes the focus and
- * passes each key on to the card, until the user types in the box or
- * leaves it. The focus stays in a text field so that an IME stays on: in
- * the card, which takes no text, Windows turns it off, and the first letter
- * typed on to the box came as a Latin one. While it passes them, the box
- * acts on no key itself (`data-card-keys`). Without a box, or with a draft
- * in it, which Enter would send, the card takes the focus.
- */
 function takeKeys(card: HTMLElement, tab: Element | null): void {
   const box = composerOf(tab);
   if (!box || box.value !== "") {
@@ -222,17 +231,10 @@ function takeKeys(card: HTMLElement, tab: Element | null): void {
   box.focus({ preventScroll: true });
 }
 
-/** Whether `el` is on screen: a tab not in front is hidden, and keeps its hands off the keyboard. */
 function onScreen(el: Element | null): el is HTMLElement {
   return el instanceof HTMLElement && el.checkVisibility({ visibilityProperty: true });
 }
 
-/**
- * Gives `ref` the keys as a request shows, so they work at once: from
- * nowhere, or from the tab's own empty message box. Never from text being
- * typed, or from another tab or terminal. Once answered, the focus it had
- * goes back to the message box.
- */
 function useTakeKeyboard(ref: RefObject<HTMLElement | null>, requestId: string): void {
   useEffect(() => {
     const el = ref.current;
@@ -248,23 +250,17 @@ function useTakeKeyboard(ref: RefObject<HTMLElement | null>, requestId: string):
       const box = composerOf(tab);
       const held = box ? passing.get(box) : undefined;
       if (held?.card === el) held.stop();
-      // Gone with the card, the focus fell to the page.
       const now = document.activeElement;
       if ((now === null || now === document.body || el.contains(now)) && onScreen(box)) box.focus();
     };
   }, [ref, requestId]);
 }
 
-/**
- * Sends a typed character the card has no use for on to the tab's message
- * box: moved there before the key lands, it lands there.
- */
 function passToComposer(event: KeyboardEvent, card: Element): void {
   if (event.key.length !== 1 || event.metaKey || event.ctrlKey || event.altKey) return;
   composerOf(chatTabOf(card))?.focus();
 }
 
-/** Enter sends and Shift+Enter starts a new line; Esc goes back. */
 function reasonKeys(event: KeyboardEvent, send: () => void, back: () => void): void {
   if (isImeComposing(event)) return;
   if (event.key === "Escape") {
@@ -285,8 +281,8 @@ function BackButton({ onBack }: { onBack: () => void }) {
       size="icon-sm"
       variant="ghost"
       onClick={onBack}
-      title={t("chat.permission.back_esc")}
-      aria-label={t("chat.permission.back")}
+      tooltip={t("chat.permission.back")}
+      shortcut="Esc"
     >
       <ArrowLeft className="size-4" />
     </Button>
@@ -295,10 +291,6 @@ function BackButton({ onBack }: { onBack: () => void }) {
 
 const REASON_CLASS =
   "app-scrollbar w-full resize-none rounded-(--radius-control) border border-border bg-background px-2 py-1.5 text-app-ui-sm outline-none focus:border-ring";
-
-// ---------------------------------------------------------------------------
-// A tool
-// ---------------------------------------------------------------------------
 
 function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
   const { t } = useTranslation();
@@ -316,7 +308,6 @@ function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
     parentToolUseId: null,
   };
   const preview = request.preview !== undefined || hasPreview(request.toolName);
-  // A command of several lines shows them all: its first can hide the rest.
   const summary = wholeCommand(tool.input) ?? toolSummary(tool, cwd);
   const scopes = scopesOf(request.suggestions, t);
   const deny = (stop: boolean) =>
@@ -437,10 +428,6 @@ function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
   );
 }
 
-/**
- * "Always allow", with what it adds on hover. With more than one rule or
- * mode to add, its menu adds just one of them; the button adds them all.
- */
 function AllowAlways({
   scopes,
   onAllow,
@@ -471,8 +458,8 @@ function AllowAlways({
             size="sm"
             variant="outline"
             className="rounded-l-none border-l-0 px-1.5"
-            title={t("chat.permission.allow_always_one")}
-            aria-label={t("chat.permission.allow_always_one")}
+            title={t("chat.permission.allow_always_single")}
+            aria-label={t("chat.permission.allow_always_single")}
           >
             <ChevronDown className="size-3.5" />
           </Button>
@@ -489,7 +476,6 @@ function AllowAlways({
   );
 }
 
-/** A tool's command, when it runs one of more than a line. */
 function wholeCommand(input: unknown): string | undefined {
   const command = (input as { command?: unknown } | undefined)?.command;
   if (typeof command !== "string") return undefined;
@@ -497,16 +483,11 @@ function wholeCommand(input: unknown): string | undefined {
   return whole.includes("\n") ? whole : undefined;
 }
 
-/** Tools whose input reads best as the patch or command they carry. */
 function hasPreview(toolName: string): boolean {
   return toolName === "Edit" || toolName === "Write" || toolName === "MultiEdit";
 }
 
 export { scopesOf };
-
-// ---------------------------------------------------------------------------
-// Questions
-// ---------------------------------------------------------------------------
 
 export interface Question {
   id?: string;
@@ -516,7 +497,6 @@ export interface Question {
   options: { label: string; description?: string }[];
 }
 
-/** Codex names each question; Claude's questions are keyed by their text. */
 export function questionKey(question: Question): string {
   return question.id ?? question.question;
 }
@@ -541,25 +521,13 @@ export function readQuestions(input: Record<string, unknown>): Question[] {
     }));
 }
 
-/** How long a picked answer shows before the next question takes its place. */
 export const ONWARD_MS = 200;
 
-/**
- * The question after `shown` still without an answer (from the first, past
- * the last), or -1 when no other is left.
- */
 export function nextUnanswered(unanswered: readonly boolean[], shown: number): number {
   const after = unanswered.findIndex((open, i) => open && i > shown);
   return after >= 0 ? after : unanswered.findIndex((open, i) => open && i !== shown);
 }
 
-/**
- * The questions, one at a time: the number keys pick the shown one's
- * options (the last number writes another answer). A question of one answer
- * goes on to the next unanswered one as it is picked; the button marked ↵
- * (and Enter) goes on after several, or a written one, and sends the answers
- * once all have one. They are never sent by a pick alone.
- */
 function QuestionForm({ request, onAnswer }: FormProps) {
   const { t } = useTranslation();
   const root = useRef<HTMLFormElement>(null);
@@ -611,7 +579,6 @@ function QuestionForm({ request, onAnswer }: FormProps) {
     }
     if (next >= 0) show(next);
   };
-  /** Picks `label` for the shown question; one of one answer goes on to the next. */
   const pick = (question: Question, label: string) => {
     toggle(question, label);
     if (question.multiSelect || next < 0) return;
@@ -800,7 +767,6 @@ function QuestionForm({ request, onAnswer }: FormProps) {
   );
 }
 
-/** A radio dot for one answer, a check box for several. */
 function Pick({ multi, on }: { multi: boolean; on: boolean }) {
   return (
     <span
@@ -825,10 +791,8 @@ function Pick({ multi, on }: { multi: boolean; on: boolean }) {
   );
 }
 
-/** How tall a question shows before it folds. */
 const QUESTION_FOLD_PX = 150;
 
-/** The question, folded when it runs long. */
 function QuestionText({ text }: { text: string }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
@@ -870,10 +834,6 @@ function QuestionText({ text }: { text: string }) {
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// A plan
-// ---------------------------------------------------------------------------
 
 function PlanApproval({
   request,
@@ -983,8 +943,8 @@ function PlanApproval({
                   <Button
                     size="sm"
                     className="rounded-l-none border-l border-primary-foreground/25 px-1.5"
-                    title={t("chat.plan.approve_other")}
-                    aria-label={t("chat.plan.approve_other")}
+                    title={t("chat.plan.approve_more")}
+                    aria-label={t("chat.plan.approve_more")}
                   >
                     <ChevronDown className="size-3.5" />
                   </Button>

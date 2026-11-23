@@ -1,9 +1,3 @@
-/**
- * A transcript's lines: when, who and what, the words searched for marked.
- * The speaker opens the one menu that moves a line to another voice; while
- * the transcript is narrowed to a person or a search, the time shows the
- * line in the whole conversation.
- */
 import { Plus } from "lucide-react";
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
@@ -23,7 +17,6 @@ import {
   DropdownMenuSubTrigger,
 } from "../ui/dropdown-menu";
 
-/** `text` with the [start, end] spans in `marks` marked. */
 function Marked({ text, marks }: { text: string; marks: readonly number[] }) {
   if (marks.length === 0) return text;
   const parts: React.ReactNode[] = [];
@@ -69,14 +62,10 @@ export const LineRow = memo(function LineRow({
   suggested?: boolean;
   color: string;
   marks: readonly number[];
-  /** The transcript leaves lines out: the time shows this one among them all. */
   narrowed: boolean;
-  /** Just shown in the whole conversation: lit a moment. */
   lit: boolean;
   summaryTask?: boolean;
-  /** Opens the menu that moves the line to another voice, under its speaker. */
   onSpeaker: (recordingId: string, line: TranscriptLine, point: DropdownMenuPoint) => void;
-  /** Puts the line into the note, as a quote. */
   onQuote: (recordingId: string, line: TranscriptLine) => void;
   onShowInWhole: (rowKey: string) => void;
 }) {
@@ -140,7 +129,6 @@ export const LineRow = memo(function LineRow({
   );
 });
 
-/** The words being said now, before they are final. */
 export function PartialRow({
   name,
   suggested = false,
@@ -164,18 +152,12 @@ export function PartialRow({
   );
 }
 
-/** A voice a line can be moved to. */
 export interface LineTarget {
   readonly key: string;
   readonly name: string;
   readonly color: string;
 }
 
-/**
- * The one menu that moves a line to another voice of its recording, or to a
- * new one: opened under the speaker clicked, rather than a menu kept on
- * every line.
- */
 export const LineMoveMenu = memo(function LineMoveMenu({
   point,
   targets,
@@ -183,9 +165,7 @@ export const LineMoveMenu = memo(function LineMoveMenu({
   onClose,
 }: {
   point: DropdownMenuPoint | null;
-  /** The recording's other people. */
   targets: readonly LineTarget[];
-  /** Moves the line to a voice, or to a new one (null). */
   onMove: (to: string | null, scope: SpeakerMoveScope) => void;
   onClose: () => void;
 }) {

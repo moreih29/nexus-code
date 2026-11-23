@@ -1,25 +1,8 @@
-/**
- * Local port forwarding over a workspace's SSH connection: a port on this
- * machine's 127.0.0.1 that reaches a port on the SSH host's localhost.
- *
- * - OpenSSH with a ControlMaster: the master forwards (`ssh -O forward -L`),
- *   and `-O cancel` stops it. The forward goes with the master.
- * - OpenSSH without one (key-only auth): an ssh of its own forwards. Its
- *   remote command reads stdin, so it ends when the app does, even a crashed
- *   one.
- * - ssh2 (Windows): a listener here pipes each connection into a channel
- *   (`forwardOut`) on the shared connection, or on one of its own.
- *
- * The far end is the host's `localhost`, which sshd resolves: a dev server
- * may listen on 127.0.0.1 or on ::1 alone.
- */
-
 import net from "node:net";
 import type { Duplex } from "node:stream";
 import { defaultSpawnSsh, type SpawnSshProcess, sshDestination } from "./master";
 import { createSsh2Forwarder, type Ssh2Forwarder, usesSsh2Client } from "./ssh2";
 
-/** Where a workspace's SSH connection goes, and the master it shares, if any. */
 export interface SshForwardTarget {
   readonly host: string;
   readonly user?: string;
@@ -28,24 +11,17 @@ export interface SshForwardTarget {
   readonly controlPath?: string;
 }
 
-/** An SSH workspace's host and its connection as it is now. */
 export interface SshForwarding {
   readonly host: string;
-  /** Connecting or reconnecting: a forward waits for it. */
   readonly connecting: boolean;
-  /** The connection to forward over; null while not connected. */
   readonly target: SshForwardTarget | null;
 }
 
-/** One forward, from 127.0.0.1:localPort here to localhost:remotePort on the host. */
 export interface SshTunnel {
   readonly localPort: number;
   readonly remotePort: number;
-  /** The master it was set up on; a new master has none of the old one's forwards. */
   readonly controlPath: string | undefined;
-  /** False once closed, or once an ssh of its own has exited. */
   alive(): boolean;
-  /** Settles when the forward ends, closed or not. */
   readonly closed: Promise<void>;
   close(): Promise<void>;
 }
@@ -54,19 +30,15 @@ export interface SshTunnelDependencies {
   readonly spawn?: SpawnSshProcess;
   readonly ssh2?: boolean;
   readonly createSsh2Forwarder?: typeof createSsh2Forwarder;
-  /** How long an ssh of its own may take to connect. */
   readonly readyTimeoutMs?: number;
 }
 
-/** The far end every forward reaches. */
 const REMOTE_HOST = "localhost";
 
-/** What the ssh of its own prints once its forward listens. */
 const READY_LINE = "nexus-forward-ready";
 
 const DEFAULT_READY_TIMEOUT_MS = 30_000;
 
-/** `-L`'s argument: this machine's 127.0.0.1 only. */
 export function forwardSpec(localPort: number, remotePort: number): string {
   return `127.0.0.1:${localPort}:${REMOTE_HOST}:${remotePort}`;
 }
@@ -78,7 +50,6 @@ function connectionArgs(target: SshForwardTarget): string[] {
   return args;
 }
 
-/** Asks a ControlMaster to start (`forward`) or stop (`cancel`) a forward. */
 export function buildSshMuxForwardArgs(
   target: SshForwardTarget & { readonly controlPath: string },
   operation: "forward" | "cancel",
@@ -98,7 +69,6 @@ export function buildSshMuxForwardArgs(
   ];
 }
 
-/** An ssh of its own that forwards and runs a command that waits on stdin. */
 export function buildSshOwnForwardArgs(
   target: SshForwardTarget,
   localPort: number,
@@ -118,13 +88,10 @@ export function buildSshOwnForwardArgs(
     ...connectionArgs(target),
     "--",
     sshDestination(target),
-    // ssh binds the forward before it opens the session, so the line means
-    // the forward listens; cat ends when the app closes its stdin.
     `echo ${READY_LINE}; exec cat >/dev/null`,
   ];
 }
 
-/** Starts forwarding 127.0.0.1:localPort here to the host's localhost:remotePort. */
 export async function openSshTunnel(
   target: SshForwardTarget,
   localPort: number,
@@ -161,7 +128,6 @@ export async function openSshTunnel(
       async close() {
         if (closed) return;
         closed = true;
-        // The master may be gone, and its forwards with it.
         await runSsh(
           spawn,
           buildSshMuxForwardArgs({ ...target, controlPath }, "cancel", localPort, remotePort),
@@ -179,7 +145,6 @@ export async function openSshTunnel(
   );
 }
 
-/** Runs an ssh that exits once done; rejects with its stderr when it fails. */
 function runSsh(spawn: SpawnSshProcess, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn("ssh", args, {});
@@ -271,7 +236,6 @@ function ownSsh(
   });
 }
 
-/** A listener here whose connections each get a channel to the far end. */
 function listenAndForward(
   forwarder: Ssh2Forwarder,
   controlPath: string | undefined,

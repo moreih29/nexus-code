@@ -1,10 +1,3 @@
-/**
- * The agents of every workspace, as the agent view lists them: by the
- * workspace they run in, a workspace's tasks under it, pinned workspaces
- * first as the sidebar orders them. Pure: built from the same records as the
- * agent list and the inbox.
- */
-
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import {
   WORKSPACE_COLORS,
@@ -27,13 +20,11 @@ export interface AgentsInput extends SessionsInput {
 
 export interface AgentEntry {
   readonly workspace: WorkspaceMeta;
-  /** The workspace it is listed under: its own, or the one its task belongs to. */
   readonly root: WorkspaceMeta;
   readonly session: AgentSession;
 }
 
 export interface Agents {
-  /** Each workspace with its tasks and their agents, in the sidebar's order. */
   readonly families: readonly SessionFamily[];
   readonly byKey: ReadonlyMap<string, AgentEntry>;
 }
@@ -66,7 +57,6 @@ export function buildAgents(input: AgentsInput, previous?: Agents): Agents {
   return { families, byKey };
 }
 
-/** Whether two builds list the same, to keep the one already shown. */
 export function sameAgents(a: Agents, b: Agents): boolean {
   return (
     a.families.length === b.families.length &&
@@ -74,13 +64,8 @@ export function sameAgents(a: Agents, b: Agents): boolean {
   );
 }
 
-/** The palette's colors, one per workspace and its tasks, so its panels read as its own. */
 const WORKSPACE_PALETTE_SIZE = WORKSPACE_COLORS.length;
 
-/**
- * The color of a workspace's agents: the one the user gave it, or, for "auto",
- * one of the theme's lane colors picked by its id.
- */
 export function workspaceColor(rootId: string, color: WorkspaceColor = "auto"): string {
   const chosen = workspaceColorToken(color);
   if (chosen !== null) return chosen;

@@ -1,9 +1,3 @@
-/**
- * nexus browser snapshot, click, fill, type, press, screenshot, eval,
- * console, wait and pick, against a fake driver: which tab they act on,
- * what they print, where screenshots go, and that only the ones changing a
- * page ask leave for another workspace.
- */
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../../src/main/features/cli/registry";

@@ -1,26 +1,3 @@
-/**
- * Apply user editor-keybinding overrides to Monaco's keybinding service.
- *
- * Monaco offers `monaco.editor.addKeybindingRule(rule)` to layer
- * keybindings over the built-in defaults: a rule binds a keystroke to a
- * command id, or UNBINDS it when the command is prefixed with `-`. An
- * unbind rule only removes a BUILT-IN binding, never one added this way;
- * an added rule goes away only when the disposable it returned is
- * disposed.
- *
- * This module is therefore a small RECONCILER: it tracks, per command,
- * the keystroke currently bound (a user accelerator or the declared
- * default) and the rules it added for it, and on each apply changes only
- * what differs — dispose the old key's rule, add the new one, and unbind
- * the built-in default while the user's key replaces it — so live changes
- * settle cleanly without an app restart. The tracking map is
- * module-scoped (one Monaco instance per renderer window).
- *
- * Accelerators are converted to Monaco's numeric keybinding encoding
- * (KeyMod | KeyCode); chords are out of scope for editor commands (all
- * curated entries are single-stroke), so only `primary` is honored.
- */
-
 import {
   ALL_EDITOR_COMMAND_IDS,
   editorCommandDefault,
@@ -33,10 +10,6 @@ import { isMonacoReady, requireMonaco } from "../runtime/monaco-singleton";
 
 const log = createLogger("editor-keybindings");
 
-// KeyboardEvent.code → Monaco KeyCode enum member name, for the
-// non-alphanumeric / non-function keys. KeyA-Z, Digit0-9 and F1-F12
-// share their `code` string with the Monaco enum name and are handled
-// by regex below.
 const CODE_TO_KEYCODE_NAME: Readonly<Record<string, string>> = {
   Enter: "Enter",
   Escape: "Escape",
@@ -64,15 +37,11 @@ const CODE_TO_KEYCODE_NAME: Readonly<Record<string, string>> = {
 };
 
 interface AppliedBinding {
-  /** The keystroke the command is bound to; null when unbound. */
   readonly key: AcceleratorString | null;
-  /** The rule unbinding the built-in default, while the default is replaced. */
   readonly unbindDefault?: { dispose(): void };
-  /** The rule binding the user's keystroke. */
   readonly bindUser?: { dispose(): void };
 }
 
-/** How each editor command is bound in Monaco, for commands moved off their default. */
 const appliedByCommand = new Map<string, AppliedBinding>();
 
 function codeToMonacoKeyCode(monaco: typeof import("monaco-editor"), code: string): number | null {
@@ -87,12 +56,6 @@ function codeToMonacoKeyCode(monaco: typeof import("monaco-editor"), code: strin
   return typeof value === "number" ? value : null;
 }
 
-/**
- * Convert an accelerator string to Monaco's numeric keybinding encoding.
- * Returns null for anything Monaco can't express (modifier-only, unknown
- * key). `CmdOrCtrl` maps to `KeyMod.CtrlCmd`, which Monaco resolves to ⌘
- * on Mac / Ctrl elsewhere — the same platform semantics our parser uses.
- */
 export function acceleratorToMonacoKeybinding(
   monaco: typeof import("monaco-editor"),
   accel: AcceleratorString,
@@ -116,13 +79,6 @@ export function acceleratorToMonacoKeybinding(
   return mods | keyCode;
 }
 
-/**
- * Reconcile Monaco's keybindings to match the given editor overrides.
- * Idempotent: emits only the delta versus what was last applied, so
- * calling repeatedly (live edit, cross-window broadcast) never piles up
- * duplicate bindings. No-op until Monaco is initialized — the caller
- * (initializeEditorServices) re-invokes once it is.
- */
 export function applyEditorKeybindingOverrides(overrides: readonly KeybindingOverride[]): void {
   if (!isMonacoReady()) return;
   const monaco = requireMonaco();
@@ -136,18 +92,15 @@ export function applyEditorKeybindingOverrides(overrides: readonly KeybindingOve
     const ov = byCommand.get(id);
     const def = editorCommandDefault(id);
 
-    // Desired end state for this command: the user's keystroke, an
-    // explicit unbind, or the built-in default.
     let want: AcceleratorString | null;
     if (ov === undefined || ov.primary === undefined) want = def;
-    else want = ov.primary; // string = replace, null = unbind
+    else want = ov.primary;
 
     const prev = appliedByCommand.get(id);
     if ((prev ? prev.key : def) === want) continue;
 
     prev?.bindUser?.dispose();
     if (want === def) {
-      // Back to the default: dropping the unbind brings the built-in back.
       prev?.unbindDefault?.dispose();
       appliedByCommand.delete(id);
       continue;
@@ -174,7 +127,6 @@ export function applyEditorKeybindingOverrides(overrides: readonly KeybindingOve
   }
 }
 
-/** Test-only: forget what has been applied so a fresh reconcile starts clean. */
 export function __resetAppliedEditorBindingsForTests(): void {
   appliedByCommand.clear();
 }

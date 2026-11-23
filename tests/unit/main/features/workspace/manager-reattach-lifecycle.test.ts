@@ -1,36 +1,11 @@
-/**
- * manager-reattach-lifecycle.test.ts
- *
- * Tests for WorkspaceManager task-13 acceptance criteria:
- *
- *   (3) connectionStatus "unstable" when degraded received; workspaceIsOnline=true
- *       for "unstable". Cleared back to "connected" after ~1 s.
- *   (4) SSH auth-failed terminal failure on interactive workspace →
- *       startRemoteProvider re-entry (auto re-prompt), reauthInFlight guard,
- *       ssh.auth-cancelled → disconnected (no retry loop),
- *       reauthAttempts backoff (0→5s→30s), 3 attempts → error.
- *   (5) ctx absent at reauth time → no action.
- *
- * DI-based approach: all SSH channel / bootstrap fns injected via constructor
- * so no mock.module is needed.
- */
-
 import { Database } from "bun:sqlite";
 import { describe, expect, jest, mock, test } from "bun:test";
 import os from "node:os";
 import path from "node:path";
 
-// ---------------------------------------------------------------------------
-// electron mock (leaf)
-// ---------------------------------------------------------------------------
-
 mock.module("electron", () => ({
   app: { isPackaged: false },
 }));
-
-// ---------------------------------------------------------------------------
-// Dynamic imports — after mock.module
-// ---------------------------------------------------------------------------
 
 const { GlobalStorage } = await import("../../../../../src/main/infra/storage/global-storage");
 const { WorkspaceStorage } = await import(
@@ -41,10 +16,6 @@ const { WorkspaceManager } = await import("../../../../../src/main/features/work
 const { createAgentReconnectError } = await import(
   "../../../../../src/main/infra/agent/channel/reconnecting-process-channel"
 );
-
-// ---------------------------------------------------------------------------
-// Minimal channel stub
-// ---------------------------------------------------------------------------
 
 type LifecycleCb = (event: { type: string; [k: string]: unknown }) => void;
 
@@ -84,10 +55,6 @@ class StubChannel {
   dispose(): void {}
 }
 
-// ---------------------------------------------------------------------------
-// Manager factory
-// ---------------------------------------------------------------------------
-
 function makeManager(overrides?: {
   sshBootstrap?: Parameters<typeof WorkspaceManager>[5];
   sshChannelFactory?: Parameters<typeof WorkspaceManager>[4];
@@ -126,15 +93,14 @@ function makeManager(overrides?: {
     broadcastFn,
     overrides?.sshChannelFactory ?? (undefined as never),
     overrides?.sshBootstrap ?? (undefined as never),
-    undefined as never, // localChannelFactory
-    undefined as never, // localAgentCommandResolver
-    undefined as never, // sshLspBootstrap
+    undefined as never,
+    undefined as never,
+    undefined as never,
     overrides?.writeShimFiles ?? defaultWriteShimFiles,
     overrides?.removeShimDir ?? defaultRemoveShimDir,
     overrides?.wsl,
   );
 
-  // Wire held-session callbacks — default no-ops when not provided.
   manager.setPtyHeldCallbacks(
     overrides?.ptyRestoreAfterReauth ?? ((_id) => Promise.resolve()),
     overrides?.ptyReleaseHeld ?? ((_id) => {}),
@@ -277,10 +243,6 @@ test("connecting a background SSH workspace leaves the recorded selection and it
   }
 });
 
-// ---------------------------------------------------------------------------
-// Acceptance 3: degraded → "unstable" broadcast
-// ---------------------------------------------------------------------------
-
 describe("acceptance 3: degraded lifecycle → unstable broadcast", () => {
   test("degraded event broadcasts unstable connectionStatus", async () => {
     const channel = new StubChannel();
@@ -302,7 +264,6 @@ describe("acceptance 3: degraded lifecycle → unstable broadcast", () => {
     channel.resolveChannel();
     await bootPromise;
 
-    // Emit degraded event from the channel.
     channel.emitLifecycle({ type: "degraded" });
 
     const connectionBroadcasts = broadcasts.filter(
@@ -347,7 +308,6 @@ describe("acceptance 3: degraded lifecycle → unstable broadcast", () => {
       channel.emitLifecycle({ type: "degraded-recovered" });
       expect(statuses()).toContain("unstable");
 
-      // Still inside the ~1 s debounce window: no "connected" yet.
       jest.advanceTimersByTime(999);
       expect(connectedAfterUnstable()).toBe(false);
 
@@ -364,10 +324,6 @@ describe("acceptance 3: degraded lifecycle → unstable broadcast", () => {
     }
   });
 });
-
-// ---------------------------------------------------------------------------
-// Acceptance 4a: terminal failure → auto re-prompt on interactive workspace
-// ---------------------------------------------------------------------------
 
 describe("acceptance 4a: auth-failed terminal failure → auto re-prompt", () => {
   test("ssh.auth-failed on interactive workspace triggers startRemoteProvider re-entry", async () => {
@@ -396,26 +352,21 @@ describe("acceptance 4a: auth-failed terminal failure → auto re-prompt", () =>
     const { manager, globalDb } = makeManager({ sshBootstrap, sshChannelFactory });
     const meta = makeSshMeta(manager);
 
-    // Boot first provider.
     const bootPromise = manager.getAgentChannel(meta.id);
     channel.resolveChannel();
     await bootPromise;
     expect(bootCallCount).toBe(1);
 
-    // Prepare a second channel for the re-auth attempt.
     const channel2 = new StubChannel();
     channelInstances.push(channel2);
     channelIdx = 1;
 
-    // Emit auth-failed terminal failure.
     const authFailedError = Object.assign(new Error("SSH authentication failed"), {
       code: "ssh.auth-failed",
     });
     channel.emitLifecycle({ type: "failure", error: authFailedError });
 
-    // Resolve the second channel's ready.
     channel2.resolveChannel();
-    // Give micro-task queue a cycle for the immediate (0 ms backoff) reauth.
     await new Promise<void>((r) => setTimeout(r, 10));
 
     expect(bootCallCount).toBe(2);
@@ -424,14 +375,9 @@ describe("acceptance 4a: auth-failed terminal failure → auto re-prompt", () =>
   });
 });
 
-// ---------------------------------------------------------------------------
-// Acceptance 4b: reauthInFlight guard
-// ---------------------------------------------------------------------------
-
 describe("acceptance 4b: reauthInFlight prevents duplicate prompt", () => {
   test("second auth-failed while reauth in-flight does not start another attempt", async () => {
     let bootCallCount = 0;
-    // Bootstrap hangs after first call so we can observe reauthInFlight guard.
     let resolveSecondBoot!: () => void;
     const secondBootPromise = new Promise<void>((r) => {
       resolveSecondBoot = r;
@@ -470,27 +416,17 @@ describe("acceptance 4b: reauthInFlight prevents duplicate prompt", () => {
     const authFailedError = Object.assign(new Error("SSH auth failed"), {
       code: "ssh.auth-failed",
     });
-    // First failure → triggers reauth (in-flight now).
     channel.emitLifecycle({ type: "failure", error: authFailedError });
     await new Promise<void>((r) => setTimeout(r, 0));
-    expect(bootCallCount).toBe(2); // second boot started
-
-    // Second emitLifecycle on the SAME channel (same reference check fails now
-    // since sshChannels was deleted after the first failure, but just ensure
-    // no additional boot started).
-    // Boot count should still be 2 because reauthInFlight blocks.
     expect(bootCallCount).toBe(2);
 
-    // Cleanup
+    expect(bootCallCount).toBe(2);
+
     resolveSecondBoot();
     await new Promise<void>((r) => setTimeout(r, 10));
     globalDb.close();
   });
 });
-
-// ---------------------------------------------------------------------------
-// Acceptance 4c: auth-cancelled → disconnected (no retry loop)
-// ---------------------------------------------------------------------------
 
 describe("acceptance 4c: auth-cancelled → disconnected (no retry)", () => {
   test("auth-cancelled error during reauth broadcasts disconnected and stops retrying", async () => {
@@ -499,7 +435,6 @@ describe("acceptance 4c: auth-cancelled → disconnected (no retry)", () => {
     const sshBootstrap = mock(async () => {
       bootCallCount++;
       if (bootCallCount > 1) {
-        // Second boot (reauth attempt) throws auth-cancelled.
         const err = Object.assign(new Error("cancelled"), { code: "ssh.auth-cancelled" });
         throw err;
       }
@@ -526,7 +461,6 @@ describe("acceptance 4c: auth-cancelled → disconnected (no retry)", () => {
     });
     channel.emitLifecycle({ type: "failure", error: authFailedError });
 
-    // Allow the async reauth to run and fail with auth-cancelled.
     await new Promise<void>((r) => setTimeout(r, 20));
 
     const statusBroadcasts = broadcasts
@@ -537,16 +471,11 @@ describe("acceptance 4c: auth-cancelled → disconnected (no retry)", () => {
     );
     expect(disconnectedForWs.length).toBeGreaterThan(0);
 
-    // Ensure no further boot attempts were made.
     expect(bootCallCount).toBe(2);
 
     globalDb.close();
   });
 });
-
-// ---------------------------------------------------------------------------
-// Acceptance 4d: 3 consecutive failures → error (give up)
-// ---------------------------------------------------------------------------
 
 describe("SSH reauthentication across bootstrap and ready failures", () => {
   test.each([
@@ -642,17 +571,12 @@ describe("SSH reauthentication across bootstrap and ready failures", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Plan issue 4+6 review fix: manager calls releaseHeld / restoreAfterReauth
-// ---------------------------------------------------------------------------
-
 describe("manager hold resolution: releaseHeld called on non-reauth exits", () => {
   test("auth-cancelled → manager calls releaseHeld", async () => {
     const channel = new StubChannel();
     const releaseHeldCalls: string[] = [];
     const sshBootstrap = mock(async (params: { authMode?: string }) => {
       if (params) {
-        // Second boot (reauth attempt) throws auth-cancelled.
         const calls = sshBootstrap.mock.calls.length;
         if (calls > 1) {
           const err = Object.assign(new Error("cancelled"), { code: "ssh.auth-cancelled" });
@@ -686,10 +610,8 @@ describe("manager hold resolution: releaseHeld called on non-reauth exits", () =
     });
     channel.emitLifecycle({ type: "failure", error: authFailedError });
 
-    // Allow async reauth to run (0 ms backoff → immediate).
     await new Promise<void>((r) => setTimeout(r, 20));
 
-    // releaseHeld should have been called after auth-cancelled.
     expect(releaseHeldCalls).toContain(meta.id);
 
     globalDb.close();
@@ -726,7 +648,6 @@ describe("manager hold resolution: releaseHeld called on non-reauth exits", () =
     channel.resolveChannel();
     await bootPromise;
 
-    // Prepare second channel for reauth.
     const channel2 = new StubChannel();
     channelInstances.push(channel2);
     channelIdx = 1;
@@ -736,7 +657,6 @@ describe("manager hold resolution: releaseHeld called on non-reauth exits", () =
     });
     channel.emitLifecycle({ type: "failure", error: authFailedError });
 
-    // Resolve new channel — reauth succeeds.
     channel2.resolveChannel();
     await new Promise<void>((r) => setTimeout(r, 10));
 
@@ -865,13 +785,11 @@ describe("workspace removed while its SSH agent is starting", () => {
 });
 
 describe("removing an SSH workspace", () => {
-  /** Holds agent.shutdown until answered, and notes what happens in order. */
   class ShutdownChannel extends StubChannel {
     readonly events: string[] = [];
     private answer: () => void = () => {};
 
     private answerStop: () => void = () => {};
-    /** What the next agent.shutdown calls fail with, one each. */
     readonly shutdownFailures: Error[] = [];
 
     override async call(method: string, params?: unknown): Promise<unknown> {
@@ -915,7 +833,6 @@ describe("removing an SSH workspace", () => {
         uploaded: false,
         remoteBinDir: "/home/user/.nexus-code/bin",
         controlPath: "/tmp/cm.sock",
-        // The connection the channel runs over.
         dispose: () => channel.events.push("bootstrap.dispose"),
       })),
       sshChannelFactory: mock(() => channel),
@@ -1002,8 +919,6 @@ describe("removing an SSH workspace", () => {
     const { channel, manager, globalDb, meta } = await bootSsh();
     channel.emitLifecycle({ type: "reconnecting" });
 
-    // The channel holds the call until the agent is back; closing it now
-    // would leave the daemon running the terminals for its whole grace.
     manager.remove(meta.id);
     expect(channel.events).toEqual(["agent.shutdown"]);
 
@@ -1021,7 +936,6 @@ describe("removing an SSH workspace", () => {
     jest.useFakeTimers();
     try {
       manager.remove(meta.id);
-      // Let the first rejection reach the shutdown loop and schedule its retry.
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(channel.events).toEqual(["agent.shutdown"]);
       jest.advanceTimersByTime(400);
@@ -1109,10 +1023,6 @@ describe("removing an SSH workspace", () => {
     first.resolveChannel();
     await boot;
 
-    // Removed while reconnecting: its agent is asked to exit once the link
-    // is back. The folder, added again meanwhile, is one daemon: connecting
-    // to it now would have the old channel take it over, and the old
-    // agent's exit end the new workspace's terminals.
     first.emitLifecycle({ type: "reconnecting" });
     manager.remove(meta.id);
     const again = makeSshMeta(manager);
@@ -1155,7 +1065,6 @@ describe("removing an SSH workspace", () => {
     taskChannel.resolveChannel();
     await taskBoot;
 
-    // The task's own link is down, for good: its agent never answers.
     taskChannel.emitLifecycle({ type: "reconnecting" });
     taskChannel.shutdownFailures.push(
       Object.assign(new Error("SSH authentication failed"), { code: "ssh.auth-failed" }),

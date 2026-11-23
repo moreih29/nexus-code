@@ -1,9 +1,3 @@
-/**
- * The agents of every workspace, kept current while the agent view is up:
- * rebuilt as the stores change and as the terminals' activity is read. A
- * rebuild that lists the same keeps what is shown.
- */
-
 import { useEffect, useState } from "react";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useAppFocusStore } from "../../state/stores/app-focus";
@@ -16,7 +10,6 @@ import { sessionsInputNow } from "../agent-sessions/use-inbox";
 import { useChatStore } from "../chat/store";
 import { type Agents, buildAgents, sameAgents } from "./agents";
 
-/** The agents, kept current while `enabled`; the last read otherwise. */
 export function useAgents(enabled = true): Agents {
   const [agents, setAgents] = useState(() =>
     buildAgents(sessionsInputNow(useTabActivityStore.getState().activity)),

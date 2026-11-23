@@ -1,9 +1,3 @@
-/** Text layout for command output. */
-
-/**
- * How many columns text takes in a terminal: two for each wide character —
- * Hangul, CJK, full-width forms and most emoji — one for the rest.
- */
 export function displayWidth(text: string): number {
   let width = 0;
   for (const char of text) {
@@ -27,7 +21,6 @@ function pad(text: string, width: number): string {
   return text + " ".repeat(Math.max(0, width - displayWidth(text)));
 }
 
-/** Lays rows out in columns under a header, two spaces apart. */
 export function table(header: readonly string[], rows: readonly (readonly string[])[]): string {
   if (rows.length === 0) return "";
   const widths = header.map((h, i) =>
@@ -41,7 +34,6 @@ export function table(header: readonly string[], rows: readonly (readonly string
   return [line(header), ...rows.map(line)].join("\n");
 }
 
-/** How long ago `at` was, roughly: "12s ago", "3m ago", "2h ago". */
 export function ago(at: number, now: number = Date.now()): string {
   const seconds = Math.max(0, Math.round((now - at) / 1000));
   if (seconds < 60) return `${seconds}s ago`;
@@ -50,10 +42,6 @@ export function ago(at: number, now: number = Date.now()): string {
   return `${Math.round(minutes / 60)}h ago`;
 }
 
-/**
- * A time as this computer's clock reads it, and how far off: "15:01 (in
- * 38m)"; a day or more ahead, with its date ("11/23 15:01 (in 2d)").
- */
 export function clockAt(at: number, now: number = Date.now()): string {
   const date = new Date(at);
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -70,7 +58,6 @@ export function clockAt(at: number, now: number = Date.now()): string {
   return `${day}${pad(date.getHours())}:${pad(date.getMinutes())} (${off})`;
 }
 
-/** Cuts text to one line of at most `max` characters. */
 export function oneLine(text: string, max = 80): string {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;

@@ -1,5 +1,5 @@
 import type { DirEntry } from "../../../../shared/fs/types";
-import { relPath } from "../../../utils/path";
+import { relativeTo } from "../../../utils/path";
 import type { FilesState, FlatItem, WorkspaceTree } from "./types";
 
 export function joinPath(base: string, name: string): string {
@@ -9,11 +9,10 @@ export function joinPath(base: string, name: string): string {
 
 export function getAncestors(rootAbsPath: string, absPath: string): string[] {
   if (absPath === rootAbsPath) return [];
-  const rel = relPath(absPath, rootAbsPath);
+  const rel = relativeTo(absPath, rootAbsPath);
   const parts = rel.split("/");
   const ancestors: string[] = [];
   let current = rootAbsPath;
-  // Include root itself and all intermediate dirs (not the target itself)
   ancestors.push(current);
   for (let i = 0; i < parts.length - 1; i++) {
     const part = parts[i];
@@ -27,14 +26,12 @@ export function getAncestors(rootAbsPath: string, absPath: string): string[] {
 
 export function sortEntries(entries: DirEntry[]): DirEntry[] {
   return [...entries].sort((a, b) => {
-    // dirs first, then by name alphabetically
     if (a.type === "dir" && b.type !== "dir") return -1;
     if (a.type !== "dir" && b.type === "dir") return 1;
     return a.name.localeCompare(b.name);
   });
 }
 
-// Produce a mutable clone of a WorkspaceTree (shallow-copy mutable structures)
 export function cloneTree(tree: WorkspaceTree): WorkspaceTree {
   return {
     rootAbsPath: tree.rootAbsPath,
@@ -59,18 +56,10 @@ export function parentOf(absPath: string, rootAbsPath: string): string {
   const lastSlash = absPath.lastIndexOf("/");
   if (lastSlash <= 0) return rootAbsPath;
   const parent = absPath.slice(0, lastSlash);
-  // If the parent would be above root, clamp to root
   if (!parent.startsWith(rootAbsPath)) return rootAbsPath;
   return parent;
 }
 
-/**
- * Flattens the workspace file tree into the linear list the virtualised
- * file-explorer renders. Traverses depth-first, descending only into
- * directories that are expanded *and* have their children loaded — folders
- * still pending a load contribute their own row but no descendants.
- * Each item carries its `depth` so the renderer can indent without re-walking.
- */
 export function selectFlat(state: FilesState, workspaceId: string): FlatItem[] {
   const tree = state.trees.get(workspaceId);
   if (!tree) return [];

@@ -1,10 +1,3 @@
-/**
- * git-session-lifecycle.ts — slice creator.
- *
- * Slice: loadInitial, refresh, init, closeAllForWorkspace, plus the
- * session upsert/update primitives are in git-store-context.ts.
- */
-
 import type { RepoInfo } from "../../../../shared/git/types";
 import { ipcCallResult, unwrapGitResult } from "../../../ipc/client";
 import { deleteCommitDraft, setCommitDraftText } from "./commit-drafts";
@@ -35,10 +28,6 @@ export function createSessionLifecycleSlice(ctx: GitStoreContext): SessionLifecy
         return { sessions: next };
       });
 
-      // Fetch repo info, status, and panel state in parallel. Each call uses
-      // ipcCallResult so IpcErrResult("git-error") or "cancelled" are returned
-      // as values rather than rejections, preserving allSettled semantics for
-      // partial load resilience.
       const [repoInfoResult, statusResult, panelStateResult] = await Promise.allSettled([
         ipcCallResult("git", "getRepoInfo", { workspaceId })
           .then(unwrapGitResult)
@@ -60,13 +49,6 @@ export function createSessionLifecycleSlice(ctx: GitStoreContext): SessionLifecy
             panelStateResult.status === "fulfilled"
               ? { ...panelStateResult.value.expandedGroups }
               : session.expandedGroups,
-          // Sanitize persisted directory paths against the fresh status —
-          // paths that no longer correspond to a directory in the current
-          // tree (file committed, discarded, or staged into a different
-          // group between sessions) get dropped here so the header
-          // expand/collapse toggle's `hasAnyExpanded` count reflects what
-          // the user actually sees in the panel. Without this, the toggle
-          // shows "already expanded" against visibly-collapsed folders.
           expandedTreeNodes:
             panelStateResult.status === "fulfilled"
               ? sanitizeExpandedTreeNodes(
@@ -122,10 +104,6 @@ export function createSessionLifecycleSlice(ctx: GitStoreContext): SessionLifecy
           status,
           statusFetching: false,
           branchInfo: status.branch,
-          // Re-align expanded directory paths with the fresh status — see
-          // loadInitial for the rationale. A refresh can wipe a directory
-          // out of the tree (commit, discard, gitignore) without the user
-          // touching the toggle, so the invariant must hold here too.
           expandedTreeNodes: sanitizeExpandedTreeNodes(session.expandedTreeNodes, status),
           lastError: null,
         }));

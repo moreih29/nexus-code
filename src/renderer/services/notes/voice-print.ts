@@ -1,15 +1,3 @@
-/**
- * A recording's voices told apart by voice print as it records
- * (src/shared/notes/voices.ts): the take's audio is kept for a while, each
- * line's goes to the model when its words are final, and the line takes the
- * voice it is nearest (or a new one). Every so often all the lines are
- * grouped again, which may move earlier lines to the voice they belong to.
- * Until its voice print is known, a line goes with the voice its server
- * label had last. That key is only shown for now: a new voice's key is
- * picked among the lines' voices that are known, so lines coming in while
- * the first is still heard don't move the numbering on ("3" for the first
- * voice, after two keys shown for a moment).
- */
 import { useEffect, useState } from "react";
 import {
   COUNTED_GROUP_MIN_MS,
@@ -24,19 +12,14 @@ import { MAX_VOICE_PRINT_SAMPLES } from "../../../shared/types/notes";
 import { notesApi } from "./api";
 
 export const VOICE_PRINT_RATE = 16_000;
-/** How much of the take's audio is kept, for lines whose words come late. */
 const KEEP_SECONDS = 120;
-/** How often all the lines are grouped again, in the recording's time. */
 export const REGROUP_MS = 15_000;
-/** Shorter lines are not heard for a voice print. */
 export const MIN_PRINT_MS = 400;
 
-/** How long a recording waits, as it starts, for the model to answer: it goes on without. */
 const PROBE_MS = 5000;
 
 let availability: Promise<boolean> | undefined;
 
-/** Share the in-flight model probe and remember successful initialization. */
 function probeVoicePrint(): Promise<boolean> {
   availability ??= notesApi.voicePrint(new Float32Array(VOICE_PRINT_RATE / 2)).then(
     (vector) => {
@@ -52,7 +35,6 @@ function probeVoicePrint(): Promise<boolean> {
   return availability;
 }
 
-/** Starting a recording waits only briefly for the model. */
 export function voicePrintAvailable(): Promise<boolean> {
   return new Promise((resolve) => {
     const timer = setTimeout(() => resolve(false), PROBE_MS);
@@ -78,13 +60,10 @@ export function useVoicePrintAvailable(): boolean {
 }
 
 export interface HeardLine {
-  /** The line's start and end in the recording (ms): `at` is which line it is. */
   at: number;
   endAt: number;
-  /** Its start and end in the take's audio (ms). */
   startMs: number;
   endMs: number;
-  /** The server's label for its voice, within the take. */
   label: string;
 }
 
@@ -93,25 +72,20 @@ export class VoiceTracker {
   private readonly lines = new Map<number, VoiceLine>();
   private readonly pendingPins = new Map<number, string>();
   private readonly ring = new Float32Array(VOICE_PRINT_RATE * KEEP_SECONDS);
-  /** How many samples of the take have been heard. */
   private heard = 0;
-  /** The take's server labels, by the voice each went with last. */
   private readonly byLabel = new Map<string, string>();
   private last: string | null = null;
   private lastRegroup = Number.NEGATIVE_INFINITY;
   private queue: Promise<unknown> = Promise.resolve();
-  /** The lines (by `at`) whose voice is still being worked out. */
   private readonly pending = new Set<number>();
 
   constructor(private readonly target?: number) {}
 
-  /** A new take: its audio starts over, and so do the server's labels. */
   startTake(): void {
     this.heard = 0;
     this.byLabel.clear();
   }
 
-  /** The take's audio as it is captured, 16 kHz. */
   hear(samples: Float32Array): void {
     const size = this.ring.length;
     let at = this.heard % size;
@@ -125,20 +99,14 @@ export class VoiceTracker {
     this.heard += samples.length;
   }
 
-  /**
-   * The voice for words under `label` before their voice print is known.
-   * `taken` is the keys known: not those of the lines still `undecided`.
-   */
   provisional(label: string, taken: Iterable<string>): string {
     return this.byLabel.get(label) ?? this.last ?? nextVoiceKey(taken);
   }
 
-  /** Whether the line at `at` is still being heard: its key is only the one shown for now. */
   undecided(at: number): boolean {
     return this.pending.has(at);
   }
 
-  /** The take's audio from `startMs` to `endMs` (its first 10 s), or null when it is gone. */
   private audioOf(startMs: number, endMs: number): Float32Array | null {
     const size = this.ring.length;
     const start = Math.max(Math.floor((startMs * VOICE_PRINT_RATE) / 1000), this.heard - size, 0);
@@ -153,17 +121,11 @@ export class VoiceTracker {
     return out;
   }
 
-  /**
-   * A line whose words are final: the voice it goes with, and, when all the
-   * lines were grouped again, every line's voice by `at`. Lines are heard
-   * in the order they come; `taken` is the keys known, as `provisional`'s.
-   */
   lineHeard(
     line: HeardLine,
     taken: () => Iterable<string>,
     names: () => Readonly<Record<string, string>>,
   ): Promise<{ key: string; regrouped: Map<number, string> | null }> {
-    // Its audio now, before the ring moves on.
     const audio = this.audioOf(line.startMs, line.endMs);
     const ms = line.endAt - line.at;
     this.pending.add(line.at);
@@ -204,17 +166,14 @@ export class VoiceTracker {
     return next;
   }
 
-  /** The prints already heard, for local name matching by transcript assignment. */
   nameSamples(): readonly VoiceSample[] {
     return this.samples;
   }
 
-  /** Once the lines heard so far have their voice prints. */
   settled(): Promise<void> {
     return this.queue.then(() => {});
   }
 
-  /** The user moved lines to voice `key`: they stay with it, and all are grouped again. */
   pin(
     ats: readonly number[],
     key: string,
@@ -235,7 +194,6 @@ export class VoiceTracker {
     return this.regroup(names);
   }
 
-  /** All the lines grouped again: each one's voice, by `at`. */
   regroup(names: Readonly<Record<string, string>>): Map<number, string> {
     const keys = regroupVoices({
       samples: this.samples,
@@ -243,7 +201,6 @@ export class VoiceTracker {
       names,
       ...(this.target === undefined ? {} : { target: this.target }),
     });
-    // What each voice's lines went to, to move the labels along with them.
     const became = new Map<string, Map<string, number>>();
     for (const s of this.target === undefined ? this.samples : this.lines.values()) {
       const to = keys.get(s.at) ?? s.key;

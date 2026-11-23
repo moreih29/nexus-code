@@ -1,4 +1,3 @@
-/** nexus notify. */
 import { CliUsageError } from "../args";
 import { type CliCommand, output } from "../registry";
 

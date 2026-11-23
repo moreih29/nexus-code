@@ -1,20 +1,10 @@
-// A terminal of another device as this one watches it (terminal.watch):
-// its text when the watch begins, with its colors and styles as SGR escapes
-// (`ansi`; a device that keeps them back sends plain text) and its cursor
-// (where that device tells it), kept up with each terminal.update. A
-// missing update (a rev skipped), the device leaving and coming back (seen
-// to go or not: its new connection dropped the watch), or a watch that
-// fails starts the watch again; a slow read now and then tells
-// whether the terminal is still there. A device that does not serve the
-// watch (an older version) is read again and again instead.
-
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { TerminalCaret } from "../../../../packages/remote-protocol/src";
 import { createLogger } from "../../../shared/log/renderer";
 import type { RoomState } from "../../../shared/remote/room";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
-import { ALIVE_MS, REWATCH_MS } from "./peer-chat";
-import { PEER_READ_MS, type PeerRead, useRemoteRoom } from "./room";
+import { holdPeerWatch, usePeerWatch } from "./peer-watch";
+import { PEER_READ_MS, type PeerRead, peerRejoins } from "./room";
 import { TerminalTyping } from "./terminal-typing";
 import { applyTextChange } from "./terminal-watch";
 
@@ -26,7 +16,6 @@ export interface TerminalRef {
   tabId: string;
 }
 
-/** Gives each live connection its own input queue and closes it at the room event. */
 export function watchPeerTerminalTyping(
   target: TerminalRef,
   onTyping: (typing: TerminalTyping | null) => void,
@@ -41,7 +30,7 @@ export function watchPeerTerminalTyping(
     const peer = room.peers.find(({ id }) => id === target.deviceId);
     const next =
       room.status === "online" && peer?.online && peer.serves?.includes("terminal.control")
-        ? (peer.rejoins ?? 0)
+        ? peerRejoins(peer)
         : undefined;
     if (next === connection) return;
 
@@ -59,8 +48,6 @@ export function watchPeerTerminalTyping(
     if (discarded) onFailure(new Error("Remote terminal connection changed with input waiting"));
   };
 
-  // Invalidate queued sends synchronously with the event. React may still show
-  // the previous input box while the connection change is being rendered.
   const off = ipcListen("remote", "roomChanged", (room) => {
     if (!live) return;
     heardRoom = true;
@@ -83,15 +70,18 @@ export function watchPeerTerminalTyping(
   };
 }
 
-/** A terminal's text, and its cursor where its device tells it and it shows. */
 export interface PeerScreen {
   text: string;
   caret?: TerminalCaret;
 }
 
-/** The screen from a read, a watch's start or an update: the cursor as it says, none if not. */
 function screenOf(text: string, caret: TerminalCaret | undefined): PeerScreen {
   return caret ? { text, caret } : { text };
+}
+
+interface TerminalWatch {
+  id: string;
+  rev: number;
 }
 
 export function usePeerTerminal(
@@ -100,103 +90,77 @@ export function usePeerTerminal(
   shown: boolean,
 ): PeerRead<PeerScreen> {
   const { deviceId, workspaceId, tabId } = ref;
-  const room = useRemoteRoom();
-  const online = room?.status === "online" && room.peers.some((p) => p.id === deviceId && p.online);
-  // Back in the room with a new connection, seen to go or not: the watch there was dropped.
-  const rejoins = room?.peers.find((p) => p.id === deviceId)?.rejoins ?? 0;
   const [read, setRead] = useState<PeerRead<PeerScreen>>({ status: "loading" });
-  // Bumped to start the watch again.
-  const [round, setRound] = useState(0);
-  const watch = useRef<{ id: string; rev: number } | null>(null);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `round` and `rejoins` start the watch again
-  useEffect(() => {
-    if (!shown || !online) return;
-    let live = true;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-    let poll: ReturnType<typeof setTimeout> | undefined;
-    const target = { deviceId, workspaceId, tabId };
-    const again = () => {
-      if (live) setRound((r) => r + 1);
-    };
-    const failed = (result: { kind: string; message?: string }) => {
-      if (result.kind === "not-found") {
-        setRead({ status: "gone" });
-        return true;
-      }
-      setRead((now) =>
-        now.status === "ready" ? now : { status: "unavailable", message: result.message },
-      );
-      return false;
-    };
-    // An older device: its text read now and every PEER_READ_MS.
-    const readAgain = () => {
-      void ipcCallResult("remote", "peerTerminal", { ...target, lines, ansi: true }).then(
+  const online = usePeerWatch<TerminalWatch, "peerTerminalUpdate">({
+    deviceId,
+    target: JSON.stringify([workspaceId, tabId, lines]),
+    shown,
+    updates: "peerTerminalUpdate",
+    start(session) {
+      const target = { deviceId, workspaceId, tabId };
+      let poll: ReturnType<typeof setTimeout> | undefined;
+      const failed = (result: { kind: string; message?: string }) => {
+        if (result.kind === "not-found") {
+          setRead({ status: "gone" });
+          return true;
+        }
+        setRead((now) =>
+          now.status === "ready" ? now : { status: "unavailable", message: result.message },
+        );
+        return false;
+      };
+      const readAgain = () => {
+        void ipcCallResult("remote", "peerTerminal", { ...target, lines, ansi: true }).then(
+          (result) => {
+            if (!session.live()) return;
+            if (result.ok) {
+              setRead({ status: "ready", value: screenOf(result.value.text, result.value.caret) });
+            } else if (failed(result)) return;
+            poll = setTimeout(readAgain, PEER_READ_MS);
+          },
+        );
+      };
+      const stop = holdPeerWatch(
+        JSON.stringify(["terminal", deviceId, workspaceId, tabId]),
+        () => ipcCallResult("remote", "peerTerminalWatch", { ...target, lines, ansi: true }),
+        (watchId) => ipcCallResult("remote", "peerTerminalUnwatch", { deviceId, watchId }),
         (result) => {
-          if (!live) return;
           if (result.ok) {
+            session.opened({ id: result.value.watchId, rev: 0 });
             setRead({ status: "ready", value: screenOf(result.value.text, result.value.caret) });
-          } else if (failed(result)) return;
-          poll = setTimeout(readAgain, PEER_READ_MS);
+            return;
+          }
+          if (failed(result)) return;
+          if (result.kind === "unsupported") readAgain();
+          else session.retry();
         },
       );
-    };
-    const off = ipcListen("remote", "peerTerminalUpdate", ({ deviceId: from, update }) => {
-      const w = watch.current;
-      if (!live || from !== deviceId || !w || update.watchId !== w.id) return;
-      if (update.rev !== w.rev + 1) {
-        again();
-        return;
-      }
-      w.rev = update.rev;
-      setRead((now) =>
-        now.status === "ready"
-          ? {
-              status: "ready",
-              value: screenOf(applyTextChange(now.value.text, update), update.caret),
+      return {
+        update(update) {
+          setRead((now) =>
+            now.status === "ready"
+              ? {
+                  status: "ready",
+                  value: screenOf(applyTextChange(now.value.text, update), update.caret),
+                }
+              : now,
+          );
+        },
+        probe() {
+          void ipcCallResult("remote", "peerTerminal", { ...target, lines: 1 }).then((result) => {
+            if (session.live() && !result.ok && result.kind === "not-found") {
+              setRead({ status: "gone" });
             }
-          : now,
-      );
-    });
-    void ipcCallResult("remote", "peerTerminalWatch", { ...target, lines, ansi: true }).then(
-      (result) => {
-        if (!live) {
-          if (result.ok) {
-            void ipcCallResult("remote", "peerTerminalUnwatch", {
-              deviceId,
-              watchId: result.value.watchId,
-            });
-          }
-          return;
-        }
-        if (result.ok) {
-          watch.current = { id: result.value.watchId, rev: 0 };
-          setRead({ status: "ready", value: screenOf(result.value.text, result.value.caret) });
-          return;
-        }
-        if (failed(result)) return;
-        // Not served there (an older version): read instead. Anything else: watched again soon.
-        if (result.kind === "unsupported") readAgain();
-        else retry = setTimeout(again, REWATCH_MS);
-      },
-    );
-    const alive = setInterval(() => {
-      if (!watch.current) return;
-      void ipcCallResult("remote", "peerTerminal", { ...target, lines: 1 }).then((result) => {
-        if (live && !result.ok && result.kind === "not-found") setRead({ status: "gone" });
-      });
-    }, ALIVE_MS);
-    return () => {
-      live = false;
-      off();
-      clearTimeout(retry);
-      clearTimeout(poll);
-      clearInterval(alive);
-      const w = watch.current;
-      watch.current = null;
-      if (w) void ipcCallResult("remote", "peerTerminalUnwatch", { deviceId, watchId: w.id });
-    };
-  }, [deviceId, workspaceId, tabId, lines, shown, online, round, rejoins]);
+          });
+        },
+        stop() {
+          clearTimeout(poll);
+          stop();
+        },
+      };
+    },
+  });
 
   if (!online && read.status === "loading") return { status: "unavailable" };
   return read;

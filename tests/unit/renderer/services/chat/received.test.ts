@@ -9,10 +9,6 @@ import {
   emptyModel,
 } from "../../../../../src/renderer/services/chat/model";
 
-// What the CLI takes as a message that the user did not write: a task's
-// end, another session's message, a shell command run in the terminal. The
-// shapes are the CLI's own (2.1.321), from its stream and its transcripts.
-
 const NEWS = (id: string, status = "completed", what = "sleep 5") =>
   `<task-notification>\n<task-id>${id}</task-id>\n<tool-use-id>call-${id}</tool-use-id>\n<output-file>/tmp/${id}.output</output-file>\n<status>${status}</status>\n<summary>Background command "${what}" ${status} (exit code 0)</summary>\n</task-notification>`;
 
@@ -98,7 +94,6 @@ describe("messages the user did not write, live", () => {
         status: "completed",
         summary: 'Background command "sleep 5" completed (exit code 0)',
       }),
-      // The same end, told again: one line.
       out({ type: "system", subtype: "task_notification", task_id: "t1", status: "completed" }),
     ]);
     expect(shape(model.items)).toEqual(["task_end:t1:completed:wakes"]);
@@ -172,10 +167,8 @@ describe("messages the user did not write, in a transcript", () => {
   const ENTRIES = [
     user("u1", "start"),
     assistant("a1", "working"),
-    // The user's message while the turn ran: an attachment, not a message.
     queued("x1", "q1", "also this", { origin: { kind: "human" } }),
     assistant("a2", "both done"),
-    // A task that ended while the turn ran, and one that woke Claude.
     queued("x2", "q2", NEWS("t1"), {
       commandMode: "task-notification",
       origin: { kind: "task-notification" },

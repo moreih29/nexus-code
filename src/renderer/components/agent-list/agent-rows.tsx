@@ -1,13 +1,9 @@
-// Agent list — the agents a conversation runs, listed under its row: a line
-// each, set in from the row and joined to it, so which conversation an agent
-// belongs to reads in the list as in a tree. Those still running show, and
-// the one selected. Another computer's are only shown: nothing opens from them.
-
 import { Bot, CornerDownRight } from "lucide-react";
 import { cn } from "@/utils/cn";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { rowAgents } from "../../services/agent-sessions/agents";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
+import { tooltipProps } from "../ui/tooltip";
 import { AgentDuration, AgentGlyph, agentLabel, agentStateLabel } from "./agent-status";
 
 const ROW =
@@ -20,9 +16,7 @@ export function AgentRows({
   className,
 }: {
   agents: readonly AgentRun[];
-  /** The agent selected, when one of these is. */
   selectedId: string | undefined;
-  /** Picked, with its row: the agent list opens its card beside it. None: the rows only show. */
   onSelect?: (agentId: string, from: HTMLElement) => void;
   className?: string;
 }) {
@@ -49,7 +43,7 @@ export function AgentRows({
                 type="button"
                 aria-pressed={selected}
                 onClick={(event) => onSelect(agent.id, event.currentTarget)}
-                title={title}
+                {...tooltipProps(title)}
                 className={cn(
                   ROW,
                   "transition-colors outline-none focus-visible:ring-1 focus-visible:ring-ring",
@@ -61,7 +55,7 @@ export function AgentRows({
                 {line}
               </button>
             ) : (
-              <div title={title} className={cn(ROW, "text-muted-foreground")}>
+              <div {...tooltipProps(title)} className={cn(ROW, "text-muted-foreground")}>
                 {line}
               </div>
             )}
@@ -72,7 +66,6 @@ export function AgentRows({
   );
 }
 
-/** A subagent's mark, or the program a run runs. */
 function AgentKindMark({ agent }: { agent: AgentRun }) {
   const cls = "size-3 shrink-0";
   if (agent.kind === "subagent") {

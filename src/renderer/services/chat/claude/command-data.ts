@@ -1,6 +1,5 @@
 import { code, type Words } from "../app-commands";
 
-/** The memory files get_context_usage reports: their paths and kinds. */
 export function memoryFilesOf(usage: unknown): { path: string; type: string }[] {
   const files = (usage as { memoryFiles?: unknown } | null)?.memoryFiles;
   if (!Array.isArray(files)) return [];
@@ -19,7 +18,6 @@ interface PermissionRule {
   notInEffect?: boolean;
 }
 
-/** list_permission_rules' state: its rules and folders, as /permissions shows them. */
 export function permissionsOf(body: unknown): {
   rules: PermissionRule[];
   directories: { path: string; source: string }[];
@@ -71,11 +69,9 @@ function sourceLabel(source: string, t: Words): string {
   return SOURCES.has(source) ? t(`chat.commands.source.${source}`) : source;
 }
 
-/** /permissions' card: the rules by what they do, then the folders Claude may work in. */
 export function permissionsMarkdown(
   state: ReturnType<typeof permissionsOf>,
   t: Words,
-  /** The folders /add-dir gave, which the CLI names as another source. */
   added: readonly string[] = [],
 ): string {
   const parts: string[] = [];
@@ -100,7 +96,6 @@ export function permissionsMarkdown(
   return parts.join("\n\n");
 }
 
-/** The settings files whose rules /permissions lists, to open and edit. */
 export function permissionFiles(state: ReturnType<typeof permissionsOf>): string[] {
   if (!state.cwd) return [];
   const root = state.cwd.replace(/\/+$/, "");
@@ -113,7 +108,6 @@ export function permissionFiles(state: ReturnType<typeof permissionsOf>): string
   return files;
 }
 
-/** get_hooks_listing's hooks, by event, as /hooks shows them. */
 export function hooksMarkdown(body: unknown, t: Words): string {
   const listing = (body ?? {}) as { events?: unknown; hooks?: unknown };
   const hooks = Array.isArray(listing.hooks) ? (listing.hooks as Record<string, unknown>[]) : [];
@@ -145,13 +139,11 @@ export function hooksMarkdown(body: unknown, t: Words): string {
     .join("\n\n");
 }
 
-/** Whether get_settings says the sandbox is on. */
 export function sandboxOn(body: unknown): boolean {
   const effective = (body as { effective?: { sandbox?: { enabled?: unknown } } } | null)?.effective;
   return effective?.sandbox?.enabled === true;
 }
 
-/** get_plan's answer: the session's plan-mode plan and its file, or null when none is written. */
 export function planOf(body: unknown): { content: string; path?: string } | null {
   const plan = (body ?? {}) as { exists?: unknown; content?: unknown; path?: unknown };
   if (plan.exists !== true || typeof plan.content !== "string") return null;
@@ -162,16 +154,13 @@ export function planOf(body: unknown): { content: string; path?: string } | null
 }
 
 export interface BackgroundSession {
-  /** The short id `claude attach` and `claude stop` take. */
   id: string;
   sessionId?: string;
   name: string;
-  /** idle, running, blocked, stopped… as `claude agents` says. */
   status: string;
   startedAt?: number;
 }
 
-/** The background sessions in `claude agents --json`, newest first. */
 export function backgroundSessionsOf(stdout: string): BackgroundSession[] {
   let list: unknown;
   try {
@@ -183,7 +172,6 @@ export function backgroundSessionsOf(stdout: string): BackgroundSession[] {
   return list
     .flatMap((raw): BackgroundSession[] => {
       const entry = raw as Record<string, unknown> | null;
-      // The id goes on a command line (`claude attach <id>`).
       if (entry?.kind !== "background" || typeof entry.id !== "string") return [];
       if (!/^[0-9A-Za-z_-]{1,64}$/.test(entry.id)) return [];
       const text = (v: unknown) => (typeof v === "string" && v ? v : undefined);
@@ -192,7 +180,6 @@ export function backgroundSessionsOf(stdout: string): BackgroundSession[] {
           id: entry.id,
           sessionId: text(entry.sessionId),
           name: text(entry.name) ?? entry.id,
-          // A stopped one has only its state.
           status:
             text(entry.state) === "stopped"
               ? "stopped"
@@ -204,7 +191,6 @@ export function backgroundSessionsOf(stdout: string): BackgroundSession[] {
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
 }
 
-/** The id `claude --bg` printed ("backgrounded · 8c55b250 (idle…)"), or null. */
 export function backgroundIdOf(stdout: string): string | null {
   return /backgrounded\s*·\s*([0-9a-f]{8})\b/.exec(stdout)?.[1] ?? null;
 }
@@ -212,15 +198,12 @@ export function backgroundIdOf(stdout: string): string | null {
 export type PluginAction = "install" | "enable" | "disable" | "update" | "uninstall";
 
 export interface PluginInfo {
-  /** name@marketplace. */
   id: string;
   version?: string;
-  /** user, project, local or managed. */
   scope: string;
   enabled: boolean;
 }
 
-/** The installed plugins in `claude plugin list --json`. */
 export function pluginsOf(stdout: string): PluginInfo[] {
   let list: unknown;
   try {
@@ -243,7 +226,6 @@ export function pluginsOf(stdout: string): PluginInfo[] {
   });
 }
 
-/** What a `claude plugin <action> --json` run said: its result line, else what it printed. */
 export function pluginResultOf(run: { code: number; stdout: string; stderr: string }): {
   ok: boolean;
   message: string;
@@ -257,9 +239,7 @@ export function pluginResultOf(run: { code: number; stdout: string; stderr: stri
           message: typeof result.message === "string" ? result.message : result.outcome,
         };
       }
-    } catch {
-      // Not the result line.
-    }
+    } catch {}
   }
   return {
     ok: run.code === 0,

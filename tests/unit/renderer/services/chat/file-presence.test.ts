@@ -1,8 +1,3 @@
-/**
- * File presence — a path a session names is a file once it is found, in
- * the workspace or granted outside it; each lookup is shared and kept a
- * while.
- */
 import { describe, expect, it } from "bun:test";
 import {
   createFilePresence,
@@ -117,9 +112,7 @@ describe("createFilePresence", () => {
       (_workspaceId, path) => granted.has(path),
     );
     expect(await presence.isThere("ws", "/p", "/tmp/shot.png")).toBe(true);
-    // A folder is no file.
     expect(await presence.isThere("ws", "/p", "/dev/shm")).toBe(false);
-    // Nor is one not granted, which main would not read.
     expect(await presence.isThere("ws", "/p", "/etc/hosts")).toBe(false);
     expect(await presence.isThere("ws", "C:\\w", "D:/out/log.txt")).toBe(false);
     expect(asked).toEqual(["/tmp/shot.png", "/dev/shm"]);
@@ -177,7 +170,6 @@ describe("filesGone", () => {
       "/h/attach/w/old/1/removed.png",
       "/p/in.png",
       "/p/gone.png",
-      // Outside and not granted (yet): not known to be gone.
       "/h/attach/w/c/2/new.png",
     ];
     const gone = await filesGone(presence, "w", "/p", paths, grantedCheck);

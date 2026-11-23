@@ -38,7 +38,6 @@ test("removing a notes location closes affected note tabs and restores the last 
     if (!changed) throw new Error("missing notes change listener");
     changed({ locationKey: "local:/deleted", change: "removed", workspaceIds: [removed, task] });
     failure.reject(new Error("IPC disconnected"));
-    // Settle the obsolete path's read and error handler before checking the tabs.
     await failure.promise.catch(() => {});
     for (let i = 0; i < 4; i++) await Promise.resolve();
 

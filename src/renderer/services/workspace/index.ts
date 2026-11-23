@@ -1,12 +1,3 @@
-/**
- * Add-Workspace service group.
- *
- * Encapsulates all IPC calls for the Add Workspace dialog flow so that
- * components under `components/workspace/add-workspace/` do not import
- * `ipc/client` directly.
- */
-
-// Connection profiles
 export type { SaveConnectionProfileArgs } from "./connection-profiles";
 export {
   fetchConnectionProfiles,
@@ -16,7 +7,6 @@ export {
   saveConnectionProfileResult,
   setConnectionProfileFavorite,
 } from "./connection-profiles";
-// Folder bookmarks
 export type { RecordLocalBookmarkArgs, RecordSshBookmarkArgs } from "./folder-bookmarks";
 export {
   listFolderBookmarks,
@@ -25,7 +15,6 @@ export {
   removeFolderBookmark,
   setFolderBookmarkFavorite,
 } from "./folder-bookmarks";
-// SSH browse session
 export type { BrowseSessionInfo, BrowseSessionResult, OpenBrowseSessionArgs } from "./ssh-browse";
 export {
   browseSshSession,
@@ -34,7 +23,6 @@ export {
   prefetchSshDirectory,
   subscribeSshBrowseProgress,
 } from "./ssh-browse";
-// Workspace creation + directory picker
 export type { CreateSshWorkspaceArgs } from "./workspace-create";
 export {
   createLocalWorkspace,
@@ -42,5 +30,4 @@ export {
   listSshConfigHosts,
   pickLocalDirectory,
 } from "./workspace-create";
-// WSL distributions and their workspaces
 export { createWslWorkspace, listWslDistros, openWslBrowseSession } from "./wsl";

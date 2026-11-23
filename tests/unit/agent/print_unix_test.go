@@ -89,7 +89,6 @@ func TestPrintFinishesWhileWorkerHoldsOutput(t *testing.T) {
 			t.Setenv("NEXUS_WORKSPACE_ID", "workspace")
 			t.Setenv("NEXUS_TAB_ID", "terminal")
 			t.Setenv("GORACE", "atexit_sleep_ms=0")
-			// The test fixture itself owns the output pipes until it exits.
 			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestPrintWorkerFixture$")

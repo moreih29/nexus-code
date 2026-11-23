@@ -1,9 +1,3 @@
-/**
- * Another device's chat page (chat.read) as this app's chat model, so its
- * message list draws a remote conversation as it draws its own. What the
- * page leaves out stays empty: an image's bytes stay on that device. Pure.
- */
-
 import type { z } from "zod";
 import type {
   ChatPage,
@@ -27,15 +21,9 @@ import {
   type TurnRetry,
 } from "../chat/model";
 
-/**
- * The computer the page is from, and this one: who sent a message is told
- * from here, so a tab of that computer is named with it and one of this
- * computer's is not.
- */
 export interface PageSource {
   deviceId: string;
   deviceName: string;
-  /** This computer's id in the account, when known. */
   selfId?: string;
 }
 
@@ -50,7 +38,6 @@ const RETRY_REASONS: ReadonlySet<string> = new Set<RetryReason>([
   "other",
 ]);
 
-/** A retry as the serving app tells it; a reason this version does not know reads as other. */
 function retryOf(retry: {
   attempt: number;
   maxRetries?: number;
@@ -64,7 +51,6 @@ function retryOf(retry: {
   return { ...rest, reason: RETRY_REASONS.has(reason) ? (reason as RetryReason) : "other" };
 }
 
-/** Who sent a message, as this computer's message list names its own senders. */
 export function senderOf(from: ViewSender, source?: PageSource): MessageSource {
   const { replyTo, device, ...rest } = from;
   const sender: MessageSource = { ...rest };
@@ -76,7 +62,6 @@ export function senderOf(from: ViewSender, source?: PageSource): MessageSource {
     if (device) sender.device = device;
     return sender;
   }
-  // A tab with no device named is on the computer the page is from.
   const id = replyTo?.deviceId ?? device?.id ?? source.deviceId;
   if (id === source.selfId) return sender;
   sender.device =
@@ -86,21 +71,13 @@ export function senderOf(from: ViewSender, source?: PageSource): MessageSource {
   return sender;
 }
 
-/**
- * An item this version draws; one of a kind it does not know is left out.
- * A message's key stands for its id there (which the page leaves out): a
- * rewind or fork from it, or a move after it, names it by its key.
- */
 function itemOf(item: ViewItem, source?: PageSource): ChatItem | null {
   switch (item.kind) {
     case "user":
       if (!("images" in item)) return null;
-      // The bytes stay on that device until the image is shown (chat.image).
       return {
         ...item,
         kind: "user",
-        // Only one the program took has an id to go back to; one it has not
-        // read yet is taken back by its key (chat.withdraw).
         ...(item.state === "taken" ? { uuid: item.key } : {}),
         ...(item.state === "sent" && item.queued ? { sentUuid: item.key } : {}),
         images: (item.images as readonly ImageRef[]).map(({ mediaType }, index) => ({
@@ -163,7 +140,6 @@ export function modelOfPage(page: ChatPage, source?: PageSource): ChatModel {
     tools: Object.fromEntries(Object.entries(page.tools).map(([id, t]) => [id, toolOf(t)])),
     permissions: status.permissions.map(({ preview, suggestions, ...p }) => ({
       ...p,
-      // In the serving computer's words; chat.answer keeps them by index.
       suggestions: (suggestions ?? []).map(({ label }, index) => ({
         type: "remote",
         label,
@@ -189,15 +165,26 @@ export function modelOfPage(page: ChatPage, source?: PageSource): ChatModel {
           ...(status.turn.retry ? { retry: retryOf(status.turn.retry) } : {}),
         }
       : null,
+    ...(status.failure
+      ? {
+          lastResult: {
+            subtype: "error",
+            isError: true,
+            failure: {
+              kind: status.failure.kind,
+              ...(status.failure.status !== undefined ? { status: status.failure.status } : {}),
+            },
+            ...(status.failure.at !== undefined ? { at: status.failure.at } : {}),
+          },
+        }
+      : {}),
     tasks: page.tasks as Record<string, TaskInfo>,
     agentItems: page.agentItems as Record<string, AssistantItem[]>,
   };
 }
 
-/** Whether a quiet watch missed a change visible in an independent page read. */
 export function watchMissedUpdate(current: ChatPage, fresh: ChatPage): boolean {
   if (current.total !== fresh.total || !sameWireValue(current.status, fresh.status)) return true;
-  // The independent read may cover fewer rows when its frame is full.
   for (const [index, item] of fresh.items.entries()) {
     const at = fresh.start + index - current.start;
     if (at >= 0 && !sameWireValue(current.items[at], item)) return true;
@@ -215,7 +202,6 @@ export function watchMissedUpdate(current: ChatPage, fresh: ChatPage): boolean {
   );
 }
 
-/** Compares JSON received as separate snapshots, regardless of property order. */
 function sameWireValue(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (Array.isArray(a) || Array.isArray(b)) {
@@ -236,7 +222,6 @@ function sameWireValue(a: unknown, b: unknown): boolean {
   );
 }
 
-/** Compares tool facts even when the watch and read fit different result text in their frames. */
 function sameWatchedTool(a: ChatPage["tools"][string], b: ChatPage["tools"][string]): boolean {
   const { result: aResult, ...aTool } = a;
   const { result: bResult, ...bTool } = b;
@@ -252,15 +237,6 @@ function sameWatchedTool(a: ChatPage["tools"][string], b: ChatPage["tools"][stri
   );
 }
 
-/**
- * A watched chat's page with an update put in: items at their index (one
- * before the page's start moves the start back), the list cut at `total`,
- * text appended to assistant items, the status replaced when sent (the
- * streaming message kept when it comes without one) and text appended to
- * that message, calls, tasks and subagents' messages put by id. Null when
- * an append finds nothing to go on: something was missed, and the watch
- * starts again. Pure.
- */
 export function applyUpdate(page: ChatPage, update: ChatUpdate): ChatPage | null {
   const lowest = update.items.reduce((low, { index }) => Math.min(low, index), page.start);
   const start = Math.min(lowest, update.total);
@@ -276,7 +252,6 @@ export function applyUpdate(page: ChatPage, update: ChatUpdate): ChatPage | null
   }
   for (const { index, block, text } of update.appends ?? []) {
     const at = index - start;
-    // Before the page: not the watcher's to show.
     if (at < 0) continue;
     const item = items[at];
     if (item?.kind !== "assistant") return null;
@@ -287,7 +262,6 @@ export function applyUpdate(page: ChatPage, update: ChatUpdate): ChatPage | null
     blocks[block] = { ...old, text: old.text + text };
     items[at] = { ...assistant, blocks };
   }
-  // A place no update filled, before the old start, has nothing to show.
   const filled = items.findIndex((item) => item !== undefined);
   const from = filled === -1 ? length : filled;
   const status = statusOf(page.status, update);
@@ -303,7 +277,6 @@ export function applyUpdate(page: ChatPage, update: ChatUpdate): ChatPage | null
   };
 }
 
-/** The status after an update, with its streaming message's appends; null when one has nowhere to go. */
 function statusOf(was: ChatPage["status"], update: ChatUpdate): ChatPage["status"] | null {
   const sent = update.status;
   const status: ChatPage["status"] = sent
@@ -322,11 +295,6 @@ function statusOf(was: ChatPage["status"], update: ChatUpdate): ChatPage["status
   return { ...status, streaming: { ...streaming, blocks } };
 }
 
-/**
- * The page with the items read before it (chat.read with `before`) put in
- * front; the page as it is when they do not end where it starts (it moved
- * while they were read). Pure.
- */
 export function withEarlier<P extends ChatPage>(page: P, earlier: ChatPage): P {
   if (earlier.start + earlier.items.length !== page.start) return page;
   return {
@@ -339,19 +307,11 @@ export function withEarlier<P extends ChatPage>(page: P, earlier: ChatPage): P {
   };
 }
 
-/**
- * A chat watched again with the items the old page had before the new
- * one's start kept in front: a watch starts with the last items only, and
- * what was shown (or read back) stays shown. Only where the two agree: the
- * old page reaches the new one's start and has the same item there; else
- * the new page as it is. Pure.
- */
 export function keepEarlier<P extends ChatPage>(old: ChatPage, fresh: P): P {
   if (old.start >= fresh.start) return fresh;
   const at = fresh.start - old.start;
   const first = fresh.items[0];
   if (at > old.items.length) return fresh;
-  // The old page has the new one's first item where it starts, or ends there.
   const there = old.items[at];
   const agrees = first ? there === undefined || there.key === first.key : at === old.items.length;
   if (!agrees) return fresh;

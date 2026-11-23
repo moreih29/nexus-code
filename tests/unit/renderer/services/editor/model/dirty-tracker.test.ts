@@ -8,7 +8,6 @@ import {
   subscribeAllDirtyTransitions,
 } from "../../../../../../src/renderer/services/editor/model/dirty-tracker";
 
-// Minimal Monaco model stub. Only the surface dirty-tracker actually uses.
 function makeModel(initialAltId = 1) {
   let altId = initialAltId;
   const listeners = new Set<() => void>();
@@ -22,7 +21,6 @@ function makeModel(initialAltId = 1) {
         },
       };
     },
-    /** Simulate an edit. New altId reflects user-initiated change. */
     edit(nextAltId: number) {
       altId = nextAltId;
       for (const cb of listeners) cb();
@@ -53,9 +51,9 @@ describe("dirty-tracker", () => {
       loadedMtime: "T0",
       loadedSize: 10,
     });
-    model.edit(6); // dirty
+    model.edit(6);
     expect(isDirty("file:///a")).toBe(true);
-    model.edit(5); // undo back to saved alt
+    model.edit(5);
     expect(isDirty("file:///a")).toBe(false);
   });
 
@@ -71,10 +69,10 @@ describe("dirty-tracker", () => {
       loadedSize: 10,
     });
 
-    model.edit(6); // false → true
-    model.edit(7); // still dirty, no flip
-    model.edit(8); // still dirty, no flip
-    model.edit(5); // true → false (undo)
+    model.edit(6);
+    model.edit(7);
+    model.edit(8);
+    model.edit(5);
 
     expect(events).toEqual([
       { cacheUri: "file:///a", isDirty: true },
@@ -90,7 +88,7 @@ describe("dirty-tracker", () => {
       loadedMtime: "T0",
       loadedSize: 10,
     });
-    model.edit(6); // dirty
+    model.edit(6);
     markSaved({
       cacheUri: "file:///a",
       model: model as never,
@@ -112,8 +110,8 @@ describe("dirty-tracker", () => {
       loadedMtime: "T0",
       loadedSize: 10,
     });
-    model.edit(6); // user typed → dirty, save started capturing alt=6
-    model.edit(7); // user typed more during save
+    model.edit(6);
+    model.edit(7);
     markSaved({
       cacheUri: "file:///a",
       model: model as never,
@@ -121,7 +119,6 @@ describe("dirty-tracker", () => {
       loadedMtime: "T1",
       loadedSize: 20,
     });
-    // Saved baseline is now 6, but model is at 7 → still dirty.
     expect(isDirty("file:///a")).toBe(true);
   });
 });

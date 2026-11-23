@@ -1,15 +1,14 @@
 import { createLogger } from "../../../shared/log/main";
+import { shortId } from "../../../shared/util/short-id";
 import type { CliServices } from "../cli/context";
 import { output } from "../cli/registry";
 
 const log = createLogger("chat");
 
-/** Recognizes the Claude app command and its alias in a relayed message. */
 export function remoteControlCommand(text: string): boolean {
   return /^\/(?:remote-control|rc)(?:\s|$)/i.test(text.trim());
 }
 
-/** Applies the explicit state after the caller's workspace or device policy check. */
 export async function applyRemoteControl(
   services: CliServices,
   target: { workspaceId: string; tabId: string },
@@ -20,7 +19,7 @@ export async function applyRemoteControl(
     { ...target, ...(enabled === undefined ? {} : { enabled }) },
     60_000,
   );
-  log.info(`Remote Control ${target.tabId.slice(0, 8)} ${result.enabled ? "on" : "off"}`);
+  log.info(`Remote Control ${shortId(target.tabId)} ${result.enabled ? "on" : "off"}`);
   return result;
 }
 

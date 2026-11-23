@@ -14,9 +14,6 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
       return Promise.resolve({ ok: true as const, value: [] });
     return Promise.resolve({ ok: true as const, value: undefined });
   },
-  // Unwrappers used across the (now wider) fs-mutations / clipboard import
-  // graph pulled in via useFileTreeActions. Mirror the real helpers: return
-  // the value on ok, throw on error.
   unwrapIpcResult: <T>(r: { ok: boolean; value?: T; error?: { message?: string } }): T => {
     if (!r.ok) throw new Error(r.error?.message ?? "ipc error");
     return r.value as T;
@@ -29,9 +26,6 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   canUseIpcBridge: () => false,
 }));
 
-// Delete/copy routing goes through the imperative confirm dialog. With no React
-// tree mounted the real queue never resolves, so auto-confirm here — these
-// tests assert the downstream fs IPC, not the dialog UX.
 mock.module("../../../../../src/renderer/components/ui/confirm-dialog", () => ({
   showConfirmDialog: () => Promise.resolve(true),
 }));
@@ -93,10 +87,6 @@ function resetTree(): void {
     { name: "ln", type: "symlink" },
   ]);
 }
-
-// ---------------------------------------------------------------------------
-// Single-target delete (N=1) — regression for existing behaviour
-// ---------------------------------------------------------------------------
 
 describe("useFileTreeActions — single-target delete routing", () => {
   beforeEach(() => {
@@ -199,10 +189,6 @@ describe("useFileTreeActions — single-target delete routing", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Multi-target delete (N≥2) — Phase C batch behaviour
-// ---------------------------------------------------------------------------
-
 describe("useFileTreeActions — multi-target delete (batch)", () => {
   beforeEach(() => {
     ipcCalls.length = 0;
@@ -234,13 +220,11 @@ describe("useFileTreeActions — multi-target delete (batch)", () => {
   });
 
   it("distinctParents applied: parent+child → only parent deleted", async () => {
-    // Seed: dir has child a.ts
     useFilesStore.getState().setChildren(WS, `${ROOT}/dir`, [{ name: "a.ts", type: "file" }]);
 
     const actions = useFileTreeActions({
       workspaceId: WS,
       rootAbsPath: ROOT,
-      // Both dir and its child — distinctParents should reduce to just dir.
       getTargets: () => [
         { absPath: `${ROOT}/dir`, type: "dir" as const },
         { absPath: `${ROOT}/dir/a.ts`, type: "file" as const },
@@ -252,7 +236,6 @@ describe("useFileTreeActions — multi-target delete (batch)", () => {
     await actions.delete();
 
     const trashCalls = ipcCalls.filter((c) => c.method === "trash");
-    // Only the parent dir should be trashed, not the child.
     expect(trashCalls).toHaveLength(1);
     expect((trashCalls[0].args as { relPath: string }).relPath).toBe("dir");
   });

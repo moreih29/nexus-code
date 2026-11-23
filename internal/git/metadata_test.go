@@ -10,9 +10,6 @@ import (
 	"testing"
 )
 
-// linkedWorktree adds a worktree of a fresh repository beside it and returns
-// the repository, the worktree and the worktree's git directory as git
-// detects it (<repo>/.git/worktrees/<name>).
 func linkedWorktree(t *testing.T) (repo, worktree, gitDir string) {
 	t.Helper()
 	repo = newRepo(t)
@@ -37,17 +34,13 @@ func TestResolveGitDir_AcceptsALinkedWorktreesOwnGitDir(t *testing.T) {
 		t.Errorf("resolveGitDir(%q) = %q", gitDir, got)
 	}
 
-	// git.metadata, which the app calls every minute, reads it too.
 	params := mustJSON(t, MetadataParams{GitDir: gitDir})
 	if _, err := service.Metadata(context.Background(), params); err != nil {
 		t.Errorf("Metadata(%q): %v", gitDir, err)
 	}
 
-	// The same directory under another spelling: through a symbolic link,
-	// and in another letter case where the file system ignores case.
 	alias := filepath.Join(t.TempDir(), "alias")
 	if err := os.Symlink(filepath.Join(repo, ".git"), alias); err != nil {
-		// Windows without admin rights or developer mode cannot make links.
 		t.Logf("skipping the symlink case: symlinks unavailable: %v", err)
 	} else {
 		viaLink := filepath.Join(alias, "worktrees", filepath.Base(gitDir))

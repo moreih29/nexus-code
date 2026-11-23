@@ -1,7 +1,3 @@
-// LSP IPC channel — bridges renderer ↔ main ↔ agent-backed LspHostHandle.
-// Renderer calls are forwarded to the LSP host, and diagnostics events are
-// broadcast to all renderers.
-
 import { ipcContract } from "../../../shared/ipc/contract";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
 import { createLogger } from "../../../shared/log/main";
@@ -38,20 +34,6 @@ function fallbackApplyEditResult(failureReason: string): ApplyWorkspaceEditResul
   return { applied: false, failureReason };
 }
 
-/**
- * Catches abort-induced rejections from `lspHost.call` so they don't bubble
- * out of the IPC handler. Without this wrapper, electron's `ipcMain.handle`
- * logs every cancellation as `Error occurred in handler for 'ipc:call': Error:
- * Request cancelled` whenever the renderer fires `ipc:cancel` (e.g. ESC after
- * Cmd+Shift+O). The cancel itself is expected — the renderer-side provider
- * already has try/catch that handles an empty result identically to a thrown
- * cancellation, so resolving with the method-appropriate empty value is
- * functionally equivalent and quieter.
- *
- * Non-cancel rejections (LSP server crashed, malformed response, etc.) still
- * propagate — we only treat the rejection as expected when the call's signal
- * is aborted.
- */
 export async function withCancelDefault<T>(
   promise: Promise<unknown>,
   signal: AbortSignal | undefined,
@@ -61,11 +43,6 @@ export async function withCancelDefault<T>(
     return (await promise) as T;
   } catch (error) {
     if (signal?.aborted) return emptyValue;
-    // A bounded LSP request that exceeded its wall-clock budget. The
-    // renderer's provider was waiting on this — returning the method-
-    // appropriate empty value (instead of throwing) lets the hover /
-    // completion widget close cleanly. The original cause is logged so
-    // operators can correlate with tsserver pressure / memory state.
     if (error instanceof LspRequestTimeoutError) {
       log.warn(`${error.message} — returning empty result`);
       return emptyValue;
@@ -127,23 +104,7 @@ async function handleServerRequest(lspHost: LspHostHandle, args: unknown): Promi
   }
 }
 
-/**
- * Wire the LSP IPC channel: register every method the renderer can call
- * (call surface) and forward main-side LSP host events (diagnostics,
- * serverRequest, serverStatus, ...) onto the channel as broadcasts.
- * Single entry point so `main/index` can hand the LSP host handle over once
- * during startup and not maintain it per-event.
- */
 export function registerLspChannel(lspHost: LspHostHandle, stateService: StateService): void {
-  // Forward host diagnostics events to renderers. The host's debouncer
-  // emits `{ workspaceId, languageId, uri, diagnostics }`; we keep
-  // workspaceId so the renderer's listener can reconstruct the
-  // workspace-scoped cacheUri for the right Monaco model. Without
-  // workspaceId the listener's `workspaceUriFor(undefined, …)` throws
-  // immediately ("Cannot read properties of undefined (reading 'length')"
-  // from the empty-string guard) and Monaco never receives the markers,
-  // which in turn looks to the user like the LSP "just stops responding"
-  // after a workspace switch.
   lspHost.on("diagnostics", (args) => {
     const { workspaceId, uri, diagnostics } = args as {
       workspaceId: string;
@@ -167,11 +128,6 @@ export function registerLspChannel(lspHost: LspHostHandle, stateService: StateSe
     broadcast("lsp", "bootstrap.progress", args);
   });
 
-  // LRU eviction in the agent host disposes a workspace's LSP servers
-  // and emits this event. Forwarding it to the renderer lets the model
-  // cache clear `lspOpened` on entries belonging to the evicted
-  // workspace, so the next interaction (typing, activation) re-issues
-  // didOpen and respawns a fresh server. See LSP_MAX_ACTIVE_WORKSPACES.
   lspHost.on("workspaceLspReset", (args) => {
     const { workspaceId, languageId, reopen } = args as {
       workspaceId: string;
@@ -363,8 +319,6 @@ export function registerLspChannel(lspHost: LspHostHandle, stateService: StateSe
           (settings.lowMemory !== undefined && settings.lowMemory !== isLspLowMemory(previous)) ||
           (settings.path !== undefined && settings.path.trim() !== (previous.path ?? "").trim())
         ) {
-          // The servers read these only when they start. A server not found
-          // at the old path starts again too.
           lspHost.disposeServers(sameLanguage, "restart", { reopen: true });
         }
       },

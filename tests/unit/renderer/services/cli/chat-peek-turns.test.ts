@@ -1,9 +1,3 @@
-/**
- * A Claude or Codex tab's last turns as another device's preview asks for
- * them (the chat.peek request): read without opening the tab or starting
- * its program. The real ipc client is spread under a spy that records
- * every call, so a start, a replay or a transcript read would show.
- */
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import type { ChatPeekTail } from "../../../../../src/shared/ipc/contract";
 
@@ -60,7 +54,6 @@ beforeEach(() => {
 });
 afterEach(() => restore());
 
-/** A tab restored with the app: not opened since it started. */
 function restoredTab(agent: "claude" | "codex", props: Record<string, unknown> = {}) {
   const session = agent === "claude" ? { sessionId: SESSION } : { threadId: SESSION };
   const tabId = useTabsStore.getState().createTab(workspace.id, {
@@ -120,7 +113,6 @@ test("a Claude tab not opened is read from its transcript's end, and stays unope
       { received: { from: "Lead", text: "Now test it" }, reply: "", tools: {} },
     ],
   });
-  // One read of the history's end: nothing started, replayed or opened.
   expect(calls).toEqual([
     [
       "chat",
@@ -175,11 +167,9 @@ test("a workspace whose host is not connected is offline; a chat that never ran 
   });
   tail = () => ({ offline: false, claude: { found: false, truncated: false, lines: [] } });
   expect((await peek(tabId)).unavailable).toBe("missing");
-  // An agent too old to read a rollout's end.
   tail = () => ({ offline: false });
   expect((await peek(restoredTab("codex").tabId)).unavailable).toBe("missing");
 
-  // No session yet: nothing is asked of the agent.
   calls.length = 0;
   const fresh = useTabsStore
     .getState()
@@ -240,7 +230,6 @@ test("a tab opening, its conversation not in yet, tells its history's turns as i
     status: { running: false, phase: "starting" },
     turns: [{ user: { text: "Earlier", images: 0 }, reply: "Yes.", tools: {} }],
   });
-  // With its host not connected, or no history, the open tab's answer says why it has no turns.
   tail = () => ({ offline: true });
   expect(await peek(tabId)).toEqual({
     status: { running: false, phase: "starting" },
@@ -253,7 +242,6 @@ test("a tab opening, its conversation not in yet, tells its history's turns as i
     turns: [],
     unavailable: "missing",
   });
-  // A history that is there with no turn in it is no reason: none is given.
   tail = () => ({ offline: false, codex: { found: true, events: [] } });
   expect(await peek(tabId)).toEqual({ status: { running: false, phase: "starting" }, turns: [] });
 });

@@ -1,11 +1,3 @@
-// The settings dialog's pages, in the order its list shows them, and the
-// words its search box finds each by beyond its name. One list, read by the
-// dialog itself, so a page added here is the one it lists and searches.
-//
-// A page's dot tells that one of its values changed while the dialog was
-// open: settings are stored as they change, so on closing the new values
-// are the ones the next opening compares with.
-
 import type { TFunction } from "i18next";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -19,20 +11,14 @@ import { useThemeStore } from "../../state/stores/theme";
 import { useWindowOpacityStore } from "../../state/stores/window-opacity";
 import { PROFILE_KEYWORDS, type SettingsNavItem } from "./types";
 
-/** The pages that show a dot when one of their values changed. */
 export type DirtyPage = "appearance" | "editor" | "terminal";
 
 type NavKey = keyof (typeof resources)["en"]["settings"]["nav"];
 
-/**
- * A page's name in every language the app speaks, so a search finds the page
- * by its Korean or English name whichever language the dialog shows.
- */
 function names(key: NavKey): string[] {
   return SUPPORTED_LANGUAGES.map((lng) => resources[lng].settings.nav[key]);
 }
 
-/** Whether a page's name or one of the words it is found by holds `q` (lower case). */
 export function navMatches(item: SettingsNavItem, q: string): boolean {
   return (
     item.label.toLowerCase().includes(q) ||
@@ -40,7 +26,6 @@ export function navMatches(item: SettingsNavItem, q: string): boolean {
   );
 }
 
-/** Every page of the dialog, `dirty` telling which show the dot. */
 export function settingsNav(
   t: TFunction<"settings">,
   dirty: Partial<Record<DirtyPage, boolean>> = {},
@@ -309,7 +294,6 @@ export function settingsNav(
   ];
 }
 
-/** The values a page's dot watches, by page. */
 function useWatched(): Record<DirtyPage, readonly unknown[]> {
   return {
     appearance: [
@@ -335,16 +319,13 @@ function useWatched(): Record<DirtyPage, readonly unknown[]> {
   };
 }
 
-/** Whether any of the values differs from the ones the dialog opened with. */
 function changed(now: readonly unknown[], opened: readonly unknown[] | undefined): boolean {
   return opened !== undefined && now.some((value, i) => !Object.is(value, opened[i]));
 }
 
-/** The dialog's pages while it is `open`, each page's dot against the values it opened with. */
 export function useSettingsNav(open: boolean): SettingsNavItem[] {
   const { t } = useTranslation("settings");
   const watched = useWatched();
-  // Taken as the dialog opens, dropped as it closes: the next opening starts clean.
   const [opened, setOpened] = useState<Record<DirtyPage, readonly unknown[]> | null>(null);
   const [wasOpen, setWasOpen] = useState(false);
   if (open !== wasOpen) {

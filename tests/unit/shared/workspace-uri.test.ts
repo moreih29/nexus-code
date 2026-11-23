@@ -46,7 +46,6 @@ describe("workspace URI helpers", () => {
   test("parseWorkspaceUri returns null for unrelated URIs", () => {
     expect(parseWorkspaceUri("file:///some/file.ts")).toBeNull();
     expect(parseWorkspaceUri("https://example.com/x")).toBeNull();
-    // Authority without a path is invalid (no leading slash for the path).
     expect(parseWorkspaceUri(`${WORKSPACE_URI_SCHEME}://${ID}`)).toBeNull();
   });
 

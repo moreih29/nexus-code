@@ -1,4 +1,3 @@
-/** Devices of one account in a room, through an in-memory relay. */
 import { describe, expect, jest, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -45,16 +44,13 @@ import { fakeApp } from "../../cli/fake-services";
 
 type Handlers = Pick<RelayConnectionDeps, "onOpen" | "onFrame" | "onStatus" | "onSignedOut">;
 
-/** The relay, as the contract has it: stamps `from`, routes, tells who is in. */
 class MockRelay {
   readonly devices: RoomDevice[] = [];
   private readonly online = new Map<string, Handlers>();
-  /** Changes a frame on its way, as a relay that cheats would. */
   tamper: ((frame: ServerFrame) => ServerFrame) | null = null;
   drop:
     | ((from: string, frame: ClientFrame) => "silent" | "rate-limited" | "legacy-limit" | undefined)
     | null = null;
-  /** Every message it passed on, as it delivered it: a relay that cheats may send one again. */
   readonly kept: { to: string; frame: Delivered }[] = [];
 
   connection(device: Omit<RoomDevice, "online">, handlers: Handlers) {
@@ -75,7 +71,6 @@ class MockRelay {
         this.presence();
       },
       healthy: () => {},
-      /** The socket dropped and opened again, as a new connection. */
       reopen: () => {
         handlers.onStatus("waiting");
         handlers.onOpen();
@@ -112,7 +107,6 @@ class MockRelay {
     this.pass(from, frame);
   }
 
-  /** Routes a frame `from` sent, as it does any it does not drop. */
   pass(from: string, frame: ClientFrame) {
     const targets =
       frame.to === "*"
@@ -133,12 +127,10 @@ class MockRelay {
     }
   }
 
-  /** Sends a kept message again, to the device given. */
   deliver(to: string, frame: Delivered) {
     this.online.get(to)?.onFrame(frame);
   }
 
-  /** The kept messages one device sent, as delivered to another. */
   between(from: string, to: string) {
     return this.kept.filter((k) => k.frame.from === from && k.to === to).map((k) => k.frame);
   }
@@ -154,8 +146,6 @@ class MockRelay {
   }
 }
 
-// Initialize sodium before the fake relay starts so frame delivery can drain
-// through microtasks when a test yields to the next event-loop turn.
 async function roomKey(): Promise<RoomKey> {
   return { kid: 1, key: roomKeyOf(await newAccountKey()) };
 }
@@ -209,7 +199,6 @@ describe("the room", () => {
           online: true,
           app: { name: "NexusCode", version: "0.0.0-test" },
           serves: ["sessions"],
-          // The protocol version it speaks, so the other leaves out what it lacks.
           schema: SCHEMA_VERSION,
         },
       ],
@@ -285,13 +274,11 @@ describe("the room", () => {
     await flushRelay();
     const tab = { workspaceId: "w1", tabId: "t1" };
     const from = { kind: "tab" as const, workspaceId: "bw", tabId: "bt" };
-    // People may control the chats; agents may not.
     await expect(b.room.request("a", "chat.interrupt", { ...tab, from })).rejects.toMatchObject({
       code: RpcErrorCode.Forbidden,
       message: expect.stringContaining("control by agents is off"),
     });
     expect(a.served).toEqual([]);
-    // Agents may, but people may not: neither may, for an agent does no more than people may.
     serves = ["sessions", "agents"];
     a.room.announce();
     await flushRelay();
@@ -302,7 +289,6 @@ describe("the room", () => {
       });
     }
     expect(a.served).toEqual([]);
-    // Both may.
     serves = ["sessions", "chat.control", "agents"];
     a.room.announce();
     await flushRelay();
@@ -324,14 +310,12 @@ describe("the room", () => {
     await flushRelay();
     const tab = { workspaceId: "w1", tabId: "t1" };
     const from = { kind: "tab" as const, workspaceId: "bw", tabId: "bt" };
-    // A device that does not let its chats be read lets none be peeked at.
     for (const method of ["chat.peek", "chat.read"] as const) {
       await expect(phone.room.request("a", method, tab)).rejects.toMatchObject({
         code: RpcErrorCode.Forbidden,
         message: `${method} is not served here`,
       });
     }
-    // Nor one that reads chats but knows no peek, or tells a peek without reading chats.
     for (const set of [
       ["sessions", "chat.read"],
       ["sessions", "chat.peek"],
@@ -352,7 +336,6 @@ describe("the room", () => {
     await expect(phone.room.request("a", "chat.peek", { ...tab, turns: 6 })).rejects.toMatchObject({
       code: RpcErrorCode.InvalidParams,
     });
-    // An agent's: only where agents may act, and never from a phone.
     await expect(b.room.request("a", "chat.peek", { ...tab, from })).rejects.toMatchObject({
       code: RpcErrorCode.Forbidden,
       message: expect.stringContaining("control by agents is off"),
@@ -395,7 +378,6 @@ describe("the room", () => {
     b.room.start();
     await flushRelay();
     const from = { kind: "tab" as const, workspaceId: "bw", tabId: "bt" };
-    // consent.answer's params have no `from`: parsing them drops it.
     const params = { id: "c1", answer: "once" as const, from } as { id: string; answer: "once" };
     await expect(b.room.request("a", "consent.answer", params)).rejects.toMatchObject({
       code: RpcErrorCode.Forbidden,
@@ -537,7 +519,6 @@ describe("the room", () => {
       version: "0.0.0-test",
       theme: "github-dark",
     });
-    // One that tells none says none.
     expect(a.room.state().peers[0]?.app).toEqual({ name: "NexusCode", version: "0.0.0-test" });
     theme = "github-light";
     a.room.announce();
@@ -594,10 +575,87 @@ describe("the room", () => {
     await flushRelay();
     expect(foreign).toEqual([2]);
     expect(a.room.state().peers[0]?.serves).toBeUndefined();
-    // An older version is no reset: the key is not fetched for it.
     for (const frame of relay.between("a", "b")) relay.deliver("b", frame);
     await flushRelay();
     expect(older).toEqual([]);
+  });
+});
+
+describe("a request that waits on the serving device's user", () => {
+  async function pair() {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const serving: { waits?: boolean; signal?: AbortSignal; release: () => void }[] = [];
+    const a = device(relay, "a", key, {
+      serve: ({ waits, signal }) =>
+        new Promise((resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+          serving.push({
+            ...(waits !== undefined ? { waits } : {}),
+            ...(signal ? { signal } : {}),
+            release: () => resolve({ workspaces: [], sessions: [] }),
+          });
+        }),
+    });
+    const b = device(relay, "b", key);
+    a.room.start();
+    b.room.start();
+    await flushRelay();
+    return { a, b, serving };
+  }
+
+  const settle = async () => {
+    for (let i = 0; i < 5; i++) await flushRelay();
+  };
+
+  test("waits past the usual time for the answer, from a requester that says it waits", async () => {
+    const { b, serving } = await pair();
+    const asked = b.room.request("a", "sessions.list", {}, Number.POSITIVE_INFINITY);
+    await settle();
+    expect(serving[0]?.waits).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    serving[0]?.release();
+    expect((await asked).workspaces).toEqual([]);
+  });
+
+  test("called off by the requester: the serving device's signal aborts", async () => {
+    const { b, serving } = await pair();
+    const controller = new AbortController();
+    const asked = b.room.request(
+      "a",
+      "sessions.list",
+      {},
+      Number.POSITIVE_INFINITY,
+      controller.signal,
+    );
+    await settle();
+    controller.abort(new Error("the command went"));
+    await expect(asked).rejects.toThrow("the command went");
+    await settle();
+    expect(serving[0]?.signal?.aborted).toBe(true);
+    expect(String(serving[0]?.signal?.reason?.message)).toContain("called it off");
+  });
+
+  test("the requester left the room: the serving device's signal aborts", async () => {
+    const { b, serving } = await pair();
+    const asked = b.room.request("a", "sessions.list", {}, Number.POSITIVE_INFINITY);
+    await settle();
+    b.room.stop();
+    await expect(asked).rejects.toBeInstanceOf(RpcFailure);
+    await settle();
+    expect(serving[0]?.signal?.aborted).toBe(true);
+    expect(String(serving[0]?.signal?.reason?.message)).toContain("left the room");
+  });
+
+  test("the serving device left the room: the requester stops waiting", async () => {
+    const { a, b } = await pair();
+    const asked = b.room.request("a", "sessions.list", {}, Number.POSITIVE_INFINITY);
+    await settle();
+    a.room.stop();
+    await expect(asked).rejects.toMatchObject({
+      code: RpcErrorCode.Unavailable,
+      message: "that device is not in the room",
+    });
   });
 });
 
@@ -830,14 +888,12 @@ describe("what the relay keeps and sends again", () => {
     const { relay, a, b } = await pair();
     await b.room.request("a", "sessions.list", {});
     const kept = relay.between("b", "a");
-    // Days later, both connected again.
     a.reopen();
     b.reopen();
     await flushRelay();
     for (const frame of kept) relay.deliver("a", frame);
     await flushRelay();
     expect(a.served).toHaveLength(1);
-    // The two said hello again: a new request goes.
     await b.room.request("a", "sessions.list", {});
     expect(a.served).toHaveLength(2);
   });
@@ -848,7 +904,6 @@ describe("what the relay keeps and sends again", () => {
     const kept = relay.between("b", "a");
     b.reopen();
     await flushRelay();
-    // Sealed for a's epoch, which has not changed, but in b's old one.
     for (const frame of kept) relay.deliver("a", frame);
     await flushRelay();
     expect(a.served).toHaveLength(1);
@@ -859,17 +914,13 @@ describe("what the relay keeps and sends again", () => {
   test("a device back with a new connection the room never showed gone is counted, for its watches to be asked again", async () => {
     const { a, b } = await pair();
     expect(b.room.state().peers[0]?.rejoins).toBeUndefined();
-    // a's socket dropped and opened again; the room showed it online all the while.
     a.reopen();
     await flushRelay();
     expect(b.room.state().peers[0]).toMatchObject({ id: "a", online: true, rejoins: 1 });
-    // a itself started over: it counts none of b.
     expect(a.room.state().peers[0]?.rejoins).toBeUndefined();
-    // Told again in each presence, and once more for the next connection.
     a.reopen();
     await flushRelay();
     expect(b.room.state().peers[0]?.rejoins).toBe(2);
-    // b asks a as before.
     await b.room.request("a", "sessions.list", {});
     expect(a.served).toHaveLength(1);
   });
@@ -883,7 +934,6 @@ describe("what the relay keeps and sends again", () => {
         return { list, incompleteWorkspaces: new Set<string>(), forDevice: async () => list };
       },
       notify: async () => true,
-      // Polled by no one: only which watches are kept matters here.
       pollMs: 60_000,
     });
     const dropped: string[] = [];
@@ -900,7 +950,6 @@ describe("what the relay keeps and sends again", () => {
         if (method === "sessions.watch") return sessions.watch(from);
         throw new RpcFailure(RpcErrorCode.MethodNotFound, method);
       },
-      // As the app wires it.
       onDisconnect: (peer) =>
         dropPeerHolds(
           {
@@ -919,12 +968,9 @@ describe("what the relay keeps and sends again", () => {
       await flushRelay();
       const before = await b.room.request("a", "sessions.watch", {});
       dropped.length = 0;
-      // b's socket dropped and opened again; the room showed it online all the
-      // while, and the unwatch it tried while out of the room never went.
       b.reopen();
       await flushRelay();
       expect(a.room.state().peers[0]).toMatchObject({ id: "b", online: true, rejoins: 1 });
-      // Its new connection asks for the watch again: that one stays, the old one is gone.
       const after = await b.room.request("a", "sessions.watch", {});
       await flushRelay();
       expect(dropped).toEqual(["chat:b", "terminal:b"]);
@@ -945,7 +991,6 @@ describe("what the relay keeps and sends again", () => {
     await b.room.request("a", "sessions.list", {});
     for (const frame of relay.between("b", "a")) {
       relay.deliver("c", frame);
-      // Its `to` is sealed with it: changed, it does not open.
       relay.deliver("c", { ...frame, to: "c" });
     }
     await flushRelay();
@@ -1123,7 +1168,6 @@ describe("a sender's older connection, sent on late", () => {
     return { relay, key, a, b };
   }
 
-  /** Holds every frame `from` sends `to` alone: the frames held, as they would have come. */
   function hold(relay: MockRelay, from: string, to: string): Delivered[] {
     const held: Delivered[] = [];
     relay.drop = (sender, frame) => {
@@ -1134,10 +1178,6 @@ describe("a sender's older connection, sent on late", () => {
     return held;
   }
 
-  /**
-   * Seals what `from` sends again as a device before 0.18.0 does, with no
-   * `conn`, and passes it on in order; `settled` waits for what is under way.
-   */
   function sentWithoutConn(relay: MockRelay, key: RoomKey, from: string) {
     let chain = Promise.resolve();
     relay.drop = (sender, frame) => {
@@ -1163,7 +1203,6 @@ describe("a sender's older connection, sent on late", () => {
 
   test("its frames are not taken after the newer connection's, and the two devices go on talking", async () => {
     const { relay, a, b } = await pair();
-    // The relay holds what a sends b alone in its next connection, then lets the one after through.
     const held = hold(relay, "a", "b");
     a.reopen();
     await flushRelay();
@@ -1176,7 +1215,6 @@ describe("a sender's older connection, sent on late", () => {
 
     for (const frame of held) relay.deliver("b", frame);
     await flushRelay();
-    // Without `conn`, b took the held hello and dropped all a sent after it as past.
     expect(b.room.state().peers[0]?.rejoins).toBe(rejoins);
     await b.room.request("a", "sessions.list", {});
     expect((await a.room.request("b", "sessions.list", {})).workspaces).toHaveLength(1);
@@ -1191,7 +1229,6 @@ describe("a sender's older connection, sent on late", () => {
       message: { jsonrpc: "2.0", id: 1, method: "sessions.list", params: {} },
     };
     expect(SealedEnvelopeSchema.parse(envelope).conn).toEqual({ boot: "b".repeat(22), n: 3 });
-    // The envelope as a device before 0.18.0 has it.
     const before = SealedEnvelopeSchema.omit({ conn: true }).safeParse(envelope);
     expect(before.success && "conn" in before.data).toBe(false);
     expect(before.success).toBe(true);
@@ -1227,7 +1264,6 @@ describe("a sender's older connection, sent on late", () => {
     a.reopen();
     await flushRelay();
     await b.room.request("a", "sessions.list", {});
-    // The app quits and starts again: a new run, whose first connections count lower.
     a.room.stop();
     await flushRelay();
     const again = device(relay, "a", key);
@@ -1405,7 +1441,6 @@ describe("the host's file reads", () => {
     client.room.start();
     try {
       await flushRelay();
-      // 8 reading, 32 waiting; the five after those are refused.
       const requests = Array.from({ length: 45 }, (_, i) =>
         client.room.request("host", "files.read", read(`/w/${i}`)).then(
           () => "read" as const,
@@ -1413,7 +1448,6 @@ describe("the host's file reads", () => {
         ),
       );
       const refused = await Promise.all(requests.slice(40));
-      // The first host still holds all its slots. A second host has its own budget.
       for (const failure of refused) {
         expect(failure).toMatchObject({
           code: RpcErrorCode.Unavailable,
@@ -1468,7 +1502,6 @@ describe("the host's file reads", () => {
       await checkedSocket.promise;
       expect(served).toBe(0);
       buffered = 0;
-      // `.resolves` here hung Bun 1.4.4 on Windows past the test timeout; a plain await does not.
       expect(await pending).toMatchObject({ kind: "bytes" });
       expect(served).toBe(1);
     } finally {
@@ -1502,13 +1535,11 @@ describe("the host's file reads", () => {
     staying.room.start();
     try {
       await flushRelay();
-      // Fill the 8 reads, then queue one from a device that leaves.
       const holding = Array.from({ length: 8 }, (_, i) =>
         staying.room.request("host", "files.read", read(`/w/${i}`)).catch(() => null),
       );
       await filled.promise;
       const lost = leaving.room.request("host", "files.read", read("/w/gone")).catch(() => null);
-      // This request uses the same inbox without waiting on the file read budget.
       await expect(leaving.room.request("host", "sessions.list", {})).rejects.toMatchObject({
         code: RpcErrorCode.Forbidden,
       });

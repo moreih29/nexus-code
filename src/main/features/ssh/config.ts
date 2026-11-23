@@ -11,9 +11,6 @@ interface SshDirective {
   args: string[];
 }
 
-/**
- * Parses top-level Host blocks from ssh config text into concrete aliases.
- */
 export function parseSshConfig(text: string): SshConfigHost[] {
   const hosts: SshConfigHost[] = [];
   let currentHosts: SshConfigHost[] = [];
@@ -46,9 +43,6 @@ export function parseSshConfig(text: string): SshConfigHost[] {
   return hosts;
 }
 
-/**
- * Parses a config line into a case-insensitive keyword and shell-like args.
- */
 function parseDirective(rawLine: string): SshDirective | null {
   const line = rawLine.trimStart();
   if (line.length === 0 || line.startsWith("#")) {
@@ -85,9 +79,6 @@ function parseDirective(rawLine: string): SshDirective | null {
   };
 }
 
-/**
- * Splits directive arguments while respecting simple single and double quotes.
- */
 function tokenizeArgs(text: string): string[] {
   const args: string[] = [];
   let token = "";
@@ -135,9 +126,6 @@ function tokenizeArgs(text: string): string[] {
   return args;
 }
 
-/**
- * Applies supported per-host options to every concrete alias in a Host block.
- */
 function applyHostDirective(hosts: SshConfigHost[], keyword: string, value: string): void {
   if (keyword === "hostname") {
     for (const host of hosts) {
@@ -171,16 +159,10 @@ function applyHostDirective(hosts: SshConfigHost[], keyword: string, value: stri
   }
 }
 
-/**
- * Returns true for Host aliases that represent a single named target.
- */
 function isConcreteHostAlias(alias: string): boolean {
   return alias.length > 0 && !alias.startsWith("!") && !alias.includes("*") && !alias.includes("?");
 }
 
-/**
- * Parses valid TCP port values used by ssh config Port directives.
- */
 function parsePort(value: string): number | undefined {
   if (!/^\d+$/.test(value)) {
     return undefined;
@@ -189,9 +171,6 @@ function parsePort(value: string): number | undefined {
   return port > 0 && port <= 65_535 ? port : undefined;
 }
 
-/**
- * Checks ASCII whitespace used as config token separators.
- */
 function isWhitespace(char: string | undefined): boolean {
   return char === " " || char === "\t" || char === "\r" || char === "\n";
 }

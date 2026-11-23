@@ -1,21 +1,5 @@
 package hookclient
 
-// `agent exec-run <codex> [args...]` runs a `codex exec` that a tab's Claude
-// session starts, as from its Bash tool or a script it runs, and tells the
-// app of it as print-run tells a `claude -p` run (print.go): the same
-// frames, the run told as codex's, so that it is one of the session's
-// agents beside its subagents and `claude -p` runs.
-//
-// A run that prints events (`--json`) tells its tools and answer from them.
-// Its session is told unless it keeps none (--ephemeral): `codex exec
-// resume <id>` goes on with it, and is told as the same run going on.
-// One that prints text tells its model, provider and session from the
-// header codex writes on stderr, its tools and what it writes from its
-// session's rollout (codex_rollout.go), and its answer is its output. A
-// prompt codex reads from stdin is read as it passes, and told.
-//
-// The run is codex's own: its input, output and exit are codex's.
-
 import (
 	"encoding/json"
 	"fmt"
@@ -30,9 +14,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/nodeshim"
 )
 
-// RunCodexExec is the `agent exec-run` entrypoint: args are codex's path and
-// its arguments. It returns codex's exit code, and dies of the signal codex
-// died of.
 func RunCodexExec(args []string) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: agent exec-run <codex> [args...]")
@@ -52,31 +33,21 @@ func RunCodexExec(args []string) int {
 	return code
 }
 
-// codexRun is what a `codex exec` run's arguments tell of it.
 type codexRun struct {
-	// exec: the arguments run `codex exec`, rather than its help or another command.
-	exec   bool
-	prompt string
-	// stdinPrompt: codex reads its prompt from stdin.
+	exec        bool
+	prompt      string
 	stdinPrompt bool
 	model       string
 	provider    string
 	profile     string
-	// events: it prints its events as JSON lines (--json).
-	events bool
-	// sessionID is the session it goes on (`codex exec resume <id>`).
-	sessionID string
-	resumed   bool
-	// noConfig: it does not read the user's config.toml.
-	noConfig bool
-	// ephemeral: it keeps no session to go on with (--ephemeral).
-	ephemeral bool
-	// baseURLs is where each provider codex's config defines serves.
-	baseURLs map[string]string
+	events      bool
+	sessionID   string
+	resumed     bool
+	noConfig    bool
+	ephemeral   bool
+	baseURLs    map[string]string
 }
 
-// codexValueOptions are codex's options that take a value, given as the
-// next argument or after "=".
 var codexValueOptions = map[string]bool{
 	"-c": true, "--config": true, "--enable": true, "--disable": true,
 	"--remote": true, "--remote-auth-token-env": true,
@@ -89,9 +60,6 @@ var codexValueOptions = map[string]bool{
 	"-o": true, "--output-last-message": true,
 }
 
-// describeCodexExec reads a run's arguments: codex's options, the `exec`
-// command (or `e`), and its prompt, or the session it resumes and the
-// prompt after it.
 func describeCodexExec(args []string) codexRun {
 	var run codexRun
 	var positional []string
@@ -99,7 +67,6 @@ func describeCodexExec(args []string) codexRun {
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" {
-			// No command after it: it is the prompt.
 			if len(positional) == 0 {
 				return codexRun{}
 			}
@@ -162,7 +129,6 @@ func describeCodexExec(args []string) codexRun {
 			run.resumed = true
 			rest = rest[1:]
 			if !last && len(rest) > 0 {
-				// An id, or a thread's name, which names no session told.
 				if isSessionID(rest[0]) {
 					run.sessionID = rest[0]
 				}
@@ -188,8 +154,6 @@ func describeCodexExec(args []string) codexRun {
 	return run
 }
 
-// tomlString is a TOML value as the string it is: a quoted one's content,
-// or a bare one up to a comment.
 func tomlString(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -222,15 +186,11 @@ func tomlString(value string) string {
 	return strings.TrimSpace(value)
 }
 
-// codexSettings is what codex's config says of a run's model: the model,
-// its provider, and where each provider it defines serves.
 type codexSettings struct {
 	model, provider string
 	baseURLs        map[string]string
 }
 
-// readCodexConfig reads a codex config file's model, provider and the
-// providers' base URLs into `into`; a file it cannot read changes nothing.
 func readCodexConfig(path string, into *codexSettings) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -263,7 +223,6 @@ func readCodexConfig(path string, into *codexSettings) {
 	}
 }
 
-// codexHome is codex's directory: CODEX_HOME, else ~/.codex.
 func codexHome() string {
 	if home := os.Getenv("CODEX_HOME"); home != "" {
 		return home
@@ -275,9 +234,6 @@ func codexHome() string {
 	return filepath.Join(home, ".codex")
 }
 
-// settle fills in the run's model and provider from codex's config, where
-// its arguments did not give them, and tells where its provider serves:
-// "" for OpenAI's own API.
 func (run *codexRun) settle() (endpoint string) {
 	settings := codexSettings{baseURLs: map[string]string{}}
 	if home := codexHome(); home != "" {
@@ -298,9 +254,6 @@ func (run *codexRun) settle() (endpoint string) {
 	return providerEndpoint(run.provider, run.baseURLs)
 }
 
-// providerEndpoint is where a codex provider serves: OpenAI's own API, or
-// one OPENAI_BASE_URL names, for "openai"; the host of a provider the
-// config defines; else the provider's name, as "ollama".
 func providerEndpoint(provider string, baseURLs map[string]string) string {
 	if provider == "" || provider == "openai" {
 		return endpointHost(os.Getenv("OPENAI_BASE_URL"), "api.openai.com")
@@ -313,8 +266,6 @@ func providerEndpoint(provider string, baseURLs map[string]string) string {
 	return provider
 }
 
-// runCodexExec runs codex and tells `teller` of the run. It returns codex's
-// exit code, or the signal it died of.
 func runCodexExec(
 	codex string,
 	args []string,
@@ -331,9 +282,6 @@ func runCodexExec(
 		endpoint = run.settle()
 	}
 	cmd := nodeshim.Command(codex, args...)
-	// A run that prints events tells of itself on its output, and a text
-	// run's output is its answer. A text run's stderr tells its model and
-	// session, unless it is a terminal, which stays codex's.
 	var out, errOut *printOutput
 	var prompt io.WriteCloser
 	if teller != nil {
@@ -350,8 +298,6 @@ func runCodexExec(
 			}
 			defer errOut.close()
 		}
-		// The prompt codex reads from stdin is read as it passes; a
-		// terminal stays codex's.
 		if run.stdinPrompt && !isTerminalReader(stdin) {
 			if prompt, err = cmd.StdinPipe(); err != nil {
 				fmt.Fprintf(stderr, "nexus: %v\n", err)
@@ -392,7 +338,6 @@ func runCodexExec(
 	if run.resumed {
 		start["resumed"] = true
 	}
-	// Where its session is kept, for the app to read it whole.
 	if !run.ephemeral {
 		if home := absoluteDir(codexHome()); home != "" {
 			start["home"] = home
@@ -405,8 +350,6 @@ func runCodexExec(
 		watch.prefix = teller.runID + ":"
 	}
 	if prompt != nil {
-		// Not waited for: a codex that ends before it read all of it leaves
-		// the copy blocked on the run's stdin, which ends with the run.
 		go func() {
 			told := copyPrompt(prompt, stdin)
 			_ = prompt.Close()
@@ -415,9 +358,6 @@ func runCodexExec(
 			}
 		}()
 	}
-	// A text run tells its tools and what it writes in its rollout, once
-	// its session is known: from its header, or its arguments when it goes
-	// on one.
 	var rollout *codexRollout
 	if teller != nil && !run.events && !run.ephemeral && (errOut != nil || run.sessionID != "") {
 		rollout = newCodexRollout()
@@ -453,8 +393,6 @@ func runCodexExec(
 	return code, sig
 }
 
-// copyPrompt passes r to w, and returns what passed, trimmed and cut to a
-// prompt's length.
 func copyPrompt(w io.Writer, r io.Reader) string {
 	var head strings.Builder
 	buf := make([]byte, 32<<10)
@@ -479,7 +417,6 @@ func copyPrompt(w io.Writer, r io.Reader) string {
 	return cut(strings.TrimSpace(text), printTextMax)
 }
 
-// isTerminalReader is whether r is a terminal.
 func isTerminalReader(r io.Reader) bool {
 	f, ok := r.(*os.File)
 	if !ok {
@@ -489,21 +426,12 @@ func isTerminalReader(r io.Reader) bool {
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
-// codexHeader reads the header a text run writes on stderr first, as
-//
-//	model: gpt-6-luna
-//	provider: openai
-//	session id: 01a1b19e-…
-//
-// between two "--------" lines, and tells what it says of the run.
 type codexHeader struct {
-	run  *codexRun
-	tell func(subcommand string, payload map[string]any)
-	// session, when set, is told the run's session id once the header is read.
+	run     *codexRun
+	tell    func(subcommand string, payload map[string]any)
 	session func(id string)
-	// rules is how many of the header's rules were read: it is over at two.
-	rules int
-	init  map[string]any
+	rules   int
+	init    map[string]any
 }
 
 func (h *codexHeader) line(b []byte) {
@@ -514,7 +442,6 @@ func (h *codexHeader) line(b []byte) {
 	if line == "--------" {
 		if h.rules++; h.rules == 2 && len(h.init) > 0 {
 			h.tell("print-init", h.init)
-			// Told after the header, as what the rollout tells comes after it.
 			if id, ok := h.init["session_id"].(string); ok && h.session != nil {
 				h.session(id)
 			}
@@ -535,8 +462,6 @@ func (h *codexHeader) line(b []byte) {
 	case "model":
 		h.init["model"] = value
 	case "provider":
-		// The provider codex settled on, where its arguments and config
-		// were not read the same.
 		if value != h.run.provider {
 			if endpoint := providerEndpoint(value, h.run.baseURLs); endpoint != "" {
 				h.init["endpoint"] = endpoint
@@ -549,16 +474,10 @@ func (h *codexHeader) line(b []byte) {
 	}
 }
 
-// codexWatch reads a run's output: its events, the tools they run and how
-// they end, and its answer; or, for a text run, the answer itself.
 type codexWatch struct {
-	tell func(subcommand string, payload map[string]any)
-	// text: the output is the answer itself.
-	text bool
-	// prefix makes the run's tool ids its own: a run's items are numbered
-	// from item_0, and a resumed run's again.
-	prefix string
-	// noSession: the run's session is not kept, so not told.
+	tell      func(subcommand string, payload map[string]any)
+	text      bool
+	prefix    string
 	noSession bool
 	answer    string
 	failure   string
@@ -596,7 +515,6 @@ type codexItem struct {
 	} `json:"error"`
 }
 
-// codexTool is one tool an item runs, as the app names Claude's.
 type codexTool struct {
 	id    string
 	name  string
@@ -640,9 +558,6 @@ func (w *codexWatch) line(b []byte) {
 	}
 }
 
-// completed tells an item that completed: a message, as what the run wrote
-// and its answer so far; the tools it ran, as ended, with how long they
-// took (`took`, in milliseconds) when it is known.
 func (w *codexWatch) completed(item codexItem, took int64) {
 	if item.Type == "agent_message" {
 		if said := cut(strings.TrimSpace(item.Text), printTextMax); said != "" {
@@ -665,7 +580,6 @@ func (w *codexWatch) completed(item codexItem, took int64) {
 	}
 }
 
-// toolUse tells a tool started, once.
 func (w *codexWatch) toolUse(tool codexTool) {
 	if w.started == nil {
 		w.started = map[string]bool{}
@@ -681,7 +595,6 @@ func (w *codexWatch) toolUse(tool codexTool) {
 	})
 }
 
-// result is the run's answer: its last message, else why its turn failed.
 func (w *codexWatch) result() string {
 	if w.answer != "" {
 		return w.answer
@@ -689,8 +602,6 @@ func (w *codexWatch) result() string {
 	return w.failure
 }
 
-// toolsOf is the tools an item runs: one for most, one for each file a
-// patch changes, none for a message, reasoning or the todo list.
 func (w *codexWatch) toolsOf(item codexItem) []codexTool {
 	id := w.prefix + item.ID
 	switch item.Type {
@@ -718,8 +629,6 @@ func (w *codexWatch) toolsOf(item codexItem) []codexTool {
 	return nil
 }
 
-// codexFailure is whether an item that ended failed, and why: a command's
-// exit code and the last line it printed, or the error a call ended with.
 func codexFailure(item codexItem) (bool, string) {
 	switch item.Type {
 	case "command_execution":
@@ -742,20 +651,15 @@ func codexFailure(item codexItem) (bool, string) {
 	return item.Status == "failed", ""
 }
 
-// lastLine is the last line of text that is not blank.
 func lastLine(text string) string {
 	lines := strings.Split(strings.TrimSpace(text), "\n")
 	return strings.TrimSpace(lines[len(lines)-1])
 }
 
-// shellScript is a command codex runs in a shell, as `/bin/bash -lc '…'`.
 var shellScript = regexp.MustCompile(`(?s)^(?:\S*/)?(?:bash|zsh|sh) -l?c (.+)$`)
 
-// powershellScript is a command codex runs in PowerShell on Windows.
 var powershellScript = regexp.MustCompile(`(?is)^(?:"[^"]*[\\/]|[^\s"]*[\\/])?(?:powershell|pwsh)(?:\.exe)?"? -Command (.+)$`)
 
-// shownCommand is the command a tool row shows: the script, without the
-// shell codex runs it in, as the app's Codex tabs show it.
 func shownCommand(command string) string {
 	m := shellScript.FindStringSubmatch(command)
 	if m == nil {
@@ -770,8 +674,6 @@ func shownCommand(command string) string {
 	return command
 }
 
-// shellWord reads a shell-quoted string as the one word it is; false when
-// it is not one word.
 func shellWord(text string) (string, bool) {
 	var word strings.Builder
 	r := []rune(text)

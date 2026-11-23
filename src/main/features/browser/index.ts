@@ -34,28 +34,15 @@ export function initBrowserFeature(deps?: BrowserFeatureDeps): void {
   registerBrowserChannel(registry, channelDeps);
 }
 
-/**
- * Sets what turns the URLs workspaces' tabs load into the ones they load
- * (an SSH workspace's local addresses), in this window and any later one.
- */
 export function setBrowserAddressResolver(resolver: BrowserAddressResolver | null): void {
   addressResolver = resolver;
   registry?.setAddressResolver(resolver);
 }
 
-/**
- * Returns the active `BrowserTabRegistry`, or `null` if `initBrowserFeature`
- * has not yet been called.
- */
 export function getBrowserRegistry(): BrowserTabRegistry | null {
   return registry;
 }
 
-/**
- * Calls `listener` with each browser tab's WebContents as it is created,
- * before its first page loads, in this window and any later one. Returns the
- * call that stops it.
- */
 export function onBrowserTabCreated(
   listener: (tabId: string, contents: WebContents) => void,
 ): () => void {
@@ -67,18 +54,6 @@ export function onBrowserTabCreated(
   };
 }
 
-/**
- * Wires the browser closer into a `WorkspaceManager`-compatible object.
- *
- * The closer:
- *   1. Destroys all `WebContentsView`s for the given workspace, and the
- *      popup windows its tabs opened.
- *   2. After all destroys complete, clears the workspace's storage partition
- *      via `session.fromPartition(...).clearStorageData()`.
- *
- * Call this once after both `initBrowserFeature` and `WorkspaceManager` are
- * initialised — mirrors the `setPtySessionCloser` wiring in main/index.ts.
- */
 export function registerBrowserCloser(manager: {
   setBrowserCloser(closer: (workspaceId: string) => Promise<void>): void;
 }): void {

@@ -1,20 +1,16 @@
 {
   "appMenu": {
     "about": "{{appName}} 정보",
-    "checkForUpdates": "업데이트 확인...",
+    "checkForUpdates": "업데이트 확인…",
     "releaseNotes": "릴리스 노트",
     "settings": "설정…"
   },
   "file": {
     "label": "파일",
-    "newFile": "새 파일",
     "newWorkspace": "새 워크스페이스…",
     "newTask": "새 작업…",
     "openFile": "파일 열기…",
     "save": "저장",
-    "closeEditor": "탭 닫기",
-    "closeOthers": "다른 탭 닫기",
-    "refreshFiles": "파일 새로 고침",
     "exit": "종료"
   },
   "edit": {
@@ -22,28 +18,13 @@
   },
   "view": {
     "label": "보기",
-    "toggleFilesPanel": "파일 패널 전환",
-    "toggleSidebar": "사이드바 전환",
     "revealInFinder": "Finder에서 표시",
     "revealInExplorer": "파일 탐색기에서 표시",
     "openContainingFolder": "상위 폴더 열기",
-    "copyPath": "경로 복사",
-    "copyRelativePath": "상대 경로 복사",
-    "toggleChatPanel": "채팅 사이드 패널 전환",
-    "toggleAgentView": "에이전트 뷰 전환",
     "reloadWindow": "창 다시 불러오기"
   },
   "workspace": {
-    "label": "워크스페이스",
-    "previousWorkspace": "이전 워크스페이스",
-    "nextWorkspace": "다음 워크스페이스",
-    "splitRight": "오른쪽으로 분할",
-    "splitDown": "아래로 분할",
-    "closeGroup": "그룹 닫기",
-    "focusGroupLeft": "왼쪽 그룹으로 포커스",
-    "focusGroupRight": "오른쪽 그룹으로 포커스",
-    "focusGroupUp": "위쪽 그룹으로 포커스",
-    "focusGroupDown": "아래쪽 그룹으로 포커스"
+    "label": "워크스페이스"
   },
   "window": {
     "label": "윈도우"

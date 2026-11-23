@@ -1,7 +1,3 @@
-// Monaco singleton — owns the single reference to the monaco-editor namespace
-// plus the one-shot "ready" notification channel.
-// All other editor modules call requireMonaco() rather than holding their own ref.
-
 import type * as Monaco from "monaco-editor";
 import { createListenerBus } from "../../../../shared/util/listener-bus";
 
@@ -25,11 +21,6 @@ export function isMonacoReady(): boolean {
   return monacoRef !== null;
 }
 
-/**
- * Register a callback fired the first time `initializeMonacoSingleton` runs.
- * Returns an unsubscribe. Used by the React binding to flip from
- * "loading" to a real acquire once Monaco mounts.
- */
 export function onMonacoReady(listener: () => void): () => void {
   return bus.subscribe(listener);
 }

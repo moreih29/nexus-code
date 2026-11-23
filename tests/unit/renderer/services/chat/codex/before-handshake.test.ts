@@ -1,20 +1,11 @@
-/**
- * A Codex program takes no request before it knows the app (initialize):
- * one sent before is refused with "Not initialized", which a tab showed as
- * an error. What a tab asks as it opens (its list of threads, its
- * defaults) waits for the introduction. The real ipc client is spread
- * under a spy, so later files keep its other exports.
- */
 import { afterEach, describe, expect, jest, mock, spyOn, test } from "bun:test";
 import { defaultProfileId } from "../../../../../../src/shared/agent-profiles/profiles";
 import { ipcContract } from "../../../../../../src/shared/ipc/contract";
 import type { WorkspaceMeta } from "../../../../../../src/shared/types/workspace";
 
-// The version the app tells Codex it is.
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
 
 type Message = Record<string, unknown>;
-/** A Codex program that comes up, answering what is sent to it as the test says. */
 let codex: ((message: Message) => void) | undefined;
 const catalogWorkspace = "b99ee5a4-4db7-43c4-8c3f-31262141cdaa";
 const catalogCalls: { method: string; args: Message }[] = [];
@@ -96,7 +87,6 @@ afterEach(() => {
   startFailure = undefined;
 });
 
-/** A tab whose program is not running and answers initialize a while after it is asked. */
 function tab(respond?: (message: Message) => unknown | Promise<unknown>): Controller {
   const c = new CodexController({
     workspaceId: "ws-codex-handshake",
@@ -137,7 +127,6 @@ function tab(respond?: (message: Message) => unknown | Promise<unknown>): Contro
 
 const order = () => sent.map((m) => m.method);
 
-/** Streams a scripted app-server's lines with no real startup delay. */
 function scriptProgram(c: Controller, reply: (message: Message) => Message): void {
   const line = (dir: "sys" | "in" | "out", message: Message) =>
     c.receive({ seq: ++lineSeq, dir, message } as never);
@@ -335,25 +324,32 @@ test("resumes a Codex thread after agent replacement and queues against the new 
 
   c.held();
   replayResponse = () => ({ found: false, running: false, truncated: false, lastSeq: 0 });
-  await c.resync();
-  expect(c.model.lastSeq).toBe(0);
-  expect(c.model.permissions).toEqual([]);
-  expect(c.model.requests).toEqual({});
-  await c.answerPermission(oldPermission, { kind: "allow" });
-  expect(c.state.queue[0]?.afterTool).toBe(0);
-
   seq = 0;
-  const steered = Promise.withResolvers<Message>();
+  const started = Promise.withResolvers<Message>();
   onStart = () => line("sys", { event: "start" });
   codex = (message) => {
     sent.push(message);
     line("in", message);
     if (message.id === undefined) return;
-    const result = message.method === "thread/resume" ? { thread: { id: "t1" } } : {};
+    const result =
+      message.method === "thread/resume"
+        ? { thread: { id: "t1" } }
+        : message.method === "turn/start"
+          ? { turn: { id: "new" } }
+          : {};
     line("out", { id: message.id, result });
-    if (message.method === "turn/steer") steered.resolve(message);
+    if (message.method === "turn/start") started.resolve(message);
   };
-  await c.prepareSend();
+  await c.resync();
+  expect(c.model.permissions).toEqual([]);
+  expect(c.model.requests).toEqual({});
+  expect(c.state.queue[0]?.afterTool).toBe(0);
+
+  expect((await started.promise).params).toMatchObject({
+    threadId: "t1",
+    input: [{ type: "text", text: "queued prompt" }],
+  });
+  c.flushNow();
   expect(sent.find((m) => m.method === "thread/resume")?.params).toMatchObject({
     threadId: "t1",
     excludeTurns: true,
@@ -361,6 +357,7 @@ test("resumes a Codex thread after agent replacement and queues against the new 
   expect(c.model.process).toBe("running");
   expect(c.model.items.filter((item) => item.kind === "user").map((item) => item.text)).toEqual([
     "old prompt",
+    "queued prompt",
   ]);
   expect(new Set(c.model.items.map((item) => item.key)).size).toBe(c.model.items.length);
 
@@ -372,22 +369,7 @@ test("resumes a Codex thread after agent replacement and queues against the new 
   await c.answerPermission(oldPermission, { kind: "allow" });
   expect(sent).toHaveLength(writes);
   await c.answerPermission(c.model.permissions[0], { kind: "allow" });
-  expect(order()).not.toContain("turn/steer");
-  line("out", {
-    method: "item/completed",
-    params: {
-      threadId: "t1",
-      turnId: "new",
-      item: { id: "cmd", type: "commandExecution", command: "pwd", status: "completed" },
-    },
-  });
-  c.flushNow();
-  expect(c.model.toolCompletedSeq).toBe(seq);
-  expect((await steered.promise).params).toMatchObject({
-    threadId: "t1",
-    expectedTurnId: "new",
-    input: [{ type: "text", text: "queued prompt" }],
-  });
+  expect(sent).toHaveLength(writes + 1);
   seq = 404;
   line("sys", { event: "dropped" });
   c.flushNow();
@@ -408,7 +390,6 @@ describe("what a Codex tab asks as its program starts", () => {
   test("goes at once to a program that knows the app already", async () => {
     const c = tab();
     await c.readDefaults();
-    // Its start line, which the agent sends, says it runs.
     useChatStore
       .getState()
       .update(c.key, (prev) => ({ ...prev, model: { ...prev.model, process: "running" } }));
@@ -636,7 +617,7 @@ test("child events refresh only that child, including an event during its cooldo
   const flushResponses = () => new Promise<void>((resolve) => setImmediate(resolve));
   const prepared = c.prepareSend();
   await flushResponses();
-  jest.advanceTimersByTime(30); // initialize reply from tab()
+  jest.advanceTimersByTime(30);
   await prepared;
   jest.advanceTimersByTime(500);
   await flushResponses();

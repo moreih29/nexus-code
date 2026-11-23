@@ -5,7 +5,6 @@ import { splitAttachments } from "../chat/composer-input";
 import type { ImageBlock, UserItem } from "../chat/model";
 import type { ChatRef } from "./peer-chat";
 
-/** The files and images stay on the submitting device until the user can recover them. */
 export interface PeerSubmission {
   nonce: string;
   clientDeviceId?: string;
@@ -42,7 +41,6 @@ const useSubmissions = create<{ byChat: Record<string, readonly PeerSubmission[]
   byChat: {},
 }));
 
-// Only IDs are retained. The transcript and attachment bytes stay in their original stores.
 const evidence = new Map<string, Evidence>();
 
 function update(
@@ -112,9 +110,6 @@ export function settlePeerSubmission(
     if (!entries.some((pending) => pending.nonce === entry.nonce)) return entries;
     return entries.flatMap((pending) => {
       if (pending.nonce !== entry.nonce) return [pending];
-      // A host that attributes no rows may have shown the message before its answer
-      // came: that row is the delivery, so an answer lost after it leaves nothing to
-      // recover, or the same message would be sent twice. A refusal is told as it is.
       if (result.status === "unconfirmed" && pending.provisionalEcho) return [];
       if (result.status === "accepted") {
         if (!result.heldId && pending.provisionalEcho) return [];
@@ -175,7 +170,6 @@ export function previewOf(entry: PeerSubmission): UserItem {
   };
 }
 
-/** Through watch snapshots and deltas, including notification-before-ACK and reconnect. */
 export function observePeerEchoes(
   ref: ChatRef,
   echoes: readonly Echo[],
@@ -226,8 +220,6 @@ export function observePeerEchoes(
       continue;
     }
     if (!fresh || item.clientNonce || !pending.length) continue;
-    // A legacy peer cannot attribute this row. Retire at most one preview
-    // for a genuinely new matching row. Its authoritative rows all remain.
     const legacy = pending.find((entry) => {
       if (
         entry.clientDeviceId ||

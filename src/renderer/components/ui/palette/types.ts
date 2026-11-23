@@ -31,17 +31,7 @@ export interface PaletteSource<TItem extends PaletteItem = PaletteItem> {
   emptyQueryMessage: string;
   noResultsMessage: string;
   maxQueryLength?: number;
-  /** A source can supply a localized error for a known failure. */
   errorMessage?: (error: unknown) => string | undefined;
-  /**
-   * When true, the controller invokes `search` for empty queries — including
-   * the initial open — instead of short-circuiting to `idle`. The empty-query
-   * path also bypasses the typing debounce so the picker shows results
-   * immediately (matching VS Code's QuickPick behavior for branch / ref
-   * pickers that pre-load an enumerable set).
-   *
-   * Defaults to false to preserve workspace-symbol "type-to-search" semantics.
-   */
   searchOnEmptyQuery?: boolean;
   search(query: string, signal: AbortSignal): Promise<readonly TItem[]>;
   accept(item: TItem, context?: PaletteAcceptContext): void;

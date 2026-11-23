@@ -1,7 +1,3 @@
-/**
- * Pure Source Control panel action helpers that keep prompt copy and history
- * retargeting testable without rendering the full GitPanel.
- */
 import i18next from "i18next";
 import type { Tag } from "../../../../../shared/git/types";
 import { isAuthGitError } from "../../../../services/error-surface/git-error-placement";
@@ -9,12 +5,6 @@ import { openTerminal } from "../../../../services/terminal";
 import type { GitStoreError } from "../../../../state/stores/git";
 import type { PromptRequest } from "../../../ui/prompt-dialog";
 
-/**
- * Builds the publish confirmation for the implementation's actual behavior:
- * `publish: true` publishes to the first configured remote. The prompt is
- * intentionally confirm-only so a multi-remote user cannot edit a value that
- * the main process will not honor.
- */
 export function buildPublishBranchPrompt(
   branchName: string,
   remotes: readonly string[],
@@ -37,17 +27,10 @@ export function buildPublishBranchPrompt(
   };
 }
 
-/**
- * Returns the full tag ref used by the History panel so tag names that collide
- * with branch names still resolve as tags.
- */
 export function tagHistoryRef(tag: Pick<Tag, "name">): string {
   return `refs/tags/${tag.name}`;
 }
 
-/**
- * Builds the banner shown after a tag reveal retargets History.
- */
 export function buildTagHistoryRevealMessage(tag: Pick<Tag, "name" | "sha">): string {
   return i18next.t("files:git.panelActions.tagReveal", {
     name: tag.name,
@@ -55,11 +38,6 @@ export function buildTagHistoryRevealMessage(tag: Pick<Tag, "name" | "sha">): st
   });
 }
 
-/**
- * Authentication failures keep a terminal escape hatch for credential helpers
- * that cannot be represented by the askpass dialog. Other failures keep the
- * local retry affordance.
- */
 export function buildErrorAction(
   error: GitStoreError | null | undefined,
   opts: { workspaceId: string; cwd?: string; onRetry: () => void },

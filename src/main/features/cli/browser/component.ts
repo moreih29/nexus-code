@@ -1,42 +1,14 @@
-/**
- * The UI component an element of a page belongs to, for nexus browser pick
- * and inspect: what a framework's development build leaves on the DOM
- * node tells it, and where in the source the element is written.
- *
- * React (16 to 19) keeps its fiber on the node; Vue 3 its component
- * instance, Vue 2 its view model on a component's root element; Svelte
- * (dev) the place in the file that wrote the element; Angular (dev) gives
- * the component through its `ng` global. A production build keeps less:
- * names are minified, and no source is left.
- */
-
-/** The component an element is in. */
 export interface PickedComponent {
   readonly framework: "React" | "Vue" | "Svelte" | "Angular";
-  /** The component the element is in, and those it is in, innermost first. */
   readonly names: readonly string[];
-  /**
-   * Where the element is written: a file, and its line and column when the
-   * framework tells them in the source's own terms.
-   */
   readonly source?: string;
-  /** The innermost component's props, each value shortened. */
   readonly props?: Readonly<Record<string, string>>;
 }
 
-/** How many components up the chain names. */
 const MAX_NAMES = 6;
-/** How many props are shown. */
 const MAX_PROPS = 8;
-/** How long a prop's value is shown. */
 const MAX_PROP_CHARS = 60;
 
-/**
- * Runs in the page on the element (`this`). Returns a PickedComponent, or
- * null when no framework it knows made the element. Reads only: no getter
- * that could run page code is called, but for Vue's props, whose values
- * are plain reactive reads.
- */
 export const DESCRIBE_COMPONENT = `function () {
   const el = this;
   const own = (obj, key) => {

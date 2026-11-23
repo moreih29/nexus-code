@@ -1,4 +1,3 @@
-/** The bytes `nexus terminal key` sends for each key name. */
 import { expect, test } from "bun:test";
 import { CliUsageError } from "../../../../src/main/features/cli/args";
 import { keySequence } from "../../../../src/main/features/cli/keys";

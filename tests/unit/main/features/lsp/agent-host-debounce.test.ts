@@ -1,10 +1,3 @@
-/**
- * Engineer self-regression tests for the publishDiagnostics per-URI debounce
- * feature in AgentLspHost. These verify the core leading-edge + trailing-edge
- * contract on a minimal channel that does not send implicit diagnostics.
- *
- * Adversarial / lifecycle scenarios are in agent-host-debounce-extra.test.ts.
- */
 import { afterEach, describe, expect, jest, test } from "bun:test";
 import { startAgentLspHost } from "../../../../../src/main/features/lsp/agent-host";
 import type {
@@ -17,9 +10,6 @@ const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const URI_A = "file:///tmp/ws/a.py";
 const URI_B = "file:///tmp/ws/b.py";
 
-// ---------------------------------------------------------------------------
-// Minimal channel: lsp.spawn resolves immediately, no implicit diagnostics
-// ---------------------------------------------------------------------------
 class DebounceTestChannel implements AgentChannel {
   readonly ready = Promise.resolve();
   readonly eventListeners = new Map<string, Set<ChannelEventCallback>>();
@@ -66,7 +56,6 @@ class DebounceTestChannel implements AgentChannel {
     }
   }
 
-  // Convenience: push N publishDiagnostics notifications for the given URI.
   emitDiagnostics(uri: string, version: number): void {
     this.emit("lsp.message", {
       serverId: this.serverId,
@@ -105,7 +94,6 @@ async function openUri(
 }
 
 describe("publishDiagnostics debounce", () => {
-  // Ensure fake timers are cleaned up after each test regardless of outcome.
   afterEach(() => {
     jest.useRealTimers();
   });
@@ -121,26 +109,19 @@ describe("publishDiagnostics debounce", () => {
 
     await openUri(host, channel, URI_A);
 
-    // First notification: leading-edge emits immediately (URI is fresh).
     channel.emitDiagnostics(URI_A, 1);
     expect(emitted).toHaveLength(1);
 
-    // Advance time to stay within the 500ms idle window so subsequent
-    // notifications are all treated as burst (trailing-edge only).
     jest.setSystemTime(new Date(1_000_000 + 100));
 
-    // Push 49 more notifications — all within the debounce window.
     for (let i = 2; i <= 50; i++) {
       channel.emitDiagnostics(URI_A, i);
     }
 
-    // Timer is pending — no additional emit yet.
     expect(emitted).toHaveLength(1);
 
-    // Advance past the 100ms trailing-edge timer to fire it.
     jest.advanceTimersByTime(101);
 
-    // Exactly one trailing-edge emit — carrying the last payload (v50).
     expect(emitted).toHaveLength(2);
     expect((emitted[1] as { diagnostics: Array<{ message: string }> }).diagnostics[0].message).toBe(
       "v50",
@@ -161,19 +142,14 @@ describe("publishDiagnostics debounce", () => {
 
     await openUri(host, channel, URI_A);
 
-    // Emit once to prime lastEmittedAt.
     channel.emitDiagnostics(URI_A, 1);
     expect(emitted).toHaveLength(1);
 
-    // Advance past the trailing-edge timer so the pending state is flushed.
     jest.advanceTimersByTime(101);
-    // No additional emit (no trailing-edge timer was scheduled after leading-edge).
     expect(emitted).toHaveLength(1);
 
-    // Advance 500ms+ so the URI is in an idle state again.
     jest.setSystemTime(new Date(2_000_000 + 600));
 
-    // Next notification must be a leading-edge immediate emit.
     channel.emitDiagnostics(URI_A, 2);
     expect(emitted).toHaveLength(2);
 
@@ -195,32 +171,25 @@ describe("publishDiagnostics debounce", () => {
       if (payload.uri === URI_B) emittedB.push(args);
     });
 
-    // Open both URIs via separate didOpen calls. The second open reuses the
-    // same server (same workspaceId + languageId), so we open b.py after a.py.
     await openUri(host, channel, URI_A);
     await openUri(host, channel, URI_B);
 
-    // Leading-edge emits for both.
     channel.emitDiagnostics(URI_A, 1);
     channel.emitDiagnostics(URI_B, 1);
     expect(emittedA).toHaveLength(1);
     expect(emittedB).toHaveLength(1);
 
-    // Move time forward slightly (within idle window) and send more bursts.
     jest.setSystemTime(new Date(3_000_000 + 50));
     channel.emitDiagnostics(URI_A, 2);
     channel.emitDiagnostics(URI_B, 10);
 
-    // Neither has fired the trailing-edge yet.
     expect(emittedA).toHaveLength(1);
     expect(emittedB).toHaveLength(1);
 
-    // Advance timers — both trailing-edge timers fire.
     jest.advanceTimersByTime(101);
 
     expect(emittedA).toHaveLength(2);
     expect(emittedB).toHaveLength(2);
-    // Each received its own latest payload.
     expect(
       (emittedA[1] as { diagnostics: Array<{ message: string }> }).diagnostics[0].message,
     ).toBe("v2");
@@ -243,23 +212,19 @@ describe("publishDiagnostics debounce", () => {
 
     await openUri(host, channel, URI_A);
 
-    // Leading-edge emit.
     channel.emitDiagnostics(URI_A, 1);
     expect(emitted).toHaveLength(1);
 
-    // Move within idle window and schedule a trailing-edge timer.
     jest.setSystemTime(new Date(4_000_000 + 50));
     channel.emitDiagnostics(URI_A, 2);
-    expect(emitted).toHaveLength(1); // timer is pending
+    expect(emitted).toHaveLength(1);
 
-    // Server exits — must clear the timer.
     channel.emit("lsp.serverExited", {
       serverId: channel.serverId,
       reason: "signal: killed",
       stderrTail: "",
     });
 
-    // Advance past the debounce delay — the cancelled timer must not fire.
     jest.advanceTimersByTime(200);
     expect(emitted).toHaveLength(1);
 

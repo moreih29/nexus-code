@@ -1,9 +1,3 @@
-/**
- * When a main handler throws, Electron rejects the renderer's invoke with
- * "Error invoking remote method 'ipc:call': <name>: <message>". ipcCallResult
- * restores the thrown name and message through unwrapRemoteError, so error
- * banners do not show the IPC plumbing.
- */
 import { describe, expect, test } from "bun:test";
 import { unwrapRemoteError } from "../../../../src/renderer/ipc/remote-error";
 

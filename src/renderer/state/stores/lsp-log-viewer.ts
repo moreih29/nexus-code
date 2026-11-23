@@ -1,7 +1,3 @@
-// Which language server's log the log viewer shows, if any. Opened from the
-// status bar's language menu and from failure toasts; the dialog is mounted
-// once at the App root.
-
 import { create } from "zustand";
 
 export interface LspLogTarget {

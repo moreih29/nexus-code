@@ -1,11 +1,3 @@
-// SpreadsheetPreview — an .xlsx or .xlsm workbook, one sheet at a time,
-// with a tab per sheet below it.
-//
-// Cells show what the spreadsheet application last saved: a formula's
-// computed value, numbers and dates in the cell's number format. Columns
-// are lettered and rows numbered, as the application shows them. A file
-// changed on disk is read again, staying on the same sheet and place.
-
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
@@ -30,7 +22,6 @@ type Status =
 
 interface SpreadsheetPreviewProps {
   workspaceId: string;
-  /** Absolute path on the workspace filesystem. */
   filePath: string;
 }
 
@@ -43,10 +34,8 @@ export function SpreadsheetPreview({ workspaceId, filePath }: SpreadsheetPreview
 function SpreadsheetDocument({ workspaceId, relPath }: { workspaceId: string; relPath: string }) {
   const version = useFileVersion(workspaceId, relPath);
   const [status, setStatus] = useState<Status>({ kind: "loading" });
-  /** The sheet shown, by name, so a changed file stays on it. */
   const [shown, setShown] = useState<string | null>(null);
 
-  // `version` is when to read the file again; the read itself goes by path.
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
     let cancelled = false;

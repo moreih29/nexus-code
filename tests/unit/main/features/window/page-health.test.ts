@@ -23,7 +23,6 @@ const logged = (m: typeof mainInfoMock) => m.mock.calls.map((c) => String(c[0]))
 
 type Handler = (...args: unknown[]) => void;
 
-/** A window whose page can be made to die, and that counts its reloads. */
 function fakeWindow(heap: unknown = { used: 100 * 1_048_576, limit: 4096 * 1_048_576 }) {
   const pageHandlers = new Map<string, Handler>();
   const windowHandlers = new Map<string, Handler>();
@@ -239,7 +238,6 @@ describe("pageDiedQuestion", () => {
     });
 
     test(`closing it never quits (mac: ${mac})`, () => {
-      // Without a cancelId, Electron would make Quit, the button after the default, the cancel.
       expect(question.cancelId).toBeDefined();
       expect(question.cancelId).not.toBe(1);
     });
@@ -251,8 +249,6 @@ describe("pageDiedQuestion", () => {
   });
 
   test("on macOS, Esc is no button's key: Enter keeps Load Again", () => {
-    // Electron gives the cancel button Esc after the default one Enter, and
-    // a button holds one key: a cancelId on Load Again would take its Enter.
     expect(pageDiedQuestion(text, true).cancelId).toBe(-1);
   });
 });

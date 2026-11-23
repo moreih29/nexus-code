@@ -1,26 +1,17 @@
-/**
- * How nexus settings set reads a value as typed for a setting of each type:
- * the renderer, which owns the settings, parses it with this before it
- * changes one.
- */
 import type { CliSettingType, CliSettingValue } from "./ui";
 
-/** What a setting takes. */
 export interface CliSettingShape {
   readonly type: CliSettingType;
   readonly choices?: readonly string[];
   readonly min?: number;
   readonly max?: number;
-  /** The longest "text" it takes. */
   readonly maxLength?: number;
-  /** What a "text" must match, and what is said when it does not. */
   readonly pattern?: { readonly test: RegExp; readonly says: string };
 }
 
 const TRUE_WORDS = ["on", "true", "yes", "1"];
 const FALSE_WORDS = ["off", "false", "no", "0"];
 
-/** What a setting takes, as nexus settings list shows it. */
 export function describeShape(shape: CliSettingShape): string {
   switch (shape.type) {
     case "boolean":
@@ -35,13 +26,11 @@ export function describeShape(shape: CliSettingShape): string {
   }
 }
 
-/** A value as nexus prints it: a boolean as on or off. */
 export function formatSettingValue(value: CliSettingValue): string {
   if (typeof value === "boolean") return value ? "on" : "off";
   return String(value);
 }
 
-/** `input` read as a value of `shape`, or why it is not one. */
 export function parseSettingValue(
   shape: CliSettingShape,
   input: string,
@@ -87,7 +76,6 @@ export function parseSettingValue(
   }
 }
 
-/** The pages of the Settings dialog, by the ids it navigates by, in its order. */
 export const SETTINGS_PAGES = [
   "appearance",
   "editor",
@@ -107,7 +95,6 @@ export const SETTINGS_PAGES = [
 ] as const;
 export type SettingsPage = (typeof SETTINGS_PAGES)[number];
 
-/** Where a setting's key leads: the first prefix it starts with. */
 const KEY_PAGES: readonly (readonly [string, SettingsPage])[] = [
   ["appearance.", "appearance"],
   ["editor.", "editor"],
@@ -121,7 +108,6 @@ const KEY_PAGES: readonly (readonly [string, SettingsPage])[] = [
   ["voice.", "remote"],
 ];
 
-/** Other names a page goes by. */
 const PAGE_NAMES: Readonly<Record<string, SettingsPage>> = {
   lsp: "language-servers",
   browser: "browser-permissions",
@@ -130,11 +116,6 @@ const PAGE_NAMES: Readonly<Record<string, SettingsPage>> = {
   updates: "about",
 };
 
-/**
- * The page a word names: a page's id or another name of it, or a setting's
- * key (as nexus settings list shows them), leading to its page; undefined
- * for none.
- */
 export function settingsPageNamed(word: string): SettingsPage | undefined {
   const name = word.trim().toLowerCase();
   const page = SETTINGS_PAGES.find((id) => id === name) ?? PAGE_NAMES[name];

@@ -1,23 +1,12 @@
-/**
- * Files dragged onto a chat from outside the app: whether they are over it,
- * and what is let go there. A drag enters and leaves each child it crosses,
- * so the chat counts its way in and out, and takes the drag for gone once
- * it leaves the chat's box or turns up elsewhere in the app.
- */
-
-/** Whether a drag carries files from outside the app; the app's own drags carry its own types. */
 export function carriesFiles(data: Pick<DataTransfer, "types"> | null | undefined): boolean {
   return !!data && Array.from(data.types).includes("Files");
 }
 
 export interface FileDropHandlers {
-  /** Files came over the chat, or are no longer over it. */
   over(over: boolean): void;
-  /** Files were let go on the chat. */
   drop(files: File[]): void;
 }
 
-/** What `watchFileDrop` needs of the element files are dropped on. */
 export interface DropArea extends EventTarget {
   contains(other: unknown): boolean;
   getBoundingClientRect(): { left: number; top: number; right: number; bottom: number };
@@ -29,7 +18,6 @@ type Drag = Event & {
   clientY?: number;
 };
 
-/** Follows files dragged over `area`; returns what stops following. */
 export function watchFileDrop(
   area: DropArea,
   on: FileDropHandlers,
@@ -77,9 +65,6 @@ export function watchFileDrop(
     const files = Array.from(e.dataTransfer?.files ?? []);
     if (files.length > 0) on.drop(files);
   };
-  // A child taken away under the drag never says it was left: the drag is
-  // gone once it is over another part of the app, let go, or called off,
-  // and surely once the mouse moves again, which it does not mid-drag.
   const elsewhere = (e: Drag) => {
     if (!area.contains(e.target)) gone();
   };

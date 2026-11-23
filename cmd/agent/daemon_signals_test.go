@@ -20,10 +20,6 @@ import (
 	"time"
 )
 
-// launchDaemonLikeBootstrap starts `bin --daemon root` the way the SSH
-// bootstrap does: `( agent --daemon root </dev/null >/dev/null 2>&1 & )` from
-// a non-interactive sh. An asynchronous list there starts with SIGINT ignored,
-// so the daemon does too. Returns the run directory to poll for the socket.
 func launchDaemonLikeBootstrap(t *testing.T, bin, root, fakeHome string) string {
 	t.Helper()
 	runDir := filepath.Join(fakeHome, ".nexus-code", "run")
@@ -38,8 +34,6 @@ func launchDaemonLikeBootstrap(t *testing.T, bin, root, fakeHome string) string 
 	return runDir
 }
 
-// ptyFrames reads a dialer connection's frames: the text a tab printed and
-// whether it exited.
 type ptyFrames struct {
 	sc   *bufio.Scanner
 	text strings.Builder
@@ -51,8 +45,6 @@ func newPtyFrames(conn net.Conn) *ptyFrames {
 	return &ptyFrames{sc: sc}
 }
 
-// until reads frames until done reports true over what was printed so far
-// and whether the tab exited, or the deadline passes.
 func (f *ptyFrames) until(t *testing.T, conn net.Conn, within time.Duration, done func(text string, exited bool) bool) (string, bool) {
 	t.Helper()
 	_ = conn.SetReadDeadline(time.Now().Add(within))
@@ -82,8 +74,6 @@ func (f *ptyFrames) until(t *testing.T, conn net.Conn, within time.Duration, don
 	return f.text.String(), exited
 }
 
-// startDaemonForSignals boots a daemon as the bootstrap does and returns a
-// dialer connection to it; the daemon is shut down when the test ends.
 func startDaemonForSignals(t *testing.T) (net.Conn, string) {
 	t.Helper()
 	bin := agentBinary(t)
@@ -111,19 +101,11 @@ func spawnOn(t *testing.T, conn net.Conn, tabID, cwd, script string) {
 	}
 }
 
-// A program run in a terminal must end when its tab is closed. Closing the tab
-// hangs up the terminal, and the kernel sends its foreground job SIGHUP; a
-// daemon that ignored SIGHUP passed that on across exec to every shell and
-// program it started, so a full-screen program kept running with its
-// terminal gone (and nvtop spun a CPU on it).
 func TestDaemonClosedTabEndsItsForegroundProgram(t *testing.T) {
 	t.Parallel()
 	conn, root := startDaemonForSignals(t)
 	frames := newPtyFrames(conn)
 
-	// `set -m` gives the program its own process group, as an interactive
-	// shell does, so only the hangup (not the kill of the shell's group)
-	// reaches it.
 	spawnOn(t, conn, "tui", root, `set -m; sh -c 'echo "FG=$$"; exec sleep 300'`)
 	fgPattern := regexp.MustCompile(`FG=(\d+)`)
 	text, _ := frames.until(t, conn, 5*time.Second, func(text string, _ bool) bool {
@@ -149,8 +131,6 @@ func TestDaemonClosedTabEndsItsForegroundProgram(t *testing.T) {
 	t.Fatalf("the program (pid %d) outlived its closed tab: %s", pid, signalDispositions(pid))
 }
 
-// The bootstrap starts the daemon with SIGINT ignored; what it runs must not
-// start that way.
 func TestDaemonChildrenStartWithDefaultSignals(t *testing.T) {
 	t.Parallel()
 	conn, root := startDaemonForSignals(t)
@@ -168,7 +148,6 @@ func TestDaemonChildrenStartWithDefaultSignals(t *testing.T) {
 	}
 }
 
-// The daemon itself still outlives a SIGHUP or SIGINT that reaches it.
 func TestDaemonSurvivesHangupAndInterrupt(t *testing.T) {
 	t.Parallel()
 	bin := agentBinary(t)
@@ -184,7 +163,6 @@ func TestDaemonSurvivesHangupAndInterrupt(t *testing.T) {
 			t.Fatalf("signal %v: %v", sig, err)
 		}
 	}
-	// Let a fatal signal land before asking the daemon anything.
 	time.Sleep(200 * time.Millisecond)
 	next, ready := readReady(t, sockPath)
 	defer next.Close()
@@ -193,8 +171,6 @@ func TestDaemonSurvivesHangupAndInterrupt(t *testing.T) {
 	}
 }
 
-// signalDispositions describes pid's ignored signals for a failure message,
-// where the OS shows them.
 func signalDispositions(pid int) string {
 	if status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid)); err == nil {
 		for _, line := range strings.Split(string(status), "\n") {

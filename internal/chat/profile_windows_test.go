@@ -8,9 +8,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/filelink"
 )
 
-// Without Developer Mode or an administrator, a profile's shared folder is a
-// junction and a shared file a hard link: both are known as links, and only
-// they go when no longer shared.
 func TestJunctionsAndHardLinksAreKnownAsLinks(t *testing.T) {
 	root := t.TempDir()
 	def := filepath.Join(root, "default")

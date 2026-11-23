@@ -1,13 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { BEHAVIOR_FIELDS } from "../../../src/shared/agent-profiles/behavior";
+import { BEHAVIOR_FIELDS, behaviorOptionKey } from "../../../src/shared/agent-profiles/behavior";
 import { resources } from "../../../src/shared/i18n/index";
 
-/** The words the behavior fold asks for by a key it builds (fields.${id}.label, options.${id}.${value}, ...). */
 const LOCALES = ["en", "ko"] as const;
 
 function text(locale: (typeof LOCALES)[number], ...path: string[]): unknown {
   let node: unknown = resources[locale].settings.profiles.behavior;
   for (const part of path) {
+    if (typeof node !== "object" || node === null) return undefined;
+    node = (node as Record<string, unknown>)[part];
+  }
+  return node;
+}
+
+function lookup(locale: (typeof LOCALES)[number], key: string): unknown {
+  const [ns = "", path = ""] = key.split(":", 2);
+  let node: unknown = (resources[locale] as Record<string, unknown>)[ns];
+  for (const part of path.split(".")) {
     if (typeof node !== "object" || node === null) return undefined;
     node = (node as Record<string, unknown>)[part];
   }
@@ -29,14 +38,13 @@ describe("the behavior fold's words", () => {
 
     test(`${locale}: every option of a choice, and its default, has a name`, () => {
       for (const field of BEHAVIOR_FIELDS.filter((f) => f.kind === "choice")) {
-        // The model and the output styles are shown as they are named, bar "default".
         if (field.id === "model") continue;
         const values = field.id === "outputStyle" ? ["default"] : (field.options ?? []);
         for (const value of [...values, ...(field.fallback ? [String(field.fallback)] : [])]) {
           expect({
             id: field.id,
             value,
-            label: typeof text(locale, "options", field.id, value),
+            label: typeof lookup(locale, behaviorOptionKey(field, value)),
           }).toEqual({ id: field.id, value, label: "string" });
         }
       }
@@ -47,7 +55,6 @@ describe("the behavior fold's words", () => {
         expect(typeof text(locale, "tabNote", agent)).toBe("string");
         expect(typeof text(locale, "footer", agent)).toBe("string");
       }
-      // i18next answers an empty string with the key itself.
       const empty: string[] = [];
       const walk = (node: unknown, path: string) => {
         if (typeof node === "string") {

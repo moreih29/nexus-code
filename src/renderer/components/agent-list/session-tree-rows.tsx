@@ -14,6 +14,7 @@ import { useSessionParent } from "../../services/agent-sessions/use-session-pare
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { cn } from "../../utils/cn";
 import { ToggleChevron } from "../ui/toggle-chevron";
+import { tooltipProps } from "../ui/tooltip";
 import { GROUP_STATE, GROUP_TINT, StateGlyph } from "./session-status";
 
 const SUMMED = ["attention", "running", "done"] as const;
@@ -28,7 +29,6 @@ interface TreeBranchProps {
   renderRow: (node: SessionTreeNode, collapsed: boolean) => ReactNode;
 }
 
-/** The shared disclosure and indentation rules for a conversation tree. */
 export function SessionTreeBranch({
   node,
   last = true,
@@ -81,15 +81,8 @@ export function SessionTreeBranch({
   );
 }
 
-/** Shown in a folded family's chip: what of it works, and what waits on the user. */
 const FOLDED_COUNTS = ["running", "attention"] as const;
 
-/**
- * A family's chip, `≣ 3 ⌃`: how many conversations are under the row, and
- * folds them. Folded, it tells inside its border how many of them work and
- * wait on the user, `≣ 3 · ⟳ 1 · ! 1 ⌄`, so they do not read as the row's
- * own state.
- */
 export function FamilyFold({
   session,
   count,
@@ -100,7 +93,6 @@ export function FamilyFold({
   session: AgentSession;
   count: number;
   collapsed: boolean;
-  /** The family's states, told while it is folded. */
   counts?: SessionCounts;
   testPrefix: string;
 }) {
@@ -116,7 +108,7 @@ export function FamilyFold({
       className="pointer-events-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-1.5 whitespace-nowrap tabular-nums text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
       aria-expanded={!collapsed}
       aria-label={label}
-      title={label}
+      {...tooltipProps(label)}
       onClick={() => useAgentViewStore.getState().toggleFolded(familyFoldKey(session))}
       data-testid={`${testPrefix}-fold-family`}
     >
@@ -166,11 +158,11 @@ export function useParentCaption(
   return { label, hint: device || closed ? label : t("agentView.list.parent_hint", { name }) };
 }
 
-/**
- * A row's parent where the tree does not show it (on another computer,
- * closed, or too deep), for the row's second line; nothing where it does.
- */
 export function ParentCaption({ node }: { node: SessionTreeNode }) {
+  return useNodeParentCaption(node);
+}
+
+export function useNodeParentCaption(node: SessionTreeNode): ReactNode {
   const { open } = useSessionParent(node.parentClosed ? node.session.parent : undefined);
   const closed = node.parentClosed && !open;
   const parent = useParentCaption(
@@ -182,7 +174,7 @@ export function ParentCaption({ node }: { node: SessionTreeNode }) {
   return (
     <span
       className={cn("max-w-40 min-w-0 shrink-[2] truncate", closed && "opacity-70")}
-      title={parent.hint}
+      {...tooltipProps(parent.hint)}
       data-testid="agent-list-parent"
     >
       {parent.label}
@@ -213,7 +205,7 @@ export function StateSummary({
         <span
           key={group}
           className={cn("inline-flex items-center gap-0.5", GROUP_TINT[group])}
-          title={`${t(`agentList.group.${group}`)} ${counts[group]}`}
+          {...tooltipProps(`${t(`agentList.group.${group}`)} ${counts[group]}`)}
           data-testid={`${testPrefix}-summary`}
         >
           <StateGlyph state={GROUP_STATE[group]} />
@@ -236,9 +228,6 @@ function TreeLine({
   testPrefix: string;
 }) {
   if (!indent) return children;
-  // The line comes down under the parent's mark (a row's border and padding,
-  // and half the mark: 16px in) and turns at the middle of the child's title
-  // line (15px down, in a two-line row and in a task card's one-line row).
   return (
     <div className="relative pl-5" data-testid={`${testPrefix}-tree-line`}>
       <span

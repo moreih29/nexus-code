@@ -19,7 +19,6 @@ function violation(overrides: Partial<CspViolation> = {}): CspViolation {
   };
 }
 
-/** A target that hands violations to the listener the logger adds. */
 function fakeTarget() {
   let listener: ((event: Event) => void) | null = null;
   const target = {
@@ -39,7 +38,6 @@ test("the renderer enables Zod jitless mode before loading the app", async () =>
   const imports = new Bun.Transpiler({ loader: "tsx" }).scanImports(await Bun.file(entry).text());
   expect(imports[0]?.path).toBe("./zod-config");
 
-  // Use a fresh process so the renderer's Zod config stays local to this test.
   const result = Bun.spawnSync(
     [
       process.execPath,

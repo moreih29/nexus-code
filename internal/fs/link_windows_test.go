@@ -12,8 +12,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// mklinkJunction makes link a junction to target with cmd's mklink, which
-// needs no privilege.
 func mklinkJunction(t *testing.T, link, target string) {
 	t.Helper()
 	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
@@ -21,9 +19,6 @@ func mklinkJunction(t *testing.T, link, target string) {
 	}
 }
 
-// A folder with a junction in it, as pnpm leaves in node_modules, copies
-// also where Windows refuses the agent a symbolic link: the copy's link is a
-// junction to the same directory.
 func TestCopyFolderWithJunction(t *testing.T) {
 	root := t.TempDir()
 	must(t, os.MkdirAll(filepath.Join(root, "store", "pkg"), 0o755))
@@ -45,14 +40,12 @@ func TestCopyFolderWithJunction(t *testing.T) {
 	if got, err := os.ReadFile(filepath.Join(link, "index.js")); err != nil || string(got) != "payload" {
 		t.Fatalf("read through copied link: bytes=%q err=%v", got, err)
 	}
-	// It leads to the original directory: a file added there shows through.
 	must(t, os.WriteFile(filepath.Join(root, "store", "pkg", "added.js"), nil, 0o644))
 	if _, err := os.Stat(filepath.Join(link, "added.js")); err != nil {
 		t.Fatalf("copied link does not lead to the original directory: %v", err)
 	}
 }
 
-// A link to a file that cannot be recreated is copied as the file.
 func TestSymlinkFallbackCopiesAFileLinkAsItsFile(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "real.txt")
@@ -68,8 +61,6 @@ func TestSymlinkFallbackCopiesAFileLinkAsItsFile(t *testing.T) {
 	}
 }
 
-// A relative link to a directory leads where the copied link would: into
-// the copy.
 func TestSymlinkFallbackKeepsARelativeDirectoryLinkRelative(t *testing.T) {
 	root := t.TempDir()
 	must(t, os.MkdirAll(filepath.Join(root, "src", "real"), 0o755))
@@ -78,8 +69,6 @@ func TestSymlinkFallbackKeepsARelativeDirectoryLinkRelative(t *testing.T) {
 	dst := filepath.Join(root, "dst", "link")
 
 	refused := &os.LinkError{Op: "symlink", Old: "real", New: dst, Err: windows.ERROR_PRIVILEGE_NOT_HELD}
-	// src stands for the link: os.Stat follows a link, so the directory it
-	// leads to does as well.
 	if _, err := symlinkFallback(context.Background(), filepath.Join(root, "src", "real"), dst, "real", refused); err != nil {
 		t.Fatalf("symlinkFallback: %v", err)
 	}
@@ -88,7 +77,6 @@ func TestSymlinkFallbackKeepsARelativeDirectoryLinkRelative(t *testing.T) {
 	}
 }
 
-// Other failures are not stood in for.
 func TestSymlinkFallbackLeavesOtherErrors(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "real.txt")
@@ -102,8 +90,6 @@ func TestSymlinkFallbackLeavesOtherErrors(t *testing.T) {
 	}
 }
 
-// A copy that fails after copying a junction takes the junction away, never
-// the directory it leads to.
 func TestFailedCopyKeepsWhatAJunctionLeadsTo(t *testing.T) {
 	root := t.TempDir()
 	must(t, os.MkdirAll(filepath.Join(root, "store", "pkg"), 0o755))

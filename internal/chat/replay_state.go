@@ -8,8 +8,6 @@ type replayRequest struct {
 	bypassAttempt bool
 }
 
-// trackReplayRequest keeps the newest outstanding request of each kind.
-// Older outstanding requests can still match a reply while in the rolling log.
 func (l *lineLog) trackReplayRequest(line *entry, message json.RawMessage) bool {
 	var input struct {
 		ID      string `json:"request_id"`
@@ -28,8 +26,6 @@ func (l *lineLog) trackReplayRequest(line *entry, message json.RawMessage) bool 
 	switch key {
 	case "initialize", "set_model", "set_permission_mode", "get_settings", "remote_control":
 	case "apply_flag_settings":
-		// Only effort changes the replayed model. A separate flag update
-		// (e.g. /add-dir) must leave the effort-setting pair intact.
 		if input.Request.Settings.EffortLevel == "" {
 			return false
 		}
@@ -118,7 +114,6 @@ func (l *lineLog) keepReplayResponse(line *entry) {
 	l.forgetReplayRequest(id)
 	key := request.key
 	if output.Response.Subtype == "error" {
-		// This refusal disables the bypass option for the rest of the tab.
 		if key != "set_permission_mode" || !request.bypassAttempt {
 			return
 		}
@@ -129,7 +124,6 @@ func (l *lineLog) keepReplayResponse(line *entry) {
 	}
 }
 
-// Replaced pins go back into the cap in their original sequence positions.
 func (l *lineLog) setReplayPin(key string, first, second *entry) {
 	for _, line := range l.replayPins[key] {
 		l.changePins(line, -1)

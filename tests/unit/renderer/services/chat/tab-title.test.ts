@@ -5,7 +5,6 @@ import {
   titleOf,
 } from "../../../../../src/renderer/services/chat/tab-title";
 
-// The phone shortens titles by the same rules; this table is the one it follows.
 const PATHS: readonly (readonly [string, string, string])[] = [
   [
     "macOS absolute path",
@@ -55,7 +54,6 @@ describe("shortenPaths", () => {
     expect(shortenPaths(input)).toBe(output);
   });
 
-  // Another computer's titles are shortened each time they are shown.
   test.each(PATHS)("%s, shortened again, stays", (_case, _input, output) => {
     expect(shortenPaths(output)).toBe(output);
   });

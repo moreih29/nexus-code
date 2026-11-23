@@ -1,12 +1,3 @@
-/**
- * Cross-store transaction barrel.
- *
- * Existing import path `@/state/operations` continues to work — every
- * symbol that the previous single-file module exposed is re-exported
- * from here. Internal callers that prefer the narrower modules can
- * import from `@/state/operations/dnd` (or `/tabs`, `/groups`) directly.
- */
-
 export { type DropResult, moveTabToZone, openFileAtZone } from "./dnd";
 export {
   ensureRoot,

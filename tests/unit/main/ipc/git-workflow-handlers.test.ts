@@ -1,6 +1,3 @@
-/**
- * Scenario tests for workflow IPC handlers' mutation refresh contract.
- */
 import { describe, expect, test } from "bun:test";
 import { GitError } from "../../../../src/main/features/git/domain/error";
 import type { GitRegistry } from "../../../../src/main/features/git/domain/registry";
@@ -106,9 +103,6 @@ describe("git workflow IPC handlers", () => {
       },
     } as unknown as GitRegistry;
 
-    // Per T4 Result-contract migration, GitError outcomes resolve as IpcGitErrorResult
-    // instead of rejecting. The refresh ordering is preserved — bumpGeneration and
-    // refreshStatus still run before the handler resolves.
     const result = await cherryPickHandler(registry)({ workspaceId: WORKSPACE_ID, sha: "abc123" });
     expect(isIpcGitErrorResult(result)).toBe(true);
     // @ts-expect-error — narrowed by isIpcGitErrorResult check above
@@ -118,7 +112,6 @@ describe("git workflow IPC handlers", () => {
   });
 });
 
-/** Builds a minimal GitRegistry double that records refresh ordering. */
 function makeRegistry(repo: unknown, events: string[]): GitRegistry {
   return {
     getOrDetect: async () => {

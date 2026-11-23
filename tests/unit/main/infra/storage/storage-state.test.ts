@@ -12,10 +12,6 @@ import { VoiceNamePreferencesSchema } from "../../../../../src/shared/notes/voic
 import { openTestState } from "../../../../helpers/test-state";
 import { mainWarnMock } from "../../../../log-test-spies";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function makeTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "nexus-state-test-"));
 }
@@ -48,10 +44,6 @@ await import(${JSON.stringify(productionWorker.href)});`,
   return workerPath;
 }
 
-// ---------------------------------------------------------------------------
-// StateService tests
-// ---------------------------------------------------------------------------
-
 describe("StateService", () => {
   let tmpDir: string;
 
@@ -75,9 +67,7 @@ describe("StateService", () => {
       "the worker's replacement",
       () => readState(filePath).lastActiveWorkspaceId === "ws-2",
     );
-    // The .vsctmp file must have been renamed away.
     expect(fs.existsSync(tmpPath)).toBe(false);
-    // A newly written file takes the temporary file's default mode.
     const persisted = fs.statSync(filePath);
     if (process.platform !== "win32") {
       expect(persisted.mode & 0o777).toBe(0o666 & ~process.umask());
@@ -337,7 +327,6 @@ fs.renameSync = (...args) => {
     try {
       service.setState({ layoutByWorkspace: { [first]: layout, [second]: layout } });
       await sent.promise;
-      // The writer yields after sending the first layout.
       service.setState({ layoutByWorkspace: { [second]: layout } });
       service.flushNow();
       service.setState({ sidebarWidth: 270 });

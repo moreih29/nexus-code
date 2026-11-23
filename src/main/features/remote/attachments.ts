@@ -1,38 +1,23 @@
-/**
- * The images and files another device sends a chat ahead of its message
- * (chat.attach, or chat.upload for a file of any kind), kept until
- * chat.send names them: one request carries one image, so a message with
- * several takes several. Each is kept for the device that sent it and the
- * tab it was for, ATTACHMENT_TTL_MS at most, and goes once the message it
- * was attached to is sent.
- */
 import { randomUUID } from "node:crypto";
 import { MAX_ATTACHMENT_BYTES, RpcErrorCode } from "../../../../packages/remote-protocol/src";
 import { RpcFailure } from "./room";
 
-/** How long an image waits for the message it was sent for. */
 export const ATTACHMENT_TTL_MS = 10 * 60_000;
 
-/** Most images one device may have waiting: more than a few messages' worth is no message. */
 export const MAX_KEPT_PER_DEVICE = 16;
 
-/** Most bytes of files one device may have waiting: a few uploads' worth. */
 export const MAX_KEPT_BYTES_PER_DEVICE = 64 * 1024 * 1024;
 
 export interface Attached {
   mediaType: string;
-  /** Base64. */
   data: string;
 }
 
-/** What a message is sent with: an image, or a file the agent is given the path of. */
 export type Held =
   | ({ kind: "image" } & Attached)
   | {
       kind: "file";
-      /** Its name, without a folder. */
       name: string;
-      /** Base64. */
       data: string;
     };
 
@@ -42,13 +27,11 @@ type Kept = Held & {
   workspaceId: string;
   tabId: string;
   at: number;
-  /** Its bytes, before base64. */
   bytes: number;
 };
 
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
-/** Whether the bytes begin as an image of that type does. */
 export function looksLike(mediaType: string, bytes: Buffer): boolean {
   const ascii = (from: number, to: number) => bytes.subarray(from, to).toString("latin1");
   switch (mediaType) {
@@ -74,7 +57,6 @@ export class Attachments {
 
   constructor(private readonly now: () => number = Date.now) {}
 
-  /** Keeps an image for the device's next message to the tab; its id. */
   take(device: string, workspaceId: string, tabId: string, image: Attached): string {
     if (!BASE64.test(image.data)) throw invalid("the image is not base64");
     const bytes = Buffer.from(image.data, "base64");
@@ -87,10 +69,6 @@ export class Attachments {
     return this.hold(device, workspaceId, tabId, { kind: "image", ...image }, bytes.length);
   }
 
-  /**
-   * Keeps what an upload brought (checked there) for the device's next
-   * message to the tab; its id. The device's oldest go to make room.
-   */
   hold(device: string, workspaceId: string, tabId: string, held: Held, bytes: number): string {
     this.sweep();
     let mine = this.kept.filter((k) => k.device === device);
@@ -108,7 +86,6 @@ export class Attachments {
     return id;
   }
 
-  /** What the device kept for the tab, in the order named; refuses any it does not hold. */
   find(device: string, workspaceId: string, tabId: string, ids: readonly string[]): Held[] {
     this.sweep();
     return ids.map((id) => {
@@ -127,7 +104,6 @@ export class Attachments {
     });
   }
 
-  /** The message they were for is sent: they go. */
   drop(ids: readonly string[]): void {
     const gone = new Set(ids);
     this.kept = this.kept.filter((k) => !gone.has(k.id));

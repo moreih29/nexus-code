@@ -1,10 +1,3 @@
-/**
- * The "Behavior" fold at the bottom of a profile's dialog: the values of the
- * agent's own config file in the profile's folder (settings.json, config.toml)
- * that Settings edits. Nothing is written until the dialog saves; only the
- * values changed are. The file is read again when it changes outside.
- */
-
 import { ChevronRight } from "lucide-react";
 import { type Ref, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -14,6 +7,7 @@ import {
   type BehaviorField,
   type BehaviorFile,
   type BehaviorValue,
+  behaviorOptionKey,
 } from "../../../../shared/agent-profiles/behavior";
 import type { AgentProfile } from "../../../../shared/agent-profiles/profiles";
 import { ipcCallResult } from "../../../ipc/client";
@@ -26,23 +20,16 @@ import { SettingsRow, SettingsSwitch } from "../section";
 import { SegmentedControl } from "../segmented-control";
 
 const POLL_MS = 2000;
-/** The buttons of the fold are of the size of the dialog's small controls. */
 const SMALL_BUTTON = "h-7 px-2 text-app-ui-sm";
-/** Radix Select takes no empty item value: the default option is this. */
 const DEFAULT_VALUE = "__default";
 
-/** The connection overrides these fields for the running agent. */
 export interface BehaviorConnection {
-  /** The starting model is locked: the text shown in its place. */
   modelLocked?: string;
-  /** Codex's web search is locked: the text shown in its place. */
   webSearchLocked?: string;
-  /** Codex's answer length is hidden (not a GPT model). */
   hideVerbosity?: boolean;
 }
 
 export interface BehaviorSectionHandle {
-  /** Writes the values changed; false when nothing was written and the dialog should stay open. */
   save(): Promise<boolean>;
 }
 
@@ -72,7 +59,6 @@ export function ProfileBehaviorSection({
 }: {
   profile: AgentProfile;
   connection?: BehaviorConnection;
-  /** The profile's file is its own now: the dialog drops it from what the profile shares. */
   onUnshared: (name: string) => Promise<void>;
   handleRef: Ref<BehaviorSectionHandle>;
 }) {
@@ -100,7 +86,6 @@ export function ProfileBehaviorSection({
     [profile.id],
   );
 
-  // Read when opened; look again while it stays open, for a change from outside.
   useEffect(() => {
     if (!open) return;
     let live = true;
@@ -130,7 +115,6 @@ export function ProfileBehaviorSection({
   const fields = BEHAVIOR_FIELDS.filter((f) => f.agent === agent);
   const fieldOf = (id: string): BehaviorField => fields.find((f) => f.id === id) as BehaviorField;
 
-  /** The value a field shows: the edit, else the file's, else its default. */
   const shownValue = (id: string): BehaviorValue | undefined => {
     if (id in draft) return draft[id] ?? undefined;
     return file?.values[id];
@@ -143,7 +127,6 @@ export function ProfileBehaviorSection({
     setError(null);
     setDraft((prev) => {
       const next = { ...prev };
-      // Back to what the file has: not a change.
       const base = file?.values[id];
       const same = value === null ? base === undefined : value === base;
       if (same) delete next[id];
@@ -202,7 +185,6 @@ export function ProfileBehaviorSection({
       setFile(latest);
       setLatest(null);
       setError(null);
-      // An edit the file has now is not one.
       setDraft((prev) =>
         Object.fromEntries(
           Object.entries(prev).filter(([id, value]) =>
@@ -238,16 +220,13 @@ export function ProfileBehaviorSection({
     if (file) void ipcCallResult("system", "openPathExternal", { absPath: file.path });
   };
 
-  // ------------------------------------------------------------------
-
   const fieldLabel = (id: string) => t(`profiles.behavior.fields.${id}.label`);
-  /** A field's one line saying what it does; some have none. */
   const fieldHint = (id: string) =>
     i18n.exists(`settings:profiles.behavior.fields.${id}.hint`)
       ? t(`profiles.behavior.fields.${id}.hint`)
       : undefined;
   const optionLabel = (id: string, value: string) =>
-    t(`profiles.behavior.options.${id}.${value}`, { defaultValue: value });
+    t(behaviorOptionKey(fieldOf(id), value), { defaultValue: value });
   const unsupported = (id: string) => file?.unsupported.includes(id) === true;
   const dirty = (id: string) => id in draft;
   const reset = (id: string) =>
@@ -259,7 +238,6 @@ export function ProfileBehaviorSection({
     </SettingsRow>
   );
 
-  /** A dropdown of the field's options and "default"; a value the file has that is not one is kept as an option. */
   const choice = (id: string, extra: readonly string[] = []) => {
     const locked = lockedField(id, connection);
     if (locked !== undefined) return lockedRow(id, locked);
@@ -352,7 +330,6 @@ export function ProfileBehaviorSection({
     );
   };
 
-  /** A segmented choice, with "default" first; a value the file has that is not one of them is added. */
   const segmented = (id: string, values: readonly string[]) => {
     const current = shownValue(id);
     const all = [...values];

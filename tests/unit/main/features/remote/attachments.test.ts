@@ -1,4 +1,3 @@
-/** The images another device attaches for its next message: checked, kept for it and that chat, for a while. */
 import { describe, expect, test } from "bun:test";
 import { MAX_ATTACHMENT_BYTES } from "../../../../../packages/remote-protocol/src";
 import {
@@ -64,7 +63,6 @@ describe("an attached image", () => {
     expect(() => kept.find("d", "w", "t", [first])).toThrow("no image or file");
     expect(kept.find("d", "w", "t", [second, third]).map((h) => h.kind)).toEqual(["file", "file"]);
     expect(kept.find("d", "w", "t", [third])).toEqual([file("c.pdf")]);
-    // Another device's count apart.
     expect(kept.hold("e", "w", "t", file("d.pdf"), half)).toBeString();
     expect(kept.find("d", "w", "t", [second])).toHaveLength(1);
   });

@@ -1,8 +1,3 @@
-/**
- * Messages another agent sends a tab through the nexus command: the line its
- * agent reads before one, and the tab showing it as received from that
- * agent, found by the records the tab keeps, not by what the text says.
- */
 import { describe, expect, it } from "bun:test";
 import type { ChatItem, UserItem } from "../../../../../src/renderer/services/chat/model";
 import { followsMessage } from "../../../../../src/renderer/services/chat/profile-moves";
@@ -84,7 +79,6 @@ describe("the line the agent reads", () => {
         waits: false,
       }),
     ).toEndWith("to answer it: nexus terminal send t --workspace w -");
-    // The manager, or a sender of no tab, is answered here only.
     expect(relayHeader({ kind: "manager", waits: false })).toEndWith(
       "Your answer here is what it reads.",
     );
@@ -115,7 +109,6 @@ describe("the line the agent reads", () => {
         device,
       }),
     ).toEndWith("nexus terminal send t --workspace w --device 3f2a91c0 -");
-    // One that sent and went on is written back to, by the command.
     expect(
       relayHeader({
         ...TAB,
@@ -168,7 +161,6 @@ describe("withRelayed", () => {
       at: 5,
     });
     expect(shown[1]).toBe(items[1] as ChatItem);
-    // A line follows it as it followed the user's message.
     expect(followsMessage(shown[0] as ChatItem, "uuid-1")).toBe(true);
   });
 
@@ -199,7 +191,6 @@ describe("withRelayed", () => {
     const records = [record("uuid-1")];
     const first = withRelayed(items, records)[0];
     expect(withRelayed([...items, user("u2", "mine")], [...records])[0]).toBe(first as ChatItem);
-    // Another record for it shows it anew.
     const other = withRelayed(items, [record("uuid-1", { from: { kind: "manager" } })])[0];
     expect(other).not.toBe(first as ChatItem);
     expect(other?.kind === "received" && other.from).toEqual({ kind: "manager" });
@@ -230,7 +221,6 @@ describe("withRelayed", () => {
       fromApp: [{ id: "app-id", at: 1, turnId }],
     };
     const records = relayedOf(props);
-    // The same records for the same lists, so the list does not render again.
     expect(relayedOf(props)).toBe(records);
     expect(relayedOf({ relayed: props.relayed })).toBe(props.relayed);
     const typed = user("u1.0.1", "Go on.", { turnId });

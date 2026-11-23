@@ -1,36 +1,22 @@
-// A conversation's row in the agent lists, the same for this computer's and
-// another computer's, in the agent view and the workspace view: two lines
-// of a fixed height.
-// - The title line: the agent's mark, the title, its state, and how long.
-// - The line under it: the computer, the place it runs (a workspace, or a
-//   task's branch), its parent where the tree does not show it, what it
-//   last said, and its children's chip.
-// Each part of the second line ends in an ellipsis; what it last said gives
-// way first and goes when it has less than three letters' room, so the line
-// never grows past the list.
-
 import { Folder, GitBranch, Monitor } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/utils/cn";
+import { tooltipProps } from "../ui/tooltip";
 
-/** Where a conversation runs, as its row tells it. */
 export type RowPlace =
   | { readonly kind: "branch"; readonly name: string; readonly hint?: string }
   | {
       readonly kind: "workspace";
       readonly name: string;
-      /** The workspace's color, where it has one; a folder where not. */
       readonly color?: string;
       readonly hint?: string;
     };
 
-/** A row's frame: its border while it waits on the user, and its background. */
 export function rowShellClass({
   attention,
   selected,
 }: {
   attention: boolean;
-  /** The selected background, where the row is selected. */
   selected: string | false;
 }): string {
   return cn(
@@ -59,13 +45,10 @@ export function SessionRowLines({
   icon: ReactNode;
   title: string;
   titleHint?: string;
-  /** Its state: a glyph, or the words for a failed turn. */
   sign?: ReactNode;
   time?: string | null;
   timeHint?: string;
-  /** Waiting on the user: the time in the warning color. */
   urgent?: boolean;
-  /** Buttons that take the time's place under the pointer or the keyboard (a `group/row`). */
   actions?: ReactNode;
   device?: string;
   place?: RowPlace;
@@ -75,14 +58,19 @@ export function SessionRowLines({
   family?: ReactNode;
 }) {
   const meta = device || place || parent;
+  const second = Boolean(meta || preview);
   return (
     <div className="pointer-events-none relative flex min-w-0 flex-col">
       <div className="flex h-5 min-w-0 items-center gap-2">
         {icon}
-        <span className="min-w-0 flex-1 truncate text-foreground" title={titleHint ?? title}>
+        <span
+          className="min-w-0 flex-1 truncate text-foreground"
+          {...tooltipProps(titleHint ?? title)}
+        >
           {title}
         </span>
         <span className="flex shrink-0 items-center gap-1">
+          {!second && family}
           {sign}
           {time && (
             <span
@@ -91,7 +79,7 @@ export function SessionRowLines({
                 urgent ? "text-(--state-warning-fg)" : "text-muted-foreground",
                 actions && "group-focus-within/row:hidden group-hover/row:hidden",
               )}
-              title={timeHint}
+              {...(timeHint ? tooltipProps(timeHint) : {})}
             >
               {time}
             </span>
@@ -103,35 +91,34 @@ export function SessionRowLines({
           )}
         </span>
       </div>
-      <div className="flex h-4 min-w-0 items-center gap-1.5 pl-5.5 text-app-micro text-muted-foreground">
-        {/* What it last said goes onto a second line, out of sight, when
-            less than three letters' room is left for it. */}
-        <div className="flex h-4 min-w-0 flex-1 flex-wrap content-start items-center gap-x-1.5 overflow-hidden">
-          {meta && (
-            <span className="flex h-4 max-w-full min-w-0 shrink-0 items-center gap-1.5">
-              {device && <DeviceTag name={device} />}
-              {place && <PlaceTag place={place} testId={placeTestId} />}
-              {parent}
-            </span>
-          )}
-          {preview && (
-            <span className="flex h-4 min-w-[3em] flex-1 basis-0 items-center overflow-hidden">
-              {preview}
-            </span>
-          )}
+      {second && (
+        <div className="flex h-4 min-w-0 items-center gap-1.5 pl-5.5 text-app-micro text-muted-foreground">
+          <div className="flex h-4 min-w-0 flex-1 flex-wrap content-start items-center gap-x-1.5 overflow-hidden">
+            {meta && (
+              <span className="flex h-4 max-w-full min-w-0 shrink-0 items-center gap-1.5">
+                {device && <DeviceTag name={device} />}
+                {place && <PlaceTag place={place} testId={placeTestId} />}
+                {parent}
+              </span>
+            )}
+            {preview && (
+              <span className="flex h-4 min-w-[3em] flex-1 basis-0 items-center overflow-hidden">
+                {preview}
+              </span>
+            )}
+          </div>
+          {family}
         </div>
-        {family}
-      </div>
+      )}
     </div>
   );
 }
 
-/** The computer a conversation runs on. */
-export function DeviceTag({ name }: { name: string }) {
+export function DeviceTag({ name, className }: { name: string; className?: string }) {
   return (
     <span
-      className="flex max-w-24 min-w-0 shrink-[2] items-center gap-1"
-      title={name}
+      className={cn("flex max-w-24 min-w-0 shrink-[2] items-center gap-1", className)}
+      {...tooltipProps(name)}
       data-testid="session-row-device"
     >
       <Monitor aria-hidden className="size-3 shrink-0" />
@@ -140,7 +127,6 @@ export function DeviceTag({ name }: { name: string }) {
   );
 }
 
-/** Where a conversation runs: a task's branch, or a workspace by its color or a folder. */
 export function PlaceTag({ place, testId }: { place: RowPlace; testId?: string }) {
   return (
     <span
@@ -148,7 +134,7 @@ export function PlaceTag({ place, testId }: { place: RowPlace; testId?: string }
         "flex max-w-40 min-w-0 items-center gap-1",
         place.kind === "branch" && "font-mono",
       )}
-      title={place.hint ?? place.name}
+      {...tooltipProps(place.hint ?? place.name)}
       data-testid={testId ?? "session-row-place"}
     >
       {place.kind === "branch" ? (

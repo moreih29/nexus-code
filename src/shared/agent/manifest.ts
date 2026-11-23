@@ -1,9 +1,7 @@
 import { z } from "zod";
 import { NonnegativeIntegerSchema } from "../../../packages/remote-protocol/src/validation";
 
-/** The hosts an SSH workspace runs on. */
 export const SshHostOsSchema = z.enum(["linux", "darwin"]);
-/** Agent builds: the SSH hosts, plus Windows, where the agent serves only the local app. */
 export const AgentArtifactOsSchema = z.enum([...SshHostOsSchema.options, "windows"]);
 export const AgentArtifactArchSchema = z.enum(["amd64", "arm64"]);
 

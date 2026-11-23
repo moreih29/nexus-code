@@ -1,7 +1,3 @@
-/**
- * Going on once the plan's usage limit resets: what a stop is, when the
- * app sends the message to go on, and what calls it off.
- */
 import { describe, expect, test } from "bun:test";
 import type { CodexModel } from "../../../../../src/renderer/services/chat/codex/model";
 import {
@@ -30,7 +26,6 @@ const RESET = Date.parse("2026-11-22T15:00:00+09:00");
 const RESUME_AFTER_MS = 60_000;
 const STALE_STOP_MS = 12 * 3_600_000;
 
-/** A Claude conversation the 5-hour limit stopped at STOP, which resets at RESET. */
 function claudeStopped(extra: Partial<ChatModel> = {}): ChatModel {
   return {
     ...emptyModel(),

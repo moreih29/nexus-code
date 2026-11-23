@@ -23,18 +23,15 @@ export function SplitPane({ workspaceId, split, renderNode }: SplitPaneProps) {
       ref={containerRef}
       className={`flex ${isHorizontal ? "flex-row" : "flex-col"} flex-1 min-h-0 min-w-0 gap-[6px]`}
     >
-      {/* First child */}
       <div
         className="relative min-h-0 min-w-0 flex"
         style={{ flexBasis: firstBasis, flexGrow: 0, flexShrink: 0 }}
       >
         {renderNode(split.first)}
 
-        {/* ResizeHandleRatio is positioned relative to the first child's right/bottom edge */}
         <ResizeHandleRatio {...sashProps} />
       </div>
 
-      {/* Second child */}
       <div
         className="relative min-h-0 min-w-0 flex"
         style={{ flexBasis: secondBasis, flexGrow: 0, flexShrink: 0 }}

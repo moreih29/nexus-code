@@ -49,7 +49,6 @@ function setup(
     devices?: (typeof phone)[];
     mode?: PhonePushPolicy;
     signedOut?: boolean;
-    /** The renderer tells its sessions' changes (cli.sessionsChanged). */
     revisions?: boolean;
   } = {},
 ) {
@@ -153,7 +152,6 @@ function setup(
       chatReadable = value;
     },
     snapshots: () => snapshots,
-    /** The renderer's sessions changed, and it told main. */
     changed: () => {
       revision++;
       revisions.saw(revision);
@@ -161,15 +159,15 @@ function setup(
     terminal: (id?: string) => {
       terminalWait = id;
     },
-    consent: (timeoutMs = 90_000, change: CliChange = consentChange) => {
+    consent: (timeoutMs: number | null = 90_000, change: CliChange = consentChange) => {
       const at = now;
       const id = `consent-${at}-${consents.length}`;
-      consents.push({
-        id,
-        at,
-        expiresAt: at + timeoutMs,
-        request: { fromWorkspaceId: "w", fromTabId: "t", toWorkspaceId: "w2", change, timeoutMs },
-      });
+      const request = { fromWorkspaceId: "w", fromTabId: "t", toWorkspaceId: "w2", change };
+      consents.push(
+        timeoutMs === null
+          ? { id, at, request }
+          : { id, at, expiresAt: at + timeoutMs, request: { ...request, timeoutMs } },
+      );
       sender.consentsChanged();
       return () => {
         const index = consents.findIndex((event) => event.id === id);
@@ -235,6 +233,125 @@ describe("consent notifications", () => {
       ttl: 88,
       to: [phone.id, android.id],
     });
+  });
+
+  test("one that waits until answered is told for up to a day", async () => {
+    const app = setup({ devices: [phone, android, computer] });
+    await tick();
+    app.setAway(true);
+    app.consent(null);
+    expect(app.send.mock.calls[0]?.[0]).toMatchObject({ kind: "consent", ttl: 86_400 });
+  });
+
+  test("one that waits until answered is told for what is left of its day", async () => {
+    const app = setup({ mode: "away" });
+    await tick();
+    app.consent(null);
+    await tick(2 * 3_600_000);
+    expect(app.send).not.toHaveBeenCalled();
+    app.setAway(true);
+    await tick(3_000);
+    expect(app.send).toHaveBeenCalledTimes(1);
+    const ttl = app.send.mock.calls[0]?.[0].ttl ?? 0;
+    expect(ttl).toBeLessThanOrEqual(86_400 - 2 * 3_600);
+    expect(ttl).toBeGreaterThan(86_400 - 2 * 3_600 - 5);
+  });
+
+  test("one that waits past its day is not told", async () => {
+    const app = setup({ mode: "away" });
+    await tick();
+    app.consent(null);
+    now += 86_400_000;
+    app.setAway(true);
+    app.sender.consentsChanged();
+    await tick(3_000);
+    expect(app.send).not.toHaveBeenCalled();
+  });
+
+  test("a server that refuses a day's TTL is asked once more for 120 seconds", async () => {
+    const app = setup();
+    await tick();
+    app.setAway(true);
+    app.send.mockRejectedValueOnce(new ServerError(400, "bad_request", "POST /push/send?v=1"));
+    app.consent(null);
+    await tick();
+    const [first, again] = app.send.mock.calls.map(([body]) => body);
+    expect(first).toMatchObject({ kind: "consent", ttl: 86_400 });
+    expect(again).toEqual({ ...first, ttl: 120 });
+    await tick(10_000);
+    expect(app.send).toHaveBeenCalledTimes(2);
+  });
+
+  test("a second refusal ends the push and does not hold back the next", async () => {
+    const app = setup();
+    await tick();
+    app.setAway(true);
+    const refusal = new ServerError(400, "bad_request", "POST /push/send?v=1");
+    app.send.mockRejectedValueOnce(refusal).mockRejectedValueOnce(refusal);
+    app.consent(null);
+    await tick(10_000);
+    expect(app.send).toHaveBeenCalledTimes(2);
+    app.consent(null);
+    await tick();
+    expect(app.send).toHaveBeenCalledTimes(3);
+    expect(app.send.mock.calls[2]?.[0]).toMatchObject({ kind: "consent", ttl: 86_400 });
+  });
+
+  test("an untimed prompt answered or withdrawn while its push is refused is not sent again", async () => {
+    const app = setup();
+    await tick();
+    app.setAway(true);
+    let fail: ((error: Error) => void) | undefined;
+    app.send.mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          fail = reject;
+        }),
+    );
+    const resolve = app.consent(null);
+    await tick();
+    expect(app.send).toHaveBeenCalledTimes(1);
+    resolve();
+    expect(app.send.mock.calls[0]?.[1].aborted).toBe(true);
+    fail?.(new ServerError(400, "bad_request", "POST /push/send?v=1"));
+    await tick(3_600_000);
+    expect(app.send).toHaveBeenCalledTimes(1);
+  });
+
+  test("an untimed prompt answered or withdrawn before its push goes is never sent", async () => {
+    const app = setup({ mode: "away" });
+    await tick();
+    const resolve = app.consent(null);
+    await tick(60_000);
+    resolve();
+    app.setAway(true);
+    await tick(3_600_000);
+    expect(app.send).not.toHaveBeenCalled();
+  });
+
+  test("every send of one prompt's push carries the same id", async () => {
+    const app = setup();
+    await tick();
+    app.setAway(true);
+    app.send
+      .mockRejectedValueOnce(new UnreachableError("offline"))
+      .mockRejectedValueOnce(new ServerError(400, "bad_request", "POST /push/send?v=1"));
+    app.consent(null);
+    await tick(10_000);
+    const ids = app.send.mock.calls.map(([body]) => body.id);
+    expect(ids.length).toBe(3);
+    expect(new Set(ids).size).toBe(1);
+    expect(new TextEncoder().encode(ids[0]).length).toBeLessThanOrEqual(64);
+  });
+
+  test("a timed consent refused is not asked again", async () => {
+    const app = setup();
+    await tick();
+    app.setAway(true);
+    app.send.mockRejectedValueOnce(new ServerError(400, "bad_request", "POST /push/send?v=1"));
+    app.consent();
+    await tick(10_000);
+    expect(app.send).toHaveBeenCalledTimes(1);
   });
 
   test("always waits ten seconds for a present user, and cancels a resolved consent", async () => {
@@ -531,7 +648,6 @@ describe("chat and terminal request notifications", () => {
     await tick();
     const first = app.snapshots();
     expect(first).toBe(1);
-    // The 3-second push poll refreshes the expired read at the nine-second tick.
     await tick(6_000);
     expect(app.snapshots()).toBe(first);
     await tick(3_000);

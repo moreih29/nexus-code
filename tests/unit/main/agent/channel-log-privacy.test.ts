@@ -17,9 +17,7 @@ describe("agent channel log lines", () => {
           },
         },
       );
-    } catch {
-      // The channel throws when the first spawn fails; its log lines are what is checked.
-    }
+    } catch {}
     const lines = [...mainInfoMock.mock.calls, ...mainWarnMock.mock.calls].map((c) => String(c[0]));
     const agentLines = lines.filter((l) => l.startsWith("[local:"));
     expect(agentLines.length).toBeGreaterThan(0);

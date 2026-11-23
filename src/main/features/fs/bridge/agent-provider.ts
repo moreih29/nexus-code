@@ -61,11 +61,6 @@ export interface AgentFsProviderOptions {
   readonly disposeChannel?: boolean;
 }
 
-/**
- * Filesystem provider backed by an agent NDJSON channel. The same provider is
- * used for local, SSH and WSL workspaces; transport selection happens before this
- * layer.
- */
 export class AgentFsProvider implements AgentBackedProvider {
   private channel: AgentChannel | null = null;
 
@@ -270,9 +265,6 @@ export class AgentFsProvider implements AgentBackedProvider {
   }
 }
 
-/**
- * Converts mismatched agent responses into a classified protocol error.
- */
 export function parseAgentResult<T>(schema: z.ZodType<T>, result: unknown): T {
   const parsed = schema.safeParse(result);
   if (parsed.success) {

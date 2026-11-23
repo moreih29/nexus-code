@@ -195,7 +195,7 @@ Store 에는 정식 릴리스만 낸다 (pre-release 는 내지 않는다). Stor
 |---|---|
 | Bun | 1.x 이상 |
 | Node.js · npm | 20.x (에이전트 빌드가 LSP 번들을 npm 으로 설치한다) |
-| Go | 1.22 이상 |
+| Go | 1.25 이상 (`GOTOOLCHAIN=auto` 면 `go.mod` 의 go1.27.3 을 받아 쓴다) |
 | C/C++ 빌드 도구 | Visual Studio 2022 Build Tools 의 "C++를 사용한 데스크톱 개발" 워크로드와 개별 구성 요소 "MSVC Spectre 완화 라이브러리", Python 3 |
 
 node-pty 는 Spectre 완화를 켜고 빌드하므로, 이 구성 요소가 없으면 native rebuild 가 `MSB8040` 으로 실패한다.

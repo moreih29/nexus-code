@@ -16,25 +16,12 @@ import (
 
 const watchDebounce = 300 * time.Millisecond
 
-// shareWatcher puts every watched directory on one fsnotify.Watcher.
-//
-// On Linux each Watcher is an inotify instance, and the per-user instance
-// limit (fs.inotify.max_user_instances, 128 by default and shared with every
-// other process of the same user) made fs.watch fail with "too many open
-// files" after about a hundred directories. kqueue has no such limit, and a
-// shared kqueue watcher would report less: it watches a directory's entries
-// through the same descriptors it uses for watched subdirectories, so
-// unwatching a collapsed subdirectory would also stop the still-watched
-// parent from seeing that subdirectory deleted.
 const shareWatcher = runtime.GOOS == "linux"
 
-// watchEntry is one fsnotify.Watcher and the directories added to it: every
-// watched directory except symlinked ones when shared is set, otherwise
-// exactly one.
 type watchEntry struct {
 	watcher *fsnotify.Watcher
 	shared  bool
-	dirs    map[string]struct{} // guarded by Service.mu
+	dirs    map[string]struct{}
 	done    chan struct{}
 	once    sync.Once
 }
@@ -46,7 +33,6 @@ func (e *watchEntry) close() {
 	})
 }
 
-// Watch starts a depth-0 watcher for one workspace-relative directory.
 func (s *Service) Watch(ctx context.Context, raw json.RawMessage) (any, error) {
 	abs, err := s.parseWatchPath(raw)
 	if err != nil {
@@ -59,10 +45,6 @@ func (s *Service) Watch(ctx context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, mapPathError(err, abs)
 	}
-	// A symlinked directory (the workspace root may be one) is watched
-	// through the link, on a watcher of its own: inotify watches by inode,
-	// and fsnotify keeps one path per inode, so on the shared watcher the
-	// link and a watched target would report under only one of the paths.
 	symlink := info.Mode()&os.ModeSymlink != 0
 	if symlink {
 		if info, err = os.Stat(abs); err != nil {
@@ -101,8 +83,6 @@ func (s *Service) Watch(ctx context.Context, raw json.RawMessage) (any, error) {
 		go s.runWatch(entry)
 	}
 
-	// Registered before Add so the event loop does not filter out the
-	// directory's first events.
 	s.mu.Lock()
 	entry.dirs[abs] = struct{}{}
 	s.watches[abs] = entry
@@ -120,7 +100,6 @@ func (s *Service) Watch(ctx context.Context, raw json.RawMessage) (any, error) {
 	return struct{}{}, nil
 }
 
-// Unwatch stops a previously registered directory watcher.
 func (s *Service) Unwatch(ctx context.Context, raw json.RawMessage) (any, error) {
 	abs, err := s.parseWatchPath(raw)
 	if err != nil {
@@ -150,8 +129,6 @@ func (s *Service) Unwatch(ctx context.Context, raw json.RawMessage) (any, error)
 	return struct{}{}, nil
 }
 
-// watchOrderKey makes watch and unwatch of the same resolved directory share
-// a dispatch queue, even when a caller stops waiting before the watch replies.
 func (s *Service) watchOrderKey(raw json.RawMessage) string {
 	path, _ := s.parseWatchPath(raw)
 	return "fs.watch:" + path
@@ -173,17 +150,10 @@ func (s *Service) runWatch(entry *watchEntry) {
 				s.removeWatches(entry)
 				return
 			}
-			// A shared watcher can still deliver events queued before a
-			// directory was unwatched.
 			if !s.watching(entry, event.Name) {
 				continue
 			}
 			s.handleWatchEvent(event)
-			// A watched directory itself was removed or renamed away.
-			// fsnotify drops the OS watch but keeps the channels open, so
-			// without this the stale entry would turn the next Watch of a
-			// directory recreated at the same path into a silent no-op
-			// (Watch returns early when the path is present).
 			if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 && s.forgetRemovedDir(entry, event.Name) {
 				entry.close()
 				return
@@ -199,8 +169,6 @@ func (s *Service) runWatch(entry *watchEntry) {
 	}
 }
 
-// watching reports whether name is one of entry's directories or a direct
-// child of one.
 func (s *Service) watching(entry *watchEntry, name string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -209,10 +177,6 @@ func (s *Service) watching(entry *watchEntry, name string) bool {
 	return self || parent
 }
 
-// forgetRemovedDir drops absDir if it is one of entry's directories and
-// reports whether entry is left with nothing to watch and should be closed.
-// The shared watcher stays open; fsnotify removes the OS watch of a deleted
-// or moved directory by itself.
 func (s *Service) forgetRemovedDir(entry *watchEntry, absDir string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -271,8 +235,6 @@ func (s *Service) bufferChange(relPath string, kind filewatch.FsChangeKind) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// A file created and then written in the same batch is still new to
-	// subscribers. Keep a subsequent delete or recreate visible as such.
 	if kind != filewatch.FsChangeModified || s.buffers[relPath] != filewatch.FsChangeAdded {
 		s.buffers[relPath] = kind
 	}

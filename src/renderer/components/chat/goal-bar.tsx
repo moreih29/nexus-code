@@ -1,18 +1,9 @@
-// The goal a conversation works toward (/goal), where it is seen: a bar
-// over the composer, a badge on the tab, a line in the agent view's row, a
-// section of the side panel.
-// The bar is one line, and a second for the last check's reason, however
-// long the goal; opened, it shows the whole goal, its checks, and what can
-// be done to it.
-
 import {
-  Check,
   ChevronDown,
   ChevronUp,
   CircleCheck,
   CircleX,
   Clock,
-  Copy,
   Pause,
   Play,
   Target,
@@ -34,22 +25,17 @@ import {
 } from "../../services/chat/goal";
 import { chatKey, useChatStore } from "../../services/chat/store";
 import { formatTokens } from "../../services/chat/usage-line";
-import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
+import { CopyButton } from "../ui/copy-button";
 import { IconButton } from "../ui/icon-button";
 import { showToast } from "../ui/toast";
 
-/** What the views read of a tab's goal, and of the turn that works on it. */
 export interface TabGoal {
   goal: GoalView;
   running: boolean;
   startedAt?: number;
 }
 
-/**
- * The goal of a chat tab, while there is one to show: not once its bar was
- * closed after it ended. Re-renders only when the goal or the turn changes.
- */
 export function useTabGoal(workspaceId: string, tabId: string): TabGoal | null {
   const key = chatKey(workspaceId, tabId);
   const parts = useChatStore(
@@ -72,20 +58,17 @@ export function useTabGoal(workspaceId: string, tabId: string): TabGoal | null {
   }, [parts]);
 }
 
-/** Closes the bar of a goal that ended. */
 export function closeGoalBar(workspaceId: string, tabId: string, goal: GoalView): void {
   useChatStore
     .getState()
     .update(chatKey(workspaceId, tabId), (prev) => ({ ...prev, goalClosed: goal.key }));
 }
 
-/** Whether the goal's time counts on: a Claude goal always, a Codex goal while it works. */
 function ticks(tab: TabGoal): boolean {
   if (tab.goal.ended) return false;
   return tab.goal.agent === "claude" || (tab.running && tab.goal.status === "active");
 }
 
-/** The status a goal shows: an active one that no turn works on waits. */
 function shownStatus(tab: TabGoal): GoalStatus | "waiting" {
   return tab.goal.status === "active" && !tab.running ? "waiting" : tab.goal.status;
 }
@@ -122,7 +105,6 @@ function StatusIcon({ status, className }: { status: GoalStatus | "waiting"; cla
 export interface GoalBarProps {
   tab: TabGoal;
   onClear: () => Promise<void>;
-  /** Codex: pause the goal, or go on with it. */
   onStatus?: (status: "active" | "paused") => Promise<void>;
   onClose: () => void;
 }
@@ -131,7 +113,6 @@ export function GoalBar({ tab, onClear, onStatus, onClose }: GoalBarProps) {
   const { t } = useTranslation();
   const { goal } = tab;
   const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const now = useNow(ticks(tab), 1000);
   const status = shownStatus(tab);
@@ -139,7 +120,6 @@ export function GoalBar({ tab, onClear, onStatus, onClose }: GoalBarProps) {
   const { line, more } = firstLineOf(goal.objective);
   const lastCheck = goal.checks[goal.checks.length - 1];
   const paused = !goal.ended && goal.status !== "active";
-  // Opened, the checks show their latest: the last one is what matters.
   const checksRef = useRef<HTMLUListElement>(null);
   const checkCount = goal.checks.length + (goal.ended ? 1 : 0);
   useEffect(() => {
@@ -218,7 +198,6 @@ export function GoalBar({ tab, onClear, onStatus, onClose }: GoalBarProps) {
     </span>
   );
 
-  // The second line, folded: what the last check found, or why it ended.
   const second = goal.ended
     ? goal.reason
     : lastCheck
@@ -260,17 +239,12 @@ export function GoalBar({ tab, onClear, onStatus, onClose }: GoalBarProps) {
         {meta}
         <span className="flex shrink-0 items-center">
           {open && (
-            <IconButton
-              label={copied ? t("chat.goal.copied") : t("chat.goal.copy")}
+            <CopyButton
+              text={goal.objective}
+              label={t("chat.goal.copy")}
+              copiedLabel={t("chat.goal.copied")}
               size="xs"
-              onClick={() => {
-                copyText(goal.objective);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1200);
-              }}
-            >
-              {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-            </IconButton>
+            />
           )}
           {open && onStatus && !goal.ended && (
             <IconButton
@@ -363,11 +337,6 @@ export function GoalBar({ tab, onClear, onStatus, onClose }: GoalBarProps) {
   );
 }
 
-/**
- * A chat's goal in its side panel: the whole goal, where it stands, how long
- * and how many checks, and what the last check found or why it ended. What
- * can be done to it is the bar's, over the composer.
- */
 export function GoalSummary({ tab }: { tab: TabGoal }) {
   const { t } = useTranslation();
   const { goal } = tab;
@@ -421,20 +390,17 @@ export function GoalSummary({ tab }: { tab: TabGoal }) {
   );
 }
 
-/** 15:14: the time of day of a check. */
 function clockOf(at: number): string {
   const date = new Date(at);
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
-/** 1시간 12분, or 12분: a goal's time where a clock is too long (a tab's badge). */
 function shortTime(seconds: number, t: ReturnType<typeof useTranslation>["t"]): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   return h > 0 ? t("chat.goal.short_hm", { h, m }) : t("chat.goal.short_m", { m });
 }
 
-/** A tab's goal on its header: its mark and how long, while it is not done. */
 export function GoalTabBadge({ workspaceId, tabId }: { workspaceId: string; tabId: string }) {
   const { t } = useTranslation();
   const tab = useTabGoal(workspaceId, tabId);
@@ -457,7 +423,6 @@ export function GoalTabBadge({ workspaceId, tabId }: { workspaceId: string; tabI
   );
 }
 
-/** A chat's goal as a line in the agent view's row, while it is not done. */
 export function GoalRowLine({ workspaceId, tabId }: { workspaceId: string; tabId: string }) {
   const tab = useTabGoal(workspaceId, tabId);
   const now = useNow(tab !== null && ticks(tab), 1000);

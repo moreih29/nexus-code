@@ -1,30 +1,3 @@
-/**
- * Codex in NexusCode's terminals. An interactive codex runs its commands in a
- * shared background server, which keeps the environment of the terminal that
- * started it: perhaps one outside the app or another tab, where nexus is not
- * on PATH or answers for the wrong tab. In the app's terminals codex starts
- * with --no-daemon, which runs the server inside the session, with this
- * terminal's environment.
- *
- * The flag is left off for a codex without it, which would refuse it, and
- * for a command that refuses it or has no use for it (CODEX_SERVER_ARGS).
- *
- * A `codex exec` run inside a tab's Claude session, as from its Bash tool or
- * a script it runs, runs under the agent (`agent exec-run`), which tells the
- * app of it as one of the session's agents, as it does a `claude -p` run
- * (claude-wrapper.sh). The app marks a terminal whose agent has exec-run
- * (NEXUS_AGENT_EXEC_RUN): an older agent, still named in a terminal an older
- * app started, would take the word for the directory to serve.
- * On macOS, Linux, an SSH host and Git Bash the wrapper below is `codex`, in
- * the directory the app puts first on PATH; PowerShell and cmd get theirs
- * from pty/windows-shell-shim.ts.
- */
-
-/**
- * Arguments that start codex as it is: `agents` and `queue` need the shared
- * server, `--remote` (or `--remote=<addr>`) connects to another, the
- * server's own commands manage it, and `--no-daemon` is there already.
- */
 export const CODEX_SERVER_ARGS = [
   "agents",
   "queue",
@@ -38,7 +11,6 @@ const CMD_LAUNCHER_MARK = "@rem nexus-code codex cmd launcher";
 export const CODEX_CMD_HELP_FILE = "codex-help.ps1";
 export const CODEX_CMD_BATCH_HELP_FILE = "codex-help.cmd";
 
-/** The cmd probe preserves literal percent signs and turns delayed expansion off for Codex. */
 export const CODEX_CMD_BATCH_HELP = [
   "@echo off",
   "setlocal EnableExtensions DisableDelayedExpansion",
@@ -46,10 +18,6 @@ export const CODEX_CMD_BATCH_HELP = [
   "",
 ].join("\r\n");
 
-/**
- * Runs help in a separate process so a stalled npm shim or executable can't
- * hold the terminal. The same deadline covers the child and its output pipes.
- */
 export const CODEX_POWERSHELL_PROBE = `function Test-NexusCodexNoDaemon {
   param([string]$Program, [string]$BatchHelper)
   $start = New-Object System.Diagnostics.ProcessStartInfo
@@ -115,19 +83,16 @@ exit $LASTEXITCODE
   }
 }`;
 
-/** The cmd launcher takes the PowerShell probe's result from its exit status. */
 export const CODEX_CMD_HELP = `${CODEX_POWERSHELL_PROBE}
 if (Test-NexusCodexNoDaemon $env:nexus_codex_real (Join-Path $PSScriptRoot '${CODEX_CMD_BATCH_HELP_FILE}')) { exit 0 }
 exit 1
 `;
 
-/** A cmd launcher that dispatches to the first real Codex on PATH. */
 export const CODEX_CMD_LAUNCHER = [
   CMD_LAUNCHER_MARK,
   "@echo off",
   "setlocal EnableExtensions DisableDelayedExpansion",
   'set "nexus_codex_real="',
-  // Keep paths quoted, with delayed expansion off for literal ! characters.
   'for /f "delims=" %%I in (\'"%SystemRoot%\\System32\\where.exe" codex 2^>nul\') do (',
   '  if /i not "%%~fI"=="%~f0" (',
   '    set "nexus_codex_copy="',
@@ -162,8 +127,6 @@ export const CODEX_CMD_LAUNCHER = [
   ":probe",
   `"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0${CODEX_CMD_HELP_FILE}" >nul 2>&1`,
   "if errorlevel 1 goto :plain",
-  // SHIFT preserves %*. Direct invocation preserves the raw argument list
-  // and lets an npm .cmd launcher take over with its own exit status.
   '"%nexus_codex_real%" --no-daemon %*',
   "exit /b %errorlevel%",
   ":plain",
@@ -172,10 +135,6 @@ export const CODEX_CMD_LAUNCHER = [
   "",
 ].join("\r\n");
 
-/**
- * codex's options that take a value as the next argument, which the wrapper
- * steps over to find the command (hookclient's codexValueOptions).
- */
 export const CODEX_VALUE_OPTIONS = [
   "-c",
   "--config",
@@ -198,7 +157,6 @@ export const CODEX_VALUE_OPTIONS = [
   "--ask-for-approval",
 ] as const;
 
-/** The wrapper, for sh: the next codex on PATH, with --no-daemon in the app. */
 export const CODEX_WRAPPER = `#!/bin/sh
 # nexus-code codex wrapper: codex with --no-daemon in NexusCode's terminals,
 # so that its commands run with this terminal's environment.

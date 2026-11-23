@@ -5,14 +5,6 @@ import os from "node:os";
 import path from "node:path";
 import { sweepStaleControlDirs } from "../../../../src/main/infra/agent/ssh/master";
 
-/**
- * Startup sweep of orphaned nexus-ssh-* control-socket directories.
- *
- * The safety property under test: the sweep must remove only directories
- * whose master is provably gone, and must never touch a directory whose
- * control socket still has a listener — that listener may belong to a
- * DIFFERENT running app instance (dev and packaged builds share os.tmpdir()).
- */
 describe("sweepStaleControlDirs", () => {
   const cleanups: Array<() => void> = [];
 
@@ -42,8 +34,6 @@ describe("sweepStaleControlDirs", () => {
   it("removes a directory whose control.sock has no listener", async () => {
     const root = makeTmpRoot();
     const dir = makeControlDir(root);
-    // A path with no listener behind it — connect() fails, so the sweep
-    // classifies the master as dead.
     fs.writeFileSync(path.join(dir, "control.sock"), "");
 
     await sweepStaleControlDirs(root);

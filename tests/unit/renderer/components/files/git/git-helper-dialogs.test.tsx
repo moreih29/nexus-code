@@ -1,7 +1,3 @@
-/**
- * Git helper dialog tests cover renderer-only seams without bypassing the
- * production IPC contract in store code.
- */
 import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { credentialPromptInputType } from "../../../../../../src/renderer/components/files/git/dialogs/credential-prompt-dialog";
@@ -70,8 +66,6 @@ describe("Global Git helper prompt mounting contract", () => {
       getGitHelperPromptSnapshot().pendingEditorPrompts.map((prompt) => prompt.promptId),
     ).toEqual(["global-editor"]);
 
-    // The Git command ended unanswered: the dialog closes and the next
-    // prompt takes its place.
     callbacks.get("askpass.closed")?.({ promptId: "global-credential" });
     expect(getGitHelperPromptSnapshot().credentialPrompt).toBeNull();
     expect(getGitHelperPromptSnapshot().editorPrompt?.promptId).toBe("global-editor");
@@ -192,9 +186,6 @@ describe("Git helper prompt queue serialization", () => {
   });
 });
 
-/**
- * Creates a valid askpass prompt fixture with optional overrides.
- */
 function makeAskpassPrompt(overrides: Partial<AskpassPrompt> = {}): AskpassPrompt {
   return {
     promptId: "prompt-id",
@@ -206,9 +197,6 @@ function makeAskpassPrompt(overrides: Partial<AskpassPrompt> = {}): AskpassPromp
   };
 }
 
-/**
- * Installs the production listener adapter against in-memory callbacks.
- */
 function installPromptListenerHarness(): {
   callbacks: Map<string, (prompt: AskpassPrompt | GitEditorPrompt) => void>;
   unlisten: () => void;
@@ -228,10 +216,6 @@ function installPromptListenerHarness(): {
   };
 }
 
-/**
- * Emits a prompt into a listener harness and fails loudly if the listener was
- * not installed.
- */
 function emitPrompt(
   callbacks: Map<string, (prompt: AskpassPrompt | GitEditorPrompt) => void>,
   key: string,
@@ -242,9 +226,6 @@ function emitPrompt(
   callback(prompt);
 }
 
-/**
- * Captures the hook's response callbacks with a supplied IPC call seam.
- */
 function readHelperPromptState(call: typeof ipcCallResult): GitHelperPromptState {
   let state: GitHelperPromptState | null = null;
   const listen = (() => () => {}) as typeof ipcListen;
@@ -265,9 +246,6 @@ interface IpcCallRecord {
   readonly args: unknown;
 }
 
-/**
- * Records response/cancel calls without reaching the Electron preload bridge.
- */
 function createIpcCallRecorder(): {
   readonly call: typeof ipcCallResult;
   readonly calls: IpcCallRecord[];
@@ -281,9 +259,6 @@ function createIpcCallRecorder(): {
   return { call, calls };
 }
 
-/**
- * Creates a valid editor prompt fixture.
- */
 function makeEditorPrompt(overrides: Partial<GitEditorPrompt> = {}): GitEditorPrompt {
   return {
     promptId: "editor-id",

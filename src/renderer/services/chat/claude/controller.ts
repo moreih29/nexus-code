@@ -1,11 +1,3 @@
-// One controller per Claude tab: starts or re-attaches to the tab's program,
-// feeds its lines to the chat model, and writes the user's messages,
-// control requests and permission answers to it.
-//
-// Every line, the app's own included, reaches the model as the agent sends
-// it back (chat.line), so a live tab and one that replays the log after a
-// window reload build the same view.
-
 import i18next from "i18next";
 import type { ProfileConnection } from "../../../../shared/agent-profiles/connection";
 import {
@@ -22,7 +14,6 @@ import type { ChatChosen, ProfileMove } from "../../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
-import { pruneAttachmentsAfterAttach } from "../attach-retention";
 import {
   type ChatLine,
   type ChatModel,
@@ -41,11 +32,20 @@ import {
   emptyTabState,
   useChatStore,
 } from "../store";
+import {
+  attachToTab,
+  editQueuedIn,
+  heldTab,
+  holdUnread,
+  type ReplayResult,
+  ResyncRetry,
+  removeQueuedIn,
+  replayTab,
+} from "../tab-core";
 import { ConnectionRestart } from "../transport/connection-restart";
 import { LiveLines } from "../transport/live-lines";
 import { ProgramStartup, stopChatProgram } from "../transport/program-startup";
 import {
-  cancelQueuedMessage,
   clearObservedQueued,
   dispatchQueuedMessage,
   isChatWriteRejected,
@@ -83,45 +83,19 @@ import { isSupportedClaude, supportsControl, usageSkipsBehaviors } from "./versi
 
 const log = createLogger("chat");
 
-/** How long a control request waits for its answer. */
 const CONTROL_TIMEOUT_MS = 15_000;
-/** How long a side question may take: one turn of the model, retries included. */
 const SIDE_QUESTION_TIMEOUT_MS = 180_000;
-/** The most of the first message Claude names the conversation from. */
 const TITLE_FROM_CHARS = 2_000;
 
-/** Longest a replay's lines, sent as events, may trail its answer. */
-const REPLAY_CATCH_UP_MS = 3_000;
-/** Longest one of Claude Code's own commands (/config) is waited on before the next is sent. */
 const COMMAND_DONE_MS = 10_000;
-/**
- * How long after a turn ends with the goal set the transcript is read for
- * how the goal stands, and read once more after that: Claude Code writes
- * the check that ended the turn as the turn ends.
- */
 const GOAL_SYNC_MS = [500, 2_500];
-/** How long clearing the goal waits for the turn it stops to end. */
 const GOAL_STOP_MS = 10_000;
 
-/**
- * What a bare /config lists, for each workspace's profile and Claude Code
- * version: asked of the CLI once a run of the app (a run of a second or
- * two), and again after a failure. The answer is kept in localStorage too,
- * which the dialog shows at once while this is asked.
- */
 const listedConfigKeys = new Map<string, Promise<ListedKey[] | null>>();
 
-/** How long an ask for the plan's usage (a request to Anthropic's servers) is waited on. */
 const USAGE_TIMEOUT_MS = 60_000;
 
-/** How long after a failed ask for the context it is asked once more. */
 const CONTEXT_RETRY_MS = 3_000;
-/**
- * MCP servers said to be none may still be coming up: for a few seconds
- * after the program's initialize, its servers' list is empty. Asked again
- * this long after, at most MCP_EMPTY_ASKS times a run of the program, as a
- * session can have none.
- */
 const MCP_EMPTY_RETRY_MS = 2_000;
 const MCP_EMPTY_ASKS = 4;
 
@@ -130,21 +104,10 @@ interface TranscriptSource {
   profileId?: string;
   cut?: HistoryCut;
   title?: string;
-  /** The live log lost its head, so a transcript must join it at a known message. */
   logTruncated?: boolean;
-  /** The live log kept after the agent that held it was replaced. */
   appended?: ChatModel;
 }
 
-interface ReplayResult {
-  found: boolean;
-  running: boolean;
-  truncated: boolean;
-  /** The last line the replay sent. */
-  lastSeq: number;
-}
-
-/** What the side panel asks the CLI for, by the request that tells it. */
 const PANEL_REQUESTS = {
   context: "get_context_usage",
   usage: "get_usage",
@@ -153,16 +116,10 @@ const PANEL_REQUESTS = {
 
 export type PanelPart = keyof typeof PANEL_REQUESTS;
 
-/** A session to copy, up to and including a message (all of it without one). */
 export interface ForkPoint {
   sessionId: string;
   at?: string;
-  /** The name the copy takes once it is a session of its own (/branch). */
   title?: string;
-  /**
-   * The profile that keeps the session, where it is not the tab's: one the
-   * tab went on with in another profile, or took up from another's list.
-   */
   profileId?: string;
 }
 
@@ -170,50 +127,30 @@ export interface ChatTabTarget {
   workspaceId: string;
   tabId: string;
   cwd: string;
-  /** The session the tab had, to go on with when its program is gone. */
   sessionId?: string;
-  /** The session the tab's program copies, until the copy has its own id. */
   fork?: ForkPoint;
-  /** The agent profile its program runs with; absent = the default. */
   profileId?: string;
-  /** Where the conversation went on in another profile. */
   moves?: readonly ProfileMove[];
-  /** The model and effort the user picked in the tab before. */
   chosen?: ChatChosen;
 }
 
 export interface ChatTabHooks {
   instructions?: (sessionId?: string) => string;
   mergedInstructions?: (profileId: string | undefined, session: string) => string;
-  /** The session id the tab now has, to keep with the tab. */
   onSession?: (sessionId: string) => void;
-  /** A rewind moved the tab to a new start: a fork, or no session at all. */
   onTarget?: (target: { sessionId?: string; fork?: ForkPoint }) => void;
-  /** The first message of the conversation, for the tab's title. */
   onFirstMessage?: (text: string) => void;
-  /** The title Claude made for the conversation, to take the first message's place. */
   onTitle?: (title: string) => void;
-  /**
-   * The session's name, as the user gave it: by /rename, by renaming the
-   * tab, or one it had when it was taken up again. The tab is called by it.
-   */
   onRename?: (title: string) => void;
-  /**
-   * The tab runs with another profile now: the user switched it, or went on
-   * with its conversation in that one.
-   */
   onProfile?: (profileId: string) => void;
-  /** Where the conversation went on in another profile; none for a new one. */
   onMoves?: (moves: readonly ProfileMove[]) => void;
-  /** Who sent a message another agent sent through the nexus command, by its id. */
   onRelayed?: (record: RelayedMessage) => void;
-  /** The model or effort the user picked, for the tab to keep. */
+  relayedFrom?: (id: string) => RelaySender | undefined;
   onChosen?: (chosen: ChatChosen) => void;
   onPeerWritten?: (id: string) => void;
   onTurnEnd?: (model: ChatModel) => void;
 }
 
-/** What `rewind_files` would change, or why it cannot. */
 export interface RewindPreview {
   canRewind: boolean;
   error?: string;
@@ -226,7 +163,6 @@ interface StartArgs {
   resume?: string;
   fork?: boolean;
   resumeAt?: string;
-  /** Drop the tab's log first: a rewind starts the conversation over. */
   resetLog?: boolean;
   connectionChanged?: boolean;
 }
@@ -234,14 +170,11 @@ interface StartArgs {
 export type PermissionAnswer =
   | {
       kind: "allow";
-      /** The input the tool runs with, as the user filled it (AskUserQuestion's answers). */
       updatedInput?: Record<string, unknown>;
-      /** Rules or a mode the allow brings with it (ExitPlanMode's accept-edits). */
       updatedPermissions?: unknown[];
     }
   | {
       kind: "allow-always";
-      /** The rules or modes to add, of those the request suggests; all of them when left out. */
       suggestions?: unknown[];
     }
   | { kind: "deny"; message?: string }
@@ -255,7 +188,6 @@ interface PendingControl {
 
 let requestCounter = 0;
 
-/** Ids no earlier run of the app has used, so a replayed log does not match them. */
 function nextRequestId(): string {
   requestCounter += 1;
   return `app-${Date.now().toString(36)}-${requestCounter}`;
@@ -267,22 +199,11 @@ export class ChatController {
   private hooks: ChatTabHooks;
   private launchInstructions: string | undefined;
   private freshPromptSent = false;
-  /** The flag settings the tab's commands set (/add-dir, /sandbox, the effort picked). */
   private flags: Record<string, unknown> = {};
-  /** The model picked in the tab, which a program started again for it takes too. */
   private chosenModel: string | undefined;
   private connection: ProfileConnection | undefined;
-  /**
-   * The permission mode the tab's program last had, which one started
-   * again for it (a rewind, a restart, another profile) goes on in: the
-   * settings' default mode is for a new conversation. Not kept past this
-   * run of the app, so the tab's first program in the next starts as the
-   * settings say.
-   */
   private lastMode: string | undefined;
-  /** How many times the user picked a mode, which a program starting then takes over its last one's. */
   private modePicks = 0;
-  /** A started program's initialize, and the flags given again after it. */
   private changingSession = false;
   private initializing: Promise<void> = Promise.resolve();
   private readonly startup = new ProgramStartup(() =>
@@ -318,20 +239,19 @@ export class ChatController {
     },
     (error) => log.warn(`Claude could not restart after a profile edit: ${String(error)}`),
   );
-  /** How many times this run of the program said it had no MCP servers, and was asked again. */
+  private readonly resyncRetry = new ResyncRetry(
+    () => !this.disposed && this.state.phase === "held",
+    () => void this.resync(),
+  );
   private mcpEmptyAsks = 0;
-  /** Asks for the context not answered yet. */
   private contextAsks = 0;
-  /** Whether this turn asked for the context it began without counted (askContextBase). */
   private contextBaseAsked = false;
   private buffered: ChatLine[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
-  /** New lines held while the log is sent again. */
   private readonly live = new LiveLines();
   private remoteControlChange: Promise<unknown> = Promise.resolve();
   private readonly pending = new Map<string, PendingControl>();
   private opening: Promise<void> | null = null;
-  /** While opening: resolves once the conversation is shown, perhaps before its program is ready. */
   private shown: Promise<void> | null = null;
   private disposed = false;
   private transcriptSource: TranscriptSource | undefined;
@@ -339,43 +259,24 @@ export class ChatController {
   private earlierHistoryUnknown = false;
   private liveGoalChanged = false;
   private fullTranscript: Promise<void> | undefined;
-  /** Public pages and watches use complete history and its original item keys. */
   private publicHistory = false;
   private titled = false;
-  /** Subagents whose file is being read (loadSubagent), and those found nowhere. */
   private subagentsReading = new Set<string>();
   private subagentsMissing = new Set<string>();
-  /** The tab as a source of its profile's plan usage, taken away as it closes. */
   private readonly leavePlanUsage: () => void;
   private readonly removeReceiver?: () => void;
-  /** Whether the program's initialize is still on its way: until then it is asked nothing else. */
   private initPending = false;
-  /** The name the program last said its session has. */
   private sessionName: string | undefined;
   private sessionId: string | undefined;
   private sandboxSessionId = crypto.randomUUID();
-  /**
-   * A name the user gave the tab before its conversation began: the session
-   * takes it once it has an id. Until then there is no session to name.
-   */
   private pendingName: string | undefined;
-  /** Whether the session was given a name, which Claude's title from the first message would replace. */
   private named = false;
-  /**
-   * The name the user gave the tab: every session the tab has takes it, a
-   * new one after /clear or another profile too, and Remote Control is told
-   * it again as it starts, which can name the session on its own (the
-   * computer's name and two words). Another session's message from this one
-   * goes under the name Remote Control has.
-   */
   private ownName: string | undefined;
 
-  /** The profile the tab's program runs with, for a tab made from it to keep. */
   get profileId(): string {
     return this.target.profileId ?? defaultProfileId("claude");
   }
 
-  /** The custom picker default, as configured when the program was launched. */
   get claudeProfileDefaultModel(): string | undefined {
     const connection = this.connection;
     return connection?.method === "custom" ? connection.defaultModel : undefined;
@@ -385,10 +286,6 @@ export class ChatController {
     return claudeModelCatalogKey(this.target.workspaceId, this.target.profileId);
   }
 
-  /**
-   * What a tab made from this one (a fork, /branch) starts with: its
-   * profile, and the model and effort picked in it.
-   */
   inherited(): { profileId: string; chosen?: ChatChosen; instructions?: string } {
     const effort = typeof this.flags.effortLevel === "string" ? this.flags.effortLevel : undefined;
     const chosen: ChatChosen = {
@@ -425,7 +322,6 @@ export class ChatController {
     });
   }
 
-  /** Reads a profile's limits through the stream protocol, without a conversation. */
   static async probePlanUsage(target: Pick<ChatTabTarget, "workspaceId" | "cwd" | "profileId">) {
     const tabId = crypto.randomUUID();
     const controller = new ChatController({ ...target, tabId }, {}, { receiveAgentEvents: true });
@@ -445,7 +341,6 @@ export class ChatController {
     return this.request("get_usage", this.panelParams("usage"), USAGE_TIMEOUT_MS);
   }
 
-  /** The profile whose plan usage the tab shows: its agent, host and profile. */
   usageKey(): string {
     return planUsageKeyFor("claude", this.target.workspaceId, this.target.profileId);
   }
@@ -463,12 +358,10 @@ export class ChatController {
     useChatStore.getState().update(this.key, update);
   }
 
-  /** Whether the tab is being opened: its log replayed, or its program started to show it. */
   get isOpening(): boolean {
     return this.opening !== null;
   }
 
-  /** Shows the tab's conversation: the agent's log, else a new or resumed program. */
   open(): Promise<void> {
     if (this.opening) return this.opening;
     let show = () => {};
@@ -483,11 +376,6 @@ export class ChatController {
     return this.opening;
   }
 
-  /**
-   * Opens the tab as open does, but comes back once its conversation is
-   * shown: the transcript read, while a program started on it may still be
-   * starting. Another device reading the chat sees it without waiting.
-   */
   async openToRead(waitForProgram = false): Promise<void> {
     this.publicHistory = true;
     if (this.opening || this.state.phase === "idle") {
@@ -520,19 +408,16 @@ export class ChatController {
         ...prev,
         phase: replay.running ? "ready" : "ended",
         truncated,
-        // Old logs could evict the start event that enables the composer controls.
         model:
           replay.running && prev.model.process !== "running"
             ? { ...prev.model, process: "running" }
             : prev.model,
       }));
       if (truncated || this.state.model.resumed) await this.loadResumedHistory(truncated);
-      // A goal met while no window looked on.
       if (!this.state.model.running) void this.syncGoal(!this.publicHistory);
       shown();
       return;
     }
-    // The agent has no log: a new tab, or one whose agent restarted.
     if (this.target.fork) {
       const fork = this.target.fork;
       await this.loadTranscript(fork.sessionId, forkCut(fork), this.forkProfile());
@@ -543,20 +428,17 @@ export class ChatController {
     await this.start(this.startArgs());
   }
 
-  /** How the tab's program starts again: copying its fork, else going on with its session. */
   private startArgs(): StartArgs {
     const fork = this.target.fork;
     if (fork) return { resume: fork.sessionId, fork: true, resumeAt: fork.at };
     return this.sessionId ? { resume: this.sessionId } : {};
   }
 
-  /** Fill in the history before the live log from the transcript. */
   private async loadResumedHistory(logTruncated: boolean): Promise<void> {
     const model = this.state.model;
     const fork = this.target.fork;
     const sessionId = model.sessionId ?? (fork ? undefined : this.sessionId);
     if (sessionId) {
-      // A fork's transcript copies the messages it starts from, uuids and all.
       const uuids = modelUuids(model);
       const first = uuids.values().next().value;
       const before = logTruncated && first ? new Set([first]) : uuids;
@@ -566,10 +448,6 @@ export class ChatController {
     }
   }
 
-  /**
-   * The profile that keeps the session the tab's fork copies, where it is
-   * not the tab's own; undefined when it is.
-   */
   private forkProfile(): string | undefined {
     const from = this.target.fork?.profileId;
     return from && !sameProfile(from, this.target.profileId) ? from : undefined;
@@ -609,7 +487,6 @@ export class ChatController {
         }),
       );
       if (this.disposed || this.transcriptSource !== source || !page.found) return;
-      // An unverified join could put later transcript rows before the live log.
       if (logTruncated && cut?.before?.size && page.cutMatched === false) return;
       if (page.snapshot) {
         const pages = new TranscriptPages(page, page.snapshot);
@@ -636,7 +513,6 @@ export class ChatController {
     }
   }
 
-  /** Whether the tab's own log shows a compaction: the transcript's end of it is not shown twice. */
   private liveCompacted(): boolean {
     const model = this.state.model;
     return [...model.items, ...(this.transcriptSource?.appended?.items ?? [])].some(
@@ -685,7 +561,6 @@ export class ChatController {
     return read;
   }
 
-  /** A click or first open reads a meaningful part of the transcript, across fragment frames. */
   private async readTranscriptBatch(
     source: TranscriptSource,
     pages: TranscriptPages,
@@ -785,7 +660,6 @@ export class ChatController {
     const read = source.appended
       ? { ...joinHistory(projected, source.appended), goal: projected.goal }
       : projected;
-    // A task's end the log tells too is the log's: it has no uuid to cut at.
     const told = new Set(
       this.state.model.items.flatMap((item) => (item.kind === "task_end" ? [item.key] : [])),
     );
@@ -812,7 +686,6 @@ export class ChatController {
             ? { ...history, agentItems }
             : null,
         historyPage: pages ? { hasEarlier: pages.hasEarlier, loading: false } : undefined,
-        // A previously unread page must not replace a goal that the live log set or cleared.
         model:
           (initial || !prev.history?.goal) &&
           !this.liveGoalChanged &&
@@ -835,13 +708,6 @@ export class ChatController {
     }
   }
 
-  /**
-   * Reads the messages of a subagent that ended, where the tab has none of
-   * them: Claude Code keeps them apart from the session's transcript, so a
-   * conversation read from it shows only the subagent's call. They go in the
-   * history, where the pane and another device reading the chat find them.
-   * One being read, or found nowhere, is not asked for again.
-   */
   async loadSubagent(toolUseId: string): Promise<void> {
     if (this.subagentsReading.has(toolUseId) || this.subagentsMissing.has(toolUseId)) return;
     const { history, model } = this.state;
@@ -860,7 +726,6 @@ export class ChatController {
 
   private async readSubagent(toolUseId: string, agentId: string | undefined): Promise<boolean> {
     const { model } = this.state;
-    // Its session's, or, for one a fork copied, the session the fork is of.
     const fork = this.target.fork;
     const places: { sessionId: string; profileId?: string }[] = [];
     for (const sessionId of [model.sessionId, this.sessionId]) {
@@ -899,17 +764,14 @@ export class ChatController {
     return false;
   }
 
-  /** Starts and initializes a program before allowing tab input. */
   private start(resume: StartArgs): Promise<boolean> {
     return this.startup.run(() => this.startProgram(resume));
   }
 
-  /** Spawns Claude and applies the tab's settings after its required initialize. */
   private async startProgram(resume: StartArgs): Promise<boolean> {
     if (this.disposed) return false;
     const { workspaceId, tabId, cwd, profileId } = this.target;
     const connection = savedProfileConnection(profileId);
-    // Before the new program's initialize tells the mode it starts in.
     const mode = this.lastMode;
     const picks = this.modePicks;
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined }));
@@ -958,28 +820,21 @@ export class ChatController {
     if (!result.attached) {
       const previousConnection = this.connection;
       this.connection = connection;
-      // Subagents' text comes as messages under their Agent call, for the agent strip.
       let remote = false;
       let started: unknown;
       this.initPending = true;
       const initialized = this.request("initialize", {
         hooks: null,
         forwardSubagentText: true,
-        // On resume or fork Claude can reuse the original system prompt. Let
-        // this launch's --append-system-prompt supply the current NexusCode layers.
         ...(resume.resume ? { systemPromptSnapshot: false } : {}),
       })
         .then((init) => {
           remote = remoteAtStartup(init);
           started = init.current_permission_mode;
-          // The settings' effort failing leaves the tab's own flags and pick to apply.
           return this.followSettings().catch((err: Error) =>
             log.warn(`settings' effort not applied: ${err.message}`),
           );
         })
-        // What /add-dir, /sandbox and the tab's chips set holds for the tab,
-        // not one program: after the settings' defaults, which it overrides.
-        // One refused leaves the rest, Remote Control included, to go on.
         .then(() => {
           if (Object.keys(this.flags).length === 0) return;
           return this.request("apply_flag_settings", { settings: this.flags }).then(
@@ -990,7 +845,6 @@ export class ChatController {
         .then(() => {
           const picked = this.chosenModel;
           if (!picked) return;
-          // A moved or restarted tab can still hold a model from an old provider.
           const replacedCustomConnection =
             resume.connectionChanged &&
             previousConnection?.method === "custom" &&
@@ -1012,8 +866,6 @@ export class ChatController {
           );
         })
         .then(() => {
-          // The program before went on in a mode the settings' default would
-          // drop; one the user picked as this one started holds instead.
           if (!mode || mode === started || this.modePicks !== picks) return;
           return this.request("set_permission_mode", { mode }).then(
             () => {},
@@ -1021,7 +873,6 @@ export class ChatController {
           );
         })
         .then(() => {
-          // Remote Control "at startup" (/config) is the host's to turn on in a headless run.
           if (remote) {
             return this.request("remote_control", { enabled: true }).then(
               () => this.retellName(),
@@ -1048,7 +899,6 @@ export class ChatController {
     return true;
   }
 
-  /** Records the failure and keeps the tab available for a fresh startup. */
   private async rejectStartup(message: string): Promise<false> {
     if (this.disposed) return false;
     log.warn(`Claude startup failed: ${safeText(message, 200, redactLogSecrets)}`);
@@ -1062,12 +912,6 @@ export class ChatController {
     return false;
   }
 
-  /**
-   * A fork of a session another profile keeps starts from its file there:
-   * `claude --resume <file> --fork-session` copies it into the tab's
-   * profile, name and all, and leaves it as it was. Remote Control's record
-   * of the old session stays behind, so the copy gets its own.
-   */
   private async fromAnotherProfile(resume: StartArgs): Promise<StartArgs> {
     const from = this.forkProfile();
     if (!resume.fork || !resume.resume || from === undefined) return resume;
@@ -1084,11 +928,6 @@ export class ChatController {
     return { ...resume, resume: file.path };
   }
 
-  /**
-   * Has a started program run as the user's settings say: `claude -p`
-   * leaves their effort out, which it is given here. The answer also tells
-   * the tab the model the settings set, before the first turn names it.
-   */
   private async followSettings(): Promise<void> {
     if (!this.supports("get_settings")) return;
     const effort = effortToApply(await this.request("get_settings", {}).catch(() => null));
@@ -1097,7 +936,6 @@ export class ChatController {
     }
   }
 
-  /** Starts the program again, going on with the session. */
   async restart(): Promise<void> {
     if (this.changingSession) throw new Error("Claude is changing the conversation");
     await (this.connectionRestart.whenIdle() ?? this.restartProgram());
@@ -1116,7 +954,6 @@ export class ChatController {
     return this.start({ ...this.startArgs(), ...(connectionChanged ? { connectionChanged } : {}) });
   }
 
-  /** The session the tab goes on with, once it has its own. */
   currentSession(): string | undefined {
     return this.sessionId;
   }
@@ -1126,7 +963,6 @@ export class ChatController {
     return this.disposed || this.changingSession ? null : this.sandboxSessionId;
   }
 
-  /** Where a fork from a message starts: after it (Claude's), or before it (the user's). */
   forkPoint(uuid: string, { before }: { before: boolean }): ForkPoint | null {
     const sessionId = this.sessionId ?? this.target.fork?.sessionId;
     if (!sessionId) return null;
@@ -1138,7 +974,6 @@ export class ChatController {
     return at ? { sessionId, at } : null;
   }
 
-  /** The oldest visible message has no verified predecessor yet. */
   unverifiedHistoryStart(): string | undefined {
     if (!this.earlierHistoryUnknown) return;
     const { history, model } = this.state;
@@ -1161,7 +996,6 @@ export class ChatController {
     return all;
   }
 
-  /** What rewinding the files to before a message would change. */
   async previewRewind(uuid: string): Promise<RewindPreview> {
     this.rewindHistory(uuid);
     this.forkPoint(uuid, { before: true });
@@ -1169,12 +1003,6 @@ export class ChatController {
     return rewindOf(await this.request("rewind_files", { user_message_id: uuid, dry_run: true }));
   }
 
-  /**
-   * Goes back to before one of the user's messages, in this tab: the files
-   * first when asked, then the conversation, by a program that copies the
-   * session up to the message before it. The message goes back in the
-   * composer, unless another device asked (`draft` false): it goes back in that one's.
-   */
   async rewind(
     item: UserItem,
     { files, draft = true }: { files: boolean; draft?: boolean },
@@ -1207,7 +1035,6 @@ export class ChatController {
           this.update((prev) => ({
             ...prev,
             history: kept.items.length > 0 ? kept : null,
-            // Keep the old program's final lines out of the replacement log.
             model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
           }));
           if (incomplete && fork)
@@ -1252,12 +1079,6 @@ export class ChatController {
     }
   }
 
-  /**
-   * Goes on with another session of the folder in this tab, which has no
-   * conversation yet: its program starts over on that session. One another
-   * profile keeps is copied into the tab's (`--fork-session`), name and all,
-   * and left as it was there.
-   */
   async resumeSession(sessionId: string, profileId?: string, emptyOnly = false): Promise<void> {
     const checkTarget = () => {
       if (this.state.model.running) throw new Error("a turn is running");
@@ -1304,11 +1125,6 @@ export class ChatController {
     }, checkTarget);
   }
 
-  /**
-   * Starts this tab over in a new conversation with another profile: its
-   * program stops, a turn under way with it, and the session it had is
-   * left as it was, for the old profile to go on with.
-   */
   async switchProfile(profileId: string): Promise<void> {
     if (sameProfile(profileId, this.target.profileId)) return;
     await this.changeSession(async () => {
@@ -1336,7 +1152,6 @@ export class ChatController {
     });
   }
 
-  /** Waits for a confirmed stop before changing the session and its profile. */
   private async changeSession(
     change: (shown: number) => Promise<void>,
     checkTarget?: () => void,
@@ -1419,27 +1234,18 @@ export class ChatController {
     }
   }
 
-  /** Starts the proposed session and reports failure before tab metadata is saved. */
   private async startChangedSession(args: StartArgs): Promise<void> {
     if (!(await this.start({ ...args, resetLog: true }))) {
       throw new Error(this.state.error ?? "Claude could not start the requested session");
     }
   }
 
-  /** Persists the session the replacement actually established or is forking. */
   private publishSessionTarget(): void {
     const fork = this.target.fork;
     if (fork) this.hooks.onTarget?.({ fork });
     else if (this.sessionId) this.hooks.onTarget?.({ sessionId: this.sessionId });
   }
 
-  /**
-   * Goes on with this tab's conversation in another profile: its program
-   * stops, a turn under way with it, and one of the new profile's copies the
-   * session, its name too (`--resume <file> --fork-session`). The session is
-   * left as it was, for the old profile to go on with. A tab with no
-   * conversation yet just switches.
-   */
   async continueInProfile(profileId: string): Promise<void> {
     if (sameProfile(profileId, this.target.profileId)) return;
     const pending = this.target.fork;
@@ -1450,14 +1256,12 @@ export class ChatController {
     }
     await this.completeTranscript();
     await this.changeSession(async (shown) => {
-      // The program stopped here told of its exit; the conversation goes on.
       const model = this.state.model;
       const items = model.items.filter(
         (item, i) => i < shown || !(item.kind === "notice" && item.code === "exited"),
       );
       const joined = joinHistory(this.state.history, { ...model, items });
       const all = { ...emptyModel(), items: joined.items, tools: joined.tools };
-      // A copy that has no id of its own yet is copied from where it copies.
       const fork: ForkPoint =
         this.sessionId === undefined && pending
           ? { ...pending, profileId: pending.profileId ?? this.profileId }
@@ -1489,13 +1293,6 @@ export class ChatController {
     });
   }
 
-  /**
-   * Names the tab's session, as /rename does: its program is started for it
-   * when it is not running. A tab with no conversation yet keeps the name
-   * for the session it starts, in place of the title Claude makes from the
-   * first message. False when the session cannot be named now: it has no
-   * conversation yet, or its version cannot.
-   */
   async renameSession(title: string): Promise<boolean> {
     const name = title.trim();
     if (!name) return false;
@@ -1506,27 +1303,20 @@ export class ChatController {
       return false;
     }
     this.pendingName = undefined;
-    // The tab took the name from the session: it has it already.
     if (name === this.sessionName) return true;
     if (!(await this.ensureRunning()) || !this.supports("rename_session")) return false;
     await this.request("rename_session", {
       title: name,
-      // The user's own rename, for the session it was made on.
       source: "host",
       session_id: sessionId,
     });
     return true;
   }
 
-  /** Takes the name the user gave the tab, or none, for the sessions it has from now. */
   keepName(title: string | undefined): void {
     this.ownName = title?.trim() || undefined;
   }
 
-  /**
-   * Tells the session the tab's name again, though it has it: Remote Control,
-   * just started, can have named the session on its own.
-   */
   private retellName(): void {
     const sessionId = this.state.model.sessionId ?? this.sessionId;
     if (!this.ownName || !sessionId || !this.supports("rename_session")) return;
@@ -1537,7 +1327,6 @@ export class ChatController {
     }).catch(() => {});
   }
 
-  /** Builds the model again from the agent's log, which a rewind started over. */
   private async rebuild(): Promise<void> {
     this.flushNow();
     this.update((prev) => ({ ...prev, model: emptyModel() }));
@@ -1549,44 +1338,20 @@ export class ChatController {
     this.flushNow();
   }
 
-  /**
-   * Has the agent send the tab's log again (after `afterSeq`) and waits for
-   * its lines; new lines that come meanwhile are taken after them.
-   */
-  private async replay(afterSeq?: number): Promise<ReplayResult> {
-    const { workspaceId, tabId } = this.target;
-    this.live.hold();
-    try {
-      const replay = unwrapIpcResult(
-        await ipcCallResult("chat", "replay", {
-          workspaceId,
-          tabId,
-          ...(afterSeq !== undefined ? { afterSeq } : {}),
-        }),
-      );
-      await this.catchUp(replay);
-      return replay;
-    } finally {
-      const held = this.live.release();
-      if (held.length > 0 && !this.disposed) {
-        this.buffered.push(...held);
-        this.flushNow();
-      }
-    }
+  private replay(afterSeq?: number): Promise<ReplayResult> {
+    return replayTab(
+      {
+        target: this.target,
+        live: this.live,
+        disposed: () => this.disposed,
+        lastSeq: () => this.state.model.lastSeq,
+        flushNow: () => this.flushNow(),
+        keep: (lines) => this.buffered.push(...lines),
+      },
+      afterSeq,
+    );
   }
 
-  /** Waits for a replay's lines, which come as events and may trail its answer. */
-  private async catchUp(replay: ReplayResult): Promise<void> {
-    this.flushNow();
-    if (!replay.found) return;
-    const deadline = Date.now() + REPLAY_CATCH_UP_MS;
-    while (this.state.model.lastSeq < replay.lastSeq && !this.disposed && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 16));
-      this.flushNow();
-    }
-  }
-
-  /** The agent is back: replay what the tab missed, or find its program gone. */
   async resync(): Promise<void> {
     this.flushNow();
     const source = this.transcriptSource;
@@ -1594,16 +1359,20 @@ export class ChatController {
     try {
       replay = await this.replay(this.state.model.lastSeq);
     } catch {
+      this.resyncRetry.failed();
       return;
     }
+    this.resyncRetry.settled();
     if (this.disposed || this.changingSession || this.transcriptSource !== source) return;
     if (replay.found) {
+      if (!replay.running) this.holdUnread();
       this.update((prev) => ({ ...prev, phase: replay.running ? "ready" : "ended" }));
+      this.sendNextQueued();
       return;
     }
-    // A new agent: what the tab showed becomes its history. Its cursor died with the old agent.
     const pages = this.transcriptPages;
     if (!pages && this.opening) return;
+    this.holdUnread();
     if (source && pages) {
       this.fullTranscript = undefined;
       this.transcriptSource = {
@@ -1624,45 +1393,30 @@ export class ChatController {
       model: emptyModel(),
     }));
     this.rejectPending("the program is gone");
+    this.sendNextQueued();
   }
 
   held(): void {
-    this.update((prev) => (prev.phase === "ready" ? { ...prev, phase: "held" } : prev));
+    this.update(heldTab);
   }
 
-  /**
-   * Starts the program when it is not running and takes in what it has said
-   * so far: what the tab shows then is all the conversation had before one
-   * more message.
-   */
+  private holdUnread(): void {
+    this.update((prev) => holdUnread(prev, (id) => this.hooks.relayedFrom?.(id)));
+  }
+
   async prepareSend(): Promise<void> {
     if (!(await this.ensureRunning())) throw new Error("Claude is not running");
     this.flushNow();
   }
 
-  /** Sends a message now: during a turn, Claude reads it after the current tool. */
-  /**
-   * Sends a message. One another agent sends through the nexus command
-   * (`from`) is led by a line that tells Claude who sent it.
-   */
   send(text: string, images: ImageBlock[] = [], from?: RelaySender, id?: string): Promise<void> {
     return this.sendMessage(text, images, false, from, id);
   }
 
-  /**
-   * Sends a message Claude reads at once (⌘↩): during a turn, what Claude
-   * runs that can go on in the background goes there, and the turn stops
-   * for the message when nothing can.
-   */
   sendNow(text: string, images: ImageBlock[] = [], from?: RelaySender, id?: string): Promise<void> {
     return this.sendMessage(text, images, true, from, id);
   }
 
-  /**
-   * Has Claude read at once the messages it holds for after its tool calls
-   * (⌘↩ with nothing typed): the calls go on in the background, or the
-   * turn stops when none can, and Claude reads the messages next.
-   */
   async readHeldNow(): Promise<void> {
     if (this.supports("background_tasks")) {
       const result = await this.request("background_tasks", {}).catch(() => undefined);
@@ -1671,11 +1425,6 @@ export class ChatController {
     await this.interrupt();
   }
 
-  /**
-   * Takes back a message written during the turn that Claude has not read
-   * (↑, or its pencil or ×): true when Claude dropped it, false when it was
-   * read first. The lifecycle event that tells the drop takes it off the list.
-   */
   async withdraw(sentUuid: string): Promise<boolean> {
     const result = await this.request("cancel_async_message", { message_uuid: sentUuid });
     return result.cancelled === true;
@@ -1690,8 +1439,6 @@ export class ChatController {
     queued = false,
   ): Promise<undefined> {
     if (!(await this.ensureRunning())) throw new Error("Claude is not running");
-    // A program just started takes the tab's flags and pick first, so its
-    // first turn runs with them. The chain settles on its own failures.
     await this.initializing;
     const restart = this.connectionRestart.whenIdle();
     if (restart && !(await this.connectionRestart.wait(restart)))
@@ -1706,7 +1453,6 @@ export class ChatController {
       this.hooks.onFirstMessage?.(first);
     }
     const message = userMessageOf(from ? relayedText(from, text) : text, images, now, id);
-    // Kept before Claude echoes it, so it never shows as the user's.
     if (from) this.hooks.onRelayed?.({ id: String(message.uuid), from, at: Date.now() });
     this.writingUserMessage += 1;
     try {
@@ -1717,14 +1463,9 @@ export class ChatController {
       this.writingUserMessage -= 1;
     }
     if (id) this.hooks.onPeerWritten?.(id);
-    // A session the user named, or the tab, keeps that name; Claude makes it none.
     if (first && !this.named && !this.ownName) void this.nameSession(first);
   }
 
-  /**
-   * Has Claude name the conversation from its first message, as the terminal
-   * does: the title is kept in the session, where a later tab finds it.
-   */
   private async nameSession(text: string): Promise<void> {
     const result = await this.request("generate_session_title", {
       description: text.slice(0, TITLE_FROM_CHARS),
@@ -1734,15 +1475,10 @@ export class ChatController {
     if (title) this.hooks.onTitle?.(title);
   }
 
-  /** The composer took the message a rewind or fork put back. */
   clearDraft(): void {
     this.update((prev) => (prev.draft ? { ...prev, draft: undefined } : prev));
   }
 
-  /**
-   * Holds a message until the turn ends (⌘⇧↩): its id while it is held,
-   * none when no turn runs and it went at once.
-   */
   enqueue(
     text: string,
     images: ImageBlock[] = [],
@@ -1759,35 +1495,16 @@ export class ChatController {
       ...(device ? { device } : {}),
     };
     this.update((prev) => ({ ...prev, queue: [...prev.queue, item] }));
-    if (!this.state.model.running) this.sendNextQueued();
+    this.sendNextQueued();
     return this.state.queue.some((entry) => entry.id === item.id) ? item.id : undefined;
   }
 
   removeQueued(id: string): QueuedMessage | undefined {
-    const item = this.state.queue.find((q) => q.id === id && q.status !== "sending");
-    if (!item) return undefined;
-    this.update((prev) => cancelQueuedMessage(prev, id));
-    return item;
+    return removeQueuedIn(this.state, (change) => this.update(change), id);
   }
 
-  /**
-   * Changes a held message's text, its images kept: false once it went.
-   * Changed from another computer (`device`), it is that computer user's
-   * now, no longer the agent's that sent it.
-   */
   editQueued(id: string, text: string, device?: string, from?: RelaySender): boolean {
-    if (!this.state.queue.some((q) => q.id === id && !q.status)) return false;
-    this.update((prev) => ({
-      ...prev,
-      queue: prev.queue.map((q) => {
-        if (q.id !== id) return q;
-        if (from) return { ...q, text, from, device };
-        if (!device) return { ...q, text };
-        const { from: _agent, ...rest } = q;
-        return { ...rest, text, device };
-      }),
-    }));
-    return true;
+    return editQueuedIn(this.state, (change) => this.update(change), id, text, device, from);
   }
 
   private sendNextQueued(): void {
@@ -1800,8 +1517,17 @@ export class ChatController {
       (id) => this.sawQueuedMessage(id),
       () => {
         this.flushNow();
-        if (!this.state.model.running) this.sendNextQueued();
+        this.sendNextQueued();
       },
+      (item) => this.canSendQueued(item),
+    );
+  }
+
+  private canSendQueued(item: QueuedMessage): boolean {
+    return (
+      !this.disposed &&
+      this.state.phase !== "held" &&
+      (!this.state.model.running || item.afterTool !== undefined)
     );
   }
 
@@ -1811,7 +1537,6 @@ export class ChatController {
     );
   }
 
-  /** Interrupts the current turn and releases its controls if the request fails. */
   async interrupt(): Promise<unknown> {
     const requestId = nextRequestId();
     try {
@@ -1838,13 +1563,10 @@ export class ChatController {
   }
 
   private requestModel(model: string): Promise<Record<string, unknown>> {
-    // Claude can add a 1M context override to its default alias on a custom endpoint.
     const selected = model === "default" ? (this.claudeProfileDefaultModel ?? model) : model;
     return this.request("set_model", { model: selected });
   }
 
-  // A pick Claude Code takes holds for the tab: a program started again for
-  // it takes it too. One it refuses is not kept, so no start gives it again.
   setModel(model: string): Promise<unknown> {
     return this.shownAtOnce("model", model, () => this.requestModel(model)).then((answer) => {
       this.chosenModel = model;
@@ -1863,12 +1585,6 @@ export class ChatController {
     });
   }
 
-  /**
-   * A setting the user picked, shown at once rather than when Claude Code
-   * answers; its answer then says what holds (it may say another mode).
-   * One that fails puts back what was shown, unless something has changed
-   * it since.
-   */
   private shownAtOnce(
     key: "permissionMode" | "model" | "effort",
     value: string,
@@ -1884,17 +1600,10 @@ export class ChatController {
     });
   }
 
-  /** Stops one of the CLI's tasks: a subagent, a command in the background. */
   stopTask(taskId: string): Promise<unknown> {
     return this.request("stop_task", { task_id: taskId });
   }
 
-  /**
-   * Asks for what the side panel shows that only a request tells: the
-   * context, the plan's usage, the MCP servers. Only while the program
-   * runs, and the servers once its initialize ended; the answers land in
-   * the model.
-   */
   refreshPanel(parts: readonly PanelPart[]): void {
     if (!this.lineCanAsk()) return;
     for (const part of parts) {
@@ -1903,9 +1612,6 @@ export class ChatController {
         continue;
       }
       if (part === "usage") {
-        // The user opened it: the profile's store asks, sooner than it would.
-        // After the program's initialize: asked before it ends, no tab of the
-        // profile is ready to ask, and the store leaves it to the next ask.
         void this.initializing
           .catch(() => {})
           .then(() => wantPlanUsage(this.usageKey(), { force: true }));
@@ -1913,13 +1619,10 @@ export class ChatController {
       }
       const subtype = PANEL_REQUESTS[part];
       if (!this.supports(subtype)) continue;
-      // After the program's initialize: asked before it ends, the MCP servers
-      // are not up yet and come back as none, which the panel would keep.
       void this.initializing.catch(() => {}).then(() => this.askPanel(part, subtype));
     }
   }
 
-  /** Asks for a part of the panel; MCP servers said to be none, again a little later. */
   private askPanel(part: PanelPart, subtype: string): void {
     if (!this.lineCanAsk()) return;
     this.request(subtype, this.panelParams(part))
@@ -1932,12 +1635,6 @@ export class ChatController {
       .catch(() => {});
   }
 
-  /**
-   * Asks again for what the line under the composer shows, as the tab is
-   * shown or its program comes up: the context, after the program's
-   * initialize, which a first ask could otherwise pass; and the profile's
-   * plan usage, which its store asks for when it is time.
-   */
   refreshUsageLine(): void {
     if (!this.lineCanAsk()) return;
     void this.initializing
@@ -1953,16 +1650,11 @@ export class ChatController {
     return !this.disposed && phase === "ready" && model.process === "running";
   }
 
-  /** What a part of the panel is asked with: the plan's limits alone, where the CLI can. */
   private panelParams(part: PanelPart): Record<string, unknown> {
     const version = this.state.version ?? this.state.model.version;
     return part === "usage" && usageSkipsBehaviors(version) ? { skip_behaviors: true } : {};
   }
 
-  /**
-   * The context again: after each turn, the tab shown or not, so the agents
-   * tab has it too, and after a compaction. A failed ask is made once more.
-   */
   private refreshContext(retry = true): void {
     if (!this.lineCanAsk() || !this.supports(PANEL_REQUESTS.context)) return;
     this.contextAsks += 1;
@@ -1977,12 +1669,6 @@ export class ChatController {
     );
   }
 
-  /**
-   * The context a turn began with no count of, asked for as the turn's API
-   * call says what it sent: a tab's first turn, with no one looking at it,
-   * else waits for its end to show any. Once a turn, and not while another
-   * ask is unanswered: from the answer on, each call moves the count on.
-   */
   private askContextBase(): void {
     if (this.contextBaseAsked || this.contextAsks > 0) return;
     if (this.state.model.contextUsage !== undefined) return;
@@ -1995,18 +1681,10 @@ export class ChatController {
     try {
       await this.request("mcp_reconnect", { serverName });
     } finally {
-      // A server that failed to connect again shows how it is now.
       this.refreshPanel(["mcp"]);
     }
   }
 
-  /**
-   * Signs in to an MCP server that needs it: Claude Code makes the sign-in
-   * page, the browser opens it, and comes back to a page on this machine
-   * (main's oauth callbacks) whose address goes back to Claude Code. The
-   * server then connects again. It works the same for a program on an SSH
-   * host, whose own callback the browser could not reach.
-   */
   async mcpAuthenticate(serverName: string): Promise<void> {
     if (this.state.mcpSignIn) this.cancelMcpSignIn();
     const { id, redirectUri } = unwrapIpcResult(await ipcCallResult("chat", "oauthListen", {}));
@@ -2016,7 +1694,6 @@ export class ChatController {
       );
       const authUrl = page.authUrl;
       if (!authUrl) {
-        // Signed in already: nothing to open.
         void ipcCallResult("chat", "oauthCancel", { id });
         await this.request("mcp_reconnect", { serverName });
         return;
@@ -2026,7 +1703,6 @@ export class ChatController {
         openSignInPage(authUrl);
         return;
       }
-      // Waiting before the browser opens, so a sign-in that comes straight back is not missed.
       const back = ipcCallResult("chat", "oauthWait", { id });
       this.update((prev) => ({ ...prev, mcpSignIn: { serverName, authUrl, callbackId: id } }));
       openSignInPage(authUrl);
@@ -2045,12 +1721,6 @@ export class ChatController {
     }
   }
 
-  /**
-   * Starts signing in to an MCP server with another device's browser, its
-   * page coming back to `redirectUri` there: the page to open, none when
-   * signed in already (connected again then); `back` when the page comes
-   * back there, the address it came back to then going to mcpSignedIn.
-   */
   async mcpSignInFor(
     serverName: string,
     redirectUri: string,
@@ -2065,7 +1735,6 @@ export class ChatController {
     return { back: false };
   }
 
-  /** Finishes another device's sign-in: the address its page came back to, to Claude Code. */
   async mcpSignedIn(serverName: string, callbackUrl: string): Promise<void> {
     try {
       await this.request("mcp_oauth_callback_url", { serverName, callbackUrl });
@@ -2075,13 +1744,11 @@ export class ChatController {
     }
   }
 
-  /** Opens the sign-in page under way again. */
   reopenMcpSignIn(): void {
     const signIn = this.state.mcpSignIn;
     if (signIn) openSignInPage(signIn.authUrl);
   }
 
-  /** Stops waiting for the sign-in under way. */
   cancelMcpSignIn(): void {
     const signIn = this.state.mcpSignIn;
     if (!signIn) return;
@@ -2089,50 +1756,27 @@ export class ChatController {
     this.update((prev) => ({ ...prev, mcpSignIn: undefined }));
   }
 
-  /**
-   * Asks Claude a question beside the conversation (/btw): it sees the
-   * conversation, uses no tools, and the question and its answer are not
-   * kept in it. Null when there is no answer.
-   */
   async askAside(question: string): Promise<string | null> {
     await this.settled();
     const body = await this.request("side_question", { question }, SIDE_QUESTION_TIMEOUT_MS);
     return typeof body.response === "string" ? body.response : null;
   }
 
-  /**
-   * Sets settings for the session's flag layer (apply_flag_settings), kept
-   * for the tab: a program started again gets them too. A key given
-   * replaces what it had (a list of folders is given whole).
-   */
   async applyFlags(settings: Record<string, unknown>): Promise<void> {
     await this.settled();
     await this.request("apply_flag_settings", { settings });
     this.flags = { ...this.flags, ...settings };
   }
 
-  /** The folders /add-dir gave the session, beside its own. */
   addedDirectories(): string[] {
     const permissions = this.flags.permissions as { additionalDirectories?: string[] } | undefined;
     return permissions?.additionalDirectories ?? [];
   }
 
-  /**
-   * Sends a running command or subagent to the background (Ctrl+B in the
-   * terminal): its call returns at once and the turn goes on; it ends as a
-   * task of its own.
-   */
   async backgroundTool(toolUseId: string): Promise<void> {
     await this.request("background_tasks", { tool_use_id: toolUseId });
   }
 
-  /**
-   * Hands the conversation to Claude Code's background service (`claude
-   * --bg --resume`), which goes on with it, and with the prompt when there
-   * is one; a tab without a session yet sends just the prompt. The tab's
-   * own program ends first, so that only one goes on with the session.
-   * The background session's id.
-   */
   async sendToBackground(prompt: string): Promise<string> {
     const { workspaceId, tabId, cwd } = this.target;
     const { model } = this.state;
@@ -2162,41 +1806,30 @@ export class ChatController {
     return id;
   }
 
-  /** Has a running program load the plugins again, after one was changed. */
   async reloadPlugins(): Promise<void> {
     if (this.state.model.process !== "running" || !this.supports("reload_plugins")) return;
     await this.request("reload_plugins", {});
   }
 
-  /** Starts the program when it is not running, and waits for its initialize. */
   private async settled(): Promise<void> {
     if (!(await this.ensureRunning())) throw new Error("Claude is not running");
     await this.initializing;
   }
 
-  /** Reads the current sandbox without starting Claude. */
   async cliSandbox() {
     if (this.state.phase !== "ready" || this.state.model.process !== "running") return null;
     const settings = await this.request("get_settings", {});
     return { agent: "claude" as const, enabled: sandboxOn(settings) };
   }
 
-  /** Asks the program now, starting it for the question. */
   async ask(subtype: string): Promise<Record<string, unknown>> {
     await this.settled();
     return this.request(subtype, {});
   }
 
-  /**
-   * What the settings dialog (/config) shows: the settings Claude Code has
-   * now (get_settings), and those of its global config file on the host,
-   * which settings.json may lack; none of the file's when it is not read.
-   * The keys come apart: savedConfigKeys at once, listConfigKeys later.
-   */
   async readConfig(): Promise<{
     effective: Record<string, unknown>;
     global: Record<string, unknown>;
-    /** The model the program runs ("claude-opus-5-5"), whose default effort is shown. */
     model?: string;
   }> {
     const [settings, global] = await Promise.all([
@@ -2223,7 +1856,6 @@ export class ChatController {
     };
   }
 
-  /** Where /config's list is kept for the tab: its workspace's profile, and the version it runs. */
   private configKeysPlace(): { place: string; version: string } {
     const { workspaceId, profileId } = this.target;
     return {
@@ -2232,11 +1864,6 @@ export class ChatController {
     };
   }
 
-  /**
-   * The keys a bare /config listed when last asked for the tab's workspace,
-   * profile and Claude Code version, in this run of the app or an earlier
-   * one; null when they were not.
-   */
   savedConfigKeys(): ListedKey[] | null {
     const { place, version } = this.configKeysPlace();
     try {
@@ -2246,11 +1873,6 @@ export class ChatController {
     }
   }
 
-  /**
-   * The keys a bare /config lists, asked of a `claude -p` run beside the
-   * tab's (once a run of the app) and kept for savedConfigKeys; null when
-   * they were not read.
-   */
   listConfigKeys(): Promise<ListedKey[] | null> {
     const { workspaceId, cwd, profileId } = this.target;
     const { place, version } = this.configKeysPlace();
@@ -2289,13 +1911,6 @@ export class ChatController {
     return listed;
   }
 
-  /**
-   * Applies the settings dialog's changes: its /config messages, which save
-   * the defaults (and switch the session to a new default model), then the
-   * default effort, saved for the model the session runs as Claude Code's
-   * /effort saves it. The tab's own chips take both, as the CLI's session
-   * does.
-   */
   async applyConfig(
     messages: readonly string[],
     after: { model?: string; effort?: string } = {},
@@ -2311,12 +1926,6 @@ export class ChatController {
     }
   }
 
-  /**
-   * Sends Claude Code's own commands as messages (/config key=value),
-   * which it runs without the model: unlike a message, they do not name
-   * the conversation. Each goes once the one before is done, so that it
-   * is not taken for a message waiting on a turn.
-   */
   async sendCommands(texts: readonly string[], waitForLast = false): Promise<void> {
     for (const [index, text] of texts.entries()) {
       if (!(await this.ensureRunning())) throw new Error("Claude is not running");
@@ -2330,7 +1939,6 @@ export class ChatController {
     }
   }
 
-  /** Waits for a command sent to be done: its turn ended, or a while. */
   private async commandDone(uuid: string): Promise<void> {
     const deadline = Date.now() + COMMAND_DONE_MS;
     while (!this.disposed && Date.now() < deadline) {
@@ -2341,11 +1949,6 @@ export class ChatController {
     }
   }
 
-  /**
-   * Reads in the session's transcript how its goal stands, while the tab
-   * has it running: a check that finds it met, or impossible, ends the
-   * turn, and only the transcript says so.
-   */
   private async syncGoal(latestPage = false): Promise<void> {
     const sessionId = this.state.model.sessionId ?? this.sessionId;
     if (this.disposed || this.state.model.goal?.status !== "active" || !sessionId) return;
@@ -2368,10 +1971,6 @@ export class ChatController {
     }
   }
 
-  /**
-   * Clears the goal (/goal clear). Claude Code runs the command once the
-   * turn ends, which a goal holds off until it is met: the turn stops first.
-   */
   async clearGoal(): Promise<void> {
     if (this.state.model.running) {
       await this.interrupt().catch(() => {});
@@ -2384,14 +1983,12 @@ export class ChatController {
     await this.sendCommands(["/goal clear"], true);
   }
 
-  /** Shows a card above the composer, in place of the one before; its id, to fill it in. */
   showCard(card: Omit<CommandCard, "id">): string {
     const id = nextRequestId();
     this.update((prev) => ({ ...prev, card: { ...card, id } }));
     return id;
   }
 
-  /** Fills in a card that is still shown. */
   updateCard(id: string, patch: Partial<Omit<CommandCard, "id">>): void {
     this.update((prev) =>
       prev.card?.id === id ? { ...prev, card: { ...prev.card, ...patch } } : prev,
@@ -2410,11 +2007,6 @@ export class ChatController {
     }
   }
 
-  /**
-   * The CLI's suggestions for an @-mention, as its own prompt lists them:
-   * paths relative to the session's folder, or absolute; a folder ends in
-   * a separator. None while the program does not run.
-   */
   async fileSuggestions(query: string): Promise<string[]> {
     const { phase, model } = this.state;
     if (phase !== "ready" || model.process !== "running") return [];
@@ -2427,20 +2019,10 @@ export class ChatController {
     });
   }
 
-  /**
-   * Writes a file attached to a message where the program can read it,
-   * and returns its path there.
-   */
-  async attach(name: string, data: string): Promise<string> {
-    const { workspaceId, tabId } = this.target;
-    const result = unwrapIpcResult(
-      await ipcCallResult("chat", "attach", { workspaceId, tabId, name, data }),
-    );
-    pruneAttachmentsAfterAttach(workspaceId);
-    return result.path;
+  attach(name: string, data: string): Promise<string> {
+    return attachToTab(this.target, name, data);
   }
 
-  /** Turns Remote Control on or off; on, its answer has the session's URL. */
   setRemoteControl(enabled?: boolean): Promise<{ enabled: boolean; url?: string }> {
     const deadline = performance.now() + 45_000;
     const change = this.remoteControlChange.then(async () => {
@@ -2501,8 +2083,6 @@ export class ChatController {
       type: "control_response",
       response: { subtype: "success", request_id: request.requestId, response: body },
     });
-    // The session's status, from its hooks, waits on the dialog until the
-    // call ends: told now that none is open.
     const open = this.state.model.permissions.some((p) => p.requestId !== request.requestId);
     if (!open) {
       const { workspaceId, tabId } = this.target;
@@ -2513,7 +2093,6 @@ export class ChatController {
     }
   }
 
-  /** Sends a control request and waits for its answer. */
   request(
     subtype: string,
     params: Record<string, unknown>,
@@ -2559,7 +2138,6 @@ export class ChatController {
     );
   }
 
-  /** An eagerly initialized empty tab can still start its first prompt with a new system prompt. */
   private async refreshFreshInstructions(): Promise<void> {
     const { running, items } = this.state.model;
     if (
@@ -2578,7 +2156,6 @@ export class ChatController {
     });
   }
 
-  /** Starts the program again when it is not running, for a message to go to. */
   private async ensureRunning(): Promise<boolean> {
     if (this.disposed || this.changingSession) return false;
     if (this.opening) {
@@ -2595,7 +2172,6 @@ export class ChatController {
     return this.start(this.startArgs());
   }
 
-  /** A line from the agent, buffered for the next frame. */
   receive(line: ChatLine): void {
     if (this.disposed) return;
     if (!line.replay) this.inspectLive(line);
@@ -2605,7 +2181,6 @@ export class ChatController {
     else if (this.flushTimer === null) this.flushTimer = setTimeout(() => this.flushNow(), 16);
   }
 
-  /** What a live line asks of the controller, beyond the model. */
   private inspectLive(line: ChatLine): void {
     const message = line.message as Record<string, unknown> | undefined;
     if (line.dir !== "out" || !message) return;
@@ -2622,9 +2197,6 @@ export class ChatController {
       message.type === "result" ||
       (message.type === "system" && message.subtype === "compact_boundary")
     ) {
-      // Each turn's end, whoever began it: the app, a message the CLI took
-      // after the last turn, Remote Control, a background task's news. The
-      // profile's usage too, which its store asks for when it is time.
       this.refreshContext();
       if (message.type === "result") {
         this.contextBaseAsked = false;
@@ -2634,8 +2206,6 @@ export class ChatController {
         for (const ms of GOAL_SYNC_MS) setTimeout(() => void this.syncGoal(), ms);
       }
     } else if (message.type === "system" && message.subtype === "session_title_changed") {
-      // Said when the name changes, and as the program starts on a session
-      // that has one; the CLI has trimmed it and made it unique.
       const title = typeof message.title === "string" ? message.title.trim() : "";
       if (title && title !== this.sessionName) {
         this.sessionName = title;
@@ -2644,7 +2214,6 @@ export class ChatController {
       }
     } else if (message.type === "control_request") {
       const request = message.request as Record<string, unknown> | undefined;
-      // Requests the app has no answer for are refused, so the CLI does not wait.
       if (request?.subtype !== "can_use_tool" && typeof message.request_id === "string") {
         void this.write({
           type: "control_response",
@@ -2674,6 +2243,8 @@ export class ChatController {
       model,
       phase: phaseAfter(prev.phase, model),
     }));
+    if (!this.changingSession && model.process === "exited" && lines.some(liveExit))
+      this.holdUnread();
     this.afterModel(before, model);
     if (lines.some(liveMainCall)) this.askContextBase();
     if (model.lastResult !== before.lastResult && lines.some(liveClaudeResult))
@@ -2694,13 +2265,8 @@ export class ChatController {
       }
     }
     if (before.goal !== model.goal) this.liveGoalChanged = true;
-    // The mode the program is in, for one started again in the tab to go on in.
     if (model.permissionMode) this.lastMode = model.permissionMode;
     if (model.sessionId && model.sessionId !== this.sessionId) {
-      // The copy a fork made has its own id now: the tab goes on with it,
-      // and a branch takes its name.
-      // A name the user gave the tab before goes first; the tab's own
-      // name names a new session after /clear or another profile.
       const name = this.pendingName ?? this.target.fork?.title ?? this.ownName;
       if (this.sessionId && !this.changingSession) this.sandboxSessionId = crypto.randomUUID();
       this.sessionId = model.sessionId;
@@ -2710,7 +2276,6 @@ export class ChatController {
         if (name) void this.renameSession(name).catch(() => {});
       }
     }
-    // What the tab showed before a /clear, a command's card too, is another session's.
     if ((model.clears ?? 0) !== (before.clears ?? 0)) {
       this.sandboxSessionId = crypto.randomUUID();
       this.resetTranscript();
@@ -2739,7 +2304,6 @@ export class ChatController {
     }
   }
 
-  /** The tab was closed: the program ends and its log is forgotten. */
   async close(): Promise<void> {
     const { workspaceId, tabId } = this.target;
     this.dispose();
@@ -2752,6 +2316,7 @@ export class ChatController {
     if (this.flushTimer !== null) clearTimeout(this.flushTimer);
     this.disposed = true;
     this.connectionRestart.dispose();
+    this.resyncRetry.stop();
     this.removeReceiver?.();
     this.leavePlanUsage();
     useClaudeModelCatalog.getState().forget(this.key);
@@ -2772,7 +2337,14 @@ function liveClaudeResult(line: ChatLine): boolean {
   );
 }
 
-/** A main-thread API call's message, live, which says how much of the context it sent. */
+function liveExit(line: ChatLine): boolean {
+  return (
+    !line.replay &&
+    line.dir === "sys" &&
+    (line.message as { event?: string } | undefined)?.event === "exit"
+  );
+}
+
 function liveMainCall(line: ChatLine): boolean {
   return !line.replay && line.dir === "out" && mainCallContextTokens(line.message) !== undefined;
 }
@@ -2783,7 +2355,6 @@ function phaseAfter(phase: ChatTabState["phase"], model: ChatModel): ChatTabStat
   return phase;
 }
 
-/** The profile a call names, when the tab has one. */
 export function profileArg(profileId: string | undefined): { profileId?: string } {
   return profileId ? { profileId } : {};
 }
@@ -2816,10 +2387,6 @@ function rewindOf(response: Record<string, unknown>): RewindPreview {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Registry: one controller per tab, fed by one set of IPC listeners.
-// ---------------------------------------------------------------------------
-
 const controllers = new Map<string, ChatController>();
 
 registerWorkspaceCleanup((workspaceId) => {
@@ -2828,18 +2395,10 @@ registerWorkspaceCleanup((workspaceId) => {
     if (key.startsWith(prefix)) controller.dispose();
   }
 });
-/** The tab's controller, made on first use. */
-/** Opens an MCP server's sign-in page in the user's browser, as a link in the tab is. */
 function openSignInPage(url: string): void {
   if (/^https?:\/\//i.test(url)) window.open(url, "_blank", "noopener,noreferrer");
 }
 
-/**
- * The sign-in page mcp_authenticate gives, none when signed in already;
- * `back` false when nothing comes back to its redirect: a claude.ai
- * connector is connected on claude.ai, and a version that keeps its own
- * callback takes it on the host it runs on.
- */
 export function signInPageOf(body: unknown): { authUrl?: string; back: boolean } {
   const reply = body as
     | { authUrl?: unknown; callbackExpected?: unknown; callbackPort?: unknown }
@@ -2852,7 +2411,6 @@ export function signInPageOf(body: unknown): { authUrl?: string; back: boolean }
   };
 }
 
-/** The controller of a Claude tab that was shown, if any: its program and requests. */
 export function existingChatController(
   workspaceId: string,
   tabId: string,
@@ -2880,7 +2438,6 @@ export function refreshClaudeProfileConnection(profileId: string): void {
   for (const controller of controllers.values()) controller.profileConnectionChanged(profileId);
 }
 
-/** Ends a closed tab's program, whether or not its view was ever shown. */
 export function closeChatTab(workspaceId: string, tabId: string): void {
   const controller = controllers.get(chatKey(workspaceId, tabId));
   if (controller) {
@@ -2890,14 +2447,6 @@ export function closeChatTab(workspaceId: string, tabId: string): void {
   void ipcCallResult("chat", "close", { workspaceId, tabId }).catch(() => {});
 }
 
-/**
- * The line that sends the user's message. Its uuid is what Claude's echo
- * and lifecycle events name, and what takes it back while it waits.
- * `now` has Claude read it at once during a turn: sent by a person, it moves
- * what can go on in the background there (Claude Code 2.1.286 on); before
- * that version the turn stops for it. Claude Code acts on `now` only for a
- * message with a uuid (2.1.318).
- */
 export function userMessageOf(
   text: string,
   images: readonly ImageBlock[],

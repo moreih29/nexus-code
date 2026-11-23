@@ -1,7 +1,3 @@
-/**
- * The folder nexus workspace add is given, found among the listed
- * workspaces through a link, as macOS's /tmp is to /private/tmp.
- */
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,7 +10,6 @@ const real = path.join(realpathSync(top), "real");
 mkdirSync(path.join(real, "app"), { recursive: true });
 mkdirSync(path.join(real, "lib"));
 const link = path.join(top, "link");
-// A junction needs no privilege on Windows; elsewhere the type is ignored.
 symlinkSync(real, link, "junction");
 afterAll(() => rmSync(top, { recursive: true, force: true }));
 

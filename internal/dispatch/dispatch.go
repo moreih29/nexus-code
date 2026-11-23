@@ -1,8 +1,3 @@
-// Package dispatch maps NDJSON request method names to handler
-// functions. It is intentionally tiny — a name → fn map with success /
-// error envelope wrapping — so domain packages (fs today, git
-// tomorrow) own their own method registration and the wire format
-// stays the only shared contract between them and the channel.
 package dispatch
 
 import (
@@ -13,56 +8,36 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// Handler is the contract every registered method must satisfy.
-// Returning (nil, nil) is a programming error — the dispatcher will
-// surface it as a success response with a null result, which the
-// client cannot distinguish from a void-returning method. Domain
-// handlers must return either a non-nil result or a non-nil error.
 type Handler func(ctx context.Context, params json.RawMessage) (any, error)
 
-// Dispatcher is a method-name → Handler registry. Lookups are
-// read-only after registration completes (during boot), so the maps
-// do not need synchronization.
 type Dispatcher struct {
 	handlers map[string]Handler
 	ordered  map[string]func(json.RawMessage) string
 }
 
-// New constructs an empty Dispatcher ready for Register calls.
 func New() *Dispatcher {
 	return &Dispatcher{handlers: make(map[string]Handler), ordered: make(map[string]func(json.RawMessage) string)}
 }
 
-// Register binds `method` to `handler`. The last registration wins —
-// duplicate names overwrite silently, which keeps the API simple at
-// the cost of catching typo collisions only via tests.
 func (d *Dispatcher) Register(method string, handler Handler) {
 	d.handlers[method] = handler
 	delete(d.ordered, method)
 }
 
-// RegisterOrdered binds `method` like Register, and asks the host to run
-// its requests one at a time, in the order they arrived, instead of each
-// on its own goroutine. The order holds across every ordered method.
 func (d *Dispatcher) RegisterOrdered(method string, handler Handler) {
 	d.RegisterOrderedBy(method, handler, nil)
 }
 
-// RegisterOrderedBy runs matching requests in arrival order for each key.
-// Methods with the same key share a queue, including consecutive requests
-// that use different methods. A nil key function uses the default queue.
 func (d *Dispatcher) RegisterOrderedBy(method string, handler Handler, key func(json.RawMessage) string) {
 	d.handlers[method] = handler
 	d.ordered[method] = key
 }
 
-// Ordered reports whether `method` was registered with RegisterOrdered.
 func (d *Dispatcher) Ordered(method string) bool {
 	_, ok := d.ordered[method]
 	return ok
 }
 
-// OrderKey returns the queue for a request registered as ordered.
 func (d *Dispatcher) OrderKey(req proto.Request) (string, bool) {
 	key, ordered := d.ordered[req.Method]
 	if key == nil {
@@ -71,21 +46,15 @@ func (d *Dispatcher) OrderKey(req proto.Request) (string, bool) {
 	return key(req.Params), true
 }
 
-// Methods returns a sorted slice of all registered method names.
-// Intended for inclusion in the boot Ready frame so the client can
-// enumerate available methods without probing each one individually.
 func (d *Dispatcher) Methods() []string {
 	names := make([]string, 0, len(d.handlers))
 	for name := range d.handlers {
 		names = append(names, name)
 	}
-	// 알파벳 순 정렬로 결정론적 순서를 보장한다.
 	sortStrings(names)
 	return names
 }
 
-// sortStrings sorts a string slice in place (insertion sort — small N,
-// no import dependency on sort package).
 func sortStrings(s []string) {
 	for i := 1; i < len(s); i++ {
 		key := s[i]
@@ -98,14 +67,6 @@ func sortStrings(s []string) {
 	}
 }
 
-// Dispatch looks up the request's method and runs it. The two terminal
-// shapes are:
-//   - unknown method   → proto.Failure with CodeUnsupported
-//   - handler error    → proto.ErrorResponse (preserves the error's code)
-//   - handler success  → proto.Success carrying the result payload
-//
-// The context passes through to the handler so it can honor cancellation
-// — the host cancels its context during SIGTERM drain.
 func (d *Dispatcher) Dispatch(ctx context.Context, req proto.Request) proto.Response {
 	handler := d.handlers[req.Method]
 	if handler == nil {

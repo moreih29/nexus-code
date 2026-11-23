@@ -56,7 +56,6 @@ describe("app commands", () => {
     });
     expect(parseAppCommand("  /COPY 2 ", [])).toEqual({ name: "copy", args: "2" });
     expect(parseAppCommand("/quit", [])).toEqual({ name: "exit", args: "" });
-    // The CLI's own, and ordinary messages, are sent.
     expect(parseAppCommand("/help", [{ name: "help" }])).toBeNull();
     expect(parseAppCommand("/compact", [])).toBeNull();
     expect(parseAppCommand("please /copy", [])).toBeNull();
@@ -227,7 +226,6 @@ describe("the CLI's commands its headless mode lacks", () => {
       content: "# Plan",
       path: "/h/.claude/plans/a.md",
     });
-    // A cloud session's plan has no file here.
     expect(planOf({ exists: true, content: "# Plan" })).toEqual({ content: "# Plan" });
     expect(planOf({ exists: false })).toBeNull();
     expect(planOf(undefined)).toBeNull();

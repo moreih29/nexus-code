@@ -11,7 +11,6 @@ import (
 
 type deadlineStdin struct{ *os.File }
 
-// newChatStdin creates a pollable write end and the child's ordinary stdin.
 func newChatStdin(_ string) (stdinWriter, *os.File, error) {
 	child, parent, err := os.Pipe()
 	if err != nil {

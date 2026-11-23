@@ -13,19 +13,12 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// symlinkFallback stands in for the symbolic link at src, to target, that
-// could not be created at dst. Windows lets only an administrator, or a PC in
-// Developer Mode, create one, so copying a folder with a link in it, such as
-// a junction pnpm puts in node_modules, failed. A link to a directory becomes
-// a junction to it, which needs no privilege; a link to a file becomes a copy
-// of the file. A relative target leads where the copied link would.
 func symlinkFallback(ctx context.Context, src, dst, target string, err error) (bool, error) {
 	if !errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD) {
 		return false, err
 	}
 	info, statErr := os.Stat(src)
 	if statErr != nil {
-		// A dangling link leads nowhere to stand in for.
 		return false, err
 	}
 	if !info.IsDir() {

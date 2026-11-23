@@ -9,14 +9,12 @@ import (
 	"testing"
 )
 
-// tagListExpected mirrors the fixture expected.json for git.tag.list.
 type tagListExpected struct {
 	Method string `json:"method"`
 	Case   string `json:"case"`
 	Result []Tag  `json:"result"`
 }
 
-// TestTagListFixtures verifies every tag list fixture against parseTagList.
 func TestTagListFixtures(t *testing.T) {
 	fixtureRoot := fixtureDir("tag")
 	entries, err := os.ReadDir(fixtureRoot)
@@ -57,7 +55,6 @@ func TestTagListFixtures(t *testing.T) {
 	t.Logf("loaded %d tag list fixtures", loaded)
 }
 
-// TestTagNameInvalidRejected verifies invalid tag names are rejected before git.
 func TestTagNameInvalidRejected(t *testing.T) {
 	service := New(t.TempDir())
 	cases := []string{"", "-bad"}
@@ -70,7 +67,6 @@ func TestTagNameInvalidRejected(t *testing.T) {
 	}
 }
 
-// TestParseRemoteTagList verifies parseRemoteTagList parses standard ls-remote output.
 func TestParseRemoteTagList(t *testing.T) {
 	stdout := "abc123\trefs/tags/v1.0.0\ndef456\trefs/tags/v2.0.0\n"
 	got := parseRemoteTagList(stdout, "origin")
@@ -82,7 +78,6 @@ func TestParseRemoteTagList(t *testing.T) {
 	}
 }
 
-// TestParseRemoteTagListDereferenced verifies ^{} refs are excluded.
 func TestParseRemoteTagListDereferenced(t *testing.T) {
 	stdout := "abc123\trefs/tags/v1.0.0\ndef456\trefs/tags/v1.0.0^{}\n"
 	got := parseRemoteTagList(stdout, "origin")

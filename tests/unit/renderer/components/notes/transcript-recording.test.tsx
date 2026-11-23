@@ -1,4 +1,3 @@
-/** The person the transcript shows alone, above its lines. */
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 

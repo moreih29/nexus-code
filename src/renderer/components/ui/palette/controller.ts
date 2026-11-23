@@ -41,21 +41,6 @@ export function initialPaletteSearchSnapshot<
 
 const GRACE_PERIOD_MS = 100;
 
-/**
- * Drives query-based palettes (command palette, workspace-symbol search…)
- * against an external `PaletteSource`. Owns three pieces of state the caller
- * would otherwise have to wire up by hand:
- *
- *  - debounce: queries within `debounceMs` collapse to a single fetch
- *  - cancellation: a new query aborts the previous in-flight request via
- *    `AbortController`
- *  - grace period: when a fast in-flight request finishes within
- *    `GRACE_PERIOD_MS`, the loading flash is suppressed to avoid spinner
- *    flicker
- *
- * Snapshots are pushed to `onChange` on every status transition so the
- * subscribing UI can render in a single store read.
- */
 export class PaletteSearchController<TItem extends PaletteItem> {
   private debounceTimer: unknown | null = null;
   private graceTimer: unknown | null = null;
@@ -79,10 +64,6 @@ export class PaletteSearchController<TItem extends PaletteItem> {
     this.pendingQuery = null;
 
     if (query.trim().length < 1) {
-      // Sources that enumerate a small bounded set (branch picker, etc.) opt
-      // into running search() on empty query so the list appears as soon as
-      // the picker opens. The debounce path is skipped because there is no
-      // typing to coalesce.
       if (this.source.searchOnEmptyQuery === true) {
         this.scheduleRun(query);
         return;
@@ -121,29 +102,18 @@ export class PaletteSearchController<TItem extends PaletteItem> {
     }, this.debounceMs);
   }
 
-  /**
-   * Cancels any pending debounce timer and immediately executes the search for
-   * the current pending query (or awaits the already-running search if one is
-   * in-flight). Returns the snapshot that results from the completed search.
-   *
-   * This is used by the command-palette accept handler so that pressing Enter
-   * during a debounce delay does not read a stale snapshot — the latest search
-   * result is available synchronously after the returned promise resolves.
-   */
   async flush(): Promise<PaletteSearchSnapshot<TItem>> {
     if (this.disposed) {
       return this.lastSnapshot ?? { status: "idle", query: "", items: [], activeIndex: -1 };
     }
 
     if (this.pendingQuery !== null) {
-      // A debounce is in progress: cancel the timers and run immediately.
       const query = this.pendingQuery;
       this.cancelTimers();
       this.pendingQuery = null;
       this.scheduleRun(query);
     }
 
-    // Await the in-flight search (either pre-existing or just started above).
     if (this.inFlightPromise !== null) {
       await this.inFlightPromise;
     }
@@ -159,7 +129,6 @@ export class PaletteSearchController<TItem extends PaletteItem> {
     this.lastSnapshot = null;
   }
 
-  /** Starts run() and stores the promise in inFlightPromise so flush() can await it. */
   private scheduleRun(query: string): void {
     this.inFlightPromise = this.run(query);
   }
@@ -243,11 +212,6 @@ export interface PaletteKeyInput {
   shiftKey?: boolean;
 }
 
-/**
- * Converts a keyboard or pointer event shape into the modifier payload passed
- * to PaletteSource.accept so sources can branch on user intent without reading
- * DOM events directly.
- */
 export function paletteModifiersFromInput(input: {
   metaKey?: boolean;
   ctrlKey?: boolean;
@@ -262,11 +226,6 @@ export function paletteModifiersFromInput(input: {
   };
 }
 
-/**
- * Builds the accept context used by the frame/controller boundary. Mode keeps
- * the existing Cmd/Ctrl+Enter split-open contract while modifiers exposes the
- * raw key state for git pickers and future palette actions.
- */
 export function paletteAcceptContextFromInput(
   input: {
     key?: string;

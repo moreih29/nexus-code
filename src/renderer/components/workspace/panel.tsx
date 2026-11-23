@@ -1,25 +1,17 @@
 import { memo, useCallback, useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import { openTerminal } from "@/services/terminal";
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { bannerEventId, useBannerDismissal } from "../../hooks/use-banner-dismissal";
-import { retryWorkspaceConnection } from "../../state/operations/workspace-selection";
 import { useLayoutStore } from "../../state/stores/layout";
 import { type Tab, useTabsStore } from "../../state/stores/tabs";
 import { useTerminalDeathStore } from "../../state/stores/terminal-deaths";
-import {
-  selectIsWorkspaceOnline,
-  selectWorkspaceConnectionProgress,
-  selectWorkspaceConnectionStatus,
-  useWorkspacesStore,
-} from "../../state/stores/workspaces";
-import { EmptyState } from "../ui/empty-state";
+import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/workspaces";
 import { ErrorBoundary } from "../ui/error-boundary";
 import { StatusBar } from "../workbench/status-bar";
-import { BootstrapProgressBar } from "./bootstrap-progress-bar";
 import { ContentPool } from "./content/pool";
 import { LayoutTree } from "./layout/tree";
+import { OfflineWorkspace } from "./offline-workspace";
 import {
   deadTerminalTabs,
   requestReopenForDeadTerminalTabs,
@@ -27,41 +19,21 @@ import {
   WorkspaceTerminalStatusBanner,
 } from "./terminal-status-banner";
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
 interface WorkspacePanelProps {
   workspace: WorkspaceMeta;
   isActive: boolean;
 }
 
-// Stable empty fallback — returning a fresh `{}` from the selector would change
-// identity on every render and trip useSyncExternalStore's infinite-loop guard.
 const EMPTY_TABS: Record<string, Tab> = {};
 
-// ---------------------------------------------------------------------------
-// Component — owns one workspace's layout; mounted once and kept alive
-// (via CSS hide) so PTYs survive across workspace switches.
-// ---------------------------------------------------------------------------
-
-// Memoized: a panel renders for its own workspace and stores, not each time
-// App does (a switch, the agent view's toggle, another workspace's news).
 export const WorkspacePanel = memo(function WorkspacePanel({
   workspace,
   isActive,
 }: WorkspacePanelProps) {
-  const { t } = useTranslation();
   const layout = useLayoutStore((s) => s.byWorkspace[workspace.id]);
   const tabs = useTabsStore((s) => s.byWorkspace[workspace.id] ?? EMPTY_TABS);
   const aggregate = useTerminalDeathStore((s) => s.aggregateByWorkspaceId[workspace.id] ?? null);
   const workspaceOnline = useWorkspacesStore((s) => selectIsWorkspaceOnline(s, workspace.id));
-  const connectionStatus = useWorkspacesStore((s) =>
-    selectWorkspaceConnectionStatus(s, workspace.id),
-  );
-  const connectionProgress = useWorkspacesStore((s) =>
-    selectWorkspaceConnectionProgress(s, workspace.id),
-  );
   const deadTerminalCount = deadTerminalTabs(tabs).length;
   const showTerminalStatusBanner = shouldShowWorkspaceTerminalStatusBanner({
     aggregate,
@@ -74,18 +46,9 @@ export const WorkspacePanel = memo(function WorkspacePanel({
     aggregate ? [bannerEventId(aggregate), deadTerminalCount] : undefined,
   );
 
-  // Whether this workspace needs an offline placeholder instead of the normal panel.
-  // Only SSH workspaces that have not yet connected show the placeholder.
   const isRemoteWorkspace = workspace.location.kind !== "local";
   const showOfflinePlaceholder = isRemoteWorkspace && !workspaceOnline;
-  // Distinguish "session expired during reconnect" from a plain connection failure
-  // so the copy is not misleading (user never triggered a disconnect).
-  const isSessionExpired = connectionStatus === "held-then-expired";
 
-  // Auto-seed: ensure layout exists and seed a terminal the first time this
-  // panel mounts with an empty tab slice. Only runs when the workspace is
-  // online (connected) — skipped for disconnected SSH workspaces to avoid
-  // triggering a password prompt before the user explicitly connects.
   useEffect(() => {
     if (showOfflinePlaceholder) return;
 
@@ -98,33 +61,15 @@ export const WorkspacePanel = memo(function WorkspacePanel({
     if (hasNoTabs) {
       openTerminal({ workspaceId: workspace.id, cwd: workspace.rootPath });
     }
-    // Re-run when the workspace comes online after starting disconnected so
-    // the terminal seeds once connection is established.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace.id, workspace.rootPath, showOfflinePlaceholder]);
 
-  // Stable so GroupView's focus listeners are not torn down and re-added on
-  // every panel render.
   const handleActivateGroup = useCallback(
     (groupId: string) => useLayoutStore.getState().setActiveGroup(workspace.id, groupId),
     [workspace.id],
   );
 
-  /** Retry the connection for this workspace's existing panel. */
-  function handleConnect(): void {
-    retryWorkspaceConnection(workspace.id);
-  }
-
   if (showOfflinePlaceholder) {
-    const isError = connectionStatus === "error";
-    const isConnecting = connectionStatus === "connecting" || connectionStatus === "reconnecting";
-    const isWsl = workspace.location.kind === "wsl";
-    const sshLabel =
-      workspace.location.kind === "ssh"
-        ? `${workspace.location.user ? `${workspace.location.user}@` : ""}${workspace.location.host}`
-        : workspace.location.kind === "wsl"
-          ? workspace.location.distro
-          : "";
     return (
       <div
         className={cn(
@@ -135,43 +80,7 @@ export const WorkspacePanel = memo(function WorkspacePanel({
         inert={!isActive || undefined}
       >
         <div className="relative flex flex-1 items-center justify-center island-surface rounded-(--radius-island) overflow-hidden">
-          {isSessionExpired ? (
-            // "held-then-expired": daemon was replaced while PTY sessions were
-            // on hold. Use distinct copy so the user understands this is a
-            // timeout, not a connection failure they triggered.
-            <EmptyState
-              title={t("panel.session_expired")}
-              description={t("panel.session_expired_desc")}
-              actionLabel={t("action.connect")}
-              onAction={handleConnect}
-              tone="status"
-            />
-          ) : (
-            <EmptyState
-              title={isError ? t("panel.connection_failed") : workspace.name}
-              description={
-                isError
-                  ? t(isWsl ? "panel.could_not_start_wsl" : "panel.could_not_connect", {
-                      label: sshLabel,
-                    })
-                  : sshLabel
-                    ? t(isWsl ? "panel.wsl_workspace" : "panel.ssh_workspace", { label: sshLabel })
-                    : undefined
-              }
-              actionLabel={isError ? t("action.retry") : t("action.connect")}
-              onAction={handleConnect}
-              tone="status"
-            />
-          )}
-          {isConnecting && connectionProgress && (
-            <BootstrapProgressBar
-              phase={connectionProgress.phase}
-              name={connectionProgress.name}
-              bytesDone={connectionProgress.bytesDone}
-              bytesTotal={connectionProgress.bytesTotal}
-              className="absolute bottom-0 left-0 right-0 px-5 pb-4"
-            />
-          )}
+          <OfflineWorkspace workspaceId={workspace.id} />
         </div>
       </div>
     );
@@ -188,9 +97,6 @@ export const WorkspacePanel = memo(function WorkspacePanel({
       aria-hidden={!isActive || undefined}
       inert={!isActive || undefined}
     >
-      {/* ErrorBoundary: a render crash in one workspace panel is isolated so
-          other mounted workspace panels (including any active one) survive.
-          The logSource includes the workspace id for tracing in the log file. */}
       <ErrorBoundary logSource={`workspace-panel:${workspace.id}`}>
         {showTerminalStatusBanner && !terminalNotice.dismissed && (
           <WorkspaceTerminalStatusBanner
@@ -216,7 +122,3 @@ export const WorkspacePanel = memo(function WorkspacePanel({
     </div>
   );
 });
-
-// ---------------------------------------------------------------------------
-// Bootstrap progress bar
-// ---------------------------------------------------------------------------

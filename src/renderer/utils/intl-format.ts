@@ -1,10 +1,3 @@
-/**
- * Intl formatters, made once per locale and options. Making one is costly
- * (each `new Intl.DateTimeFormat`, and each `toLocaleString`, which makes one
- * underneath), and the chat makes them on every render: a time under each
- * message, a reset time on each meter.
- */
-
 const dateTimes = new Map<string, Intl.DateTimeFormat>();
 const relatives = new Map<string, Intl.RelativeTimeFormat>();
 
@@ -34,7 +27,6 @@ export function relativeTimeFormat(
   return format;
 }
 
-/** What `Date#toLocaleString(locale)` says, from a kept formatter. */
 export const DATE_AND_TIME: Intl.DateTimeFormatOptions = {
   year: "numeric",
   month: "numeric",
@@ -44,7 +36,6 @@ export const DATE_AND_TIME: Intl.DateTimeFormatOptions = {
   second: "numeric",
 };
 
-/** What `Date#toLocaleDateString(locale)` says, from a kept formatter. */
 export const DATE_ONLY: Intl.DateTimeFormatOptions = {
   year: "numeric",
   month: "numeric",

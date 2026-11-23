@@ -10,8 +10,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Open the resolved absolute path one component at a time. O_NOFOLLOW
-// protects each component if it changes after the grant's symlink checks.
 func openPreviewFile(real string) (*os.File, error) {
 	return openCanonicalPath(real, false)
 }

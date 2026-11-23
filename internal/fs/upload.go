@@ -69,7 +69,6 @@ type fileUpload struct {
 	received int64
 	verified bool
 
-	// Guarded by Service.uploadMu.
 	space    *uploadSpace
 	reserved uint64
 }
@@ -262,7 +261,6 @@ func (s *Service) beginUpload(ctx context.Context, p uploadParams) (_ any, err e
 	return struct{}{}, nil
 }
 
-// Reap only regular files under the generated name and older than a day.
 func removeStaleUploads(ctx context.Context, dir *os.File, target string) {
 	listing, err := openUploadListing(dir)
 	if err != nil {
@@ -315,8 +313,6 @@ func (s *Service) pendingUpload(ctx context.Context, id string) *fileUpload {
 	return nil
 }
 
-// withUpload serializes disk operations for one upload. The room bounds
-// parallel pieces and checks their disjoint coverage before relaying them.
 func (s *Service) withUpload(ctx context.Context, id string, run func(*fileUpload) error) (any, error) {
 	u := s.pendingUpload(ctx, id)
 	if u == nil {
@@ -362,7 +358,6 @@ func (s *Service) chunkUpload(ctx context.Context, p uploadParams) (any, error) 
 	})
 }
 
-// Verify before the desktop checks consent again and asks for the rename.
 func (s *Service) verifyUpload(ctx context.Context, p uploadParams) (any, error) {
 	return s.withUpload(ctx, p.UploadID, func(u *fileUpload) error {
 		info, err := u.file.Stat()
@@ -485,8 +480,6 @@ func (s *Service) abortUpload(ctx context.Context, p uploadParams) (any, error) 
 	return struct{}{}, nil
 }
 
-// DropUploads drains uploads owned by a closed connection, or all uploads
-// when the service shuts down. Daemon reattach keeps the other services alive.
 func (s *Service) DropUploads(owner context.Context) {
 	s.uploadMu.Lock()
 	if owner == nil {

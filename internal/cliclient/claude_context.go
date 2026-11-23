@@ -8,8 +8,6 @@ import (
 	"strings"
 )
 
-// Claude Code 2.1.325 replaces hook strings over 10,000 UTF-16 units with
-// a preview and a file path, without asking the model to read the file.
 const claudeHookContextLimit = 10_000
 
 type claudeHookOutput struct {
@@ -19,10 +17,6 @@ type claudeHookOutput struct {
 	} `json:"hookSpecificOutput"`
 }
 
-// Keep an oversized instruction block on Claude's host, alongside its
-// session's other results so Claude can read it again after a resume.
-// Claude Code 2.1.325 caps each hook separately but delivers matching hooks'
-// output in completion order. A single file preserves layer precedence.
 func claudeHookContext(input, stdout string) (string, error) {
 	if len(stdout) <= claudeHookContextLimit {
 		return stdout, nil

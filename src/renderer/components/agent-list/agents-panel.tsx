@@ -1,13 +1,3 @@
-// Agent list — the files panel's agents view: a workspace's conversations
-// and its tasks, with a header to find them, switch the view and start a
-// conversation or a task. Each conversation is a tab, so picking its row
-// shows that tab, and the row of the tab shown is the one marked; an agent
-// a conversation runs has no tab, and opens its card beside the list.
-//
-// The view is the workspace's own when it was switched, else the default
-// from Settings (state/stores/agent-list-view.ts). The header takes two
-// lines; narrow, its buttons and the rows drop what can be told on hover.
-
 import { ChevronDown, GitBranchPlus, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -46,7 +36,6 @@ import { StatusView } from "./status-view";
 import { TaskView } from "./task-view";
 import { ViewSwitch } from "./view-switch";
 
-/** The agent whose card is open, with the row it was opened from. */
 interface Peek {
   readonly key: string;
   readonly agentId: string;
@@ -55,14 +44,12 @@ interface Peek {
 
 export function AgentsPanel({ workspace }: { workspace: WorkspaceMeta }) {
   const { t } = useTranslation();
-  // Read only while shown: the files panel keeps one view at a time.
   const family = useSessionFamily(workspace.id, true);
   const ids = useMemo(() => family?.worktrees.map((w) => w.workspace.id) ?? [], [family]);
   const changes = useWorktreeChanges(ids, true);
   const activity = useSessionActivity(ids, true);
   const rootId = family?.root.id ?? workspace.id;
   const view = useAgentListViewStore((s) => selectAgentListView(s, rootId));
-  // The task view tells which terminal waits on which.
   const waits = useTerminalWaits(view === "task");
   const [query, setQuery] = useState("");
   const [peek, setPeek] = useState<Peek | null>(null);
@@ -72,7 +59,6 @@ export function AgentsPanel({ workspace }: { workspace: WorkspaceMeta }) {
 
   const peeked = peek && findPeeked(family, peek);
   const agent = peeked && findAgent(activity, peeked.session.key, peek.agentId);
-  // The card's agent is marked while it is open, else the tab shown.
   const selection: AgentListSelection | null =
     peek && agent
       ? { kind: "agent", key: peek.key, agentId: peek.agentId }
@@ -104,8 +90,7 @@ export function AgentsPanel({ workspace }: { workspace: WorkspaceMeta }) {
             size="icon-sm"
             variant="outline"
             className="@max-[200px]/agents:w-7"
-            title={t("task.new")}
-            aria-label={t("task.new")}
+            tooltip={t("task.new")}
             onClick={() => newTask(rootId)}
           >
             <GitBranchPlus aria-hidden className="size-3.5" />
@@ -140,6 +125,7 @@ export function AgentsPanel({ workspace }: { workspace: WorkspaceMeta }) {
           anchor={peek.anchor}
           worktree={peeked.worktree}
           session={peeked.session}
+          sessionId={activity.get(peek.key)?.sessionId}
           agent={agent}
           asks={(activity.get(peek.key)?.asks ?? []).filter((ask) => ask.agentId === agent.id)}
           onShowSession={() => select({ kind: "session", key: peek.key }, peek.anchor)}
@@ -150,7 +136,6 @@ export function AgentsPanel({ workspace }: { workspace: WorkspaceMeta }) {
   );
 }
 
-/** The session key of the tab shown in the active workspace's active group, if any. */
 function useShownTabKey(): string | null {
   const workspaceId = useActiveStore((s) => s.activeWorkspaceId);
   return useLayoutStore((s) => {
@@ -161,7 +146,6 @@ function useShownTabKey(): string | null {
   });
 }
 
-/** The peeked agent's conversation and worktree, while the family has them. */
 function findPeeked(family: SessionFamily, peek: Peek) {
   for (const worktree of family.worktrees) {
     const session = worktree.sessions.find((each) => each.key === peek.key);
@@ -170,19 +154,11 @@ function findPeeked(family: SessionFamily, peek: Peek) {
   return undefined;
 }
 
-/**
- * A new conversation in the workspace. [+] opens one with the default agent
- * (Settings' "Default agent"; Claude when that is a terminal) and the profile
- * the workspace gives it, and tells both, but for [+] alone where the panel
- * is narrow. The menu is the tab bar's: either agent, or one with another
- * profile.
- */
 function NewChat({ workspace }: { workspace: WorkspaceMeta }) {
   const { t } = useTranslation();
   const agent = chatAgentOf(useTerminalStore((s) => s.taskAgent ?? DEFAULT_TASK_AGENT));
   const config = useAgentProfilesStore((s) => s.config);
   const workspaces = useWorkspacesStore((s) => s.workspaces);
-  // Its profile is told only when there is another to choose, as the tab bar's is.
   const profile = useMemo(
     () =>
       hasProfileChoice(config, agent)
@@ -203,8 +179,7 @@ function NewChat({ workspace }: { workspace: WorkspaceMeta }) {
       <Button
         size="icon-sm"
         className="w-auto gap-1 rounded-r-none px-2 @max-[200px]/agents:px-1.5"
-        title={title}
-        aria-label={title}
+        tooltip={title}
         onClick={() => open(agent)}
         data-testid="agent-list-new-chat"
         data-agent={agent}
@@ -218,8 +193,7 @@ function NewChat({ workspace }: { workspace: WorkspaceMeta }) {
           <Button
             size="icon-sm"
             className="w-6 rounded-l-none border-l border-primary-foreground/25"
-            aria-label={t("agentList.list.new_chat")}
-            title={t("agentList.list.new_chat")}
+            tooltip={t("agentList.list.new_chat")}
           >
             <ChevronDown aria-hidden className="size-3.5" />
           </Button>

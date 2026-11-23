@@ -101,8 +101,6 @@ func TestDiffChunksLargeInputOverOneMiB(t *testing.T) {
 	}
 }
 
-// collectChunks runs one of the chunk emitters over input and returns the
-// emitted texts, failing on any chunk that is not valid UTF-8.
 func collectChunks(t *testing.T, input []byte, maxChunkBytes int, emit func(*Service, io.Reader) error) []string {
 	t.Helper()
 	s := New(t.TempDir())
@@ -122,8 +120,6 @@ func collectChunks(t *testing.T, input []byte, maxChunkBytes int, emit func(*Ser
 }
 
 func TestDiffChunksKeepContentAfterInvalidUTF8(t *testing.T) {
-	// A Latin-1 'é' (0xE9) early in the diff used to make the final chunk
-	// stop there, silently dropping every line after it.
 	latin1 := []byte("diff --git a/x b/x\n+caf\xe9 ok\n" + strings.Repeat("+line\n", 10))
 	mixed := []byte("+\xed\x95\x9c\xea\xb8\x80 \xc7\xd1\xb1\xdb \U0001F642\n")
 	bigInvalid := bytes.Repeat([]byte("a"), 1<<20)
@@ -167,8 +163,6 @@ func TestDiffChunksTruncationDropsSplitCharacter(t *testing.T) {
 	}
 }
 
-// A user's diff.external (or GIT_EXTERNAL_DIFF) would print its own output
-// in place of git's patch, which the client cannot parse.
 func TestDiffArgsTurnOffExternalDiff(t *testing.T) {
 	if got := diffArgs(DiffParams{}); !slices.Contains(got, "--no-ext-diff") {
 		t.Fatalf("diff args %q lack --no-ext-diff", got)

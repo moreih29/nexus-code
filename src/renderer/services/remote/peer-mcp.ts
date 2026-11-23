@@ -1,23 +1,12 @@
-/**
- * Another computer's chat's MCP servers, worked from this one as a chat's
- * panel here works its own (chat.mcp): connected again, turned on or off,
- * signed in to. A sign-in is this computer's, as for a chat on an SSH
- * host: the page opens in the browser here and comes back to a page on
- * this machine (main's oauth callbacks), whose address goes on to that
- * computer's Claude Code.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 
-/** A chat of another computer's, by where it is there. */
 export interface PeerChatRef {
   readonly deviceId: string;
   readonly workspaceId: string;
   readonly tabId: string;
 }
 
-/** A sign-in under way: its server, the page it opened, the callback it waits on. */
 export interface PeerMcpSignIn {
   readonly server: string;
   readonly authUrl: string;
@@ -29,9 +18,7 @@ export interface PeerMcp {
   reconnect(server: string): Promise<void>;
   toggle(server: string, enabled: boolean): Promise<void>;
   authenticate(server: string): Promise<void>;
-  /** Opens the sign-in page under way again. */
   reopen(): void;
-  /** Stops waiting for the sign-in under way. */
   cancel(): void;
 }
 
@@ -71,7 +58,6 @@ export function usePeerMcp(ref: PeerChatRef): PeerMcp {
     setSignIn(null);
   }, []);
 
-  // A sign-in left waiting when the chat goes stops waiting.
   useEffect(
     () => () => {
       const now = current.current;
@@ -87,17 +73,14 @@ export function usePeerMcp(ref: PeerChatRef): PeerMcp {
       try {
         const page = await call(server, "signIn", { redirectUri });
         if (!page.authUrl) {
-          // Signed in already: that computer connected it again.
           void ipcCallResult("chat", "oauthCancel", { id });
           return;
         }
         if (!page.back) {
-          // Nothing comes back here (a claude.ai connector): the page is all.
           void ipcCallResult("chat", "oauthCancel", { id });
           openSignInPage(page.authUrl);
           return;
         }
-        // Waiting before the browser opens, so a sign-in that comes straight back is not missed.
         const back = ipcCallResult("chat", "oauthWait", { id });
         setSignIn({ server, authUrl: page.authUrl, callbackId: id });
         openSignInPage(page.authUrl);

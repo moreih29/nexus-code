@@ -1,5 +1,3 @@
-/** Remove an empty directory via fs.rmdir. Recursive delete is intentionally unsupported. */
-
 import i18next from "i18next";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { parentOf } from "@/state/stores/files";

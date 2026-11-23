@@ -1,17 +1,3 @@
-/**
- * Per-workspace SQLite schema migrations.
- *
- * Each entry is run once when the stored `schemaVersion` is below its
- * `version`. Migrations are append-only: once an entry has shipped to a
- * user, do NOT edit it — add a new entry below. Editing in place would
- * mean databases that already ran the entry skip the patched DDL and end
- * up out of sync with fresh databases.
- *
- * Helpers (`hasColumn`, `addColumnIfMissing`, `sqliteStringLiteral`) are
- * also exported so the migration entries can stay declarative and the
- * storage module can reuse them where helpful.
- */
-
 import { DEFAULT_GIT_PANEL_STATE } from "../../../shared/git/types";
 import type { SqliteDb } from "./migrations";
 
@@ -20,28 +6,15 @@ export interface WorkspaceMigration {
   up: (db: SqliteDb) => void;
 }
 
-/**
- * Escapes a string so it can be embedded directly into a DDL literal.
- * Migrations cannot bind parameters in DEFAULT clauses, so the literal must
- * be embedded safely (doubled single quotes per SQLite rules).
- */
 export function sqliteStringLiteral(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-/**
- * Returns whether the named column is present on a workspace-local table.
- * Used by idempotent ALTER TABLE migrations that may run after partial setup.
- */
 export function hasColumn(db: SqliteDb, tableName: string, columnName: string): boolean {
   const rows = db.prepare(`PRAGMA table_info(${tableName})`).all() as { name: string }[];
   return rows.some((row) => row.name === columnName);
 }
 
-/**
- * Adds a column only when absent so rerunning a migration against a partially
- * upgraded workspace database does not fail with "duplicate column name".
- */
 export function addColumnIfMissing(
   db: SqliteDb,
   tableName: string,
@@ -53,10 +26,7 @@ export function addColumnIfMissing(
 }
 
 export const WORKSPACE_DB_MIGRATIONS: WorkspaceMigration[] = [
-  // v1 → initial schema (bootstrapped inline in openForWorkspace before this list ran).
-  // Listed here so the migration loop has a stable baseline.
   { version: 1, up: () => {} },
-  // v2 → expanded_paths table for persisting file-tree expand state.
   {
     version: 2,
     up: (db) => {
@@ -67,7 +37,6 @@ export const WORKSPACE_DB_MIGRATIONS: WorkspaceMigration[] = [
       `);
     },
   },
-  // v3 → git_panel_state table for persisting Source Control panel UI state.
   {
     version: 3,
     up: (db) => {
@@ -79,9 +48,6 @@ export const WORKSPACE_DB_MIGRATIONS: WorkspaceMigration[] = [
       `);
     },
   },
-  // v4 → panel_view_options table for persisting viewMode/compactFolders per panel kind.
-  //      panel_kind is the PRIMARY KEY so adding new panels requires only a new row,
-  //      not a schema change.
   {
     version: 4,
     up: (db) => {
@@ -94,9 +60,6 @@ export const WORKSPACE_DB_MIGRATIONS: WorkspaceMigration[] = [
       `);
     },
   },
-  // v5 → persisted git panel preferences added after the original key/value
-  //      Source Control panel table. The table keeps its legacy rows so
-  //      existing commit drafts and expanded groups are not rewritten.
   {
     version: 5,
     up: (db) => {
@@ -136,12 +99,6 @@ export const WORKSPACE_DB_MIGRATIONS: WorkspaceMigration[] = [
       );
     },
   },
-  // v6 → drop the compact_folders column from panel_view_options. The feature
-  //      was retired in favour of an explicit expand/collapse-all toolbar so
-  //      the value was never written meaningfully after v6 ships. SQLite 3.35+
-  //      supports `ALTER TABLE … DROP COLUMN`; better-sqlite3 12.x bundles a
-  //      modern enough engine. Guarded by hasColumn so re-running over an
-  //      already-migrated DB is a no-op.
   {
     version: 6,
     up: (db) => {
@@ -150,10 +107,6 @@ export const WORKSPACE_DB_MIGRATIONS: WorkspaceMigration[] = [
       }
     },
   },
-  // v7 → origin_permissions table for per-origin browser permission decisions.
-  //      Stores allow/block decisions keyed by (origin, permission) so the
-  //      browser permission model can persist user choices across sessions.
-  //      CREATE TABLE IF NOT EXISTS makes the migration idempotent.
   {
     version: 7,
     up: (db) => {
@@ -172,11 +125,6 @@ export const WORKSPACE_DB_MIGRATIONS: WorkspaceMigration[] = [
   },
 ];
 
-/**
- * Walks the migration list and runs every entry whose `version` exceeds the
- * stored `schemaVersion`. Each successful run advances `schemaVersion`
- * atomically with the migration's DDL via SQLite's `INSERT OR REPLACE`.
- */
 export function applyWorkspaceMigrations(db: SqliteDb): void {
   const row = db.prepare("SELECT value FROM _meta WHERE key = 'schemaVersion'").get() as
     | { value: string }

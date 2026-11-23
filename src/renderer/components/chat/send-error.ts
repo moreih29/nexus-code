@@ -2,7 +2,6 @@ import { appErrorBug, appErrorCancelled, appErrorFailed } from "../../../shared/
 import { chatSendErrorKind } from "../../services/chat/transport/queue";
 import { surfaceError } from "../../services/error-surface/surface-error";
 
-/** Reports send and approval failures without exposing transport details. */
 export function surfaceChatSendError(error: unknown): void {
   const code = chatSendErrorKind(error);
   const message = error instanceof Error ? error.message : String(error);

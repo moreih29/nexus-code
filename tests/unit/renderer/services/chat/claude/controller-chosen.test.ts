@@ -1,9 +1,3 @@
-/**
- * The model and effort the user picks in a Claude tab are the tab's: the
- * tab is told to keep them, and a program started for it again (a restart
- * of the app, a switch of profile) is given them after the settings'
- * defaults, which would otherwise put back the default effort.
- */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 type Message = Record<string, unknown> & { request?: Record<string, unknown> };
@@ -45,10 +39,6 @@ function requests(): Message[] {
   return sent.filter((m) => m.type === "control_request");
 }
 
-/**
- * Waits for the controller's next request, and answers it with `response`,
- * or refuses it with `error`.
- */
 async function answerNext(
   c: Controller,
   answered: number,
@@ -71,10 +61,6 @@ async function answerNext(
   return request.request ?? {};
 }
 
-/**
- * The requests a started program's initialize sends, answered in turn;
- * `refuse` names the one Claude Code refuses.
- */
 async function startUp(
   c: Controller,
   { init = {}, refuse }: { init?: Record<string, unknown>; refuse?: string } = {},
@@ -82,7 +68,6 @@ async function startUp(
   const restarted = c.restart();
   const asked: Record<string, unknown>[] = [];
   asked.push(await answerNext(c, 0, init));
-  // The user's settings set effort high; the program runs at xhigh.
   asked.push(
     await answerNext(c, 1, {
       effective: { effortLevel: "high" },
@@ -166,7 +151,6 @@ describe("the model and effort picked in a Claude tab", () => {
     await answerNext(c, n++, {}, "not for this model");
     await expect(refused).rejects.toThrow("not for this model");
     expect(chosen).toEqual([{ model: "claude-haiku-5-5" }, { effort: "low" }]);
-    // A fork of the tab starts with them too.
     expect(c.inherited().chosen).toEqual({ model: "claude-haiku-5-5", effort: "low" });
   });
 

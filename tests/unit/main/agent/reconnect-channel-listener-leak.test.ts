@@ -1,23 +1,3 @@
-/**
- * Regression coverage for the channel→pipe listener-leak fix.
- *
- * Before the fix, `createReconnectingProcessChannel.on(event, cb)` stored the
- * callback in a channel-level Set and — on the first registration for that
- * event — installed exactly one fan-out wrapper on the underlying pipe via
- * `pipe.on()`. The fan-out wrapper's unsubscribe handle was discarded. When
- * the last callback was removed, the channel cleared its own Set and deleted
- * the entry, but the pipe-side wrapper stayed attached to the pipe's listener
- * Set forever. Each subsequent subscribe→unsubscribe cycle therefore left one
- * orphan wrapper on the pipe; an event emitted afterward fanned out across
- * every orphan wrapper, multiplying delivery to the live callback set.
- *
- * The fix stores the pipe-side unsubscribe in a per-event bucket and invokes
- * it when the bucket's callback Set drops to zero. This test pins the
- * behavior via the channel's observable side effect: after N sub/unsub
- * cycles and one fresh subscription, a single emitted event must invoke the
- * callback exactly once (not N+1 times).
- */
-
 import { describe, expect, it } from "bun:test";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
@@ -102,9 +82,6 @@ describe("reconnecting-process-channel listener lifecycle", () => {
     const { channel, children } = makeHarness();
     await readyHandshake(children[0]!);
 
-    // Initial subscribe-then-unsubscribe should fully release the pipe-side
-    // wrapper. The next subscriber must receive each emit exactly once — a
-    // duplicate wrapper still attached to the pipe would deliver twice.
     const firstUnsub = channel.on("git.log.batch", () => {});
     firstUnsub();
 
@@ -123,11 +100,6 @@ describe("reconnecting-process-channel listener lifecycle", () => {
     const { channel, children } = makeHarness();
     await readyHandshake(children[0]!);
 
-    // Pre-fix: each iteration leaves one orphan wrapper attached to the pipe.
-    // After 5 cycles, the pipe holds 5 orphan wrappers (plus the active one
-    // from the final subscription), so one emit triggers the live callback
-    // 6 times. The fix releases the wrapper on unsubscribe, keeping pipe
-    // listeners bounded to the channel's live consumer count.
     for (let i = 0; i < 5; i++) {
       const unsub = channel.on("git.log.batch", () => {});
       unsub();
@@ -141,8 +113,6 @@ describe("reconnecting-process-channel listener lifecycle", () => {
     emitEvent(children[0]!, "git.log.batch", { streamId: "y", entries: [] });
     await flushMicrotasks();
 
-    // Exactly one delivery — any number greater than 1 indicates orphan
-    // wrappers are still fanning out alongside the live subscription.
     expect(calls).toBe(1);
     channel.dispose();
   });
@@ -165,18 +135,12 @@ describe("reconnecting-process-channel listener lifecycle", () => {
     expect(aCalls).toBe(1);
     expect(bCalls).toBe(1);
 
-    // Removing one callback leaves the other receiving normally — the
-    // pipe-side wrapper must remain installed while there is still at least
-    // one live consumer.
     unsubA();
     emitEvent(children[0]!, "git.log.batch", { streamId: "2", entries: [] });
     await flushMicrotasks();
     expect(aCalls).toBe(1);
     expect(bCalls).toBe(2);
 
-    // Removing the last callback releases the wrapper. A subsequent emit
-    // must not invoke any prior callbacks (none are alive) and a fresh
-    // subscription afterward must still receive exactly once.
     unsubB();
     emitEvent(children[0]!, "git.log.batch", { streamId: "3", entries: [] });
     await flushMicrotasks();

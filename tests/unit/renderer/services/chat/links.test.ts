@@ -3,12 +3,11 @@ import {
   baseName,
   fileKind,
   isLocalAddress,
-  isUnder,
   resolveFileLink,
   resolveFilePath,
   resultFiles,
-  slashWindowsPath,
 } from "../../../../../src/renderer/services/chat/links";
+import { isUnder, slashWindowsPath } from "../../../../../src/shared/fs/relative-path";
 
 describe("chat links", () => {
   test("a path resolves against the session's folder", () => {
@@ -34,10 +33,8 @@ describe("chat links", () => {
     expect(resolveFilePath("src/a.ts", `${cwd}/`)).toBe("C:/w/proj/src/a.ts");
     expect(resolveFilePath("..\\b\\c.md", cwd)).toBe("C:/w/b/c.md");
     expect(resolveFilePath("file:///C:/w/a%20b.txt", "/w")).toBe("C:/w/a b.txt");
-    // A markdown link's href, its `\` escaped.
     expect(resolveFilePath("C:%5Cw%5Cproj%5Ca.ts", "/w")).toBe("C:/w/proj/a.ts");
     expect(resolveFilePath("src%5Ca.ts", cwd)).toBe("C:/w/proj/src/a.ts");
-    // A backslash is only a separator where the session runs on Windows.
     expect(resolveFilePath("a\\b.txt", "/w")).toBe("/w/a\\b.txt");
   });
 
@@ -51,7 +48,6 @@ describe("chat links", () => {
   });
 
   test("a line after a path is the link's line, not part of the file's name", () => {
-    // As Codex 0.166 writes them on Windows: the path with slashes, then the line.
     expect(resolveFileLink("C:/w/proj/src/math.ts:2", "C:/w/proj")).toEqual({
       path: "C:/w/proj/src/math.ts",
       line: 2,
@@ -70,7 +66,6 @@ describe("chat links", () => {
   });
 
   test("a file name may hold the colon off Windows, so the link keeps it too", () => {
-    // A bare name with a line reads as a scheme until the line is taken off.
     expect(resolveFileLink("a.ts:12", "/w")).toEqual({
       path: "/w/a.ts",
       line: 12,

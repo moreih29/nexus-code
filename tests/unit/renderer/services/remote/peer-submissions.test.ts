@@ -137,7 +137,6 @@ describe("optimistic remote submissions", () => {
     ]);
     expect(peerSubmissionsOf(ref)[0]?.provisionalEcho).toBe("ambiguous");
     expect(peerSubmissionsOf(ref)).toHaveLength(1);
-    // The row it matched is the delivery, so a lost answer leaves no copy to send again.
     settlePeerSubmission(ref, pending, { status: "unconfirmed", error: "timed out" });
     expect(peerSubmissionsOf(ref)).toHaveLength(0);
   });

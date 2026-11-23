@@ -1,9 +1,3 @@
-/**
- * Downloads a nexus command starts are saved in the app's temp folder under
- * a free name, kept a day, and are the command's only while it drives the
- * tab or just after.
- */
-
 import { afterEach, describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";

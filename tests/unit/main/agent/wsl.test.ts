@@ -10,7 +10,6 @@ import {
   runWslExe,
 } from "../../../../src/main/infra/agent/wsl";
 
-/** A wsl.exe fixture that never reports close unless terminated. */
 function stalledChild() {
   const child = new EventEmitter() as ChildProcessWithoutNullStreams;
   const kill = mock(() => true);
@@ -23,7 +22,6 @@ function stalledChild() {
   return { child, kill };
 }
 
-/** A child that prints `stdout`/`stderr`, then exits with `code`, once stdin ends. */
 function fakeChild(result: { stdout?: string; stderr?: Buffer | string; code: number }) {
   const child = new EventEmitter() as ChildProcessWithoutNullStreams & { input: Buffer[] };
   const stdout = new PassThrough();

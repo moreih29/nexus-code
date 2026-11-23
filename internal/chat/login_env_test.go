@@ -17,8 +17,6 @@ func TestMain(m *testing.M) {
 	if address := os.Getenv(execTreeFixtureEnv); address != "" {
 		os.Exit(runExecTreeFixture(address))
 	}
-	// The tests' programs get the test's environment, not the login shell
-	// of whoever runs them.
 	loginEnv = func() map[string]string { return nil }
 	os.Exit(m.Run())
 }
@@ -47,8 +45,6 @@ func TestParseLoginEnvKeepsWhatTheShellExports(t *testing.T) {
 	}
 }
 
-// fakeLoginShell makes a $SHELL that exports GW_KEY in its startup and
-// counts its runs in the file it returns.
 func fakeLoginShell(t *testing.T) string {
 	t.Helper()
 	if runtime.GOOS == "windows" {

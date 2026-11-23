@@ -21,10 +21,8 @@ import type { ConnectionKeys } from "./connection-keys";
 import { sameLaunchConnection } from "./connection-launch";
 import { localDefaultDir } from "./local";
 
-/** A validation error whose message can be shown without including input values. */
 export class ProfileValidationError extends Error {}
 
-/** The profile of that id, of either agent. */
 export function findProfile(state: StateService, id: string): AgentProfile | null {
   const config = state.getState().agentProfiles ?? EMPTY_AGENT_PROFILES;
   for (const agent of PROFILE_AGENTS) {
@@ -39,7 +37,6 @@ export function pruneProfileKeys(
   state: Pick<StateService, "getState" | "flushNow">,
 ): Promise<void> {
   return keys.prune(() => {
-    // A restart can still load a removed profile until its removal is durable.
     state.flushNow();
     const config = state.getState().agentProfiles ?? EMPTY_AGENT_PROFILES;
     return new Set(

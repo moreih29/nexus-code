@@ -50,12 +50,9 @@ func TestProfileDirMakesTheFolderAndLinksWhatItShares(t *testing.T) {
 	if got.Dir != want || got.DefaultDir != def {
 		t.Fatalf("dir %q default %q, want %q %q", got.Dir, got.DefaultDir, want, def)
 	}
-	// agents/ is not in the default folder: nothing to link.
 	if len(got.Linked) != 2 || got.Linked[0] != "CLAUDE.md" || got.Linked[1] != "skills" {
 		t.Fatalf("linked %v", got.Linked)
 	}
-	// Windows: a junction and, short of the rights a symbolic link needs, a
-	// hard link.
 	for _, name := range []string{"CLAUDE.md", "skills"} {
 		if !linksTo(filepath.Join(want, name), filepath.Join(def, name)) {
 			t.Fatalf("%s is not linked to the default folder's", name)
@@ -64,7 +61,6 @@ func TestProfileDirMakesTheFolderAndLinksWhatItShares(t *testing.T) {
 	if b, err := os.ReadFile(filepath.Join(want, "CLAUDE.md")); err != nil || string(b) != "hi" {
 		t.Fatalf("CLAUDE.md reads %q %v", b, err)
 	}
-	// Linked before: taken as linked again, not as the folder's own.
 	again, err := profileDirCall(t, ProfileDirParams{
 		Agent:     "claude",
 		Dir:       "~/.claude-personal",
@@ -75,7 +71,6 @@ func TestProfileDirMakesTheFolderAndLinksWhatItShares(t *testing.T) {
 		t.Fatalf("again linked %v failed %v: %v", again.Linked, again.Failed, err)
 	}
 
-	// No longer shared: the link goes; a file of the folder's own stays.
 	if err := os.WriteFile(filepath.Join(want, "settings.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -93,12 +88,10 @@ func TestProfileDirMakesTheFolderAndLinksWhatItShares(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(want, "settings.json")); err != nil {
 		t.Fatalf("own settings.json gone: %v", err)
 	}
-	// The default folder keeps what was unlinked.
 	if _, err := os.Stat(filepath.Join(def, "skills")); err != nil {
 		t.Fatalf("default skills gone: %v", err)
 	}
 
-	// Unshared too: the file's link goes, and the default's file stays.
 	if _, err := profileDirCall(t, ProfileDirParams{
 		Agent:     "claude",
 		Dir:       "~/.claude-personal",
@@ -123,7 +116,6 @@ func TestProfileFoldersPickedOnWindowsReadOnEveryHost(t *testing.T) {
 		if got := agentpaths.ExpandProfileDir(dir, home); got != want {
 			t.Errorf("expandProfileDir(%q) = %q, want %q", dir, got, want)
 		}
-		// The readers of sessions, transcripts and settings take it alike.
 		if got := configDir(dir); got != want {
 			t.Errorf("configDir(%q) = %q, want %q", dir, got, want)
 		}

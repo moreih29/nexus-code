@@ -1,21 +1,3 @@
-/**
- * PermissionPromptDialog — browser permission request modal.
- *
- * Imperative API: callers invoke `showPermissionPrompt(payload)` when main
- * broadcasts a `browserPermission:prompt` event. The component is rendered
- * once at App level via PermissionPromptRoot; there is no per-callsite Dialog.
- *
- * Concurrency: prompts may queue back-to-back. A second showPermissionPrompt()
- * while one is open queues and is shown after the first resolves — same
- * pattern as ConfirmDialogRoot.
- *
- * Browser suspend: the modal claims useBrowserSuspendStore on mount so the
- * native WebContentsView is hidden (with snapshot) while the prompt is visible.
- * The auto-suspend MutationObserver in browser-suspend-auto.ts also fires, but
- * the explicit claim here ensures the view is hidden even before the Radix
- * portal element appears in the DOM.
- */
-
 import {
   Bell,
   Clipboard,
@@ -44,7 +26,6 @@ import { Button } from "./button";
 import { Checkbox } from "./checkbox";
 import { Dialog } from "./dialog";
 
-// Map from BrowserPermissionKind → settings i18n permissionLabel key
 const PERMISSION_LABEL_I18N_KEY: Record<string, string> = {
   "clipboard-read": "clipboardRead",
   "clipboard-sanitized-write": "clipboardSanitizedWrite",
@@ -68,15 +49,7 @@ const PERMISSION_LABEL_I18N_KEY: Record<string, string> = {
   fileSystem: "fileSystem",
 };
 
-// ---------------------------------------------------------------------------
-// Grace-window (same rationale as ConfirmDialogRoot — see that module)
-// ---------------------------------------------------------------------------
-
 const MOUNT_CLICK_GRACE_MS = 120;
-
-// ---------------------------------------------------------------------------
-// Queue + bus
-// ---------------------------------------------------------------------------
 
 export interface PermissionPromptPayload {
   promptId: string;
@@ -85,9 +58,7 @@ export interface PermissionPromptPayload {
   permissions: BrowserPermissionKind[];
 }
 
-interface PendingPrompt extends PermissionPromptPayload {
-  // no extra resolve needed — we respond via IPC directly
-}
+interface PendingPrompt extends PermissionPromptPayload {}
 
 let queue: PendingPrompt[] = [];
 const bus = createListenerBus();
@@ -96,10 +67,6 @@ function getActive(): PendingPrompt | null {
   return queue[0] ?? null;
 }
 
-/**
- * Imperative entry point. Enqueues a permission prompt. The modal is shown
- * when it reaches the head of the queue.
- */
 export function showPermissionPrompt(payload: PermissionPromptPayload): void {
   queue.push({ ...payload });
   bus.notify();
@@ -110,20 +77,12 @@ function dequeueActive(): void {
   bus.notify();
 }
 
-/**
- * Drops a prompt main no longer waits on (its page closed or navigated
- * away), closing the modal if it is the one showing.
- */
 export function dismissPermissionPrompt(promptId: string): void {
   const next = queue.filter((prompt) => prompt.promptId !== promptId);
   if (next.length === queue.length) return;
   queue = next;
   bus.notify();
 }
-
-// ---------------------------------------------------------------------------
-// Icon mapping — PERMISSION_TOGGLES.icon → lucide component
-// ---------------------------------------------------------------------------
 
 type IconComponent = React.ForwardRefExoticComponent<
   Omit<LucideProps, "ref"> & React.RefAttributes<SVGSVGElement>
@@ -146,14 +105,7 @@ const ICON_MAP: Record<string, IconComponent> = {
   Volume2,
 };
 
-/**
- * Returns the primary lucide icon for a list of permissions.
- * Uses the first permission's icon from PERMISSION_TOGGLES, falling back to
- * ShieldCheck for unknown or unmatched permissions.
- */
 function resolvePermissionIcon(permissions: BrowserPermissionKind[]): IconComponent {
-  // Build a simple per-kind icon map from PERMISSION_TOGGLES icon field.
-  // Import at module level would create a circular dep risk; inline map is safe.
   const KIND_ICON: Record<string, string> = {
     media: "Video",
     geolocation: "MapPin",
@@ -178,10 +130,6 @@ function resolvePermissionIcon(permissions: BrowserPermissionKind[]): IconCompon
   return (iconName !== undefined ? ICON_MAP[iconName] : undefined) ?? ShieldCheck;
 }
 
-// ---------------------------------------------------------------------------
-// PermissionPromptModal — inner component that owns the suspend claim
-// ---------------------------------------------------------------------------
-
 interface PermissionPromptModalProps {
   prompt: PendingPrompt;
   onDone: () => void;
@@ -192,14 +140,11 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
   const [remember, setRemember] = useState(true);
   const mountAtRef = useRef<number>(0);
 
-  // Explicit suspend claim — ensures native view is hidden before the Radix
-  // portal appears. Released on unmount.
   useEffect(() => {
     const release = useBrowserSuspendStore.getState().claim({ captureSnapshot: true });
     return release;
   }, []);
 
-  // Re-arm grace window on every new prompt.
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new prompt is the trigger; it is not read.
   useEffect(() => {
     mountAtRef.current = performance.now();
@@ -238,7 +183,6 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
 
   const handleOpenChange = (next: boolean): void => {
     if (next) return;
-    // ESC or outside click — one-time cancel (no remembered rule).
     void ipcCallResult("browserPermission", "cancel", {
       promptId: prompt.promptId,
     });
@@ -255,7 +199,6 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
     <Dialog open onOpenChange={handleOpenChange} size="sm" aria-describedby={undefined}>
       <RadixDialog.Title className="sr-only">{t("permissionPrompt.srTitle")}</RadixDialog.Title>
 
-      {/* Header: icon + origin */}
       <div className="flex items-start gap-3">
         <div className="mt-0.5 shrink-0 text-muted-foreground">
           <Icon className="size-5" aria-hidden="true" />
@@ -268,7 +211,6 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
         </div>
       </div>
 
-      {/* Permission labels */}
       <div className="mt-3">
         <p className="text-app-body text-foreground font-medium">{labelsText}</p>
         <p className="mt-1 text-app-ui-sm text-muted-foreground">
@@ -278,7 +220,6 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
         </p>
       </div>
 
-      {/* Remember checkbox */}
       <div className="mt-4 flex items-center gap-2">
         <Checkbox
           id="permission-remember"
@@ -293,34 +234,20 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
         </label>
       </div>
 
-      {/* Action buttons */}
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={handleBlock}>
           {t("permissionPrompt.block")}
         </Button>
-        {/* No autoFocus: the prompt opens on a page's timer while the user
-            may be typing elsewhere, and a stray Enter must not grant (and
-            remember) camera or microphone access. Radix focuses the
-            checkbox, which ignores Enter. */}
         <Button variant="default" size="sm" onClick={handleAllow}>
           {t("permissionPrompt.allow")}
         </Button>
       </div>
 
-      {/* Micro hint */}
       <p className="mt-3 text-app-micro text-muted-foreground">{t("permissionPrompt.escHint")}</p>
     </Dialog>
   );
 }
 
-// ---------------------------------------------------------------------------
-// PermissionPromptRoot — mount once at App level
-// ---------------------------------------------------------------------------
-
-/**
- * Mount once at App level (in GlobalRoots). Reads the head of the prompt queue
- * and renders the active permission request dialog.
- */
 export function PermissionPromptRoot(): React.JSX.Element {
   const [active, setActive] = useState<PendingPrompt | null>(getActive());
 

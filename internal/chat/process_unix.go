@@ -11,8 +11,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// tree records the commands seen at explicit stop so escalation can still
-// reach them after the parent exits and the OS reparents its children.
 type tree struct {
 	mu       sync.Mutex
 	start    uint64
@@ -20,15 +18,14 @@ type tree struct {
 	released bool
 }
 
-// holdTree records the launched group's leader.
 func (p *process) holdTree() error {
 	p.tree.mu.Lock()
 	defer p.tree.mu.Unlock()
 	p.tree.start = processStart(p.cmd.Process.Pid)
+	noteOwned(p.cmd.Process.Pid, p.tree.start)
 	return nil
 }
 
-// releaseTree completes any explicit termination before reporting exit.
 func (p *process) releaseTree() {
 	p.tree.mu.Lock()
 	defer p.tree.mu.Unlock()
@@ -37,19 +34,17 @@ func (p *process) releaseTree() {
 		p.tree.targets = nil
 	}
 	p.tree.released = true
+	forgetOwned(p.cmd.Process.Pid)
 }
 
-// signalTerm asks the program and the commands it runs to exit.
 func (p *process) signalTerm() error {
 	return p.signalOwnedTree(syscall.SIGTERM)
 }
 
-// signalKill forcefully ends the program and the commands it runs.
 func (p *process) signalKill() error {
 	return p.signalOwnedTree(syscall.SIGKILL)
 }
 
-// signalOwnedTree discovers detached tool sessions before signalling.
 func (p *process) signalOwnedTree(signal syscall.Signal) error {
 	p.tree.mu.Lock()
 	defer p.tree.mu.Unlock()
@@ -74,14 +69,11 @@ func (p *process) signalOwnedTree(signal syscall.Signal) error {
 	}
 	err := p.signalOwnedTargets(signal, leaderAlive)
 	if !leaderAlive && start == 0 && p.tree.start == 0 {
-		// The proc table may be unavailable even while the launcher runs.
 		return p.cmd.Process.Signal(signal)
 	}
 	return err
 }
 
-// signalOwnedTargets checks start times so recorded PIDs do not identify
-// unrelated jobs after the grace period and PID reuse.
 func (p *process) signalOwnedTargets(signal syscall.Signal, leaderAlive bool) error {
 	pid := p.cmd.Process.Pid
 	groupAlive := leaderAlive
@@ -104,8 +96,6 @@ func (p *process) signalOwnedTargets(signal syscall.Signal, leaderAlive bool) er
 	return err
 }
 
-// descendants are the processes under pid, at any depth, as the process
-// table now tells them; none when it cannot be read.
 func descendants(pid int) []int {
 	children := map[int][]int{}
 	for child, parent := range parents() {
@@ -129,40 +119,6 @@ func descendants(pid int) []int {
 	return found
 }
 
-// exitPayload translates the program's exit into the chat.exit wire shape.
-func exitPayload(key tabKey, state *os.ProcessState, err error) ExitPayload {
-	payload := ExitPayload{WorkspaceID: key.workspaceID, TabID: key.tabID}
-	if err != nil || state == nil {
-		code := -1
-		payload.Code = &code
-		return payload
-	}
-	if status, ok := state.Sys().(syscall.WaitStatus); ok && status.Signaled() {
-		signal := signalName(status.Signal())
-		payload.Signal = &signal
-		return payload
-	}
-	code := state.ExitCode()
-	payload.Code = &code
-	return payload
-}
-
-func signalName(signal syscall.Signal) string {
-	switch signal {
-	case syscall.SIGHUP:
-		return "SIGHUP"
-	case syscall.SIGINT:
-		return "SIGINT"
-	case syscall.SIGTERM:
-		return "SIGTERM"
-	case syscall.SIGKILL:
-		return "SIGKILL"
-	default:
-		return signal.String()
-	}
-}
-
-// sameEnvKey reports whether two variable names name the same variable.
 func sameEnvKey(a, b string) bool {
 	return a == b
 }

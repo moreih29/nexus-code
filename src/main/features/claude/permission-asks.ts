@@ -1,17 +1,3 @@
-// The permission requests of Claude sessions the app holds for the user's
-// answer, so the agent list can answer them.
-//
-// Claude Code (2.1.316) shows its permission dialog in the terminal and runs
-// the PermissionRequest hook beside it: whichever answers first wins. A
-// decision the hook prints allows or denies the call and closes the dialog;
-// an answer picked in the dialog leaves the hook running, and an interrupt
-// there ends it. So the hook is held here until the user answers it from the
-// app, answers its dialog in the terminal (the keys typed there tell it), the
-// dialog closes otherwise (the session's hooks tell it), its client goes away
-// (the agent tells it), or the agent's deadline answers it with Claude
-// Code's own fallback, the dialog. A hook held past its dialog's answer
-// would show in Claude Code as running until the call it allowed ends.
-
 import type {
   PermissionAlways,
   PermissionAnswer,
@@ -23,44 +9,35 @@ import { describeTool } from "./session-activity";
 
 export type HookAnswerResult = "answered" | "gone" | "unavailable";
 
-/** Answers a waiting hook, distinguishing a transport failure from a closed hook. */
 export type HookResponder = (
   workspaceId: string,
   hookId: string,
   response: HookResponse,
 ) => Promise<HookAnswerResult>;
 
-/** The request an answer from the app was for. */
 export interface AnsweredAsk {
   readonly workspaceId: string;
   readonly tabId: string;
-  /** The subagent that asked, or MAIN_AGENT. */
   readonly agent: string;
-  /** The call, as the session's permission dialogs key it. */
   readonly call: string | undefined;
   readonly tool: string;
-  /** What the call works on, as its tool run tells it. */
   readonly target?: string;
 }
 
 export type AnsweredListener = (ask: AnsweredAsk, answer: PermissionAnswer) => void;
 
-/** Called with a request answered in the terminal, the answer unknown. */
 export type TerminalAnswerListener = (ask: AnsweredAsk) => void;
 
 interface Held extends AnsweredAsk {
-  /** Claude Code's permission_suggestions, given back as they came to allow always. */
   readonly suggestions: readonly unknown[];
   readonly ask: PermissionAsk;
 }
 
-/** What Claude is told of a call the user denied from the app with no words of their own. */
 export const DENIED_MESSAGE = "The user denied this tool call.";
 
 type Payload = Record<string, unknown>;
 
 export class PermissionAsks {
-  /** By the hook's id, oldest first. */
   private readonly held = new Map<string, Held>();
   private readonly answering = new Set<Held>();
   private readonly listeners = new Set<AnsweredListener>();
@@ -71,7 +48,6 @@ export class PermissionAsks {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /** Holds the PermissionRequest hook `hookId` of the session in `tabId`. */
   hold(
     workspaceId: string,
     tabId: string,
@@ -104,18 +80,12 @@ export class PermissionAsks {
     });
   }
 
-  /** The requests of the session in `tabId` held for an answer, oldest first. */
   list(workspaceId: string, tabId: string): PermissionAsk[] {
     return [...this.held.values()]
       .filter((held) => held.workspaceId === workspaceId && held.tabId === tabId)
       .map((held) => held.ask);
   }
 
-  /**
-   * Answers the request `id` of the session in `tabId` as the user chose:
-   * false when the answer could not be delivered. Stopping the turn
-   * is for the session's own requests: a subagent's is not answered so.
-   */
   async answer(
     workspaceId: string,
     tabId: string,
@@ -146,10 +116,6 @@ export class PermissionAsks {
     }
   }
 
-  /**
-   * Lets go of the requests of the session in `tabId` whose dialog `isOpen`
-   * no longer finds open, answering each with Claude Code's own fallback.
-   */
   retain(
     workspaceId: string,
     tabId: string,
@@ -162,11 +128,6 @@ export class PermissionAsks {
     });
   }
 
-  /**
-   * The user answered the dialog on the session's screen in its terminal:
-   * its request, the oldest, is let go of. (An interrupt there ends its hook
-   * instead, which `gone` tells.)
-   */
   answeredInTerminal(workspaceId: string, tabId: string): void {
     const [oldest] = this.list(workspaceId, tabId);
     const held = oldest && this.held.get(oldest.id);
@@ -175,12 +136,10 @@ export class PermissionAsks {
     for (const listener of this.terminalListeners) listener(held);
   }
 
-  /** The hook `hookId` no longer waits: its client went away. */
   gone(hookId: string): void {
     this.held.delete(hookId);
   }
 
-  /** The session in `tabId` ended, or no longer shows its state. */
   clear(workspaceId: string, tabId: string): void {
     this.release((held) => held.workspaceId === workspaceId && held.tabId === tabId);
   }
@@ -189,13 +148,11 @@ export class PermissionAsks {
     this.release((held) => held.workspaceId === workspaceId);
   }
 
-  /** Called once an answer from the app reached Claude Code. */
   onAnswered(listener: AnsweredListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
-  /** Called once a request is answered in the terminal. */
   onAnsweredInTerminal(listener: TerminalAnswerListener): () => void {
     this.terminalListeners.add(listener);
     return () => this.terminalListeners.delete(listener);
@@ -210,15 +167,10 @@ export class PermissionAsks {
   }
 }
 
-/**
- * Whether input typed into a terminal answers a permission dialog on its
- * screen: Enter takes the option picked, a digit picks one.
- */
 export function answersDialog(data: string): boolean {
   return data === "\r" || /^[1-9]$/.test(data);
 }
 
-/** The PermissionRequest hook's output for `answer`, as Claude Code reads it. */
 export function decisionOutput(
   answer: PermissionAnswer,
   suggestions: readonly unknown[],
@@ -237,7 +189,6 @@ export function decisionOutput(
   return JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision } });
 }
 
-/** What Claude Code's suggestions would let through, in the words of its dialog. */
 export function alwaysOf(suggestions: readonly unknown[]): PermissionAlways[] {
   return suggestions.flatMap((suggestion): PermissionAlways[] => {
     const s = record(suggestion);

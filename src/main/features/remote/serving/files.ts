@@ -5,10 +5,11 @@ import {
   RpcErrorCode,
   type RpcParams,
 } from "../../../../../packages/remote-protocol/src";
+import { shortId } from "../../../../shared/util/short-id";
 import type { CliServices } from "../../cli/context";
 import { isAgentBackedProvider } from "../../fs/bridge/provider";
 import { AgentFileWrites } from "../agent-file-writes";
-import type { AgentGate } from "../agent-gate";
+import { type AgentGate, lifetimeOf } from "../agent-gate";
 import type { ConsentControls } from "../consents";
 import { type FileWrites, fileWriteDestination, makeRemoteDirectory } from "../file-writes";
 import {
@@ -41,7 +42,6 @@ function checkFileControl(
   }
 }
 
-/** Validates and serves the start of a write or directory creation. */
 export async function serveFileDestination(
   s: CliServices,
   request: RemoteServeRequest,
@@ -92,9 +92,10 @@ export async function serveFileDestination(
   await watches.agents?.checkFile(
     s,
     {
-      device: { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) },
+      device: { id: from, name: watches.deviceName?.(from) ?? shortId(from) },
       method,
       params: write,
+      ...lifetimeOf(request),
     },
     {
       path: approvedPath,
@@ -115,7 +116,6 @@ export async function serveFileDestination(
   );
 }
 
-/** Lists or reads a file with the request's workspace and access checks. */
 export async function serveFileRead(
   s: CliServices,
   request: RemoteServeRequest,
@@ -182,9 +182,10 @@ export async function serveFileRead(
     await watches.agents?.checkFile(
       s,
       {
-        device: { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) },
+        device: { id: from, name: watches.deviceName?.(from) ?? shortId(from) },
         method,
         params: { ...read, from: by as AgentSender },
+        ...lifetimeOf(request),
       },
       {
         path: target,
@@ -237,7 +238,6 @@ export async function serveFileRead(
   return result;
 }
 
-/** Serves a search within the requesting device's concurrency allowance. */
 export async function serveFileSearch(
   s: CliServices,
   request: RemoteServeRequest,
@@ -252,7 +252,6 @@ export async function serveFileSearch(
   if (!workspaceOf(s, workspaceId)) {
     throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
   }
-  // Each runs through a workspace's files on its host: a device runs a few at once, no more.
   const running = searching.get(from) ?? 0;
   if (running >= MAX_SEARCHES_PER_DEVICE) {
     throw new RpcFailure(
@@ -273,5 +272,4 @@ export async function serveFileSearch(
   }
 }
 
-/** Most files.find and files.search one device may have running here at once. */
 export const MAX_SEARCHES_PER_DEVICE = 2;

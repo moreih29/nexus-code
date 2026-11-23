@@ -1,8 +1,3 @@
-/**
- * Status header: "X results in Y files" + Loader2 spinner (after 250ms delay)
- * + cancel button + limit-hit pill.
- */
-
 import { Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";

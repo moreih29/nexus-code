@@ -15,10 +15,8 @@ const diffOptions = {
   renderLineHighlight: "none",
 } satisfies Monaco.editor.IDiffEditorConstructionOptions;
 
-/** Numbers the diffs so each one's models get their own URIs. */
 let nextDiffId = 0;
 
-/** Owns the diff editor and both of its models; neither is the editor's shared one. */
 export function ReadOnlyDiffEditor({
   monaco,
   path,
@@ -41,7 +39,6 @@ export function ReadOnlyDiffEditor({
   const [editor, setEditor] = useState<Monaco.editor.IStandaloneDiffEditor | null>(null);
   const [id] = useState(() => ++nextDiffId);
 
-  // The theme only seeds creation; the effect below follows it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
     const container = containerRef.current;
@@ -59,7 +56,6 @@ export function ReadOnlyDiffEditor({
     created.setModel({ original, modified });
     setEditor(created);
     return () => {
-      // Detach the models before disposing them; disposing a shown model throws.
       created.setModel(null);
       created.dispose();
       original.dispose();

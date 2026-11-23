@@ -1,10 +1,3 @@
-/**
- * The chat side panel command toggles the panel of the chat in front: the
- * active group's active tab in the workspaces, the active panel's agent in
- * the agent view (a chat here by its tab, another computer's by its key).
- * With no chat with a panel in front, it does nothing and the key is not the
- * app's.
- */
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 const g = globalThis as Record<string, unknown>;
@@ -37,7 +30,6 @@ const { COMMANDS } = await import("../../../../src/shared/keybindings/commands")
 const toggle = () => executeCommand(COMMANDS.chatTogglePanel);
 const initialMode = useAgentViewStore.getState().mode;
 
-/** The workspace `ws` showing `tabId` in its only group. */
 function front(ws: string, tabId: string | null): void {
   useActiveStore.setState({ activeWorkspaceId: ws });
   useLayoutStore.setState({
@@ -50,7 +42,6 @@ function front(ws: string, tabId: string | null): void {
   });
 }
 
-/** The agent view showing `key` in its active panel. */
 function agentViewFront(key: string): void {
   useAgentViewStore.setState({
     mode: "agents",

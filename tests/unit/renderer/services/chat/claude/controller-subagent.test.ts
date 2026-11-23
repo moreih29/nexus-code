@@ -1,10 +1,3 @@
-/**
- * A subagent that ended, in a conversation read from its transcript, has
- * none of its messages there: Claude Code keeps them in a file of their
- * own, which the tab reads once the subagent is shown, into its history.
- * The real ipc client is spread under a spy, so later files keep its other
- * exports.
- */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 const asked: Record<string, unknown>[] = [];
@@ -99,9 +92,7 @@ describe("a subagent read from its file", () => {
     expect(history?.agentItems.agent1?.[0]?.blocks).toEqual([
       { type: "text", text: "Done looking." },
     ]);
-    // What the history had stays.
     expect(history?.items).toHaveLength(1);
-    // Read, it is not asked for again.
     await c.loadSubagent("agent1");
     expect(asked).toHaveLength(1);
   });

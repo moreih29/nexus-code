@@ -1,12 +1,3 @@
-/**
- * What the nexus CLI reads and changes of the workbench around the tabs:
- * the groups and splits of a workspace's editor area, a tab's name, pin and
- * group, the sidebar and files panel, the file tree, and the problems the
- * language servers report.
- *
- * As with ./actions, nothing here takes keyboard focus.
- */
-
 import { getEntryMetadata } from "@/services/editor/model/cache";
 import { isMonacoReady, requireMonaco } from "@/services/editor/runtime/monaco-singleton";
 import { moveTabToZone } from "@/state/operations/dnd";
@@ -33,7 +24,6 @@ function layoutOf(workspaceId: string) {
   return layout;
 }
 
-/** A split tree as the CLI tells it: a workspace's groups, or the agent view's panels. */
 export function toCli(node: LayoutNode): CliLayoutNode {
   if (node.kind === "leaf") {
     return { kind: "group", id: node.id, tabIds: [...node.tabIds], shownTabId: node.activeTabId };
@@ -50,10 +40,6 @@ export function toCli(node: LayoutNode): CliLayoutNode {
 
 const ZONES = { left: "left", right: "right", up: "top", down: "bottom" } as const;
 
-/**
- * Moves a tab as a drop does, then gives the active group back: a drop
- * activates where the tab lands, but the user is still where they were.
- */
 function moveKeepingActive(...args: Parameters<typeof moveTabToZone>) {
   const [workspaceId] = args;
   const before = layoutOf(workspaceId).activeGroupId;

@@ -1,7 +1,3 @@
-/**
- * Content handlers — Git object reads used by diff tabs.
- */
-
 import type { FileReadResult } from "../../../../shared/fs/types";
 import {
   AgentGitGetFileContentResultSchema,
@@ -18,19 +14,6 @@ import { handleGitHandlerError } from "./git-result";
 
 const c = ipcContract.git.call;
 
-/**
- * Builds the getFileContent handler; Git refs and INDEX read through the
- * workspace agent. WORKING refs are intentionally unsupported — callers
- * should use fs.readFile for working-tree content.
- *
- * In production manager is always provided by registerGitChannel. The
- * legacy fallback (GitRepository + buildGitFileContent) has been removed;
- * only the agent-backed path remains.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object so the router stays log-silent. The renderer's ipcCallResult path
- * receives this as an IpcErrResult and unwrapGitResult converts it to a thrown Error.
- */
 export function getFileContentHandler(
   _registry: GitRegistry,
   manager?: WorkspaceManager,

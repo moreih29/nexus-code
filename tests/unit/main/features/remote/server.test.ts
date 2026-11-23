@@ -1,4 +1,3 @@
-/** Which NexusCode server the app signs in to, and the addresses it reaches it at. */
 import { describe, expect, test } from "bun:test";
 import {
   DEV_SERVER,
@@ -34,7 +33,6 @@ describe("the server", () => {
       expect(remoteServer({ NEXUS_REMOTE_SERVER: value }, true, warn)).toBe(SERVER);
     }
     expect(warned).toHaveLength(4);
-    // Development takes what it is given.
     expect(remoteServer({ NEXUS_REMOTE_SERVER: "http://192.168.0.5:8787" }, false)).toBe(
       "http://192.168.0.5:8787",
     );
@@ -45,9 +43,7 @@ describe("the server", () => {
     expect(ways).toEqual({ proxy: PROXY, direct: DIRECT, fallback: FALLBACK });
     expect(new URL(PROXY).host).toBe("api.nexuscode.gradiendo.com");
     expect(new URL(DIRECT).host).toBe("cloud.nexuscode.gradiendo.com");
-    // The name it signs in to answers still, last.
     expect(FALLBACK).toBe(SERVER);
-    // An environment does not name the released app's proxy.
     expect(remoteWays({ NEXUS_REMOTE_PROXY: "https://evil.example.com" }, true, SERVER)).toEqual(
       ways,
     );

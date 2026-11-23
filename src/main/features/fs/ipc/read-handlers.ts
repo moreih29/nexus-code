@@ -1,13 +1,3 @@
-/**
- * Read-only fs handlers — readdir / stat / readFile / readBinary / readRange /
- * readExternal.
- *
- * readdir/stat catch agent-thrown fs errors (NOT_FOUND, PERMISSION_DENIED, …)
- * and return them as a typed `ipcErr` envelope instead of letting them throw.
- * This keeps Electron's `ipcMain.handle` invocation logger silent for the
- * expected-failure paths — most notably restoring a persisted expanded-tree
- * after the user has deleted folders on disk between sessions.
- */
 import { isAbsoluteOutsidePath } from "../../../../shared/fs/outside-url";
 import type {
   DirEntry,
@@ -71,10 +61,6 @@ export function readFileHandler(
   };
 }
 
-/**
- * Where to read an absolute `relPath`, a file outside the workspace a
- * Claude tab linked: its path when the tab granted it, null otherwise.
- */
 async function grantedOutsidePath(
   fs: FsProvider,
   workspaceId: string,

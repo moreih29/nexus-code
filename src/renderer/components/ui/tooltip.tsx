@@ -1,14 +1,3 @@
-/**
- * Tooltips — one for the whole window, shown for whatever element the
- * pointer rests on (or the keyboard reaches) that carries `data-tooltip`.
- *
- * An element asks for one with `tooltipProps(label, shortcut)` rather than a
- * native `title`, whose look and delay are the OS's and which cannot set a
- * shortcut apart. One delegated layer, not a Radix Tooltip per element: no
- * state per button, and none of Radix's Provider + PopperAnchor effect loop
- * under React 19 (radix-ui/primitives#3799).
- */
-
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { UI_TOOLTIP_DELAY_MS } from "../../../shared/util/timing-constants";
@@ -16,13 +5,10 @@ import { UI_TOOLTIP_DELAY_MS } from "../../../shared/util/timing-constants";
 const LABEL_ATTR = "data-tooltip";
 const SHORTCUT_ATTR = "data-tooltip-shortcut";
 
-/** Within this long of one closing, the next opens at once, as menus do. */
 const WARM_MS = 300;
 
-/** The gap between the element and its tooltip, and the window's edge. */
 const GAP_PX = 4;
 
-/** The attributes that give an element a tooltip. */
 export function tooltipProps(
   label: string,
   shortcut?: string | null,
@@ -37,10 +23,6 @@ export interface Box {
   readonly height: number;
 }
 
-/**
- * Where the tooltip goes: centred under the element, above it when there is
- * no room below, and kept inside the window.
- */
 export function placeTooltip(
   anchor: Box,
   tip: { width: number; height: number },
@@ -67,7 +49,6 @@ function tooltipOf(target: EventTarget | null): HTMLElement | null {
   return target instanceof Element ? target.closest<HTMLElement>(`[${LABEL_ATTR}]`) : null;
 }
 
-/** Mounted once, at the app's root. */
 export function TooltipRoot() {
   const [shown, setShown] = useState<Shown | null>(null);
   const tipRef = useRef<HTMLDivElement | null>(null);
@@ -75,7 +56,6 @@ export function TooltipRoot() {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let current: HTMLElement | null = null;
-    // A pressed element keeps its tooltip away until the pointer leaves it.
     let pressed: HTMLElement | null = null;
     let visible = false;
     let closedAt = 0;
@@ -122,9 +102,6 @@ export function TooltipRoot() {
     const onBlur = (e: FocusEvent) => {
       if (current && e.target === current) hide();
     };
-    // The pointer gone from the page: out of the window, or onto its
-    // caption buttons or a region that drags it, of which the page hears
-    // no more.
     const onOut = (e: PointerEvent) => {
       if (e.relatedTarget === null && current) hide();
     };
@@ -157,7 +134,6 @@ export function TooltipRoot() {
     };
   }, []);
 
-  // Placed once its size is known; gone with its element.
   useLayoutEffect(() => {
     const tip = tipRef.current;
     if (!shown || !tip) return;

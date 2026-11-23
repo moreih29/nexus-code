@@ -141,14 +141,12 @@ function PeerWorkspaceRow({
   onSelect,
 }: {
   workspace: RemoteWorkspace;
-  /** That computer's listing, for the workspace's tasks and sessions. */
   family?: { workspaces: readonly RemoteWorkspace[]; sessions: readonly RemoteSession[] };
   selected: boolean;
   onSelect: () => void;
 }) {
   const { t } = useTranslation();
   const path = toSlashPath(workspace.path).split("/").filter(Boolean).slice(-2).join("/");
-  // The workspace and its tasks, as a local card tells them.
   const ids = new Set([
     workspace.id,
     ...(family?.workspaces ?? []).flatMap(({ id, parentId }) =>

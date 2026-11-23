@@ -8,7 +8,6 @@ export interface RemoteFileRef extends PeerWorkspace {
 }
 
 export function remoteFileKey({ deviceId, workspaceId, path }: RemoteFileRef): string {
-  // The drive letter is upper case, so `c:/a` and `C:/a` share one key.
   const canonical = /^[a-z]:\//.test(path) ? path[0].toUpperCase() + path.slice(1) : path;
   return `${PREFIX}${deviceId}/${workspaceId}/${encodeURIComponent(canonical)}`;
 }

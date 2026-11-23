@@ -43,13 +43,10 @@ function render(): string {
 test("Source Control is headed by the local title row, then the changes and history toggle", () => {
   const html = render();
   expect(html).toContain("Source Control");
-  // The title row first, as locally: the changes and history toggle comes after it.
   const refresh = html.indexOf('aria-label="Refresh source control"');
   expect(html.indexOf("Source Control")).toBeLessThan(refresh);
   expect(refresh).toBeLessThan(html.indexOf("History"));
-  // That nothing is staged or committed is told once, by the read-only mark.
   expect(html).toContain('title="No staging or commits"');
-  // Only its lock, so the title row keeps room for its title, as locally.
   expect(html).toContain('role="img" aria-label="Read-only"');
   expect(html).not.toContain("Read-only</span>");
 });
@@ -76,7 +73,6 @@ test("the changes fall in the local panel's four groups, in its order", () => {
   );
   expect(order.every((at) => at >= 0)).toBe(true);
   expect([...order].sort((a, b) => a - b)).toEqual(order);
-  // Read-only groups only fold: no group actions.
   expect(html).not.toContain("Stage All");
   expect(html).not.toContain("lucide-ellipsis");
 });
@@ -105,7 +101,6 @@ test("the changes are the local panel's entries: Git's path, its old path and bo
   expect(entries.working.map((entry) => entry.xy)).toEqual(["MM"]);
   expect(entries.untracked).toEqual([{ relPath: "src/new.ts", xy: ".?", conflictType: null }]);
   expect(byPath.get("src/new.ts")).toBe(files[1]);
-  // Expanding all opens every folder of each group's files.
   expect(allPeerGitTrees(entries)).toEqual({
     merge: [],
     staged: ["src", "src/app"],

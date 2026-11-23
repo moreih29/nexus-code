@@ -81,7 +81,6 @@ test("peer choices keep their tabs and tree while local selection and persistenc
     store.toggleFolder(id, "/w/src");
     expect(useActiveStore.getState().activeWorkspaceId).toBeNull();
 
-    // ⌘W and ⌘T act on the peer workspace itself (tests/unit/renderer/commands).
     for (const command of [
       COMMANDS.fileSave,
       COMMANDS.fileNew,
@@ -98,7 +97,6 @@ test("peer choices keep their tabs and tree while local selection and persistenc
     expect(useFilesStore.getState().trees).toBe(tree);
     expect(useUIStore.getState().filesPanelModes).toBe(mode);
     expect(call).not.toHaveBeenCalled();
-    // ⌘T asks the room whether that computer lets this one open a terminal; nothing local.
     executeCommand(COMMANDS.terminalNew);
     expect(call.mock.calls).toEqual([["remote", "room", undefined]]);
     expect(useLayoutStore.getState().byWorkspace).toBe(layout);
@@ -379,7 +377,6 @@ test("each peer workspace keeps its files panel view while the app runs", () => 
   store.setFilesMode(peerTargetId(other), "agents");
   store.select(target, null);
   expect(usePeerWorkspaceStore.getState().views[id]?.filesMode).toBe("git");
-  // Another account starts again from the tree.
   store.setAccount("another");
   expect(usePeerWorkspaceStore.getState().views[id]).toBeUndefined();
 });

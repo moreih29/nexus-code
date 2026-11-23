@@ -1,21 +1,4 @@
-/**
- * confirmAndDeleteBatch — unit tests.
- *
- * Covers Phase C acceptance criteria:
- *   - N=1 delegates to confirmAndDeletePath (single-item dialog semantics).
- *   - N=2 batch dialog, local trash.
- *   - N=3 comma-separated description.
- *   - N=5 "and N-3 more" truncation.
- *   - SSH workspace → permanent delete.
- *   - Partial failure: toast shows "M of N" + the first failed item's name.
- *   - distinctParents applied before prompting.
- */
-
 import { beforeEach, describe, expect, it, mock } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Shims
-// ---------------------------------------------------------------------------
 
 (globalThis as Record<string, unknown>).window = {
   ipc: {
@@ -25,13 +8,8 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
   },
 };
 
-// ---------------------------------------------------------------------------
-// IPC spy
-// ---------------------------------------------------------------------------
-
 type IpcCall = { channel: string; method: string; args: unknown };
 const ipcCalls: IpcCall[] = [];
-/** relPath whose trash call fails with PERMISSION_DENIED. */
 let failTrashRelPath: string | null = null;
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
@@ -54,10 +32,6 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   canUseIpcBridge: () => false,
 }));
 
-// ---------------------------------------------------------------------------
-// Confirm dialog spy — default: confirm=true
-// ---------------------------------------------------------------------------
-
 let confirmResult = true;
 let lastConfirmArgs: { title?: string; description?: string; confirmLabel?: string } | null = null;
 
@@ -68,20 +42,12 @@ mock.module("../../../../../src/renderer/components/ui/confirm-dialog", () => ({
   },
 }));
 
-// ---------------------------------------------------------------------------
-// Toast spy
-// ---------------------------------------------------------------------------
-
 const toastCalls: { kind: string; message: string }[] = [];
 mock.module("../../../../../src/renderer/components/ui/toast", () => ({
   showToast: (input: { kind: string; message: string }) => {
     toastCalls.push(input);
   },
 }));
-
-// ---------------------------------------------------------------------------
-// Imports (after mocks)
-// ---------------------------------------------------------------------------
 
 import { cacheUriFor } from "../../../../../src/renderer/services/editor/model/cache";
 import {
@@ -93,10 +59,6 @@ import { useFilesStore } from "../../../../../src/renderer/state/stores/files";
 import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 import { useWorkspacesStore } from "../../../../../src/renderer/state/stores/workspaces";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 const WS = "ws-batch-test";
 const ROOT = "/repo";
@@ -141,10 +103,6 @@ function resetAll(): void {
   ]);
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 beforeEach(() => {
   resetAll();
   seedWorkspace("local");
@@ -175,7 +133,6 @@ describe("confirmAndDeleteBatch — N=1 single-path delegation", () => {
   it("delegates to confirmAndDeletePath for a single file", async () => {
     const result = await confirmAndDeleteBatch(WS, ROOT, [`${ROOT}/a.ts`]);
     expect(result).toBe(true);
-    // Single delegation still fires a trash IPC call.
     const trashCall = ipcCalls.find((c) => c.method === "trash");
     expect(trashCall).toBeDefined();
     expect((trashCall?.args as { relPath: string }).relPath).toBe("a.ts");
@@ -214,11 +171,9 @@ describe("confirmAndDeleteBatch — cancel confirm", () => {
 
 describe("confirmAndDeleteBatch — distinctParents collapse", () => {
   it("only deletes the parent when a child is also in the list", async () => {
-    // Set up dir/a.ts child.
     useFilesStore.getState().setChildren(WS, `${ROOT}/dir`, [{ name: "a.ts", type: "file" }]);
     const result = await confirmAndDeleteBatch(WS, ROOT, [`${ROOT}/dir`, `${ROOT}/dir/a.ts`]);
     expect(result).toBe(true);
-    // N=1 after distinctParents → single-path delegation → single trash call.
     const trashCalls = ipcCalls.filter((c) => c.method === "trash");
     expect(trashCalls).toHaveLength(1);
     expect((trashCalls[0].args as { relPath: string }).relPath).toBe("dir");
@@ -237,7 +192,6 @@ describe("confirmAndDeleteBatch — open tabs", () => {
     return tab.id;
   }
 
-  /** Gives `filePath` a model with unsaved changes. */
   function makeDirty(filePath: string): () => void {
     const cacheUri = cacheUriFor(WS, filePath);
     let altId = 1;

@@ -1,8 +1,3 @@
-/**
- * The sessions tab's view: a view this version does not know is dropped on
- * load, and one an earlier version had is read as the one that took its place.
- */
-
 import { describe, expect, it } from "bun:test";
 import {
   selectAgentListView,

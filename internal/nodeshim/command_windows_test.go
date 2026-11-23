@@ -13,8 +13,6 @@ import (
 	"testing"
 )
 
-// npmInstall writes a node package's command as npm installs it in a
-// directory of its own; the script prints its arguments as JSON.
 func npmInstall(t *testing.T) (dir, script string) {
 	t.Helper()
 	dir = t.TempDir()
@@ -43,7 +41,6 @@ func TestCommand_RunsANodeShimAsNodeOnItsScript(t *testing.T) {
 	}
 	for _, path := range []string{
 		filepath.Join(dir, "codex"),
-		// As Git Bash passes it.
 		filepath.ToSlash(filepath.Join(dir, "codex")),
 		filepath.Join(dir, "codex.cmd"),
 	} {

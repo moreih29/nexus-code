@@ -1,9 +1,3 @@
-// Agent list — the permission requests a Claude session waits on, answered
-// from the detail panel: allow, allow always as Claude Code suggests, or
-// deny, with words for Claude or stopping the turn. Claude Code shows the
-// same request in its terminal, where it can be answered too; a request
-// answered there leaves this list.
-
 import { CircleAlert } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -18,9 +12,9 @@ import { ipcCallResult } from "../../ipc/client";
 import { markAnswered, useUnansweredAsks } from "../../services/agent-sessions/answered-asks";
 import type { AgentSession } from "../../services/agent-sessions/model";
 import { Button } from "../ui/button";
+import { tooltipProps } from "../ui/tooltip";
 import { agentLabel } from "./agent-status";
 
-/** The requests of `session` (of one of its agents, when `agents` holds only it), oldest first. */
 export function PermissionAsks({
   session,
   asks,
@@ -30,14 +24,12 @@ export function PermissionAsks({
   asks: readonly PermissionAsk[];
   agents: readonly AgentRun[];
 }) {
-  // One answered here leaves at once, not with the next poll.
   const shown = useUnansweredAsks(session, asks);
   if (shown.length === 0) return null;
   return (
     <div className="flex flex-col gap-2">
       {shown.map((ask) => (
         <AskCard
-          // Keyed by the request, so an answer under way is its own.
           key={ask.id}
           session={session}
           ask={ask}
@@ -78,8 +70,6 @@ function AskCard({
       setFailed(true);
       return;
     }
-    // It reached Claude Code, which takes the request away: the card leaves
-    // now, and shows again if a poll still lists it a while later.
     markAnswered(session, ask.id);
   };
   const onDeny = (event: FormEvent) => {
@@ -109,7 +99,7 @@ function AskCard({
           {ask.target && (
             <span
               className="min-w-0 break-all font-mono text-app-ui-sm text-foreground"
-              title={ask.target}
+              {...tooltipProps(ask.target)}
             >
               {ask.target}
             </span>
@@ -165,7 +155,7 @@ function AskCard({
               size="sm"
               variant="outline"
               disabled={sending}
-              title={always}
+              {...tooltipProps(always)}
               onClick={() => void answer("allowAlways")}
             >
               {t("agentList.permission.allow_always")}
@@ -193,7 +183,6 @@ function AskCard({
   );
 }
 
-/** What allowing always lets through, in words. */
 function alwaysLabel(
   item: PermissionAlways,
   t: (key: string, options?: Record<string, unknown>) => string,

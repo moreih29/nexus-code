@@ -9,15 +9,10 @@ import (
 	"time"
 )
 
-// forwardedSignals reach claude as they reach the run: the terminal's ^C
-// reaches both already, a kill of the run alone does not.
 var forwardedSignals = []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT}
 
-// swallowedSignals are caught so that they change nothing: a write to a
-// closed output fails rather than end the run before it tells its end.
 var swallowedSignals = []os.Signal{syscall.SIGPIPE}
 
-// signalOf is the signal a process died of, by its number and name.
 func signalOf(state *os.ProcessState) (int, string, bool) {
 	status, ok := state.Sys().(syscall.WaitStatus)
 	if !ok || !status.Signaled() {
@@ -27,8 +22,6 @@ func signalOf(state *os.ProcessState) (int, string, bool) {
 	return int(sig), sig.String(), true
 }
 
-// reraise ends this process by signal `n`, as claude ended, where Go lets
-// it die of one; the caller exits 128+n otherwise.
 func reraise(n int) {
 	sig := syscall.Signal(n)
 	switch sig {
@@ -39,20 +32,14 @@ func reraise(n int) {
 	}
 }
 
-// printStopGrace is how long a run stopped by the app has to end on the
-// interrupt before it is terminated.
 const printStopGrace = 5 * time.Second
 
-// processTree: a run stopped on Unix is interrupted as the session's ^C
-// would, which reaches the program alone.
 type processTree struct{}
 
 func holdTree(*os.Process) *processTree { return nil }
 
 func (*processTree) release() {}
 
-// stopProcess stops a run as the session's ^C would, and terminates it if
-// it is still there after printStopGrace. It returns the signal sent.
 func stopProcess(p *os.Process, _ *processTree) os.Signal {
 	if p.Signal(syscall.SIGINT) != nil {
 		return nil

@@ -1,5 +1,3 @@
-// Package lsp implements the Go agent's generic JSON-RPC transport for
-// Language Server Protocol processes.
 package lsp
 
 import (
@@ -14,19 +12,15 @@ const maxFrameBodyBytes = 64 * 1024 * 1024
 
 var headerTerminator = []byte("\r\n\r\n")
 
-// Decoder incrementally parses LSP Content-Length framed JSON-RPC messages.
 type Decoder struct {
 	buffer       []byte
 	maxBodyBytes int
 }
 
-// NewDecoder constructs a streaming decoder with the package default body cap.
 func NewDecoder() *Decoder {
 	return &Decoder{maxBodyBytes: maxFrameBodyBytes}
 }
 
-// Append adds one transport chunk and returns every complete JSON-RPC body now
-// available. Incomplete trailing data remains buffered for the next call.
 func (d *Decoder) Append(chunk []byte) ([]json.RawMessage, error) {
 	if len(chunk) > 0 {
 		d.buffer = append(d.buffer, chunk...)
@@ -65,7 +59,6 @@ func (d *Decoder) Append(chunk []byte) ([]json.RawMessage, error) {
 	}
 }
 
-// EncodeMessage marshals a JSON-RPC object and wraps it in an LSP frame.
 func EncodeMessage(message any) ([]byte, error) {
 	body, err := json.Marshal(message)
 	if err != nil {
@@ -74,7 +67,6 @@ func EncodeMessage(message any) ([]byte, error) {
 	return encodeBody(body), nil
 }
 
-// EncodeRawMessage wraps an already-marshaled JSON-RPC object in an LSP frame.
 func EncodeRawMessage(message json.RawMessage) ([]byte, error) {
 	body := bytes.TrimSpace(message)
 	if len(body) == 0 {

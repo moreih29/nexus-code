@@ -1,17 +1,3 @@
-// MermaidDiagram — a ```mermaid block of the Markdown preview drawn as its
-// diagram.
-//
-// mermaid is loaded with the first diagram, not with the app. It draws the
-// diagram as SVG markup, which shows in an <img> from a blob URL as the SVG
-// preview does: as an image, the SVG runs no script and loads nothing, so a
-// diagram in a workspace file cannot reach the app whatever it holds.
-// securityLevel "strict" escapes the labels' HTML too. Labels are SVG text
-// rather than HTML, which an image could not show.
-//
-// A diagram follows edits to its source a moment after typing stops, keeping
-// the last one drawn meanwhile. One that does not parse shows its source and
-// mermaid's message.
-
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { THEME_SOURCE_BY_ID } from "../../../../shared/design-tokens";
@@ -26,10 +12,8 @@ function loadMermaid(): Promise<Mermaid> {
   return loading;
 }
 
-/** How long after an edit a diagram is drawn again, in ms. */
 const REDRAW_DELAY_MS = 300;
 
-/** A font both the page, which lays the diagram out, and the image have. */
 const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
 
 let nextId = 0;
@@ -41,7 +25,6 @@ export function MermaidDiagram({ code }: { code: string }) {
   const base = useThemeStore((s) => THEME_SOURCE_BY_ID[s.resolved].base);
   const [drawn, setDrawn] = useState<Drawn | null>(null);
   const [broken, setBroken] = useState(false);
-  /** Whether a diagram has been drawn: the first is drawn at once. */
   const drawnOnce = useRef(false);
 
   useEffect(() => {
@@ -114,7 +97,6 @@ async function draw(code: string, base: "dark" | "light"): Promise<Drawn> {
   }
 }
 
-/** The diagram's own width, from its viewBox: it otherwise fills its block. */
 function naturalWidth(svg: string): number | null {
   const match = /viewBox="[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+[\d.]+"/.exec(svg);
   const width = match ? Number(match[1]) : Number.NaN;

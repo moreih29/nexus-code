@@ -1,15 +1,9 @@
-/**
- * nexus workspace pin, unpin and move: the sidebar's rows changed
- * from a terminal, another workspace's with the user's leave; and workspace
- * list, in the sidebar's order, here or on another computer.
- */
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import type { CliDevice } from "../../../../src/main/features/cli/context";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import { API, APP, contextFor, type FakeApp, FIX, fakeApp, SHELL_TAB } from "./fake-services";
 
-/** A terminal of "api". */
 const IN_API = { workspaceId: API, tabId: "bbbbbbbb-0000-4000-8000-000000000003" };
 const MINI = "9b1e44d2-0000-4000-8000-000000000002";
 
@@ -21,7 +15,6 @@ async function nexus(
   return runCli(CLI_COMMANDS, contextFor(app, argv, caller));
 }
 
-/** The sidebar's rows, top to bottom, as workspace list --json gives them. */
 async function sidebar(app: FakeApp): Promise<string[]> {
   const listed = JSON.parse((await nexus(app, ["workspace", "list", "--json"])).stdout);
   return listed

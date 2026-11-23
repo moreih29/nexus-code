@@ -39,7 +39,6 @@ type DiffResult struct {
 	Truncated bool  `json:"truncated"`
 }
 
-// Diff executes git diff and emits raw UTF-8-safe text chunks as git.diff.chunk.
 func (s *Service) Diff(ctx context.Context, raw json.RawMessage) (any, error) {
 	params, err := parseDiffParams(raw)
 	if err != nil {
@@ -66,7 +65,6 @@ func (s *Service) Diff(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	result, readErr := s.emitDiffChunks(streamCtx, params.StreamID, stdout, params.MaxChunkBytes, params.MaxBytes)
 	if readErr != nil {
-		// Stop git before waiting; it would block on a full stdout pipe.
 		cancel()
 	}
 	waitErr := finish()
@@ -185,9 +183,6 @@ func (s *Service) emitDiffChunks(ctx context.Context, streamID string, stdout io
 		}
 		if err == io.EOF {
 			if result.Truncated {
-				// maxBytes may have cut the last character in half; that
-				// fragment is an artifact of the cap, so drop it instead of
-				// emitting U+FFFD.
 				pending = pending[:len(pending)-incompleteRuneTail(pending)]
 			}
 			var emitErr error
@@ -230,11 +225,6 @@ func minInt64(a int64, b int64) int64 {
 	return b
 }
 
-// utf8SafeChunkLen returns how many leading bytes of buf to emit as the next
-// chunk: at most maxChunkBytes, and never ending inside a UTF-8 sequence that
-// the following bytes could still complete. Bytes that are not valid UTF-8
-// are not held back; chunkText turns them into U+FFFD. Returns 0 when nothing
-// can be emitted until more input arrives.
 func utf8SafeChunkLen(buf []byte, maxChunkBytes int, final bool) int {
 	cut := min(len(buf), maxChunkBytes)
 	if final && cut == len(buf) {
@@ -243,8 +233,6 @@ func utf8SafeChunkLen(buf []byte, maxChunkBytes int, final bool) int {
 	if tail := incompleteRuneTail(buf[:cut]); tail < cut {
 		return cut - tail
 	}
-	// maxChunkBytes is smaller than the character at the front of buf: emit
-	// that whole character (or one invalid byte) once it has arrived.
 	if !final && !utf8.FullRune(buf) {
 		return 0
 	}
@@ -252,9 +240,6 @@ func utf8SafeChunkLen(buf []byte, maxChunkBytes int, final bool) int {
 	return size
 }
 
-// incompleteRuneTail returns the length (0-3) of a UTF-8 sequence at the end
-// of buf that is cut short, i.e. a lead byte plus fewer continuation bytes
-// than it announces.
 func incompleteRuneTail(buf []byte) int {
 	for i := 1; i < utf8.UTFMax && i <= len(buf); i++ {
 		if utf8.RuneStart(buf[len(buf)-i]) {
@@ -267,9 +252,6 @@ func incompleteRuneTail(buf []byte) int {
 	return 0
 }
 
-// chunkText converts one chunk to a string, replacing bytes that are not
-// valid UTF-8 (Latin-1 or CP949 file content, for example) with U+FFFD the
-// same way fs.readFile and git.getFileContent do.
 func chunkText(chunk []byte) string {
 	if utf8.Valid(chunk) {
 		return string(chunk)

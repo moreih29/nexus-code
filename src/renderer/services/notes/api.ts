@@ -1,7 +1,3 @@
-/**
- * The renderer's way to a workspace's notes (the notes IPC channel), and the
- * URLs the editor shows a note's pictures by.
- */
 import type {
   NewNoteLink,
   NoteConversation,
@@ -173,7 +169,6 @@ export const notesApi = {
     call(ipcCallResult("notes", "appendAudio", { workspaceId, noteId, file, audio })),
   hasRecordingAudio: (workspaceId: string, noteId: string, files: string[]) =>
     call(ipcCallResult("notes", "hasRecordingAudio", { workspaceId, noteId, files })),
-  /** A line's voice print; null when the app has none to give. */
   voicePrint: (audio: Float32Array) => call(ipcCallResult("notes", "voicePrint", { audio })),
   removeRecording: (
     workspaceId: string,
@@ -183,10 +178,8 @@ export const notesApi = {
   ): Promise<TranscriptFile> =>
     call(ipcCallResult("notes", "removeRecording", { workspaceId, noteId, recordingId, text })),
   onChanged: (cb: (event: NoteChanged) => void): (() => void) => ipcListen("notes", "changed", cb),
-  /** Another device put a photo at the end of a note (written into it already). */
   onPhotoAdded: (cb: (event: NotePhotoAdded) => void): (() => void) =>
     ipcListen("notes", "photoAdded", cb),
-  /** An agent put blocks into a note (written into it already). */
   onBlocksAdded: (cb: (event: NoteBlocksAdded) => void): (() => void) =>
     ipcListen("notes", "blocksAdded", cb),
 };
@@ -216,10 +209,6 @@ function base64ToBlob(base64: string, mime: string): Blob {
   return new Blob([bytes], { type: mime });
 }
 
-/**
- * Object URLs of a note's files, made once per (note, file, version) and
- * let go of when the note's editor closes.
- */
 export class NoteAssetUrls {
   private readonly urls = new Map<string, Promise<string>>();
 

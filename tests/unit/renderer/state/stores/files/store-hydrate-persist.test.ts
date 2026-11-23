@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, mock } from "bun:test";
 
-// ---------------------------------------------------------------------------
-// Shims — must run before any store import
-// ---------------------------------------------------------------------------
-
 (globalThis as Record<string, unknown>).window = {
   ipc: {
     call: () => Promise.resolve(null),
@@ -11,10 +7,6 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
     off: () => {},
   },
 };
-
-// ---------------------------------------------------------------------------
-// Mock ipcCallResult before importing the store
-// ---------------------------------------------------------------------------
 
 const mockIpcCallResult = mock((_channel: string, _method: string, _args: unknown) =>
   Promise.resolve({ ok: true as const, value: [] }),
@@ -28,24 +20,12 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
   canUseIpcBridge: () => false,
 }));
 
-// ---------------------------------------------------------------------------
-// Imports after mocks
-// ---------------------------------------------------------------------------
-
 import { ensureRoot } from "../../../../../../src/renderer/state/operations/files";
 import { useFilesStore } from "../../../../../../src/renderer/state/stores/files";
 import type { DirEntry } from "../../../../../../src/shared/fs/types";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 const WS_ID = "00000000-0000-0000-0000-000000000001";
 const ROOT = "/workspace/project";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function dirEntry(name: string, type: DirEntry["type"] = "file"): DirEntry {
   return { name, type };
@@ -56,10 +36,6 @@ function resetStore() {
   mockIpcCallResult.mockClear();
   mockIpcListen.mockClear();
 }
-
-// ---------------------------------------------------------------------------
-// Scenario 8: ensureRoot hydrates persisted expanded paths (ancestors-first)
-// ---------------------------------------------------------------------------
 
 describe("Scenario 8: ensureRoot hydrates persisted expanded paths", () => {
   beforeEach(resetStore);
@@ -79,10 +55,6 @@ describe("Scenario 8: ensureRoot hydrates persisted expanded paths", () => {
     expect(tree?.expanded.has(ROOT)).toBe(true);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Scenario 12: ensureRoot hydrate — depth-grouped parallel readdir calls
-// ---------------------------------------------------------------------------
 
 describe("Scenario 12: ensureRoot hydrate parallel readdir", () => {
   beforeEach(resetStore);

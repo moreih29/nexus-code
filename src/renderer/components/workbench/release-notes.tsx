@@ -1,14 +1,3 @@
-// The release notes view: the recent releases' notes over the panels, as
-// quick look shows a file there, with the sidebar and the title bar still
-// in sight. The versions are listed on the left, newest first, with the
-// running one and any newer one marked; the open release's notes fill the
-// right, with an update on offer below them. Esc, the ✕ or a click beside
-// it closes it, as does going elsewhere. Links in the notes open in the
-// browser.
-//
-// The notes are the HTML GitHub renders from each release's Markdown,
-// sanitized with GitHub's own allowlist before they are shown.
-
 import { ExternalLink, LoaderCircle, ScrollText, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { lazy, Suspense, useEffect, useRef } from "react";
@@ -31,11 +20,9 @@ const ReleaseNotesHtml = lazy(() =>
   import("./release-notes-html").then(({ ReleaseNotesHtml }) => ({ default: ReleaseNotesHtml })),
 );
 
-/** Overlays that open from the view, as a tooltip, and keep it open. */
 const FROM_VIEW =
   '[role="dialog"],[role="alertdialog"],[role="menu"],[data-radix-popper-content-wrapper]';
 
-/** Shows the view while it is open; mounted in the panels' area. */
 export function ReleaseNotesView() {
   const open = useReleaseNotesStore((s) => s.open);
   return open ? <ReleaseNotesDialog /> : null;
@@ -52,10 +39,6 @@ function ReleaseNotesDialog() {
   const current = __APP_VERSION__;
   const shown = shownNote(notes ?? [], wanted, current);
 
-  // The keys go to the view while it is open, and to the notes once they
-  // show; the focus goes back after, unless it went elsewhere, which closed
-  // it. Opened again while open, as from the update's popover, it takes the
-  // focus back.
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
@@ -94,14 +77,12 @@ function ReleaseNotesDialog() {
       closeReleaseNotes();
       return;
     }
-    // ↑ ↓ move through the versions while the list has the focus.
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
     if (!(event.target as HTMLElement).closest("[data-release-list]")) return;
     event.preventDefault();
     step(event.key === "ArrowDown" ? 1 : -1);
   };
 
-  // The update on offer, below the notes; its own release notes are here.
   const offered =
     status?.kind === "newer" ||
     status?.kind === "downloading" ||
@@ -160,7 +141,6 @@ function ReleaseNotesDialog() {
         aria-hidden
         className="absolute inset-0 bg-[var(--floating-scrim)]"
         onMouseDown={(event) => {
-          // The focus goes back where it was, not to the page.
           event.preventDefault();
           closeReleaseNotes();
         }}
@@ -223,8 +203,6 @@ function ReleaseList({
   locale: string;
 }) {
   const { t } = useTranslation();
-  // The shown release stays in sight as ↑ ↓ move through the list, and
-  // takes the focus there.
   const shownRef = useRef<HTMLButtonElement>(null);
   const shownVersion = shown.version;
   useEffect(() => {
@@ -306,18 +284,13 @@ function ReleaseMarkBadge({ mark }: { mark: "current" | "newer" | "prerelease" }
   );
 }
 
-/** The releases page, from a release's: ".../releases/tag/v1.0.0" is ".../releases". */
 function allReleasesUrl(releaseUrl: string | undefined): string {
   return releaseUrl?.replace(/\/tag\/[^/]+$/, "") ?? "";
 }
 
-/** No margin, padding or rule from the preview's styles. */
 const FLAT = { margin: 0, padding: 0, border: 0 } as const;
 
 function ReleaseBody({ note, locale }: { note: ReleaseNote; locale: string }) {
-  // The notes take the keys the view has, so ↑ ↓ and Page Down scroll
-  // them, once they show and when other notes replace them; the focus in
-  // the list stays there.
   const bodyRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const body = bodyRef.current;
@@ -337,7 +310,6 @@ function ReleaseBody({ note, locale }: { note: ReleaseNote; locale: string }) {
       data-testid="release-notes-body"
     >
       <div>
-        {/* Its own sizes, over the preview's heading and paragraph rules. */}
         <header className="mb-6 flex flex-col gap-1">
           <h1 style={{ ...FLAT, fontSize: 24 }} className="font-semibold text-foreground">
             v{note.version}

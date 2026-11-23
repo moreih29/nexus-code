@@ -36,8 +36,6 @@ func cliRequest(token string) hookWireRequest {
 	}
 }
 
-// With no app to hand the request to, the client hears so at once instead
-// of waiting out the deadline.
 func TestCLIRequestWithoutAppFailsAtOnce(t *testing.T) {
 	for name, sink := range map[string]EventSink{
 		"no sink":      nil,
@@ -55,9 +53,6 @@ func TestCLIRequestWithoutAppFailsAtOnce(t *testing.T) {
 	}
 }
 
-// A client that goes before main answers, as one stopped with Ctrl-C, is
-// told to main as a cli.cancel event for its request; main's late answer
-// then has nowhere to go.
 func TestCLIClientGoneIsToldToMain(t *testing.T) {
 	events := make(chan struct {
 		name    string
@@ -93,8 +88,6 @@ func TestCLIClientGoneIsToldToMain(t *testing.T) {
 	}
 }
 
-// missedCloseConn models the Windows AF_UNIX read which misses an immediate
-// peer close. A read deadline frees the stalled read so EOF can be observed.
 type missedCloseConn struct {
 	net.Conn
 	deadline  chan struct{}
@@ -104,7 +97,6 @@ type missedCloseConn struct {
 	firstRead bool
 }
 
-// SetReadDeadline signals that the watcher can recover from the missed close.
 func (c *missedCloseConn) SetReadDeadline(deadline time.Time) error {
 	if !deadline.IsZero() {
 		c.armed.Do(func() { close(c.deadline) })
@@ -112,7 +104,6 @@ func (c *missedCloseConn) SetReadDeadline(deadline time.Time) error {
 	return nil
 }
 
-// Read holds the first read after disconnect until its simulated deadline.
 func (c *missedCloseConn) Read(p []byte) (int, error) {
 	if c.firstRead {
 		return c.Conn.Read(p)
@@ -127,8 +118,6 @@ func (c *missedCloseConn) Read(p []byte) (int, error) {
 	}
 }
 
-// TestCLIClientGoneAfterMissedRead verifies the CLI still cancels when the
-// transport delivers EOF only after the first read has timed out.
 func TestCLIClientGoneAfterMissedRead(t *testing.T) {
 	requests := make(chan CLIEventPayload, 1)
 	cancels := make(chan CLICancelPayload, 1)
@@ -159,7 +148,6 @@ func TestCLIClientGoneAfterMissedRead(t *testing.T) {
 	}
 }
 
-// A request main never answers is answered with an error at the deadline.
 func TestCLIRequestTimesOut(t *testing.T) {
 	srv := newTestServer(t, func(string, any) error { return nil })
 	srv.testDeadlineNs.Store(int64(100 * time.Millisecond))
@@ -171,8 +159,6 @@ func TestCLIRequestTimesOut(t *testing.T) {
 	}
 }
 
-// A CLI request with the wrong token goes no further, and its client is
-// told why.
 func TestCLIRequestWithWrongTokenIsRefused(t *testing.T) {
 	var called atomic.Bool
 	srv := newTestServer(t, func(string, any) error {

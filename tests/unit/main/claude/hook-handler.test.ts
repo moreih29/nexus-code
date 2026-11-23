@@ -1,16 +1,6 @@
-/**
- * Unit tests for hook-handler.
- *
- * - Verifies the mapping of the 7 subcommands to state transitions.
- * - Verifies OS notifications for notification/permission-request (focus branching).
- * - Verifies every subcommand immediately calls respondHook { exitCode: 0 }
- *   (which releases the hook process).
- */
-
 import { describe, expect, jest, mock, test } from "bun:test";
 import { TurnOrder } from "../../../../src/main/features/claude/turn-order";
 
-// electron mock — must be declared before the dynamic import.
 mock.module("electron", () => ({
   app: { isPackaged: false },
   BrowserWindow: {
@@ -43,10 +33,6 @@ const { SessionActivityLog } = await import(
 );
 const { PermissionAsks } = await import("../../../../src/main/features/claude/permission-asks");
 const { ChatAnswers } = await import("../../../../src/main/features/claude/chat-answers");
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 interface ShownNotification {
   title: string;
@@ -138,10 +124,6 @@ function makeHookAgentHost() {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Test harness
-// ---------------------------------------------------------------------------
-
 interface Harness {
   broker: InstanceType<typeof ClaudeStatusBroker>;
   activeContext: InstanceType<typeof ActiveContextStore>;
@@ -160,7 +142,6 @@ interface Harness {
   emit: (payload: unknown) => void;
 }
 
-// Placeholder for the FakeNotification type — actually returned from makeNotificationCtor
 class FakeNotification {
   constructor(_opts: { title: string; body: string }) {}
   on(_: string, _cb: () => void) {
@@ -233,17 +214,11 @@ function makeHarness(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe("hook-handler — subcommand 상태 전이", () => {
   test("session-start → running", async () => {
     const { broker, emit } = makeHarness();
     emit(makeHookPayload("session-start"));
     await new Promise((r) => setTimeout(r, 0));
-    // session-start is idle — Claude enters the state of waiting for user input.
-    // running begins when real work starts at user-prompt-submit/pre-tool-use.
     expect(broker.get("ws-test", "tab-test")?.status).toBe("idle");
   });
 
@@ -289,7 +264,6 @@ describe("hook-handler — subcommand 상태 전이", () => {
       "see this:\n1. first\n2. second\nthanks",
     );
 
-    // Only a pair with the same id is a paste; a lone mark is the user's text.
     emit(
       makeHookPayload("user-prompt-submit", { prompt: 'why is <pasted_content id="a"> shown?' }),
     );
@@ -300,7 +274,6 @@ describe("hook-handler — subcommand 상태 전이", () => {
   test.each([
     "<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n</task-notification>",
     '<cross-session-message from="worker">done</cross-session-message>',
-    // As Claude Code 2.1.316 delivers a background agent's SendMessage.
     'Another Claude session sent a message:\n<agent-message from="a58">Question for you</agent-message>',
     "A peer session sent a message while you were working:\nbuild is green",
     '<teammate-message teammate_id="tester">tests pass</teammate-message>',
@@ -363,7 +336,7 @@ describe("hook-handler — subcommand 상태 전이", () => {
   });
 
   test("stop — 사용자가 그 탭을 보고 있으면(앱 포커스+active 일치) idle로 직행", async () => {
-    const { broker, activeContext, emit } = makeHarness(true /* focused */);
+    const { broker, activeContext, emit } = makeHarness(true);
     activeContext.set("ws-test", "tab-test");
     broker.set("ws-test", "tab-test", "running");
     emit(makeHookPayload("stop"));
@@ -372,8 +345,8 @@ describe("hook-handler — subcommand 상태 전이", () => {
   });
 
   test("stop — 다른 탭을 보고 있으면 completed로 전이", async () => {
-    const { broker, activeContext, emit } = makeHarness(true /* focused */);
-    activeContext.set("ws-test", "other-tab"); // another tab
+    const { broker, activeContext, emit } = makeHarness(true);
+    activeContext.set("ws-test", "other-tab");
     broker.set("ws-test", "tab-test", "running");
     emit(makeHookPayload("stop"));
     await new Promise((r) => setTimeout(r, 0));
@@ -381,20 +354,18 @@ describe("hook-handler — subcommand 상태 전이", () => {
   });
 
   test("stop — 앱 비포커스 상태이면 active 일치해도 completed로 전이", async () => {
-    const { broker, activeContext, emit } = makeHarness(false /* unfocused */);
-    activeContext.set("ws-test", "tab-test"); // the same tab, but
+    const { broker, activeContext, emit } = makeHarness(false);
+    activeContext.set("ws-test", "tab-test");
     broker.set("ws-test", "tab-test", "running");
     emit(makeHookPayload("stop"));
     await new Promise((r) => setTimeout(r, 0));
-    // If the app is in the background, the user is considered not to be looking.
     expect(broker.get("ws-test", "tab-test")?.status).toBe("completed");
   });
 
   test("stop — 비-active 탭 + assistantText 있음 → completed + message에 텍스트", async () => {
-    const { broker, activeContext, emit } = makeHarness(true /* focused */);
-    activeContext.set("ws-test", "other-tab"); // another tab
+    const { broker, activeContext, emit } = makeHarness(true);
+    activeContext.set("ws-test", "other-tab");
     broker.set("ws-test", "tab-test", "running");
-    // Simulates the payload hookclient sends after reading the transcript.
     emit({
       ...makeHookPayload("stop"),
       assistantText: "Here is the answer to your question.",
@@ -406,12 +377,10 @@ describe("hook-handler — subcommand 상태 전이", () => {
   });
 
   test("stop — 비-active 탭 + assistantText 미포함 → completed + message undefined", async () => {
-    // Silent fallback path such as a missing transcript or a parse failure. Only the glyph
-    // should be shown.
-    const { broker, activeContext, emit } = makeHarness(true /* focused */);
+    const { broker, activeContext, emit } = makeHarness(true);
     activeContext.set("ws-test", "other-tab");
     broker.set("ws-test", "tab-test", "running");
-    emit(makeHookPayload("stop")); // without assistantText
+    emit(makeHookPayload("stop"));
     await new Promise((r) => setTimeout(r, 0));
     const entry = broker.get("ws-test", "tab-test");
     expect(entry?.status).toBe("completed");
@@ -419,7 +388,7 @@ describe("hook-handler — subcommand 상태 전이", () => {
   });
 
   test("stop on the tab the user is looking at keeps the answer", async () => {
-    const { broker, activeContext, emit } = makeHarness(true /* focused */);
+    const { broker, activeContext, emit } = makeHarness(true);
     activeContext.set("ws-test", "tab-test");
     broker.set("ws-test", "tab-test", "running");
     emit({ ...makeHookPayload("stop"), assistantText: "Done: 2 files changed." });
@@ -430,7 +399,7 @@ describe("hook-handler — subcommand 상태 전이", () => {
   });
 
   test("stop without an answer drops the previous turn's", async () => {
-    const { broker, activeContext, emit } = makeHarness(true /* focused */);
+    const { broker, activeContext, emit } = makeHarness(true);
     activeContext.set("ws-test", "other-tab");
     broker.set("ws-test", "tab-test", "completed", "the old answer");
     broker.set("ws-test", "tab-test", "running");
@@ -439,10 +408,8 @@ describe("hook-handler — subcommand 상태 전이", () => {
     expect(broker.get("ws-test", "tab-test")?.message).toBeUndefined();
   });
 
-  // Claude Code fires StopFailure instead of Stop when the turn ends on an
-  // API error, such as a rate limit.
   test("stop-failure ends the turn on the error and notifies with it", async () => {
-    const { broker, activeContext, emit, notifInstances } = makeHarness(true /* focused */);
+    const { broker, activeContext, emit, notifInstances } = makeHarness(true);
     activeContext.set("ws-test", "other-tab");
     emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
     await new Promise((r) => setTimeout(r, 0));
@@ -475,7 +442,7 @@ describe("hook-handler — subcommand 상태 전이", () => {
   });
 
   test("stop-failure on the tab the user is looking at keeps the error and notifies no one", async () => {
-    const { broker, activeContext, emit, notifInstances } = makeHarness(true /* focused */);
+    const { broker, activeContext, emit, notifInstances } = makeHarness(true);
     activeContext.set("ws-test", "tab-test");
     broker.set("ws-test", "tab-test", "running");
     emit(makeHookPayload("stop-failure", { error: "server_error" }));
@@ -530,7 +497,7 @@ describe("hook-handler — subcommand 상태 전이", () => {
     ["model_refusal_fallback", "Switched to another model"],
     ["plugin_notification", "Deployed"],
   ])("notification of type %s only tells, and the turn runs on", async (notification_type, message) => {
-    const { broker, activeContext, emit, notifInstances } = makeHarness(true /* focused */);
+    const { broker, activeContext, emit, notifInstances } = makeHarness(true);
     activeContext.set("ws-test", "other-tab");
     emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
     await new Promise((r) => setTimeout(r, 0));
@@ -544,7 +511,7 @@ describe("hook-handler — subcommand 상태 전이", () => {
   });
 
   test("a notification that only tells leaves a finished turn as it is, and is quiet on the tab the user looks at", async () => {
-    const { broker, activeContext, emit, notifInstances } = makeHarness(true /* focused */);
+    const { broker, activeContext, emit, notifInstances } = makeHarness(true);
     activeContext.set("ws-test", "tab-test");
     broker.set("ws-test", "tab-test", "completed", "Done.");
     emit(
@@ -560,7 +527,7 @@ describe("hook-handler — subcommand 상태 전이", () => {
   });
 
   test("permission notification after permission-request keeps permissionPending", async () => {
-    const { broker, emit, notifInstances } = makeHarness(false /* unfocused */);
+    const { broker, emit, notifInstances } = makeHarness(false);
     emit(makeHookPayload("permission-request", { tool_name: "Write" }));
     await new Promise((r) => setTimeout(r, 0));
     emit(
@@ -580,7 +547,7 @@ describe("hook-handler — subcommand 상태 전이", () => {
     "permission_prompt",
     "worker_permission_prompt",
   ])("%s notification alone → permissionPending + OS notification", async (type) => {
-    const { broker, emit, notifInstances } = makeHarness(false /* unfocused */);
+    const { broker, emit, notifInstances } = makeHarness(false);
     emit(
       makeHookPayload("notification", {
         message: "Claude needs your permission to use Bash",
@@ -661,12 +628,10 @@ describe("hook-handler — subcommand 상태 전이", () => {
 
   test("a dialog the user denied does not hold the next turn's", async () => {
     const { broker, emit } = makeHarness();
-    // Denied: its tool never runs.
     emit(makeHookPayload("permission-request", allowedCall));
     await new Promise((r) => setTimeout(r, 0));
     emit(makeHookPayload("user-prompt-submit", { prompt: "try another way" }));
     await new Promise((r) => setTimeout(r, 0));
-    // A dialog told only by its notification, with no PermissionRequest.
     emit(makeHookPayload("notification", { notification_type: "permission_prompt" }));
     await new Promise((r) => setTimeout(r, 0));
     expect(broker.get("ws-test", "tab-test")?.status).toBe("permissionPending");
@@ -681,7 +646,6 @@ describe("hook-handler — subcommand 상태 전이", () => {
     await new Promise((r) => setTimeout(r, 0));
     chatAnswers.answered("ws-test", "tab-test", false);
     expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
-    // The call's end, later, leaves it so.
     emit(makeHookPayload("post-tool-use", allowedCall));
     await new Promise((r) => setTimeout(r, 0));
     expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
@@ -711,7 +675,7 @@ describe("hook-handler — subagents and permission dialogs", () => {
   const status = (broker: Harness["broker"]) => broker.get("ws-test", "tab-test")?.status;
 
   test("a subagent's tool after the turn ended leaves the turn's end", async () => {
-    const { broker, emit } = makeHarness(false /* unfocused */);
+    const { broker, emit } = makeHarness(false);
     emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
     emit({ ...makeHookPayload("stop"), assistantText: "Started an agent." });
     emit(makeHookPayload("pre-tool-use", { ...read, agent_id: "a1" }));
@@ -721,10 +685,8 @@ describe("hook-handler — subagents and permission dialogs", () => {
     expect(broker.get("ws-test", "tab-test")?.message).toBe("Started an agent.");
   });
 
-  // Claude Code 2.1.316: a background agent's dialog opens after the turn's
-  // Stop, and its tool's PostToolUse comes once the user allows it.
   test("a background agent's dialog after the turn ended waits on the user, then gives the end back", async () => {
-    const { broker, emit } = makeHarness(false /* unfocused */);
+    const { broker, emit } = makeHarness(false);
     emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
     emit({ ...makeHookPayload("stop"), assistantText: "Started an agent." });
     emit(makeHookPayload("permission-request", { ...bash, agent_id: "a1" }));
@@ -738,7 +700,7 @@ describe("hook-handler — subagents and permission dialogs", () => {
   });
 
   test("on the tab the user looks at, the turn's end comes back as seen", async () => {
-    const { broker, activeContext, emit } = makeHarness(true /* focused */);
+    const { broker, activeContext, emit } = makeHarness(true);
     activeContext.set("ws-test", "tab-test");
     emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
     activeContext.set("ws-test", "other-tab");
@@ -779,13 +741,12 @@ describe("hook-handler — subagents and permission dialogs", () => {
   });
 
   test("the turn's Stop does not hide a subagent's dialog, and shows once it closes", async () => {
-    const { broker, emit } = makeHarness(false /* unfocused */);
+    const { broker, emit } = makeHarness(false);
     emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
     emit(makeHookPayload("permission-request", { ...bash, agent_id: "a1" }));
     emit({ ...makeHookPayload("stop"), assistantText: "Done." });
     await tick();
     expect(status(broker)).toBe("permissionPending");
-    // Denied: the agent ends without running the tool.
     emit(makeHookPayload("subagent-stop", { agent_id: "a1" }));
     await tick();
     expect(status(broker)).toBe("completed");
@@ -793,7 +754,7 @@ describe("hook-handler — subagents and permission dialogs", () => {
   });
 
   test("a turn's StopFailure does not hide a subagent's dialog, and shows once it closes", async () => {
-    const { broker, emit } = makeHarness(false /* unfocused */);
+    const { broker, emit } = makeHarness(false);
     emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
     emit(makeHookPayload("permission-request", { ...bash, agent_id: "a1" }));
     emit(makeHookPayload("stop-failure", { error: "rate_limit" }));
@@ -821,7 +782,6 @@ describe("hook-handler — subagents and permission dialogs", () => {
     emit(makeHookPayload("pre-tool-use", bash));
     await tick();
     expect(status(broker)).toBe("permissionPending");
-    // Denied with what to do instead: the turn goes on to another tool.
     emit(makeHookPayload("pre-tool-use", read));
     await tick();
     expect(status(broker)).toBe("running");
@@ -855,7 +815,6 @@ describe("hook-handler — subagents and permission dialogs", () => {
     emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
     emit(makeHookPayload("permission-request", bash));
     await tick();
-    // The interrupt watcher saw the turn end.
     broker.set("ws-test", "tab-test", "idle");
     emit(makeHookPayload("user-prompt-submit", { prompt: "again" }));
     emit(makeHookPayload("pre-tool-use", bash));
@@ -894,7 +853,7 @@ describe("hook-handler — respondHook 호출", () => {
 
 describe("hook-handler — Notification OS 알림 발사(active context 분기)", () => {
   test("앱 비포커스 시 notification hook OS 알림 발사", async () => {
-    const { notifInstances, emit } = makeHarness(false /* unfocused */);
+    const { notifInstances, emit } = makeHarness(false);
     emit(makeHookPayload("notification", { message: "task done" }));
     await new Promise((r) => setTimeout(r, 0));
     expect(notifInstances.length).toBeGreaterThanOrEqual(1);
@@ -902,7 +861,7 @@ describe("hook-handler — Notification OS 알림 발사(active context 분기)"
   });
 
   test("앱 포커스 + active 다른 탭 시 notification hook OS 알림 발사", async () => {
-    const { notifInstances, activeContext, emit } = makeHarness(true /* focused */);
+    const { notifInstances, activeContext, emit } = makeHarness(true);
     activeContext.set("ws-test", "other-tab");
     emit(makeHookPayload("notification", { message: "task done" }));
     await new Promise((r) => setTimeout(r, 0));
@@ -910,7 +869,7 @@ describe("hook-handler — Notification OS 알림 발사(active context 분기)"
   });
 
   test("앱 포커스 + active 일치 시 notification hook OS 알림 미발사", async () => {
-    const { notifInstances, activeContext, emit } = makeHarness(true /* focused */);
+    const { notifInstances, activeContext, emit } = makeHarness(true);
     activeContext.set("ws-test", "tab-test");
     emit(makeHookPayload("notification", { message: "task done" }));
     await new Promise((r) => setTimeout(r, 0));
@@ -918,7 +877,7 @@ describe("hook-handler — Notification OS 알림 발사(active context 분기)"
   });
 
   test("needsInput while the user views the tab leaves no badge, as Stop does", async () => {
-    const { broker, activeContext, emit } = makeHarness(true /* focused */);
+    const { broker, activeContext, emit } = makeHarness(true);
     activeContext.set("ws-test", "tab-test");
     emit(makeHookPayload("notification", { message: "Claude is waiting for your input" }));
     await new Promise((r) => setTimeout(r, 0));
@@ -941,8 +900,7 @@ describe("hook-handler — Notification OS 알림 발사(active context 분기)"
 
 describe("hook-handler — Stop 알림 발사(active context 분기)", () => {
   test("active context 미설정 시 Stop OS 알림 발사", async () => {
-    const { notifInstances, emit } = makeHarness(true /* focused */);
-    // activeContext.set is not called → null
+    const { notifInstances, emit } = makeHarness(true);
     emit(makeHookPayload("stop"));
     await new Promise((r) => setTimeout(r, 0));
     expect(notifInstances.length).toBeGreaterThanOrEqual(1);
@@ -1017,14 +975,6 @@ test("a terminal exit rejects a late hook from the ended Claude turn", async () 
   }
 });
 
-// ---------------------------------------------------------------------------
-// notificationsEnabled master toggle
-//
-// The guard sits right before fireOsNotification. Only the OS notification is blocked;
-// broker/active-context/response handling must proceed as before — the in-app indicators
-// (sidebar attention etc.) are intentionally unaffected by the toggle.
-// ---------------------------------------------------------------------------
-
 describe("hook-handler — notificationsEnabled 마스터 토글", () => {
   test("토글 off 시 Notification 훅의 OS 알림이 발사되지 않는다", async () => {
     const { notifInstances, broker, emit } = makeHarness(false, {
@@ -1033,7 +983,6 @@ describe("hook-handler — notificationsEnabled 마스터 토글", () => {
     emit(makeHookPayload("notification", { message: "ping" }));
     await new Promise((r) => setTimeout(r, 0));
     expect(notifInstances.length).toBe(0);
-    // The broker updates normally — the sidebar indicator is unaffected by the toggle.
     expect(broker.snapshot().length).toBeGreaterThan(0);
   });
 });
@@ -1042,7 +991,7 @@ describe("hook-handler — frames of a finished turn", () => {
   const tick = () => new Promise((r) => setTimeout(r, 0));
 
   test("Stop that loses the race to the next prompt changes nothing and notifies no one", async () => {
-    const { broker, emit, notifInstances, channel } = makeHarness(false /* unfocused */);
+    const { broker, emit, notifInstances, channel } = makeHarness(false);
     emit(makeHookPayload("user-prompt-submit", { prompt: "first", prompt_id: "p1" }));
     emit(makeHookPayload("user-prompt-submit", { prompt: "second", prompt_id: "p2" }));
     emit(makeHookPayload("stop", { prompt_id: "p1" }));
@@ -1051,12 +1000,11 @@ describe("hook-handler — frames of a finished turn", () => {
     expect(entry?.status).toBe("running");
     expect(entry?.prompt).toBe("second");
     expect(notifInstances).toHaveLength(0);
-    // Still answered, so the hook process exits.
     expect(channel.callArgs).toHaveLength(3);
   });
 
   test("StopFailure of the previous turn keeps the next one running", async () => {
-    const { broker, emit, notifInstances } = makeHarness(false /* unfocused */);
+    const { broker, emit, notifInstances } = makeHarness(false);
     emit(makeHookPayload("user-prompt-submit", { prompt_id: "p1" }));
     emit(makeHookPayload("user-prompt-submit", { prompt_id: "p2" }));
     emit(makeHookPayload("stop-failure", { error: "rate_limit", prompt_id: "p1" }));
@@ -1066,7 +1014,7 @@ describe("hook-handler — frames of a finished turn", () => {
   });
 
   test("late idle notification of the previous turn keeps the next one running", async () => {
-    const { broker, emit, notifInstances } = makeHarness(false /* unfocused */);
+    const { broker, emit, notifInstances } = makeHarness(false);
     emit(makeHookPayload("user-prompt-submit", { prompt_id: "p1" }));
     emit(makeHookPayload("stop", { prompt_id: "p1" }));
     emit(makeHookPayload("user-prompt-submit", { prompt_id: "p2" }));
@@ -1085,10 +1033,9 @@ describe("hook-handler — frames of a finished turn", () => {
   });
 
   test("Stop of the turn under way still completes and notifies", async () => {
-    const { broker, emit, notifInstances } = makeHarness(false /* unfocused */);
+    const { broker, emit, notifInstances } = makeHarness(false);
     emit(makeHookPayload("user-prompt-submit", { prompt_id: "p1" }));
     emit(makeHookPayload("user-prompt-submit", { prompt_id: "p2" }));
-    // A tool frame with an id not seen yet does not end the turn under way.
     emit(makeHookPayload("pre-tool-use", { prompt_id: "p0" }));
     emit(makeHookPayload("stop", { prompt_id: "p2" }));
     await tick();
@@ -1097,7 +1044,7 @@ describe("hook-handler — frames of a finished turn", () => {
   });
 
   test("frames without prompt_id (older Claude Code) are never dropped", async () => {
-    const { broker, emit } = makeHarness(false /* unfocused */);
+    const { broker, emit } = makeHarness(false);
     emit(makeHookPayload("user-prompt-submit", { prompt_id: "p1" }));
     emit(makeHookPayload("user-prompt-submit", { prompt_id: "p2" }));
     emit(makeHookPayload("stop", {}));
@@ -1106,7 +1053,7 @@ describe("hook-handler — frames of a finished turn", () => {
   });
 
   test("PermissionRequest of a finished turn is still answered with exit 0", async () => {
-    const { broker, emit, channel } = makeHarness(false /* unfocused */);
+    const { broker, emit, channel } = makeHarness(false);
     emit(makeHookPayload("user-prompt-submit", { prompt_id: "p1" }));
     emit(makeHookPayload("user-prompt-submit", { prompt_id: "p2" }));
     emit(makeHookPayload("permission-request", { tool_name: "Bash", prompt_id: "p1" }));
@@ -1118,7 +1065,7 @@ describe("hook-handler — frames of a finished turn", () => {
   });
 
   test("Stop that arrives after SessionEnd does not bring the tab back", async () => {
-    const { broker, emit, notifInstances } = makeHarness(false /* unfocused */);
+    const { broker, emit, notifInstances } = makeHarness(false);
     emit(makeHookPayload("user-prompt-submit", { prompt_id: "p1" }));
     emit(makeHookPayload("session-end", { prompt_id: "p1" }));
     emit(makeHookPayload("stop", { prompt_id: "p1" }));
@@ -1208,7 +1155,6 @@ describe("hook-handler — `claude -p` runs inside a session", () => {
     expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
   });
 
-  // A run killed before it tells its end, as by SIGKILL.
   test("hold a run's watch unanswered, and stop a run whose watch went away", async () => {
     const { activity, agentHost, channel, emit } = makeHarness();
     emit(makeHookPayload("print-start", { run_id: "r1" }));
@@ -1255,7 +1201,6 @@ describe("hook-handler — permission requests answered from the app", () => {
     ]);
   });
 
-  // A `claude -p` run shows no dialog and waits on the hook.
   test("answers a print run's request at once", async () => {
     const { asks, channel, emit } = makeHarness(false, { asks: true });
     const request = { ...makeHookPayload("permission-request", bash), print: true };
@@ -1277,7 +1222,6 @@ describe("hook-handler — permission requests answered from the app", () => {
     expect(status(broker)).toBe("running");
   });
 
-  // Enter or a digit typed at the dialog: the call allowed may run long before its hook.
   test("a key that answers the dialog in the terminal closes it at once", async () => {
     const { activity, asks, broker, channel, emit } = makeHarness(false, { asks: true });
     emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
@@ -1313,7 +1257,6 @@ describe("hook-handler — permission requests answered from the app", () => {
       },
     ]);
     expect(status(broker)).toBe("running");
-    // The tool then runs; its end changes nothing more.
     emit(makeHookPayload("post-tool-use", bash));
     await tick();
     expect(answersTo(channel, request.hookId)).toHaveLength(1);
@@ -1354,7 +1297,6 @@ describe("hook-handler — permission requests answered from the app", () => {
     expect(activity.get("ws-test", "tab-test")?.tools[0]?.denied).toBe(true);
   });
 
-  // Claude Code ends the hook as the user interrupts at the dialog.
   test("forgets a request whose hook went away", async () => {
     const { agentHost, asks, channel, emit } = makeHarness(false, { asks: true });
     const request = makeHookPayload("permission-request", bash);

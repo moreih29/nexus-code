@@ -17,10 +17,6 @@ export interface LocalFsProviderOptions {
   readonly resolveCommand?: ResolveLocalAgentCommand;
 }
 
-/**
- * Local filesystem provider that delegates all workspace fs operations to a
- * local agent child process.
- */
 export class LocalFsProvider extends AgentFsProvider {
   private readonly clearOwnedChannel: () => void;
 

@@ -1,8 +1,3 @@
-// Messages another agent sent a tab through the nexus command show as
-// received from it, not as the user's: found by the records the tab keeps
-// of them (the message's id, or a Codex message's turn), not by what the
-// text says, so text the user writes that looks the same stays theirs.
-
 import {
   type AppMessage,
   RELAY_MARK,
@@ -11,7 +6,6 @@ import {
 } from "../../../shared/chat/relay";
 import type { ChatItem, MessageSource, UserItem } from "./model";
 
-/** The record of a message, by its ids; a Codex one a resumed thread renumbered, by its turn. */
 function recordFinder(
   records: readonly RelayedMessage[],
 ): (item: UserItem) => RelayedMessage | undefined {
@@ -20,7 +14,6 @@ function recordFinder(
   for (const r of [...records].sort((a, b) => a.at - b.at)) {
     if (r.turnId) byTurn.set(r.turnId, [...(byTurn.get(r.turnId) ?? []), r]);
   }
-  // A turn steered more than once holds more than one: the first record the first.
   const used = new Map<string, number>();
   return (item) => {
     const direct =
@@ -37,7 +30,6 @@ function recordFinder(
   };
 }
 
-/** Who sent a message through the nexus command, as a received message names it. */
 export function relaySource(from: RelayedMessage["from"]) {
   const { kind, agent, name, workspaceId, tabId, device } = from;
   const source: MessageSource = { kind };
@@ -49,13 +41,6 @@ export function relaySource(from: RelayedMessage["from"]) {
   return source;
 }
 
-/**
- * A conversation's items as the tab shows them: each message another agent
- * sent it through the nexus command is one received from that agent,
- * without the line that told the agent who sent it. One still waiting for
- * the agent to read it stays where it waits, without the line too. The
- * same items when the records name none.
- */
 export function withRelayed(
   items: ChatItem[],
   records: readonly RelayedMessage[] | undefined,
@@ -68,7 +53,6 @@ export function withRelayed(
     const record = find(item);
     if (!record) return item;
     changed = true;
-    // The same item for the same message, so the list does not render it again.
     const was = received.get(item);
     if (was?.record === record) return was.shown;
     const now = asReceived(item, record);
@@ -78,12 +62,10 @@ export function withRelayed(
   return changed ? shown : items;
 }
 
-/** Each message shown as received, by the item it was and the record that found it. */
 const received = new WeakMap<UserItem, { record: RelayedMessage; shown: ChatItem }>();
 
 function asReceived(item: UserItem, record: RelayedMessage): ChatItem {
   const text = withoutRelayHeader(item.text);
-  // Waiting for the agent to read it (isWaiting): it stays where it waits.
   if (item.state === "sent" && item.queued === true) return { ...item, text };
   return {
     kind: "received",
@@ -95,18 +77,12 @@ function asReceived(item: UserItem, record: RelayedMessage): ChatItem {
   };
 }
 
-/** Each message the app sent, as a record of who sent it: the same for the same message. */
 const appRecords = new WeakMap<AppMessage, RelayedMessage>();
-/** The records a tab's two lists make, by the app's list: the same for the same lists. */
 const joined = new WeakMap<
   readonly AppMessage[],
   { relayed?: readonly RelayedMessage[]; all: RelayedMessage[] }
 >();
 
-/**
- * Who sent a tab's messages that the user did not: the records of those
- * sent through the nexus command, and of those the app sent on its own.
- */
 export function relayedOf(props: {
   relayed?: readonly RelayedMessage[];
   fromApp?: readonly AppMessage[];
@@ -128,14 +104,8 @@ export function relayedOf(props: {
   return all;
 }
 
-/** The senders of messages sent through the nexus command, as MessageSource kinds. */
 export const RELAY_KINDS: ReadonlySet<string> = new Set(["tab", "terminal", "manager", "app"]);
 
-/**
- * Who sent a message through the nexus command, in words, for text that
- * tells the conversation (chat read, /export): `tab "NAME"`, `Codex in
- * terminal "NAME"`, `the manager`, the app. Undefined for other senders.
- */
 export function relaySenderText(from: MessageSource): string | undefined {
   if (!RELAY_KINDS.has(from.kind)) return undefined;
   const on = from.device ? ` on ${JSON.stringify(from.device.name)}` : "";

@@ -1,12 +1,3 @@
-/**
- * A workspace's files as another device reads them (files.list,
- * files.read, as text, an image or bytes): its folder's, and those of the folders its chats were
- * given (/add-dir). Nothing else: a path that climbs out of those, or one
- * that goes through a link inside the workspace (which could point
- * anywhere), is refused. Reading is always allowed, as it is here. A
- * workspace in a Windows folder takes its paths as Windows does: with
- * either separator, in any case.
- */
 import { promises as nodeFs } from "node:fs";
 import path from "node:path";
 import {
@@ -24,16 +15,12 @@ import type { FsProvider } from "../fs/bridge/provider";
 import { validFileName } from "./file-io";
 import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
 
-/** How much of a text file a read gives when it does not say. */
 export const DEFAULT_READ_BYTES = 128 * 1024;
 
-/** Room an image's base64 may take in its answer. */
 const IMAGE_CHARS = MAX_MESSAGE_BYTES - 2048;
 
-/** An image bigger than this is not read to be drawn smaller: it is told as binary. */
 const MAX_IMAGE_FILE_BYTES = 32 * 1024 * 1024;
 
-/** How many bytes of a file tell text from binary: a NUL among them is binary. */
 const SNIFF_BYTES = 8000;
 
 const IMAGE_TYPES: Readonly<
@@ -47,42 +34,22 @@ const IMAGE_TYPES: Readonly<
 };
 
 export interface RemoteFiles {
-  /** The workspace's file system, once its agent is ready. */
   fs: (workspaceId: string) => Promise<FsProvider>;
-  /** The folders the workspace's chats were given, absolute. */
   folders: (workspaceId: string) => Promise<readonly string[]>;
-  /**
-   * The files outside the workspace its chats name, absolute: what their
-   * tools took or wrote, their replies link, and their background jobs'
-   * outputs. Read by name, where they are, as each chat's previews read
-   * them there.
-   */
   named?: (workspaceId: string) => Promise<readonly string[]>;
-  /** An image drawn small enough that its base64 takes at most `maxChars`; null when it cannot be. */
   shrink: (bytes: Buffer, maxChars: number) => { mediaType: "image/jpeg"; data: string } | null;
 }
 
-/** Where a path asked for is: inside the workspace's folder, or in a folder its chats were given. */
 export type Place = { kind: "workspace"; rel: string } | { kind: "folder"; absolute: string };
 
 function forbidden(message: string): RpcFailure {
   return new RpcFailure(RpcErrorCode.Forbidden, message);
 }
 
-/**
- * A Windows path from its start: a drive's (C:\, C:/) or a share's
- * (\\server\share, //server/share), and a device's (\\?\, \\.\).
- */
 const WINDOWS_ABSOLUTE = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/;
 
-/** A path Windows reads against the current drive or folder: \x, /x, C:x. */
 const WINDOWS_ANCHORED = /^(?:[\\/]|[A-Za-z]:)/;
 
-/**
- * How a workspace's paths are written, by its folder's: a Windows folder's
- * take either separator and any case, as Windows does; any other's are
- * POSIX, where a backslash is a character of a name.
- */
 interface PathStyle {
   readonly windows: boolean;
   readonly sep: "/" | "\\";
@@ -98,7 +65,6 @@ function styleOf(root: string): PathStyle {
 
 const trimSlashes = (p: string) => (p.length > 1 ? p.replace(/\/+$/, "") : p);
 
-/** `p` normalized, without a separator at its end but a root's own (/, C:\, \\server\share\). */
 function clean(style: PathStyle, p: string): string {
   if (!style.windows) return trimSlashes(path.posix.normalize(p));
   const normal = path.win32.normalize(p);
@@ -106,7 +72,6 @@ function clean(style: PathStyle, p: string): string {
   return normal.length > root.length ? normal.replace(/\\+$/, "") : normal;
 }
 
-/** What of `inner` is inside `outer`, both clean ("" for `outer` itself); undefined when it is not. */
 function inside(style: PathStyle, outer: string, inner: string): string | undefined {
   const head = inner.slice(0, outer.length);
   if (style.windows ? head.toLowerCase() !== outer.toLowerCase() : head !== outer) return;
@@ -115,23 +80,15 @@ function inside(style: PathStyle, outer: string, inner: string): string | undefi
   return inner[outer.length] === style.sep ? inner.slice(outer.length + 1) : undefined;
 }
 
-/** Whether `inner` is `outer` or inside it, both clean. */
 function within(style: PathStyle, outer: string, inner: string): boolean {
   return inside(style, outer, inner) !== undefined;
 }
 
-/** `rel` (workspace-relative, "/"-separated) as an absolute path in the workspace's folder. */
 function absoluteIn(style: PathStyle, base: string, rel: string): string {
   if (!rel) return base;
   return style.windows ? path.win32.join(base, rel) : `${base}/${rel}`;
 }
 
-/**
- * Where `asked` is, or Forbidden when it is outside the workspace's folders.
- * A path inside the workspace's folder is given as relative to it, with "/"
- * between its parts on Windows too; one in a folder a chat was given, as
- * absolute and written as the workspace's folder is.
- */
 export function placeOf(root: string, folders: readonly string[], asked: string): Place {
   if (asked.includes("\0")) throw forbidden("that is no path");
   const style = styleOf(root);
@@ -157,7 +114,6 @@ export function placeOf(root: string, folders: readonly string[], asked: string)
   throw forbidden(`${asked} is outside the workspace's folders`);
 }
 
-/** Fully qualified paths on the desktop host, without Windows device paths or streams. */
 export function absoluteFilePath(asked: string): string {
   const windows = process.platform === "win32";
   if (
@@ -176,7 +132,6 @@ export function absoluteFilePath(asked: string): string {
   return cleanPath;
 }
 
-/** Resolve an outside source to the path the user approves. */
 export async function outsideFileSource(asked: string): Promise<string> {
   const absolute = absoluteFilePath(asked);
   return nodeFs.realpath(absolute).catch((error: NodeJS.ErrnoException) => {
@@ -187,12 +142,6 @@ export async function outsideFileSource(asked: string): Promise<string> {
   });
 }
 
-/**
- * Where `asked` is, as placeOf finds it; outside the workspace's folders,
- * one of the files its chats name (took, wrote, linked, or a job's output),
- * read by its name wherever a link there leads (`output`), as the chat's
- * previews read it.
- */
 async function placeToRead(
   files: RemoteFiles,
   workspaceId: string,
@@ -228,13 +177,6 @@ function notFound(error: unknown, asked: string): never {
   );
 }
 
-/**
- * Refuses a path inside the workspace that goes through a link: the agent
- * keeps paths inside the folder by their names only, and follows a link
- * to wherever it points. What the path's last part is, otherwise. `rel`
- * is placeOf's, its parts between "/" on Windows too: the agent there
- * takes "\" as a separator as well, and would pass a link it hid.
- */
 async function throughNoLink(fs: FsProvider, rel: string, asked: string) {
   const parts = rel ? rel.split("/") : [];
   let stat = await fs.stat("").catch((error: unknown) => notFound(error, asked));
@@ -246,12 +188,6 @@ async function throughNoLink(fs: FsProvider, rel: string, asked: string) {
   return stat;
 }
 
-/**
- * Reads the start of a file git does not track yet, as text, for its diff
- * (git.diff): only one in the workspace's folder (`rootOf` names it), and
- * not through a link, which git would show as the path it holds but a read
- * would follow, to a file anywhere (an untracked `key -> ~/.ssh/id_ed25519`).
- */
 export function untrackedReader(
   fs: (workspaceId: string) => Promise<FsProvider>,
   rootOf: (workspaceId: string) => string | undefined,
@@ -271,10 +207,6 @@ export function untrackedReader(
   };
 }
 
-/**
- * A folder inside the workspace's own, absolute, for a new chat to run in:
- * Forbidden outside it or through a link, InvalidParams for a file.
- */
 export async function folderIn(
   fs: FsProvider | null,
   root: string,
@@ -293,12 +225,6 @@ export async function folderIn(
   return absoluteIn(style, clean(style, root), place.rel);
 }
 
-/**
- * Refuses a path in a folder a chat was given whose real place, past its
- * links, is outside the folders given. That is told only on this computer:
- * the agent of a workspace on another host (SSH, WSL) has no way to, and
- * would follow a link out of the folder, so such a folder is not read there.
- */
 async function realWithin(
   fs: FsProvider,
   style: PathStyle,
@@ -317,8 +243,6 @@ async function realWithin(
     throw new RpcFailure(RpcErrorCode.Unavailable, "the file could not be resolved");
   });
   const reals = await Promise.all(folders.map((f) => nodeFs.realpath(f).catch(() => null)));
-  // Resolved names carry their on-disk spelling. Windows can enable
-  // case-sensitive lookup on individual folders.
   const canonicalStyle = style.windows ? { ...style, windows: false } : style;
   if (!reals.some((f) => f && within(canonicalStyle, clean(style, f), clean(style, real)))) {
     throw forbidden(`${absolute} leads outside the workspace's folders`);
@@ -337,7 +261,6 @@ function entryOf(entry: DirEntry): Entry {
   };
 }
 
-/** Reject Windows device names, alternate streams, and reserved path components. */
 export function validatePathParts(root: string, relative: string): void {
   const style = styleOf(root);
   if (relative && !relative.split("/").every((part) => validFileName(part, style.path))) {
@@ -410,7 +333,6 @@ export async function listFiles(
   };
 }
 
-/** Text from the start of a file's bytes, a character cut at the end left out. */
 export function textOf(bytes: Uint8Array): string {
   return new TextDecoder("utf-8").decode(bytes, { stream: true });
 }
@@ -466,7 +388,6 @@ export async function readFile(
         RpcErrorCode.InvalidParams,
         "that is the workspace's folder: files.list lists it",
       );
-    // A Windows name the agent would open as something else: a stream, a device, a trimmed name.
     validatePathParts(root, place.rel);
     source = { relPath: place.rel };
     absolute = absoluteIn(style, clean(style, root), place.rel);
@@ -488,7 +409,6 @@ export async function readFile(
 
   const verifyGrant = async () => {
     if (anywhere || place.kind !== "folder") return;
-    // The grant may have been revoked while the workspace's agent was reading.
     const currentFolders = await files.folders(workspaceId);
     const current = await placeToRead(files, workspaceId, root, currentFolders, asked);
     if (current.kind !== "folder" || "output" in current !== "output" in place) {
@@ -537,7 +457,6 @@ export async function readFile(
     if (target.isDirectory()) throw folderReadError(asked);
     if (!target.isFile())
       throw new RpcFailure(RpcErrorCode.InvalidParams, "a regular file is required");
-    // Older filesystem agents cannot safely open an arbitrary path as a regular file.
     throw new RpcFailure(
       RpcErrorCode.Unavailable,
       "the filesystem agent must be updated to read this file",
@@ -571,8 +490,6 @@ async function legacyPreview(
   as: "bytes" | undefined,
   requireVersion: string | undefined,
 ): Promise<RpcResult<"files.read">> {
-  // An older SSH/WSL agent only has the ordinary reads. Fresh bytes remain
-  // available, but cannot satisfy a pin or confirm cached bytes.
   let size: number | undefined;
   if (place.kind === "workspace") {
     const stat = await throughNoLink(fs, place.rel, asked);
@@ -639,7 +556,6 @@ function previewError(error: unknown, asked: string, pinned: boolean): never {
     throw new RpcFailure(RpcErrorCode.NotFound, `${asked} does not exist`);
   }
   if (hasFsErrorCode(error, FS_ERROR.STALE)) throw fileChanged(pinned);
-  // Agent errors can refer to a resolved target or a component of that path.
   throw new RpcFailure(RpcErrorCode.Unavailable, "the file could not be read");
 }
 
@@ -656,7 +572,6 @@ function imagePreview(
 ): Extract<RpcResult<"files.read">, { kind: "image" | "binary" }> {
   if (size <= MAX_IMAGE_FILE_BYTES) {
     const bytes = Buffer.from(data, "base64");
-    // A small file can still expand to a large image when decoded.
     if (decodable(bytes)) {
       if (data.length <= IMAGE_CHARS) return { kind: "image", path, mediaType, data, size };
       const shrunk = files.shrink(bytes, IMAGE_CHARS);
@@ -675,7 +590,6 @@ function textPreview(
   if (looksBinary(bytes)) return { kind: "binary", path: absolute, size: total };
   let text = textOf(bytes);
   let truncated = bytes.length < total;
-  // Text that escapes long in JSON (quotes, backslashes) may not go in a frame whole.
   while (
     !fitsInFrame({
       result: { kind: "text", path: absolute, text, size: total, truncated },

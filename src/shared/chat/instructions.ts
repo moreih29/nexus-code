@@ -51,7 +51,6 @@ export interface InstructionTarget {
   session?: string;
 }
 
-/** Resolve the workspace layer from local metadata or a remote workspace listing. */
 export function workspaceInstructionTarget<
   T extends { id: string; task?: { parentId: string }; parentId?: string },
 >(workspace: T | undefined, workspaces: readonly T[]): T | undefined {
@@ -132,7 +131,6 @@ export function mergeAgentInstructions(
   return mergeInstructionLayers(instructionLayers(config, target));
 }
 
-/** The text an agent gets from layers in order, as the composer lists them. */
 export function mergeInstructionLayers(layers: readonly { title: string; text: string }[]): string {
   const sections = layers
     .filter(({ text }) => text !== "")

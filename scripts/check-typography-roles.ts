@@ -1,23 +1,4 @@
 #!/usr/bin/env bun
-// Scans src/renderer/ for typography font-size utility classes that reference
-// an undefined type role.
-//
-// Tailwind silently emits nothing for an unknown text-* utility, so a typo
-// (text-app-ui, text-app-ui-md, text-app-code) or a removed marketing role
-// (text-micro, text-caption, ...) fails at runtime with NO build/type error —
-// the text just falls back to an inherited size. This guard makes the in-app
-// type role set (design.md §5) a closed, enforced contract.
-//
-// Two rules:
-//   1. Any `text-app-*` / `text-code-*` token must be a real role defined in
-//      appTypeScale / typeScale (design-tokens/index.ts). This namespace is
-//      unambiguous — it is never a colour or alignment utility.
-//   2. The marketing 18-role typescale is prohibited in-app (design.md §5/§11)
-//      and is no longer emitted by generate-theme-css.ts. Any in-app use is a
-//      dead utility.
-//
-// Run: bun run scripts/check-typography-roles.ts
-// Wired into package.json scripts: lint, check:ci via lint:tw
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative } from "node:path";
@@ -30,18 +11,12 @@ const SKIP_FILE_SUBSTRINGS = [".generated."];
 
 const camelToKebab = (s: string): string => s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 
-// Valid in-app typography utilities — derived from the single source of truth
-// (appTypeScale + code typeScale). Adding a role there automatically authorizes
-// its text-* utility here, so this guard never goes stale.
 const VALID_ROLE_CLASSES = new Set(
   [...Object.keys(appTypeScale), ...Object.keys(typeScale)].map(
     (role) => `text-${camelToKebab(role)}`,
   ),
 );
 
-// Marketing 18-role typescale — prohibited in-app, no longer emitted. Hardcoded
-// (not imported) so the guard keeps flagging these even if marketing.ts is
-// eventually deleted.
 const FORBIDDEN_MARKETING_CLASSES = new Set([
   "text-display-hero",
   "text-section-display",
@@ -61,8 +36,6 @@ const FORBIDDEN_MARKETING_CLASSES = new Set([
   "text-micro",
 ]);
 
-// Captures a full text-* utility token, ending at a class-list delimiter
-// (whitespace, quote, backtick, closing bracket).
 const TEXT_TOKEN_PATTERN = /\btext-[a-z][a-z0-9-]*(?=[\s"'`\]])/g;
 
 interface Violation {

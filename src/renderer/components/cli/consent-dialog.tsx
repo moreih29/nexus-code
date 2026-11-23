@@ -1,12 +1,3 @@
-/**
- * Asks the user whether an agent may change another workspace than its
- * terminal's own, or answer another session's permission request, for the
- * nexus CLI (main/features/cli/consent). One prompt at a time; more wait
- * their turn. A prompt left unanswered is taken down after its timeout and
- * counts as turned down; one answered on another device of the user's
- * (the remote's consent.answer) is taken down with a toast saying so.
- */
-
 import i18next from "i18next";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -20,44 +11,42 @@ import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 
 export interface CliConsentPrompt {
-  /** Main's id for it, for another device to answer it by. */
   readonly id?: string;
   readonly fromWorkspace: string;
   readonly fromTab: string;
-  /** The agent whose tab asks, when a Claude or Codex tab does; none for a terminal. */
   readonly fromAgent?: ChatAgent;
-  /** The user's other computer the agent asks from, by its name; none for this one. */
   readonly fromDevice?: string;
   readonly toWorkspace: string;
   readonly sameWorkspace?: boolean;
   readonly change: CliChange;
-  readonly timeoutMs: number;
+  readonly timeoutMs?: number;
 }
 
 interface Pending {
   readonly prompt: CliConsentPrompt;
   readonly resolve: (answer: CliConsentAnswer) => void;
-  readonly timer: ReturnType<typeof setTimeout>;
+  readonly timer?: ReturnType<typeof setTimeout>;
 }
 
 let queue: Pending[] = [];
+let lastShown: Pending | null = null;
 const bus = createListenerBus();
 export const CONSENT_CONFIRM_BUTTON_CLASS = "hover:bg-primary/90 active:bg-primary/80";
 export const CONSENT_DESCRIPTION_CLASS = "break-keep [overflow-wrap:anywhere]";
+
+function queueChanged(): void {
+  lastShown = queue[0] ?? lastShown;
+  bus.notify();
+}
 
 function settle(pending: Pending, answer: CliConsentAnswer): void {
   if (!queue.includes(pending)) return;
   queue = queue.filter((p) => p !== pending);
   clearTimeout(pending.timer);
   pending.resolve(answer);
-  bus.notify();
+  queueChanged();
 }
 
-/**
- * Answers the prompt `id` as the user would, from their device named `by`,
- * taking it down (or out of the queue) with a toast saying so. False when
- * no prompt `id` waits.
- */
 export function settleCliConsent(
   id: string,
   answer: "once" | "session" | "deny",
@@ -76,25 +65,21 @@ export function settleCliConsent(
   return true;
 }
 
-/** Shows the prompt and resolves to the user's answer, or "timeout". */
 export function askCliConsent(prompt: CliConsentPrompt): Promise<CliConsentAnswer> {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => settle(pending, "timeout"), prompt.timeoutMs);
-    const pending: Pending = { prompt, resolve, timer };
+    const { timeoutMs } = prompt;
+    const timer =
+      timeoutMs !== undefined ? setTimeout(() => settle(pending, "timeout"), timeoutMs) : undefined;
+    const pending: Pending = { prompt, resolve, ...(timer !== undefined ? { timer } : {}) };
     queue.push(pending);
-    bus.notify();
+    queueChanged();
   });
 }
 
-/** The action already names the target for these approval prompts. */
 export function consentNamesTarget(kind: string): boolean {
   return kind === "instructionsEdit" || kind === "profileAdd";
 }
 
-/**
- * Who asks and for what, as the prompt says it: an agent of another
- * computer by that computer, a Claude or Codex tab as one, else a terminal.
- */
 export function describeConsent(
   t: (key: string, values: Record<string, string>) => string,
   prompt: Pick<
@@ -142,10 +127,6 @@ export function describeConsent(
   });
 }
 
-/**
- * The question a prompt asks, by what it would change: for an agent of
- * another computer (`remote`), whether it may change this one.
- */
 export function consentTitleOf(kind: string, remote: boolean) {
   if (kind === "permissionAllow" || kind === "permissionDeny") {
     return "agentCli.consent.permission_title" as const;
@@ -171,7 +152,7 @@ export function CliConsentDialogRoot(): React.JSX.Element {
 
   useEffect(() => bus.subscribe(() => setActive(queue[0] ?? null)), []);
 
-  const prompt = active?.prompt;
+  const prompt = (active ?? lastShown)?.prompt;
   const change = prompt?.change;
   const copy = change && consentDetailsOf(t, change);
   const action = change
@@ -196,16 +177,15 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         descriptionClassName={CONSENT_DESCRIPTION_CLASS}
       />
       {copy?.body && (
-        // What an answer lets run, whole: its first line can hide the rest.
         <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-(--radius-control) bg-muted px-2 py-1.5 font-mono text-app-ui-sm text-foreground">
           {copy.body}
         </pre>
       )}
-      <p className="mt-2 text-app-ui-sm text-muted-foreground">
-        {t(sandbox ? "agentCli.consent.sandbox_deadline" : "agentCli.consent.timeout", {
-          seconds: Math.round((prompt?.timeoutMs ?? 0) / 1000),
-        })}
-      </p>
+      {prompt?.timeoutMs !== undefined && (
+        <p className="mt-2 text-app-ui-sm text-muted-foreground">
+          {t("agentCli.consent.timeout", { seconds: Math.round(prompt.timeoutMs / 1000) })}
+        </p>
+      )}
       <div className="mt-5 flex justify-end gap-2">
         <Button
           variant="ghost"

@@ -1,93 +1,13 @@
-/**
- * Global MutationObserver that auto-suspends embedded browser views whenever
- * a DOM-based overlay (modal dialog / dropdown / context menu / popover) is
- * present on the page.
- *
- * WHY A GLOBAL OBSERVER
- * ---------------------
- * Per-component `useBrowserSuspendWhile(open)` hooks worked for our own
- * wrapped Radix components (Dialog / DropdownMenuRoot / ContextMenuRoot),
- * but silently missed any callsite that wires `RadixDialog.Root` directly —
- * the Settings dialog being the first such case to surface in practice.
- * Centralising the suspend trigger to a DOM observation means EVERY Radix
- * overlay (whether wrapped or not) automatically participates: when a portal
- * element matching the well-known Radix attributes appears in the body, we
- * claim; when the last one disappears, we release.
- *
- * SELECTORS
- * ---------
- * Radix tags every portal-mounted overlay with a stable role/attribute:
- *   [role="dialog"]                      — Dialog.Content
- *   [role="alertdialog"]                 — AlertDialog.Content
- *   [role="menu"]                        — DropdownMenu.Content, ContextMenu.Content
- *   [data-radix-popper-content-wrapper]  — Popover, Tooltip popper containers
- * Watching these four covers every overlay primitive Radix ships. The app's
- * own toast stack (`[data-toast-viewport]`) is watched too. Tooltips and
- * toasts count only while they overlap a browser view (see
- * `overlapsBrowserView`).
- *
- * FALSE POSITIVES — MONACO WIDGETS
- * --------------------------------
- * The role-based half of the selector also matches Monaco's own editor
- * widgets: the Find/Replace widget is `.editor-widget.find-widget[role="dialog"]`,
- * the context menu is `[role="menu"]`, the suggest widget likewise. Monaco
- * creates these lazily (first Cmd+F etc.) and then leaves them in the DOM
- * PERMANENTLY in a hidden state (`aria-hidden="true"`) rather than unmounting.
- * They live inside `.monaco-editor` and never occlude the browser
- * WebContentsView — they are part of the editor pane, not a portal over it.
- *
- * Without filtering, the first Find in any editor leaves a permanent
- * `[role="dialog"]` node behind, so `check()` reads `hasOverlay === true`
- * forever, holds the suspend claim, and the browser tab in that workspace
- * stays blank until a manual `resumeAll` or restart. `isOccludingOverlay()`
- * excludes Monaco widgets (whole `.monaco-editor` subtree + the `editor-widget`
- * class, in case overflow widgets are mounted outside it) and any
- * `aria-hidden="true"` node, leaving only genuine on-screen portal overlays.
- *
- * COALESCING
- * ----------
- * MutationObserver can fire many times per render — the check is scheduled
- * via `queueMicrotask` so multiple mutations in the same tick collapse into
- * a single `querySelector` + claim/release transition.
- *
- * DRAG IS HANDLED SEPARATELY
- * --------------------------
- * Drag operations have no DOM marker — there is no Radix portal added when
- * a `dragstart` fires.  `use-drag-source.ts` claims the suspend slot
- * explicitly in its React `onDragStart` handler with
- * `captureSnapshot: false`, and the matching release is wired both to the
- * document `dragend` and to the source component's unmount.  This module
- * does not interfere with that path; the two claim sources stack via the
- * normal refcount in `useBrowserSuspendStore`.
- */
-
 import { useBrowserSuspendStore } from "../../state/stores/browser-suspend";
 
-// The toast stack is not a Radix overlay; see `TOAST_VIEWPORT_ATTR`.
 const TOAST_VIEWPORT_ATTR = "data-toast-viewport";
 
 const OVERLAY_SELECTOR = `[role="dialog"],[role="alertdialog"],[role="menu"],[data-radix-popper-content-wrapper],[${TOAST_VIEWPORT_ATTR}]`;
 
-// Monaco editor widgets (find/replace, context menu, suggest) carry overlay
-// roles but live inside the editor pane and persist in the DOM while hidden.
-// Excluding the editor subtree (and the widget class, in case overflow widgets
-// are mounted at the body) keeps them from registering as page overlays.
 const MONACO_WIDGET_SELECTOR = ".monaco-editor,.editor-widget";
 
-// Inactive workspace panels stay mounted but are marked `inert`.
 const INERT_SUBTREE_SELECTOR = "[inert]";
 
-/**
- * True when `el` is a portal overlay that actually occludes the browser view.
- *
- * Excludes (a) Monaco editor widgets — same overlay roles, but part of the
- * editor pane, not a portal over the browser, and left in the DOM permanently
- * once created; (b) `aria-hidden="true"` nodes — a closed/inert overlay
- * does not occlude anything (Radix marks BACKGROUND content aria-hidden, never
- * the live overlay content, so this never drops a real overlay); and (c)
- * anything inside an `inert` subtree, such as a status-bar popover left open
- * in a workspace the user switched away from.
- */
 export function isOccludingOverlay(el: Element): boolean {
   if (el.matches(MONACO_WIDGET_SELECTOR) || el.closest(MONACO_WIDGET_SELECTOR) !== null) {
     return false;
@@ -103,21 +23,8 @@ export function isOccludingOverlay(el: Element): boolean {
 
 const POPPER_WRAPPER_ATTR = "data-radix-popper-content-wrapper";
 
-// Where browser tabs (and their DevTools) draw their native views.
 const BROWSER_SLOT_SELECTOR = "[data-browser-placeholder],[data-browser-devtools-placeholder]";
 
-/**
- * Tooltips appear on hover all over the chrome (tab close buttons, sidebar
- * pins) and mostly sit nowhere near a page. Suspending for each one froze
- * the page and captured a snapshot of every browser view per hover, so a
- * tooltip claims the suspend only when it actually overlaps a browser view.
- * Toasts get the same treatment: the stack sits bottom-right, often over a
- * browser tab, where the native view would otherwise paint over it (and
- * over the buttons of toasts that wait to be dismissed).
- *
- * Returns "unplaced" while Radix still parks a tooltip off-screen at
- * `translate(0, -200%)`, waiting for floating-ui to position it.
- */
 export function overlapsBrowserView(el: Element, slots: Iterable<Element>): boolean | "unplaced" {
   if ((el as HTMLElement).style?.transform.includes("-200%")) return "unplaced";
   const r = el.getBoundingClientRect();
@@ -130,41 +37,20 @@ export function overlapsBrowserView(el: Element, slots: Iterable<Element>): bool
   return false;
 }
 
-/**
- * Overlays that only claim the suspend over a browser view: tooltips (Radix
- * Tooltip content holds a visually hidden `role="tooltip"` node) and the
- * toast stack.
- */
 function suspendsOnlyOverBrowser(el: Element): boolean {
   if (el.hasAttribute(TOAST_VIEWPORT_ATTR)) return true;
   return el.hasAttribute(POPPER_WRAPPER_ATTR) && el.querySelector('[role="tooltip"]') !== null;
 }
 
-// A tooltip is positioned a frame or two after it mounts, by a style change
-// the observer does not watch, so an unplaced one is re-checked on the next
-// frames, up to this many.
 const TOOLTIP_PLACEMENT_FRAMES = 10;
 
 let installed = false;
 
-/**
- * Install the document-body MutationObserver and run the initial check.
- *
- * Safe to call only once during app bootstrap.  Calling a second time is a
- * no-op (returns silently); the renderer never tears down this observer
- * during its lifetime.
- */
 export function initBrowserOverlayAutoSuspend(): void {
   if (installed) return;
   installed = true;
 
-  // The release callback for the currently-held claim, if any.  `null` means
-  // no claim is active — the DOM has no overlay.
   let release: (() => void) | null = null;
-  // Coalescing flag: when a mutation arrives we schedule a single
-  // `check()` for the next microtask and ignore further mutations until it
-  // runs.  Prevents querySelector storms when Radix mounts/unmounts a
-  // multi-node portal subtree in one go.
   let pending = false;
   let placementFramesLeft = TOOLTIP_PLACEMENT_FRAMES;
 
@@ -183,12 +69,8 @@ export function initBrowserOverlayAutoSuspend(): void {
       requestAnimationFrame(schedule);
     }
     if (hasOverlay && release === null) {
-      // Entering overlay state — claim with snapshot capture so the modal
-      // renders above a still frame of the page rather than a blank area.
       release = useBrowserSuspendStore.getState().claim({ captureSnapshot: true });
     } else if (!hasOverlay && release !== null) {
-      // No overlay left — release so resumeAll fires and the live view
-      // becomes visible again.
       release();
       release = null;
     }
@@ -204,9 +86,6 @@ export function initBrowserOverlayAutoSuspend(): void {
     placementFramesLeft = TOOLTIP_PLACEMENT_FRAMES;
     schedule();
   });
-  // `inert` flips when the active workspace changes, which hides or reveals
-  // the overlays inside that workspace's panel without adding or removing
-  // any node.
   observer.observe(document.body, {
     childList: true,
     subtree: true,
@@ -214,17 +93,8 @@ export function initBrowserOverlayAutoSuspend(): void {
     attributeFilter: ["inert"],
   });
 
-  // Re-reconcile on focus / tab-visibility regain. A MutationObserver only
-  // fires on DOM changes, so a suspend state that desynced while the window
-  // was backgrounded (e.g. the OS dropped a `dragend`, or the display slept
-  // mid-overlay) would otherwise stay stuck until the next mutation. Coming
-  // back to the window forces a fresh check, restoring the live view when no
-  // overlay is actually present.
   window.addEventListener("focus", schedule);
   document.addEventListener("visibilitychange", schedule);
 
-  // Initial sync — covers the (unlikely but harmless) case where an overlay
-  // is already present at install time, e.g. an HMR reload while a modal is
-  // open in development.
   check();
 }

@@ -1,19 +1,7 @@
-/**
- * TagPickerSource — Quick-pick PaletteSource for tag management.
- *
- * The browse picker opens with all local tags (`searchOnEmptyQuery`) plus a
- * create row. Focused menu modes keep the same search UX while swapping only
- * the data source, accept handler, and palette copy:
- *
- *   - `browse`        → reveal local tags.
- *   - `create`        → typed query opens the create dialog; local tags are context.
- *   - `delete-local`  → local tag rows open a local delete confirmation.
- *   - `delete-remote` → selected-remote tag rows open a remote delete confirmation.
- */
 import i18next from "i18next";
 import type { RemoteTag, Tag } from "../../../../../shared/git/types";
+import { relativeTime } from "../../../../utils/time-format";
 import type { PaletteItem, PaletteSource } from "../../../ui/palette/types";
-import { relativeTime } from "../utils/relative-time";
 
 export type TagPickerMode = "browse" | "create" | "delete-local" | "delete-remote";
 
@@ -55,9 +43,6 @@ export interface CreateTagPickerSourceInput {
   requestDelete: (item: LocalTagPickItem | RemoteTagPickItem, target: TagDeleteTarget) => void;
 }
 
-/**
- * Builds the tag picker source consumed by CommandPalette.
- */
 export function createTagPickerSource(
   input: CreateTagPickerSourceInput,
 ): PaletteSource<TagPickItem> {
@@ -122,9 +107,6 @@ export function createTagPickerSource(
   };
 }
 
-/**
- * Builds local tag rows for modes backed by the local-only `listTags` path.
- */
 function localTagItemsForMode({
   tags,
   mode,
@@ -142,9 +124,6 @@ function localTagItemsForMode({
     .filter((item) => matchesTagQuery(item, lowerQuery));
 }
 
-/**
- * Builds selected-remote tag rows from truthful `ls-remote` payloads.
- */
 function remoteTagItemsForMode(
   tags: readonly RemoteTag[],
   lowerQuery: string,
@@ -153,9 +132,6 @@ function remoteTagItemsForMode(
   return sorted.map(remoteTagToItem).filter((item) => matchesTagQuery(item, lowerQuery));
 }
 
-/**
- * Returns the mode-specific palette chrome and empty-state copy.
- */
 function tagPickerCopy(
   mode: TagPickerMode,
 ): Pick<
@@ -195,9 +171,6 @@ function tagPickerCopy(
   }
 }
 
-/**
- * Converts a local tag into the palette row shape for the selected mode.
- */
 function localTagToItem(
   tag: Tag,
   options: { mode: Exclude<TagPickerMode, "delete-remote">; query?: string },
@@ -227,9 +200,6 @@ function localTagToItem(
   };
 }
 
-/**
- * Converts a selected-remote tag row into a destructive palette item.
- */
 function remoteTagToItem(tag: RemoteTag): RemoteTagPickItem {
   const t = i18next.t.bind(i18next);
   const formatted = formatRemoteTag(tag);
@@ -249,10 +219,6 @@ function remoteTagToItem(tag: RemoteTag): RemoteTagPickItem {
   };
 }
 
-/**
- * Builds the synthetic create row. Non-empty queries become a suggested tag
- * name so "type name → Enter" opens the FormDialog prefilled.
- */
 function createTagItem(query: string): Extract<TagPickItem, { kind: "create" }> {
   const t = i18next.t.bind(i18next);
   return {
@@ -269,9 +235,6 @@ function createTagItem(query: string): Extract<TagPickItem, { kind: "create" }> 
   };
 }
 
-/**
- * Returns mode-specific secondary text for local rows.
- */
 function detailForLocalMode(
   mode: Exclude<TagPickerMode, "delete-remote">,
   formatted: string,
@@ -288,9 +251,6 @@ function detailForLocalMode(
   }
 }
 
-/**
- * Returns the compact right-side row label supported by the palette model.
- */
 function kindLabelForLocalMode(
   mode: Exclude<TagPickerMode, "delete-remote">,
   tagType: Tag["type"],
@@ -302,9 +262,6 @@ function kindLabelForLocalMode(
   return t(`files:git.pickerKind.${tagType}`);
 }
 
-/**
- * Builds an accessible action label for local tag rows.
- */
 function ariaLabelForLocalMode(
   mode: Exclude<TagPickerMode, "delete-remote">,
   name: string,
@@ -320,9 +277,6 @@ function ariaLabelForLocalMode(
   }
 }
 
-/**
- * Describes local row intent through the palette's current tooltip channel.
- */
 function tooltipForLocalMode(mode: Exclude<TagPickerMode, "delete-remote">): string | undefined {
   const t = i18next.t.bind(i18next);
   switch (mode) {
@@ -335,9 +289,6 @@ function tooltipForLocalMode(mode: Exclude<TagPickerMode, "delete-remote">): str
   }
 }
 
-/**
- * Case-insensitive query matcher spanning tag label, remote, message, SHA, and type.
- */
 function matchesTagQuery(item: LocalTagPickItem | RemoteTagPickItem, lowerQuery: string): boolean {
   if (lowerQuery.length === 0) return true;
   const values =
@@ -347,24 +298,15 @@ function matchesTagQuery(item: LocalTagPickItem | RemoteTagPickItem, lowerQuery:
   return values.some((value) => value.toLowerCase().includes(lowerQuery));
 }
 
-/**
- * Normalizes the selected remote before delete-remote listing.
- */
 function normalizeSelectedRemote(remote: string | null | undefined): string | null {
   const trimmed = remote?.trim() ?? "";
   return trimmed.length > 0 ? trimmed : null;
 }
 
-/**
- * Formats remote tag metadata with the only stable field from `ls-remote`.
- */
 function formatRemoteTag(tag: RemoteTag): string {
   return tag.sha.slice(0, 7);
 }
 
-/**
- * Formats tag timestamps with a stable fallback for lightweight tags.
- */
 function formatTagDate(tag: Tag): string {
   const t = i18next.t.bind(i18next);
   if (tag.taggerDate === null)

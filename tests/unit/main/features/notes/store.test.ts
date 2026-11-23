@@ -85,7 +85,6 @@ describe("notes on disk", () => {
   test("saving writes the document and its Markdown, newest first in the list", async () => {
     const a = await store.create(here, "a");
     const b = await store.create(here, "b");
-    // Saved in the millisecond b was made, a would tie with it.
     await new Promise((resolve) => setTimeout(resolve, 5));
     await store.save(here, a.id, { title: "첫 노트", doc: doc("본문입니다") });
     const list = await store.list(here);
@@ -185,7 +184,6 @@ describe("notes on disk", () => {
       "IMG_0001 (5).jpg",
       "IMG_0001.jpg",
     ]);
-    // None wrote over another.
     const kept = await Promise.all(assets.map((a) => store.readAsset(here, note.id, a.src)));
     expect(kept.map((b) => b[0]).sort()).toEqual([1, 2, 3, 4, 5]);
     const read = await store.read(here, note.id);
@@ -208,7 +206,6 @@ describe("notes on disk", () => {
       },
     });
     const now = Date.now();
-    // Only just written: nothing goes, used or not.
     expect(await store.prune(here, note.id, now)).toEqual([]);
     const later = now + PRUNE_AFTER_MS + 1000;
     expect(await store.prune(here, note.id, later)).toEqual([gone.src]);
@@ -287,10 +284,8 @@ describe("a photo from the user's phone", () => {
       attrs: { src: "screens/IMG_0001.jpg", alt: "IMG_0001.jpg" },
     });
     expect(after.counts.images).toBe(1);
-    // The note's Markdown, which agents read, shows it too.
     const md = await fs.readFile(path.join(after.dir, "note.md"), "utf8");
     expect(md).toContain("screens/IMG_0001.jpg");
-    // Unnamed, it is named by when it came; it is kept by prune, being in the document.
     const unnamed = await store.addPhoto(here, note.id, new Uint8Array([1]), "png");
     expect(unnamed.src).toMatch(/^screens\/photo-\d{8}-\d{6}\.png$/);
     expect(await store.prune(here, note.id)).toEqual([]);

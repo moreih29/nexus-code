@@ -8,7 +8,7 @@ import {
   type WorkspaceSymbolEntry,
   workspaceSymbolDedupeKey,
 } from "../../services/lsp-ux/workspace-symbol-registry";
-import { relPath } from "../../utils/path";
+import { relativeTo } from "../../utils/path";
 import type { PaletteAcceptContext, PaletteItem, PaletteSource } from "../ui/palette/types";
 
 export interface WorkspaceSymbolPaletteItem extends PaletteItem {
@@ -20,15 +20,9 @@ interface CreateWorkspaceSymbolPaletteSourceInput {
   workspaceId: string;
   workspaceRoot: string;
   search?: typeof searchWorkspaceSymbols;
-  /**
-   * Editor open + selection seam — defaults to `revealEditorAt`. Tests
-   * inject a stub to assert the open + selection arguments without
-   * touching the real tab/registry stores.
-   */
   openEditor?: typeof revealEditorAt;
 }
 
-/** LSP SymbolKind (0-based, as Monaco numbers it) → common:palette.symbol_kind key. */
 const SYMBOL_KIND_KEYS: Record<number, string> = {
   0: "file",
   1: "module",
@@ -91,7 +85,7 @@ function workspaceSymbolToPaletteItem(
 ): WorkspaceSymbolPaletteItem {
   const uri = symbolUriToString(symbol.location.uri);
   const filePath = fileUriToAbsolutePath(uri);
-  const pathLabel = filePath ? relPath(filePath, workspaceRoot) : uri;
+  const pathLabel = filePath ? relativeTo(filePath, workspaceRoot) : uri;
   const locationLabel = `${pathLabel}:${symbol.location.range.startLineNumber}:${symbol.location.range.startColumn}`;
   const container = symbol.containerName ? `${symbol.containerName} · ` : "";
   const kindKey = SYMBOL_KIND_KEYS[symbol.kind];

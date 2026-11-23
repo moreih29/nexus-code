@@ -1,10 +1,3 @@
-/**
- * Path-domain commands: reveal in Finder, copy absolute / relative path.
- *
- * Anchored to the currently-active editor's filePath via
- * {@link getActiveEditorPathActions}.
- */
-
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { getActiveEditorPathActions } from "../context";

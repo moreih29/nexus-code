@@ -27,7 +27,6 @@ describe("the names a voice session sends", () => {
     expect(names).toHaveLength(60);
     expect(names[59]).toBe("ws-59");
     expect(voiceNamesOf([["a".repeat(120)]])).toEqual(["a".repeat(80)]);
-    // Two that are the same once clipped go once.
     expect(voiceNamesOf([[`${"b".repeat(80)}1`, `${"b".repeat(80)}2`]])).toHaveLength(1);
   });
 
@@ -52,7 +51,6 @@ describe("the computers the names come from", () => {
       peers: [
         peer("a", true),
         peer("b", false),
-        // An offline phone, and online ones that serve no sessions (or have not said), are not listed.
         peer("c", false, "ios"),
         peer("d", true, "android", ["chat.control"]),
         peer("e", true, "linux", null),
@@ -117,7 +115,6 @@ describe("gathering the names", () => {
       "docs",
       "backend",
     ]);
-    // Only a computer serving its sessions is asked, briefly.
     expect(asked).toEqual([{ deviceId: "a", timeoutMs: NAMES_ASK_MS }]);
   });
 

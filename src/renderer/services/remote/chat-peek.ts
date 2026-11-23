@@ -1,11 +1,3 @@
-/**
- * A Claude or Codex tab's last turns at a glance, as another device's
- * preview reads them (chat.peek): from the conversation an open tab holds,
- * or from the end of its history as its agent keeps it (a Claude
- * transcript's last page, a Codex rollout's last events). Pure: what reads
- * the tab and its history is the caller's.
- */
-
 import {
   type ChatPeek,
   type ChatPeekTurn,
@@ -29,18 +21,12 @@ import { type ChatItem, isWaiting, type ToolCall } from "../chat/model";
 import { withRelayed } from "../chat/relayed";
 import { type ChatSource, conversationOf } from "./chat-page";
 
-/** How many more pages of a transcript a peek reads when its last holds no whole turn. */
 export const PEEK_MORE_PAGES = 3;
 
-/** How many turns a peek gives: those asked for, DEFAULT_PEEK_TURNS when none, MAX_PEEK_TURNS at most. */
 export function peekTurnCount(turns: number | undefined): number {
   return Math.max(1, Math.min(Math.floor(turns ?? DEFAULT_PEEK_TURNS), MAX_PEEK_TURNS));
 }
 
-/**
- * Who sent a message through the nexus command, as the line before it says
- * (relayHeader): for one whose record the tab no longer keeps.
- */
 function senderOf(text: string): string {
   const line = text.slice(
     RELAY_MARK.length,
@@ -55,9 +41,7 @@ function senderOf(text: string): string {
     try {
       const name: unknown = JSON.parse(quoted);
       if (typeof name === "string" && name !== "") return name;
-    } catch {
-      // Not as the line is written: told by its kind.
-    }
+    } catch {}
   }
   if (line.startsWith("The manager")) return "manager";
   if (line.startsWith("NexusCode, the app")) return "app";
@@ -65,15 +49,8 @@ function senderOf(text: string): string {
   return "tab";
 }
 
-/** Written during a turn and not read yet (isWaiting, without narrowing the item). */
 const waits = (item: ChatItem): boolean => isWaiting(item);
 
-/**
- * The turns of a conversation's items (as withRelayed gives them), oldest
- * first: each begins at a message, the user's or another sender's. What
- * the agent wrote before the first message there is a turn with neither.
- * A message waiting for the agent to read it began none yet.
- */
 export function peekTurnsOf(
   items: readonly ChatItem[],
   tools: Readonly<Record<string, ToolCall>>,
@@ -95,7 +72,6 @@ export function peekTurnsOf(
       begin({ received: { from: name || agent || kind, text: item.text } });
     } else if (item.kind === "user") {
       if (waits(item) || item.peerWritePending) continue;
-      // One another agent sent, whose record the tab no longer keeps: still not the user's.
       if (item.text.startsWith(RELAY_MARK)) {
         begin({ received: { from: senderOf(item.text), text: withoutRelayHeader(item.text) } });
         continue;
@@ -124,7 +100,6 @@ export function peekTurnsOf(
   return turns.map(({ begun, reply, names }) => ({ ...begun, reply, ...peekTools(names) }));
 }
 
-/** The last `want` turns, and whether there are more before them. */
 function lastTurns(
   turns: ChatPeekTurn[],
   want: number,
@@ -134,7 +109,6 @@ function lastTurns(
   return { turns: turns.slice(-want), ...(more ? { more: true as const } : {}) };
 }
 
-/** What an open tab waits on the user for, as the sessions' rows tell it. */
 function waitingOf(source: ChatSource): ChatPeek["waiting"] {
   const request = source.chat.model.permissions[0];
   if (!request) return undefined;
@@ -144,7 +118,6 @@ function waitingOf(source: ChatSource): ChatPeek["waiting"] {
   return { kind: "permission", ...(tool ? { tool } : {}) };
 }
 
-/** An open tab's last turns and where it stands, from the conversation it holds. */
 export function peekOfChat(source: ChatSource, turns?: number): ChatPeek {
   const { chat } = source;
   const { model } = chat;
@@ -171,23 +144,15 @@ export function peekOfChat(source: ChatSource, turns?: number): ChatPeek {
   });
 }
 
-/** A tab that is not open: no turn runs, and it waits on nothing. */
 const COLD: ChatPeek["status"] = { running: false, phase: "idle" };
 
-/** The answer for a chat no turns of which could be read. */
 export function peekUnavailable(why: NonNullable<ChatPeek["unavailable"]>): ChatPeek {
   return { status: COLD, turns: [], unavailable: why };
 }
 
-/** Whether the items hold a message that began a turn. */
 const hasTurn = (items: readonly ChatItem[]) =>
   items.some((item) => item.kind === "received" || (item.kind === "user" && !waits(item)));
 
-/**
- * A Claude transcript's end, read a page at a time from its last: enough
- * for a peek once it holds a whole row and a message that began a turn, or
- * PEEK_MORE_PAGES more were read.
- */
 export class ClaudeTail {
   private readonly pages: TranscriptPages | null;
   private readonly first: TranscriptPageResult;
@@ -202,7 +167,6 @@ export class ClaudeTail {
     return this.pages ? this.pages.project() : historyModel(this.first.lines);
   }
 
-  /** Where to read the page before, when more is needed; undefined when not. */
   get cursor(): string | undefined {
     if (!this.pages?.cursor || this.read >= PEEK_MORE_PAGES) return undefined;
     return this.pages.hasPartialRow || !hasTurn(this.model().items) ? this.pages.cursor : undefined;
@@ -224,7 +188,6 @@ export class ClaudeTail {
   }
 }
 
-/** The name a Codex call's tool has in the tab (codexItemTools), one for each file a patch changes. */
 function rolloutTools(event: RolloutEvent): string[] {
   switch (event.tool) {
     case "commandExecution":
@@ -250,7 +213,6 @@ function rolloutTools(event: RolloutEvent): string[] {
   }
 }
 
-/** A Codex thread's last turns, from the events at the end of its rollout. */
 export function peekOfRollout(
   tail: NonNullable<ChatPeekTail["codex"]>,
   relayed: readonly RelayedMessage[] | undefined,

@@ -1,4 +1,3 @@
-/** The outcome Claude's stream reports for a finished turn. */
 export interface ClaudeTurnResult {
   readonly outcome: "completed" | "interrupted" | "error";
   readonly subtype: string;
@@ -8,7 +7,6 @@ export interface ClaudeTurnResult {
   readonly detail?: string;
 }
 
-/** Normalizes CLI results, including an error reported with subtype success. */
 export function claudeTurnResult(message: Record<string, unknown>): ClaudeTurnResult {
   const subtype = typeof message.subtype === "string" ? message.subtype : "success";
   const terminalReason =

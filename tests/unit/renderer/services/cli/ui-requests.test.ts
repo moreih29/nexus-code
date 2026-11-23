@@ -1,15 +1,12 @@
-/** The renderer's side of the nexus CLI: one listener, so each request is carried out once. */
 import { afterAll, expect, spyOn, test } from "bun:test";
 
 type Listener = (args: unknown) => void;
-/** The cli:uiRequest listeners; other modules listen to other events on import. */
 const listeners = new Set<Listener>();
 const calls: unknown[][] = [];
 
 const globals = globalThis as { window?: unknown; document?: unknown };
 const originalWindow = globals.window;
 const originalDocument = globals.document;
-// A request notes what holds the keyboard, to give it back after.
 globals.document ??= { activeElement: null, body: null, hasFocus: () => false };
 globals.window = {
   ...(originalWindow as object),
@@ -61,7 +58,6 @@ const { useMountedWorkspacesStore } = await import(
 const { SerializedTabSchema } = await import("../../../../../src/shared/types/layout");
 const { WorkspaceMetaSchema } = await import("../../../../../src/shared/types/workspace");
 
-/** What the renderer answered a request, once it has. */
 async function answerTo(requestId: string, op: string, args: unknown): Promise<unknown> {
   for (const listener of listeners) listener({ requestId, op, args });
   for (let i = 0; i < 100; i++) {
@@ -162,7 +158,6 @@ test("a request is carried out once, however often the app boots", async () => {
 
   stop();
   expect(listeners.size).toBe(0);
-  // A stop from before leaves the listener installed after it.
   const older = startCliUiListener(Promise.resolve());
   startCliUiListener(Promise.resolve());
   older();
@@ -362,7 +357,6 @@ test("a terminal not started yet is started behind the view, and read once it ha
       lines: 5,
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
-    // Its workspace's panel mounts, and with it the terminal's view.
     expect(useMountedWorkspacesStore.getState().ids.has(ws)).toBe(true);
     unregister = registerTerminalController(tab.id, {
       readText: () => "ready",
@@ -385,7 +379,6 @@ test("a terminal its view has registered is typed into only once its shell is re
   startCliUiListener(Promise.resolve());
   const typed: string[] = [];
   let open = (_ready: boolean) => {};
-  // Its fonts still loading, or its shell not at its prompt: input would be lost.
   const unregister = registerTerminalController(tab.id, {
     whenReady: () =>
       new Promise<boolean>((resolve) => {
@@ -464,7 +457,6 @@ test("read requests schedule no focus checks even when mounting a terminal or op
     frames.push(run);
     return frames.length;
   };
-  // The composer the user types in holds the keyboard.
   doc.activeElement = { isConnected: true, focus: () => {}, closest: () => null };
   const workspaceId = "ws-focus-read";
   const { byWorkspace } = useTabsStore.getState();

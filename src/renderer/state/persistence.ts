@@ -1,15 +1,3 @@
-/**
- * Persistence subscriber for renderer state.
- *
- * Subscribes to layout + tabs stores and debounces writes to appState via IPC.
- * Registration is deferred until after the boot hydrate completes so the
- * initial hydrate does not immediately trigger a write-storm.
- *
- * Usage (from App.tsx boot effect, once after hydrate):
- *   import { registerStatePersistence } from "./state/persistence";
- *   registerStatePersistence();
- */
-
 import { createLogger } from "../../shared/log/renderer";
 import type { AppState } from "../../shared/types/app-state";
 import { defaultTimerScheduler, type TimerScheduler } from "../../shared/util/timer-scheduler";
@@ -22,14 +10,9 @@ import { flushAgentViewPersistence } from "./stores/agent-view";
 import { useLayoutStore } from "./stores/layout";
 import { restoredTitles, useTabsStore } from "./stores/tabs";
 
-// Re-exported so existing callers (e.g. tests) can keep importing from this module.
 export { STATE_PERSIST_DEBOUNCE_MS };
 
 const log = createLogger("persistence");
-
-// ---------------------------------------------------------------------------
-// Serialization
-// ---------------------------------------------------------------------------
 
 type LayoutSnapshot = NonNullable<AppState["layoutByWorkspace"]>[string];
 
@@ -39,9 +22,6 @@ function toSnapshot(workspaceId: string): LayoutSnapshot | null {
 
   if (!layout) return null;
 
-  // Strip UntitledTab entries — they are session-only and must not be
-  // restored on next boot (a new untitled index would be assigned instead).
-  // BrowserTab and all other types are persisted as-is.
   const tabs = Object.values(tabRecord).filter(
     (t) => t.type !== "untitled",
   ) as LayoutSnapshot["tabs"];
@@ -52,7 +32,6 @@ function toSnapshot(workspaceId: string): LayoutSnapshot | null {
   };
 }
 
-/** Restore tabs and repair layout references before installing persistence. */
 export function hydrateLayoutSnapshots(snapshots: AppState["layoutByWorkspace"]): void {
   if (snapshots) {
     for (const [wsId, snap] of Object.entries(snapshots)) {
@@ -69,8 +48,6 @@ export function hydrateLayoutSnapshots(snapshots: AppState["layoutByWorkspace"])
           const isPreview =
             "isPreview" in t && typeof t.isPreview === "boolean" ? t.isPreview : false;
           const isPinned = "isPinned" in t && typeof t.isPinned === "boolean" ? t.isPinned : false;
-          // Its titles as saved: a rename stays the user's, and a name the
-          // app gives follows its language (restoredTitles).
           tabsMap[t.id] = { ...t, isPreview, isPinned, ...restoredTitles(t) };
         }
         useTabsStore.setState((s) => ({
@@ -81,19 +58,14 @@ export function hydrateLayoutSnapshots(snapshots: AppState["layoutByWorkspace"])
         useLayoutStore
           .getState()
           .hydrate(wsId, { root: snap.root, activeGroupId: snap.activeGroupId }, knownTabIds);
-        // Layouts saved before pinning reordered tabs can hold pinned tabs
-        // behind unpinned ones.
         normalizeWorkspaceTabOrder(wsId);
-      } catch {
-        // Silent repair: skip invalid snapshot for this workspace
-      }
+      } catch {}
     }
   }
 }
 
 let persistence: { flush(): Promise<boolean>; stop(): void } | undefined;
 
-/** Watch changed workspace slices and coalesce their durable writes. */
 export function registerStatePersistence(scheduler: TimerScheduler = defaultTimerScheduler): void {
   if (persistence) return;
   const pending = new Set<string>();
@@ -101,14 +73,12 @@ export function registerStatePersistence(scheduler: TimerScheduler = defaultTime
   let stopped = false;
   let inFlight: Promise<boolean> | undefined;
 
-  /** Cancel the scheduled write so an explicit flush can take its place. */
   function cancelTimer(): void {
     if (timer === undefined) return;
     scheduler.clearTimeout(timer);
     timer = undefined;
   }
 
-  /** Send one batch of current snapshots and retain failed changes for the next flush. */
   async function write(): Promise<boolean> {
     const workspaceIds = [...pending];
     pending.clear();
@@ -130,7 +100,6 @@ export function registerStatePersistence(scheduler: TimerScheduler = defaultTime
     return false;
   }
 
-  /** Wait for the current write and any changes queued behind it. */
   async function flush(): Promise<boolean> {
     cancelTimer();
     while (!stopped && (inFlight || pending.size > 0)) {
@@ -143,7 +112,6 @@ export function registerStatePersistence(scheduler: TimerScheduler = defaultTime
     return true;
   }
 
-  /** Record only the slices changed by this window since hydration. */
   function recordChanges(next: Record<string, unknown>, previous: Record<string, unknown>): void {
     if (next === previous) return;
     const ids = new Set([...Object.keys(next), ...Object.keys(previous)]);
@@ -177,18 +145,15 @@ export function registerStatePersistence(scheduler: TimerScheduler = defaultTime
   };
 }
 
-/** Unsubscribe and discard a scheduled write during teardown. */
 export function unregisterStatePersistence(): void {
   persistence?.stop();
   persistence = undefined;
 }
 
-/** Wait for the current layout write and queued changes to finish. */
 export function flushStatePersistence(): Promise<boolean> {
   return persistence?.flush() ?? Promise.resolve(true);
 }
 
-/** Acknowledge a close attempt after flushing layout and pending note edits. */
 export function installLayoutClosePersistence(): () => void {
   return ipcListen("window", "prepareClose", ({ attempt }) => {
     void (async () => {

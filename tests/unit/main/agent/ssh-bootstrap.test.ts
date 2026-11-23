@@ -82,7 +82,6 @@ describe.skipIf(process.platform === "win32")(
       },
     } as const;
 
-    /** Executes the generated command in an isolated home, with a failing utility when requested. */
     function remoteFs(fail?: "cat" | "mv" | "early EOF") {
       if (
         REMOTE_AGENT_ROOT !== "~/.nexus-code" ||
@@ -244,7 +243,6 @@ function writeDistWithWrapper(): {
   const wrapperPayload = Buffer.from("fake-claude-wrapper-binary");
   const wrapper = artifactMetadata(wrapperPayload);
   fs.writeFileSync(path.join(distDir, "claude-wrapper"), wrapperPayload);
-  // Overwrite manifest.json to include the wrapper field
   const existing = JSON.parse(
     fs.readFileSync(path.join(distDir, "manifest.json"), "utf8"),
   ) as object;
@@ -308,12 +306,6 @@ describe("ssh-bootstrap", () => {
     expect(result.remoteCommand).toBe(
       buildRemoteAgentCommand(remoteAgentBinaryPath("0.1.0", result.platform), "/repo"),
     );
-    // uname -ms + printf "$HOME" + echo "$SHELL" + cat manifest.json + the
-    // nexus launcher + the codex wrapper — no upload round trip. The echo
-    // "$SHELL" probe throws ("unexpected command") because this mock doesn't
-    // handle it; detectRemoteShell swallows that error and returns undefined,
-    // so result.remoteShell stays undefined. The call still counts toward the
-    // runner's invocation total.
     expect(runner).toHaveBeenCalledTimes(6);
     expect(runner).toHaveBeenCalledWith(
       "ssh",
@@ -385,11 +377,6 @@ describe("ssh-bootstrap", () => {
   });
 
   it("retries the full upload when the atomic rename fails on the first attempt", async () => {
-    // Regression: `sftp` exits 0 even when a `put` silently fails, so the temp
-    // file can be missing when `mv -f tmp final` runs — the rename then throws
-    // "no such file" and aborts the bootstrap. The fix wraps each attempt so a
-    // failed rename retries the full upload instead of propagating. Here the
-    // first `mv` throws and the second succeeds; the bootstrap must recover.
     const { distDir, sha256 } = writeDist();
     let mvCount = 0;
     let rmCount = 0;
@@ -408,8 +395,6 @@ describe("ssh-bootstrap", () => {
       if (command === "sftp") return { stdout: "" };
       if (command === "ssh" && remoteCommand.startsWith("mv -f")) {
         mvCount += 1;
-        // First attempt simulates a temp file that never landed (silent sftp
-        // failure): the remote rename reports "no such file" and rejects.
         if (mvCount === 1) {
           throw new Error("zsh:1: no such file or directory: agent.tmp.deadbeef");
         }
@@ -436,8 +421,8 @@ describe("ssh-bootstrap", () => {
     );
 
     expect(result.uploaded).toBe(true);
-    expect(mvCount).toBe(2); // first rename failed, retry succeeded
-    expect(rmCount).toBe(1); // orphaned temp from the failed attempt was cleaned
+    expect(mvCount).toBe(2);
+    expect(rmCount).toBe(1);
     expect(calls.filter((call) => call.startsWith("sftp"))).toHaveLength(2);
   });
 
@@ -645,8 +630,6 @@ describe("ssh-bootstrap", () => {
       sshArgs.every((args) => args.includes("-S") && args.includes(result.controlPath ?? "")),
     ).toBe(true);
 
-    // Dispose schedules the socket unlink to run after the `ssh -O exit`
-    // helper closes (or after a fallback timer); wait until either fires.
     const unlinkSeen = new Promise<void>((resolve) => {
       const start = Date.now();
       const tick = () => {
@@ -713,8 +696,6 @@ describe("ssh-bootstrap", () => {
     }
   });
 
-  // ── Acceptance tests for Task 4: wrapper SFTP upload + remoteBinDir ──
-
   it("acceptance-1: uploads wrapper exactly once when manifest.wrapper is set", async () => {
     const { distDir, sha256, wrapperSha256 } = writeDistWithWrapper();
     const sftpInputs: string[] = [];
@@ -749,12 +730,10 @@ describe("ssh-bootstrap", () => {
       { distDir, runner, now: () => new Date("2026-05-12T00:00:00.000Z") },
     );
 
-    // Exactly two SFTP calls: one for the agent binary, one for the wrapper
     const wrapperSftpInputs = sftpInputs.filter((s) => s.includes(".nexus-code/bin/claude"));
     const agentSftpInputs = sftpInputs.filter((s) => s.includes("bin/agent-"));
     expect(wrapperSftpInputs).toHaveLength(1);
     expect(agentSftpInputs).toHaveLength(1);
-    // Wrapper upload must include chmod 755
     expect(wrapperSftpInputs[0]).toContain("chmod 755");
   });
 
@@ -791,7 +770,6 @@ describe("ssh-bootstrap", () => {
       { distDir, runner, now: () => new Date("2026-05-12T00:00:00.000Z") },
     );
 
-    // No SFTP call targeting bin/claude
     const wrapperSftpInputs = sftpInputs.filter((s) => s.includes(".nexus-code/bin/claude"));
     expect(wrapperSftpInputs).toHaveLength(0);
   });
@@ -814,7 +792,6 @@ describe("ssh-bootstrap", () => {
         return { stdout: "" };
       }
       if (command === "ssh" && remoteCommand.startsWith("if command -v sha256sum")) {
-        // Return the correct sha256 based on which file is being verified
         const isWrapper = remoteCommand.includes("bin/claude");
         return { stdout: `${isWrapper ? wrapperSha256 : sha256}\n` };
       }
@@ -831,7 +808,6 @@ describe("ssh-bootstrap", () => {
       { distDir, runner, now: () => new Date("2026-05-12T00:00:00.000Z") },
     );
 
-    // The SFTP batch for the wrapper must contain chmod 755 (mode preservation)
     const wrapperBatch = sftpBatchInputs.find((s) => s.includes(".nexus-code/bin/claude"));
     expect(wrapperBatch).toBeDefined();
     expect(wrapperBatch).toContain("chmod 755");
@@ -846,9 +822,6 @@ describe("ssh-bootstrap", () => {
         return { stdout: "/home/deploy\n" };
       }
       if (command === "ssh" && remoteCommand.startsWith("echo")) {
-        // detectRemoteShell uses `echo "$SHELL"` — distinct prefix from
-        // detectRemoteHome's `printf '%s\n' "$HOME"` so the mock can
-        // distinguish them.
         return { stdout: "/bin/zsh\n" };
       }
       if (command === "ssh" && remoteCommand.startsWith("cat ~/.nexus-code/manifest.json")) {
@@ -876,7 +849,6 @@ describe("ssh-bootstrap", () => {
     expect(result.remoteShell).toBe("/bin/zsh");
   });
 
-  /** Runs a bootstrap for `workspaceId`, noting the shim files as they land in place. */
   async function bootstrapShims(workspaceId: string) {
     const { distDir, sha256 } = writeDist();
     const tmpContents = new Map<string, string>();
@@ -904,8 +876,6 @@ describe("ssh-bootstrap", () => {
       if (command === "ssh" && remoteCommand.startsWith("mkdir -p")) {
         return { stdout: "" };
       }
-      // A shim file goes to a temporary name and is renamed into place, so
-      // a shell starting meanwhile never reads half of one.
       const write = remoteCommand.match(/^cat > (\S+) && mv -f (\S+) (\S+)$/);
       if (command === "ssh" && write) {
         const [, tmp, from, to] = write;
@@ -930,21 +900,17 @@ describe("ssh-bootstrap", () => {
   it("uploads PTY shim rc files when workspaceId is provided and surfaces remoteShimDir", async () => {
     const { result, placed } = await bootstrapShims("ws-shim-upload-test");
 
-    // One directory for every workspace: the files name nothing of one.
     const dir = result.remoteShimDir ?? "";
     expect(dir).toBe("/home/deploy/.nexus-code/shim/shared");
 
     const zshrc = placed.get(`${dir}/.zshrc`);
     const zshenv = placed.get(`${dir}/.zshenv`);
     const bashrc = placed.get(`${dir}/bashrc`);
-    // Content sanity: the zshrc must contain the precmd hook + the env var
-    // it depends on. Bashrc must contain the PROMPT_COMMAND wiring.
     expect(zshrc).toContain("_nexus_prepend_wrapper");
     expect(zshrc).toContain("NEXUS_WRAPPER_SELF_DIR");
     expect(zshrc).toContain("add-zsh-hook precmd");
     expect(bashrc).toContain("PROMPT_COMMAND");
     expect(zshenv).toContain("NEXUS_USER_ZDOTDIR");
-    // The zsh login files and the bash BASH_ENV a Codex tab's commands read.
     for (const name of [".zprofile", ".zlogin", ".zlogout", "bashenv"]) {
       expect(placed.has(`${dir}/${name}`)).toBe(true);
     }
@@ -956,8 +922,6 @@ describe("ssh-bootstrap", () => {
     const first = await bootstrapShims("11111111-1111-4111-8111-111111111111");
     const task = await bootstrapShims("22222222-2222-4222-8222-222222222222");
 
-    // A task is a new workspace id each time: a directory per id would pile
-    // up on the host, as nothing removes them there.
     expect(task.result.remoteShimDir).toBe(first.result.remoteShimDir);
     expect(first.result.remoteShimDir).not.toContain("1111");
   });
@@ -986,9 +950,6 @@ describe("ssh-bootstrap", () => {
         };
       }
       if (command === "ssh" && remoteCommand.startsWith("mkdir -p")) {
-        // Without workspaceId there must be no mkdir for the shim subdir.
-        // Surface this by failing the test if we see a path starting with
-        // `~/.nexus-code/shim/`.
         if (remoteCommand.includes("/.nexus-code/shim/")) {
           throw new Error(`unexpected shim mkdir: ${remoteCommand}`);
         }
@@ -1008,7 +969,6 @@ describe("ssh-bootstrap", () => {
     );
 
     expect(result.remoteShimDir).toBeUndefined();
-    // No `cat >` for shim files when no workspaceId is given.
     expect(shimCatCalls).toBe(0);
   });
 
@@ -1021,9 +981,6 @@ describe("ssh-bootstrap", () => {
         return { stdout: "/home/deploy\n" };
       }
       if (command === "ssh" && remoteCommand.startsWith("echo")) {
-        // Empty $SHELL on the remote (e.g. unset). Must NOT throw — the
-        // caller's bootstrap should still succeed; we simply don't get a
-        // shell hint and the shim is skipped downstream.
         return { stdout: "\n" };
       }
       if (command === "ssh" && remoteCommand.startsWith("cat ~/.nexus-code/manifest.json")) {
@@ -1049,7 +1006,6 @@ describe("ssh-bootstrap", () => {
     );
 
     expect(result.remoteShell).toBeUndefined();
-    // Bootstrap itself must still have succeeded — remoteBinDir present.
     expect(result.remoteBinDir).toBe("/home/deploy/.nexus-code/bin");
   });
 });
@@ -1062,25 +1018,16 @@ describe("buildRemoteAgentCommand (daemon+dial architecture)", () => {
 
   it("contains daemon background start and dial retry loop", () => {
     const cmd = buildRemoteAgentCommand("/home/user/.nexus-code/bin/agent", "/home/user/repo");
-    // Must wrap in bash -lc
     expect(cmd).toMatch(/^bash -lc/);
-    // Must include --daemon flag (started as grandchild via subshell)
     expect(cmd).toContain("--daemon");
-    // Must include --dial-workspace flag (dialer as plain shell child, no exec)
     expect(cmd).toContain("--dial-workspace");
-    // Daemon must be started in a subshell for fd isolation and detachment
     expect(cmd).toContain("( ");
     expect(cmd).toContain("& )");
-    // Daemon fds must be isolated from ssh session to prevent NDJSON pollution
     expect(cmd).toContain("</dev/null");
     expect(cmd).toContain(">/dev/null");
-    // Socket-not-ready exit code (4) triggers retry
     expect(cmd).toContain("$rc -ne 4");
-    // No exec (dialer is a plain child, not foreground handoff via exec)
     expect(cmd).not.toContain("exec ");
-    // No shopt execfail (not needed without exec)
     expect(cmd).not.toContain("shopt");
-    // No wait (daemon is long-lived, blocking wait would hang forever)
     expect(cmd).not.toContain("wait ");
   });
 

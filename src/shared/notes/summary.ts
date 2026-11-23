@@ -25,7 +25,6 @@ export const RecordingIdSchema = z.string().regex(RECORDING_ID_RE);
 export const SummaryModeSchema = z.enum(["auto", "retry", "rerun"]);
 export type SummaryMode = z.infer<typeof SummaryModeSchema>;
 
-/** Redact the full diagnostic before taking its UTF-8 tail. */
 export function summaryDiagnostic(text: string): string | undefined {
   const redacted = redactLogSecrets(text).replace(/\bsk-[a-z0-9_-]+/gi, "[redacted]");
   const bytes = new TextEncoder().encode(redacted);

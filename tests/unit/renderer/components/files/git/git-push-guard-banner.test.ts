@@ -1,6 +1,3 @@
-/**
- * Scenario tests for push guardrail banner copy and actions.
- */
 import { describe, expect, it } from "bun:test";
 import {
   buildPushGuardBannerView,
@@ -38,7 +35,6 @@ describe("buildPushGuardBannerView", () => {
   });
 });
 
-/** Creates the renderer's normalized Git error shape. */
 function error(kind: string, message: string, details?: string): GitStoreError {
   return { kind, message, details, operation: "push" };
 }

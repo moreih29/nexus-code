@@ -1,10 +1,3 @@
-/**
- * A Claude or Codex tab's conversation as another device of the account
- * reads it (chat.read): the items this app made of its program's log, its
- * history before that included, trimmed of what only this app uses, with
- * the tool calls, tasks and subagents' messages they name. Pure.
- */
-
 import i18next from "i18next";
 import {
   type ChatPage,
@@ -37,32 +30,22 @@ import { withRelayed } from "../chat/relayed";
 import type { ChatTabState } from "../chat/store";
 import type { PeerSubmission } from "../chat/transport/submission";
 
-/** How many items a read gives when it does not say. */
 export const DEFAULT_READ_ITEMS = 200;
 
-/** The most of a failure's text, or of a program's stderr, a status tells: its banner's details. */
 const MAX_STATUS_TEXT = 8 * 1024;
 
-/** The longest path a job's output file is told by (ViewTask.outputFile). */
 const MAX_OUTPUT_PATH = 4096;
 
 export interface ChatSource {
   agent: ChatAgent;
   title: string;
   chat: ChatTabState;
-  /** The messages other agents sent it through the nexus command, told as theirs. */
   relayed?: readonly RelayedMessage[];
   peerSubmissions?: Readonly<Record<string, PeerSubmission>>;
-  /** Its profile's plan usage as this app last heard it, as its composer's line shows it. */
   plan?: { claude?: Record<string, unknown>; codex?: CodexRateLimits };
-  /**
-   * Where the conversation went on in another profile: after the message
-   * `after` (its id, as the tab keeps it), in the profile named `profile`.
-   */
   moves?: readonly { after: string; profile: string; at: number }[];
-  /** Going on after the plan's usage limit stopped it, as the tab keeps it. */
   limitResume?: LimitResume;
-  /** What another device can do with it now, as the tab's own buttons do. */
+  twin?: string;
   can?: {
     rewind: boolean;
     fork: boolean;
@@ -76,15 +59,12 @@ export interface ChatSource {
   };
 }
 
-/** The tab's whole conversation as it shows it: its history, then its program's log. */
 export function conversationOf({ chat, relayed }: ChatSource): {
   items: ChatItem[];
   tools: Record<string, ToolCall>;
   agentItems: Record<string, AssistantItem[]>;
 } {
   const { history, model } = chat;
-  // Received messages are found by the keys the program gave (u-<id>), so
-  // the history is keyed apart only after.
   const items = withRelayed(history ? [...history.items, ...model.items] : model.items, relayed);
   const fromHistory = history?.items.length ?? 0;
   return {
@@ -97,14 +77,8 @@ export function conversationOf({ chat, relayed }: ChatSource): {
   };
 }
 
-/** History items as another device reads them, made once for each item. */
 const historyItems = new WeakMap<ChatItem, ChatItem>();
 
-/**
- * An item of the history keyed apart from the program's log: a resumed
- * program's log numbers its lines from 1 again, so its keys (a33) are the
- * history's too. The tab's own list keys them apart the same way.
- */
 function asHistory(item: ChatItem): ChatItem {
   let keyed = historyItems.get(item);
   if (!keyed) {
@@ -114,7 +88,6 @@ function asHistory(item: ChatItem): ChatItem {
   return keyed;
 }
 
-/** How many bytes a base64 image holds. */
 function imageRef({ mediaType, data }: ImageBlock): ImageRef {
   const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
   return { mediaType, bytes: Math.max(0, Math.floor((data.length * 3) / 4) - padding) };
@@ -143,7 +116,6 @@ export function viewItemOf(item: ChatItem): ViewItem {
     case "received": {
       const { uuid: _u, from, ...rest } = item;
       const { workspaceId, tabId, device, ...sender } = from;
-      // Where the sender takes an answer: its tab, on its computer when it is another.
       const replyTo =
         workspaceId && tabId
           ? { ...(device ? { deviceId: device.id } : {}), workspaceId, tabId }
@@ -163,7 +135,6 @@ export function viewAssistantOf(item: AssistantItem): ViewAssistantItem {
   return rest;
 }
 
-/** A call as another device reads it, its result's text cut at `maxText` characters. */
 export function viewToolOf(tool: ToolCall, maxText = MAX_RESULT_TEXT): ViewToolCall {
   const { partialInput: _p, result, ...rest } = tool;
   if (!result) return rest;
@@ -182,11 +153,6 @@ export function viewToolOf(tool: ToolCall, maxText = MAX_RESULT_TEXT): ViewToolC
   };
 }
 
-/**
- * A result's structured part as another device takes it: a file a Read gave whole (an image, a
- * PDF) without its bytes. No device shows them from there (an image comes by its ref), and an
- * image's alone could make its item too large to send, stopping the chat being read back past it.
- */
 function structuredToSend(structured: unknown): unknown {
   if (!structured || typeof structured !== "object") return structured;
   const file = (structured as { file?: unknown }).file;
@@ -195,10 +161,6 @@ function structuredToSend(structured: unknown): unknown {
   return { ...structured, file: rest };
 }
 
-/**
- * A request as another device reads it: what "always allow" would add
- * named in this app's words, by the index chat.answer's `always` gives back.
- */
 function viewPermissionOf(request: PermissionRequest): ViewPermission {
   const { suggestions, preview, ...rest } = request;
   const scopes = scopesOf(suggestions, (key, options) => String(i18next.t(key, options)));
@@ -209,7 +171,6 @@ function viewPermissionOf(request: PermissionRequest): ViewPermission {
   };
 }
 
-/** A task as the protocol tells it; `tools` give the call that started it, for its output file. */
 export function viewTaskOf(task: TaskInfo, tools: Record<string, ToolCall> = {}): ViewTask {
   const outputFile = jobOutputFile(task, tools);
   return {
@@ -223,6 +184,20 @@ export function viewTaskOf(task: TaskInfo, tools: Record<string, ToolCall> = {})
     ...(task.summary ? { summary: task.summary } : {}),
     ...(task.activity ? { activity: task.activity } : {}),
     ...(outputFile && outputFile.length <= MAX_OUTPUT_PATH ? { outputFile } : {}),
+  };
+}
+
+function failureOf(model: ChatModel): Pick<ChatStatus, "failure"> {
+  const result = model.lastResult;
+  const failure = result?.failure;
+  if (!failure) return {};
+  const { kind, status } = failure;
+  return {
+    failure: {
+      kind,
+      ...(status !== undefined && Number.isInteger(status) && status > 0 ? { status } : {}),
+      ...(result.at !== undefined ? { at: result.at } : {}),
+    },
   };
 }
 
@@ -263,6 +238,7 @@ export function chatStatusOf({ agent, title, chat }: ChatSource): ChatStatus {
           ...(model.turn.retry ? { retry: { ...model.turn.retry } } : {}),
         }
       : null,
+    ...failureOf(model),
     streaming: model.streaming
       ? {
           messageId: model.streaming.messageId,
@@ -279,7 +255,6 @@ export function chatStatusOf({ agent, title, chat }: ChatSource): ChatStatus {
   };
 }
 
-/** The tool calls the items name, with those that run under them, and their subagents' messages. */
 export function namedBy(
   items: readonly ChatItem[],
   tools: Record<string, ToolCall>,
@@ -300,7 +275,6 @@ export function namedBy(
     }
   };
   for (const item of items) if (item.kind === "assistant") visit(item.blocks);
-  // Codex can discover a child independently of the parent messages in this page.
   if (includeNativeAgents) {
     for (const [id, messages] of Object.entries(agentItems)) {
       if (agents.has(id)) continue;
@@ -308,14 +282,12 @@ export function namedBy(
       for (const item of messages) visit(item.blocks);
     }
   }
-  // A subagent's calls that its messages do not name (still streaming in) run under a named one.
   for (const tool of Object.values(tools)) {
     if (tool.parentToolUseId && named.has(tool.parentToolUseId)) named.add(tool.id);
   }
   return { tools: named, agents };
 }
 
-/** The tasks a page tells: those its items name, and those still running. */
 function tasksOf(
   model: ChatModel,
   items: readonly ChatItem[],
@@ -330,11 +302,6 @@ function tasksOf(
   );
 }
 
-/**
- * The conversation's items from `start` to `end` as the tab holds them,
- * with the calls, tasks and subagents' messages they name: what a page
- * tells, before it is trimmed for another device.
- */
 export interface ChatWindow {
   start: number;
   total: number;
@@ -344,7 +311,6 @@ export interface ChatWindow {
   agents: ReadonlyMap<string, AssistantItem[]>;
 }
 
-/** Correlation for this window's user rows. Changed messages retain stable objects for watch diffs. */
 const submissionsInView = new WeakMap<ChatItem, { submission: PeerSubmission; view: ChatItem }>();
 
 function withPeerSubmission(item: ChatItem, source: ChatSource): ChatItem {
@@ -389,7 +355,6 @@ function windowOf(
       ? window.map((item) => withPeerSubmission(item, source))
       : window;
   const named = namedBy(shown, tools, agentItems, source.agent === "codex" && last === total);
-  // The reply being written names its calls before any item does.
   if (last === total) {
     for (const block of Object.values(source.chat.model.streaming?.blocks ?? {})) {
       if (block.toolUseId) named.tools.add(block.toolUseId);
@@ -412,7 +377,6 @@ function windowOf(
   };
 }
 
-/** The chat's last `limit` items, or those before `before`, as chat.read gives them. */
 export function chatPageOf(
   source: ChatSource,
   { before, limit }: { before?: number; limit?: number } = {},
@@ -437,26 +401,14 @@ export function chatPageOf(
   };
 }
 
-/** How long a page read waits for the subagents it names to be read, before it goes without them. */
 export const SUBAGENTS_WAIT_MS = 3_000;
 
-/**
- * The subagents a page names that it has no messages of: a conversation
- * read back from its transcript has none, as Claude Code keeps a
- * subagent's messages in a file of its own.
- */
 export function unreadSubagentsOf(page: ChatPage): string[] {
   return Object.entries(page.tools).flatMap(([id, tool]) =>
     tool.parentToolUseId === null && AGENT_TOOLS.has(tool.name) && !page.agentItems[id] ? [id] : [],
   );
 }
 
-/**
- * A page with the messages of the subagents it names: `read` again once
- * `load` has read those it has none of, or once `waitMs` passed, as another
- * device opens a subagent that ended from the page it read. One that names
- * none it lacks is read once.
- */
 export async function pageWithSubagents(
   read: () => ChatPage,
   load: (toolUseIds: string[]) => Promise<unknown>,

@@ -1,11 +1,3 @@
-/**
- * MergeOptionsDialog asks how the selected target should be merged.
- *
- * The dialog owns only renderer choice state. Git execution remains in the
- * panel/store path, and the selected radio maps to the existing GitMergeMode
- * IPC enum at submit time.
- */
-
 import i18next from "i18next";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -61,7 +53,6 @@ function getMergeOptions(): readonly {
   ];
 }
 
-/** Maps renderer wording to the backend GitMergeMode enum. */
 export function mergeModeFromOption(option: MergeOption): GitMergeMode {
   switch (option) {
     case "merge-commit":
@@ -73,16 +64,11 @@ export function mergeModeFromOption(option: MergeOption): GitMergeMode {
   }
 }
 
-/** Returns the CTA label for the current merge option. */
 export function mergeOptionsSubmitLabel(option: MergeOption): string {
   const t = i18next.t.bind(i18next);
   return option === "squash" ? t("files:git.merge.submitSquash") : t("files:git.merge.submitMerge");
 }
 
-/**
- * Builds the commit draft inserted after a successful squash merge. Subjects
- * are intentionally capped so a long branch does not flood the commit box.
- */
 export function buildSquashCommitDraft(targetRef: string, commits: readonly LogEntry[]): string {
   const subjectLines = commits
     .map((commit) => commit.subject.trim())
@@ -94,10 +80,6 @@ export function buildSquashCommitDraft(targetRef: string, commits: readonly LogE
   return [`Squash merge of '${targetRef}'`, ...body].join("\n").trimEnd();
 }
 
-/**
- * Renders the dialog body without the Radix portal for static tests. Its
- * header is the dialog's Radix Title, so it renders inside a Dialog root.
- */
 export function MergeOptionsDialogContent({
   targetRef,
   option,
@@ -161,7 +143,6 @@ export function MergeOptionsDialogContent({
   );
 }
 
-/** Mounts merge option radios inside the standard modal shell. */
 export function MergeOptionsDialog({
   request,
   busy = false,

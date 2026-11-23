@@ -1,9 +1,3 @@
-// An image file the conversation shows where it names it: one Claude sent
-// the user, or one a reply puts in its text (![alt](path)). It loads as
-// the previews do, from the workspace or a file outside it the tab
-// granted, and opens in quick look. One that cannot load shows `fallback`.
-// Shown again in the same turn, it is a chip of its name (ImageChip).
-
 import { Image as ImageIcon } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -20,17 +14,14 @@ export function FileImage({
   alt,
   fallback,
 }: {
-  /** The image file's absolute path. */
   path: string;
   workspaceId: string;
   alt: string;
-  /** What shows when the image cannot: outside what the previews read, or gone. */
   fallback: React.ReactNode;
 }) {
   const { t } = useTranslation();
   const links = useChatLinks();
   const file = useWorkspaceFile(workspaceId, path);
-  // Another computer's chat reads the picture from there.
   const files = useChatFiles();
   const picture = useFilePicture(files, path);
   const [failedFor, setFailedFor] = useState<string | null>(null);
@@ -72,10 +63,6 @@ export function FileImage({
   );
 }
 
-/**
- * An image file its turn showed in full already: its name, which opens it
- * in quick look, as the image does.
- */
 export function ImageChip({ path }: { path: string }) {
   const { t } = useTranslation();
   const links = useChatLinks();

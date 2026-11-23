@@ -1,10 +1,3 @@
-/**
- * Whether voice input can be used here: signed in to NexusCode, on a
- * server that offers it (its /info says voice). Asked again when the
- * account changes. A server that could not be asked counts as offering
- * it: starting finds out and says why.
- */
-
 import { useEffect } from "react";
 import { create } from "zustand";
 import type { RemoteAccountState } from "../../../shared/remote/account";
@@ -52,12 +45,10 @@ function watch(): void {
   refresh(null);
 }
 
-/** The last availability reported to the renderer. */
 export function voiceAvailability(): VoiceAvailability {
   return useAvailabilityStore.getState().status;
 }
 
-/** Whether voice input can be used here, asked now. */
 export async function voiceAvailabilityNow(): Promise<VoiceAvailability> {
   watch();
   if (!pending) refresh(null);
@@ -70,7 +61,6 @@ export function useVoiceAvailability(): VoiceAvailability {
   return useAvailabilityStore((s) => s.status);
 }
 
-/** The language to listen for: the app's, unless the user chose "multi". */
 export function voiceLanguage(): string {
   if (useVoiceStore.getState().language === "multi") return "multi";
   return useLanguageStore.getState().preference;

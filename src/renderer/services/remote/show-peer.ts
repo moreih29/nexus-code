@@ -1,9 +1,4 @@
-/**
- * Shows a session of another computer of the user's as a tab of the agent
- * view, as its list's Other computers does, from what a message it sent
- * tells: its device and tab. Its workspace's name and folder come from that
- * computer's list when it answers; its ids otherwise.
- */
+import { shortId } from "../../../shared/util/short-id";
 import { ipcCallResult } from "../../ipc/client";
 import { useRemoteViewStore } from "../../state/stores/remote-view";
 
@@ -30,7 +25,7 @@ export async function showPeerSession(ref: PeerSessionRef): Promise<void> {
     deviceId: ref.device.id,
     deviceName: ref.device.name,
     workspaceId,
-    workspaceName: workspace?.name ?? workspaceId.slice(0, 8),
+    workspaceName: workspace?.name ?? shortId(workspaceId),
     path: workspace?.path ?? "",
     tabId: ref.tabId,
     kind: session?.kind ?? ref.kind,

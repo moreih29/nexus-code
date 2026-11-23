@@ -1,12 +1,3 @@
-/**
- * Workspace-scoped Git autofetch scheduler.
- *
- * A single master timer wakes once per second and checks each open workspace's
- * persisted Source Control panel state. Due work is enqueued through the
- * repository queue, but background runs deliberately use non-interactive Git
- * so credential prompts are never shown unless the user explicitly clicks a
- * fetch action.
- */
 import type {
   GitAutofetchError,
   GitAutofetchIntervalMin,
@@ -40,9 +31,6 @@ export interface GitAutofetchSchedulerOptions {
   readonly now?: () => number;
 }
 
-/**
- * Coordinates background `git fetch --all --prune` across all open workspaces.
- */
 export class GitAutofetchScheduler {
   private readonly registry: GitRegistry;
   private readonly storage: WorkspaceStorage;
@@ -63,7 +51,6 @@ export class GitAutofetchScheduler {
     this.now = options.now ?? Date.now;
   }
 
-  /** Starts the one-second master timer. Idempotent. */
   start(): void {
     if (this.timer) return;
     this.timer = setInterval(() => {
@@ -71,29 +58,22 @@ export class GitAutofetchScheduler {
     }, this.tickMs);
   }
 
-  /** Stops the master timer and forgets in-memory failure/schedule state. */
   dispose(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     this.states.clear();
   }
 
-  /** Drops scheduler state for a workspace that was removed. */
   disposeWorkspace(workspaceId: string): void {
     this.states.delete(workspaceId);
   }
 
-  /**
-   * Pauses/resumes background due checks globally. Focus resume recalculates
-   * next due times from "now" so missed due times are not replayed immediately.
-   */
   setGlobalPaused(paused: boolean): void {
     if (this.globalPaused === paused) return;
     this.globalPaused = paused;
     if (!paused) this.recalculateDueTimes();
   }
 
-  /** Persists and applies one workspace's autofetch cadence. */
   setSchedule(workspaceId: string, intervalMin: GitAutofetchIntervalMin): void {
     const normalizedIntervalMin = normalizeGitAutofetchIntervalMin(intervalMin);
     if (normalizedIntervalMin === 0) {
@@ -122,7 +102,6 @@ export class GitAutofetchScheduler {
     this.broadcastState(workspaceId, false);
   }
 
-  /** Persists a user-requested pause without changing the interval. */
   pause(workspaceId: string): void {
     this.storage.setGitPanelState(workspaceId, { autofetchManualPaused: true });
     const state = this.stateFor(workspaceId);
@@ -130,7 +109,6 @@ export class GitAutofetchScheduler {
     this.broadcastState(workspaceId, false);
   }
 
-  /** Clears pause/failure state and schedules the next due check from now. */
   resume(workspaceId: string): void {
     const panelState = this.storage.getGitPanelState(workspaceId);
     this.storage.setGitPanelState(workspaceId, { autofetchManualPaused: false });
@@ -145,19 +123,10 @@ export class GitAutofetchScheduler {
     this.broadcastState(workspaceId, false);
   }
 
-  /**
-   * Runs an explicit fetch-all. User-triggered calls use helpers and clear any
-   * sticky auth/network state on success; failures update the chip but do not
-   * contribute to the background three-strikes pause threshold.
-   */
   async fetchNow(workspaceId: string, signal?: AbortSignal): Promise<GitFetchAllResult> {
     return this.runFetch(workspaceId, { interactive: true, countFailureForPause: false, signal });
   }
 
-  /**
-   * Performs one due scan. Exposed for deterministic unit tests; production
-   * calls it from the master timer.
-   */
   async tick(): Promise<void> {
     if (this.globalPaused) return;
 
@@ -188,7 +157,6 @@ export class GitAutofetchScheduler {
     await Promise.all(due);
   }
 
-  /** Recomputes next due times for all open, scheduled workspaces. */
   private recalculateDueTimes(): void {
     const now = this.now();
     for (const workspace of this.workspaceManager.list()) {
@@ -202,7 +170,6 @@ export class GitAutofetchScheduler {
     }
   }
 
-  /** Fetches a repository, records failure policy, and broadcasts status once. */
   private async runFetch(
     workspaceId: string,
     options: {
@@ -257,7 +224,6 @@ export class GitAutofetchScheduler {
     }
   }
 
-  /** Returns mutable in-memory state for a workspace. */
   private stateFor(workspaceId: string): AutofetchWorkspaceState {
     let state = this.states.get(workspaceId);
     if (!state) {
@@ -273,7 +239,6 @@ export class GitAutofetchScheduler {
     return state;
   }
 
-  /** Emits the renderer-facing autofetch state snapshot. */
   private broadcastState(workspaceId: string, showPausedBanner: boolean): void {
     const state = this.stateFor(workspaceId);
     const panelState = this.storage.getGitPanelState(workspaceId);
@@ -289,24 +254,20 @@ export class GitAutofetchScheduler {
   }
 }
 
-/** Converts a supported persisted interval to milliseconds. */
 export function intervalToMs(intervalMin: GitAutofetchIntervalMin): number {
   return intervalMin * 60_000;
 }
 
-/** True when a failed fetch should remain sticky until explicit success/resume. */
 function isAuthFailure(error: unknown): boolean {
   return error instanceof GitError && (error.kind === "auth" || error.kind === "auth-required");
 }
 
-/** Extracts a compact failure kind for renderer chip state. */
 function errorKind(error: unknown): string {
   if (error instanceof GitError) return error.kind;
   if (error instanceof Error) return error.name || "unknown";
   return "unknown";
 }
 
-/** Extracts a user-facing failure message without throwing during serialization. */
 function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) return error.message;
   return "Fetch failed";

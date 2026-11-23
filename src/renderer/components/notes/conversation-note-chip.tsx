@@ -10,7 +10,6 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 
-/** The local Claude and Codex views are shared by both layouts. */
 export function ConversationNoteChip() {
   const { t } = useTranslation("notes");
   const scope = useChatNotes();

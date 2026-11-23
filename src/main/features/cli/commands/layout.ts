@@ -1,23 +1,9 @@
-/**
- * nexus layout show/split/resize/even/close and tab move/rename/pin/unpin:
- * arranging a workspace's editor area, its groups of tabs and the splits
- * between them, and naming and pinning tabs.
- *
- * A group is named by its number in `layout show` (1, 2, ...), by its id,
- * by "." for this terminal's group, or by one of its tabs.
- */
 import type { RpcParams } from "../../../../../packages/remote-protocol/src";
 import type { CliChange, CliLayoutNode, CliSplitSide, CliTabInfo } from "../../../../shared/cli/ui";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import { shortId } from "../../../../shared/util/short-id";
 import { CliUsageError, exactArgs } from "../args";
-import {
-  type CliContext,
-  CliError,
-  mayChange,
-  resolveTab,
-  resolveWorkspace,
-  shortId,
-} from "../context";
+import { type CliContext, CliError, mayChange, resolveTab, resolveWorkspace } from "../context";
 import { type CliCommand, output } from "../registry";
 import {
   askPeerCli,
@@ -35,7 +21,6 @@ import { resolveAnyTab, workspaceTabs } from "./terminal";
 
 type Split = Extract<CliLayoutNode, { kind: "split" }>;
 
-/** A group, with its number and the splits it sits in, innermost last. */
 export interface GroupInfo {
   readonly id: string;
   readonly number: number;
@@ -51,7 +36,6 @@ interface Layout {
   readonly tabs: readonly CliTabInfo[];
 }
 
-/** The groups in reading order: left to right, top to bottom. */
 export function groupsOf(root: CliLayoutNode): GroupInfo[] {
   const groups: GroupInfo[] = [];
   const walk = (node: CliLayoutNode, ancestors: GroupInfo["ancestors"]) => {
@@ -281,7 +265,6 @@ const layoutSplit: CliCommand = {
   },
 };
 
-/** Reads "30%" or "30" as 0.3. */
 export function share(text: string): number {
   const match = /^(\d+(?:\.\d+)?)%?$/.exec(text.trim());
   const value = match ? Number(match[1]) : Number.NaN;
@@ -345,13 +328,11 @@ const layoutResize: CliCommand = {
   },
 };
 
-/** How many groups `node` puts in a row along `direction`, for even shares. */
 function across(node: CliLayoutNode, direction: Split["direction"]): number {
   if (node.kind === "group" || node.direction !== direction) return 1;
   return across(node.first, direction) + across(node.second, direction);
 }
 
-/** The ratios that give every group in a row the same share. */
 export function evenRatios(root: CliLayoutNode): { splitId: string; ratio: number }[] {
   const ratios: { splitId: string; ratio: number }[] = [];
   const walk = (node: CliLayoutNode) => {
@@ -469,8 +450,6 @@ const tabMove: CliCommand = {
         op: "move",
         tabId: tab.id,
         groupId: group.id,
-        // An insertion slot: before the tab now at that place. Moving right within
-        // its own group, the tab's own slot is freed first, so one further.
         ...(at === undefined
           ? {}
           : {

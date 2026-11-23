@@ -1,7 +1,3 @@
-/**
- * retargetEditorTabs — editor tabs follow a renamed or moved file, and
- * unsaved text moves with them.
- */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { workingFileOfDiff } from "../../../../../src/renderer/services/editor/tabs/diff-working-file";
 import {
@@ -99,7 +95,6 @@ describe("retargetEditorTabs", () => {
       },
     });
 
-    // Acquired once for both tabs, before they moved off the old path.
     expect(acquired).toEqual([
       { input: { workspaceId: WS, filePath: "/r/b.ts" }, tabPath: "/r/a.ts" },
     ]);

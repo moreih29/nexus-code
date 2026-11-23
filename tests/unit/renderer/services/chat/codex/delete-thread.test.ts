@@ -1,11 +1,3 @@
-/**
- * Deleting one of the folder's Codex threads removes the files its messages
- * attached, read before the thread goes. The answers here are shaped as
- * codex-cli 0.170.0's app-server protocol types them (`codex app-server
- * generate-ts`): ThreadReadResponse {thread: Thread}, Thread.turns: Turn[],
- * ThreadTurnsListResponse {data: Turn[], nextCursor, backwardsCursor}, and a
- * userMessage item's content: UserInput[].
- */
 import { afterEach, expect, mock, test } from "bun:test";
 
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
@@ -108,7 +100,6 @@ const SECOND = turn("turn-2", [
   userMessage("item-3", `and this one\n\n@${ROOT}/${WS}/tab-b/1/log.txt`),
   agentMessage("item-4", "Read."),
 ]);
-/** A Thread as thread/read answers it with includeTurns. */
 const thread = (turns: unknown[], id = "gone", forkedFromId: string | null = null) => ({
   id,
   sessionId: id,
@@ -163,9 +154,7 @@ test("pages of turns join while each cursor leads on to one not seen", () => {
   });
   const second = first && appendCodexThreadPage(first, { data: [SECOND], nextCursor: null });
   expect(second).toEqual({ turns: [FIRST, SECOND], nextCursor: null, cursors: ["c1"] });
-  // After the last page, nothing more.
   expect(second && appendCodexThreadPage(second, { data: [], nextCursor: null })).toBeUndefined();
-  // A cursor seen before, an empty page that goes on, or no turns: the chain is broken.
   expect(
     first && appendCodexThreadPage(first, { data: [SECOND], nextCursor: "c1" }),
   ).toBeUndefined();
@@ -175,7 +164,6 @@ test("pages of turns join while each cursor leads on to one not seen", () => {
   expect(appendCodexThreadPage(emptyCodexThreadPages(), { nextCursor: null })).toBeUndefined();
 });
 
-/** A tab whose app-server answers as `reply` says. */
 function tab(reply: (message: Message) => unknown): Controller {
   const c = new CodexController({ workspaceId: WS, tabId: `d${++seq}`, cwd: "/p", threadId: "t1" });
   live.push(c);

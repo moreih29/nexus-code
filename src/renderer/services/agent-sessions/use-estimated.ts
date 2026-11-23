@@ -1,9 +1,3 @@
-/**
- * The glyphs the tab bar and the sidebar show for Codex and other agents,
- * whose state is told from their output rather than reported by hooks, for
- * the terminals Claude reports nothing for.
- */
-
 import { useSyncExternalStore } from "react";
 import { useShallow } from "zustand/shallow";
 import { useClaudeStatusStore } from "../../state/stores/claude-status";
@@ -17,7 +11,6 @@ import { type Tab, useTabsStore } from "../../state/stores/tabs";
 import { type EstimatedGlyph, estimatedGlyph, sessionKey, workspaceEstimatedGlyph } from "./model";
 import { useViewingKey } from "./viewing";
 
-/** A terminal tab's estimated glyph, or none while `enabled` is false. */
 export function useEstimatedTabGlyph(
   workspaceId: string,
   tab: Tab,
@@ -51,7 +44,6 @@ function recordOf<T>(
   return record;
 }
 
-/** The strongest estimated glyph of the terminals of `workspaceIds`. */
 export function useEstimatedWorkspaceGlyph(workspaceIds: readonly string[]): EstimatedGlyph | null {
   const viewing = useViewingKey();
   const tabs = useTabsStore(useShallow((s) => workspaceIds.map((id) => s.byWorkspace[id])));

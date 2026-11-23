@@ -1,8 +1,3 @@
-/**
- * The state the tab bar, the sidebar and the task switcher show for Codex
- * tabs, read from their conversations as the agent list reads it.
- */
-
 import { useShallow } from "zustand/shallow";
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import { useSessionSeenStore } from "../../state/stores/session-seen";
@@ -11,7 +6,6 @@ import { chatKey, useChatStore } from "../chat/store";
 import { claudeChatStateOf, codexStateOf, workspaceCodexState } from "./codex-state";
 import { useViewingKey } from "./viewing";
 
-/** A chat tab's state, when its conversation supplies one. */
 export function useChatTabStatus(workspaceId: string, tab: Tab): ClaudeStatus | undefined {
   const key = chatKey(workspaceId, tab.id);
   const viewing = useViewingKey() === key;
@@ -23,7 +17,6 @@ export function useChatTabStatus(workspaceId: string, tab: Tab): ClaudeStatus | 
   });
 }
 
-/** The strongest state of the Codex tabs of `workspaceIds`; null when none works or waits. */
 export function useCodexWorkspaceStatus(workspaceIds: readonly string[]): ClaudeStatus | null {
   const viewing = useViewingKey();
   const tabs = useTabsStore(useShallow((s) => workspaceIds.map((id) => s.byWorkspace[id])));

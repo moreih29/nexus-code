@@ -1,16 +1,3 @@
-/**
- * EmptyState — generic centered placeholder for empty or onboarding panel states.
- *
- * Replaces the git-specific GitEmptyState so other surfaces (search, history,
- * file tree) can use the same centering + icon + copy + optional CTA pattern
- * without coupling to git terminology.
- *
- * `tone` controls title typography (design.md §5):
- *   - "label"  (default) — uppercase small-label, for category/empty state headings
- *                          ("NO CHANGES", "NO RESULTS" …)
- *   - "status" — sentence-case app-ui-sm, for transient status messages
- *                ("Loading…", "Cannot display binary file." …)
- */
 import { cn } from "@/utils/cn";
 import { Button } from "./button";
 
@@ -22,7 +9,6 @@ export interface EmptyStateProps {
   onAction?: () => void;
   disabled?: boolean;
   className?: string;
-  /** Typography tone for the title. Defaults to "label" (uppercase). */
   tone?: "label" | "status";
 }
 

@@ -25,8 +25,6 @@ const (
 	fixtureWaitDelay     = 50 * time.Millisecond
 )
 
-// runWaitDelayFixture either runs the fake Git or holds the inherited pipes
-// until the test closes its loopback connection.
 func runWaitDelayFixture(addr string) int {
 	if len(os.Args) < 2 {
 		return 1
@@ -65,7 +63,6 @@ func runWaitDelayFixture(addr string) int {
 		return 1
 	}
 	if os.Args[1] == "wait-for-helper" || os.Args[1] == "overflow" {
-		// The cancelled launcher is still running when the helper connects.
 		if err := helper.Wait(); err != nil {
 			return 1
 		}
@@ -75,8 +72,6 @@ func runWaitDelayFixture(addr string) int {
 	return 0
 }
 
-// setupInheritedPipeFixture lets the fake Git start a descendant which
-// holds its pipes open until the test closes a separate control connection.
 func setupInheritedPipeFixture(t *testing.T) {
 	t.Helper()
 	setFakeGitExecutable(t, "wait-delay")
@@ -87,7 +82,6 @@ func setupInheritedPipeFixture(t *testing.T) {
 	t.Setenv(waitDelayFixtureExe, exe)
 }
 
-// listenForPipeHolder exposes the control connection for one child process.
 func listenForPipeHolder(t *testing.T) *net.TCPListener {
 	t.Helper()
 	listener, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
@@ -102,8 +96,6 @@ func listenForPipeHolder(t *testing.T) *net.TCPListener {
 	return listener
 }
 
-// TestGitSuccessWithInheritedOutputPipes starts an executable fixture on
-// both Windows and Unix. A helper holds the pipes open past Git's exit.
 func TestGitSuccessWithInheritedOutputPipes(t *testing.T) {
 	setupInheritedPipeFixture(t)
 	wantRun := RunResult{Stdout: waitDelayStdout, Stderr: waitDelayStderr, Code: 0}
@@ -168,7 +160,6 @@ func TestGitSuccessWithInheritedOutputPipes(t *testing.T) {
 				if got.err != nil || !reflect.DeepEqual(got.value, tc.want) {
 					t.Fatalf("result = %+v, %v; want %+v", got.value, got.err, tc.want)
 				}
-				// A successful command can leave a credential or SSH helper alive.
 				if err := conn.SetDeadline(time.Now().Add(time.Second)); err != nil {
 					t.Fatal(err)
 				}
@@ -193,8 +184,6 @@ func TestGitSuccessWithInheritedOutputPipes(t *testing.T) {
 	}
 }
 
-// TestCancelledGitReturnsWithInheritedOutputPipes cancels a running Git
-// command while a live descendant holds its stdout open.
 func TestCancelledGitReturnsWithInheritedOutputPipes(t *testing.T) {
 	setupInheritedPipeFixture(t)
 	listener := listenForPipeHolder(t)
@@ -231,8 +220,6 @@ func TestCancelledGitReturnsWithInheritedOutputPipes(t *testing.T) {
 	}
 }
 
-// runOutputBudgetFixture produces controlled stdout and, when requested,
-// enough stderr to exceed the tail budget.
 func runOutputBudgetFixture() int {
 	if len(os.Args) < 3 {
 		return 1
@@ -255,8 +242,6 @@ func runOutputBudgetFixture() int {
 	return 0
 }
 
-// TestGitOutputBudgets exercises default, requested and hard limits through
-// the public command path, and retains only the latest diagnostic stderr.
 func TestGitOutputBudgets(t *testing.T) {
 	setFakeGitExecutable(t, "output-budget")
 	svc := New(t.TempDir())

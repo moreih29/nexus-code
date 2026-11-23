@@ -265,7 +265,6 @@ function profileConnection(agent: ChatAgent, flags: FlagValues): ProfileConnecti
   return parsed.data;
 }
 
-/** Store a home-relative path when possible so it can also be used on other workspace hosts. */
 function profileDir(ctx: CliContext, input: string, home: string, windows: boolean): string {
   const dir = portableProfileDir(input);
   if (!dir || /\p{Cc}/u.test(dir)) throw new CliUsageError("Give a valid folder with --dir");
@@ -427,22 +426,25 @@ export const chatProfilesAdd = {
         : connection.method === "api-key"
           ? API_KEY_CONNECTION_URL[agent]
           : undefined;
-    await ctx.services.askUser({
-      fromWorkspaceId: ctx.caller.workspaceId,
-      fromTabId: ctx.caller.tabId,
-      toWorkspaceId: ctx.caller.workspaceId,
-      change: {
-        kind: "profileAdd",
-        detail: name,
-        profileAdd: {
-          agent,
-          folder: dir,
-          connection: connection.method,
-          ...(endpoint ? { endpoint } : {}),
+    await ctx.services.askUser(
+      {
+        fromWorkspaceId: ctx.caller.workspaceId,
+        fromTabId: ctx.caller.tabId,
+        toWorkspaceId: ctx.caller.workspaceId,
+        change: {
+          kind: "profileAdd",
+          detail: name,
+          profileAdd: {
+            agent,
+            folder: dir,
+            connection: connection.method,
+            ...(endpoint ? { endpoint } : {}),
+          },
+          eachTime: true,
         },
-        eachTime: true,
       },
-    });
+      ctx.signal,
+    );
     ctx.signal?.throwIfAborted();
     try {
       const folder = await inspectLocalFolder(agent, dir);

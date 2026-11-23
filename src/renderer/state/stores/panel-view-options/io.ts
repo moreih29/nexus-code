@@ -1,12 +1,3 @@
-/**
- * Debounced setViewOptions IPC persister for the shared panel-view-options store.
- *
- * A per-(panelKind × workspaceId) timer map collapses rapid successive writes
- * (e.g. quickly toggling list/tree) into a single IPC call per settle period.
- * The cancel helper is called when the workspace is closed so no stale write
- * fires after the session is gone.
- */
-
 import { createLogger } from "../../../../shared/log/renderer";
 import type { PanelKind, ViewMode } from "../../../../shared/types/panel";
 import { createKeyedDebouncer } from "../../../../shared/util/keyed-debouncer";
@@ -15,18 +6,12 @@ import { canUseIpcBridge, ipcCallResult } from "../../../ipc/client";
 
 const log = createLogger("panel-view-options");
 
-/** Module-private debounce timers keyed by `panelKind:workspaceId`. */
 const viewOptionsSaves = createKeyedDebouncer<string>({ delayMs: STATE_PERSIST_DEBOUNCE_MS });
 
 function timerKey(panelKind: PanelKind, workspaceId: string): string {
   return `${panelKind}:${workspaceId}`;
 }
 
-/**
- * Schedule a debounced persist of viewMode for a (panelKind, workspaceId)
- * pair. Repeated calls within STATE_PERSIST_DEBOUNCE_MS reset the timer so
- * only the final value reaches storage.
- */
 export function scheduleViewOptionsSave(
   panelKind: PanelKind,
   workspaceId: string,
@@ -35,7 +20,6 @@ export function scheduleViewOptionsSave(
   if (!canUseIpcBridge()) return;
 
   viewOptionsSaves.schedule(timerKey(panelKind, workspaceId), () => {
-    // Fire-and-forget: view-option persistence is best-effort; local state is never rolled back.
     void ipcCallResult("panel", "setViewOptions", {
       workspaceId,
       panelKind,
@@ -46,11 +30,6 @@ export function scheduleViewOptionsSave(
   });
 }
 
-/**
- * Cancel all pending view-option saves for a workspace (across all panel
- * kinds). Called when a workspace is closed so no stale timer fires after the
- * session is removed.
- */
 export function cancelViewOptionsSave(workspaceId: string): void {
   for (const panelKind of ["git", "search"] as PanelKind[]) {
     viewOptionsSaves.cancel(timerKey(panelKind, workspaceId));

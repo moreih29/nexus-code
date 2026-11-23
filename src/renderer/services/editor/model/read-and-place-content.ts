@@ -1,5 +1,3 @@
-/** Reads the file from disk, detects binary content, and creates or updates the Monaco text model. */
-
 import type * as Monaco from "monaco-editor";
 import type { TextEncoding } from "../encoding/text-encoding";
 import type { EditorInput } from "../types";

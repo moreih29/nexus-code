@@ -1,15 +1,3 @@
-// Settings › Terminal › Default shell.
-//
-// A Select like the font family one: "System default (…)" first, then the
-// shells found on this machine and the ones the user added, each with its
-// path as a second line; the closed select shows the chosen one's name and
-// command line. "Manage shells…", beside the label, opens a dialog that lists them and
-// adds, edits and removes the added ones (name, program with Browse… and a
-// check that it exists, arguments), so the panel stays the same height however
-// many there are. Added shells show in the tab bar's "New Terminal With ›"
-// too. Changes apply to terminals opened from now on; main reads them at
-// every spawn.
-
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -53,19 +41,16 @@ const iconButtonClass = cn(
   "hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring",
 );
 
-/** A shell's command line as shown: its path, then its arguments. */
 function commandLine(path: string, args: readonly string[]): string {
   return args.length > 0 ? `${path} ${joinShellArgs(args)}` : path;
 }
 
-/** The name an added shell gets when its name is left empty: the program's file name. */
 function programName(program: string): string {
   const base = program.trim().split(/[\\/]/).pop() ?? "";
   return base.replace(/\.(exe|cmd|bat|com)$/i, "");
 }
 
 export function TerminalShellSection() {
-  // Look again each time the panel opens, so a shell installed since shows up.
   const installed = useInstalledShells(true);
   const { t } = useTranslation("settings");
   const customShells = useTerminalStore((s) => s.customShells);
@@ -84,10 +69,6 @@ export function TerminalShellSection() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Default shell
-// ---------------------------------------------------------------------------
-
 function DefaultShellSection({
   installed,
   entries,
@@ -103,8 +84,6 @@ function DefaultShellSection({
   const customShells = useTerminalStore((s) => s.customShells);
 
   const chosen = entries.find((e) => sameShellChoice(e.choice, shell));
-  // A chosen shell that is no longer installed (or no longer in the list)
-  // still shows, marked missing.
   const chosenMissing = installed !== null && shell !== undefined && chosen === undefined;
   const chosenCustom =
     shell?.kind === "custom" ? customShells.find((s) => s.id === shell.id) : undefined;
@@ -149,7 +128,6 @@ function DefaultShellSection({
     >
       <Select value={shell ? choiceValue(shell) : SYSTEM_VALUE} onValueChange={handleSelect}>
         <SelectTrigger ariaLabel={t("terminal.shell.label")}>
-          {/* The shell's name, then the command line it runs. */}
           <SelectValue>
             <span className="flex min-w-0 items-baseline gap-2">
               <span className="shrink-0">{chosenName}</span>
@@ -186,10 +164,6 @@ function DefaultShellSection({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Manage shells: the detected ones, then the added ones
-// ---------------------------------------------------------------------------
-
 function ManageShellsDialog({
   open,
   onOpenChange,
@@ -203,8 +177,6 @@ function ManageShellsDialog({
   const customShells = useTerminalStore((s) => s.customShells);
   const saveCustomShell = useTerminalStore((s) => s.saveCustomShell);
   const removeCustomShell = useTerminalStore((s) => s.removeCustomShell);
-  // The form in place of the list: the added shell being edited, "new"
-  // while adding one, or null for the list.
   const [editing, setEditing] = useState<string | null>(null);
   const editingShell = customShells.find((s) => s.id === editing);
 
@@ -284,13 +256,11 @@ function ShellRow({
   onRemove,
 }: {
   entry: ShellEntry;
-  /** Set for an added shell; a detected one can't be edited. */
   onEdit?: () => void;
   onRemove?: () => void;
 }) {
   const { t } = useTranslation(["settings", "common"]);
   const isCustom = entry.choice.kind === "custom";
-  // Only an added shell can point at a program that isn't there.
   const found = useFoundProgram(isCustom ? entry.path : "");
 
   return (
@@ -341,16 +311,11 @@ function ShellRow({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Add / edit form
-// ---------------------------------------------------------------------------
-
 function CustomShellForm({
   initial,
   onSave,
   onCancel,
 }: {
-  /** The shell being edited; absent when adding one. */
   initial?: CustomShell;
   onSave: (shell: CustomShell) => void;
   onCancel: () => void;

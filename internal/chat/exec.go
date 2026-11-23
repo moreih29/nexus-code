@@ -8,17 +8,17 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// Exec runs the program once and returns its output, as for
-// `claude --version`.
 func (s *Service) Exec(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p ExecParams
-	if err := decodeParams(raw, &p, "chat.exec params must include program"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.exec params must include program"); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(p.Program) == "" {
-		return nil, protocolError("chat.exec program is required")
+		return nil, proto.ProtocolError("chat.exec program is required")
 	}
 	timeout := execTimeout
 	if p.TimeoutMs > 0 && time.Duration(p.TimeoutMs)*time.Millisecond < timeout {
@@ -30,7 +30,6 @@ func (s *Service) Exec(ctx context.Context, raw json.RawMessage) (any, error) {
 	cmd := exec.CommandContext(runCtx, p.Program, p.Args...)
 	cmd.Dir = p.Cwd
 	cmd.Env = mergeEnv(p.Env)
-	// A process the program leaves running can hold the output open.
 	cmd.WaitDelay = time.Second
 	stdout := &cappedBuffer{limit: execOutputCap}
 	stderr := &cappedBuffer{limit: execOutputCap}
@@ -58,8 +57,6 @@ func (s *Service) Exec(ctx context.Context, raw json.RawMessage) (any, error) {
 	return result, nil
 }
 
-// runChatCommand owns normal one-shot helpers. The app's Claude background
-// command places --bg first and owns its own lifetime after launch.
 func runChatCommand(cmd *exec.Cmd, args []string) error {
 	if len(args) != 0 && (args[0] == "--bg" || args[0] == "--background") {
 		return cmd.Run()
@@ -77,7 +74,6 @@ func runOwnedCommand(cmd *exec.Cmd) error {
 	return cmd.Wait()
 }
 
-// cappedBuffer keeps the first limit bytes written to it.
 type cappedBuffer struct {
 	buf   bytes.Buffer
 	limit int

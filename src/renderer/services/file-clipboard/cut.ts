@@ -1,5 +1,3 @@
-/** Mark entries for cut (move) in the file clipboard. */
-
 import type { FileClipboardInput } from "./copy";
 import { useFileClipboardStore } from "./store";
 

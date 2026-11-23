@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 func (p *serverProcess) readLoop() {
@@ -18,8 +20,6 @@ func (p *serverProcess) readLoop() {
 			}
 			if decodeErr != nil {
 				p.failInternal(decodeErr)
-				// Not inline: waitLoop reports the exit only after this
-				// reader has returned.
 				go p.forceClose()
 				return
 			}
@@ -133,7 +133,7 @@ func (p *serverProcess) respondServerRequest(ctx context.Context, params Respond
 	}
 	p.mu.Unlock()
 	if len(id) == 0 {
-		return requestFailed("lsp server request not found: %s", params.AgentRequestID)
+		return proto.RequestFailed("lsp server request not found: %s", params.AgentRequestID)
 	}
 
 	response := rawRequestIDResponse{

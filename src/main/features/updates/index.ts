@@ -1,45 +1,3 @@
-/**
- * App-update domain — IPC registration, GitHub Releases polling, and
- * state-persisted channel/ignoredVersion management.
- *
- * LIFECYCLE
- * ---------
- *   installUpdatesDomain({ broadcast, stateService, currentVersion })
- *     → registers `updates.check` and `updates.setIgnoredVersion` IPC handlers,
- *       and `updates.install` / `updates.restart` for an in-place update
- *       (installer.ts) when the app can replace itself, and
- *       `updates.releaseNotes` for the recent releases' notes (release-notes.ts)
- *     → starts the silent auto-polls after app.whenReady() via the returned
- *       `startAutoChecks()` (called by the bootstrap in index.ts): one now,
- *       then every few hours while the app runs, and on waking from sleep
- *       through `onResume()` (auto-check.ts)
- *     → subscribes to updateChannel changes so a channel switch resets
- *       ignoredUpdateVersion and triggers another silent auto-poll
- *
- * BROADCAST RULES
- * ---------------
- *   auto  trigger: only broadcast on "newer"; suppress "current" and "error"
- *   manual trigger: always broadcast ("checking" with 3-second delay, then result)
- *
- * DEDUPE
- * ------
- *   The last broadcasted (kind, latest) pair is remembered.  An identical
- *   pair from an auto-poll is skipped, so the polls every few hours do not
- *   tell the renderer the same update again.
- *
- * IGNORED VERSION
- * ---------------
- *   When an auto-poll returns "newer" and `latest` matches
- *   `ignoredUpdateVersion`, the broadcast is suppressed. A manual check still
- *   reports it: the user asked, and the About panel waits for the answer.
- *
- * CURRENT STATUS
- * --------------
- *   Every check result and update step is remembered, broadcast or not, with
- *   the download's progress, so a view opened later (Settings › About) reads
- *   where the update stands with `updates.getStatus`.
- */
-
 import { shell } from "electron";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcErr, ipcOk } from "../../../shared/ipc/result";
@@ -62,10 +20,6 @@ import { STORE_PAGE_URL } from "./microsoft-store";
 import { createConditionalCache, type PollResult, pollGithubReleases, REPO_BASE } from "./poller";
 import { createReleaseNotesCache, fetchReleaseNotes } from "./release-notes";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 type Trigger = "auto" | "manual";
 
 type StatusPayload = Extract<UpdateStatus, { trigger: Trigger }>;
@@ -73,66 +27,34 @@ type StatusPayload = Extract<UpdateStatus, { trigger: Trigger }>;
 export interface InstallUpdatesDomainOptions {
   broadcast: (channel: string, event: string, payload: unknown) => void;
   stateService: StateService;
-  /** Value of `app.getVersion()` — injected for testability. */
   currentVersion: string;
-  /** Optional timer injection for deterministic tests (default: real timers). */
   timerScheduler?: TimerScheduler;
-  /** Optional clock injection for deterministic tests (default: Date.now). */
   now?: () => number;
-  /**
-   * Optional fetch implementation forwarded to the poller.
-   * Omit in production; inject a mock in tests.
-   */
   fetchImpl?: typeof fetch;
-  /**
-   * Installs updates in place. Omitted where the app cannot replace itself (an
-   * unpackaged or non-macOS build): "newer" then offers the release page only.
-   */
   updateBackend?: UpdateBackend;
 }
 
 export interface UpdatesDomainHandle {
-  /**
-   * Starts the silent auto-polls: one now, then every few hours. Must be
-   * called inside `app.whenReady().then(...)` after `installUpdatesDomain`
-   * returns; a second call does nothing.
-   */
   startAutoChecks(): void;
-  /** The system woke from sleep: polls if the hours since the last poll call for one. */
   onResume(): void;
-  /**
-   * Trigger a manual update check from main-process code (e.g. menu click).
-   * Equivalent to the `updates.check` IPC call with `trigger:"manual"`,
-   * but bypasses IPC entirely so no renderer round-trip is needed.
-   */
   checkManual(): void;
 }
-
-// ---------------------------------------------------------------------------
-// Implementation
-// ---------------------------------------------------------------------------
 
 const logger = createLogger("updates");
 const repeated = limitLog(logger);
 
 const c = ipcContract.updates.call;
 
-/** Completes the IPC reply when the system has accepted or rejected the link. */
 async function openUpdateLink(url: string) {
   try {
     await shell.openExternal(url);
     return ipcOk(undefined);
   } catch {
-    // Native shell errors may include the full URL, including credentials.
     logger.warn("Could not open link to updates");
     return ipcErr("open-external-failed", "Could not open link to updates");
   }
 }
 
-/**
- * Installs the updates domain: registers IPC handlers and returns a handle
- * whose `startAutoChecks()` should be called inside `app.whenReady()`.
- */
 export function installUpdatesDomain(options: InstallUpdatesDomainOptions): UpdatesDomainHandle {
   const {
     broadcast,
@@ -144,7 +66,6 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
     updateBackend,
   } = options;
 
-  // What `updates.getStatus` answers.
   let currentStatus: UpdateStatus | null = null;
   let currentProgress: UpdateProgress | null = null;
 
@@ -157,7 +78,6 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
     updateBackend &&
     createUpdateInstaller({
       backend: updateBackend,
-      // In-place update progress is never deduped: each step is news.
       onStatus: (status) => {
         remember(status);
         broadcast("updates", "statusChanged", status);
@@ -171,36 +91,16 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
       logger,
     });
 
-  // ------------------------------------------------------------------
-  // Dedupe state: remember the last broadcasted (kind, latest) pair.
-  // ------------------------------------------------------------------
   let lastBroadcastKey: string | null = null;
 
-  // ------------------------------------------------------------------
-  // Shared ETag cache for conditional release-metadata requests.
-  //
-  // The poller reads release artifacts off github.com / its CDN (not the
-  // rate-limited api.github.com REST API), so the hard 60 req/h-per-IP cap no
-  // longer applies. The ETag cache is still worthwhile: a 304 Not Modified
-  // skips re-downloading + re-parsing the metadata on every "Check for
-  // Updates" click within a process session. Reused across polls so repeated
-  // checks stay cheap until the latest release actually changes.
-  // ------------------------------------------------------------------
   const conditionalCache = { stable: createConditionalCache(), beta: createConditionalCache() };
   let channelGeneration = 0;
   let manualCheck: symbol | undefined;
   const releaseNotesCache = createReleaseNotesCache();
 
   function broadcastStatus(payload: StatusPayload): void {
-    // Build a dedupe key from kind + latest (if present).
     const dedupeKey = buildDedupeKey(payload);
 
-    // Dedupe is intended to suppress noisy *auto-poll* repeats (the same
-    // "newer" notice every ~30 minutes, or repeated "error" while offline).
-    // Manual triggers are the user's explicit ask for an answer — silently
-    // dropping the response leaves them clicking a no-op button. So we
-    // bypass dedupe whenever trigger=manual and still record the key so
-    // the *next* auto-poll dedupes against this latest broadcast.
     if (payload.trigger !== "manual" && dedupeKey !== null && dedupeKey === lastBroadcastKey) {
       logger.info(`updates: skip dup broadcast key=${dedupeKey}`);
       return;
@@ -212,10 +112,6 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
 
     broadcast("updates", "statusChanged", payload);
   }
-
-  // ------------------------------------------------------------------
-  // Core poll logic
-  // ------------------------------------------------------------------
 
   async function doPoll(trigger: Trigger, generation: number): Promise<void> {
     const state = stateService.getState();
@@ -254,10 +150,6 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
     broadcastStatus(payload);
   }
 
-  // ------------------------------------------------------------------
-  // Poll with optional 3-second progress broadcast for manual trigger
-  // ------------------------------------------------------------------
-
   function poll(trigger: Trigger): void {
     const generation = channelGeneration;
 
@@ -291,12 +183,6 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
     }
   }
 
-  // ------------------------------------------------------------------
-  // Auto-polls: one once the app is ready, then every few hours while it
-  // runs. Each respects the user's preference at the time it falls due, so
-  // turning autoCheckForUpdates back on takes effect at the next one. Manual
-  // checks (App menu / About panel button) bypass this gate entirely.
-  // ------------------------------------------------------------------
   const autoCheck = createAutoCheck({
     timer: timerScheduler,
     now,
@@ -310,25 +196,8 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
     },
   });
 
-  // ------------------------------------------------------------------
-  // Subscribe to updateChannel changes.
-  // When the channel changes: reset ignoredUpdateVersion + re-fire auto poll.
-  // ------------------------------------------------------------------
   let lastKnownChannel = stateService.getState().updateChannel ?? "stable";
 
-  // We hook into the stateService by wrapping it once at install time.
-  // The check is performed in the IPC handler for appState.set — but since
-  // we cannot hook stateService directly here without modifying it, we instead
-  // subscribe via a lightweight periodic check on the `check` call path AND
-  // expose a function that index.ts can call from the appState domain.
-  //
-  // Simpler approach: poll channel at the start of every `doPoll` call, and
-  // expose a `notifyChannelMayHaveChanged` so index.ts can call it when
-  // `appState.set` includes `updateChannel`.
-  //
-  // Per the spec: channel change detection happens via a subscription.
-  // We implement it by patching mergeState/setState to call our hook.
-  // That avoids modifying StateService itself.
   const originalSetState = stateService.setState.bind(stateService);
   stateService.setState = function patchedSetState(partial, mergeLayouts) {
     originalSetState(partial, mergeLayouts);
@@ -338,19 +207,13 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
         lastKnownChannel = newChannel;
         channelGeneration++;
         logger.info(`updates: channel changed to ${newChannel}, resetting ignoredVersion`);
-        // Reset ignoredUpdateVersion and re-fire auto poll.
         originalSetState({ ignoredUpdateVersion: null });
-        // Reset dedupe state so the next result is always broadcast.
         lastBroadcastKey = null;
         if (manualCheck) poll("manual");
         else autoCheck.checkNow();
       }
     }
   };
-
-  // ------------------------------------------------------------------
-  // IPC handlers
-  // ------------------------------------------------------------------
 
   register("updates", {
     call: {
@@ -424,25 +287,15 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
   };
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Returns true iff the poll result should be broadcast given the trigger and
- * the current ignoredUpdateVersion.
- */
 function shouldBroadcastResult(
   result: PollResult,
   trigger: Trigger,
   ignoredVersion: string | null,
 ): boolean {
-  // Auto trigger: only broadcast "newer"; suppress "current" and "error".
   if (trigger === "auto" && result.kind !== "newer") {
     return false;
   }
 
-  // Ignored version: suppress an auto "newer" when latest matches ignored.
   if (
     trigger === "auto" &&
     result.kind === "newer" &&
@@ -455,9 +308,6 @@ function shouldBroadcastResult(
   return true;
 }
 
-/**
- * Map a PollResult + trigger into the broadcast payload shape.
- */
 function buildPayload(result: PollResult, trigger: Trigger, canInstall: boolean): StatusPayload {
   switch (result.kind) {
     case "newer":
@@ -481,14 +331,9 @@ function buildPayload(result: PollResult, trigger: Trigger, canInstall: boolean)
   }
 }
 
-/**
- * Build a string key for dedupe comparison.
- * Returns null for "checking" (we never dedupe those).
- */
 function buildDedupeKey(payload: StatusPayload): string | null {
   if (payload.kind === "checking") return null;
   if (payload.kind === "newer") return `newer:${payload.latest}`;
   if (payload.kind === "current") return `current:${payload.latest ?? ""}`;
-  // error — dedupe on the failure to avoid spamming identical error toasts.
   return `error:${payload.reason}:${payload.status ?? ""}`;
 }

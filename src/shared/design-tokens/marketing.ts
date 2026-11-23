@@ -1,13 +1,3 @@
-// Marketing/landing surface type scale (Warp scale, 18 roles).
-//
-// The app currently consumes only the codeUi / codeBody roles (Monaco / xterm).
-// Every role is emitted to Tailwind via `scripts/generate-theme-css.ts` so
-// marketing surfaces (landing pages, docs) can use `text-display-hero` etc.
-//
-// Kept in its own module so design-tokens.ts stays focused on the in-app
-// chrome tokens (color palette, semantic CSS vars, spacing, radius, app
-// type scale).
-
 import { fontFamily } from "./fonts";
 
 export const marketingTypeScale = {

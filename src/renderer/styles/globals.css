@@ -1,12 +1,6 @@
 @import "tailwindcss";
 @import "./theme.generated.css";
 
-/* ---------------------------------------------------------------------------
-   Self-hosted @font-face declarations (no external font requests)
-   --------------------------------------------------------------------------- */
-
-/* Pretendard 1.3.9, variable: every weight from one file, so a 600 heading
-   or `strong` is the font's SemiBold rather than a synthesised bold. */
 @font-face {
   font-family: "Pretendard";
   font-weight: 45 920;
@@ -15,8 +9,6 @@
   src: url("../assets/fonts/Pretendard/PretendardVariable.woff2") format("woff2");
 }
 
-/* Roboto Medium, Latin only: the Google sign-in button's text, as Google's
-   branding asks; Hangul falls back to Pretendard. */
 @font-face {
   font-family: "Roboto";
   font-weight: 500;
@@ -36,7 +28,6 @@
   src: url("../assets/fonts/JetBrainsMono/JetBrainsMonoNerdFont-Regular.ttf") format("truetype");
 }
 
-/* Loaded before xterm measures its cells, or by CSS when a visible glyph uses this face. */
 @font-face {
   font-family: "Sarasa Term K";
   font-weight: 400;
@@ -53,29 +44,11 @@
   src: url("../assets/fonts/D2Coding/D2CodingLigatureNerdFont-Regular.ttf") format("truetype");
 }
 
-/* ---------------------------------------------------------------------------
-   Global resets + baseline (must live inside @layer base so Tailwind
-   utilities, which are in @layer utilities, can still override them.
-   Unlayered CSS wins over layered CSS regardless of specificity.)
-   --------------------------------------------------------------------------- */
-
-/* ---------------------------------------------------------------------------
-   Stacking layers — what floats over what, named instead of bare z-index
-   numbers. Within a component, small local numbers (z-10, z-20) still order
-   its own parts; these are for what lies over other components.
-   --------------------------------------------------------------------------- */
 :root {
-  /* Over a panel's content, in its own box: quick look, the release notes,
-     the status bar's and the git panel's popovers. */
   --layer-in-panel: 40;
-  /* Portalled over the whole window: dialogs and their scrim, menus,
-     selects, popovers. */
   --layer-floating: 50;
-  /* Toasts, over a dialog that is open. */
   --layer-toast: 60;
-  /* The command palette, over everything else but tooltips. */
   --layer-palette: 70;
-  /* Tooltips, over whatever they describe. */
   --layer-tooltip: 80;
 }
 
@@ -91,8 +64,6 @@
   html,
   body {
     height: 100%;
-    /* Transparent so the macOS window vibrancy shows through (whole-window
-       translucency). Surfaces paint their own translucent/opaque backgrounds. */
     background-color: transparent;
     color: var(--foreground);
     font-family: Pretendard, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -106,14 +77,6 @@
     height: 100%;
   }
 
-  /*
-   * Every scrollbar is the app's (@utility app-scrollbar), so a scroll box
-   * or a textarea that does not ask for it shows no Chromium scrollbar: an
-   * opaque light strip on Windows and Linux, and on macOS whenever its
-   * scrollbars are set to show always. In this layer it is only the
-   * default: app-scrollbar, a box that hides its scrollbar, and the
-   * terminal's and the markdown preview's own rules all win over it.
-   */
   ::-webkit-scrollbar {
     width: 10px;
     height: 8px;
@@ -135,12 +98,6 @@
     background: transparent;
   }
 
-  /*
-   * Hide Chromium's native search-cancel button (the blue X) so search
-   * inputs render with the app's own clear control only. We keep
-   * type="search" for semantic role="searchbox" + virtual-keyboard
-   * affordances, but normalize the visual chrome to the design system.
-   */
   input[type="search"] {
     -webkit-appearance: none;
     appearance: none;
@@ -152,14 +109,6 @@
     display: none;
   }
 
-  /*
-   * Keyboard focus on a control that draws no ring of its own gets the
-   * theme's ring rather than Chromium's default outline, which follows the
-   * system accent colour (orange, say) and so differs from the ring the
-   * design-system controls draw. A control that sets its own outline or
-   * ring (`outline-none`, `focus-visible:…`) still wins: utilities sit in a
-   * later layer.
-   */
   :where(
     button,
     a[href],
@@ -182,16 +131,6 @@
   }
 }
 
-/* ---------------------------------------------------------------------------
-   Section labels — `text-app-label uppercase` (design.md §5)
-   In a Latin-script language the label is set in capitals, tracked out so
-   they don't crowd. Hangul has no case: `uppercase` does nothing to it and
-   the tracking only pulls the syllables apart, so a Korean label keeps its
-   text as written and takes Medium weight to still read as a label. Text
-   that should stay in capitals whatever the language (the wordmark) carries
-   lang="en". Unlayered, so it wins over the utilities it adjusts.
-   --------------------------------------------------------------------------- */
-
 .text-app-label.uppercase {
   letter-spacing: 0.06em;
 }
@@ -202,12 +141,6 @@
   font-weight: 500;
 }
 
-/* ---------------------------------------------------------------------------
-   Frameless-window drag regions (custom titlebar)
-   - .app-drag    → area is draggable to move the OS window
-   - .app-no-drag → carve out interactive children inside a draggable parent
-   --------------------------------------------------------------------------- */
-
 @utility app-drag {
   -webkit-app-region: drag;
 }
@@ -216,27 +149,13 @@
   -webkit-app-region: no-drag;
 }
 
-/* Git popovers and inline banners use small text on #252422/#1a1917 dark
-   surfaces. The global destructive token is too dark there (≈3.18:1 on
-   popover), so Git uses this scoped warm red at ≥4.5:1 contrast. */
 @utility git-destructive-text {
   color: #d67b75;
 }
 
-/* Small status banners sit on translucent frosted surfaces. The default
-   muted foreground misses AA once the veil composites over dark canvas, and
-   one static color cannot pass on both future light and current dark canvas. */
 @utility app-status-banner-text {
   color: var(--color-status-banner-fg);
 }
-
-/* ---------------------------------------------------------------------------
-   Custom scrollbar — VSCode-style thin track, dimmed thumb.
-   - Always-visible thumb so virtualized panes (file tree) advertise
-     their scroll position. Hover bumps contrast.
-   - Transparent track keeps the surface flat against the panel.
-   - Width 10px on Y, 8px on X (matches VSCode's defaults).
-   --------------------------------------------------------------------------- */
 
 @utility app-scrollbar {
   &::-webkit-scrollbar {
@@ -261,14 +180,6 @@
   }
 }
 
-/* ---------------------------------------------------------------------------
-   Island / backdrop surface utilities
-   --window-opacity is set by useWindowOpacityEffect (and the boot script for
-   FOUC prevention). Fallback 1 = fully opaque when no preference is set.
-   island-surface  → primary content island (bg-background at the given alpha).
-   backdrop-surface → chrome areas (titlebar, root) using the muted surface.
-   --------------------------------------------------------------------------- */
-
 @utility island-surface {
   background-color: color-mix(
     in oklab,
@@ -285,15 +196,6 @@
   );
 }
 
-/* ---------------------------------------------------------------------------
-   xterm transparency — force the terminal's own DOM surfaces transparent.
-   xterm sets an opaque inline background-color on .xterm / .xterm-viewport
-   from the theme; the Canvas renderer draws the cells transparently
-   (allowTransparency), but the viewport element sits BEHIND that canvas and
-   would otherwise show opaque. !important overrides xterm's inline style so
-   the whole-window vibrancy shows through the terminal.
-   --------------------------------------------------------------------------- */
-
 .xterm,
 .xterm .xterm-viewport,
 .xterm .xterm-screen {
@@ -301,18 +203,10 @@
   background-color: transparent !important;
 }
 
-/* Room between the island's edge and the terminal's text, as the editor
-   has. FitAddon takes the .xterm element's padding off the rows and columns
-   it fits; the right side has the scrollbar's reserved width. */
 .xterm {
   padding: 6px 0 6px 12px;
 }
 
-/* xterm's .xterm-viewport is overflow-y:scroll, so it always reserves a
-   scrollbar. Chromium's default classic scrollbar is an opaque light strip
-   that breaks the transparency and reads as a white bar on the dark canvas.
-   Restyle it to the app's thin VSCode-style scrollbar (mirrors @utility
-   app-scrollbar) with a transparent track so the canvas shows through. */
 .xterm .xterm-viewport::-webkit-scrollbar {
   width: 10px;
 }
@@ -330,8 +224,6 @@
   background-clip: padding-box;
 }
 
-/* xterm's DOM renderer marks cursors that should blink, including PTY overrides.
-   The terminal controller changes their appearance twice a second. */
 .xterm .xterm-cursor-blink {
   /* biome-ignore lint/complexity/noImportantStyles: overrides xterm's per-renderer animation. */
   animation: none !important;
@@ -361,11 +253,6 @@
   border-bottom-style: hidden !important;
 }
 
-/* ---------------------------------------------------------------------------
-   Settings → Terminal preview cursor blink.
-   The preview uses its own 1.2s on/off cycle.
-   --------------------------------------------------------------------------- */
-
 @keyframes preview-cursor-blink {
   0%,
   49% {
@@ -387,11 +274,6 @@
   }
 }
 
-/* ---------------------------------------------------------------------------
-   A call in a Claude tab's conversation the side panel asked to see: it
-   lights up and fades, so the eye finds it where the list scrolled to.
-   --------------------------------------------------------------------------- */
-
 @keyframes chat-call-flash {
   from {
     background-color: color-mix(in srgb, var(--state-selected-bg) 30%, transparent);
@@ -405,18 +287,6 @@
   border-radius: var(--radius-control);
   animation: chat-call-flash 1.8s ease-out;
 }
-
-/* ---------------------------------------------------------------------------
-   Floating-layer dialog entry/exit motion (design.md §7 — motion.scale).
-   Applied by the shared <Dialog> shell + dialogContentClass() helper, so every
-   modal animates in/out identically. Radix sets data-state on Overlay/Content
-   and keeps the node mounted while a [data-state="closed"] animation runs.
-
-   Only `opacity` and the standalone `scale` property are animated — the
-   centering `translate` is owned by the shell's Tailwind utilities, and
-   `translate` / `scale` are independent CSS properties that compose cleanly
-   (animating `transform` instead would double the -50%/-50% offset).
-   --------------------------------------------------------------------------- */
 
 @keyframes dialog-overlay-show {
   from {
@@ -468,24 +338,12 @@
   animation: dialog-content-hide var(--motion-scale) forwards;
 }
 
-/* Respect reduced-motion: dialogs appear/disappear instantly (design.md §7). */
 @media (prefers-reduced-motion: reduce) {
   .dialog-overlay[data-state],
   .dialog-content[data-state] {
     animation: none;
   }
 }
-
-/* ---------------------------------------------------------------------------
-   Floating-layer panel surface — popovers, menus, context menus, the command
-   palette (design.md §2 Floating layer / §4 island radius).
-
-   These are mostly custom mount-on-open overlays (not Radix Dialog), so unlike
-   .dialog-content they have no data-state attribute — the scale+fade plays
-   once on mount via a plain animation. The class also OWNS the Floating token
-   set (island radius, floating border, popover surface) so a call site only
-   adds positioning/padding/sizing and cannot drift the surface styling.
-   --------------------------------------------------------------------------- */
 
 .floating-panel {
   border-radius: var(--radius-island);
@@ -501,19 +359,6 @@
   }
 }
 
-/* ---------------------------------------------------------------------------
-   Markdown preview pane — `.md-preview` scoped element rules.
-
-   react-markdown intentionally ships unstyled HTML; we apply our design
-   system tokens here instead of installing @tailwindcss/typography (which
-   would pull in its own opinionated palette). All values reference semantic
-   tokens, so light/dark themes flip automatically.
-
-   Scope: every rule below is namespaced to `.md-preview …` so it cannot
-   bleed into Monaco's own DOM or other parts of the app that happen to
-   render `<h1>` or `<table>`.
-   --------------------------------------------------------------------------- */
-
 .md-preview {
   font-size: 15px;
   line-height: 1.65;
@@ -521,12 +366,6 @@
   word-wrap: break-word;
 }
 
-/*
- * Scrollbars — match the app's VSCode-style thin scrollbar instead of the
- * native Chromium chrome. Both the outer container (.md-preview) and any
- * inner overflow (pre / table x-scroll) inherit the same styling via the
- * descendant selector.
- */
 .md-preview::-webkit-scrollbar,
 .md-preview ::-webkit-scrollbar {
   width: 10px;
@@ -557,7 +396,6 @@
   margin-top: 0;
 }
 
-/* Headings — modular scale, bottom hairline on H1/H2 to anchor sections. */
 .md-preview h1,
 .md-preview h2,
 .md-preview h3,
@@ -592,8 +430,6 @@
   color: var(--editor-text-muted);
 }
 
-/* Heading affordances — fold toggle (left gutter) + anchor copy (trailing),
-   both revealed on hover so the reading surface stays clean. */
 .md-preview .md-heading {
   position: relative;
 }
@@ -629,18 +465,15 @@
 .md-preview .md-heading[data-collapsed] .md-heading-fold {
   opacity: 0.65;
 }
-/* Inside a heading, to outrank the rules above (same specificity, later). */
 .md-preview .md-heading .md-heading-fold:hover,
 .md-preview .md-heading .md-heading-anchor:hover {
   opacity: 1;
 }
 
-/* Collapsed sections — siblings hidden imperatively after each render. */
 .md-preview [data-md-hidden] {
   display: none;
 }
 
-/* Paragraphs and inline content */
 .md-preview p {
   margin: 0 0 1em 0;
 }
@@ -651,7 +484,6 @@
   font-style: italic;
 }
 
-/* Links — accent color, underline only on hover to keep body text calm. */
 .md-preview a {
   color: var(--state-selected-indicator);
   text-decoration: none;
@@ -661,7 +493,6 @@
   text-underline-offset: 2px;
 }
 
-/* Lists — Tailwind Preflight resets list-style on ul/ol, so restore markers. */
 .md-preview ul,
 .md-preview ol {
   margin: 0 0 1em 0;
@@ -681,7 +512,6 @@
   margin: 0.25em 0 0.25em 0;
 }
 
-/* Task lists from remark-gfm — checkbox alignment + removed bullet. */
 .md-preview li:has(> input[type="checkbox"]) {
   list-style: none;
   margin-left: -1.4em;
@@ -690,14 +520,10 @@
   margin-right: 0.5em;
   vertical-align: middle;
 }
-/* Interactive task checkbox (writable file) — signal it can be toggled. */
 .md-preview input.md-task-checkbox {
   cursor: pointer;
 }
 
-/* Inline code — subtle surface lift, monospace, small padding. Off the Mac
-   the app's own monospace fonts: Windows has neither ui-monospace nor SF
-   Mono, and its Korean monospace font draws `\` as `₩`. */
 .md-preview code {
   font-family: var(
     --font-mono-body,
@@ -714,7 +540,6 @@
   border-radius: var(--radius-control);
 }
 
-/* Code blocks — full surface, scrollable, no inline padding on inner code. */
 .md-preview pre {
   margin: 0 0 1em 0;
   padding: 1em;
@@ -734,8 +559,6 @@
   font-size: 1em;
 }
 
-/* Code block copy button — wrapper owns the block margin so the button can
-   sit absolutely in the top-right corner, revealed on hover. */
 .md-preview .md-code-wrap {
   position: relative;
   margin: 0 0 1em 0;
@@ -743,35 +566,11 @@
 .md-preview .md-code-wrap > pre {
   margin: 0;
 }
-.md-preview .md-code-copy {
-  position: absolute;
-  top: 0.5em;
-  right: 0.5em;
-  padding: 0.15em 0.55em;
-  font-size: 0.8em;
-  color: var(--editor-text-muted);
-  background: var(--surface-island-bg);
-  border: 1px solid var(--surface-island-border);
-  border-radius: var(--radius-control);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.1s ease;
-}
-.md-preview .md-code-wrap:hover .md-code-copy {
-  opacity: 0.8;
-}
-.md-preview .md-code-copy:hover {
-  opacity: 1;
-}
-
-/* A ```mermaid block's diagram: its own width, shrunk to the column as
-   every image is (see "Images and inline media" below). */
 .md-preview .md-mermaid {
   display: flex;
   justify-content: center;
   min-height: 2em;
 }
-/* mermaid's message points at the error with a caret under the line. */
 .md-preview .md-mermaid-failed > p {
   margin: 0 0 0.5em 0;
   font-family: var(--font-mono);
@@ -783,10 +582,6 @@
   margin: 0;
 }
 
-/* Syntax highlighting (rehype-highlight / highlight.js classes) mapped onto
-   the same 15-role palette Monaco uses, so preview code blocks match the
-   editor per theme. Tokens are emitted as --syntax-* by generate-theme-css.
-   `.code-hl` is code a chat tab's tool rows highlight with lowlight. */
 :is(.md-preview, .code-hl) .hljs-keyword,
 :is(.md-preview, .code-hl) .hljs-selector-tag,
 :is(.md-preview, .code-hl) .hljs-literal,
@@ -861,7 +656,6 @@
   font-weight: 600;
 }
 
-/* Tables — full width, hairline rows only, header weight + subtle stripe. */
 .md-preview table {
   border-collapse: collapse;
   margin: 0 0 1em 0;
@@ -887,7 +681,6 @@
   border-bottom: 0;
 }
 
-/* Blockquote — left rule + muted text. */
 .md-preview blockquote {
   margin: 0 0 1em 0;
   padding: 0.4em 1em;
@@ -898,7 +691,6 @@
   margin-bottom: 0;
 }
 
-/* Horizontal rules — full-width hairline, generous spacing. */
 .md-preview hr {
   border: 0;
   height: 1px;
@@ -906,14 +698,12 @@
   margin: 2em 0;
 }
 
-/* Images and inline media — never overflow the column. */
 .md-preview img {
   max-width: 100%;
   height: auto;
   border-radius: var(--radius-control);
 }
 
-/* Claude tab replies take the preview's element rules at a chat's size. */
 .md-preview.chat-md {
   font-size: 14px;
   line-height: 1.6;
@@ -924,8 +714,6 @@
 .md-preview.chat-md > *:last-child {
   margin-bottom: 0;
 }
-/* Inline code in a reply takes the theme's hue for names in code, as the
-   editor's markdown does; in a link it stays the link's. */
 .md-preview.chat-md :not(pre) > code {
   color: var(--syntax-type);
 }
@@ -933,9 +721,6 @@
   color: inherit;
 }
 
-/* A chat tab's text in the size and font Settings › Agent set: the tab's
-   root carries them (chatFontVars), a reply's size and each of the app's
-   text sizes scaled as it is. Code keeps its own font, sized in em. */
 .chat-font {
   font-family: var(--chat-font-family);
 }
@@ -958,24 +743,14 @@
   font-size: var(--chat-text-app-label);
 }
 
-/* Chat tabs' tints, mixed from the theme: a sent message, and a patch's
-   added and removed lines (their +/- marks say it too). */
 :root {
   --chat-user-bg: color-mix(in srgb, var(--primary) 14%, var(--muted));
-  /* A message someone else sent: violet, which no state of the app's uses. */
   --chat-received-bg: color-mix(in srgb, #8b5cf6 13%, var(--muted));
   --chat-received-fg: color-mix(in srgb, #8b5cf6 70%, var(--foreground));
   --diff-added-bg: color-mix(in srgb, var(--git-status-added-fg) 16%, transparent);
   --diff-removed-bg: color-mix(in srgb, var(--git-status-deleted-fg) 16%, transparent);
 }
 
-/* ---------------------------------------------------------------------------
-   File-tree drag & drop feedback
-   ---------------------------------------------------------------------------
-   The drop-target hook sets `data-file-tree-dnd-target` on the directory row
-   under the cursor, or on the tree container itself for a drop into the
-   workspace root (empty-space drop). Mirrors VSCode's `list.dropBackground`
-   treatment: a tinted background on the row plus an inset accent outline. */
 [role="treeitem"][data-file-tree-dnd-target] {
   background-color: var(--state-drop-target-bg);
   outline: 1px solid var(--state-selected-indicator);
@@ -987,11 +762,6 @@
   outline-offset: -2px;
   border-radius: var(--radius-control);
 }
-
-/* ---------------------------------------------------------------------------
-   Notes — the note editor's document (TipTap / ProseMirror). Calmer and
-   tighter than .md-preview: a note is written in, not read like a README.
-   --------------------------------------------------------------------------- */
 
 .note-doc .ProseMirror {
   outline: none;
@@ -1196,8 +966,6 @@ button.note-task-chip:hover {
   border-top-color: var(--surface-island-fg);
 }
 
-/* While an in-app drag (tab, file, agent) is in flight, an iframe would take dragenter/dragover into its own document and hide the group's
-   drop zones beneath it. See utils/drag-in-flight.ts. */
 html[data-dnd-active] iframe {
   pointer-events: none;
 }

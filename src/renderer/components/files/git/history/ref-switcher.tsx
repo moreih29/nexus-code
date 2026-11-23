@@ -1,7 +1,3 @@
-/**
- * History ref switcher. It reuses BranchPicker in select-ref mode so selecting
- * a branch only retargets the log query and never checks out the working tree.
- */
 import { GitBranch, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -17,7 +13,6 @@ interface HistoryRefSwitcherProps {
   onRefresh: () => void;
 }
 
-/** Renders the current viewed ref, explicit subtitle, and retarget picker. */
 export function HistoryRefSwitcher({
   workspaceId,
   refName,
@@ -60,8 +55,7 @@ export function HistoryRefSwitcher({
           size="icon-sm"
           className="size-7"
           disabled={disabled}
-          aria-label={t("git.history.refSwitcher.refresh")}
-          title={t("git.history.refSwitcher.refresh")}
+          tooltip={t("git.history.refSwitcher.refresh")}
           onClick={onRefresh}
         >
           <RefreshCw className="size-3.5" aria-hidden="true" />

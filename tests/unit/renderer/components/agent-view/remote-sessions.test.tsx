@@ -114,7 +114,6 @@ describe("Other computers connection guidance", () => {
     expect(html).toContain('data-failure="pending_approval"');
     expect(html).toContain("Awaiting approval");
     expect(html).toContain("Approved accounts only for now");
-    // Narrow: the title and one line, the settings page has the rest.
     expect(html).not.toContain("Once approved, sign in again the same way.");
     expect(html).toContain(">Sign in<");
   });
@@ -565,7 +564,6 @@ describe("local workspace grouping", () => {
         workingHtml.indexOf("Task working"),
       );
       expect(failedRow).not.toContain('data-testid="agent-sidebar-state"');
-      // The failure is told once, by the words beside the time; the error reads in red.
       expect(failedRow).toMatch(/text-\(--state-error-fg\)"><span[^>]*>Local error details/);
       expect(failedRow).not.toContain("lucide-triangle-alert");
       expect(failedRow).toContain(">just now<");
@@ -896,7 +894,6 @@ describe("the agent view's other computers", () => {
       { id: "d5", name: "Phone", platform: "ios", online: false },
     ];
     expect(offlinePeers({ status: "online", peers }).map((p) => p.id)).toEqual(["d3"]);
-    // This device out of the room knows nothing of who else is.
     expect(offlinePeers({ status: "waiting", peers })).toEqual([]);
     const html = renderToStaticMarkup(<OfflinePeer peer={peers[1]!} />);
     expect(html).toContain("Laptop");
@@ -932,7 +929,6 @@ describe("the agent view's other computers", () => {
     expect(html).toContain("Fix the build");
     expect(html).toContain("Done.");
     expect(html).toContain("claude in a terminal");
-    // A terminal with only its shell waits behind the toggle.
     expect(html).not.toContain("dev server");
     expect(html).toContain("Show 1 terminal");
   });
@@ -974,7 +970,6 @@ describe("the agent view's other computers", () => {
     );
     expect(html).toContain("Find the config loader");
     expect(html.match(/data-testid="agent-list-agent-rows"/g)?.length).toBe(1);
-    // Shown, not picked: no button among the agents' rows.
     const rows = html.slice(html.indexOf('data-testid="agent-list-agent-rows"'));
     expect(rows.slice(0, rows.indexOf("</ul>"))).not.toContain("<button");
   });
@@ -1002,13 +997,11 @@ describe("the agent view's other computers", () => {
     expect(listedByDefault(session({}))).toBe(true);
     expect(listedByDefault(terminal({}))).toBe(false);
     expect(listedByDefault(terminal({ agent: "codex" }))).toBe(true);
-    // Without `agent`: one that waits, works or said something runs one.
     expect(listedByDefault(terminal({ state: "running" }))).toBe(true);
     expect(listedByDefault(terminal({ last: "Done" }))).toBe(true);
     expect(listedByDefault(terminal({ waiting: { kind: "permission", text: "Bash rm" } }))).toBe(
       true,
     );
-    // The local agent list also leaves out agents whose terminal ended.
     expect(listedByDefault(terminal({ agent: "claude", state: "ended" }))).toBe(false);
   });
 
@@ -1025,7 +1018,6 @@ describe("the agent view's other computers", () => {
         ["w2", [other]],
       ]),
     });
-    // One in a panel is listed with the others, and its chip no longer counts it.
     expect(listedSessions(all, "", (s) => s.tabId === "t9")).toEqual({
       listed: [chat, plain],
       plain: new Map([["w2", [other]]]),
@@ -1076,11 +1068,9 @@ describe("the agent view's other computers", () => {
     expect(html).toContain('data-workspace="w2"');
     expect(html).toContain('aria-label="Show 1 terminal"');
     expect(html).toContain('aria-label="Show 2 terminals"');
-    // The workspace with only terminals is named, for its chip.
     expect(html).toContain(">web<");
     expect(html).not.toContain("dev server");
     expect(html).not.toContain(">logs<");
-    // Each chip is in its own workspace's heading, before that workspace's rows.
     const headings = html.split('data-testid="remote-workspace"').slice(1);
     expect(headings[0]?.split("</div>")[0]).toContain("Show 1 terminal");
     expect(html.indexOf("Show 1 terminal")).toBeLessThan(html.indexOf("Fix the build"));
@@ -1124,12 +1114,10 @@ describe("the agent view's other computers", () => {
     );
     const rows = html.split('class="relative pl-5"').slice(1);
     expect(rows).toHaveLength(2);
-    // The first reaches up to the icon; it goes on down and branches off to its row.
     expect(rows[0]).toContain("-top-1");
     expect(rows[0]).toContain("bottom-0");
     expect(rows[0]).toContain("top-1/2");
     expect(rows[0]).toContain("dev server");
-    // The last turns to its row and ends there.
     expect(rows[1]).toContain("top-0");
     expect(rows[1]).toContain("bottom-1/2");
     expect(rows[1]).toContain("border-b");
@@ -1321,7 +1309,6 @@ describe("the agent view's other computers", () => {
     expect(headings[0]).toContain("font-semibold");
     expect(headings[1]).toContain("lucide-git-branch");
     expect(headings[1]).toContain("fix/login ↑2 ●");
-    // Its fold leads with its chevron, as a tree's, and the whole line up to its chips folds it.
     const fold =
       headings[1]?.match(/data-testid="remote-workspace-fold">([\s\S]*?)<\/button>/)?.[1] ?? "";
     const chevron = fold.indexOf("lucide-chevron-down");
@@ -1329,7 +1316,6 @@ describe("the agent view's other computers", () => {
     expect(chevron).toBeLessThan(fold.indexOf("lucide-git-branch"));
     expect(fold.indexOf("lucide-git-branch")).toBeLessThan(fold.indexOf(">api-fix<"));
     expect(fold).toContain("fix/login ↑2 ●");
-    // The computer's own chevron, a line up, is as large as a local workspace's.
     expect(html.match(/<svg[^>]*lucide-chevron-down[^>]*>/)?.[0]).toContain("size-3.5");
   });
 
@@ -1351,7 +1337,6 @@ describe("the agent view's other computers", () => {
           }}
         />,
       );
-    // The group's opening tag, before its heading.
     const groups = (html: string) =>
       html
         .split('data-testid="remote-workspace"')
@@ -1393,7 +1378,6 @@ describe("the agent view's other computers", () => {
     );
     expect(html).not.toContain("Fix the build");
     expect(html).toContain("Refactor");
-    // A workspace with nothing found is not shown.
     expect(html).not.toContain(">api<");
     expect(html).toContain(">web<");
   });
@@ -1469,15 +1453,12 @@ describe("the agent view's other computers", () => {
       );
     const html = render("");
     const headings = html.split('data-testid="remote-workspace"').slice(1);
-    // The workspace with none listed shows for its +, as one of this computer's does; a task does not.
     expect(headings).toHaveLength(2);
     expect(headings[1]).toContain(">web<");
     expect(html).not.toContain("api-fix");
     expect(html.match(/data-testid="remote-new-menu"/g)?.length).toBe(2);
     expect(html).toContain('aria-label="New in web"');
-    // Searched, only what is found shows.
     expect(render("build").split('data-testid="remote-workspace"').slice(1)).toHaveLength(1);
-    // Where it lets this one control nothing, no + and no empty workspace.
     const looking = render("", peer);
     expect(looking).not.toContain("remote-new-menu");
     expect(looking.split('data-testid="remote-workspace"').slice(1)).toHaveLength(1);
@@ -1503,7 +1484,6 @@ describe("the agent view's other computers", () => {
         .split('data-testid="remote-session-row"')
         .slice(0, -1)
         .map((before) => before.slice(before.lastIndexOf("<button")));
-    // A menu's trigger tells whether its menu is open.
     const menus = (html: string) => rows(html).map((row) => row.includes('data-state="closed"'));
     expect(menus(render(["sessions"]))).toEqual([false, false]);
     expect(menus(render(["sessions", "chat.control"]))).toEqual([true, false]);
@@ -1630,7 +1610,6 @@ describe("the agent view's other computers", () => {
       handlers("c").onDrop(row.event);
       expect(reorder).not.toHaveBeenCalled();
 
-      // Even when both targets still have drag state, the native payload must match their kind.
       const computer = nativeDrag();
       header(group.id).onDragStart?.(computer.event);
       const targetHeader = header(otherComputer);
@@ -1716,7 +1695,8 @@ describe("the agent view's other computers", () => {
     );
     expect(html).toContain('data-testid="remote-consent"');
     expect(html).toContain("asks to send a message to the tab &quot;Review&quot; in web.");
-    expect(html).toContain("The Claude tab &quot;Review&quot; in api asks to");
+    expect(html).toContain("1 of 2");
+    expect(html).not.toContain("The Claude tab &quot;Review&quot; in api asks to");
     expect(html.indexOf("remote-consent")).toBeLessThan(html.indexOf("remote-workspace"));
   });
 
@@ -1743,7 +1723,6 @@ describe("the agent view's other computers", () => {
     const idle = renderToStaticMarkup(<RemoteTabLabel target={{ ...target, state: "idle" }} />);
     expect(idle).toContain("Work PC");
     expect(idle).toContain("Fix the build");
-    // The computer chip keeps its name while a long title is the one to truncate.
     expect(idle).toMatch(/<span class="[^"]*\bshrink-0\b[^"]*"><svg[^>]*lucide-monitor/);
     expect(idle).not.toContain('role="img"');
     const waiting = renderToStaticMarkup(

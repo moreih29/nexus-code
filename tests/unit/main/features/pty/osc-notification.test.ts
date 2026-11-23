@@ -4,10 +4,6 @@ import {
   OscNotificationDispatcher,
 } from "../../../../../src/main/features/pty/osc-notification";
 
-// ---------------------------------------------------------------------------
-// extractOscNotifications — pure parser
-// ---------------------------------------------------------------------------
-
 describe("extractOscNotifications", () => {
   test("empty string → empty array", () => {
     expect(extractOscNotifications("")).toEqual([]);
@@ -61,21 +57,14 @@ describe("extractOscNotifications", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// OscNotificationDispatcher
-// ---------------------------------------------------------------------------
-
-/** Minimal BrowserWindow-shaped stub. */
 function makeFakeWindow(minimized = false) {
   return { isMinimized: () => minimized };
 }
 
-/** Creates a mock Notification constructor and returns it with trackers. */
 function makeNotificationCtor() {
   const showSpy = mock(() => {});
   const instances: { title: string; body: string }[] = [];
   let ctorCallCount = 0;
-  // Stores the registered click handler so tests can trigger it.
   let clickHandler: (() => void) | null = null;
 
   class FakeNotification {
@@ -95,9 +84,7 @@ function makeNotificationCtor() {
     Ctor,
     showSpy,
     instances,
-    /** Returns the number of times the constructor was invoked. */
     ctorCallCount: () => ctorCallCount,
-    /** Fires the most recently registered click handler. */
     triggerClick: () => clickHandler?.(),
   };
 }

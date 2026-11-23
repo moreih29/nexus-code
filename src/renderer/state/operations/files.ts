@@ -1,48 +1,24 @@
-/**
- * File-tree side-effect operations.
- *
- * All IPC calls that were previously embedded in the files store live here.
- * The store itself is now a pure reducer; these functions orchestrate IPC
- * and dispatch the resulting state changes through the store's reducers.
- */
-
 import { FS_ERROR } from "../../../shared/fs/errors";
 import { createLogger } from "../../../shared/log/renderer";
 import { createKeyedDebouncer } from "../../../shared/util/keyed-debouncer";
 import { FS_EXPANDED_SAVE_DEBOUNCE_MS } from "../../../shared/util/timing-constants";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
-import { relPath } from "../../utils/path";
+import { relativeTo } from "../../utils/path";
 import { getAncestors, joinPath } from "../stores/files/helpers";
 import { useFilesStore } from "../stores/files/store";
 
-/**
- * True when an `IpcErrResult.message` string carries the NOT_FOUND fs
- * error code as its prefix. Used to single out the "stale persisted
- * path" case from genuine watch failures (permissions etc.) during
- * `ensureRoot` hydration.
- */
 function isNotFoundMessage(message: string): boolean {
   return message.startsWith(`${FS_ERROR.NOT_FOUND}:`);
 }
 
 const log = createLogger("files");
 
-// Module-level singletons — shared across all subscribers within this module.
 const _saveDebouncer = createKeyedDebouncer<string>({ delayMs: FS_EXPANDED_SAVE_DEBOUNCE_MS });
 const _ensureRootPromises = new Map<string, Promise<void>>();
-// Tail of the watch/unwatch chain per `${workspaceId}\0${relPath}`.
 const _watchChains = new Map<string, Promise<unknown>>();
 const panelWatches = new Map<string, { count: number; ready: Promise<boolean> }>();
-// Each directory shares the completion of its current and queued reads.
 const childLoads = new Map<string, { reload: boolean; done: Promise<void> }>();
 
-/**
- * Sends fs.watch / fs.unwatch for one directory strictly in call order. The
- * agent serves each request on its own goroutine, so a fire-and-forget
- * unwatch followed quickly by a watch (collapse → re-expand) could execute
- * reversed: the watch is a no-op on the still-registered entry, then the
- * unwatch removes it, leaving an expanded folder with no watcher.
- */
 function queueWatchCall(
   workspaceId: string,
   rel: string,
@@ -53,8 +29,6 @@ function queueWatchCall(
   const previous = _watchChains.get(key);
   const send = () =>
     ipcCallResult("fs", method, { workspaceId, relPath: rel, ...(panel && { panel }) });
-  // Nothing in flight for this path → send now (keeps the common case
-  // synchronous); otherwise wait for the previous call's response.
   const call = previous ? previous.then(send) : send();
   const tail = call.catch(() => {});
   _watchChains.set(key, tail);
@@ -64,7 +38,6 @@ function queueWatchCall(
   return call;
 }
 
-/** Keeps a directory watched while at least one visible panel in this window uses it. */
 export function retainPanelDirectoryWatch(workspaceId: string, relPath: string) {
   const key = `${workspaceId}\0${relPath}`;
   let watch = panelWatches.get(key);
@@ -98,9 +71,8 @@ function scheduleSave(workspaceId: string): void {
     const relPaths: string[] = [];
     for (const absPath of tree.expanded) {
       if (absPath === tree.rootAbsPath) continue;
-      relPaths.push(relPath(absPath, tree.rootAbsPath));
+      relPaths.push(relativeTo(absPath, tree.rootAbsPath));
     }
-    // Fire-and-forget: setExpanded persists the expanded-dirs list; local state is source of truth.
     void ipcCallResult("fs", "setExpanded", { workspaceId, relPaths }).then((result) => {
       if (!result.ok) log.error(`setExpanded failed: ${result.message}`);
     });
@@ -118,15 +90,11 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
     let persistedRelPaths: string[] = [];
     try {
       const result = unwrapIpcResult(await ipcCallResult("fs", "getExpanded", { workspaceId }));
-      // Older trees saved a leading slash for paths under a filesystem root.
       persistedRelPaths = [...new Set(result.relPaths.map((path) => path.replace(/^\/+/, "")))];
-    } catch {
-      // Non-fatal — proceed with empty expanded set.
-    }
+    } catch {}
 
     useFilesStore.getState().initTree(workspaceId, rootAbsPath, persistedRelPaths);
 
-    // Fire-and-forget: watch registration; tree updates arrive via fs.changed events.
     void queueWatchCall(workspaceId, "", "watch").then((result) => {
       if (!result.ok) log.error(`watch root failed: ${result.message}`);
     });
@@ -143,12 +111,6 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
       else groupsByDepth.set(depth, [rel]);
     }
 
-    // Track persisted rels whose underlying path no longer exists on disk.
-    // These accumulate from `fs.watch` NOT_FOUND envelopes during hydration
-    // and are pruned from both the in-memory expanded set and the persisted
-    // KV at the end of `ensureRoot` — without this, the same stale rels
-    // would re-fire `fs.watch` (and noise the renderer console) on every
-    // subsequent app start.
     const staleRels = new Set<string>();
 
     const sortedDepths = Array.from(groupsByDepth.keys()).sort((a, b) => a - b);
@@ -162,10 +124,6 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
           if (node && node.type === "dir" && !node.childrenLoaded) {
             await loadChildren(workspaceId, abs);
           }
-          // Awaited (was fire-and-forget) so we can observe NOT_FOUND
-          // results and prune them. The tree itself still updates lazily
-          // via `fs.changed` events; awaiting here only delays the
-          // ensureRoot resolution by one round-trip per persisted dir.
           const result = await queueWatchCall(workspaceId, rel, "watch");
           if (!result.ok) {
             if (isNotFoundMessage(result.message)) {
@@ -178,9 +136,6 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
       );
     }
 
-    // Prune stale rels from the in-memory expanded set and persist the
-    // cleaned list synchronously (we bypass `scheduleSave`'s debounce so
-    // the cleanup lands before any user-driven expand/collapse can race).
     if (staleRels.size > 0) {
       const store = useFilesStore.getState();
       for (const rel of staleRels) {
@@ -191,7 +146,7 @@ export async function ensureRoot(workspaceId: string, rootAbsPath: string): Prom
         const remainingRels: string[] = [];
         for (const absPath of tree.expanded) {
           if (absPath === tree.rootAbsPath) continue;
-          remainingRels.push(relPath(absPath, tree.rootAbsPath));
+          remainingRels.push(relativeTo(absPath, tree.rootAbsPath));
         }
         void ipcCallResult("fs", "setExpanded", {
           workspaceId,
@@ -215,7 +170,6 @@ export async function loadChildren(workspaceId: string, absPath: string): Promis
   const key = `${workspaceId}\0${absPath}`;
   const active = childLoads.get(key);
   if (active && tree.loading.has(absPath)) {
-    // The request may reflect a change after the current read took its snapshot.
     active.reload = true;
     return active.done;
   }
@@ -223,9 +177,8 @@ export async function loadChildren(workspaceId: string, absPath: string): Promis
   const completion = Promise.withResolvers<void>();
   const load = { reload: false, done: completion.promise };
   childLoads.set(key, load);
-  const rel = relPath(absPath, tree.rootAbsPath);
+  const rel = relativeTo(absPath, tree.rootAbsPath);
   const ownsLoad = () => childLoads.get(key) === load;
-  // A workspace can be removed and restored under the same ID while IPC is pending.
   const listingIsStillLoading = () =>
     ownsLoad() && useFilesStore.getState().trees.get(workspaceId)?.loading.has(absPath);
 
@@ -268,22 +221,17 @@ export async function toggleExpand(workspaceId: string, absPath: string): Promis
   if (!node || node.type !== "dir") return;
 
   const isExpanded = tree.expanded.has(absPath);
-  const rel = relPath(absPath, tree.rootAbsPath);
+  const rel = relativeTo(absPath, tree.rootAbsPath);
 
   if (isExpanded) {
     useFilesStore.getState().collapseDir(workspaceId, absPath);
-    // Unwatched from here on, so its listing can silently go out of date:
-    // mark it stale so the next expand re-reads instead of showing the
-    // snapshot from before the collapse.
     useFilesStore.getState().markChildrenStale(workspaceId, absPath);
-    // Fire-and-forget: unwatch is best-effort cleanup.
     void queueWatchCall(workspaceId, rel, "unwatch").then((result) => {
       if (!result.ok) log.error(`unwatch failed: ${result.message}`);
     });
     scheduleSave(workspaceId);
   } else {
     useFilesStore.getState().expandDir(workspaceId, absPath);
-    // Fire-and-forget: watch registration; tree updates arrive via fs.changed events.
     void queueWatchCall(workspaceId, rel, "watch").then((result) => {
       if (!result.ok) log.error(`watch failed: ${result.message}`);
     });
@@ -328,44 +276,16 @@ export async function refresh(workspaceId: string, absPath?: string): Promise<vo
   }
 }
 
-/**
- * Update the file-tree selection when an editor tab becomes active.
- *
- * Selection policy (VSCode-parity with multi-select adjustment):
- *   - If `activeFile` is already in selection.paths → move focus only
- *     (preserves the multi-selection so the user does not lose their
- *     working set when cycling through already-selected files).
- *   - Otherwise → single-select `activeFile` (replaces any prior range
- *     or single focus, matching VSCode's "selectActiveFile" behaviour).
- *
- * This is a fire-and-forget synchronous call: no IPC, no Promise.
- * Callers should only invoke it from the auto-reveal Phase-2 effect
- * (after `lastRevealedRef` guard passes).
- */
 export function revealEditorActiveFile(workspaceId: string, activeFile: string): void {
   const store = useFilesStore.getState();
   const sel = store.selection.get(workspaceId);
   if (sel && sel.paths.size > 0 && sel.paths.has(activeFile)) {
-    // File is already in the selection set — only move focus, preserve paths.
     store.setFocus(workspaceId, activeFile);
   } else {
-    // Not selected — replace with single selection (VSCode default behaviour).
     store.setSingleSelection(workspaceId, activeFile);
   }
 }
 
-/**
- * Collapse every expanded directory in the workspace tree except the root.
- *
- * VSCode parity (`workbench.files.action.collapseExplorerFolders`): keeps
- * the workspace root expanded so children stay visible, and folds every
- * descendant directory shut. Persists the resulting expanded set via the
- * same `fs.setExpanded` debouncer used by `toggleExpand`.
- *
- * Unwatching the collapsed dirs is fire-and-forget — same policy as
- * `toggleExpand`'s collapse branch. Subsequent re-expansion re-issues a
- * `fs.watch` per dir.
- */
 export async function collapseAll(workspaceId: string): Promise<void> {
   const tree = useFilesStore.getState().trees.get(workspaceId);
   if (!tree) return;
@@ -382,7 +302,7 @@ export async function collapseAll(workspaceId: string): Promise<void> {
   for (const absPath of targets) {
     store.collapseDir(workspaceId, absPath);
     store.markChildrenStale(workspaceId, absPath);
-    const rel = relPath(absPath, rootAbsPath);
+    const rel = relativeTo(absPath, rootAbsPath);
     void queueWatchCall(workspaceId, rel, "unwatch").then((result) => {
       if (!result.ok) log.error(`unwatch failed: ${result.message}`);
     });
@@ -405,10 +325,7 @@ export async function reveal(workspaceId: string, absPath: string): Promise<void
 
     if (!currentTree.expanded.has(ancestor)) {
       useFilesStore.getState().expandDir(workspaceId, ancestor);
-      // Same contract as a manual expand: an expanded folder must be
-      // watched (or the tree and git status silently stop tracking changes
-      // inside it) and persisted.
-      void queueWatchCall(workspaceId, relPath(ancestor, currentTree.rootAbsPath), "watch").then(
+      void queueWatchCall(workspaceId, relativeTo(ancestor, currentTree.rootAbsPath), "watch").then(
         (result) => {
           if (!result.ok) log.error(`watch revealed dir failed: ${result.message}`);
         },
@@ -424,28 +341,19 @@ export async function reveal(workspaceId: string, absPath: string): Promise<void
   }
 }
 
-/**
- * Re-arms the watcher on an expanded directory and re-reads it. Used when the
- * directory itself was (re)created — its previous OS watch died with the old
- * inode — and by the focus-regained resync.
- */
 export function rewatchExpandedDir(workspaceId: string, absPath: string): void {
   const tree = useFilesStore.getState().trees.get(workspaceId);
   if (!tree?.expanded.has(absPath)) return;
-  void queueWatchCall(workspaceId, relPath(absPath, tree.rootAbsPath), "watch").then((result) => {
-    if (!result.ok) log.error(`re-watch failed: ${result.message}`);
-  });
+  void queueWatchCall(workspaceId, relativeTo(absPath, tree.rootAbsPath), "watch").then(
+    (result) => {
+      if (!result.ok) log.error(`re-watch failed: ${result.message}`);
+    },
+  );
   loadChildren(workspaceId, absPath).catch((err) => {
     log.error(`re-watch reload failed: ${(err as Error).message}`);
   });
 }
 
-/**
- * Re-reads every expanded, already-loaded directory of a workspace tree.
- * A safety net for changes the watcher could not report (events lost while
- * the agent was down, watcher limits on remote hosts). One readdir per
- * folder; an unchanged folder just re-renders with the same entries.
- */
 export function reloadExpandedDirs(workspaceId: string): void {
   const tree = useFilesStore.getState().trees.get(workspaceId);
   if (!tree) return;
@@ -458,7 +366,6 @@ export function reloadExpandedDirs(workspaceId: string): void {
   }
 }
 
-/** Drops the expanded-folder saves still waiting out their debounce. */
 export function __cancelPendingSavesForTests(): void {
   _saveDebouncer.clearAll();
 }

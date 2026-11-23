@@ -1,8 +1,3 @@
-/**
- * GitGroupHeader renders an expandable Source Control section heading.
- * Read-only (a workspace on another computer's), it only folds: no actions,
- * no menu.
- */
 import { ChevronRight, Minus, MoreHorizontal, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -30,7 +25,6 @@ interface GitGroupHeaderProps {
   onDiscardAll?: () => void;
   onAddToGitignore?: () => void;
   onStashGroup?: () => void;
-  /** Only folds: no group actions or menu. */
   readOnly?: boolean;
 }
 
@@ -87,8 +81,7 @@ export function GitGroupHeader({
               variant="ghost"
               size="icon-sm"
               className="size-6"
-              aria-label={stageActionLabel}
-              title={stageActionLabel}
+              tooltip={stageActionLabel}
               onClick={onStageAll}
             >
               <Plus className="size-3.5" aria-hidden="true" />
@@ -100,8 +93,7 @@ export function GitGroupHeader({
               variant="ghost"
               size="icon-sm"
               className="size-6"
-              aria-label={unstageActionLabel}
-              title={unstageActionLabel}
+              tooltip={unstageActionLabel}
               onClick={onUnstageAll}
             >
               <Minus className="size-3.5" aria-hidden="true" />
@@ -113,8 +105,7 @@ export function GitGroupHeader({
               variant="ghost"
               size="icon-sm"
               className="size-6 opacity-50 transition-opacity hover:opacity-100 git-destructive-text"
-              aria-label={discardActionLabel}
-              title={discardActionLabel}
+              tooltip={discardActionLabel}
               onClick={onDiscardAll}
             >
               <Trash2 className="size-3.5" aria-hidden="true" />
@@ -125,8 +116,7 @@ export function GitGroupHeader({
             variant="ghost"
             size="icon-sm"
             className="size-6"
-            aria-label={t("git.groups.groupActions", { label })}
-            title={t("git.groups.groupActions", { label })}
+            tooltip={t("git.groups.groupActions", { label })}
             aria-haspopup="menu"
             aria-expanded={contextMenuPoint !== null}
             onClick={(event) => {

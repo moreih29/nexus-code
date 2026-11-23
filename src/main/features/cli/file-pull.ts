@@ -103,7 +103,6 @@ async function listTree(
   rules: path.PlatformPath,
   signal: AbortSignal,
 ): Promise<Source> {
-  // Discover truncation anywhere in the tree before creating local entries.
   const listing = await peer("files.list", { path: remotePath }, signal);
   if (listing.truncated) {
     throw new CliError(`directory listing for ${JSON.stringify(listing.path)} is truncated`);
@@ -176,7 +175,6 @@ async function makeDirectory(destination: string): Promise<void> {
   }
 }
 
-/** Use the current destination's mode when replacing a regular file. */
 async function destinationMode(destination: string): Promise<number> {
   try {
     const existing = await lstat(destination);
@@ -221,8 +219,6 @@ async function copyFile(
         (bytes) => hash.update(bytes),
       );
       if (first.version === undefined) {
-        // Older peers cannot pin a version. This final probe detects a size
-        // or prefix change; the remaining bytes have no snapshot guarantee.
         const probe = await readBytes(
           peer,
           { path: remotePath, offset: 0, length: 1 },
@@ -284,7 +280,6 @@ export async function pull(
     let first: Bytes | undefined;
     let source: Source | undefined;
     if (anywhere && options.recursive && speaks(device.schema, "0.14.0")) {
-      // Approve the tree at its root before reading children.
       try {
         source = await listTree(peer, options.remotePath, rules, signal);
       } catch (error) {

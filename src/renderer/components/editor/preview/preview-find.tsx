@@ -1,15 +1,3 @@
-// PreviewFindScope — ⌘F in a preview: a find bar over it, with the match
-// count, next and previous, and match case.
-//
-// The scope finds in the text its content draws (dom-finder.ts). A preview
-// whose text is not all in the DOM puts its own finder in its place with
-// usePreviewFinder: the table previews, which draw only the rows in view;
-// the PDF preview, whose pages pdf.js draws as they come into view; and the
-// HTML preview, whose document is in a sandboxed frame.
-//
-// The scope takes focus when clicked, so ⌘F, ⌘G and Escape reach it from
-// anywhere in the preview; the HTML preview's frame forwards ⌘F itself.
-
 import { CaseSensitive, ChevronDown, ChevronUp, X } from "lucide-react";
 import {
   createContext,
@@ -31,23 +19,19 @@ import { findMatches } from "../../../services/editor/preview/find/find-matches"
 import { cn } from "../../../utils/cn";
 import { IconButton } from "../../ui/icon-button";
 
-/** How many matches there are, and which is current: from 1, or 0 for none. */
 export interface FindResult {
   readonly total: number;
   readonly current: number;
 }
 
-/** Finds in a preview; it tells the scope what it found through `report`. */
 export interface PreviewFinder {
   search(query: string, caseSensitive: boolean): void;
   move(direction: 1 | -1): void;
   clear(): void;
-  /** How far down the find bar sits, in px: below a toolbar the preview has at its top. */
   readonly barTop?: number;
 }
 
 interface FindScopeValue {
-  /** Puts `finder` in place of the scope's own; returns its removal. */
   register(finder: PreviewFinder): () => void;
   report(result: FindResult): void;
   open(): void;
@@ -56,11 +40,6 @@ interface FindScopeValue {
 
 const FindScopeContext = createContext<FindScopeValue | null>(null);
 
-/**
- * Makes `create`'s finder the one the enclosing scope finds with, for as
- * long as the component is mounted and `create` is the same. `report`
- * tells the scope what it found.
- */
 export function usePreviewFinder(
   create: (report: (result: FindResult) => void) => PreviewFinder,
 ): void {
@@ -76,7 +55,6 @@ export function usePreviewFinder(
   }, [scope, create]);
 }
 
-/** Opens and closes the enclosing scope's find bar, as ⌘F and Escape do. */
 export function usePreviewFindBar(): { open(): void; close(): void } {
   const scope = useContext(FindScopeContext);
   return useMemo(() => ({ open: () => scope?.open(), close: () => scope?.close() }), [scope]);
@@ -148,7 +126,6 @@ export function PreviewFindScope({
     [openBar, close],
   );
 
-  // A finder put in place, or taken away, finds what the last one did.
   useEffect(() => {
     if (!open) return;
     if (custom) ownRef.current?.clear();
@@ -215,7 +192,6 @@ export function PreviewFindScope({
   );
 }
 
-/** How far down the find bar sits, in px. */
 const BAR_TOP = 8;
 
 function FindBar({
@@ -305,14 +281,12 @@ function FindBar({
   );
 }
 
-/** A match a preview paints itself, in a line it draws. */
 export interface FindMark {
   readonly start: number;
   readonly end: number;
   readonly current: boolean;
 }
 
-/** `line` with its matches painted, the current one apart and marked data-find-current. */
 export function MarkedLine({
   line,
   marks,

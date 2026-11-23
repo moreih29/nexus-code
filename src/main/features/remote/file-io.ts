@@ -1,7 +1,6 @@
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
 
-/** RPCs used to copy files between devices. */
 export function isFileTransferMethod(method: string): boolean {
   return (
     method === "files.read" ||
@@ -21,7 +20,6 @@ export function needsFileConsent(method: string, params: { anywhere?: true }): b
 
 export const FILE_WRITE_BUSY = "the host is busy writing files";
 
-/** Budget for a full re-read and hash at 32 MiB/s, plus request overhead. */
 export function fileVerifyTimeoutMs(size: number): number {
   return 30_000 + Math.ceil((size * 1000) / (32 * 1024 ** 2));
 }

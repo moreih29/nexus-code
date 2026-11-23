@@ -6,6 +6,7 @@ import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult, unwrapGitResult } from "../../ipc/client";
 import { closeTab, openDiffTab } from "../../state/operations/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
+import { commitTime } from "../../utils/time-format";
 import { Button } from "../ui/button";
 
 const log = createLogger("commit-tab");
@@ -23,9 +24,6 @@ interface CommitTabError {
   notFound: boolean;
 }
 
-/**
- * Fetches and renders a Git commit as an editor-area tab.
- */
 export function CommitTab({ workspaceId, sha, tabId }: CommitTabProps) {
   const { t } = useTranslation();
   const [detail, setDetail] = useState<CommitDetail | null>(null);
@@ -41,12 +39,8 @@ export function CommitTab({ workspaceId, sha, tabId }: CommitTabProps) {
     ipcCallResult("git", "commitDetail", { workspaceId, sha }, { signal: controller.signal })
       .then((ipcRes) => {
         if (controller.signal.aborted) return;
-        // unwrapGitResult throws on git errors so the .catch handler below
-        // receives the typed error with its `.kind` field intact.
         const nextDetail = unwrapGitResult(ipcRes);
         setDetail(nextDetail);
-        // The commit subject is auto-detected metadata, not a manual user rename, so it is
-        // updated with setProcessTitle. If the user renames it separately, that customTitle is kept as is.
         useTabsStore.getState().setProcessTitle(workspaceId, tabId, nextDetail.subject);
       })
       .catch((fetchError) => {
@@ -92,9 +86,6 @@ export function CommitTab({ workspaceId, sha, tabId }: CommitTabProps) {
   );
 }
 
-/**
- * Renders the metadata and changed file list for one commit.
- */
 function CommitDetailContent({
   detail,
   onFileClick,
@@ -114,7 +105,7 @@ function CommitDetailContent({
         <dd className="min-w-0 truncate text-foreground">{detail.authorEmail}</dd>
         <dt className="text-muted-foreground">{t("editor.time")}</dt>
         <dd className="min-w-0 truncate text-foreground" title={detail.committerTs}>
-          {formatCommitTime(detail.committerTs, i18n.language)}
+          {commitTime(detail.committerTs, i18n.language)}
         </dd>
       </dl>
       {detail.body.length > 0 ? (
@@ -156,9 +147,6 @@ function CommitDetailContent({
   );
 }
 
-/**
- * Renders the not-found close action or a generic commit-load error.
- */
 function CommitErrorContent({ error, onClose }: { error: CommitTabError; onClose: () => void }) {
   const { t } = useTranslation();
   if (!error.notFound) {
@@ -175,9 +163,6 @@ function CommitErrorContent({ error, onClose }: { error: CommitTabError; onClose
   );
 }
 
-/**
- * Centers one tab-state message within the scroll body.
- */
 function CenteredMessage({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-full min-h-0 items-center justify-center px-6 text-center text-app-ui-sm text-muted-foreground">
@@ -186,19 +171,6 @@ function CenteredMessage({ children }: { children: ReactNode }) {
   );
 }
 
-/**
- * Formats the ISO timestamp shown in the detail metadata as a local date and
- * time in the UI language; unparseable input is shown as is.
- */
-export function formatCommitTime(value: string, locale: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "medium" }).format(date);
-}
-
-/**
- * Converts IPC failures into commit-tab rendering state.
- */
 export function commitTabErrorFrom(error: unknown, sha: string): CommitTabError {
   const notFound = isCommitNotFoundError(error);
   return {
@@ -209,17 +181,11 @@ export function commitTabErrorFrom(error: unknown, sha: string): CommitTabError 
   };
 }
 
-/**
- * Identifies ref-resolution failures produced by the git IPC layer.
- */
 function isCommitNotFoundError(error: unknown): boolean {
   const kind = gitErrorKind(error);
   return kind === "ref-not-found" || kind === "missing" || kind === "no-such-ref";
 }
 
-/**
- * Reads the stable git error kind rehydrated by the renderer IPC layer.
- */
 function gitErrorKind(error: unknown): string | null {
   if (typeof error === "object" && error !== null && "kind" in error) {
     const kind = (error as { kind?: unknown }).kind;

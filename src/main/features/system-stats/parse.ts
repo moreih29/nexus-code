@@ -1,15 +1,8 @@
-/**
- * Reading this machine's numbers, apart from the machine: the CPU's share
- * between two readings of os.cpus(), and macOS's memory in use from vm_stat.
- */
-
-/** The CPUs' time so far, summed: all of it and the part spent idle. */
 export interface CpuTimes {
   total: number;
   idle: number;
 }
 
-/** os.cpus()' times, summed over the CPUs. */
 export function cpuTimesOf(
   cpus: readonly {
     times: { user: number; nice: number; sys: number; idle: number; irq: number };
@@ -24,7 +17,6 @@ export function cpuTimesOf(
   return { total, idle };
 }
 
-/** The share of the time between two readings spent not idle, 0 to 100; null when none passed. */
 export function busyShare(prev: CpuTimes, next: CpuTimes): number | null {
   const total = next.total - prev.total;
   const idle = next.idle - prev.idle;
@@ -32,13 +24,6 @@ export function busyShare(prev: CpuTimes, next: CpuTimes): number | null {
   return Math.min(100, Math.max(0, (100 * (total - idle)) / total));
 }
 
-/**
- * The memory in use in vm_stat's output, as Activity Monitor counts it:
- * the programs' own pages less those they let go of on demand, the wired
- * ones, and those the compressor holds. os.freemem() counts only the pages
- * no one holds, so a Mac's cache would read as in use. Null when the output
- * lacks a count.
- */
 export function vmStatUsed(text: string): number | null {
   const pageSize = /page size of (\d+) bytes/.exec(text)?.[1];
   if (!pageSize) return null;

@@ -1,6 +1,7 @@
 import { RefreshCw } from "lucide-react";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
+import type { LogEntry } from "../../../shared/git/types";
 import {
   EMPTY_PEER_VIEW,
   type PeerWorkspaceTarget,
@@ -8,12 +9,10 @@ import {
   peerTargetId,
   usePeerWorkspaceStore,
 } from "../../state/stores/peer-workspace";
-import { cn } from "../../utils/cn";
-import { Button } from "../ui/button";
+import { HistoryList } from "../files/git/history/list";
 import { EmptyState } from "../ui/empty-state";
 import { IconButton } from "../ui/icon-button";
-import { PeerCommitTime } from "./commit-time";
-import { createPeerHistory } from "./history-model";
+import { createPeerHistory, type PeerHistoryCommit } from "./history-model";
 import { PeerReadOnlyBadge } from "./labels";
 import { peerSearchErrorKey } from "./search-model";
 
@@ -52,7 +51,19 @@ export function PeerGitHistory({
       ? t(error === "not-found" ? "peerWorkspace.gitNotRepository" : peerSearchErrorKey(error))
       : null;
   const shown = !upgrade && commits !== null;
-  const existing = new Set(tabs.filter((tab) => tab.type === "peer.commit").map((tab) => tab.hash));
+  const entries = useMemo(() => (commits ?? []).map(peerLogEntry), [commits]);
+  const commitTabs = tabs.filter((tab) => tab.type === "peer.commit");
+  const activeHash = commitTabs.find((tab) => peerTabId(tab) === activePath)?.hash ?? null;
+  const [picked, setPicked] = useState<{ hash: string; over: string | null } | null>(null);
+  const selectedSha = picked && picked.over === activeHash ? picked.hash : activeHash;
+
+  function open(entry: LogEntry) {
+    if (!canRead && !commitTabs.some((tab) => tab.hash === entry.sha)) return;
+    openCommit(id, {
+      hash: entry.sha,
+      subject: entry.subject || t("editor.commit_title", { sha: entry.sha.slice(0, 7) }),
+    });
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -76,64 +87,39 @@ export function PeerGitHistory({
           tone="status"
         />
       ) : (
-        <div className="app-scrollbar min-h-0 flex-1 overflow-auto">
+        <>
           {errorMessage && (
-            <p role="status" className="px-2 py-1 text-app-ui-sm text-muted-foreground">
+            <p role="status" className="shrink-0 px-2 py-1 text-app-ui-sm text-muted-foreground">
               {errorMessage}
             </p>
           )}
-          {commits.length === 0 && (
-            <EmptyState title={t("peerWorkspace.gitNoCommits")} tone="status" />
-          )}
-          <ul aria-label={t("files:git.history.list.ariaLabel")} aria-busy={pending}>
-            {commits.map((commit) => {
-              const hash = commit.hash.slice(0, 7);
-              const subject = commit.subject || t("editor.commit_title", { sha: hash });
-              const selected = activePath === peerTabId({ type: "peer.commit", ...commit });
-              return (
-                <li key={commit.hash}>
-                  <button
-                    type="button"
-                    className={cn(
-                      "block w-full border-l-2 border-l-transparent px-2 py-1 text-left enabled:hover:bg-[var(--state-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
-                      selected &&
-                        "border-l-[var(--state-selected-indicator)] bg-[var(--sidebar-item-selected-bg)]",
-                    )}
-                    aria-current={selected ? "true" : undefined}
-                    disabled={!canRead && !existing.has(commit.hash)}
-                    onClick={() => openCommit(id, commit)}
-                  >
-                    <span className="block truncate text-app-ui-sm" title={subject}>
-                      {subject}
-                    </span>
-                    <span className="flex min-w-0 items-center gap-1.5 text-app-micro text-muted-foreground">
-                      <span className="min-w-0 flex-1 truncate" title={commit.author}>
-                        {commit.author}
-                      </span>
-                      <PeerCommitTime at={commit.at} />
-                      <span className="font-mono" title={commit.hash}>
-                        {hash}
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-          {nextSkip !== null && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              className="w-full"
-              disabled={!canRead || pending}
-              onClick={() => void history.more()}
-            >
-              {t(pending ? "files:git.history.list.loading2" : "files:git.history.list.loadMore")}
-            </Button>
-          )}
-        </div>
+          <div className="min-h-0 flex-1" aria-busy={pending}>
+            <HistoryList
+              entries={entries}
+              selectedSha={selectedSha}
+              loading={pending}
+              loadingMore={pending}
+              hasMore={nextSkip !== null}
+              onSelect={(entry) => setPicked({ hash: entry.sha, over: activeHash })}
+              onOpen={open}
+              onLoadMore={() => {
+                if (canRead) void history.more();
+              }}
+            />
+          </div>
+        </>
       )}
     </div>
   );
+}
+
+export function peerLogEntry(commit: PeerHistoryCommit): LogEntry {
+  const at = new Date(commit.at);
+  return {
+    sha: commit.hash,
+    parents: [],
+    authorName: commit.author,
+    authoredAt: Number.isNaN(at.getTime()) ? "" : at.toISOString(),
+    subject: commit.subject,
+  };
 }

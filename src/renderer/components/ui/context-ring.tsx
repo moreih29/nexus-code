@@ -1,7 +1,11 @@
-// How full a conversation's context is, as a ring that fills clockwise:
-// the loading colour, turning to the warning colour from 80%.
-
 import { cn } from "@/utils/cn";
+import { meterLevel } from "../../services/chat/usage-line";
+
+const LEVEL_STROKE = {
+  alert: "text-(--state-error-fg)",
+  warn: "text-(--state-warning-fg)",
+  ok: "text-(--state-loading-indicator)",
+} as const;
 
 export function ContextRing({ percent, className }: { percent: number; className?: string }) {
   const r = 5;
@@ -29,7 +33,7 @@ export function ContextRing({ percent, className }: { percent: number; className
         stroke="currentColor"
         strokeWidth={2}
         strokeDasharray={`${(length * percent) / 100} ${length}`}
-        className={percent >= 80 ? "text-(--state-warning-fg)" : "text-(--state-loading-indicator)"}
+        className={LEVEL_STROKE[meterLevel(percent) ?? "ok"]}
       />
     </svg>
   );

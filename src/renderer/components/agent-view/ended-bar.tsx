@@ -1,5 +1,3 @@
-// Offers to resume the agent in its terminal, where the shell is now in front.
-
 import { Info } from "lucide-react";
 import { useCallback, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";

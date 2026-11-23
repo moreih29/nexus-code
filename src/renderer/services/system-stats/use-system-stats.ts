@@ -1,21 +1,13 @@
-/**
- * How busy a workspace's host is, or this machine with no workspace named,
- * asked every few seconds while `active` and the window is shown. The last
- * answer for each is kept, so switching back shows it at once. A workspace
- * on another computer is asked the same way (usePolledStats).
- */
 import { useEffect, useRef, useState } from "react";
 import { ipcCallResult } from "@/ipc/client";
 import type { SystemStats } from "../../../shared/system/stats";
 
 export const POLL_MS = 3_000;
 
-/** One ask's answer: the numbers, none now, or "never" from a host that cannot tell at all. */
 export type StatsAnswer = SystemStats | null | "never";
 
 const lastFor = new Map<string, SystemStats>();
 
-/** The last numbers for `key`: kept to show at once, dropped with null. */
 export function rememberStats(key: string, stats: SystemStats | null): void {
   if (stats) lastFor.set(key, stats);
   else lastFor.delete(key);
@@ -26,7 +18,6 @@ export function rememberedStats(key: string): SystemStats | null {
 }
 
 function useDocumentShown(): boolean {
-  // No document while drawn ahead of the window (as tests draw it): nothing asks then.
   const [shown, setShown] = useState(
     () => typeof document !== "undefined" && document.visibilityState !== "hidden",
   );
@@ -38,11 +29,6 @@ function useDocumentShown(): boolean {
   return shown;
 }
 
-/**
- * Asks, and again POLL_MS after each answer (so a slow host is not asked
- * on top of itself), until stopped or told "never". Gives the stop, which
- * also aborts an ask still on its way.
- */
 export function pollStats(
   ask: (signal: AbortSignal) => Promise<StatsAnswer>,
   tell: (stats: SystemStats | null) => void,
@@ -65,11 +51,6 @@ export function pollStats(
   };
 }
 
-/**
- * The numbers `ask` gives for `key`, asked while `active` and the window is
- * shown. With `forgetIdle`, those of a host no longer asked are dropped
- * (another computer's, once out of reach), not shown again later.
- */
 export function usePolledStats(
   key: string,
   active: boolean,

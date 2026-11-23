@@ -1,20 +1,9 @@
-// The folder's earlier sessions, for a tab to go on with one: under a new
-// tab's empty conversation, or above the composer for /resume. Picking one
-// goes on with it in this tab, or shows the tab that has it open.
-// Under an empty conversation they start folded behind one button, so an
-// empty tab fits a small panel without a scrollbar over a list nobody
-// asked to see. The tab's own profile's sessions come first: with more
-// than one profile keeping sessions here, the others, or all of them, are
-// a click away, each marked with its own, and one taken up goes on in the
-// profile that keeps it. Each shows how much its transcript takes, and one
-// not open in a tab can be deleted, after a second click that says what
-// deleting it does.
-
 import { ChevronDown, ChevronUp, History, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type AgentProfile, profilesOf } from "../../../shared/agent-profiles/profiles";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import { formatBytes } from "../../../shared/util/format-bytes";
 import { deleteClaudeSession, useClaudeSessions } from "../../services/chat/claude/sessions";
 import type { CodexController } from "../../services/chat/codex/controller";
 import { revealTabById } from "../../services/chat/open-beside";
@@ -28,38 +17,28 @@ import {
 import { codexThreads } from "../../services/remote/history";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { cn } from "../../utils/cn";
-import { formatBytes } from "../../utils/format-bytes";
+import { relativeTime } from "../../utils/time-format";
 import { ProfileDot, profileName } from "../agent-profiles/profile-badge";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
-import { relativeTime } from "./message-list";
 
-/** How many are shown before the rest are asked for. */
 const SHOWN_FIRST = 6;
 
 interface ListProps {
   workspaceId: string;
   tabId: string;
-  /** The tab's profile, whose sessions are shown first. */
   profileId: string;
-  /** The title goes with it, for a tab that names itself from it. */
   onResume: (sessionId: string, profileId: string, title: string) => void;
-  /** Words a session's title or first prompt has (/resume's). */
   query?: string;
-  /** Shown open, with a button that closes it (/resume); folded under an empty conversation. */
   onClose?: () => void;
-  /** The tab's own session, left out. */
   exceptSessionId?: string;
 }
 
-/** Deletes a session; rejects with what went wrong. */
 type DeleteSession = (session: ListedSession) => Promise<void>;
 
-/** The confirm row's buttons: as tall as a row's text, their focus ring drawn inside them. */
 const CONFIRM_BUTTON_CLASS =
   "h-6 shrink-0 whitespace-nowrap px-2 text-app-ui-sm focus-visible:ring-0 focus-visible:outline-solid focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground/60";
 
-/** A Claude tab's: the sessions every Claude profile keeps of the folder. */
 export function SessionList(props: ListProps & { cwd: string }) {
   const config = useAgentProfilesStore((s) => s.config);
   const profileIds = useMemo(() => profilesOf(config, "claude").map((p) => p.id), [config]);
@@ -76,7 +55,6 @@ export function SessionList(props: ListProps & { cwd: string }) {
   );
 }
 
-/** A Codex tab's: the threads its profile's Codex keeps of the folder. */
 export function CodexSessionList(props: ListProps & { controller: CodexController; cwd: string }) {
   const { controller, profileId, workspaceId, cwd } = props;
   const config = useAgentProfilesStore((s) => s.config);
@@ -88,7 +66,6 @@ export function CodexSessionList(props: ListProps & { controller: CodexControlle
       (sessions) => {
         if (!live) return;
         setListed(sessions);
-        // Their sizes after: Codex's list has their files, not how big they are.
         withTranscriptSizes(workspaceId, sessions).then(
           (sized) => live && setListed(sized),
           () => {},
@@ -113,10 +90,6 @@ export function CodexSessionList(props: ListProps & { controller: CodexControlle
   );
 }
 
-/**
- * The list itself, of sessions read elsewhere: another computer's chat
- * gives its own (history.list), with no tabs here and none to delete.
- */
 export function SessionPicker({
   agent,
   listed,
@@ -133,16 +106,11 @@ export function SessionPicker({
   onShowTab,
 }: ListProps & {
   agent: ChatAgent;
-  /** Null until read. */
   listed: readonly ListedSession[] | null;
-  /** The tabs that have a session open, by its id. */
   openIn: ReadonlyMap<string, string>;
-  /** Deletes one; none for a list whose sessions cannot be. */
   onDelete?: DeleteSession;
   canDelete?: (session: ListedSession) => boolean;
-  /** The profiles the sessions are kept by, where they are not this app's (another computer's). */
   profiles?: readonly AgentProfile[];
-  /** Shows the tab a session is open in, where it is not one of this app's (another computer's). */
   onShowTab?: (tabId: string, session: ListedSession) => void;
 }) {
   const { t, i18n } = useTranslation();
@@ -152,9 +120,7 @@ export function SessionPicker({
   const picking = onClose !== undefined;
   const [open, setOpen] = useState(picking);
   const [all, setAll] = useState(false);
-  // Undefined until a profile is picked: the tab's.
   const [only, setOnly] = useState<string | null | undefined>(undefined);
-  // The one asked about, while deleting it waits for the second click.
   const [confirming, setConfirming] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
@@ -181,7 +147,6 @@ export function SessionPicker({
       setDeleting(false);
     }
   };
-  // Profiles that keep sessions here: marks and a choice only when another than the tab's does.
   const keeping = profiles.filter((p) => here.some((s) => s.profileId === p.id));
   const marked = keeping.some((p) => p.id !== profileId);
   const choices = marked
@@ -331,7 +296,6 @@ export function SessionPicker({
                     {deleting ? t("chat.sessions.deleting") : t("action.delete")}
                   </Button>
                 </fieldset>
-                {/* The trash button's place, so the buttons end where the rows' details do. */}
                 <span aria-hidden className="size-6 shrink-0" />
               </li>
             );
@@ -362,7 +326,7 @@ export function SessionPicker({
                     tab ? t("chat.sessions.open") : undefined,
                     session.gitBranch,
                     session.size !== undefined ? formatBytes(session.size) : undefined,
-                    relativeTime(session.lastModified, now, i18n.language, t("chat.time.now")),
+                    relativeTime(session.lastModified, now, i18n.language),
                   ]
                     .filter(Boolean)
                     .join(" · ")}
@@ -371,7 +335,6 @@ export function SessionPicker({
               {onDelete &&
                 (canDelete?.(session) ?? true) &&
                 (tab ? (
-                  // One open in a tab is not deleted under it; the space keeps the rows' ends in line.
                   <span aria-hidden className="size-6 shrink-0" />
                 ) : (
                   <IconButton

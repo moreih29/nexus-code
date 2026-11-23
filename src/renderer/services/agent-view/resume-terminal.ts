@@ -14,10 +14,6 @@ interface RunCheckpoint {
   input: TerminalInputCheckpoint;
 }
 
-/**
- * Records the last input sent while the agent was in the foreground, including
- * when the view has yet to notice the agent exit and the shell already has input.
- */
 export function watchAgentInput(
   terminal: TerminalRef,
   controller: TerminalController,
@@ -41,7 +37,6 @@ export function watchAgentInput(
       const result = await ipcCallResult("pty", "foregroundProcess", terminal);
       if (watching && result.ok && agentFromProgram(result.value.name) === agent) remember(input);
     } catch {
-      // The foreground could not be confirmed. Keep the last known checkpoint.
     } finally {
       reading = false;
       if (controller.getInputCheckpoint() !== input) void check();
@@ -94,7 +89,6 @@ export function canResumeInTerminal(tabId: string, input: TerminalInputCheckpoin
   return input !== undefined && getTerminalController(tabId)?.getInputCheckpoint() === input;
 }
 
-/** Submit one shell command, with no yield between checking the draft and pressing Enter. */
 export async function resumeInTerminal(
   terminal: TerminalRef,
   line: string,

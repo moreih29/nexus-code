@@ -1,4 +1,3 @@
-/** A live preview follows changing text every frame when it is light, and spaced out when heavy. */
 import { describe, expect, test } from "bun:test";
 import { previewUpdateDelay } from "../../../../../../src/renderer/services/editor/preview/pace";
 
@@ -9,7 +8,6 @@ describe("a live preview's pace", () => {
   });
 
   test("a heavy one leaves twice its render time free after it rendered", () => {
-    // Asked at 1000, took 200 ms: the next waits until 1600.
     expect(previewUpdateDelay(1000, 200, 1210)).toBe(390);
   });
 

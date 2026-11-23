@@ -90,7 +90,6 @@ test("people see a to-do prompt's quoted labels as written while the agent keeps
   expect(shown).toContain('Note "Plan <b>" · Read the full note with `nexus note read n1234567`.');
   expect(shown).toContain('`nexus note report --done "one-line summary"');
   expect(titleOf(prompt)).toBe(`To-do: "${text}"`);
-  // Text that is not a note prompt keeps its escapes.
   expect(shownNoteText(String.raw`"\u003cb\u003e"`)).toBe(String.raw`"\u003cb\u003e"`);
 });
 

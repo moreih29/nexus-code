@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Bun mock.module is process-global. Spread real exports so other editor/*
-// test files see the full module surface after this file runs.
 const realLspBridge = await import("../../../../../../src/renderer/services/editor/lsp/bridge");
 
 const cleanupEntry = mock((_entry: unknown) => {});
@@ -48,10 +46,6 @@ const { acquireModel, releaseModel, subscribeOnRelease } = await import(
 );
 
 const INPUT = { workspaceId: "ws-a", filePath: "/workspace/src/a.ts" };
-// cacheUri carries the workspace-scoped `nexus-ws://` scheme so the same
-// physical file opened from two workspaces has two distinct cache keys.
-// The mocked createEntry in this suite uses the supplied cacheUri for
-// both cacheUri and lspUri — match the real `cacheUriFor` output here.
 const CACHE_URI = "nexus-ws://ws-a/workspace/src/a.ts";
 
 describe("model-cache subscribeOnRelease", () => {

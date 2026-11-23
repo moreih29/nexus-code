@@ -21,15 +21,11 @@ func closeOnExec(t *testing.T, fd int) bool {
 	return flags&unix.FD_CLOEXEC != 0
 }
 
-// An inherited descriptor (opened without O_CLOEXEC, as Chromium leaves
-// its own) is marked, and a program started afterwards does not get it.
 func TestCloseOnExecKeepsInheritedFromChildren(t *testing.T) {
 	opened, err := unix.Open(os.DevNull, unix.O_RDONLY, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Moved well above the descriptors the child opens for itself: ls lists
-	// its own too, 3 and 4 on macOS, and the test's could have been one.
 	fd, err := unix.FcntlInt(uintptr(opened), unix.F_DUPFD, 100)
 	unix.Close(opened)
 	if err != nil {

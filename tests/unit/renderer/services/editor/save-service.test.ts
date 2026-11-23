@@ -9,17 +9,6 @@ import type { TextEncoding } from "../../../../../src/renderer/services/editor/e
   },
 };
 
-// IMPORTANT: Bun's `mock.module` is PROCESS-GLOBAL — replacing a module here
-// affects every other test file that imports it later in the same process.
-// We mock ONLY the modules whose behavior saveModel branches actually depend on
-// and spread real exports so other test files see the full module surface.
-//
-// promote-policy and lsp-bridge are NOT mocked:
-//   - promoteAllPreviewTabsForFile reads useTabsStore which initialises to
-//     { byWorkspace: {} } — calling it is a no-op when no tabs are registered.
-//   - notifyDidSave calls ipcCallResult, which IS mocked below.
-// file-loader IS mocked: relPathForInput calls useWorkspacesStore which throws
-// WORKSPACE_NOT_FOUND when no workspaces are seeded.
 const realDirty = await import("../../../../../src/renderer/services/editor/model/dirty-tracker");
 const realModelCache = await import("../../../../../src/renderer/services/editor/model/cache");
 const realFileLoader = await import(
@@ -73,8 +62,6 @@ mock.module("../../../../../src/renderer/services/editor/model/file-loader", () 
   relPathForInput: mock((_input: unknown) => "src/a.ts"),
 }));
 
-// Conflict resolution dialog — mocked to avoid DOM dependency.
-// Default: cancel (no-op). Individual tests override as needed.
 const showConflictResolutionMock = mock((_filename: string) =>
   Promise.resolve("cancel" as "overwrite" | "reload" | "cancel"),
 );
@@ -122,8 +109,6 @@ afterEach(() => {
   clearDiskDivergedMock.mockClear();
   syncLoadedValueAfterSaveMock.mockClear();
   showConflictResolutionMock.mockClear();
-  // Reset all mocks to safe default implementations so tests that don't
-  // configure a specific mock see predictable defaults.
   getDirtyEntryMock.mockImplementation(() => ({
     isDirty: true,
     loadedMtime: "T0",
@@ -148,15 +133,12 @@ describe("saveModel read-only guard", () => {
       kind: "info",
       message: "File is read-only.",
     });
-    // Dirty tracker must NOT be queried — guard fires before dirty check.
     expect(getDirtyEntryMock).not.toHaveBeenCalled();
   });
 });
 
 describe("saveModel conflict", () => {
   test("returns conflict when ipcCallResult reports a disk mtime mismatch", async () => {
-    // Outer dirty check: isDirty=true so the gate is entered.
-    // Inner dirty re-check: also isDirty=true so the IPC write is attempted.
     getDirtyEntryMock.mockImplementation(() => ({
       isDirty: true,
       loadedMtime: "T0",
@@ -164,8 +146,6 @@ describe("saveModel conflict", () => {
     }));
     getResolvedModelMock.mockImplementation(() => makeResolvedModel());
 
-    // Simulate main-process detecting that the on-disk mtime differs from
-    // the renderer's baseline snapshot — another process modified the file.
     ipcCallMock.mockImplementation(() =>
       Promise.resolve({
         ok: true as const,
@@ -182,8 +162,6 @@ describe("saveModel conflict", () => {
     if (result.kind === "conflict") {
       expect(result.actual).toEqual({ exists: true, mtime: "T2", size: 99 });
     }
-    // markSaved must NOT be called — dirty baseline must stay unchanged so
-    // the caller can decide to reload or force-save.
     expect(markSavedMock).not.toHaveBeenCalled();
   });
 });
@@ -200,9 +178,6 @@ describe("saveModel baseline sync", () => {
     const result = await saveModel(INPUT);
 
     expect(result.kind).toBe("saved");
-    // The just-written buffer becomes the new loaded-value baseline, so a
-    // post-save fs/git event re-reading the file won't be mistaken for an
-    // external divergence (the false-positive this guards against).
     expect(syncLoadedValueAfterSaveMock).toHaveBeenCalledWith(INPUT, "content");
   });
 
@@ -235,7 +210,6 @@ describe("saveModel baseline sync", () => {
 
     expect(result.kind).toBe("saved");
     const write = ipcCallMock.mock.calls.find(([, method]) => method === "writeFile");
-    // "한글" in EUC-KR: C7 D1 B1 DB.
     expect(write?.[2]).toMatchObject({ content: "", bytes: "x9Gx2w==" });
     expect(syncLoadedValueAfterSaveMock).toHaveBeenCalledWith(INPUT, "한글");
   });
@@ -267,7 +241,6 @@ describe("saveModel baseline sync", () => {
 
     expect(result.kind).toBe("saved");
     const write = ipcCallMock.mock.calls.find(([, method]) => method === "writeFile");
-    // FF FE, then "hi" in UTF-16 LE.
     expect(write?.[2]).toMatchObject({ content: "", bytes: "//5oAGkA" });
   });
 
@@ -289,12 +262,6 @@ describe("saveModel baseline sync", () => {
 
 describe("saveModel superseded", () => {
   test("middle call returns superseded when displaced by a third concurrent call", async () => {
-    // Three concurrent saveModel calls on the same file:
-    //   p1 — starts running; its ipcCallResult is held open by a deferred promise.
-    //   p2 — queues behind p1.
-    //   p3 — displaces p2 in the queue, causing p2's sequentializer promise
-    //         to reject with SaveSupersededError → saveModel returns "superseded".
-    //   p1 and p3 both complete normally (saved).
     getResolvedModelMock.mockImplementation(() => makeResolvedModel());
     getDirtyEntryMock.mockImplementation(() => ({
       isDirty: true,
@@ -311,26 +278,20 @@ describe("saveModel superseded", () => {
     ipcCallMock.mockImplementation(() => {
       callCount += 1;
       if (callCount === 1) {
-        // First call: hold open so the gate stays occupied.
         return firstIpcHeld.then(() => ({ ok: true as const, value: { mtime: "T1", size: 10 } }));
       }
-      // Third call (p3's fn): resolves immediately.
       return Promise.resolve({ ok: true as const, value: { mtime: "T2", size: 20 } });
     });
 
     const p1 = saveModel(INPUT);
-    // Yield so p1's fn starts executing inside the gate before p2 queues.
     await Promise.resolve();
 
     const p2 = saveModel(INPUT);
-    // p3 arrives immediately after p2 — displaces p2 from the queue.
     const p3 = saveModel(INPUT);
 
-    // p2 should be superseded before the ipc even settles.
     const r2 = await p2;
     expect(r2.kind).toBe("superseded");
 
-    // Release p1's ipcCallResult so both p1 and p3 can finish.
     resolveFirstIpc(undefined);
     const [r1, r3] = await Promise.all([p1, p3]);
     expect(r1.kind).toBe("saved");
@@ -340,18 +301,11 @@ describe("saveModel superseded", () => {
 
 describe("saveModel race — dirty=false re-check inside gate", () => {
   test("returns not-dirty when undo clears dirty state before the gate executes", async () => {
-    // The outer getDirtyEntry call (before the gate) sees isDirty=true,
-    // so execution enters sequentializer.run(). Inside the gate the entry
-    // is re-read (save-service.ts line ~67) and isDirty is now false — the
-    // user undid all changes while the gate was being entered. The function
-    // must short-circuit with "not-dirty" without touching ipcCallResult or markSaved.
     getResolvedModelMock.mockImplementation(() => makeResolvedModel());
 
     let callIndex = 0;
     getDirtyEntryMock.mockImplementation(() => {
       callIndex += 1;
-      // First call: outer pre-gate check — dirty=true so we enter the gate.
-      // Second call: inner re-check inside the gate — undo has fired, dirty=false.
       return {
         isDirty: callIndex === 1,
         loadedMtime: "T0",
@@ -362,18 +316,11 @@ describe("saveModel race — dirty=false re-check inside gate", () => {
     const result = await saveModel(INPUT);
 
     expect(result.kind).toBe("not-dirty");
-    // getDirtyEntry must have been called twice: outer check + inner re-check.
     expect(getDirtyEntryMock).toHaveBeenCalledTimes(2);
-    // No disk write attempted.
     expect(ipcCallMock).not.toHaveBeenCalled();
-    // No baseline update.
     expect(markSavedMock).not.toHaveBeenCalled();
   });
 });
-
-// ---------------------------------------------------------------------------
-// saveModelInteractive — conflict-resolution dialog integration
-// ---------------------------------------------------------------------------
 
 describe("saveModelInteractive — no conflict", () => {
   test("returns saved result directly without showing dialog", async () => {
@@ -421,7 +368,6 @@ describe("saveModelInteractive — conflict, user cancels", () => {
 
     expect(result.kind).toBe("conflict");
     expect(reloadModelFromDiskMock).not.toHaveBeenCalled();
-    // Only the initial conflicting fs.writeFile — no retry
     expect(ipcCallMock).toHaveBeenCalledTimes(1);
   });
 });
@@ -444,7 +390,6 @@ describe("saveModelInteractive — conflict, user chooses reload", () => {
 
     expect(result.kind).toBe("not-dirty");
     expect(reloadModelFromDiskMock).toHaveBeenCalledWith(INPUT, undefined, expect.any(Function));
-    // Only the initial conflicting write — no retry
     expect(ipcCallMock).toHaveBeenCalledTimes(1);
   });
 
@@ -474,7 +419,6 @@ describe("saveModelInteractive — conflict, user chooses overwrite", () => {
     ipcCallMock.mockImplementation(() => {
       ipcCallCount += 1;
       if (ipcCallCount === 1) {
-        // Initial fs.writeFile → conflict
         return Promise.resolve({
           ok: true as const,
           value: {
@@ -483,7 +427,6 @@ describe("saveModelInteractive — conflict, user chooses overwrite", () => {
           },
         });
       }
-      // Retry fs.writeFile or notifyDidSave → success
       return Promise.resolve({ ok: true as const, value: { mtime: "T3", size: 42 } });
     });
 
@@ -493,11 +436,7 @@ describe("saveModelInteractive — conflict, user chooses overwrite", () => {
 
     expect(result.kind).toBe("saved");
     expect(showConflictResolutionMock).toHaveBeenCalledTimes(1);
-    // diskDiverged is cleared after successful retry
     expect(clearDiskDivergedMock).toHaveBeenCalledWith(INPUT);
-    // At minimum: the initial conflicting write + the retry write.
-    // notifyDidSave may or may not call ipcCallResult depending on which lsp/bridge
-    // mock is active (model-entry.test.ts replaces it process-globally).
     expect(ipcCallMock.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 

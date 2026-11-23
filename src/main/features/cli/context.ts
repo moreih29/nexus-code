@@ -1,13 +1,10 @@
-/**
- * What a nexus command runs with: who asked, what the app can tell it, and
- * how it names workspaces and tabs on the command line.
- */
 import type { RpcMethod, RpcParams, RpcResult } from "../../../../packages/remote-protocol/src";
 import type { AgentRun, PermissionAnswer, PermissionAsk } from "../../../shared/claude/activity";
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import type { CliInvocation } from "../../../shared/cli/protocol";
 import type {
   CliChange,
+  CliConsentAnswer,
   CliPlacement,
   CliTabInfo,
   CliUiOp,
@@ -23,6 +20,7 @@ import type { ListeningPort, PortForward } from "../../../shared/pty/ports";
 import type { LinkedNote } from "../../../shared/types/notes";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { WorkspaceColor } from "../../../shared/types/workspace-color";
+import { shortId } from "../../../shared/util/short-id";
 import type { ProfileConnections } from "../agent-profiles/connection-save";
 import type { ClaudeInstructionHook } from "../chat/instructions";
 import type { TabActivity } from "./activity";
@@ -31,7 +29,6 @@ import type { ChangeRequest } from "./consent";
 import type { StartedAgents } from "./started-agents";
 import type { WaitRegistry } from "./waits";
 
-/** A failure the command reports as is, with its exit code; with --json, `json` too. */
 export class CliError extends Error {
   constructor(
     message: string,
@@ -42,33 +39,22 @@ export class CliError extends Error {
   }
 }
 
-/** A device of the user's account, as `nexus device list` shows it. */
 export interface CliDevice {
   readonly id: string;
-  /** As the user knows it: the alias they gave it, or the name it signed in with. */
   readonly name: string;
-  /** The name it signed in with (its host's), when an alias is `name`. */
   readonly hostName?: string;
   readonly platform: string;
-  /** Whether it is this computer. */
   readonly self: boolean;
   readonly online: boolean;
-  /** When the server last heard from it, in Unix ms. */
   readonly lastSeen?: number;
-  /** What it serves its account's other devices, as its hello said; none until it said one. */
   readonly serves: readonly string[];
-  /** The protocol package's version it speaks; absent from an older NexusCode. */
   readonly schema?: string;
 }
 
-/** The user's other computers, through the remote's room, for `--device`. */
 export interface CliRemote {
-  /** Whether this computer is in its account's room now: signed in, its key unlocked, connected. */
   inRoom(): boolean;
-  /** The account's devices, as the server and the room know them; the room's alone without the server. */
   devices(): Promise<CliDevice[]>;
   alias?(deviceId: string, alias: string | null): Promise<void>;
-  /** Asks another device; a RpcFailure for its refusal or its silence. */
   request<M extends RpcMethod>(
     deviceId: string,
     method: M,
@@ -78,39 +64,29 @@ export interface CliRemote {
   ): Promise<RpcResult<M>>;
 }
 
-/** A consent prompt waiting on the user (consent-prompts.ts). */
 export interface PendingConsent {
   readonly id: string;
-  /** When it was asked, and when it counts as turned down (Unix ms). */
   readonly at: number;
-  readonly expiresAt: number;
-  /** What was asked, as the renderer shows it. */
+  readonly expiresAt?: number;
   readonly request: CliUiOps["consent.ask"]["args"];
 }
 
-/** The consent prompts waiting on the user, for another device of theirs to list and answer. */
 export interface CliConsents {
-  /** In the order asked. */
+  ask(
+    args: CliUiOps["consent.ask"]["args"],
+    bridgeTimeoutMs?: number,
+    signal?: AbortSignal,
+  ): Promise<{ answer: CliConsentAnswer }>;
   list(): readonly PendingConsent[];
-  /**
-   * Answers one as the user would, from the device named `by`; false when
-   * it no longer waits.
-   */
   answer(id: string, answer: "once" | "session" | "deny", by: string): Promise<boolean>;
 }
 
-/** Where a workspace goes in the sidebar: just before or after another, in `group`. */
 export interface WorkspaceMove {
   readonly beforeId?: string;
   readonly afterId?: string;
   readonly group: "pinned" | "unpinned";
 }
 
-/**
- * The renderer's count of changes to the sessions, the highest it has told
- * (cli.sessionsChanged) or answered a sessions.snapshot with: a snapshot
- * read at it still tells what the renderer has.
- */
 export interface SessionsRenderer {
   readonly latest: number | undefined;
   readonly closed: boolean;
@@ -125,96 +101,47 @@ export interface SessionsRevision {
   current(): SessionsRenderer | undefined;
 }
 
-/** The app as the commands see it. */
 export interface CliServices {
-  /** The consent prompts waiting on the user. */
   readonly consents: CliConsents;
-  /** The renderer's sessions revision; none where no renderer tells one. */
   readonly sessionsRevision?: SessionsRevision;
-  /** The user's other computers, for --device. */
   readonly remote: CliRemote;
   readonly appVersion: string;
   readonly profileConnections: ProfileConnections;
   listWorkspaces(): WorkspaceMeta[];
-  /**
-   * Adds a workspace to the app's list, as Add Workspace does, connected
-   * once it is first shown; the one already listed at `location` if any,
-   * with `added` false. A CliError when a local folder is not there.
-   */
   addWorkspace(
     location: WorkspaceLocation,
     name: string | undefined,
     color?: WorkspaceColor,
   ): Promise<{ workspace: WorkspaceMeta; added: boolean }>;
-  /** Renames a workspace and sets its color, as the sidebar's menu does; the workspace as it is now. */
   editWorkspace(id: string, edit: { name?: string; color?: WorkspaceColor }): WorkspaceMeta;
-  /**
-   * Pins or unpins a workspace as the sidebar's pin does (to the end of its
-   * new group); the workspace as it is now.
-   */
   pinWorkspace(id: string, pinned: boolean): WorkspaceMeta;
-  /**
-   * Moves a workspace in the sidebar, as dragging its row does: next to
-   * another, or at the end of `group` (pinning or unpinning it to go there).
-   */
   moveWorkspace(id: string, to: WorkspaceMove): WorkspaceMeta;
-  /** The workspace and tab the user is looking at, if the app has focus or not. */
   shownTab(): { workspaceId: string; tabId: string } | null;
-  /**
-   * Claude Code's state from its hooks: `since` when the status last changed,
-   * `turnStartedAt` when it last started working.
-   */
   claudeStatus(
     workspaceId: string,
     tabId: string,
   ): { status: ClaudeStatus; message?: string; since: number; turnStartedAt?: number } | null;
   hasRunningTerminals?(workspaceId: string): boolean;
   activity(workspaceId: string, tabId: string): TabActivity | null;
-  /** The permission requests a terminal's Claude Code holds for the app to answer, oldest first. */
   claudeAsks(workspaceId: string, tabId: string): readonly PermissionAsk[];
-  /**
-   * Answers a request a terminal's Claude Code holds, as the app's card
-   * does: false when it no longer waits, or cannot be answered so.
-   */
   answerClaudeAsk(
     workspaceId: string,
     tabId: string,
     askId: string,
     answer: PermissionAnswer,
   ): Promise<boolean>;
-  /** The subagents and `claude -p` runs of the Claude sessions in the terminals. */
   readonly claudeAgents: CliClaudeAgents;
-  /** Lists a wait on a terminal until the returned function is called. */
   readonly waits: Pick<WaitRegistry, "begin">;
-  /**
-   * Asks the renderer, which owns the tabs and the terminals' screens; a
-   * longer `timeoutMs` for an answer that waits on git.
-   */
   ui<K extends CliUiOp>(
     op: K,
     args: CliUiOps[K]["args"],
     timeoutMs?: number,
   ): Promise<CliUiOps[K]["result"]>;
-  /** Tells the user, as Claude's notifications do, unless they are looking at the tab. */
   notify(workspaceId: string, tabId: string, title: string, body: string): boolean;
-  /** What is at `relPath` in a workspace; null when nothing is. */
   stat(workspaceId: string, relPath: string): Promise<FsEntryType | null>;
-  /**
-   * A file's bytes, as base64, where a workspace runs (this computer, an SSH
-   * host, WSL), by its absolute path there; null when there is none.
-   */
   readFile(workspaceId: string, absolutePath: string): Promise<string | null>;
-  /**
-   * Resolves when a change to another workspace than the caller's may go
-   * ahead, as the setting or the user says; a CliError saying why when not.
-   */
   allowChange(request: ChangeRequest, signal?: AbortSignal): Promise<void>;
-  /**
-   * Resolves when the user allows `request`, asked whatever the setting;
-   * a CliError saying why when not.
-   */
   askUser(request: ChangeRequest, signal?: AbortSignal): Promise<void>;
-  /** Whether Claude Code sessions are to be told about nexus when they start. */
   agentContextEnabled(): boolean;
   claudeInstructions?(
     workspaceId: string,
@@ -223,48 +150,24 @@ export interface CliServices {
     hook: ClaudeInstructionHook,
   ): string;
   terminalClaudeInstructions?(workspaceId: string, profileId: string): string;
-  /** The program holding a terminal's foreground; null when the agent cannot tell. */
   foregroundProcess(workspaceId: string, tabId: string): Promise<string | null>;
-  /**
-   * The TCP ports the programs in a workspace's terminals listen on, looked
-   * at now, in port order.
-   */
   listeningPorts(workspaceId: string): Promise<readonly ListeningPort[]>;
-  /** The SSH workspaces' ports forwarded to this machine. */
   readonly forwards: CliForwards;
-  /**
-   * Terminals whose agent nexus worktree new just started with a prompt, so
-   * that a wait on one holds until the agent has begun its first turn.
-   */
   readonly startedAgents: Pick<StartedAgents, "mark" | "since">;
-  /** Time, for commands that wait. */
   readonly clock: { now(): number; sleep(ms: number): Promise<void> };
-  /** Reads and drives the pages of browser tabs. */
   readonly browser: BrowserDriver;
-  /** The workspaces' notes, kept by the app (features/notes). */
   readonly notes: CliNotes;
 }
 
-/** A workspace's notes, as the nexus note commands read them. */
 export interface CliNotes {
   linksOfConversation(tab: NoteConversation): Promise<LinkedNote[]>;
   reportTargets(tab: NoteConversation): Promise<{ noteId: string; linkId: string }[]>;
   reportLine(tab: NoteConversation, noteId: string, report: LineReport): Promise<boolean>;
-  /** Newest first. */
   list(workspaceId: string): Promise<NoteSummary[]>;
-  /** Fails when there is no such note. */
   read(workspaceId: string, noteId: string): Promise<NoteContent>;
-  /** Its recordings' words; an empty transcript for a note with none. */
   transcript(workspaceId: string, noteId: string): Promise<TranscriptFile>;
-  /** Makes a note. */
   create(workspaceId: string, title: string): Promise<NoteContent>;
-  /**
-   * Puts blocks into a note, at its end or at the end of the part under the
-   * heading `under` names (an editor open on it too); fails when there is no
-   * such heading.
-   */
   append(workspaceId: string, noteId: string, blocks: DocNode[], under?: string): Promise<void>;
-  /** Writes a file into a note's folder (an image where it shows); the block that shows it. */
   addAsset(
     workspaceId: string,
     noteId: string,
@@ -273,12 +176,6 @@ export interface CliNotes {
   ): Promise<{ asset: NoteAsset; block: DocNode }>;
 }
 
-/**
- * The tab a command runs in, as its request named it. `verified` false:
- * the request did not come with that tab's token (see
- * ../workspace/tab-token.ts), so it may be any process of the workspace's
- * that says so, and it is taken for no tab's, nor for the user's.
- */
 export interface CliCaller {
   readonly workspaceId: string;
   readonly tabId: string;
@@ -286,26 +183,14 @@ export interface CliCaller {
 }
 
 export interface CliContext {
-  /** The terminal the command runs in. */
   readonly caller: CliCaller;
   readonly invocation: CliInvocation;
   readonly services: CliServices;
-  /** Aborted when the command's client has gone, as one stopped with Ctrl-C. */
   readonly signal?: AbortSignal;
 }
 
-/** Ids are shown this long; any unique prefix of at least MIN_PREFIX is taken. */
-export const SHORT_ID_LENGTH = 8;
 const MIN_PREFIX = 4;
 
-export function shortId(id: string): string {
-  return id.slice(0, SHORT_ID_LENGTH);
-}
-
-/**
- * Finds the one item a selector names: by id, by an id prefix, then by
- * name, case aside. None or several is a CliError.
- */
 export function pick<T>(
   items: readonly T[],
   selector: string,
@@ -329,10 +214,6 @@ export function pick<T>(
   throw new CliError(`no ${what} "${selector}"`);
 }
 
-/**
- * The workspace a --workspace flag names; the caller's own when it is left
- * out or is "." .
- */
 export function resolveWorkspace(ctx: CliContext, selector: string | undefined): WorkspaceMeta {
   const workspaces = ctx.services.listWorkspaces();
   const own = selector === undefined || selector === ".";
@@ -346,15 +227,11 @@ export function resolveWorkspace(ctx: CliContext, selector: string | undefined):
   );
 }
 
-/**
- * Lets a command make `change` in `workspace`: always in the caller's own,
- * in another as the setting or the user allows. Throws a CliError if not.
- */
 export async function mayChange(
   ctx: CliContext,
   workspace: WorkspaceMeta,
   change: CliChange,
-  signal?: AbortSignal,
+  signal = ctx.signal,
 ): Promise<void> {
   if (workspace.id === ctx.caller.workspaceId) return;
   await ctx.services.allowChange(
@@ -368,33 +245,19 @@ export async function mayChange(
   );
 }
 
-/** The agents of a terminal's Claude session (claude/session-activity.ts). */
 export interface CliClaudeAgents {
-  /** Running ones, then ended ones, latest first; none when the terminal runs no session. */
   list(workspaceId: string, tabId: string): readonly AgentRun[];
-  /**
-   * Stops a running `claude -p` run, as an interrupt would; false when the
-   * app holds no watch of it to tell.
-   */
   stop(workspaceId: string, tabId: string, agentId: string): Promise<boolean>;
-  /**
-   * Whether a `claude -p` or `codex exec` run of the tab's said it keeps a
-   * session: one that goes on may have none to read yet.
-   */
   keepsSession?(workspaceId: string, tabId: string, runId: string): boolean;
 }
 
-/** An SSH workspace's ports forwarded to this machine (pty/forwards.ts). */
 export interface CliForwards {
   list(workspaceId: string): readonly PortForward[];
-  /** Fails with a ForwardError when the workspace is not connected or ssh fails. */
   forward(workspaceId: string, port: number): Promise<PortForward>;
   stop(workspaceId: string, port: number): Promise<void>;
-  /** The URL to open here for `url`: a local address goes to its forward. */
   localUrl(workspaceId: string, url: string): Promise<string>;
 }
 
-/** Where a tab the command opens in `workspace` goes: beside the caller in its own. */
 export function placementFor(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -405,7 +268,6 @@ export function placementFor(
     : { background };
 }
 
-/** The tab a selector names among `tabs`; "." is the caller's own terminal. */
 export function resolveTab(
   ctx: CliContext,
   tabs: readonly CliTabInfo[],
@@ -422,7 +284,6 @@ export function resolveTab(
   );
 }
 
-/** A workspace's place, as a person would write it. */
 export function describeLocation(workspace: WorkspaceMeta): string {
   const location = workspace.location;
   if (location.kind === "local") return location.rootPath;

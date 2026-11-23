@@ -46,7 +46,6 @@ func TestParseProcNetTCPKeepsListeningSockets(t *testing.T) {
 	tcp := "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n" +
 		"   0: 00000000:1435 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 31337 1 0000000000000000 100 0 0 10 0\n" +
 		"   1: 0100007F:2253 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 31338 1 0000000000000000 100 0 0 10 0\n" +
-		// An established connection.
 		"   2: 0100007F:1435 0100007F:C350 01 00000000:00000000 00:00000000 00000000  1000        0 31339 1 0000000000000000 20 4 30 10 -1\n"
 	tcp6 := "  sl  local_address                         remote_address                        st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n" +
 		"   0: 00000000000000000000000000000000:1F90 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 41000 1 0000000000000000 100 0 0 10 0\n"
@@ -70,8 +69,6 @@ func TestSocketInode(t *testing.T) {
 	}
 }
 
-// tableOf builds a Windows TCP table of rows of rowSize bytes, each filled
-// in by fill.
 func tableOf(rowSize int, fills ...func(row []byte)) []byte {
 	buf := make([]byte, 4+len(fills)*rowSize)
 	binary.LittleEndian.PutUint32(buf, uint32(len(fills)))
@@ -92,14 +89,13 @@ func row(stateAt, portAt, pidAt int, state uint32, port uint16, pid uint32) func
 func TestParseTCPTableReadsPortsInNetworkOrder(t *testing.T) {
 	buf := tableOf(24,
 		row(0, 8, 20, mibTCPStateListen, 5173, 4200),
-		row(0, 8, 20, 5, 8787, 4300), // established
+		row(0, 8, 20, 5, 8787, 4300),
 	)
 
 	want := []Listener{{Port: 5173, PID: 4200}}
 	if got := parseTCPTable(buf); !reflect.DeepEqual(got, want) {
 		t.Fatalf("parseTCPTable() = %+v, want %+v", got, want)
 	}
-	// A count past the end of the buffer reads only the rows that are there.
 	binary.LittleEndian.PutUint32(buf, 9)
 	if got := parseTCPTable(buf); !reflect.DeepEqual(got, want) {
 		t.Fatalf("parseTCPTable(short) = %+v, want %+v", got, want)

@@ -1,8 +1,3 @@
-/**
- * A tab's titles across a restart: what the snapshot keeps of them, and
- * what a restored tab starts with (restoredTitles).
- */
-
 import { describe, expect, it } from "bun:test";
 
 (globalThis as Record<string, unknown>).window = {
@@ -24,7 +19,6 @@ const WS = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 const ID = "55555555-5555-4555-a555-555555555555";
 const CWD = "/home/u/project";
 
-/** The tab as the snapshot saves it and reads it back. */
 function throughSnapshot(tabId: string): SerializedTab {
   const tab = useTabsStore.getState().byWorkspace[WS]?.[tabId];
   return SerializedTabSchema.parse(JSON.parse(JSON.stringify(tab)));

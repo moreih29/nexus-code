@@ -391,7 +391,6 @@ test("reinserting a deleted live card refreshes the reused link and leaves the o
     () => {},
   );
   await store.save(location, note.id, { doc: { type: "doc", content: [{ type: "paragraph" }] } });
-  // A restored tab may have a new ID for the same session.
   await store.saveLiveCard(
     location,
     note.id,

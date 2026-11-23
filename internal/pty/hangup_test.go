@@ -19,8 +19,6 @@ import (
 	"time"
 )
 
-// spawnInteractiveBash starts an interactive bash, without rc files, that
-// keeps its history in histfile.
 func spawnInteractiveBash(t *testing.T, service *Service, tabID, histfile string) {
 	t.Helper()
 	if _, err := os.Stat("/bin/bash"); err != nil {
@@ -37,17 +35,8 @@ func spawnInteractiveBash(t *testing.T, service *Service, tabID, histfile string
 	}
 }
 
-// backgroundPID matches a background job's pid as a whole line, so a pid
-// still arriving is not taken for a shorter one.
 var backgroundPID = regexp.MustCompile(`BG=(\d+)\r?\n`)
 
-// startBackgroundJob has the tab's shell run command — which ends up running
-// sleep — as a background job, and returns its pid once it runs sleep. The
-// job is killed when the test ends.
-//
-// A job is waited for until it runs sleep because a hangup it gets earlier,
-// between the shell's fork and its exec, is lost: the shell's own handler
-// takes it there, as it does on any terminal closed that early.
 func startBackgroundJob(t *testing.T, service *Service, recorder *eventRecorder, tabID, command string) int {
 	t.Helper()
 	writeSession(t, service, tabID, command+"\n")
@@ -71,7 +60,6 @@ func startBackgroundJob(t *testing.T, service *Service, recorder *eventRecorder,
 	}
 }
 
-// processState describes pid for a failure message, where /proc shows it.
 func processState(pid int) string {
 	status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
 	if err != nil {
@@ -90,15 +78,13 @@ func processState(pid int) string {
 	return b.String()
 }
 
-// processGone reports whether pid has ended: it is no more, or it is a
-// zombie its new parent has yet to wait for.
 func processGone(pid int) bool {
 	if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
 		return true
 	}
 	out, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {
-		return true // ps exits non-zero once the process is gone
+		return true
 	}
 	return strings.HasPrefix(strings.TrimSpace(string(out)), "Z")
 }
@@ -114,9 +100,6 @@ func requireGone(t *testing.T, pid int, within time.Duration, what string) {
 	}
 }
 
-// Closing a tab hangs up its shell, which passes the hangup on to its jobs
-// and saves its history before it ends. Killing the shell at once left its
-// background jobs running with no terminal and lost the session's history.
 func TestClosedTabsShellHangsUpItsJobsAndSavesItsHistory(t *testing.T) {
 	t.Parallel()
 	service, recorder := newTestService(t)
@@ -135,8 +118,6 @@ func TestClosedTabsShellHangsUpItsJobsAndSavesItsHistory(t *testing.T) {
 	}
 }
 
-// What the user started with nohup outlives the tab, as it outlives a
-// closed terminal anywhere.
 func TestClosedTabLeavesANohupJobRunning(t *testing.T) {
 	t.Parallel()
 	service, recorder := newTestService(t)
@@ -153,8 +134,6 @@ func TestClosedTabLeavesANohupJobRunning(t *testing.T) {
 	}
 }
 
-// A job the user disowned is no longer the shell's to hang up, and outlives
-// the tab as it outlives a closed terminal anywhere.
 func TestClosedTabLeavesADisownedJobRunning(t *testing.T) {
 	t.Parallel()
 	service, recorder := newTestService(t)
@@ -171,8 +150,6 @@ func TestClosedTabLeavesADisownedJobRunning(t *testing.T) {
 	}
 }
 
-// A shell that does not end on the hangup is killed after hangupGrace, with
-// all that is left of its session: it never passed the hangup on.
 func TestClosedTabsShellThatIgnoresTheHangupIsKilledWithItsSession(t *testing.T) {
 	t.Parallel()
 	service, recorder := newTestService(t)
@@ -199,8 +176,6 @@ wait
 	requireGone(t, job, 3*time.Second, "the job of a shell that ignored the hangup")
 }
 
-// Closing every tab at once — the daemon shutting down — waits for the
-// shells to hang up their jobs, and kills what does not end in time.
 func TestServiceCloseHangsUpEveryShell(t *testing.T) {
 	t.Parallel()
 	service, recorder := newTestService(t)
@@ -221,20 +196,16 @@ while :; do sleep 1; done
 	requireGone(t, job, 2*time.Second, "the background job")
 }
 
-// spawnWaitContext signals once the second request has reached its wait.
 type spawnWaitContext struct {
 	context.Context
 	waiting func()
 }
 
-// Done exposes the wait barrier and the context's original cancellation.
 func (c spawnWaitContext) Done() <-chan struct{} {
 	c.waiting()
 	return c.Context.Done()
 }
 
-// TestRacingSpawnsOfATabForkOnlyOnce checks that overlapping requests
-// share the shell even before it has been published in the session map.
 func TestRacingSpawnsOfATabForkOnlyOnce(t *testing.T) {
 	service, _ := newTestService(t)
 	first, duplicate, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -296,7 +267,7 @@ func TestRacingSpawnsOfATabForkOnlyOnce(t *testing.T) {
 		firstSpawn.Attached || !attached.Attached || firstSpawn.PID != attached.PID {
 		t.Fatalf("spawns returned %+v and %+v with %d starts", a, b, starts.Load())
 	}
-	session := service.lookup(tabKey{workspaceID: testWorkspaceID, tabID: params.TabID})
+	session := service.lookup(tabKey{WorkspaceID: testWorkspaceID, TabID: params.TabID})
 	if session == nil {
 		t.Fatal("the shared shell exited before the attach finished")
 	}
@@ -308,10 +279,6 @@ func TestRacingSpawnsOfATabForkOnlyOnce(t *testing.T) {
 	}
 }
 
-// A kill that reaches the agent before the spawn it followed — each request
-// runs on a goroutine of its own, and a spawn takes a fork and exec — still
-// ends that tab's shell once it starts. The next spawn of the tab is not
-// affected.
 func TestKillAheadOfItsSpawnStillEndsTheShell(t *testing.T) {
 	t.Parallel()
 	service, recorder := newTestService(t)
@@ -329,7 +296,6 @@ func TestKillAheadOfItsSpawnStillEndsTheShell(t *testing.T) {
 	}
 }
 
-// exitCount is how many exit events tabID got.
 func (r *eventRecorder) exitCount(tabID string) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()

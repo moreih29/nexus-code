@@ -1,6 +1,3 @@
-/**
- * RefPicker — command-palette shell for git.ref-picker.
- */
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useGitStore } from "../../../../state/stores/git";

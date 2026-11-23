@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { OAuthCallbacks } from "../../../../src/main/features/chat/oauth-callback";
 
-/** The page's address, on the loopback address it is served on. */
 function onLoopback(redirectUri: string, search = ""): string {
   return `${redirectUri.replace("//localhost:", "//127.0.0.1:")}${search}`;
 }
@@ -38,7 +37,6 @@ describe("OAuthCallbacks", () => {
     const back = callbacks.wait(id);
     await fetch(onLoopback(redirectUri, "?code=first"));
     expect(await back).toBe(`${redirectUri}?code=first`);
-    // The page is closed once answered.
     const second = await fetch(onLoopback(redirectUri, "?code=second")).then(
       (res) => res.status,
       () => "closed",

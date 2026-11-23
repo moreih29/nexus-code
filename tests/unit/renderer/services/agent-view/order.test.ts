@@ -1,8 +1,3 @@
-/**
- * The order the agent view's list is dragged into: the agents it names
- * first, as it names them, then the rest as they come; a drop puts one
- * just before or after another.
- */
 import { describe, expect, it } from "bun:test";
 import {
   moveKey,
@@ -20,7 +15,6 @@ describe("the list's order", () => {
   it("lists the agents it names first, then the rest as they come", () => {
     const sessions = rows("a", "b", "c", "d");
     expect(keysOf(orderSessions(sessions, ["c", "a"]))).toEqual(["c", "a", "b", "d"]);
-    // A name whose agent is gone is passed over.
     expect(keysOf(orderSessions(sessions, ["gone", "d"]))).toEqual(["d", "a", "b", "c"]);
   });
 

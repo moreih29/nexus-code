@@ -1,6 +1,3 @@
-// A select of an agent's profiles, each with its dot and name, for
-// Settings: a workspace rule's profile, an agent's default, the manager's.
-
 import { useTranslation } from "react-i18next";
 import type { AgentProfile } from "../../../shared/agent-profiles/profiles";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
@@ -11,7 +8,6 @@ import { ProfileDot, profileName } from "./profile-badge";
 const INHERIT = "__inherit__";
 const AGENT_NAMES: Record<ChatAgent, string> = { claude: "Claude", codex: "Codex" };
 
-/** A select of the agent's profiles, with "inherit" first when `inherit` names it. */
 export function ProfileSelect({
   agent,
   profiles,
@@ -26,7 +22,6 @@ export function ProfileSelect({
   value: string | undefined;
   inherit?: string;
   onChange: (id: string | null) => void;
-  /** What it is for, to a screen reader; the agent's name by default. */
   label?: string;
   className?: string;
 }) {

@@ -1,12 +1,3 @@
-/**
- * Waiting on a terminal, for nexus terminal wait and terminal send --wait:
- * until it is idle, has exited, or shows a pattern.
- *
- * Idle is told the best way each terminal allows. Claude Code reports its
- * turns through the app's hooks. Codex and other agents are idle once they
- * raise a notification or stop printing; their spinners print while they
- * work. A plain shell is idle once it holds the foreground again.
- */
 import type { CliTabInfo } from "../../../shared/cli/ui";
 import { isLoginShell } from "../../../shared/pty/login-shell";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
@@ -14,10 +5,6 @@ import { firstMatch, PatternTooSlowError } from "../../infra/security/bounded-ma
 import { terminalState } from "./agent-state";
 import type { CliContext } from "./context";
 
-/**
- * Who waits: the services, and the terminal the command runs in, which the
- * sessions view lists as waiting; none for another device of the user's.
- */
 export type WaitingContext = Pick<CliContext, "services" | "signal"> & {
   readonly caller?: CliContext["caller"];
 };
@@ -28,18 +15,11 @@ import { FIRST_TURN_GRACE_MS } from "./started-agents";
 export const WAIT_POLL_MS = 500;
 export const DEFAULT_WAIT_MS = 10 * 60_000;
 export const MAX_WAIT_MS = 30 * 60_000;
-/** How long an agent's output must stay still for it to count as idle. */
 export const DEFAULT_QUIET_MS = 5_000;
-/**
- * After typing into a terminal, how long a turn or command has to start
- * before the terminal counts as idle anyway (the text started nothing).
- */
 const AGENT_START_GRACE_MS = 10_000;
 const COMMAND_START_GRACE_MS = 2_000;
-/** How much of the screen a --match pattern is looked for in. */
 const MATCH_LINES = 200;
 
-/** Programs that are agents, when the title does not say so. */
 const AGENT_PROGRAMS = /^(claude|codex|gemini|aider|opencode|amp|cursor-agent|goose)$/i;
 
 export type WaitTarget = { kind: "idle" } | { kind: "exit" } | { kind: "match"; pattern: RegExp };
@@ -48,19 +28,12 @@ export interface WaitOptions {
   readonly target: WaitTarget;
   readonly timeoutMs: number;
   readonly quietMs: number;
-  /** When the wait began; for --wait, just before the input was typed. */
   readonly startedAt: number;
-  /** Whether input was just typed, so a turn or command is expected to start. */
   readonly afterInput: boolean;
 }
 
 export interface WaitResult {
-  /** False when the wait timed out. */
   readonly done: boolean;
-  /**
-   * What ended it: idle, completed, needsInput, permissionPending, error, notStarted,
-   * notified, exited, matched, timeout.
-   */
   readonly state: string;
   readonly text: string;
   readonly message?: string;
@@ -106,9 +79,7 @@ function claudeResult(status: string, message: string | undefined): WaitResult {
 
 class Waiter {
   private sawBusy = false;
-  /** Whether the agent worktree new started has begun its first turn. */
   private sawTurn = false;
-  /** When worktree new started the terminal's agent with a prompt, if lately. */
   private readonly agentStartedAt: number | undefined;
 
   constructor(
@@ -123,11 +94,6 @@ class Waiter {
     );
   }
 
-  /**
-   * Whether the agent worktree new started is yet to begin its first turn:
-   * its command not typed or not running yet, or Claude Code idle at its
-   * start. Not past FIRST_TURN_GRACE_MS, for a command that started nothing.
-   */
   private beforeFirstTurn(now: number): boolean {
     const startedAt = this.agentStartedAt;
     return startedAt !== undefined && !this.sawTurn && now - startedAt < FIRST_TURN_GRACE_MS;
@@ -141,7 +107,6 @@ class Waiter {
     return now - this.options.startedAt;
   }
 
-  /** The result if the wait is over, else null. */
   async check(now: number): Promise<WaitResult | null> {
     const tabs = (await this.services.ui("tabs.list", { workspaceId: this.workspace.id })).tabs;
     const current = tabs.find((t) => t.id === this.tab.id);
@@ -178,7 +143,6 @@ class Waiter {
         this.sawTurn = true;
         return null;
       }
-      // A turn that ended between two looks.
       const { turnStartedAt } = claude;
       const { agentStartedAt } = this;
       if (
@@ -192,8 +156,6 @@ class Waiter {
       const started =
         !afterInput || this.sawBusy || (turnStartedAt !== undefined && turnStartedAt >= startedAt);
       if (started) return claudeResult(claude.status, claude.message);
-      // The text started no turn, as a slash command may not: what Claude
-      // Code last said is from an earlier turn.
       return this.elapsed(now) >= AGENT_START_GRACE_MS
         ? settled("notStarted", "Claude Code started no turn from the input.")
         : null;
@@ -222,8 +184,6 @@ class Waiter {
       return settled("notified", `${tab.title} says: ${oneLine(message, 500)}`, message);
     }
     const lastOutput = activity?.lastOutputAt ?? 0;
-    // Output from a started agent is its turn; not Claude Code's, which
-    // prints as it starts and tells its turns through the hooks.
     const claudeStarting = state.agent === "claude" || program === "claude";
     const { agentStartedAt } = this;
     if (agentStartedAt !== undefined && !claudeStarting && lastOutput >= agentStartedAt) {
@@ -237,7 +197,6 @@ class Waiter {
   }
 }
 
-/** Waits on a terminal as `options` say; never throws for a timeout. */
 export async function waitOnTerminal(
   ctx: WaitingContext,
   workspace: WorkspaceMeta,
@@ -259,7 +218,6 @@ export async function waitOnTerminal(
       const now = clock.now();
       const result = await waiter.check(now);
       if (result) return result;
-      // A client that has gone (Ctrl-C) waits no more, nor shows as waiting.
       if (now >= deadline || ctx.signal?.aborted) {
         return {
           done: false,

@@ -1,10 +1,9 @@
-/**
- * nexus chat ... --device and tab close --device: another computer's
- * Claude and Codex tabs, read and driven through the remote's room, the
- * output as the local commands print it.
- */
 import { describe, expect, test } from "bun:test";
-import type { RemoteSession } from "../../../../packages/remote-protocol/src";
+import {
+  AGENT_CONSENT_MS,
+  type RemoteSession,
+  UNTIMED_CONSENT_SCHEMA,
+} from "../../../../packages/remote-protocol/src";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import type { CliCaller, CliDevice } from "../../../../src/main/features/cli/context";
 import { runCli } from "../../../../src/main/features/cli/registry";
@@ -53,7 +52,6 @@ const STATUS = {
 
 type Handler = (params: Record<string, unknown>) => unknown;
 
-/** "MacBook" with "Mac mini" online, taking agents' requests; `handlers` answer its methods. */
 function withPeer(handlers: Record<string, Handler> = {}): FakeApp {
   const app = fakeApp(NOW);
   const device = (over: Partial<CliDevice> & Pick<CliDevice, "id" | "name">): CliDevice => ({
@@ -89,7 +87,6 @@ function withPeer(handlers: Record<string, Handler> = {}): FakeApp {
 
 const AGENT = { workspaceId: APP, tabId: CLAUDE_TAB };
 const USER = { workspaceId: APP, tabId: SHELL_TAB };
-/** What the user runs at a shell goes there as an agent in that terminal: it is not told from one. */
 const FROM_SHELL = { kind: "terminal", ...USER };
 
 function unrestrictedCaller(app: FakeApp): CliCaller {
@@ -161,7 +158,6 @@ describe("chat send --device", () => {
       device: { id: MINI, name: "Mac mini" },
       text: "hi",
     });
-    // Sent without --wait: the agent there is told to write back.
     expect(asked(app, "chat.send")[0]).toMatchObject({ from: { ...FROM_SHELL, waits: false } });
   });
 
@@ -220,6 +216,34 @@ describe("chat send --device", () => {
       "x",
     ]);
     expect(ws.stderr).toBe('nexus: no workspace on "Mac mini" "api"\n');
+  });
+});
+
+describe("how long an agent's request to another computer waits", () => {
+  const sendTimeout = async (schema: string) => {
+    const app = withPeer({ "chat.send": () => ({ at: NOW + 5 }) });
+    const mini = app.peers.devices[1] as CliDevice;
+    app.peers.devices[1] = { ...mini, schema };
+    await nexus(app, ["chat", "send", "Review", "hi", "--device", "Mac mini"], AGENT);
+    return app.peers.requests.find((r) => r.method === "chat.send")?.timeoutMs;
+  };
+
+  test("one that waits for its user without a limit is waited for so too", async () => {
+    expect(await sendTimeout(UNTIMED_CONSENT_SCHEMA)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  test("an older one, which gives up, is waited for as long as it asks", async () => {
+    expect(await sendTimeout("0.28.0")).toBe(AGENT_CONSENT_MS + 70_000);
+  });
+
+  test("a read is not waited for without a limit", async () => {
+    const app = withPeer();
+    const mini = app.peers.devices[1] as CliDevice;
+    app.peers.devices[1] = { ...mini, schema: UNTIMED_CONSENT_SCHEMA };
+    await nexus(app, ["session", "list", "--device", "Mac mini"], AGENT);
+    const list = app.peers.requests.find((r) => r.method === "sessions.list");
+    expect(list).toBeDefined();
+    expect(list?.timeoutMs).not.toBe(Number.POSITIVE_INFINITY);
   });
 });
 

@@ -8,12 +8,10 @@ import (
 	"testing"
 )
 
-// TestBranchDeleteUnmerged verifies that BranchDelete returns force-delete hint for unmerged branch.
 func TestBranchDeleteUnmerged(t *testing.T) {
 	t.Parallel()
 	root := newRepo(t)
 
-	// Create unmerged branch with a commit.
 	runGit(t, root, "checkout", "-b", "unmerged")
 	writeFile(t, filepath.Join(root, "topic.txt"), "topic\n")
 	runGit(t, root, "add", "topic.txt")
@@ -41,7 +39,6 @@ func TestBranchDeleteUnmerged(t *testing.T) {
 	}
 }
 
-// TestBranchFastForwardClean verifies BranchFastForward advances the branch.
 func TestBranchFastForwardClean(t *testing.T) {
 	t.Parallel()
 	_, client := newRemoteAndClient(t, true)

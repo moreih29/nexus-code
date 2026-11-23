@@ -1,11 +1,3 @@
-/**
- * A remote terminal the user closed, or was told had ended, must not keep
- * running on the agent's daemon. Its kill can be lost on a link that is
- * failing, it can overtake the tab's spawn, and a daemon the app reattaches to
- * (reconnect, re-authentication, Connect, app restart) still runs every
- * session of the outage. The agent host kills, when it reaches the daemon
- * again, every session no tab wants: closed, ended, or unknown to the app.
- */
 import { describe, expect, test } from "bun:test";
 import type { AgentPtyWorkspaceManager } from "../../../../../src/main/features/pty/agent-host";
 import { startAgentPtyHost } from "../../../../../src/main/features/pty/agent-host";
@@ -22,22 +14,15 @@ const TAB_A = "11111111-1111-4111-8111-111111111111";
 const TAB_B = "22222222-2222-4222-8222-222222222222";
 const TAB_X = "33333333-3333-4333-8333-333333333333";
 
-/** A daemon's channel: the sessions it runs, and what it was asked. */
 class FakeDaemonChannel implements AgentChannel {
   readonly ready = Promise.resolve();
   readonly calls: Array<{ method: string; tabId?: string }> = [];
-  /** Tab ids the daemon runs a session for. */
   readonly sessions = new Set<string>();
-  /** When set, pty.kill fails with it, as on a link that went down. */
   killError: Error | null = null;
-  /** When set, pty.spawn answers only once it resolves. */
   spawnGate: Promise<void> | null = null;
-  /** When set, pty.spawn fails with it; `spawnStarts` says whether the shell started. */
   spawnError: Error | null = null;
   spawnStarts = false;
-  /** When set, a killed session exits only once it resolves. */
   exitGate: Promise<void> | null = null;
-  /** When set, session.list fails with it, once `onList` ran (a link that drops). */
   listError: Error | null = null;
   onList: (() => void) | null = null;
   readonly order: string[] = [];
@@ -63,8 +48,6 @@ class FakeDaemonChannel implements AgentChannel {
       case "pty.kill":
         this.order.push(`kill sent ${tabId}`);
         if (this.killError) throw this.killError;
-        // The agent answers the kill before the session is gone, and then
-        // tells its exit.
         if (tabId && this.sessions.has(tabId)) void this.exitLater(tabId);
         return {} as T;
       case "session.list":
@@ -125,7 +108,6 @@ class FakeDaemonChannel implements AgentChannel {
   }
 }
 
-/** A workspace manager whose channel can be replaced, as a new connection does. */
 function makeManager(first: FakeDaemonChannel, reached?: () => Promise<void>) {
   let channel = first;
   const readyListeners = new Set<(workspaceId: string) => void>();
@@ -144,7 +126,6 @@ function makeManager(first: FakeDaemonChannel, reached?: () => Promise<void>) {
   };
   return {
     manager,
-    /** A new connection: its provider is ready on `next`. */
     connect(next: FakeDaemonChannel) {
       channel = next;
       for (const listener of readyListeners) listener(WS);
@@ -171,8 +152,6 @@ describe("a closed tab whose kill was lost", () => {
     await host.call("spawn", spawnArgs(TAB_A));
     await host.call("spawn", spawnArgs(TAB_B));
 
-    // Unstable link: the kill goes out on an ssh that is already dead, and
-    // fails once ServerAlive gives up on it.
     channel.killError = createAgentReconnectError("agent.reconnect-in-progress");
     await host.call("kill", { workspaceId: WS, tabId: TAB_A }).catch(() => {});
     channel.killError = null;
@@ -198,13 +177,10 @@ describe("a closed tab whose kill was lost", () => {
     await host.call("spawn", spawnArgs(TAB_A));
 
     first.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
-    // Closed while reconnecting: the kill waits in the reconnect queue and
-    // times out there.
     first.killError = createAgentReconnectError("agent.reconnect-timeout");
     await host.call("kill", { workspaceId: WS, tabId: TAB_A }).catch(() => {});
     first.emitLifecycle({ type: "failure", error: new Error("ssh.auth-failed") });
 
-    // The password is asked again, and the app is back on the same daemon.
     const second = new FakeDaemonChannel();
     second.sessions.add(TAB_A);
     connect(second);
@@ -229,11 +205,9 @@ describe("a tab the app showed as ended", () => {
 
     first.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
     first.emitLifecycle({ type: "failure", error: new Error("ssh.auth-failed") });
-    // Re-authentication cancelled: the terminal says its session expired.
     host.releaseHeld(WS);
     expect(expired.map((e) => e.tabId)).toEqual([TAB_A]);
 
-    // Connect, within the daemon's grace: the same daemon still runs it.
     const second = new FakeDaemonChannel();
     second.sessions.add(TAB_A);
     connect(second);
@@ -255,7 +229,6 @@ describe("a tab the app showed as ended", () => {
     const second = new FakeDaemonChannel();
     second.sessions.add(TAB_A);
     connect(second);
-    // Reopen: the tab wants a session again.
     await host.call("spawn", spawnArgs(TAB_A));
     await settle();
 
@@ -266,9 +239,6 @@ describe("a tab the app showed as ended", () => {
 describe("the sessions of a daemon the app reattaches to", () => {
   test("those of tabs the app no longer has are killed; restored tabs keep theirs", async () => {
     const channel = new FakeDaemonChannel();
-    // After an app restart: the daemon runs A, which a saved tab will
-    // reattach to, and X, whose tab was closed while its kill could not
-    // reach the daemon.
     channel.sessions.add(TAB_A);
     channel.sessions.add(TAB_X);
     const { manager, connect } = makeManager(channel);
@@ -281,7 +251,6 @@ describe("the sessions of a daemon the app reattaches to", () => {
 
     expect(channel.kills(TAB_X)).toBe(1);
     expect(channel.kills(TAB_A)).toBe(0);
-    // The restored tab then attaches to its session.
     const result = await host.call("spawn", spawnArgs(TAB_A));
     expect(result).toEqual({ pid: 1, attached: true });
   });
@@ -320,7 +289,6 @@ describe("the sessions of a daemon the app reattaches to", () => {
     await host.call("kill", { workspaceId: WS, tabId: TAB_A }).catch(() => {});
     channel.killError = null;
 
-    // No live tab left: nothing is held over the outage.
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
     channel.emitLifecycle({ type: "ready" });
     await settle();
@@ -390,8 +358,6 @@ describe("a held tab", () => {
     await host.call("spawn", spawnArgs(TAB_A));
 
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
-    // Back, and gone again under session.list: its call fails as the
-    // channel starts reconnecting once more.
     channel.listError = createAgentReconnectError("agent.reconnect-in-progress");
     channel.onList = () =>
       channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
@@ -415,8 +381,6 @@ describe("a held tab", () => {
     await host.call("spawn", spawnArgs(TAB_A));
 
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
-    // Opened while reconnecting: its spawn waits in the reconnect queue, and
-    // the agent answers it after it answers the session list.
     let answerSpawn = () => {};
     channel.spawnGate = new Promise<void>((resolve) => {
       answerSpawn = resolve;
@@ -455,7 +419,6 @@ describe("an ended tab reopened", () => {
     await settle();
     expect(second.kills(TAB_A)).toBe(1);
 
-    // Reopen, while the killed session has not exited yet.
     const exits: Array<{ tabId: string }> = [];
     host.on("exit", (a) => exits.push(a as { tabId: string }));
     const reopening = host.call("spawn", spawnArgs(TAB_A));
@@ -479,7 +442,6 @@ describe("an ended tab reopened", () => {
     first.emitLifecycle({ type: "failure", error: new Error("ssh.auth-failed") });
     host.releaseHeld(WS);
 
-    // The daemon still runs it. Reopen fails, its link dropping again.
     const second = new FakeDaemonChannel();
     second.sessions.add(TAB_A);
     second.spawnError = createAgentReconnectError("agent.reconnect-in-progress");

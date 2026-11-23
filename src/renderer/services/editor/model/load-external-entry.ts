@@ -1,9 +1,3 @@
-// Sibling loader for external (out-of-workspace) files.
-// Intentionally does NOT reuse loadEntry — external files are read-only previews,
-// so they skip dirty tracking, fs.changed subscriptions, and LSP open: there is no
-// edit lifecycle to track, and routing LSP traffic for an unrelated workspace would
-// confuse server roots.
-
 import { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
 import { workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
@@ -17,11 +11,6 @@ export async function loadExternalEntry(input: {
   workspaceId: string;
   filePath: string;
 }): Promise<ModelEntry> {
-  // cacheUri identifies the Monaco model and the entry in our cache map.
-  // It is workspace-scoped so the same physical file opened from two
-  // different workspaces produces two independent entries (see
-  // workspace-uri.ts). lspUri is the canonical file:// form we send to
-  // the LSP server and use in IPC payloads — workspace-blind by design.
   const cacheUri = workspaceUriFor(input.workspaceId, input.filePath);
   const lspUri = absolutePathToFileUri(input.filePath);
   const monaco = requireMonaco();

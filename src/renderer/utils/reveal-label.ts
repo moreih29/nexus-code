@@ -1,10 +1,3 @@
-/**
- * Platform-native label for revealing a file in the OS file manager, as
- * VSCode words it: Finder on macOS, File Explorer on Windows, and the
- * containing folder elsewhere. Read at call time so it follows the UI
- * language.
- */
-
 import i18next from "i18next";
 import { hostPlatform } from "./platform";
 

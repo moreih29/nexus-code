@@ -3,7 +3,7 @@ import { toSlashPath } from "../../../shared/fs/drive-path";
 import type { NoteLink } from "../../../shared/notes/links";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { ipcCallResult } from "../../ipc/client";
-import { isWithinWorkspace, relPath } from "../../utils/path";
+import { isWithinWorkspace, relativeTo } from "../../utils/path";
 import type { ListedSession } from "../chat/sessions";
 import { claudeSessions, codexThreads } from "../remote/history";
 
@@ -22,8 +22,7 @@ export function conversationHistoryKey(
   const root = toSlashPath(workspace.rootPath).replace(/\/+$/, "") || "/";
   const cwd = toSlashPath(link.cwd);
   if (!isWithinWorkspace(cwd, root)) return undefined;
-  // The directory is checked through the workspace's host (local, SSH or WSL).
-  return [link.agent, workspace.id, link.cwd, relPath(cwd, root)];
+  return [link.agent, workspace.id, link.cwd, relativeTo(cwd, root)];
 }
 
 export async function readConversationHistory(

@@ -1,9 +1,3 @@
-/**
- * The account key and its locked bundle (packages/remote-protocol's
- * ACCOUNT_KEYS.md): making the key, locking it with the account password
- * for the server to keep, opening it again, and the room key frames are
- * sealed with.
- */
 import { createHash, hkdfSync } from "node:crypto";
 import {
   ACCOUNT_AUTH_INFO,
@@ -19,14 +13,12 @@ import { sodium } from "./sodium";
 
 export const ACCOUNT_KEY_BYTES = 32;
 
-/** The password did not open the bundle. */
 export class WrongPasswordError extends Error {
   constructor() {
     super("the account password is not right");
   }
 }
 
-/** The bundle asks more of Argon2id than this app opens one with (MAX_OPEN_KDF). */
 export class KdfTooHeavyError extends Error {
   constructor(kdf: Kdf) {
     super(
@@ -35,12 +27,10 @@ export class KdfTooHeavyError extends Error {
   }
 }
 
-/** The password as the key is made from it: NFKC, so it types the same on every system. */
 export function normalizePassword(password: string): string {
   return password.normalize("NFKC");
 }
 
-/** Whether the password is long enough, counted in characters as the user sees them. */
 export function passwordLongEnough(password: string): boolean {
   return [...normalizePassword(password)].length >= MIN_PASSWORD_LENGTH;
 }
@@ -61,18 +51,11 @@ async function passwordKey(password: string, kdf: Kdf): Promise<Uint8Array> {
   );
 }
 
-/**
- * The password's proof for one bundle (account keys v2): authKey, which a
- * request the server asks the password for carries, and its verifier, which
- * the server keeps with the bundle.
- */
 export interface PasswordProof {
-  /** base64url, for the ACCOUNT_AUTH_HEADER. */
   readonly authKey: string;
   readonly verifier: string;
 }
 
-/** The proof the key `kek` the password makes with a bundle's kdf gives. */
 export function passwordProofOf(kek: Uint8Array): PasswordProof {
   const authKey = new Uint8Array(hkdfSync("sha256", kek, new Uint8Array(0), ACCOUNT_AUTH_INFO, 32));
   return {
@@ -81,7 +64,6 @@ export function passwordProofOf(kek: Uint8Array): PasswordProof {
   };
 }
 
-/** Locks `key` (version `kid`) with the password, under a new salt and nonce; with the new bundle's proof. */
 export async function lockAccountKey(options: {
   key: Uint8Array;
   kid: number;
@@ -116,17 +98,11 @@ export async function lockAccountKey(options: {
   }
 }
 
-/**
- * Opens the bundle with the password, and gives the key with the bundle's
- * proof; a wrong one throws WrongPasswordError, a bundle past MAX_OPEN_KDF
- * KdfTooHeavyError.
- */
 export async function unlockAccountKey(
   bundle: KeyBundle,
   password: string,
   userId: string,
 ): Promise<{ key: Uint8Array; proof: PasswordProof }> {
-  // Argon2id runs on the main process: a bundle that asks too much would hold up the app.
   if (bundle.kdf.ops > MAX_OPEN_KDF.ops || bundle.kdf.mem > MAX_OPEN_KDF.mem) {
     throw new KdfTooHeavyError(bundle.kdf);
   }
@@ -144,7 +120,6 @@ export async function unlockAccountKey(
     if (key.length !== ACCOUNT_KEY_BYTES) throw new WrongPasswordError();
   } catch {
     lib.memzero(kek);
-    // The AEAD check failed: the password is wrong, or the bundle is not this user's.
     throw new WrongPasswordError();
   }
   try {
@@ -154,7 +129,6 @@ export async function unlockAccountKey(
   }
 }
 
-/** The key frames are sealed with: HKDF-SHA256 of the account key. */
 export function roomKeyOf(key: Uint8Array): Uint8Array {
   return new Uint8Array(hkdfSync("sha256", key, new Uint8Array(0), ROOM_KEY_INFO, 32));
 }

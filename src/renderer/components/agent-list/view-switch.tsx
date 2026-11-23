@@ -1,14 +1,11 @@
-// The agent list's view switch: by state or by task, as two icon buttons.
-// A workspace on another computer switches its list with it too.
-
 import { GitBranch, List } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { AgentListView } from "../../../shared/agent-list/view";
+import { tooltipProps } from "../ui/tooltip";
 
 const VIEW_ICONS: Record<AgentListView, typeof List> = { status: List, task: GitBranch };
 
-/** The list by state or by task, as two icon buttons. */
 export function ViewSwitch({
   view,
   onChange,
@@ -30,8 +27,8 @@ export function ViewSwitch({
             key={each}
             type="button"
             aria-pressed={view === each}
-            title={label}
             aria-label={label}
+            {...tooltipProps(label)}
             onClick={() => onChange(each)}
             className={cn(
               "flex size-6 items-center justify-center rounded-[calc(var(--radius-control)-2px)] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-ring",

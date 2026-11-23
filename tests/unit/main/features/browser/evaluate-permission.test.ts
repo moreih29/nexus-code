@@ -1,29 +1,4 @@
-/**
- * Unit tests for evaluatePermission (exported from security.ts).
- *
- * Uses the DI seam: getGlobalGrant and getRemembered are injected as plain
- * functions; no Electron import or mock.module required.
- *
- * Decision matrix:
- *
- *   classifyPermission result | globalAllowed | remembered  | expected
- *   ─────────────────────────────────────────────────────────────────────
- *   auto (e.g. clipboard-sanitized-write) | any   | any         | allow
- *   blocked (e.g. unknown)               | any   | any         | block
- *   blocked (unrecognised string)        | any   | any         | block
- *   prompt (e.g. geolocation)            | true  | any         | allow
- *   prompt                               | false | "allow"     | allow
- *   prompt                               | false | "block"     | block
- *   prompt                               | false | null        | ask
- */
-
-import { describe, expect, test } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Electron mock — must come before importing security.ts
-// ---------------------------------------------------------------------------
-
-import { mock } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 const realElectron = await import("electron").catch(() => ({}));
 mock.module("electron", () => ({
@@ -32,10 +7,6 @@ mock.module("electron", () => ({
 }));
 
 const { evaluatePermission } = await import("../../../../../src/main/features/browser/security");
-
-// ---------------------------------------------------------------------------
-// Fake deps factory
-// ---------------------------------------------------------------------------
 
 function makeDeps(globalAllowed: boolean, remembered: "allow" | "block" | null) {
   return {
@@ -46,10 +17,6 @@ function makeDeps(globalAllowed: boolean, remembered: "allow" | "block" | null) 
 
 const WS = "ws-1";
 const ORIGIN = "https://example.com";
-
-// ---------------------------------------------------------------------------
-// 1. auto permissions — always allow
-// ---------------------------------------------------------------------------
 
 describe("evaluatePermission — auto classified", () => {
   test("clipboard-sanitized-write → allow (globalAllowed=false)", () => {
@@ -71,10 +38,6 @@ describe("evaluatePermission — auto classified", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 2. blocked permissions — always block
-// ---------------------------------------------------------------------------
-
 describe("evaluatePermission — blocked classified", () => {
   test("'unknown' permission → block", () => {
     expect(evaluatePermission(WS, ORIGIN, "unknown", makeDeps(true, "allow"))).toBe("block");
@@ -87,14 +50,6 @@ describe("evaluatePermission — blocked classified", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 3. prompt permissions — defer to the user when nothing is granted or remembered
-//
-// How globalAllowed and remembered combine is resolvePermission's job, covered
-// cell by cell in permission-policy.test.ts. Here we check only that these
-// permissions are classified 'prompt' (neither auto-allowed nor blocked).
-// ---------------------------------------------------------------------------
-
 describe("evaluatePermission — prompt classified", () => {
   test.each([
     "geolocation",
@@ -105,15 +60,6 @@ describe("evaluatePermission — prompt classified", () => {
     expect(evaluatePermission(WS, ORIGIN, permission, makeDeps(false, null))).toBe("ask");
   });
 });
-
-// ---------------------------------------------------------------------------
-// 4. High-risk permissions are 'ask' by default (globalAllowed=false, remembered=null)
-//
-// Security lock: openExternal, fileSystem, and display-capture must never
-// silently auto-allow or auto-block — they must surface a prompt.  If any of
-// these accidentally falls into the 'auto' or 'blocked' classification, this
-// group will fail immediately, preventing silent security regressions.
-// ---------------------------------------------------------------------------
 
 describe("evaluatePermission — high-risk permissions default to ask", () => {
   const highRiskPermissions = ["openExternal", "fileSystem", "display-capture"] as const;

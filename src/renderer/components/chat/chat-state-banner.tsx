@@ -105,9 +105,7 @@ export function ChatSignedOutBanner({
 }: {
   scope: BannerScope;
   status: ChatNoticeStatus;
-  /** Opens a terminal there that signs in, shown here: where this device may. */
   onSignIn?: () => void;
-  /** Asks its program again whether it is signed in: where this device may. */
   onCheck?: () => void;
 }) {
   const { t } = useTranslation();

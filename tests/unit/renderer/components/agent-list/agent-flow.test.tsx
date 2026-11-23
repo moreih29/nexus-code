@@ -1,7 +1,3 @@
-/**
- * An agent's own turn, as a `claude -p` run's pane and an agent's card show
- * it, folds calls in a row into one line as the main conversation does.
- */
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AgentFlow } from "../../../../../src/renderer/components/agent-list/agent-flow";
@@ -41,7 +37,6 @@ test("calls in a row fold into one line that tells what they did", () => {
   );
   expect(runs(html)).toBe(1);
   expect(html).toContain("Ran 2 commands · Read 1 file");
-  // Folded, the calls that ended do not show one by one.
   expect(html).not.toContain(">pwd<");
 });
 

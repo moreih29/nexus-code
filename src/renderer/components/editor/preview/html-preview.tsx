@@ -1,92 +1,7 @@
-// HtmlPreview — renders user-supplied HTML inside a sandboxed iframe.
-//
-// DOCUMENT ADDRESS
-//   The page, with the preamble below, is put in main and the iframe loads
-//   it from nexus-preview://<token>/ (main's custom-protocols/
-//   nexus-preview.ts). A srcdoc document would take on the app window's
-//   Content-Security-Policy, which keeps the app's own frame from running
-//   inline or remote script; a document of a scheme of its own runs under the
-//   looser policy its response carries, as the page would in a browser. The
-//   pane keeps one token while it is open and lets main go of it when it
-//   closes.
-//
-// SECURITY MODEL (plan 60 issue 3, revised v1.2)
-//   Workspace HTML often includes inline scripts and CDN-loaded libraries
-//   (mermaid, chart.js, d3) that the user expects to "just work" — the same
-//   way they would when the file is opened directly in Chrome. Sandbox grants:
-//     - `allow-scripts`  → script execution + CDN fetches.
-//     - `allow-forms`    → form submission. Without it the browser drops a
-//                          submit before the `submit` event fires, so pages
-//                          that handle forms in script stop working. A
-//                          submit only navigates the iframe itself, which
-//                          scripts can already do.
-//     - `allow-modals`   → alert/confirm/prompt, which pages call the way
-//                          they would in Chrome.
-//
-//   Absent tokens we deliberately keep off:
-//     - `allow-same-origin` → iframe at opaque origin; no cross-talk with
-//                             our renderer's globals or storage.
-//     - `allow-top-navigation` → cannot navigate the outer window.
-//     - `allow-popups` → the page cannot call window.open itself. Its
-//        links go through the host (2. below), so main can tell them from
-//        the app's own and let them open only while the keyboard is in the
-//        preview: keys typed in the editor do not let a page's timer open
-//        links.
-//     - `allow-downloads` / `allow-popups-to-escape-sandbox` → keep
-//        workspace HTML on the same restricted floor as scripts inside it.
-//
-//   `allow=""` and `referrerpolicy="no-referrer"` keep Feature-Policy
-//   delegations and Referer leakage on inline-loaded resources locked down.
-//
-//   The `nexus-workspace://` protocol guard in main remains the boundary
-//   that prevents iframe-injected fetches from reading workspace files
-//   the user did not target.
-//
-// INJECTED PREAMBLE
-//   We prepend a tiny CSS + JS preamble into the document so the previewed
-//   document inherits three host behaviours:
-//
-//   1. `::-webkit-scrollbar` — themed to match the app's thin scrollbar.
-//      Colors are neutral semi-transparent grays (the iframe is opaque-
-//      origin, so it cannot read our theme tokens; the chosen alpha works
-//      on both light and dark page backgrounds).
-//
-//   2. Link interception — `document.addEventListener('click', …)` in the
-//      capture phase turns every <a href> click (other than in-page
-//      `#anchor`) into a message asking the host to open the link, its
-//      address resolved against the document's base. The host opens it
-//      with window.open under PREVIEW_LINK_WINDOW; main's
-//      setWindowOpenHandler routes the URL through the allowlist:
-//      http/https/mailto open in the OS default browser, everything else
-//      is denied silently. The page's own window.open asks the host the
-//      same way. Without this interception, clicking a link
-//      would navigate the iframe itself — most external sites refuse
-//      iframe embedding (X-Frame-Options / frame-ancestors), so the user
-//      would see a blank pane and lose the preview.
-//
-//   3. Find — the document finds in its own text (dom-finder.ts, from its
-//      source) when the host's find bar asks, and reports the count back;
-//      ⌘F, ⌘G and Escape in it reach the host's find bar.
-//
-//   4. Scroll persistence — every reload is a brand-new document
-//      that starts at (0, 0). The preamble reports window scroll back to the
-//      host (postMessage), the host remembers it per file, and the next
-//      document is seeded with that position via a
-//      `<meta name="nexus-preview-scroll">` the preamble reads and chases
-//      while late content (images, mermaid, charts) grows the page.
-//
-// RELOAD CADENCE
-//   The first document of a mount is assigned immediately; later source
-//   changes (typing, or an external writer such as an agent / formatter /
-//   git rewriting the file) are trailing-debounced. One reload per burst
-//   instead of one per animation frame keeps the full-document rebuild +
-//   IPC + re-parse off the shared renderer thread (where the terminal also
-//   lives) and collapses truncate-then-write saves into a single reload.
-
 import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { PANE_FRAME_FOCUS_EVENT } from "@/utils/pane-activation";
-import { isWithinWorkspace, relPath } from "@/utils/path";
+import { isWithinWorkspace, relativeTo } from "@/utils/path";
 import { PREVIEW_LINK_WINDOW } from "../../../../shared/window/preview-link";
 import { ipcCallResult } from "../../../ipc/client";
 import {
@@ -111,22 +26,11 @@ import { type FindResult, usePreviewFindBar, usePreviewFinder } from "./preview-
 
 interface HtmlPreviewProps {
   source: string;
-  /** Workspace owning the previewed file — used to resolve sibling resources. */
   workspaceId: string;
-  /** Absolute (POSIX) path of the HTML file being previewed. */
   currentFileAbsPath: string;
-  /** Absolute (POSIX) path of the workspace root. */
   workspaceRootAbsPath: string;
 }
 
-/**
- * CSS + JS we inject at the head of every previewed document.
- *
- * Kept as a single string constant (no template substitution from caller
- * input) so there is no risk of source content leaking into the script
- * body. The script is wrapped in an IIFE to avoid leaking globals into
- * the workspace HTML's own scope.
- */
 const HTML_PREVIEW_PREAMBLE = `<style>
   ::-webkit-scrollbar { width: 10px; height: 8px; }
   ::-webkit-scrollbar-track { background: rgba(127, 127, 127, 0.06); }
@@ -295,10 +199,8 @@ const HTML_PREVIEW_PREAMBLE = `<style>
 })();
 </script>`;
 
-/** Trailing debounce for live-edit reloads (see RELOAD CADENCE). */
 const RELOAD_DEBOUNCE_MS = 300;
 
-/** The longest link address a previewed page may ask the host to open. */
 const MAX_LINK_CHARS = 8192;
 
 interface ScrollPosition {
@@ -306,18 +208,8 @@ interface ScrollPosition {
   y: number;
 }
 
-/**
- * Last scroll position reported by each previewed file's document, keyed by
- * workspace + absolute path. Module-level so it survives HtmlPreview remounts
- * (raw↔preview toggle, a transient read error unmounting the pane) — the next
- * mount's first document restores it.
- */
 const scrollByFile = new Map<string, ScrollPosition>();
 
-/**
- * `<meta>` carrying the restore target for the preamble. Values are coerced to
- * non-negative integers here, so nothing but digits reaches the markup.
- */
 function buildScrollMeta(scroll: ScrollPosition | undefined): string {
   if (!scroll) return "";
   const x = Math.max(0, Math.round(scroll.x) || 0);
@@ -326,22 +218,6 @@ function buildScrollMeta(scroll: ScrollPosition | undefined): string {
   return `<meta name="nexus-preview-scroll" content="${x},${y}">`;
 }
 
-/**
- * Build the `<base href>` tag that lets the iframe resolve relatively-
- * referenced sibling resources (`<script src="x.js">`, `<link href="x.css">`,
- * images, fonts) against the file's on-disk directory via the
- * `nexus-workspace://` protocol — the same disk/agent-served path image and
- * markdown previews already use, so it works for local AND SSH workspaces.
- *
- * Returns "" when the file is not inside the workspace root: we cannot mint a
- * workspace URL for it, so relative resources stay unresolved (same as before
- * this feature) rather than pointing somewhere wrong. The exception is a file
- * whose folder a Claude tab granted (`outsideDirGranted`): its siblings are
- * served from there.
- *
- * MUST be emitted before any resource reference in the document — see
- * injectPreamble, which places it at the very top of <head>.
- */
 function buildBaseTag(
   workspaceId: string,
   currentFileAbsPath: string,
@@ -355,24 +231,14 @@ function buildBaseTag(
   }
   const baseHref = peerOf(workspaceId)
     ? buildOutsideDirUrl(workspaceId, dirAbs)
-    : buildWorkspaceDirUrl(workspaceId, relPath(dirAbs, workspaceRootAbsPath));
+    : buildWorkspaceDirUrl(workspaceId, relativeTo(dirAbs, workspaceRootAbsPath));
   return `<base href="${baseHref}">`;
 }
 
-/**
- * The document served for the source HTML: the base tag + preamble first in
- * its head, after its DOCTYPE (buildPreviewDocument), so nothing precedes the
- * DOCTYPE and the page keeps its mode.
- *
- * The `<base>` must come FIRST so the user's own <link>/<script src> tags
- * (which follow inside their <head>) resolve against it. The scroll meta must
- * precede the preamble script, which reads it synchronously.
- */
 function injectPreamble(source: string, baseTag: string, scrollMeta: string): string {
   return buildPreviewDocument(source, baseTag + scrollMeta + HTML_PREVIEW_PREAMBLE);
 }
 
-/** Main's store of preview documents, over the preview channel. */
 const previewDocumentStore: PreviewDocumentStore = {
   async put(html, token) {
     const result = await ipcCallResult("preview", "putHtml", { token, html });
@@ -383,7 +249,6 @@ const previewDocumentStore: PreviewDocumentStore = {
   },
 };
 
-/** The pane's iframe, as the loader points it at a document. */
 function iframeFrame(el: HTMLIFrameElement): PreviewFrame {
   return {
     setSrc: (url) => {
@@ -400,9 +265,6 @@ export function HtmlPreview({
   workspaceRootAbsPath,
 }: HtmlPreviewProps) {
   const { t } = useTranslation();
-  // No size cap here: the iframe parses off the renderer's main thread, so
-  // large HTML documents render without blocking the UI (unlike markdown/svg).
-  // A sibling of an HTML file outside the workspace is granted with its folder.
   const outsideDirGranted = useOutsideDirGranted(
     workspaceId,
     currentFileAbsPath.slice(0, currentFileAbsPath.lastIndexOf("/")),
@@ -411,7 +273,6 @@ export function HtmlPreview({
     workspaceId,
     currentFileAbsPath,
     workspaceRootAbsPath,
-    // Another computer serves any file of the workspace's folders, which it keeps them to.
     outsideDirGranted || peerOf(workspaceId) !== null,
   );
   const scrollKey = `${workspaceId}\0${currentFileAbsPath}`;
@@ -445,7 +306,6 @@ export function HtmlPreview({
     ),
   );
 
-  // Only accept messages from this preview's iframe.
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
       const el = iframeRef.current;
@@ -484,7 +344,6 @@ export function HtmlPreview({
             postFind({ nexusHtmlPreviewFind: "move", direction: msg.direction === -1 ? -1 : 1 });
           return;
         case "open":
-          // Named, so main knows the link is the page's (PREVIEW_LINK_WINDOW).
           if (typeof msg.href === "string" && msg.href.length <= MAX_LINK_CHARS) {
             window.open(msg.href, PREVIEW_LINK_WINDOW, "noopener,noreferrer");
           }
@@ -500,8 +359,6 @@ export function HtmlPreview({
     return () => window.removeEventListener("message", onMessage);
   }, [scrollKey, findBar, postFind]);
 
-  // The pane's document in main (DOCUMENT ADDRESS), let go of when the
-  // pane closes: its tab, the raw↔preview toggle, its window.
   const loaderRef = useRef<PreviewDocumentLoader | null>(null);
   useEffect(() => {
     const loader = new PreviewDocumentLoader(previewDocumentStore, () => {
@@ -515,15 +372,6 @@ export function HtmlPreview({
     };
   }, []);
 
-  // The iframe element stays mounted across live edits (no remount cascade);
-  // its document is reloaded instead. PreviewPane already unmounts/remounts
-  // HtmlPreview around the raw↔preview toggle, so the "empty → first
-  // content" path also goes through this effect on fresh mount.
-  //
-  // The document string is built only when it is actually assigned, and the
-  // "did anything change" check compares the inputs (usually the identical
-  // string instance from the model) instead of the potentially multi-megabyte
-  // document.
   const assignedRef = useRef<{ source: string; baseTag: string } | null>(null);
   useEffect(() => {
     const el = iframeRef.current;
@@ -552,7 +400,6 @@ export function HtmlPreview({
         allow=""
         referrerPolicy="no-referrer"
         title={t("preview.html_title")}
-        // A new document of a changed file is found in again.
         onLoad={() => {
           const find = findRef.current;
           if (find) postFind({ nexusHtmlPreviewFind: "search", ...find });

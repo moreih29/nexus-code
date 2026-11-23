@@ -1,9 +1,5 @@
-/**
- * formatBytes: a byte count as people read it, the unit picked after
- * rounding, so a size just under a unit reads as one of it.
- */
 import { describe, expect, test } from "bun:test";
-import { formatBytes } from "../../../../src/renderer/utils/format-bytes";
+import { formatBytes } from "../../../src/shared/util/format-bytes";
 
 describe("formatBytes", () => {
   test("bytes, then KB and MB, to one decimal under 10", () => {

@@ -117,7 +117,6 @@ describe("fetchReleaseNotes", () => {
       kind: "error",
       reason: "http",
     });
-    // A 304 with nothing kept is no answer.
     expect(await fetchReleaseNotes({ channel: "stable", fetchImpl: answer(304) })).toEqual({
       kind: "error",
       reason: "http",

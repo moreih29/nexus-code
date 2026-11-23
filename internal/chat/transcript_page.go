@@ -10,10 +10,12 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"sync"
 
+	"github.com/nexus-code/nexus-code/internal/claudefiles"
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
@@ -79,9 +81,6 @@ func (s *transcriptSnapshot) id() string {
 	return base64.RawURLEncoding.EncodeToString(s.key[:16])
 }
 
-// The cursor carries a signed, exclusive file position and the start of a
-// large row if the preceding page stopped inside it. The file identity and
-// profile stay in the agent's bounded snapshot cache.
 func (s *transcriptSnapshot) cursor(pos, fragment int64, anchor [32]byte) string {
 	var token [80]byte
 	copy(token[:16], s.key[:16])
@@ -120,17 +119,15 @@ func (c *transcriptSnapshotCache) decode(encoded string) (*transcriptSnapshot, i
 
 var errStaleTranscriptCursor = proto.NewError("chat.transcript-cursor-stale", "the transcript changed or its snapshot expired")
 
-// TranscriptPage reads a bounded page of the same retained transcript window
-// as Transcript. Append-only changes remain beyond the snapshot's fixed end.
 func (s *Service) TranscriptPage(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p transcriptPageParams
-	if err := decodeParams(raw, &p, "chat.transcriptPage params must include sessionId"); err != nil {
+	if err := proto.DecodeParams(raw, &p, "chat.transcriptPage params must include sessionId"); err != nil {
 		return nil, err
 	}
 	if !sessionIDPattern.MatchString(p.SessionID) ||
 		(p.Cursor != "" && p.BeforeAnchor != "") ||
 		((p.Cursor != "" || p.BeforeAnchor != "") && (len(p.Before) > 0 || p.UpTo != "")) {
-		return nil, protocolError("invalid chat.transcriptPage params")
+		return nil, proto.ProtocolError("invalid chat.transcriptPage params")
 	}
 	page, err := s.readTranscriptPage(ctx, p, transcriptCapBytes, transcriptPageBytes)
 	if err != nil {
@@ -140,7 +137,7 @@ func (s *Service) TranscriptPage(ctx context.Context, raw json.RawMessage) (any,
 		if err == errStaleTranscriptCursor {
 			return nil, err
 		}
-		return nil, requestFailed("chat.transcriptPage: %s", err)
+		return nil, proto.RequestFailed("chat.transcriptPage: the transcript could not be read: %s", proto.Reason(err))
 	}
 	return page, nil
 }
@@ -151,7 +148,7 @@ func (s *Service) readTranscriptPage(ctx context.Context, p transcriptPageParams
 		return page, err
 	}
 	dir := configDir(p.ConfigDir)
-	path := transcriptPath(dir, p.SessionID)
+	path, found := claudefiles.FindSession(dir, p.SessionID)
 	var snapshot *transcriptSnapshot
 	var pos, fragment int64
 	var boundary [32]byte
@@ -164,18 +161,14 @@ func (s *Service) readTranscriptPage(ctx context.Context, p transcriptPageParams
 	if path == "" {
 		return page, nil
 	}
-	file, err := os.Open(path)
+	file, info, err := claudefiles.Open(claudefiles.ProjectsDir(dir), path, found)
 	if err != nil {
-		if snapshot != nil && os.IsNotExist(err) {
+		if snapshot != nil && (os.IsNotExist(err) || errors.Is(err, claudefiles.ErrNotFoundFile)) {
 			return page, errStaleTranscriptCursor
 		}
 		return page, err
 	}
 	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return page, err
-	}
 	if snapshot == nil {
 		snapshot = &transcriptSnapshot{session: p.SessionID, dir: dir, path: path, info: info, floor: max(0, info.Size()-retention), end: info.Size()}
 		if _, err := rand.Read(snapshot.key[:]); err != nil {
@@ -224,7 +217,7 @@ func (s *Service) readTranscriptPage(ctx context.Context, p transcriptPageParams
 	if err := ctx.Err(); err != nil {
 		return page, err
 	}
-	current, err := os.Stat(path)
+	current, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		return page, errStaleTranscriptCursor
 	}
@@ -286,9 +279,6 @@ func cursorAnchor(file *os.File, snapshot *transcriptSnapshot, pos int64) ([32]b
 	return sha256.Sum256(part), err
 }
 
-// A finished page can be resumed across agent lifetimes. Fingerprint bytes
-// on the displayed side of its exclusive boundary so an append leaves it
-// valid. The new agent still verifies that boundary against the session file.
 const transcriptBeforeAnchorSize = 8 + 2 + sha256.Size
 
 func transcriptBeforeAnchor(file *os.File, pos, end int64) (string, error) {
@@ -327,8 +317,6 @@ func transcriptEndBeforeAnchor(file *os.File, snapshot *transcriptSnapshot, anch
 	return pos, block[0] == '\n' && bytes.Equal(hash[:], token[10:]), nil
 }
 
-// A cut uses the first matching UUID in the retained window, as the
-// renderer's full-transcript cut did. It does not transfer the scan.
 func transcriptCutEnd(ctx context.Context, file *os.File, snapshot *transcriptSnapshot, p transcriptPageParams) (int64, bool, error) {
 	reader := bufio.NewReaderSize(io.NewSectionReader(file, snapshot.floor, snapshot.end-snapshot.floor), transcriptReadBlock)
 	before := make(map[string]bool, len(p.Before))
@@ -441,7 +429,6 @@ func (r *transcriptReverseReader) read(start, end int64) ([]byte, error) {
 }
 
 func (p *transcriptPage) readLines(r *transcriptReverseReader, pos int64, budget int) (int64, int64, error) {
-	// Allow space for the RPC envelope, cursor and per-row positions.
 	remaining := budget - transcriptPageOverhead
 	turns, turnRows, turnPos := 0, 0, int64(0)
 	for pos > r.floor {
@@ -502,7 +489,6 @@ func (p *transcriptPage) readLines(r *transcriptReverseReader, pos int64, budget
 }
 
 func (p *transcriptPage) readFragment(r *transcriptReverseReader, end, start int64, budget int, last bool) (int64, int64, error) {
-	// Base64 keeps a cut through a UTF-8 character or JSON escape reversible.
 	pos := max(start, end-int64((budget-transcriptPageOverhead)/4*3))
 	data, err := r.read(pos, end)
 	if err != nil {

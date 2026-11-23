@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { AGENT_PROTOCOL_VERSION } from "../../../src/shared/agent/envelope";
 import { AgentManifestSchema } from "../../../src/shared/agent/manifest";
 
-// Minimal valid manifest fixture — reused across tests.
 const BASE_MANIFEST = {
   version: "0.1.0",
   protocolVersion: AGENT_PROTOCOL_VERSION,
@@ -32,7 +31,6 @@ const BASE_MANIFEST = {
 };
 
 describe("AgentManifestSchema — wrapper field", () => {
-  // Acceptance test 1: manifest with a wrapper field → round-trip
   test("wrapper 필드 포함 manifest round-trip", () => {
     const input = {
       ...BASE_MANIFEST,
@@ -52,7 +50,6 @@ describe("AgentManifestSchema — wrapper field", () => {
     expect(parsed.binaries).toHaveLength(1);
   });
 
-  // Acceptance test 2: old manifest without a wrapper field → parse succeeds, wrapper === undefined
   test("wrapper 필드 없는 구버전 manifest 파싱 성공 (wrapper === undefined)", () => {
     const parsed = AgentManifestSchema.parse(BASE_MANIFEST);
     expect(parsed.wrapper).toBeUndefined();

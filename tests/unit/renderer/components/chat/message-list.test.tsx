@@ -55,7 +55,6 @@ test("the notice is absent with complete history or while older messages can sti
   expect(render(true, WINDOW_ITEMS + 2)).not.toContain(en.chat.history_truncated);
 });
 
-/** The chips of a message that attached `files`, under `links`: which open quick look. */
 function attachedChips(files: string[], links: ChatLinks) {
   const item: UserItem = {
     kind: "user",
@@ -77,7 +76,6 @@ function attachedChips(files: string[], links: ChatLinks) {
       />
     </ChatLinksContext.Provider>,
   );
-  // Each shows as a chip of its name, a button or not.
   for (const file of files) expect(html).toContain(`title="${file}"`);
   const buttons = [
     ...html.matchAll(/data-testid="chat-attached-image"[^>]*>.*?<span[^>]*>([^<]+)</g),
@@ -102,8 +100,6 @@ test("in a chat here, every attached image's chip opens quick look", () => {
 });
 
 test("in another computer's chat, only the chips of images that computer serves open it", () => {
-  // As remote-links answers for that computer's workspace w1 at /p: an image its agent wrote,
-  // for this tab or another the conversation went on from, or one in the workspace.
   const opensAttached = (written: string) => {
     const file = resolveFilePath(written, "/p");
     return file !== null && servedAttachment("w1", "/p", file);
@@ -124,13 +120,11 @@ test("in a chat here, the chip of an attached image no longer kept only names it
     "dropped.png",
     "inside.png",
   ]);
-  // Until the lookup answers, none is gone: every chip opens, none flickers to a name first.
   expect(
     attachedChips(ATTACHED, { ...links, opensAttached: attachedOpens(new Set(), "/p") }),
   ).toEqual(["dropped.png", "inside.png", "sent.png"]);
 });
 
-/** A subagent's transcript whose one call gave an image, and its answer. */
 function transcript(itemsDone: boolean) {
   const items: ChatItem[] = [
     { kind: "user", key: "prompt", text: "look", images: [], state: "taken" },
@@ -169,6 +163,5 @@ function transcript(itemsDone: boolean) {
 
 test("a subagent's answer ends with what its calls gave once it ended, as a turn's does", () => {
   expect(transcript(true)).toContain('data-testid="chat-answer-extras"');
-  // While it runs, its answer is not its last yet.
   expect(transcript(false)).not.toContain('data-testid="chat-answer-extras"');
 });

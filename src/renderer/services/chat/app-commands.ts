@@ -1,8 +1,3 @@
-// Commands the Claude tab runs itself: Claude Code's built-ins that its
-// headless mode lacks (/copy, /btw, /memory…), done in the GUI. A command
-// the CLI lists under the same name is the CLI's, so a Claude Code that
-// gains one runs its own. Pure, for the tab and its tests.
-
 import {
   type AssistantItem,
   type ChatItem,
@@ -65,19 +60,12 @@ function namesOf(command: { name: string; aliases?: string[] }): string[] {
   return [command.name, ...(command.aliases ?? [])].map((n) => n.toLowerCase());
 }
 
-/**
- * The CLI's commands the `/` menu leaves out: /insights shows nothing in a
- * headless run, and the app makes no screen for it. Typed out, it still goes
- * to the CLI.
- */
 const UNLISTED = new Set(["insights"]);
 
-/** The CLI's commands as the composer's list shows them. */
 export function listedCommands(cli: readonly CommandInfo[]): CommandInfo[] {
   return cli.filter((c) => !UNLISTED.has(c.name.toLowerCase()));
 }
 
-/** The app's commands that the CLI does not have, described for the composer's list. */
 export function appCommandsBeside(
   cli: readonly CommandInfo[],
   describe: (name: string) => string,
@@ -94,7 +82,6 @@ export function appCommandsBeside(
 
 const COMMAND_RE = /^\/(\S+)(?:\s+([\s\S]*))?$/;
 
-/** The app command a message calls, and what follows it; null for a message to send. */
 export function parseAppCommand(
   text: string,
   cli: readonly CommandInfo[],
@@ -107,19 +94,15 @@ export function parseAppCommand(
   return command ? { name: command.name, args: (match[2] ?? "").trim() } : null;
 }
 
-/**
- * The CLI's commands that, typed with nothing after them, the tab answers
- * by showing its own view of the same thing rather than the CLI's text.
- */
 const SHOWN_WHEN_BARE: Readonly<Record<string, RevealPart>> = {
   context: "context",
   usage: "usage",
   mcp: "mcp",
   model: "model",
   effort: "effort",
+  changes: "changes",
 };
 
-/** The part of the tab a bare command shows; null for one that has arguments, or another. */
 export function revealOf(text: string, parts?: readonly RevealPart[]): RevealPart | null {
   const match = COMMAND_RE.exec(text.trim());
   if (!match || (match[2] ?? "").trim()) return null;
@@ -127,7 +110,6 @@ export function revealOf(text: string, parts?: readonly RevealPart[]): RevealPar
   return part && (!parts || parts.includes(part)) ? part : null;
 }
 
-/** What Claude said in each turn, oldest first: its text, without the tools. */
 export function answersOf(items: readonly ChatItem[]): string[] {
   const answers: string[] = [];
   let turn: AssistantItem[] = [];
@@ -147,19 +129,16 @@ export function answersOf(items: readonly ChatItem[]): string[] {
   return answers;
 }
 
-/** The Nth answer from the end (1: the last); null when there are fewer. */
 export function nthAnswer(items: readonly ChatItem[], n: number): string | null {
   const answers = answersOf(items);
   return n >= 1 && n <= answers.length ? answers[answers.length - n] : null;
 }
 
-/** /copy's N: a whole number from 1, or 1 when none is given; null when it is not one. */
 export function copyIndex(args: string): number | null {
   if (!args) return 1;
   return /^[1-9]\d*$/.test(args) ? Number(args) : null;
 }
 
-/** The conversation as Markdown: what was asked, what Claude said, and the tools it used. */
 export function conversationMarkdown(
   items: readonly ChatItem[],
   tools: Readonly<Record<string, ToolCall>>,
@@ -212,7 +191,6 @@ export function conversationMarkdown(
   return `${parts.join("\n\n")}\n`;
 }
 
-/** Where /export writes when no name is given: the time, then the first message's words. */
 export function exportFileName(items: readonly ChatItem[], now: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   const stamp =
@@ -231,10 +209,6 @@ export function exportFileName(items: readonly ChatItem[], now: Date): string {
   return `${stamp}${slug ? `-${slug}` : ""}.md`;
 }
 
-/**
- * Where /export writes `name`, relative to the workspace root: under the
- * tab's folder; null for a name that leaves it, or a folder outside the root.
- */
 export function exportRelPath(name: string, cwd: string, rootPath: string): string | null {
   const trimmed = name.trim();
   if (!trimmed || trimmed.startsWith("/") || /^[A-Za-z]:/.test(trimmed)) return null;
@@ -247,10 +221,8 @@ export function exportRelPath(name: string, cwd: string, rootPath: string): stri
   return [under, ...parts].filter(Boolean).join("/");
 }
 
-/** Words a formatter takes from the tab's language. */
 export type Words = (key: string, options?: Record<string, unknown>) => string;
 
-/** Inline code that holds any text: a fence longer than the backticks in it. */
 export function code(text: string): string {
   const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map((m) => m[0].length));
   const fence = "`".repeat(longest + 1);
@@ -258,7 +230,6 @@ export function code(text: string): string {
   return `${fence}${pad}${text}${pad}${fence}`;
 }
 
-/** /add-dir's folder as the program reads it: a relative one under the tab's folder. */
 export function directoryArg(arg: string, cwd: string): string | null {
   const path = arg.trim().replace(/^(["'])(.*)\1$/, "$2");
   if (!path) return null;
@@ -266,22 +237,16 @@ export function directoryArg(arg: string, cwd: string): string | null {
   return `${cwd.replace(/[\\/]+$/, "")}/${path.replace(/^\.\//, "")}`;
 }
 
-/** What /branch names the copy: the name given, else the conversation's title marked, as the CLI does. */
 export function branchTitle(name: string, title: string | undefined): string | undefined {
   const given = name.trim();
   if (given) return given;
   return title?.trim() ? `${title.trim()} (Branch)` : undefined;
 }
 
-/**
- * What /subtask sends: a fork of Claude with the whole conversation, whose
- * answer comes back to it (the CLI's own /subtask starts one itself).
- */
 export function subtaskPrompt(task: string): string {
   return `Use the Agent tool with subagent_type "fork" for the task below, and tell me its result.\n\n${task}`;
 }
 
-/** Pages the CLI's own commands open. */
 export const COMMAND_LINKS: Readonly<Record<string, string>> = {
   upgrade: "https://claude.ai/upgrade",
   "release-notes": "https://code.claude.com/docs/en/changelog",
@@ -289,11 +254,6 @@ export const COMMAND_LINKS: Readonly<Record<string, string>> = {
   "privacy-settings": "https://claude.ai/settings/data-privacy-controls",
 };
 
-/**
- * Commands that need Claude Code's own screen, or sign it in or out: they
- * run once in a terminal, outside the conversation. The command line, and
- * the argument to quote for the terminal's shell ("" for none).
- */
 export function terminalCommandOf(
   name: string,
   args: string,
@@ -321,18 +281,15 @@ export function terminalCommandOf(
   }
 }
 
-/** The ones that change how Claude Code is signed in or what it runs: a restart picks them up. */
 export const RESTART_AFTER = new Set(["login", "logout", "update"]);
 
 export interface SkillInfo {
   name: string;
-  /** Where it comes from: a plugin's name, or projectSettings, userSettings… */
   source: string;
   path?: string;
   tokens?: number;
 }
 
-/** The skills in the context's breakdown (get_context_usage). */
 export function skillsOf(usage: unknown): SkillInfo[] {
   const skills = (usage as { skills?: { skillFrontmatter?: unknown } } | null)?.skills;
   const list = skills?.skillFrontmatter;

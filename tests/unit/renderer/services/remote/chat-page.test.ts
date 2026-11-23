@@ -1,4 +1,3 @@
-/** A chat as another device reads it: trimmed, paged, with the calls its items name. */
 import { describe, expect, test } from "bun:test";
 import { ChatPageSchema } from "../../../../../packages/remote-protocol/src";
 import type {
@@ -153,12 +152,10 @@ describe("a chat's page for another device", () => {
     const keys = chatPageOf(chat).items.map((i) => i.key);
     expect(keys).toEqual(["h-u1", "h-a3", "u1", "a3"]);
     expect(new Set(keys).size).toBe(keys.length);
-    // The same item for each read, so a watch sends only what changed.
     expect(conversationOf(chat).items[0]).toBe(conversationOf(chat).items[0]);
   });
 
   test("a message another agent sent shows as received in the history too", () => {
-    // Codex keys a message the tab sent by its client id (u-<id>), which the record names.
     const sent: ChatItem = {
       kind: "user",
       key: "u-r1",
@@ -315,7 +312,6 @@ describe("a turn stopping, or trying the API again (0.13.0)", () => {
     const model = modelOfPage(page);
     expect(model.interrupting).toBe(true);
     expect(model.turn?.retry).toEqual({ attempt: 2, maxRetries: 10, delayMs: 4000 });
-    // Neither, when the turn goes on.
     const going = chatPageOf(source({ running: true, process: "running" }));
     expect(going.status).not.toHaveProperty("interrupting");
     expect(modelOfPage(going).interrupting).toBeUndefined();
@@ -333,7 +329,6 @@ describe("where its tab stands with its program (0.13.0)", () => {
     expect(ChatPageSchema.safeParse(page).success).toBe(true);
     expect(page.status).toMatchObject({ phase: "ended", error: "gone", version: "2.1.0" });
     expect(page.status.exit?.code).toBe(1);
-    // The end of what it wrote, as much as a banner's details take.
     expect(page.status.exit?.stderrTail?.endsWith("boom")).toBe(true);
     expect(page.status.exit?.stderrTail?.length).toBe(8 * 1024);
   });
@@ -343,6 +338,50 @@ describe("where its tab stands with its program (0.13.0)", () => {
     expect(ChatPageSchema.safeParse(out).success).toBe(true);
     expect(out.status.signedOut).toBe(true);
     expect(chatPageOf(source({ process: "running" })).status).not.toHaveProperty("signedOut");
+  });
+});
+
+describe("a turn that failed (0.32.0)", () => {
+  const failed = (failure: NonNullable<ChatModel["lastResult"]>["failure"], at?: number) =>
+    source({
+      process: "running",
+      lastResult: {
+        subtype: "error_during_execution",
+        isError: true,
+        error: "API Error: 529 at /Users/someone/project token sk-ant-123",
+        ...(failure ? { failure } : {}),
+        ...(at !== undefined ? { at } : {}),
+      },
+    });
+
+  test("tells its kind, status and time, never the error's own words", () => {
+    const page = chatPageOf(failed({ kind: "transient", status: 529 }, 1700));
+    expect(ChatPageSchema.safeParse(page).success).toBe(true);
+    expect(page.status.failure).toEqual({ kind: "transient", status: 529, at: 1700 });
+    expect(JSON.stringify(page.status)).not.toContain("sk-ant");
+    expect(JSON.stringify(page.status)).not.toContain("/Users");
+  });
+
+  test("is drawn as this app's chat draws its own last result", () => {
+    const model = modelOfPage(chatPageOf(failed({ kind: "auth", status: 401 }, 5)));
+    expect(model.lastResult).toEqual({
+      subtype: "error",
+      isError: true,
+      failure: { kind: "auth", status: 401 },
+      at: 5,
+    });
+  });
+
+  test("a failure with no status or time sends only its kind", () => {
+    const page = chatPageOf(failed({ kind: "transient" }));
+    expect(page.status.failure).toEqual({ kind: "transient" });
+    expect(modelOfPage(page).lastResult?.failure).toEqual({ kind: "transient" });
+  });
+
+  test("a turn that did not fail, or failed with no kind to tell, says nothing", () => {
+    expect(chatPageOf(failed(undefined)).status).not.toHaveProperty("failure");
+    expect(chatPageOf(source({ process: "running" })).status).not.toHaveProperty("failure");
+    expect(modelOfPage(chatPageOf(failed(undefined))).lastResult).toBeUndefined();
   });
 });
 
@@ -447,7 +486,6 @@ describe("a page drawn as this app's chat", () => {
           { mediaType: "image/png", data: "", remote: { kind: "user", itemKey: "a", index: 0 } },
         ],
         state: "taken",
-        // Its key is its id here: a rewind or fork from it names it by it.
         uuid: "a",
       },
     ]);
@@ -527,7 +565,6 @@ describe("a page with its subagents' messages", () => {
     expect(loaded).toEqual(["a1"]);
     expect(reads).toBe(2);
     expect(got.agentItems).toEqual({ a1: [] });
-    // A read that never ends is waited on only so long.
     let slow = 0;
     const late = await pageWithSubagents(
       () => {
@@ -539,7 +576,6 @@ describe("a page with its subagents' messages", () => {
     );
     expect(slow).toBe(2);
     expect(late.agentItems).toEqual({});
-    // One with none to read is read once.
     let once = 0;
     await pageWithSubagents(
       () => {

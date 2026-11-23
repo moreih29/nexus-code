@@ -1,26 +1,15 @@
-// Putting one file a Claude or Codex session changed back as it was before
-// the session. The file is replaced through its editor model and saved, so
-// an open editor follows and can undo it; a file the session wrote new is
-// deleted the way the file tree deletes one, and one it deleted is written
-// again.
-
 import i18next from "i18next";
 import { MAX_READABLE_FILE_SIZE } from "../../../shared/fs/defaults";
 import { showConfirmDialog } from "../../components/ui/confirm-dialog";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { fileErrorMessage } from "../../utils/file-error";
-import { relPath } from "../../utils/path";
+import { relativeTo } from "../../utils/path";
 import { acquireModel, releaseModel } from "../editor/model";
 import { reportSaveFailure, saveModelInteractive } from "../editor/save/service";
 import { confirmAndDeletePath } from "../fs-mutations/confirm-delete";
 import { baseName } from "./links";
 
-/**
- * Asks, then reverts `path` in the workspace at `root` to `before` (null:
- * the session wrote it new, so it goes). `agent` is the program whose
- * session it was, for the words. Resolves whether it was reverted.
- */
 export async function revertChangedFile(
   workspaceId: string,
   root: string,
@@ -57,8 +46,7 @@ export async function revertChangedFile(
   try {
     const model = state.model;
     if (!model && state.errorCode === "NOT_FOUND") {
-      // The session deleted it.
-      const error = await writeAnew(workspaceId, relPath(path, root), before);
+      const error = await writeAnew(workspaceId, relativeTo(path, root), before);
       return error === null ? reverted() : failed(error);
     }
     if (!model) {
@@ -85,10 +73,6 @@ export async function revertChangedFile(
   }
 }
 
-/**
- * Writes a file that is not there, its folder too; never over one that
- * appeared meanwhile. Resolves null, or why it failed.
- */
 async function writeAnew(
   workspaceId: string,
   rel: string,

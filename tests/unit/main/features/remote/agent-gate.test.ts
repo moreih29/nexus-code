@@ -1,4 +1,3 @@
-/** Whether an agent on another computer may do what it asks here. */
 import { describe, expect, test } from "bun:test";
 import path from "node:path";
 import type { CliServices } from "../../../../../src/main/features/cli/context";
@@ -22,16 +21,18 @@ const send = (over: Partial<typeof from> = {}, workspaceId = "w1") => ({
 function gate(policy: RemoteAgentsPolicy, answers: string[] = []) {
   let now = 0;
   const asked: Record<string, unknown>[] = [];
+  const waits: (number | undefined)[] = [];
   const services = {
     listWorkspaces: () => [{ id: "w1", name: "Work" }],
     notes: {
       list: async () => [{ id: "nqaspeaker02", title: "Design review" }],
       read: async () => ({ id: "nqaspeaker02", title: "Design review" }),
     },
-    ui: async (op: string, args: Record<string, unknown>) => {
+    ui: async (op: string, args: Record<string, unknown>, timeoutMs?: number) => {
       if (op === "tabs.list") return { tabs: [{ id: "t1", type: "claude", title: "Review" }] };
       if (op === "consent.ask") {
         asked.push(args);
+        waits.push(timeoutMs);
         return { answer: answers.shift() ?? "deny" };
       }
       if (op === "chat.settings") return { agent: "claude", mode: "plan" };
@@ -48,8 +49,65 @@ function gate(policy: RemoteAgentsPolicy, answers: string[] = []) {
     claudeAsks: () => [{ id: "a1", tool: "Bash", target: "npm test" }],
   } as unknown as CliServices;
   const g = new AgentGate({ policy: () => policy, now: () => now });
-  return { g, services, asked, later: (ms: number) => (now += ms) };
+  return { g, services, asked, waits, later: (ms: number) => (now += ms) };
 }
+
+describe("how long an agent's request waits for the user", () => {
+  test("from a computer that waits for the answer: no time limit", async () => {
+    const { g, services, asked, waits } = gate("ask", ["once"]);
+    await g.check(services, { ...send(), waits: true });
+    expect(asked[0]).not.toHaveProperty("timeoutMs");
+    expect(waits).toEqual([Number.POSITIVE_INFINITY]);
+  });
+
+  test("from an older computer, which gives up: the old time limit", async () => {
+    const { g, services, asked, waits } = gate("ask", ["once"]);
+    await g.check(services, send());
+    expect(asked[0]).toMatchObject({ timeoutMs: 90_000 });
+    expect(waits).toEqual([100_000]);
+  });
+
+  test("the user's answer goes as given", async () => {
+    const allowed = gate("ask", ["once"]);
+    await allowed.g.check(allowed.services, { ...send(), waits: true });
+    const denied = gate("ask", ["deny"]);
+    await expect(denied.g.check(denied.services, { ...send(), waits: true })).rejects.toMatchObject(
+      { code: 1002, message: "the user there did not allow it" },
+    );
+  });
+
+  test("called off while the user is asked: nothing goes, even when they then allow it", async () => {
+    const { g, services, asked } = gate("ask", ["session"]);
+    const controller = new AbortController();
+    const ui = services.ui.bind(services);
+    const asking = {
+      ...services,
+      ui: (async (op: string, args: never, timeoutMs?: number) => {
+        const answer = await ui(op as never, args, timeoutMs);
+        if (op === "consent.ask")
+          controller.abort(new Error("the requesting device called it off"));
+        return answer;
+      }) as CliServices["ui"],
+    } as CliServices;
+    await expect(
+      g.check(asking, { ...send(), waits: true, signal: controller.signal }),
+    ).rejects.toThrow("the requesting device called it off");
+    await expect(g.check(services, send())).rejects.toMatchObject({
+      message: "the user there did not allow it",
+    });
+    expect(asked).toHaveLength(2);
+  });
+
+  test("called off before the prompt: the user is not asked", async () => {
+    const { g, services, asked } = gate("ask", ["once"]);
+    const controller = new AbortController();
+    controller.abort(new Error("gone"));
+    await expect(
+      g.check(services, { ...send(), waits: true, signal: controller.signal }),
+    ).rejects.toThrow("gone");
+    expect(asked).toEqual([]);
+  });
+});
 
 describe("an agent's request from another computer", () => {
   test("allowed, it goes; turned down, it is Forbidden", async () => {
@@ -104,7 +162,6 @@ describe("an agent's request from another computer", () => {
       code: 1003,
       message: "too many messages from that agent",
     });
-    // Another agent of that computer has its own share.
     await g.check(services, send({ tabId: "other" }));
     later(60_000);
     await g.check(services, send());
@@ -117,7 +174,6 @@ describe("an agent's request from another computer", () => {
       code: 1003,
       message: "too many messages from that device",
     });
-    // Another computer has its own share.
     await g.check(services, { ...send(), device: { id: "dev-2", name: "Mini" } });
     later(60_000);
     await g.check(services, send({ tabId: "fresh" }));
@@ -142,11 +198,9 @@ describe("an agent's request from another computer", () => {
       code: 1003,
       message: expect.stringContaining("prompts waiting already"),
     });
-    // Another computer's agent is asked about.
     const other = g.check(services, { ...send(), device: { id: "dev-2", name: "Mini" } });
     await Bun.sleep(0);
     expect(answers).toHaveLength(4);
-    // One answered, one more may wait.
     answers[0]?.("deny");
     await expect(waiting[0]).rejects.toMatchObject({ code: 1002 });
     const next = g.check(services, send({ tabId: "t4" }));
@@ -161,7 +215,6 @@ describe("an agent's request from another computer", () => {
     await g.check(services, send());
     expect(asked[0]).toMatchObject({
       fromDevice: "MacBook",
-      // Told to the computers that list the prompt, that one included.
       fromDeviceId: "dev-1",
       fromName: "Fix build",
       fromWorkspaceId: "bw",
@@ -191,7 +244,6 @@ describe("an agent's request from another computer", () => {
       method: "chat.close" as const,
       params: { workspaceId: "w1", tabId: "t1", from },
     });
-    // What it sends or runs there too.
     await g.check(services, send());
     await g.check(services, {
       device,
@@ -199,7 +251,6 @@ describe("an agent's request from another computer", () => {
       params: { workspaceId: "w1", command: "make deploy", from },
     });
     expect(asked).toHaveLength(1);
-    // Another workspace here is asked about again.
     await g.check(services, interrupt("w2"));
     expect(asked.map((a) => a.toWorkspaceId)).toEqual(["w1", "w2"]);
   });
@@ -306,7 +357,6 @@ test("the sender a chat keeps: who, and on which computer", () => {
     tabId: "bt",
     device,
   });
-  // Whether it waits to read the answer, as a device of 0.13.0 or later tells it.
   expect(relaySenderOf({ ...from, waits: false }, device)).toMatchObject({ waits: false });
   expect(relaySenderOf({ ...from, waits: true }, device)).toMatchObject({ waits: true });
   const ids = { workspaceId: "w".repeat(64), tabId: "t".repeat(64) };
@@ -413,22 +463,34 @@ test("persistent global layers and voice deletion require fresh peer approval", 
   ]);
 });
 
-test("a profile approval covers mode increases for the same pair", async () => {
-  const { g, services, asked } = gate("allow", ["session"]);
-  await g.check(services, {
+test("a profile change follows the device policy without a prompt of its own", async () => {
+  const profile = {
     ...send(),
-    method: "chat.profile",
+    method: "chat.profile" as const,
     params: { ...send().params, profile: "Work" },
-  });
-  const expectedMode = await g.check(services, {
+  };
+  const allowed = gate("allow", ["once"]);
+  await allowed.g.check(allowed.services, profile);
+  const expectedMode = await allowed.g.check(allowed.services, {
     ...send(),
     method: "chat.configure",
     params: { ...send().params, permissionMode: "acceptEdits" },
   });
   expect(expectedMode).toBe("plan");
-  expect(asked.map((prompt) => prompt.change)).toEqual([
+  expect(allowed.asked.map((prompt) => (prompt.change as { kind: string }).kind)).toEqual([
+    "chatMode",
+  ]);
+
+  const asking = gate("ask", ["session"]);
+  await asking.g.check(asking.services, profile);
+  await asking.g.check(asking.services, profile);
+  expect(asking.asked.map((prompt) => prompt.change)).toEqual([
     { kind: "chatProfile", detail: '"Review" (Personal → Work)' },
   ]);
+
+  const denied = gate("deny");
+  await expect(denied.g.check(denied.services, profile)).rejects.toMatchObject({ code: 1002 });
+  expect(denied.asked).toEqual([]);
 });
 
 test("the note speaker prompt uses the title instead of the note id", async () => {

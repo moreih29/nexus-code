@@ -1,6 +1,3 @@
-/**
- * "To an agent": sends a message and how to read the note to a Claude or Codex chat.
- */
 import i18next from "i18next";
 import { Send } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -24,12 +21,12 @@ import { useNoteLinks } from "../../services/notes/use-links";
 import { chatPropsWithProfile } from "../../state/operations/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { stateLabel } from "../agent-list/session-status";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { Button } from "../ui/button";
 import { Popover } from "../ui/popover";
 import { showToast } from "../ui/toast";
 
-/** The first message the chat gets. */
 export function agentPrompt(message: string, title: string, noteId: string): string {
   return i18next.t("notes:agent.prompt", {
     message: message.trim() || i18next.t("notes:agent.defaultMessage"),
@@ -79,9 +76,7 @@ export function SendToAgent({
   workspaceId: string;
   cwd: string;
   noteId: string;
-  /** The note's title as it is now. */
   title: () => string;
-  /** Saves what is not saved yet, so the agent reads the note as it is. */
   beforeSend: () => Promise<boolean>;
   trigger: ReactNode;
 }) {
@@ -133,7 +128,6 @@ export function SendToAgent({
           { ...tabLinkTarget(targetWorkspace, current), agent: current.type, kind: "note" },
           choice.linkId ?? true,
         );
-        // A session can arrive while the first link for the tab is being saved.
         const updated = useTabsStore.getState().byWorkspace[targetWorkspace]?.[tabId];
         if (
           entry.link.workspaceId === targetWorkspace &&
@@ -158,7 +152,6 @@ export function SendToAgent({
       const target =
         tab?.type === agent ? tabLinkTarget(workspaceId, tab) : { workspaceId, tabId, cwd };
       try {
-        // Make the link available to the agent's startup context.
         await notesApi.addLink(workspaceId, noteId, {
           ...target,
           title: titleOf(prompt),
@@ -309,9 +302,8 @@ function DestinationRow({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const { t } = useTranslation("notes");
+  useTranslation();
   const Icon = session.kind === "codex" ? CodexIcon : ClaudeIcon;
-  const phase = session.phase === "idle" && session.hasTurns ? "done" : session.phase;
   return (
     <button
       type="button"
@@ -327,7 +319,7 @@ function DestinationRow({
         {session.title}
       </span>
       <span className="shrink-0 whitespace-nowrap text-app-micro text-muted-foreground">
-        {t(`agent.phase.${phase}`)}
+        {stateLabel(session)}
       </span>
     </button>
   );

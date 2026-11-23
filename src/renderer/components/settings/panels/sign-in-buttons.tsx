@@ -1,20 +1,9 @@
-// src/renderer/components/settings/panels/sign-in-buttons.tsx
-//
-// The sign-in buttons of the Remote page, one per sign-in the server
-// offers. Google's follows Google's sign-in branding: its multicolor "G"
-// unmodified, "Sign in with Google", Roboto Medium, 40px high, white with
-// a #747775 border on a light theme and #131314 with #8E918F on a dark one.
-// Apple's uses white on black in light themes and black on white in dark
-// themes. GitHub's carries the Invertocat in the theme's text color. The
-// dev sign-in is marked as local only.
-
 import { useTranslation } from "react-i18next";
 import { THEME_SOURCE_BY_ID } from "../../../../shared/design-tokens";
 import type { SignInProvider } from "../../../../shared/remote/account";
 import { useThemeStore } from "../../../state/stores/theme";
 import { cn } from "../../../utils/cn";
 
-/** Apple's sign-in mark, as used in the mobile app. */
 function AppleMark({ className }: { className?: string }) {
   return (
     <svg viewBox="17 14.5 22 22" aria-hidden="true" className={className} fill="currentColor">
@@ -23,7 +12,6 @@ function AppleMark({ className }: { className?: string }) {
   );
 }
 
-/** Google's "G", as its sign-in button carries it. */
 export function GoogleMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 48 48" aria-hidden="true" className={className}>
@@ -47,7 +35,6 @@ export function GoogleMark({ className }: { className?: string }) {
   );
 }
 
-/** GitHub's Invertocat, in the color of the text around it. */
 export function GitHubMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="currentColor">

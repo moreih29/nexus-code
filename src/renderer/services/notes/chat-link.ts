@@ -12,7 +12,6 @@ export function chatNoteTarget(chat: NoteConversation): ChatNoteTarget | undefin
     return { ...tabLinkTarget(chat.workspaceId, tab), agent: chat.agent };
 }
 
-/** The tab can receive its session or title while the link is being written. */
 export async function syncChatNoteLink(target: ChatNoteTarget): Promise<void> {
   const current = chatNoteTarget(target);
   if (
@@ -35,7 +34,6 @@ export async function recordChatNoteLink(
   await syncChatNoteLink(link);
 }
 
-/** Records mentions only when the composer has sent or queued the message. */
 export async function sendWithNoteMentions(
   body: string,
   notes: readonly NoteReference[],

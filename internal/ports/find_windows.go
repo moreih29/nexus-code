@@ -15,20 +15,14 @@ var (
 	procGetExtendedTcpTable = iphlpapi.NewProc("GetExtendedTcpTable")
 )
 
-// tcpTableOwnerPIDListener is TCP_TABLE_OWNER_PID_LISTENER: the listening
-// sockets, each with its owning process.
 const tcpTableOwnerPIDListener = 3
 
-// Find lists the ports the processes under roots listen on: a process
-// snapshot gives the process tree, and GetExtendedTcpTable the listening
-// sockets with their processes.
 func Find(roots []int) ([]Port, error) {
 	table, err := processTable()
 	if err != nil {
 		return nil, err
 	}
 	owner := under(table, roots)
-	// Terminals at their prompt hold no ports: see onlyShells.
 	if onlyShells(owner) {
 		return nil, nil
 	}
@@ -38,7 +32,6 @@ func Find(roots []int) ([]Port, error) {
 		return nil, err
 	}
 	listeners = append(listeners, parseTCPTable(v4)...)
-	// IPv6 can be off.
 	if v6, err := tcpTable(windows.AF_INET6); err == nil {
 		listeners = append(listeners, parseTCP6Table(v6)...)
 	}
@@ -51,8 +44,6 @@ func Find(roots []int) ([]Port, error) {
 	return ports, nil
 }
 
-// tcpTable reads the listening sockets of one address family, growing the
-// buffer while sockets open between the size query and the read.
 func tcpTable(family int) ([]byte, error) {
 	var size uint32
 	var buf []byte
@@ -76,10 +67,6 @@ func tcpTable(family int) ([]byte, error) {
 	return nil, errors.New("the TCP table kept growing")
 }
 
-// descends reports whether the process pid really is under root. A Windows
-// process keeps its parent's id after the parent exits, and the id can
-// later go to another process, so each step up has to be to a process that
-// started before the one below it.
 func descends(table map[int]Process, pid, root int) bool {
 	for steps := 0; pid != root; steps++ {
 		parent, ok := table[pid]
@@ -96,8 +83,6 @@ func descends(table map[int]Process, pid, root int) bool {
 	return true
 }
 
-// created reads a process's creation time, in 100 ns ticks; false when the
-// process can't be opened.
 func created(pid int) (int64, bool) {
 	process, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
 	if err != nil {

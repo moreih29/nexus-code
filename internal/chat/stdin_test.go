@@ -14,8 +14,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// TestChatStdinInterruptsAnInFlightWrite holds the actual child pipe open
-// without draining it after the first byte.
 func TestChatStdinInterruptsAnInFlightWrite(t *testing.T) {
 	writer, reader, err := newChatStdin(fmt.Sprintf("%d-test-stdin", os.Getpid()))
 	if err != nil {
@@ -59,8 +57,6 @@ func TestChatStdinInterruptsAnInFlightWrite(t *testing.T) {
 	}
 }
 
-// blockedFrame simulates a child that has received either no bytes or a
-// prefix when the request leaves.
 type blockedFrame struct {
 	entered chan struct{}
 	written int
@@ -85,8 +81,6 @@ func (w *blockedFrame) WriteContext(ctx context.Context, data []byte) (int, erro
 	return len(data), nil
 }
 
-// TestCanceledStdinFrameOnlyClosesAfterAPartialWrite covers the recovery
-// contract the renderer uses to decide whether a request can be resent.
 func TestCanceledStdinFrameOnlyClosesAfterAPartialWrite(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -98,7 +92,7 @@ func TestCanceledStdinFrameOnlyClosesAfterAPartialWrite(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := New()
-			sess, err := s.sessionFor(tabKey{workspaceID: "ws", tabID: "tab"}, "")
+			sess, err := s.sessionFor(tabKey{WorkspaceID: "ws", TabID: "tab"}, "")
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -11,10 +11,6 @@ import type {
   WorkspaceLayout,
 } from "./types";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function toDirection(orientation: SplitOrientation, side: "before" | "after"): Direction {
   if (orientation === "horizontal") return side === "before" ? "left" : "right";
   return side === "before" ? "up" : "down";
@@ -66,11 +62,6 @@ function detachTabFromLeaf(
   return { root: afterDetach, activeGroupId };
 }
 
-/**
- * Converts an insertion slot in a list that still holds the moved tab (at
- * `removedIdx`, or -1 when absent) into a splice index for the list
- * without it.
- */
 function slotAfterRemoval(slot: number, removedIdx: number): number {
   return removedIdx !== -1 && removedIdx < slot ? slot - 1 : slot;
 }
@@ -90,10 +81,6 @@ function attachTabToLeaf(
     return activateTab(leaf, tabId, tabIds);
   });
 }
-
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
 
 export const useLayoutStore = create<LayoutState>((set, get) => ({
   byWorkspace: {},
@@ -142,8 +129,6 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
       crypto.randomUUID.bind(crypto),
     );
 
-    // Attach tab to the freshly created leaf in the same set call so React
-    // sees a single transition: source leaf → split with tab in new leaf.
     const finalRoot = attachTabToLeaf(afterSplit, newLeafId, tabId, undefined);
 
     set((state) => ({
@@ -163,7 +148,6 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
 
       const { root, activeGroupId } = layout;
 
-      // Sole leaf — just empty the tab list, don't remove the node
       if (root.kind === "leaf" && root.id === groupId) {
         const cleared: LayoutLeaf = { kind: "leaf", id: groupId, tabIds: [], activeTabId: null };
         return {
@@ -176,7 +160,6 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
 
       const { root: newRoot, hoistedSiblingLeafId } = Grid.removeLeaf(root, groupId);
 
-      // Route activeGroupId: if active group was the one removed, move to hoisted sibling
       let nextActive = activeGroupId;
       if (activeGroupId === groupId) {
         nextActive = hoistedSiblingLeafId ?? Grid.leftmostLeaf(newRoot).id;
@@ -210,9 +193,6 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
   setActiveGroup(workspaceId, groupId) {
     set((state) => {
       const layout = state.byWorkspace[workspaceId];
-      // Equality guard — focusin / repeated clicks fire frequently and we
-      // don't want to invalidate every layout-store subscriber on no-op
-      // activations.
       if (!layout || layout.activeGroupId === groupId) return state;
       return {
         byWorkspace: updateLayout(state.byWorkspace, workspaceId, (l) => ({
@@ -277,7 +257,6 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
       let intermediateRoot = layout.root;
       let nextActive = layout.activeGroupId;
 
-      // A reorder in the same group keeps the active tab in place until the move lands.
       if (owner && owner.id !== toGroupId) {
         ({ root: intermediateRoot, activeGroupId: nextActive } = detachTabFromLeaf(
           layout.root,
@@ -287,12 +266,10 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
         ));
       }
 
-      // Attach to destination — re-query after possible hoist
       const destLeaf = Grid.findLeaf(intermediateRoot, toGroupId);
       const resolvedLeafId = destLeaf ? toGroupId : nextActive;
 
       if (!destLeaf) {
-        // Destination disappeared (hoisted away) — put tab in active group
         if (!Grid.findLeaf(intermediateRoot, nextActive)) return state;
       }
 
@@ -363,7 +340,6 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
     const stripped = stripDanglingTabs(snapshot.root, knownTabIds);
     const sanitizedRoot = Grid.collapseEmptyLeaves(stripped);
 
-    // Validate activeGroupId — must point to an existing leaf
     const leaves = Grid.allLeaves(sanitizedRoot);
     const leafIds = new Set(leaves.map((l) => l.id));
 
@@ -381,5 +357,4 @@ export const useLayoutStore = create<LayoutState>((set, get) => ({
   },
 }));
 
-// Re-export LayoutNode type for subscriber
 export type { LayoutNode };

@@ -1,11 +1,3 @@
-/**
- * ⌘⇧] opens and closes the side panel of the chat in front: the active
- * group's active tab in the workspaces, the active panel's agent in the agent
- * view. From the chat's box too, where the user mostly is. Elsewhere (a
- * Codex chat, a terminal, an editor in front) the key is not the app's: the
- * `chatPanelActive` probe below keeps it for what has the keyboard.
- */
-
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { Grid } from "../../engine";
 import { registerContextProbe } from "../../keybindings/context-keys";
@@ -16,7 +8,6 @@ import { isAgentViewShown, useAgentViewStore } from "../../state/stores/agent-vi
 import { useLayoutStore } from "../../state/stores/layout";
 import { registerCommand } from "../registry";
 
-/** The key the chat in front registered its panel toggle by; null with nothing in front. */
 function frontChatKey(): string | null {
   if (isAgentViewShown()) {
     const key = activeKey(useAgentViewStore.getState());
@@ -30,7 +21,6 @@ function frontChatKey(): string | null {
   return Grid.findLeaf(layout.root, layout.activeGroupId)?.activeTabId ?? null;
 }
 
-/** Whether the chat in front has a side panel. */
 export function chatPanelActive(): boolean {
   const key = frontChatKey();
   return key !== null && hasPanelToggle(key);

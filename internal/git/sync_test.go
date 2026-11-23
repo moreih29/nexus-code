@@ -10,11 +10,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// ---------------------------------------------------------------------------
-// Pull tests
-// ---------------------------------------------------------------------------
-
-// TestPullFastForward verifies that pull detects a fast-forward after remote has new commits.
 func TestPullFastForward(t *testing.T) {
 	t.Parallel()
 	_, client := newRemoteAndClient(t, true)
@@ -34,7 +29,6 @@ func TestPullFastForward(t *testing.T) {
 	}
 }
 
-// TestPullNoUpstream verifies that pull returns an error when no upstream is configured.
 func TestPullNoUpstream(t *testing.T) {
 	t.Parallel()
 	root := newRepo(t)
@@ -46,9 +40,6 @@ func TestPullNoUpstream(t *testing.T) {
 	}
 }
 
-// TestPullMergesDivergedBranch verifies that pull reconciles a branch that
-// has diverged from its upstream with a merge when no pull.ff or pull.rebase
-// is configured, instead of failing as plain git pull does since 2.33.
 func TestPullMergesDivergedBranch(t *testing.T) {
 	t.Parallel()
 	client := makeDivergedClient(t)
@@ -64,8 +55,6 @@ func TestPullMergesDivergedBranch(t *testing.T) {
 	}
 }
 
-// TestPullHonorsPullRebase verifies that the merge default does not override
-// a configured pull.rebase.
 func TestPullHonorsPullRebase(t *testing.T) {
 	t.Parallel()
 	client := makeDivergedClient(t)
@@ -85,8 +74,6 @@ func TestPullHonorsPullRebase(t *testing.T) {
 	}
 }
 
-// TestPullHonorsPullFFOnly verifies that a configured pull.ff=only still
-// refuses to reconcile a diverged branch.
 func TestPullHonorsPullFFOnly(t *testing.T) {
 	t.Parallel()
 	client := makeDivergedClient(t)
@@ -98,7 +85,6 @@ func TestPullHonorsPullFFOnly(t *testing.T) {
 	}
 }
 
-// TestParsePullOutputAlreadyUpToDate verifies parsePullOutput recognizes the up-to-date message.
 func TestParsePullOutputAlreadyUpToDate(t *testing.T) {
 	stdout := "Already up to date.\n"
 	result := parsePullOutput(stdout, "")
@@ -107,7 +93,6 @@ func TestParsePullOutputAlreadyUpToDate(t *testing.T) {
 	}
 }
 
-// TestParsePullOutputFastForward verifies parsePullOutput detects fast-forward.
 func TestParsePullOutputFastForward(t *testing.T) {
 	stdout := "Updating abc123..def456\nFast-forward\n README.md | 1 +\n 1 file changed, 1 insertion(+)\n"
 	result := parsePullOutput(stdout, "")
@@ -122,7 +107,6 @@ func TestParsePullOutputFastForward(t *testing.T) {
 	}
 }
 
-// TestParsePullOutputDiffStats verifies parsePullOutput extracts full diff stats.
 func TestParsePullOutputDiffStats(t *testing.T) {
 	stdout := "Updating abc..def\n 3 files changed, 5 insertions(+), 2 deletions(-)\n"
 	result := parsePullOutput(stdout, "")
@@ -137,16 +121,10 @@ func TestParsePullOutputDiffStats(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Push tests
-// ---------------------------------------------------------------------------
-
-// TestPushSuccess verifies that push returns pushed=true after a local commit.
 func TestPushSuccess(t *testing.T) {
 	t.Parallel()
 	_, client := newRemoteAndClient(t, false)
 
-	// Make a local commit to push.
 	writeFile(t, filepath.Join(client, "new.txt"), "new\n")
 	runGit(t, client, "add", "new.txt")
 	runGit(t, client, "commit", "-m", "new commit")
@@ -166,7 +144,6 @@ func TestPushSuccess(t *testing.T) {
 	}
 }
 
-// TestPushNothingToPush verifies that push returns pushed=false when already up-to-date.
 func TestPushNothingToPush(t *testing.T) {
 	t.Parallel()
 	_, client := newRemoteAndClient(t, false)
@@ -186,7 +163,6 @@ func TestPushNothingToPush(t *testing.T) {
 	}
 }
 
-// TestPushNonFastForwardError verifies that push returns an error for non-fast-forward.
 func TestPushNonFastForwardError(t *testing.T) {
 	t.Parallel()
 	client := makeDivergedClient(t)
@@ -196,7 +172,6 @@ func TestPushNonFastForwardError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected Push to fail for non-fast-forward")
 	}
-	// The error frame carries the kind and hint the host's retry banner needs.
 	line, err := proto.MarshalFrame(proto.ErrorResponse("1", err))
 	if err != nil {
 		t.Fatalf("MarshalFrame() error = %v", err)
@@ -221,7 +196,6 @@ func TestPushNonFastForwardError(t *testing.T) {
 	}
 }
 
-// TestParsePushOutputAlreadyUpToDate verifies parsePushOutput for the up-to-date case.
 func TestParsePushOutputAlreadyUpToDate(t *testing.T) {
 	stderr := "Everything up-to-date\n"
 	result := parsePushOutput("", stderr)
@@ -230,7 +204,6 @@ func TestParsePushOutputAlreadyUpToDate(t *testing.T) {
 	}
 }
 
-// TestParsePushOutputPushed verifies parsePushOutput for actual push output.
 func TestParsePushOutputPushed(t *testing.T) {
 	stderr := "To git@github.com:example/repo.git\n   abc123..def456  main -> main\n"
 	result := parsePushOutput("", stderr)
@@ -239,7 +212,6 @@ func TestParsePushOutputPushed(t *testing.T) {
 	}
 }
 
-// TestBuildPushArgsForce verifies buildPushArgs returns force-with-lease args.
 func TestBuildPushArgsForce(t *testing.T) {
 	args := buildPushArgs(PushParams{Force: true})
 	if len(args) < 2 || !strings.Contains(strings.Join(args, " "), "force-with-lease") {
@@ -247,8 +219,6 @@ func TestBuildPushArgsForce(t *testing.T) {
 	}
 }
 
-// makeDivergedClient returns a client clone that has one local commit while
-// its remote has gained a different one, so the two have diverged.
 func makeDivergedClient(t *testing.T) string {
 	t.Helper()
 	_, client := newRemoteAndClient(t, true)

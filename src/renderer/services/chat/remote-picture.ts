@@ -3,7 +3,6 @@ import type { ChatMediaAccess, ImageBlock } from "./model";
 
 type PictureListener = (image: ImageBlock | null) => void;
 
-/** Keeps a mounted picture while the same source is being checked again. */
 export function useRemotePicture(
   access: ChatMediaAccess | null | undefined,
   key: string | null,

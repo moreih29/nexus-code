@@ -1,9 +1,3 @@
-/**
- * Where a browser tab's pick button sends the picked element: the live agent
- * sessions of the tab's own workspace, how the menu tells them apart, and
- * the text as the terminal's prompt takes it with and without bracketed
- * paste.
- */
 import { describe, expect, it } from "bun:test";
 import { pasteForTerminal } from "../../../../../src/renderer/services/browser/element-pick";
 

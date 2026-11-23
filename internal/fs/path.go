@@ -7,15 +7,10 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// params is the shared "single relPath" envelope shape used by readdir / stat
-// / readFile. Write methods declare richer payloads in types.go.
 type params struct {
 	RelPath string `json:"relPath"`
 }
 
-// Resolve joins relPath against the workspace root and returns the cleaned
-// absolute path. Refuses anything that escapes the root via `..` or an absolute
-// path.
 func (s *Service) Resolve(relPath string) (string, error) {
 	if relPath == "" {
 		relPath = "."
@@ -34,8 +29,6 @@ func (s *Service) Resolve(relPath string) (string, error) {
 	return abs, nil
 }
 
-// resolve unmarshals the shared {relPath} params envelope and delegates to
-// Resolve. Used by readdir / stat / readFile.
 func (s *Service) resolve(raw json.RawMessage) (string, error) {
 	var envelope map[string]json.RawMessage
 	if len(raw) == 0 || json.Unmarshal(raw, &envelope) != nil {
@@ -52,9 +45,6 @@ func (s *Service) resolve(raw json.RawMessage) (string, error) {
 	return s.Resolve(p.RelPath)
 }
 
-// parseAbsolutePath unmarshals the {absolutePath} envelope used by
-// fs.readAbsolute. The path is not constrained to the workspace root, but it
-// must already be absolute on the agent host.
 func parseAbsolutePath(raw json.RawMessage) (string, error) {
 	var p ReadAbsoluteParams
 	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil || p.AbsolutePath == "" {

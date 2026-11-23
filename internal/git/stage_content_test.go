@@ -93,8 +93,6 @@ func TestStageContent_ReadsPathLiterally(t *testing.T) {
 		t.Skip("Windows file names cannot hold *")
 	}
 	root := stageContentRepo(t)
-	// As a glob, b*.txt also matches the executable b!.txt, which git lists
-	// first; its mode must not leak into b*.txt's entry.
 	writeFile(t, filepath.Join(root, "b*.txt"), "glob\n")
 	other := filepath.Join(root, "b!.txt")
 	writeFile(t, other, "other\n")

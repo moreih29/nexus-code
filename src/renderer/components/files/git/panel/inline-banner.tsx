@@ -1,13 +1,3 @@
-/**
- * GitInlineBanner — thin shim over the generic Banner primitive.
- *
- * Intentionally kept separate (not collapsed to direct Banner calls) because
- * it resolves the actionLabel/onAction → actions[] impedance mismatch for the
- * many git-panel call sites that use the single-action shorthand. Eliminating
- * the shim would require spreading actions arrays across git-banner-stack.tsx,
- * git-banner-model.ts, and history/panel.tsx — more churn than the shim
- * justifies. (T7 consistency review, 2026-05.)
- */
 import {
   Banner,
   type BannerAction,

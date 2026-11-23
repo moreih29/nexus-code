@@ -1,37 +1,7 @@
-/**
- * Main-process logging facade built on electron-log v5.
- *
- * Configures two transports:
- *   - file  → JSON lines written to `<logs>/main.log` (level: debug)
- *   - console → human-readable text (level: info)
- *
- * Call `initMainLogger()` once at the top of `src/main/index.ts` before
- * any window is created.  Afterwards use `createLogger(source)` to obtain
- * a bound logger for a given subsystem.
- *
- * electron-log and Electron are loaded lazily (inside function bodies) so
- * that merely importing this module does not trigger their load-time side
- * effects — which crash the bun test runner where `electron` is mocked and
- * `electron-log/main` has no valid app context.
- */
-
 import type { Logger, LogMeta, LogSource, NxLogMeta } from "./types";
 
-/**
- * The size at which main.log is renamed to main.old.log and a new file starts.
- * electron-log keeps one old file, so the two hold at most twice this.
- */
 export const LOG_FILE_MAX_BYTES = 2 * 1024 * 1024;
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Builds the structured envelope that the file-transport format reads.
- * Using a sentinel key keeps the approach forward-compatible: the format
- * function strips it before writing, so consumer code never sees the field.
- */
 function buildMeta(source: LogSource | string, meta?: LogMeta): NxLogMeta {
   return {
     __nx_log: true,
@@ -40,15 +10,6 @@ function buildMeta(source: LogSource | string, meta?: LogMeta): NxLogMeta {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Transport configuration (called once from initMainLogger)
-// ---------------------------------------------------------------------------
-
-/**
- * Installs a file-transport format that emits one JSON object per line.
- * The envelope inserted by `buildMeta` is stripped from `data` so that
- * only the human-readable message text remains in the `msg` field.
- */
 function configureFileTransport(
   log: { transports: { file: Record<string, unknown> } },
   logsDir: string,
@@ -104,10 +65,6 @@ function configureFileTransport(
   };
 }
 
-/**
- * Installs a console-transport format that produces human-readable lines
- * and strips the internal envelope from the visible output.
- */
 function configureConsoleTransport(log: {
   transports: { console: Record<string, unknown> };
 }): void {
@@ -118,11 +75,6 @@ function configureConsoleTransport(log: {
 
   consoleTransport.level = "info";
 
-  // A write to a console that has gone away (the terminal that started the
-  // app closed, or a pipe's reader ended) fails with an error event on the
-  // stream. Unheard, that is an uncaught exception, whose log line goes to
-  // the console and fails again, without end. Past a failure the console
-  // gets no more lines.
   for (const stream of [process.stdout, process.stderr]) {
     stream.on("error", () => {
       consoleTransport.level = false;
@@ -164,16 +116,6 @@ function configureConsoleTransport(log: {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/**
- * Configure electron-log transports and wire the renderer IPC relay.
- * Must be called once in the main process before any BrowserWindow opens.
- * Loads electron and electron-log/main lazily to avoid test-environment
- * side effects when this module is merely imported.
- */
 export function initMainLogger(): void {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { app, session } = require("electron") as typeof import("electron");
@@ -191,13 +133,6 @@ export function initMainLogger(): void {
   configureFileTransport(log, logsDir);
   configureConsoleTransport(log);
 
-  // Injects electron-log's preload into the app's session, so the renderer
-  // sends its log records over IPC without a channel of its own. Only that
-  // session's: by default it goes into every session, the browser tabs'
-  // included, where any site would get window.__electronLog to write
-  // main.log with, under a source of its choosing. electron-log 5.4 reads
-  // `includeFutureSession` and its types declare `includeFutureSessions`:
-  // both are passed. getSessions is called once the app is ready.
   log.initialize({
     getSessions: () => [session.defaultSession],
     includeFutureSession: false,
@@ -205,15 +140,6 @@ export function initMainLogger(): void {
   });
 }
 
-/**
- * Returns a Logger whose every call tags the record with the given source.
- * Accepts any string so that the Go-agent forwarding path (T6) can pass
- * arbitrary source labels like `"agent"`.
- *
- * Loads electron-log/main lazily; falls back to console when the Electron
- * context is unavailable (e.g. the bun test runner without an app mock).
- */
-/** Minimal log sink shape required by the facade. */
 type LogSink = {
   error: (...a: unknown[]) => void;
   warn: (...a: unknown[]) => void;
@@ -231,8 +157,6 @@ export function createLogger(source: LogSource | string): Logger {
       const loaded = (require("electron-log/main") as { default: unknown }).default;
       cached = loaded as LogSink;
     } catch {
-      // Non-Electron environment: fall back to console so tests and scripts
-      // that import this module without a live app do not crash.
       cached = {
         error: (...a: unknown[]) => console.error(...a),
         warn: (...a: unknown[]) => console.warn(...a),

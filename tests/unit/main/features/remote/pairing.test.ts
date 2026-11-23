@@ -1,4 +1,3 @@
-/** A pairing through a QR code, as the desktop shows the code (ACCOUNT_KEYS.md, "Pairing"). */
 import { describe, expect, test } from "bun:test";
 import {
   type Delivered,
@@ -82,7 +81,6 @@ function setup(options: { holds: boolean }) {
   };
 }
 
-/** A frame from the device that scanned the code, sealed with its secret. */
 async function fromScanner(uri: string, message: PairMessage, seq = 1): Promise<Delivered> {
   const code = parsePairUri(uri);
   if (!code) throw new Error("no code");
@@ -115,7 +113,6 @@ describe("pairing, holding the key", () => {
       deviceId: "dev-p",
       deviceName: "iPhone",
     });
-    // A second request meanwhile is not taken: the code is spent.
     pairing.onRoomFrame(await fromScanner(shown.uri, { t: "pair-request", v: 1 }, 2));
     await pairing.answer(true);
     expect(pairing.current()).toEqual({ status: "done", deviceName: "iPhone" });

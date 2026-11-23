@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { movePortalTarget } from "../../../../../../src/renderer/components/workspace/content/move-portal-target";
 
-/** A media element that records what its controls were set to. */
 function fakeMedia(log: string[], name: string) {
   return {
     set controls(on: boolean) {

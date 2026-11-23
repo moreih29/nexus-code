@@ -1,11 +1,3 @@
-/**
- * Pure builder for the file-tree right-click menu spec.
- *
- * Lives outside `file-tree.tsx` so the branching by node type (file vs
- * directory vs no-target) is a plain testable function — no React, no
- * Radix, no DOM. The component side just wires it into
- * <ContextMenuItems items={...} />.
- */
 import i18next from "i18next";
 import type { MenuItemSpec } from "@/components/ui/context-menu";
 import { SHORTCUTS } from "@/keybindings/shortcut-labels";
@@ -14,27 +6,12 @@ import type { FileTreeActionTarget, useFileTreeActions } from "../hooks/use-file
 
 type FileTreeActions = ReturnType<typeof useFileTreeActions>;
 
-/**
- * Build the context menu item list for the file tree.
- *
- * @param targets  The resolved context-menu targets (Phase C: may be N > 1).
- *   - Empty array → root-synthesised context (empty-area right-click); behaves
- *     as a single root target for New File / New Folder / Paste / Reveal.
- *   - Single element → file / dir / symlink single-select menu (unchanged).
- *   - Two or more   → multi-select batch menu: only Cut, Copy, Paste, Delete.
- */
 export function buildFileTreeMenuItems(
   targets: FileTreeActionTarget[],
   actions: FileTreeActions,
 ): MenuItemSpec[] {
-  // Legacy: no targets → synthesise root context (empty area right-click).
-  // The component always passes at least one element now, but guard for safety.
   if (targets.length === 0) return [];
 
-  // ---------------------------------------------------------------------------
-  // Multi-select menu (N ≥ 2): VSCode parity — only batch-safe operations.
-  // Single-path operations (Rename, Open, New, Reveal, Copy Path) are omitted.
-  // ---------------------------------------------------------------------------
   if (targets.length >= 2) {
     const items: MenuItemSpec[] = [];
     items.push({
@@ -66,19 +43,11 @@ export function buildFileTreeMenuItems(
     return items;
   }
 
-  // ---------------------------------------------------------------------------
-  // Single-target menu (N === 1): existing full menu, unchanged.
-  // ---------------------------------------------------------------------------
   const target = targets[0];
   const items: MenuItemSpec[] = [];
   const isDir = target.type === "dir";
   const isRoot = !!target.isRoot;
 
-  // VSCode parity: New File / New Folder are dir-only
-  // (`when: ExplorerFolderContext` in fileActions.contribution.ts).
-  // Right-clicking a file should not offer them — the user can right-click
-  // the parent folder instead. The synthetic root target also counts as a
-  // dir, so empty-area right-click still gets these.
   if (isDir) {
     items.push({
       kind: "item",
@@ -93,8 +62,6 @@ export function buildFileTreeMenuItems(
     items.push({ kind: "separator" });
   }
 
-  // Inverse rule (VSCode `ExplorerFolderContext.toNegated()`): Open /
-  // Open to the Side are file-only.
   if (!isDir) {
     items.push({
       kind: "item",
@@ -110,9 +77,6 @@ export function buildFileTreeMenuItems(
     items.push({ kind: "separator" });
   }
 
-  // Clipboard group (VSCode parity). Cut/Copy act on the right-clicked entry;
-  // Paste drops into the folder (or the file's parent). Paste is disabled when
-  // the file clipboard is empty.
   if (!isRoot) {
     items.push({
       kind: "item",
@@ -152,9 +116,6 @@ export function buildFileTreeMenuItems(
     items.push({ kind: "separator" });
   }
 
-  // Reveal + Copy Path apply to every target; Reveal is absent in a remote
-  // workspace. ContextMenuItems collapses any orphaned separators
-  // automatically.
   if (actions.reveal) {
     items.push({
       kind: "item",
@@ -171,8 +132,6 @@ export function buildFileTreeMenuItems(
     onSelect: actions.copyPath,
   });
 
-  // Copy Relative Path is meaningless at the workspace root (would copy
-  // an empty string). Hide it specifically there.
   if (!isRoot) {
     items.push({
       kind: "item",

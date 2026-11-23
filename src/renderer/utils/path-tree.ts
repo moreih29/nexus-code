@@ -1,37 +1,16 @@
-/**
- * Pure path-to-tree conversion utilities for the file-tree components.
- *
- * No I/O or side-effects. All functions are deterministic given the same
- * input.
- */
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export interface PathTreeNode {
   name: string;
   relPath: string;
   kind: "dir" | "file";
   depth: number;
-  /** Display label for the node. Currently always equals `name`. */
   displayName: string;
   children?: PathTreeNode[];
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/** Normalise a single path string: strip leading/trailing slashes. */
 function normalisePath(p: string): string {
   return p.replace(/^\/+/, "").replace(/\/+$/, "");
 }
 
-/**
- * Sort children in-place: directories first, then files; ties broken by
- * case-insensitive name ascending.
- */
 function sortChildren(nodes: PathTreeNode[]): void {
   nodes.sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
@@ -39,23 +18,6 @@ function sortChildren(nodes: PathTreeNode[]): void {
   });
 }
 
-// ---------------------------------------------------------------------------
-// buildPathTree
-// ---------------------------------------------------------------------------
-
-/**
- * Build a tree from a flat list of relative file paths.
- *
- * Returns a synthetic root node (depth=0, name="", kind="dir", relPath="")
- * whose `children` array contains the top-level entries.
- *
- * Rules:
- * - Leading/trailing "/" are stripped from each path.
- * - Empty strings are ignored.
- * - Duplicate paths are deduplicated.
- * - Children are sorted: directories first, then files; same-kind entries
- *   ordered case-insensitively by name.
- */
 export function buildPathTree(paths: readonly string[]): PathTreeNode {
   const root: PathTreeNode = {
     name: "",
@@ -66,7 +28,6 @@ export function buildPathTree(paths: readonly string[]): PathTreeNode {
     children: [],
   };
 
-  // Deduplicate and normalise.
   const seen = new Set<string>();
   const normalised: string[] = [];
   for (const p of paths) {
@@ -76,7 +37,6 @@ export function buildPathTree(paths: readonly string[]): PathTreeNode {
     normalised.push(n);
   }
 
-  // Insert each path into the tree.
   for (const relPath of normalised) {
     const segments = relPath.split("/");
     let current = root;
@@ -88,8 +48,6 @@ export function buildPathTree(paths: readonly string[]): PathTreeNode {
       const nodeRelPath = parentRelPath === "" ? seg : `${parentRelPath}/${seg}`;
       const depth = i + 1;
 
-      // Find existing child with this relPath. `current` is the root or a dir,
-      // which always has a children array.
       current.children ??= [];
       let child = current.children.find((c) => c.relPath === nodeRelPath);
 
@@ -104,8 +62,6 @@ export function buildPathTree(paths: readonly string[]): PathTreeNode {
         };
         current.children.push(child);
       } else if (!isLast && child.kind === "file") {
-        // A segment that was previously a file is now also a directory prefix.
-        // Promote it to dir.
         child.kind = "dir";
         child.children = child.children ?? [];
       }
@@ -116,7 +72,6 @@ export function buildPathTree(paths: readonly string[]): PathTreeNode {
     }
   }
 
-  // Sort every directory's children recursively.
   function sortRecursive(node: PathTreeNode): void {
     if (!node.children) return;
     sortChildren(node.children);
@@ -127,16 +82,6 @@ export function buildPathTree(paths: readonly string[]): PathTreeNode {
   return root;
 }
 
-// ---------------------------------------------------------------------------
-// collectDescendantLeafPaths
-// ---------------------------------------------------------------------------
-
-/**
- * Collect the relPaths of all leaf (file) descendants of a node.
- *
- * - If the node is a file, returns `[node.relPath]`.
- * - If the node is a dir, recurses through all children and flattens results.
- */
 export function collectDescendantLeafPaths(node: PathTreeNode): string[] {
   if (node.kind === "file") return [node.relPath];
   return node.children?.flatMap(collectDescendantLeafPaths) ?? [];

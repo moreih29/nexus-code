@@ -1,12 +1,3 @@
-/**
- * What the nexus CLI changes in the renderer: it opens editors, diffs,
- * terminals and browser tabs, types into terminals, shows and closes tabs,
- * switches workspaces, and makes and removes tasks.
- *
- * A tab the CLI opens is not focused: the user may be typing in the
- * terminal the command came from. Where it goes is ./placement's call.
- */
-
 import { askCliConsent, settleCliConsent } from "@/components/cli/consent-dialog";
 import { EMPTY_TREE } from "@/components/editor/diff-refs";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
@@ -27,6 +18,7 @@ import { hasProfile, PROFILE_AGENTS } from "../../../shared/agent-profiles/profi
 import type { CliUiOp } from "../../../shared/cli/ui";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
 import { sameShellChoice } from "../../../shared/pty/shell";
+import { shortId } from "../../../shared/util/short-id";
 import { activateWorkspace } from "../../state/operations/workspace-selection";
 import { holdsInAgentView, showBesideCaller } from "../agent-view/show";
 import { classifyUrl } from "../browser/url-classifier";
@@ -54,27 +46,15 @@ import { findTabs, groupOf, openTab, showOpenTab } from "./placement";
 
 export { type CliUiHandler, UiRequestError } from "./handler";
 
-/** Whether this computer has an agent profile of that id. */
 function hasAnyProfile(id: string): boolean {
   const config = useAgentProfilesStore.getState().config;
   return PROFILE_AGENTS.some((agent) => hasProfile(config, agent, id));
 }
 
-/**
- * How long Enter waits after pasted text. Sent with the paste, it can reach
- * an agent's prompt inside the same read and be taken as part of the paste.
- */
 const ENTER_DELAY_MS = 120;
 
-/** How long a terminal of a workspace not shown yet has to start behind the view. */
 const TERMINAL_START_MS = 10_000;
 
-/**
- * A terminal's controller, once input reaches its shell. One whose
- * workspace has not been opened yet, or just opened by terminal.new, starts
- * behind the view, and is waited for: its view registers it before it opens,
- * and its shell takes input once it has printed its prompt (whenReady).
- */
 export async function startedTerminal(
   workspaceId: string,
   tabId: string,
@@ -108,7 +88,6 @@ function navigableUrl(input: string): string {
   );
 }
 
-/** The file an editor tab, or a diff tab's working-tree side, edits. */
 function fileOfTab(workspaceId: string, tab: Tab): EditorInput {
   if (tab.type === "editor") return tab.props;
   if (tab.type === "editor.diff") {
@@ -174,7 +153,6 @@ export const actionHandlers: {
     const tabId =
       showOpenTab(workspaceId, open, placement) ??
       openTab(workspaceId, { type: "editor", props: { workspaceId, filePath } }, placement);
-    // As the tab's switch does: this tab alone, the format's default as it was.
     if (view !== undefined && previewable) {
       useTabsStore
         .getState()
@@ -219,7 +197,6 @@ export const actionHandlers: {
   },
 
   "commit.open": async ({ workspaceId, rev, placement }) => {
-    // `^{commit}` takes a tag to the commit it names, which is what the tab shows.
     const found = await ipcCallResult("git", "commitDetail", {
       workspaceId,
       sha: `${rev}^{commit}`,
@@ -274,7 +251,6 @@ export const actionHandlers: {
     const tabId = openTab(workspaceId, { type: "terminal", props }, placement);
     if (title) useTabsStore.getState().renameTab(workspaceId, tabId, title);
     if (command) queueStartupInput(workspaceId, tabId, () => `${command}\r`);
-    // A terminal starts once its workspace is mounted: one not opened yet runs it behind the view.
     useMountedWorkspacesStore.getState().mount(workspaceId);
     return { tabId };
   },
@@ -307,13 +283,10 @@ export const actionHandlers: {
   "tab.show": async ({ workspaceId, tabId, caller }) => {
     const groupId = groupOf(workspaceId, tabId);
     if (!groupId) throw new UiRequestError("that tab is gone");
-    // A session shows in the agent view while it is up; anything else
-    // leaves it for its workspace.
     if (isAgentViewShown() && holdsInAgentView(tabRecord(workspaceId, tabId).type)) {
       showBesideCaller(workspaceId, tabId, caller ?? null);
       return {};
     }
-    // The tab first: switching to the workspace then lands on it.
     useLayoutStore.getState().setActiveTabInGroup({ workspaceId, groupId, tabId });
     if (useActiveStore.getState().activeWorkspaceId !== workspaceId) {
       activateWorkspace(workspaceId);
@@ -350,7 +323,6 @@ export const actionHandlers: {
       case "not-dirty":
         return { filePath: input.filePath, saved: result.kind === "saved" };
       case "no-model":
-        // Not loaded since the app started: nothing typed in it to save.
         return { filePath: input.filePath, saved: false };
       case "conflict":
         throw new UiRequestError(
@@ -426,7 +398,6 @@ export const actionHandlers: {
   },
 
   "workspace.folders": async ({ workspaceId }) => {
-    // Given to a tab's running program: a tab never shown has none.
     const folders = new Set<string>();
     for (const tab of Object.values(useTabsStore.getState().byWorkspace[workspaceId] ?? {})) {
       if (tab.type !== "claude") continue;
@@ -503,12 +474,9 @@ export const actionHandlers: {
     const started = await startTask(parentId, name, prompt, how, createdBy, from, openedBy);
     if (!("task" in started)) throw new UiRequestError(started.message);
     if (started.tabId === null) {
-      // A plain shell: none until the task is shown, when its panel opens one.
       if (show) activateWorkspace(started.task.id);
       return { workspaceId: started.task.id, start: started.start };
     }
-    // A terminal starts once its panel is mounted, shown or not. Shown while
-    // the agent view is up, its agent shows there, beside the one asking.
     const tab = useTabsStore.getState().byWorkspace[started.task.id]?.[started.tabId];
     if (show && createdBy && isAgentViewShown() && tab && holdsInAgentView(tab.type)) {
       showBesideCaller(started.task.id, started.tabId, createdBy);
@@ -552,15 +520,14 @@ export const actionHandlers: {
   "consent.ask": async (args) => {
     const { id, fromWorkspaceId, fromTabId, toWorkspaceId, change, timeoutMs, fromDevice } = args;
     const workspaces = useWorkspacesStore.getState().workspaces;
-    const name = (id: string) => workspaces.find((w) => w.id === id)?.name ?? id.slice(0, 8);
-    // Another computer's ids name nothing here: it tells its tab's title.
+    const name = (id: string) => workspaces.find((w) => w.id === id)?.name ?? shortId(id);
     const fromTab = fromDevice
       ? undefined
       : useTabsStore.getState().byWorkspace[fromWorkspaceId]?.[fromTabId];
     const answer = await askCliConsent({
       ...(id ? { id } : {}),
       fromWorkspace: fromDevice ? "" : name(fromWorkspaceId),
-      fromTab: args.fromName ?? fromTab?.title ?? fromTabId.slice(0, 8),
+      fromTab: args.fromName ?? fromTab?.title ?? shortId(fromTabId),
       ...(fromTab?.type === "claude" || fromTab?.type === "codex"
         ? { fromAgent: fromTab.type }
         : {}),
@@ -568,7 +535,7 @@ export const actionHandlers: {
       toWorkspace: name(toWorkspaceId),
       sameWorkspace: !fromDevice && fromWorkspaceId === toWorkspaceId,
       change,
-      timeoutMs,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     });
     return { answer };
   },
@@ -576,7 +543,6 @@ export const actionHandlers: {
   "consent.settle": async ({ id, answer, by }) => ({ settled: settleCliConsent(id, answer, by) }),
 };
 
-/** The shell `name` picks, or an error that lists the names to pick from. */
 async function shellByName(name: string): Promise<ShellEntry> {
   const { entries } = await loadShellMenu();
   const entry = shellNamed(entries, name);

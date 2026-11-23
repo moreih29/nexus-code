@@ -1,14 +1,3 @@
-// In-app three-option conflict resolution modal — Overwrite / Reload / Cancel.
-//
-// Imperative API: callers invoke `showConflictResolution(filename)` and await
-// the user's choice. The component itself is rendered once at App level
-// (ConflictResolutionDialogRoot) and renders the active prompt — there is no
-// per-callsite Dialog.
-//
-// Concurrency: callers may queue prompts back-to-back. We serialize them: a
-// second showConflictResolution() while another is open queues, and is shown
-// when the first resolves.
-
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -45,18 +34,10 @@ function resolveActive(choice: ConflictResolutionChoice): void {
   bus.notify();
 }
 
-/**
- * Imperative entry point. Resolves to the user's choice. Cancel is the
- * default if the dialog is dismissed via Esc or backdrop click.
- */
 export function showConflictResolution(filename: string): Promise<ConflictResolutionChoice> {
   return pushPrompt(filename);
 }
 
-/**
- * Mount once at App level (typically inside the root layout). Reads the
- * head of the prompt queue and shows the dialog.
- */
 export function ConflictResolutionDialogRoot(): React.JSX.Element {
   const { t } = useTranslation();
   const [active, setActive] = useState<PendingPrompt | null>(getActive());
@@ -67,9 +48,6 @@ export function ConflictResolutionDialogRoot(): React.JSX.Element {
 
   const open = active !== null;
 
-  // Esc / backdrop click → cancel. RadixDialog's onOpenChange fires
-  // with `false` for both, plus when our buttons trigger a close after
-  // a resolve. The guard avoids double-resolving.
   const handleOpenChange = (next: boolean): void => {
     if (next) return;
     if (queue[0] === active && active !== null) {

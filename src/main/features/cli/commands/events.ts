@@ -1,12 +1,7 @@
-/**
- * nexus events: the agent sessions' state changes across the app, as the
- * agent view sees them, for an agent that follows several sessions at once.
- * The renderer logs them (services/agent-sessions/session-events.ts); this reads
- * the log, and waits on it for the next change when asked to.
- */
 import type { CliSessionEvent } from "../../../../shared/cli/ui";
+import { shortId } from "../../../../shared/util/short-id";
 import { CliUsageError, exactArgs, parseDuration } from "../args";
-import { type CliContext, type CliDevice, resolveWorkspace, shortId } from "../context";
+import { type CliContext, type CliDevice, resolveWorkspace } from "../context";
 import { oneLine, table } from "../format";
 import { type CliCommand, output } from "../registry";
 import {
@@ -23,12 +18,10 @@ import { MAX_WAIT_MS, WAIT_POLL_MS } from "../wait";
 
 const DEFAULT_LIMIT = 100;
 
-/** The session as session list names its agent: a terminal's agent, or a tab's kind. */
 function agentOf(event: CliSessionEvent): string {
   return event.kind === "terminal" ? (event.agent ?? "?") : `${event.kind}-tab`;
 }
 
-/** What changed: the state, the goal's status, or both. */
 function changeText(event: CliSessionEvent): string {
   const goal = !event.goal
     ? ""
@@ -40,23 +33,16 @@ function changeText(event: CliSessionEvent): string {
   return goal ? `${state}, ${goal}` : state;
 }
 
-/** The time of day a change came, as hh:mm:ss. */
 function clockTime(at: number): string {
   return new Date(at).toTimeString().slice(0, 8);
 }
 
-/**
- * The changes after `since`, the first `limit` of them (`more` when some
- * were left out), of one workspace when given; with no `since`, the last
- * `limit`. And the latest seq.
- */
 async function readEvents(
   ctx: CliContext,
   since: number | undefined,
   limit: number,
   workspaceId: string | undefined,
 ): Promise<{ events: CliSessionEvent[]; cursor: number; more: boolean }> {
-  // The log is filtered here, so the renderer is asked for all it keeps.
   const read = await ctx.services.ui("events.read", {
     ...(since !== undefined ? { since } : {}),
     limit: workspaceId === undefined ? limit : Number.MAX_SAFE_INTEGER,
@@ -68,15 +54,9 @@ async function readEvents(
     : { events: ours.slice(0, limit), cursor: read.cursor, more: ours.length > limit };
 }
 
-/** How often events --wait asks another computer for its changes. */
 const PEER_POLL_MS = 5_000;
-/** Most changes one events.read gives. */
 const MAX_PEER_EVENTS = 500;
 
-/**
- * Another computer's changes, as readEvents reads this one's: its events.read,
- * filtered to one of its workspaces when given. Its own numbers.
- */
 async function readPeerEvents(
   ctx: CliContext,
   device: CliDevice,
@@ -147,7 +127,6 @@ function eventCursors(value: unknown): Record<string, number> {
   return Object.assign(Object.create(null), parsed);
 }
 
-/** Stops waiting even when a device-list or renderer service has no cancellation API. */
 async function beforeAbort<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return work;
   let stop = () => {};
@@ -227,8 +206,6 @@ async function allDeviceEvents(
       collect(local, () => readEvents(ctx, cursors[local.id], limit, undefined)),
       ...Array.from({ length: Math.min(4, peers.length) }, readPeer),
     ]);
-    // A batch can time out before every peer is reached. Start the next
-    // batch where this one left off so a silent peer cannot starve another.
     if (peers.length) peerOffset = (peerOffset + index) % peers.length;
     events.sort((a, b) => a.at - b.at || a.device.id.localeCompare(b.device.id) || a.seq - b.seq);
     return { events, errors, more };
@@ -363,9 +340,7 @@ const events: CliCommand = {
     let read = await readNext();
     while (read.events.length === 0 && clock.now() - startedAt < waitMs) {
       if (ctx.signal?.aborted) break;
-      // A filtered peer read already inspected everything through its cursor.
       if (device && workspaceId !== undefined && !read.more) after = read.cursor;
-      // Another computer is asked through the relay: less often.
       await clock.sleep(
         Math.min(device ? PEER_POLL_MS : WAIT_POLL_MS, waitMs - (clock.now() - startedAt)),
       );

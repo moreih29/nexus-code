@@ -6,7 +6,6 @@ type ShapeWithoutDefaults<Shape extends z.core.$ZodShape> = {
     : Shape[Key];
 };
 
-/** A patch carries only supplied fields, even when the full object has defaults. */
 export function partialWithoutDefaults<Shape extends z.core.$ZodShape>(schema: z.ZodObject<Shape>) {
   const fields = Object.entries(schema.shape).map(([key, field]) => [
     key,

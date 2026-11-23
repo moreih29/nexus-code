@@ -1,12 +1,3 @@
-// src/renderer/components/settings/panels/remote-voice-group.tsx
-//
-// Voice input, on the Remote page: how much of the month's minutes the
-// account has used (GET /voice/usage), dictation's and notes' recordings'
-// each against its own limit; the language it listens for, the app's or
-// detected as the user speaks ("multi"), the account's recognition
-// terms (GET/PUT /voice/terms, shared by all its devices), and whether this
-// computer sends the account's computer and workspace names along.
-
 import { Plus, X } from "lucide-react";
 import { type ClipboardEvent, type FormEvent, useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -28,30 +19,24 @@ const inputClass = cn(
   "focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50",
 );
 
-/** The languages' own names, as the Appearance page shows them. */
 const NATIVE: Record<string, string> = { en: "English", ko: "한국어" };
 
-/** Minutes, rounded up, so a few seconds used do not read as none. */
 export function minutesOf(seconds: number): number {
   return Math.ceil(seconds / 60);
 }
 
-/** The share of a limit used, in whole percent: 1 once anything is, at most 100. */
 export function percentOf(usedSeconds: number, limitSeconds: number): number {
   if (limitSeconds <= 0) return usedSeconds > 0 ? 100 : 0;
   const percent = Math.round((usedSeconds / limitSeconds) * 100);
   return Math.min(100, usedSeconds > 0 ? Math.max(1, percent) : percent);
 }
 
-/** When the month's usage starts over: the next month's first, in UTC, as the server counts. */
 export function usageResetsAt(period: string): Date | null {
   const match = /^(\d{4})-(\d{2})$/.exec(period);
   if (!match) return null;
-  // The month as written is the next one's index: Date.UTC counts from 0.
   return new Date(Date.UTC(Number(match[1]), Number(match[2]), 1));
 }
 
-/** At this share the meter turns red: the limit is near. */
 const NEAR_LIMIT = 90;
 
 function UsageMeter({
@@ -100,7 +85,6 @@ function UsageMeter({
   );
 }
 
-/** The month's usage: dictation's, and notes' recordings' when the server counts them. */
 export function VoiceUsageMeters({ usage }: { usage: VoiceUsage | "unavailable" | null }) {
   const { t, i18n } = useTranslation("settings");
   const ready = usage && usage !== "unavailable" ? usage : null;
@@ -137,7 +121,6 @@ export function VoiceUsageMeters({ usage }: { usage: VoiceUsage | "unavailable" 
   );
 }
 
-/** The account's terms, each with its X; a word when there are none, or they did not load. */
 export function VoiceTermChips({
   terms,
   disabled = false,
@@ -181,10 +164,6 @@ export function VoiceTermChips({
   );
 }
 
-/**
- * The account's recognition terms: typed in the field (commas or line
- * breaks add several), shown as chips; each change is saved at once.
- */
 function VoiceTermsSection() {
   const { t } = useTranslation("settings");
   const inputId = useId();
@@ -228,15 +207,12 @@ function VoiceTermsSection() {
     } else if (next.status === "too-many") {
       setError(t("remote.voice.terms.tooMany", { max: MAX_VOICE_TERMS }));
     } else {
-      // Emptied at once, so what is typed while it saves is the next term's;
-      // given back when it was not saved, unless something new was typed.
       const typed = input;
       setInput("");
       if (!(await save(next.terms))) setInput((now) => now || typed);
     }
   };
 
-  // A pasted list keeps its lines apart: the field would join them.
   const paste = (event: ClipboardEvent<HTMLInputElement>) => {
     const text = event.clipboardData.getData("text");
     if (!/[\r\n]/.test(text)) return;
@@ -262,7 +238,6 @@ function VoiceTermsSection() {
           spellCheck={false}
           autoComplete="off"
           placeholder={t("remote.voice.terms.placeholder")}
-          // Kept while a change saves: the next term can be typed meanwhile.
           disabled={!ready}
           onChange={(e) => setInput(e.target.value)}
           onPaste={paste}

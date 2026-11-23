@@ -1,7 +1,3 @@
-/**
- * Branch handlers — list branches and mutate the current checkout.
- */
-
 import type { BranchList } from "../../../../shared/git/types";
 import { ipcContract } from "../../../../shared/ipc/contract";
 import type { CallContext } from "../../../infra/ipc-router";
@@ -11,10 +7,6 @@ import { withRepo } from "./git-result";
 
 const c = ipcContract.git.call;
 
-/**
- * Builds the listBranches handler; non-repository workspaces return an empty
- * branch list instead of leaking Git process errors into the branch popover.
- */
 export function listBranchesHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<BranchList> {
@@ -26,14 +18,6 @@ export function listBranchesHandler(
   };
 }
 
-/**
- * Builds the checkout handler; successful ref switches refresh status before
- * the call returns so branch metadata updates arrive first.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object so the router stays log-silent. The renderer's ipcCallResult path
- * receives this as an IpcErrResult and unwrapGitResult converts it to a thrown Error.
- */
 export function checkoutHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -43,14 +27,6 @@ export function checkoutHandler(
   });
 }
 
-/**
- * Builds the checkoutTracking handler — runs `git checkout --track
- * <remoteRef>` so a remote-only ref (`origin/main`) lands as a local tracking
- * branch deterministically, regardless of git version or auto-setup config.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see checkoutHandler for rationale.
- */
 export function checkoutTrackingHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -64,9 +40,6 @@ export function checkoutTrackingHandler(
   );
 }
 
-/**
- * Builds the empty branch list shape used for non-repository workspaces.
- */
 function createEmptyBranchList(): BranchList {
   return {
     current: null,

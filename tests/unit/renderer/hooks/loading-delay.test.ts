@@ -10,7 +10,6 @@ interface Dispatcher {
   useState(initial: boolean): [boolean, (next: boolean) => void];
 }
 
-/** Runs the timer hooks with state and dependency cleanup, without mounting UI. */
 function mount(hook: (loading: boolean) => boolean) {
   const internals = (
     React as unknown as {

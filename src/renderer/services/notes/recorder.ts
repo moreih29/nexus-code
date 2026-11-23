@@ -1,14 +1,3 @@
-/**
- * Recording into a note, one at a time across the window: the microphone
- * goes to the server's voice socket as PCM (for the words, as they are
- * said, with who said them) and, at the same time, into an Opus file in the
- * note's recordings/ (for the second pass, and to keep). It goes on while
- * the user works elsewhere in the app.
- *
- * A recording is made of takes, one per voice session: pausing ends a take
- * (the microphone goes off), going on starts the next; a session that runs
- * out of time (`limit: session`) goes straight on in a new take.
- */
 import i18next from "i18next";
 import { create } from "zustand";
 import {
@@ -47,11 +36,8 @@ import {
 import { clearVoiceSuggestions, type RecordingRef, refreshVoiceSuggestions } from "./voice-memory";
 import { VOICE_PRINT_RATE, VoiceTracker, voicePrintAvailable } from "./voice-print";
 
-/** How much audio each piece written to the take's file holds. */
 export const AUDIO_SLICE_MS = 3000;
-/** The Opus bitrate: speech is clear at it, and an hour is about 14 MB. */
 export const AUDIO_BITS_PER_SECOND = 32_000;
-/** How long after a take is ended the rest of its words may take. */
 export const TAKE_END_TIMEOUT_MS = 10_000;
 
 export type RecorderPhase = "idle" | "starting" | "recording" | "pausing" | "paused" | "stopping";
@@ -61,13 +47,9 @@ interface RecorderState {
   workspaceId: string | null;
   noteId: string | null;
   recordingId: string | null;
-  /** The recording's length before the take being recorded. */
   baseMs: number;
-  /** When the take being recorded began to listen (epoch ms). */
   takeSince: number | null;
-  /** The words of the segment being said, before they are final. */
   partial: { speaker: string; text: string } | null;
-  /** How loud the microphone is, 0 to 1. */
   level: number;
 }
 
@@ -86,7 +68,6 @@ const IDLE: RecorderState = {
 
 export const useRecorderStore = create<RecorderState>(() => IDLE);
 
-/** How long the recording has been, now. */
 export function recorderElapsedMs(s: RecorderState, now = Date.now()): number {
   return s.baseMs + (s.takeSince ? now - s.takeSince : 0);
 }
@@ -104,33 +85,24 @@ interface Active {
   recordingId: string;
   language: string;
   participantCount: ParticipantCount;
-  /** The take being recorded (0-based); -1 before the first. */
   take: number;
   stream: MediaStream | null;
   capture: Capture | null;
   media: MediaRecorder | null;
-  /** The take's voice session. */
   sessionId: string | null;
   startingVoice: StartingVoice | null;
-  /** Where the take starts in the recording. */
   offsetMs: number;
   takeSince: number;
   takeLengthMs: number | null;
   ending: Ending | null;
-  /** The take's audio, written in order. */
   writes: Promise<void>;
-  /** The take's file is written to the end (its recorder stopped). */
   mediaDone: Promise<void>;
-  /** At least one piece of this recording was successfully written locally. */
   audioSaved: boolean;
   lastVoiceNameScan: number;
   endTimer?: ReturnType<typeof setTimeout>;
   levelTimer?: ReturnType<typeof setInterval>;
-  /** Whether the app can tell the voices apart by voice print, asked as the recording starts. */
   voicePrint: Promise<boolean>;
-  /** The voices told apart by voice print, when the app can. */
   voices: VoiceTracker | null;
-  /** Server speaker labels explicitly merged while recording without voice prints. */
   serverMerges: Map<string, string>;
 }
 
@@ -180,10 +152,6 @@ function recordingOf(a: Active): TranscriptRecording | undefined {
     .byNote[transcriptKey(a.workspaceId, a.noteId)]?.recordings.find((r) => r.id === a.recordingId);
 }
 
-/**
- * The voice keys a recording has, in its lines and its names; not the keys of
- * lines whose voice print is still being heard, which are only shown for now.
- */
 function keysOf(a: Active): string[] {
   const r = recordingOf(a);
   if (!r) return [];
@@ -192,16 +160,13 @@ function keysOf(a: Active): string[] {
   return [...lines.map((l) => l.speaker), ...Object.keys(r.speakers)];
 }
 
-/** The voice of words under server label `label`: by voice print when the app can. */
 function voiceOfLabel(a: Active, label: string): string {
   if (a.voices) return a.voices.provisional(label, keysOf(a));
   const key = speakerKey(a.take, label);
   return a.serverMerges.get(key) ?? key;
 }
 
-/** Lines' voices as grouped again (by start), except the ones the user moved. */
 function regrouped(a: Active, keys: ReadonlyMap<number, string>): boolean {
-  // The recording's, even once it has stopped: a voice print may come after.
   let changed = false;
   updateRecording(a.workspaceId, a.noteId, a.recordingId, (r) => {
     const lines = r.lines.map((l) => {
@@ -215,7 +180,6 @@ function regrouped(a: Active, keys: ReadonlyMap<number, string>): boolean {
   return changed;
 }
 
-/** A live recording offers tracker samples, leaving file decoding to finished recordings. */
 export function liveVoiceNameSamples(ref: RecordingRef): readonly VoiceSample[] | null {
   const a = active;
   if (
@@ -273,8 +237,6 @@ function onEvent({ id, event }: VoiceEvent): void {
         void voices
           .lineHeard(
             { at: line.startMs, endAt: line.endMs, startMs, endMs, label },
-            // Not its own key as shown so far (nor those of the lines after it,
-            // still being heard), which it may keep as a new voice's.
             () => keysOf(a),
             () => recordingOf(a)?.speakers ?? {},
           )
@@ -296,7 +258,6 @@ function onEvent({ id, event }: VoiceEvent): void {
       endTake(event.reason === "session" ? "chain" : "stop");
       return;
     case "error":
-      // An error may still hand over the token: the recording can be heard again.
       if (event.transcribeToken) {
         const token = event.transcribeToken;
         setTake((tk) => ({ ...tk, token }));
@@ -325,10 +286,6 @@ function onEvent({ id, event }: VoiceEvent): void {
   }
 }
 
-/**
- * Starts recording into the note, or goes on with its paused recording.
- * Another note's recording is left alone: one at a time.
- */
 export async function startRecording(
   workspaceId: string,
   noteId: string,
@@ -367,7 +324,6 @@ export async function startRecording(
     mediaDone: Promise.resolve(),
     audioSaved: false,
     lastVoiceNameScan: Number.NEGATIVE_INFINITY,
-    // Asked now, while the microphone and the session open; it loads the model.
     voicePrint: voicePrintAvailable(),
     voices: null,
     serverMerges: new Map(),
@@ -392,7 +348,6 @@ export async function startRecording(
     ],
   }));
   if (!(await startTake(mine)) && active === mine) {
-    // Nothing was recorded: the recording goes.
     updateTranscript(workspaceId, noteId, (file) => ({
       ...file,
       recordings: file.recordings.filter((r) => r.id !== recordingId),
@@ -404,7 +359,6 @@ export async function startRecording(
   }
 }
 
-/** Goes on with the paused recording, in a new take. */
 export async function resumeRecording(): Promise<void> {
   const a = active;
   if (!a || useRecorderStore.getState().phase !== "paused") return;
@@ -412,7 +366,6 @@ export async function resumeRecording(): Promise<void> {
   if (!(await startTake(a)) && active === a) set({ phase: "paused" });
 }
 
-/** Opens the microphone (if it is not open) and a voice session, and records a take; false if it could not. */
 async function startTake(a: Active): Promise<boolean> {
   let availability = voiceAvailability();
   if (availability === "unknown") availability = await voiceAvailabilityNow();
@@ -485,8 +438,6 @@ async function startVoiceTake(
     return false;
   }
   if (!canCapture()) return false;
-  // The first take finds out whether the app can tell the voices apart; the recording keys its
-  // voices so from its first line on.
   const usePrints = a.take === -1 && sampleRate === VOICE_PRINT_RATE && (await a.voicePrint);
   if (!canCapture()) return false;
   if (usePrints) {
@@ -522,7 +473,6 @@ async function startVoiceTake(
   a.take += 1;
   a.sessionId = id;
   a.ending = null;
-  // The first take starts the recording; the next go on where the last ended.
   a.offsetMs = a.take === 0 ? 0 : useRecorderStore.getState().baseMs;
   a.takeSince = Date.now();
   a.takeLengthMs = null;
@@ -545,7 +495,6 @@ function voiceStartFailed(a: Active, reason: VoiceFailure): void {
   if (reason === "signed-out" && a.take >= 0) void finishRecording(a, false);
 }
 
-/** Records the stream as Opus into the take's file, a piece every AUDIO_SLICE_MS. */
 function recordAudio(a: Active, stream: MediaStream, file: string): MediaRecorder | null {
   const type = "audio/webm;codecs=opus";
   if (typeof MediaRecorder === "undefined" || !MediaRecorder.isTypeSupported(type)) return null;
@@ -582,7 +531,6 @@ function recordAudio(a: Active, stream: MediaStream, file: string): MediaRecorde
   return media;
 }
 
-/** Ends the take: no more audio; the server sends the rest of its words, then closes. */
 function endTake(ending: Ending): void {
   const a = active;
   if (!a?.sessionId || a.ending) return;
@@ -624,12 +572,10 @@ function releaseMicrophone(a: Active): void {
   a.stream = null;
 }
 
-/** The take's session closed: its file is written out, then the recording pauses, stops or goes on. */
 async function finishTake(a: Active, signedOut = false): Promise<void> {
   if (!a.sessionId) return;
   a.sessionId = null;
   clearTimeout(a.endTimer);
-  // Closed without being ended (it dropped): what was heard is kept, and the recording pauses.
   const ending = signedOut ? "stop" : (a.ending ?? "pause");
   if (!a.ending) endTakeAudio(a, ending);
   else if (signedOut) {
@@ -641,7 +587,6 @@ async function finishTake(a: Active, signedOut = false): Promise<void> {
   await a.writes;
   a.media = null;
   if (active !== a) return;
-  // The take's last lines heard, all of them are grouped once more.
   if (a.voices) {
     await a.voices.settled();
     if (active !== a) return;
@@ -674,7 +619,6 @@ async function finishRecording(a: Active, secondPass = true): Promise<void> {
   const recording = file.recordings.find((r) => r.id === a.recordingId);
   if (!recording) return;
   if (a.audioSaved && a.voices) await refreshVoiceSuggestions(a, a.voices.nameSamples());
-  // One person needs no refinement. Both paths meet at the summary trigger.
   void runSecondPass(
     a.workspaceId,
     a.noteId,
@@ -683,11 +627,6 @@ async function finishRecording(a: Active, secondPass = true): Promise<void> {
   );
 }
 
-/**
- * The user moved a shown line to voice `to` (or a new one): its lines stay
- * there, and while the recording records, the lines heard next and the
- * ones before are grouped again by it.
- */
 export function moveLine(
   workspaceId: string,
   noteId: string,
@@ -752,12 +691,10 @@ export function moveRecordingLines(
   }
 }
 
-/** Pauses the recording: the take ends, and the microphone goes off. */
 export function pauseRecording(): void {
   if (useRecorderStore.getState().phase === "recording") endTake("pause");
 }
 
-/** Stops the recording. */
 export function stopRecording(): void {
   const a = active;
   if (!a) return;
@@ -766,7 +703,6 @@ export function stopRecording(): void {
   else if (phase === "paused") void finishRecording(a);
 }
 
-/** The note was removed: its recording is dropped. */
 export function dropRecording(workspaceId: string, noteId: string): void {
   const a = active;
   if (!a || a.workspaceId !== workspaceId || a.noteId !== noteId) return;
@@ -781,9 +717,6 @@ export function dropRecording(workspaceId: string, noteId: string): void {
   set(IDLE);
 }
 
-// The app's other devices see the note it records into, in their sessions'
-// list (a phone puts photos into it): told as the recorder starts, pauses,
-// goes on and stops; not between, when only the level and the words change.
 let toldRecording = "";
 useRecorderStore.subscribe((s) => {
   const on = s.phase === "recording" || s.phase === "paused";

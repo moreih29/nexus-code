@@ -6,6 +6,7 @@ import type { PeerWorkspace } from "../../../shared/fs/peer-url";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { type PeerCommitTab, peerTabId } from "../../state/stores/peer-workspace";
 import { cn } from "../../utils/cn";
+import { commitTime } from "../../utils/time-format";
 import { GitStatusBadge } from "../files/git/file-row/status-badge";
 import { EmptyState } from "../ui/empty-state";
 import {
@@ -14,12 +15,10 @@ import {
   readPeerCommit,
   readPeerCommitPatch,
 } from "./commit-model";
-import { PeerCommitTime } from "./commit-time";
 import { PeerReadOnlyBadge } from "./labels";
 import { PeerPatchView } from "./patch-view";
 import { peerSearchErrorKey } from "./search-model";
 
-/** Commit IDs are immutable, so successful reads survive hiding or reconnecting. */
 function useCommitRead<T>(
   enabled: boolean,
   rejoin: number,
@@ -28,7 +27,6 @@ function useCommitRead<T>(
   const [result, setResult] = useState<IpcResult<T> | null>(null);
   const attempt = useEffectEvent((signal: AbortSignal) => {
     if (result?.ok) return;
-    // The reader wraps transport errors in a result and rejects on cancellation.
     void read(signal).then(
       (next) => {
         if (!signal.aborted) setResult(next);
@@ -120,7 +118,9 @@ export function PeerCommitDetails({
       <p className="flex flex-wrap items-center gap-1.5 text-muted-foreground">
         <span>{detail.author}</span>
         <span aria-hidden="true">·</span>
-        <PeerCommitTime at={detail.at} detailed />
+        <time dateTime={Number.isFinite(detail.at) ? new Date(detail.at).toISOString() : undefined}>
+          {commitTime(detail.at)}
+        </time>
       </p>
       {detail.body && (
         <pre className="mt-2 whitespace-pre-wrap break-words rounded border border-border bg-muted p-2 font-sans">

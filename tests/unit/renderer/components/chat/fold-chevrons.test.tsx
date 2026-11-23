@@ -1,8 +1,3 @@
-/**
- * What opens in place in a conversation (a call, a run of calls, a thought)
- * ends with a chevron down while folded, so a trailing right chevron is left
- * to what goes to another view.
- */
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ToolRow } from "../../../../../src/renderer/components/chat/tool-row";

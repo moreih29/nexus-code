@@ -1,10 +1,3 @@
-/**
- * The instructions chip of another computer's chat, as a chat here shows
- * its own: that computer's layers are only shown, its session layer is set
- * from here where it lets this one control its chats. A computer before
- * protocol 0.16.0 tells only the combined text, which is only shown.
- */
-
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { mergeInstructionLayers } from "../../../shared/chat/instructions";
@@ -20,12 +13,10 @@ import {
   InstructionsChipView,
 } from "../chat/session-instructions-chip";
 
-/** The session layer's title, as the serving app writes it in the combined text. */
 const SESSION_TITLE = "This session";
 
 type Layer = NonNullable<PeerInstructionsRead["layers"]>[number];
 
-/** What a layer's title names after its kind, as the serving app writes it ("Profile: work"). */
 function nameIn(title: string, prefix: string): string | undefined {
   return title.startsWith(prefix) ? title.slice(prefix.length) : undefined;
 }
@@ -58,7 +49,6 @@ export interface RemoteInstructionsChipViewProps extends InstructionsChipSlot {
   deviceName: string;
   profile?: string;
   workspaceName: string;
-  /** That computer lets this one control its chats (chat.control). */
   controls: boolean;
   refresh: () => void;
   save: (text: string) => Promise<void>;
@@ -91,7 +81,6 @@ export function RemoteInstructionsChipView({
   }
   const { instructions, session, layers } = state.value;
   const viewOnly = t("common:agentView.remote.viewOnlyNote", { device: deviceName });
-  // An older computer: no layers or session apart, so nothing to set.
   if (session === undefined || layers === undefined) {
     return (
       <InstructionsChipView
@@ -119,7 +108,6 @@ export function RemoteInstructionsChipView({
   );
 }
 
-/** The chip, reading the chat's instructions while that computer serves chat.read. */
 export function RemoteInstructionsChip({
   chat,
   deviceName,

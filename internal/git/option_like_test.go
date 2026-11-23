@@ -8,8 +8,6 @@ import (
 	"testing"
 )
 
-// A revision that starts with "-" would reach git as one of its options:
-// `--output=FILE` makes `git show` and `git diff` write FILE.
 func TestRefsThatReadAsOptionsAreRefused(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "written")
 	spec := "--output=" + out

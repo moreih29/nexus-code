@@ -1,8 +1,3 @@
-// What an agent a session runs did, as its session's own turn reads in its
-// tab: what it was asked on the right, then what it wrote and the tools it
-// ran, in order, and its answer last. Shown for a subagent, a `claude -p`
-// run and a `codex exec` run alike, in the agent list and in a tab's pane.
-
 import i18next from "i18next";
 import { Ban, Check, LoaderCircle, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -11,6 +6,7 @@ import { cn } from "@/utils/cn";
 import type { AgentRun, ToolRun } from "../../../shared/claude/activity";
 import { agentFlow, type FlowEntry, runMessages } from "../../services/agent-sessions/agents";
 import {
+  type FoldedEntry,
   foldRuns,
   isLoneTool,
   type RunCall,
@@ -19,32 +15,45 @@ import {
 } from "../../services/chat/tool-runs";
 import { toolTint } from "../chat/tool-row";
 import { ToolRunLine } from "../chat/tool-run-line";
+import { tooltipProps } from "../ui/tooltip";
 import { elapsedLabel } from "./agent-status";
 import { FoldToggle, useFold } from "./fold";
 
-/** How many of the latest steps show before the earlier ones are opened. */
 const STEPS_SHOWN = 20;
 
-/** How many lines of the request show before it is opened. */
 const PROMPT_LINES = 6;
+
+const BRIEF_STEPS = 3;
 
 export function AgentFlow({
   agent,
   now,
   renderText = plainText,
+  brief = false,
 }: {
   agent: AgentRun;
-  /** For the seconds a running tool counts. */
   now: number;
-  /** How what it wrote reads: as is, or as markdown in a tab. */
   renderText?: (text: string) => ReactNode;
+  brief?: boolean;
 }) {
   const { t } = useTranslation();
   const [all, setAll] = useState(false);
-  // A subagent's tools are its hooks'; a run tells them once it is read.
   const told = agent.kind === "subagent" || agent.toolsTold;
   const steps = agentFlow(agent.tools, runMessages(agent));
-  const hidden = all ? 0 : Math.max(0, steps.length - STEPS_SHOWN);
+  const hidden = brief
+    ? Math.max(0, steps.length - BRIEF_STEPS)
+    : all
+      ? 0
+      : Math.max(0, steps.length - STEPS_SHOWN);
+  if (brief) {
+    return told && steps.length > 0 ? (
+      <div className="flex min-w-0 flex-col gap-1">
+        {foldRuns(steps.slice(hidden), stepPart).map((entry) => (
+          <FlowEntryView key={entryKey(entry)} entry={entry} now={now} renderText={renderText} />
+        ))}
+      </div>
+    ) : null;
+  }
   const running = agent.end === undefined;
   return (
     <div className="flex min-w-0 flex-col gap-3">
@@ -69,17 +78,14 @@ export function AgentFlow({
                   : t("agentList.agents.detail.more_tools", { count: hidden })}
               </button>
             )}
-            {foldRuns(steps.slice(hidden), stepPart).map((entry) =>
-              "run" in entry ? (
-                <StepRun key={entry.run[0].key} steps={entry.run} now={now} />
-              ) : "tool" in entry.one ? (
-                <ToolStep key={entry.one.key} tool={entry.one.tool} now={now} />
-              ) : (
-                <div key={entry.one.key} className="min-w-0 px-1.5 py-1">
-                  {renderText(entry.one.message.text)}
-                </div>
-              ),
-            )}
+            {foldRuns(steps.slice(hidden), stepPart).map((entry) => (
+              <FlowEntryView
+                key={entryKey(entry)}
+                entry={entry}
+                now={now}
+                renderText={renderText}
+              />
+            ))}
           </div>
         )
       )}
@@ -102,7 +108,6 @@ export function AgentFlow({
   );
 }
 
-/** How many tools the agent ran, and how many failed. */
 export function toolCount(agent: AgentRun): string {
   return agent.failedCount > 0
     ? i18next.t("common:agentList.agents.tools_failed", {
@@ -110,6 +115,24 @@ export function toolCount(agent: AgentRun): string {
         failed: agent.failedCount,
       })
     : i18next.t("common:agentList.agents.tools", { count: agent.toolCount });
+}
+
+function entryKey(entry: FoldedEntry<FlowEntry>): string {
+  return "run" in entry ? entry.run[0].key : entry.one.key;
+}
+
+function FlowEntryView({
+  entry,
+  now,
+  renderText,
+}: {
+  entry: FoldedEntry<FlowEntry>;
+  now: number;
+  renderText: (text: string) => ReactNode;
+}) {
+  if ("run" in entry) return <StepRun steps={entry.run} now={now} />;
+  if ("tool" in entry.one) return <ToolStep tool={entry.one.tool} now={now} />;
+  return <div className="min-w-0 px-1.5 py-1">{renderText(entry.one.message.text)}</div>;
 }
 
 function plainText(text: string): ReactNode {
@@ -120,7 +143,6 @@ function plainText(text: string): ReactNode {
   );
 }
 
-/** What it was asked, on the right as a request in its tab, folded when long. */
 function PromptBubble({ text }: { text: string }) {
   const fold = useFold<HTMLParagraphElement>(text, PROMPT_LINES);
   return (
@@ -139,12 +161,10 @@ function PromptBubble({ text }: { text: string }) {
   );
 }
 
-/** A tool folds into a run as a call does in the main conversation; what it wrote ends one. */
 function stepPart(step: FlowEntry): RunPart {
   return "tool" in step && !isLoneTool(step.tool.name) ? "call" : "end";
 }
 
-/** Tools it ran in a row, as one line that opens to show each, as the main conversation's runs. */
 function StepRun({ steps, now }: { steps: readonly FlowEntry[]; now: number }) {
   const [open, setOpen] = useState(false);
   const tools = steps.flatMap((step) => ("tool" in step ? [step.tool] : []));
@@ -162,7 +182,6 @@ function StepRun({ steps, now }: { steps: readonly FlowEntry[]; now: number }) {
   );
 }
 
-/** A tool as a run's line counts it; a file tool's target is its file. */
 function runCallOf(tool: ToolRun): RunCall {
   return {
     name: tool.name,
@@ -177,7 +196,6 @@ function runCallOf(tool: ToolRun): RunCall {
   };
 }
 
-/** A tool it ran, as a call reads in its tab: how it went, its name and what it worked on. */
 function ToolStep({ tool, now }: { tool: ToolRun; now: number }) {
   const { t } = useTranslation();
   const running = tool.end === undefined;
@@ -191,7 +209,10 @@ function ToolStep({ tool, now }: { tool: ToolRun; now: number }) {
         <StepIcon tool={tool} />
         <span className={cn("shrink-0 font-medium", toolTint(tool.name))}>{tool.name}</span>
         {target && (
-          <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground" title={target}>
+          <span
+            className="min-w-0 flex-1 truncate font-mono text-muted-foreground"
+            {...tooltipProps(target)}
+          >
             {target}
           </span>
         )}
@@ -205,14 +226,17 @@ function ToolStep({ tool, now }: { tool: ToolRun; now: number }) {
         </span>
       </div>
       {tool.note && (
-        <span className="truncate pl-5 text-app-micro text-muted-foreground" title={tool.note}>
+        <span
+          className="truncate pl-5 text-app-micro text-muted-foreground"
+          {...tooltipProps(tool.note)}
+        >
           {tool.note}
         </span>
       )}
       {tool.error && (
         <span
           className="truncate pl-5 font-mono text-app-micro text-(--state-error-fg)"
-          title={tool.error}
+          {...tooltipProps(tool.error)}
         >
           {tool.error}
         </span>

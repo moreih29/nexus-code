@@ -1,17 +1,8 @@
-/**
- * Tests for the Add Workspace dialog's pure SSH helpers (parseSshDestination,
- * parseSshPort).
- */
-
 import { describe, expect, it } from "bun:test";
 import {
   parseSshDestination,
   parseSshPort,
 } from "../../../../../src/renderer/components/workspace/add-workspace/ssh-helpers";
-
-// ---------------------------------------------------------------------------
-// parseSshDestination — boundary coverage
-// ---------------------------------------------------------------------------
 
 describe("parseSshDestination", () => {
   it("parses bare hostname", () => {
@@ -53,10 +44,6 @@ describe("parseSshDestination", () => {
     expect(parseSshDestination("a@b@c")).toBeNull();
   });
 });
-
-// ---------------------------------------------------------------------------
-// parseSshPort — boundary coverage
-// ---------------------------------------------------------------------------
 
 describe("parseSshPort", () => {
   it("returns undefined for empty string (use server default)", () => {

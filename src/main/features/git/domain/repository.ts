@@ -1,8 +1,3 @@
-/**
- * Main-process wrapper around one repository. The repository root is the Git
- * toplevel, which may be above the opened workspace when a subdirectory is open.
- */
-
 import { isAllowedGitRemoteUrl } from "../../../../shared/git/remote-validation";
 import type {
   BranchList,
@@ -115,9 +110,6 @@ export interface GitMetadataReader {
   ): Promise<GitIgnoreAppendResult>;
 }
 
-/**
- * Serializes all Git subprocesses for one repository and exposes typed SCM ops.
- */
 export class GitRepository {
   readonly workspaceId: string;
   readonly topLevel: string;
@@ -144,16 +136,10 @@ export class GitRepository {
     this.gitVersion = typeof bin === "string" ? null : (bin?.version ?? null);
   }
 
-  /**
-   * Reads porcelain v2 status and groups entries for the Source Control panel.
-   */
   status(signal?: AbortSignal): Promise<GitStatus> {
     return this.queue((queuedSignal) => this.readStatus(queuedSignal), signal);
   }
 
-  /**
-   * Stages one or more repository-relative paths.
-   */
   stage(relPaths: readonly string[], signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
       if (relPaths.length === 0) return;
@@ -161,9 +147,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Removes one or more paths from the index while preserving working files.
-   */
   unstage(relPaths: readonly string[], signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
       if (relPaths.length === 0) return;
@@ -171,11 +154,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Makes `content` the staged version of one repository-relative path while
-   * leaving the working tree alone — how part of a file's changes is staged
-   * or unstaged.
-   */
   stageContent(relPath: string, content: string, signal?: AbortSignal): Promise<void> {
     return this.queue((queuedSignal) => {
       const stageContent = this.executor.stageContent;
@@ -189,9 +167,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Discards tracked changes and deletes untracked paths selected by status rows.
-   */
   discard(
     relPaths: readonly string[],
     options: DiscardOptions = {},
@@ -230,9 +205,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Creates a commit and returns the new HEAD SHA.
-   */
   commit(
     message: string,
     options: CommitCommandOptions = {},
@@ -243,9 +215,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Amends HEAD, using the Git editor helper when no inline message is given.
-   */
   commitAmend(
     message: string | undefined,
     options: Omit<CommitCommandOptions, "amend"> = {},
@@ -263,9 +232,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Creates an explicitly empty commit using a required inline message.
-   */
   commitEmpty(
     message: string,
     options: Omit<CommitCommandOptions, "allowEmpty" | "edit"> = {},
@@ -276,9 +242,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Soft-resets HEAD to its parent so the last commit becomes staged changes.
-   */
   undoLastCommit(signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
       try {
@@ -299,31 +262,12 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Soft-resets the current branch to an arbitrary history target, preserving
-   * the resulting changes in the index for the user to recommit.
-   */
   resetSoft(targetSha: string, signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
       await this.run(["reset", "--soft", targetSha], queuedSignal);
     }, signal);
   }
 
-  /**
-   * Checks out an existing branch, tag, or commit-ish reference.
-   *
-   * Resolution order:
-   *   1) If the trimmed ref matches a local branch, run `git checkout <ref>`.
-   *   2) If the ref is unique to one remote (`<remote>/<ref>`), run
-   *      `git checkout --track <remoteRef>` instead — this auto-promotes a
-   *      remote-only ref to a local tracking branch. The previous code
-   *      surfaced the bare `pathspec '<ref>' did not match` error here.
-   *   3) If the ref does not match locals or remotes, throw `no-such-ref`.
-   *
-   * Tag and commit-ish refs are not in `BranchList` and therefore fall into
-   * case (3); the renderer surfaces the `no-such-ref` message and the user
-   * can re-issue the request through a future "Checkout commit" flow.
-   */
   checkout(ref: string, signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
       const branches = await this.readBranchList(queuedSignal);
@@ -337,26 +281,12 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Checks out an immutable commit in detached-HEAD mode. This is intentionally
-   * separate from branch checkout: `checkout()` runs the branch-list preflight
-   * and may auto-track remote-only refs, while History actions target commits
-   * and must not silently create or move local branches; the explicit
-   * `--detach` also keeps short SHAs safe when they resemble branch names.
-   */
   checkoutDetached(sha: string, signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
       await this.run(["checkout", "--detach", sha], queuedSignal);
     }, signal);
   }
 
-  /**
-   * Creates a local branch that tracks `remoteRef` and checks it out. The
-   * branch name is derived by stripping the leading `<remote>/` segment, so
-   * `origin/main` produces a local `main`. Uses the explicit `--track` form
-   * because the bare `git checkout <short>` auto-track behavior depends on
-   * git version, single-remote presence, and `branch.autoSetupMerge` config.
-   */
   checkoutTracking(remoteRef: string, signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
       const trimmed = remoteRef.trim();
@@ -374,9 +304,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Creates a branch, optionally at a start ref and optionally checking it out.
-   */
   createBranch(
     name: string,
     checkoutOrOptions: boolean | CreateBranchOptions = false,
@@ -399,10 +326,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Deletes one local branch. Force is reserved for the explicit second-step
-   * confirmation after an unmerged delete failure.
-   */
   deleteBranch(name: string, force = false, signal?: AbortSignal): Promise<void> {
     return this.queue((queuedSignal) => {
       const branchDelete = this.executor.branchDelete;
@@ -416,9 +339,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Deletes one remote branch through a prompt-capable push operation.
-   */
   deleteRemoteBranch(remote: string, name: string, signal?: AbortSignal): Promise<void> {
     return this.queue((queuedSignal) => {
       const branchDeleteRemote = this.executor.branchDeleteRemote;
@@ -432,9 +352,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Renames a local branch.
-   */
   renameBranch(from: string, to: string, signal?: AbortSignal): Promise<void> {
     return this.queue((queuedSignal) => {
       const branchRename = this.executor.branchRename;
@@ -448,9 +365,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Sets or unsets a local branch upstream.
-   */
   setUpstream(branch: string, upstream: string | null, signal?: AbortSignal): Promise<void> {
     return this.queue((queuedSignal) => {
       const branchSetUpstream = this.executor.branchSetUpstream;
@@ -464,9 +378,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Fast-forwards a branch from a remote ref and reports the before/after SHAs.
-   */
   fastForwardBranch(
     branch: string,
     remote: string,
@@ -486,9 +397,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Starts a merge workflow and returns conflicts as a normal result envelope.
-   */
   merge(
     branch: string,
     mode: GitMergeMode = "default",
@@ -506,9 +414,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Starts a non-interactive rebase workflow.
-   */
   rebase(onto: string, signal?: AbortSignal): Promise<GitRebaseResult> {
     return this.queue((queuedSignal) => {
       const workflowRebase = this.executor.workflowRebase;
@@ -517,9 +422,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Cherry-picks one commit and surfaces conflicts as a result envelope.
-   */
   cherryPick(sha: string, signal?: AbortSignal): Promise<GitCherryPickResult> {
     return this.queue((queuedSignal) => {
       const workflowCherryPick = this.executor.workflowCherryPick;
@@ -532,9 +434,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Aborts the active workflow operation by reading Git's marker files.
-   */
   abortOp(signal?: AbortSignal): Promise<void> {
     return this.queue((queuedSignal) => {
       const workflowAbort = this.executor.workflowAbort;
@@ -543,9 +442,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Continues the active workflow operation by reading Git's marker files.
-   */
   continueOp(signal?: AbortSignal): Promise<GitContinueOpResult> {
     return this.queue((queuedSignal) => {
       const workflowContinue = this.executor.workflowContinue;
@@ -554,10 +450,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Marks currently-conflicted paths as resolved after conflict-specific
-   * validation.
-   */
   markResolved(relPaths: readonly string[], signal?: AbortSignal): Promise<GitMarkResolvedResult> {
     return this.queue((queuedSignal) => {
       const conflictMarkResolved = this.executor.conflictMarkResolved;
@@ -570,10 +462,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Adds a worktree at `worktreePath` on a new branch `branch`, started from
-   * `base`. Git creates the folder and any missing parents.
-   */
   addWorktree(
     worktreePath: string,
     branch: string,
@@ -585,7 +473,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /** Whether the worktree at `worktreePath` has changes or untracked files. */
   worktreeHasChanges(worktreePath: string, signal?: AbortSignal): Promise<boolean> {
     return this.queue(async (queuedSignal) => {
       const { stdout } = await this.run(
@@ -596,7 +483,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /** The branch checked out in the worktree at `worktreePath`; null when its HEAD is detached. */
   worktreeBranch(worktreePath: string, signal?: AbortSignal): Promise<string | null> {
     return this.queue(async (queuedSignal) => {
       try {
@@ -612,7 +498,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /** Whether the local branch `name` is there. */
   hasBranch(name: string, signal?: AbortSignal): Promise<boolean> {
     return this.queue(async (queuedSignal) => {
       try {
@@ -625,10 +510,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Whether the local branch `name` was once `from`, renamed (git branch
-   * -m), as its reflog says: a rename carries the reflog along.
-   */
   branchRenamedFrom(name: string, from: string, signal?: AbortSignal): Promise<boolean> {
     return this.queue(async (queuedSignal) => {
       try {
@@ -645,17 +526,12 @@ export class GitRepository {
     }, signal);
   }
 
-  /** Drops git's records of worktrees whose folders are gone. */
   pruneWorktrees(signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
       await this.run(["worktree", "prune"], queuedSignal);
     }, signal);
   }
 
-  /**
-   * Removes the worktree at `worktreePath`. Without `force`, git refuses
-   * when it has changes or untracked files.
-   */
   removeWorktree(worktreePath: string, force = false, signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
       await this.run(
@@ -665,16 +541,10 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Lists local and remote branch names with current branch metadata.
-   */
   listBranches(signal?: AbortSignal): Promise<BranchList> {
     return this.queue(async (queuedSignal) => this.readBranchList(queuedSignal), signal);
   }
 
-  /**
-   * Lists local tags for ref picker and tag picker search.
-   */
   listTags(signal?: AbortSignal): Promise<Tag[]> {
     return this.queue((queuedSignal) => {
       const tagList = this.executor.tagList;
@@ -683,9 +553,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Lists tags from one selected remote without expanding local tag semantics.
-   */
   listRemoteTags(remote: string, signal?: AbortSignal): Promise<RemoteTag[]> {
     return this.queue((queuedSignal) => {
       const tagListRemote = this.executor.tagListRemote;
@@ -698,9 +565,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Creates a local lightweight or annotated tag.
-   */
   createTag(
     name: string,
     options: { readonly ref?: string; readonly message?: string } = {},
@@ -719,9 +583,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Deletes one local tag.
-   */
   deleteTag(name: string, signal?: AbortSignal): Promise<void> {
     return this.queue((queuedSignal) => {
       const tagDelete = this.executor.tagDelete;
@@ -730,9 +591,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Deletes one tag from a remote with askpass helpers enabled.
-   */
   deleteRemoteTag(remote: string, name: string, signal?: AbortSignal): Promise<void> {
     return this.queue((queuedSignal) => {
       const tagDeleteRemote = this.executor.tagDeleteRemote;
@@ -746,10 +604,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Pushes every local tag to the configured upstream remote or a named
-   * remote. Tag pushes are separate from current-branch push semantics.
-   */
   pushTags(remote?: string, signal?: AbortSignal): Promise<void> {
     return this.queue((queuedSignal) => {
       const tagPush = this.executor.tagPush;
@@ -762,10 +616,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Adds one configured remote. URL is validated client-side before the RPC;
-   * Go passes the URL to git directly.
-   */
   addRemote(name: string, url: string, signal?: AbortSignal): Promise<void> {
     if (!isAllowedGitRemoteUrl(url)) {
       return Promise.reject(
@@ -787,10 +637,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Removes one configured remote. If the current branch tracked that remote,
-   * the next status refresh naturally reports branch.upstream=null.
-   */
   removeRemote(name: string, signal?: AbortSignal): Promise<void> {
     return this.queue((queuedSignal) => {
       const remoteRemove = this.executor.remoteRemove;
@@ -799,12 +645,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Fetches from the configured remote or from a named remote. Unconfigured
-   * remotes surface as `no-remote` via stderr classification; named remotes
-   * that do not exist surface the same way ("'foo' does not appear to be a
-   * git repository").
-   */
   fetch(remote?: string, signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
       const trimmed = remote?.trim();
@@ -813,11 +653,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Fetches every configured remote and prunes deleted remote refs. Explicit
-   * user calls allow askpass/editor helpers; background autofetch keeps Git in
-   * non-interactive mode so it never opens credential prompts off-screen.
-   */
   fetchAll(options: { interactive?: boolean } = {}, signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
       const args = ["fetch", "--all", "--prune"];
@@ -829,13 +664,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Pulls from the current upstream and summarizes the successful result.
-   * Missing remote / upstream surface as typed `no-remote` / `no-upstream`
-   * via stderr classification rather than a hard preflight; the renderer
-   * UI gates the Pull action on `RepoCapabilities` so users normally do not
-   * reach this path with a misconfigured branch.
-   */
   pull(signal?: AbortSignal): Promise<PullResult> {
     return this.queue(async (queuedSignal) => {
       const executorPull = this.executor.pull;
@@ -844,22 +672,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Pushes the current branch.
-   *
-   *   - `force=true`   uses `--force-with-lease` for safer explicit force pushes.
-   *   - `publish=true` runs `push -u <remote> <branch>` against the first
-   *     configured remote so a branch without an upstream gains one in a
-   *     single operation — this is the recovery path the renderer offers
-   *     after a `no-upstream` error.
-   *
-   * Plain push (`publish=false`) lets git surface its own stderr; the
-   * classifier maps `no-remote` / `no-upstream` / `push-rejected` so the
-   * renderer can branch on a stable `kind` without preflight here.
-   *
-   * Publish keeps `assertHasHead` because the call needs `branch.current`
-   * to construct argv and an unborn HEAD has no name to push.
-   */
   push(force = false, publish = false, signal?: AbortSignal): Promise<PushResult> {
     return this.queue(async (queuedSignal) => {
       const executorPush = this.executor.push;
@@ -892,13 +704,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Performs the primary Sync action in one queue slot: pull first, then push
-   * only if pull completed. A cancelled pull returns an envelope and never
-   * starts push. Typed Git pull failures return an error envelope so the
-   * renderer can show the pull failure while preserving the no-push contract;
-   * push failures still propagate.
-   */
   sync(signal?: AbortSignal): Promise<GitSyncResult> {
     return this.queue(async (queuedSignal) => {
       const executorPull = this.executor.pull;
@@ -925,12 +730,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Saves current changes on the stash stack. Unborn-HEAD repos surface as
-   * `no-head` via stderr classification ("You do not have the initial
-   * commit yet"). The renderer disables Stash via `RepoCapabilities` so the
-   * raw failure path is only reachable through racing state changes.
-   */
   stash(message?: string, signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
       const args = ["stash", "push"];
@@ -939,11 +738,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Applies and drops the most recent stash entry. Empty-stack failures
-   * surface as `empty-stash` via stderr classification; the renderer
-   * disables Stash Pop on empty stash count via `RepoCapabilities`.
-   */
   stashPop(signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {
       const stashPop = this.executor.stashPop;
@@ -952,9 +746,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Lists stash entries with parsed stack index, source branch, and timestamp.
-   */
   listStashes(signal?: AbortSignal) {
     return this.queue((queuedSignal) => {
       const stashList = this.executor.stashList;
@@ -963,9 +754,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Applies one stash entry without dropping it from the stash stack.
-   */
   applyStash(index: number, signal?: AbortSignal): Promise<void> {
     return this.queue((queuedSignal) => {
       const stashApply = this.executor.stashApply;
@@ -978,9 +766,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Drops one stash entry from the stash stack.
-   */
   dropStash(index: number, signal?: AbortSignal): Promise<void> {
     return this.queue((queuedSignal) => {
       const stashDrop = this.executor.stashDrop;
@@ -993,9 +778,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Streams the patch for one stash entry as bounded text chunks.
-   */
   async *showStash(index: number, signal?: AbortSignal) {
     return yield* this.queueStream((queuedSignal) => {
       const stashShow = this.executor.stashShow;
@@ -1008,9 +790,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Stashes only the selected repository-relative paths.
-   */
   stashGroup(paths: readonly string[], message?: string, signal?: AbortSignal): Promise<void> {
     return this.queue((queuedSignal) => {
       const stashGroup = this.executor.stashGroup;
@@ -1024,9 +803,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Reads a blob from the index or a Git ref. Working-tree reads use fs handlers.
-   */
   getFileContent(ref: string, relPath: string, signal?: AbortSignal): Promise<string> {
     return this.queue(async (queuedSignal) => {
       if (ref === "WORKING") {
@@ -1039,18 +815,10 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Reads a HEAD blob as bounded UTF-8 text for the file context menu's
-   * historical-content seam.
-   */
   openFileAtHead(relPath: string, signal?: AbortSignal): Promise<GitOpenFileAtHeadResult> {
     return this.queue((queuedSignal) => this.readHeadBlobAsText(relPath, queuedSignal), signal);
   }
 
-  /**
-   * Streams a Git blob through the repository queue so large-object reads do
-   * not interleave with mutating Git operations.
-   */
   async *getFileBlob(ref: string, relPath: string, signal?: AbortSignal) {
     return yield* this.queueStream((queuedSignal) => {
       const blob = this.executor.blob;
@@ -1064,10 +832,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Appends one repository-relative path to `.gitignore` with idempotent
-   * dedupe semantics.
-   */
   addToGitignore(relPath: string, signal?: AbortSignal) {
     return this.queue(
       (queuedSignal) => this.metadataReader.addToGitignore(this.topLevel, relPath, queuedSignal),
@@ -1075,30 +839,10 @@ export class GitRepository {
     );
   }
 
-  /**
-   * Filters the input `relPaths` down to those Git treats as ignored
-   * (matches `.gitignore` / `.git/info/exclude` / core.excludesfile).
-   *
-   * Used by the file-tree to lazily dim ignored entries in the renderer's
-   * viewport. We deliberately avoid `status --ignored` because that walks
-   * every ignored directory (`node_modules`, `dist`, ...) on each status
-   * push; lazy per-viewport calls scale with what the user actually sees.
-   *
-   * `git check-ignore` exits 1 when zero paths match — that is the normal
-   * outcome and is mapped to an empty result rather than an error.
-   */
   async checkIgnore(relPaths: readonly string[], signal?: AbortSignal): Promise<string[]> {
     if (relPaths.length === 0) return [];
     return this.queue(async (queuedSignal) => {
       try {
-        // `-z` requires `--stdin`, which our executor does not expose. We pass
-        // paths via argv and instead disable C-style path quoting through
-        // `-c core.quotePath=false` — that way newline-split returns the same
-        // utf-8 bytes we sent in. Filenames containing literal `\n` would
-        // still defeat the parser; those are vanishingly rare in real repos
-        // and would already break most Git tooling.
-        // check-ignore accepts filenames but rejects --literal-pathspecs.
-        // A leading ./ keeps colon-prefixed names out of its magic parser.
         const checkedPaths = new Map(
           relPaths.map((file) => [file.startsWith(":") ? `./${file}` : file, file]),
         );
@@ -1108,7 +852,7 @@ export class GitRepository {
         );
         return stdout
           .split("\n")
-          .map((line) => line.trimEnd()) // strip CR on Windows
+          .map((line) => line.trimEnd())
           .filter((p) => p.length > 0)
           .map((file) => checkedPaths.get(file) ?? file);
       } catch (err) {
@@ -1118,9 +862,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Streams diff output in bounded chunks so IPC can apply back-pressure.
-   */
   async *diff(
     spec: DiffSpec,
     signal?: AbortSignal,
@@ -1128,25 +869,14 @@ export class GitRepository {
     return yield* this.queueStream((queuedSignal) => this.streamDiff(spec, queuedSignal), signal);
   }
 
-  /**
-   * Streams commit log entries parsed into stable chunk objects.
-   */
   async *log(args: GitLogArgs = {}, signal?: AbortSignal): AsyncGenerator<LogChunk, LogComplete> {
     return yield* this.queueStream((queuedSignal) => this.streamLog(args, queuedSignal), signal);
   }
 
-  /**
-   * Reads one commit's metadata and per-file changes for the editor commit tab.
-   * Merge commit file changes use the first parent as the comparison base.
-   */
   commitDetail(sha: string, signal?: AbortSignal): Promise<CommitDetail> {
     return this.queue((queuedSignal) => this.readCommitDetail(sha, queuedSignal), signal);
   }
 
-  /**
-   * Reads the lines each uncommitted file adds and deletes, untracked ones
-   * included, and how many commits HEAD is ahead of and behind `base`.
-   */
   changeStats(base: string | undefined, signal?: AbortSignal): Promise<GitChangeStats> {
     return this.queue((queuedSignal) => {
       const changeStats = this.executor.changeStats;
@@ -1155,11 +885,6 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Searches commits using server-side Git primitives. Hex prefixes resolve to
-   * one commit detail; other text uses `git log --grep` so off-page commits
-   * are discoverable.
-   */
   searchCommits(query: string, limit = 50, signal?: AbortSignal): Promise<CommitSearchResult> {
     return this.queue(async (queuedSignal) => {
       const trimmed = query.trim();
@@ -1179,16 +904,10 @@ export class GitRepository {
     }, signal);
   }
 
-  /**
-   * Convenience hook used by registries and coalescers before broadcasting.
-   */
   refreshStatus(signal?: AbortSignal): Promise<GitStatus> {
     return this.status(signal);
   }
 
-  /**
-   * Aborts in-flight and queued operations; later calls reject with AbortError.
-   */
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -1197,9 +916,6 @@ export class GitRepository {
     }
   }
 
-  /**
-   * Adds one operation to the repository's serial chain.
-   */
   private queue<T>(run: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal): Promise<T> {
     const operation = this.createQueuedOperation(signal);
     const task = this.queueTail.then(async () => {
@@ -1212,15 +928,6 @@ export class GitRepository {
     return task.finally(operation.cleanup);
   }
 
-  /**
-   * Adds one streaming operation to the serial chain and holds it until return.
-   *
-   * Cleanup is guarded by an idempotent gate so that an abort raised while a
-   * consumer is parked at `yield` — and the IPC router skips `.return()` on
-   * the generator — still releases the queue slot. Without that, `release()`
-   * would never fire and every subsequent queued operation on this repository
-   * would block forever (same regression shape as 53781ae).
-   */
   private async *queueStream<T, R>(
     run: (signal: AbortSignal) => AsyncGenerator<T, R, unknown>,
     signal?: AbortSignal,
@@ -1256,9 +963,6 @@ export class GitRepository {
     }
   }
 
-  /**
-   * Creates the per-operation controller that dispose() and caller signals abort.
-   */
   private createQueuedOperation(signal?: AbortSignal): QueuedOperation {
     const controller = new AbortController();
     const abort = (): void => controller.abort();
@@ -1280,9 +984,6 @@ export class GitRepository {
     };
   }
 
-  /**
-   * Runs a buffered git command within the already-acquired queue slot.
-   */
   private run(
     args: readonly string[],
     signal: AbortSignal,
@@ -1299,7 +1000,6 @@ export class GitRepository {
     });
   }
 
-  /** Runs Git on selected filenames without interpreting them as pathspec patterns. */
   private runForPaths(
     args: readonly string[],
     paths: readonly string[],
@@ -1308,10 +1008,6 @@ export class GitRepository {
     return this.run([...args, "--", ...paths], signal, { GIT_LITERAL_PATHSPECS: "1" });
   }
 
-  /**
-   * Runs a prompt-capable Git command with the helper socket environment
-   * scoped to this repository's workspace id.
-   */
   private runWithHelpers(
     args: readonly string[],
     signal: AbortSignal,
@@ -1328,11 +1024,6 @@ export class GitRepository {
     });
   }
 
-  /**
-   * Runs one commit-family command while the caller already owns the queue.
-   * Inline messages use non-interactive `git commit -m`; editor-backed amend
-   * uses the helper environment so Git can open the renderer commit dialog.
-   */
   private async commitWithinQueue(
     message: string | undefined,
     options: CommitCommandOptions,
@@ -1351,9 +1042,6 @@ export class GitRepository {
     return { sha: stdout.trim() };
   }
 
-  /**
-   * Reads the agent-computed repository snapshot and capability flags.
-   */
   private async readStatus(signal: AbortSignal): Promise<GitStatus> {
     const status = this.executor.status;
     if (!status) throw missingExecutorMethodError("status");
@@ -1365,10 +1053,6 @@ export class GitRepository {
     });
   }
 
-  /**
-   * Reads a bounded HEAD blob through the semantic blob executor and decodes it
-   * only after binary and size guards pass.
-   */
   private async readHeadBlobAsText(
     relPath: string,
     signal: AbortSignal,
@@ -1381,17 +1065,9 @@ export class GitRepository {
     });
   }
 
-  /**
-   * Snapshots local + remote branch names so checkout preflight can route a
-   * bare ref to either `git checkout <local>` or `git checkout --track
-   * <remote>/<ref>` without an extra round-trip.
-   */
   private async readBranchList(signal: AbortSignal): Promise<BranchList> {
     const status = await this.readStatus(signal);
     const local = await this.run(["branch", "--format=%(refname:short)", "--list"], signal);
-    // `refname:short` shortens `refs/remotes/origin/HEAD` to a bare `origin`
-    // on recent git, which no `/HEAD` filter catches; `lstrip=2` always keeps
-    // the `<remote>/<branch>` form.
     const remote = await this.run(["branch", "--format=%(refname:lstrip=2)", "--remotes"], signal);
     return {
       current: status.branch,
@@ -1400,9 +1076,6 @@ export class GitRepository {
     };
   }
 
-  /**
-   * Converts git diff stdout into fixed-size text chunks.
-   */
   private async *streamDiff(
     spec: DiffSpec,
     signal: AbortSignal,
@@ -1416,12 +1089,6 @@ export class GitRepository {
     });
   }
 
-  /**
-   * Converts git log stdout into typed log-entry chunks. Cursor pages seek
-   * inside the streamed top-of-scope traversal: the cursor's parents alone
-   * would leave out a merged branch's older commits, and `git log --all
-   * <sha>^@` can re-emit already-loaded branch tips.
-   */
   private async *streamLog(
     logArgs: GitLogArgs,
     signal: AbortSignal,
@@ -1440,20 +1107,12 @@ export class GitRepository {
     });
   }
 
-  /**
-   * Reads and parses a single commit detail while the queue slot is already
-   * held by the public caller.
-   */
   private async readCommitDetail(sha: string, signal: AbortSignal): Promise<CommitDetail> {
     const commitDetail = this.executor.commitDetail;
     if (!commitDetail) throw missingExecutorMethodError("commitDetail");
     return commitDetail.call(this.executor, { cwd: this.topLevel, sha, signal });
   }
 
-  /**
-   * Resolves a user-typed SHA prefix into one commit SHA, normalizing Git's
-   * varied "unknown revision" failures into the History search contract.
-   */
   private async resolveCommitPrefix(shaPrefix: string, signal: AbortSignal): Promise<RunGitResult> {
     try {
       return await this.run(["rev-parse", "--verify", `${shaPrefix}^{commit}`], signal);
@@ -1470,11 +1129,6 @@ export class GitRepository {
     }
   }
 
-  /**
-   * Collects a bounded log stream into an array for non-streaming callers such
-   * as commit search. The underlying parser and limit behavior stay shared
-   * with `git.stream.log`.
-   */
   private async readLogEntries(logArgs: GitLogArgs, signal: AbortSignal): Promise<LogEntry[]> {
     const entries: LogEntry[] = [];
     for await (const chunk of this.streamLog(logArgs, signal)) {
@@ -1484,10 +1138,6 @@ export class GitRepository {
   }
 }
 
-/**
- * Creates the stable error used when a repository method needs an agent
- * semantic executor that is absent from the injected implementation.
- */
 function missingExecutorMethodError(method: string): GitError {
   return new GitError("unknown", `Git ${method} executor is unavailable`);
 }

@@ -1,4 +1,3 @@
-/** The account password's flows, against a server that keeps one locked bundle. */
 import { describe, expect, test } from "bun:test";
 import type { KeyBundle } from "../../../../../packages/remote-protocol/src";
 import { lockAccountKey, newAccountKey } from "../../../../../src/main/features/remote/account-key";
@@ -24,7 +23,6 @@ function signedIn(userId = "u1"): RemoteAccountState {
   };
 }
 
-/** The server's one bundle per account, as the contract has it. */
 function bundleServer() {
   const server = {
     stored: null as { bundle: KeyBundle; version: number } | null,
@@ -50,7 +48,6 @@ function bundleServer() {
   return { server, request };
 }
 
-/** A device of the account: its own kept key, the shared server. */
 function device(request: ReturnType<typeof bundleServer>["request"], account = signedIn()) {
   const store = keptInMemory<SavedKey>();
   const states: AccountKeyState["status"][] = [];
@@ -101,7 +98,6 @@ describe("the account key's flows", () => {
     await first.keys.create(PASSWORD);
     expect(first.keys.key()?.kid).toBe(1);
     const switching = first.switchAccount("u2");
-    // Even before the asynchronous flow forgets the key, the room cannot use it.
     expect(first.keys.key()).toBeNull();
     await switching;
     expect(first.keys.key()).toBeNull();
@@ -166,7 +162,6 @@ describe("the account key's flows", () => {
     await a.keys.restore();
     await a.keys.create(PASSWORD);
     const first = structuredClone(server.stored);
-    // A reset put in place elsewhere: the next key, under another password.
     const next = await lockAccountKey({
       key: await newAccountKey(),
       kid: 2,
@@ -178,11 +173,9 @@ describe("the account key's flows", () => {
     await a.keys.unlock(OTHER);
     expect(a.keys.state()).toEqual({ status: "unlocked", kid: 2 });
     const newer = a.keys.key();
-    // The server (or one that holds its data) hands out the first bundle again.
     server.stored = first;
     expect(await a.keys.refresh()).toEqual({ status: "unlocked", kid: 2 });
     expect(a.keys.key()).toEqual(newer);
-    // Nor does the old password take the old key back, nor a change of it.
     await expect(a.keys.unlock(PASSWORD)).rejects.toMatchObject({ failure: "conflict" });
     await expect(a.keys.changePassword(PASSWORD, "a new long password")).rejects.toMatchObject({
       failure: "conflict",

@@ -32,7 +32,6 @@ test("the tree is headed by the local root header, with nothing that writes", ()
   expect(html).toContain('aria-label="Collapse Folders"');
   expect(html).not.toContain("New File");
   expect(html).not.toContain("New Folder");
-  // The root is the header, not a row of the tree.
   expect(html).not.toContain('role="treeitem"');
 });
 

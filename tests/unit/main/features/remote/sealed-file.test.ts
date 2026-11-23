@@ -1,4 +1,3 @@
-/** Where the sign-in and the account key are kept: sealed on disk, or only in memory where nothing seals. */
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,7 +16,6 @@ const account = {
   device: { id: "d1", name: "Mac", platform: "darwin" },
 };
 
-/** Seals by reversing the bytes: enough to tell sealed from plain. */
 function box(available: boolean): SecretBox {
   return {
     available,

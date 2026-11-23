@@ -1,49 +1,16 @@
-/**
- * PinToggle — workspace sidebar row toggle button for pinning/unpinning.
- *
- * Visual contract:
- *   - pinned=true  → always visible, filled Pin icon, accent color, aria-pressed=true
- *   - pinned=false → hidden at rest, revealed on row hover or keyboard focus
- *                    in the row, outlined Pin icon, muted color,
- *                    aria-pressed=false
- *
- * Must be placed inside a `.group` ancestor so the group-hover reveal works.
- * The row places it, through `className`.
- * Click event is stopped from propagating so the parent row-select button
- * does not fire when the pin is clicked.
- */
-
 import { Pin } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { tooltipProps } from "../ui/tooltip";
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
 export interface PinToggleProps {
-  /** Current pinned state of the workspace. */
   pinned: boolean;
-  /** Workspace display name — used in the aria-label. */
   workspaceName: string;
-  /** Called when the user activates the button (click or keyboard). */
   onToggle: () => void;
-  /**
-   * When false, sets draggable="false" on the underlying button so that a
-   * mousedown on this button never initiates a drag of the parent row.
-   * Defaults to undefined (browser default behavior).
-   */
   draggable?: false;
-  /** Where the row places it. */
   className?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
-/** Renders a Pin icon button that toggles workspace pin state. */
 export function PinToggle({
   pinned,
   workspaceName,
@@ -58,7 +25,6 @@ export function PinToggle({
     : t("sidebar.pin_workspace_aria", { name: workspaceName });
 
   function handleClick(e: React.MouseEvent) {
-    // Prevent the parent workspace-select button from receiving the click.
     e.stopPropagation();
     onToggle();
   }
@@ -76,19 +42,12 @@ export function PinToggle({
         "size-5 rounded-(--radius-control)",
         "transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
         pinned
-          ? // Always visible when pinned; filled icon; accent color.
-            "opacity-100 text-[var(--state-selected-indicator)]"
-          : // Hidden at rest; revealed on row hover or keyboard focus in the row.
-            "opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 text-muted-foreground hover:text-foreground",
+          ? "opacity-100 text-[var(--state-selected-indicator)]"
+          : "opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 text-muted-foreground hover:text-foreground",
         className,
       )}
     >
-      <Pin
-        className="size-3"
-        // Filled icon signals the pinned state; outlined icon signals unpinned.
-        fill={pinned ? "currentColor" : "none"}
-        aria-hidden="true"
-      />
+      <Pin className="size-3" fill={pinned ? "currentColor" : "none"} aria-hidden="true" />
     </button>
   );
 }

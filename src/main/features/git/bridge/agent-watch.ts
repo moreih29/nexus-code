@@ -24,7 +24,6 @@ interface GitWatchEntry {
   registering: boolean;
 }
 
-/** Owns each workspace's agent-side Git watch and forwards changes to the coalescer. */
 export class AgentGitWatcher {
   private readonly entries = new Map<string, GitWatchEntry>();
   private readonly pending = new Map<string, Promise<void>>();
@@ -50,7 +49,6 @@ export class AgentGitWatcher {
     });
   }
 
-  /** Registers a repository or joins its pending registration. */
   async watch(workspaceId: string, gitDir: string): Promise<void> {
     if (this.disposed) throw new Error("Git watcher is disposed");
     const provider = this.manager.requireContext(workspaceId).fs;
@@ -59,7 +57,6 @@ export class AgentGitWatcher {
     await this.bind(workspaceId, gitDir, provider).ready;
   }
 
-  /** Detaches the entry now and unwatches on the agent that received the registration. */
   async unwatch(workspaceId: string): Promise<void> {
     const entry = this.entries.get(workspaceId);
     if (!entry) return;
@@ -69,21 +66,18 @@ export class AgentGitWatcher {
     });
   }
 
-  /** Drops a workspace without blocking its removal broadcast. */
   disposeWorkspace(workspaceId: string): void {
     void this.unwatch(workspaceId).catch((error: unknown) => {
       reportWatchFailure(failures, "git.unwatch cleanup", workspaceId, error);
     });
   }
 
-  /** Stops rebinding and drops all active and pending registrations. */
   dispose(): void {
     this.disposed = true;
     this.disposeProviderReady();
     for (const workspaceId of this.entries.keys()) this.disposeWorkspace(workspaceId);
   }
 
-  /** Publishes the entry before RPC so failure, removal and rebind all find its listeners. */
   private bind(workspaceId: string, gitDir: string, provider: AgentBackedProvider): GitWatchEntry {
     const previous = this.entries.get(workspaceId);
     if (previous?.gitDir === gitDir && previous.provider === provider) return previous;
@@ -114,7 +108,6 @@ export class AgentGitWatcher {
         }).catch((error: unknown) => {
           reportWatchFailure(failures, "git.watch replay", workspaceId, error);
         });
-        // Refresh status for changes the disconnected agent did not see.
         this.onDirty(workspaceId);
       },
     );
@@ -147,7 +140,6 @@ export class AgentGitWatcher {
     return entry;
   }
 
-  /** Removes local ownership before any asynchronous cleanup. */
   private detach(workspaceId: string, entry: GitWatchEntry): void {
     this.entries.delete(workspaceId);
     entry.unsubscribe();

@@ -76,7 +76,6 @@ describe("GitRegistry on a host without Git", () => {
   });
 });
 
-/** A registry over workspaces that each live on their own host, as in production (no local binary). */
 function makeRegistryFor(hosts: Array<[WorkspaceMeta, AgentBackedProvider]>) {
   const providers = new Map(hosts.map(([workspace, provider]) => [workspace.id, provider]));
   const providerFor = (id: string): AgentBackedProvider => {
@@ -95,11 +94,6 @@ function makeRegistryFor(hosts: Array<[WorkspaceMeta, AgentBackedProvider]>) {
   return { registry, broadcast };
 }
 
-/**
- * An agent provider whose host has no Git until `installGit()`. Detection
- * answers git-missing as the agent's git.detect does, or with `asError`, as a
- * typed git-missing failure.
- */
 function noGitHost({ asError = false } = {}) {
   const base = fakeAgentProvider();
   let hasGit = false;
@@ -129,7 +123,6 @@ function noGitHost({ asError = false } = {}) {
   };
 }
 
-/** Builds the minimal agent provider required by GitRegistry's non-optional executor path. */
 function fakeAgentProvider(kind: "local" | "ssh" = "ssh"): AgentBackedProvider {
   const fail = async (): Promise<never> => {
     throw new Error("unexpected filesystem provider call");

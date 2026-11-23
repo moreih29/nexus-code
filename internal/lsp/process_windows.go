@@ -29,5 +29,4 @@ func startServerCommand(cmd *exec.Cmd) (func(), error) {
 	return sync.OnceFunc(func() { _ = windows.CloseHandle(job) }), nil
 }
 
-// The job handle owns the server's workers independently of reaping its PID.
 func observeServerExit(*os.Process) bool { return false }

@@ -1,4 +1,3 @@
-/** Patterns from agents and other devices, tested where none can hold up the app. */
 import { describe, expect, test } from "bun:test";
 import {
   firstMatch,

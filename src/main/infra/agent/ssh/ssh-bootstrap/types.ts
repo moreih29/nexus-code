@@ -1,35 +1,13 @@
-/**
- * Public types and constants shared by the bootstrap orchestrator and its
- * transport/manifest submodules. Keeping them in one place lets each
- * submodule import without circularity.
- */
 import path from "node:path";
 import { AGENT_PROTOCOL_VERSION } from "../../../../../shared/agent/envelope";
 import type { AgentArtifactPlatform, SshHostOs } from "../../../../../shared/agent/manifest";
 import type { AuthenticateSshControlMasterDependencies, SshAuthPromptHandler } from "../auth-pty";
 import type { SshMasterOptions } from "../master";
 
-// Alias of the single source of truth in shared/agent/envelope.ts — the SSH
-// and local channels speak the same protocol to the same Go agent, so they
-// must never carry independent copies of the expected major. (v0.6.0 shipped
-// with this constant at "2" while the local channel's stayed at "1",
-// bricking every local workspace — see the envelope.ts comment.)
 export const REMOTE_AGENT_PROTOCOL_MAJOR = AGENT_PROTOCOL_VERSION;
 export const REMOTE_AGENT_VERSION = "0.1.0";
-/** Maximum duration of agent installation after authentication. */
 export const REMOTE_AGENT_BOOTSTRAP_TIMEOUT_MS = 120_000;
 
-/**
- * Root path on the remote host where the agent is installed.
- *
- * Split by stable/beta channel through the build-time `define` (`~/.nexus-code` vs
- * `~/.nexus-code-beta`). For debugging it can be forced with the `NEXUS_REMOTE_AGENT_ROOT` env
- * (escape hatch).
- *
- * The `__NEXUS_REMOTE_AGENT_ROOT__` global is replaced by a string at build time by the `define` in the main
- * config of `electron.vite.config.ts`. In the test environment,
- * `tests/setup-globals.ts` sets a default on globalThis.
- */
 export const REMOTE_AGENT_ROOT: string =
   process.env.NEXUS_REMOTE_AGENT_ROOT ?? __NEXUS_REMOTE_AGENT_ROOT__;
 
@@ -64,15 +42,6 @@ export interface EnsureRemoteAgentOptions extends Omit<SshMasterOptions, "remote
   readonly signal?: AbortSignal;
   readonly cachedRemoteArch?: RemoteAgentPlatform;
   readonly authMode?: "interactive" | "key-only";
-  /**
-   * Workspace identifier. When provided, the bootstrap additionally uploads
-   * the PTY shim rc files (`.zshrc` / `.zshenv` / `bashrc`, …) into the
-   * directory under `${remoteHome}/.nexus-code/shim/` that every workspace
-   * on the host shares, and surfaces that absolute path back as
-   * `remoteShimDir`. Omit on the LSP path or other callers that do not
-   * spawn an interactive shell — the bootstrap stays backwards-compatible
-   * and simply does not write any shim files.
-   */
   readonly workspaceId?: string;
 }
 
@@ -83,26 +52,8 @@ export interface EnsureRemoteAgentResult {
   readonly uploaded: boolean;
   readonly controlPath?: string;
   readonly dispose?: () => void;
-  /** Absolute path of the remote bin directory, e.g. `/home/user/.nexus-code/bin`. */
   readonly remoteBinDir: string;
-  /**
-   * Absolute path of the remote user's login shell (the value of `$SHELL` on
-   * the remote), e.g. `/bin/zsh`. `undefined` when the remote did not expose
-   * `$SHELL` or detection failed — callers should treat that as "shell shim
-   * not applicable" and fall back gracefully (skip ZDOTDIR / --rcfile
-   * injection rather than guessing).
-   */
   readonly remoteShell?: string;
-  /**
-   * Absolute path of the shim directory **on the remote host** that every
-   * workspace there shares, e.g. `/home/user/.nexus-code/shim/shared`.
-   * Populated only when `EnsureRemoteAgentOptions.workspaceId` is provided.
-   * The path is the remote analogue of `runtimeDirs.shimDir(workspaceId)`
-   * and contains the
-   * uploaded `.zshrc` / `.zshenv` / `bashrc` shim files that the remote zsh
-   * / bash should source via `ZDOTDIR` or `--rcfile`. `undefined` when the
-   * caller opted out of shim deployment (e.g. LSP-only bootstrap).
-   */
   readonly remoteShimDir?: string;
 }
 

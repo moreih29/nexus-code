@@ -6,27 +6,13 @@ import { FileIcon } from "./file-icon";
 import { type GitDecorationKind, kindToColorVar, kindToLetter } from "./git-decoration";
 import { indentPaddingLeft, ROW_HEIGHT_PX } from "./metrics";
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
 export interface FileTreeRowProps {
-  /**
-   * HTML `id` for ARIA aria-activedescendant (Phase F).
-   * Set by the parent via `encodeRowId(absPath)` so the tree container can
-   * point `aria-activedescendant` at the focused row's id.
-   */
   id?: string;
   absPath: string;
   node: Pick<TreeNode, "type" | "name">;
   depth: number;
   isExpanded: boolean;
   isSelected: boolean;
-  /**
-   * True when this row holds the keyboard focus (VSCode-parity: focus Trait).
-   * Received in Phase A but not yet used for styling — Phase B will apply the
-   * focus ring / indicator once the full 4-state visual is in place.
-   */
   isFocused?: boolean;
   isLoading?: boolean;
   isDragging?: boolean;
@@ -34,45 +20,13 @@ export interface FileTreeRowProps {
     React.ButtonHTMLAttributes<HTMLButtonElement>,
     "draggable" | "onDragStart" | "onDragEnd"
   >;
-  /**
-   * Git decoration kind for this row, if any. Files surface a colored
-   * letter chip; directories surface only the propagated chip (no name
-   * recoloring) so deep trees do not feel noisy (design.md §1 — color
-   * carried by the chip glyph alone).
-   */
   decoration?: GitDecorationKind;
-  /**
-   * True when the entry is matched by `.gitignore`. Dims the row so
-   * ignored entries (e.g. `node_modules`, `dist` and everything inside)
-   * recede visually. Set only for entries Git confirms as ignored.
-   */
   isIgnored?: boolean;
-  /** True when this row is in the cut clipboard (VSCode parity: dimmed). */
   isCut?: boolean;
-  /**
-   * Row click. Always receives the event so the parent's handler can read
-   * shift/cmd modifiers for range/toggle multi-selection. Applies uniformly
-   * to files AND folders — the parent (handleRowClick) decides the primary
-   * action: a plain (unmodified) folder click toggles expand, a plain file
-   * click opens it, while modified clicks extend/toggle the selection set.
-   */
   onClick: (e: React.MouseEvent) => void;
-  /**
-   * File-only double-click. Mirrors VSCode explorer's "double-click =
-   * open as a permanent (non-preview) tab" gesture.
-   */
   onDoubleClick?: (e: React.MouseEvent) => void;
-  /**
-   * Right-click on the row. The parent file-tree consumes this to set
-   * its menu anchor *before* Radix's ContextMenu.Trigger opens (React's
-   * bubble order — child handler fires before the trigger's).
-   */
   onContextMenu?: (e: React.MouseEvent) => void;
 }
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export function FileTreeRow({
   id,
@@ -99,12 +53,6 @@ export function FileTreeRow({
       id={id}
       type="button"
       role="treeitem"
-      // WAI-ARIA tree widget pattern: with `aria-activedescendant` on the
-      // container (file-tree/index.tsx), every descendant `treeitem` must
-      // sit outside the tab order. Keyboard navigation uses the container's
-      // single tab stop + Arrow keys; the focused row is surfaced via
-      // `aria-activedescendant` (row id), not via DOM focus. Mirrors
-      // VSCode's listView pattern (rows hold tabIndex=-1, container=0).
       tabIndex={-1}
       aria-level={depth + 1}
       aria-expanded={isDir ? isExpanded : undefined}
@@ -113,39 +61,21 @@ export function FileTreeRow({
       onDoubleClick={isDir ? undefined : onDoubleClick}
       onContextMenu={onContextMenu}
       title={node.name}
-      // DnD hit-testing: the drop-target hook walks up to the [role="treeitem"]
-      // element and reads these to decide whether the cursor is over a valid
-      // directory drop target and which path to drop into.
       data-file-tree-row-type={node.type}
       data-file-tree-row-path={absPath}
       {...dragProps}
       style={{ paddingLeft: indentPaddingLeft(depth), height: ROW_HEIGHT_PX }}
       className={cn(
         "flex items-center w-full text-left cursor-pointer select-none",
-        // Reserve a 2px left indicator slot (design.md §8 — selected state uses
-        // a left indicator alongside background change; redundant encoding).
         "border-l-2 border-l-transparent",
         "hover:bg-[var(--state-hover-bg)]",
         "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--ring)] focus-visible:ring-inset",
-        // Selected: sidebar-region selected tokens + state.selected.indicator
-        // (matches workbench/sidebar.tsx — single selection vocabulary across
-        // sibling sidebar regions).
         isSelected &&
           "bg-[var(--sidebar-item-selected-bg)] border-l-[var(--state-selected-indicator)] text-[var(--sidebar-item-selected-fg)]",
-        // Focus: dotted 1px inset outline marks the keyboard-cursor row in multi-select
-        // (design.md §10 sidebar.item.focus.border — separate from state.focus.ring which
-        // drives form-control :focus-visible rings globally). isFocused is distinct from
-        // isSelected: a row can be focused without being in the selection set (e.g. after
-        // Escape clears the range but keeps the cursor). Cleared when dragging so the
-        // drag overlay is the sole visual anchor.
         isFocused &&
           !isDragging &&
           "outline outline-1 outline-dotted outline-offset-[-1px] outline-[var(--sidebar-item-focus-border)]",
-        // Cut state: opacified + muted border (redundant encoding, WCAG 1.4.1).
-        // The data attribute is consumed by the DnD hook for DOM hit-testing and
-        // by CSS selectors in globals.css for visual styling.
         isCut && "opacity-40 border-l-[var(--state-disabled-border)]",
-        // Drag source: fade while this row is the one being dragged.
         isDragging && "opacity-40",
       )}
     >
@@ -154,8 +84,6 @@ export function FileTreeRow({
           aria-hidden="true"
           strokeWidth={1.5}
           className={cn(
-            // §14 closed icon grid: size-3 (12px) only. text-[var(--sidebar-icon-fg)]
-            // routes through the semantic layer instead of the stoneGray primitive.
             "size-3 shrink-0 text-[var(--sidebar-icon-fg)] transition-transform duration-150 ease-out",
             isExpanded && "rotate-90",
             isLoading && "opacity-50 animate-pulse",
@@ -173,17 +101,7 @@ export function FileTreeRow({
         aria-hidden="true"
       />
       <span
-        className={cn(
-          "ml-2 truncate min-w-0 text-app-body",
-          // Ignored rows recede visually — VSCode parity.
-          isIgnored && "opacity-50",
-        )}
-        // Filename color mirrors VSCode's git decoration (added=green,
-        // modified=yellow, deleted/conflict=red, untracked=blue, renamed=
-        // muted). Inline style wins over the button's selected-fg color
-        // cascade so the git signal stays visible on selected rows.
-        // Ignored rows without an explicit status entry still pick up the
-        // muted ignored fg on top of opacity-50 for a stronger receding cue.
+        className={cn("ml-2 truncate min-w-0 text-app-body", isIgnored && "opacity-50")}
         style={effectiveNameColor(decoration, isIgnored)}
       >
         {node.name}
@@ -193,22 +111,6 @@ export function FileTreeRow({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Decoration chip — single colored character at the row's trailing edge.
-// Mirrors the Source Control panel's GitStatusBadge but trims size+spacing
-// to fit the trailing slot of an explorer row.
-// ---------------------------------------------------------------------------
-
-/**
- * Resolves the inline color style for the filename text. Returns
- * `undefined` when no git signal applies — the row then inherits the
- * normal foreground from its surface tokens.
- *
- * Precedence: an explicit decoration kind (M/A/D/R/U/!) always wins; the
- * ignored case applies only to files Git confirmed as ignored AND that
- * carry no other status (a path cannot be untracked and ignored at the
- * same time in porcelain v2).
- */
 function effectiveNameColor(
   decoration: GitDecorationKind | undefined,
   isIgnored: boolean,

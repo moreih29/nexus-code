@@ -1,16 +1,3 @@
-/**
- * services/lsp/ — Editor-independent LSP consumers.
- *
- * Code in this folder operates on LSP server events at the workspace/UX
- * level: routing window/showMessage and $/progress notifications to the
- * notification surface, maintaining the workspace-symbol registry, etc.
- *
- * Monaco-bound LSP code (providers, document sync, range converters) lives
- * in `services/editor/lsp/`. If a new file plugs into Monaco's editor
- * lifecycle, put it there. If it consumes LSP server events without touching
- * Monaco, put it here.
- */
-
 import i18next from "i18next";
 import { createLogger } from "../../../shared/log/renderer";
 import {
@@ -45,7 +32,6 @@ export interface WorkDoneProgressState {
 }
 
 const workDoneProgressByKey = new Map<string, WorkDoneProgressState>();
-/** When each server message was last toasted, so a repeated one is not. */
 const toastedMessages = new Map<string, number>();
 const MESSAGE_TOAST_REPEAT_MS = 60_000;
 let serverEventUnlisten: (() => void) | null = null;
@@ -76,8 +62,6 @@ function writeMessage(event: LspServerEvent, prefix: string): void {
   if (!parsed.success) return;
 
   logBySeverity(parsed.data.type, `${prefix} ${parsed.data.message}`);
-  // Errors and warnings are meant for the user; info is mostly a server
-  // narrating its own startup, which the status bar shows already.
   if (parsed.data.type === 1 || parsed.data.type === 2) {
     toastMessage(event, parsed.data.type === 1 ? "error" : "warning", parsed.data.message);
   }
@@ -110,7 +94,6 @@ function setProgressState(state: WorkDoneProgressState): void {
   workDoneProgressByKey.set(progressKey(state.workspaceId, state.languageId, state.token), state);
 }
 
-/** Has the status store show the work the server began last, or none. */
 function publishProgress(workspaceId: string, languageId: string): void {
   let latest: WorkDoneProgressState | undefined;
   for (const state of workDoneProgressByKey.values()) {
@@ -167,7 +150,6 @@ function updateWorkDoneProgress(event: LspServerEvent): void {
       cancellable: value.data.cancellable,
     });
   } else if (value.data.kind === "report") {
-    // A report for work that never began, or ended, is stale.
     if (!existing) return;
     setProgressState({
       ...base,
@@ -179,14 +161,11 @@ function updateWorkDoneProgress(event: LspServerEvent): void {
       cancellable: value.data.cancellable ?? existing.cancellable,
     });
   } else {
-    // The token is finished; servers mint a new one per operation, so
-    // keeping ended entries would grow the map for the whole session.
     workDoneProgressByKey.delete(key);
   }
   publishProgress(event.workspaceId, event.languageId);
 }
 
-/** Drops the work a server reported: it stopped. */
 export function clearProgressFor(workspaceId: string, languageId: string): void {
   for (const [key, state] of workDoneProgressByKey) {
     if (state.workspaceId === workspaceId && state.languageId === languageId) {
@@ -198,14 +177,6 @@ export function clearProgressFor(workspaceId: string, languageId: string): void 
 export function routeLspServerEvent(event: LspServerEvent): void {
   const prefix = sourcePrefix(event);
 
-  // LSP spec separates the two channels:
-  //   - `window/logMessage`: debug log channel, not meant for user surfaces.
-  //     Major servers (tsserver, rust-analyzer, …) emit info/log entries on
-  //     every analysis cycle, which floods devtools when piped to console.
-  //     Drop it here; surface it through a dedicated LSP Output panel if/when
-  //     one exists.
-  //   - `window/showMessage`: user-facing notification. Still routed to
-  //     console for visibility until an in-app notification surface lands.
   if (event.method === "window/logMessage") {
     return;
   }
@@ -230,11 +201,6 @@ export function routeLspServerEvent(event: LspServerEvent): void {
   }
 }
 
-/**
- * Drop all in-flight work-done progress entries owned by a workspace.
- * Called when a workspace is removed so its lingering LSP progress state
- * (begin/report frames that never received an "end") doesn't accumulate.
- */
 function clearProgressForWorkspace(workspaceId: string): void {
   for (const [key, state] of workDoneProgressByKey) {
     if (state.workspaceId === workspaceId) {
@@ -246,8 +212,6 @@ function clearProgressForWorkspace(workspaceId: string): void {
 export function initializeLspServerUxRouter(): void {
   if (serverEventUnlisten) return;
   serverEventUnlisten = ipcListen("lsp", "serverEvent", routeLspServerEvent);
-  // Drop workspace-keyed progress entries when the workspace is removed.
-  // The central registry owns the IPC listener; we just register intent.
   workspaceCleanupUnregister = registerWorkspaceCleanup(clearProgressForWorkspace);
 }
 

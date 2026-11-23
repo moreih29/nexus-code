@@ -5,14 +5,12 @@ import { resources, SUPPORTED_LANGUAGES } from "../../../../../src/shared/i18n";
 
 const t = ((key: string) => key) as unknown as TFunction<"settings">;
 
-/** The dialog's own words in `lng`, as the app shows them. */
 function tIn(lng: (typeof SUPPORTED_LANGUAGES)[number]): TFunction<"settings"> {
   const nav = resources[lng].settings.nav as Record<string, string>;
   return ((key: string) =>
     nav[key.replace(/^nav\./, "")] ?? key) as unknown as TFunction<"settings">;
 }
 
-/** The pages a search for `q` finds while the dialog speaks `lng`. */
 function search(lng: (typeof SUPPORTED_LANGUAGES)[number], q: string): string[] {
   return settingsNav(tIn(lng))
     .filter((item) => navMatches(item, q.toLowerCase()))

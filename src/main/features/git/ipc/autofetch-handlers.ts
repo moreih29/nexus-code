@@ -1,15 +1,9 @@
-/**
- * Autofetch channel — schedule/pause/resume controls for the background
- * fetch scheduler. Actual user-triggered fetch work is exposed as
- * `git.fetchAll` so Source Control actions stay grouped under the git channel.
- */
 import { ipcContract } from "../../../../shared/ipc/contract";
 import { register, validateArgs } from "../../../infra/ipc-router";
 import type { GitAutofetchScheduler } from "../domain/autofetch";
 
 const c = ipcContract.autofetch.call;
 
-/** Registers top-level autofetch IPC calls and listen event placeholders. */
 export function registerAutofetchChannel(scheduler: GitAutofetchScheduler): void {
   register("autofetch", {
     call: {

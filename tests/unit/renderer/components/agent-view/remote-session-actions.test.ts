@@ -1,9 +1,3 @@
-/**
- * Opening, renaming and closing another computer's sessions from the agent
- * view's list: what goes to that computer, the panel that shows what was
- * opened, and the tab that goes with what was closed. A terminal still
- * running a program closes only once the user says so again.
- */
 import { afterEach, beforeEach, describe, expect, jest, mock, test } from "bun:test";
 
 interface Call {
@@ -12,7 +6,6 @@ interface Call {
 }
 
 const calls: Call[] = [];
-/** What each method answers, in turn; ok with nothing once they run out. */
 let answers: Record<string, unknown[]> = {};
 const confirms: { title: string; description: string; confirmLabel?: string }[] = [];
 let confirmed: boolean[] = [];

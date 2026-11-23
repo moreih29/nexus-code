@@ -1,6 +1,3 @@
-// A workspace's "Color ›" submenu in the sidebar: "Auto" or one of the theme's
-// lane colors, which tint the workspace's row and its agents in the agent view.
-
 import { useTranslation } from "react-i18next";
 import {
   WORKSPACE_COLOR_AUTO,

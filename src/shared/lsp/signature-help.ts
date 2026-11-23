@@ -1,6 +1,3 @@
-// Signature help: the call's signature shown while its arguments are typed,
-// the one being typed highlighted.
-
 import { z } from "zod";
 import {
   IntegerSchema,
@@ -16,7 +13,6 @@ export const SignatureHelpTriggerKind = {
 } as const;
 
 export const ParameterInformationSchema = z.object({
-  /** The parameter's text, or its [start, end) offsets in the signature's label. */
   label: z.union([z.string(), z.tuple([NonnegativeIntegerSchema, NonnegativeIntegerSchema])]),
   documentation: MarkupContentOrStringSchema.optional(),
 });
@@ -26,7 +22,6 @@ export const SignatureInformationSchema = z.object({
   label: z.string(),
   documentation: MarkupContentOrStringSchema.optional(),
   parameters: z.array(ParameterInformationSchema).optional(),
-  /** Overrides SignatureHelp.activeParameter for this signature; null for none. */
   activeParameter: IntegerSchema.nullable().optional(),
 });
 export type SignatureInformation = z.infer<typeof SignatureInformationSchema>;
@@ -34,7 +29,6 @@ export type SignatureInformation = z.infer<typeof SignatureInformationSchema>;
 export const SignatureHelpSchema = z.object({
   signatures: z.array(SignatureInformationSchema).min(1),
   activeSignature: IntegerSchema.optional(),
-  /** Null when no parameter is being typed. */
   activeParameter: IntegerSchema.nullable().optional(),
 });
 export type SignatureHelp = z.infer<typeof SignatureHelpSchema>;
@@ -42,9 +36,7 @@ export type SignatureHelp = z.infer<typeof SignatureHelpSchema>;
 export const SignatureHelpArgsSchema = TextDocumentPositionArgsSchema.extend({
   triggerKind: IntegerSchema,
   triggerCharacter: z.string().optional(),
-  /** Whether the signature is already shown, and this asks again as the user types. */
   isRetrigger: z.boolean(),
-  /** What is shown, so the server can keep the overload the user picked. */
   activeSignatureHelp: SignatureHelpSchema.optional(),
 });
 export type SignatureHelpArgs = z.infer<typeof SignatureHelpArgsSchema>;

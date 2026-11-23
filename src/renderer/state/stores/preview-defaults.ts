@@ -1,9 +1,3 @@
-/**
- * The view each format with a preview opens in, as Settings › Editor sets
- * it: its source or its preview. A format left out opens as it does by
- * default (defaultViewMode). Persists in AppState.
- */
-
 import { create } from "zustand";
 import { createLogger } from "../../../shared/log/renderer";
 import type { AppState } from "../../../shared/types/app-state";
@@ -20,9 +14,7 @@ const log = createLogger("preview-defaults");
 interface PreviewDefaultsState {
   byFormat: ViewModeDefaults;
   hydrate(stored: AppState["previewViewDefaults"]): void;
-  /** Sets the view `format` opens in; undefined goes back to its default. */
   setDefault(format: PreviewEngine, mode: ViewMode | undefined): void;
-  /** Every format back to its default. */
   clear(): void;
 }
 

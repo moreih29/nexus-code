@@ -9,12 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// claudeConfigKeys are the settings Claude Code's /config keeps in its
-// global config file (~/.claude.json) rather than in settings.json, or
-// falls back to it for. Only these are read out: the file also holds the
-// account and every project's state.
 var claudeConfigKeys = map[string]bool{
 	"agentPushNotifEnabled":      true,
 	"autoCompactEnabled":         true,
@@ -41,12 +39,8 @@ var claudeConfigKeys = map[string]bool{
 	"workflowSizeGuideline":      true,
 }
 
-// claudeConfigCapBytes bounds the file read: it grows with every project.
 const claudeConfigCapBytes = 64 << 20
 
-// ClaudeConfig returns the settings above as Claude Code's global config
-// file has them, for the Claude tab's settings dialog: get_settings tells
-// only what settings.json has.
 func (s *Service) ClaudeConfig(_ context.Context, raw json.RawMessage) (any, error) {
 	var p ClaudeConfigParams
 	if len(raw) > 0 {
@@ -62,12 +56,12 @@ func (s *Service) ClaudeConfig(_ context.Context, raw json.RawMessage) (any, err
 		return ClaudeConfigResult{Found: false, Values: values}, nil
 	}
 	if err != nil {
-		return nil, requestFailed("chat.claudeConfig: %s", err)
+		return nil, proto.RequestFailed("chat.claudeConfig: %s", proto.Reason(err))
 	}
 	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, claudeConfigCapBytes+1))
 	if err != nil {
-		return nil, requestFailed("chat.claudeConfig: %s", err)
+		return nil, proto.RequestFailed("chat.claudeConfig: %s", proto.Reason(err))
 	}
 	if len(data) > claudeConfigCapBytes {
 		return ClaudeConfigResult{Found: false, Values: values}, nil
@@ -84,10 +78,6 @@ func (s *Service) ClaudeConfig(_ context.Context, raw json.RawMessage) (any, err
 	return ClaudeConfigResult{Found: true, Values: values}, nil
 }
 
-// claudeConfigPath is where Claude Code keeps its global config: in
-// CLAUDE_CONFIG_DIR when that is set, else in the home, as .claude.json;
-// an install from before that kept it as .config.json in its config
-// directory.
 func claudeConfigPath(given string) string {
 	given = strings.TrimSpace(given)
 	if given == "" {
@@ -113,7 +103,6 @@ func claudeConfigPath(given string) string {
 	return path
 }
 
-// isScalar is whether a JSON value is a string, a number or a boolean.
 func isScalar(value json.RawMessage) bool {
 	var v any
 	if json.Unmarshal(value, &v) != nil {

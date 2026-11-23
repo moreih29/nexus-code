@@ -1,4 +1,3 @@
-/** bufferAnsi: a terminal's lines with their colors and styles, for another device. */
 import { describe, expect, test } from "bun:test";
 import {
   type AnsiLineLike,
@@ -103,7 +102,6 @@ test("rows without their cells read as plain text", () => {
 
 describe("where the cursor is in the text", () => {
   test("after the characters before it, a blank cell past the line's end counting one", () => {
-    // "$ ls " with the cursor after the space the text leaves out.
     const rows = [row(text("$ ls")), row([])];
     expect(bufferScreen(buffer(rows), 10, { row: 0, cell: 5 })).toEqual({
       text: "$ ls",
@@ -129,7 +127,6 @@ describe("where the cursor is in the text", () => {
   });
 
   test("on a blank line below the text, the line it would be", () => {
-    // A command running: its output so far, the cursor on the next line.
     const rows = [row(text("$ sleep 30")), row([]), row([])];
     expect(bufferScreen(buffer(rows), 10, { row: 1, cell: 0 })).toEqual({
       text: "$ sleep 30",

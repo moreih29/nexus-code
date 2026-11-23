@@ -1,9 +1,3 @@
-// What a `claude -p` or `codex exec` run's own session holds, for the tab's
-// pane to show the run as a conversation: a claude run's transcript, read on
-// as it grows; a codex run's thread, read by an app-server started for the
-// pane with the run's CODEX_HOME and closed with it. The renderer names the
-// run only (workspace, tab, run id): main knows where its session is kept.
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentRun } from "../../../shared/claude/activity";
 import type { PrintRunTranscriptResult } from "../../../shared/ipc/contract";
@@ -15,29 +9,21 @@ import { type ChatLine, type ChatModel, rec, str } from "./model";
 import { chatKey } from "./store";
 import { addLineReceiver } from "./transport/receivers";
 
-/** How often a running run's session is read again while its pane shows. */
 export const RUN_READ_INTERVAL_MS = 3_000;
-/** How many times a pane starts a reader again after one ended, and how long it waits to. */
 export const RUN_READER_ATTEMPTS = 3;
 export const RUN_READER_AGAIN_MS = 1_000;
-/** How long a reader's answer is waited for. */
 const READER_REQUEST_TIMEOUT_MS = 30_000;
 
-/** A claude run's transcript as read so far. */
 export interface RunLines {
   found: boolean;
   lines: readonly unknown[];
-  /** Where the next read goes on from. */
   next: number;
-  /** Lines before the first are not here: the file is past what one read takes. */
   truncated: boolean;
 }
 
 export const NO_RUN_LINES: RunLines = { found: false, lines: [], next: 0, truncated: false };
 
-/** The lines with a read's: on from where they ended, or anew when the file was written over. */
 export function mergeRunLines(prev: RunLines, read: PrintRunTranscriptResult): RunLines {
-  // A read that finds none keeps what an earlier one found.
   if (!read.found) return prev;
   if (read.reset || !prev.found) {
     return { found: true, lines: read.lines, next: read.next, truncated: read.truncated };
@@ -51,26 +37,16 @@ export function mergeRunLines(prev: RunLines, read: PrintRunTranscriptResult): R
   };
 }
 
-/** The thread a reader names in what it asks: none, as main fills in the reader's own. */
 const MAINS_THREAD = "";
 
-/** An app-server that reads one run's thread. */
 export interface CodexRunReader {
-  /** The thread as a conversation; null when it cannot be read whole, or the reader is gone. */
   read(): Promise<ChatModel | null>;
-  /** Its program ended or cannot be told: it reads no more, and another is to be started. */
   readonly dead: boolean;
   close(): void;
 }
 
-/**
- * Why no reader came up. "none": there is none to start now (the run told no
- * thread, it is not the tab's, or its host is out of reach). "failed": one
- * was started and did not come up (no program, or it did not answer).
- */
 export type RunReaderMiss = "none" | "failed";
 
-/** Starts the reader of the tab's `codex exec` run, or says why none came up. */
 export async function openCodexRunReader(
   workspaceId: string,
   tabId: string,
@@ -126,7 +102,6 @@ export async function openCodexRunReader(
       message,
     });
     if (!sent.ok) {
-      // Main knows no such reader, or its host is out of reach: it reads no more.
       const error = new Error(sent.message);
       die(error);
       throw error;
@@ -174,7 +149,6 @@ export async function openCodexRunReader(
       { appServerVersion: str(hello.userAgent)?.match(/^[^/]+\/([\d.]+)\b/)?.[1] },
       null,
     );
-    // Main names the thread: the reader's own, which is all it reads.
     const read = (method: string, params: Record<string, unknown>) => {
       const { threadId: _mains, ...rest } = params;
       return request(method, rest);
@@ -186,9 +160,7 @@ export async function openCodexRunReader(
       },
       read() {
         if (closed || dead) return Promise.resolve(null);
-        // One read at a time: a later ask shares the one going.
         reading ??= readCodexThread(read, MAINS_THREAD, version)
-          // The conversation is named by the run: its thread is not told here.
           .then((thread) => (thread ? codexThreadModel({ id: runId, turns: thread.turns }) : null))
           .finally(() => {
             reading = null;
@@ -203,27 +175,15 @@ export async function openCodexRunReader(
   }
 }
 
-/** A codex run's reader kept up for a pane: started again when it ends or did not start. */
 export interface RunReaderKeeper {
-  /** The thread by the reader now up; null with none up, or when it cannot be read. */
   read(): Promise<ChatModel | null>;
   close(): void;
 }
 
-/**
- * Keeps a reader of one run up. One whose program ended is closed and
- * another started, `RUN_READER_ATTEMPTS` times at most between reads that
- * gave the thread, as is one that was started and did not come up. With
- * none to start (its host is out of reach, or the run has told no thread
- * yet) it is asked for again for as long as the run goes on, and the same
- * few times after it ended.
- */
 export function keepRunReader(options: {
   open(onDead: () => void): Promise<CodexRunReader | RunReaderMiss>;
   running(): boolean;
-  /** A reader is up: its thread can be read. */
   onUp(): void;
-  /** The clock, for a test's own. */
   timers?: { set(run: () => void, ms: number): unknown; clear(timer: unknown): void };
 }): RunReaderKeeper {
   const timers = options.timers ?? {
@@ -253,7 +213,6 @@ export function keepRunReader(options: {
     const onDead = () => {
       if (closed || !mine) return;
       if (reader === mine) reader = null;
-      // Its program, its line receiver and main's record of it go.
       mine.close();
       again(RUN_READER_AGAIN_MS, true);
     };
@@ -263,8 +222,6 @@ export function keepRunReader(options: {
       .then((opened) => {
         opening = false;
         if (typeof opened === "string") {
-          // Not reached is not ended: asked for again while the run goes on.
-          // One that was started and did not come up is one of the few.
           const waited = opened === "none" && options.running();
           again(waited ? RUN_READ_INTERVAL_MS : RUN_READER_AGAIN_MS, !waited);
           return;
@@ -300,11 +257,6 @@ export function keepRunReader(options: {
   };
 }
 
-/**
- * The run's session as a conversation, read while the pane shows and again
- * as the run goes on; null until it is found, and for a run that keeps none
- * (the pane then shows what the run told the app).
- */
 export function useRunConversation(
   workspaceId: string,
   tabId: string,
@@ -314,7 +266,6 @@ export function useRunConversation(
   const runId = run.id;
   const codex = run.program === "codex";
   const running = run.end === undefined;
-  // A run tells its session a moment after its start.
   const hasSession = run.sessionId !== undefined;
   const [lines, setLines] = useState<RunLines>(NO_RUN_LINES);
   const [thread, setThread] = useState<ChatModel | null>(null);
@@ -334,7 +285,6 @@ export function useRunConversation(
     return () => clearInterval(timer);
   }, [visible, running]);
 
-  // A claude run's transcript: on from the last read, and once more as it ends.
   // biome-ignore lint/correctness/useExhaustiveDependencies: tick and running ask for another read
   useEffect(() => {
     if (codex || !visible || !hasSession) return;
@@ -354,7 +304,6 @@ export function useRunConversation(
     };
   }, [codex, visible, hasSession, workspaceId, tabId, runId, tick, running]);
 
-  // A codex run's thread: a reader for as long as the pane shows it.
   const keeper = useRef<RunReaderKeeper | null>(null);
   const [readerUp, setReaderUp] = useState(0);
   const runningRef = useRef(running);
@@ -391,7 +340,6 @@ export function useRunConversation(
   const transcript = useMemo(() => {
     if (!lines.found || lines.lines.length === 0) return null;
     const model = historyModel(lines.lines);
-    // A call with no result yet still runs only while the run does.
     return running ? model : historyForDisplay(model);
   }, [lines, running]);
 

@@ -1,6 +1,5 @@
 import type { SplitLeaf } from "./types";
 
-/** Switches the active tab, optionally attaching or reordering it in the same update. */
 export function activateTab(leaf: SplitLeaf, tabId: string, tabIds = leaf.tabIds): SplitLeaf {
   if (leaf.activeTabId === tabId) return { ...leaf, tabIds };
 
@@ -9,7 +8,6 @@ export function activateTab(leaf: SplitLeaf, tabId: string, tabIds = leaf.tabIds
   return { ...leaf, tabIds, activeTabId: tabId, previousTabIds };
 }
 
-/** Removes a tab and restores the most recently active survivor in the same leaf. */
 export function removeTab(leaf: SplitLeaf, tabId: string, fallback: "left" | "right"): SplitLeaf {
   const tabIds = leaf.tabIds.filter((id) => id !== tabId);
   const previousTabIds = leaf.previousTabIds?.filter((id) => id !== tabId) ?? [];

@@ -1,8 +1,3 @@
-/**
- * nexus settings in the renderer: each setting read from and changed through
- * the store the Settings dialog uses, and saved as the dialog saves it.
- */
-
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { SCHEMA_VERSION } from "../../../../../packages/remote-protocol/src";
 import { CLI_COMMANDS } from "../../../../../src/main/features/cli/commands";
@@ -15,7 +10,6 @@ import { contextFor, fakeApp } from "../../../main/cli/fake-services";
 
 const writes: unknown[] = [];
 
-/** What main answers, by "channel.method"; anything else is answered with nothing. */
 const answers: Record<string, (args: unknown) => unknown> = {
   "pty.listShells": () => ({
     ok: true,
@@ -31,8 +25,6 @@ const answers: Record<string, (args: unknown) => unknown> = {
 
 const CLIENT = "../../../../../src/renderer/ipc/client";
 
-// Other files mock the IPC client process-wide, so this file installs its
-// own and puts back whatever it found when it is done.
 const previousClient = { ...(await import(CLIENT)) };
 mock.module(CLIENT, () => ({
   ...previousClient,
@@ -69,8 +61,6 @@ const { useWorkspacesStore } = await import("../../../../../src/renderer/state/s
 const set = (key: string, value: string | null) => settingsHandlers["settings.set"]({ key, value });
 const get = async (key: string) => (await settingsHandlers["settings.list"]({ key })).settings[0];
 
-// The font stores tell the page of a change; a file before this one may
-// leave a window with no page, or with a stub page that cannot be told.
 const previousDocument = globalThis.document;
 afterAll(() => {
   globalThis.document = previousDocument;

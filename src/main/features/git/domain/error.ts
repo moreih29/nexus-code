@@ -4,6 +4,7 @@ import {
   type AgentGitRunResult,
 } from "../../../../shared/git/protocol";
 import type { GitActionHint, GitErrorKind } from "../../../../shared/git/types";
+import { formatBytes } from "../../../../shared/util/format-bytes";
 
 export type { GitErrorKind };
 
@@ -18,9 +19,6 @@ export interface GitErrorOptions {
   readonly hint?: GitActionHint;
 }
 
-/**
- * Error subclass used as the runtime marker for expected Git failures.
- */
 export class GitError extends Error {
   readonly kind: GitErrorKind;
   readonly stderr: string;
@@ -45,7 +43,6 @@ export class GitError extends Error {
   }
 }
 
-/** Masks credentials in diagnostics, including messages reconstructed from older agents. */
 function maskCredentials(text: string): string {
   return text
     .replace(/([a-z][a-z0-9+.-]*:\/\/)[^/\s?#"'<>]+@/gi, "$1[REDACTED]@")
@@ -59,16 +56,12 @@ function maskCredentials(text: string): string {
     );
 }
 
-/** Uses the argument boundary to cover unquoted assignment values containing spaces. */
 function maskArgument(arg: string): string {
   return maskCredentials(
     arg.replace(/(^|\s)([a-z0-9_]+_(?:key|token|secret)\s*=)[\s\S]+$/i, "$1$2[REDACTED]"),
   );
 }
 
-/**
- * Re-wraps the agent-classified git.run envelope as the TS GitError marker.
- */
 export function gitErrorFromAgent(
   result: AgentGitRunResult,
   args: readonly string[],
@@ -87,13 +80,6 @@ export function gitErrorFromAgent(
   });
 }
 
-/**
- * Re-wraps the request failure of a dedicated agent git method (push, pull,
- * tag, stash, ...) as the TS GitError marker, with the kind and hint the
- * agent classified. An agent that predates the error data, or a failure
- * that is no git exit, gives kind "unknown". Returns undefined for errors
- * that are not request failures, such as transport errors and aborts.
- */
 export function gitErrorFromAgentError(error: unknown): GitError | undefined {
   if (!(error instanceof Error)) return undefined;
   const { code, data } = error as Error & { code?: unknown; data?: unknown };
@@ -105,11 +91,6 @@ export function gitErrorFromAgentError(error: unknown): GitError | undefined {
   });
 }
 
-/**
- * Builds a minimal typed error for the local-process fallback that fires
- * when the agent envelope is unavailable. Stderr classification belongs to
- * the agent path; this helper carries the sanitized diagnostic.
- */
 export function gitErrorFromExit(options: {
   readonly args: readonly string[];
   readonly stderr: string;
@@ -131,9 +112,6 @@ export function gitErrorFromExit(options: {
   );
 }
 
-/**
- * Builds the typed error for stdout that exceeded the configured safety cap.
- */
 export function outputTooLargeGitError(options: {
   readonly args: readonly string[];
   readonly limitBytes: number;
@@ -149,9 +127,6 @@ export function outputTooLargeGitError(options: {
   );
 }
 
-/**
- * Builds the typed error for a configured git binary that cannot be spawned.
- */
 export function gitMissingError(bin: string, args: readonly string[], cause?: unknown): GitError {
   return new GitError("git-missing", `Git executable not found: ${bin}`, {
     argv: args,
@@ -159,9 +134,6 @@ export function gitMissingError(bin: string, args: readonly string[], cause?: un
   });
 }
 
-/**
- * Builds the fallback typed error for process failures that are not git exits.
- */
 export function unknownGitError(
   message: string,
   args: readonly string[],
@@ -173,18 +145,12 @@ export function unknownGitError(
   });
 }
 
-/**
- * Chooses the best available message from an agent-classified result.
- */
 function agentGitErrorMessage(result: AgentGitRunResult, args: readonly string[]): string {
   const agentMessage = result.errorMessage?.trim();
   if (agentMessage) return agentMessage;
   return processExitMessage(args, result.stderr, result.code, null);
 }
 
-/**
- * Formats a process exit without inferring a semantic Git error kind.
- */
 function processExitMessage(
   args: readonly string[],
   stderr: string,
@@ -199,17 +165,6 @@ function processExitMessage(
   return `${renderedCommand} failed`;
 }
 
-/**
- * Formats a compact command label without including environment variables.
- */
 function renderGitCommand(args: readonly string[]): string {
   return ["git", ...args].join(" ");
-}
-
-/**
- * Converts a byte count into the small human-readable unit used in errors.
- */
-function formatBytes(bytes: number): string {
-  const mib = bytes / (1024 * 1024);
-  return `${mib.toFixed(Number.isInteger(mib) ? 0 : 1)} MB`;
 }

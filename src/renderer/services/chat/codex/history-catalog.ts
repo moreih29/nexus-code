@@ -2,7 +2,6 @@ import type { AgentProfiles } from "../../../../shared/agent-profiles/profiles";
 import type { WorkspaceLocation } from "../../../../shared/types/workspace";
 import type { ListedSession } from "../sessions";
 
-/** Brief reuse across the requests from a peer typing in its history picker. */
 export const CODEX_CATALOG_TTL_MS = 3_000;
 
 interface CatalogScope {
@@ -32,7 +31,6 @@ export function invalidateCodexHistory(workspaceId: string): void {
   catalogs.delete(workspaceId);
 }
 
-/** Coalesces pending reads. Fresh opens bypass completed entries, and failed reads are retried. */
 export function readCodexHistoryCatalog(
   scope: CatalogScope,
   profileId: string,

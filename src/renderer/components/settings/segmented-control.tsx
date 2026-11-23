@@ -1,23 +1,9 @@
-// src/renderer/components/settings/segmented-control.tsx — Segmented control.
-//
-// Design seal: radius-control (4px) per segment, radius-raised (6px) outer group.
-// Selected segment: state.selected.bg + foreground text.
-// Rest: transparent text-muted-foreground.
-// No shadows.
-//
-// ARIA: wrapping div is role="group", each segment is a toggle button with
-// aria-pressed. Avoids role="radio" on <button> (prohibited by ARIA in HTML).
-
 import type { ReactNode } from "react";
 import { cn } from "@/utils/cn";
 
 export interface SegmentedOption<T extends string> {
   value: T;
   label: string;
-  /**
-   * Optional leading visual — used by Cursor style to show ▮/_/| previews
-   * alongside the label. Rendered inline before the label text.
-   */
   icon?: ReactNode;
 }
 
@@ -25,14 +11,8 @@ interface SegmentedControlProps<T extends string> {
   options: SegmentedOption<T>[];
   value: T;
   onChange: (value: T) => void;
-  /** Accessible label for the group. */
   label: string;
   id?: string;
-  /**
-   * Disables every segment. The current `value` is still shown as
-   * pressed, but onChange will not fire. `disabledReason` populates the
-   * native `title` tooltip so the user sees why interaction is locked.
-   */
   disabled?: boolean;
   disabledReason?: string;
 }
@@ -55,7 +35,6 @@ export function SegmentedControl<T extends string>({
       disabled={disabled}
       title={disabled ? disabledReason : undefined}
       className={cn(
-        // w-fit: as wide as its options, also in a stretching flex column.
         "inline-flex w-fit shrink-0 rounded-(--radius-raised) border border-border bg-muted p-0.5 gap-0.5",
         disabled && "opacity-60",
       )}

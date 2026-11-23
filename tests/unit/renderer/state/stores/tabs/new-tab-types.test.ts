@@ -61,7 +61,6 @@ const workspace: WorkspaceMeta = {
   tabs: [],
 };
 
-/** Pass renderer calls through the real router, using an in-process transport. */
 function connectRenderer({ beforeSave }: { beforeSave?: () => Promise<void> } = {}): void {
   listeners = new Map();
   Object.assign(globalThis, {
@@ -89,7 +88,6 @@ function connectRenderer({ beforeSave }: { beforeSave?: () => Promise<void> } = 
   });
 }
 
-/** Keep the IPC validation and JSON round trip while controlling storage in memory. */
 function memoryState(initial: Partial<AppState> = {}): Pick<StateService, "getState" | "setState"> {
   let json = JSON.stringify(AppStateSchema.parse(initial));
   return {
@@ -100,20 +98,17 @@ function memoryState(initial: Partial<AppState> = {}): Pick<StateService, "getSt
   };
 }
 
-/** Clear the two stores to simulate a new render process. */
 function resetStores(): void {
   useTabsStore.setState({ byWorkspace: {} });
   useLayoutStore.setState({ byWorkspace: {} });
 }
 
-/** Restore the app state's layouts through the bootstrap hydration path. */
 async function restore(): Promise<void> {
   resetStores();
   const state = mustSucceed(await ipcCallResult("appState", "get", undefined));
   hydrateLayoutSnapshots(state.layoutByWorkspace);
 }
 
-/** Add a tab through the same stores used by the workbench. */
 function addTab(args: Parameters<ReturnType<typeof useTabsStore.getState>["createTab"]>[1]) {
   const layout = useLayoutStore.getState();
   layout.ensureLayout(workspaceId);
@@ -126,7 +121,6 @@ function addTab(args: Parameters<ReturnType<typeof useTabsStore.getState>["creat
   return tab.id;
 }
 
-/** Advances persistence time under test control. */
 function fakeTimer(): TimerScheduler & { run(): void } {
   let scheduled: (() => void) | undefined;
   return {
@@ -194,7 +188,6 @@ test("restores external and workspace files beside a browser while excluding Unt
   });
 });
 
-/** A snapshot written before the editor's origin could be stored. */
 function legacySnapshot(id: string): WorkspaceLayoutSnapshot {
   const groupId = crypto.randomUUID();
   const tabs = ["/repo/in.txt", "/outside/out.txt", "relative.txt"].map((filePath) => ({

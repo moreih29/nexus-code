@@ -1,8 +1,3 @@
-// Agent list — the status view: the conversations by where they stand for
-// the user, those waiting on them first. A row says what its conversation
-// waits on or does now, and a permission is answered in the row itself;
-// those idle or ended fold away at the bottom.
-
 import {
   Check,
   CheckCheck,
@@ -14,7 +9,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { PermissionAsk, SessionActivity } from "../../../shared/claude/activity";
@@ -67,7 +62,12 @@ import {
   stateLabel,
   useDurationLabel,
 } from "./session-status";
-import { FamilyFold, FoldChevron, ParentCaption, SessionTreeBranch } from "./session-tree-rows";
+import {
+  FamilyFold,
+  FoldChevron,
+  SessionTreeBranch,
+  useNodeParentCaption,
+} from "./session-tree-rows";
 
 export { GROUP_STATE, GROUP_TINT } from "./session-status";
 
@@ -76,7 +76,6 @@ interface StatusViewProps {
   changes: ReadonlyMap<string, WorktreeChanges>;
   activity: ActivityByKey;
   selection: AgentListSelection | null;
-  /** A conversation picked, or an agent, with the row it was picked from. */
   onSelect: (selection: AgentListSelection, from: HTMLElement) => void;
   query: string;
 }
@@ -90,7 +89,6 @@ export function StatusView({
   query,
 }: StatusViewProps) {
   const { t } = useTranslation();
-  // Every group is open until the user folds it; the folds are kept across restarts.
   const folds = useUIStore((s) => s.agentListFoldedGroups);
   const familyFolds = useAgentViewStore((s) => s.folded);
   const order = useAgentViewStore((s) => s.order);
@@ -109,86 +107,127 @@ export function StatusView({
       order[`status:${group}`],
     ).map(({ node }) => node),
   }));
-  if (groups.every(({ rows }) => rows.length === 0)) {
-    return (
-      <p className="p-4 text-app-ui-sm text-muted-foreground">
-        {searching ? t("agentList.list.no_match") : t("agentList.none")}
-      </p>
-    );
-  }
-
   return (
-    <div className="flex flex-col gap-3 p-2" data-testid="agent-list-status-view">
-      {groups.map(({ group, rows }) => {
-        const label = t(`agentList.group.${group}`);
-        // A group with none shows as its one dim line, so the groups keep their places.
-        if (rows.length === 0) {
-          // A search tells only what it found.
+    <StatusSections
+      searching={searching}
+      empty={<ListNote>{searching ? t("agentList.list.no_match") : t("agentList.none")}</ListNote>}
+      testId="agent-list-status-view"
+      sections={groups.map(({ group, rows }) => ({
+        group,
+        count: rows.length,
+        folded: !searching && folds.has(group),
+        onToggle: () => useUIStore.getState().toggleAgentListGroup(group),
+        onMarkRead:
+          group === "done"
+            ? () =>
+                markRead(
+                  [...treeSessions(rows)].flatMap((session) => {
+                    const workspace = worktreeOf(session)?.workspace;
+                    return workspace ? [{ workspace, session }] : [];
+                  }),
+                )
+            : undefined,
+        body: () =>
+          rows.map((root) => (
+            <SessionTreeBranch
+              key={root.session.key}
+              node={root}
+              folded={familyFolds}
+              searching={searching}
+              groupIdle
+              testPrefix="agent-list"
+              renderRow={(node, collapsed) => {
+                const { session } = node;
+                const worktree = worktreeOf(session);
+                return (
+                  <SessionRow
+                    node={node}
+                    collapsed={collapsed}
+                    workspace={worktree?.workspace}
+                    branch={
+                      worktree && !worktree.isRoot
+                        ? (worktree.branch ??
+                          worktree.workspace.task?.branch ??
+                          changes.get(session.workspaceId)?.branch)
+                        : undefined
+                    }
+                    changed={changes.get(session.workspaceId)?.files.length ?? 0}
+                    activity={activity.get(session.key)}
+                    selected={isSessionSelected(selection, session.key)}
+                    selectedAgentId={
+                      selection?.kind === "agent" && selection.key === session.key
+                        ? selection.agentId
+                        : undefined
+                    }
+                    onSelect={onSelect}
+                  />
+                );
+              }}
+            />
+          )),
+      }))}
+    />
+  );
+}
+
+export interface StatusSection {
+  group: RowGroup;
+  count: number;
+  folded: boolean;
+  onToggle: () => void;
+  onMarkRead?: () => void;
+  body: () => ReactNode;
+}
+
+export function StatusSections({
+  sections,
+  searching,
+  empty,
+  className = "flex flex-col gap-3 p-2",
+  sectionClassName = "flex flex-col gap-1",
+  testId,
+  sectionTestId,
+  testPrefix,
+}: {
+  sections: readonly StatusSection[];
+  searching: boolean;
+  empty?: ReactNode;
+  className?: string;
+  sectionClassName?: string;
+  testId: string;
+  sectionTestId?: string;
+  testPrefix?: string;
+}) {
+  const { t } = useTranslation();
+  if (empty !== undefined && sections.every(({ count }) => count === 0)) return empty;
+  return (
+    <div className={className} data-testid={testId}>
+      {sections.map((section) => {
+        const label = t(`agentList.group.${section.group}`);
+        if (section.count === 0) {
           if (searching) return null;
           return (
-            <section key={group} aria-label={label}>
-              <StatusGroupHeading group={group} count={0} folded={false} />
+            <section key={section.group} aria-label={label}>
+              <StatusGroupHeading group={section.group} count={0} />
             </section>
           );
         }
-        // A search shows what it found, folded groups too.
-        const folded = !searching && folds.has(group);
         return (
-          <section key={group} aria-label={label} className="flex flex-col gap-1">
+          <section
+            key={section.group}
+            aria-label={label}
+            className={sectionClassName}
+            data-testid={sectionTestId}
+          >
             <StatusGroupHeading
-              group={group}
-              count={rows.length}
-              folded={folded}
-              onMarkRead={
-                group === "done"
-                  ? () =>
-                      markRead(
-                        [...treeSessions(rows)].flatMap((session) => {
-                          const workspace = worktreeOf(session)?.workspace;
-                          return workspace ? [{ workspace, session }] : [];
-                        }),
-                      )
-                  : undefined
-              }
+              group={section.group}
+              count={section.count}
+              folded={section.folded}
+              onToggle={section.onToggle}
+              onMarkRead={section.onMarkRead}
+              testPrefix={testPrefix}
             />
-            {!folded &&
-              rows.map((root) => (
-                <SessionTreeBranch
-                  key={root.session.key}
-                  node={root}
-                  folded={familyFolds}
-                  searching={searching}
-                  groupIdle
-                  testPrefix="agent-list"
-                  renderRow={(node, collapsed) => {
-                    const { session } = node;
-                    const worktree = worktreeOf(session);
-                    return (
-                      <SessionRow
-                        node={node}
-                        collapsed={collapsed}
-                        workspace={worktree?.workspace}
-                        branch={
-                          worktree && !worktree.isRoot
-                            ? (worktree.branch ??
-                              worktree.workspace.task?.branch ??
-                              changes.get(session.workspaceId)?.branch)
-                            : undefined
-                        }
-                        changed={changes.get(session.workspaceId)?.files.length ?? 0}
-                        activity={activity.get(session.key)}
-                        selected={isSessionSelected(selection, session.key)}
-                        selectedAgentId={
-                          selection?.kind === "agent" && selection.key === session.key
-                            ? selection.agentId
-                            : undefined
-                        }
-                        onSelect={onSelect}
-                      />
-                    );
-                  }}
-                />
-              ))}
+            {!section.folded && section.body()}
           </section>
         );
       })}
@@ -196,29 +235,30 @@ export function StatusView({
   );
 }
 
-/**
- * A group's heading in the status view: its state's mark, name and count,
- * folding the group open or shut, with "mark read" beside the new results'.
- * A group with none is one dim line, so the groups keep their places. The
- * agent list of a workspace on another computer heads its groups with it too.
- */
+export function ListNote({ children }: { children: ReactNode }) {
+  return <p className="p-4 text-app-ui-sm text-muted-foreground">{children}</p>;
+}
+
 export function StatusGroupHeading({
   group,
   count,
-  folded,
+  folded = false,
+  onToggle,
   onMarkRead,
+  testPrefix = "agent-list",
 }: {
   group: RowGroup;
   count: number;
-  folded: boolean;
+  folded?: boolean;
+  onToggle?: () => void;
   onMarkRead?: () => void;
+  testPrefix?: string;
 }) {
   const { t } = useTranslation();
   const label = t(`agentList.group.${group}`);
   if (count === 0) {
     return (
-      <h3 className="flex items-center gap-1.5 px-2 py-1 text-app-ui-sm text-muted-foreground opacity-60">
-        {/* No fold to open, its chevron's place kept so the groups stay in one column. */}
+      <h3 className="flex h-7 items-center gap-1.5 px-2 text-app-ui-sm text-muted-foreground opacity-60">
         <span aria-hidden className="size-3.5 shrink-0" />
         <StateGlyph state={GROUP_STATE[group]} still />
         <span>{label}</span>
@@ -231,9 +271,9 @@ export function StatusGroupHeading({
       <button
         type="button"
         aria-expanded={!folded}
-        onClick={() => useUIStore.getState().toggleAgentListGroup(group)}
+        onClick={onToggle}
         className={cn(
-          "flex items-center gap-1.5 rounded-(--radius-control) px-2 py-1 text-app-ui-sm font-medium hover:bg-[var(--state-hover-bg)]",
+          "flex h-7 shrink-0 items-center gap-1.5 rounded-(--radius-control) px-2 text-app-ui-sm font-medium whitespace-nowrap outline-none hover:bg-[var(--state-hover-bg)] focus-visible:ring-1 focus-visible:ring-ring",
           GROUP_TINT[group],
         )}
       >
@@ -246,7 +286,7 @@ export function StatusGroupHeading({
         <IconButton
           label={t("inbox.mark_read")}
           onClick={onMarkRead}
-          data-testid="agent-list-mark-read"
+          data-testid={`${testPrefix}-mark-read`}
         >
           <CheckCheck aria-hidden className="size-3.5" />
         </IconButton>
@@ -255,12 +295,6 @@ export function StatusGroupHeading({
   );
 }
 
-/**
- * Memoized, and reads its own conversation's facts (use-row-facts): a
- * chunk of a reply streaming in another tab, or in its own that changes
- * nothing it says, does not render it. Its two lines are the agent view's;
- * how full its context is, its to-dos and its subagents are in its title.
- */
 const SessionRow = memo(function SessionRow({
   node,
   collapsed,
@@ -275,25 +309,23 @@ const SessionRow = memo(function SessionRow({
   node: SessionTreeNode;
   collapsed: boolean;
   workspace: WorkspaceMeta | undefined;
-  /** A task's branch; none for the workspace, whose list this is. */
   branch: string | undefined;
   changed: number;
   activity: SessionActivity | undefined;
   selected: boolean;
-  /** Its agent selected, when one is. */
   selectedAgentId: string | undefined;
-  /** The list's: the row picked, or one of its agents. */
   onSelect: StatusViewProps["onSelect"];
 }) {
   const { t } = useTranslation();
   const { session, count } = node;
   const group = session.phase;
   const facts = useRowFacts(session, activity);
+  const parent = useNodeParentCaption(node);
+  const preview = useRowLine(session, facts);
   const onSelect = (from: HTMLElement) => select({ kind: "session", key: session.key }, from);
   const onSelectAgent = (agentId: string, from: HTMLElement) =>
     select({ kind: "agent", key: session.key, agentId }, from);
   const duration = useDurationLabel(session.since);
-  // The row of the tab the user went to stays in sight, as the file tree's does.
   const rowRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (selected && selectedAgentId === undefined)
@@ -320,7 +352,6 @@ const SessionRow = memo(function SessionRow({
       data-testid="agent-list-row"
       data-session-key={session.key}
     >
-      {/* The row as one button behind its content, so the row's own buttons stay buttons. */}
       <button
         type="button"
         aria-pressed={selected}
@@ -334,7 +365,6 @@ const SessionRow = memo(function SessionRow({
         titleHint={told.join(" · ")}
         sign={
           <>
-            {/* Narrow, the profile is its dot. */}
             <SessionProfileMark session={session} nameClassName="@max-xs/agents:hidden" />
             <SessionSign session={session} facts={facts} />
           </>
@@ -349,8 +379,8 @@ const SessionRow = memo(function SessionRow({
         }
         place={branch ? { kind: "branch", name: branch } : undefined}
         placeTestId="agent-list-branch"
-        parent={<ParentCaption node={node} />}
-        preview={<RowLine session={session} facts={facts} />}
+        parent={parent}
+        preview={preview}
         family={
           count > 0 && (
             <FamilyFold
@@ -363,13 +393,11 @@ const SessionRow = memo(function SessionRow({
           )
         }
       />
-      {/* Allowed or denied from the row: the one row with a third line. */}
       {group === "attention" && (
         <div className="relative flex justify-end pt-1 empty:hidden">
           <RowAnswer session={session} activity={activity} />
         </div>
       )}
-      {/* Above the row's own button, as the row's other buttons are. */}
       <AgentRows
         agents={activity?.agents ?? []}
         selectedId={selectedAgentId}
@@ -380,7 +408,6 @@ const SessionRow = memo(function SessionRow({
   );
 });
 
-/** Claude's or Codex's mark, or a terminal's for an agent known only by its output. */
 export function AgentMark({ session, className }: { session: AgentSession; className?: string }) {
   const cls = cn("size-3.5 shrink-0", className);
   if (session.kind === "codex" || session.agent === "codex") {
@@ -396,7 +423,6 @@ const EDIT_TOOLS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit", "Delet
 const COMMAND_TOOLS = new Set(["Bash", "BashOutput", "PowerShell", "KillShell"]);
 const SEARCH_TOOLS = new Set(["Read", "Grep", "Glob", "LS", "WebSearch", "WebFetch"]);
 
-/** A call's kind as an icon: an edit, a command, a search, or any other tool. */
 export function ToolIcon({ name }: { name: string }) {
   const cls = "size-3.5 shrink-0";
   if (EDIT_TOOLS.has(name)) return <Pencil aria-hidden className={cn(cls, "text-emerald-500")} />;
@@ -407,11 +433,9 @@ export function ToolIcon({ name }: { name: string }) {
   return <Wrench aria-hidden className={cn(cls, "text-emerald-500")} />;
 }
 
-/** The line under the title: what the conversation waits on, does, or answered. */
-export function RowLine({ session, facts }: { session: AgentSession; facts: RowFacts }) {
+export function useRowLine(session: AgentSession, facts: RowFacts): ReactNode {
   const { t, i18n } = useTranslation();
   const wait = facts.wait;
-  // What it waits on the user for is told by the icon beside its time.
   if (wait?.kind === "permission" || (!wait && session.state === "permissionPending")) {
     return (
       <span className="flex min-w-0 items-center gap-1.5">
@@ -448,7 +472,6 @@ export function RowLine({ session, facts }: { session: AgentSession; facts: RowF
       </span>
     );
   }
-  // Stopped at the plan's usage limit, it goes on by itself once the limit resets.
   if (session.limitWait && session.phase !== "running") {
     return (
       <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
@@ -486,16 +509,11 @@ export function RowLine({ session, facts }: { session: AgentSession; facts: RowF
       <span className="min-w-0 truncate text-muted-foreground">{session.prompt}</span>
     ) : null;
   }
-  // The answer, in Markdown, as plain words.
   return session.message ? (
     <span className="min-w-0 truncate text-foreground">{plainPreview(session.message)}</span>
   ) : null;
 }
 
-/**
- * A new result's buttons, which take its time's place under the pointer:
- * the worktree's changes, and marking it read.
- */
 function ResultActions({
   session,
   workspace,
@@ -513,7 +531,7 @@ function ResultActions({
           size="sm"
           variant="outline"
           className="h-6 gap-1 px-1.5 text-app-micro"
-          title={t("agentList.detail.show_changes")}
+          tooltip={t("agentList.detail.show_changes")}
           onClick={() => showChanges(session.workspaceId)}
         >
           <FileDiff aria-hidden className="size-3.5" />
@@ -525,8 +543,7 @@ function ResultActions({
           size="icon-sm"
           variant="ghost"
           className="size-6"
-          title={t("agentList.list.mark_read")}
-          aria-label={t("agentList.list.mark_read")}
+          tooltip={t("agentList.list.mark_read")}
           onClick={() => markRead([{ workspace, session }])}
         >
           <Check aria-hidden className="size-3.5" />
@@ -538,11 +555,6 @@ function ResultActions({
 
 const NO_ASKS: readonly PermissionAsk[] = [];
 
-/**
- * Allow or deny a permission from the row: a chat tab's through its
- * program, a terminal's through Claude Code's hook. A question or a plan is
- * answered in its tab, where there is room for it.
- */
 function RowAnswer({
   session,
   activity,
@@ -552,9 +564,7 @@ function RowAnswer({
 }) {
   const { t } = useTranslation();
   const [sending, setSending] = useState(false);
-  // Its conversation's own: the list does not follow every conversation.
   const firstRequest = useFirstPermission(session);
-  // A terminal's request answered here leaves at once, not with the next poll.
   const asks = useUnansweredAsks(session, activity?.asks ?? NO_ASKS);
   let answer: ((allow: boolean) => Promise<void>) | null = null;
   if (session.kind !== "terminal") {
@@ -605,8 +615,7 @@ function RowAnswer({
         variant="outline"
         className="size-7"
         disabled={sending}
-        title={t("chat.permission.deny")}
-        aria-label={t("chat.permission.deny")}
+        tooltip={t("chat.permission.deny")}
         onClick={() => send(false)}
       >
         <X aria-hidden className="size-3.5" />

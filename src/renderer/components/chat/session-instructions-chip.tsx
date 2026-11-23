@@ -27,43 +27,31 @@ export interface InstructionsTab {
   tabId: string;
 }
 
-/** What the composer gives the chip it shows: whether to shrink it, and when its menu opens. */
 export interface InstructionsChipSlot {
   compact: boolean;
   onMenu: (open: boolean) => void;
 }
 
-/** A layer above the session's, as the chip lists it. */
 export interface InstructionRow {
   key: string;
   label: string;
   text: string;
-  /** Where it is changed; none where it is only shown. */
   onEdit?: () => void;
 }
 
 export interface InstructionsChipViewProps extends InstructionsChipSlot {
-  /** Still asked for; nothing to list yet. */
   loading?: boolean;
-  /** Could not be read: the chip says so, and its menu offers onRetry. */
   failed?: boolean;
   onRetry?: () => void;
-  /** Called as the menu opens. */
   onOpen?: () => void;
   rows: readonly InstructionRow[];
-  /** Says where the rows are changed, when not from here. */
   rowsNote?: string;
-  /** The session layer; undefined where it is not told apart from the rest. */
   session: string | undefined;
-  /** Saves the session layer; absent where it is only shown. */
   save?: (text: string) => Promise<void>;
-  /** The combined text with `session` as the session layer. */
   combined: (session: string) => string;
-  /** Says why the session layer is only shown. */
   note?: string;
 }
 
-/** The composer's instructions chip and its menu, for a chat here or another device's. */
 export function InstructionsChipView({
   compact,
   onMenu,
@@ -85,8 +73,6 @@ export function InstructionsChipView({
     onMenu(next);
   };
   const [draft, setDraft] = useState("");
-  // The session text the draft started from: one read while the menu is open
-  // takes the draft's place until the user changes it.
   const [base, setBase] = useState<string | undefined>(undefined);
   if (open && session !== base) {
     setBase(session);
@@ -196,7 +182,6 @@ export function InstructionsChipView({
             <p className="mt-1.5 text-app-ui-sm text-muted-foreground">{rowsNote}</p>
           )}
           {session === undefined ? (
-            // The device tells only the combined text.
             <div className="flex flex-col gap-2">
               <InstructionPreview text={combined("")} />
               {note && <p className="text-app-ui-sm text-muted-foreground">{note}</p>}
@@ -284,7 +269,6 @@ function LayerLine({ label, text }: { label: string; text: string }): ReactNode 
   );
 }
 
-/** The instructions chip of a chat on this computer: its layers open in Settings here. */
 export function SessionInstructionsChip({
   workspaceId,
   tabId,

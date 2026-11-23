@@ -1,11 +1,3 @@
-/**
- * A name given to a Claude tab before its conversation began names the
- * session it starts: there was no session to name then, and Claude's title
- * from the first message took the name's place. The tab's own name names
- * every session it has, and Remote Control is told it again as it starts.
- * The real ipc client is spread under a spy, so later files keep its other
- * exports.
- */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 type Message = Record<string, unknown> & { request?: Record<string, unknown> };
@@ -42,7 +34,6 @@ afterEach(() => {
 const requests = () => sent.filter((m) => m.type === "control_request");
 const subtypes = () => requests().map((m) => m.request?.subtype);
 
-/** Answers every request the controller has sent and not had answered, as they come. */
 async function answerAll(c: Controller, from: number): Promise<number> {
   let n = from;
   for (let idle = 0; idle < 20; idle++) {
@@ -63,7 +54,6 @@ async function answerAll(c: Controller, from: number): Promise<number> {
   return n;
 }
 
-/** Sends the first message and has the program start a session for it. */
 async function firstMessage(c: Controller, sessionId: string): Promise<void> {
   const sending = c.send("hi");
   let n = await answerAll(c, 0);

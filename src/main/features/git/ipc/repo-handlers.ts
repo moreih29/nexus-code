@@ -1,7 +1,3 @@
-/**
- * Repository metadata handlers — detection and initialization for the Git panel.
- */
-
 import type { RepoInfo } from "../../../../shared/git/types";
 import { ipcContract } from "../../../../shared/ipc/contract";
 import type { CallContext } from "../../../infra/ipc-router";
@@ -11,14 +7,6 @@ import { handleGitHandlerError } from "./git-result";
 
 const c = ipcContract.git.call;
 
-/**
- * Builds the getRepoInfo handler; it resolves lazy detection before returning
- * so the call result cannot race behind repoInfoChanged broadcasts.
- *
- * GitError (expected typed failure such as git-missing) is returned as an
- * IpcGitErrorResult wire object so the router stays log-silent and the
- * renderer's ipcCallResult path receives this as an IpcErrResult and unwrapGitResult converts it to a thrown Error.
- */
 export function getRepoInfoHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -36,14 +24,6 @@ export function getRepoInfoHandler(
   };
 }
 
-/**
- * Builds the explicit refresh-detection handler used by manual Refresh.
- * This bypasses cached non-repo results so external `git init` / clone work is
- * visible without restarting the app.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see getRepoInfoHandler for rationale.
- */
 export function refreshDetectionHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
@@ -57,13 +37,6 @@ export function refreshDetectionHandler(
   };
 }
 
-/**
- * Builds the init handler; initialization runs at the workspace root and then
- * returns the freshly detected repository metadata.
- *
- * GitError (expected typed failure) is returned as an IpcGitErrorResult wire
- * object — see getRepoInfoHandler for rationale.
- */
 export function initHandler(
   registry: GitRegistry,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {

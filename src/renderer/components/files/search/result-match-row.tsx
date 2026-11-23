@@ -1,9 +1,3 @@
-/**
- * Single match row inside an expanded file group.
- * Shows: line number + preview text with the match span highlighted.
- * Indent: 20px from left.
- */
-
 import type { SearchRange } from "../../../../shared/search/types";
 import { ROW_HEIGHT_PX } from "../file-tree/metrics";
 
@@ -12,7 +6,6 @@ const MATCH_INDENT_PX = 20;
 interface SearchResultMatchRowProps {
   range: SearchRange;
   preview: string;
-  /** Column in the line where `preview` begins (long lines arrive cut). */
   previewStart?: number;
   onClick: () => void;
 }

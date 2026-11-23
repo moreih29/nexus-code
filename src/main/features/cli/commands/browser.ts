@@ -1,7 +1,7 @@
-/** nexus browser list/open/goto/back/forward/reload. */
 import type { CliBrowserAction, CliTabInfo } from "../../../../shared/cli/ui";
 import { loopbackPort, portUrl } from "../../../../shared/pty/ports";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import { shortId } from "../../../../shared/util/short-id";
 import { CliUsageError, exactArgs } from "../args";
 import type { PageInfo } from "../browser/driver";
 import {
@@ -12,7 +12,6 @@ import {
   placementFor,
   resolveTab,
   resolveWorkspace,
-  shortId,
 } from "../context";
 import { table } from "../format";
 import { type CliCommand, output } from "../registry";
@@ -45,10 +44,6 @@ async function browserTabs(ctx: CliContext, workspace: WorkspaceMeta): Promise<C
   return (await workspaceTabs(ctx, workspace.id)).filter((t) => t.type === "browser");
 }
 
-/**
- * The browser tab --tab names, or without it the workspace's only one, or
- * else the only one a group shows.
- */
 export async function resolveBrowser(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -112,17 +107,12 @@ const browserOpen: CliCommand = {
   },
 };
 
-/**
- * The URL a command line gives: a bare path is on the workspace's dev
- * server. "//host/path" is a URL without its scheme, not a path.
- */
 async function urlFrom(ctx: CliContext, workspace: WorkspaceMeta, given: string): Promise<string> {
   const url = given.trim();
   if (!url.startsWith("/") || url.startsWith("//")) return url;
   return devServerUrl(ctx, workspace, url);
 }
 
-/** A bare path's URL: on the one port the workspace's terminals listen on. */
 async function devServerUrl(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -143,10 +133,6 @@ async function devServerUrl(
   return `${portUrl(only.port)}${path}`;
 }
 
-/**
- * In an SSH workspace, a local address opens on its forward, set up for it
- * now; any other URL is as given.
- */
 async function forwardedUrl(
   ctx: CliContext,
   workspace: WorkspaceMeta,
@@ -158,15 +144,12 @@ async function forwardedUrl(
   return ctx.services.forwards.localUrl(workspace.id, full).catch(forwardFailed);
 }
 
-/** What a navigation came to: the page loaded, or still loading when the wait for it ended. */
 function loaded(page: PageInfo | null, asked: string): string {
   if (!page) return `Loading ${asked}`;
-  // Or a file downloaded instead of a page.
   const download = page.download;
   if (download) {
     return `Downloading ${download.url} (${download.type}) to ${download.file} rather than showing it`;
   }
-  // A tab whose first navigation did not commit has no URL.
   if (!page.url) return `Nothing loaded from ${asked}`;
   return page.title ? `Loaded ${page.url} "${page.title}"` : `Loaded ${page.url}`;
 }
