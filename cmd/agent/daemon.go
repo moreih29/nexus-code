@@ -106,6 +106,7 @@ func runDaemon(root string) {
 	if removed := agentrun.SweepStale(runDir, filepath.Dir(paths.Sock), agentrun.WsID(root, proto.ServerVersion)); len(removed) > 0 {
 		agentLogger.Info("swept stale run files of dead daemons", "removed", removed)
 	}
+	endOrphanedPrograms(root, agentLogger)
 
 	if conn, dialErr := net.DialTimeout("unix", paths.Sock, 200*time.Millisecond); dialErr == nil {
 		conn.Close()
