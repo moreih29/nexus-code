@@ -66,12 +66,15 @@ import {
 } from "./config";
 import {
   appendCodexForkPage,
+  appendCodexThreadPage,
+  type CodexThreadPages,
   codexForkPrefix,
   codexForkSourceStatus,
   codexHistoryAvailable,
   codexHistoryBusy,
   codexServerVersion,
   emptyCodexForkPages,
+  emptyCodexThreadPages,
   validCodexFork,
 } from "./history";
 import { invalidateCodexHistory } from "./history-catalog";
@@ -102,6 +105,9 @@ export const MIN_CODEX_VERSION = "0.166.0";
 
 /** How long a request waits for its answer. */
 const REQUEST_TIMEOUT_MS = 30_000;
+/** A deleted thread's turns are read this many a page, and in at most this many pages. */
+const THREAD_READ_TURNS = 50;
+const THREAD_READ_PAGES = 200;
 
 const HISTORY_MUTATIONS = new Set([
   "thread/fork",
@@ -1023,15 +1029,42 @@ export class CodexController {
   async deleteThread(threadId: string): Promise<void> {
     if (threadId === this.currentThread()) throw new Error("the tab's own thread");
     if (!(await this.ensureRunning())) throw new Error("Codex is not running");
-    const read = await this.request("thread/read", { threadId, includeTurns: true }).catch(
-      () => null,
-    );
+    const read = await this.readThreadWhole(threadId).catch(() => null);
     await this.request("thread/delete", { threadId });
     if (!read) return;
     const { workspaceId, cwd } = this.target;
     await removeConversationAttachments(workspaceId, codexThreadItems(read), cwd).catch(
       (error: Error) => log.warn(`removing thread ${threadId}'s attachments: ${error.message}`),
     );
+  }
+
+  /**
+   * A thread's turns with their items, whole, as thread/read's answer holds
+   * them (codexThreadItems): a page at a time from a Codex that pages its
+   * history (thread/turns/list), which no longer hydrates a paginated thread
+   * whole; whole from one before (thread/read with includeTurns). Null when
+   * it cannot be read whole.
+   */
+  private async readThreadWhole(threadId: string): Promise<unknown> {
+    if (!codexHistoryAvailable(codexServerVersion(this.model, this.state.version))) {
+      return this.request("thread/read", { threadId, includeTurns: true });
+    }
+    let pages: CodexThreadPages = emptyCodexThreadPages();
+    for (let page = 0; page < THREAD_READ_PAGES; page++) {
+      const cursor = pages.nextCursor;
+      const result = await this.request("thread/turns/list", {
+        threadId,
+        sortDirection: "asc",
+        itemsView: "full",
+        limit: THREAD_READ_TURNS,
+        ...(cursor ? { cursor } : {}),
+      });
+      const next = appendCodexThreadPage(pages, result);
+      if (!next) return null;
+      if (next.nextCursor === null) return { thread: { id: threadId, turns: next.turns } };
+      pages = next;
+    }
+    return null;
   }
 
   /**
