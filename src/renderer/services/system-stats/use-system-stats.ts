@@ -15,6 +15,16 @@ export type StatsAnswer = SystemStats | null | "never";
 
 const lastFor = new Map<string, SystemStats>();
 
+/** The last numbers for `key`: kept to show at once, dropped with null. */
+export function rememberStats(key: string, stats: SystemStats | null): void {
+  if (stats) lastFor.set(key, stats);
+  else lastFor.delete(key);
+}
+
+export function rememberedStats(key: string): SystemStats | null {
+  return lastFor.get(key) ?? null;
+}
+
 function useDocumentShown(): boolean {
   // No document while drawn ahead of the window (as tests draw it): nothing asks then.
   const [shown, setShown] = useState(
@@ -55,11 +65,16 @@ export function pollStats(
   };
 }
 
-/** The numbers `ask` gives for `key`, asked while `active` and the window is shown. */
+/**
+ * The numbers `ask` gives for `key`, asked while `active` and the window is
+ * shown. With `forgetIdle`, those of a host no longer asked are dropped
+ * (another computer's, once out of reach), not shown again later.
+ */
 export function usePolledStats(
   key: string,
   active: boolean,
   ask: (signal: AbortSignal) => Promise<StatsAnswer>,
+  forgetIdle = false,
 ): SystemStats | null {
   const [stats, setStats] = useState<SystemStats | null>(() => lastFor.get(key) ?? null);
   const shown = useDocumentShown();
@@ -67,17 +82,17 @@ export function usePolledStats(
   asking.current = ask;
 
   useEffect(() => {
+    if (forgetIdle && !active) rememberStats(key, null);
     setStats(lastFor.get(key) ?? null);
     if (!active || !shown) return;
     return pollStats(
       (signal) => asking.current(signal),
       (value) => {
-        if (value) lastFor.set(key, value);
-        else lastFor.delete(key);
+        rememberStats(key, value);
         setStats(value);
       },
     );
-  }, [key, active, shown]);
+  }, [key, active, shown, forgetIdle]);
 
   return stats;
 }

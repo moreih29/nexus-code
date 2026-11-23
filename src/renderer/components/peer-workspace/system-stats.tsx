@@ -3,6 +3,7 @@
  * bar as locally: asked while the workspace is shown and that computer
  * serves it (system.stats, with its files); an older one that does not
  * know the method is not asked again until the workspace is shown again.
+ * Out of reach, nothing shows: not even its last numbers.
  */
 
 import type { RoomPeer } from "../../../shared/remote/room";
@@ -27,6 +28,11 @@ export async function askPeerSystemStats(
   return result.kind === "unsupported" ? "never" : null;
 }
 
+/** The key its numbers are kept under while it is reached. */
+export function peerStatsKey(target: PeerWorkspaceTarget): string {
+  return `peer:${peerTargetId(target)}`;
+}
+
 /** Whether that computer is asked: while the workspace is shown and reached, and it serves it. */
 export function asksPeerSystemStats(peer: RoomPeer | undefined, active: boolean): boolean {
   return active && peerServes(peer, "system.stats");
@@ -42,12 +48,14 @@ export function PeerSystemStatsSegment({
   /** The workspace is shown and that computer can be reached. */
   active: boolean;
 }) {
-  const served = peerServes(peer, "system.stats");
+  const asked = asksPeerSystemStats(peer, active);
   const stats = usePolledStats(
-    `peer:${peerTargetId(target)}`,
-    asksPeerSystemStats(peer, active),
+    peerStatsKey(target),
+    asked,
     (signal) => askPeerSystemStats(target, signal),
+    true,
   );
-  if (!served || !stats) return null;
+  // Out of reach, its last numbers are not shown, as a local SSH workspace's go once it drops.
+  if (!asked || !stats) return null;
   return <SystemStatsItem stats={stats} host={target.deviceName} />;
 }

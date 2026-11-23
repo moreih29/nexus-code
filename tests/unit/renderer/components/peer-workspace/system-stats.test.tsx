@@ -4,12 +4,14 @@ import {
   askPeerSystemStats,
   asksPeerSystemStats,
   PeerSystemStatsSegment,
+  peerStatsKey,
 } from "../../../../../src/renderer/components/peer-workspace/system-stats";
 import { SystemStatsItem } from "../../../../../src/renderer/components/workbench/system-stats";
 import * as ipc from "../../../../../src/renderer/ipc/client";
 import {
   POLL_MS,
   pollStats,
+  rememberStats,
   type StatsAnswer,
 } from "../../../../../src/renderer/services/system-stats/use-system-stats";
 import type { PeerWorkspaceTarget } from "../../../../../src/renderer/state/stores/peer-workspace";
@@ -112,6 +114,28 @@ test("asked only of a computer that serves it, while the workspace is shown and 
   expect(asksPeerSystemStats(serving, false)).toBe(false);
   expect(asksPeerSystemStats(old, true)).toBe(false);
   expect(asksPeerSystemStats(undefined, true)).toBe(false);
+});
+
+test("its last numbers show while it is reached, and not once it is out of reach", () => {
+  const serving: RoomPeer = {
+    id: "desktop",
+    name: "Desktop",
+    online: true,
+    serves: ["files", "system.stats"],
+  };
+  rememberStats(peerStatsKey(target), stats);
+  try {
+    expect(
+      renderToStaticMarkup(<PeerSystemStatsSegment target={target} peer={serving} active />),
+    ).toContain("23%");
+    expect(
+      renderToStaticMarkup(
+        <PeerSystemStatsSegment target={target} peer={serving} active={false} />,
+      ),
+    ).toBe("");
+  } finally {
+    rememberStats(peerStatsKey(target), null);
+  }
 });
 
 test("nothing drawn for a computer that does not serve it", () => {
