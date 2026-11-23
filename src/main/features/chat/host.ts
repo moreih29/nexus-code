@@ -874,6 +874,38 @@ export class ChatHost {
     }
   }
 
+  /**
+   * The slots ("<tabId>/<n>") a conversation's whole history names, read by
+   * the agent from the history kept in the profile's folder (a Claude
+   * session) or home (a Codex thread): only their names come back. None
+   * from an agent too old to tell.
+   */
+  async historySlots(
+    workspaceId: string,
+    agent: ChatAgent,
+    conversation: string,
+    profileId?: string,
+  ): Promise<string[]> {
+    const where =
+      agent === "claude"
+        ? { sessionId: conversation, ...this.configDir(workspaceId, profileId) }
+        : (() => {
+            const codexHome = this.profileDir(workspaceId, "codex", profileId);
+            return { threadId: conversation, ...(codexHome ? { codexHome } : {}) };
+          })();
+    const channel = await this.channelFor(workspaceId);
+    const result = await channel
+      .call<{ slots?: unknown }>("chat.historySlots", { workspaceId, ...where })
+      .catch((error: unknown) => {
+        if ((error as { code?: unknown } | null)?.code === "unsupported-method") return null;
+        throw error;
+      });
+    const slots = Array.isArray(result?.slots) ? result.slots : [];
+    return slots
+      .filter((slot): slot is string => typeof slot === "string" && slot.length <= 300)
+      .slice(-5_000);
+  }
+
   async transcript(workspaceId: string, sessionId: string, profileId?: string): Promise<unknown> {
     const config = this.configDir(workspaceId, profileId);
     const channel = await this.channelFor(workspaceId);

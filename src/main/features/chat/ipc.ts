@@ -128,6 +128,15 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         );
         return ipcOk(undefined);
       },
+      historySlots: withProfileError(async (args: unknown) => {
+        const { workspaceId, agent, conversation, profileId } = validateArgs(
+          c.historySlots.args,
+          args,
+        );
+        return ipcOk({
+          slots: await host.historySlots(workspaceId, agent, conversation, profileId),
+        });
+      }),
       transcript: withProfileError(async (args: unknown) => {
         const { workspaceId, sessionId, profileId } = validateArgs(c.transcript.args, args);
         const result = (await host.transcript(workspaceId, sessionId, profileId)) as {

@@ -56,6 +56,7 @@ class FakeChannel implements AgentChannel {
   versionWait?: Promise<void>;
   transcriptPageError?: string;
   attachRootAnswer: unknown = {};
+  historySlotsAnswer: unknown = {};
   attachRootError?: string;
   /** Error codes thrown by method. */
   readonly failures = new Map<string, string>();
@@ -78,6 +79,7 @@ class FakeChannel implements AgentChannel {
       throw Object.assign(new Error("transcript page failed"), { code: this.transcriptPageError });
     }
     if (method === "chat.transcript") return { found: true, lines: [] } as T;
+    if (method === "chat.historySlots") return this.historySlotsAnswer as T;
     if (method === "chat.attachRoot") {
       if (this.attachRootError) {
         throw Object.assign(new Error("attach root failed"), { code: this.attachRootError });
@@ -1601,6 +1603,41 @@ describe("attached files", () => {
     await host.closeWorkspace(OTHER, channel);
     expect(callsOf(channel, "chat.removeAttachments")).toEqual([]);
     expect(waiting).toEqual([]);
+  });
+
+  test("a conversation's history slots are read in its profile's folder, none from an agent before", async () => {
+    const profiles: Record<string, AgentProfile> = {
+      "claude-p": {
+        id: "claude-p",
+        agent: "claude",
+        name: "P",
+        color: "blue",
+        dir: "/profiles/claude-p",
+        env: {},
+      } as AgentProfile,
+      "codex-p": {
+        id: "codex-p",
+        agent: "codex",
+        name: "P",
+        color: "blue",
+        dir: "/profiles/codex-p",
+        env: {},
+      } as AgentProfile,
+    };
+    const { host, channel } = setup({}, undefined, undefined, (id) => profiles[id] ?? null);
+    channel.historySlotsAnswer = { found: true, slots: ["t/1", 7, "x".repeat(301), "u/2"] };
+    expect(await host.historySlots(WS, "claude", "session-1", "claude-p")).toEqual(["t/1", "u/2"]);
+    expect(await host.historySlots(WS, "codex", "thread-1", "codex-p")).toEqual(["t/1", "u/2"]);
+    expect(callsOf(channel, "chat.historySlots")).toEqual([
+      { workspaceId: WS, sessionId: "session-1", configDir: "/profiles/claude-p" },
+      { workspaceId: WS, threadId: "thread-1", codexHome: "/profiles/codex-p" },
+    ]);
+    await expect(host.historySlots(WS, "claude", "s", "codex-p")).rejects.toThrow(/profile/i);
+
+    channel.failures.set("chat.historySlots", "unsupported-method");
+    expect(await host.historySlots(WS, "claude", "session-1")).toEqual([]);
+    channel.failures.set("chat.historySlots", "request-failed");
+    await expect(host.historySlots(WS, "claude", "session-1")).rejects.toThrow();
   });
 
   test("touching and removing slots skip an empty list and an agent from before", async () => {

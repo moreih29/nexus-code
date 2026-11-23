@@ -1190,6 +1190,22 @@ const coreIpcContract = {
         z.void(),
       ),
       /**
+       * The attached files ("<tabId>/<n>" slots) a conversation's whole
+       * history names, as its agent reads them from the history kept on
+       * the workspace's host (a Claude session in the profile's folder, a
+       * Codex thread in its home): what a tab that has loaded only its last
+       * pages keeps. Empty from an agent too old to tell.
+       */
+      historySlots: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          agent: z.enum(["claude", "codex"]),
+          conversation: z.string().max(128),
+          profileId: z.string().max(64).optional(),
+        }),
+        z.object({ slots: z.array(z.string().max(300)).max(5_000) }),
+      ),
+      /**
        * Where a Claude session is kept on the workspace's host, for a program
        * of another profile to copy it (`--resume <file> --fork-session`).
        */
