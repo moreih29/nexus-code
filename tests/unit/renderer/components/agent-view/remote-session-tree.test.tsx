@@ -129,6 +129,21 @@ test("worktree children appear once under their opener and only their host's sav
   }
 });
 
+test("a child row takes its tree line's width, so a long title ends in an ellipsis", () => {
+  const long = { ...activeChild, title: "Read the brief and run every check it lists" };
+  const html = renderToStaticMarkup(
+    <PeerGroup
+      peer={host}
+      sessions={{ status: "ready", list: { ...treeList, sessions: [parent, long] } }}
+      query=""
+    />,
+  );
+  const child = html.split('data-testid="remote-session-tree-line"')[1] ?? "";
+  const row = child.match(/<button[^>]*class="([^"]+)"[^>]*data-testid="remote-session-row"/);
+  expect(row?.[1]?.split(" ")).toEqual(expect.arrayContaining(["w-full", "min-w-0"]));
+  expect(child).toMatch(/class="[^"]*\btruncate\b[^"]*">Read the brief and run every check/);
+});
+
 test("a local opener uses the account device ID, current title and actual workspace", () => {
   const { useTabsStore } = tabs;
   const { useAgentViewStore } = view;

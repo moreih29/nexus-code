@@ -1429,7 +1429,9 @@ export function RemoteSessionRow({
       onClick={onOpen}
       aria-current={selected || rest["aria-current"]}
       className={cn(
-        "relative flex min-w-0 flex-col rounded-(--radius-control) px-2 py-1 text-left",
+        // As wide as its place and no wider: a child row sits in a block, not a
+        // flex column, and would grow to its text and run past the sidebar.
+        "relative flex w-full min-w-0 flex-col rounded-(--radius-control) px-2 py-1 text-left",
         selected ? PANEL_SHOWN_BG : "hover:bg-[var(--state-hover-bg)]",
         // Its right-click menu open.
         "data-[state=open]:bg-[var(--state-hover-bg)]",
