@@ -223,6 +223,45 @@ describe("chat.outsideFiles", () => {
     expect(await attachRootOf("w2")).toBeNull();
   });
 
+  test("a Windows workspace tells a file its agent changed on a share by its network path", async () => {
+    useWorkspacesStore.setState({
+      workspaces: [{ id: "w3", name: "win", rootPath: "C:\\work" }],
+    } as never);
+    useTabsStore.setState({
+      byWorkspace: {
+        w3: { c3: { id: "c3", type: "claude", title: "c3", props: { cwd: "C:\\work" } } },
+      },
+    } as never);
+    const tool = (id: string, name: string, path: string, status = "done") => ({
+      id,
+      name,
+      input: { file_path: path },
+      status,
+      parentToolUseId: null,
+    });
+    useChatStore.setState({
+      tabs: {
+        [chatKey("w3", "c3")]: {
+          ...emptyTabState(),
+          model: {
+            ...emptyModel(),
+            items: [said("a", "see [it](\\\\linked\\share\\a.png)", "w", "e", "x", "r")],
+            tools: {
+              w: tool("w", "Write", "\\\\localhost\\C$\\tmp\\x\\unc.txt"),
+              e: tool("e", "Edit", "C:\\tmp\\out\\lower.txt"),
+              x: tool("x", "Write", "\\\\denied\\share\\x.txt", "error"),
+              r: tool("r", "Read", "\\\\read\\share\\a.txt"),
+            },
+          },
+        },
+      },
+    } as never);
+    const { files } = await chatHandlers["chat.outsideFiles"]({ workspaceId: "w3" } as never);
+    expect(files).toContain("//localhost/C$/tmp/x/unc.txt");
+    expect(files).toContain("C:/tmp/out/lower.txt");
+    expect(files.filter((file) => file.startsWith("//"))).toEqual(["//localhost/C$/tmp/x/unc.txt"]);
+  });
+
   test("nothing for a workspace it doesn't know", async () => {
     const { files } = await chatHandlers["chat.outsideFiles"]({ workspaceId: "w9" } as never);
     expect(files).toEqual([]);

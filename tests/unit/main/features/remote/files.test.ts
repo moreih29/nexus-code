@@ -487,6 +487,66 @@ describe("a Windows workspace's files", () => {
   });
 });
 
+describe("a Windows chat's file on a network share", () => {
+  const win = String.raw`C:\Users\me\app`;
+  const unc = "//localhost/C$/tmp/x/unc.txt";
+  const tree: Record<string, Node> = {
+    "\\\\localhost\\C$\\tmp\\x\\unc.txt": text("on the share"),
+    "\\\\LOCALHOST\\c$\\TMP\\x\\unc.txt": text("on the share"),
+    "\\\\localhost\\C$\\tmp\\x\\other.txt": text("not named"),
+    "\\\\localhost\\D$\\tmp\\x\\unc.txt": text("another share"),
+    "\\\\127.0.0.1\\C$\\tmp\\x\\unc.txt": text("another host"),
+    "\\localhost\\C$\\tmp\\x\\unc.txt": text("on this drive"),
+  };
+  const read = (named: string[], path: string) =>
+    readFile(files(tree, null, { folders: [String.raw`D:\shared`], named }), win, {
+      workspaceId: ws,
+      path,
+    });
+
+  test("is read when a chat names it, written with either separator, in any case", async () => {
+    for (const path of [
+      unc,
+      String.raw`\\localhost\C$\tmp\x\unc.txt`,
+      "//localhost/C$/tmp/x/../x/unc.txt",
+      String.raw`\\LOCALHOST\c$\TMP\x\unc.txt`,
+    ]) {
+      expect(await read([unc], path)).toMatchObject({ kind: "text", text: "on the share" });
+    }
+  });
+
+  test("another file on the share, or the same name on another share or host, is not", async () => {
+    for (const path of [
+      "//localhost/C$/tmp/x/other.txt",
+      "//localhost/D$/tmp/x/unc.txt",
+      "//127.0.0.1/C$/tmp/x/unc.txt",
+    ]) {
+      await expect(read([unc], path)).rejects.toMatchObject({ code: 1002 });
+    }
+  });
+
+  test("a rooted path and a network path of the same letters are two files", async () => {
+    await expect(read([unc], "/localhost/C$/tmp/x/unc.txt")).rejects.toMatchObject({
+      code: 1002,
+    });
+    await expect(read(["/localhost/C$/tmp/x/unc.txt"], unc)).rejects.toMatchObject({
+      code: 1002,
+    });
+  });
+
+  test("a .. stays on its share: it reaches no named file on another share or host", async () => {
+    const named = [unc, "//localhost/D$/tmp/x/unc.txt", "//127.0.0.1/C$/tmp/x/unc.txt"];
+    for (const path of [
+      "//localhost/C$/tmp/x/../../../D$/tmp/x/unc.txt",
+      "//localhost/C$/../../127.0.0.1/C$/tmp/x/unc.txt",
+      "//localhost/../127.0.0.1/C$/tmp/x/unc.txt",
+      "//localhost/C$/../D$/tmp/x/unc.txt",
+    ]) {
+      await expect(read(named, path)).rejects.toMatchObject({ code: 1002 });
+    }
+  });
+});
+
 describe("a POSIX workspace's names", () => {
   test("a colon, a trailing dot, or CON is a name like any other there", async () => {
     const tree: Record<string, Node> = {

@@ -17,6 +17,7 @@ import {
   attachedImagesIn,
   attachedImagesOf,
   changedFilesOf,
+  changedShareFiles,
   contextOf,
   distinctResults,
   imagesOf,
@@ -619,6 +620,57 @@ describe("chat panel", () => {
     const [extras] = answerExtras(model.items, model.tools, "/p", "/p", true).values();
     expect(extras.files).toEqual(["/p/notes.md"]);
     expect(outsideLinksOf(model.items, model.tools, "/p", "/p").files).toEqual(["/tmp/report.pdf"]);
+  });
+
+  test("a file the agent changed on a network share is told as one; a link to a share never is", () => {
+    seq = 0;
+    const edit = (id: string, file_path: string) => ({
+      type: "tool_use",
+      id,
+      name: "Edit",
+      input: { file_path },
+    });
+    const model = applyLines(emptyModel(), [
+      assistant("m1", [
+        {
+          type: "tool_use",
+          id: "w",
+          name: "Write",
+          input: { file_path: "\\\\localhost\\C$\\tmp\\x\\unc.txt", content: "x" },
+        },
+        edit("ip", "//127.0.0.1/C$/tmp/x/ip.txt"),
+        edit("bad", "\\\\denied\\share\\x.txt"),
+        edit("dev", "\\\\?\\C:\\tmp\\device.txt"),
+        edit("dot", "\\\\.\\pipe\\x"),
+        edit("up", "\\\\localhost\\C$\\tmp\\..\\..\\D$\\up.txt"),
+        edit("drive", "C:\\tmp\\out\\drive.txt"),
+        edit("busy", "\\\\pending\\share\\x.txt"),
+        { type: "tool_use", id: "r", name: "Read", input: { file_path: "\\\\read\\share\\a.txt" } },
+        { type: "text", text: "See [it](\\\\linked\\share\\a.png) and `//linked/share/b.txt`." },
+      ]),
+      result("w", "ok", { type: "create", filePath: "\\\\localhost\\C$\\tmp\\x\\unc.txt" }),
+      result("ip", "ok", {}),
+      out({
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "bad", content: "denied", is_error: true }],
+        },
+      }),
+      result("dev", "ok", {}),
+      result("dot", "ok", {}),
+      result("up", "ok", {}),
+      result("drive", "ok", {}),
+      result("r", "ok", {}),
+    ]);
+    const shared = ["//localhost/C$/tmp/x/unc.txt", "//127.0.0.1/C$/tmp/x/ip.txt"];
+    expect(changedShareFiles(model.tools, "C:\\p")).toEqual(shared);
+    expect(changedShareFiles(model.tools, "\\\\localhost\\C$\\tmp\\x")).toEqual([shared[1]]);
+    expect(changedShareFiles(model.tools, "/Users/me/p")).toEqual([]);
+    const links = outsideLinksOf(model.items, model.tools, "C:\\p", "C:\\p");
+    expect(links.files).toContain("/localhost/C$/tmp/x/unc.txt");
+    expect(links.files.filter((file) => file.startsWith("//"))).toEqual([]);
+    expect(links.dirs.filter((dir) => dir.startsWith("//"))).toEqual([]);
   });
 
   test("what a session links outside the workspace, with its HTML files' folders", () => {
