@@ -94,6 +94,28 @@ func TestForegroundOfFollowsTheShellsNewestConsoleChild(t *testing.T) {
 	}
 }
 
+func TestForegroundOfFollowsNestedLoginShells(t *testing.T) {
+	for _, shell := range []string{"zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu", "wsl"} {
+		t.Run(shell, func(t *testing.T) {
+			entries := []processEntry{
+				{pid: 10, parent: 1, name: "powershell"},
+				{pid: 11, parent: 10, name: shell},
+				{pid: 12, parent: 11, name: "ping"},
+			}
+			detail := func(pid uint32) (processDetail, bool) {
+				return processDetail{created: int64(pid), console: true}, true
+			}
+			want := "ping"
+			if shell == "wsl" {
+				want = "wsl"
+			}
+			if got := foregroundOf(entries, 10, detail, nil); got != want {
+				t.Errorf("foregroundOf(powershell -> %s -> ping) = %q, want %q", shell, got, want)
+			}
+		})
+	}
+}
+
 func TestMsysChildrenInReadsPsListing(t *testing.T) {
 	listing := "      PID    PPID    PGID     WINPID   TTY         UID    STIME COMMAND\n" +
 		"   233062       1  233062      33800  cons6     197609 08:50:32 /usr/bin/bash\n" +

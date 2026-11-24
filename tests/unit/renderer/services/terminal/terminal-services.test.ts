@@ -45,14 +45,18 @@ const listeners: ListenerRecord[] = [];
 };
 
 let mockForegroundProcessName = "lazygit";
+const foregroundByTab = new Map<string, string>();
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: mock((channel: string, method: string, args: unknown) => {
     ipcCalls.push({ channel, method, args });
     if (channel === "pty" && method === "spawn")
       return Promise.resolve({ ok: true as const, value: { pid: 1234 } });
-    if (channel === "pty" && method === "foregroundProcess")
-      return Promise.resolve({ ok: true as const, value: { name: mockForegroundProcessName } });
+    if (channel === "pty" && method === "foregroundProcess") {
+      const tabId = (args as { tabId: string }).tabId;
+      const name = foregroundByTab.get(tabId) ?? mockForegroundProcessName;
+      return Promise.resolve({ ok: true as const, value: { name } });
+    }
     return Promise.resolve({ ok: true as const, value: undefined });
   }),
   ipcListen: mock((channel: string, event: string, callback: (args: unknown) => void) => {
@@ -101,6 +105,15 @@ mock.module("../../../../../src/renderer/components/ui/confirm-dialog", () => ({
   },
 }));
 
+const mockSaveConfirm = mock(async (_filename: string) => "cancel" as const);
+const realSaveConfirm = await import(
+  "../../../../../src/renderer/components/editor/save-confirm-dialog"
+);
+mock.module("../../../../../src/renderer/components/editor/save-confirm-dialog", () => ({
+  ...realSaveConfirm,
+  showSaveConfirm: mockSaveConfirm,
+}));
+
 const toasts: { kind: string; message: string }[] = [];
 const realToast = await import("../../../../../src/renderer/components/ui/toast");
 mock.module("../../../../../src/renderer/components/ui/toast", () => ({
@@ -135,6 +148,10 @@ const { subscribeTerminalReopenRequest } = await import(
   "../../../../../src/renderer/services/terminal/reopen-requests"
 );
 const { closeGroup } = await import("../../../../../src/renderer/state/operations");
+const { cacheUriFor } = await import("../../../../../src/renderer/services/editor/model/cache");
+const { attachDirtyTracker, detachDirtyTracker } = await import(
+  "../../../../../src/renderer/services/editor/model/dirty-tracker"
+);
 const { closeGroupWithConfirm } = await import(
   "../../../../../src/renderer/services/editor/save/close-tab"
 );
@@ -521,10 +538,12 @@ describe("services/terminal open and close", () => {
     beforeEach(() => {
       confirmRequests.length = 0;
       confirmReply = true;
+      mockSaveConfirm.mockClear();
     });
 
     afterEach(() => {
       mockForegroundProcessName = "lazygit";
+      foregroundByTab.clear();
     });
 
     function terminalInSecondGroup(): { groupId: string; tabId: string; leftTabId: string } {
@@ -557,6 +576,90 @@ describe("services/terminal open and close", () => {
       const wsTabs = useTabsStore.getState().byWorkspace[WS];
       expect(wsTabs?.[tabId]).toBeUndefined();
       expect(wsTabs?.[leftTabId]).toBeDefined();
+    });
+
+    it("keeps the idle and running terminals when a group close is cancelled", async () => {
+      const { groupId, tabId: idleTabId } = terminalInSecondGroup();
+      const running = openTerminal({ workspaceId: WS, cwd: "/workspace/run" }, { groupId });
+      foregroundByTab.set(idleTabId, "powershell");
+      foregroundByTab.set(running.tabId, "sleep");
+      confirmReply = false;
+      const layout = useLayoutStore.getState().byWorkspace[WS];
+
+      expect(await closeGroupWithConfirm(WS, groupId)).toBe("cancelled");
+      expect(confirmRequests).toHaveLength(1);
+      expect(killCalls()).toEqual([]);
+      expect(useLayoutStore.getState().byWorkspace[WS]).toBe(layout);
+      const tabs = useTabsStore.getState().byWorkspace[WS];
+      expect(tabs?.[idleTabId]).toBeDefined();
+      expect(tabs?.[running.tabId]).toBeDefined();
+    });
+
+    it("lists both running programs in one prompt before killing both sessions", async () => {
+      const { groupId, tabId } = terminalInSecondGroup();
+      const second = openTerminal({ workspaceId: WS, cwd: "/workspace/run" }, { groupId });
+      foregroundByTab.set(tabId, "sleep");
+      foregroundByTab.set(second.tabId, "ping");
+
+      expect(await closeGroupWithConfirm(WS, groupId)).toBe("closed");
+      expect(confirmRequests).toEqual(["Closing the terminal also terminates “sleep, ping”."]);
+      expect(killCalls()).toEqual([
+        { channel: "pty", method: "kill", args: { workspaceId: WS, tabId } },
+        { channel: "pty", method: "kill", args: { workspaceId: WS, tabId: second.tabId } },
+      ]);
+    });
+
+    it("lists the same running program only once for two terminals", async () => {
+      mockForegroundProcessName = "PING";
+      const { groupId } = terminalInSecondGroup();
+      openTerminal({ workspaceId: WS, cwd: "/workspace/run" }, { groupId });
+
+      expect(await closeGroupWithConfirm(WS, groupId)).toBe("closed");
+      expect(confirmRequests).toEqual(["Closing the terminal also terminates “PING”."]);
+      expect(killCalls()).toHaveLength(2);
+    });
+
+    it("keeps the running terminal when the editor save prompt is cancelled", async () => {
+      const { groupId, tabId } = terminalInSecondGroup();
+      const filePath = "/workspace/dirty.ts";
+      const editor = useTabsStore.getState().createTab(WS, {
+        type: "editor",
+        props: { workspaceId: WS, filePath },
+      });
+      useLayoutStore.getState().attachTab(WS, groupId, editor.id);
+      const cacheUri = cacheUriFor(WS, filePath);
+      let version = 1;
+      let onChange: (() => void) | undefined;
+      attachDirtyTracker({
+        cacheUri,
+        model: {
+          getAlternativeVersionId: () => version,
+          onDidChangeContent: (callback: () => void) => {
+            onChange = callback;
+            return { dispose: () => {} };
+          },
+        } as never,
+        loadedMtime: "T0",
+        loadedSize: 0,
+      });
+      version++;
+      onChange?.();
+      mockSaveConfirm.mockImplementationOnce(async () => {
+        expect(confirmRequests).toHaveLength(1);
+        expect(killCalls()).toEqual([]);
+        return "cancel";
+      });
+
+      try {
+        expect(await closeGroupWithConfirm(WS, groupId)).toBe("cancelled");
+        expect(mockSaveConfirm).toHaveBeenCalledWith("dirty.ts");
+        expect(killCalls()).toEqual([]);
+        const tabs = useTabsStore.getState().byWorkspace[WS];
+        expect(tabs?.[tabId]).toBeDefined();
+        expect(tabs?.[editor.id]).toBeDefined();
+      } finally {
+        detachDirtyTracker(cacheUri);
+      }
     });
   });
 
@@ -1898,7 +2001,7 @@ describe("isLoginShell", () => {
   });
 
   it("Windows shells, named as the agent names them there", () => {
-    for (const sh of ["powershell", "pwsh", "cmd", "CMD", "nu"]) {
+    for (const sh of ["powershell", "pwsh", "cmd", "CMD", "nu", "wsl", "WSL"]) {
       expect(isLoginShell(sh)).toBe(true);
     }
   });
