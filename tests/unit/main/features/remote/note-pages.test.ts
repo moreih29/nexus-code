@@ -17,8 +17,11 @@ import {
 } from "../../../../../src/main/features/remote/peer-notes";
 import { fitsAsResult } from "../../../../../src/main/features/remote/serving/common";
 import {
+  readTranscriptRecording,
+  speakerName,
   type TranscriptFile,
   type TranscriptRecording,
+  transcriptFromMarkdown,
   transcriptMarkdown,
 } from "../../../../../src/shared/notes/transcript";
 
@@ -408,6 +411,36 @@ describe("another computer's note on the desktop", () => {
     const { room: r } = room(small, "0.31.2");
     const note = await readWholePeerNote(r, "d2", { workspaceId: "w1", note: "Standup" });
     expect(note.transcript).toBe(transcriptMarkdown(small, "Standup"));
+  });
+
+  test("a peer note keeps each recording's speakers and lines, not only the Markdown", async () => {
+    const { room: r } = room(small, "0.31.2");
+    const note = await readWholePeerNote(r, "d2", { workspaceId: "w1", note: "Standup" });
+    expect(note.transcriptRecordings?.map(readTranscriptRecording)).toEqual(
+      small.recordings.map((rec) => ({
+        ...rec,
+        language: "",
+        speakerNumbers: Object.fromEntries(
+          Object.entries(rec.speakerNumbers ?? {}).filter(([key]) =>
+            rec.lines.some((line) => line.speaker === key),
+          ),
+        ),
+      })),
+    );
+    expect(note.transcriptRecordings?.map((rec) => rec.ms)).toEqual([40_900, 10_900]);
+  });
+
+  test("an older host sends only Markdown, which still splits into its speakers' lines", async () => {
+    const { room: r } = room(small, "0.30.0");
+    const note = await readWholePeerNote(r, "d2", { workspaceId: "w1", note: "nabcdef1" });
+    expect(note.transcriptRecordings).toBeUndefined();
+    const read = transcriptFromMarkdown(note.transcript).map(readTranscriptRecording);
+    expect(read.map((rec) => rec.lines.length)).toEqual([5, 2]);
+    expect(
+      read[0]?.lines.map((line) => speakerName(read[0] as TranscriptRecording, line.speaker)),
+    ).toEqual(["Ada", "Ada", "Speaker 2", "Ada", "Ada"]);
+    expect(read[0]?.lines[3]?.text).toBe("line 3");
+    expect(read[0]?.lines[3]?.startMs).toBe(30_000);
   });
 
   test("an older host is asked as before", async () => {

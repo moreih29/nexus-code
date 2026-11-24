@@ -1,15 +1,20 @@
+import { ScrollText } from "lucide-react";
 import { Tabs } from "radix-ui";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { PeerWorkspace } from "../../../shared/fs/peer-url";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { noteTime } from "../../services/notes/note-time";
-import { type PeerNoteTab, peerTabId } from "../../state/stores/peer-workspace";
+import {
+  type PeerNoteTab,
+  type PeerWorkspaceTarget,
+  peerTabId,
+} from "../../state/stores/peer-workspace";
 import { cn } from "../../utils/cn";
+import { TranscriptPanel } from "../notes/transcript-panel";
 import { EmptyState } from "../ui/empty-state";
 import { MarkdownBody } from "../ui/markdown-body";
 import { PeerReadOnlyBadge } from "./labels";
-import { type PeerNote, readPeerNote } from "./notes-model";
+import { type PeerNote, peerTranscript, readPeerNote } from "./notes-model";
 import { peerSearchErrorKey } from "./search-model";
 
 export function withoutHeading(markdown: string): string {
@@ -18,8 +23,77 @@ export function withoutHeading(markdown: string): string {
 
 export function PeerNoteMarkdown({ source }: { source: string }) {
   return (
-    <div className="md-preview">
+    <div className="note-read" data-testid="peer-note-body">
       <MarkdownBody source={source} links="web-only" />
+    </div>
+  );
+}
+
+export function PeerNoteView({
+  note,
+  workspaceId,
+  workspaceName,
+}: {
+  note: PeerNote;
+  workspaceId: string;
+  workspaceName: string;
+}) {
+  const { t } = useTranslation("notes");
+  const reading = useMemo(() => peerTranscript(note), [note]);
+  const recordings = reading.recordings.length;
+  const [transcriptOpen, setTranscriptOpen] = useState<boolean | null>(null);
+  const showTranscript = transcriptOpen ?? recordings > 0;
+  const hideTranscript = useCallback(() => setTranscriptOpen(false), []);
+  const title = note.title || t("panel.untitled");
+
+  return (
+    <div
+      className="@container/note flex h-full min-h-0 flex-col bg-[var(--surface-island-bg,transparent)]"
+      data-testid="peer-note-view"
+    >
+      <div className="flex shrink-0 flex-wrap items-start gap-2 border-b border-border px-6 pt-3 pb-2.5">
+        <div className="flex min-w-48 flex-1 flex-col gap-0.5">
+          <h2
+            className={cn(
+              "truncate text-[17px] font-semibold",
+              note.title ? "text-foreground" : "text-muted-foreground",
+            )}
+            title={title}
+          >
+            {title}
+          </h2>
+          <span className="truncate text-app-micro text-muted-foreground">
+            {workspaceName} · {noteTime(note.updatedAt)}
+          </span>
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {!showTranscript && recordings > 0 && (
+            <button
+              type="button"
+              className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-(--radius-control) border border-border px-2.5 text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)]"
+              onClick={() => setTranscriptOpen(true)}
+              data-testid="note-show-transcript"
+            >
+              <ScrollText className="size-3.5" aria-hidden="true" />
+              {t("transcript.show")}
+            </button>
+          )}
+          <PeerReadOnlyBadge />
+        </div>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col @min-[720px]/note:flex-row">
+        <div className="note-doc relative min-h-0 min-w-0 flex-1 overflow-y-auto px-7 pt-4">
+          <PeerNoteMarkdown source={note.title ? withoutHeading(note.markdown) : note.markdown} />
+        </div>
+        {showTranscript && (
+          <TranscriptPanel
+            workspaceId={workspaceId}
+            noteId={note.id}
+            reading={reading}
+            onClose={hideTranscript}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -32,7 +106,7 @@ export function PeerNoteTabBody({
   updateNeeded,
   rejoin,
 }: {
-  target: PeerWorkspace;
+  target: PeerWorkspaceTarget;
   tab: PeerNoteTab;
   selected: boolean;
   canRead: boolean;
@@ -62,7 +136,6 @@ export function PeerNoteTabBody({
     return () => controller.abort();
   }, [show, rejoin, deviceId, workspaceId, tab.noteId]);
 
-  const title = (note?.title ?? tab.title) || t("notes:panel.untitled");
   const error = updateNeeded
     ? t("peerWorkspace.updateNeeded")
     : note || !result || result.ok
@@ -78,19 +151,6 @@ export function PeerNoteTabBody({
       className={cn("min-h-0 flex-1 flex-col", selected ? "flex" : "hidden")}
       data-testid="peer-note-tab"
     >
-      <div className="flex shrink-0 flex-wrap items-start gap-2 border-b border-border px-6 pt-3 pb-2.5">
-        <div className="flex min-w-48 flex-1 flex-col gap-0.5">
-          <h2 className="truncate text-[17px] font-semibold text-foreground" title={title}>
-            {title}
-          </h2>
-          {note && (
-            <span className="truncate text-app-micro text-muted-foreground">
-              {noteTime(note.updatedAt)}
-            </span>
-          )}
-        </div>
-        <PeerReadOnlyBadge />
-      </div>
       {error || !note ? (
         <EmptyState
           title={error ?? t(show ? "notes:editor.loading" : "peerWorkspace.connectionUnavailable")}
@@ -98,15 +158,7 @@ export function PeerNoteTabBody({
           className="flex-1"
         />
       ) : (
-        <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-7 pt-4 pb-6">
-          <PeerNoteMarkdown source={note.title ? withoutHeading(note.markdown) : note.markdown} />
-          {note.transcript && (
-            <section className="mt-6 border-t border-border pt-4">
-              <h3 className="mb-2 text-app-body-emphasis">{t("notes:transcript.title")}</h3>
-              <PeerNoteMarkdown source={withoutHeading(note.transcript)} />
-            </section>
-          )}
-        </div>
+        <PeerNoteView note={note} workspaceId={workspaceId} workspaceName={target.workspace.name} />
       )}
     </Tabs.Content>
   );

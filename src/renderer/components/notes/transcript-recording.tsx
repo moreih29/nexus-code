@@ -12,7 +12,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { memo, useState } from "react";
+import { memo, type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { dateTimeFormat } from "@/utils/intl-format";
@@ -61,6 +61,85 @@ import { RegroupDialog } from "./regroup-dialog";
 import type { LineTarget } from "./transcript-line";
 import { type Cast, isNamed, speakerColor } from "./transcript-rows";
 
+function RecordingLine({
+  recording,
+  lengthMs,
+  children,
+}: {
+  recording: TranscriptRecording;
+  lengthMs?: number;
+  children?: ReactNode;
+}) {
+  const { i18n } = useTranslation("notes");
+  const startedAt = dateTimeFormat(i18n.language || "en", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(recording.startedAt));
+  return (
+    <div className="flex items-center gap-1.5 py-1 text-app-micro text-muted-foreground">
+      <span className="truncate">
+        {startedAt} · {clockOf(Math.max(lengthMs ?? 0, recordingMs(recording)))}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+function Participants({ recording }: { recording: TranscriptRecording }) {
+  const { t } = useTranslation("notes");
+  if (recording.participantCount === undefined || recording.participantCount === "auto")
+    return null;
+  return (
+    <span className="shrink-0 whitespace-nowrap">
+      {recording.participantCount === "7+"
+        ? t("transcript.participantsMany")
+        : t("transcript.participants", { count: recording.participantCount })}
+    </span>
+  );
+}
+
+export const RecordingHeadingView = memo(function RecordingHeadingView({
+  recording,
+  cast,
+  first,
+  picked,
+  lengthMs,
+  onPick,
+}: {
+  recording: TranscriptRecording;
+  cast: Cast;
+  first: boolean;
+  picked: string | null;
+  lengthMs?: number;
+  onPick: (recordingId: string, person: string) => void;
+}) {
+  const { t } = useTranslation("notes");
+  const unnamed = (key: string) => t("transcript.speaker", { label: key });
+  return (
+    <div className={cn(!first && "pt-2.5")} data-testid="transcript-recording">
+      <RecordingLine recording={recording} lengthMs={lengthMs}>
+        <Participants recording={recording} />
+      </RecordingLine>
+      {cast.people.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {cast.people.map(({ person, keys, color }) => (
+            <SpeakerChip
+              key={person}
+              name={speakerName(recording, keys[0] as string, unnamed)}
+              named={isNamed(person)}
+              color={speakerColor(color)}
+              picked={picked === person}
+              onPick={() => onPick(recording.id, person)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
 export const RecordingHeading = memo(function RecordingHeading({
   workspaceId,
   noteId,
@@ -94,19 +173,13 @@ export const RecordingHeading = memo(function RecordingHeading({
   onAccept: (recordingId: string, suggestions: readonly VoiceNameSuggestion[]) => void;
   onMerge: (recordingId: string, from: string, to: string) => void;
 }) {
-  const { t, i18n } = useTranslation("notes");
+  const { t } = useTranslation("notes");
   const ref = { workspaceId, noteId, recordingId: recording.id };
   const memoryStatus = useVoiceMemory((s) => s.status);
   const searching = useVoiceMemory((s) => s.searching[voiceSuggestionKey(ref)]);
   const { refining, progress, regroupReason } = useRecordingWork(workspaceId, noteId, recording);
   const [regroupOpen, setRegroupOpen] = useState(false);
   const refined = recording.takes.length > 0 && recording.takes.every((tk) => tk.pass === "done");
-  const startedAt = dateTimeFormat(i18n.language || "en", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(recording.startedAt));
   const unnamed = (key: string) => t("transcript.speaker", { label: key });
   const choices = cast.people.map(({ keys, color }) => ({
     key: keys[0] as string,
@@ -144,10 +217,7 @@ export const RecordingHeading = memo(function RecordingHeading({
 
   return (
     <div className={cn(!first && "pt-2.5")} data-testid="transcript-recording">
-      <div className="flex items-center gap-1.5 py-1 text-app-micro text-muted-foreground">
-        <span className="truncate">
-          {startedAt} · {clockOf(recordingMs(recording))}
-        </span>
+      <RecordingLine recording={recording}>
         {live ? (
           <span className="shrink-0 whitespace-nowrap text-[var(--state-error-fg)]">
             {t("transcript.live")}
@@ -170,13 +240,7 @@ export const RecordingHeading = memo(function RecordingHeading({
         ) : refined ? (
           <span className="shrink-0">{t("transcript.refined")}</span>
         ) : null}
-        {recording.participantCount !== undefined && recording.participantCount !== "auto" && (
-          <span className="shrink-0 whitespace-nowrap">
-            {recording.participantCount === "7+"
-              ? t("transcript.participantsMany")
-              : t("transcript.participants", { count: recording.participantCount })}
-          </span>
-        )}
+        <Participants recording={recording} />
         {!live && (
           <DropdownMenuRoot>
             <DropdownMenuTrigger>
@@ -256,7 +320,7 @@ export const RecordingHeading = memo(function RecordingHeading({
             </DropdownMenuContent>
           </DropdownMenuRoot>
         )}
-      </div>
+      </RecordingLine>
       {prompt && (
         <SpeakerCountPrompt
           workspaceId={workspaceId}
@@ -472,12 +536,12 @@ function SpeakerChip({
   color: string;
   picked: boolean;
   suggestion?: string;
-  mergeTargets: readonly LineTarget[];
+  mergeTargets?: readonly LineTarget[];
   onPick: () => void;
-  onRename: () => void;
+  onRename?: () => void;
   onAccept?: () => void;
   onReject?: () => void;
-  onMerge: (to: string) => void;
+  onMerge?: (to: string) => void;
 }) {
   const { t } = useTranslation("notes");
   const ViewIcon = picked ? Users : Eye;
@@ -530,7 +594,7 @@ function SpeakerChip({
           </button>
         </>
       )}
-      {picked && (
+      {picked && onRename && (
         <button
           type="button"
           className="mr-0.5 inline-flex size-5 items-center justify-center rounded-(--radius-pill) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
@@ -554,34 +618,38 @@ function SpeakerChip({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          <DropdownMenuItem onSelect={onRename}>
-            <span className="flex items-center gap-2">
-              <Pencil className="size-3.5" aria-hidden="true" />
-              {t("transcript.rename")}
-            </span>
-          </DropdownMenuItem>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger disabled={!mergeTargets.length}>
+          {onRename && (
+            <DropdownMenuItem onSelect={onRename}>
               <span className="flex items-center gap-2">
-                <Merge className="size-3.5" aria-hidden="true" />
-                {t("transcript.mergeSpeaker")}
+                <Pencil className="size-3.5" aria-hidden="true" />
+                {t("transcript.rename")}
               </span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              {mergeTargets.map((target) => (
-                <DropdownMenuItem key={target.key} onSelect={() => onMerge(target.key)}>
-                  <span className="flex items-center gap-2">
-                    <span
-                      className="size-1.5 rounded-full"
-                      style={{ background: target.color }}
-                      aria-hidden="true"
-                    />
-                    {target.name}
-                  </span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+            </DropdownMenuItem>
+          )}
+          {onMerge && mergeTargets && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger disabled={!mergeTargets.length}>
+                <span className="flex items-center gap-2">
+                  <Merge className="size-3.5" aria-hidden="true" />
+                  {t("transcript.mergeSpeaker")}
+                </span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {mergeTargets.map((target) => (
+                  <DropdownMenuItem key={target.key} onSelect={() => onMerge(target.key)}>
+                    <span className="flex items-center gap-2">
+                      <span
+                        className="size-1.5 rounded-full"
+                        style={{ background: target.color }}
+                        aria-hidden="true"
+                      />
+                      {target.name}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )}
           <DropdownMenuItem onSelect={onPick}>
             <span className="flex items-center gap-2">
               <ViewIcon className="size-3.5" aria-hidden="true" />

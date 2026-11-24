@@ -10,6 +10,7 @@ import {
 import {
   IntegerSchema,
   NonnegativeIntegerSchema,
+  NonnegativeNumberSchema,
   NumberSchema,
   PositiveIntegerSchema,
 } from "../../../packages/remote-protocol/src/validation";
@@ -392,6 +393,15 @@ const SshBrowseResultSchema = z.object({
   entries: z.array(DirEntrySchema),
   truncated: z.boolean(),
 });
+
+const PeerNoteRecordingSchema = RPC_METHODS["notes.transcript"].result.shape.recordings.element
+  .omit({ start: true, total: true, base: true, revision: true })
+  .extend({ ms: NonnegativeNumberSchema });
+
+const PeerNoteReadSchema = RPC_METHODS["notes.read"].result.extend({
+  transcriptRecordings: z.array(PeerNoteRecordingSchema).optional(),
+});
+export type PeerNoteRead = z.infer<typeof PeerNoteReadSchema>;
 
 const WorkspaceTestSshResultSchema = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(true) }),
@@ -2339,7 +2349,7 @@ const remoteContracts = {
             withoutTranscript: true,
           }),
         ),
-        RPC_METHODS["notes.read"].result,
+        PeerNoteReadSchema,
       ),
       peerHistory: call(
         z

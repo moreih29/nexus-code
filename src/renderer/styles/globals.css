@@ -763,7 +763,8 @@
   border-radius: var(--radius-control);
 }
 
-.note-doc .ProseMirror {
+.note-doc .ProseMirror,
+.note-doc .note-read {
   outline: none;
   font-size: 14px;
   line-height: 1.65;
@@ -772,7 +773,8 @@
   min-height: 100%;
   padding-bottom: 40vh;
 }
-.note-doc .ProseMirror > * + * {
+.note-doc .ProseMirror > * + *,
+.note-doc .note-read > * + * {
   margin-top: 0.5em;
 }
 .note-doc .ProseMirror > .note-summary-divider {
@@ -964,6 +966,17 @@ button.note-task-chip:hover {
 }
 .note-doc .ProseMirror-gapcursor::after {
   border-top-color: var(--surface-island-fg);
+}
+.note-doc .note-read ul.contains-task-list {
+  list-style: none;
+  padding-left: 0.1em;
+}
+.note-doc .note-read li.task-list-item > input {
+  margin-inline-end: 0.5em;
+  accent-color: var(--state-selected-indicator);
+}
+.note-doc .note-read .md-code-wrap {
+  position: relative;
 }
 
 html[data-dnd-active] iframe {
