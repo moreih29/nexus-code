@@ -75,9 +75,9 @@ describe("AboutPanel's groups", () => {
     return Array.from(html.matchAll(/<h3 [^>]*>([^<]+)<\/h3>/g), (m) => m[1] ?? "");
   }
 
-  test("puts the app first, then its updates, the website and the logs, each titled", () => {
+  test("puts the app first, then its updates, the website, the logs and a bug report, each titled", () => {
     const html = renderWithHost({ platform: "darwin" });
-    expect(titles(html)).toEqual(["Updates", "Links", "Logs"]);
+    expect(titles(html)).toEqual(["Updates", "Links", "Logs", "Report a bug"]);
     expect(html.indexOf("NexusCode")).toBeLessThan(html.indexOf(">Updates<"));
     expect(html.indexOf('data-testid="about-release-notes"')).toBeLessThan(
       html.indexOf(">Updates<"),
@@ -96,6 +96,7 @@ describe("AboutPanel's groups", () => {
       "Updates",
       "Links",
       "Logs",
+      "Report a bug",
     ]);
   });
 });

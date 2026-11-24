@@ -1,0 +1,285 @@
+import { ExternalLink } from "lucide-react";
+import { useEffect, useId, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { cn } from "@/utils/cn";
+import {
+  type BugReportContext,
+  type BugReportRecentError,
+  MAX_BUG_REPORT_DESCRIPTION,
+  MIN_BUG_REPORT_DESCRIPTION,
+} from "../../../../../packages/remote-protocol/src/bug-report";
+import type { RemoteAccountState } from "../../../../shared/remote/account";
+import {
+  bugReportFits,
+  bugReportLength,
+  bugReportLocale,
+} from "../../../../shared/remote/bug-report";
+import { siteUrl } from "../../../../shared/site";
+import { ipcCallResult } from "../../../ipc/client";
+import { useRemoteAccount } from "../../../services/remote/account";
+import { sendBugReport } from "../../../services/remote/bug-report";
+import { Button } from "../../ui/button";
+import { ToggleChevron } from "../../ui/toggle-chevron";
+import { SettingsGroup, SettingsSwitch } from "../section";
+
+export function BugReportGroup() {
+  return <BugReportSection account={useRemoteAccount()} />;
+}
+
+export function BugReportSection({ account }: { account: RemoteAccountState | null }) {
+  const { t } = useTranslation("settings");
+  if (account?.status !== "signed-in") {
+    return (
+      <SettingsGroup
+        title={t("about.bugReport.title")}
+        description={t("about.bugReport.signedOut")}
+      >
+        <SupportLink />
+      </SettingsGroup>
+    );
+  }
+  return (
+    <SettingsGroup title={t("about.bugReport.title")} description={t("about.bugReport.notSent")}>
+      <BugReportForm email={account.user.email} />
+    </SettingsGroup>
+  );
+}
+
+function SupportLink() {
+  const { t, i18n } = useTranslation("settings");
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button variant="outline" size="sm" asChild>
+        <a
+          href={siteUrl("support", i18n.language)}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="bug-report-support"
+        >
+          <ExternalLink className="size-3.5" aria-hidden="true" />
+          {t("about.links.support")}
+        </a>
+      </Button>
+    </div>
+  );
+}
+
+function BugReportForm({ email }: { email: string }) {
+  const { i18n } = useTranslation("settings");
+  const locale = bugReportLocale(i18n.language);
+  const [description, setDescription] = useState("");
+  const [contactOk, setContactOk] = useState(false);
+  const [includeErrors, setIncludeErrors] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [context, setContext] = useState<BugReportContext | null>(null);
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    void ipcCallResult("remote", "bugReportContext", { locale, includeErrors })
+      .then((result) => {
+        if (live && result.ok) setContext(result.value);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [open, locale, includeErrors]);
+
+  const send = async () => {
+    setSending(true);
+    try {
+      const sent = await sendBugReport({ description, contactOk, includeErrors, locale });
+      if (sent) {
+        setDescription("");
+        setContactOk(false);
+        setOpen(false);
+        setContext(null);
+      }
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <BugReportFields
+      email={email}
+      description={description}
+      contactOk={contactOk}
+      includeErrors={includeErrors}
+      open={open}
+      context={context}
+      sending={sending}
+      onDescription={setDescription}
+      onContactOk={setContactOk}
+      onIncludeErrors={setIncludeErrors}
+      onToggle={() => setOpen((was) => !was)}
+      onSend={() => void send()}
+    />
+  );
+}
+
+export interface BugReportFieldsProps {
+  email: string;
+  description: string;
+  contactOk: boolean;
+  includeErrors: boolean;
+  open: boolean;
+  context: BugReportContext | null;
+  sending: boolean;
+  onDescription(text: string): void;
+  onContactOk(next: boolean): void;
+  onIncludeErrors(next: boolean): void;
+  onToggle(): void;
+  onSend(): void;
+}
+
+export function BugReportFields(props: BugReportFieldsProps) {
+  const { t } = useTranslation("settings");
+  const detail = useId();
+  const preview = useId();
+  const length = bugReportLength(props.description);
+  const fits = bugReportFits(props.description);
+  const tooLong = length > MAX_BUG_REPORT_DESCRIPTION;
+  return (
+    <div className="flex flex-col gap-3.5" data-testid="bug-report-form">
+      <div className="flex min-w-0 flex-col gap-1">
+        <textarea
+          aria-label={t("about.bugReport.description")}
+          aria-describedby={detail}
+          aria-invalid={tooLong || undefined}
+          placeholder={t("about.bugReport.placeholder")}
+          value={props.description}
+          readOnly={props.sending}
+          onChange={(event) => props.onDescription(event.currentTarget.value)}
+          rows={5}
+          className={cn(
+            "app-scrollbar w-full resize-y rounded-(--radius-control) border border-border bg-background p-2 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            tooLong && "border-[var(--state-error-fg)]",
+          )}
+          data-testid="bug-report-description"
+        />
+        <p
+          id={detail}
+          className={cn(
+            "text-right text-app-ui-sm tabular-nums text-muted-foreground",
+            tooLong && "text-[var(--state-error-fg)]",
+          )}
+        >
+          {length < MIN_BUG_REPORT_DESCRIPTION
+            ? t("about.bugReport.tooShort", { min: MIN_BUG_REPORT_DESCRIPTION })
+            : t("about.bugReport.length", { count: length, max: MAX_BUG_REPORT_DESCRIPTION })}
+        </p>
+      </div>
+      <SettingsSwitch
+        label={t("about.bugReport.includeErrors")}
+        description={t("about.bugReport.includeErrorsDescription")}
+        checked={props.includeErrors}
+        onChange={props.onIncludeErrors}
+      />
+      <SettingsSwitch
+        label={t("about.bugReport.contact")}
+        description={props.email}
+        checked={props.contactOk}
+        onChange={props.onContactOk}
+      />
+      <div className="flex min-w-0 flex-col gap-2">
+        <button
+          type="button"
+          aria-expanded={props.open}
+          aria-controls={preview}
+          className="inline-flex cursor-pointer items-center gap-0.5 self-start border-0 bg-transparent p-0 text-app-ui-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          onClick={props.onToggle}
+          data-testid="bug-report-preview-toggle"
+        >
+          {t("about.bugReport.preview")}
+          <ToggleChevron open={props.open} className="size-3 text-current" />
+        </button>
+        {props.open && (
+          <div id={preview}>
+            {props.context && (
+              <BugReportPreview context={props.context} includeErrors={props.includeErrors} />
+            )}
+          </div>
+        )}
+      </div>
+      <div className="flex justify-end">
+        <Button
+          size="sm"
+          disabled={!fits || props.sending}
+          onClick={props.onSend}
+          data-testid="bug-report-send"
+        >
+          {props.sending ? t("about.bugReport.sending") : t("about.bugReport.send")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export function BugReportPreview({
+  context,
+  includeErrors,
+}: {
+  context: BugReportContext;
+  includeErrors: boolean;
+}) {
+  const { t } = useTranslation("settings");
+  const rows: [string, string][] = [
+    [t("about.bugReport.facts.app"), context.app.version],
+    [t("about.bugReport.facts.os"), context.os.version],
+    [
+      t("about.bugReport.facts.device"),
+      [context.device.kind, context.device.arch].filter(Boolean).join(" · "),
+    ],
+    [
+      t("about.bugReport.facts.protocol"),
+      `${context.protocol.version} · ${context.protocol.package}`,
+    ],
+    [t("about.bugReport.facts.locale"), context.locale],
+  ];
+  const errors = context.errors ?? [];
+  return (
+    <dl
+      className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 rounded-(--radius-control) border border-border bg-background p-2 text-app-ui-sm"
+      data-testid="bug-report-preview"
+    >
+      {rows.map(([label, value]) => (
+        <div key={label} className="contents">
+          <dt className="text-muted-foreground">{label}</dt>
+          <dd className="min-w-0 break-all font-mono">{value}</dd>
+        </div>
+      ))}
+      <dt className="text-muted-foreground">{t("about.bugReport.facts.errors")}</dt>
+      <dd className="min-w-0 font-mono" data-testid="bug-report-errors">
+        {!includeErrors ? (
+          <span className="font-sans text-muted-foreground">{t("about.bugReport.errorsOff")}</span>
+        ) : errors.length === 0 ? (
+          <span className="font-sans text-muted-foreground">{t("about.bugReport.noErrors")}</span>
+        ) : (
+          <ul className="flex flex-col">
+            {errorLines(errors).map(({ key, text, ago }) => (
+              <li key={key} className="break-all">
+                {text} · {t("about.bugReport.ago", { count: ago })}
+              </li>
+            ))}
+          </ul>
+        )}
+      </dd>
+    </dl>
+  );
+}
+
+function errorLines(
+  errors: readonly BugReportRecentError[],
+): { key: string; text: string; ago: number }[] {
+  const seen = new Map<string, number>();
+  return errors.map(({ ago, area, code, status }) => {
+    const text = [area, code, status].filter((part) => part !== undefined).join(" ");
+    const base = `${ago} ${text}`;
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    return { key: `${base} ${count}`, text, ago };
+  });
+}
