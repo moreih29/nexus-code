@@ -954,13 +954,7 @@ export async function registerRemoteChannel(options: {
       },
       voiceTranscription: (args: unknown) => {
         const { id } = validateArgs(c.voiceTranscription.args, args);
-        return ask(async () => {
-          const transcription = await noteVoice.transcription(id);
-          if (transcription.status === "error") {
-            recentErrors.record("voice", "transcription:error", undefined, transcription.message);
-          }
-          return transcription;
-        });
+        return ask(() => noteVoice.transcription(id));
       },
       voiceTranscriptionDrop: (args: unknown) => {
         const { id } = validateArgs(c.voiceTranscriptionDrop.args, args);

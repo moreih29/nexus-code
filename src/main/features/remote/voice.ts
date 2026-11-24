@@ -117,7 +117,7 @@ export class VoiceSessions {
     return this.open?.id === id;
   }
 
-  private noteFailure(reason: string, message: string): void {
+  private noteFailure(reason: string, message?: string): void {
     const code = bugReportErrorCode(this.deps.purpose ?? "input", reason);
     if (code) this.deps.recordError?.("voice", code, undefined, message);
   }
@@ -178,11 +178,16 @@ export class VoiceSessions {
         settle(failed("network", "the server did not get voice input ready"));
         socket.terminate();
       }, READY_TIMEOUT_MS);
-      const settle = (result: VoiceStartResult) => {
+      const settle = (
+        result: VoiceStartResult,
+        recorded: "with-message" | "code-only" = "with-message",
+      ) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        if (result.status === "failed") this.noteFailure(result.reason, result.message);
+        if (result.status === "failed") {
+          this.noteFailure(result.reason, recorded === "with-message" ? result.message : undefined);
+        }
         if (result.status === "ready") this.open = { id, socket };
         resolve(result);
       };
@@ -251,6 +256,7 @@ export class VoiceSessions {
           } else if (message.t === "error") {
             settle(
               failed(message.code === "unauthorized" ? "signed-out" : "failed", message.message),
+              "code-only",
             );
           }
           return;
@@ -334,9 +340,11 @@ export class VoiceSessions {
   }
 
   async transcription(id: string): Promise<Transcription> {
-    return TranscriptionSchema.parse(
+    const transcription = TranscriptionSchema.parse(
       await this.deps.account.request("GET", `/voice/transcriptions/${encodeURIComponent(id)}`),
     );
+    if (transcription.status === "error") this.deps.recordError?.("voice", "transcription:error");
+    return transcription;
   }
 
   async dropTranscription(id: string): Promise<void> {
