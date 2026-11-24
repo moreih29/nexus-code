@@ -12,6 +12,7 @@ import {
   type VoiceUsage,
   VoiceUsageSchema,
 } from "../../../../packages/remote-protocol/src/voice";
+import { bugReportErrorCode } from "../../../shared/remote/bug-report";
 import {
   type TranscribeFailure,
   type TranscribeResult,
@@ -26,6 +27,7 @@ import {
   RESPONSE_TOO_LARGE,
   ResponseTooLargeError,
 } from "../../infra/http/body";
+import type { RecordError } from "../../infra/recent-errors";
 import type { RemoteAccount } from "./account";
 import { OutdatedError, ServerError, SignedOutError, UnreachableError } from "./errors";
 import { retryAfterSeconds, SocketRetryAfter } from "./retry-after";
@@ -67,6 +69,7 @@ export interface VoiceSessionsDeps {
   names?: () => Promise<readonly string[]>;
   socket?: (url: string) => VoiceSocket;
   retryAfter?: SocketRetryAfter;
+  recordError?: RecordError;
 }
 
 interface Open {
@@ -112,6 +115,11 @@ export class VoiceSessions {
 
   has(id: string): boolean {
     return this.open?.id === id;
+  }
+
+  private noteFailure(reason: string, message: string): void {
+    const code = bugReportErrorCode(this.deps.purpose ?? "input", reason);
+    if (code) this.deps.recordError?.("voice", code, undefined, message);
   }
 
   async start(language: string): Promise<VoiceStartResult> {
@@ -174,6 +182,7 @@ export class VoiceSessions {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        if (result.status === "failed") this.noteFailure(result.reason, result.message);
         if (result.status === "ready") this.open = { id, socket };
         resolve(result);
       };

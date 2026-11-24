@@ -465,7 +465,7 @@
       "tooShort": "At least {{min}} characters",
       "length": "{{count}} / {{max}}",
       "includeErrors": "Include recent errors",
-      "includeErrorsDescription": "Error codes only, no messages · Cleared when the app quits",
+      "includeErrorsDescription": "Error messages with paths and keys hidden · Cleared when the app quits",
       "contact": "Reply by email",
       "preview": "What's sent",
       "facts": {
@@ -487,6 +487,8 @@
       },
       "errorsOff": "Not included",
       "noErrors": "None",
+      "errorCount_one": "{{count}} time",
+      "errorCount_other": "{{count}} times",
       "agoSeconds_one": "{{count}} second ago",
       "agoSeconds_other": "{{count}} seconds ago",
       "agoMinutes_one": "{{count}} minute ago",

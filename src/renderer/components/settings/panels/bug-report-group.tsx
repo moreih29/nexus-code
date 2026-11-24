@@ -274,10 +274,17 @@ export function BugReportPreview({
         ) : errors.length === 0 ? (
           <span className="text-muted-foreground">{t("about.bugReport.noErrors")}</span>
         ) : (
-          <ul className="flex flex-col">
-            {errorLines(errors).map(({ key, text, ago }) => (
+          <ul className="flex flex-col gap-1">
+            {errorLines(errors).map(({ key, text, ago, count, message }) => (
               <li key={key} className="break-all">
-                <Code>{text}</Code> · <ErrorAgo ago={ago} />
+                <Code>{text}</Code>
+                {count !== undefined && <> · {t("about.bugReport.errorCount", { count })}</>} ·{" "}
+                <ErrorAgo ago={ago} />
+                {message !== undefined && (
+                  <div className="text-muted-foreground" data-testid="bug-report-error-message">
+                    <Code>{message}</Code>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -291,17 +298,29 @@ function Code({ children }: { children: string }) {
   return <code className="font-mono">{children}</code>;
 }
 
-function errorLines(
-  errors: readonly BugReportRecentError[],
-): { key: string; text: string; ago: number }[] {
+interface ErrorLine {
+  key: string;
+  text: string;
+  ago: number;
+  count?: number;
+  message?: string;
+}
+
+function errorLines(errors: readonly BugReportRecentError[]): ErrorLine[] {
   const seen = new Map<string, number>();
-  return errors.map(({ ago, area, code, status }) => {
+  return errors.map(({ ago, area, code, status, message, count }) => {
     const shownStatus = status === undefined || code === `http_${status}` ? undefined : status;
     const text = [area, code, shownStatus].filter((part) => part !== undefined).join(" ");
-    const base = `${ago} ${text}`;
-    const count = (seen.get(base) ?? 0) + 1;
-    seen.set(base, count);
-    return { key: `${base} ${count}`, text, ago };
+    const base = `${ago} ${text} ${message ?? ""}`;
+    const nth = (seen.get(base) ?? 0) + 1;
+    seen.set(base, nth);
+    return {
+      key: `${base} ${nth}`,
+      text,
+      ago,
+      ...(count !== undefined && count > 1 ? { count } : {}),
+      ...(message !== undefined ? { message } : {}),
+    };
   });
 }
 

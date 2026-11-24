@@ -1,19 +1,27 @@
 import { describe, expect, test } from "bun:test";
 import {
+  BUG_REPORT_ERROR_CODE_PATTERN,
   BUG_REPORT_OS_VERSION_PATTERN,
+  BugReportContextSchema,
   BugReportSchema,
+  bugReportBytes,
+  MAX_BUG_REPORT_CONTEXT_BYTES,
   MAX_BUG_REPORT_DESCRIPTION,
   PROTOCOL_VERSION,
   SCHEMA_VERSION,
 } from "../../../../packages/remote-protocol/src";
 import {
   bugReportContext,
+  bugReportErrorCode,
   bugReportFits,
   bugReportLength,
   bugReportLocale,
   bugReportOsVersion,
   buildBugReport,
   cleanBugReportDescription,
+  errorMessageOf,
+  errorNameOf,
+  ReportedErrorSchema,
 } from "../../../../src/shared/remote/bug-report";
 
 const ID = "6f1c1f5e-3a0b-4c55-9a43-0f3f5b8a9e21";
@@ -129,5 +137,58 @@ describe("the OS a bug report names", () => {
     const sent = bugReportOsVersion("linux", "6.8.0 generic");
     expect(sent).toBe("Linux-6.8.0-generic");
     expect(BUG_REPORT_OS_VERSION_PATTERN.test(sent)).toBe(true);
+  });
+});
+
+describe("a recent error's code and message", () => {
+  test("a code is built from parts, in lower case, within the pattern", () => {
+    expect(bugReportErrorCode("writeFile", "PERMISSION_DENIED")).toBe(
+      "write_file:permission_denied",
+    );
+    expect(bugReportErrorCode("renderer", "TypeError")).toBe("renderer:type_error");
+    expect(bugReportErrorCode("page_gone", "crashed")).toBe("page_gone:crashed");
+    expect(bugReportErrorCode("ssh.connect-failed")).toBe("ssh.connect-failed");
+    expect(bugReportErrorCode("a b/c", "")).toBe("a_b_c");
+    expect(bugReportErrorCode("", "  ")).toBeUndefined();
+    const long = bugReportErrorCode("x".repeat(30), "y".repeat(30)) ?? "";
+    expect(long.length).toBeLessThanOrEqual(40);
+    expect(BUG_REPORT_ERROR_CODE_PATTERN.test(long)).toBe(true);
+  });
+
+  test("a message comes redacted from an Error, never from a SyntaxError", () => {
+    expect(errorMessageOf(new Error("open '/Users/kim/a.md' failed"))).toBe("open '<path>' failed");
+    expect(errorMessageOf(new SyntaxError('"note text" is not valid JSON'))).toBeUndefined();
+    expect(errorMessageOf("not an error")).toBeUndefined();
+    expect(errorMessageOf(new Error(""))).toBeUndefined();
+    expect(errorNameOf(new TypeError("x"))).toBe("TypeError");
+    expect(errorNameOf(null)).toBe("error");
+  });
+
+  test("the context redacts each message again and fits the server's limit", () => {
+    const errors = Array.from({ length: 20 }, (_, n) => ({
+      ago: n,
+      area: "app" as const,
+      code: `e${n}`,
+      message: `${"가".repeat(280)} /Users/kim/x${n}.ts`,
+    }));
+    const context = bugReportContext(MAC, "en", errors);
+    expect(bugReportBytes(context)).toBeLessThanOrEqual(MAX_BUG_REPORT_CONTEXT_BYTES);
+    expect(context.errors?.[0]?.message).toBe(`${"가".repeat(280)} <path>`);
+    expect(JSON.stringify(context)).not.toContain("/Users/kim");
+    expect(BugReportContextSchema.safeParse(context).success).toBe(true);
+  });
+
+  test("a renderer's report is checked before it is recorded", () => {
+    expect(
+      ReportedErrorSchema.safeParse({ area: "agent", code: "claude:auth", status: 401 }).success,
+    ).toBe(true);
+    for (const bad of [
+      { area: "terminal", code: "x" },
+      { area: "app", code: "Bad Code" },
+      { area: "app", code: "x", status: 99 },
+      { area: "app", code: "x", message: "m".repeat(2001) },
+    ]) {
+      expect(ReportedErrorSchema.safeParse(bad).success).toBe(false);
+    }
   });
 });

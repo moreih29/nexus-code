@@ -20,6 +20,7 @@ import {
   workspaceLocationKey,
 } from "../../../shared/types/workspace";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
+import { appErrors } from "../../infra/recent-errors";
 import { VoicePrints } from "../voice-print";
 import { getActiveAppWindow, getAppWindows } from "../window/app-windows";
 import { NoteError, NotesStore } from "./store";
@@ -293,6 +294,7 @@ export function registerNotesChannel(opts: {
     profile: opts.summary?.profile ?? (() => null),
     runClaude: opts.summary?.runClaude ?? (async () => ({ error: { kind: "missing" } })),
     append: ({ location, noteId }, blocks) => appendAtLocation(location, noteId, blocks),
+    recordError: appErrors.record,
     onState: (locationKey, noteId, recordingId, state) => {
       broadcast("notes", "summaryChanged", { locationKey, noteId, recordingId, summary: state });
       if (state.state === "done" && !state.seen) {
