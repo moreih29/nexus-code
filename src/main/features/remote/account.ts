@@ -1,6 +1,9 @@
 import os from "node:os";
 import { z } from "zod";
 import {
+  BUG_REPORT_VERSION,
+  type BugReport,
+  type BugReportErrorArea,
   type PushSend,
   type ServerInfo,
   ServerInfoSchema,
@@ -15,6 +18,7 @@ import {
   type SignInProvider,
 } from "../../../shared/remote/account";
 import { ResponseTooLargeError, readResponseText } from "../../infra/http/body";
+import type { RecordError } from "../../infra/recent-errors";
 import { ServerError, SignedOutError, SignInError, UnreachableError } from "./errors";
 import { type LoopbackListener, listenForCallback, notInvitedFailure } from "./loopback";
 import { makePkce, makeState } from "./pkce";
@@ -73,6 +77,7 @@ export interface RemoteAccountDeps {
   timeoutMs?: number;
   provider?: SignInProvider;
   loginHint?: string;
+  recordError?: RecordError;
 }
 
 export class RemoteAccount {
@@ -250,7 +255,17 @@ export class RemoteAccount {
   }
 
   sendPush(body: PushSend, signal: AbortSignal, timeoutMs: number): Promise<unknown> {
-    return this.call("POST", "/push/send?v=1", { body, signal, timeoutMs, retryOrigin: false });
+    return this.call("POST", "/push/send?v=1", {
+      body,
+      signal,
+      timeoutMs,
+      retryOrigin: false,
+      area: "push",
+    });
+  }
+
+  sendBugReport(body: BugReport): Promise<unknown> {
+    return this.call("POST", `/bug-reports?v=${BUG_REPORT_VERSION}`, { body });
   }
 
   request(
@@ -278,19 +293,29 @@ export class RemoteAccount {
     });
   }
 
-  private async call(
-    method: string,
-    path: string,
-    options: {
-      body?: unknown;
-      raw?: { bytes: Uint8Array; type: string; headers: Record<string, string> };
-      headers?: Record<string, string>;
-      signedIn?: boolean;
-      timeoutMs?: number;
-      signal?: AbortSignal;
-      retryOrigin?: boolean;
-    } = {},
-  ): Promise<unknown> {
+  private async call(method: string, path: string, options: CallOptions = {}): Promise<unknown> {
+    try {
+      return await this.exchange(method, path, options);
+    } catch (error) {
+      if (!options.signal?.aborted) this.noteFailure(options.area ?? "api", error);
+      throw error;
+    }
+  }
+
+  private noteFailure(area: BugReportErrorArea, error: unknown): void {
+    const record = this.deps.recordError;
+    if (!record) return;
+    if (error instanceof ServerError) {
+      record(area, `http_${error.status}`, error.status, error.message);
+    } else if (error instanceof SignedOutError && error.status !== undefined) {
+      record(area, `http_${error.status}`, error.status, error.message);
+    } else if (error instanceof UnreachableError) {
+      record(area, error.timedOut ? "timeout" : "offline", undefined, error.message);
+    } else if (isTimeout(error)) record(area, "timeout", undefined, (error as Error).message);
+    else if (error instanceof TypeError) record(area, "offline", undefined, error.message);
+  }
+
+  private async exchange(method: string, path: string, options: CallOptions): Promise<unknown> {
     const { signal } = options;
     signal?.throwIfAborted();
     const headers: Record<string, string> = { ...options.raw?.headers, ...options.headers };
@@ -338,7 +363,7 @@ export class RemoteAccount {
     if (res.status === 401 && options.signedIn !== false) {
       void res.body?.cancel().catch(() => {});
       if (signedInAsSent()) this.forget();
-      throw new SignedOutError();
+      throw new SignedOutError(401);
     }
     const retryAfter = retryAfterSeconds(res.headers.get("retry-after"));
     const text = await readResponseText(res).catch((error: unknown) => {
@@ -364,7 +389,7 @@ export class RemoteAccount {
           this.failure = refusal?.access === "suspended" ? "suspended" : "not_invited";
           this.forget();
         }
-        throw new SignedOutError();
+        throw new SignedOutError(403);
       }
       throw new ServerError(res.status, code, `${method} ${path}`, retryAfter, refusal?.access);
     }
@@ -380,6 +405,17 @@ export class RemoteAccount {
   private changed(): void {
     this.deps.onChange?.(this.state());
   }
+}
+
+interface CallOptions {
+  body?: unknown;
+  raw?: { bytes: Uint8Array; type: string; headers: Record<string, string> };
+  headers?: Record<string, string>;
+  signedIn?: boolean;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  retryOrigin?: boolean;
+  area?: BugReportErrorArea;
 }
 
 function failureOf(error: unknown): SignInFailure {

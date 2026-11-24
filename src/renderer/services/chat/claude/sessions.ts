@@ -67,7 +67,7 @@ export async function deleteClaudeSession(
   );
   if (!transcript?.ok || !transcript.value.found) return;
   const { items } = historyModel(transcript.value.lines);
-  await removeConversationAttachments(workspaceId, items, cwd).catch((error: Error) =>
+  void removeConversationAttachments(workspaceId, items, cwd).catch((error: Error) =>
     log.warn(`removing session ${sessionId}'s attachments: ${error.message}`),
   );
 }

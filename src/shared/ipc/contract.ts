@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BugReportContextSchema } from "../../../packages/remote-protocol/src/bug-report";
 import { ServerInfoSchema } from "../../../packages/remote-protocol/src/info";
 import {
   ChatUpdateSchema,
@@ -150,6 +151,12 @@ import {
   RemoteDeviceInfoSchema,
   SignInProviderSchema,
 } from "../remote/account";
+import {
+  BugReportDraftSchema,
+  BugReportLocaleSchema,
+  BugReportOutcomeSchema,
+  ReportedErrorSchema,
+} from "../remote/bug-report";
 import { PairingStateSchema } from "../remote/pairing";
 import { RoomStateSchema } from "../remote/room";
 import {
@@ -994,6 +1001,12 @@ const coreIpcContract = {
         z.object({
           workspaceId: WorkspaceIdPrimitive,
           slots: z.array(z.string().max(300)).max(5_000),
+          exceptThread: z
+            .object({
+              threadId: z.string().max(128),
+              profileId: z.string().max(64).optional(),
+            })
+            .optional(),
         }),
         z.void(),
       ),
@@ -1632,6 +1645,7 @@ const coreIpcContract = {
       openNewWindow: call(z.void(), z.object({ ok: z.literal(true) })),
       stats: call(z.object({ workspaceId: z.string().optional() }), SystemStatsSchema.nullable()),
       fontNames: call(z.void(), z.object({ groups: z.array(z.array(z.string())) })),
+      recordError: call(ReportedErrorSchema, z.void()),
     },
     listen: {
       woke: listen(z.object({ at: NumberSchema })),
@@ -2066,6 +2080,11 @@ const remoteContracts = {
         z.object({ policy: RemoteAgentsPolicySchema }),
         RemoteAgentsPolicySchema,
       ),
+      bugReportContext: call(
+        z.object({ locale: BugReportLocaleSchema, includeErrors: z.boolean() }),
+        BugReportContextSchema,
+      ),
+      sendBugReport: call(BugReportDraftSchema, BugReportOutcomeSchema),
       phonePushPolicy: call(z.void(), PhonePushPolicySchema),
       setPhonePushPolicy: call(z.object({ policy: PhonePushPolicySchema }), PhonePushPolicySchema),
       peerSessionsWatch: call(

@@ -95,6 +95,7 @@ export interface ChatWorkspaceManager {
 }
 
 export const ATTACH_UNUSED_MS = 30 * 24 * 60 * 60 * 1000;
+const UNNAMED_SCAN_TIMEOUT_MS = 10 * 60 * 1000;
 export const ATTACH_ROOM_BYTES = 1024 * 1024 * 1024;
 
 function namedRoot(root: unknown): string | null {
@@ -144,6 +145,7 @@ export interface ChatHostOptions {
   onProgramExit?: (workspaceId: string, tabId: string) => void;
   knownChatTabs?: (workspaceId: string) => readonly string[];
   profile?: (id: string) => AgentProfile | null;
+  profiles?: () => readonly AgentProfile[];
   connectionKey?: (id: string, target: string | undefined) => Promise<string | undefined>;
   agentContext?: (
     workspaceId: string,
@@ -740,7 +742,7 @@ export class ChatHost {
   }
 
   async attachmentCall(
-    method: "touchAttachments" | "removeAttachments",
+    method: "touchAttachments",
     args: { workspaceId: string; slots: string[] },
   ): Promise<void> {
     if (args.slots.length === 0) return;
@@ -748,6 +750,37 @@ export class ChatHost {
     await channel.call(`chat.${method}`, args).catch((error: unknown) => {
       if ((error as { code?: unknown } | null)?.code !== "unsupported-method") throw error;
     });
+  }
+
+  async removeConversationAttachments({
+    workspaceId,
+    slots,
+    exceptThread,
+  }: {
+    workspaceId: string;
+    slots: string[];
+    exceptThread?: { threadId: string; profileId?: string };
+  }): Promise<void> {
+    if (slots.length === 0) return;
+    const except = exceptThread
+      ? {
+          exceptThreadId: exceptThread.threadId,
+          exceptCodexHome: this.profileDir(workspaceId, "codex", exceptThread.profileId),
+        }
+      : {};
+    const params = {
+      workspaceId,
+      slots,
+      claudeDirs: this.profileDirs(workspaceId, "claude"),
+      codexHomes: this.profileDirs(workspaceId, "codex"),
+      ...except,
+    };
+    const channel = await this.channelFor(workspaceId);
+    await channel
+      .call("chat.removeUnnamedAttachments", params, { timeoutMs: UNNAMED_SCAN_TIMEOUT_MS })
+      .catch((error: unknown) => {
+        if ((error as { code?: unknown } | null)?.code !== "unsupported-method") throw error;
+      });
   }
 
   private async removeWaitingAttachments(
@@ -1299,6 +1332,13 @@ export class ChatHost {
 
   private profileDir(workspaceId: string, agent: ChatAgent, profileId: string | undefined): string {
     return profileDirectory(this.profile(agent, profileId), this.windowsHost(workspaceId));
+  }
+
+  private profileDirs(workspaceId: string, agent: ChatAgent): string[] {
+    const windows = this.windowsHost(workspaceId);
+    const listed = (this.options.profiles?.() ?? []).filter((profile) => profile.agent === agent);
+    const profiles = listed.length > 0 ? listed : [this.instructionProfile(agent, undefined)];
+    return [...new Set(profiles.map((profile) => profileDirectory(profile, windows)))];
   }
 
   private configDir(workspaceId: string, profileId: string | undefined): { configDir?: string } {

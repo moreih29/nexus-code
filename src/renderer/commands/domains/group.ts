@@ -2,10 +2,9 @@ import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { type Direction, Grid } from "../../engine";
 import { openOrRevealEditor } from "../../services/editor";
-import { closeTabWithConfirm } from "../../services/editor/save/close-tab";
+import { closeGroupWithConfirm } from "../../services/editor/save/close-tab";
 import { requestTabFocus } from "../../services/tab-focus";
 import { openTerminal } from "../../services/terminal";
-import { closeGroup } from "../../state/operations";
 import { useActiveStore } from "../../state/stores/active";
 import { useLayoutStore } from "../../state/stores/layout";
 import { useTabsStore } from "../../state/stores/tabs";
@@ -60,17 +59,7 @@ export function registerGroupCommands(): Array<() => void> {
       if (!wsId) return;
       const layout = useLayoutStore.getState().byWorkspace[wsId];
       if (!layout) return;
-      const groupId = layout.activeGroupId;
-      const leaf = Grid.findLeaf(layout.root, groupId);
-      if (!leaf) return;
-      const tabs = useTabsStore.getState().byWorkspace[wsId] ?? {};
-      for (const id of [...leaf.tabIds]) {
-        const type = tabs[id]?.type;
-        if (type !== "editor" && type !== "untitled" && type !== "editor.diff") continue;
-        const outcome = await closeTabWithConfirm(wsId, id);
-        if (outcome !== "closed") return;
-      }
-      closeGroup(wsId, groupId);
+      await closeGroupWithConfirm(wsId, layout.activeGroupId);
     }),
     registerCommand(COMMANDS.groupFocusLeft, () => moveFocus("left")),
     registerCommand(COMMANDS.groupFocusRight, () => moveFocus("right")),

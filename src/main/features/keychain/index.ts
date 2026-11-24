@@ -13,6 +13,7 @@ export async function createKeychain(options: {
   userData: string;
   state: Pick<StateService, "getState" | "setState">;
   warn(message: string): void;
+  info(message: string): void;
   platform?: NodeJS.Platform;
 }): Promise<KeychainControl> {
   const platform = options.platform ?? process.platform;
@@ -31,6 +32,7 @@ export async function createKeychain(options: {
     },
     onChange: (status) => broadcast("keychain", "changed", status),
     warn: options.warn,
+    info: options.info,
   });
 }
 

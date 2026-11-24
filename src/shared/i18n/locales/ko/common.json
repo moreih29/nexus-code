@@ -1389,7 +1389,8 @@
       "delete": "이 대화 삭제",
       "delete_hint": "첨부 파일도 함께 삭제 · 되돌릴 수 없음",
       "deleting": "지우는 중…",
-      "delete_failed": "대화 삭제 실패. {{message}}"
+      "delete_failed": "대화 삭제 실패. {{message}}",
+      "delete_forked": "포크가 이 대화의 기록을 쓰고 있어 삭제할 수 없습니다. 포크를 먼저 삭제하세요."
     },
     "commands": {
       "close": "닫기",

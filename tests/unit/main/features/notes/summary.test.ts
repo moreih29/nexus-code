@@ -95,6 +95,19 @@ test("concurrent calls deduplicate by recording and only manual retry can recove
   expect(await summaries.undo(target)).toBe(0);
 });
 
+test("a failed summary is recorded by its kind alone, never the agent's words", async () => {
+  const recordError = mock<NonNullable<NotesSummaryOptions["recordError"]>>(() => {});
+  const runClaude = mock<NotesSummaryOptions["runClaude"]>(async () => ({
+    error: { kind: "failed", message: "첫 번째 문장 was not summarized" },
+  }));
+  const { summaries, target } = await setup({ runClaude, recordError });
+  await summaries.summarize(target, "auto");
+  await summaries.waitForIdle();
+  expect(recordError.mock.calls).toEqual([["notes", "summary:failed"]]);
+  await summaries.cancel(target);
+  expect(recordError).toHaveBeenCalledTimes(1);
+});
+
 test("the queue serializes notes and cancellation skips queued work and aborts the running call", async () => {
   const started = Promise.withResolvers<void>();
   const runClaude = mock<NotesSummaryOptions["runClaude"]>(async ({ signal }) => {

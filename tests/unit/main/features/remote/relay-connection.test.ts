@@ -864,3 +864,92 @@ test("a stuck socket handshake follows the normal unreachable route and backoff"
     jest.useRealTimers();
   }
 });
+
+describe("relay failures for a bug report", () => {
+  afterEach(() => jest.useRealTimers());
+
+  function relayWith(url: () => Promise<string>, sockets: FakeSocket[]) {
+    const failed = jest.fn();
+    const relay = new RelayConnection({
+      url,
+      onOpen: () => {},
+      onFrame: () => {},
+      onStatus: () => {},
+      onSignedOut: () => {},
+      failed,
+      socket: (address) => {
+        const socket = new FakeSocket(address);
+        sockets.push(socket);
+        return socket;
+      },
+      backoff: () => 1_000,
+      retryAfter: new SocketRetryAfter(Date.now),
+    });
+    return { relay, failed };
+  }
+
+  test("records a ticket refusal with its status, and a 429 as rate-limited", async () => {
+    jest.useFakeTimers();
+    const url = jest.fn(async () => "wss://nexus.example/relay?ticket=mock");
+    url.mockRejectedValueOnce(new ServerError(500, "server_error", "POST /relay/ticket"));
+    url.mockRejectedValueOnce(new ServerError(429, "rate_limited", "POST /relay/ticket", 1));
+    const { relay, failed } = relayWith(url, []);
+    try {
+      relay.start();
+      await Promise.resolve();
+      jest.advanceTimersByTime(1_000);
+      await Promise.resolve();
+      expect(failed.mock.calls).toEqual([
+        ["ticket-failed", 500],
+        ["rate-limited", 429],
+      ]);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test("records a socket that never opened, one that closed and one that timed out", async () => {
+    jest.useFakeTimers();
+    const sockets: FakeSocket[] = [];
+    const { relay, failed } = relayWith(
+      async () => "wss://nexus.example/relay?ticket=mock",
+      sockets,
+    );
+    try {
+      relay.start();
+      await Promise.resolve();
+      sockets[0]?.emit("close", { code: 1006 });
+      jest.advanceTimersByTime(1_000);
+      await Promise.resolve();
+      sockets[1]?.emit("open");
+      sockets[1]?.emit("close", { code: 1006 });
+      await Promise.resolve();
+      jest.advanceTimersByTime(SOCKET_OPEN_TIMEOUT_MS);
+      expect(failed.mock.calls).toEqual([["open-failed"], ["socket-closed"], ["open-timeout"]]);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test("records nothing for a stop, a replaced connection or a sign-out", async () => {
+    const sockets: FakeSocket[] = [];
+    const { relay, failed } = relayWith(
+      async () => "wss://nexus.example/relay?ticket=mock",
+      sockets,
+    );
+    relay.start();
+    await Promise.resolve();
+    sockets[0]?.emit("open");
+    sockets[0]?.emit("close", { code: CLOSE_REPLACED });
+    relay.start();
+    await Promise.resolve();
+    sockets[1]?.emit("open");
+    sockets[1]?.emit("close", { code: CLOSE_SIGNED_OUT });
+    relay.start();
+    await Promise.resolve();
+    sockets[2]?.emit("open");
+    relay.stop();
+    sockets[2]?.emit("close", { code: 1000 });
+    expect(failed).not.toHaveBeenCalled();
+  });
+});

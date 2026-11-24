@@ -28,6 +28,7 @@ import {
 import { GitError } from "../../features/git/domain/error";
 import { agentCallError } from "./agent-errors";
 import { fsCallError } from "./fs-errors";
+import { noteIpcResult, noteIpcThrow } from "./recent-failures";
 
 const log = createLogger("main");
 
@@ -180,6 +181,7 @@ export function setupRouter(): void {
       const procedure = `${channelName}.${method}`;
       try {
         const result = await handler(args, callContext.ctx);
+        if (isIpcErrResult(result)) noteIpcResult(channelName, method, result);
         if (isIpcErrResult(result) && result.category === "bug") {
           return {
             ...result,
@@ -193,7 +195,11 @@ export function setupRouter(): void {
           return ipcErr("invalid-args", error.message, { category: "invalid-input" });
         }
         const expected = fsCallError(error) ?? agentCallError(error);
-        if (expected) return expected;
+        if (expected) {
+          noteIpcResult(channelName, method, expected);
+          return expected;
+        }
+        noteIpcThrow(channelName, method, error);
         const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
         return reportCallBug(procedure, correlationId, detail);
       } finally {

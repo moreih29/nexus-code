@@ -15,6 +15,7 @@ Beside them:
 - **The account key's bundle** (`account.ts`): the account key locked with the account password, as the server keeps it. See `ACCOUNT_KEYS.md`.
 - **The voice socket** (`voice.ts`): audio to the server, text back while the user speaks.
 - **Push notifications** (`push.ts`, since 0.18.0) let phones register for APNs and computers ask the server to notify them. `/info.push` lists the API version and APNs environments. A computer that sends notifications advertises `push` in its hello. The notification's `nx` data carries the version and kind.
+- **Bug reports** (`bug-report.ts`, since 0.35.0): what a signed-in phone or computer sends the server when its user reports a bug, and the server's answer.
 - **Codex client commands** (`commands.ts`): the slash commands a Codex client runs itself (`CODEX_COMMANDS`: name, aliases, argument hint) and the ones another device may run (`CODEX_REMOTE_COMMANDS`).
 
 Sealing is XChaCha20-Poly1305. The key is the room key, derived from the account key. The associated data comes from `aadOf()` and binds a message to its routing. What is sealed is an envelope (`SealedEnvelopeSchema`): the message, the sender's epoch and the receiver's. Each connection to the relay has a random epoch, which devices learn from each other's hellos in three steps. A device takes a message only when it names its epoch now, is addressed to it, and has a seq higher than the last it took from that sender's epoch, so the relay cannot send an old message again or pass one on to another device. `sealed.ts` has the rules. Protocol version 2 (0.7.0) brought these; devices of version 1 open nothing of version 2.
@@ -65,6 +66,14 @@ Schema 0.32.0 lets another device show two of a chat's banners as its own comput
 
 Schema 0.33.0 lets a reader see that a recording's transcript changed between the pages it reads even where its line count and line `id`s stay the same: a speaker renamed (by hand or from a remembered voice), a line's text or speaker changed, or its `participants` set. Each recording of a `notes.transcript` answer adds optional `base` and `revision`, short opaque strings: `revision` names the recording's lines from 0 through the last line of this answer, and `base` its lines before `start`, each as it is when the host answers, with every line's `speakerName`, `speakerLabel` and text and the recording's `participants`. Equal strings mean the same lines; a reader only compares them and never parses them or works one out itself. Without `start` and `limit`, `base` names no lines and `revision` all of them. A recording being recorded keeps the lines it had while it grows, so the `base` of its next page is the `revision` the reader holds and the reader goes on. A reader keeps the `revision` of the last page it took and, when the next page's `base` differs from it, reads that recording again from 0, as for a `start` it did not ask for, giving up after a few tries as before. Each entry of `notes.read`'s `recordings` adds the same `revision`, naming all the recording's lines: a reader that has read a recording's transcript compares the `revision` of its last page with the note's and, when they differ, asks for the note's `recordings` again to show the length and line count of the version it read. The host works both out from what it sends each time (now the first 16 hex digits of a SHA-256); nothing is stored, and saving a transcript changes them only where its lines, names or `participants` change. One that is not a string of 1 to 64 characters is left out, not the recording. A host before 0.33.0 sends neither and a reader before 0.33.0 drops both, and a reader compares them only where both values come, reading as before otherwise; so no method, capability or schema constant is added, and a reader still pages only a device whose hello says `NOTE_PAGES_SCHEMA` or later.
 
+Schema 0.34.0 lets another device show a chat's changed file as the chat's own computer shows it: as the agent wrote it in the tool call. Each entry of a chat panel's `changedFiles` adds optional `rawPath`, the path as the first finished change of that file named it, sent only where it differs from `path`. `path` stays the key: the host still groups a file's changes by it and opening the file or its change still takes it. Today the two differ only in how a Windows path is written: `path` has forward slashes and an upper-case drive letter (`C:/p/a.ts`, `//server/share/x.ts`), `rawPath` the agent's backslashes and case (`c:\p\a.ts`, `\\server\share\x.ts`), so it tells nothing `path` does not. A reader shows `rawPath` where it comes, made relative to the chat's folder as for `path`, and `path` otherwise. One that is not a string is left out, not the file. A host before 0.34.0 sends none and a reader before 0.34.0 drops it, so a reader shows `path` as before; no method, capability or schema constant is added.
+
+Schema 0.35.0 adds the bug report API (`bug-report.ts`): `POST /bug-reports?v=1` (`BUG_REPORT_VERSION`) takes a `BugReportSchema` body from a signed-in phone or computer and answers `BugReportCreatedSchema`, or one of `BUG_REPORT_ERRORS`. It is an HTTP request to the server, not a relay frame or sealed message: no method, capability or field between devices changes, and `PROTOCOL_VERSION`, `RELAY_VERSION` and `MAX_FRAME_BYTES` stay as they were.
+
+Schema 0.36.0 lets a recent error in a bug report carry its message. `BugReportRecentErrorSchema` adds optional `message`, one line of 1 to 300 code points (`MAX_BUG_REPORT_ERROR_MESSAGE`, `BUG_REPORT_ERROR_MESSAGE_PATTERN`) that a client puts through `cleanBugReportErrorMessage` (which redacts with `redactBugReportText`) when it records the error and again when it sends it, and optional `count`, how many times the same error came, from 1 to 9999 (`MAX_BUG_REPORT_ERROR_COUNT`). `BUG_REPORT_ERROR_AREAS` adds `app`, `agent`, `notes`, `files` and `git`. `MAX_BUG_REPORT_CONTEXT_BYTES` goes from 4096 to 8192, and `MAX_BUG_REPORT_BODY_BYTES` (24 KiB) names the largest body: a client fits its context with `fitBugReportContext` before sending. The server redacts each message with `redactBugReportText` again before it keeps it. `BUG_REPORT_VERSION` stays 1: a 0.35.0 report is still a valid 0.36.0 report, and a server must take 0.36.0 before a client sends a message, a count or a new area, since a 0.35.0 server refuses them as unknown. `PROTOCOL_VERSION`, `RELAY_VERSION` and `MAX_FRAME_BYTES` stay as they were.
+
+Schema 0.36.1 makes `redactBugReportText` and `cleanBugReportErrorMessage` idempotent: what either gives comes out the same when put through it again, and a cleaned message comes out the same from `redactBugReportText`, so a client cleaning twice and the server redacting again keep what the first pass kept. Before, a path glued to the `<ip>` or `<email>` a later rule put in, a path after a control character turned into a space, and a cut that left a hex run or a `password:` before the `…` were only taken out on the second pass. Each function now repeats its rules until the text stops changing, at most 8 times, and gives `<secret>` if it has not settled by then; a message over 300 code points is cut at a word and ends in ` …`. The schema does not change: `BUG_REPORT_VERSION`, `PROTOCOL_VERSION`, `RELAY_VERSION` and `MAX_FRAME_BYTES` stay as they were.
+
 A consent prompt in the sessions' list (`RemoteConsent`) is a change waiting on the user of the serving device. An agent of another device of the account may have asked for it, or a nexus command changing another workspace there, or that device's agent manager. The user answers it there, or from the device that lists it when `answerable` (`consent.answer`). An agent's request (`from`, `AgentSender`) to a control method takes the `agents` capability instead of the method's own. The serving device may ask its user first or turn the request down. `at` and `expiresAt` use the serving device's clock. `expiresInMs` is `expiresAt` minus the time the list was sent, so a reader needs no shared clock. A serving device before 0.29.0 turns a prompt down at `expiresAt` and drops it from the list. `AGENT_CONSENT_MS` (90 seconds) is how long a host asks a requester before 0.29.0 before turning the request down. Such a requester waits that long, plus a little more.
 
 In schema 0.16.0, `chat.instructions` can also return `session`, the tab's editable session text, and `layers`, its ordered persistent layers, including empty layers. The workspace layer comes from the parent for a worktree task. Hosts through desktop 0.36.1 only return the combined `instructions` text. Treat a response without `session` as read-only. With `chat.control`, a person can replace the session layer using `chat.instructions.set`. Send an empty string to clear it. The 5,000-character limit applies to both people and agents. An edit with `from` follows the receiving device's agent approval policy.
@@ -101,6 +110,7 @@ NexusCode's remote protocol, in two layers, and the account key's bundle:
   the password's proof (account keys v2);
 - ./voice: the voice socket, speech to text while the user speaks;
 - ./push: phone registrations, notification requests and app data;
+- ./bug-report: a user's bug report to the server and its answer;
 - ./info: what the server offers (GET /info);
 - ./commands: the slash commands a Codex client runs itself.
 
@@ -2520,6 +2530,12 @@ Background runs and the like, by the program's task ids (chat.stopTask stops one
 
 Absolute, on the serving device, as the chat's tool calls name it.
 
+**`ChatPanelSchema.changedFiles.rawPath`**
+
+The path as the first finished change of the file wrote it, only where it
+differs from `path` (a Windows path's backslashes and drive letter case).
+For showing; `path` is what file actions take. Since 0.34.0.
+
 **`ChatPanelSchema.changedFiles.created`**
 
 The chat made it: its first change wrote it new. Since 0.13.0.
@@ -3156,6 +3172,224 @@ In order of their start; speakers labelled anew, not as the live session had the
 **`TranscriptionSchema.seconds`**
 
 The recording's length.
+
+### `bug-report.ts`
+
+The bug report API: a signed-in phone or computer sends what its user
+wrote and a few facts about the app, and the server keeps it for the
+developer.
+
+POST /bug-reports?v=1 takes a JSON `BugReportSchema` body, signed in with
+the session's Bearer token as other account requests are (no
+`X-Account-Auth`). It returns a `BugReportCreatedSchema`: 201 for a new
+report, 200 with the report's current values when the account already sent
+one with this `id` (a retry, as after being offline). Its errors are
+`BUG_REPORT_ERRORS`: `bad_request` and `unsupported_version` (400, the
+latter as `UnsupportedVersionSchema`), `unauthorized` (401), `not_invited`
+(403, a suspended account), `too_big` (413), `rate_limited` (429, with
+`Retry-After`) and `server_error` (500). The server takes the platform
+(ios, android, darwin, win32, linux) from the session; the body does not
+carry it.
+
+Every object in the body is strict: a key the schema does not name, at any
+level, fails the whole request. The only free text besides the description
+is a recent error's `message`, redacted on both sides
+(`redactBugReportText`).
+
+**`BUG_REPORT_VERSION`**
+
+The `v` the request names: 1.
+
+**`MAX_BUG_REPORT_CONTEXT_BYTES`**
+
+8192: the most bytes the server takes for `context`, as UTF-8 JSON of the
+context it parsed (`bugReportBytes`). The server checks this, not the
+schema. Without messages a context within the schema's bounds comes to at
+most 2,547 bytes; with twenty messages of 300 code points it can pass the
+limit, so a client sends `fitBugReportContext(context)`, which always fits.
+Before 0.36.0 it was 4096.
+
+**`MAX_BUG_REPORT_BODY_BYTES`**
+
+24576 (24 KiB): the largest body the server takes. A description of 3000
+code points comes to at most 12,000 bytes, so a body with a fitted context
+stays under it. Before 0.36.0 the server's limit was 16 KB.
+
+**`bugReportBytes(value)`**
+
+The UTF-8 length of `JSON.stringify(value)`, as the limits above count it.
+
+**`fitBugReportContext(context, maxBytes?)`**
+
+`context` as it is when it fits in `maxBytes` (`MAX_BUG_REPORT_CONTEXT_BYTES`
+when left out). Otherwise a copy that does: it drops the messages of the
+oldest errors first (the last in `errors`), one at a time, then the oldest
+errors themselves. The newest errors keep their messages longest.
+
+**`BugReportSchema`**
+
+POST /bug-reports?v=1: one report.
+
+**`BugReportSchema.id`**
+
+A UUID (`z.uuid()`) the client makes once for the report and sends again
+on every retry, so a retry is the same report.
+
+**`BugReportSchema.description`**
+
+What the user wrote: 10 to 3000 code points (`MIN_BUG_REPORT_DESCRIPTION`,
+`MAX_BUG_REPORT_DESCRIPTION`), counted as `Array.from(text).length` does,
+so an emoji is one and not two as `text.length` has it. No control
+character but `\n` and `\t`: the rest of U+0000 to U+001F, U+007F and
+U+0080 to U+009F are refused, `\r` among them, so a client sends a line
+break as `\n`. No lone surrogate either (`BUG_REPORT_TEXT_PATTERN`).
+
+**`BugReportSchema.contactOk`**
+
+The user agreed to a reply by email, at the account's address.
+
+**`BugReportContextSchema`**
+
+What the app fills in itself and shows the user before sending.
+
+**`BugReportContextSchema.app`**
+
+`version`, and `build` where the app has one (a computer has none): 1 to
+32 of ASCII letters, digits and `. _ + -` (`BUG_REPORT_APP_VERSION_PATTERN`).
+
+**`BugReportContextSchema.os`**
+
+`version`: 1 to 64 of ASCII letters, digits and `. _ + -`
+(`BUG_REPORT_OS_VERSION_PATTERN`). A phone sends its OS version (`26.1`), a
+computer `os.release()`, which on Linux can be as long as
+`5.15.153.1-microsoft-standard-WSL2`.
+
+**`BugReportContextSchema.device`**
+
+- `kind`: `phone`, `tablet` or `desktop` (`BUG_REPORT_DEVICE_KINDS`).
+- `model`, optional: 1 to 40 of ASCII letters, digits, space and `, . _ -`
+  (`BUG_REPORT_MODEL_PATTERN`), as `iPhone16,2`. A computer leaves it out.
+- `arch`, optional: 1 to 16 of lower-case ASCII letters, digits and `_`
+  (`BUG_REPORT_ARCH_PATTERN`), as `arm64`, `x64` or `x86_64`.
+
+A client leaves out a model or arch that does not match rather than send a
+report the server refuses.
+
+**`BugReportContextSchema.protocol`**
+
+- `version`: the app's `PROTOCOL_VERSION`, an integer from 1 to 1000.
+- `package`: the version of this package the app is built with:
+  `MAJOR.MINOR.PATCH`, each 1 to 4 digits, with an optional pre-release of
+  1 to 20 ASCII letters, digits, `.` and `-` after a `-`, and no `+` build
+  (`BUG_REPORT_PACKAGE_PATTERN`).
+
+**`BugReportContextSchema.locale`**
+
+`ko` or `en`.
+
+**`BugReportContextSchema.errors`**
+
+The app's recent errors, at most `MAX_BUG_REPORT_ERRORS` (20); absent or
+empty when the user turns them off or there were none.
+
+**`BugReportRecentErrorSchema`**
+
+One recent error: codes, and since 0.36.0 its redacted message:
+- `ago`: whole seconds since it happened, from 0 to
+  `MAX_BUG_REPORT_ERROR_AGE` (2,592,000, 30 days). A client leaves out
+  older ones.
+- `area` (`BUG_REPORT_ERROR_AREAS`): `api` (the server's HTTP API),
+  `relay`, `voice`, `push`, `rpc` (a call to another device) or `render`
+  (a screen that failed to draw), and since 0.36.0 `app` (the app itself:
+  an uncaught error or a failed call inside the app), `agent` (an agent's
+  chat or run), `notes` (saving, recording or summarizing a note), `files`
+  and `git`.
+- `code`: 1 to 40 of lower-case ASCII letters, digits and `_ . : -`
+  (`BUG_REPORT_ERROR_CODE_PATTERN`), as `http_500`, `timeout`, `offline` or
+  an error's name in lower case.
+- `status`, optional: the HTTP status, an integer from 100 to 599.
+- `message`, optional (0.36.0): the error's message as
+  `cleanBugReportErrorMessage` gives it, one line of 1 to
+  `MAX_BUG_REPORT_ERROR_MESSAGE` (300) code points with no control
+  character (`\n` and `\t` included), line or paragraph separator,
+  direction mark or lone surrogate (`BUG_REPORT_ERROR_MESSAGE_PATTERN`). A
+  client leaves it out where the message could carry what the user wrote
+  or read (a conversation, a note, a transcript, a file's contents) and
+  sends the code alone.
+- `count`, optional (0.36.0): how many times the same error (area, code,
+  status and message) came, from 1 to `MAX_BUG_REPORT_ERROR_COUNT` (9999);
+  `ago` is then the time since the last. Absent means once.
+
+**`redactBugReportText(text)`**
+
+`text` with what can name a person or open an account taken out. A client
+uses it through `cleanBugReportErrorMessage`, and the server runs it on
+each message again before it keeps the report. It replaces:
+- absolute paths, whole, with `<path>`: POSIX paths under any root with
+  two or more parts (`/Users/…`, `/home/…`, `/tmp/…`, `/private/…`,
+  `/var/…`, `/Volumes/…`), paths from `~`, `./` and `../`, Windows drive
+  paths with either slash (`C:\…`, `C:/…`), long and device paths
+  (`\\?\…`, `\\.\…`), UNC paths (`\\server\share\…`, `//server/share/…`),
+  the same with JSON's doubled backslashes, `file:` URLs, any quoted
+  string that begins as a path (spaces and all), and the quoted path of a
+  system call's error (`open 'notes/a.md'`, `-> 'b'`), even relative. An
+  unquoted path goes on past a space while the next word, or the one after
+  it, has a slash;
+- email addresses with `<email>`;
+- secrets with `<secret>`: a `Bearer` or `Basic` credential, the value of
+  an `Authorization`, `Cookie`, `X-Account-Auth` or API key header, the
+  value after a name with `token`, `secret`, `password`, `api_key`,
+  `signature`, `ticket` or `credential` in it (`=` or `:`, unless it is a
+  number), keys by their prefix (`sk-`, `pk-`, `rk-`, `sk_live_`, `ghp_`
+  and the other GitHub prefixes, `github_pat_`, `glpat-`, `xox?-`, `AKIA`,
+  `AIza`, `npm_`), JWTs, private key blocks, 32 or more hex digits, and
+  32 or more base64 characters with a digit and both cases;
+- a URL's user, query and fragment, dropped: `https://u:p@host/a?b#c`
+  becomes `https://host/a`;
+- IP addresses with `<ip>`, but not loopback (`127.*`, `::1`) or
+  `0.0.0.0`; an IPv6 address needs `::` or five colons, so `12:30:45`
+  stays, and a MAC address goes too.
+
+It keeps the rest, error names, codes, HTTP paths and relative paths
+outside a system call's quotes among them.
+
+Since 0.36.1 it runs these rules again until the text stops changing, so
+what one rule puts in can open another's match (a path right after an
+`<ip>`), at most 8 times, and gives `<secret>` if the text has not settled
+by then. What it gives comes out the same when put through it again.
+
+**`cleanBugReportErrorMessage(text)`**
+
+A message ready for `BugReportRecentErrorSchema.message`, or `undefined`
+when nothing is left. On the first 8192 UTF-16 units, every white space
+and character the pattern refuses turned into a space, runs of spaces made
+one and the ends trimmed, then `redactBugReportText`, both again until the
+text stops changing. A text still over 300 code points keeps what comes
+before its last space among the 235th to 299th code points (or its first
+298 when there is none) and ends in ` …`; the cut text is redacted again,
+and cut shorter if that made it longer than 300. It redacts before it cuts, so a
+secret is never left half. Since 0.36.1 what it gives comes out the same
+from it and from `redactBugReportText`.
+
+**`BugReportCreatedSchema`**
+
+The answer to a new report (201) or a retry (200). Not strict: a reader
+drops keys a newer server adds.
+
+**`BugReportCreatedSchema.id`**
+
+The report's id on the server: 1 to 64 characters, not necessarily the
+request's `id`. A client keeps it as it is and does not parse it.
+
+**`BugReportCreatedSchema.status`**
+
+`open` for a new report, then `reviewing` or `closed` as the developer
+handles it (`BUG_REPORT_STATUSES`).
+
+**`BUG_REPORT_ERRORS`**
+
+The `error` codes POST /bug-reports answers with, read by
+`BugReportErrorSchema`.
 
 ### `commands.ts`
 

@@ -179,6 +179,7 @@ interface TabsState {
   renameTab: (workspaceId: string, tabId: string, title: string) => void;
   setProcessTitle: (workspaceId: string, tabId: string, title: string | null) => void;
   setTerminalDead: (workspaceId: string, tabId: string, dead: boolean) => void;
+  killTerminalSessions: (workspaceId: string, tabIds: readonly string[]) => void;
   closeAllForWorkspace: (workspaceId: string) => void;
   promoteFromPreview: (workspaceId: string, tabId: string) => void;
   replacePreviewTab: (
@@ -743,15 +744,18 @@ export const useTabsStore = create<TabsState>((set, get) => {
       );
     },
 
+    killTerminalSessions(workspaceId, tabIds) {
+      const wsRecord = get().byWorkspace[workspaceId] ?? {};
+      for (const tabId of tabIds) {
+        if (wsRecord[tabId]?.type === "terminal") killSession(workspaceId, tabId);
+      }
+    },
+
     closeAllForWorkspace(workspaceId) {
       const wsRecord = get().byWorkspace[workspaceId];
       if (!wsRecord) return;
 
-      for (const tab of Object.values(wsRecord)) {
-        if (tab.type === "terminal") {
-          killSession(workspaceId, tab.id);
-        }
-      }
+      get().killTerminalSessions(workspaceId, Object.keys(wsRecord));
 
       set((state) => {
         if (!(workspaceId in state.byWorkspace)) return state;

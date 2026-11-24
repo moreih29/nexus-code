@@ -694,7 +694,7 @@ export function PanelChanged({
             key={file.path}
             file={{
               path: file.path,
-              rawPath: peer ? undefined : change?.rawPath,
+              rawPath: peer ? file.rawPath : change?.rawPath,
               added: file.added ?? 0,
               removed: file.removed ?? 0,
               created: file.created ?? change?.created ?? false,

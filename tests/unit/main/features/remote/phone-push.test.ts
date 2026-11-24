@@ -502,7 +502,6 @@ describe("consent notifications", () => {
   test.each([
     [400, "bad_request"],
     [403, "not_a_computer"],
-    [429, "rate_limited"],
     [503, "push_unavailable"],
   ])("consumes the event on HTTP %i", async (status, code) => {
     const app = setup();
@@ -674,6 +673,142 @@ describe("chat and terminal request notifications", () => {
     app.chat();
     fail?.(new UnreachableError("offline"));
     await tick(3_000);
+    expect(app.send).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("a push the server is still sending", () => {
+  const busy = (retryAfter?: number) =>
+    new ServerError(429, undefined, "POST /push/send?v=1", retryAfter);
+
+  test("a consent is sent again with the same id after Retry-After", async () => {
+    const app = setup();
+    await tick();
+    app.setAway(true);
+    app.send.mockRejectedValueOnce(busy(2));
+    app.consent(null);
+    await tick(1_999);
+    expect(app.send).toHaveBeenCalledTimes(1);
+    await tick(1);
+    expect(app.send).toHaveBeenCalledTimes(2);
+    const [first, again] = app.send.mock.calls.map(([body]) => body);
+    expect(again?.id).toBe(first?.id);
+    expect(again).toMatchObject({ kind: "consent", ttl: 86_398 });
+    await tick(60_000);
+    expect(app.send).toHaveBeenCalledTimes(2);
+  });
+
+  test("a request waits five seconds without Retry-After and keeps its id", async () => {
+    const app = setup();
+    app.send.mockRejectedValueOnce(busy());
+    app.chat("busy request");
+    await tick(20_000);
+    expect(app.send).toHaveBeenCalledTimes(1);
+    await tick(4_999);
+    expect(app.send).toHaveBeenCalledTimes(1);
+    await tick(1);
+    expect(app.send).toHaveBeenCalledTimes(2);
+    const [first, again] = app.send.mock.calls.map(([body]) => body);
+    expect(first).toMatchObject({ kind: "request", ttl: 600 });
+    expect(again).toEqual({ ...first, ttl: 575 });
+    await tick(60_000);
+    expect(app.send).toHaveBeenCalledTimes(2);
+  });
+
+  test("a consent waits five seconds without Retry-After", async () => {
+    const app = setup();
+    await tick();
+    app.setAway(true);
+    app.send.mockRejectedValueOnce(busy());
+    app.consent(null);
+    await tick(4_999);
+    expect(app.send).toHaveBeenCalledTimes(1);
+    await tick(1);
+    expect(app.send).toHaveBeenCalledTimes(2);
+  });
+
+  test("gives up after three resends", async () => {
+    const app = setup();
+    await tick();
+    app.setAway(true);
+    app.send.mockRejectedValue(busy(1));
+    app.consent(null);
+    await tick(600_000);
+    expect(app.send).toHaveBeenCalledTimes(4);
+    expect(new Set(app.send.mock.calls.map(([body]) => body.id)).size).toBe(1);
+  });
+
+  test("waits at most a minute", async () => {
+    const app = setup();
+    await tick();
+    app.setAway(true);
+    app.send.mockRejectedValueOnce(busy(3_600));
+    app.consent(null);
+    await tick(59_999);
+    expect(app.send).toHaveBeenCalledTimes(1);
+    await tick(1);
+    expect(app.send).toHaveBeenCalledTimes(2);
+  });
+
+  test("does not wait past the event's expiry", async () => {
+    const app = setup();
+    await tick();
+    app.setAway(true);
+    app.send.mockRejectedValueOnce(busy(5));
+    app.consent(10_000);
+    await tick(60_000);
+    expect(app.send).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not use up the network retry or the short TTL retry of a consent", async () => {
+    const app = setup();
+    await tick();
+    app.setAway(true);
+    app.send
+      .mockRejectedValueOnce(busy(1))
+      .mockRejectedValueOnce(new UnreachableError("offline"))
+      .mockRejectedValueOnce(new ServerError(400, "bad_request", "POST /push/send?v=1"));
+    app.consent(null);
+    await tick(60_000);
+    const bodies = app.send.mock.calls.map(([body]) => body);
+    expect(bodies.length).toBe(4);
+    expect(new Set(bodies.map((body) => body.id)).size).toBe(1);
+    expect(bodies.map((body) => body.ttl)).toEqual([86_400, 86_399, 86_399, 120]);
+  });
+
+  test("does not use up the network retry of a request", async () => {
+    const app = setup();
+    app.send
+      .mockRejectedValueOnce(busy(1))
+      .mockRejectedValueOnce(new UnreachableError("offline"))
+      .mockRejectedValueOnce(new UnreachableError("offline again"));
+    app.chat("flaky request");
+    await tick(60_000);
+    expect(app.send).toHaveBeenCalledTimes(3);
+    expect(new Set(app.send.mock.calls.map(([body]) => body.id)).size).toBe(1);
+  });
+
+  test("a consent is not resent after dispose", async () => {
+    const app = setup();
+    await tick();
+    app.setAway(true);
+    app.send.mockRejectedValueOnce(busy(2));
+    app.consent(null);
+    await tick(1_000);
+    expect(app.send).toHaveBeenCalledTimes(1);
+    app.sender.dispose();
+    await tick(60_000);
+    expect(app.send).toHaveBeenCalledTimes(1);
+  });
+
+  test("a request is not resent after dispose", async () => {
+    const app = setup();
+    app.send.mockRejectedValueOnce(busy(2));
+    app.chat("busy request");
+    await tick(21_000);
+    expect(app.send).toHaveBeenCalledTimes(1);
+    app.sender.dispose();
+    await tick(60_000);
     expect(app.send).toHaveBeenCalledTimes(1);
   });
 });

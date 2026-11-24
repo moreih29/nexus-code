@@ -1,4 +1,3 @@
-import { killSession } from "@/services/terminal/pty-client";
 import { useLayoutStore } from "../stores/layout";
 import { findLeaf } from "../stores/layout/helpers";
 import { useTabsStore } from "../stores/tabs";
@@ -11,12 +10,7 @@ export function closeGroup(workspaceId: string, leafId: string): void {
   if (!leaf) return;
 
   const ids = [...leaf.tabIds];
-  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
-  for (const tabId of ids) {
-    if (tabsById[tabId]?.type === "terminal") {
-      killSession(workspaceId, tabId);
-    }
-  }
+  useTabsStore.getState().killTerminalSessions(workspaceId, ids);
 
   useLayoutStore.getState().closeGroup(workspaceId, leafId);
 

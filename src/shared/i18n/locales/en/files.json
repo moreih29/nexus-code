@@ -328,7 +328,6 @@
       "copyPath": "Copy Path",
       "copyRelativePath": "Copy Relative Path",
       "addToGitignore": "Add to .gitignore",
-      "stageAllResolved": "Stage All Resolved",
       "stashChangesInGroup": "Stash Changes in Group",
       "unstageAll": "Unstage All",
       "stageAll": "Stage All",

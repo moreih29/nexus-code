@@ -28,6 +28,7 @@ import type { ChatModel } from "./model";
 import { relayedOf } from "./relayed";
 import { clipTitle, titleOf } from "./tab-title";
 import { sendFirstMessage } from "./transport/submission";
+import { reportTurnError } from "./turn-errors";
 
 const log = createLogger("note-links");
 
@@ -95,7 +96,10 @@ export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks
         tabs().addChatPeerSubmission(workspaceId, tabId, id, { ...submission, written: true });
     },
     onChosen: (chosen) => tabs().setChatChosen(workspaceId, tabId, chosen),
-    onTurnEnd: (model) => saveLiveAnswer(workspaceId, tabId, model),
+    onTurnEnd: (model) => {
+      saveLiveAnswer(workspaceId, tabId, model);
+      reportTurnError("claude", model.lastResult);
+    },
   };
 }
 
@@ -122,7 +126,10 @@ export function codexTabHooks(workspaceId: string, tabId: string): CodexTabHooks
     onMoves: (moves) => tabs().setChatMoves(workspaceId, tabId, moves),
     onRelayed: (record) => tabs().addChatRelayed(workspaceId, tabId, record),
     onChosen: (chosen) => tabs().setChatChosen(workspaceId, tabId, chosen),
-    onTurnEnd: (model) => saveLiveAnswer(workspaceId, tabId, model),
+    onTurnEnd: (model) => {
+      saveLiveAnswer(workspaceId, tabId, model);
+      reportTurnError("codex", model.lastResult);
+    },
   };
 }
 

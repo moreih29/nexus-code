@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import {
+  askReason,
   KEYCHAIN_SLOW_MS,
   KeychainGate,
   type KeychainGateDeps,
@@ -59,6 +60,7 @@ function gateWith(
 ) {
   const storage = fakeSafeStorage(options);
   const statuses: KeychainStatus[] = [];
+  const infos: string[] = [];
   let recorded = options.recorded ?? null;
   let signatureAsked = 0;
   const deps: KeychainGateDeps = {
@@ -75,6 +77,7 @@ function gateWith(
       },
     },
     onChange: (status) => statuses.push(status),
+    info: (message) => infos.push(message),
     ...(options.slowMs !== undefined ? { slowMs: options.slowMs } : {}),
   };
   const gate = new KeychainGate(deps);
@@ -84,6 +87,7 @@ function gateWith(
     statuses,
     recorded: () => recorded,
     signatureAsked: () => signatureAsked,
+    infos,
   };
 }
 
@@ -102,10 +106,31 @@ describe("whether the user is asked before the keychain is read", () => {
   });
 
   test("signed as when it last opened: open, nothing asked", async () => {
-    const { gate } = gateWith({ items: ["remote"], signature: "same", recorded: "same" });
+    const { gate, infos } = gateWith({ items: ["remote"], signature: "same", recorded: "same" });
     await gate.decided();
     expect(gate.isOpen()).toBe(true);
     expect(gate.status().state).not.toBe("ask");
+    expect(infos).toEqual([]);
+  });
+
+  const NOW = "d6d5f8f9bdb73830ea0e995372320ec2e3dd4a445adba5c029dd1b23517e39bf";
+  const BEFORE = "0123abcd4567ef890123abcd4567ef890123abcd4567ef890123abcd4567ef89";
+
+  test.each([
+    [NOW, null, "nothing recorded yet, this app is d6d5f8f9"],
+    [NOW, BEFORE, "signature changed from 0123abcd to d6d5f8f9"],
+    [null, BEFORE, "no signature read, 0123abcd recorded"],
+    [null, null, "no signature read, and none recorded"],
+  ] as const)("says once why it asks (%s, recorded %s)", async (signature, recorded, reason) => {
+    const { gate, infos } = gateWith({ items: ["remote"], signature, recorded });
+    await gate.decided();
+    expect(gate.status().state).toBe("ask");
+    expect(infos).toEqual([`asking before opening the keychain: ${reason}`]);
+    expect(infos.join(" ")).not.toMatch(/[0-9a-f]{9,}/);
+  });
+
+  test("no reason to ask when the signature is the recorded one", () => {
+    expect(askReason(NOW, NOW)).toBeNull();
   });
 
   test.each([

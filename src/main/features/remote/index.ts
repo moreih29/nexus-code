@@ -12,10 +12,12 @@ import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
 import { type AccountKeyState, deviceLabel } from "../../../shared/remote/account";
+import { bugReportOsVersion } from "../../../shared/remote/bug-report";
 import type { RoomState } from "../../../shared/remote/room";
 import type { SystemStats } from "../../../shared/system/stats";
 import type { PhonePushPolicy, RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
+import { appErrors } from "../../infra/recent-errors";
 import type { CliRemote, CliServices } from "../cli/context";
 import type { PeerFileReader } from "../custom-protocols/nexus-workspace";
 import type { FsProvider } from "../fs/bridge/provider";
@@ -26,6 +28,7 @@ import { RemoteAccount, SavedAccountSchema } from "./account";
 import { roomKeyOf } from "./account-key";
 import { AccountKeys, KeyError, SavedKeySchema } from "./account-keys";
 import { AgentGate } from "./agent-gate";
+import { BugReports } from "./bug-reports";
 import { ChatWatches } from "./chat-watches";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
 import { FileWrites } from "./file-writes";
@@ -241,6 +244,8 @@ export async function registerRemoteChannel(options: {
     broadcast("remote", "roomChanged", state);
   };
   let keys: AccountKeys | null = null;
+  const recentErrors = appErrors;
+  const relayFailed = (code: string, status?: number) => recentErrors.record("relay", code, status);
   const server = remoteServer(process.env, app.isPackaged, (message) => log.warn(message));
   const account = new RemoteAccount({
     server,
@@ -248,6 +253,7 @@ export async function registerRemoteChannel(options: {
     store,
     openExternal: (url) => shell.openExternal(url),
     installId: () => installIdAt(join(app.getPath("userData"), "remote-install-id")),
+    recordError: recentErrors.record,
     ...signInOptions(),
     onBrowserBack: () => {
       if (process.platform === "darwin") app.focus({ steal: true });
@@ -259,6 +265,15 @@ export async function registerRemoteChannel(options: {
       void keys?.accountChanged(state).catch(() => {});
       syncRoom();
     },
+  });
+  const bugReports = new BugReports({
+    account,
+    errors: recentErrors,
+    facts: () => ({
+      appVersion: app.getVersion(),
+      osVersion: bugReportOsVersion(process.platform, process.getSystemVersion()),
+      arch: process.arch,
+    }),
   });
   const push = new PhonePush({
     account,
@@ -296,6 +311,7 @@ export async function registerRemoteChannel(options: {
     account,
     names,
     retryAfter: socketRetryAfter,
+    recordError: recentErrors.record,
     emit: (event) => broadcast("remote", "voiceEvent", event),
   });
   const noteVoice = new VoiceSessions({
@@ -303,6 +319,7 @@ export async function registerRemoteChannel(options: {
     purpose: "note",
     names,
     retryAfter: socketRetryAfter,
+    recordError: recentErrors.record,
     emit: (event) => broadcast("remote", "voiceEvent", event),
   });
   const sessionOf = (id: string) => (noteVoice.has(id) ? noteVoice : voice);
@@ -357,6 +374,7 @@ export async function registerRemoteChannel(options: {
           url: relayUrl,
           retryAfter: socketRetryAfter,
           unreachable: (url) => void account.route.unreachable(url),
+          failed: relayFailed,
         });
         return relay;
       },
@@ -440,7 +458,12 @@ export async function registerRemoteChannel(options: {
           }
         : null,
     connect: (handlers) =>
-      new RelayConnection({ ...handlers, url: relayUrl, retryAfter: socketRetryAfter }),
+      new RelayConnection({
+        ...handlers,
+        url: relayUrl,
+        retryAfter: socketRetryAfter,
+        failed: relayFailed,
+      }),
     qr: async (text) =>
       `data:image/svg+xml;base64,${Buffer.from(renderSVG(text, { border: 2 })).toString("base64")}`,
     onChange: (state) => broadcast("remote", "pairChanged", state),
@@ -542,6 +565,12 @@ export async function registerRemoteChannel(options: {
         }
         return ipcOk(policy);
       },
+      bugReportContext: async (args: unknown) => {
+        const { locale, includeErrors } = validateArgs(c.bugReportContext.args, args);
+        return ipcOk(bugReports.context(locale, includeErrors));
+      },
+      sendBugReport: async (args: unknown) =>
+        ipcOk(await bugReports.send(validateArgs(c.sendBugReport.args, args))),
       phonePushPolicy: async () => ipcOk(options.phonePush.get()),
       setPhonePushPolicy: async (args: unknown) => {
         const { policy } = validateArgs(c.setPhonePushPolicy.args, args);
@@ -925,7 +954,13 @@ export async function registerRemoteChannel(options: {
       },
       voiceTranscription: (args: unknown) => {
         const { id } = validateArgs(c.voiceTranscription.args, args);
-        return ask(() => noteVoice.transcription(id));
+        return ask(async () => {
+          const transcription = await noteVoice.transcription(id);
+          if (transcription.status === "error") {
+            recentErrors.record("voice", "transcription:error", undefined, transcription.message);
+          }
+          return transcription;
+        });
       },
       voiceTranscriptionDrop: (args: unknown) => {
         const { id } = validateArgs(c.voiceTranscriptionDrop.args, args);

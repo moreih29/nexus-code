@@ -451,10 +451,66 @@
     "openStore": "Microsoft Store 열기",
     "logs": {
       "title": "로그",
-      "description": "문제 신고에 첨부할 로그",
+      "description": "지원 문의나 GitHub 이슈에 직접 첨부할 로그",
       "open": "로그 폴더 열기",
       "copyPath": "로그 경로 복사",
       "copied": "복사됨"
+    },
+    "bugReport": {
+      "title": "버그 신고",
+      "reportOnSupport": "지원 페이지에서 신고",
+      "notSent": "대화, 파일, 경로는 보내지 않음",
+      "description": "설명",
+      "placeholder": "무엇을 하다가 어떤 문제가 생겼는지",
+      "tooShort": "{{min}}자 이상",
+      "length": "{{count}} / {{max}}",
+      "includeErrors": "최근 오류 포함",
+      "includeErrorsDescription": "경로와 키를 가린 오류 메시지 · 앱을 끄면 지워짐",
+      "contact": "이메일로 답장 받기",
+      "preview": "함께 보내는 정보",
+      "facts": {
+        "app": "앱 버전",
+        "os": "OS 버전",
+        "device": "기기",
+        "protocol": "프로토콜",
+        "locale": "언어",
+        "errors": "최근 오류"
+      },
+      "deviceKind": {
+        "phone": "휴대폰",
+        "tablet": "태블릿",
+        "desktop": "데스크톱"
+      },
+      "localeName": {
+        "ko": "한국어",
+        "en": "영어"
+      },
+      "errorsOff": "포함 안 함",
+      "noErrors": "없음",
+      "errorCount_one": "{{count}}회",
+      "errorCount_other": "{{count}}회",
+      "agoSeconds_one": "{{count}}초 전",
+      "agoSeconds_other": "{{count}}초 전",
+      "agoMinutes_one": "{{count}}분 전",
+      "agoMinutes_other": "{{count}}분 전",
+      "agoHours_one": "{{count}}시간 전",
+      "agoHours_other": "{{count}}시간 전",
+      "send": "보내기",
+      "sending": "전송 중…",
+      "sent": "신고를 보냈습니다. 고맙습니다.",
+      "error": {
+        "rateLimited": "신고를 너무 많이 보냈습니다. 잠시 후 다시 시도하세요.",
+        "rateLimitedMinutes_one": "신고를 너무 많이 보냈습니다. {{count}}분 후 다시 시도하세요.",
+        "rateLimitedMinutes_other": "신고를 너무 많이 보냈습니다. {{count}}분 후 다시 시도하세요.",
+        "rateLimitedHours_one": "신고를 너무 많이 보냈습니다. {{count}}시간 후 다시 시도하세요.",
+        "rateLimitedHours_other": "신고를 너무 많이 보냈습니다. {{count}}시간 후 다시 시도하세요.",
+        "signedOut": "로그아웃됐습니다. 다시 로그인하세요.",
+        "notAllowed": "이 계정은 신고를 보낼 수 없습니다. 지원 페이지로 문의하세요.",
+        "tooBig": "신고 내용이 너무 깁니다. 줄인 뒤 다시 시도하세요.",
+        "unsupported": "서버가 아직 신고를 받지 않습니다. 지금은 지원 페이지를 이용하세요.",
+        "offline": "서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.",
+        "failed": "신고를 보내지 못했습니다. 다시 시도하세요."
+      }
     },
     "releaseNotes": "릴리스 노트",
     "downloadProgress": "업데이트 다운로드 진행률",

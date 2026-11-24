@@ -16,7 +16,7 @@ import { ListeningPortsResultSchema } from "../shared/pty/ports";
 import { asTaskAgent, chatAgentOf, DEFAULT_TASK_AGENT } from "../shared/sessions/task-agent";
 import type { WorkspaceConnectionEventStatus } from "../shared/types/workspace";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
-import { findProfile, registerAgentProfilesChannel } from "./features/agent-profiles";
+import { findProfile, listProfiles, registerAgentProfilesChannel } from "./features/agent-profiles";
 import { type ConnectionKeys, openConnectionKeys } from "./features/agent-profiles/connection-keys";
 import {
   createProfileConnections,
@@ -602,6 +602,7 @@ app.whenReady().then(async () => {
     userData,
     state: stateService,
     warn: (message) => logger.warn(`keychain: ${message}`),
+    info: (message) => logger.info(`keychain: ${message}`),
   });
   keychainChannel = registerKeychainChannel(keychain);
 
@@ -883,6 +884,7 @@ app.whenReady().then(async () => {
       return tab?.type === "claude" ? tab.props : undefined;
     },
     profile: (id) => findProfile(stateService, id),
+    profiles: () => listProfiles(stateService),
     connectionKey: async (id, target) => profileConnectionKeys?.get(id, target),
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),
     onTurnResult: claudeSetup.noteTurnResult,

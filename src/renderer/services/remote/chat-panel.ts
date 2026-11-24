@@ -175,8 +175,9 @@ const fileSummaries = new WeakMap<Record<string, ToolCall>, ChatPanel["changedFi
 function changedFileSummaries(tools: Record<string, ToolCall>): ChatPanel["changedFiles"] {
   const cached = fileSummaries.get(tools);
   if (cached) return cached;
-  const files = changedFilesOf(tools).map(({ path, added, removed, created }) => ({
+  const files = changedFilesOf(tools).map(({ path, rawPath, added, removed, created }) => ({
     path,
+    ...(rawPath ? { rawPath } : {}),
     added,
     removed,
     ...(created ? { created } : {}),

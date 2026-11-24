@@ -973,14 +973,6 @@ class XtermTerminalController implements TerminalController {
   }
 
   private registerOscHandlers(term: TerminalLike): void {
-    const dispatchCwd = (path: string): void => {
-      window.dispatchEvent(
-        new CustomEvent("nexus:terminal-cwd", {
-          detail: { tabId: this.options.tabId, path },
-        }),
-      );
-    };
-
     const writeClipboardFromBase64 = (b64: string): void => {
       if (!hasKeyboardFocus(term)) return;
       const text = clipboardTextOf(b64);
@@ -998,15 +990,7 @@ class XtermTerminalController implements TerminalController {
       }),
     );
 
-    this.oscDisposables.push(
-      term.parser.registerOscHandler(7, (data) => {
-        try {
-          const url = new URL(data);
-          dispatchCwd(decodeURIComponent(url.pathname));
-        } catch {}
-        return true;
-      }),
-    );
+    this.oscDisposables.push(term.parser.registerOscHandler(7, () => true));
 
     this.oscDisposables.push(
       term.parser.registerOscHandler(22, (data) => {
@@ -1020,18 +1004,10 @@ class XtermTerminalController implements TerminalController {
 
     this.oscDisposables.push(
       term.parser.registerOscHandler(1337, (data) => {
-        if (data === "SetMark") {
-          return true;
-        }
-        if (data.startsWith("CurrentDir=")) {
-          dispatchCwd(data.slice("CurrentDir=".length));
-          return true;
-        }
         if (data.startsWith("Copy=")) {
           const rest = data.slice("Copy=".length);
           const colon = rest.indexOf(":");
           if (colon >= 0) writeClipboardFromBase64(rest.slice(colon + 1));
-          return true;
         }
         return true;
       }),

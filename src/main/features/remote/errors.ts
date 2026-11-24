@@ -1,7 +1,7 @@
 import type { SignInFailure } from "../../../shared/remote/account";
 
 export class SignedOutError extends Error {
-  constructor() {
+  constructor(readonly status?: number) {
     super("signed out of NexusCode");
   }
 }
@@ -13,8 +13,11 @@ export class OutdatedError extends Error {
 }
 
 export class UnreachableError extends Error {
+  readonly timedOut: boolean;
+
   constructor(cause: unknown) {
     super(`the NexusCode server did not answer: ${cause instanceof Error ? cause.message : cause}`);
+    this.timedOut = cause instanceof Error && cause.name === "TimeoutError";
   }
 }
 

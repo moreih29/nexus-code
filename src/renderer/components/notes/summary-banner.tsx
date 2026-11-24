@@ -18,16 +18,16 @@ export function NoteSummaryBanners({
   noteId,
   summaries,
   flush,
+  onShow,
 }: {
   workspaceId: string;
   noteId: string;
   summaries: RecordingSummaries;
   flush: () => Promise<boolean>;
+  onShow?: (recordingId: string) => void;
 }) {
   const entries = Object.entries(summaries)
-    .filter(
-      ([, summary]) => !summary.seen && summary.state !== "skipped" && summary.state !== "undone",
-    )
+    .filter(([, summary]) => !summary.seen && summary.state !== "undone")
     .sort(([, a], [, b]) => b.startedAt - a.startedAt);
   if (entries.length === 0) return null;
   return (
@@ -36,6 +36,7 @@ export function NoteSummaryBanners({
         <SummaryBanner
           key={summary.runId}
           {...{ workspaceId, noteId, recordingId, summary, flush }}
+          onShow={onShow && (() => onShow(recordingId))}
         />
       ))}
     </div>
@@ -48,19 +49,22 @@ export function SummaryBanner({
   recordingId,
   summary,
   flush,
+  onShow,
 }: {
   workspaceId: string;
   noteId: string;
   recordingId: string;
   summary: RecordingSummary;
   flush: () => Promise<boolean>;
+  onShow?: () => void;
 }) {
   const { t, i18n } = useTranslation("notes");
   const [busy, setBusy] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  if (summary.seen || summary.state === "skipped" || summary.state === "undone") return null;
+  if (summary.seen || summary.state === "undone") return null;
   const running = summary.state === "running";
   const done = summary.state === "done";
+  const skipped = summary.state === "skipped";
   const error = summary.state === "failed" ? summary.error : undefined;
   const kind = error?.kind;
   const resetsAt =
@@ -75,9 +79,11 @@ export function SummaryBanner({
     ? t("summary.running")
     : done
       ? t("summary.complete", { count: summary.todos })
-      : reset
-        ? t("summary.limitReset", { time: reset })
-        : t(`summary.failure.${kind ?? "failed"}`);
+      : skipped
+        ? t("summary.skipped")
+        : reset
+          ? t("summary.limitReset", { time: reset })
+          : t(`summary.failure.${kind ?? "failed"}`);
   const needsSettings = kind === "signed-out" || kind === "missing";
   const canRetry = error && !needsSettings && kind !== "too-long";
   const hasDetails = canRetry && kind !== "limit";
@@ -117,7 +123,10 @@ export function SummaryBanner({
           ) : (
             <Sparkles className="size-3.5 shrink-0" aria-hidden="true" />
           )}
-          {label}
+          <span className="min-w-0">
+            {label}
+            {running && <span className="text-muted-foreground"> · {t("summary.where")}</span>}
+          </span>
         </span>
         <div className="ml-auto flex flex-wrap items-center gap-1">
           {running ? (
@@ -134,6 +143,11 @@ export function SummaryBanner({
             </Button>
           ) : (
             <>
+              {done && onShow && (
+                <Button variant="outline" size="sm" className="h-6 px-2" onClick={onShow}>
+                  {t("summary.show")}
+                </Button>
+              )}
               {done && (
                 <Button
                   variant="outline"

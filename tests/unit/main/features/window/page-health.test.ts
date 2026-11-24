@@ -11,6 +11,7 @@ import {
   reloadsPage,
   watchPageHealth,
 } from "../../../../../src/main/features/window/page-health";
+import { RecentErrors } from "../../../../../src/main/infra/recent-errors";
 import { mainErrorMock, mainInfoMock, mainWarnMock } from "../../../../log-test-spies";
 
 beforeEach(() => {
@@ -56,6 +57,16 @@ function fakeWindow(heap: unknown = { used: 100 * 1_048_576, limit: 4096 * 1_048
     reloads: () => reloads,
   };
 }
+
+test("a page that died is recorded as a render error with its reason", () => {
+  const errors = new RecentErrors(() => 0);
+  const page = fakeWindow();
+  watchPageHealth(page.win, deps({ recordError: errors.record }).d);
+  page.die("oom");
+  expect(errors.list()).toEqual([
+    { ago: 0, area: "render", code: "page_gone:oom", message: "exitCode=5" },
+  ]);
+});
 
 function deps(over: Partial<PageHealthDeps> = {}) {
   let clock = 0;

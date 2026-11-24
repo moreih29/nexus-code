@@ -85,6 +85,7 @@ export interface RelayConnectionDeps {
   onStatus(status: RelayStatus): void;
   onSignedOut(): void;
   unreachable?(url: string): void;
+  failed?(code: string, status?: number): void;
   socket?: (url: string) => Socket;
   retryAfter?: SocketRetryAfter;
   backoff?: (attempt: number) => number;
@@ -155,6 +156,7 @@ export class RelayConnection {
   recover(reason: RelayRecoveryReason): void {
     const { connection, owner } = this;
     if (!connection || !owner || this.status !== "online") return;
+    this.deps.failed?.(reason);
     this.closeCurrent(connection, reason);
     if (this.quickRetry()) void this.connect(reason);
     else this.retry(owner, reason);
@@ -269,11 +271,20 @@ export class RelayConnection {
       if (error instanceof SignedOutError) {
         this.giveUp("stopped");
         this.deps.onSignedOut();
-      } else if (error instanceof OutdatedError) this.giveUp("outdated");
-      else if (error instanceof ServerError && error.status === 429) {
+      } else if (error instanceof OutdatedError) {
+        this.deps.failed?.("outdated");
+        this.giveUp("outdated");
+      } else if (error instanceof ServerError && error.status === 429) {
+        this.deps.failed?.("rate-limited", 429);
         this.retryAfter.pause(error.retryAfter ?? 0);
         this.retry(owner, "rate-limited");
-      } else this.retry(owner, "ticket-failed");
+      } else {
+        this.deps.failed?.(
+          "ticket-failed",
+          error instanceof ServerError ? error.status : undefined,
+        );
+        this.retry(owner, "ticket-failed");
+      }
       return;
     }
 
@@ -283,6 +294,7 @@ export class RelayConnection {
     this.openTimer = setTimeout(() => {
       if (this.connection !== connection) return;
       this.warnRecovery("open-timeout", performance.now() - started);
+      this.deps.failed?.("open-timeout");
       this.closeCurrent(connection, "open-timeout");
       this.deps.unreachable?.(url);
       this.retry(owner, "open-timeout");
@@ -290,6 +302,7 @@ export class RelayConnection {
     this.openTimer.unref?.();
     socket.on("unexpected-response", (_request, response) => {
       if (this.connection === connection && response.statusCode === 429) {
+        this.deps.failed?.("rate-limited", 429);
         this.retryAfter.pause(retryAfterSeconds(response.headers["retry-after"]) ?? 0);
         this.closeCurrent(connection, "upgrade-refused");
         this.retry(owner, "rate-limited");
@@ -357,6 +370,7 @@ export class RelayConnection {
         this.giveUp("stopped");
         this.deps.onSignedOut();
       } else if (event.code === CLOSE_FLOODING) {
+        this.deps.failed?.("flooding");
         this.floodBackoffMs = Math.min(
           FLOOD_RETRY_MAX_MS,
           Math.max(FLOOD_RETRY_INITIAL_MS, this.floodBackoffMs * 2),
@@ -365,11 +379,13 @@ export class RelayConnection {
           `Relay closed a flooding connection code=${CLOSE_FLOODING} retryMs=${this.floodBackoffMs}`,
         );
         this.retry(owner, "flooding", this.floodBackoffMs);
-      } else if (opened && this.quickRetry()) {
-        void this.connect("socket-closed");
       } else {
-        if (!opened) this.deps.unreachable?.(url);
-        this.retry(owner, "socket-closed");
+        this.deps.failed?.(opened ? "socket-closed" : "open-failed");
+        if (opened && this.quickRetry()) void this.connect("socket-closed");
+        else {
+          if (!opened) this.deps.unreachable?.(url);
+          this.retry(owner, "socket-closed");
+        }
       }
     });
     socket.addEventListener("error", () => {});

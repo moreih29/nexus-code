@@ -1,5 +1,7 @@
 import type { App, BrowserWindow, MessageBoxOptions, RenderProcessGoneDetails } from "electron";
 import { createLogger } from "../../../shared/log/main";
+import { bugReportErrorCode } from "../../../shared/remote/bug-report";
+import { appErrors, type RecordError } from "../../infra/recent-errors";
 
 const logger = createLogger("window");
 
@@ -41,12 +43,14 @@ export interface PageHealthDeps {
   quit(): void;
   appMetrics(): ReturnType<App["getAppMetrics"]>;
   now?: () => number;
+  recordError?: RecordError;
   setInterval?: (run: () => void, ms: number) => unknown;
   clearInterval?: (timer: unknown) => void;
 }
 
 export function watchPageHealth(win: PageWindow, deps: PageHealthDeps): void {
   const now = deps.now ?? Date.now;
+  const record = deps.recordError ?? appErrors.record;
   const deaths: number[] = [];
 
   let asking = false;
@@ -56,6 +60,8 @@ export function watchPageHealth(win: PageWindow, deps: PageHealthDeps): void {
     deaths.push(at);
     while (deaths.length > 0 && (deaths[0] ?? at) <= at - DEATH_WINDOW_MS) deaths.shift();
     const ask = deaths.length >= DEATHS_BEFORE_ASKING;
+    const code = bugReportErrorCode("page_gone", details.reason);
+    if (code) record("render", code, undefined, `exitCode=${details.exitCode}`);
     logger.error(
       `the window's page died (reason=${details.reason}, exitCode=${details.exitCode}, ` +
         `${deaths.length} in the last ${DEATH_WINDOW_MS / 60_000} min); ` +

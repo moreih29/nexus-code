@@ -6,7 +6,7 @@ import type { RecordingSummary } from "../../../../../src/shared/notes/summary";
 const run = { agent: "claude", runId: "run", startedAt: 0, seen: false } as const;
 const finished = { ...run, endedAt: 1000 };
 
-function render(summary: RecordingSummary): string {
+function render(summary: RecordingSummary, onShow?: () => void): string {
   return renderToStaticMarkup(
     <SummaryBanner
       workspaceId="ws"
@@ -14,8 +14,13 @@ function render(summary: RecordingSummary): string {
       recordingId="recording"
       summary={summary}
       flush={async () => true}
+      onShow={onShow}
     />,
   );
+}
+
+function buttons(html: string): (string | undefined)[] {
+  return Array.from(html.matchAll(/<button[^>]*>([^<]+)<\/button>/g), (match) => match[1]);
 }
 
 test.each([
@@ -56,6 +61,7 @@ test.each([
     "Summary skipped · Transcript too long",
     ["Close"],
   ],
+  [{ ...finished, state: "skipped" }, "Summary skipped · Short recording", ["Close"]],
   [
     { ...finished, state: "failed", error: { kind: "interrupted" } },
     "Summary interrupted",
@@ -73,17 +79,26 @@ test.each([
   ],
 ] satisfies Array<
   [RecordingSummary, string, string[]]
->)("renders %j with the available actions", (summary, label, buttons) => {
+>)("renders %j with the available actions", (summary, label, expected) => {
   const html = render(summary);
   expect(html).toContain(label);
-  expect(Array.from(html.matchAll(/<button[^>]*>([^<]+)<\/button>/g), (match) => match[1])).toEqual(
-    buttons,
+  expect(buttons(html)).toEqual(expected);
+});
+
+test("a running summary says where its result goes", () => {
+  expect(render({ ...run, state: "running" })).toContain(
+    "Summary and to-dos added at the end of the note",
   );
+});
+
+test("a finished summary can be shown in the note", () => {
+  const html = render({ ...finished, state: "done", todos: 2 }, () => {});
+  expect(buttons(html)).toEqual(["Show summary", "Undo", "Close"]);
 });
 
 test.each([
   { ...finished, state: "done", todos: 0, seen: true },
-  { ...finished, state: "skipped" },
+  { ...finished, state: "skipped", seen: true },
   { ...finished, state: "undone" },
 ] satisfies RecordingSummary[])("hides %j", (summary) => {
   expect(render(summary)).toBe("");

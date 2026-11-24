@@ -11,6 +11,8 @@ let root: string | null = ROOT;
 let version = "0.170.0";
 const sent: Message[] = [];
 const removed: unknown[] = [];
+let removing: Promise<unknown> | undefined;
+const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const realIpc = await import("../../../../../../src/renderer/ipc/client");
 mock.module("../../../../../../src/renderer/ipc/client", () => ({
@@ -29,12 +31,18 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
       });
     }
     if (method === "attachRoot") return Promise.resolve({ ok: true, value: { root } });
-    if (method === "removeAttachments") removed.push(args);
+    if (method === "removeAttachments") {
+      removed.push(args);
+      if (removing) return removing.then(() => ({ ok: true, value: undefined }));
+    }
     return Promise.resolve({ ok: true, value: undefined });
   },
 }));
 
 const { CodexController } = await import(
+  "../../../../../../src/renderer/services/chat/codex/controller"
+);
+const { CodexForkedHistoryError } = await import(
   "../../../../../../src/renderer/services/chat/codex/controller"
 );
 const { codexThreadItems } = await import(
@@ -60,6 +68,7 @@ afterEach(() => {
   version = "0.170.0";
   sent.length = 0;
   removed.length = 0;
+  removing = undefined;
 });
 
 const userMessage = (id: string, text: string) => ({
@@ -164,7 +173,10 @@ test("pages of turns join while each cursor leads on to one not seen", () => {
   expect(appendCodexThreadPage(emptyCodexThreadPages(), { nextCursor: null })).toBeUndefined();
 });
 
-function tab(reply: (message: Message) => unknown): Controller {
+function tab(
+  reply: (message: Message) => unknown,
+  fail: (message: Message) => Message | undefined = () => undefined,
+): Controller {
   const c = new CodexController({ workspaceId: WS, tabId: `d${++seq}`, cwd: "/p", threadId: "t1" });
   live.push(c);
   const line = (dir: "sys" | "in" | "out", message: Message) =>
@@ -174,6 +186,11 @@ function tab(reply: (message: Message) => unknown): Controller {
     sent.push(message);
     line("in", message);
     if (message.id === undefined) return;
+    const error = fail(message);
+    if (error) {
+      line("out", { id: message.id, error });
+      return;
+    }
     const result =
       message.method === "initialize"
         ? { userAgent: `nexus-code/${version} (test)` }
@@ -209,13 +226,20 @@ test("deleting a thread reads its turns a page at a time, then removes what they
   });
   await c.prepareSend();
   await c.deleteThread("gone");
+  await settled();
   expect(asked()).toEqual([
     "thread/turns/list",
     "thread/turns/list",
     "thread/read",
     "thread/delete",
   ]);
-  expect(removed).toEqual([{ workspaceId: WS, slots: ["tab-a/1", "tab-a/2", "tab-b/1"] }]);
+  expect(removed).toEqual([
+    {
+      workspaceId: WS,
+      slots: ["tab-a/1", "tab-a/2", "tab-b/1"],
+      exceptThread: { threadId: "gone" },
+    },
+  ]);
 });
 
 test("a Codex before paged history is read whole", async () => {
@@ -225,12 +249,15 @@ test("a Codex before paged history is read whole", async () => {
   );
   await c.prepareSend();
   await c.deleteThread("gone");
+  await settled();
   expect(asked()).toEqual(["thread/read", "thread/read", "thread/delete"]);
   expect(sent.find((message) => message.method === "thread/read")?.params).toEqual({
     threadId: "gone",
     includeTurns: true,
   });
-  expect(removed).toEqual([{ workspaceId: WS, slots: ["tab-a/1", "tab-a/2"] }]);
+  expect(removed).toEqual([
+    { workspaceId: WS, slots: ["tab-a/1", "tab-a/2"], exceptThread: { threadId: "gone" } },
+  ]);
 });
 
 test("a thread whose pages break is deleted, its files left to the prune", async () => {
@@ -241,6 +268,7 @@ test("a thread whose pages break is deleted, its files left to the prune", async
   );
   await c.prepareSend();
   await c.deleteThread("gone");
+  await settled();
   expect(asked()).toEqual(["thread/turns/list", "thread/turns/list", "thread/delete"]);
   expect(removed).toEqual([]);
 });
@@ -271,16 +299,68 @@ test("deleting a fork removes only what its own turns attached, not what came fr
   });
   await c.prepareSend();
   await c.deleteThread("gone");
+  await settled();
   expect(sent.find((message) => message.method === "thread/delete")?.params).toEqual({
     threadId: "gone",
   });
-  expect(removed).toEqual([{ workspaceId: WS, slots: ["tab-c/1"] }]);
+  expect(removed).toEqual([
+    { workspaceId: WS, slots: ["tab-c/1"], exceptThread: { threadId: "gone" } },
+  ]);
 });
 
 test("a fork whose parent cannot be read is deleted, its files left to the prune", async () => {
   const c = threadsTab({ gone: { turns: [FIRST, FORKED], parent: "parent" } });
   await c.prepareSend();
   await c.deleteThread("gone");
+  await settled();
   expect(asked()).toContain("thread/delete");
+  expect(removed).toEqual([]);
+});
+
+test("a thread is deleted without waiting while the agent looks for other conversations naming its files", async () => {
+  removing = new Promise(() => {});
+  const c = threadsTab({ gone: { turns: [FIRST] } });
+  await c.prepareSend();
+  await c.deleteThread("gone");
+  await settled();
+  expect(asked()).toContain("thread/delete");
+  expect(removed).toEqual([
+    { workspaceId: WS, slots: ["tab-a/1", "tab-a/2"], exceptThread: { threadId: "gone" } },
+  ]);
+});
+
+const refusal = (threadId: string) => (message: Message) =>
+  message.method === "thread/delete"
+    ? {
+        code: -32600,
+        message: `cannot delete thread ${threadId}: forked history still references it`,
+      }
+    : undefined;
+
+test("a parent whose fork still uses its history is refused by name and keeps its files", async () => {
+  version = "0.169.0";
+  const c = tab(
+    (message) =>
+      message.method === "thread/read" ? { thread: thread([FIRST], "parent") } : undefined,
+    refusal("parent"),
+  );
+  await c.prepareSend();
+  const error = await c.deleteThread("parent").catch((reason: unknown) => reason);
+  await settled();
+  expect(error).toBeInstanceOf(CodexForkedHistoryError);
+  expect(asked()).toContain("thread/delete");
+  expect(removed).toEqual([]);
+});
+
+test("another refusal of thread/delete comes through as Codex worded it", async () => {
+  const cut = tab(
+    () => undefined,
+    (message) =>
+      message.method === "thread/delete" ? { code: -32603, message: "disk full" } : undefined,
+  );
+  await cut.prepareSend();
+  const error = await cut.deleteThread("gone").catch((reason: unknown) => reason);
+  expect(error).not.toBeInstanceOf(CodexForkedHistoryError);
+  expect((error as Error).message).toBe("disk full");
   expect(removed).toEqual([]);
 });

@@ -451,10 +451,66 @@
     "openStore": "Open Microsoft Store",
     "logs": {
       "title": "Logs",
-      "description": "Logs to attach to a problem report",
+      "description": "Logs to attach to a support request or GitHub issue",
       "open": "Open log folder",
       "copyPath": "Copy log path",
       "copied": "Copied"
+    },
+    "bugReport": {
+      "title": "Report a bug",
+      "reportOnSupport": "Report on the support page",
+      "notSent": "No conversations, files or paths are sent",
+      "description": "Description",
+      "placeholder": "What were you doing, and what went wrong?",
+      "tooShort": "At least {{min}} characters",
+      "length": "{{count}} / {{max}}",
+      "includeErrors": "Include recent errors",
+      "includeErrorsDescription": "Error messages with paths and keys hidden · Cleared when the app quits",
+      "contact": "Reply by email",
+      "preview": "What's sent",
+      "facts": {
+        "app": "App version",
+        "os": "OS version",
+        "device": "Device",
+        "protocol": "Protocol",
+        "locale": "Language",
+        "errors": "Recent errors"
+      },
+      "deviceKind": {
+        "phone": "Phone",
+        "tablet": "Tablet",
+        "desktop": "Desktop"
+      },
+      "localeName": {
+        "ko": "Korean",
+        "en": "English"
+      },
+      "errorsOff": "Not included",
+      "noErrors": "None",
+      "errorCount_one": "{{count}} time",
+      "errorCount_other": "{{count}} times",
+      "agoSeconds_one": "{{count}} second ago",
+      "agoSeconds_other": "{{count}} seconds ago",
+      "agoMinutes_one": "{{count}} minute ago",
+      "agoMinutes_other": "{{count}} minutes ago",
+      "agoHours_one": "{{count}} hour ago",
+      "agoHours_other": "{{count}} hours ago",
+      "send": "Send",
+      "sending": "Sending…",
+      "sent": "Report sent. Thank you.",
+      "error": {
+        "rateLimited": "Too many reports. Try again later.",
+        "rateLimitedMinutes_one": "Too many reports. Try again in {{count}} minute.",
+        "rateLimitedMinutes_other": "Too many reports. Try again in {{count}} minutes.",
+        "rateLimitedHours_one": "Too many reports. Try again in {{count}} hour.",
+        "rateLimitedHours_other": "Too many reports. Try again in {{count}} hours.",
+        "signedOut": "You were signed out. Sign in again.",
+        "notAllowed": "This account can't send reports. Contact us through the support page.",
+        "tooBig": "The report is too long. Shorten it and try again.",
+        "unsupported": "The server doesn't take reports yet. Use the support page for now.",
+        "offline": "Can't reach the server. Try again shortly.",
+        "failed": "Couldn't send the report. Try again."
+      }
     },
     "releaseNotes": "Release Notes",
     "downloadProgress": "Update download progress",
