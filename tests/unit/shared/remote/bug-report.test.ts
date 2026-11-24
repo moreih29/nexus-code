@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  BUG_REPORT_OS_VERSION_PATTERN,
   BugReportSchema,
   MAX_BUG_REPORT_DESCRIPTION,
   PROTOCOL_VERSION,
@@ -10,6 +11,7 @@ import {
   bugReportFits,
   bugReportLength,
   bugReportLocale,
+  bugReportOsVersion,
   buildBugReport,
   cleanBugReportDescription,
 } from "../../../../src/shared/remote/bug-report";
@@ -109,5 +111,23 @@ describe("the request body", () => {
     expect(bugReportLocale("ko-KR")).toBe("ko");
     expect(bugReportLocale("en")).toBe("en");
     expect(bugReportLocale("fr")).toBe("en");
+  });
+});
+
+describe("the OS a bug report names", () => {
+  test.each([
+    ["darwin", "26.1", "macOS-26.1"],
+    ["win32", "10.0.26100", "Windows-10.0.26100"],
+    ["linux", "6.8.0", "Linux-6.8.0"],
+    ["freebsd", "14.1", "freebsd-14.1"],
+    ["toString", "1.0", "toString-1.0"],
+  ])("%s %s is sent as %s", (platform, version, sent) => {
+    expect(bugReportOsVersion(platform, version)).toBe(sent);
+  });
+
+  test("spaces become dashes and the value fits the pattern", () => {
+    const sent = bugReportOsVersion("linux", "6.8.0 generic");
+    expect(sent).toBe("Linux-6.8.0-generic");
+    expect(BUG_REPORT_OS_VERSION_PATTERN.test(sent)).toBe(true);
   });
 });
