@@ -40,6 +40,7 @@ import type { SessionActivity } from "../../../shared/claude/activity";
 import { locationLabel, type WorkspaceMeta } from "../../../shared/types/workspace";
 import { shortId } from "../../../shared/util/short-id";
 import { AgentRows } from "../agent-list/agent-rows";
+import { RowAnswer } from "../agent-list/row-answer";
 import { type RowPlace, rowShellClass, SessionRowLines } from "../agent-list/session-row";
 import {
   HiddenSessionCount,
@@ -848,6 +849,7 @@ const AgentItem = memo(function AgentItem({
           )
         }
       />
+      {attention && <RowAnswer session={session} activity={run} testId="agent-sidebar-answer" />}
       {session.kind !== "terminal" && (
         <div className="pointer-events-none relative">
           <GoalRowLine workspaceId={session.workspaceId} tabId={session.tabId} />
