@@ -60,6 +60,7 @@ const FORBIDDEN: readonly { word: RegExp; use: string; allowed: readonly string[
   { word: /에디터/, use: "편집기", allowed: [] },
   { word: /에이전트 뷰/, use: "에이전트 보기", allowed: [] },
   { word: /전체 접근/, use: "전체 권한", allowed: [] },
+  { word: /원문|녹취(?!록)|받아 ?쓴 글/, use: "녹취록", allowed: [] },
   {
     word: /\}\}["'“”‘’]?(\((을|를|이|가|은|는|과|와|으)\)|(을|를|이|가|은|는|과|와|으로|로)(?![가-힣]))/,
     use: "a sentence with no particle right after an interpolation",
