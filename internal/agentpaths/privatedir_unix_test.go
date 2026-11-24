@@ -3,6 +3,8 @@
 package agentpaths_test
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -36,9 +38,7 @@ func TestEnsurePrivateDirRefusesWideOrLinkedDirectories(t *testing.T) {
 	if err := os.Chmod(wide, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := agentpaths.EnsurePrivateDir(wide); err == nil {
-		t.Fatal("accepted a 0755 directory")
-	}
+	refusedFor(t, wide, "its mode is 0755, not 0700")
 
 	target := filepath.Join(base, "target")
 	if err := os.Mkdir(target, 0o700); err != nil {
@@ -48,7 +48,26 @@ func TestEnsurePrivateDirRefusesWideOrLinkedDirectories(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
-	if err := agentpaths.EnsurePrivateDir(link); err == nil {
-		t.Fatal("accepted a symlink")
+	refusedFor(t, link, "it is a symbolic link")
+
+	file := filepath.Join(base, "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refusedFor(t, file, "it is not a directory")
+}
+
+func refusedFor(t *testing.T, dir, reason string) {
+	t.Helper()
+	err := agentpaths.EnsurePrivateDir(dir)
+	var refused *agentpaths.NotPrivateError
+	if !errors.As(err, &refused) || !errors.Is(err, agentpaths.ErrNotPrivate) {
+		t.Fatalf("EnsurePrivateDir(%s) = %v, want a NotPrivateError", dir, err)
+	}
+	if refused.Dir != dir || refused.Reason != reason {
+		t.Fatalf("refused %s for %q, want %s for %q", refused.Dir, refused.Reason, dir, reason)
+	}
+	if want := fmt.Sprintf("agentpaths: socket directory %q must be a private directory owned by the current user: %s", dir, reason); err.Error() != want {
+		t.Fatalf("error = %q, want %q", err, want)
 	}
 }

@@ -106,8 +106,10 @@ func TestEnsurePrivateDirRefusesAJunction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := agentpaths.EnsurePrivateDir(link); err == nil {
-		t.Fatal("accepted a junction")
+	err = agentpaths.EnsurePrivateDir(link)
+	var refused *agentpaths.NotPrivateError
+	if !errors.As(err, &refused) || refused.Reason != "it is a junction or another reparse point" {
+		t.Fatalf("EnsurePrivateDir(junction) = %v, want a refusal because it is a reparse point", err)
 	}
 	after, err := windows.GetNamedSecurityInfo(target, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
@@ -184,15 +186,17 @@ func TestEnsurePrivateDirKeepsAGoodExistingDirectoryAsItIs(t *testing.T) {
 
 func TestEnsurePrivateDirRefusesAnExistingDirectoryOthersCanReach(t *testing.T) {
 	sid := currentUserSID(t)
-	for name, sddl := range map[string]string{
-		"inherited":      "",
-		"everyone":       "D:P(A;OICI;GA;;;" + sid + ")(A;OICI;FA;;;WD)",
-		"users":          "D:P(A;OICI;GA;;;" + sid + ")(A;;FR;;;BU)",
-		"deny":           "D:P(A;OICI;GA;;;" + sid + ")(D;;FA;;;WD)",
-		"null dacl":      "D:NO_ACCESS_CONTROL",
-		"admins as well": "D:P(A;OICI;GA;;;" + sid + ")(A;OICI;GA;;;BA)",
+	const other = "its DACL has an entry that is not an allow for the current user: ("
+	for name, c := range map[string]struct{ sddl, reason, ace string }{
+		"inherited":      {"", "its DACL inherits entries from the parent folder", ""},
+		"everyone":       {"D:P(A;OICI;GA;;;" + sid + ")(A;OICI;FA;;;WD)", other, ";;;WD)"},
+		"users":          {"D:P(A;OICI;GA;;;" + sid + ")(A;;FR;;;BU)", other, ";;;BU)"},
+		"deny":           {"D:P(A;OICI;GA;;;" + sid + ")(D;;FA;;;WD)", other + "D;", ";;;WD)"},
+		"null dacl":      {"D:NO_ACCESS_CONTROL", "it has no DACL, so everyone may open it", ""},
+		"admins as well": {"D:P(A;OICI;GA;;;" + sid + ")(A;OICI;GA;;;BA)", other, ";;;BA)"},
 	} {
 		t.Run(name, func(t *testing.T) {
+			sddl := c.sddl
 			dir := filepath.Join(shortTempDir(t), "reach")
 			if sddl == "" {
 				if err := os.Mkdir(dir, 0o700); err != nil {
@@ -212,6 +216,11 @@ func TestEnsurePrivateDirRefusesAnExistingDirectoryOthersCanReach(t *testing.T) 
 			if !strings.Contains(err.Error(), fmt.Sprintf("%q", dir)) {
 				t.Errorf("error %q does not name %s", err, dir)
 			}
+			var refused *agentpaths.NotPrivateError
+			if !errors.As(err, &refused) || !strings.HasPrefix(refused.Reason, c.reason) ||
+				!strings.HasSuffix(refused.Reason, c.ace) {
+				t.Errorf("refused for %q, want %q…%q", refused.Reason, c.reason, c.ace)
+			}
 			if after := daclOf(t, dir); after != before {
 				t.Fatalf("changed the DACL from %s to %s", before, after)
 			}
@@ -224,8 +233,10 @@ func TestEnsurePrivateDirRefusesAFile(t *testing.T) {
 	if err := os.WriteFile(file, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := agentpaths.EnsurePrivateDir(file); !errors.Is(err, agentpaths.ErrNotPrivate) {
-		t.Fatalf("EnsurePrivateDir(file) = %v, want ErrNotPrivate", err)
+	err := agentpaths.EnsurePrivateDir(file)
+	var refused *agentpaths.NotPrivateError
+	if !errors.As(err, &refused) || refused.Reason != "it is not a directory" {
+		t.Fatalf("EnsurePrivateDir(file) = %v, want a refusal because it is not a directory", err)
 	}
 }
 

@@ -31,8 +31,8 @@ func TestDaclAllowsOnlyComparesSidsNotTheirSpelling(t *testing.T) {
 		{"D:P", admin, false},
 		{"D:NO_ACCESS_CONTROL", admin, false},
 	} {
-		if got := daclAllowsOnly(c.sddl, c.user); got != c.want {
-			t.Errorf("daclAllowsOnly(%s, %s) = %v, want %v", c.sddl, c.user, got, c.want)
+		if problem := daclProblem(c.sddl, c.user); (problem == "") != c.want {
+			t.Errorf("daclProblem(%s, %s) = %q, want private=%v", c.sddl, c.user, problem, c.want)
 		}
 	}
 }

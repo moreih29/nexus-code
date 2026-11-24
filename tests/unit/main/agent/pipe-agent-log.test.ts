@@ -107,3 +107,47 @@ test("an agent log record keeps each value short", () => {
   expect(attrs[2]).toBe('deep={"a":{"b":{"c":{"d":"[…]"}}}}');
   expect(msg).not.toContain('deep"}');
 });
+
+test("a hookserver socket record keeps the paths it chose and why", () => {
+  logged.length = 0;
+  const stderr = agentStderr();
+  const wanted = `C:\\Users\\u\\${"h".repeat(80)}\\sockets\\h-0123456789ab.sock`;
+  const fallback = "C:\\Users\\u\\.nexus-code\\s\\89abcdef\\h-0123456789ab.sock";
+  const lines = [
+    {
+      level: "INFO",
+      msg: "hookserver socket path over the limit; using a fallback",
+      src: "agent-log",
+      path: wanted,
+      bytes: wanted.length,
+      limit: 107,
+      fallback,
+    },
+    {
+      level: "INFO",
+      msg: "hookserver fallback directory refused; using a fresh one",
+      src: "agent-log",
+      refused: "/tmp/nexus-code-501-89abcdef",
+      reason: "it is owned by uid 0, not 501",
+      fresh: "/tmp/nexus-code-501-1234567",
+    },
+  ];
+  stderr.emit("data", Buffer.from(lines.map((line) => `${JSON.stringify(line)}\n`).join("")));
+
+  expect(logged).toEqual([
+    {
+      level: "info",
+      msg:
+        "hookserver socket path over the limit; using a fallback " +
+        `path=${JSON.stringify(wanted)} bytes=${wanted.length} limit=107 fallback=${JSON.stringify(fallback)}`,
+      meta: undefined,
+    },
+    {
+      level: "info",
+      msg:
+        "hookserver fallback directory refused; using a fresh one " +
+        'refused="/tmp/nexus-code-501-89abcdef" reason="it is owned by uid 0, not 501" fresh="/tmp/nexus-code-501-1234567"',
+      meta: undefined,
+    },
+  ]);
+});
