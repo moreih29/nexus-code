@@ -282,6 +282,38 @@ describe("voice input's socket", () => {
     expect(await started).toMatchObject({ status: "failed", reason: "network" });
   });
 
+  test("records the server's refusal of a socket by its code only", async () => {
+    const errors = new RecentErrors(() => 0);
+    const refused = setup({ purpose: "note", recordError: errors.record });
+    const started = refused.voice.start("ko");
+    (await refused.socket()).say({
+      t: "error",
+      code: "provider-error",
+      message: "keyterm Kim MacBook Pro is too long",
+    });
+    expect(await started).toMatchObject({
+      status: "failed",
+      reason: "failed",
+      message: "keyterm Kim MacBook Pro is too long",
+    });
+    expect(errors.list()).toEqual([{ ago: 0, area: "voice", code: "note:failed" }]);
+  });
+
+  test("records a failed transcription by its code only", async () => {
+    const errors = new RecentErrors(() => 0);
+    const { voice } = setup({
+      purpose: "note",
+      recordError: errors.record,
+      request: async () => ({
+        id: "tr-1",
+        status: "error",
+        message: "keyterm my-secret-project was refused",
+      }),
+    });
+    expect(await voice.transcription("tr-1")).toMatchObject({ status: "error" });
+    expect(errors.list()).toEqual([{ ago: 0, area: "voice", code: "transcription:error" }]);
+  });
+
   test("records a socket that failed to get ready, with its purpose and reason", async () => {
     const errors = new RecentErrors(() => 0);
     const dropped = setup({ purpose: "note", recordError: errors.record });

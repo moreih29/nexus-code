@@ -3,6 +3,7 @@ import {
   type BugReport,
   type BugReportContext,
   BugReportCreatedSchema,
+  type BugReportRecentError,
 } from "../../../../packages/remote-protocol/src";
 import { createLogger } from "../../../shared/log/main";
 import {
@@ -13,6 +14,7 @@ import {
   bugReportContext,
   buildBugReport,
   cleanBugReportDescription,
+  shownErrorsAsOf,
 } from "../../../shared/remote/bug-report";
 import type { RecentErrors } from "../../infra/recent-errors";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
@@ -24,6 +26,7 @@ export interface BugReportsDeps {
   errors: Pick<RecentErrors, "list">;
   facts(): BugReportFacts;
   newId?: () => string;
+  now?: () => number;
 }
 
 export class BugReports {
@@ -39,12 +42,24 @@ export class BugReports {
     );
   }
 
+  private sentErrors(draft: BugReportDraft): BugReportRecentError[] | null {
+    if (!draft.includeErrors) return null;
+    return draft.shown ? shownErrorsAsOf(draft.shown, (this.deps.now ?? Date.now)()) : [];
+  }
+
   async send(draft: BugReportDraft): Promise<BugReportOutcome> {
     const key = JSON.stringify([
       cleanBugReportDescription(draft.description),
       draft.contactOk,
       draft.includeErrors,
       draft.locale,
+      draft.shown?.errors.map(({ area, code, status, message, count }) => [
+        area,
+        code,
+        status,
+        message,
+        count,
+      ]),
     ]);
     if (this.pending?.key !== key) {
       this.pending = { key, id: (this.deps.newId ?? randomUUID)() };
@@ -54,7 +69,7 @@ export class BugReports {
       const body = buildBugReport(
         pending.id,
         draft,
-        this.context(draft.locale, draft.includeErrors),
+        bugReportContext(this.deps.facts(), draft.locale, this.sentErrors(draft)),
       );
       const created = BugReportCreatedSchema.parse(await this.deps.account.sendBugReport(body));
       if (this.pending === pending) this.pending = null;
