@@ -13,6 +13,7 @@ import { useUpdatesStore } from "../../../state/stores/updates";
 import { Button } from "../../ui/button";
 import { CopyButton } from "../../ui/copy-button";
 import { SettingsGroup, SettingsPage, SettingsRow, SettingsSwitch } from "../section";
+import { BugReportGroup } from "./bug-report-group";
 
 const APP_NAME = "NexusCode";
 const COPYRIGHT = "Copyright © 2026 moreih29";
@@ -71,6 +72,8 @@ export function AboutPanel() {
       <SettingsGroup title={t("about.logs.title")} description={t("about.logs.description")}>
         <LogActions />
       </SettingsGroup>
+
+      <BugReportGroup />
     </SettingsPage>
   );
 }

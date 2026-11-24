@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BugReportContextSchema } from "../../../packages/remote-protocol/src/bug-report";
 import { ServerInfoSchema } from "../../../packages/remote-protocol/src/info";
 import {
   ChatUpdateSchema,
@@ -150,6 +151,11 @@ import {
   RemoteDeviceInfoSchema,
   SignInProviderSchema,
 } from "../remote/account";
+import {
+  BugReportDraftSchema,
+  BugReportLocaleSchema,
+  BugReportOutcomeSchema,
+} from "../remote/bug-report";
 import { PairingStateSchema } from "../remote/pairing";
 import { RoomStateSchema } from "../remote/room";
 import {
@@ -2072,6 +2078,11 @@ const remoteContracts = {
         z.object({ policy: RemoteAgentsPolicySchema }),
         RemoteAgentsPolicySchema,
       ),
+      bugReportContext: call(
+        z.object({ locale: BugReportLocaleSchema, includeErrors: z.boolean() }),
+        BugReportContextSchema,
+      ),
+      sendBugReport: call(BugReportDraftSchema, BugReportOutcomeSchema),
       phonePushPolicy: call(z.void(), PhonePushPolicySchema),
       setPhonePushPolicy: call(z.object({ policy: PhonePushPolicySchema }), PhonePushPolicySchema),
       peerSessionsWatch: call(

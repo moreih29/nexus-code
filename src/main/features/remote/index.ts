@@ -1,3 +1,4 @@
+import { release } from "node:os";
 import { join } from "node:path";
 import { app, nativeImage, shell, systemPreferences } from "electron";
 import { renderSVG } from "uqr";
@@ -26,6 +27,7 @@ import { RemoteAccount, SavedAccountSchema } from "./account";
 import { roomKeyOf } from "./account-key";
 import { AccountKeys, KeyError, SavedKeySchema } from "./account-keys";
 import { AgentGate } from "./agent-gate";
+import { BugReports } from "./bug-reports";
 import { ChatWatches } from "./chat-watches";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
 import { FileWrites } from "./file-writes";
@@ -38,6 +40,7 @@ import { PeerFileReads } from "./peer-file-reads";
 import { dropPeerHolds } from "./peer-holds";
 import { PEER_READ_METHODS, peerReadCalls } from "./peer-read-calls";
 import { PhonePush, type PhonePushActivity } from "./phone-push";
+import { RecentErrors } from "./recent-errors";
 import { RelayConnection } from "./relay-connection";
 import { SocketRetryAfter } from "./retry-after";
 import { RemoteRoom, RpcFailure } from "./room";
@@ -241,6 +244,8 @@ export async function registerRemoteChannel(options: {
     broadcast("remote", "roomChanged", state);
   };
   let keys: AccountKeys | null = null;
+  const recentErrors = new RecentErrors();
+  const relayFailed = (code: string, status?: number) => recentErrors.record("relay", code, status);
   const server = remoteServer(process.env, app.isPackaged, (message) => log.warn(message));
   const account = new RemoteAccount({
     server,
@@ -248,6 +253,7 @@ export async function registerRemoteChannel(options: {
     store,
     openExternal: (url) => shell.openExternal(url),
     installId: () => installIdAt(join(app.getPath("userData"), "remote-install-id")),
+    recordError: recentErrors.record,
     ...signInOptions(),
     onBrowserBack: () => {
       if (process.platform === "darwin") app.focus({ steal: true });
@@ -259,6 +265,11 @@ export async function registerRemoteChannel(options: {
       void keys?.accountChanged(state).catch(() => {});
       syncRoom();
     },
+  });
+  const bugReports = new BugReports({
+    account,
+    errors: recentErrors,
+    facts: () => ({ appVersion: app.getVersion(), osVersion: release(), arch: process.arch }),
   });
   const push = new PhonePush({
     account,
@@ -357,6 +368,7 @@ export async function registerRemoteChannel(options: {
           url: relayUrl,
           retryAfter: socketRetryAfter,
           unreachable: (url) => void account.route.unreachable(url),
+          failed: relayFailed,
         });
         return relay;
       },
@@ -440,7 +452,12 @@ export async function registerRemoteChannel(options: {
           }
         : null,
     connect: (handlers) =>
-      new RelayConnection({ ...handlers, url: relayUrl, retryAfter: socketRetryAfter }),
+      new RelayConnection({
+        ...handlers,
+        url: relayUrl,
+        retryAfter: socketRetryAfter,
+        failed: relayFailed,
+      }),
     qr: async (text) =>
       `data:image/svg+xml;base64,${Buffer.from(renderSVG(text, { border: 2 })).toString("base64")}`,
     onChange: (state) => broadcast("remote", "pairChanged", state),
@@ -542,6 +559,12 @@ export async function registerRemoteChannel(options: {
         }
         return ipcOk(policy);
       },
+      bugReportContext: async (args: unknown) => {
+        const { locale, includeErrors } = validateArgs(c.bugReportContext.args, args);
+        return ipcOk(bugReports.context(locale, includeErrors));
+      },
+      sendBugReport: async (args: unknown) =>
+        ipcOk(await bugReports.send(validateArgs(c.sendBugReport.args, args))),
       phonePushPolicy: async () => ipcOk(options.phonePush.get()),
       setPhonePushPolicy: async (args: unknown) => {
         const { policy } = validateArgs(c.setPhonePushPolicy.args, args);

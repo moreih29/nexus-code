@@ -2,9 +2,9 @@
 
 [English](#nexuscode-privacy-policy)
 
-시행일: 2026년 11월 23일
+시행일: 2026년 11월 24일
 
-NexusCode는 사용 통계, 분석, 오류 보고를 개발자에게 보내지 않습니다. 앱은 로그인하지 않고도 쓸 수 있고, 그때는 **설정 → 원격**에서 로그인 방법 목록을 불러올 때 말고는 개발자가 운영하는 서버와 통신하지 않습니다. 이 요청에는 계정이나 기기에 관한 정보가 들어 있지 않습니다. NexusCode 계정으로 로그인해 원격, 음성 입력, 노트 녹음, 모바일 앱을 쓸 때만 아래 [NexusCode 계정](#nexuscode-계정)에 적은 정보가 개발자가 운영하는 서버(이하 "서버")를 거칩니다.
+NexusCode는 사용 통계와 분석을 개발자에게 보내지 않습니다. 오류 정보는 사용자가 버그 신고를 보낼 때만 보냅니다. 앱은 로그인하지 않고도 쓸 수 있고, 그때는 **설정 → 원격**에서 로그인 방법 목록을 불러올 때 말고는 개발자가 운영하는 서버와 통신하지 않습니다. 이 요청에는 계정이나 기기에 관한 정보가 들어 있지 않습니다. NexusCode 계정으로 로그인해 원격, 음성 입력, 노트 녹음, 버그 신고, 모바일 앱을 쓸 때만 아래 [NexusCode 계정](#nexuscode-계정)에 적은 정보가 개발자가 운영하는 서버(이하 "서버")를 거칩니다.
 
 ## 기기에 저장하는 정보
 
@@ -29,6 +29,7 @@ NexusCode는 사용 통계, 분석, 오류 보고를 개발자에게 보내지 �
 - **음성 입력**: 말하는 동안 소리를 서버를 거쳐 음성 인식 서비스 Soniox로 보내 실시간으로 받아씁니다. 서버는 소리와 받아쓴 글을 저장하지 않습니다. 음성 입력에 쓴 시간은 기록합니다. 사용자가 등록한 **음성 인식 단어**는 계정을 지울 때까지 서버에 저장합니다. 받아쓸 때 이 단어 목록도 소리와 함께 Soniox에 보냅니다.
 - **노트 녹음**: 녹음하는 동안의 소리는 음성 입력처럼 Soniox로 보내 실시간으로 받아쓰고, 목소리를 구별해 말한 사람별로 나눕니다(누구인지 알아내지는 않습니다). 앱도 컴퓨터에서 목소리를 소리로 구별합니다. 줄마다 목소리 특징(성문)을 컴퓨터 안에서 계산하며, 이 값은 컴퓨터 밖으로 나가지 않고 녹음하는 동안 메모리에만 두며 저장하지 않습니다. 녹음이 끝난 뒤 더 정확한 글을 얻으려고 녹음 파일을 서버를 거쳐 Soniox로 한 번 더 보낼 수 있습니다. 이 파일은 받아쓴 글이 나오면 바로 지우고, 글은 앱이 가져가면 지우며, 늦어도 파일을 보내고 하루 안에 모두 지웁니다. 서버는 그동안 녹음 길이와 처리 상태만 보관합니다.
 - **사용량**: 음성 입력과 노트 녹음에 쓴 시간을 달마다 기록합니다.
+- **버그 신고**: 컴퓨터와 모바일 앱의 **설정 → 정보**에서 보내기를 누를 때만 서버로 보냅니다. 보내는 정보는 사용자가 쓴 설명, 앱 버전, 운영체제 버전, 기기 종류(컴퓨터, 휴대폰, 태블릿), 원격 규약 버전, 앱 언어, 그리고 끄지 않았다면 최근 오류 기록입니다. 휴대폰과 태블릿은 앱 빌드 번호와 모델 식별자(iPhone16,2 등)를, 컴퓨터는 프로세서 종류(arm64 등)를 함께 보냅니다. 최근 오류 기록은 앱이 메모리에만 두는 최근 20건의 오류 영역과 코드(`http_500`, `timeout` 등), 그리고 몇 초 전에 생겼는지입니다. 오류 메시지는 넣지 않으며, 앱을 끄면 지워집니다. 보내기 전에 보낼 값을 화면에서 그대로 볼 수 있습니다. 대화 내용, 터미널 화면, 파일 이름과 경로, 워크스페이스 이름, 기기 이름, 로그는 보내지 않습니다. 모바일 앱은 보내지 못한 신고의 초안을 보내거나 로그아웃하거나 계정을 지울 때까지 휴대폰에 남기고, 컴퓨터 앱은 디스크에 아무것도 남기지 않습니다. 신고는 계정과 연결해 보관하고 버그를 고치는 데만 씁니다. 닫은 뒤 90일이 지나면 지우고, 닫지 않았어도 접수 후 1년이 지나면 지웁니다. 계정을 지우면 바로 지웁니다. 개발자는 "이메일로 답장 받기"를 켠 신고에만 계정 이메일 주소로 답장합니다.
 - **모바일 앱**: 채팅과 노트에 붙일 사진은 사용자가 고른 것만 읽어 종단간 암호화해 컴퓨터로 보냅니다. 카메라는 기기를 연결할 때 QR 코드를 읽는 데만 씁니다. QR 코드 내용은 기기 안에서 읽고, 카메라 화면은 저장하거나 보내지 않습니다. 마이크는 음성 입력에 씁니다. 컴퓨터에서 음성 입력을 할 때처럼 소리는 서버를 거쳐 Soniox로 보냅니다.
 - **푸시 알림**을 iOS 앱에서 켜면 서버는 푸시 토큰, 알림 언어와 종류를 기기 정보와 함께 보관합니다. 에이전트가 승인이나 답을 기다리면 Apple 푸시 알림 서비스(APNs)를 통해 알림을 보낼 수 있습니다. 알림에는 “승인을 기다리는 요청이 있습니다” 같은 정해진 문구만 표시합니다. 세션 제목, 컴퓨터 이름, 명령, 경로, 대화 내용은 알림에 들어가지 않습니다. 중복 발송을 막으려고 알림마다 무작위 식별자를 하루 동안 보관한 뒤 다음 정리 때 지웁니다. 알림 끄기, 로그아웃, 기기 제거, 계정 삭제가 서버에서 처리되면 등록 정보를 지웁니다. Apple이 무효라고 알린 토큰도 지웁니다.
 - **운영 기록**: 서버는 Cloudflare에서 돌아갑니다. 앱은 AWS Lightsail(서울)의 중계 서버를 먼저 거쳐 Cloudflare에 연결하며, 중계 서버는 접속 기록을 남기지 않습니다. Cloudflare의 요청 처리 기록(시각, 경로, 결과, IP 주소 같은 접속 정보)은 오류를 찾고 남용을 막는 데만 쓰며 Cloudflare에 며칠 동안 남습니다. 로그인 시도가 지나치게 많은 곳을 막으려고 접속한 네트워크를 잠시 셉니다.
@@ -39,11 +40,11 @@ Soniox는 받은 소리와 글을 모델 학습에 쓰지 않습니다.
 
 개발자는 관리 화면에서 가입 요청을 승인하거나 거절하고 계정을 관리합니다.
 
-- **보는 정보**: 가입 요청과 계정의 이메일 주소, 이름, 로그인 방식, 상태, 요청·가입·승인 시각, 마지막 접속 시각(1시간 단위), 기기 이름과 운영체제, 기기별 로그인·접속 시각, 그달의 음성 사용 시간, 계정 비밀번호를 정했는지 같은 상태를 봅니다. 요청과 계정에는 200자까지 메모를 남길 수 있습니다.
+- **보는 정보**: 가입 요청과 계정의 이메일 주소, 이름, 로그인 방식, 상태, 요청·가입·승인 시각, 마지막 접속 시각(1시간 단위), 기기 이름과 운영체제, 기기별 로그인·접속 시각, 그달의 음성 사용 시간, 계정 비밀번호를 정했는지 같은 상태를 봅니다. 버그 신고는 보낸 내용과 신고한 계정을 봅니다. 요청과 계정, 버그 신고에는 200자까지 메모를 남길 수 있습니다.
 - **보지 못하는 정보**: 관리 화면에는 원격 내용, 받아쓴 글, 음성 인식 단어, 계정 키가 나오지 않습니다.
 - **정지**: 계정을 정지하면 모든 기기에서 로그아웃되고, 정지가 풀릴 때까지 로그인할 수 없습니다. 계정 정보와 잠긴 계정 키는 그대로 남습니다. 정지하지 않고 모든 기기에서 로그아웃시킬 수도 있습니다.
 - **삭제**: 개발자는 정지된 계정만 지울 수 있고, 아래 [계정 삭제](#계정-삭제)와 같이 지웁니다. 다시 요청하지 못하게 할 때는 로그인한 서비스와 계정 식별자, 이메일 주소, 이름을 거절된 요청으로 30일 동안 남깁니다.
-- **관리 기록**: 개발자가 한 일(언제, 어느 요청이나 계정에 무엇을 했는지와 ab\*\*\*@example.com처럼 일부만 남긴 이메일 주소)을 작업한 때부터 1년 동안 보관합니다. 계정을 지워도 이 기록은 그때까지 남습니다.
+- **관리 기록**: 개발자가 한 일(언제, 어느 요청이나 계정, 버그 신고에 무엇을 했는지와 ab\*\*\*@example.com처럼 일부만 남긴 이메일 주소)을 작업한 때부터 1년 동안 보관합니다. 계정을 지워도 이 기록은 그때까지 남습니다.
 
 ### 계정 삭제
 
@@ -60,7 +61,7 @@ Soniox는 받은 소리와 글을 모델 학습에 쓰지 않습니다.
 | 받는 곳 | 하는 일 | 위치 | 받는 정보 | 보관 기간 |
 |---|---|---|---|---|
 | Amazon Web Services, Inc. | 연결 중계 | 대한민국(서울) | 위 계정 정보와 음성(전달만) | 저장하지 않음 |
-| Cloudflare, Inc. | 서버와 데이터베이스 운영 | 미국 등 Cloudflare의 데이터 센터 | 위 계정 정보, 원격의 암호화된 내용(전달만) | 계정을 지울 때까지(가입 요청과 관리 기록은 위에 적은 기간) |
+| Cloudflare, Inc. | 서버와 데이터베이스 운영 | 미국 등 Cloudflare의 데이터 센터 | 위 계정 정보, 원격의 암호화된 내용(전달만) | 계정을 지울 때까지(가입 요청, 관리 기록, 버그 신고는 위에 적은 기간) |
 | Soniox | 음성 인식 | 미국 | 음성 입력과 노트 녹음의 소리, 노트 녹음 파일, 음성 인식 단어 | 실시간 소리는 받아쓰는 동안, 녹음 파일과 그 글은 최대 하루 |
 | Google, GitHub | 로그인 | 미국 | 사용자가 그 서비스에서 직접 로그인합니다 | 각 서비스의 방침에 따름 |
 | Apple Inc. | 로그인, 푸시 알림 전달 | 미국 등 | Apple에서 직접 로그인(계정을 지울 때 Apple에 토큰 폐기 요청) · 휴대폰의 푸시 토큰, 정해진 알림 문구와 종류 | 로그인은 Apple의 방침에 따름 · 푸시는 전달 대기 중 임시 보관(최대 15분으로 설정) |
@@ -76,6 +77,7 @@ Microsoft Store, Apple App Store, Amazon Web Services, Cloudflare, Soniox, GitHu
 ## 문의
 
 - 계정·개인정보 문의: <support@gradiendo.com>
+- 버그 신고: 로그인했다면 컴퓨터와 모바일 앱의 **설정 → 정보**
 - 버그와 기능 제안: <https://github.com/moreih29/nexus-code/issues>
 
 ## 변경
@@ -86,9 +88,9 @@ Microsoft Store, Apple App Store, Amazon Web Services, Cloudflare, Soniox, GitHu
 
 # NexusCode Privacy Policy
 
-Effective November 23, 2026
+Effective November 24, 2026
 
-NexusCode sends no usage statistics, analytics or error reports to its developer. The app works without signing in, and then it does not talk to any server the developer runs, except to list the ways to sign in when you open **Settings → Remote**; that request carries nothing about you or your device. Only when you sign in to a NexusCode account to use remote, voice input, note recording or the mobile app does the information under [NexusCode account](#nexuscode-account) go through the developer's server (the "server").
+NexusCode sends no usage statistics or analytics to its developer. Error information goes only in a bug report you choose to send. The app works without signing in, and then it does not talk to any server the developer runs, except to list the ways to sign in when you open **Settings → Remote**; that request carries nothing about you or your device. Only when you sign in to a NexusCode account to use remote, voice input, note recording, bug reports or the mobile app does the information under [NexusCode account](#nexuscode-account) go through the developer's server (the "server").
 
 ## What stays on your device
 
@@ -113,6 +115,7 @@ What the server handles when you sign in and use account features.
 - **Voice input**: while you speak, the sound goes through the server to the speech-to-text service Soniox, which transcribes it as you speak. The server does not store the sound or the transcript. It records how long you used voice input. The server keeps the **speech recognition words** you add until you delete your account. It sends the list to Soniox along with the audio for transcription.
 - **Note recording**: while you record, the sound goes to Soniox and is transcribed as voice input is, with voices told apart so the text is split by speaker (it does not identify anyone). The app also tells the voices apart on your computer by how they sound: it works out a voice print of each line there, which never leaves the computer, is kept in memory only while you record, and is not saved. After the recording, its file may go once more through the server to Soniox for a more accurate text. The file is deleted as soon as its text is ready, the text once the app has it, and both within a day of the file being sent at the latest. Until then the server keeps only the recording's length and how far its transcription is.
 - **Usage**: the time you used voice input and note recording is recorded each month.
+- **Bug reports**: a bug report goes to the server only when you press Send in **Settings → About** in the desktop or mobile app. It carries what you wrote, the app version, the operating system's version, the device kind (computer, phone or tablet), the remote protocol version, the app's language, and, unless you turn them off, recent errors. A phone or tablet adds the app's build number and its model identifier (such as iPhone16,2); a computer adds its processor type (such as arm64). Recent errors are the area and code (such as `http_500` or `timeout`) of the last 20 errors the app keeps in memory, and how many seconds ago each happened. They hold no error messages and are gone when the app quits. Before you send, the app shows these values as they will go. It does not send conversations, terminal screens, file names or paths, workspace names, device names or logs. The mobile app keeps an unsent report's draft on the phone until it is sent, you sign out or you delete your account; the desktop app keeps nothing on disk. A report is kept with your account and used only to fix bugs. It is deleted 90 days after it is closed, and a year after it was sent even if it is still open. Deleting your account deletes it at once. The developer replies by email, at your account's address, only to a report sent with "Reply by email" on.
 - **Mobile app**: it reads only the photos you choose to attach to chats and notes and sends them end-to-end encrypted to your computer. It uses the camera only to scan QR codes when you link devices. It reads the QR code on the device without saving or sending the camera image. It uses the microphone for voice input. The audio goes through the server to Soniox, as it does on a computer.
 - When you turn on **push notifications** in the iOS app, the server keeps the push token, notification language and kinds with your device's details. When an agent is waiting for approval or an answer, the server can send a notification through the Apple Push Notification service (APNs). It shows only a fixed message such as “A request is waiting for your approval.” Notifications contain no session titles, computer names, commands, paths or conversation content. To prevent duplicates, the server keeps a random identifier for each notification for a day and deletes it at the next cleanup. The server deletes the registration when it processes a request to turn notifications off, a sign-out, device removal or account deletion. It also deletes tokens Apple reports as invalid.
 - **Operational logs**: the server runs on Cloudflare. The app connects to Cloudflare through a relay on AWS Lightsail in Seoul, which keeps no access logs. Records of the requests the Cloudflare server handles (time, path, result and connection details such as your IP address) are used only to find faults and stop abuse, and stay with Cloudflare for a few days. To stop excessive sign-in attempts, the server briefly counts requests from each network.
@@ -123,11 +126,11 @@ Soniox does not use the sound or text it receives to train its models.
 
 The developer approves or declines sign-up requests and manages accounts in an admin console.
 
-- **What it shows**: for requests and accounts, the email address, name, sign-in method, status, when the request, account and approval were made, when the account was last used (to the hour), each device's name, operating system and sign-in and last-seen times, the month's voice usage, and states such as whether an account password is set. The developer can add a note of up to 200 characters to a request or an account.
+- **What it shows**: for requests and accounts, the email address, name, sign-in method, status, when the request, account and approval were made, when the account was last used (to the hour), each device's name, operating system and sign-in and last-seen times, the month's voice usage, and states such as whether an account password is set. For bug reports, what was sent and the account that sent it. The developer can add a note of up to 200 characters to a request, an account or a bug report.
 - **What it does not show**: the admin console does not show remote content, transcribed text, speech recognition words or account keys.
 - **Suspension**: suspending an account signs it out on every device, and it cannot sign in until the suspension is lifted. Its account information and locked account key stay. The developer can also sign an account out on every device without suspending it.
 - **Deletion**: the developer can delete only a suspended account, and deletes it as described under [Deleting your account](#deleting-your-account). To keep it from asking to join again, the developer can keep its sign-in service, identifier at that service, email address and name as a declined request for 30 days.
-- **Admin log**: what the developer did (when, to which request or account, and what, with the email address shortened as in ab\*\*\*@example.com) is kept for a year from when it was done, even if the account is deleted.
+- **Admin log**: what the developer did (when, to which request, account or bug report, and what, with the email address shortened as in ab\*\*\*@example.com) is kept for a year from when it was done, even if the account is deleted.
 
 ### Deleting your account
 
@@ -144,7 +147,7 @@ The relay decrypts the TLS connection and can see the same information as the Cl
 | Recipient | Role | Location | What it receives | Kept for |
 |---|---|---|---|---|
 | Amazon Web Services, Inc. | Connection relay | Republic of Korea (Seoul) | The account information and voice data above (relayed only) | Not stored |
-| Cloudflare, Inc. | Runs the server and its database | Cloudflare data centers, including in the US | The account information above, and remote's encrypted content (relayed only) | Until you delete your account (sign-up requests and the admin log: as above) |
+| Cloudflare, Inc. | Runs the server and its database | Cloudflare data centers, including in the US | The account information above, and remote's encrypted content (relayed only) | Until you delete your account (sign-up requests, the admin log and bug reports: as above) |
 | Soniox | Speech-to-text | United States | The sound of voice input and note recording, note recordings' files, and speech recognition words | Live audio for the duration of transcription. Files and their text for up to a day. |
 | Google, GitHub | Sign-in | United States | You sign in at their service directly | As their policies say |
 | Apple Inc. | Sign-in, push notification delivery | United States and elsewhere | Direct sign-in at Apple (the server asks Apple to revoke the token on account deletion) · Phone push token, fixed notification text and kind | Sign-in follows Apple's policy · Push notifications are held for delivery (delivery window set to at most 15 minutes) |
@@ -160,6 +163,7 @@ The Microsoft Store, the Apple App Store, Amazon Web Services, Cloudflare, Sonio
 ## Contact
 
 - Account and privacy questions: <support@gradiendo.com>
+- Bug reports: **Settings → About** in the desktop or mobile app, when signed in
 - Bugs and feature requests: <https://github.com/moreih29/nexus-code/issues>
 
 ## Changes
