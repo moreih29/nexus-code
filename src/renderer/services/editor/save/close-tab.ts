@@ -73,9 +73,8 @@ export async function closeGroupWithConfirm(
     const tab = tabs?.[tabId];
     return tab?.type === "terminal" && !tab.props.dead;
   });
-  const programs = (
-    await Promise.all(terminalIds.map((tabId) => runningProgram(workspaceId, tabId)))
-  ).filter((program) => program !== null);
+  const running = await Promise.all(terminalIds.map((tabId) => runningProgram(workspaceId, tabId)));
+  const programs = [...new Set(running.filter((program) => program !== null))];
   if (programs.length > 0 && !(await confirmCloseRunningPrograms(programs))) return "cancelled";
 
   for (const tabId of tabIds) {

@@ -609,6 +609,16 @@ describe("services/terminal open and close", () => {
       ]);
     });
 
+    it("lists the same running program only once for two terminals", async () => {
+      mockForegroundProcessName = "PING";
+      const { groupId } = terminalInSecondGroup();
+      openTerminal({ workspaceId: WS, cwd: "/workspace/run" }, { groupId });
+
+      expect(await closeGroupWithConfirm(WS, groupId)).toBe("closed");
+      expect(confirmRequests).toEqual(["Closing the terminal also terminates “PING”."]);
+      expect(killCalls()).toHaveLength(2);
+    });
+
     it("keeps the running terminal when the editor save prompt is cancelled", async () => {
       const { groupId, tabId } = terminalInSecondGroup();
       const filePath = "/workspace/dirty.ts";
