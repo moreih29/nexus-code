@@ -35,7 +35,22 @@ interface Held extends AnsweredAsk {
 
 export const DENIED_MESSAGE = "The user denied this tool call.";
 
-export const ESCAPE_DISMISS_MS = 10_000;
+export const DISMISS_WINDOW_MS = 10_000;
+
+export const TERMINAL_RELEASE_MS = 2_000;
+
+export type Schedule = (run: () => void, ms: number) => () => void;
+
+function scheduleTimer(run: () => void, ms: number): () => void {
+  const timer = setTimeout(run, ms);
+  timer.unref?.();
+  return () => clearTimeout(timer);
+}
+
+interface Releasing {
+  readonly held: Held;
+  readonly cancel: () => void;
+}
 
 const ESCAPE = "\x1b";
 
@@ -49,11 +64,13 @@ export class PermissionAsks {
   private readonly listeners = new Set<AnsweredListener>();
   private readonly terminalListeners = new Set<TerminalAnswerListener>();
   private readonly dismissListeners = new Set<TerminalAnswerListener>();
-  private readonly escapedAt = new Map<string, number>();
+  private readonly keyedAt = new Map<string, number>();
+  private readonly releasing = new Map<string, Releasing>();
 
   constructor(
     private readonly respond: HookResponder,
     private readonly now: () => number = Date.now,
+    private readonly schedule: Schedule = scheduleTimer,
   ) {}
 
   hold(
@@ -139,40 +156,48 @@ export class PermissionAsks {
   noteTerminalInput(workspaceId: string, tabId: string, data: string): void {
     if (FOCUS_REPORTS.has(data)) return;
     const key = `${workspaceId}:${tabId}`;
-    this.escapedAt.delete(key);
-    if (answersDialog(data)) this.answeredInTerminal(workspaceId, tabId);
-    else if (data === ESCAPE && this.list(workspaceId, tabId).length > 0) {
-      this.escapedAt.set(key, this.now());
-    }
+    this.keyedAt.delete(key);
+    const answers = answersDialog(data);
+    if ((!answers && data !== ESCAPE) || this.list(workspaceId, tabId).length === 0) return;
+    this.keyedAt.set(key, this.now());
+    if (answers) this.answeredInTerminal(workspaceId, tabId);
   }
 
   answeredInTerminal(workspaceId: string, tabId: string): void {
     const [oldest] = this.list(workspaceId, tabId);
     const held = oldest && this.held.get(oldest.id);
     if (!held) return;
-    this.release((other) => other === held);
+    this.held.delete(oldest.id);
+    if (!this.answering.has(held)) this.releaseLater(oldest.id, held);
     for (const listener of this.terminalListeners) listener(held);
   }
 
   gone(hookId: string): void {
-    const held = this.held.get(hookId);
+    const releasing = this.releasing.get(hookId);
+    releasing?.cancel();
+    this.releasing.delete(hookId);
+    const held = this.held.get(hookId) ?? releasing?.held;
     if (!held) return;
     this.held.delete(hookId);
-    const escapedAt = this.escapedAt.get(`${held.workspaceId}:${held.tabId}`);
-    if (escapedAt === undefined || this.now() - escapedAt > ESCAPE_DISMISS_MS) return;
+    const keyedAt = this.keyedAt.get(`${held.workspaceId}:${held.tabId}`);
+    if (keyedAt === undefined || this.now() - keyedAt > DISMISS_WINDOW_MS) return;
     for (const listener of this.dismissListeners) listener(held);
   }
 
   clear(workspaceId: string, tabId: string): void {
-    this.escapedAt.delete(`${workspaceId}:${tabId}`);
-    this.release((held) => held.workspaceId === workspaceId && held.tabId === tabId);
+    this.keyedAt.delete(`${workspaceId}:${tabId}`);
+    const matches = (held: Held) => held.workspaceId === workspaceId && held.tabId === tabId;
+    this.releaseNow(matches);
+    this.release(matches);
   }
 
   clearWorkspace(workspaceId: string): void {
-    for (const key of this.escapedAt.keys()) {
-      if (key.startsWith(`${workspaceId}:`)) this.escapedAt.delete(key);
+    for (const key of this.keyedAt.keys()) {
+      if (key.startsWith(`${workspaceId}:`)) this.keyedAt.delete(key);
     }
-    this.release((held) => held.workspaceId === workspaceId);
+    const matches = (held: Held) => held.workspaceId === workspaceId;
+    this.releaseNow(matches);
+    this.release(matches);
   }
 
   onAnswered(listener: AnsweredListener): () => void {
@@ -188,6 +213,23 @@ export class PermissionAsks {
   onDismissedInTerminal(listener: TerminalAnswerListener): () => void {
     this.dismissListeners.add(listener);
     return () => this.dismissListeners.delete(listener);
+  }
+
+  private releaseLater(id: string, held: Held): void {
+    const cancel = this.schedule(() => {
+      this.releasing.delete(id);
+      void this.respond(held.workspaceId, id, { exitCode: 0 });
+    }, TERMINAL_RELEASE_MS);
+    this.releasing.set(id, { held, cancel });
+  }
+
+  private releaseNow(releases: (held: Held) => boolean): void {
+    for (const [id, { held, cancel }] of this.releasing) {
+      if (!releases(held)) continue;
+      cancel();
+      this.releasing.delete(id);
+      void this.respond(held.workspaceId, id, { exitCode: 0 });
+    }
   }
 
   private release(releases: (held: Held) => boolean): void {
