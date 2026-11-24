@@ -51,6 +51,7 @@ export interface KeychainGateDeps {
   readonly recorded: { get(): string | null; set(signature: string): void };
   onChange(status: KeychainStatus): void;
   warn?(message: string): void;
+  info?(message: string): void;
   slowMs?: number;
 }
 
@@ -58,6 +59,23 @@ interface Waiting {
   task: () => Promise<void>;
   done: () => void;
   ran: Promise<void>;
+}
+
+function short(hash: string): string {
+  return hash.slice(0, 8);
+}
+
+export function askReason(signature: string | null, recorded: string | null): string | null {
+  if (signature === null) {
+    return recorded === null
+      ? "no signature read, and none recorded"
+      : `no signature read, ${short(recorded)} recorded`;
+  }
+  if (recorded === null) return `nothing recorded yet, this app is ${short(signature)}`;
+  if (signature !== recorded) {
+    return `signature changed from ${short(recorded)} to ${short(signature)}`;
+  }
+  return null;
 }
 
 function describe(error: unknown): string {
@@ -166,8 +184,9 @@ export class KeychainGate implements KeychainControl {
 
   private async decide(): Promise<void> {
     if (this.deps.items().length > 0) {
-      const signature = await this.signature();
-      if (signature === null || signature !== this.deps.recorded.get()) {
+      const reason = askReason(await this.signature(), this.deps.recorded.get());
+      if (reason !== null) {
+        this.deps.info?.(`asking before opening the keychain: ${reason}`);
         this.answer = asked();
         this.set("ask");
         return;

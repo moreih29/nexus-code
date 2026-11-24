@@ -3,13 +3,13 @@ import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 
 const CODESIGN = "/usr/bin/codesign";
-const TIMEOUT_MS = 5000;
+export const CODESIGN_TIMEOUTS_MS = [5_000, 15_000] as const;
 
-export type RunCodesign = (args: string[]) => Promise<string>;
+export type RunCodesign = (args: string[], timeoutMs: number) => Promise<string>;
 
-const runCodesign: RunCodesign = (args) =>
+const runCodesign: RunCodesign = (args, timeoutMs) =>
   new Promise((resolve, reject) => {
-    execFile(CODESIGN, args, { timeout: TIMEOUT_MS }, (error, stdout, stderr) => {
+    execFile(CODESIGN, args, { timeout: timeoutMs }, (error, stdout, stderr) => {
       if (error) reject(error);
       else resolve(`${stdout}\n${stderr}`);
     });
@@ -32,10 +32,16 @@ export async function appSignature(
   executable = process.execPath,
   run: RunCodesign = runCodesign,
 ): Promise<string | null> {
-  try {
-    const requirement = designatedRequirement(await run(["-d", "-r-", bundleOf(executable)]));
+  const args = ["-d", "-r-", bundleOf(executable)];
+  for (const timeoutMs of CODESIGN_TIMEOUTS_MS) {
+    let output: string;
+    try {
+      output = await run(args, timeoutMs);
+    } catch {
+      continue;
+    }
+    const requirement = designatedRequirement(output);
     return requirement ? createHash("sha256").update(requirement).digest("hex") : null;
-  } catch {
-    return null;
   }
+  return null;
 }
