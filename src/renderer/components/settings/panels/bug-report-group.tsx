@@ -1,5 +1,5 @@
 import { ExternalLink } from "lucide-react";
-import { type ReactNode, useEffect, useId, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import {
@@ -17,7 +17,11 @@ import {
 import { siteUrl } from "../../../../shared/site";
 import { ipcCallResult } from "../../../ipc/client";
 import { useRemoteAccount } from "../../../services/remote/account";
-import { sendBugReport } from "../../../services/remote/bug-report";
+import {
+  draftAsShown,
+  type ShownBugReportContext,
+  sendBugReport,
+} from "../../../services/remote/bug-report";
 import { Button } from "../../ui/button";
 import { ToggleChevron } from "../../ui/toggle-chevron";
 import { SettingsGroup, SettingsSwitch } from "../section";
@@ -75,31 +79,41 @@ function BugReportForm({ email }: { email: string }) {
   const [contactOk, setContactOk] = useState(false);
   const [includeErrors, setIncludeErrors] = useState(true);
   const [open, setOpen] = useState(false);
-  const [context, setContext] = useState<BugReportContext | null>(null);
+  const [shown, setShown] = useState<ShownBugReportContext | null>(null);
   const [sending, setSending] = useState(false);
+  const latest = useRef(0);
 
-  useEffect(() => {
-    if (!open) return;
-    let live = true;
+  const load = useCallback(() => {
+    const request = ++latest.current;
     void ipcCallResult("remote", "bugReportContext", { locale, includeErrors })
       .then((result) => {
-        if (live && result.ok) setContext(result.value);
+        if (request === latest.current && result.ok) {
+          setShown({ context: result.value, at: Date.now() });
+        }
       })
       .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [open, locale, includeErrors]);
+  }, [locale, includeErrors]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const toggle = () => {
+    if (!open) load();
+    setOpen(!open);
+  };
 
   const send = async () => {
     setSending(true);
     try {
-      const sent = await sendBugReport({ description, contactOk, includeErrors, locale });
+      const sent = await sendBugReport(
+        draftAsShown({ description, contactOk, includeErrors, locale }, shown),
+      );
       if (sent) {
         setDescription("");
         setContactOk(false);
         setOpen(false);
-        setContext(null);
+        load();
       }
     } finally {
       setSending(false);
@@ -113,12 +127,12 @@ function BugReportForm({ email }: { email: string }) {
       contactOk={contactOk}
       includeErrors={includeErrors}
       open={open}
-      context={context}
+      context={shown?.context ?? null}
       sending={sending}
       onDescription={setDescription}
       onContactOk={setContactOk}
       onIncludeErrors={setIncludeErrors}
-      onToggle={() => setOpen((was) => !was)}
+      onToggle={toggle}
       onSend={() => void send()}
     />
   );

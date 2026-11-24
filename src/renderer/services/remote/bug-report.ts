@@ -1,4 +1,5 @@
 import i18next from "i18next";
+import type { BugReportContext } from "../../../../packages/remote-protocol/src/bug-report";
 import type {
   BugReportDraft,
   BugReportFailure,
@@ -8,6 +9,21 @@ import { showToast } from "../../components/ui/toast";
 import { ipcCallResult } from "../../ipc/client";
 
 const HOUR = 3600;
+
+export interface ShownBugReportContext {
+  readonly context: BugReportContext;
+  readonly at: number;
+}
+
+export function draftAsShown(
+  draft: Omit<BugReportDraft, "shown">,
+  shown: ShownBugReportContext | null,
+): BugReportDraft {
+  const errors = shown?.context.errors;
+  return draft.includeErrors && shown && errors
+    ? { ...draft, shown: { at: shown.at, errors } }
+    : draft;
+}
 
 export function bugReportFailureMessage(failure: BugReportFailure, retryAfter?: number): string {
   const t = i18next.t.bind(i18next);

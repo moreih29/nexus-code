@@ -9,10 +9,13 @@ import {
   type BugReportContext,
   BugReportErrorAreaSchema,
   type BugReportRecentError,
+  BugReportRecentErrorSchema,
   BugReportSchema,
   cleanBugReportErrorMessage,
   fitBugReportContext,
   MAX_BUG_REPORT_DESCRIPTION,
+  MAX_BUG_REPORT_ERROR_AGE,
+  MAX_BUG_REPORT_ERRORS,
   MIN_BUG_REPORT_DESCRIPTION,
 } from "../../../packages/remote-protocol/src/bug-report";
 import { PROTOCOL_VERSION, SCHEMA_VERSION } from "../../../packages/remote-protocol/src/sealed";
@@ -20,13 +23,27 @@ import { PROTOCOL_VERSION, SCHEMA_VERSION } from "../../../packages/remote-proto
 export const BugReportLocaleSchema = z.enum(["ko", "en"]);
 export type BugReportLocale = z.infer<typeof BugReportLocaleSchema>;
 
+export const ShownBugReportErrorsSchema = z.object({
+  at: z.number().int().nonnegative(),
+  errors: z.array(BugReportRecentErrorSchema).max(MAX_BUG_REPORT_ERRORS),
+});
+export type ShownBugReportErrors = z.infer<typeof ShownBugReportErrorsSchema>;
+
 export const BugReportDraftSchema = z.object({
   description: z.string().max(MAX_BUG_REPORT_DESCRIPTION * 8),
   contactOk: z.boolean(),
   includeErrors: z.boolean(),
   locale: BugReportLocaleSchema,
+  shown: ShownBugReportErrorsSchema.optional(),
 });
 export type BugReportDraft = z.infer<typeof BugReportDraftSchema>;
+
+export function shownErrorsAsOf(shown: ShownBugReportErrors, now: number): BugReportRecentError[] {
+  const elapsed = Math.max(0, Math.floor((now - shown.at) / 1000));
+  return shown.errors
+    .map((error) => ({ ...error, ago: error.ago + elapsed }))
+    .filter(({ ago }) => ago <= MAX_BUG_REPORT_ERROR_AGE);
+}
 
 export const MAX_REPORTED_ERROR_MESSAGE = 2000;
 
