@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  asksSpeakerCount,
   carryNames,
   clockOf,
   joinedLines,
@@ -62,6 +63,16 @@ describe("a note's transcript", () => {
       lines: durations.map((ms, i) => line(String(i + 1), 0, ms, "a")),
     });
     expect(shouldPromptSpeakerCount(rec)).toBe(expected);
+  });
+
+  test("asks for the speaker count only with voice prints, audio and speech", () => {
+    const split = recording({
+      lines: [400, 25_000, 30_000].map((ms, i) => line(String(i + 1), 0, ms, "a")),
+    });
+    expect(asksSpeakerCount(split, true)).toBe(true);
+    expect(asksSpeakerCount(split, false)).toBe(false);
+    expect(asksSpeakerCount({ ...split, takes: [] }, true)).toBe(false);
+    expect(asksSpeakerCount({ ...split, lines: [] }, true)).toBe(false);
   });
 
   test("compacts display numbers by first speech while keeping names and pinned keys", () => {

@@ -168,7 +168,7 @@
     "record": "Record",
     "participants": "Participants",
     "participantsAuto": "Auto",
-    "recordHint": "Record into this note. What is said goes into the transcript beside it.",
+    "recordHint": "Record into this note. What is said goes into the transcript.",
     "needsSignIn": "Sign in to record",
     "pause": "Pause",
     "resume": "Resume recording",
@@ -187,6 +187,18 @@
       "recognition": "Something went wrong with the transcription.",
       "dropped": "The connection to the server dropped, so the recording paused. You can resume it.",
       "write": "Couldn’t save the recording file. Transcription continues."
+    },
+    "after": {
+      "on": "Summary after",
+      "off": "Summary off",
+      "title": "When the recording ends",
+      "refineHint": "2 or more speakers · NexusCode server",
+      "speakers": "Speaker count check",
+      "speakersHint": "When speakers look split · Shown above the transcript",
+      "summary": "Claude summary",
+      "summaryOn": "Recordings of 30 seconds or more · Summary and to-dos added at the end of the note",
+      "summaryOff": "Off · Turn on in note settings",
+      "settings": "Open note settings"
     }
   },
   "transcript": {
@@ -263,6 +275,10 @@
       "missing": "The recording's file is missing, so it could not be transcribed again.",
       "network": "The server could not be reached. Try again in a moment.",
       "failed": "It could not be transcribed again."
+    },
+    "after": {
+      "thenSummary": "Claude summary next",
+      "summaryWaits": "The Claude summary starts once the count is chosen or this is closed"
     }
   },
   "conversations": {
@@ -323,7 +339,11 @@
     "open": "Open",
     "task": "To-do",
     "rerun": "Summarize again",
-    "rerunConfirm": "Replace existing summary · Send transcript to the selected Claude profile"
+    "rerunConfirm": "Replace existing summary · Send transcript to the selected Claude profile",
+    "where": "Summary and to-dos added at the end of the note",
+    "show": "Show summary",
+    "notInNote": "No summary in the note",
+    "skipped": "Summary skipped · Short recording"
   },
   "tasks": {
     "action": "To a task",

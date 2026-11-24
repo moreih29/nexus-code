@@ -12,6 +12,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { isLongEnoughToSummarize } from "../../../shared/notes/summary";
 import {
   clockOf,
   newSpeakerKey,
@@ -44,6 +45,7 @@ import {
   visibleVoiceSuggestions,
   voiceSuggestionKey,
 } from "../../services/notes/voice-memory";
+import { useNoteSummarySettings } from "../../state/stores/note-summary";
 import { useUIStore } from "../../state/stores/ui";
 import { Button } from "../ui/button";
 import { showConfirmDialog } from "../ui/confirm-dialog";
@@ -52,7 +54,7 @@ import { showToast } from "../ui/toast";
 import { consentToVoiceMemory, SpeakerNameDialog } from "./speaker-name-dialog";
 import { type SummaryTaskTimes, summaryTaskRows } from "./summary-task-times";
 import { LineMoveMenu, LineRow, type LineTarget, PartialRow } from "./transcript-line";
-import { PickedSpeaker, RecordingHeading } from "./transcript-recording";
+import { PickedSpeaker, RecordingAftercare, RecordingHeading } from "./transcript-recording";
 import {
   type Cast,
   castOf,
@@ -124,6 +126,13 @@ export const TranscriptPanel = memo(function TranscriptPanel({
   }, [workspaceId, noteId]);
 
   const recordings = file?.recordings ?? NO_RECORDINGS;
+  const latest = recordings.at(-1);
+  const summaryOn = useNoteSummarySettings((s) => s.enabled);
+  const summaryNext =
+    latest !== undefined &&
+    summaryOn &&
+    summaries[latest.id] === undefined &&
+    isLongEnoughToSummarize(latest);
   const read = useMemo(() => readRecordings(recordings), [recordings]);
   const taskRows = useMemo(() => summaryTaskRows(read, taskTimes), [read, taskTimes]);
   const rerun = useCallback(
@@ -528,6 +537,14 @@ export const TranscriptPanel = memo(function TranscriptPanel({
           )}
         </div>
       )}
+      {latest && latest.id !== liveId && (
+        <RecordingAftercare
+          workspaceId={workspaceId}
+          noteId={noteId}
+          recording={latest}
+          summaryNext={summaryNext}
+        />
+      )}
       <div
         ref={scroller}
         className="min-h-0 flex-1 overflow-y-auto outline-none"
@@ -565,6 +582,7 @@ export const TranscriptPanel = memo(function TranscriptPanel({
                     workspaceId={workspaceId}
                     noteId={noteId}
                     live={row.recording.id === liveId}
+                    latest={row.recording.id === latest?.id}
                     first={item.index === 0}
                     picked={speaker}
                     suggestions={suggestions.get(row.recording.id) ?? NO_VOICE_SUGGESTIONS}
@@ -620,6 +638,7 @@ function Row({
   workspaceId,
   noteId,
   live,
+  latest,
   first,
   picked,
   suggestions,
@@ -642,6 +661,7 @@ function Row({
   workspaceId: string;
   noteId: string;
   live: boolean;
+  latest: boolean;
   first: boolean;
   picked: SpeakerFilter | null;
   suggestions: readonly VoiceNameSuggestion[];
@@ -672,6 +692,7 @@ function Row({
           recording={recording}
           cast={cast}
           live={live}
+          promptAbove={latest}
           summarizing={summarizing}
           onRerun={onRerun}
           first={first}
