@@ -602,6 +602,7 @@ app.whenReady().then(async () => {
     userData,
     state: stateService,
     warn: (message) => logger.warn(`keychain: ${message}`),
+    info: (message) => logger.info(`keychain: ${message}`),
   });
   keychainChannel = registerKeychainChannel(keychain);
 
