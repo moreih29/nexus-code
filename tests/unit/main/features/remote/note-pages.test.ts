@@ -357,6 +357,42 @@ test("notes.list tells how many recordings a note has", async () => {
   expect(listed.notes.map((note) => note.recordings)).toEqual([3, 0]);
 });
 
+test("notes.list tells what each note holds and how it starts, as this computer's list shows it", async () => {
+  const counts = { sketches: 1, files: 0, images: 2, todos: 3, todosDone: 1 };
+  const listed = await listNotes(
+    {
+      list: async () => [
+        {
+          id: "n1",
+          title: "a",
+          updatedAt: 2,
+          counts,
+          excerpt: "Agenda for the call.",
+          recording: { recordings: 2, ms: 1_771_000, people: 3 },
+        },
+        { id: "n2", title: "b", updatedAt: 1, counts, excerpt: "" },
+      ],
+      attach: async () => ({ src: "" }),
+      recording: () => undefined,
+    },
+    { workspaceId: "w1" },
+  );
+  expect(listed.notes).toEqual([
+    {
+      id: "n1",
+      title: "a",
+      updatedAt: 2,
+      recordings: 2,
+      recordingMs: 1_771_000,
+      people: 3,
+      counts,
+      excerpt: "Agenda for the call.",
+    },
+    { id: "n2", title: "b", updatedAt: 1, recordings: 0, counts, excerpt: "" },
+  ]);
+  expect(RPC_METHODS["notes.list"].result.parse(listed)).toEqual(listed);
+});
+
 describe("another computer's note on the desktop", () => {
   function room(file: TranscriptFile, schema: string | undefined, body = doc) {
     const s = servicesWith(file, true, body);

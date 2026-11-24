@@ -7,6 +7,7 @@ import {
   transcriptFromMarkdown,
 } from "../../../shared/notes/transcript";
 import { ipcCallResult } from "../../ipc/client";
+import type { NoteRowFacts } from "../notes/notes-panel";
 import type { TranscriptReading } from "../notes/transcript-panel";
 import { read } from "./commit-model";
 
@@ -14,6 +15,28 @@ export type PeerNoteRow = RpcResult<"notes.list">["notes"][number];
 export type PeerNote = PeerNoteRead;
 
 export const PEER_NOTES_REFRESH_MS = 20_000;
+
+export function peerNoteFacts({
+  id,
+  title,
+  updatedAt,
+  recordings,
+  recordingMs,
+  people,
+  counts,
+  excerpt,
+}: PeerNoteRow): NoteRowFacts {
+  return {
+    id,
+    title,
+    updatedAt,
+    ...(counts ? { counts } : {}),
+    ...(excerpt === undefined ? {} : { excerpt }),
+    ...(counts && recordings
+      ? { recording: { recordings, ms: recordingMs ?? 0, people: people ?? 0 } }
+      : {}),
+  };
+}
 
 export function listPeerNotes({ deviceId, workspaceId }: PeerWorkspace, signal: AbortSignal) {
   return read(signal, () =>

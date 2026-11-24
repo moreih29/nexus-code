@@ -835,6 +835,20 @@ describe("the methods", () => {
     ).toEqual([file]);
   });
 
+  test("a listed note's counts, excerpt and recording length come when read and drop alone when not (0.37.0)", () => {
+    const { result } = RPC_METHODS["notes.list"];
+    const note = { id: "n1", title: "a", updatedAt: 1, recordings: 1 };
+    const counts = { sketches: 0, files: 1, images: 0, todos: 2, todosDone: 1 };
+    const full = { ...note, recordingMs: 61_000, people: 2, counts, excerpt: "Hello" };
+    expect(result.parse({ notes: [full] }).notes).toEqual([full]);
+    expect(result.parse({ notes: [note] }).notes).toEqual([note]);
+    expect(
+      result.parse({
+        notes: [{ ...note, recordingMs: -1, people: 1.5, counts: { files: 1 }, excerpt: 7 }],
+      }).notes,
+    ).toEqual([note]);
+  });
+
   test("a chat's panel and session tell when its app goes on after the usage limit (0.19.0)", () => {
     const panel = {
       todos: [],
