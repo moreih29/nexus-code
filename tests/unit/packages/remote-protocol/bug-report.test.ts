@@ -75,7 +75,7 @@ const accepts = (value: unknown) => BugReportSchema.safeParse(value).success;
 describe("a bug report", () => {
   test("version 1 leaves the relay protocol as it was", () => {
     expect(BUG_REPORT_VERSION).toBe(1);
-    expect(SCHEMA_VERSION).toBe("0.36.0");
+    expect(SCHEMA_VERSION).toBe("0.36.1");
     expect(PROTOCOL_VERSION).toBe(2);
     expect(RELAY_VERSION).toBe(2);
     expect(MAX_FRAME_BYTES).toBe(1024 * 1024);
@@ -575,10 +575,13 @@ describe("cleaning an error message", () => {
     expect(cleanBugReportErrorMessage("")).toBeUndefined();
   });
 
-  test("cuts a long message to 300 code points with an ellipsis", () => {
+  test("cuts a long message at a word to at most 300 code points, ending in an ellipsis", () => {
     const long = cleanBugReportErrorMessage("😀".repeat(400)) ?? "";
     expect(Array.from(long)).toHaveLength(300);
-    expect(long.endsWith("…")).toBe(true);
+    expect(long.endsWith(" …")).toBe(true);
+    const words = cleanBugReportErrorMessage("word ".repeat(100)) ?? "";
+    expect(Array.from(words).length).toBeLessThanOrEqual(300);
+    expect(words.endsWith(" word …")).toBe(true);
     expect(cleanBugReportErrorMessage("x".repeat(300))).toBe("x".repeat(300));
   });
 
@@ -600,6 +603,298 @@ describe("cleaning an error message", () => {
       expect(
         BugReportRecentErrorSchema.safeParse({ ago: 0, area: "app", code: "x", message }).success,
       ).toBe(true);
+    }
+  });
+});
+
+const KNOWN_INPUTS = [
+  "failed at /Users/kim/project/a.ts now",
+  "failed at /Volumes/kim/project/a.ts now",
+  "at run (/Users/kim/app/src/x.ts:10:5)",
+  "in /home/kim/John Smith/Documents/a.ts here",
+  "read ~/notes/plan.md, then stopped",
+  "read ~kim/x, then stopped",
+  "read ./src/a.ts, then stopped",
+  "read ../b/c, then stopped",
+  "file=/Users/kim/a.txt",
+  "ENOENT: no such file or directory, open '/Users/kim/My Notes/a b.md'",
+  "ENOENT: no such file or directory, open 'notes/plan.md'",
+  "EXDEV: cross-device link not permitted, rename 'a/b' -> 'c/d'",
+  'Cannot find module "/Users/kim/x.js"',
+  "C:\\Users\\kim\\AppData\\x.txt not found",
+  "c:/Users/kim/x.txt not found",
+  "\\\\?\\C:\\Users\\kim\\x.txt",
+  "\\\\.\\pipe\\nexus-kim",
+  "open \\\\server\\share\\dir\\f.txt",
+  "open //server/share/dir/f.txt",
+  '{"path":"C:\\\\Users\\\\kim\\\\x.txt"}',
+  '{"path":"\\\\\\\\server\\\\share\\\\x"}',
+  "C:\\Program Files (x86)\\Kim Tools\\bar.exe crashed",
+  "load file:///Users/kim/a.html failed",
+  "load file:/C:/Users/kim/a.html failed",
+  "load FILE://server/share/a.html",
+  "signed in as kim.lee+test@example.com today",
+  "git@github.example.com: denied",
+  "Authorization: Bearer abc123",
+  "sent bearer abcdefghijklmnopq",
+  "Basic dXNlcjpwYXNz failed",
+  "key sk-ant-api03-AbCdEf1234567890xyz leaked",
+  "key sk-proj-abcdefghijklmnop1234 leaked",
+  `pat ghp_${"a1".repeat(18)} here`,
+  "aws AKIAA1B2C3D4E5F6G7H8 here",
+  "jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+  "id 3f786850e387550fdab836ed7e6dc881de23001b done",
+  "id 0x3f786850e387550fdab836ed7e6dc881de23001b done",
+  "blob QWxhZGRpbjpvcGVuIHNlc2FtZQ12345abcdeXYZ== done",
+  'password=hunter2 api_key: "xyz" refresh_token=abc',
+  "x-account-auth: abc.def",
+  "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY----- done",
+  "GET https://kim:pw@api.example.com/v1/items?token=abc&x=1#top failed",
+  "wss://relay.example.com/relay?v=2&ticket=t1",
+  "connect ECONNREFUSED 10.0.0.12:22",
+  "connect ECONNREFUSED 127.0.0.1:3000",
+  "listen 0.0.0.0",
+  "via fe80::1c2b:3d4e:5f60:7a8b now",
+  "via 2001:db8:0:0:0:0:2:1 now",
+  "via ::1 at 12:30:45",
+  "spawn claude ENOENT",
+  "Cannot read properties of undefined (reading 'text')",
+  "POST /bug-reports?v=1 failed with 500",
+  "max_tokens: 4096",
+  "basic authentication failed",
+  'Bearer realm="api"',
+  "src/renderer/components/settings/panels",
+  "6f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f",
+  "http_500 timeout",
+  "open '/Users/kim/a.md'\n  at x\tb\u202ec",
+  "  \n\t ",
+  "",
+  "😀".repeat(400),
+  "x".repeat(300),
+  `${"a ".repeat(140)}sk-ant-api03-${"x1".repeat(40)}`,
+  "a\u0000b\u0085c\u2028d",
+  "😀".repeat(500),
+  "\ud83d lone",
+  "C:\\Users\\kim\\a.txt\r\nnext",
+];
+
+const EDGE_INPUTS = [
+  "Bearer 10.0.0.",
+  "Bearer 10.0.0.…",
+  "<ip>Bearer 10.0.0.",
+  "a@b.ccBearer 10.0.0.",
+  "fe80::1~/n.md",
+  "10.0.0.1~/n.md",
+  "kim@example.com//srv/sh/x",
+  "kim@example.com\\\\srv\\sh\\x",
+  "kim@example.comC:\\Users\\kim\\a.txt",
+  "a\u0000/Users/kim/x",
+  "a\u202e~/n.md",
+  "<path>~/n.md",
+  "<email>//srv/sh/x",
+  "token=…",
+  "password: …",
+  "Authorization: …",
+  "…/Users/kim/a",
+  "'…'",
+  "<secret>",
+  "<path> <secret> <email> <ip>",
+];
+
+const RANDOM_PARTS = [
+  "/Users/kim/a.ts",
+  "/tmp/x",
+  "~/n.md",
+  "./a/b",
+  "C:\\Users\\kim\\a.txt",
+  "\\\\srv\\sh\\x",
+  "//srv/sh/x",
+  "file:///a/b",
+  "kim@example.com",
+  "a@b.cc",
+  "sk-ant-api03-AbCdEf1234567890xyz",
+  `ghp_${"a1".repeat(12)}`,
+  "AKIA",
+  "0x",
+  "Bearer",
+  "Basic",
+  "bearer",
+  "Authorization:",
+  "token=abc",
+  "password:",
+  "api_key",
+  "10.0.0.",
+  "10.0.0.1",
+  "127.0.0.1",
+  "fe80::1",
+  "::1",
+  "aa:bb:cc:dd:ee:ff",
+  "https://u:p@h.example.com/a?b=1#c",
+  "http://h/x",
+  "3f786850e387550fdab836ed7e6dc881de23001b",
+  "QWxhZGRpbjpvcGVuIHNlc2FtZQ12345abcdeXYZ==",
+  "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc",
+  "dXNlcjpwYXNz",
+  "open",
+  "-> ",
+  "'",
+  '"',
+  "`",
+  "(",
+  ")",
+  "[",
+  "]",
+  "{",
+  "}",
+  ",",
+  ";",
+  ":",
+  "=",
+  ".",
+  "-",
+  "_",
+  "/",
+  "\\",
+  "@",
+  " ",
+  " ",
+  " ",
+  "\t",
+  "\n",
+  "…",
+  "<path>",
+  "<secret>",
+  "<email>",
+  "<ip>",
+  "x",
+  "ab",
+  "123",
+  "\u0000",
+  "\u202e",
+  "가",
+  "😀",
+];
+
+function randomInputs(count: number): string[] {
+  let seed = 20261124;
+  const next = (below: number) => {
+    seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff;
+    return seed % below;
+  };
+  return Array.from({ length: count }, (_, index) => {
+    const parts = index % 10 === 0 ? 60 + next(200) : 1 + next(10);
+    return Array.from({ length: parts }, () => RANDOM_PARTS[next(RANDOM_PARTS.length)]).join("");
+  });
+}
+
+function unstable(text: string): string | undefined {
+  const redacted = redactBugReportText(text);
+  if (redactBugReportText(redacted) !== redacted) return `redact ${JSON.stringify(text)}`;
+  const cleaned = cleanBugReportErrorMessage(text);
+  if (cleaned === undefined) return undefined;
+  if (cleanBugReportErrorMessage(cleaned) !== cleaned) return `clean ${JSON.stringify(text)}`;
+  if (redactBugReportText(cleaned) !== cleaned) return `redact after clean ${JSON.stringify(text)}`;
+  if (Array.from(cleaned).length > MAX_BUG_REPORT_ERROR_MESSAGE)
+    return `long ${JSON.stringify(text)}`;
+  return undefined;
+}
+
+const unstableOf = (texts: string[]) => texts.map(unstable).filter((found) => found !== undefined);
+
+describe("redacting and cleaning twice gives what once gave", () => {
+  test("for every input of the tests above and the edge cases", () => {
+    expect(unstableOf([...KNOWN_INPUTS, ...EDGE_INPUTS])).toEqual([]);
+  });
+
+  test("the first pass already takes out what a second would", () => {
+    expect(redactBugReportText("Bearer 10.0.0.")).toBe("Bearer <secret>");
+    expect(redactBugReportText("fe80::1~/n.md")).toBe("<ip><path>");
+    expect(redactBugReportText("kim@example.com//srv/sh/x")).toBe("<email><path>");
+    expect(redactBugReportText("kim@example.com\\\\srv\\sh\\x")).toBe("<email><path>");
+    expect(cleanBugReportErrorMessage("a\u0000/Users/kim/x")).toBe("a <path>");
+    expect(cleanBugReportErrorMessage("a\u202e~/n.md")).toBe("a <path>");
+  });
+
+  test("an ellipsis is never taken for a secret's value", () => {
+    for (const text of ["password: …", "token=…", "Authorization: …"]) {
+      expect(redactBugReportText(text)).toBe(text);
+    }
+  });
+
+  test("what redacting falls back to when it does not settle is itself settled", () => {
+    expect(redactBugReportText("<secret>")).toBe("<secret>");
+    expect(cleanBugReportErrorMessage("<secret>")).toBe("<secret>");
+  });
+
+  test("for 5000 seeded random mixes of paths, keys, addresses and punctuation", () => {
+    const inputs = randomInputs(5000);
+    expect(unstableOf(inputs)).toEqual([]);
+    for (const text of inputs) {
+      const message = cleanBugReportErrorMessage(text);
+      if (message === undefined) continue;
+      expect(
+        BugReportRecentErrorSchema.safeParse({ ago: 0, area: "app", code: "x", message }).success,
+      ).toBe(true);
+    }
+  });
+
+  test("at the 300 code point cut, whatever the cut lands in", () => {
+    const tails = [
+      "3f786850e387550fdab836ed7e6dc881de23001b",
+      `${"0123456789abcdef".repeat(10)}z`,
+      `password: ${"1".repeat(31)}`,
+      `password: ${"1".repeat(120)}`,
+      "Bearer 10.0.0.1",
+      "kim@example.com",
+      "/Users/kim/a b/c.ts",
+      "10.0.0.12",
+      "fe80::1c2b:3d4e:5f60:7a8b",
+      `sk-ant-api03-${"x1".repeat(20)}`,
+      "😀😀😀 가나다",
+      "<secret> <ip>",
+      "… …",
+    ];
+    const inputs: string[] = [];
+    for (let pad = 240; pad <= 310; pad++) {
+      for (const tail of tails) {
+        inputs.push(`${"x".repeat(pad)} ${tail} end`);
+        inputs.push(`${"ab ".repeat(Math.floor(pad / 3))}${tail} ${tail}`);
+      }
+    }
+    expect(unstableOf(inputs)).toEqual([]);
+    const hex = cleanBugReportErrorMessage(`${"x ".repeat(100)}${"0123456789abcdef".repeat(10)}z`);
+    expect(hex?.endsWith("<secret> …")).toBe(true);
+    const number = cleanBugReportErrorMessage(`${"x ".repeat(135)}password: ${"1".repeat(31)} end`);
+    expect(number?.endsWith("password: …")).toBe(true);
+  });
+
+  test("an 8 KB hostile input takes tens of milliseconds at most", () => {
+    const fill = (unit: string) => unit.repeat(Math.ceil(8192 / unit.length)).slice(0, 8192);
+    for (const unit of [
+      "/",
+      "/a ",
+      "a b/",
+      "\\",
+      "\\\\a\\ ",
+      "a@",
+      "1.",
+      ":",
+      "a:",
+      "'/",
+      "password=",
+      "Bearer ",
+      "Ab1",
+      "~/a b/c d\\e ",
+      "C:\\a ",
+      "http://a@",
+      "<ip>~/a",
+      "a@b.cc/",
+    ]) {
+      const text = fill(unit);
+      const started = performance.now();
+      redactBugReportText(text);
+      cleanBugReportErrorMessage(text);
+      expect(performance.now() - started).toBeLessThan(80);
     }
   });
 });
