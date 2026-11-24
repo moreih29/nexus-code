@@ -1052,7 +1052,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         if (child.agent !== "codex") throw new UiRequestError("the forked tab is gone");
         await child.controller.prepareSend();
       } catch (error) {
-        await closeTabWithConfirm(workspaceId, newTab).catch(() => {});
+        await closeTabWithConfirm(workspaceId, newTab, { askIfRunning: false }).catch(() => {});
         throw error;
       }
       return { tabId: newTab, ...(item?.kind === "user" ? { draft: item.text } : {}) };

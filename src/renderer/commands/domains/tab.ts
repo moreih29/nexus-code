@@ -2,6 +2,7 @@ import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
 import { cacheUriFor } from "../../services/editor/model/cache";
 import { isDirty } from "../../services/editor/model/dirty-tracker";
+import { closeTabsWithConfirm } from "../../services/editor/save/close-tab";
 import { closeEditor } from "../../services/editor/tabs";
 import { requestTabFocus } from "../../services/tab-focus";
 import { toggleTabPin } from "../../state/operations";
@@ -56,10 +57,7 @@ export function registerTabCommands(): Array<() => void> {
       }
       const wsRecord = useTabsStore.getState().byWorkspace[ctx.wsId] ?? {};
       const others = ctx.leaf.tabIds.filter((id) => id !== ctx.tabId && !wsRecord[id]?.isPinned);
-      for (const id of others) {
-        const outcome = await closeTabById(ctx.wsId, id);
-        if (outcome === "cancelled") return;
-      }
+      await closeTabsWithConfirm(ctx.wsId, others);
     }),
 
     registerCommand(COMMANDS.tabCloseSaved, () => {
@@ -80,10 +78,7 @@ export function registerTabCommands(): Array<() => void> {
         runPeerTabCommand("closeAll");
         return;
       }
-      for (const id of [...ctx.leaf.tabIds]) {
-        const outcome = await closeTabById(ctx.wsId, id);
-        if (outcome === "cancelled") return;
-      }
+      await closeTabsWithConfirm(ctx.wsId, [...ctx.leaf.tabIds]);
     }),
 
     registerCommand(COMMANDS.tabPinToggle, () => {

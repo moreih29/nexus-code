@@ -1,7 +1,7 @@
 import { cacheUriFor } from "@/services/editor/model/cache";
 import { isDirty } from "@/services/editor/model/dirty-tracker";
 import type { CloseTabOutcome } from "@/services/editor/save/close-handler";
-import { closeTabWithConfirm } from "@/services/editor/save/close-tab";
+import { closeTabsWithConfirm, closeTabWithConfirm } from "@/services/editor/save/close-tab";
 import { closeEditor, openOrRevealEditor } from "@/services/editor/tabs";
 import { openTerminal } from "@/services/terminal";
 import { openTabInNewSplit } from "@/state/operations/tabs";
@@ -29,10 +29,7 @@ export function useGroupActions({
   }
 
   async function closeMany(tabIds: string[]): Promise<void> {
-    for (const id of tabIds) {
-      const outcome = await closeTabForId(id);
-      if (outcome === "cancelled") return;
-    }
+    await closeTabsWithConfirm(workspaceId, tabIds);
   }
 
   async function close(): Promise<void> {

@@ -311,7 +311,7 @@ export const actionHandlers: {
     if (hasUnsavedChanges(workspaceId, tab)) {
       throw new UiRequestError("it has unsaved changes; save or close it in the app");
     }
-    await closeTabWithConfirm(workspaceId, tabId);
+    await closeTabWithConfirm(workspaceId, tabId, { askIfRunning: false });
     return {};
   },
 

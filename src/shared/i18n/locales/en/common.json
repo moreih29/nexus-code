@@ -1834,7 +1834,14 @@
         "default": "Default",
         "chosen": "Chosen"
       }
-    }
+    },
+    "close_working_title": "Close the conversation in progress?",
+    "close_working_description": "Closing the tab stops the work in progress in “{{name}}”.",
+    "close_working_several_description": "Closing the tabs stops the work in progress in {{count}} conversations.",
+    "close_working_confirm": "Close",
+    "close_running_mixed_title": "Stop the running work?",
+    "close_running_mixed_description_one": "Closing the tabs terminates “{{name}}” and stops the work in progress in {{count}} conversation.",
+    "close_running_mixed_description_other": "Closing the tabs terminates “{{name}}” and stops the work in progress in {{count}} conversations."
   },
   "agentView": {
     "toggle": {
