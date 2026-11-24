@@ -2,6 +2,8 @@ import i18next from "i18next";
 import type { ErrorInfo, ReactNode } from "react";
 import { Component } from "react";
 import { createLogger } from "../../../shared/log/renderer";
+import { errorNameOf } from "../../../shared/remote/bug-report";
+import { reportError } from "../../services/recent-errors/report";
 
 interface ErrorBoundaryProps {
   logSource: string;
@@ -14,6 +16,10 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
+function boundaryName(logSource: string): string {
+  return logSource.split(":")[0] ?? logSource;
+}
+
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = { caught: false, error: null };
 
@@ -24,6 +30,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   componentDidCatch(error: Error, info: ErrorInfo): void {
     const log = createLogger(this.props.logSource);
     log.error(`React render error caught by ErrorBoundary: ${error.message}`);
+    reportError("render", [boundaryName(this.props.logSource), errorNameOf(error)]);
 
     if (import.meta.env?.DEV && info.componentStack) {
       log.error(`Component stack: ${info.componentStack}`);

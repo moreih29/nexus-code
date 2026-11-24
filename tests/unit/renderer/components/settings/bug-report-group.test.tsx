@@ -104,6 +104,10 @@ describe("the bug report in About", () => {
     expect(html).toContain("<textarea");
     expect(html).toContain("No conversations, files or paths are sent");
     expect(html).toContain("Include recent errors");
+    expect(html).toContain(
+      "Error messages with paths and keys hidden · Cleared when the app quits",
+    );
+    expect(html).not.toContain("no messages");
     expect(html).toContain("Reply by email");
     expect(html).toContain("someone@example.com");
     expect(switches(html)).toEqual(["true", "false"]);
@@ -152,6 +156,40 @@ describe("the bug report in About", () => {
     expect(fields({ open: true, context })).toContain(
       '<code class="font-mono">rpc timeout 504</code> · 5 seconds ago',
     );
+  });
+
+  test("shows each error's message exactly as it is sent, and how often it came", async () => {
+    const context: BugReportContext = {
+      ...CONTEXT,
+      errors: [
+        {
+          ago: 3,
+          area: "files",
+          code: "write_file:permission_denied",
+          message: "EACCES: permission denied, open '<path>'",
+          count: 4,
+        },
+        { ago: 9, area: "agent", code: "claude:transient", status: 529 },
+      ],
+    };
+    const html = fields({ open: true, context });
+    const lines = Array.from(html.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g), (m) =>
+      m[1]?.replace(/<[^>]+>/g, ""),
+    );
+    expect(lines).toEqual([
+      "files write_file:permission_denied · 4 times · 3 seconds agoEACCES: permission denied, open &#x27;&lt;path&gt;&#x27;",
+      "agent claude:transient 529 · 9 seconds ago",
+    ]);
+    expect(html).toContain(
+      '<div class="text-muted-foreground" data-testid="bug-report-error-message"><code class="font-mono">EACCES: permission denied, open &#x27;&lt;path&gt;&#x27;</code></div>',
+    );
+    const ko = await renderIn("ko", form({ open: true, context }));
+    expect(ko).toContain("4회");
+    expect(ko).toContain("경로와 키를 가린 오류 메시지 포함 · 앱을 끄면 지워짐");
+    const off = fields({ open: true, includeErrors: false, context });
+    expect(off).toContain("Not included");
+    expect(off).not.toContain("EACCES");
+    expect(off).not.toContain("bug-report-error-message");
   });
 
   test("with errors off, the preview says they are not included", () => {

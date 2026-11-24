@@ -210,3 +210,64 @@ describe("error handler — what an uncaught error leaves in the log", () => {
     );
   });
 });
+
+describe("error handler — what an uncaught error records for a bug report", () => {
+  let windowStub: ReturnType<typeof makeWindowStub>;
+  let teardown: (() => void) | null = null;
+  const calls: unknown[][] = [];
+
+  beforeEach(() => {
+    logged.length = 0;
+    calls.length = 0;
+    windowStub = makeWindowStub();
+    windowStub.stub.ipc = {
+      call: (...args: unknown[]) => {
+        calls.push(args);
+        return Promise.resolve(null);
+      },
+      listen: () => {},
+      off: () => {},
+    };
+    (globalThis as Record<string, unknown>).window = windowStub.stub;
+    teardown = installWindowErrorHandlers();
+  });
+
+  afterEach(() => {
+    teardown?.();
+    teardown = null;
+  });
+
+  test("an error: its name and where it was thrown, never its message", () => {
+    const event = Object.assign(makeErrorEvent(new TypeError("note text: 첫 번째 문장")), {
+      message: "Uncaught TypeError: note text: 첫 번째 문장",
+      filename: "file:///Users/kim/NexusCode/out/renderer/assets/index-abc.js",
+      lineno: 12,
+      colno: 34,
+    });
+    windowStub.invoke("error", event);
+    expect(calls).toEqual([
+      [
+        "system",
+        "recordError",
+        { area: "app", code: "renderer:type_error", message: "at index-abc.js:12:34" },
+      ],
+    ]);
+  });
+
+  test("a rejection: its name alone; a ResizeObserver loop or a cancel: nothing", () => {
+    windowStub.invoke("unhandledrejection", makeRejectionEvent(new RangeError("secret")));
+    windowStub.invoke("unhandledrejection", makeRejectionEvent({ name: "Canceled" }));
+    windowStub.invoke(
+      "error",
+      Object.assign(makeErrorEvent(null), {
+        message: "ResizeObserver loop completed with undelivered notifications.",
+        filename: "",
+        lineno: 0,
+        colno: 0,
+      }),
+    );
+    expect(calls).toEqual([
+      ["system", "recordError", { area: "app", code: "renderer_rejection:range_error" }],
+    ]);
+  });
+});

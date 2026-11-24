@@ -14,8 +14,8 @@ import {
   buildBugReport,
   cleanBugReportDescription,
 } from "../../../shared/remote/bug-report";
+import type { RecentErrors } from "../../infra/recent-errors";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
-import type { RecentErrors } from "./recent-errors";
 
 const log = createLogger("remote-bug-report");
 

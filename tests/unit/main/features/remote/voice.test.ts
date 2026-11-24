@@ -9,6 +9,7 @@ import {
   VoiceSessions,
   type VoiceSocket,
 } from "../../../../../src/main/features/remote/voice";
+import { RecentErrors, type RecordError } from "../../../../../src/main/infra/recent-errors";
 import { VOICE_CLOSE_SIGNED_OUT, type VoiceEvent } from "../../../../../src/shared/remote/voice";
 
 const OPEN = 1;
@@ -64,6 +65,7 @@ function setup(options: {
   retryAfter?: SocketRetryAfter;
   recheckSignIn?: () => void;
   names?: () => Promise<readonly string[]>;
+  recordError?: RecordError;
 }) {
   const sockets: FakeSocket[] = [];
   const events: VoiceEvent[] = [];
@@ -80,6 +82,7 @@ function setup(options: {
     ...(options.purpose ? { purpose: options.purpose } : {}),
     ...(options.names ? { names: options.names } : {}),
     ...(options.retryAfter ? { retryAfter: options.retryAfter } : {}),
+    ...(options.recordError ? { recordError: options.recordError } : {}),
     emit: (event) => events.push(event),
     socket: (url) => {
       const socket = new FakeSocket(url);
@@ -277,6 +280,29 @@ describe("voice input's socket", () => {
     s.emit("error", new Error("ECONNRESET"));
     s.terminate();
     expect(await started).toMatchObject({ status: "failed", reason: "network" });
+  });
+
+  test("records a socket that failed to get ready, with its purpose and reason", async () => {
+    const errors = new RecentErrors(() => 0);
+    const dropped = setup({ purpose: "note", recordError: errors.record });
+    const started = dropped.voice.start("ko");
+    const s = await dropped.socket();
+    s.emit("error", new Error("connect ECONNREFUSED 10.1.2.3:443"));
+    s.terminate();
+    await started;
+    expect(errors.list()).toEqual([
+      { ago: 0, area: "voice", code: "note:network", message: "connect ECONNREFUSED <ip>:443" },
+    ]);
+    const ready = setup({ recordError: errors.record });
+    const opened = ready.voice.start("ko");
+    (await ready.socket()).say({
+      t: "ready",
+      format: "pcm_s16le",
+      sampleRate: 16000,
+      maxSeconds: 600,
+    });
+    await opened;
+    expect(errors.list()).toHaveLength(1);
   });
 
   test("goes through the proxy, and straight once a socket to it fails before ready", async () => {

@@ -17,6 +17,7 @@ import type { RoomState } from "../../../shared/remote/room";
 import type { SystemStats } from "../../../shared/system/stats";
 import type { PhonePushPolicy, RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import { broadcast, type CallContext, register, validateArgs } from "../../infra/ipc-router";
+import { appErrors } from "../../infra/recent-errors";
 import type { CliRemote, CliServices } from "../cli/context";
 import type { PeerFileReader } from "../custom-protocols/nexus-workspace";
 import type { FsProvider } from "../fs/bridge/provider";
@@ -40,7 +41,6 @@ import { PeerFileReads } from "./peer-file-reads";
 import { dropPeerHolds } from "./peer-holds";
 import { PEER_READ_METHODS, peerReadCalls } from "./peer-read-calls";
 import { PhonePush, type PhonePushActivity } from "./phone-push";
-import { RecentErrors } from "./recent-errors";
 import { RelayConnection } from "./relay-connection";
 import { SocketRetryAfter } from "./retry-after";
 import { RemoteRoom, RpcFailure } from "./room";
@@ -244,7 +244,7 @@ export async function registerRemoteChannel(options: {
     broadcast("remote", "roomChanged", state);
   };
   let keys: AccountKeys | null = null;
-  const recentErrors = new RecentErrors();
+  const recentErrors = appErrors;
   const relayFailed = (code: string, status?: number) => recentErrors.record("relay", code, status);
   const server = remoteServer(process.env, app.isPackaged, (message) => log.warn(message));
   const account = new RemoteAccount({
@@ -311,6 +311,7 @@ export async function registerRemoteChannel(options: {
     account,
     names,
     retryAfter: socketRetryAfter,
+    recordError: recentErrors.record,
     emit: (event) => broadcast("remote", "voiceEvent", event),
   });
   const noteVoice = new VoiceSessions({
@@ -318,6 +319,7 @@ export async function registerRemoteChannel(options: {
     purpose: "note",
     names,
     retryAfter: socketRetryAfter,
+    recordError: recentErrors.record,
     emit: (event) => broadcast("remote", "voiceEvent", event),
   });
   const sessionOf = (id: string) => (noteVoice.has(id) ? noteVoice : voice);
@@ -952,7 +954,13 @@ export async function registerRemoteChannel(options: {
       },
       voiceTranscription: (args: unknown) => {
         const { id } = validateArgs(c.voiceTranscription.args, args);
-        return ask(() => noteVoice.transcription(id));
+        return ask(async () => {
+          const transcription = await noteVoice.transcription(id);
+          if (transcription.status === "error") {
+            recentErrors.record("notes", "transcription:error", undefined, transcription.message);
+          }
+          return transcription;
+        });
       },
       voiceTranscriptionDrop: (args: unknown) => {
         const { id } = validateArgs(c.voiceTranscriptionDrop.args, args);

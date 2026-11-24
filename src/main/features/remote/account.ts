@@ -18,10 +18,10 @@ import {
   type SignInProvider,
 } from "../../../shared/remote/account";
 import { ResponseTooLargeError, readResponseText } from "../../infra/http/body";
+import type { RecordError } from "../../infra/recent-errors";
 import { ServerError, SignedOutError, SignInError, UnreachableError } from "./errors";
 import { type LoopbackListener, listenForCallback, notInvitedFailure } from "./loopback";
 import { makePkce, makeState } from "./pkce";
-import type { RecordError } from "./recent-errors";
 import { retryAfterSeconds } from "./retry-after";
 import { ServerRoute } from "./route";
 import type { Kept } from "./sealed-file";
@@ -305,13 +305,14 @@ export class RemoteAccount {
   private noteFailure(area: BugReportErrorArea, error: unknown): void {
     const record = this.deps.recordError;
     if (!record) return;
-    if (error instanceof ServerError) record(area, `http_${error.status}`, error.status);
-    else if (error instanceof SignedOutError && error.status !== undefined) {
-      record(area, `http_${error.status}`, error.status);
+    if (error instanceof ServerError) {
+      record(area, `http_${error.status}`, error.status, error.message);
+    } else if (error instanceof SignedOutError && error.status !== undefined) {
+      record(area, `http_${error.status}`, error.status, error.message);
     } else if (error instanceof UnreachableError) {
-      record(area, error.timedOut ? "timeout" : "offline");
-    } else if (isTimeout(error)) record(area, "timeout");
-    else if (error instanceof TypeError) record(area, "offline");
+      record(area, error.timedOut ? "timeout" : "offline", undefined, error.message);
+    } else if (isTimeout(error)) record(area, "timeout", undefined, (error as Error).message);
+    else if (error instanceof TypeError) record(area, "offline", undefined, error.message);
   }
 
   private async exchange(method: string, path: string, options: CallOptions): Promise<unknown> {

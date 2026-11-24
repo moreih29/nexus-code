@@ -465,7 +465,7 @@
       "tooShort": "{{min}}자 이상",
       "length": "{{count}} / {{max}}",
       "includeErrors": "최근 오류 포함",
-      "includeErrorsDescription": "메시지 없이 오류 코드만 · 앱을 끄면 지워짐",
+      "includeErrorsDescription": "경로와 키를 가린 오류 메시지 포함 · 앱을 끄면 지워짐",
       "contact": "이메일로 답장 받기",
       "preview": "함께 보내는 정보",
       "facts": {
@@ -487,6 +487,8 @@
       },
       "errorsOff": "포함 안 함",
       "noErrors": "없음",
+      "errorCount_one": "{{count}}회",
+      "errorCount_other": "{{count}}회",
       "agoSeconds_one": "{{count}}초 전",
       "agoSeconds_other": "{{count}}초 전",
       "agoMinutes_one": "{{count}}분 전",

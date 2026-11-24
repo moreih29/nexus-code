@@ -2,12 +2,16 @@ import { z } from "zod";
 import {
   BUG_REPORT_APP_VERSION_PATTERN,
   BUG_REPORT_ARCH_PATTERN,
+  BUG_REPORT_ERROR_CODE_PATTERN,
   BUG_REPORT_OS_VERSION_PATTERN,
   BUG_REPORT_TEXT_PATTERN,
   type BugReport,
   type BugReportContext,
+  BugReportErrorAreaSchema,
   type BugReportRecentError,
   BugReportSchema,
+  cleanBugReportErrorMessage,
+  fitBugReportContext,
   MAX_BUG_REPORT_DESCRIPTION,
   MIN_BUG_REPORT_DESCRIPTION,
 } from "../../../packages/remote-protocol/src/bug-report";
@@ -23,6 +27,16 @@ export const BugReportDraftSchema = z.object({
   locale: BugReportLocaleSchema,
 });
 export type BugReportDraft = z.infer<typeof BugReportDraftSchema>;
+
+export const MAX_REPORTED_ERROR_MESSAGE = 2000;
+
+export const ReportedErrorSchema = z.object({
+  area: BugReportErrorAreaSchema,
+  code: z.string().regex(BUG_REPORT_ERROR_CODE_PATTERN),
+  status: z.number().int().min(100).max(599).optional(),
+  message: z.string().max(MAX_REPORTED_ERROR_MESSAGE).optional(),
+});
+export type ReportedError = z.infer<typeof ReportedErrorSchema>;
 
 export const BUG_REPORT_FAILURES = [
   "rate-limited",
@@ -62,6 +76,45 @@ export function bugReportOsVersion(platform: string, version: string): string {
   return `${name}-${version}`.replace(/\s+/g, "-");
 }
 
+const MAX_CODE = 40;
+
+function codePart(text: string): string {
+  return text
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, "_")
+    .replace(/_{2,}/g, "_")
+    .replace(/^_|_$/g, "");
+}
+
+export function bugReportErrorCode(...parts: readonly string[]): string | undefined {
+  const code = parts
+    .map(codePart)
+    .filter((part) => part !== "")
+    .join(":")
+    .slice(0, MAX_CODE)
+    .replace(/[:_.-]+$/, "");
+  return BUG_REPORT_ERROR_CODE_PATTERN.test(code) ? code : undefined;
+}
+
+export function errorNameOf(error: unknown): string {
+  const name =
+    typeof error === "object" && error !== null ? (error as { name?: unknown }).name : undefined;
+  return typeof name === "string" && name !== "" ? name : "error";
+}
+
+export function errorMessageOf(error: unknown): string | undefined {
+  if (errorNameOf(error) === "SyntaxError") return undefined;
+  const message = error instanceof Error ? error.message : undefined;
+  return message ? cleanBugReportErrorMessage(message) : undefined;
+}
+
+function cleanError(error: BugReportRecentError): BugReportRecentError {
+  const { message, ...rest } = error;
+  const cleaned = message === undefined ? undefined : cleanBugReportErrorMessage(message);
+  return cleaned === undefined ? rest : { ...rest, message: cleaned };
+}
+
 export function bugReportLocale(language: string): BugReportLocale {
   return language === "ko" || language.startsWith("ko-") ? "ko" : "en";
 }
@@ -93,7 +146,7 @@ export function bugReportContext(
   locale: BugReportLocale,
   errors: readonly BugReportRecentError[] | null,
 ): BugReportContext {
-  return {
+  return fitBugReportContext({
     app: { version: fitVersion(facts.appVersion, BUG_REPORT_APP_VERSION_PATTERN, 32) },
     os: { version: fitVersion(facts.osVersion, BUG_REPORT_OS_VERSION_PATTERN, 64) },
     device: {
@@ -102,8 +155,8 @@ export function bugReportContext(
     },
     protocol: { version: PROTOCOL_VERSION, package: SCHEMA_VERSION },
     locale,
-    ...(errors ? { errors: [...errors] } : {}),
-  };
+    ...(errors ? { errors: errors.map(cleanError) } : {}),
+  });
 }
 
 export function buildBugReport(

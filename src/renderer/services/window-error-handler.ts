@@ -1,4 +1,5 @@
 import { createLogger } from "../../shared/log/renderer";
+import { reportError } from "./recent-errors/report";
 
 const log = createLogger("renderer");
 
@@ -58,6 +59,9 @@ function onError(event: ErrorEvent): void {
   log.error(
     `Uncaught renderer error name=${JSON.stringify(detail.name)} source=${JSON.stringify(detail.source)} errorNull=${detail.errorNull} resizeObserverLoop=${detail.resizeObserverLoop}`,
   );
+  if (!detail.resizeObserverLoop) {
+    reportError("app", ["renderer", detail.name], undefined, `at ${detail.source}`);
+  }
 }
 
 function onUnhandledRejection(event: PromiseRejectionEvent): void {
@@ -67,6 +71,7 @@ function onUnhandledRejection(event: PromiseRejectionEvent): void {
   }
 
   log.error("Unhandled promise rejection in renderer", {});
+  reportError("app", ["renderer_rejection", errorName(event.reason)]);
 }
 
 export function installWindowErrorHandlers(): () => void {

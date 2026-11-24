@@ -4,8 +4,8 @@ import * as fsp from "node:fs/promises";
 import {
   BugReportRecentErrorSchema,
   MAX_BUG_REPORT_ERROR_AGE,
-} from "../../../../../packages/remote-protocol/src";
-import { RecentErrors } from "../../../../../src/main/features/remote/recent-errors";
+} from "../../../../packages/remote-protocol/src";
+import { RecentErrors } from "../../../../src/main/infra/recent-errors";
 
 function clock(start = 1_000_000) {
   let now = start;
@@ -56,7 +56,7 @@ describe("recent errors", () => {
     expect(errors.list()).toEqual([{ ago: 0, area: "api", code: "timeout" }]);
   });
 
-  test("takes only codes, never a message, and only a real HTTP status", () => {
+  test("takes only a valid code and only a real HTTP status", () => {
     const errors = new RecentErrors(clock().now);
     errors.record("api", "ENOENT: no such file /Users/someone/project");
     errors.record("api", "HTTP_500");
@@ -68,6 +68,50 @@ describe("recent errors", () => {
       { ago: 0, area: "relay", code: "rate-limited" },
       { ago: 0, area: "api", code: "http_999" },
     ]);
+  });
+
+  test("redacts a message as it records it and keeps it to one short line", () => {
+    const errors = new RecentErrors(clock().now);
+    errors.record(
+      "files",
+      "read:not_found",
+      undefined,
+      "ENOENT: no such file or directory, open 'C:\\Users\\kim\\a.txt'\n    at x (/Users/kim/app.js:1:2)",
+    );
+    errors.record("app", "uncaught:error", undefined, "x".repeat(500));
+    errors.record("app", "blank", undefined, " \n ");
+    const [blank, long, files] = errors.list();
+    expect(files?.message).toBe("ENOENT: no such file or directory, open '<path>' at x (<path>)");
+    expect(Array.from(long?.message ?? "")).toHaveLength(300);
+    expect(blank).toEqual({ ago: 0, area: "app", code: "blank" });
+    for (const entry of errors.list()) BugReportRecentErrorSchema.parse(entry);
+  });
+
+  test("puts a repeated error together: one entry, counted, at its last time", () => {
+    const time = clock();
+    const errors = new RecentErrors(time.now);
+    errors.record("files", "read:not_found", undefined, "open '/Users/a/x'");
+    time.advance(5_000);
+    errors.record("api", "offline");
+    time.advance(5_000);
+    errors.record("files", "read:not_found", undefined, "open '/Users/b/y'");
+    errors.record("files", "read:not_found", undefined, "another message");
+    expect(errors.list()).toEqual([
+      { ago: 0, area: "files", code: "read:not_found", message: "another message" },
+      { ago: 0, area: "files", code: "read:not_found", message: "open '<path>'", count: 2 },
+      { ago: 5, area: "api", code: "offline" },
+    ]);
+  });
+
+  test("a storm of one error leaves the others in place", () => {
+    const time = clock();
+    const errors = new RecentErrors(time.now);
+    for (let n = 0; n < 19; n++) errors.record("api", `http_${500 + n}`, 500 + n);
+    for (let n = 0; n < 20_000; n++) errors.record("app", "renderer:type_error");
+    const list = errors.list();
+    expect(list).toHaveLength(20);
+    expect(list[0]).toEqual({ ago: 0, area: "app", code: "renderer:type_error", count: 9999 });
+    expect(list.at(-1)?.code).toBe("http_500");
   });
 
   test("keeps them in memory only: nothing is written, and a new start has none", () => {

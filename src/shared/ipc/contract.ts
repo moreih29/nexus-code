@@ -155,6 +155,7 @@ import {
   BugReportDraftSchema,
   BugReportLocaleSchema,
   BugReportOutcomeSchema,
+  ReportedErrorSchema,
 } from "../remote/bug-report";
 import { PairingStateSchema } from "../remote/pairing";
 import { RoomStateSchema } from "../remote/room";
@@ -1644,6 +1645,7 @@ const coreIpcContract = {
       openNewWindow: call(z.void(), z.object({ ok: z.literal(true) })),
       stats: call(z.object({ workspaceId: z.string().optional() }), SystemStatsSchema.nullable()),
       fontNames: call(z.void(), z.object({ groups: z.array(z.array(z.string())) })),
+      recordError: call(ReportedErrorSchema, z.void()),
     },
     listen: {
       woke: listen(z.object({ at: NumberSchema })),

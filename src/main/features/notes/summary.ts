@@ -12,6 +12,8 @@ import {
   summaryOrigin,
 } from "../../../shared/notes/summary";
 import type { NoteLocation } from "../../../shared/notes/types";
+import { bugReportErrorCode } from "../../../shared/remote/bug-report";
+import type { RecordError } from "../../infra/recent-errors";
 import { NoteError, type NotesStore } from "./store";
 import { summaryBlocks } from "./summary-blocks";
 import type { RunClaudeSummary } from "./summary-claude";
@@ -41,6 +43,7 @@ export interface NotesSummaryOptions {
   ) => void;
   append: (target: SummaryTarget, blocks: DocNode[]) => Promise<void>;
   onRemoved: (target: SummaryTarget, origin: string) => void;
+  recordError?: RecordError;
 }
 
 export class NotesSummary {
@@ -196,12 +199,17 @@ export class NotesSummary {
     profileId: string,
     signal: AbortSignal,
   ): Promise<void> {
-    const finish = (next: RecordingSummary, updateDocument?: () => Promise<void>) =>
-      this.edit(target, async (current) =>
+    const finish = (next: RecordingSummary, updateDocument?: () => Promise<void>) => {
+      if (next.state === "failed" && next.error.kind !== "interrupted") {
+        const code = bugReportErrorCode("summary", next.error.kind);
+        if (code) this.opts.recordError?.("notes", code);
+      }
+      return this.edit(target, async (current) =>
         current?.state === "running" && current.runId === run.runId
           ? { next, updateDocument }
           : undefined,
       );
+    };
     const done = (todos: number): RecordingSummary => ({
       ...run,
       state: "done",

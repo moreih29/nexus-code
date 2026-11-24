@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { BugReportSchema } from "../../../../../packages/remote-protocol/src";
+import {
+  BugReportSchema,
+  bugReportBytes,
+  MAX_BUG_REPORT_CONTEXT_BYTES,
+} from "../../../../../packages/remote-protocol/src";
 import { RemoteAccount, type SavedAccount } from "../../../../../src/main/features/remote/account";
 import { BugReports } from "../../../../../src/main/features/remote/bug-reports";
-import { RecentErrors } from "../../../../../src/main/features/remote/recent-errors";
 import { keptInMemory } from "../../../../../src/main/features/remote/sealed-file";
+import { RecentErrors } from "../../../../../src/main/infra/recent-errors";
 import type { BugReportDraft } from "../../../../../src/shared/remote/bug-report";
 
 const SERVER = "http://localhost:8787";
@@ -95,6 +99,55 @@ describe("sending a bug report", () => {
     expect(BugReportSchema.parse(sent[0]?.body).context.errors).toBeUndefined();
   });
 
+  test("sends each error's message redacted, with how often it came", async () => {
+    const { account, reports, errors, sent } = setUp([]);
+    await account.restore();
+    const message =
+      "EACCES: permission denied, open '/Users/kim/notes/plan.md' for kim@example.com";
+    errors.record("files", "write_file:permission_denied", undefined, message);
+    errors.record("files", "write_file:permission_denied", undefined, message);
+    await reports.send(DRAFT);
+    const body = BugReportSchema.parse(sent[0]?.body);
+    expect(body.context.errors).toEqual([
+      {
+        ago: 0,
+        area: "files",
+        code: "write_file:permission_denied",
+        message: "EACCES: permission denied, open '<path>' for <email>",
+        count: 2,
+      },
+    ]);
+    expect(JSON.stringify(sent[0]?.body)).not.toContain("kim");
+  });
+
+  test("turned off, sends no message either", async () => {
+    const { account, reports, errors, sent } = setUp([]);
+    await account.restore();
+    errors.record("app", "uncaught:type_error", undefined, "Cannot read properties of undefined");
+    await reports.send({ ...DRAFT, includeErrors: false });
+    expect(JSON.stringify(sent[0]?.body)).not.toContain("Cannot read");
+    expect(reports.context("en", false).errors).toBeUndefined();
+  });
+
+  test("fits the context the server takes, keeping the newest messages", async () => {
+    const { account, reports, errors, sent, advance } = setUp([]);
+    await account.restore();
+    for (let n = 0; n < 20; n++) {
+      errors.record("app", `e${n}`, undefined, `${"가".repeat(290)} ${n}`);
+      advance(1000);
+    }
+    await reports.send(DRAFT);
+    const body = BugReportSchema.parse(sent[0]?.body);
+    expect(bugReportBytes(body.context)).toBeLessThanOrEqual(MAX_BUG_REPORT_CONTEXT_BYTES);
+    expect(body.context.errors).toHaveLength(20);
+    expect(body.context.errors?.[0]).toMatchObject({
+      code: "e19",
+      message: `${"가".repeat(290)} 19`,
+    });
+    expect(body.context.errors?.at(-1)?.message).toBeUndefined();
+    expect(reports.context("en", true)).toEqual(body.context);
+  });
+
   test("sends the same id again after a failure, and a new one after it went", async () => {
     const { account, reports, sent } = setUp([
       refusal(500, "server_error"),
@@ -177,14 +230,30 @@ describe("sending a bug report", () => {
 
 describe("errors the account records", () => {
   test.each([
-    ["an HTTP refusal", refusal(500, "server_error"), { code: "http_500", status: 500 }],
-    ["a 401", refusal(401, "unauthorized"), { code: "http_401", status: 401 }],
-    ["a 403 not_invited", refusal(403, "not_invited"), { code: "http_403", status: 403 }],
-    ["a network failure", new TypeError("fetch failed"), { code: "offline" }],
+    [
+      "an HTTP refusal",
+      refusal(500, "server_error"),
+      { code: "http_500", status: 500, message: "GET /devices: 500 server_error" },
+    ],
+    [
+      "a 401",
+      refusal(401, "unauthorized"),
+      { code: "http_401", status: 401, message: "signed out of NexusCode" },
+    ],
+    [
+      "a 403 not_invited",
+      refusal(403, "not_invited"),
+      { code: "http_403", status: 403, message: "signed out of NexusCode" },
+    ],
+    [
+      "a network failure",
+      new TypeError("fetch failed"),
+      { code: "offline", message: "the NexusCode server did not answer: fetch failed" },
+    ],
     [
       "a timeout",
       Object.assign(new Error("timed out"), { name: "TimeoutError" }),
-      { code: "timeout" },
+      { code: "timeout", message: "the NexusCode server did not answer: timed out" },
     ],
   ] as const)("records %s as area api", async (_name, answer, recorded) => {
     const { account, errors } = setUp([answer]);
@@ -200,7 +269,15 @@ describe("errors the account records", () => {
     await account
       .sendPush({ ...body, to: [...body.to] }, new AbortController().signal, 1000)
       .catch(() => {});
-    expect(errors.list()).toEqual([{ ago: 0, area: "push", code: "http_503", status: 503 }]);
+    expect(errors.list()).toEqual([
+      {
+        ago: 0,
+        area: "push",
+        code: "http_503",
+        status: 503,
+        message: "POST <path> 503 unavailable",
+      },
+    ]);
   });
 
   test("records nothing when it went, when it was called off, or when not signed in", async () => {
@@ -221,6 +298,13 @@ describe("errors the account records", () => {
     );
     await account.restore();
     await account.devices().catch(() => {});
-    expect(errors.list()).toEqual([{ ago: 0, area: "api", code: "offline" }]);
+    expect(errors.list()).toEqual([
+      {
+        ago: 0,
+        area: "api",
+        code: "offline",
+        message: "the NexusCode server did not answer: fetch failed",
+      },
+    ]);
   });
 });
