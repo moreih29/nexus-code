@@ -8,7 +8,7 @@ import type { WorkspaceNameLookup } from "./hook-handler";
 import { answerHook, PRINT_STOP_ANSWER, registerHookHandler } from "./hook-handler";
 import { ClaudeInterruptWatcher } from "./interrupt";
 import { registerClaudeChannel } from "./ipc";
-import { answersDialog, PermissionAsks } from "./permission-asks";
+import { PermissionAsks } from "./permission-asks";
 import { MAIN_AGENT, PermissionDialogs } from "./permission-dialogs";
 import { ClaudeReconnectCheck } from "./reconnect";
 import { SessionActivityLog } from "./session-activity";
@@ -165,7 +165,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     isActiveTab: (workspaceId, tabId) => activeContext.isActive(workspaceId, tabId),
     noteInput: (workspaceId, tabId, data) => {
       interrupts.noteInput(workspaceId, tabId, data);
-      if (answersDialog(data)) asks.answeredInTerminal(workspaceId, tabId);
+      asks.noteTerminalInput(workspaceId, tabId, data);
     },
     noteTurnResult: (workspaceId, tabId, result) => {
       if (!turns.acceptsResult(workspaceId, tabId, result.promptId)) return;

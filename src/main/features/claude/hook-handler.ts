@@ -568,6 +568,9 @@ export function registerHookHandler(
   const offTerminal = deps.asks?.onAnsweredInTerminal((ask) => {
     afterTerminalAnswer(ask, deps, dialogs);
   });
+  const offDismissed = deps.asks?.onDismissedInTerminal((ask) => {
+    afterAnswer(ask, ask.agent === MAIN_AGENT ? "denyStop" : "deny", deps, dialogs);
+  });
   const offChat = deps.chatAnswers?.onAnswered((workspaceId, tabId, stopped) => {
     afterChatAnswer(workspaceId, tabId, stopped, deps, dialogs);
   });
@@ -576,6 +579,7 @@ export function registerHookHandler(
     offGone();
     offAnswered?.();
     offTerminal?.();
+    offDismissed?.();
     offChat?.();
   };
 }
