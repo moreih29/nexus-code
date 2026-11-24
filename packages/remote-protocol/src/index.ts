@@ -1,4 +1,5 @@
 export * from "./account.js";
+export * from "./bug-report.js";
 export * from "./commands.js";
 export * from "./device-keys.js";
 export * from "./info.js";

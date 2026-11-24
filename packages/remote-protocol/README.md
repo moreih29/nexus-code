@@ -15,6 +15,7 @@ Beside them:
 - **The account key's bundle** (`account.ts`): the account key locked with the account password, as the server keeps it. See `ACCOUNT_KEYS.md`.
 - **The voice socket** (`voice.ts`): audio to the server, text back while the user speaks.
 - **Push notifications** (`push.ts`, since 0.18.0) let phones register for APNs and computers ask the server to notify them. `/info.push` lists the API version and APNs environments. A computer that sends notifications advertises `push` in its hello. The notification's `nx` data carries the version and kind.
+- **Bug reports** (`bug-report.ts`, since 0.35.0): what a signed-in phone or computer sends the server when its user reports a bug, and the server's answer.
 - **Codex client commands** (`commands.ts`): the slash commands a Codex client runs itself (`CODEX_COMMANDS`: name, aliases, argument hint) and the ones another device may run (`CODEX_REMOTE_COMMANDS`).
 
 Sealing is XChaCha20-Poly1305. The key is the room key, derived from the account key. The associated data comes from `aadOf()` and binds a message to its routing. What is sealed is an envelope (`SealedEnvelopeSchema`): the message, the sender's epoch and the receiver's. Each connection to the relay has a random epoch, which devices learn from each other's hellos in three steps. A device takes a message only when it names its epoch now, is addressed to it, and has a seq higher than the last it took from that sender's epoch, so the relay cannot send an old message again or pass one on to another device. `sealed.ts` has the rules. Protocol version 2 (0.7.0) brought these; devices of version 1 open nothing of version 2.
@@ -67,6 +68,8 @@ Schema 0.33.0 lets a reader see that a recording's transcript changed between th
 
 Schema 0.34.0 lets another device show a chat's changed file as the chat's own computer shows it: as the agent wrote it in the tool call. Each entry of a chat panel's `changedFiles` adds optional `rawPath`, the path as the first finished change of that file named it, sent only where it differs from `path`. `path` stays the key: the host still groups a file's changes by it and opening the file or its change still takes it. Today the two differ only in how a Windows path is written: `path` has forward slashes and an upper-case drive letter (`C:/p/a.ts`, `//server/share/x.ts`), `rawPath` the agent's backslashes and case (`c:\p\a.ts`, `\\server\share\x.ts`), so it tells nothing `path` does not. A reader shows `rawPath` where it comes, made relative to the chat's folder as for `path`, and `path` otherwise. One that is not a string is left out, not the file. A host before 0.34.0 sends none and a reader before 0.34.0 drops it, so a reader shows `path` as before; no method, capability or schema constant is added.
 
+Schema 0.35.0 adds the bug report API (`bug-report.ts`): `POST /bug-reports?v=1` (`BUG_REPORT_VERSION`) takes a `BugReportSchema` body from a signed-in phone or computer and answers `BugReportCreatedSchema`, or one of `BUG_REPORT_ERRORS`. It is an HTTP request to the server, not a relay frame or sealed message: no method, capability or field between devices changes, and `PROTOCOL_VERSION`, `RELAY_VERSION` and `MAX_FRAME_BYTES` stay as they were.
+
 A consent prompt in the sessions' list (`RemoteConsent`) is a change waiting on the user of the serving device. An agent of another device of the account may have asked for it, or a nexus command changing another workspace there, or that device's agent manager. The user answers it there, or from the device that lists it when `answerable` (`consent.answer`). An agent's request (`from`, `AgentSender`) to a control method takes the `agents` capability instead of the method's own. The serving device may ask its user first or turn the request down. `at` and `expiresAt` use the serving device's clock. `expiresInMs` is `expiresAt` minus the time the list was sent, so a reader needs no shared clock. A serving device before 0.29.0 turns a prompt down at `expiresAt` and drops it from the list. `AGENT_CONSENT_MS` (90 seconds) is how long a host asks a requester before 0.29.0 before turning the request down. Such a requester waits that long, plus a little more.
 
 In schema 0.16.0, `chat.instructions` can also return `session`, the tab's editable session text, and `layers`, its ordered persistent layers, including empty layers. The workspace layer comes from the parent for a worktree task. Hosts through desktop 0.36.1 only return the combined `instructions` text. Treat a response without `session` as read-only. With `chat.control`, a person can replace the session layer using `chat.instructions.set`. Send an empty string to clear it. The 5,000-character limit applies to both people and agents. An edit with `from` follows the receiving device's agent approval policy.
@@ -103,6 +106,7 @@ NexusCode's remote protocol, in two layers, and the account key's bundle:
   the password's proof (account keys v2);
 - ./voice: the voice socket, speech to text while the user speaks;
 - ./push: phone registrations, notification requests and app data;
+- ./bug-report: a user's bug report to the server and its answer;
 - ./info: what the server offers (GET /info);
 - ./commands: the slash commands a Codex client runs itself.
 
@@ -3164,6 +3168,139 @@ In order of their start; speakers labelled anew, not as the live session had the
 **`TranscriptionSchema.seconds`**
 
 The recording's length.
+
+### `bug-report.ts`
+
+The bug report API: a signed-in phone or computer sends what its user
+wrote and a few facts about the app, and the server keeps it for the
+developer.
+
+POST /bug-reports?v=1 takes a JSON `BugReportSchema` body, signed in with
+the session's Bearer token as other account requests are (no
+`X-Account-Auth`). It returns a `BugReportCreatedSchema`: 201 for a new
+report, 200 with the report's current values when the account already sent
+one with this `id` (a retry, as after being offline). Its errors are
+`BUG_REPORT_ERRORS`: `bad_request` and `unsupported_version` (400, the
+latter as `UnsupportedVersionSchema`), `unauthorized` (401), `not_invited`
+(403, a suspended account), `too_big` (413), `rate_limited` (429, with
+`Retry-After`) and `server_error` (500). The server takes the platform
+(ios, android, darwin, win32, linux) from the session; the body does not
+carry it.
+
+Every object in the body is strict: a key the schema does not name, at any
+level, fails the whole request, so no free text rides along.
+
+**`BUG_REPORT_VERSION`**
+
+The `v` the request names: 1.
+
+**`MAX_BUG_REPORT_CONTEXT_BYTES`**
+
+4096: the most bytes the server takes for `context`, as UTF-8 JSON of the
+context it parsed. The server checks this, not the schema. Within the
+schema's bounds a context comes to at most 2,287 bytes and a whole body to
+14,378 (under the server's 16 KB body limit), so a valid report meets
+both; the server checks anyway.
+
+**`BugReportSchema`**
+
+POST /bug-reports?v=1: one report.
+
+**`BugReportSchema.id`**
+
+A UUID (`z.uuid()`) the client makes once for the report and sends again
+on every retry, so a retry is the same report.
+
+**`BugReportSchema.description`**
+
+What the user wrote: 10 to 3000 code points (`MIN_BUG_REPORT_DESCRIPTION`,
+`MAX_BUG_REPORT_DESCRIPTION`), counted as `Array.from(text).length` does,
+so an emoji is one and not two as `text.length` has it. No control
+character but `\n` and `\t`: the rest of U+0000 to U+001F, U+007F and
+U+0080 to U+009F are refused, `\r` among them, so a client sends a line
+break as `\n`. No lone surrogate either (`BUG_REPORT_TEXT_PATTERN`).
+
+**`BugReportSchema.contactOk`**
+
+The user agreed to a reply by email, at the account's address.
+
+**`BugReportContextSchema`**
+
+What the app fills in itself and shows the user before sending.
+
+**`BugReportContextSchema.app`**
+
+`version`, and `build` where the app has one (a computer has none): 1 to
+32 of ASCII letters, digits and `. _ + -` (`BUG_REPORT_APP_VERSION_PATTERN`).
+
+**`BugReportContextSchema.os`**
+
+`version`: 1 to 64 of ASCII letters, digits and `. _ + -`
+(`BUG_REPORT_OS_VERSION_PATTERN`). A phone sends its OS version (`26.1`), a
+computer `os.release()`, which on Linux can be as long as
+`5.15.153.1-microsoft-standard-WSL2`.
+
+**`BugReportContextSchema.device`**
+
+- `kind`: `phone`, `tablet` or `desktop` (`BUG_REPORT_DEVICE_KINDS`).
+- `model`, optional: 1 to 40 of ASCII letters, digits, space and `, . _ -`
+  (`BUG_REPORT_MODEL_PATTERN`), as `iPhone16,2`. A computer leaves it out.
+- `arch`, optional: 1 to 16 of lower-case ASCII letters, digits and `_`
+  (`BUG_REPORT_ARCH_PATTERN`), as `arm64`, `x64` or `x86_64`.
+
+A client leaves out a model or arch that does not match rather than send a
+report the server refuses.
+
+**`BugReportContextSchema.protocol`**
+
+- `version`: the app's `PROTOCOL_VERSION`, an integer from 1 to 1000.
+- `package`: the version of this package the app is built with:
+  `MAJOR.MINOR.PATCH`, each 1 to 4 digits, with an optional pre-release of
+  1 to 20 ASCII letters, digits, `.` and `-` after a `-`, and no `+` build
+  (`BUG_REPORT_PACKAGE_PATTERN`).
+
+**`BugReportContextSchema.locale`**
+
+`ko` or `en`.
+
+**`BugReportContextSchema.errors`**
+
+The app's recent errors, at most `MAX_BUG_REPORT_ERRORS` (20); absent or
+empty when the user turns them off or there were none.
+
+**`BugReportRecentErrorSchema`**
+
+One recent error as codes only, never its message, which can carry paths
+and file names:
+- `ago`: whole seconds since it happened, from 0 to
+  `MAX_BUG_REPORT_ERROR_AGE` (2,592,000, 30 days). A client leaves out
+  older ones.
+- `area`: `api`, `relay`, `voice`, `push`, `rpc` or `render`
+  (`BUG_REPORT_ERROR_AREAS`).
+- `code`: 1 to 40 of lower-case ASCII letters, digits and `_ . : -`
+  (`BUG_REPORT_ERROR_CODE_PATTERN`), as `http_500`, `timeout`, `offline` or
+  an error's name in lower case.
+- `status`, optional: the HTTP status, an integer from 100 to 599.
+
+**`BugReportCreatedSchema`**
+
+The answer to a new report (201) or a retry (200). Not strict: a reader
+drops keys a newer server adds.
+
+**`BugReportCreatedSchema.id`**
+
+The report's id on the server: 1 to 64 characters, not necessarily the
+request's `id`. A client keeps it as it is and does not parse it.
+
+**`BugReportCreatedSchema.status`**
+
+`open` for a new report, then `reviewing` or `closed` as the developer
+handles it (`BUG_REPORT_STATUSES`).
+
+**`BUG_REPORT_ERRORS`**
+
+The `error` codes POST /bug-reports answers with, read by
+`BugReportErrorSchema`.
 
 ### `commands.ts`
 
