@@ -123,7 +123,7 @@ export function errorNameOf(error: unknown): string {
 export function errorMessageOf(error: unknown): string | undefined {
   if (errorNameOf(error) === "SyntaxError") return undefined;
   const message = error instanceof Error ? error.message : undefined;
-  return message ? cleanBugReportErrorMessage(message) : undefined;
+  return message || undefined;
 }
 
 function cleanError(error: BugReportRecentError): BugReportRecentError {

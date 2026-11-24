@@ -96,13 +96,15 @@ export const BugReportSchema = z.strictObject({
 export type BugReport = z.infer<typeof BugReportSchema>;
 
 const PATH_CHAR = String.raw`[^\s'"\`<>|]`;
-const PATH_MORE = String.raw`(?:[ \t]+(?:${PATH_CHAR}+[ \t]+)?${PATH_CHAR}*[\\/]${PATH_CHAR}*)*`;
+const NAME_SPACE = String.raw`[^\S\r\n\u2028\u2029]+`;
+const NAME_CHAR = String.raw`[^\s\\/'"\`<>|:;,=+*?\[\]]`;
+const NAME_WORD = `${NAME_CHAR}+(?:'${NAME_CHAR}+)*`;
+const FILE_EXTENSION = String.raw`\.(?=[0-9]{0,7}[A-Za-z])[A-Za-z0-9]{1,8}(?=[.)]*(?!${NAME_CHAR}))`;
+const FILE_NAME_WORDS = String.raw`(?<![:;,=+*?\[\].)])(?:${NAME_SPACE}${NAME_WORD}(?<!\.)){0,3}${NAME_SPACE}(?:${NAME_CHAR}+')*${NAME_CHAR}+${FILE_EXTENSION}`;
+const PATH_MORE = String.raw`(?:[ \t]+(?:${PATH_CHAR}+[ \t]+)?${PATH_CHAR}*[\\/]${PATH_CHAR}*)*(?:${FILE_NAME_WORDS})?`;
 const PATH_BEFORE = String.raw`(^|[\s'"\`(\[{=,;<>|])`;
 
-const HOME_SPACE = String.raw`[^\S\r\n\u2028\u2029]+`;
-const HOME_CHAR = String.raw`[^\s\\/'"\`<>|:;,=+*?\[\]]`;
-const HOME_WORD = `${HOME_CHAR}+(?:'${HOME_CHAR}+)*`;
-const HOME_NAME = String.raw`${HOME_WORD}(?:${HOME_SPACE}(?![A-Za-z]:[\\/]|[A-Za-z][A-Za-z0-9+.-]*:\/\/)${HOME_WORD})*`;
+const HOME_NAME = String.raw`${NAME_WORD}(?:${NAME_SPACE}(?![A-Za-z]:[\\/]|[A-Za-z][A-Za-z0-9+.-]*:\/\/)${NAME_WORD})*`;
 const HOME_TAIL = String.raw`(?:[\\/]{1,2}${PATH_CHAR}*${PATH_MORE})?`;
 const WINDOWS_HOME_PATH = new RegExp(
   String.raw`(^|[^A-Za-z0-9_])(?:\\{2}\?\\|\\{4}\?\\{2})?[A-Za-z]:(?:\\{1,2}|/)users(?:\\{1,2}|/)${HOME_NAME}${HOME_TAIL}`,
