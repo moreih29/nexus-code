@@ -31,6 +31,13 @@ type processDetail struct {
 var passThrough = map[string]bool{
 	"bash":       true,
 	"sh":         true,
+	"zsh":        true,
+	"fish":       true,
+	"dash":       true,
+	"ksh":        true,
+	"tcsh":       true,
+	"csh":        true,
+	"nu":         true,
 	"cmd":        true,
 	"powershell": true,
 	"pwsh":       true,

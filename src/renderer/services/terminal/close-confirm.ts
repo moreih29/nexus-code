@@ -21,6 +21,17 @@ export async function runningProgram(workspaceId: string, tabId: string): Promis
   return name !== "" && !isLoginShell(name) ? name : null;
 }
 
+export function confirmCloseRunningPrograms(programs: readonly string[]): Promise<boolean> {
+  return showConfirmDialog({
+    title: i18next.t("common:terminal.close_running_title"),
+    description: i18next.t("common:terminal.close_running_description", {
+      name: programs.join(", "),
+    }),
+    confirmLabel: i18next.t("common:terminal.close_running_confirm"),
+    variant: "destructive",
+  });
+}
+
 export async function closeTerminalWithConfirm(
   workspaceId: string,
   tabId: string,
@@ -28,14 +39,8 @@ export async function closeTerminalWithConfirm(
   const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
   if (tab?.type === "terminal" && !tab.props.dead) {
     const program = await runningProgram(workspaceId, tabId);
-    if (program !== null) {
-      const ok = await showConfirmDialog({
-        title: i18next.t("common:terminal.close_running_title"),
-        description: i18next.t("common:terminal.close_running_description", { name: program }),
-        confirmLabel: i18next.t("common:terminal.close_running_confirm"),
-        variant: "destructive",
-      });
-      if (!ok) return "cancelled";
+    if (program !== null && !(await confirmCloseRunningPrograms([program]))) {
+      return "cancelled";
     }
   }
   closeTerminal(tabId);
