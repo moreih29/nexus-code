@@ -1,6 +1,6 @@
 import { RELAY_MARK } from "../../../shared/chat/relay";
 import type { AgentRun } from "../../../shared/claude/activity";
-import { isUnder, slashWindowsPath } from "../../../shared/fs/relative-path";
+import { isUnder, isWindowsPath, slashWindowsPath } from "../../../shared/fs/relative-path";
 import { splitAttachments } from "./composer-input";
 import { imageFileOf, type ShownImage } from "./image-look";
 import { linkPlaceIndex, linkPlaces } from "./link-places";
@@ -812,6 +812,21 @@ export function outsideLinksOf(
     if (dir && !isUnder(root, dir)) dirs.add(dir);
   }
   return { files: files.slice(-MAX_OUTSIDE_FILES), dirs: [...dirs].slice(-MAX_OUTSIDE_DIRS) };
+}
+
+const SHARE_FILE = /^\/\/([^/]+)\/([^/]+)\/(.+)$/;
+
+function onShare(path: string): boolean {
+  const [, host, share, rest] = SHARE_FILE.exec(path) ?? [];
+  if (!host || !share || !rest || /^[.?]+$/.test(host)) return false;
+  return [share, ...rest.split("/")].every((part) => part !== "" && part !== "." && part !== "..");
+}
+
+export function changedShareFiles(tools: Record<string, ToolCall>, root: string): string[] {
+  if (!isWindowsPath(root)) return [];
+  return changedFilesOf(tools)
+    .map((file) => file.path)
+    .filter((path) => onShare(path) && !isUnder(path, root));
 }
 
 export interface ContextCategory {
