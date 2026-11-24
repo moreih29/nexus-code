@@ -121,7 +121,14 @@ test.each([
   const payload = { deviceId: "d2", ...params, unexpected: true };
   expect(contract.args.parse(payload)).toEqual({ deviceId: "d2", ...params });
   expect(contract.args.safeParse({ deviceId: "d2", ...invalid }).success).toBe(false);
-  expect(contract.result).toBe(RPC_METHODS[method].result);
+  if (call === "peerNotesRead") {
+    expect(Object.keys(contract.result.shape)).toEqual([
+      ...Object.keys(RPC_METHODS[method].result.shape),
+      "transcriptRecordings",
+    ]);
+  } else {
+    expect(contract.result).toBe(RPC_METHODS[method].result);
+  }
   const request = mock(async () => result);
   const calls = peerReadCalls(
     () => ({ request: request as never }),

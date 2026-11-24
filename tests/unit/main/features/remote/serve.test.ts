@@ -1328,7 +1328,10 @@ describe("serving a workspace's notes", () => {
               id: `n${i}`,
               title: `note ${i}`,
               updatedAt: 1000 - i,
-              excerpt: "not sent",
+              excerpt: `starts ${i}`,
+              ...(i === 0
+                ? { counts: { sketches: 0, files: 0, images: 1, todos: 0, todosDone: 0 } }
+                : {}),
               ...(i === 1 ? { recording: { recordings: 2, ms: 5000, people: 3 } } : {}),
             }))
           : [],
@@ -1346,14 +1349,29 @@ describe("serving a workspace's notes", () => {
   const ask = (remote: RemoteNotes, method: "notes.list" | "notes.attach", params: object) =>
     serveWith(() => services(), { notes: remote })({ from: "phone", method, params });
 
-  test("lists a workspace's notes, the last changed first, at most a page, with only what a phone needs", async () => {
+  test("lists a workspace's notes, the last changed first, at most a page, as their computer lists them", async () => {
     const { remote } = notes();
     const listed = (await ask(remote, "notes.list", { workspaceId: "w1" })) as {
       notes: object[];
     };
     expect(listed.notes).toHaveLength(MAX_LISTED_NOTES);
-    expect(listed.notes[0]).toEqual({ id: "n0", title: "note 0", updatedAt: 1000, recordings: 0 });
-    expect(listed.notes[1]).toEqual({ id: "n1", title: "note 1", updatedAt: 999, recordings: 2 });
+    expect(listed.notes[0]).toEqual({
+      id: "n0",
+      title: "note 0",
+      updatedAt: 1000,
+      recordings: 0,
+      counts: { sketches: 0, files: 0, images: 1, todos: 0, todosDone: 0 },
+      excerpt: "starts 0",
+    });
+    expect(listed.notes[1]).toEqual({
+      id: "n1",
+      title: "note 1",
+      updatedAt: 999,
+      recordings: 2,
+      recordingMs: 5000,
+      people: 3,
+      excerpt: "starts 1",
+    });
     await expect(ask(remote, "notes.list", { workspaceId: "nope" })).rejects.toMatchObject({
       code: RpcErrorCode.NotFound,
     });

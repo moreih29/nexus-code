@@ -47,3 +47,8 @@ test("markdownText joins a node's text", () => {
     }),
   ).toBe("ab");
 });
+
+test("a task's checkbox in chat and the preview stays a disabled input", () => {
+  const html = renderToStaticMarkup(<MarkdownBody source={"- [x] done\n- [ ] open"} />);
+  expect(html.match(/<input[^>]*type="checkbox"[^>]*disabled=""/g)).toHaveLength(2);
+});

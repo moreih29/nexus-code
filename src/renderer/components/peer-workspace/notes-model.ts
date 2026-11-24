@@ -1,12 +1,42 @@
 import type { RpcResult } from "../../../../packages/remote-protocol/src/rpc";
 import type { PeerWorkspace } from "../../../shared/fs/peer-url";
+import type { PeerNoteRead } from "../../../shared/ipc/contract";
+import {
+  type ReadTranscriptRecording,
+  readTranscriptRecording,
+  transcriptFromMarkdown,
+} from "../../../shared/notes/transcript";
 import { ipcCallResult } from "../../ipc/client";
+import type { NoteRowFacts } from "../notes/notes-panel";
+import type { TranscriptReading } from "../notes/transcript-panel";
 import { read } from "./commit-model";
 
 export type PeerNoteRow = RpcResult<"notes.list">["notes"][number];
-export type PeerNote = RpcResult<"notes.read">;
+export type PeerNote = PeerNoteRead;
 
 export const PEER_NOTES_REFRESH_MS = 20_000;
+
+export function peerNoteFacts({
+  id,
+  title,
+  updatedAt,
+  recordings,
+  recordingMs,
+  people,
+  counts,
+  excerpt,
+}: PeerNoteRow): NoteRowFacts {
+  return {
+    id,
+    title,
+    updatedAt,
+    ...(counts ? { counts } : {}),
+    ...(excerpt === undefined ? {} : { excerpt }),
+    ...(counts && recordings
+      ? { recording: { recordings, ms: recordingMs ?? 0, people: people ?? 0 } }
+      : {}),
+  };
+}
 
 export function listPeerNotes({ deviceId, workspaceId }: PeerWorkspace, signal: AbortSignal) {
   return read(signal, () =>
@@ -22,4 +52,15 @@ export function readPeerNote(
   return read(signal, () =>
     ipcCallResult("remote", "peerNotesRead", { deviceId, workspaceId, note }, { signal }),
   );
+}
+
+export function peerTranscript(
+  note: Pick<PeerNote, "transcript" | "transcriptRecordings">,
+): TranscriptReading {
+  const read: readonly ReadTranscriptRecording[] =
+    note.transcriptRecordings ?? transcriptFromMarkdown(note.transcript);
+  return {
+    recordings: read.map(readTranscriptRecording),
+    lengthMs: Object.fromEntries(read.map((recording) => [recording.id, recording.ms])),
+  };
 }

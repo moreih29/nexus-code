@@ -18,6 +18,7 @@ import {
   TranscriptFileSchema,
   type TranscriptRecording,
   takeFile,
+  transcriptFromMarkdown,
   transcriptMarkdown,
   withSecondPass,
 } from "../../../../src/shared/notes/transcript";
@@ -388,4 +389,35 @@ test.each([
     { ...line("1", 10, 440, "Yes"), pinned: true },
     line("2", 450, 6000, "The rest of the sentence"),
   ]);
+});
+
+test("a transcript read back from its Markdown keeps each recording, length, speaker and line", () => {
+  const markdown = [
+    "# Transcript: Weekly",
+    "",
+    "## Recording 2026-11-19 12:30 (1:02:03)",
+    "",
+    "[0:00] Ada: Hello: everyone.",
+    "[0:45] Speaker 3: Hi",
+    "and welcome.",
+    "[1:00:01] Ada: Bye.",
+    "",
+    "## Recording 2026-11-20 09:05 (0:04)",
+    "",
+    "(nothing heard)",
+    "",
+  ].join("\n");
+  const [first, second] = transcriptFromMarkdown(markdown);
+  expect(first?.startedAt).toBe(new Date(2026, 10, 19, 12, 30).getTime());
+  expect(first?.ms).toBe(3_723_000);
+  expect(
+    first?.lines.map((line) => [line.speaker, line.speakerName, line.startMs, line.text]),
+  ).toEqual([
+    ["1", "Ada", 0, "Hello: everyone."],
+    ["3", null, 45_000, "Hi and welcome."],
+    ["1", "Ada", 3_601_000, "Bye."],
+  ]);
+  expect(second?.ms).toBe(4000);
+  expect(second?.lines).toEqual([]);
+  expect(transcriptFromMarkdown("")).toEqual([]);
 });

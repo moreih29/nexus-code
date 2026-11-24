@@ -75,7 +75,7 @@ const accepts = (value: unknown) => BugReportSchema.safeParse(value).success;
 describe("a bug report", () => {
   test("version 1 leaves the relay protocol as it was", () => {
     expect(BUG_REPORT_VERSION).toBe(1);
-    expect(SCHEMA_VERSION).toBe("0.36.2");
+    expect(SCHEMA_VERSION).toBe("0.37.0");
     expect(PROTOCOL_VERSION).toBe(2);
     expect(RELAY_VERSION).toBe(2);
     expect(MAX_FRAME_BYTES).toBe(1024 * 1024);

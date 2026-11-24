@@ -763,7 +763,8 @@
   border-radius: var(--radius-control);
 }
 
-.note-doc .ProseMirror {
+.note-doc .ProseMirror,
+.note-doc .note-read {
   outline: none;
   font-size: 14px;
   line-height: 1.65;
@@ -772,7 +773,8 @@
   min-height: 100%;
   padding-bottom: 40vh;
 }
-.note-doc .ProseMirror > * + * {
+.note-doc .ProseMirror > * + *,
+.note-doc .note-read > * + * {
   margin-top: 0.5em;
 }
 .note-doc .ProseMirror > .note-summary-divider {
@@ -964,6 +966,47 @@ button.note-task-chip:hover {
 }
 .note-doc .ProseMirror-gapcursor::after {
   border-top-color: var(--surface-island-fg);
+}
+.note-doc .note-read ul.contains-task-list {
+  list-style: none;
+  padding-left: 0.1em;
+}
+.note-doc .note-read .note-read-check {
+  display: inline-block;
+  vertical-align: top;
+  margin-top: 0.22em;
+  margin-inline-end: 0.5em;
+  user-select: none;
+}
+.note-doc .note-read .note-read-check > input {
+  cursor: default;
+  accent-color: var(--state-selected-indicator);
+}
+.note-doc .note-read li.task-list-item:has(> .note-read-check),
+.note-doc .note-read li.task-list-item > p:has(> .note-read-check) {
+  display: flex;
+  align-items: flex-start;
+}
+.note-doc .note-read .note-read-task,
+.note-doc .note-read li.task-list-item > p > .note-read-task-text {
+  flex: 1;
+  min-width: 0;
+}
+.note-doc
+  .note-read
+  li.task-list-item:has(> .note-read-check > input:checked)
+  > .note-read-task
+  > .note-read-task-text,
+.note-doc
+  .note-read
+  li.task-list-item
+  > p:has(> .note-read-check > input:checked)
+  > .note-read-task-text {
+  color: var(--editor-text-muted);
+  text-decoration: line-through;
+}
+.note-doc .note-read .md-code-wrap {
+  position: relative;
 }
 
 html[data-dnd-active] iframe {

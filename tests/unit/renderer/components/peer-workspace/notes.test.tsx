@@ -11,6 +11,7 @@ import {
 } from "../../../../../src/renderer/components/peer-workspace/note-tab";
 import {
   listPeerNotes,
+  peerNoteFacts,
   readPeerNote,
 } from "../../../../../src/renderer/components/peer-workspace/notes-model";
 import { PeerNotesPanel } from "../../../../../src/renderer/components/peer-workspace/notes-panel";
@@ -99,6 +100,40 @@ test("the shared notes view reads only without a create action: no New note butt
   expect(local).toContain("rounded-(--radius-pill)");
 });
 
+test("a note listed by a 0.37.0 computer draws the same row as on that computer", () => {
+  const counts = { sketches: 0, files: 1, images: 0, todos: 3, todosDone: 1 };
+  const local = {
+    id: "n1",
+    title: "Fake plan",
+    updatedAt: Date.UTC(2026, 2, 1, 15),
+    counts,
+    excerpt: "Agenda for the call.",
+    recording: { recordings: 1, ms: 1_771_000, people: 3 },
+  };
+  const listed = {
+    id: "n1",
+    title: "Fake plan",
+    updatedAt: local.updatedAt,
+    recordings: 1,
+    recordingMs: 1_771_000,
+    people: 3,
+    counts,
+    excerpt: "Agenda for the call.",
+  };
+  const draw = (notes: Parameters<typeof NotesPanelView>[0]["notes"]) =>
+    renderToStaticMarkup(
+      <NotesPanelView notes={notes} error={false} activeNoteId={null} onOpen={() => {}} />,
+    );
+  expect(peerNoteFacts(listed)).toEqual(local);
+  expect(draw([peerNoteFacts(listed)])).toBe(draw([local]));
+  expect(draw([peerNoteFacts(listed)])).toContain("Meeting 29 min");
+  expect(peerNoteFacts({ id: "n2", title: "", updatedAt: 1, recordings: 2 })).toEqual({
+    id: "n2",
+    title: "",
+    updatedAt: 1,
+  });
+});
+
 test("the notes view says so when nothing was read and that computer is out of reach", () => {
   const markup = renderToStaticMarkup(
     <PeerNotesPanel target={target} canRead={false} rejoin={0} />,
@@ -126,7 +161,8 @@ test("a note's Markdown follows web links only and loads nothing from this compu
   expect(markup).not.toContain('href="nexus://x"');
   expect(markup).toContain("[sketch]");
   expect(markup).not.toContain("<img");
-  expect(markup).toMatch(/<input[^>]*disabled/);
+  expect(markup).toMatch(/<span class="note-read-check"><input[^>]*aria-disabled="true"/);
+  expect(markup).not.toMatch(/<input[^>]*\sdisabled=""/);
 });
 
 test("the heading notes.read puts first is dropped: the tab's title row says it", () => {
