@@ -218,17 +218,19 @@ describe("pty.spawn — claude's hooks and codex's --no-daemon in a local Window
   const BIN = "C:\\Users\\me\\.nexus-code\\bin";
   const LAUNCHERS = "C:\\Users\\me\\.nexus-code\\cli";
   const SETTINGS = "C:\\Users\\me\\.nexus-code\\claude-settings.json";
+  const SERVERLESS = "C:\\Users\\me\\.nexus-code\\claude-settings-serverless.json";
   const CMD_CLAUDE =
     `doskey claude=set "NEXUS_CLAUDE_TAB_ID=%NEXUS_TAB_ID%" ^& ` +
-    `claude --settings "${SETTINGS}" $* ^& set "NEXUS_CLAUDE_TAB_ID="`;
+    `claude --settings "%NEXUS_CLAUDE_SETTINGS%" $* ^& set "NEXUS_CLAUDE_TAB_ID="`;
   const wrapper = { binDir: LAUNCHERS, shell: "", shimDir: "C:\\Users\\me\\.nexus-code\\shim\\ws" };
   const files = async () => ({
     binDir: BIN,
     settingsPath: SETTINGS,
+    serverlessSettingsPath: SERVERLESS,
     cmdLauncherDir: `${BIN}\\cmd`,
   });
 
-  test("PowerShell, the system default, is named and defines claude and codex", async () => {
+  test("PowerShell, the system default, defines claude and codex, with the serverless hooks here", async () => {
     const { call, agent } = setup({ wrapper, windowsAgentFiles: files });
     await call("spawn", spawnArgs());
 
@@ -238,7 +240,8 @@ describe("pty.spawn — claude's hooks and codex's --no-daemon in a local Window
     const script = Buffer.from(sent?.args?.at(-1) ?? "", "base64").toString("utf16le");
     expect(script).toContain("function global:claude {");
     expect(script).toContain("function global:codex {");
-    expect(sent?.env?.NEXUS_CLAUDE_SETTINGS).toBe(SETTINGS);
+    expect(sent?.env?.NEXUS_CLAUDE_SETTINGS).toBe(SERVERLESS);
+    expect(sent?.env?.NEXUS_CLAUDE_SERVERLESS_SETTINGS).toBeUndefined();
     expect(sent?.env?.NEXUS_IN_APP).toBe("1");
     expect(sent?.env?.NEXUS_TAB_ID).toBe(TAB_ID);
     expect(sent?.env?.NEXUS_WRAPPER_SELF_DIR).toBe(LAUNCHERS);

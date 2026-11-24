@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -30,8 +31,6 @@ const permissionRequestSubcmd = "permission-request"
 const printWatchSubcmd = "print-watch"
 
 const goneRecheck = 500 * time.Millisecond
-
-const maxSocketPathLen = 104
 
 const maxRequestBytes = proto.MaxHookRequestBytes
 
@@ -111,6 +110,9 @@ func takeRequest(requests *sync.Map, id string) (net.Conn, bool) {
 
 type Server struct {
 	socketPath string
+	wantedPath string
+	refused    *agentpaths.NotPrivateError
+	freshDir   string
 	token      string
 	listener   net.Listener
 
@@ -139,23 +141,41 @@ func New(agentKey string, sink EventSink) (*Server, error) {
 }
 
 func newServer(agentKey string, sink EventSink, newTimer func(time.Duration) (<-chan time.Time, func())) (*Server, error) {
-	socketPath, socketsDir, err := makeSocketPath(agentKey)
+	place, err := makeSocketPath(agentKey)
 	if err != nil {
 		return nil, fmt.Errorf("hookserver: %w", err)
 	}
-
-	if len(socketPath) > maxSocketPathLen {
-		return nil, fmt.Errorf("hookserver: socket path too long (%d > %d, under ~/.nexus-code/sockets/): %s",
-			len(socketPath), maxSocketPathLen, socketPath)
-	}
+	socketPath, socketsDir, private := place.path, place.dir, place.fallback
 
 	token, err := newToken()
 	if err != nil {
 		return nil, fmt.Errorf("hookserver: token generation failed: %w", err)
 	}
 
-	if err := agentpaths.EnsureDir(socketsDir); err != nil {
-		return nil, fmt.Errorf("hookserver: %w", err)
+	ensureDir := agentpaths.EnsureDir
+	if private {
+		ensureDir = agentpaths.EnsurePrivateDir
+	}
+	freshDir := ""
+	var refused *agentpaths.NotPrivateError
+	if err := ensureDir(socketsDir); err != nil {
+		if !private || !errors.As(err, &refused) {
+			return nil, fmt.Errorf("hookserver: %w", err)
+		}
+		name := filepath.Base(socketPath)
+		fresh, freshErr := agentpaths.FreshPrivateSocketDir(name)
+		if errors.Is(freshErr, errors.ErrUnsupported) {
+			return nil, fmt.Errorf("hookserver: %w", err)
+		}
+		if freshErr != nil {
+			return nil, fmt.Errorf("hookserver: %w", errors.Join(err, freshErr))
+		}
+		socketsDir, socketPath, freshDir = fresh, filepath.Join(fresh, name), fresh
+	}
+	removeFreshDir := func() {
+		if freshDir != "" {
+			_ = os.Remove(freshDir)
+		}
 	}
 
 	cleanStaleSockets(socketsDir, filepath.Base(socketPath), time.Now())
@@ -164,17 +184,22 @@ func newServer(agentKey string, sink EventSink, newTimer func(time.Duration) (<-
 
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {
+		removeFreshDir()
 		return nil, fmt.Errorf("hookserver: listen failed: %w", err)
 	}
 
 	if err := os.Chmod(socketPath, 0600); err != nil {
 		_ = ln.Close()
 		_ = os.Remove(socketPath)
+		removeFreshDir()
 		return nil, fmt.Errorf("hookserver: chmod failed: %w", err)
 	}
 
 	s := &Server{
 		socketPath: socketPath,
+		wantedPath: place.wanted,
+		refused:    refused,
+		freshDir:   freshDir,
 		token:      token,
 		listener:   ln,
 		sink:       sink,
@@ -238,6 +263,9 @@ func (s *Server) Close() error {
 		})
 
 		_ = os.Remove(s.socketPath)
+		if s.freshDir != "" {
+			_ = os.Remove(s.freshDir)
+		}
 	})
 	return closeErr
 }
@@ -427,15 +455,42 @@ func (s *Server) deadlineFor(subcommand string) time.Duration {
 	return connDeadline
 }
 
-func makeSocketPath(agentKey string) (string, string, error) {
-	socketsDir, err := agentpaths.SocketsDir()
+type socketPlace struct {
+	path     string
+	dir      string
+	wanted   string
+	fallback bool
+}
+
+func makeSocketPath(agentKey string) (socketPlace, error) {
+	preferred, err := agentpaths.SocketsDir()
 	if err != nil {
-		return "", "", err
+		return socketPlace{}, err
 	}
 	h := sha256.Sum256([]byte(agentKey))
-	short := hex.EncodeToString(h[:])[:12]
-	socketPath := filepath.Join(socketsDir, "h-"+short+".sock")
-	return socketPath, socketsDir, nil
+	name := "h-" + hex.EncodeToString(h[:])[:12] + ".sock"
+	dir, fallback, err := agentpaths.SocketDir(preferred, name)
+	if err != nil {
+		return socketPlace{}, err
+	}
+	place := socketPlace{path: filepath.Join(dir, name), dir: dir, fallback: fallback}
+	if fallback {
+		place.wanted = filepath.Join(preferred, name)
+	}
+	return place, nil
+}
+
+func (s *Server) LogSocketChoice(log *slog.Logger) {
+	if s.wantedPath == "" {
+		return
+	}
+	log.Info("hookserver socket path over the limit; using a fallback",
+		"path", s.wantedPath, "bytes", len(s.wantedPath), "limit", agentpaths.MaxSocketPathLen(),
+		"fallback", s.socketPath)
+	if s.refused != nil && s.freshDir != "" {
+		log.Info("hookserver fallback directory refused; using a fresh one",
+			"refused", s.refused.Dir, "reason", s.refused.Reason, "fresh", s.freshDir)
+	}
 }
 
 func cleanStaleSockets(socketsDir, selfBasename string, now time.Time) {

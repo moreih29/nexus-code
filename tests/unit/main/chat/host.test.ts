@@ -1,4 +1,7 @@
 import { describe, expect, jest, mock, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   ATTACH_ROOM_BYTES,
   ATTACH_UNUSED_MS,
@@ -1384,41 +1387,135 @@ describe("ChatHost", () => {
     expect(start.program).toBe("/home/u/.local/bin/claude");
   });
 
-  test("start on Windows runs claude itself, its Bash tool's Git Bash on the wrappers", async () => {
-    const channel = new FakeChannel();
-    channel.found = { path: "C:\\Users\\u\\.local\\bin\\claude.exe" };
-    const host = new ChatHost({
-      workspaceManager: {
-        getAgentChannel: async () => channel,
-        tryGetAgentChannel: async () => channel,
-        onProviderReady: () => () => {},
-        getSpawnHookInfo: async () => null,
-        getWrapperBinDir: () => "C:\\Users\\u\\.nexus-code\\cli",
-        getWrapperAgentBin: () => null,
-        getWrapperShimDir: () => "C:\\Users\\u\\.nexus-code\\shim\\ws",
-        isLocal: () => true,
-      },
-      broadcast: () => {},
-      windowsAgentFiles: async () => ({
-        binDir: "C:\\Users\\u\\.nexus-code\\bin",
-        settingsPath: "C:\\Users\\u\\.nexus-code\\bin\\claude-settings.json",
-      }),
+  describe("start on Windows", () => {
+    const SETTINGS = "C:\\Users\\u\\.nexus-code\\claude-settings.json";
+    const SERVERLESS = "C:\\Users\\u\\.nexus-code\\claude-settings-serverless.json";
+    function windowsStart(
+      hookInfo: { socketPath: string; token: string } | null,
+      files: { settingsPath?: string; serverlessSettingsPath?: string },
+    ) {
+      const channel = new FakeChannel();
+      channel.found = { path: "C:\\Users\\u\\.local\\bin\\claude.exe" };
+      const host = new ChatHost({
+        workspaceManager: {
+          getAgentChannel: async () => channel,
+          tryGetAgentChannel: async () => channel,
+          onProviderReady: () => () => {},
+          getSpawnHookInfo: async () => hookInfo,
+          getWrapperBinDir: () => "C:\\Users\\u\\.nexus-code\\cli",
+          getWrapperAgentBin: () => "C:\\Users\\u\\.nexus-code\\bin\\agent.exe",
+          getWrapperShimDir: () => "C:\\Users\\u\\.nexus-code\\shim\\ws",
+          isLocal: () => true,
+        },
+        broadcast: () => {},
+        windowsAgentFiles: async () => ({ binDir: "C:\\Users\\u\\.nexus-code\\bin", ...files }),
+      });
+      return { channel, host };
+    }
+    const startOf = (channel: FakeChannel) =>
+      channel.calls.find((c) => c.method === "chat.start")?.params as {
+        program: string;
+        args: string[];
+        env: Record<string, string>;
+      };
+
+    test("runs claude itself with every hook, its Bash tool's Git Bash on the wrappers", async () => {
+      const { channel, host } = windowsStart(
+        { socketPath: "C:\\Users\\u\\.nexus-code\\sockets\\h-1.sock", token: "tok" },
+        { settingsPath: SETTINGS, serverlessSettingsPath: SERVERLESS },
+      );
+      await host.start(WS, TAB, "C:\\repo", {});
+      const start = startOf(channel);
+      expect(start.program).toBe("C:\\Users\\u\\.local\\bin\\claude.exe");
+      expect(start.args.slice(0, 2)).toEqual(["--settings", SETTINGS]);
+      expect(start.env).toMatchObject({
+        NEXUS_CLAUDE_TAB_ID: TAB,
+        NEXUS_AGENT_SOCKET: "C:\\Users\\u\\.nexus-code\\sockets\\h-1.sock",
+        BASH_ENV: "/c/Users/u/.nexus-code/shim/ws/bashenv",
+        NEXUS_BASH_WRAPPER_DIR: "/c/Users/u/.nexus-code/bin",
+      });
     });
-    await host.start(WS, TAB, "C:\\repo", {});
-    const start = channel.calls.find((c) => c.method === "chat.start")?.params as {
-      program: string;
-      args: string[];
-      env: Record<string, string>;
-    };
-    expect(start.program).toBe("C:\\Users\\u\\.local\\bin\\claude.exe");
-    expect(start.args.slice(0, 2)).toEqual([
-      "--settings",
-      "C:\\Users\\u\\.nexus-code\\bin\\claude-settings.json",
-    ]);
-    expect(start.env).toMatchObject({
-      NEXUS_CLAUDE_TAB_ID: TAB,
-      BASH_ENV: "/c/Users/u/.nexus-code/shim/ws/bashenv",
-      NEXUS_BASH_WRAPPER_DIR: "/c/Users/u/.nexus-code/bin",
+
+    test("without the hook server it keeps only the hooks that run without it", async () => {
+      const { channel, host } = windowsStart(null, {
+        settingsPath: SETTINGS,
+        serverlessSettingsPath: SERVERLESS,
+      });
+      await host.start(WS, TAB, "C:\\repo", {});
+      const start = startOf(channel);
+      expect(start.args.slice(0, 2)).toEqual(["--settings", SERVERLESS]);
+      expect(start.args).not.toContain(SETTINGS);
+      expect(start.env.NEXUS_AGENT_SOCKET).toBeUndefined();
+    });
+
+    test("without the hook server or a file for it, it passes no hooks", async () => {
+      const { channel, host } = windowsStart(null, { settingsPath: SETTINGS });
+      await host.start(WS, TAB, "C:\\repo", {});
+      expect(startOf(channel).args).not.toContain("--settings");
+    });
+
+    test("without the hook server a custom profile's model picker joins only those hooks", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "nx-host-serverless-"));
+      try {
+        const guard = {
+          matcher: "SendMessage",
+          hooks: [{ type: "command", command: "agent.exe hook send-message" }],
+        };
+        const full = join(dir, "claude-settings.json");
+        const serverless = join(dir, "claude-settings-serverless.json");
+        await writeFile(full, JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [] }] } }));
+        await writeFile(serverless, JSON.stringify({ hooks: { PreToolUse: [guard] } }));
+        const profile: AgentProfile = {
+          id: "claude-default",
+          agent: "claude",
+          name: "",
+          color: "blue",
+          dir: "",
+          connection: {
+            method: "custom",
+            baseUrl: "http://127.0.0.1:8080",
+            auth: "bearer",
+            defaultModel: "custom-model",
+            models: [{ id: "custom-model", label: "Custom" }],
+          },
+        };
+        const channel = new FakeChannel();
+        channel.found = { path: "C:\\Users\\u\\.local\\bin\\claude.exe" };
+        const host = new ChatHost({
+          workspaceManager: {
+            getAgentChannel: async () => channel,
+            tryGetAgentChannel: async () => channel,
+            onProviderReady: () => () => {},
+            getSpawnHookInfo: async () => null,
+            getWrapperBinDir: () => "C:\\Users\\u\\.nexus-code\\cli",
+            getWrapperAgentBin: () => "C:\\Users\\u\\.nexus-code\\bin\\agent.exe",
+            getWrapperShimDir: () => "C:\\Users\\u\\.nexus-code\\shim\\ws",
+            isLocal: () => true,
+          },
+          broadcast: () => {},
+          profile: (id) => (id === profile.id ? profile : null),
+          connectionKey: async () => "sealed-key",
+          windowsAgentFiles: async () => ({
+            binDir: "C:\\Users\\u\\.nexus-code\\bin",
+            settingsPath: full,
+            serverlessSettingsPath: serverless,
+          }),
+        });
+        expect(await host.start(WS, TAB, "C:\\repo", {})).toMatchObject({ ok: true });
+        const start = startOf(channel);
+        expect(start.args[0]).toBe("--settings");
+        expect(JSON.parse(start.args[1] ?? "null")).toEqual({
+          hooks: { PreToolUse: [guard] },
+          modelPicker: {
+            replaceBuiltInOptions: true,
+            options: [{ model: "custom-model", label: "Custom" }],
+          },
+        });
+        expect(start.env.NEXUS_AGENT_SOCKET).toBeUndefined();
+        expect(start.env.NEXUS_CLAUDE_MODEL_PICKER).toBeUndefined();
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
     });
   });
 

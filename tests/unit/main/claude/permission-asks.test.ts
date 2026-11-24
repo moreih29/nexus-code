@@ -4,8 +4,11 @@ import {
   alwaysOf,
   answersDialog,
   DENIED_MESSAGE,
+  DISMISS_WINDOW_MS,
   decisionOutput,
   PermissionAsks,
+  type Schedule,
+  TERMINAL_RELEASE_MS,
 } from "../../../../src/main/features/claude/permission-asks";
 import { MAIN_AGENT } from "../../../../src/main/features/claude/permission-dialogs";
 import type { AgentChannel } from "../../../../src/main/infra/agent/channel";
@@ -20,7 +23,25 @@ const SUGGESTIONS = [
   },
 ];
 
-function makeAsks(answers = true) {
+function manualTimers() {
+  const pending = new Set<{ run: () => void; ms: number }>();
+  const schedule: Schedule = (run, ms) => {
+    const entry = { run, ms };
+    pending.add(entry);
+    return () => {
+      pending.delete(entry);
+    };
+  };
+  const flush = () => {
+    for (const entry of [...pending]) {
+      pending.delete(entry);
+      entry.run();
+    }
+  };
+  return { schedule, flush, pending };
+}
+
+function makeAsks(answers = true, schedule?: Schedule) {
   const sent: Array<{ workspaceId: string; hookId: string; response: HookResponse }> = [];
   const asks = new PermissionAsks(
     async (workspaceId, hookId, response) => {
@@ -28,6 +49,7 @@ function makeAsks(answers = true) {
       return answers ? "answered" : "gone";
     },
     () => 1_000,
+    schedule,
   );
   return { asks, sent };
 }
@@ -145,18 +167,23 @@ describe("PermissionAsks", () => {
 });
 
 describe("a dialog answered in the terminal", () => {
-  test("lets go of the oldest request of the session, the one on its screen", () => {
-    const { asks, sent } = makeAsks();
+  test("closes the oldest request of the session, the one on its screen, and lets go of its hook a while later", () => {
+    const timers = manualTimers();
+    const { asks, sent } = makeAsks(true, timers.schedule);
     asks.hold("ws", "t1", "h1", MAIN_AGENT, "c1", payload);
     asks.hold("ws", "t1", "h2", "a1", "c2", payload);
     asks.hold("ws", "t2", "h3", MAIN_AGENT, "c1", payload);
     const told: string[] = [];
     asks.onAnsweredInTerminal((ask) => told.push(`${ask.tabId}:${ask.agent}:${ask.call}`));
     asks.answeredInTerminal("ws", "t1");
-    expect(sent).toEqual([{ workspaceId: "ws", hookId: "h1", response: { exitCode: 0 } }]);
     expect(told).toEqual([`t1:${MAIN_AGENT}:c1`]);
     expect(asks.list("ws", "t1").map((ask) => ask.id)).toEqual(["h2"]);
+    expect(sent).toEqual([]);
+    expect([...timers.pending].map((entry) => entry.ms)).toEqual([TERMINAL_RELEASE_MS]);
+    timers.flush();
+    expect(sent).toEqual([{ workspaceId: "ws", hookId: "h1", response: { exitCode: 0 } }]);
     asks.answeredInTerminal("ws", "t9");
+    timers.flush();
     expect(sent).toHaveLength(1);
   });
 
@@ -170,6 +197,138 @@ describe("a dialog answered in the terminal", () => {
     ["y", false],
   ])("%j answers it: %p", (data, answers) => {
     expect(answersDialog(data)).toBe(answers);
+  });
+});
+
+describe("a dialog dismissed by a key in the terminal", () => {
+  function escapable() {
+    let now = 1_000;
+    const sent: string[] = [];
+    const timers = manualTimers();
+    const asks = new PermissionAsks(
+      async (_workspaceId, hookId) => {
+        sent.push(hookId);
+        return "answered";
+      },
+      () => now,
+      timers.schedule,
+    );
+    const dismissed: string[] = [];
+    asks.onDismissedInTerminal((ask) => dismissed.push(`${ask.tabId}:${ask.agent}:${ask.call}`));
+    asks.hold("ws", "t1", "h1", MAIN_AGENT, "c1", payload);
+    return {
+      asks,
+      sent,
+      dismissed,
+      flush: timers.flush,
+      later: (ms: number) => {
+        now += ms;
+      },
+    };
+  }
+
+  test("the request Claude Code drops right after Esc reads as dismissed, unanswered", () => {
+    const { asks, sent, dismissed, later } = escapable();
+    asks.noteTerminalInput("ws", "t1", "\x1b");
+    later(200);
+    asks.gone("h1");
+    expect(dismissed).toEqual([`t1:${MAIN_AGENT}:c1`]);
+    expect(asks.list("ws", "t1")).toEqual([]);
+    expect(sent).toEqual([]);
+  });
+
+  test("one Esc dismisses every request Claude Code drops with it", () => {
+    const { asks, dismissed } = escapable();
+    asks.hold("ws", "t1", "h2", "a1", "c2", payload);
+    asks.noteTerminalInput("ws", "t1", "\x1b");
+    asks.gone("h2");
+    asks.gone("h1");
+    expect(dismissed).toEqual(["t1:a1:c2", `t1:${MAIN_AGENT}:c1`]);
+  });
+
+  test("a focus report after Esc keeps it", () => {
+    const { asks, dismissed } = escapable();
+    asks.noteTerminalInput("ws", "t1", "\x1b");
+    asks.noteTerminalInput("ws", "t1", "\x1b[O");
+    asks.gone("h1");
+    expect(dismissed).toHaveLength(1);
+  });
+
+  test.each([
+    ["no Esc", [] as string[], 0],
+    ["a key after Esc", ["\x1b", "\x1b[Z"], 0],
+    ["Esc in another tab", ["other"], 0],
+    ["Esc too long before", ["\x1b"], DISMISS_WINDOW_MS + 1],
+  ])("a request dropped after %s is only forgotten", (_name, keys, wait) => {
+    const { asks, dismissed, later } = escapable();
+    for (const key of keys) {
+      if (key === "other") {
+        asks.hold("ws", "t2", "h9", MAIN_AGENT, "c1", payload);
+        asks.noteTerminalInput("ws", "t2", "\x1b");
+      } else {
+        asks.noteTerminalInput("ws", "t1", key);
+      }
+    }
+    later(wait);
+    asks.gone("h1");
+    expect(dismissed).toEqual([]);
+    expect(asks.list("ws", "t1")).toEqual([]);
+  });
+
+  test("Esc with nothing held arms nothing for a later request", () => {
+    const { asks, dismissed } = escapable();
+    asks.gone("h1");
+    asks.noteTerminalInput("ws", "t1", "\x1b");
+    asks.hold("ws", "t1", "h2", MAIN_AGENT, "c2", payload);
+    asks.gone("h2");
+    expect(dismissed).toEqual([]);
+  });
+
+  test("a request Claude Code drops right after a numbered pick reads as dismissed, unanswered", () => {
+    const { asks, sent, dismissed, flush } = escapable();
+    const told: string[] = [];
+    asks.onAnsweredInTerminal((ask) => told.push(ask.call ?? ""));
+    asks.noteTerminalInput("ws", "t1", "3");
+    expect(told).toEqual(["c1"]);
+    asks.gone("h1");
+    flush();
+    expect(dismissed).toEqual([`t1:${MAIN_AGENT}:c1`]);
+    expect(sent).toEqual([]);
+  });
+
+  test("Enter on the dialog counts as its pick too", () => {
+    const { asks, dismissed } = escapable();
+    asks.noteTerminalInput("ws", "t1", "\x1b[B");
+    asks.noteTerminalInput("ws", "t1", "\r");
+    asks.gone("h1");
+    expect(dismissed).toHaveLength(1);
+  });
+
+  test("a pick whose hook Claude Code keeps is let go after a while and never dismissed", () => {
+    const { asks, sent, dismissed, flush } = escapable();
+    asks.noteTerminalInput("ws", "t1", "1");
+    flush();
+    expect(sent).toEqual(["h1"]);
+    asks.gone("h1");
+    expect(dismissed).toEqual([]);
+  });
+
+  test("a cleared tab lets go at once of what it was about to", () => {
+    const { asks, sent, flush } = escapable();
+    asks.noteTerminalInput("ws", "t1", "1");
+    asks.clear("ws", "t1");
+    expect(sent).toEqual(["h1"]);
+    flush();
+    expect(sent).toEqual(["h1"]);
+  });
+
+  test("a cleared tab forgets its Esc", () => {
+    const { asks, dismissed } = escapable();
+    asks.noteTerminalInput("ws", "t1", "\x1b");
+    asks.clearWorkspace("ws");
+    asks.hold("ws", "t1", "h2", MAIN_AGENT, "c2", payload);
+    asks.gone("h2");
+    expect(dismissed).toEqual([]);
   });
 });
 

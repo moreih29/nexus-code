@@ -3,6 +3,7 @@ import { createLogger } from "../../../shared/log/main";
 import type { AgentChannel, ChannelLifecycleEvent } from "../../infra/agent/channel";
 import type { HookInfo } from "../workspace/manager";
 import { tabHookToken } from "../workspace/tab-token";
+import { claudeSettingsEnv } from "./claude-settings-env";
 import type { PtyHostHandle } from "./types";
 
 const log = createLogger("agent-host");
@@ -173,6 +174,7 @@ class AgentPtyHostHandle implements PtyHostHandle {
         throw new Error("terminal closed before it started");
       }
       this.rememberSession(workspaceId, tabId);
+      const settled = env === undefined ? undefined : claudeSettingsEnv(env, hooks !== null);
       let result: AgentSpawnResult;
       try {
         sent = true;
@@ -182,12 +184,14 @@ class AgentPtyHostHandle implements PtyHostHandle {
             ? {
                 ...spawn,
                 env: {
-                  ...env,
+                  ...settled,
                   NEXUS_AGENT_SOCKET: hooks.socketPath,
                   NEXUS_HOOK_TOKEN: tabHookToken(hooks, workspaceId, tabId),
                 },
               }
-            : args,
+            : settled === env
+              ? args
+              : { ...spawn, env: settled },
         );
       } catch (error) {
         this.deleteSession(workspaceId, tabId);

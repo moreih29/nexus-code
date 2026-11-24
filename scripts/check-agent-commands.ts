@@ -17,6 +17,7 @@ const OFF = "off in its definition";
 const TERMINAL = "the terminal's own UI";
 
 const CLAUDE_LEFT_OUT: Record<string, string> = {
+  access: "an account-gated view of the verification programs the account is in",
   artifacts: "a terminal browser of claude.ai's artifacts",
   brief: "the terminal's brief-only display",
   bug: "the same as /feedback, which the tab runs",
@@ -29,7 +30,6 @@ const CLAUDE_LEFT_OUT: Record<string, string> = {
   ide: "IDE integration; the app is the editor",
   install: "installs the CLI itself",
   keybindings: TERMINAL,
-  loops: OFF,
   mobile: "a QR code for the mobile app",
   passes: "a referral offer the CLI shows",
   "pause-memory": OFF,

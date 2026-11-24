@@ -111,6 +111,7 @@ func main() {
 	if hs, err := hookserver.New(hookserver.AgentKey(root), nil); err != nil {
 		agentLogger.Warn("hookserver unavailable", "err", err)
 	} else {
+		hs.LogSocketChoice(agentLogger)
 		hooksrv = hs
 	}
 

@@ -124,6 +124,23 @@ function makeHookAgentHost() {
   };
 }
 
+function manualTimers() {
+  const pending = new Set<() => void>();
+  const schedule = (run: () => void) => {
+    pending.add(run);
+    return () => {
+      pending.delete(run);
+    };
+  };
+  const flush = () => {
+    for (const run of [...pending]) {
+      pending.delete(run);
+      run();
+    }
+  };
+  return { schedule, flush };
+}
+
 interface Harness {
   broker: InstanceType<typeof ClaudeStatusBroker>;
   activeContext: InstanceType<typeof ActiveContextStore>;
@@ -152,7 +169,11 @@ class FakeNotification {
 
 function makeHarness(
   focused: boolean = false,
-  opts: { notificationsEnabled?: () => boolean; asks?: boolean } = {},
+  opts: {
+    notificationsEnabled?: () => boolean;
+    asks?: boolean;
+    schedule?: import("../../../../src/main/features/claude/permission-asks").Schedule;
+  } = {},
 ): Harness {
   const brokerCalls: Array<{ channel: string; event: string; args: unknown }> = [];
   const broadcastCalls: Array<{ channel: string; event: string; args: unknown }> = [];
@@ -169,10 +190,14 @@ function makeHarness(
   const channel = makeChannel();
   const { FakeNotification: FN, instances: notifInstances } = makeNotificationCtor();
   const asks = opts.asks
-    ? new PermissionAsks(async (_workspaceId, hookId, response) => {
-        await channel.call("claude.respondHook", { hookId, response });
-        return "answered";
-      })
+    ? new PermissionAsks(
+        async (_workspaceId, hookId, response) => {
+          await channel.call("claude.respondHook", { hookId, response });
+          return "answered";
+        },
+        Date.now,
+        opts.schedule,
+      )
     : undefined;
   const chatAnswers = new ChatAnswers();
 
@@ -941,6 +966,42 @@ test("dismissing a Claude notification cancels its fallback timer", async () => 
   }
 });
 
+test("Esc typed into the terminal at a permission dialog ends the turn", async () => {
+  const agentHost = makeHookAgentHost();
+  const feature = setupClaudeFeature({
+    agentHost: {
+      ...agentHost,
+      call: async () => undefined,
+      isAlive: () => true,
+      dispose: () => {},
+      closeWorkspaceSessions: () => {},
+      restoreAfterReauth: async () => {},
+      releaseHeld: () => {},
+    },
+    workspaceManager: {
+      getName: () => "TestWorkspace",
+      tryGetAgentChannel: async () => null,
+      connect: async () => {},
+    },
+    broadcastFn: () => {},
+    notificationsEnabled: () => false,
+  });
+  const request = makeHookPayload("permission-request", { tool_name: "Write", tool_input: {} });
+  const { workspaceId, tabId } = request;
+  try {
+    agentHost.emit("claude.hook", makeHookPayload("user-prompt-submit", { prompt: "write it" }));
+    agentHost.emit("claude.hook", request);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(feature.broker.get(workspaceId, tabId)?.status).toBe("permissionPending");
+    feature.noteInput(workspaceId, tabId, "\x1b");
+    agentHost.emit("claude.hookGone", { hookId: request.hookId, workspaceId, tabId });
+    expect(feature.broker.get(workspaceId, tabId)?.status).toBe("idle");
+    expect(feature.asks.list(workspaceId, tabId)).toEqual([]);
+  } finally {
+    feature.dispose();
+  }
+});
+
 test("a terminal exit rejects a late hook from the ended Claude turn", async () => {
   const agentHost = makeHookAgentHost();
   const feature = setupClaudeFeature({
@@ -1223,7 +1284,11 @@ describe("hook-handler — permission requests answered from the app", () => {
   });
 
   test("a key that answers the dialog in the terminal closes it at once", async () => {
-    const { activity, asks, broker, channel, emit } = makeHarness(false, { asks: true });
+    const timers = manualTimers();
+    const { activity, asks, broker, channel, emit } = makeHarness(false, {
+      asks: true,
+      schedule: timers.schedule,
+    });
     emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
     emit(makeHookPayload("subagent-start", { agent_id: "a1", agent_type: "Explore" }));
     const request = makeHookPayload("permission-request", { ...bash, agent_id: "a1" });
@@ -1231,10 +1296,12 @@ describe("hook-handler — permission requests answered from the app", () => {
     await tick();
     expect(status(broker)).toBe("permissionPending");
     asks?.answeredInTerminal("ws-test", "tab-test");
-    expect(answersTo(channel, request.hookId)).toEqual([{ exitCode: 0 }]);
     expect(asks?.list("ws-test", "tab-test")).toEqual([]);
     expect(status(broker)).toBe("running");
     expect(activity.get("ws-test", "tab-test")?.agents[0]?.state).toBe("running");
+    expect(answersTo(channel, request.hookId)).toEqual([]);
+    timers.flush();
+    expect(answersTo(channel, request.hookId)).toEqual([{ exitCode: 0 }]);
   });
 
   test("an answer from the app closes the dialog at once", async () => {
@@ -1309,6 +1376,139 @@ describe("hook-handler — permission requests answered from the app", () => {
     });
     expect(asks?.list("ws-test", "tab-test")).toEqual([]);
     expect(answersTo(channel, request.hookId)).toEqual([]);
+  });
+
+  const write = { tool_name: "Write", tool_input: { file_path: "/repo/hello.txt", content: "hi" } };
+  const gone = (agentHost: Harness["agentHost"], hookId: string) =>
+    agentHost.emit("claude.hookGone", {
+      hookId,
+      workspaceId: "ws-test",
+      tabId: "tab-test",
+      subcommand: "permission-request",
+    });
+
+  test("Esc at the dialog leaves the session waiting on the user once Claude drops the request", async () => {
+    const { activity, agentHost, asks, broker, channel, emit } = makeHarness(false, { asks: true });
+    emit(makeHookPayload("user-prompt-submit", { prompt: "write it" }));
+    emit(makeHookPayload("pre-tool-use", { ...write, tool_use_id: "t1" }));
+    const request = makeHookPayload("permission-request", write);
+    emit(request);
+    await tick();
+    asks?.noteTerminalInput("ws-test", "tab-test", "\x1b");
+    expect(status(broker)).toBe("permissionPending");
+    gone(agentHost, request.hookId);
+    expect(status(broker)).toBe("idle");
+    expect(asks?.list("ws-test", "tab-test")).toEqual([]);
+    expect(answersTo(channel, request.hookId)).toEqual([]);
+    expect(activity.get("ws-test", "tab-test")?.tools[0]?.denied).toBe(true);
+  });
+
+  test("a request Claude drops without Esc keeps the dialog until Claude goes on", async () => {
+    const { agentHost, asks, broker, emit } = makeHarness(false, { asks: true });
+    emit(makeHookPayload("user-prompt-submit", { prompt: "write it" }));
+    const request = makeHookPayload("permission-request", write);
+    emit(request);
+    await tick();
+    asks?.noteTerminalInput("ws-test", "tab-test", "\x1b");
+    asks?.noteTerminalInput("ws-test", "tab-test", "\x1b[Z");
+    gone(agentHost, request.hookId);
+    expect(status(broker)).toBe("permissionPending");
+    emit(makeHookPayload("post-tool-use", write));
+    await tick();
+    expect(status(broker)).toBe("running");
+    emit(makeHookPayload("stop"));
+    await tick();
+    expect(status(broker)).toBe("completed");
+  });
+
+  test("Esc at a subagent's dialog lets the turn go on", async () => {
+    const { activity, agentHost, asks, broker, emit } = makeHarness(false, { asks: true });
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    emit(makeHookPayload("subagent-start", { agent_id: "a1", agent_type: "Explore" }));
+    const request = makeHookPayload("permission-request", { ...bash, agent_id: "a1" });
+    emit(request);
+    await tick();
+    asks?.noteTerminalInput("ws-test", "tab-test", "\x1b");
+    gone(agentHost, request.hookId);
+    expect(status(broker)).toBe("running");
+    expect(activity.get("ws-test", "tab-test")?.agents[0]?.state).toBe("running");
+  });
+
+  test("Esc while both the session and a subagent ask ends the turn once both are dropped", async () => {
+    const { agentHost, asks, broker, emit } = makeHarness(false, { asks: true });
+    emit(makeHookPayload("user-prompt-submit", { prompt: "build it" }));
+    emit(makeHookPayload("subagent-start", { agent_id: "a1", agent_type: "Explore" }));
+    const own = makeHookPayload("permission-request", write);
+    const sub = makeHookPayload("permission-request", { ...bash, agent_id: "a1" });
+    emit(own);
+    emit(sub);
+    await tick();
+    asks?.noteTerminalInput("ws-test", "tab-test", "\x1b");
+    gone(agentHost, own.hookId);
+    expect(status(broker)).toBe("permissionPending");
+    gone(agentHost, sub.hookId);
+    expect(status(broker)).toBe("idle");
+  });
+
+  test("No picked by its number ends the turn once Claude drops the request", async () => {
+    const timers = manualTimers();
+    const { activity, agentHost, asks, broker, channel, emit } = makeHarness(false, {
+      asks: true,
+      schedule: timers.schedule,
+    });
+    emit(makeHookPayload("user-prompt-submit", { prompt: "write it" }));
+    emit(makeHookPayload("pre-tool-use", { ...write, tool_use_id: "t1" }));
+    const request = makeHookPayload("permission-request", write);
+    emit(request);
+    await tick();
+    asks?.noteTerminalInput("ws-test", "tab-test", "3");
+    expect(status(broker)).toBe("running");
+    gone(agentHost, request.hookId);
+    timers.flush();
+    expect(status(broker)).toBe("idle");
+    expect(answersTo(channel, request.hookId)).toEqual([]);
+    expect(activity.get("ws-test", "tab-test")?.tools[0]?.denied).toBe(true);
+  });
+
+  test("Enter on No ends the turn the same way", async () => {
+    const { agentHost, asks, broker, emit } = makeHarness(false, {
+      asks: true,
+      schedule: manualTimers().schedule,
+    });
+    emit(makeHookPayload("user-prompt-submit", { prompt: "write it" }));
+    const request = makeHookPayload("permission-request", write);
+    emit(request);
+    await tick();
+    for (const key of ["\x1b[B", "\x1b[B", "\r"]) {
+      asks?.noteTerminalInput("ws-test", "tab-test", key);
+    }
+    gone(agentHost, request.hookId);
+    expect(status(broker)).toBe("idle");
+  });
+
+  test.each([
+    ["allowing by its number", ["1"]],
+    ["Enter on Yes", ["\r"]],
+    ["No with words for Claude", ["\x1b[B", "\x1b[B", "\t", "use b.txt", "\r"]],
+  ])("%s goes on and lets go of the request's hook", async (_name, keys) => {
+    const timers = manualTimers();
+    const { asks, broker, channel, emit } = makeHarness(false, {
+      asks: true,
+      schedule: timers.schedule,
+    });
+    emit(makeHookPayload("user-prompt-submit", { prompt: "write it" }));
+    const request = makeHookPayload("permission-request", write);
+    emit(request);
+    await tick();
+    for (const key of keys) asks?.noteTerminalInput("ws-test", "tab-test", key);
+    expect(status(broker)).toBe("running");
+    timers.flush();
+    await tick();
+    expect(answersTo(channel, request.hookId)).toEqual([{ exitCode: 0 }]);
+    expect(status(broker)).toBe("running");
+    emit(makeHookPayload("stop"));
+    await tick();
+    expect(status(broker)).toBe("completed");
   });
 
   test("lets go of the requests of a session that ended", async () => {

@@ -7,17 +7,14 @@ import {
   Search,
   SquareTerminal,
   Wrench,
-  X,
 } from "lucide-react";
-import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { memo, type ReactNode, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import type { PermissionAsk, SessionActivity } from "../../../shared/claude/activity";
+import type { SessionActivity } from "../../../shared/claude/activity";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import { ipcCallResult } from "../../ipc/client";
 import { showChanges } from "../../services/agent-sessions/actions";
 import type { ActivityByKey } from "../../services/agent-sessions/agents";
-import { markAnswered, useUnansweredAsks } from "../../services/agent-sessions/answered-asks";
 import {
   type AgentSession,
   allSessions,
@@ -38,19 +35,17 @@ import {
 } from "../../services/agent-sessions/session-tree";
 import type { WorktreeChanges } from "../../services/agent-sessions/use-family";
 import { markRead } from "../../services/agent-sessions/use-inbox";
-import { useFirstPermission, useRowFacts } from "../../services/agent-sessions/use-row-facts";
+import { useRowFacts } from "../../services/agent-sessions/use-row-facts";
 import { orderSessions } from "../../services/agent-view/order";
 import { statusTrees } from "../../services/agent-view/sidebar-tree";
-import { existingChatController } from "../../services/chat/claude/controller";
-import { existingCodexController } from "../../services/chat/codex/controller";
 import { resumeTimeText } from "../../services/chat/limit-resume";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useUIStore } from "../../state/stores/ui";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
-import { showToast } from "../ui/toast";
 import { AgentRows } from "./agent-rows";
+import { RowAnswer } from "./row-answer";
 import { type AgentListSelection, isSessionSelected } from "./selection";
 import { SessionProfileMark } from "./session-profile";
 import { rowShellClass, SessionRowLines } from "./session-row";
@@ -393,11 +388,7 @@ const SessionRow = memo(function SessionRow({
           )
         }
       />
-      {group === "attention" && (
-        <div className="relative flex justify-end pt-1 empty:hidden">
-          <RowAnswer session={session} activity={activity} />
-        </div>
-      )}
+      {group === "attention" && <RowAnswer session={session} activity={activity} />}
       <AgentRows
         agents={activity?.agents ?? []}
         selectedId={selectedAgentId}
@@ -550,79 +541,5 @@ function ResultActions({
         </Button>
       )}
     </>
-  );
-}
-
-const NO_ASKS: readonly PermissionAsk[] = [];
-
-function RowAnswer({
-  session,
-  activity,
-}: {
-  session: AgentSession;
-  activity: SessionActivity | undefined;
-}) {
-  const { t } = useTranslation();
-  const [sending, setSending] = useState(false);
-  const firstRequest = useFirstPermission(session);
-  const asks = useUnansweredAsks(session, activity?.asks ?? NO_ASKS);
-  let answer: ((allow: boolean) => Promise<void>) | null = null;
-  if (session.kind !== "terminal") {
-    const request = firstRequest;
-    const controller =
-      session.kind === "codex"
-        ? existingCodexController(session.workspaceId, session.tabId)
-        : existingChatController(session.workspaceId, session.tabId);
-    if (
-      request &&
-      controller &&
-      request.toolName !== "AskUserQuestion" &&
-      request.toolName !== "ExitPlanMode"
-    ) {
-      answer = (allow) =>
-        controller.answerPermission(request, allow ? { kind: "allow" } : { kind: "deny" });
-    }
-  } else {
-    const ask = asks[0];
-    if (ask) {
-      answer = async (allow) => {
-        const result = await ipcCallResult("claude", "answerPermission", {
-          workspaceId: session.workspaceId,
-          tabId: session.tabId,
-          askId: ask.id,
-          answer: allow ? "allow" : "deny",
-          ...(allow ? {} : { message: "" }),
-        });
-        if (!result.ok || !result.value) throw new Error(t("agentList.list.answer_failed"));
-        markAnswered(session, ask.id);
-      };
-    }
-  }
-  if (!answer) return null;
-  const send = (allow: boolean) => {
-    if (!answer) return;
-    setSending(true);
-    answer(allow)
-      .catch((failure: unknown) =>
-        showToast({ kind: "error", message: (failure as Error).message }),
-      )
-      .finally(() => setSending(false));
-  };
-  return (
-    <div className="pointer-events-auto flex shrink-0 items-center gap-1">
-      <Button
-        size="icon-sm"
-        variant="outline"
-        className="size-7"
-        disabled={sending}
-        tooltip={t("chat.permission.deny")}
-        onClick={() => send(false)}
-      >
-        <X aria-hidden className="size-3.5" />
-      </Button>
-      <Button size="sm" className="h-7" disabled={sending} onClick={() => send(true)}>
-        {t("chat.permission.allow")}
-      </Button>
-    </div>
   );
 }

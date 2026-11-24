@@ -156,6 +156,7 @@ func runDaemon(root string) {
 	if hs, hsErr := hookserver.New(hookserver.AgentKey(root), nil); hsErr != nil {
 		agentLogger.Warn("hookserver unavailable", "err", hsErr)
 	} else {
+		hs.LogSocketChoice(agentLogger)
 		hooksrv = hs
 	}
 
