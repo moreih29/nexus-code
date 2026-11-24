@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/nexus-code/nexus-code/internal/agentpaths"
 )
 
 func agentSockDir(t *testing.T) string {
@@ -110,7 +112,7 @@ func TestAdoptAuthSockLeavesEnvironmentWhenLinkIsTooLong(t *testing.T) {
 	listenAgent(t, agent)
 
 	t.Setenv("SSH_AUTH_SOCK", agent)
-	long := filepath.Join(dir, strings.Repeat("x", maxSunPath)+".agent")
+	long := filepath.Join(dir, strings.Repeat("x", agentpaths.MaxSocketPathLen())+".agent")
 	if AdoptAuthSock(long) || os.Getenv("SSH_AUTH_SOCK") != agent {
 		t.Fatal("exported a link longer than sun_path allows")
 	}

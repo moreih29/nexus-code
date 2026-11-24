@@ -300,14 +300,13 @@ export class ChatHost {
     const wrapperBinDir = workspaceManager.getWrapperBinDir(workspaceId);
     const agentBin = workspaceManager.getWrapperAgentBin(workspaceId);
     let program = claude;
-    let hooksSettings: string | undefined;
+    let agentFiles: WindowsAgentFiles | null | undefined;
     let gitBash: { wrapperDir: string; bashEnv: string } | undefined;
     if (withoutWrapper) {
-      const files = await this.options.windowsAgentFiles?.();
-      hooksSettings = files?.settingsPath;
+      agentFiles = await this.options.windowsAgentFiles?.();
       const shimDir = workspaceManager.getWrapperShimDir(workspaceId);
-      if (files && shimDir !== null) {
-        gitBash = { wrapperDir: files.binDir, bashEnv: hostJoin(shimDir, "bashenv", true) };
+      if (agentFiles && shimDir !== null) {
+        gitBash = { wrapperDir: agentFiles.binDir, bashEnv: hostJoin(shimDir, "bashenv", true) };
       }
     } else if (wrapperBinDir !== null) {
       program = hostJoin(wrapperBinDir, "claude", false);
@@ -315,6 +314,9 @@ export class ChatHost {
     try {
       await this.closingTabs.get(key);
       const hookInfo = await workspaceManager.getSpawnHookInfo(workspaceId, channel);
+      const hooksSettings = hookInfo
+        ? agentFiles?.settingsPath
+        : agentFiles?.serverlessSettingsPath;
       const env = claudeTabEnv({
         workspaceId,
         tabId,

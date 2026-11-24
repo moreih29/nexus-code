@@ -8,9 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-)
 
-const maxSunPath = 104
+	"github.com/nexus-code/nexus-code/internal/agentpaths"
+)
 
 func AuthSockFor(sockPath string) string {
 	return strings.TrimSuffix(sockPath, ".sock") + ".agent"
@@ -52,7 +52,7 @@ func SetConnectionAuthSock(link, target string) error {
 }
 
 func AdoptAuthSock(link string) bool {
-	if len(link) >= maxSunPath {
+	if !agentpaths.SocketPathFits(link) {
 		return false
 	}
 	if err := SetConnectionAuthSock(link, os.Getenv("SSH_AUTH_SOCK")); err != nil {

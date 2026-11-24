@@ -13,12 +13,14 @@ import {
 import { createLogger } from "../../../shared/log/main";
 import { getAgentBinDir } from "../../infra/agent/getAgentBinDir";
 import { binDir, ensureDir, root } from "../../infra/agent/runtimeDirs";
+import { CLAUDE_SERVERLESS_SETTINGS_ENV, CLAUDE_SETTINGS_ENV } from "./claude-settings-env";
 
 const log = createLogger("pty");
 
 export interface WindowsAgentFiles {
   readonly binDir: string;
   readonly settingsPath?: string;
+  readonly serverlessSettingsPath?: string;
   readonly cmdLauncherDir?: string;
 }
 
@@ -31,6 +33,29 @@ export function wrapperHooksSettings(wrapper: string): string | null {
     return null;
   }
   return match[1];
+}
+
+const SERVERLESS_HOOK_SUBCOMMANDS = new Set(["send-message"]);
+
+interface HookGroup {
+  readonly hooks?: readonly { readonly command?: unknown }[];
+}
+
+function runsWithoutServer(hook: { readonly command?: unknown }): boolean {
+  const subcommand = /^"\$\{NEXUS_AGENT_BIN\}" hook ([a-z-]+)$/.exec(String(hook.command))?.[1];
+  return subcommand !== undefined && SERVERLESS_HOOK_SUBCOMMANDS.has(subcommand);
+}
+
+export function serverlessHooksSettings(settings: string): string {
+  const parsed = JSON.parse(settings) as { hooks?: Record<string, readonly HookGroup[]> };
+  const hooks: Record<string, HookGroup[]> = {};
+  for (const [event, groups] of Object.entries(parsed.hooks ?? {})) {
+    const kept = groups
+      .map((group) => ({ ...group, hooks: (group.hooks ?? []).filter(runsWithoutServer) }))
+      .filter((group) => group.hooks.length > 0);
+    if (kept.length > 0) hooks[event] = kept;
+  }
+  return JSON.stringify({ ...parsed, hooks });
 }
 
 let installing: Promise<WindowsAgentFiles | null> | undefined;
@@ -58,25 +83,29 @@ async function installFiles(): Promise<WindowsAgentFiles | null> {
     log.warn(`wrappers unavailable in Windows terminals: ${(error as Error).message}`);
     return null;
   }
-  const [settingsPath, cmdLauncherDir] = await Promise.all([
+  const [claude, cmdLauncherDir] = await Promise.all([
     installClaudeFiles(dir),
     installCmdLauncher(path.join(dir, "cmd")),
   ]);
-  return { binDir: dir, settingsPath, cmdLauncherDir };
+  return { binDir: dir, ...claude, cmdLauncherDir };
 }
 
-async function installClaudeFiles(dir: string): Promise<string | undefined> {
+async function installClaudeFiles(
+  dir: string,
+): Promise<Pick<WindowsAgentFiles, "settingsPath" | "serverlessSettingsPath">> {
   try {
     const wrapper = await fs.readFile(path.join(getAgentBinDir(), "claude"), "utf8");
     const settings = wrapperHooksSettings(wrapper);
     if (settings === null) throw new Error("the claude wrapper has no hooks settings");
     await fs.writeFile(path.join(dir, "claude"), wrapper);
     const settingsPath = path.join(root(), "claude-settings.json");
+    const serverlessSettingsPath = path.join(root(), "claude-settings-serverless.json");
     await fs.writeFile(settingsPath, settings);
-    return settingsPath;
+    await fs.writeFile(serverlessSettingsPath, serverlessHooksSettings(settings));
+    return { settingsPath, serverlessSettingsPath };
   } catch (error) {
     log.warn(`claude hooks unavailable in Windows terminals: ${(error as Error).message}`);
-    return undefined;
+    return {};
   }
 }
 
@@ -125,10 +154,13 @@ export interface WindowsShellShimInput {
   env: Record<string, string>;
   args?: string[];
   settingsPath?: string;
+  serverlessSettingsPath?: string;
   wrapperDir?: string;
   codex?: { readonly cmdLauncherDir?: string };
   originalPath?: string;
 }
+
+const CMD_CLAUDE_MACRO = `doskey claude=set "NEXUS_CLAUDE_TAB_ID=%NEXUS_TAB_ID%" ^& claude --settings "%${CLAUDE_SETTINGS_ENV}%" $* ^& set "NEXUS_CLAUDE_TAB_ID="`;
 
 export interface WindowsShellShimOutput {
   env: Record<string, string>;
@@ -143,7 +175,7 @@ export function applyWindowsShellShim(input: WindowsShellShimInput): WindowsShel
 }
 
 function shimShell(input: WindowsShellShimInput): WindowsShellShimOutput {
-  const { shell, args, settingsPath, wrapperDir, codex } = input;
+  const { shell, args, settingsPath, serverlessSettingsPath, wrapperDir, codex } = input;
   const name = path.win32.basename(shell).toLowerCase();
   const isBash = name === "bash.exe" || name === "bash";
   if (isBash && /[\\/]system32[\\/]/i.test(shell)) {
@@ -151,6 +183,13 @@ function shimShell(input: WindowsShellShimInput): WindowsShellShimOutput {
     return { env, args };
   }
   const env = input.env;
+  const settingsEnv = (base: Record<string, string>, settings: string) => ({
+    ...base,
+    [CLAUDE_SETTINGS_ENV]: settings,
+    ...(serverlessSettingsPath !== undefined
+      ? { [CLAUDE_SERVERLESS_SETTINGS_ENV]: serverlessSettingsPath }
+      : {}),
+  });
 
   if (name === "powershell.exe" || name === "pwsh.exe" || name === "pwsh") {
     if (args?.some(isPowerShellCommand)) return { env, args };
@@ -161,7 +200,7 @@ function shimShell(input: WindowsShellShimInput): WindowsShellShimOutput {
     if (functions.length === 0) return { env, args };
     const encoded = Buffer.from(functions.join("\n"), "utf16le").toString("base64");
     return {
-      env: settingsPath !== undefined ? { ...env, NEXUS_CLAUDE_SETTINGS: settingsPath } : env,
+      env: settingsPath !== undefined ? settingsEnv(env, settingsPath) : env,
       args: [...(args ?? []), "-NoExit", "-EncodedCommand", encoded],
     };
   }
@@ -172,9 +211,8 @@ function shimShell(input: WindowsShellShimInput): WindowsShellShimOutput {
       ? { ...env, NEXUS_CMD_CODEX_DIR: codex.cmdLauncherDir }
       : env;
     if (settingsPath === undefined) return { env: cmdEnv, args };
-    const macro = `doskey claude=set "NEXUS_CLAUDE_TAB_ID=%NEXUS_TAB_ID%" ^& claude --settings "${settingsPath}" $* ^& set "NEXUS_CLAUDE_TAB_ID="`;
     return {
-      env: { ...cmdEnv, NEXUS_CMD_INIT: macro },
+      env: { ...settingsEnv(cmdEnv, settingsPath), NEXUS_CMD_INIT: CMD_CLAUDE_MACRO },
       args: [...(args ?? []), "/k", "%NEXUS_CMD_INIT%"],
     };
   }

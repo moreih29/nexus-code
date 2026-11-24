@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -15,6 +16,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/nexus-code/nexus-code/internal/agentpaths"
 )
 
 type handshakingConn struct {
@@ -189,21 +192,228 @@ func TestNew_ListenAndPerm(t *testing.T) {
 	}
 }
 
-func TestNew_SocketPathTooLong(t *testing.T) {
-	home := filepath.Join(t.TempDir(), strings.Repeat("h", maxSocketPathLen))
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+const socketSuffixLen = len(`/sockets/h-0123456789ab.sock`)
 
-	srv, err := New("long", nil)
-	if err == nil {
+func pathOfLength(t *testing.T, base string, n int) string {
+	t.Helper()
+	pad := n - len(base) - 1
+	if pad < 1 {
+		t.Fatalf("%s is too long to make a %d-byte path", base, n)
+	}
+	return filepath.Join(base, strings.Repeat("h", pad))
+}
+
+func newServerWithCleanup(t *testing.T, key string) *Server {
+	t.Helper()
+	srv, err := New(key, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() {
 		_ = srv.Close()
-		t.Fatal("New succeeded with a socket path over the limit")
+		if runtime.GOOS != "windows" {
+			_ = os.Remove(filepath.Dir(srv.SocketPath()))
+		}
+	})
+	return srv
+}
+
+func dialOnce(t *testing.T, socket string) {
+	t.Helper()
+	conn, err := net.Dial("unix", socket)
+	if err != nil {
+		t.Fatalf("dial %s: %v", socket, err)
 	}
-	if !strings.Contains(err.Error(), "too long") {
-		t.Errorf("New error = %q, want the path-too-long error", err)
+	_ = conn.Close()
+}
+
+func TestNew_SocketAtTheLimitStaysUnderTheHome(t *testing.T) {
+	home := pathOfLength(t, shortTempDir(t), agentpaths.MaxSocketPathLen()-socketSuffixLen)
+	t.Setenv(agentpaths.HomeEnv, home)
+
+	srv := newServerWithCleanup(t, "limit")
+	if got := srv.SocketPath(); len(got) != agentpaths.MaxSocketPathLen() || !strings.HasPrefix(got, home) {
+		t.Fatalf("socket = %s (%d bytes), want %d bytes under %s", got, len(got), agentpaths.MaxSocketPathLen(), home)
 	}
-	if _, statErr := os.Stat(home); !os.IsNotExist(statErr) {
-		t.Errorf("New created %s although it refused the path", home)
+	dialOnce(t, srv.SocketPath())
+}
+
+func TestNew_LongHomeFallsBackToAPrivateDirectory(t *testing.T) {
+	home := pathOfLength(t, shortTempDir(t), agentpaths.MaxSocketPathLen()-socketSuffixLen+1)
+	t.Setenv(agentpaths.HomeEnv, home)
+
+	srv := newServerWithCleanup(t, "fallback")
+	dir := filepath.Dir(srv.SocketPath())
+	if strings.HasPrefix(dir, home) || !agentpaths.SocketPathFits(srv.SocketPath()) {
+		t.Fatalf("socket = %s, want a short path outside %s", srv.SocketPath(), home)
+	}
+	if runtime.GOOS == "windows" {
+		parent := filepath.Join(os.Getenv("USERPROFILE"), ".nexus-code", "s")
+		if filepath.Dir(dir) != parent || len(filepath.Base(dir)) != 16 {
+			t.Fatalf("fallback directory = %s, want a hashed directory in %s", dir, parent)
+		}
+	} else {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(dir, "/tmp/nexus-code-") || info.Mode().Perm() != 0o700 {
+			t.Fatalf("fallback directory = %s (%04o), want a 0700 directory under /tmp", dir, info.Mode().Perm())
+		}
+	}
+	if _, err := os.Stat(home); !os.IsNotExist(err) {
+		t.Errorf("New created the long home %s", home)
+	}
+	dialOnce(t, srv.SocketPath())
+}
+
+func TestNew_RefusesWhenTheFallbackIsTooLong(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("macOS and Linux fall back under /tmp, which always fits")
+	}
+	base := shortTempDir(t)
+	longProfile := pathOfLength(t, base, agentpaths.MaxSocketPathLen())
+	for name, named := range map[string]string{
+		"default home":    "",
+		"named long home": pathOfLength(t, filepath.Join(base, "named"), agentpaths.MaxSocketPathLen()),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("USERPROFILE", longProfile)
+			t.Setenv(agentpaths.HomeEnv, named)
+
+			srv, err := New("long", nil)
+			if err == nil {
+				_ = srv.Close()
+				t.Fatal("New succeeded although the socket and its fallback are over the limit")
+			}
+			var pathErr *agentpaths.SocketPathError
+			if !errors.As(err, &pathErr) {
+				t.Fatalf("New error = %v, want a SocketPathError", err)
+			}
+			if named != "" && !strings.Contains(err.Error(), named) {
+				t.Errorf("New error = %q, want it to name %s", err, named)
+			}
+			for _, dir := range []string{longProfile, named} {
+				if dir == "" {
+					continue
+				}
+				if _, statErr := os.Stat(dir); !os.IsNotExist(statErr) {
+					t.Errorf("New created %s although it refused the path", dir)
+				}
+			}
+		})
+	}
+}
+
+func TestNew_FallbackLeavesTheDefaultSocketsDirectoryAlone(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows falls back under the user profile")
+	}
+	profile := shortTempDir(t)
+	t.Setenv("USERPROFILE", profile)
+	t.Setenv(agentpaths.HomeEnv, pathOfLength(t, shortTempDir(t), agentpaths.MaxSocketPathLen()))
+	sockets := filepath.Join(profile, ".nexus-code", "sockets")
+	live := filepath.Join(sockets, "h-0123456789ab.sock")
+	if err := os.MkdirAll(sockets, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(live, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := map[string]string{sockets: icacls(t, sockets), live: icacls(t, live)}
+
+	srv := newServerWithCleanup(t, "default-alone")
+	if strings.HasPrefix(srv.SocketPath(), sockets) {
+		t.Fatalf("socket = %s, want it outside %s", srv.SocketPath(), sockets)
+	}
+	for path, acl := range before {
+		if got := icacls(t, path); got != acl {
+			t.Errorf("ACL of %s changed from\n%s\nto\n%s", path, acl, got)
+		}
+	}
+	if _, err := os.Stat(live); err != nil {
+		t.Errorf("the default directory lost %s: %v", live, err)
+	}
+}
+
+func icacls(t *testing.T, path string) string {
+	t.Helper()
+	out, err := exec.Command("icacls", path).Output()
+	if err != nil {
+		t.Fatalf("icacls %s: %v", path, err)
+	}
+	return string(out)
+}
+
+func TestNew_DoesNotListenInAFallbackDirectoryOthersCanReach(t *testing.T) {
+	home := pathOfLength(t, shortTempDir(t), agentpaths.MaxSocketPathLen())
+	t.Setenv(agentpaths.HomeEnv, home)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", shortTempDir(t))
+	}
+	_, fallback, private, err := makeSocketPath("reach")
+	if err != nil || !private {
+		t.Fatalf("makeSocketPath: private=%v err=%v", private, err)
+	}
+
+	target := shortTempDir(t)
+	if runtime.GOOS == "windows" {
+		if err := os.MkdirAll(filepath.Dir(fallback), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := exec.Command("cmd", "/c", "mklink", "/J", fallback, target).CombinedOutput(); err != nil {
+			t.Fatalf("mklink /J: %v %s", err, out)
+		}
+		t.Cleanup(func() { _ = os.Remove(fallback) })
+		if srv, err := New("reach", nil); err == nil {
+			_ = srv.Close()
+			t.Fatalf("New listened through the junction %s", fallback)
+		}
+		return
+	}
+
+	if err := os.Symlink(target, fallback); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(fallback) })
+	listensElsewhere(t, fallback)
+	if entries, _ := os.ReadDir(target); len(entries) != 0 {
+		t.Fatalf("New left %d entries behind the link in %s", len(entries), target)
+	}
+
+	if err := os.Remove(fallback); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(fallback, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(fallback) })
+	if err := os.Chmod(fallback, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	listensElsewhere(t, fallback)
+	if info, err := os.Lstat(fallback); err != nil || !info.IsDir() || info.Mode().Perm() != 0o755 {
+		t.Fatalf("the refused directory %s is gone or changed: %v", fallback, err)
+	}
+}
+
+func listensElsewhere(t *testing.T, refused string) {
+	t.Helper()
+	srv := newServerWithCleanup(t, "reach")
+	dir := filepath.Dir(srv.SocketPath())
+	prefix := fmt.Sprintf("/tmp/nexus-code-%d-", os.Getuid())
+	if dir == refused || !strings.HasPrefix(dir, prefix) {
+		t.Fatalf("socket directory = %s, want a fresh %s* directory", dir, prefix)
+	}
+	if info, err := os.Lstat(dir); err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
+		t.Fatalf("socket directory %s is not a 0700 directory: %v", dir, err)
+	}
+	dialOnce(t, srv.SocketPath())
+	if err := srv.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("Close left the fresh directory %s: %v", dir, err)
 	}
 }
 
