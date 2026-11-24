@@ -51,8 +51,19 @@ func preferredHash(preferred string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-func notPrivateDir(dir string) error {
-	return fmt.Errorf("agentpaths: socket directory %q %w", dir, ErrNotPrivate)
+type NotPrivateError struct {
+	Dir    string
+	Reason string
+}
+
+func (e *NotPrivateError) Error() string {
+	return fmt.Sprintf("agentpaths: socket directory %q %v: %s", e.Dir, ErrNotPrivate, e.Reason)
+}
+
+func (e *NotPrivateError) Is(target error) bool { return target == ErrNotPrivate }
+
+func notPrivateDir(dir, reason string, args ...any) error {
+	return &NotPrivateError{Dir: dir, Reason: fmt.Sprintf(reason, args...)}
 }
 
 func cannotCheck(dir string, err error) error {

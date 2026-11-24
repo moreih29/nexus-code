@@ -2,13 +2,17 @@ package hookserver
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"maps"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -235,7 +239,34 @@ func TestNew_SocketAtTheLimitStaysUnderTheHome(t *testing.T) {
 	if got := srv.SocketPath(); len(got) != agentpaths.MaxSocketPathLen() || !strings.HasPrefix(got, home) {
 		t.Fatalf("socket = %s (%d bytes), want %d bytes under %s", got, len(got), agentpaths.MaxSocketPathLen(), home)
 	}
+	if logged := socketChoiceLog(t, srv); len(logged) != 0 {
+		t.Fatalf("logged %v for a socket in its own home, want nothing", logged)
+	}
 	dialOnce(t, srv.SocketPath())
+}
+
+func socketChoiceLog(t *testing.T, srv *Server) []map[string]any {
+	t.Helper()
+	var out bytes.Buffer
+	srv.LogSocketChoice(slog.New(slog.NewJSONHandler(&out, nil)))
+	var records []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		var record map[string]any
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatalf("log line %q: %v", line, err)
+		}
+		records = append(records, record)
+	}
+	return records
+}
+
+func withoutTime(record map[string]any) map[string]any {
+	rest := maps.Clone(record)
+	delete(rest, "time")
+	return rest
 }
 
 func TestNew_LongHomeFallsBackToAPrivateDirectory(t *testing.T) {
@@ -263,6 +294,22 @@ func TestNew_LongHomeFallsBackToAPrivateDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(home); !os.IsNotExist(err) {
 		t.Errorf("New created the long home %s", home)
+	}
+	wanted := filepath.Join(home, "sockets", filepath.Base(srv.SocketPath()))
+	want := map[string]any{
+		"level":    "INFO",
+		"msg":      "hookserver socket path over the limit; using a fallback",
+		"path":     wanted,
+		"bytes":    float64(len(wanted)),
+		"limit":    float64(agentpaths.MaxSocketPathLen()),
+		"fallback": srv.SocketPath(),
+	}
+	logged := socketChoiceLog(t, srv)
+	if len(logged) != 1 || !reflect.DeepEqual(withoutTime(logged[0]), want) {
+		t.Fatalf("logged %v, want only %v", logged, want)
+	}
+	if text := fmt.Sprint(logged); strings.Contains(text, srv.Token()) {
+		t.Fatalf("the log line carries the hook token: %s", text)
 	}
 	dialOnce(t, srv.SocketPath())
 }
@@ -351,10 +398,11 @@ func TestNew_DoesNotListenInAFallbackDirectoryOthersCanReach(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Setenv("USERPROFILE", shortTempDir(t))
 	}
-	_, fallback, private, err := makeSocketPath("reach")
-	if err != nil || !private {
-		t.Fatalf("makeSocketPath: private=%v err=%v", private, err)
+	place, err := makeSocketPath("reach")
+	if err != nil || !place.fallback {
+		t.Fatalf("makeSocketPath: %+v, %v", place, err)
 	}
+	fallback := place.dir
 
 	target := shortTempDir(t)
 	if runtime.GOOS == "windows" {
@@ -365,9 +413,14 @@ func TestNew_DoesNotListenInAFallbackDirectoryOthersCanReach(t *testing.T) {
 			t.Fatalf("mklink /J: %v %s", err, out)
 		}
 		t.Cleanup(func() { _ = os.Remove(fallback) })
-		if srv, err := New("reach", nil); err == nil {
+		srv, err := New("reach", nil)
+		if err == nil {
 			_ = srv.Close()
 			t.Fatalf("New listened through the junction %s", fallback)
+		}
+		if want := fmt.Sprintf("%q", fallback); !strings.Contains(err.Error(), want) ||
+			!strings.Contains(err.Error(), "junction or another reparse point") {
+			t.Fatalf("New error = %q, want it to name %s and why it was refused", err, want)
 		}
 		return
 	}
@@ -376,7 +429,7 @@ func TestNew_DoesNotListenInAFallbackDirectoryOthersCanReach(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Remove(fallback) })
-	listensElsewhere(t, fallback)
+	listensElsewhere(t, fallback, "it is a symbolic link")
 	if entries, _ := os.ReadDir(target); len(entries) != 0 {
 		t.Fatalf("New left %d entries behind the link in %s", len(entries), target)
 	}
@@ -391,19 +444,33 @@ func TestNew_DoesNotListenInAFallbackDirectoryOthersCanReach(t *testing.T) {
 	if err := os.Chmod(fallback, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	listensElsewhere(t, fallback)
+	listensElsewhere(t, fallback, "its mode is 0755, not 0700")
 	if info, err := os.Lstat(fallback); err != nil || !info.IsDir() || info.Mode().Perm() != 0o755 {
 		t.Fatalf("the refused directory %s is gone or changed: %v", fallback, err)
 	}
 }
 
-func listensElsewhere(t *testing.T, refused string) {
+func listensElsewhere(t *testing.T, refused, reason string) {
 	t.Helper()
 	srv := newServerWithCleanup(t, "reach")
 	dir := filepath.Dir(srv.SocketPath())
 	prefix := fmt.Sprintf("/tmp/nexus-code-%d-", os.Getuid())
 	if dir == refused || !strings.HasPrefix(dir, prefix) {
 		t.Fatalf("socket directory = %s, want a fresh %s* directory", dir, prefix)
+	}
+	logged := socketChoiceLog(t, srv)
+	if len(logged) != 2 || logged[0]["fallback"] != srv.SocketPath() {
+		t.Fatalf("logged %v, want the fallback line and then the retry line", logged)
+	}
+	want := map[string]any{
+		"level":   "INFO",
+		"msg":     "hookserver fallback directory refused; using a fresh one",
+		"refused": refused,
+		"reason":  reason,
+		"fresh":   dir,
+	}
+	if got := withoutTime(logged[1]); !reflect.DeepEqual(got, want) {
+		t.Fatalf("retry line = %v, want %v", got, want)
 	}
 	if info, err := os.Lstat(dir); err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
 		t.Fatalf("socket directory %s is not a 0700 directory: %v", dir, err)

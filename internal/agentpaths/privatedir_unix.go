@@ -22,8 +22,17 @@ func EnsurePrivateDir(dir string) error {
 		return cannotCheck(dir, err)
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !info.IsDir() || info.Mode().Perm() != 0o700 || !ok || int(stat.Uid) != os.Getuid() {
-		return notPrivateDir(dir)
+	switch {
+	case info.Mode()&os.ModeSymlink != 0:
+		return notPrivateDir(dir, "it is a symbolic link")
+	case !info.IsDir():
+		return notPrivateDir(dir, "it is not a directory")
+	case !ok:
+		return notPrivateDir(dir, "its owner cannot be read")
+	case int(stat.Uid) != os.Getuid():
+		return notPrivateDir(dir, "it is owned by uid %d, not %d", stat.Uid, os.Getuid())
+	case info.Mode().Perm() != 0o700:
+		return notPrivateDir(dir, "its mode is %04o, not 0700", info.Mode().Perm())
 	}
 	return nil
 }
