@@ -32,9 +32,9 @@ func TestEnsurePrivateDirGrantsOnlyTheCurrentUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sid := user.User.Sid.String()
-	if sddl := sd.String(); control&windows.SE_DACL_PROTECTED == 0 || !onlyAllows(sddl, sid) {
-		t.Fatalf("DACL = %s, want a protected DACL that allows only %s", sddl, sid)
+	sid := user.User.Sid
+	if control&windows.SE_DACL_PROTECTED == 0 || !onlyAllows(sd, sid) {
+		t.Fatalf("DACL = %s, want a protected DACL that allows only %s", sd, sid)
 	}
 
 	child := filepath.Join(dir, "s.sock")
@@ -45,8 +45,8 @@ func TestEnsurePrivateDirGrantsOnlyTheCurrentUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := childSD.String(); !onlyAllows(got, sid) {
-		t.Fatalf("a file in the directory has DACL %s, want only %s", got, sid)
+	if !onlyAllows(childSD, sid) {
+		t.Fatalf("a file in the directory has DACL %s, want only %s", childSD, sid)
 	}
 
 	if err := agentpaths.EnsurePrivateDir(dir); err != nil {
@@ -54,15 +54,41 @@ func TestEnsurePrivateDirGrantsOnlyTheCurrentUser(t *testing.T) {
 	}
 }
 
-func onlyAllows(sddl, sid string) bool {
-	aces := strings.Split(strings.TrimSuffix(sddl[strings.Index(sddl, "(")+1:], ")"), ")(")
-	for _, ace := range aces {
-		fields := strings.Split(ace, ";")
-		if len(fields) != 6 || fields[0] != "A" || fields[5] != sid {
+type aclHeader struct {
+	revision, sbz1    byte
+	size, count, sbz2 uint16
+}
+
+type aceHeader struct {
+	kind, flags byte
+	size        uint16
+}
+
+const accessAllowedACEType = 0
+
+func onlyAllows(sd *windows.SECURITY_DESCRIPTOR, user *windows.SID) bool {
+	dacl, _, err := sd.DACL()
+	if err != nil || dacl == nil {
+		return false
+	}
+	base := unsafe.Pointer(dacl)
+	acl := (*aclHeader)(base)
+	offset := unsafe.Sizeof(aclHeader{})
+	for range acl.count {
+		if offset+unsafe.Sizeof(aceHeader{})+4 > uintptr(acl.size) {
 			return false
 		}
+		ace := (*aceHeader)(unsafe.Add(base, offset))
+		if ace.kind != accessAllowedACEType || ace.size == 0 {
+			return false
+		}
+		sid := (*windows.SID)(unsafe.Add(base, offset+unsafe.Sizeof(aceHeader{})+4))
+		if !sid.IsValid() || !sid.Equals(user) {
+			return false
+		}
+		offset += uintptr(ace.size)
 	}
-	return len(aces) > 0
+	return acl.count > 0
 }
 
 func TestEnsurePrivateDirRefusesAJunction(t *testing.T) {
@@ -118,18 +144,35 @@ func mkdirWithSDDL(t *testing.T, dir, sddl string) {
 	}
 }
 
-func daclOf(t *testing.T, path string) string {
+func securityOf(t *testing.T, path string) *windows.SECURITY_DESCRIPTOR {
 	t.Helper()
 	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return sd.String()
+	return sd
+}
+
+func daclOf(t *testing.T, path string) string {
+	t.Helper()
+	return securityOf(t, path).String()
+}
+
+func currentUser(t *testing.T) *windows.SID {
+	t.Helper()
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return user.User.Sid
 }
 
 func TestEnsurePrivateDirKeepsAGoodExistingDirectoryAsItIs(t *testing.T) {
 	dir := filepath.Join(shortTempDir(t), "kept")
 	mkdirWithSDDL(t, dir, "D:P(A;OICI;FA;;;"+currentUserSID(t)+")")
+	if !onlyAllows(securityOf(t, dir), currentUser(t)) {
+		t.Fatalf("the test reads %s as letting others in", daclOf(t, dir))
+	}
 	before := daclOf(t, dir)
 	if err := agentpaths.EnsurePrivateDir(dir); err != nil {
 		t.Fatal(err)
@@ -157,6 +200,9 @@ func TestEnsurePrivateDirRefusesAnExistingDirectoryOthersCanReach(t *testing.T) 
 				}
 			} else {
 				mkdirWithSDDL(t, dir, sddl)
+			}
+			if onlyAllows(securityOf(t, dir), currentUser(t)) {
+				t.Fatalf("the test reads %s as private", daclOf(t, dir))
 			}
 			before := daclOf(t, dir)
 			err := agentpaths.EnsurePrivateDir(dir)
