@@ -47,7 +47,9 @@ export const UpdateProgressSchema = z.object({
 });
 export type UpdateProgress = z.infer<typeof UpdateProgressSchema>;
 
-function isUnderWay(status: UpdateStatus | null): boolean {
+export function isUnderWay(
+  status: UpdateStatus | null,
+): status is Extract<UpdateStatus, { kind: "downloading" | "verifying" | "ready" }> {
   return status?.kind === "downloading" || status?.kind === "verifying" || status?.kind === "ready";
 }
 
@@ -59,5 +61,9 @@ export function nextUpdateStatus(
   current: UpdateStatus | null,
   next: UpdateStatus,
 ): UpdateStatus | null {
-  return isUnderWay(current) && !isInstallStep(next) ? current : next;
+  if (isUnderWay(current) && !isInstallStep(next)) return current;
+  if (current?.kind === "newer" && (next.kind === "checking" || next.kind === "error")) {
+    return current;
+  }
+  return next;
 }

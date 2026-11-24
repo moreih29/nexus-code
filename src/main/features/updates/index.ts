@@ -1,4 +1,5 @@
 import { shell } from "electron";
+import { gt, valid } from "semver";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { errorText, limitLog } from "../../../shared/log/limit";
@@ -134,6 +135,7 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
     }
 
     const payload = buildPayload(result, trigger, installer !== undefined);
+    const staged = currentStatus?.kind === "ready" ? currentStatus.version : null;
     remember(payload);
 
     const ignoredVersion = stateService.getState().ignoredUpdateVersion ?? null;
@@ -148,6 +150,16 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
     }
 
     broadcastStatus(payload);
+
+    if (
+      trigger === "manual" &&
+      installer !== undefined &&
+      staged !== null &&
+      result.kind === "newer" &&
+      isPast(result.latest, staged)
+    ) {
+      void installer.install(channel);
+    }
   }
 
   function poll(trigger: Trigger): void {
@@ -285,6 +297,10 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
       poll("manual");
     },
   };
+}
+
+function isPast(version: string, staged: string): boolean {
+  return valid(version) !== null && valid(staged) !== null && gt(version, staged);
 }
 
 function shouldBroadcastResult(

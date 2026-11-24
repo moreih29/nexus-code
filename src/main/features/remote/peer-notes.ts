@@ -3,10 +3,7 @@ import {
   type RpcParams,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
-import {
-  type CliTranscriptRecording,
-  cliTranscriptMarkdown,
-} from "../../../shared/notes/transcript";
+import { cliTranscriptMarkdown } from "../../../shared/notes/transcript";
 import { speaks } from "../../../shared/remote/room";
 import type { RemoteRoom } from "./room";
 
@@ -131,25 +128,35 @@ async function noteBody(
   }, "the note");
 }
 
+export type ReadRecording = WholeRecording & { ms: number };
+
+export type PeerNoteRead = RpcResult<"notes.read"> & {
+  transcriptRecordings?: ReadRecording[];
+};
+
 export async function readWholeNote(
   ask: AskNotes,
   schema: string | undefined,
   params: ReadParams,
 ): Promise<RpcResult<"notes.read">> {
+  const { transcriptRecordings: _lines, ...note } = await readNoteWithLines(ask, schema, params);
+  return note;
+}
+
+async function readNoteWithLines(
+  ask: AskNotes,
+  schema: string | undefined,
+  params: ReadParams,
+): Promise<PeerNoteRead> {
   if (!speaks(schema, NOTE_PAGES_SCHEMA)) return ask("notes.read", params);
   const { transcriptOnly, ...rest } = params;
   const note = await noteBody(ask, rest, !transcriptOnly);
   let recordings = note.recordings ?? [];
-  const read: (CliTranscriptRecording & { id: string })[] = [];
+  const read: ReadRecording[] = [];
   const revisions: (string | undefined)[] = [];
   for (const info of recordings) {
     const whole = await wholeRecording(ask, params.workspaceId, note.id, info.id);
-    read.push({
-      id: info.id,
-      startedAt: info.startedAt,
-      ms: info.ms,
-      lines: whole.recording.lines,
-    });
+    read.push({ ...whole.recording, id: info.id, startedAt: info.startedAt, ms: info.ms });
     revisions.push(whole.revision);
   }
   const stale = (i: number) => {
@@ -176,6 +183,7 @@ export async function readWholeNote(
     markdown: transcriptOnly ? "" : note.markdown,
     transcript: transcriptOnly || read.length ? cliTranscriptMarkdown(note.title, read) : "",
     recordings,
+    transcriptRecordings: read,
   };
 }
 
@@ -203,9 +211,9 @@ export function readWholePeerNote(
   deviceId: string,
   params: Omit<ReadParams, "transcriptOnly">,
   signal?: AbortSignal,
-): Promise<RpcResult<"notes.read">> {
+): Promise<PeerNoteRead> {
   const schema = room.state?.().peers.find((peer) => peer.id === deviceId)?.schema;
-  return readWholeNote(
+  return readNoteWithLines(
     (method, request) => room.request(deviceId, method, request, undefined, signal),
     schema,
     params,

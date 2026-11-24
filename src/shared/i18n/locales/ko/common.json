@@ -1834,7 +1834,14 @@
         "default": "기본값",
         "chosen": "직접 선택"
       }
-    }
+    },
+    "close_working_title": "진행 중인 대화를 닫을까요?",
+    "close_working_description": "탭을 닫으면 “{{name}}” 대화에서 하던 작업이 멈춥니다.",
+    "close_working_several_description": "탭을 닫으면 대화 {{count}}개에서 하던 작업이 멈춥니다.",
+    "close_working_confirm": "닫기",
+    "close_running_mixed_title": "실행 중인 작업을 멈출까요?",
+    "close_running_mixed_description_one": "탭을 닫으면 “{{name}}” 프로세스가 종료되고 대화 {{count}}개에서 하던 작업도 멈춥니다.",
+    "close_running_mixed_description_other": "탭을 닫으면 “{{name}}” 프로세스가 종료되고 대화 {{count}}개에서 하던 작업도 멈춥니다."
   },
   "agentView": {
     "toggle": {

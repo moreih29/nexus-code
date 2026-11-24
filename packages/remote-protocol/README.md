@@ -74,6 +74,12 @@ Schema 0.36.0 lets a recent error in a bug report carry its message. `BugReportR
 
 Schema 0.36.1 makes `redactBugReportText` and `cleanBugReportErrorMessage` idempotent: what either gives comes out the same when put through it again, and a cleaned message comes out the same from `redactBugReportText`, so a client cleaning twice and the server redacting again keep what the first pass kept. Before, a path glued to the `<ip>` or `<email>` a later rule put in, a path after a control character turned into a space, and a cut that left a hex run or a `password:` before the `…` were only taken out on the second pass. Each function now repeats its rules until the text stops changing, at most 8 times, and gives `<secret>` if it has not settled by then; a message over 300 code points is cut at a word and ends in ` …`. The schema does not change: `BUG_REPORT_VERSION`, `PROTOCOL_VERSION`, `RELAY_VERSION` and `MAX_FRAME_BYTES` stay as they were.
 
+Schema 0.36.2 makes `redactBugReportText` take out a home folder's whole name when it has a space. Before, an unquoted `C:\Users\John Smith` at the end of a path came out as `<path> Smith`, leaving part of the user's name. After a home folder prefix (`C:\Users\` or `C:/Users/` on any drive and in either case, with `\\?\` in front or JSON's doubled backslashes, `/Users/` and `/home/`), the name now runs over spaces and tabs until a slash or backslash, a quote, a line break, a character Windows refuses in a user name (`: ; , = + * ? [ ] < > |`), or a word that starts another drive path or a URL; an apostrophe between letters (`O'Brien`) stays in it. When the name ends the path, the words after it up to that stop go too: `cannot access C:\Users\kim because it is locked` becomes `cannot access <path>`. A path that goes on past the home folder ends as before, so the last file name's words after a space can stay (`<path> b.txt`). The schema does not change: `BUG_REPORT_VERSION`, `PROTOCOL_VERSION`, `RELAY_VERSION` and `MAX_FRAME_BYTES` stay as they were.
+
+Schema 0.37.0 lets another device list a workspace's notes as their own computer lists them, with the same chips and search. Each note of a `notes.list` answer adds optional `counts` (`NoteCountsSchema`: how many `sketches`, `files`, `images`, `todos` and done `todosDone` its body has), `excerpt` (the start of its body as plain text, at most 120 characters, empty for an empty body), `recordingMs` (the length of all its recordings together, in milliseconds) and `people` (the most voices one of its recordings tells apart), the last two only for a note with recordings. A value that cannot be read is left out alone, not the note. A host before 0.37.0 sends none of them and a reader before 0.37.0 drops them, so a reader shows the chips and searches the excerpt only where they come, and the title alone otherwise; no method, capability or schema constant is added, and the capability stays `notes`. `PROTOCOL_VERSION`, `RELAY_VERSION` and `MAX_FRAME_BYTES` stay as they were.
+
+Schema 0.37.1 makes `redactBugReportText` take out the words of an unquoted path's last file name after a space. Before, `C:\Users\QA\My Documents\final report.txt` came out as `<path> report.txt` and `D:\tmp\보고서 최종.docx` as `<path> 최종.docx`. After an unquoted path, the next one to four words, apart by spaces or tabs, now go with it when the last of them ends in an extension: a dot and 1 to 8 ASCII letters and digits with at least one letter, at the end of the word or before a closing `.` or `)`. The words stop where a home folder's name stops since 0.36.2 (a line break, a quote, one of `: ; , = + * ? [ ] < > |`, or a slash or backslash, so another path or a URL), and at a word that ends in `.`; none are taken after a path that ends in one of those characters, `.` or `)`. So `C:\a\b.txt and c.txt` becomes `<path>`, while `C:\a\b.txt, and c.txt` keeps `and c.txt`, `C:\a\b failed on node 20.11.1` keeps its version, and a file name with five or more words after the path's last space keeps them, as before. The schema does not change: `BUG_REPORT_VERSION`, `PROTOCOL_VERSION`, `RELAY_VERSION` and `MAX_FRAME_BYTES` stay as they were.
+
 A consent prompt in the sessions' list (`RemoteConsent`) is a change waiting on the user of the serving device. An agent of another device of the account may have asked for it, or a nexus command changing another workspace there, or that device's agent manager. The user answers it there, or from the device that lists it when `answerable` (`consent.answer`). An agent's request (`from`, `AgentSender`) to a control method takes the `agents` capability instead of the method's own. The serving device may ask its user first or turn the request down. `at` and `expiresAt` use the serving device's clock. `expiresInMs` is `expiresAt` minus the time the list was sent, so a reader needs no shared clock. A serving device before 0.29.0 turns a prompt down at `expiresAt` and drops it from the list. `AGENT_CONSENT_MS` (90 seconds) is how long a host asks a requester before 0.29.0 before turning the request down. Such a requester waits that long, plus a little more.
 
 In schema 0.16.0, `chat.instructions` can also return `session`, the tab's editable session text, and `layers`, its ordered persistent layers, including empty layers. The workspace layer comes from the parent for a worktree task. Hosts through desktop 0.36.1 only return the combined `instructions` text. Treat a response without `session` as read-only. With `chat.control`, a person can replace the session layer using `chat.instructions.set`. Send an empty string to clear it. The 5,000-character limit applies to both people and agents. An edit with `from` follows the receiving device's agent approval policy.
@@ -891,6 +897,11 @@ Since 0.31.0.
 Most characters (UTF-16 code units) of a note's body a page of notes.read
 gives (262144), and the most `markdownLimit` may ask for. A page has
 fewer where more would not fit in a frame. Since 0.31.0.
+
+**`NoteCountsSchema`**
+
+What a note's body holds, as notes.list gives it since 0.37.0: `sketches`,
+`files`, `images`, `todos` (checklist items) and `todosDone` (those checked).
 
 **`NoteRecordingInfoSchema`**
 
@@ -2084,6 +2095,26 @@ When it last changed, Unix milliseconds.
 
 How many recordings the note has, 0 for none. Since 0.31.0; absent from
 an older host.
+
+**`RPC_METHODS."notes.list".result.notes.recordingMs`**
+
+How long its recordings are together, in milliseconds. Only for a note
+with recordings. Since 0.37.0; absent from an older host.
+
+**`RPC_METHODS."notes.list".result.notes.people`**
+
+The most voices one of its recordings tells apart. Only for a note with
+recordings. Since 0.37.0; absent from an older host.
+
+**`RPC_METHODS."notes.list".result.notes.counts`**
+
+What its body holds, as `NoteCountsSchema`. Since 0.37.0; absent from an
+older host.
+
+**`RPC_METHODS."notes.list".result.notes.excerpt`**
+
+The start of its body as plain text, at most 120 characters. Since
+0.37.0; absent from an older host.
 
 **`RPC_METHODS."notes.read"`**
 
@@ -3335,7 +3366,14 @@ each message again before it keeps the report. It replaces:
   string that begins as a path (spaces and all), and the quoted path of a
   system call's error (`open 'notes/a.md'`, `-> 'b'`), even relative. An
   unquoted path goes on past a space while the next word, or the one after
-  it, has a slash;
+  it, has a slash. Since 0.36.2 a home folder's name (`C:\Users\…`,
+  `/Users/…`, `/home/…`) goes on past spaces until a slash, a quote, a
+  line break, one of `: ; , = + * ? [ ] < > |`, or a word that starts
+  another drive path or a URL, so the words after a home folder that ends
+  the path go with it. Since 0.37.1 the one to four words after an
+  unquoted path go with it too when the last of them ends in an extension
+  (a dot and 1 to 8 letters and digits, one a letter: `.txt`, `.docx`),
+  stopping at the same characters and at a word that ends in `.`;
 - email addresses with `<email>`;
 - secrets with `<secret>`: a `Bearer` or `Basic` credential, the value of
   an `Authorization`, `Cookie`, `X-Account-Auth` or API key header, the

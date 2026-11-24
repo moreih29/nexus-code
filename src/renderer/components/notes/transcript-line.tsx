@@ -65,8 +65,8 @@ export const LineRow = memo(function LineRow({
   narrowed: boolean;
   lit: boolean;
   summaryTask?: boolean;
-  onSpeaker: (recordingId: string, line: TranscriptLine, point: DropdownMenuPoint) => void;
-  onQuote: (recordingId: string, line: TranscriptLine) => void;
+  onSpeaker?: (recordingId: string, line: TranscriptLine, point: DropdownMenuPoint) => void;
+  onQuote?: (recordingId: string, line: TranscriptLine) => void;
   onShowInWhole: (rowKey: string) => void;
 }) {
   const { t } = useTranslation("notes");
@@ -98,33 +98,45 @@ export const LineRow = memo(function LineRow({
           {t("summary.task")}
         </span>
       )}
-      <button
-        type="button"
-        aria-haspopup="menu"
-        className={cn(
-          "mr-1.5 rounded-(--radius-control) font-medium hover:bg-[var(--state-hover-bg)]",
-          suggested && "text-muted-foreground",
-        )}
-        style={suggested ? undefined : { color }}
-        title={t("transcript.moveLine")}
-        onClick={(e) => {
-          const box = e.currentTarget.getBoundingClientRect();
-          onSpeaker(recordingId, line, { x: box.left, y: box.bottom + 4 });
-        }}
-        data-testid="transcript-line-speaker"
-      >
-        {name}
-      </button>
+      {onSpeaker ? (
+        <button
+          type="button"
+          aria-haspopup="menu"
+          className={cn(
+            "mr-1.5 rounded-(--radius-control) font-medium hover:bg-[var(--state-hover-bg)]",
+            suggested && "text-muted-foreground",
+          )}
+          style={suggested ? undefined : { color }}
+          title={t("transcript.moveLine")}
+          onClick={(e) => {
+            const box = e.currentTarget.getBoundingClientRect();
+            onSpeaker(recordingId, line, { x: box.left, y: box.bottom + 4 });
+          }}
+          data-testid="transcript-line-speaker"
+        >
+          {name}
+        </button>
+      ) : (
+        <span
+          className={cn("mr-1.5 font-medium", suggested && "text-muted-foreground")}
+          style={suggested ? undefined : { color }}
+          data-testid="transcript-line-speaker"
+        >
+          {name}
+        </span>
+      )}
       <Marked text={line.text} marks={marks} />
-      <button
-        type="button"
-        className="absolute top-0 right-0 hidden size-5 items-center justify-center rounded-(--radius-control) border border-border bg-popover text-muted-foreground group-hover:inline-flex hover:text-foreground"
-        onClick={() => onQuote(recordingId, line)}
-        aria-label={t("transcript.insert")}
-        title={t("transcript.insert")}
-      >
-        <Plus className="size-3" />
-      </button>
+      {onQuote && (
+        <button
+          type="button"
+          className="absolute top-0 right-0 hidden size-5 items-center justify-center rounded-(--radius-control) border border-border bg-popover text-muted-foreground group-hover:inline-flex hover:text-foreground"
+          onClick={() => onQuote(recordingId, line)}
+          aria-label={t("transcript.insert")}
+          title={t("transcript.insert")}
+        >
+          <Plus className="size-3" />
+        </button>
+      )}
     </div>
   );
 });

@@ -44,7 +44,7 @@ import { CodexReplyError, existingCodexController } from "../chat/codex/controll
 import { fileMention } from "../chat/composer-input";
 import { type ChatItem, type ChatModel, isWaiting, type UserItem } from "../chat/model";
 import type { ModelPickerContext } from "../chat/model-picker";
-import { jobOutputFile, jobsOf, outsideLinksOf } from "../chat/panel";
+import { changedShareFiles, jobOutputFile, jobsOf, outsideLinksOf } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
 import { planUsageKeyFor } from "../chat/plan-usage";
 import { sameProfile } from "../chat/profile-moves";
@@ -890,10 +890,12 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       }
       const attached = (file: string) =>
         attachRoot !== null && attachSlotOf(attachRoot, workspaceId, file) !== null;
-      if (root)
+      if (root) {
         for (const file of outsideLinksOf(items, tools, tab.props.cwd, root, [], attached).files) {
           files.add(file);
         }
+        for (const file of changedShareFiles(tools, root)) files.add(file);
+      }
     }
     return { files: [...files] };
   },
@@ -1050,7 +1052,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         if (child.agent !== "codex") throw new UiRequestError("the forked tab is gone");
         await child.controller.prepareSend();
       } catch (error) {
-        await closeTabWithConfirm(workspaceId, newTab).catch(() => {});
+        await closeTabWithConfirm(workspaceId, newTab, { askIfRunning: false }).catch(() => {});
         throw error;
       }
       return { tabId: newTab, ...(item?.kind === "user" ? { draft: item.text } : {}) };

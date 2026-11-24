@@ -23,4 +23,23 @@ describe("nextUpdateStatus", () => {
     expect(nextUpdateStatus(downloading, failed)).toEqual(failed);
     expect(nextUpdateStatus(failed, current)).toEqual(current);
   });
+
+  test("keeps an offer through a check that is running or failed, and takes a newer one", () => {
+    const offer: UpdateStatus = {
+      kind: "newer",
+      trigger: "auto",
+      current: "1.0.0",
+      latest: "1.1.0",
+      releaseUrl: "https://example.invalid/v1.1.0",
+      canInstall: true,
+    };
+    const later: UpdateStatus = { ...offer, trigger: "manual", latest: "1.2.0" };
+
+    expect(nextUpdateStatus(offer, { kind: "checking", trigger: "manual" })).toEqual(offer);
+    expect(
+      nextUpdateStatus(offer, { kind: "error", trigger: "manual", reason: "network" }),
+    ).toEqual(offer);
+    expect(nextUpdateStatus(offer, later)).toEqual(later);
+    expect(nextUpdateStatus(offer, downloading)).toEqual(downloading);
+  });
 });

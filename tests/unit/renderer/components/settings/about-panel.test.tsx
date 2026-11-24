@@ -20,7 +20,7 @@ function renderWithHost(host: { platform: NodeJS.Platform; windowsStore?: boolea
   return renderToStaticMarkup(<AboutPanel />);
 }
 
-function renderStatus(status: UpdateStatus, progress: UpdateProgress | null = null): string {
+function renderStatus(status: UpdateStatus | null, progress: UpdateProgress | null = null): string {
   return renderToStaticMarkup(<UpdateSection status={status} progress={progress} />);
 }
 
@@ -154,7 +154,7 @@ describe("AboutPanel updates", () => {
     });
     expect(html).toContain("Version 1.3.0 available");
     expect(html).toContain(">Update<");
-    expect(html).not.toContain("Check for Updates");
+    expect(html).toContain("Check for Updates");
     expect(html).not.toContain("Release Notes");
   });
 
@@ -187,7 +187,7 @@ describe("AboutPanel updates", () => {
     expect(html).toContain("Downloading version 1.3.0");
     expect(html).toContain('aria-valuenow="50"');
     expect(html).toContain("50% · 40 MB / 80 MB · 5.0 MB/s");
-    expect(html).not.toContain("Check for Updates");
+    expect(checkButton(html)).toEqual({ label: "Check for Updates", disabled: true });
   });
 
   test("offers the restart once the update is staged", () => {
@@ -195,6 +195,75 @@ describe("AboutPanel updates", () => {
 
     expect(html).toContain("Version 1.3.0 ready · Installs when the app restarts");
     expect(html).toContain("Restart Now");
+  });
+});
+
+function checkButton(html: string): { label: string; disabled: boolean } | null {
+  const match = html.match(/<button([^>]*data-testid="update-check"[^>]*)>([^<]*)<\/button>/);
+  if (!match) return null;
+  return { label: match[2] ?? "", disabled: / disabled=""/.test(match[1] ?? "") };
+}
+
+describe("the check for updates in every state of an update", () => {
+  const offer = (canInstall: boolean): UpdateStatus => ({
+    kind: "newer",
+    trigger: "auto",
+    current: "1.2.3",
+    latest: "1.3.0",
+    releaseUrl: "https://example.invalid/r",
+    canInstall,
+  });
+  const states: [string, UpdateStatus | null, { label: string; disabled: boolean }][] = [
+    ["never checked", null, { label: "Check for Updates", disabled: false }],
+    ["checking", { kind: "checking", trigger: "manual" }, { label: "Checking…", disabled: true }],
+    [
+      "up to date",
+      { kind: "current", trigger: "manual", current: "1.2.3" },
+      { label: "Check for Updates", disabled: false },
+    ],
+    [
+      "check failed",
+      { kind: "error", trigger: "manual", reason: "network" },
+      { label: "Check for Updates", disabled: false },
+    ],
+    ["offered in place", offer(true), { label: "Check for Updates", disabled: false }],
+    ["offered as a download", offer(false), { label: "Check for Updates", disabled: false }],
+    [
+      "downloading",
+      { kind: "downloading", version: "1.3.0" },
+      { label: "Check for Updates", disabled: true },
+    ],
+    [
+      "verifying",
+      { kind: "verifying", version: "1.3.0" },
+      { label: "Check for Updates", disabled: true },
+    ],
+    [
+      "ready for the restart",
+      { kind: "ready", version: "1.3.0" },
+      { label: "Check for Updates", disabled: false },
+    ],
+    [
+      "install failed",
+      { kind: "installFailed", releaseUrl: "https://example.invalid/r" },
+      { label: "Check for Updates", disabled: false },
+    ],
+  ];
+
+  test.each(states)("%s: the version row and the title bar's popover", (_name, status, button) => {
+    const row = renderToStaticMarkup(
+      <VersionRow status={status} progress={null} storeManaged={false} />,
+    );
+    expect(checkButton(row)).toEqual(button);
+    expect(checkButton(renderStatus(status))).toEqual(button);
+  });
+
+  test("an offer or a staged update says it is checking while a check runs", () => {
+    for (const status of [offer(true), { kind: "ready", version: "1.3.0" } as const]) {
+      const html = renderToStaticMarkup(<UpdateSection status={status} progress={null} checking />);
+      expect(checkButton(html)).toEqual({ label: "Checking…", disabled: true });
+      expect(html).toContain(status.kind === "ready" ? "Restart Now" : ">Update<");
+    }
   });
 });
 

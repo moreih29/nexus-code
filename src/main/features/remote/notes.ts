@@ -4,6 +4,7 @@ import {
   MAX_LISTED_NOTES,
   MAX_NOTE_MARKDOWN_PAGE,
   MAX_TRANSCRIPT_LINES,
+  type NoteCounts,
   type NoteRecordingInfo,
   type RemoteRecording,
   RpcErrorCode,
@@ -36,7 +37,9 @@ export interface RemoteNotes {
       id: string;
       title: string;
       updatedAt: number;
-      recording?: { recordings: number };
+      counts?: NoteCounts;
+      excerpt?: string;
+      recording?: { recordings: number; ms?: number; people?: number };
     }[]
   >;
   attach(
@@ -79,12 +82,18 @@ export async function listNotes(
 ): Promise<RpcResult<"notes.list">> {
   const all = await notes.list(workspaceId).catch(failure);
   return {
-    notes: all.slice(0, MAX_LISTED_NOTES).map(({ id, title, updatedAt, recording }) => ({
-      id,
-      title,
-      updatedAt,
-      recordings: recording?.recordings ?? 0,
-    })),
+    notes: all
+      .slice(0, MAX_LISTED_NOTES)
+      .map(({ id, title, updatedAt, recording, counts, excerpt }) => ({
+        id,
+        title,
+        updatedAt,
+        recordings: recording?.recordings ?? 0,
+        ...(recording?.ms === undefined ? {} : { recordingMs: recording.ms }),
+        ...(recording?.people === undefined ? {} : { people: recording.people }),
+        ...(counts ? { counts } : {}),
+        ...(excerpt === undefined ? {} : { excerpt }),
+      })),
   };
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   type PeerWorkspaceTarget,
@@ -9,7 +9,12 @@ import {
 import { NotesPanelView } from "../notes/notes-panel";
 import { EmptyState } from "../ui/empty-state";
 import { PeerReadOnlyBadge } from "./labels";
-import { listPeerNotes, PEER_NOTES_REFRESH_MS, type PeerNoteRow } from "./notes-model";
+import {
+  listPeerNotes,
+  PEER_NOTES_REFRESH_MS,
+  type PeerNoteRow,
+  peerNoteFacts,
+} from "./notes-model";
 
 export function PeerNotesPanel({
   target,
@@ -53,12 +58,15 @@ export function PeerNotesPanel({
     };
   }, [canRead, rejoin, deviceId, workspaceId]);
 
+  const rows = useMemo(() => notes?.map(peerNoteFacts) ?? null, [notes]);
+  const excerpts = rows?.some((row) => row.excerpt !== undefined) ?? false;
+
   if (!notes && !canRead) {
     return <EmptyState title={t("peerWorkspace.connectionUnavailable")} tone="status" />;
   }
   return (
     <NotesPanelView
-      notes={notes}
+      notes={rows}
       error={error && !notes}
       activeNoteId={activeNoteId}
       onOpen={(note) =>
@@ -66,7 +74,7 @@ export function PeerNotesPanel({
       }
       badge={<PeerReadOnlyBadge compact />}
       emptyText={t("notes:panel.none")}
-      searchPlaceholder={t("notes:panel.searchTitlePlaceholder")}
+      searchPlaceholder={excerpts ? undefined : t("notes:panel.searchTitlePlaceholder")}
     />
   );
 }

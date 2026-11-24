@@ -75,7 +75,7 @@ const accepts = (value: unknown) => BugReportSchema.safeParse(value).success;
 describe("a bug report", () => {
   test("version 1 leaves the relay protocol as it was", () => {
     expect(BUG_REPORT_VERSION).toBe(1);
-    expect(SCHEMA_VERSION).toBe("0.36.1");
+    expect(SCHEMA_VERSION).toBe("0.37.1");
     expect(PROTOCOL_VERSION).toBe(2);
     expect(RELAY_VERSION).toBe(2);
     expect(MAX_FRAME_BYTES).toBe(1024 * 1024);
@@ -495,6 +495,73 @@ describe("redacting a bug report's text", () => {
     redacts("C:\\Program Files (x86)\\Kim Tools\\bar.exe crashed", "<path> crashed");
   });
 
+  test("a home folder's name, spaces and all, up to a separator, a quote or a stop", () => {
+    for (const prefix of [
+      "C:\\Users\\",
+      "c:\\users\\",
+      "C:/Users/",
+      "D:\\Users\\",
+      "C:\\\\Users\\\\",
+      "\\\\?\\C:\\Users\\",
+      "\\\\\\\\?\\\\C:\\\\Users\\\\",
+      "/Users/",
+      "/home/",
+    ]) {
+      redacts(`cannot access ${prefix}John Smith`, "cannot access <path>");
+      redacts(`cannot access ${prefix}John Smith\r\nnext`, "cannot access <path>\r\nnext");
+      redacts(`cannot access ${prefix}John Smith: denied`, "cannot access <path>: denied");
+      redacts(`cannot access ${prefix}John Smith, retry`, "cannot access <path>, retry");
+      redacts(`(${prefix}John Smith)`, "(<path>)");
+      redacts(`"${prefix}John Smith" denied`, '"<path>" denied');
+    }
+    redacts('{"m":"open C:\\\\Users\\\\John Smith"}', '{"m":"open <path>"}');
+    redacts("cannot access C:\\Users\\O'Brien Smith", "cannot access <path>");
+    redacts("C:\\Users\\John Smith\\x", "<path>");
+    redacts("C:\\Users\\QAUser\\내 문서\\a b.txt", "<path>");
+    redacts("cannot access C:\\Users\\John Smith because it is locked", "cannot access <path>");
+    redacts("C:\\Users\\kim was not found", "<path>");
+    redacts("C:\\Users\\kim\\x.txt was not found", "<path> was not found");
+    redacts("copy C:\\Users\\A B to C:\\Users\\C D", "copy <path> <path>");
+    redacts("C:\\Users\\A B see https://h.example.com/a", "<path> https://h.example.com/a");
+    redacts("C:\\Users\\A B or /home/c d", "<path> <path>");
+  });
+
+  test("a file name's words after a space, when one of the next four ends in an extension", () => {
+    redacts("C:\\Users\\QA\\My Documents\\final report.txt", "<path>");
+    redacts("open D:\\tmp\\보고서 최종.docx failed", "open <path> failed");
+    redacts("C:\\a\\final report v2 draft.txt not found", "<path> not found");
+    redacts("in /Users/kim/My Notes/final report.md now", "in <path> now");
+    redacts("open \\\\srv\\sh\\a b.txt", "open <path>");
+    redacts("read ./a b.txt", "read <path>");
+    redacts('{"p":"C:\\\\a\\\\final report.txt"}', '{"p":"<path>"}');
+    redacts("(C:\\a\\final report.txt)", "(<path>)");
+    redacts("C:\\a\\final report.txt.", "<path>.");
+    redacts("C:\\a\\final report.txt: denied", "<path>: denied");
+    redacts("C:\\a\\b v1.2a", "<path>");
+    redacts("C:\\a\\x a b c d.txt", "<path>");
+    redacts("C:\\a\\x a b c d e.txt", "<path> a b c d e.txt");
+  });
+
+  test("a file name's words stop where 0.36.2's home folder name stops, and at a sentence", () => {
+    redacts("C:\\a\\b\nc.txt", "<path>\nc.txt");
+    redacts("C:\\a\\b\r\nc.txt", "<path>\r\nc.txt");
+    redacts("C:\\a\\b 'c.txt'", "<path> 'c.txt'");
+    redacts('C:\\a\\b "c.txt"', '<path> "c.txt"');
+    for (const stop of [":", ";", ",", "=", "+", "*", "?", "[", "]", "<", ">", "|"]) {
+      redacts(`C:\\a\\b ${stop} c.txt`, `<path> ${stop} c.txt`);
+    }
+    redacts("C:\\a\\b.txt, and c.txt", "<path> and c.txt");
+    redacts("C:\\a\\b: c.txt", "<path> c.txt");
+    redacts("C:\\a\\b. c.txt", "<path> c.txt");
+    redacts("(C:\\a\\b) and c.txt", "(<path>) and c.txt");
+    redacts("C:\\a\\b not found. See docs.html", "<path> not found. See docs.html");
+    redacts("C:\\a\\b failed on node 20.11.1", "<path> failed on node 20.11.1");
+    redacts("C:\\a\\final report.abcdefghi", "<path> report.abcdefghi");
+    redacts("C:\\a\\b /Users/kim/x c.txt", "<path> <path>");
+    redacts("copy C:\\a\\b c.txt to D:\\x y.txt", "copy <path> to <path>");
+    redacts("C:\\a\\b.txt and c.txt", "<path>");
+  });
+
   test("file URLs", () => {
     redacts("load file:///Users/kim/a.html failed", "load <path> failed");
     redacts("load file:/C:/Users/kim/a.html failed", "load <path> failed");
@@ -630,6 +697,28 @@ const KNOWN_INPUTS = [
   '{"path":"C:\\\\Users\\\\kim\\\\x.txt"}',
   '{"path":"\\\\\\\\server\\\\share\\\\x"}',
   "C:\\Program Files (x86)\\Kim Tools\\bar.exe crashed",
+  "cannot access C:\\Users\\John Smith",
+  "cannot access c:/users/John Smith: denied",
+  "cannot access \\\\?\\C:\\Users\\John Smith, retry",
+  "open C:\\\\Users\\\\John Smith",
+  "stat /home/john smith\nnext",
+  "cannot access C:\\Users\\O'Brien Smith",
+  "C:\\Users\\QAUser\\내 문서\\a b.txt",
+  "C:\\Users\\QA\\My Documents\\final report.txt",
+  "open D:\\tmp\\보고서 최종.docx failed",
+  "C:\\a\\final report v2 draft.txt not found",
+  "in /Users/kim/My Notes/final report.md now",
+  "(C:\\a\\final report.txt)",
+  "C:\\a\\final report.txt.",
+  "C:\\a\\x a b c d.txt",
+  "C:\\a\\x a b c d e.txt",
+  "C:\\a\\b.txt, and c.txt",
+  "C:\\a\\b. c.txt",
+  "C:\\a\\b not found. See docs.html",
+  "C:\\a\\b failed on node 20.11.1",
+  "C:\\a\\b.txt and c.txt",
+  "copy C:\\Users\\A B to C:\\Users\\C D",
+  "C:\\Users\\A B see https://h.example.com/a",
   "load file:///Users/kim/a.html failed",
   "load file:/C:/Users/kim/a.html failed",
   "load FILE://server/share/a.html",
@@ -707,6 +796,19 @@ const RANDOM_PARTS = [
   "~/n.md",
   "./a/b",
   "C:\\Users\\kim\\a.txt",
+  "C:\\Users\\John Smith",
+  "c:/users/",
+  "\\\\?\\C:\\Users\\",
+  "/home/kim lee",
+  "a b.txt",
+  " final report.docx",
+  "보고서 최종.hwp",
+  "e.g.",
+  "v1.2a",
+  "20.11.1",
+  "c.abcdefghi",
+  "/Users/",
+  "O'Brien",
   "\\\\srv\\sh\\x",
   "//srv/sh/x",
   "file:///a/b",
@@ -811,6 +913,8 @@ describe("redacting and cleaning twice gives what once gave", () => {
     expect(redactBugReportText("fe80::1~/n.md")).toBe("<ip><path>");
     expect(redactBugReportText("kim@example.com//srv/sh/x")).toBe("<email><path>");
     expect(redactBugReportText("kim@example.com\\\\srv\\sh\\x")).toBe("<email><path>");
+    expect(redactBugReportText("copy C:\\Users\\A B to C:\\Users\\C D")).toBe("copy <path> <path>");
+    expect(redactBugReportText("\\\\?\\C:\\Users\\John Smith")).toBe("<path>");
     expect(cleanBugReportErrorMessage("a\u0000/Users/kim/x")).toBe("a <path>");
     expect(cleanBugReportErrorMessage("a\u202e~/n.md")).toBe("a <path>");
   });
@@ -886,9 +990,16 @@ describe("redacting and cleaning twice gives what once gave", () => {
       "Ab1",
       "~/a b/c d\\e ",
       "C:\\a ",
+      "C:\\Users\\a ",
+      "/home/a b",
+      "C:\\Users\\a'",
       "http://a@",
       "<ip>~/a",
       "a@b.cc/",
+      "C:\\a b.c ",
+      "/a/b c d e f.g ",
+      "a b.txt ",
+      "x.y.z ",
     ]) {
       const text = fill(unit);
       const started = performance.now();

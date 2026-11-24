@@ -412,6 +412,15 @@ export const MAX_NOTE_MARKDOWN_PAGE = 262_144;
 
 const TranscriptRevisionSchema = z.string().min(1).max(64).optional().catch(undefined);
 
+export const NoteCountsSchema = z.object({
+  sketches: NonnegativeIntegerSchema,
+  files: NonnegativeIntegerSchema,
+  images: NonnegativeIntegerSchema,
+  todos: NonnegativeIntegerSchema,
+  todosDone: NonnegativeIntegerSchema,
+});
+export type NoteCounts = z.infer<typeof NoteCountsSchema>;
+
 export const NoteRecordingInfoSchema = z.object({
   id: z.string(),
   startedAt: NumberSchema,
@@ -1580,6 +1589,10 @@ export const RPC_METHODS = {
           title: z.string(),
           updatedAt: NumberSchema,
           recordings: NonnegativeIntegerSchema.optional(),
+          recordingMs: NonnegativeNumberSchema.optional().catch(undefined),
+          people: NonnegativeIntegerSchema.optional().catch(undefined),
+          counts: NoteCountsSchema.optional().catch(undefined),
+          excerpt: z.string().optional().catch(undefined),
         }),
       ),
     }),

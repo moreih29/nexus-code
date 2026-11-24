@@ -19,7 +19,9 @@
     "images": "{{count}} images",
     "todos": "To-dos {{done}}/{{total}}",
     "recording": "Recording {{minutes}} min",
-    "meeting": "Meeting {{minutes}} min"
+    "recordingSeconds": "Recording {{seconds}} s",
+    "meeting": "Meeting {{minutes}} min",
+    "meetingSeconds": "Meeting {{seconds}} s"
   },
   "editor": {
     "titlePlaceholder": "Title",

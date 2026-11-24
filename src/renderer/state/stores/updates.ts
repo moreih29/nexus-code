@@ -14,6 +14,7 @@ interface UpdatesState {
   announcedVersion: string | null;
   status: UpdateStatus | null;
   progress: UpdateProgress | null;
+  checking: boolean;
   hydrate(input: {
     channel: UpdateChannel | undefined;
     autoCheckEnabled: boolean | undefined;
@@ -27,6 +28,7 @@ interface UpdatesState {
   applyStatus(status: UpdateStatus): void;
   applyProgress(progress: UpdateProgress): void;
   restoreStatus(status: UpdateStatus | null): void;
+  endCheck(): void;
 }
 
 export const useUpdatesStore = create<UpdatesState>((set) => ({
@@ -36,6 +38,7 @@ export const useUpdatesStore = create<UpdatesState>((set) => ({
   announcedVersion: null,
   status: null,
   progress: null,
+  checking: false,
 
   hydrate({ channel, autoCheckEnabled, ignoredVersion, announcedVersion }) {
     set({
@@ -65,8 +68,16 @@ export const useUpdatesStore = create<UpdatesState>((set) => ({
   applyStatus(next) {
     set((state) => {
       const status = nextUpdateStatus(state.status, next);
-      return { status, progress: status?.kind === "downloading" ? state.progress : null };
+      return {
+        status,
+        progress: status?.kind === "downloading" ? state.progress : null,
+        checking: next.kind === "checking",
+      };
     });
+  },
+
+  endCheck() {
+    set({ checking: false });
   },
 
   restoreStatus(status) {

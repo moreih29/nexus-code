@@ -549,3 +549,125 @@ export function cliTranscriptMarkdown(
     })),
   );
 }
+
+export interface ReadTranscriptRecording {
+  id: string;
+  startedAt: number;
+  ms: number;
+  participants?: ParticipantCount;
+  lines: readonly Pick<
+    CliTranscriptRecording["lines"][number],
+    "speaker" | "speakerLabel" | "speakerName" | "startMs" | "endMs" | "text"
+  >[];
+}
+
+const UNNAMED_SPEAKER = /^Speaker (\S{1,40})$/;
+
+export function readTranscriptRecording(read: ReadTranscriptRecording): TranscriptRecording {
+  const speakers: Record<string, string> = {};
+  const speakerNumbers: Record<string, string> = {};
+  for (const line of read.lines) {
+    if (line.speakerName) speakers[line.speaker] = line.speakerName;
+    const label = UNNAMED_SPEAKER.exec(line.speakerLabel)?.[1];
+    if (label && label !== line.speaker) speakerNumbers[line.speaker] = label;
+  }
+  return {
+    id: read.id,
+    startedAt: read.startedAt,
+    language: "",
+    takes: [],
+    speakers,
+    lines: read.lines.map(({ speaker, startMs, endMs, text }) => ({
+      speaker,
+      startMs,
+      endMs,
+      text,
+    })),
+    ...(Object.keys(speakerNumbers).length ? { speakerNumbers } : {}),
+    ...(read.participants === undefined ? {} : { participantCount: read.participants }),
+  };
+}
+
+const RECORDING_HEADING =
+  /^## Recording (\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}) \(((?:\d+:)?\d{1,2}:\d{2})\)$/;
+const SPOKEN_LINE = /^\[((?:\d+:)?\d{1,2}:\d{2})\] (.+?): (.*)$/;
+
+function clockMs(clock: string): number {
+  return clock.split(":").reduce((total, part) => total * 60 + Number(part), 0) * 1000;
+}
+
+interface HeardLine {
+  name: string;
+  at: number;
+  text: string;
+}
+
+export function transcriptFromMarkdown(markdown: string): ReadTranscriptRecording[] {
+  const heard: { startedAt: number; ms: number; lines: HeardLine[] }[] = [];
+  for (const row of markdown.split(/\r?\n/)) {
+    const heading = RECORDING_HEADING.exec(row);
+    if (heading) {
+      const [y, mo, d, h, mi] = heading.slice(1, 6).map(Number) as [
+        number,
+        number,
+        number,
+        number,
+        number,
+      ];
+      heard.push({
+        startedAt: new Date(y, mo - 1, d, h, mi).getTime(),
+        ms: clockMs(heading[6] ?? ""),
+        lines: [],
+      });
+      continue;
+    }
+    const recording = heard.at(-1);
+    if (!recording) continue;
+    const spoken = SPOKEN_LINE.exec(row);
+    if (spoken) {
+      recording.lines.push({
+        name: spoken[2] ?? "",
+        at: clockMs(spoken[1] ?? ""),
+        text: spoken[3] ?? "",
+      });
+      continue;
+    }
+    const last = recording.lines.at(-1);
+    if (last && row.trim()) last.text = `${last.text} ${row.trim()}`;
+  }
+  return heard.map((recording, index) => {
+    const keys = new Map<string, string>();
+    const taken = new Set<string>();
+    for (const { name } of recording.lines) {
+      const label = UNNAMED_SPEAKER.exec(name)?.[1];
+      if (label && /^[1-9]\d*$/.test(label) && !taken.has(label)) {
+        keys.set(name, label);
+        taken.add(label);
+      }
+    }
+    let next = 1;
+    for (const { name } of recording.lines) {
+      if (keys.has(name)) continue;
+      while (taken.has(String(next))) next++;
+      keys.set(name, String(next));
+      taken.add(String(next));
+    }
+    return {
+      id: `markdown-${index + 1}`,
+      startedAt: recording.startedAt,
+      ms: recording.ms,
+      lines: recording.lines.map(({ name, at, text }) => {
+        const speaker = keys.get(name) as string;
+        const unnamed = UNNAMED_SPEAKER.test(name);
+        return {
+          speaker,
+          speakerLabel: unnamed ? name : `Speaker ${speaker}`,
+          speakerName: unnamed ? null : name,
+          startMs: at,
+          endMs: at,
+          text,
+        };
+      }),
+    };
+  });
+}

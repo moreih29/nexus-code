@@ -155,8 +155,10 @@ describe("a recent error's code and message", () => {
     expect(BUG_REPORT_ERROR_CODE_PATTERN.test(long)).toBe(true);
   });
 
-  test("a message comes redacted from an Error, never from a SyntaxError", () => {
-    expect(errorMessageOf(new Error("open '/Users/kim/a.md' failed"))).toBe("open '<path>' failed");
+  test("a message comes from an Error as it is, for the recorder to redact, never from a SyntaxError", () => {
+    expect(errorMessageOf(new Error("open '/Users/kim/a.md' failed"))).toBe(
+      "open '/Users/kim/a.md' failed",
+    );
     expect(errorMessageOf(new SyntaxError('"note text" is not valid JSON'))).toBeUndefined();
     expect(errorMessageOf("not an error")).toBeUndefined();
     expect(errorMessageOf(new Error(""))).toBeUndefined();

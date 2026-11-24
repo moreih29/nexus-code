@@ -253,9 +253,14 @@ export function noteChips(note: Pick<NoteRowFacts, "counts" | "recording">): str
   const t = i18next.t.bind(i18next);
   const chips: string[] = [];
   if (note.recording) {
-    const minutes = Math.max(1, Math.round(note.recording.ms / 60_000));
+    const meeting = note.recording.people >= 2;
+    const seconds = Math.max(0, Math.floor(note.recording.ms / 1000));
     chips.push(
-      t(note.recording.people >= 2 ? "notes:chip.meeting" : "notes:chip.recording", { minutes }),
+      seconds < 60
+        ? t(meeting ? "notes:chip.meetingSeconds" : "notes:chip.recordingSeconds", { seconds })
+        : t(meeting ? "notes:chip.meeting" : "notes:chip.recording", {
+            minutes: Math.floor(seconds / 60),
+          }),
     );
   }
   if (todos) chips.push(t("notes:chip.todos", { done: todosDone, total: todos }));

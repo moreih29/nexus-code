@@ -7,7 +7,7 @@ import {
 } from "../../../../../src/main/features/updates/installer";
 
 function setup(
-  offered: string | null = "1.2.0",
+  initiallyOffered: string | null = "1.2.0",
   {
     installAsksForPassword = false,
     prepareRestart,
@@ -26,12 +26,14 @@ function setup(
   let finishDownload: () => void = () => {};
   let rejectDownload: (error: Error) => void = () => {};
   const calls = { check: 0, download: 0, quitAndInstall: 0 };
+  let offered: string | Error | null = initiallyOffered;
 
   const backend: UpdateBackend = {
     installAsksForPassword,
     ...(prepareRestart && { prepareRestart }),
     check: async () => {
       calls.check += 1;
+      if (offered instanceof Error) throw offered;
       return offered;
     },
     download: () => {
@@ -74,6 +76,9 @@ function setup(
     fail: (error: Error) => failed(error),
     finishDownload: () => finishDownload(),
     rejectDownload: (error: Error) => rejectDownload(error),
+    offer: (next: string | Error | null) => {
+      offered = next;
+    },
   };
 }
 
@@ -240,5 +245,72 @@ describe("createUpdateInstaller", () => {
       { kind: "downloading", version: "1.2.0" },
       { kind: "downloading", version: "1.2.0" },
     ]);
+  });
+});
+
+describe("an update staged before a newer one came out", () => {
+  async function staged(t: ReturnType<typeof setup>) {
+    const install = t.installer.install("stable");
+    await t.settle();
+    t.finishDownload();
+    t.stage();
+    await install;
+  }
+
+  it("downloads the newer version in its place and restarts into that one", async () => {
+    const t = setup("1.2.0");
+    await staged(t);
+    t.offer("1.3.0");
+
+    void t.installer.install("stable");
+    await t.settle();
+    expect(t.statuses.slice(-2)).toEqual([
+      { kind: "ready", version: "1.2.0" },
+      { kind: "downloading", version: "1.3.0" },
+    ]);
+    t.finishDownload();
+    t.stage();
+    expect(t.statuses.at(-1)).toEqual({ kind: "ready", version: "1.3.0" });
+
+    await t.installer.restart();
+    expect(t.calls.download).toBe(2);
+    expect(t.calls.quitAndInstall).toBe(1);
+  });
+
+  it("stays ready when the feed has nothing past the staged version", async () => {
+    const t = setup("1.2.0");
+    await staged(t);
+
+    await t.installer.install("stable");
+    expect(t.calls.check).toBe(2);
+    expect(t.calls.download).toBe(1);
+    expect(t.statuses.at(-1)).toEqual({ kind: "ready", version: "1.2.0" });
+  });
+
+  it("stays ready when the look fails, though the updater also emits the error", async () => {
+    const t = setup("1.2.0");
+    await staged(t);
+    const error = new Error("net::ERR_INTERNET_DISCONNECTED");
+    t.offer(error);
+
+    const install = t.installer.install("stable");
+    t.fail(error);
+    await install;
+    expect(t.statuses.at(-1)).toEqual({ kind: "ready", version: "1.2.0" });
+
+    await t.installer.restart();
+    expect(t.calls.quitAndInstall).toBe(1);
+  });
+
+  it("does not start a download once the restart has handed off", async () => {
+    const t = setup("1.2.0");
+    await staged(t);
+    t.offer("1.3.0");
+
+    const install = t.installer.install("stable");
+    await t.installer.restart();
+    await install;
+    expect(t.calls.quitAndInstall).toBe(1);
+    expect(t.calls.download).toBe(1);
   });
 });

@@ -11,7 +11,6 @@ const LOGIN_SHELL_NAMES: ReadonlySet<string> = new Set([
   "powershell",
   "pwsh",
   "cmd",
-  "wsl",
 ]);
 
 export function isLoginShell(comm: string): boolean {

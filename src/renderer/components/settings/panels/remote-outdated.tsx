@@ -12,6 +12,7 @@ export function OutdatedGroup() {
   const { t } = useTranslation("settings");
   const status = useUpdatesStore((s) => s.status);
   const progress = useUpdatesStore((s) => s.progress);
+  const checking = useUpdatesStore((s) => s.checking);
   const storeManaged = window.host?.windowsStore === true;
   return (
     <SettingsGroup
@@ -30,7 +31,12 @@ export function OutdatedGroup() {
             </Button>
           </div>
         ) : (
-          <UpdateSection status={status} progress={progress} releaseNotes={false} />
+          <UpdateSection
+            status={status}
+            progress={progress}
+            checking={checking}
+            releaseNotes={false}
+          />
         )}
       </div>
     </SettingsGroup>

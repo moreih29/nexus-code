@@ -19,7 +19,9 @@
     "images": "이미지 {{count}}개",
     "todos": "할 일 {{done}}/{{total}}",
     "recording": "녹음 {{minutes}}분",
-    "meeting": "회의 {{minutes}}분"
+    "recordingSeconds": "녹음 {{seconds}}초",
+    "meeting": "회의 {{minutes}}분",
+    "meetingSeconds": "회의 {{seconds}}초"
   },
   "editor": {
     "titlePlaceholder": "제목",

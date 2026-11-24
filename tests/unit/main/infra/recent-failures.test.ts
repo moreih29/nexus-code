@@ -6,7 +6,7 @@ import {
   onUnhandledRejection,
 } from "../../../../src/main/infra/error-safety-net";
 import { noteIpcResult, noteIpcThrow } from "../../../../src/main/infra/ipc-router/recent-failures";
-import { RecentErrors } from "../../../../src/main/infra/recent-errors";
+import { homeRedactor, RecentErrors } from "../../../../src/main/infra/recent-errors";
 import { ipcErr } from "../../../../src/shared/ipc/result";
 
 const fresh = () => new RecentErrors(() => 0);
@@ -183,6 +183,28 @@ describe("a failed IPC call", () => {
         code: "save:type_error",
         message: "Cannot read properties of undefined",
       },
+    ]);
+  });
+});
+
+describe("a failed IPC call's message", () => {
+  test("reaches the recorder whole, so this computer's home folder goes before the shared rules", () => {
+    const errors = new RecentErrors(() => 0, 20, homeRedactor("C:\\tmp\\QA\\John Smith"));
+    noteIpcThrow(
+      "window",
+      "open",
+      new Error("cannot access C:\\tmp\\QA\\John Smith"),
+      errors.record,
+    );
+    noteIpcResult(
+      "dialog",
+      "pick",
+      ipcErr("failed", "C:\\tmp\\QA\\John Smith was not found", { category: "failed" }),
+      errors.record,
+    );
+    expect(errors.list().map(({ message }) => message)).toEqual([
+      "<path> was not found",
+      "cannot access <path>",
     ]);
   });
 });

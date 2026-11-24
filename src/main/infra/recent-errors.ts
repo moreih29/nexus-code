@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import {
   BUG_REPORT_ERROR_CODE_PATTERN,
   type BugReportErrorArea,
@@ -24,6 +25,44 @@ export type RecordError = (
   message?: string,
 ) => void;
 
+const PATH = "<path>";
+const MAX_HOME_INPUT = 16 * 1024;
+const WINDOWS_SEPARATOR = String.raw`(?:\\{1,2}|/)`;
+const LONG_PREFIX = String.raw`(?:\\{2}[?.]\\|\\{4}[?.]\\{2})?`;
+const NAME_GOES_ON = String.raw`(?![\p{L}\p{M}\p{N}_~$#%&-]|\.[\p{L}\p{M}\p{N}_])`;
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+}
+
+function homePattern(home: string): RegExp | undefined {
+  if (/^[\\/]{2}/.test(home)) return undefined;
+  const parts = home.split(/[\\/]+/);
+  while (parts.length > 1 && parts.at(-1) === "") parts.pop();
+  const [root, ...names] = parts;
+  if (names.length === 0 || names.includes("")) return undefined;
+  if (root === "") {
+    return new RegExp(`(/)${names.map(escapeRegExp).join("/")}${NAME_GOES_ON}`, "giu");
+  }
+  if (!/^[A-Za-z]:$/.test(root)) return undefined;
+  return new RegExp(
+    `${LONG_PREFIX}(${escapeRegExp(root)}${WINDOWS_SEPARATOR})${names.map(escapeRegExp).join(WINDOWS_SEPARATOR)}${NAME_GOES_ON}`,
+    "giu",
+  );
+}
+
+export function homeRedactor(home: string): (text: string) => string {
+  const pattern = homePattern(home);
+  if (!pattern) return (text) => text;
+  return (text) =>
+    text
+      .slice(0, MAX_HOME_INPUT)
+      .replace(pattern, (found: string, root: string, offset: number, all: string) => {
+        const next = all[offset + found.length];
+        return next === "\\" || next === "/" ? `${root}~` : PATH;
+      });
+}
+
 function httpStatus(status: number | undefined): number | undefined {
   return status !== undefined && Number.isInteger(status) && status >= 100 && status <= 599
     ? status
@@ -36,12 +75,14 @@ export class RecentErrors {
   constructor(
     private readonly now: () => number = Date.now,
     private readonly cap: number = MAX_BUG_REPORT_ERRORS,
+    private readonly forgetHome: (text: string) => string = homeRedactor(homedir()),
   ) {}
 
   readonly record: RecordError = (area, code, status, message) => {
     if (!BUG_REPORT_ERROR_CODE_PATTERN.test(code)) return;
     const shownStatus = httpStatus(status);
-    const shownMessage = message === undefined ? undefined : cleanBugReportErrorMessage(message);
+    const shownMessage =
+      message === undefined ? undefined : cleanBugReportErrorMessage(this.forgetHome(message));
     const same = this.entries.find(
       (entry) =>
         entry.area === area &&
