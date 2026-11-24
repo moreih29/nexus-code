@@ -458,7 +458,6 @@
     },
     "bugReport": {
       "title": "Report a bug",
-      "signedOut": "Sign in to report from the app · Until then, use the support page",
       "reportOnSupport": "Report on the support page",
       "notSent": "No conversations, files or paths are sent",
       "description": "Description",

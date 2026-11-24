@@ -458,7 +458,6 @@
     },
     "bugReport": {
       "title": "버그 신고",
-      "signedOut": "로그인하면 앱에서 바로 신고 · 로그인 전에는 지원 페이지 이용",
       "reportOnSupport": "지원 페이지에서 신고",
       "notSent": "대화, 파일, 경로는 보내지 않음",
       "description": "설명",

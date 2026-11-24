@@ -84,6 +84,9 @@ describe("the bug report in About", () => {
     expect(ko).toContain(">버그 신고<");
     expect(html).toContain("Report on the support page");
     expect(ko).toContain("지원 페이지에서 신고");
+    expect(html).not.toContain("Sign in to report");
+    expect(html).not.toMatch(/<p[ >]/);
+    expect(ko).not.toContain("로그인");
   });
 
   test("before the sign-in state is known, shows the title and neither the link nor the form", () => {
