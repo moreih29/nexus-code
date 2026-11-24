@@ -21,6 +21,7 @@ export function UpdateButton() {
   const { t } = useTranslation(["common", "settings"]);
   const status = useUpdatesStore((s) => s.status);
   const progress = useUpdatesStore((s) => s.progress);
+  const checking = useUpdatesStore((s) => s.checking);
   const ignoredVersion = useUpdatesStore((s) => s.ignoredVersion);
   const [open, setOpen] = useState(false);
   const shown =
@@ -80,7 +81,7 @@ export function UpdateButton() {
           {t("settings:about.version", { version: __APP_VERSION__ })}
         </span>
       </div>
-      <UpdateSection status={status} progress={progress}>
+      <UpdateSection status={status} progress={progress} checking={checking}>
         {status?.kind === "newer" && (
           <Button
             variant="ghost"

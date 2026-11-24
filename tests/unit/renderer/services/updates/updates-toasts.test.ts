@@ -10,6 +10,7 @@ const calls: { method: string; args: unknown }[] = [];
 let emit: (status: Status) => void = () => {};
 let before: Status | null = null;
 let installFails = false;
+let checkFails = false;
 
 const realToast = await import("../../../../../src/renderer/components/ui/toast");
 mock.module("../../../../../src/renderer/components/ui/toast", () => ({
@@ -34,14 +35,15 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
       return Promise.resolve({ ok: true, value: { status: before, progress: null } });
     }
     calls.push({ method, args });
-    if (method === "install" && installFails) {
+    if ((method === "install" && installFails) || (method === "check" && checkFails)) {
       return Promise.resolve({ ok: false, error: { code: "INTERNAL", message: "gone" } });
     }
     return Promise.resolve({ ok: true, value: undefined });
   },
 }));
 
-const { initUpdatesSubscriptions, installUpdate } = await import(
+const i18next = (await import("i18next")).default;
+const { checkForUpdates, initUpdatesSubscriptions, installUpdate } = await import(
   "../../../../../src/renderer/services/updates/operations"
 );
 const { useUpdatesStore } = await import("../../../../../src/renderer/state/stores/updates");
@@ -64,9 +66,11 @@ beforeEach(() => {
   visible.clear();
   calls.length = 0;
   installFails = false;
+  checkFails = false;
   useUpdatesStore.setState({
     status: null,
     progress: null,
+    checking: false,
     ignoredVersion: null,
     announcedVersion: null,
   });
@@ -182,5 +186,88 @@ describe("initUpdatesSubscriptions", () => {
 
     expect(toasts).toHaveLength(1);
     expect(useUpdatesStore.getState().status).toMatchObject({ kind: "newer", latest: "1.7.0" });
+  });
+});
+
+describe("a check while an update is offered or under way", () => {
+  const ready = { kind: "ready", version: "1.1.0" } as const;
+  const readyText = () => i18next.t("common:updates.ready", { version: "1.1.0" });
+
+  it("answers a staged update with the restart, never with up to date", () => {
+    useUpdatesStore.setState({ status: ready });
+    emit({ kind: "current", trigger: "manual", current: "1.0.0", latest: "1.0.0" });
+
+    expect(useUpdatesStore.getState().status).toEqual(ready);
+    expect(toasts.map((toast) => toast.message)).toEqual([readyText()]);
+    toasts[0]?.actions?.[0]?.onAction();
+    expect(actionCalls()).toEqual([{ method: "restart", args: undefined }]);
+  });
+
+  it("answers the staged version found again with the restart, not a second offer", () => {
+    useUpdatesStore.setState({ status: ready });
+    emit(newer("1.1.0", true, "manual"));
+
+    expect(useUpdatesStore.getState().status).toEqual(ready);
+    expect(toasts.map((toast) => toast.message)).toEqual([readyText()]);
+  });
+
+  it("says a version past the staged one is on its way when the user asked", () => {
+    useUpdatesStore.setState({ status: ready });
+    emit(newer("1.2.0", true, "manual"));
+
+    expect(toasts.map((toast) => toast.message)).toEqual([
+      i18next.t("common:updates.downloading", { version: "1.2.0" }),
+    ]);
+    expect(toasts[0]?.actions).toBeUndefined();
+  });
+
+  it("offers a version past the staged one that the app found by itself", () => {
+    useUpdatesStore.setState({ status: ready });
+    emit(newer("1.2.0", true));
+    toasts[0]?.actions?.[0]?.onAction();
+
+    expect(actionCalls()).toEqual([{ method: "install", args: undefined }]);
+  });
+
+  it("answers a check during a download with the download", () => {
+    useUpdatesStore.setState({ status: { kind: "downloading", version: "1.1.0" } });
+    emit(newer("1.2.0", true, "manual"));
+
+    expect(toasts.map((toast) => toast.message)).toEqual([
+      i18next.t("common:updates.downloading", { version: "1.1.0" }),
+    ]);
+  });
+
+  it("keeps an offer in place while its check runs, and marks the check", () => {
+    emit(newer("1.1.0", true));
+    checkForUpdates();
+    expect(useUpdatesStore.getState()).toMatchObject({
+      checking: true,
+      status: { kind: "newer", latest: "1.1.0" },
+    });
+    expect(actionCalls()).toEqual([{ method: "check", args: { trigger: "manual" } }]);
+
+    emit(newer("1.2.0", true, "manual"));
+    expect(useUpdatesStore.getState()).toMatchObject({
+      checking: false,
+      status: { kind: "newer", latest: "1.2.0" },
+    });
+  });
+
+  it("marks a check started from the menu once main says it runs", () => {
+    useUpdatesStore.setState({ status: ready });
+    emit({ kind: "checking", trigger: "manual" });
+    expect(useUpdatesStore.getState()).toMatchObject({ checking: true, status: ready });
+
+    emit(ready);
+    expect(useUpdatesStore.getState().checking).toBe(false);
+  });
+
+  it("ends a check main never took", async () => {
+    checkFails = true;
+    checkForUpdates();
+    await Promise.resolve();
+
+    expect(useUpdatesStore.getState()).toMatchObject({ checking: false, status: null });
   });
 });
