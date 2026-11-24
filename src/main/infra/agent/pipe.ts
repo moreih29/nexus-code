@@ -3,6 +3,7 @@ import { z } from "zod";
 import { NumberSchema } from "../../../../packages/remote-protocol/src/validation";
 import { AGENT_PROTOCOL_VERSION } from "../../../shared/agent/envelope";
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
+import { truncate } from "../../../shared/log/limit";
 import { createLogger } from "../../../shared/log/main";
 import { redactLogSecrets } from "../../../shared/log/redact-secrets";
 import type { LogLevel } from "../../../shared/log/types";
@@ -46,12 +47,41 @@ function isAgentLogRecord(value: unknown): value is AgentLogRecord {
 }
 
 const AGENT_LOG_FIELDS = new Set(["time", "level", "msg", "src", "correlationId"]);
+const AGENT_LOG_STRING_MAX = 512;
+const AGENT_LOG_ATTR_MAX = 1024;
+const AGENT_LOG_DEPTH_MAX = 4;
+const AGENT_LOG_SECRET_KEY =
+  /token|passw(?:or)?d|passphrase|secret|apikey|authorization|cookie|credential|privatekey|signature/;
+
+function isSecretLogKey(key: string): boolean {
+  const name = key.toLowerCase().replace(/[^a-z\d]/g, "");
+  return name === "auth" || name === "key" || AGENT_LOG_SECRET_KEY.test(name);
+}
+
+function redactAgentLogValue(value: unknown, depth: number): unknown {
+  if (typeof value === "string") return truncate(value, AGENT_LOG_STRING_MAX);
+  if (typeof value !== "object" || value === null) return value;
+  if (depth >= AGENT_LOG_DEPTH_MAX) return "[…]";
+  if (Array.isArray(value)) return value.map((item) => redactAgentLogValue(item, depth + 1));
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, redactAgentLogAttr(key, item, depth + 1)]),
+  );
+}
+
+function redactAgentLogAttr(key: string, value: unknown, depth: number): unknown {
+  const hidden = typeof value === "string" || (typeof value === "object" && value !== null);
+  if (hidden && isSecretLogKey(key)) return "[redacted]";
+  return redactAgentLogValue(value, depth);
+}
 
 function agentLogMessage(record: AgentLogRecord): string {
   const msg = record.msg ?? "(no message)";
   const attrs = Object.entries(record)
     .filter(([key]) => !AGENT_LOG_FIELDS.has(key))
-    .map(([key, value]) => `${key}=${JSON.stringify(value)}`);
+    .map(([key, value]) => {
+      const shown = JSON.stringify(redactAgentLogAttr(key, value, 0)) ?? "null";
+      return `${key}=${truncate(shown, AGENT_LOG_ATTR_MAX)}`;
+    });
   return attrs.length === 0 ? msg : `${msg} ${redactLogSecrets(attrs.join(" "))}`;
 }
 

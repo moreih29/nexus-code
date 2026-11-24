@@ -1,9 +1,14 @@
 package agentpaths
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"path/filepath"
 )
+
+var ErrNotPrivate = errors.New("must be a private directory owned by the current user")
 
 func MaxSocketPathLen() int { return sunPathSize - 1 }
 
@@ -39,4 +44,17 @@ func SocketDir(preferred, longestName string) (dir string, fallback bool, err er
 		return "", false, &SocketPathError{Path: wanted, Fallback: candidate}
 	}
 	return short, true, nil
+}
+
+func preferredHash(preferred string) string {
+	sum := sha256.Sum256([]byte(preferred))
+	return hex.EncodeToString(sum[:8])
+}
+
+func notPrivateDir(dir string) error {
+	return fmt.Errorf("agentpaths: socket directory %q %w", dir, ErrNotPrivate)
+}
+
+func cannotCheck(dir string, err error) error {
+	return fmt.Errorf("agentpaths: cannot check socket directory %q: %w", dir, err)
 }

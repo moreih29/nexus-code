@@ -109,6 +109,7 @@ func takeRequest(requests *sync.Map, id string) (net.Conn, bool) {
 
 type Server struct {
 	socketPath string
+	freshDir   string
 	token      string
 	listener   net.Listener
 
@@ -151,8 +152,25 @@ func newServer(agentKey string, sink EventSink, newTimer func(time.Duration) (<-
 	if private {
 		ensureDir = agentpaths.EnsurePrivateDir
 	}
+	freshDir := ""
 	if err := ensureDir(socketsDir); err != nil {
-		return nil, fmt.Errorf("hookserver: %w", err)
+		if !private || !errors.Is(err, agentpaths.ErrNotPrivate) {
+			return nil, fmt.Errorf("hookserver: %w", err)
+		}
+		name := filepath.Base(socketPath)
+		fresh, freshErr := agentpaths.FreshPrivateSocketDir(name)
+		if errors.Is(freshErr, errors.ErrUnsupported) {
+			return nil, fmt.Errorf("hookserver: %w", err)
+		}
+		if freshErr != nil {
+			return nil, fmt.Errorf("hookserver: %w", errors.Join(err, freshErr))
+		}
+		socketsDir, socketPath, freshDir = fresh, filepath.Join(fresh, name), fresh
+	}
+	removeFreshDir := func() {
+		if freshDir != "" {
+			_ = os.Remove(freshDir)
+		}
 	}
 
 	cleanStaleSockets(socketsDir, filepath.Base(socketPath), time.Now())
@@ -161,17 +179,20 @@ func newServer(agentKey string, sink EventSink, newTimer func(time.Duration) (<-
 
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {
+		removeFreshDir()
 		return nil, fmt.Errorf("hookserver: listen failed: %w", err)
 	}
 
 	if err := os.Chmod(socketPath, 0600); err != nil {
 		_ = ln.Close()
 		_ = os.Remove(socketPath)
+		removeFreshDir()
 		return nil, fmt.Errorf("hookserver: chmod failed: %w", err)
 	}
 
 	s := &Server{
 		socketPath: socketPath,
+		freshDir:   freshDir,
 		token:      token,
 		listener:   ln,
 		sink:       sink,
@@ -235,6 +256,9 @@ func (s *Server) Close() error {
 		})
 
 		_ = os.Remove(s.socketPath)
+		if s.freshDir != "" {
+			_ = os.Remove(s.freshDir)
+		}
 	})
 	return closeErr
 }

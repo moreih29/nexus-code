@@ -86,12 +86,11 @@ func TestSocketDirFallsBackForALongPath(t *testing.T) {
 		t.Fatalf("fallback %s does not fit", dir)
 	}
 	if runtime.GOOS == "windows" {
-		if want := filepath.Join(os.Getenv("USERPROFILE"), ".nexus-code", "sockets"); dir != want {
-			t.Fatalf("fallback = %s, want %s", dir, want)
+		parent := filepath.Join(os.Getenv("USERPROFILE"), ".nexus-code", "s")
+		if filepath.Dir(dir) != parent || len(filepath.Base(dir)) != 16 {
+			t.Fatalf("fallback = %s, want a hashed directory in %s", dir, parent)
 		}
-		return
-	}
-	if !strings.HasPrefix(dir, "/tmp/nexus-code-") {
+	} else if !strings.HasPrefix(dir, "/tmp/nexus-code-") {
 		t.Fatalf("fallback = %s, want a directory under /tmp", dir)
 	}
 	again, _, _ := agentpaths.SocketDir(preferred, name)

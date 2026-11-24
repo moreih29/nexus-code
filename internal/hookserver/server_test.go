@@ -248,8 +248,9 @@ func TestNew_LongHomeFallsBackToAPrivateDirectory(t *testing.T) {
 		t.Fatalf("socket = %s, want a short path outside %s", srv.SocketPath(), home)
 	}
 	if runtime.GOOS == "windows" {
-		if want := filepath.Join(os.Getenv("USERPROFILE"), ".nexus-code", "sockets"); dir != want {
-			t.Fatalf("fallback directory = %s, want %s", dir, want)
+		parent := filepath.Join(os.Getenv("USERPROFILE"), ".nexus-code", "s")
+		if filepath.Dir(dir) != parent || len(filepath.Base(dir)) != 16 {
+			t.Fatalf("fallback directory = %s, want a hashed directory in %s", dir, parent)
 		}
 	} else {
 		info, err := os.Stat(dir)
@@ -304,7 +305,47 @@ func TestNew_RefusesWhenTheFallbackIsTooLong(t *testing.T) {
 	}
 }
 
-func TestNew_RefusesAFallbackDirectoryOthersCanReach(t *testing.T) {
+func TestNew_FallbackLeavesTheDefaultSocketsDirectoryAlone(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows falls back under the user profile")
+	}
+	profile := shortTempDir(t)
+	t.Setenv("USERPROFILE", profile)
+	t.Setenv(agentpaths.HomeEnv, pathOfLength(t, shortTempDir(t), agentpaths.MaxSocketPathLen()))
+	sockets := filepath.Join(profile, ".nexus-code", "sockets")
+	live := filepath.Join(sockets, "h-0123456789ab.sock")
+	if err := os.MkdirAll(sockets, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(live, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := map[string]string{sockets: icacls(t, sockets), live: icacls(t, live)}
+
+	srv := newServerWithCleanup(t, "default-alone")
+	if strings.HasPrefix(srv.SocketPath(), sockets) {
+		t.Fatalf("socket = %s, want it outside %s", srv.SocketPath(), sockets)
+	}
+	for path, acl := range before {
+		if got := icacls(t, path); got != acl {
+			t.Errorf("ACL of %s changed from\n%s\nto\n%s", path, acl, got)
+		}
+	}
+	if _, err := os.Stat(live); err != nil {
+		t.Errorf("the default directory lost %s: %v", live, err)
+	}
+}
+
+func icacls(t *testing.T, path string) string {
+	t.Helper()
+	out, err := exec.Command("icacls", path).Output()
+	if err != nil {
+		t.Fatalf("icacls %s: %v", path, err)
+	}
+	return string(out)
+}
+
+func TestNew_DoesNotListenInAFallbackDirectoryOthersCanReach(t *testing.T) {
 	home := pathOfLength(t, shortTempDir(t), agentpaths.MaxSocketPathLen())
 	t.Setenv(agentpaths.HomeEnv, home)
 	if runtime.GOOS == "windows" {
@@ -324,32 +365,55 @@ func TestNew_RefusesAFallbackDirectoryOthersCanReach(t *testing.T) {
 			t.Fatalf("mklink /J: %v %s", err, out)
 		}
 		t.Cleanup(func() { _ = os.Remove(fallback) })
-	} else {
-		if err := os.Symlink(target, fallback); err != nil {
-			t.Fatal(err)
+		if srv, err := New("reach", nil); err == nil {
+			_ = srv.Close()
+			t.Fatalf("New listened through the junction %s", fallback)
 		}
-		t.Cleanup(func() { _ = os.Remove(fallback) })
-	}
-	if srv, err := New("reach", nil); err == nil {
-		_ = srv.Close()
-		t.Fatalf("New listened through the link %s", fallback)
-	}
-
-	if runtime.GOOS == "windows" {
 		return
 	}
+
+	if err := os.Symlink(target, fallback); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(fallback) })
+	listensElsewhere(t, fallback)
+	if entries, _ := os.ReadDir(target); len(entries) != 0 {
+		t.Fatalf("New left %d entries behind the link in %s", len(entries), target)
+	}
+
 	if err := os.Remove(fallback); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(fallback, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.Remove(fallback) })
 	if err := os.Chmod(fallback, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if srv, err := New("reach", nil); err == nil {
-		_ = srv.Close()
-		t.Fatalf("New listened in %s, which others can read", fallback)
+	listensElsewhere(t, fallback)
+	if info, err := os.Lstat(fallback); err != nil || !info.IsDir() || info.Mode().Perm() != 0o755 {
+		t.Fatalf("the refused directory %s is gone or changed: %v", fallback, err)
+	}
+}
+
+func listensElsewhere(t *testing.T, refused string) {
+	t.Helper()
+	srv := newServerWithCleanup(t, "reach")
+	dir := filepath.Dir(srv.SocketPath())
+	prefix := fmt.Sprintf("/tmp/nexus-code-%d-", os.Getuid())
+	if dir == refused || !strings.HasPrefix(dir, prefix) {
+		t.Fatalf("socket directory = %s, want a fresh %s* directory", dir, prefix)
+	}
+	if info, err := os.Lstat(dir); err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
+		t.Fatalf("socket directory %s is not a 0700 directory: %v", dir, err)
+	}
+	dialOnce(t, srv.SocketPath())
+	if err := srv.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("Close left the fresh directory %s: %v", dir, err)
 	}
 }
 

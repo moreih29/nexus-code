@@ -13,6 +13,7 @@ import {
 import { createLogger } from "../../../shared/log/main";
 import { getAgentBinDir } from "../../infra/agent/getAgentBinDir";
 import { binDir, ensureDir, root } from "../../infra/agent/runtimeDirs";
+import { CLAUDE_SERVERLESS_SETTINGS_ENV, CLAUDE_SETTINGS_ENV } from "./claude-settings-env";
 
 const log = createLogger("pty");
 
@@ -153,10 +154,13 @@ export interface WindowsShellShimInput {
   env: Record<string, string>;
   args?: string[];
   settingsPath?: string;
+  serverlessSettingsPath?: string;
   wrapperDir?: string;
   codex?: { readonly cmdLauncherDir?: string };
   originalPath?: string;
 }
+
+const CMD_CLAUDE_MACRO = `doskey claude=set "NEXUS_CLAUDE_TAB_ID=%NEXUS_TAB_ID%" ^& claude --settings "%${CLAUDE_SETTINGS_ENV}%" $* ^& set "NEXUS_CLAUDE_TAB_ID="`;
 
 export interface WindowsShellShimOutput {
   env: Record<string, string>;
@@ -171,7 +175,7 @@ export function applyWindowsShellShim(input: WindowsShellShimInput): WindowsShel
 }
 
 function shimShell(input: WindowsShellShimInput): WindowsShellShimOutput {
-  const { shell, args, settingsPath, wrapperDir, codex } = input;
+  const { shell, args, settingsPath, serverlessSettingsPath, wrapperDir, codex } = input;
   const name = path.win32.basename(shell).toLowerCase();
   const isBash = name === "bash.exe" || name === "bash";
   if (isBash && /[\\/]system32[\\/]/i.test(shell)) {
@@ -179,6 +183,13 @@ function shimShell(input: WindowsShellShimInput): WindowsShellShimOutput {
     return { env, args };
   }
   const env = input.env;
+  const settingsEnv = (base: Record<string, string>, settings: string) => ({
+    ...base,
+    [CLAUDE_SETTINGS_ENV]: settings,
+    ...(serverlessSettingsPath !== undefined
+      ? { [CLAUDE_SERVERLESS_SETTINGS_ENV]: serverlessSettingsPath }
+      : {}),
+  });
 
   if (name === "powershell.exe" || name === "pwsh.exe" || name === "pwsh") {
     if (args?.some(isPowerShellCommand)) return { env, args };
@@ -189,7 +200,7 @@ function shimShell(input: WindowsShellShimInput): WindowsShellShimOutput {
     if (functions.length === 0) return { env, args };
     const encoded = Buffer.from(functions.join("\n"), "utf16le").toString("base64");
     return {
-      env: settingsPath !== undefined ? { ...env, NEXUS_CLAUDE_SETTINGS: settingsPath } : env,
+      env: settingsPath !== undefined ? settingsEnv(env, settingsPath) : env,
       args: [...(args ?? []), "-NoExit", "-EncodedCommand", encoded],
     };
   }
@@ -200,9 +211,8 @@ function shimShell(input: WindowsShellShimInput): WindowsShellShimOutput {
       ? { ...env, NEXUS_CMD_CODEX_DIR: codex.cmdLauncherDir }
       : env;
     if (settingsPath === undefined) return { env: cmdEnv, args };
-    const macro = `doskey claude=set "NEXUS_CLAUDE_TAB_ID=%NEXUS_TAB_ID%" ^& claude --settings "${settingsPath}" $* ^& set "NEXUS_CLAUDE_TAB_ID="`;
     return {
-      env: { ...cmdEnv, NEXUS_CMD_INIT: macro },
+      env: { ...settingsEnv(cmdEnv, settingsPath), NEXUS_CMD_INIT: CMD_CLAUDE_MACRO },
       args: [...(args ?? []), "/k", "%NEXUS_CMD_INIT%"],
     };
   }

@@ -1,4 +1,7 @@
 import { describe, expect, jest, mock, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   ATTACH_ROOM_BYTES,
   ATTACH_UNUSED_MS,
@@ -1449,6 +1452,70 @@ describe("ChatHost", () => {
       const { channel, host } = windowsStart(null, { settingsPath: SETTINGS });
       await host.start(WS, TAB, "C:\\repo", {});
       expect(startOf(channel).args).not.toContain("--settings");
+    });
+
+    test("without the hook server a custom profile's model picker joins only those hooks", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "nx-host-serverless-"));
+      try {
+        const guard = {
+          matcher: "SendMessage",
+          hooks: [{ type: "command", command: "agent.exe hook send-message" }],
+        };
+        const full = join(dir, "claude-settings.json");
+        const serverless = join(dir, "claude-settings-serverless.json");
+        await writeFile(full, JSON.stringify({ hooks: { UserPromptSubmit: [{ hooks: [] }] } }));
+        await writeFile(serverless, JSON.stringify({ hooks: { PreToolUse: [guard] } }));
+        const profile: AgentProfile = {
+          id: "claude-default",
+          agent: "claude",
+          name: "",
+          color: "blue",
+          dir: "",
+          connection: {
+            method: "custom",
+            baseUrl: "http://127.0.0.1:8080",
+            auth: "bearer",
+            defaultModel: "custom-model",
+            models: [{ id: "custom-model", label: "Custom" }],
+          },
+        };
+        const channel = new FakeChannel();
+        channel.found = { path: "C:\\Users\\u\\.local\\bin\\claude.exe" };
+        const host = new ChatHost({
+          workspaceManager: {
+            getAgentChannel: async () => channel,
+            tryGetAgentChannel: async () => channel,
+            onProviderReady: () => () => {},
+            getSpawnHookInfo: async () => null,
+            getWrapperBinDir: () => "C:\\Users\\u\\.nexus-code\\cli",
+            getWrapperAgentBin: () => "C:\\Users\\u\\.nexus-code\\bin\\agent.exe",
+            getWrapperShimDir: () => "C:\\Users\\u\\.nexus-code\\shim\\ws",
+            isLocal: () => true,
+          },
+          broadcast: () => {},
+          profile: (id) => (id === profile.id ? profile : null),
+          connectionKey: async () => "sealed-key",
+          windowsAgentFiles: async () => ({
+            binDir: "C:\\Users\\u\\.nexus-code\\bin",
+            settingsPath: full,
+            serverlessSettingsPath: serverless,
+          }),
+        });
+        expect(await host.start(WS, TAB, "C:\\repo", {})).toMatchObject({ ok: true });
+        const start = startOf(channel);
+        expect(start.args[0]).toBe("--settings");
+        expect(JSON.parse(start.args[1] ?? "null")).toEqual({
+          hooks: { PreToolUse: [guard] },
+          modelPicker: {
+            replaceBuiltInOptions: true,
+            options: [{ model: "custom-model", label: "Custom" }],
+          },
+        });
+        expect(start.env.NEXUS_AGENT_SOCKET).toBeUndefined();
+        expect(start.env.NEXUS_CLAUDE_MODEL_PICKER).toBeUndefined();
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
     });
   });
 

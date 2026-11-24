@@ -178,6 +178,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
         env: mergeAgentEnv(windows, enrichedEnv),
         args: shimmedArgs,
         settingsPath: files?.settingsPath,
+        serverlessSettingsPath: files?.serverlessSettingsPath,
         wrapperDir: files?.binDir,
         ...(files ? { codex: { cmdLauncherDir: files.cmdLauncherDir } } : {}),
         originalPath: process.env.ORIGINAL_PATH,

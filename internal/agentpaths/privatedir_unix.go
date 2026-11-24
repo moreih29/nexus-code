@@ -3,7 +3,6 @@
 package agentpaths
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,21 +10,36 @@ import (
 )
 
 func shortSocketDir(preferred string) (string, error) {
-	hash := sha256.Sum256([]byte(preferred))
-	return filepath.Join("/tmp", fmt.Sprintf("nexus-code-%d-%x", os.Getuid(), hash[:8])), nil
+	return filepath.Join("/tmp", fmt.Sprintf("nexus-code-%d-%s", os.Getuid(), preferredHash(preferred))), nil
 }
 
 func EnsurePrivateDir(dir string) error {
 	if err := os.Mkdir(dir, 0o700); err != nil && !os.IsExist(err) {
-		return err
+		return fmt.Errorf("agentpaths: cannot create socket directory %q: %w", dir, err)
 	}
 	info, err := os.Lstat(dir)
 	if err != nil {
-		return err
+		return cannotCheck(dir, err)
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !info.IsDir() || info.Mode().Perm() != 0o700 || !ok || int(stat.Uid) != os.Getuid() {
-		return fmt.Errorf("agentpaths: socket directory %q must be private and owned by the current user", dir)
+		return notPrivateDir(dir)
 	}
 	return nil
+}
+
+func FreshPrivateSocketDir(longestName string) (string, error) {
+	dir, err := os.MkdirTemp("/tmp", fmt.Sprintf("nexus-code-%d-", os.Getuid()))
+	if err != nil {
+		return "", fmt.Errorf("agentpaths: cannot create a fresh socket directory: %w", err)
+	}
+	if candidate := filepath.Join(dir, longestName); !SocketPathFits(candidate) {
+		_ = os.Remove(dir)
+		return "", &SocketPathError{Path: candidate}
+	}
+	if err := EnsurePrivateDir(dir); err != nil {
+		_ = os.Remove(dir)
+		return "", err
+	}
+	return dir, nil
 }

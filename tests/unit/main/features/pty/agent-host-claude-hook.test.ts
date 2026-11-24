@@ -176,3 +176,59 @@ describe("AgentPtyHost claude.hook relay", () => {
     expect(requests).toEqual([request, request]);
   });
 });
+
+describe("AgentPtyHost Claude settings in a Windows terminal", () => {
+  const SETTINGS = "C:\\Users\\me\\.nexus-code\\claude-settings.json";
+  const SERVERLESS = "C:\\Users\\me\\.nexus-code\\claude-settings-serverless.json";
+  const SOCKET = "C:\\s\\h-1.sock";
+
+  async function spawnedEnv(hooks: { socketPath: string; token: string } | null) {
+    const channel = new FakeAgentChannel();
+    const spawned: { env?: Record<string, string> }[] = [];
+    const call = channel.call.bind(channel);
+    channel.call = (async (method: string, params?: unknown) => {
+      if (method === "pty.spawn") spawned.push(params as { env?: Record<string, string> });
+      return call(method);
+    }) as typeof channel.call;
+    const host = startAgentPtyHost({
+      async getAgentChannel() {
+        return channel;
+      },
+      async tryGetAgentChannel() {
+        return channel;
+      },
+      async getSpawnHookInfo() {
+        return hooks;
+      },
+    });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_ID,
+      cwd: "C:\\",
+      cols: 80,
+      rows: 24,
+      env: {
+        NEXUS_WRAPPER_SELF_DIR: "C:\\Users\\me\\.nexus-code\\cli",
+        NEXUS_CLAUDE_SETTINGS: SETTINGS,
+        NEXUS_CLAUDE_SERVERLESS_SETTINGS: SERVERLESS,
+      },
+    });
+    host.dispose();
+    return spawned[0]?.env ?? {};
+  }
+
+  test("keeps every hook while the hook server runs", async () => {
+    const env = await spawnedEnv({ socketPath: SOCKET, token: "tok" });
+    expect(env.NEXUS_CLAUDE_SETTINGS).toBe(SETTINGS);
+    expect(env.NEXUS_AGENT_SOCKET).toBe(SOCKET);
+    expect(env.NEXUS_CLAUDE_SERVERLESS_SETTINGS).toBeUndefined();
+  });
+
+  test("switches to the hooks that run without the server when it is not there", async () => {
+    const env = await spawnedEnv(null);
+    expect(env.NEXUS_CLAUDE_SETTINGS).toBe(SERVERLESS);
+    expect(env.NEXUS_AGENT_SOCKET).toBeUndefined();
+    expect(env.NEXUS_HOOK_TOKEN).toBeUndefined();
+    expect(env.NEXUS_CLAUDE_SERVERLESS_SETTINGS).toBeUndefined();
+  });
+});

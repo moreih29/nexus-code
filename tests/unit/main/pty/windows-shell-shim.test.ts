@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
+import { claudeSettingsEnv } from "../../../../src/main/features/pty/claude-settings-env";
 import {
   applyWindowsShellShim,
   serverlessHooksSettings,
@@ -9,9 +10,10 @@ import {
 import { CODEX_CMD_HELP, CODEX_CMD_LAUNCHER } from "../../../../src/shared/codex/wrapper";
 
 const SETTINGS = "C:\\Users\\me\\.nexus-code\\claude-settings.json";
+const SERVERLESS = "C:\\Users\\me\\.nexus-code\\claude-settings-serverless.json";
 const CMD_CLAUDE =
   `doskey claude=set "NEXUS_CLAUDE_TAB_ID=%NEXUS_TAB_ID%" ^& ` +
-  `claude --settings "${SETTINGS}" $* ^& set "NEXUS_CLAUDE_TAB_ID="`;
+  `claude --settings "%NEXUS_CLAUDE_SETTINGS%" $* ^& set "NEXUS_CLAUDE_TAB_ID="`;
 const BIN = "C:\\Users\\me\\.nexus-code\\bin";
 const CMD_BIN = `${BIN}\\cmd`;
 const LAUNCHERS = "C:\\Users\\me\\.nexus-code\\cli";
@@ -133,6 +135,7 @@ describe("applyWindowsShellShim", () => {
     });
     expect(args).toEqual(["/k", "%NEXUS_CMD_INIT%"]);
     expect(env.NEXUS_CMD_INIT).toBe(CMD_CLAUDE);
+    expect(env.NEXUS_CLAUDE_SETTINGS).toBe(SETTINGS);
     expect(env.NEXUS_WRAPPER_SELF_DIR).toBe(LAUNCHERS);
     const own = applyWindowsShellShim({
       shell: "cmd.exe",
@@ -255,5 +258,29 @@ describe("applyWindowsShellShim", () => {
     for (const shell of ["powershell.exe", "cmd.exe", "C:\\Program Files\\Git\\bin\\bash.exe"]) {
       expect(applyWindowsShellShim({ shell, env: ENV })).toEqual({ env: ENV, args: undefined });
     }
+  });
+
+  test("PowerShell and cmd carry the serverless hooks file for a terminal without the server", () => {
+    for (const shell of ["pwsh.exe", "cmd.exe"]) {
+      const { env } = applyWindowsShellShim({
+        shell,
+        env: ENV,
+        settingsPath: SETTINGS,
+        serverlessSettingsPath: SERVERLESS,
+      });
+      expect(env.NEXUS_CLAUDE_SETTINGS).toBe(SETTINGS);
+      expect(env.NEXUS_CLAUDE_SERVERLESS_SETTINGS).toBe(SERVERLESS);
+      expect(claudeSettingsEnv(env, true)).toEqual({
+        ...ENV,
+        ...(shell === "cmd.exe" ? { NEXUS_CMD_INIT: CMD_CLAUDE } : {}),
+        NEXUS_CLAUDE_SETTINGS: SETTINGS,
+      });
+      expect(claudeSettingsEnv(env, false)).toEqual({
+        ...ENV,
+        ...(shell === "cmd.exe" ? { NEXUS_CMD_INIT: CMD_CLAUDE } : {}),
+        NEXUS_CLAUDE_SETTINGS: SERVERLESS,
+      });
+    }
+    expect(claudeSettingsEnv(ENV, false)).toBe(ENV);
   });
 });
