@@ -51,6 +51,17 @@ export interface BugReportFacts {
   readonly arch: string;
 }
 
+const OS_NAMES: Readonly<Record<string, string>> = {
+  darwin: "macOS",
+  win32: "Windows",
+  linux: "Linux",
+};
+
+export function bugReportOsVersion(platform: string, version: string): string {
+  const name = Object.hasOwn(OS_NAMES, platform) ? OS_NAMES[platform] : platform;
+  return `${name}-${version}`.replace(/\s+/g, "-");
+}
+
 export function bugReportLocale(language: string): BugReportLocale {
   return language === "ko" || language.startsWith("ko-") ? "ko" : "en";
 }

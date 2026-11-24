@@ -471,7 +471,7 @@
       "preview": "What's sent",
       "facts": {
         "app": "App version",
-        "os": "Kernel version",
+        "os": "OS version",
         "device": "Device",
         "protocol": "Protocol",
         "locale": "Language",

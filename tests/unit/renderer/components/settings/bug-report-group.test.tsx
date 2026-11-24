@@ -25,7 +25,7 @@ const signedIn: RemoteAccountState = {
 };
 const CONTEXT: BugReportContext = {
   app: { version: "1.4.0" },
-  os: { version: "25.1.0" },
+  os: { version: "macOS-26.1" },
   device: { kind: "desktop", arch: "arm64" },
   protocol: { version: 2, package: "0.35.0" },
   locale: "en",
@@ -125,8 +125,8 @@ describe("the bug report in About", () => {
     for (const value of [
       "App version",
       "1.4.0",
-      "Kernel version",
-      "25.1.0",
+      "OS version",
+      '<code class="font-mono">macOS-26.1</code>',
       'Desktop · <code class="font-mono">arm64</code>',
       '<code class="font-mono">2</code> · <code class="font-mono">0.35.0</code>',
       "Language",
@@ -134,7 +134,6 @@ describe("the bug report in About", () => {
     ]) {
       expect(preview).toContain(value);
     }
-    expect(preview).not.toContain("OS version");
     const lines = Array.from(preview.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g), (m) =>
       m[1]?.replace(/<[^>]+>/g, ""),
     );
@@ -166,7 +165,7 @@ describe("the bug report in About", () => {
     expect(html).toContain("함께 보내는 정보");
     expect(html).toContain('<code class="font-mono">api http_500</code> · 42초 전');
     expect(html).toContain("데스크톱");
-    expect(html).toContain("커널 버전");
+    expect(html).toContain("OS 버전");
   });
 
   test.each([

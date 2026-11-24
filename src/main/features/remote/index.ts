@@ -1,4 +1,3 @@
-import { release } from "node:os";
 import { join } from "node:path";
 import { app, nativeImage, shell, systemPreferences } from "electron";
 import { renderSVG } from "uqr";
@@ -13,6 +12,7 @@ import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
 import { type AccountKeyState, deviceLabel } from "../../../shared/remote/account";
+import { bugReportOsVersion } from "../../../shared/remote/bug-report";
 import type { RoomState } from "../../../shared/remote/room";
 import type { SystemStats } from "../../../shared/system/stats";
 import type { PhonePushPolicy, RemoteAgentsPolicy } from "../../../shared/types/app-state";
@@ -269,7 +269,11 @@ export async function registerRemoteChannel(options: {
   const bugReports = new BugReports({
     account,
     errors: recentErrors,
-    facts: () => ({ appVersion: app.getVersion(), osVersion: release(), arch: process.arch }),
+    facts: () => ({
+      appVersion: app.getVersion(),
+      osVersion: bugReportOsVersion(process.platform, process.getSystemVersion()),
+      arch: process.arch,
+    }),
   });
   const push = new PhonePush({
     account,

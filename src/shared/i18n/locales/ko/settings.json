@@ -471,7 +471,7 @@
       "preview": "함께 보내는 정보",
       "facts": {
         "app": "앱 버전",
-        "os": "커널 버전",
+        "os": "OS 버전",
         "device": "기기",
         "protocol": "프로토콜",
         "locale": "언어",
