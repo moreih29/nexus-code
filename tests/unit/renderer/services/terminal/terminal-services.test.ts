@@ -472,6 +472,17 @@ describe("services/terminal open and close", () => {
       expect(killCalls()).toHaveLength(1);
     });
 
+    it("asks before closing a WSL terminal, whose Linux programs it cannot see", async () => {
+      mockForegroundProcessName = "wsl";
+      const terminal = openTerminal({ workspaceId: WS, cwd: "/workspace" });
+      confirmReply = false;
+
+      expect(await closeTerminalWithConfirm(WS, terminal.tabId)).toBe("cancelled");
+      expect(confirmRequests).toEqual(["Closing the terminal also terminates “wsl”."]);
+      expect(killCalls()).toEqual([]);
+      expect(useTabsStore.getState().byWorkspace[WS]?.[terminal.tabId]).toBeDefined();
+    });
+
     it("closes an ended terminal without asking", async () => {
       mockForegroundProcessName = "sleep";
       const terminal = openTerminal({ workspaceId: WS, cwd: "/workspace" });
@@ -2187,7 +2198,7 @@ describe("isLoginShell", () => {
   });
 
   it("Windows shells, named as the agent names them there", () => {
-    for (const sh of ["powershell", "pwsh", "cmd", "CMD", "nu", "wsl", "WSL"]) {
+    for (const sh of ["powershell", "pwsh", "cmd", "CMD", "nu"]) {
       expect(isLoginShell(sh)).toBe(true);
     }
   });
@@ -2195,6 +2206,11 @@ describe("isLoginShell", () => {
   it("로그인 셸 prefix '-' 제거 후 판정 (ps -o comm=)", () => {
     expect(isLoginShell("-zsh")).toBe(true);
     expect(isLoginShell("-bash")).toBe(true);
+  });
+
+  it("wsl is not a shell: the Linux program in front cannot be seen from Windows", () => {
+    expect(isLoginShell("wsl")).toBe(false);
+    expect(isLoginShell("WSL")).toBe(false);
   });
 
   it("실제 프로그램 → false", () => {
