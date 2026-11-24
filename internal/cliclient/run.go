@@ -31,6 +31,8 @@ const maxStdinBytes = 1024 * 1024
 
 const wsaeacces = 10013
 
+const agentContextCommand = "agent-context"
+
 type request struct {
 	Argv     []string `json:"argv"`
 	Cwd      string   `json:"cwd"`
@@ -75,6 +77,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	workspaceID := os.Getenv(envWorkspaceID)
 	tabID := os.Getenv(envTabID)
 	if socketPath == "" || token == "" || workspaceID == "" || tabID == "" {
+		if len(args) > 0 && args[0] == agentContextCommand {
+			if slices.Contains(args, "-") {
+				_, _ = io.Copy(io.Discard, io.LimitReader(stdin, maxStdinBytes+1))
+			}
+			return 0
+		}
 		fmt.Fprintln(stderr, "nexus: run this in a NexusCode terminal")
 		return 2
 	}
@@ -117,7 +125,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
-	if res.ExitCode == 0 && len(args) > 0 && args[0] == "agent-context" && req.Stdin != nil {
+	if res.ExitCode == 0 && len(args) > 0 && args[0] == agentContextCommand && req.Stdin != nil {
 		var err error
 		res.Stdout, err = claudeHookContext(*req.Stdin, res.Stdout)
 		if err != nil {

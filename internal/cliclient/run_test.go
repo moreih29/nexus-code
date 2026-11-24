@@ -159,3 +159,51 @@ func unsetEnv(t *testing.T, key string) {
 		t.Fatal(err)
 	}
 }
+
+type countingReader struct {
+	strings.Reader
+	read int
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	r.read += n
+	return n, err
+}
+
+func TestRunOutsideTheAppSkipsAgentContextQuietly(t *testing.T) {
+	for _, name := range []string{envAgentSocket, envHookToken, envWorkspaceID, envTabID} {
+		t.Run(name, func(t *testing.T) {
+			setTerminalEnv(t, filepath.Join(t.TempDir(), "s.sock"))
+			unsetEnv(t, name)
+			hookInput := `{"hook_event_name":"UserPromptSubmit","prompt":"hi"}`
+			stdin := &countingReader{Reader: *strings.NewReader(hookInput)}
+			var stdout, stderr bytes.Buffer
+			code := run([]string{"agent-context", "--launch=l", "-"}, stdin, &stdout, &stderr)
+			if code != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			if stdin.read != len(hookInput) {
+				t.Fatalf("read %d of %d stdin bytes", stdin.read, len(hookInput))
+			}
+		})
+	}
+}
+
+func TestRunOutsideTheAppKeepsTheUsageError(t *testing.T) {
+	for _, name := range []string{envAgentSocket, envHookToken, envWorkspaceID, envTabID} {
+		unsetEnv(t, name)
+	}
+	for _, args := range [][]string{
+		{"chat", "list"},
+		{"worktree", "claude-create", "-"},
+		{"terminal", "send", "x", "agent-context"},
+		{},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := run(args, strings.NewReader("{}"), &stdout, &stderr)
+		if code != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "run this in a NexusCode terminal") {
+			t.Fatalf("%v: code=%d stdout=%q stderr=%q", args, code, stdout.String(), stderr.String())
+		}
+	}
+}

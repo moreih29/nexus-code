@@ -25,6 +25,7 @@ test("retries a partial Windows wrapper installation and caches the complete one
     const partial = await installWindowsAgentFiles();
     expect(partial?.cmdLauncherDir).toBeDefined();
     expect(partial?.settingsPath).toBeUndefined();
+    expect(partial?.serverlessSettingsPath).toBeUndefined();
     await fs.rmdir(settings);
 
     const a = installWindowsAgentFiles();
@@ -32,6 +33,9 @@ test("retries a partial Windows wrapper installation and caches the complete one
     expect(a).toBe(b);
     expect((await a)?.settingsPath).toBe(settings);
     expect(await fs.readFile(settings, "utf8")).toBe("{}");
+    const serverless = path.join(root, "claude-settings-serverless.json");
+    expect((await a)?.serverlessSettingsPath).toBe(serverless);
+    expect(JSON.parse(await fs.readFile(serverless, "utf8"))).toEqual({ hooks: {} });
     expect(installWindowsAgentFiles()).toBe(a);
   } finally {
     await fs.rm(root, { recursive: true, force: true });

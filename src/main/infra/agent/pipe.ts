@@ -45,6 +45,16 @@ function isAgentLogRecord(value: unknown): value is AgentLogRecord {
   );
 }
 
+const AGENT_LOG_FIELDS = new Set(["time", "level", "msg", "src", "correlationId"]);
+
+function agentLogMessage(record: AgentLogRecord): string {
+  const msg = record.msg ?? "(no message)";
+  const attrs = Object.entries(record)
+    .filter(([key]) => !AGENT_LOG_FIELDS.has(key))
+    .map(([key, value]) => `${key}=${JSON.stringify(value)}`);
+  return attrs.length === 0 ? msg : `${msg} ${redactLogSecrets(attrs.join(" "))}`;
+}
+
 function slogLevelToFacade(level: string | undefined): LogLevel {
   switch (level?.toUpperCase()) {
     case "DEBUG":
@@ -372,10 +382,9 @@ export function createNdjsonPipe(deps: NdjsonPipeDependencies): NdjsonPipe {
       if (isAgentLogRecord(parsed)) {
         const log = getAgentLogger();
         const level = slogLevelToFacade(parsed.level);
-        const msg = parsed.msg ?? "(no message)";
         const meta =
           parsed.correlationId !== undefined ? { correlationId: parsed.correlationId } : undefined;
-        log[level](msg, meta);
+        log[level](agentLogMessage(parsed), meta);
         return;
       }
     }

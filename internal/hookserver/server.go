@@ -31,8 +31,6 @@ const printWatchSubcmd = "print-watch"
 
 const goneRecheck = 500 * time.Millisecond
 
-const maxSocketPathLen = 104
-
 const maxRequestBytes = proto.MaxHookRequestBytes
 
 type EventSink func(name string, payload any) error
@@ -139,14 +137,9 @@ func New(agentKey string, sink EventSink) (*Server, error) {
 }
 
 func newServer(agentKey string, sink EventSink, newTimer func(time.Duration) (<-chan time.Time, func())) (*Server, error) {
-	socketPath, socketsDir, err := makeSocketPath(agentKey)
+	socketPath, socketsDir, private, err := makeSocketPath(agentKey)
 	if err != nil {
 		return nil, fmt.Errorf("hookserver: %w", err)
-	}
-
-	if len(socketPath) > maxSocketPathLen {
-		return nil, fmt.Errorf("hookserver: socket path too long (%d > %d, under ~/.nexus-code/sockets/): %s",
-			len(socketPath), maxSocketPathLen, socketPath)
 	}
 
 	token, err := newToken()
@@ -154,7 +147,11 @@ func newServer(agentKey string, sink EventSink, newTimer func(time.Duration) (<-
 		return nil, fmt.Errorf("hookserver: token generation failed: %w", err)
 	}
 
-	if err := agentpaths.EnsureDir(socketsDir); err != nil {
+	ensureDir := agentpaths.EnsureDir
+	if private {
+		ensureDir = agentpaths.EnsurePrivateDir
+	}
+	if err := ensureDir(socketsDir); err != nil {
 		return nil, fmt.Errorf("hookserver: %w", err)
 	}
 
@@ -427,15 +424,18 @@ func (s *Server) deadlineFor(subcommand string) time.Duration {
 	return connDeadline
 }
 
-func makeSocketPath(agentKey string) (string, string, error) {
-	socketsDir, err := agentpaths.SocketsDir()
+func makeSocketPath(agentKey string) (socketPath, socketsDir string, private bool, err error) {
+	preferred, err := agentpaths.SocketsDir()
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 	h := sha256.Sum256([]byte(agentKey))
-	short := hex.EncodeToString(h[:])[:12]
-	socketPath := filepath.Join(socketsDir, "h-"+short+".sock")
-	return socketPath, socketsDir, nil
+	name := "h-" + hex.EncodeToString(h[:])[:12] + ".sock"
+	socketsDir, private, err = agentpaths.SocketDir(preferred, name)
+	if err != nil {
+		return "", "", false, err
+	}
+	return filepath.Join(socketsDir, name), socketsDir, private, nil
 }
 
 func cleanStaleSockets(socketsDir, selfBasename string, now time.Time) {

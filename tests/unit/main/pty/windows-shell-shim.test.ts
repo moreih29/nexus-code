@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   applyWindowsShellShim,
+  serverlessHooksSettings,
   wrapperHooksSettings,
 } from "../../../../src/main/features/pty/windows-shell-shim";
 import { CODEX_CMD_HELP, CODEX_CMD_LAUNCHER } from "../../../../src/shared/codex/wrapper";
@@ -43,6 +44,23 @@ describe("wrapperHooksSettings", () => {
       "WorktreeRemove",
     ]);
     expect(settings.hooks.Stop[0].hooks[0].command).toMatch(/^"\$\{NEXUS_AGENT_BIN\}" hook stop$/);
+  });
+
+  test("without the hook server only the SendMessage guard stays", () => {
+    const wrapper = fs.readFileSync(
+      path.join(import.meta.dir, "../../../../scripts/assets/claude-wrapper.sh"),
+      "utf8",
+    );
+    const full = JSON.parse(wrapperHooksSettings(wrapper) ?? "null");
+    const serverless = JSON.parse(serverlessHooksSettings(JSON.stringify(full)));
+    expect(serverless.preferredNotifChannel).toBe(full.preferredNotifChannel);
+    const guard = full.hooks.PreToolUse.find(
+      (group: { matcher: string }) => group.matcher === "SendMessage",
+    );
+    expect(serverless.hooks).toEqual({ PreToolUse: [guard] });
+    expect(guard.hooks).toHaveLength(1);
+    expect(guard.hooks[0].command).toMatch(/^"\$\{NEXUS_AGENT_BIN\}" hook send-message$/);
+    expect(JSON.stringify(serverless)).not.toMatch(/ cli |permission-request|agent-context/);
   });
 
   test("null for text without them", () => {

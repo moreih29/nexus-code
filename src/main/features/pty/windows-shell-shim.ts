@@ -19,6 +19,7 @@ const log = createLogger("pty");
 export interface WindowsAgentFiles {
   readonly binDir: string;
   readonly settingsPath?: string;
+  readonly serverlessSettingsPath?: string;
   readonly cmdLauncherDir?: string;
 }
 
@@ -31,6 +32,29 @@ export function wrapperHooksSettings(wrapper: string): string | null {
     return null;
   }
   return match[1];
+}
+
+const SERVERLESS_HOOK_SUBCOMMANDS = new Set(["send-message"]);
+
+interface HookGroup {
+  readonly hooks?: readonly { readonly command?: unknown }[];
+}
+
+function runsWithoutServer(hook: { readonly command?: unknown }): boolean {
+  const subcommand = /^"\$\{NEXUS_AGENT_BIN\}" hook ([a-z-]+)$/.exec(String(hook.command))?.[1];
+  return subcommand !== undefined && SERVERLESS_HOOK_SUBCOMMANDS.has(subcommand);
+}
+
+export function serverlessHooksSettings(settings: string): string {
+  const parsed = JSON.parse(settings) as { hooks?: Record<string, readonly HookGroup[]> };
+  const hooks: Record<string, HookGroup[]> = {};
+  for (const [event, groups] of Object.entries(parsed.hooks ?? {})) {
+    const kept = groups
+      .map((group) => ({ ...group, hooks: (group.hooks ?? []).filter(runsWithoutServer) }))
+      .filter((group) => group.hooks.length > 0);
+    if (kept.length > 0) hooks[event] = kept;
+  }
+  return JSON.stringify({ ...parsed, hooks });
 }
 
 let installing: Promise<WindowsAgentFiles | null> | undefined;
@@ -58,25 +82,29 @@ async function installFiles(): Promise<WindowsAgentFiles | null> {
     log.warn(`wrappers unavailable in Windows terminals: ${(error as Error).message}`);
     return null;
   }
-  const [settingsPath, cmdLauncherDir] = await Promise.all([
+  const [claude, cmdLauncherDir] = await Promise.all([
     installClaudeFiles(dir),
     installCmdLauncher(path.join(dir, "cmd")),
   ]);
-  return { binDir: dir, settingsPath, cmdLauncherDir };
+  return { binDir: dir, ...claude, cmdLauncherDir };
 }
 
-async function installClaudeFiles(dir: string): Promise<string | undefined> {
+async function installClaudeFiles(
+  dir: string,
+): Promise<Pick<WindowsAgentFiles, "settingsPath" | "serverlessSettingsPath">> {
   try {
     const wrapper = await fs.readFile(path.join(getAgentBinDir(), "claude"), "utf8");
     const settings = wrapperHooksSettings(wrapper);
     if (settings === null) throw new Error("the claude wrapper has no hooks settings");
     await fs.writeFile(path.join(dir, "claude"), wrapper);
     const settingsPath = path.join(root(), "claude-settings.json");
+    const serverlessSettingsPath = path.join(root(), "claude-settings-serverless.json");
     await fs.writeFile(settingsPath, settings);
-    return settingsPath;
+    await fs.writeFile(serverlessSettingsPath, serverlessHooksSettings(settings));
+    return { settingsPath, serverlessSettingsPath };
   } catch (error) {
     log.warn(`claude hooks unavailable in Windows terminals: ${(error as Error).message}`);
-    return undefined;
+    return {};
   }
 }
 
