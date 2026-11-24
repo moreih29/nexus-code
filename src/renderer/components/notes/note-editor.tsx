@@ -13,6 +13,8 @@ import {
 import { useTranslation } from "react-i18next";
 import { hasBlocksAt, insertionIndex, isEmptyDoc } from "../../../shared/notes/insert";
 import type { DocNode } from "../../../shared/notes/markdown";
+import { summaryOrigin } from "../../../shared/notes/summary";
+import { asksSpeakerCount } from "../../../shared/notes/transcript";
 import { hasImage, imageBlock, type NoteContent } from "../../../shared/notes/types";
 import { imageExt, NoteAssetUrls, notesApi } from "../../services/notes/api";
 import { noteLocation } from "../../services/notes/conversation";
@@ -34,6 +36,7 @@ import {
   useTranscriptsStore,
 } from "../../services/notes/transcripts";
 import { useNoteSummaries } from "../../services/notes/use-summaries";
+import { useVoicePrintAvailable } from "../../services/notes/voice-print";
 import { closeNoteTabs, closeTab, openEditorTab } from "../../state/operations";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspace, useWorkspacesStore } from "../../state/stores/workspaces";
@@ -175,6 +178,15 @@ function LoadedNote({
     setTranscriptOpen(true);
   }, []);
   const showTranscript = transcriptOpen ?? (recordings > 0 || recordingHere);
+  const voicePrint = useVoicePrintAvailable();
+  const asking =
+    useTranscriptsStore((s) => {
+      const latest = s.byNote[transcriptKey(workspaceId, note.id)]?.recordings.at(-1);
+      return latest !== undefined && asksSpeakerCount(latest, voicePrint);
+    }) && !recordingHere;
+  useEffect(() => {
+    if (asking) setTranscriptOpen((open) => (open === false ? true : open));
+  }, [asking]);
 
   const titleInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -494,6 +506,24 @@ function LoadedNote({
     },
     [editor],
   );
+  const showSummary = useCallback(
+    (recordingId: string) => {
+      const e = editorRef.current;
+      if (!e || e.isDestroyed) return;
+      const origin = summaryOrigin(recordingId);
+      let at: number | null = null;
+      e.state.doc.forEach((block, offset) => {
+        if (at === null && block.attrs.nexusOrigin === origin) at = offset;
+      });
+      const dom = at === null ? null : e.view.nodeDOM(at);
+      if (!(dom instanceof HTMLElement)) {
+        showToast({ kind: "info", message: t("summary.notInNote") });
+        return;
+      }
+      dom.scrollIntoView({ block: "start", behavior: "smooth" });
+    },
+    [t],
+  );
   const hideTranscript = useCallback(() => {
     setTranscriptOpen(false);
     setTranscriptJump(undefined);
@@ -607,6 +637,7 @@ function LoadedNote({
         noteId={note.id}
         summaries={summaries}
         flush={flush}
+        onShow={showSummary}
       />
       <div className="flex min-h-0 flex-1 flex-col @min-[720px]/note:flex-row">
         {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target only; the editor in it takes the keyboard */}

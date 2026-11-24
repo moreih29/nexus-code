@@ -18,6 +18,7 @@ import {
 import { useVoicePrintAvailable } from "../../services/notes/voice-print";
 import { useVoiceAvailability, voiceLanguage } from "../../services/voice/availability";
 import { tellFailure } from "../../services/voice/dictation";
+import { AfterRecording } from "./after-recording";
 
 const BUTTON =
   "inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-(--radius-control) border border-border px-2.5 text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] disabled:pointer-events-none disabled:opacity-50";
@@ -126,76 +127,80 @@ export function RecordControls({
             </fieldset>
           </>
         )}
+        {!elsewhere && availability !== "unavailable" && <AfterRecording />}
       </div>
     );
   }
 
   const busy = phase === "starting" || phase === "pausing" || phase === "stopping";
   return (
-    <div
-      className="flex h-7 shrink-0 items-center gap-0.5 whitespace-nowrap rounded-(--radius-control) border border-border pr-0.5 pl-2"
-      data-testid="note-recorder"
-      data-phase={phase}
-    >
-      {busy ? (
-        <Loader2 className="size-3 animate-spin text-muted-foreground" aria-hidden="true" />
-      ) : (
-        <span
-          className={cn(
-            "size-2 rounded-full",
-            phase === "recording" ? "bg-[var(--state-error-fg)]" : "bg-muted-foreground",
-          )}
-          style={phase === "recording" ? { opacity: 0.55 + Math.min(0.45, level) } : undefined}
-          aria-hidden="true"
-        />
-      )}
-      <span className="ml-1 min-w-11 text-app-ui-sm tabular-nums text-foreground" aria-live="off">
-        {clockOf(elapsed)}
-      </span>
-      <span className="mr-1 text-app-micro text-muted-foreground">
-        {phase === "starting"
-          ? t("recorder.starting")
-          : phase === "stopping" || phase === "pausing"
-            ? t("recorder.stopping")
-            : phase === "paused"
-              ? t("recorder.paused")
-              : t("recorder.recording")}
-      </span>
-      {phase === "paused" ? (
-        <button
-          type="button"
-          className={ICON_BUTTON}
-          onClick={() => void resumeRecording()}
-          aria-label={t("recorder.resume")}
-          title={t("recorder.resume")}
-          data-testid="note-record-resume"
-        >
-          <Mic className="size-3.5" />
-        </button>
-      ) : (
-        <button
-          type="button"
-          className={ICON_BUTTON}
-          disabled={phase !== "recording"}
-          onClick={pauseRecording}
-          aria-label={t("recorder.pause")}
-          title={t("recorder.pause")}
-          data-testid="note-record-pause"
-        >
-          <Pause className="size-3.5" />
-        </button>
-      )}
-      <button
-        type="button"
-        className={ICON_BUTTON}
-        disabled={phase !== "recording" && phase !== "paused"}
-        onClick={stopRecording}
-        aria-label={t("recorder.stop")}
-        title={t("recorder.stop")}
-        data-testid="note-record-stop"
+    <div className="flex shrink-0 items-center gap-2">
+      <div
+        className="flex h-7 shrink-0 items-center gap-0.5 whitespace-nowrap rounded-(--radius-control) border border-border pr-0.5 pl-2"
+        data-testid="note-recorder"
+        data-phase={phase}
       >
-        <Square className="size-3" />
-      </button>
+        {busy ? (
+          <Loader2 className="size-3 animate-spin text-muted-foreground" aria-hidden="true" />
+        ) : (
+          <span
+            className={cn(
+              "size-2 rounded-full",
+              phase === "recording" ? "bg-[var(--state-error-fg)]" : "bg-muted-foreground",
+            )}
+            style={phase === "recording" ? { opacity: 0.55 + Math.min(0.45, level) } : undefined}
+            aria-hidden="true"
+          />
+        )}
+        <span className="ml-1 min-w-11 text-app-ui-sm tabular-nums text-foreground" aria-live="off">
+          {clockOf(elapsed)}
+        </span>
+        <span className="mr-1 text-app-micro text-muted-foreground">
+          {phase === "starting"
+            ? t("recorder.starting")
+            : phase === "stopping" || phase === "pausing"
+              ? t("recorder.stopping")
+              : phase === "paused"
+                ? t("recorder.paused")
+                : t("recorder.recording")}
+        </span>
+        {phase === "paused" ? (
+          <button
+            type="button"
+            className={ICON_BUTTON}
+            onClick={() => void resumeRecording()}
+            aria-label={t("recorder.resume")}
+            title={t("recorder.resume")}
+            data-testid="note-record-resume"
+          >
+            <Mic className="size-3.5" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={ICON_BUTTON}
+            disabled={phase !== "recording"}
+            onClick={pauseRecording}
+            aria-label={t("recorder.pause")}
+            title={t("recorder.pause")}
+            data-testid="note-record-pause"
+          >
+            <Pause className="size-3.5" />
+          </button>
+        )}
+        <button
+          type="button"
+          className={ICON_BUTTON}
+          disabled={phase !== "recording" && phase !== "paused"}
+          onClick={stopRecording}
+          aria-label={t("recorder.stop")}
+          title={t("recorder.stop")}
+          data-testid="note-record-stop"
+        >
+          <Square className="size-3" />
+        </button>
+      </div>
+      <AfterRecording />
     </div>
   );
 }

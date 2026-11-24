@@ -1,7 +1,10 @@
 import i18next from "i18next";
 import { create } from "zustand";
-import { isLongEnoughToSummarize } from "../../../shared/notes/summary";
-import { type TranscriptRecording, withSecondPass } from "../../../shared/notes/transcript";
+import {
+  asksSpeakerCount,
+  type TranscriptRecording,
+  withSecondPass,
+} from "../../../shared/notes/transcript";
 import type { TranscribeResult } from "../../../shared/remote/voice";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult } from "../../ipc/client";
@@ -14,6 +17,7 @@ import {
   updateRecording,
   useTranscriptsStore,
 } from "./transcripts";
+import { voicePrintAvailable } from "./voice-print";
 
 export const POLL_MS = 4000;
 export const GIVE_UP_MS = 45 * 60_000;
@@ -116,11 +120,7 @@ export async function runSecondPass(
     const latest = recordingOf(workspaceId, noteId, recordingId);
     if (!result || !latest || !useNoteSummarySettings.getState().enabled) return;
     if (result === "complete" && latest.takes.some((take) => take.pass === "pending")) return;
-    if (!isLongEnoughToSummarize(latest)) return;
-    await flushTranscript(workspaceId, noteId, false, true);
-    await notesApi.summarize(workspaceId, noteId, recordingId, "auto").catch(() => {
-      showToast({ kind: "error", message: i18next.t("notes:summary.actionFailed") });
-    });
+    await summarizeIfSettled(workspaceId, noteId, recordingId);
   } catch {
   } finally {
     useSecondPassStore.setState((s) => {
@@ -128,6 +128,21 @@ export async function runSecondPass(
       return { running: rest };
     });
   }
+}
+
+export async function summarizeIfSettled(
+  workspaceId: string,
+  noteId: string,
+  recordingId: string,
+): Promise<void> {
+  if (!useNoteSummarySettings.getState().enabled) return;
+  const recording = recordingOf(workspaceId, noteId, recordingId);
+  if (!recording) return;
+  if (asksSpeakerCount(recording, true) && (await voicePrintAvailable())) return;
+  await flushTranscript(workspaceId, noteId, false, true);
+  await notesApi.summarize(workspaceId, noteId, recordingId, "auto").catch(() => {
+    showToast({ kind: "error", message: i18next.t("notes:summary.actionFailed") });
+  });
 }
 
 async function waitForPasses(

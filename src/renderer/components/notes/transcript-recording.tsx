@@ -28,7 +28,12 @@ import {
 } from "../../../shared/notes/transcript";
 import type { VoiceNameSuggestion } from "../../../shared/notes/voice-names";
 import { regroupKey, regroupRecording, useRegroupStore } from "../../services/notes/regroup";
-import { canSecondPass, runSecondPass, useSecondPassStore } from "../../services/notes/second-pass";
+import {
+  canSecondPass,
+  runSecondPass,
+  summarizeIfSettled,
+  useSecondPassStore,
+} from "../../services/notes/second-pass";
 import { removeRecording, updateRecording } from "../../services/notes/transcripts";
 import {
   canSuggestNames,
@@ -71,12 +76,14 @@ export const RecordingHeading = memo(function RecordingHeading({
   onRename,
   onAccept,
   onMerge,
+  promptAbove,
 }: {
   workspaceId: string;
   noteId: string;
   recording: TranscriptRecording;
   cast: Cast;
   live: boolean;
+  promptAbove: boolean;
   summarizing: boolean;
   onRerun: (recordingId: string) => void;
   first: boolean;
@@ -91,11 +98,7 @@ export const RecordingHeading = memo(function RecordingHeading({
   const ref = { workspaceId, noteId, recordingId: recording.id };
   const memoryStatus = useVoiceMemory((s) => s.status);
   const searching = useVoiceMemory((s) => s.searching[voiceSuggestionKey(ref)]);
-  const refining = useSecondPassStore((s) => Boolean(s.running[recording.id]));
-  const progress = useRegroupStore(
-    (s) => s.progress[regroupKey(workspaceId, noteId, recording.id)],
-  );
-  const voicePrint = useVoicePrintAvailable();
+  const { refining, progress, regroupReason } = useRecordingWork(workspaceId, noteId, recording);
   const [regroupOpen, setRegroupOpen] = useState(false);
   const refined = recording.takes.length > 0 && recording.takes.every((tk) => tk.pass === "done");
   const startedAt = dateTimeFormat(i18n.language || "en", {
@@ -110,17 +113,7 @@ export const RecordingHeading = memo(function RecordingHeading({
     name: speakerName(recording, keys[0] as string, unnamed),
     color: speakerColor(color),
   }));
-  const regroupReason =
-    recording.audioRemoved || recording.takes.length === 0
-      ? t("transcript.regroup.audioMissing")
-      : !voicePrint
-        ? t("transcript.regroup.modelUnavailable")
-        : refining || progress !== undefined
-          ? t("transcript.regroup.busy")
-          : !recording.lines.length
-            ? t("transcript.regroup.noSpeech")
-            : null;
-  const prompt = !live && !regroupReason && shouldPromptSpeakerCount(recording);
+  const prompt = !live && !promptAbove && !regroupReason && shouldPromptSpeakerCount(recording);
   const regroup = (count: number) => {
     setRegroupOpen(false);
     void regroupRecording(workspaceId, noteId, recording.id, count);
@@ -265,50 +258,13 @@ export const RecordingHeading = memo(function RecordingHeading({
         )}
       </div>
       {prompt && (
-        <div className="mb-2 flex flex-col gap-1.5 rounded-(--radius-control) border border-[var(--state-warning-border)] bg-[var(--state-warning-bg)] px-2 py-1.5">
-          <p className="text-app-ui-sm text-[var(--state-warning-fg)]">
-            {t("transcript.regroup.prompt", { count: peopleIn(recording) })}
-          </p>
-          <div className="flex flex-wrap items-center gap-1">
-            {[2, 3, 4, 5, 6]
-              .filter((count) => count >= protectedVoiceCount(recording))
-              .map((count) => (
-                <Button
-                  key={count}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                  className="h-6 px-2"
-                  onClick={() => regroup(count)}
-                >
-                  {count}
-                </Button>
-              ))}
-            <Button
-              size="sm"
-              type="button"
-              variant="outline"
-              className="h-6 px-2"
-              onClick={() => setRegroupOpen(true)}
-            >
-              {t("transcript.regroup.custom")}
-            </Button>
-            <Button
-              size="sm"
-              type="button"
-              variant="ghost"
-              className="ml-auto h-6 px-2"
-              onClick={() =>
-                updateRecording(workspaceId, noteId, recording.id, (r) => ({
-                  ...r,
-                  speakerPromptDismissed: true,
-                }))
-              }
-            >
-              {t("common:action.close")}
-            </Button>
-          </div>
-        </div>
+        <SpeakerCountPrompt
+          workspaceId={workspaceId}
+          noteId={noteId}
+          recording={recording}
+          summaryNext={false}
+          className="mb-2"
+        />
       )}
       {regroupOpen && !regroupReason && (
         <RegroupDialog
@@ -346,6 +302,157 @@ export const RecordingHeading = memo(function RecordingHeading({
     </div>
   );
 });
+
+function useRecordingWork(workspaceId: string, noteId: string, recording: TranscriptRecording) {
+  const { t } = useTranslation("notes");
+  const refining = useSecondPassStore((s) => Boolean(s.running[recording.id]));
+  const progress = useRegroupStore(
+    (s) => s.progress[regroupKey(workspaceId, noteId, recording.id)],
+  );
+  const voicePrint = useVoicePrintAvailable();
+  const regroupReason =
+    recording.audioRemoved || recording.takes.length === 0
+      ? t("transcript.regroup.audioMissing")
+      : !voicePrint
+        ? t("transcript.regroup.modelUnavailable")
+        : refining || progress !== undefined
+          ? t("transcript.regroup.busy")
+          : !recording.lines.length
+            ? t("transcript.regroup.noSpeech")
+            : null;
+  return { refining, progress, regroupReason };
+}
+
+export function SpeakerCountPrompt({
+  workspaceId,
+  noteId,
+  recording,
+  summaryNext,
+  className,
+}: {
+  workspaceId: string;
+  noteId: string;
+  recording: TranscriptRecording;
+  summaryNext: boolean;
+  className?: string;
+}) {
+  const { t } = useTranslation("notes");
+  const [open, setOpen] = useState(false);
+  const settle = () => {
+    if (summaryNext) void summarizeIfSettled(workspaceId, noteId, recording.id);
+  };
+  const regroup = async (count: number) => {
+    setOpen(false);
+    await regroupRecording(workspaceId, noteId, recording.id, count);
+    settle();
+  };
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-1.5 rounded-(--radius-control) border border-[var(--state-warning-border)] bg-[var(--state-warning-bg)] px-2 py-1.5",
+        className,
+      )}
+      data-testid="speaker-count-prompt"
+    >
+      <p className="text-app-ui-sm text-[var(--state-warning-fg)]">
+        {t("transcript.regroup.prompt", { count: peopleIn(recording) })}
+      </p>
+      {summaryNext && (
+        <p className="text-app-micro text-muted-foreground">{t("transcript.after.summaryWaits")}</p>
+      )}
+      <div className="flex flex-wrap items-center gap-1">
+        {[2, 3, 4, 5, 6]
+          .filter((count) => count >= protectedVoiceCount(recording))
+          .map((count) => (
+            <Button
+              key={count}
+              size="sm"
+              type="button"
+              variant="outline"
+              className="h-6 px-2"
+              onClick={() => void regroup(count)}
+            >
+              {count}
+            </Button>
+          ))}
+        <Button
+          size="sm"
+          type="button"
+          variant="outline"
+          className="h-6 px-2"
+          onClick={() => setOpen(true)}
+        >
+          {t("transcript.regroup.custom")}
+        </Button>
+        <Button
+          size="sm"
+          type="button"
+          variant="ghost"
+          className="ml-auto h-6 px-2"
+          onClick={() => {
+            updateRecording(workspaceId, noteId, recording.id, (r) => ({
+              ...r,
+              speakerPromptDismissed: true,
+            }));
+            settle();
+          }}
+        >
+          {t("common:action.close")}
+        </Button>
+      </div>
+      {open && (
+        <RegroupDialog
+          recording={recording}
+          onRegroup={(count) => void regroup(count)}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+export function RecordingAftercare({
+  workspaceId,
+  noteId,
+  recording,
+  summaryNext,
+}: {
+  workspaceId: string;
+  noteId: string;
+  recording: TranscriptRecording;
+  summaryNext: boolean;
+}) {
+  const { t } = useTranslation("notes");
+  const { refining, progress, regroupReason } = useRecordingWork(workspaceId, noteId, recording);
+  if (refining || progress !== undefined) {
+    return (
+      <p
+        className="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1.5 text-app-ui-sm text-muted-foreground"
+        role="status"
+        data-testid="recording-aftercare"
+      >
+        <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
+        <span className="min-w-0 truncate">
+          {progress !== undefined
+            ? t("transcript.regroup.progress", { percent: progress })
+            : t("transcript.refining")}
+          {summaryNext && ` · ${t("transcript.after.thenSummary")}`}
+        </span>
+      </p>
+    );
+  }
+  if (regroupReason || !shouldPromptSpeakerCount(recording)) return null;
+  return (
+    <div className="shrink-0 border-b border-border px-3 py-2" data-testid="recording-aftercare">
+      <SpeakerCountPrompt
+        workspaceId={workspaceId}
+        noteId={noteId}
+        recording={recording}
+        summaryNext={summaryNext}
+      />
+    </div>
+  );
+}
 
 function SpeakerChip({
   name,

@@ -1,10 +1,15 @@
 import { expect, mock, spyOn, test } from "bun:test";
 import { notesApi } from "../../../../../src/renderer/services/notes/api";
-import { runSecondPass } from "../../../../../src/renderer/services/notes/second-pass";
+import {
+  runSecondPass,
+  summarizeIfSettled,
+} from "../../../../../src/renderer/services/notes/second-pass";
 import {
   dropTranscript,
   loadTranscript,
+  updateRecording,
 } from "../../../../../src/renderer/services/notes/transcripts";
+import * as voicePrint from "../../../../../src/renderer/services/notes/voice-print";
 import { useNoteSummarySettings } from "../../../../../src/renderer/state/stores/note-summary";
 import type { TranscriptRecording } from "../../../../../src/shared/notes/transcript";
 
@@ -178,8 +183,8 @@ test("automatically summarizes a resumed pass only after its refined transcript 
 
 test.each([
   [true, 30_000, 3, 1],
-  [true, 29_999, 3, 0],
-  [true, 30_000, 2, 0],
+  [true, 29_999, 3, 1],
+  [true, 30_000, 2, 1],
   [false, 30_000, 3, 0],
 ] as const)("without a second pass (enabled=%s, ms=%i, rows=%i), requests %i automatic summaries", async (enabled, ms, rows, expected) => {
   const previousSettings = useNoteSummarySettings.getState();
@@ -212,6 +217,55 @@ test.each([
     expect(summarize).toHaveBeenCalledTimes(expected);
   } finally {
     summarize.mockRestore();
+    read.mockRestore();
+    useNoteSummarySettings.setState(previousSettings, true);
+    dropTranscript(workspaceId, noteId);
+  }
+});
+
+test("waits for the speaker count before summarizing a recording whose speakers look split", async () => {
+  const previousSettings = useNoteSummarySettings.getState();
+  useNoteSummarySettings.setState({ enabled: true });
+  const split: TranscriptRecording = {
+    ...recording,
+    participantCount: "auto",
+    lines: ["1", "2", "3", "4", "5"].map((speaker, index) => ({
+      speaker,
+      startMs: index * 10_000,
+      endMs: index * 10_000 + 9_000,
+      text: `Line ${index}`,
+    })),
+    takes: [
+      {
+        ...recording.takes[0],
+        seconds: 50,
+        pass: "none",
+        transcriptionId: undefined,
+        token: "for-refinement",
+      },
+    ],
+  };
+  const read = spyOn(notesApi, "readTranscript").mockResolvedValue({
+    version: 1,
+    recordings: [split],
+  });
+  const save = spyOn(notesApi, "saveTranscript").mockResolvedValue(undefined as never);
+  const prints = spyOn(voicePrint, "voicePrintAvailable").mockResolvedValue(true);
+  const summarize = spyOn(notesApi, "summarize").mockResolvedValue(null);
+  try {
+    await runSecondPass(workspaceId, noteId, recording.id, false);
+    expect(summarize).not.toHaveBeenCalled();
+    updateRecording(workspaceId, noteId, recording.id, (r) => ({
+      ...r,
+      speakerPromptDismissed: true,
+    }));
+    await summarizeIfSettled(workspaceId, noteId, recording.id);
+    expect(summarize).toHaveBeenCalledTimes(1);
+    expect(summarize).toHaveBeenCalledWith(workspaceId, noteId, recording.id, "auto");
+  } finally {
+    summarize.mockRestore();
+    prints.mockRestore();
+    save.mockRestore();
     read.mockRestore();
     useNoteSummarySettings.setState(previousSettings, true);
     dropTranscript(workspaceId, noteId);

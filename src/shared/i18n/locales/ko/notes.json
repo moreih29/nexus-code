@@ -168,7 +168,7 @@
     "record": "녹음",
     "participants": "참석자",
     "participantsAuto": "자동",
-    "recordHint": "이 노트에 녹음합니다. 말한 내용은 오른쪽 원문 칸에 쌓입니다.",
+    "recordHint": "이 노트에 녹음합니다. 말한 내용은 원문 칸에 쌓입니다.",
     "needsSignIn": "로그인하면 녹음 기능을 사용할 수 있습니다",
     "pause": "일시정지",
     "resume": "녹음 이어하기",
@@ -187,6 +187,18 @@
       "recognition": "받아쓰기에 문제가 생겼습니다.",
       "dropped": "서버 연결이 끊겨 녹음을 일시정지했습니다. 이어서 녹음할 수 있습니다.",
       "write": "녹음 파일 저장 실패. 받아쓰기는 계속됩니다."
+    },
+    "after": {
+      "on": "끝나면 요약",
+      "off": "요약 꺼짐",
+      "title": "녹음이 끝나면",
+      "refineHint": "화자 2명 이상 · NexusCode 서버",
+      "speakers": "화자 수 확인",
+      "speakersHint": "화자가 애매하게 나뉠 때 · 원문 칸 위에 표시",
+      "summary": "Claude 요약",
+      "summaryOn": "30초 이상 녹음 · 노트 끝에 요약과 할 일 추가",
+      "summaryOff": "꺼짐 · 노트 설정에서 켜기",
+      "settings": "노트 설정 열기"
     }
   },
   "transcript": {
@@ -263,6 +275,10 @@
       "missing": "녹음 파일이 없어 다시 받아쓰지 못했습니다.",
       "network": "서버에 연결하지 못해 다시 받아쓰지 못했습니다. 잠시 후 다시 해 보세요.",
       "failed": "다시 받아쓰지 못했습니다."
+    },
+    "after": {
+      "thenSummary": "끝나면 Claude 요약",
+      "summaryWaits": "화자 수를 정하거나 닫으면 Claude 요약 시작"
     }
   },
   "conversations": {
@@ -323,7 +339,11 @@
     "open": "열기",
     "task": "할 일",
     "rerun": "다시 요약",
-    "rerunConfirm": "기존 요약 교체 · 선택한 Claude 프로필로 녹취 전송"
+    "rerunConfirm": "기존 요약 교체 · 선택한 Claude 프로필로 녹취 전송",
+    "where": "노트 끝에 요약과 할 일 추가",
+    "show": "요약 보기",
+    "notInNote": "노트에 요약 없음",
+    "skipped": "요약 건너뜀 · 짧은 녹음"
   },
   "tasks": {
     "action": "작업으로",

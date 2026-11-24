@@ -133,6 +133,15 @@ export function shouldPromptSpeakerCount(recording: TranscriptRecording): boolea
   );
 }
 
+export function asksSpeakerCount(recording: TranscriptRecording, voicePrint: boolean): boolean {
+  return (
+    voicePrint &&
+    recording.takes.length > 0 &&
+    recording.lines.length > 0 &&
+    shouldPromptSpeakerCount(recording)
+  );
+}
+
 export function recordingMs(recording: Pick<TranscriptRecording, "takes" | "lines">): number {
   const takes = recording.takes.reduce((ms, t) => Math.max(ms, t.offsetMs + t.seconds * 1000), 0);
   const words = recording.lines.reduce((ms, l) => Math.max(ms, l.endMs), 0);
