@@ -28,7 +28,14 @@ export function BugReportGroup() {
 
 export function BugReportSection({ account }: { account: RemoteAccountState | null }) {
   const { t } = useTranslation("settings");
-  if (account?.status !== "signed-in") {
+  if (account === null) {
+    return (
+      <SettingsGroup title={t("about.bugReport.title")}>
+        <div aria-busy="true" data-testid="bug-report-pending" />
+      </SettingsGroup>
+    );
+  }
+  if (account.status !== "signed-in") {
     return (
       <SettingsGroup
         title={t("about.bugReport.title")}
@@ -261,7 +268,7 @@ export function BugReportPreview({
           <ul className="flex flex-col">
             {errorLines(errors).map(({ key, text, ago }) => (
               <li key={key} className="break-all">
-                {text} · {t("about.bugReport.ago", { count: ago })}
+                {text} · <ErrorAgo ago={ago} />
               </li>
             ))}
           </ul>
@@ -282,4 +289,14 @@ function errorLines(
     seen.set(base, count);
     return { key: `${base} ${count}`, text, ago };
   });
+}
+
+const MINUTE = 60;
+const HOUR = 60 * MINUTE;
+
+function ErrorAgo({ ago }: { ago: number }) {
+  const { t } = useTranslation("settings");
+  if (ago < MINUTE) return t("about.bugReport.agoSeconds", { count: ago });
+  if (ago < HOUR) return t("about.bugReport.agoMinutes", { count: Math.floor(ago / MINUTE) });
+  return t("about.bugReport.agoHours", { count: Math.floor(ago / HOUR) });
 }

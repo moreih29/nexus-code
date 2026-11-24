@@ -70,19 +70,28 @@ const switches = (html: string) =>
 
 describe("the bug report in About", () => {
   test("signed out, links the support page and has no form", async () => {
-    for (const state of [null, { status: "signed-out", server } as const]) {
-      const html = renderToStaticMarkup(<BugReportSection account={state} />);
-      expect(html).toContain(">Report a bug<");
-      const link = html.match(/<a [^>]*data-testid="bug-report-support"[^>]*>/)?.[0] ?? "";
-      expect(link).toContain('href="https://nexuscode.gradiendo.com/en/support/"');
-      expect(link).toContain('target="_blank"');
-      expect(link).toContain('rel="noopener noreferrer"');
-      expect(html).not.toContain("<textarea");
-      expect(html).not.toContain("bug-report-send");
-    }
-    const ko = await renderIn("ko", <BugReportSection account={null} />);
+    const signedOut = { status: "signed-out", server } as const;
+    const html = renderToStaticMarkup(<BugReportSection account={signedOut} />);
+    expect(html).toContain(">Report a bug<");
+    const link = html.match(/<a [^>]*data-testid="bug-report-support"[^>]*>/)?.[0] ?? "";
+    expect(link).toContain('href="https://nexuscode.gradiendo.com/en/support/"');
+    expect(link).toContain('target="_blank"');
+    expect(link).toContain('rel="noopener noreferrer"');
+    expect(html).not.toContain("<textarea");
+    expect(html).not.toContain("bug-report-send");
+    const ko = await renderIn("ko", <BugReportSection account={signedOut} />);
     expect(ko).toContain('href="https://nexuscode.gradiendo.com/support/"');
     expect(ko).toContain(">버그 신고<");
+  });
+
+  test("before the sign-in state is known, shows the title and neither the link nor the form", () => {
+    const html = renderToStaticMarkup(<BugReportSection account={null} />);
+    expect(html).toContain(">Report a bug<");
+    expect(html).toContain('data-testid="bug-report-pending"');
+    expect(html).not.toContain("bug-report-support");
+    expect(html).not.toContain("<a ");
+    expect(html).not.toContain("<textarea");
+    expect(html).not.toContain("Sign in to report");
   });
 
   test("signed in, a form with errors on and the email reply off by default", () => {
@@ -124,7 +133,10 @@ describe("the bug report in About", () => {
       expect(preview).toContain(value);
     }
     const lines = Array.from(preview.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g), (m) => m[1]);
-    expect(lines).toEqual(["api http_500 500 · 42 s ago", "relay socket-closed · 7 s ago"]);
+    expect(lines).toEqual([
+      "api http_500 500 · 42 seconds ago",
+      "relay socket-closed · 7 seconds ago",
+    ]);
   });
 
   test("with errors off, the preview says they are not included", () => {
@@ -140,6 +152,23 @@ describe("the bug report in About", () => {
     const html = await renderIn("ko", form({ open: true, context: CONTEXT }));
     expect(html).toContain("함께 보내는 정보");
     expect(html).toContain("api http_500 500 · 42초 전");
+  });
+
+  test.each([
+    [0, "0 seconds ago", "0초 전"],
+    [1, "1 second ago", "1초 전"],
+    [59, "59 seconds ago", "59초 전"],
+    [60, "1 minute ago", "1분 전"],
+    [3000, "50 minutes ago", "50분 전"],
+    [3599, "59 minutes ago", "59분 전"],
+    [3600, "1 hour ago", "1시간 전"],
+    [7300, "2 hours ago", "2시간 전"],
+    [2_592_000, "720 hours ago", "720시간 전"],
+  ])("an error %i s ago reads %s", async (ago, en, ko) => {
+    const context = { ...CONTEXT, errors: [{ ago, area: "api", code: "offline" }] } as const;
+    const line = (html: string) => html.match(/<li[^>]*>([\s\S]*?)<\/li>/)?.[1];
+    expect(line(fields({ open: true, context }))).toBe(`api offline · ${en}`);
+    expect(line(await renderIn("ko", form({ open: true, context })))).toBe(`api offline · ${ko}`);
   });
 });
 
