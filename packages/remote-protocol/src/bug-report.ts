@@ -99,6 +99,17 @@ const PATH_CHAR = String.raw`[^\s'"\`<>|]`;
 const PATH_MORE = String.raw`(?:[ \t]+(?:${PATH_CHAR}+[ \t]+)?${PATH_CHAR}*[\\/]${PATH_CHAR}*)*`;
 const PATH_BEFORE = String.raw`(^|[\s'"\`(\[{=,;<>|])`;
 
+const HOME_SPACE = String.raw`[^\S\r\n\u2028\u2029]+`;
+const HOME_CHAR = String.raw`[^\s\\/'"\`<>|:;,=+*?\[\]]`;
+const HOME_WORD = `${HOME_CHAR}+(?:'${HOME_CHAR}+)*`;
+const HOME_NAME = String.raw`${HOME_WORD}(?:${HOME_SPACE}(?![A-Za-z]:[\\/]|[A-Za-z][A-Za-z0-9+.-]*:\/\/)${HOME_WORD})*`;
+const HOME_TAIL = String.raw`(?:[\\/]{1,2}${PATH_CHAR}*${PATH_MORE})?`;
+const WINDOWS_HOME_PATH = new RegExp(
+  String.raw`(^|[^A-Za-z0-9_])(?:\\{2}\?\\|\\{4}\?\\{2})?[A-Za-z]:(?:\\{1,2}|/)users(?:\\{1,2}|/)${HOME_NAME}${HOME_TAIL}`,
+  "gi",
+);
+const POSIX_HOME_PATH = new RegExp(`${PATH_BEFORE}/(?:Users|home)/${HOME_NAME}${HOME_TAIL}`, "g");
+
 const FILE_URL = /\bfile:\/*[^\s'"`<>|]*/gi;
 const URL_PARTS =
   /\b([a-z][a-z0-9+.-]*:\/\/)(?:[^\s/?#'"`<>@]*@)?([^\s?#'"`<>]*)(?:[?#][^\s'"`<>]*)?/gi;
@@ -172,6 +183,8 @@ function redactOnce(text: string): string {
     .replace(FILE_URL, PATH)
     .replace(URL_PARTS, "$1$2")
     .replace(QUOTED_PATH, `$1${PATH}$1`)
+    .replace(WINDOWS_HOME_PATH, pathOf)
+    .replace(POSIX_HOME_PATH, pathOf)
     .replace(UNC_PATH, pathOf)
     .replace(DRIVE_PATH, pathOf)
     .replace(ROOT_PATH, pathOf)

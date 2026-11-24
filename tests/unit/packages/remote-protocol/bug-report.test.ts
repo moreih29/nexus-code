@@ -75,7 +75,7 @@ const accepts = (value: unknown) => BugReportSchema.safeParse(value).success;
 describe("a bug report", () => {
   test("version 1 leaves the relay protocol as it was", () => {
     expect(BUG_REPORT_VERSION).toBe(1);
-    expect(SCHEMA_VERSION).toBe("0.36.1");
+    expect(SCHEMA_VERSION).toBe("0.36.2");
     expect(PROTOCOL_VERSION).toBe(2);
     expect(RELAY_VERSION).toBe(2);
     expect(MAX_FRAME_BYTES).toBe(1024 * 1024);
@@ -495,6 +495,37 @@ describe("redacting a bug report's text", () => {
     redacts("C:\\Program Files (x86)\\Kim Tools\\bar.exe crashed", "<path> crashed");
   });
 
+  test("a home folder's name, spaces and all, up to a separator, a quote or a stop", () => {
+    for (const prefix of [
+      "C:\\Users\\",
+      "c:\\users\\",
+      "C:/Users/",
+      "D:\\Users\\",
+      "C:\\\\Users\\\\",
+      "\\\\?\\C:\\Users\\",
+      "\\\\\\\\?\\\\C:\\\\Users\\\\",
+      "/Users/",
+      "/home/",
+    ]) {
+      redacts(`cannot access ${prefix}John Smith`, "cannot access <path>");
+      redacts(`cannot access ${prefix}John Smith\r\nnext`, "cannot access <path>\r\nnext");
+      redacts(`cannot access ${prefix}John Smith: denied`, "cannot access <path>: denied");
+      redacts(`cannot access ${prefix}John Smith, retry`, "cannot access <path>, retry");
+      redacts(`(${prefix}John Smith)`, "(<path>)");
+      redacts(`"${prefix}John Smith" denied`, '"<path>" denied');
+    }
+    redacts('{"m":"open C:\\\\Users\\\\John Smith"}', '{"m":"open <path>"}');
+    redacts("cannot access C:\\Users\\O'Brien Smith", "cannot access <path>");
+    redacts("C:\\Users\\John Smith\\x", "<path>");
+    redacts("C:\\Users\\QAUser\\내 문서\\a b.txt", "<path> b.txt");
+    redacts("cannot access C:\\Users\\John Smith because it is locked", "cannot access <path>");
+    redacts("C:\\Users\\kim was not found", "<path>");
+    redacts("C:\\Users\\kim\\x.txt was not found", "<path> was not found");
+    redacts("copy C:\\Users\\A B to C:\\Users\\C D", "copy <path> <path>");
+    redacts("C:\\Users\\A B see https://h.example.com/a", "<path> https://h.example.com/a");
+    redacts("C:\\Users\\A B or /home/c d", "<path> <path>");
+  });
+
   test("file URLs", () => {
     redacts("load file:///Users/kim/a.html failed", "load <path> failed");
     redacts("load file:/C:/Users/kim/a.html failed", "load <path> failed");
@@ -630,6 +661,15 @@ const KNOWN_INPUTS = [
   '{"path":"C:\\\\Users\\\\kim\\\\x.txt"}',
   '{"path":"\\\\\\\\server\\\\share\\\\x"}',
   "C:\\Program Files (x86)\\Kim Tools\\bar.exe crashed",
+  "cannot access C:\\Users\\John Smith",
+  "cannot access c:/users/John Smith: denied",
+  "cannot access \\\\?\\C:\\Users\\John Smith, retry",
+  "open C:\\\\Users\\\\John Smith",
+  "stat /home/john smith\nnext",
+  "cannot access C:\\Users\\O'Brien Smith",
+  "C:\\Users\\QAUser\\내 문서\\a b.txt",
+  "copy C:\\Users\\A B to C:\\Users\\C D",
+  "C:\\Users\\A B see https://h.example.com/a",
   "load file:///Users/kim/a.html failed",
   "load file:/C:/Users/kim/a.html failed",
   "load FILE://server/share/a.html",
@@ -707,6 +747,12 @@ const RANDOM_PARTS = [
   "~/n.md",
   "./a/b",
   "C:\\Users\\kim\\a.txt",
+  "C:\\Users\\John Smith",
+  "c:/users/",
+  "\\\\?\\C:\\Users\\",
+  "/home/kim lee",
+  "/Users/",
+  "O'Brien",
   "\\\\srv\\sh\\x",
   "//srv/sh/x",
   "file:///a/b",
@@ -811,6 +857,8 @@ describe("redacting and cleaning twice gives what once gave", () => {
     expect(redactBugReportText("fe80::1~/n.md")).toBe("<ip><path>");
     expect(redactBugReportText("kim@example.com//srv/sh/x")).toBe("<email><path>");
     expect(redactBugReportText("kim@example.com\\\\srv\\sh\\x")).toBe("<email><path>");
+    expect(redactBugReportText("copy C:\\Users\\A B to C:\\Users\\C D")).toBe("copy <path> <path>");
+    expect(redactBugReportText("\\\\?\\C:\\Users\\John Smith")).toBe("<path>");
     expect(cleanBugReportErrorMessage("a\u0000/Users/kim/x")).toBe("a <path>");
     expect(cleanBugReportErrorMessage("a\u202e~/n.md")).toBe("a <path>");
   });
@@ -886,6 +934,9 @@ describe("redacting and cleaning twice gives what once gave", () => {
       "Ab1",
       "~/a b/c d\\e ",
       "C:\\a ",
+      "C:\\Users\\a ",
+      "/home/a b",
+      "C:\\Users\\a'",
       "http://a@",
       "<ip>~/a",
       "a@b.cc/",
