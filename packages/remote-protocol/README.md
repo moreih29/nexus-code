@@ -70,6 +70,8 @@ Schema 0.34.0 lets another device show a chat's changed file as the chat's own c
 
 Schema 0.35.0 adds the bug report API (`bug-report.ts`): `POST /bug-reports?v=1` (`BUG_REPORT_VERSION`) takes a `BugReportSchema` body from a signed-in phone or computer and answers `BugReportCreatedSchema`, or one of `BUG_REPORT_ERRORS`. It is an HTTP request to the server, not a relay frame or sealed message: no method, capability or field between devices changes, and `PROTOCOL_VERSION`, `RELAY_VERSION` and `MAX_FRAME_BYTES` stay as they were.
 
+Schema 0.36.0 lets a recent error in a bug report carry its message. `BugReportRecentErrorSchema` adds optional `message`, one line of 1 to 300 code points (`MAX_BUG_REPORT_ERROR_MESSAGE`, `BUG_REPORT_ERROR_MESSAGE_PATTERN`) that a client puts through `cleanBugReportErrorMessage` (which redacts with `redactBugReportText`) when it records the error and again when it sends it, and optional `count`, how many times the same error came, from 1 to 9999 (`MAX_BUG_REPORT_ERROR_COUNT`). `BUG_REPORT_ERROR_AREAS` adds `app`, `agent`, `notes`, `files` and `git`. `MAX_BUG_REPORT_CONTEXT_BYTES` goes from 4096 to 8192, and `MAX_BUG_REPORT_BODY_BYTES` (24 KiB) names the largest body: a client fits its context with `fitBugReportContext` before sending. The server redacts each message with `redactBugReportText` again before it keeps it. `BUG_REPORT_VERSION` stays 1: a 0.35.0 report is still a valid 0.36.0 report, and a server must take 0.36.0 before a client sends a message, a count or a new area, since a 0.35.0 server refuses them as unknown. `PROTOCOL_VERSION`, `RELAY_VERSION` and `MAX_FRAME_BYTES` stay as they were.
+
 A consent prompt in the sessions' list (`RemoteConsent`) is a change waiting on the user of the serving device. An agent of another device of the account may have asked for it, or a nexus command changing another workspace there, or that device's agent manager. The user answers it there, or from the device that lists it when `answerable` (`consent.answer`). An agent's request (`from`, `AgentSender`) to a control method takes the `agents` capability instead of the method's own. The serving device may ask its user first or turn the request down. `at` and `expiresAt` use the serving device's clock. `expiresInMs` is `expiresAt` minus the time the list was sent, so a reader needs no shared clock. A serving device before 0.29.0 turns a prompt down at `expiresAt` and drops it from the list. `AGENT_CONSENT_MS` (90 seconds) is how long a host asks a requester before 0.29.0 before turning the request down. Such a requester waits that long, plus a little more.
 
 In schema 0.16.0, `chat.instructions` can also return `session`, the tab's editable session text, and `layers`, its ordered persistent layers, including empty layers. The workspace layer comes from the parent for a worktree task. Hosts through desktop 0.36.1 only return the combined `instructions` text. Treat a response without `session` as read-only. With `chat.control`, a person can replace the session layer using `chat.instructions.set`. Send an empty string to clear it. The 5,000-character limit applies to both people and agents. An edit with `from` follows the receiving device's agent approval policy.
@@ -3188,7 +3190,9 @@ latter as `UnsupportedVersionSchema`), `unauthorized` (401), `not_invited`
 carry it.
 
 Every object in the body is strict: a key the schema does not name, at any
-level, fails the whole request, so no free text rides along.
+level, fails the whole request. The only free text besides the description
+is a recent error's `message`, redacted on both sides
+(`redactBugReportText`).
 
 **`BUG_REPORT_VERSION`**
 
@@ -3196,11 +3200,29 @@ The `v` the request names: 1.
 
 **`MAX_BUG_REPORT_CONTEXT_BYTES`**
 
-4096: the most bytes the server takes for `context`, as UTF-8 JSON of the
-context it parsed. The server checks this, not the schema. Within the
-schema's bounds a context comes to at most 2,287 bytes and a whole body to
-14,378 (under the server's 16 KB body limit), so a valid report meets
-both; the server checks anyway.
+8192: the most bytes the server takes for `context`, as UTF-8 JSON of the
+context it parsed (`bugReportBytes`). The server checks this, not the
+schema. Without messages a context within the schema's bounds comes to at
+most 2,547 bytes; with twenty messages of 300 code points it can pass the
+limit, so a client sends `fitBugReportContext(context)`, which always fits.
+Before 0.36.0 it was 4096.
+
+**`MAX_BUG_REPORT_BODY_BYTES`**
+
+24576 (24 KiB): the largest body the server takes. A description of 3000
+code points comes to at most 12,000 bytes, so a body with a fitted context
+stays under it. Before 0.36.0 the server's limit was 16 KB.
+
+**`bugReportBytes(value)`**
+
+The UTF-8 length of `JSON.stringify(value)`, as the limits above count it.
+
+**`fitBugReportContext(context, maxBytes?)`**
+
+`context` as it is when it fits in `maxBytes` (`MAX_BUG_REPORT_CONTEXT_BYTES`
+when left out). Otherwise a copy that does: it drops the messages of the
+oldest errors first (the last in `errors`), one at a time, then the oldest
+errors themselves. The newest errors keep their messages longest.
 
 **`BugReportSchema`**
 
@@ -3270,17 +3292,73 @@ empty when the user turns them off or there were none.
 
 **`BugReportRecentErrorSchema`**
 
-One recent error as codes only, never its message, which can carry paths
-and file names:
+One recent error: codes, and since 0.36.0 its redacted message:
 - `ago`: whole seconds since it happened, from 0 to
   `MAX_BUG_REPORT_ERROR_AGE` (2,592,000, 30 days). A client leaves out
   older ones.
-- `area`: `api`, `relay`, `voice`, `push`, `rpc` or `render`
-  (`BUG_REPORT_ERROR_AREAS`).
+- `area` (`BUG_REPORT_ERROR_AREAS`): `api` (the server's HTTP API),
+  `relay`, `voice`, `push`, `rpc` (a call to another device) or `render`
+  (a screen that failed to draw), and since 0.36.0 `app` (the app itself:
+  an uncaught error or a failed call inside the app), `agent` (an agent's
+  chat or run), `notes` (saving, recording or summarizing a note), `files`
+  and `git`.
 - `code`: 1 to 40 of lower-case ASCII letters, digits and `_ . : -`
   (`BUG_REPORT_ERROR_CODE_PATTERN`), as `http_500`, `timeout`, `offline` or
   an error's name in lower case.
 - `status`, optional: the HTTP status, an integer from 100 to 599.
+- `message`, optional (0.36.0): the error's message as
+  `cleanBugReportErrorMessage` gives it, one line of 1 to
+  `MAX_BUG_REPORT_ERROR_MESSAGE` (300) code points with no control
+  character (`\n` and `\t` included), line or paragraph separator,
+  direction mark or lone surrogate (`BUG_REPORT_ERROR_MESSAGE_PATTERN`). A
+  client leaves it out where the message could carry what the user wrote
+  or read (a conversation, a note, a transcript, a file's contents) and
+  sends the code alone.
+- `count`, optional (0.36.0): how many times the same error (area, code,
+  status and message) came, from 1 to `MAX_BUG_REPORT_ERROR_COUNT` (9999);
+  `ago` is then the time since the last. Absent means once.
+
+**`redactBugReportText(text)`**
+
+`text` with what can name a person or open an account taken out. A client
+uses it through `cleanBugReportErrorMessage`, and the server runs it on
+each message again before it keeps the report. It replaces:
+- absolute paths, whole, with `<path>`: POSIX paths under any root with
+  two or more parts (`/Users/…`, `/home/…`, `/tmp/…`, `/private/…`,
+  `/var/…`, `/Volumes/…`), paths from `~`, `./` and `../`, Windows drive
+  paths with either slash (`C:\…`, `C:/…`), long and device paths
+  (`\\?\…`, `\\.\…`), UNC paths (`\\server\share\…`, `//server/share/…`),
+  the same with JSON's doubled backslashes, `file:` URLs, any quoted
+  string that begins as a path (spaces and all), and the quoted path of a
+  system call's error (`open 'notes/a.md'`, `-> 'b'`), even relative. An
+  unquoted path goes on past a space while the next word, or the one after
+  it, has a slash;
+- email addresses with `<email>`;
+- secrets with `<secret>`: a `Bearer` or `Basic` credential, the value of
+  an `Authorization`, `Cookie`, `X-Account-Auth` or API key header, the
+  value after a name with `token`, `secret`, `password`, `api_key`,
+  `signature`, `ticket` or `credential` in it (`=` or `:`, unless it is a
+  number), keys by their prefix (`sk-`, `pk-`, `rk-`, `sk_live_`, `ghp_`
+  and the other GitHub prefixes, `github_pat_`, `glpat-`, `xox?-`, `AKIA`,
+  `AIza`, `npm_`), JWTs, private key blocks, 32 or more hex digits, and
+  32 or more base64 characters with a digit and both cases;
+- a URL's user, query and fragment, dropped: `https://u:p@host/a?b#c`
+  becomes `https://host/a`;
+- IP addresses with `<ip>`, but not loopback (`127.*`, `::1`) or
+  `0.0.0.0`; an IPv6 address needs `::` or five colons, so `12:30:45`
+  stays, and a MAC address goes too.
+
+It keeps the rest, error names, codes, HTTP paths and relative paths
+outside a system call's quotes among them.
+
+**`cleanBugReportErrorMessage(text)`**
+
+A message ready for `BugReportRecentErrorSchema.message`, or `undefined`
+when nothing is left: `redactBugReportText` on the first 8192 UTF-16 units,
+then every white space and character the pattern refuses turned into a
+space, runs of spaces made one, the ends trimmed, and a text over 300 code
+points cut to 299 and `…`. It redacts before it cuts, so a secret is never
+left half.
 
 **`BugReportCreatedSchema`**
 
