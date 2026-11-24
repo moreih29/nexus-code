@@ -102,7 +102,7 @@ describe("the bug report in About", () => {
   test("signed in, a form with errors on and the email reply off by default", () => {
     const html = renderToStaticMarkup(<BugReportSection account={signedIn} />);
     expect(html).toContain("<textarea");
-    expect(html).toContain("No conversations, files or paths are sent");
+    expect(html).toContain("No conversations, file contents or log files are sent");
     expect(html).toContain("Include recent errors");
     expect(html).toContain(
       "Error messages with paths and keys hidden · Cleared when the app quits",

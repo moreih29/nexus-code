@@ -459,7 +459,7 @@
     "bugReport": {
       "title": "Report a bug",
       "reportOnSupport": "Report on the support page",
-      "notSent": "No conversations, files or paths are sent",
+      "notSent": "No conversations, file contents or log files are sent",
       "description": "Description",
       "placeholder": "What were you doing, and what went wrong?",
       "tooShort": "At least {{min}} characters",
