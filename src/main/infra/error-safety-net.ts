@@ -1,6 +1,6 @@
 import { truncate } from "../../shared/log/limit";
 import { createLogger } from "../../shared/log/main";
-import { bugReportErrorCode, errorMessageOf, errorNameOf } from "../../shared/remote/bug-report";
+import { bugReportErrorCode, errorNameOf } from "../../shared/remote/bug-report";
 import { appErrors, type RecordError } from "./recent-errors";
 
 const log = createLogger("main");
@@ -20,7 +20,7 @@ export function describeError(value: unknown): string {
 
 function noteFault(kind: string, error: unknown, record: RecordError): void {
   const code = bugReportErrorCode(kind, errorNameOf(error));
-  if (code) record("app", code, undefined, errorMessageOf(error));
+  if (code) record("app", code);
 }
 
 export function onUncaughtException(error: Error, record: RecordError = appErrors.record): void {

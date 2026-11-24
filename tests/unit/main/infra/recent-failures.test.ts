@@ -39,12 +39,7 @@ describe("a failed IPC call", () => {
     expect(errors.list()).toEqual([
       { ago: 0, area: "app", code: "open:unavailable", message: "host down" },
       { ago: 0, area: "git", code: "push:auth" },
-      {
-        ago: 0,
-        area: "files",
-        code: "write_file:permission_denied",
-        message: "PERMISSION_DENIED: EACCES: permission denied, open '<path>'",
-      },
+      { ago: 0, area: "files", code: "write_file:permission_denied" },
     ]);
     for (const entry of errors.list()) BugReportRecentErrorSchema.parse(entry);
   });
@@ -100,6 +95,46 @@ describe("a failed IPC call", () => {
     expect(JSON.stringify(errors.list())).not.toMatch(/myserver|myhost|kih/);
   });
 
+  test("file, WSL and system errors keep only the code: they name files, devices and workspaces", () => {
+    const errors = fresh();
+    const message = 'Cannot open report-2026.docx on "Kim MacBook Pro" in my-secret-project';
+    for (const channel of ["fs", "wsl", "system", "tab", "settings"]) {
+      noteIpcResult(
+        channel,
+        "open",
+        ipcErr("failed", message, { category: "failed" }),
+        errors.record,
+      );
+      noteIpcThrow(channel, "open", new Error(message), errors.record);
+    }
+    expect(errors.list()).toEqual([
+      { ago: 0, area: "app", code: "open:error", count: 4 },
+      { ago: 0, area: "app", code: "open:failed", count: 4 },
+      { ago: 0, area: "files", code: "open:error" },
+      { ago: 0, area: "files", code: "open:failed" },
+    ]);
+    expect(JSON.stringify(errors.list())).not.toMatch(/report-2026|MacBook|my-secret-project/);
+  });
+
+  test("only the app's own window, update, state, dialog and bookmark errors keep a message", () => {
+    const errors = fresh();
+    for (const channel of ["window", "updates", "appState", "dialog", "folderBookmark"]) {
+      noteIpcResult(
+        channel,
+        "save",
+        ipcErr("failed", `${channel} failed`, { category: "failed" }),
+        errors.record,
+      );
+    }
+    expect(errors.list().map(({ message }) => message)).toEqual([
+      "folderBookmark failed",
+      "dialog failed",
+      "appState failed",
+      "updates failed",
+      "window failed",
+    ]);
+  });
+
   test("records nothing for cancelled or invalid input, for the remote channel, or for itself", () => {
     const errors = fresh();
     noteIpcResult("fs", "read", ipcErr("cancelled", "x", { category: "cancelled" }), errors.record);
@@ -129,23 +164,23 @@ describe("a failed IPC call", () => {
   test("a thrown error is recorded by its name; a SyntaxError never with its message", () => {
     const errors = fresh();
     noteIpcThrow(
-      "system",
-      "stats",
+      "appState",
+      "save",
       new TypeError("Cannot read properties of undefined"),
       errors.record,
     );
     noteIpcThrow(
-      "fs",
+      "appState",
       "readJson",
       new SyntaxError("Unexpected token 'a', \"a secret\" is not valid JSON"),
       errors.record,
     );
     expect(errors.list()).toEqual([
-      { ago: 0, area: "files", code: "read_json:syntax_error" },
+      { ago: 0, area: "app", code: "read_json:syntax_error" },
       {
         ago: 0,
         area: "app",
-        code: "stats:type_error",
+        code: "save:type_error",
         message: "Cannot read properties of undefined",
       },
     ]);
@@ -153,15 +188,15 @@ describe("a failed IPC call", () => {
 });
 
 describe("an uncaught error in the main process", () => {
-  test("is recorded as app with its name and redacted message", () => {
+  test("is recorded as app with its name only: its message can name any file, device or host", () => {
     const errors = fresh();
-    onUncaughtException(new RangeError("bad index for /Users/kim/x.json"), errors.record);
+    onUncaughtException(new RangeError("bad index for report-2026.docx"), errors.record);
     onUnhandledRejection(new SyntaxError('"secret" is not valid JSON'), errors.record);
     onUnhandledRejection("plain", errors.record);
     expect(errors.list()).toEqual([
       { ago: 0, area: "app", code: "rejection:error" },
       { ago: 0, area: "app", code: "rejection:syntax_error" },
-      { ago: 0, area: "app", code: "uncaught:range_error", message: "bad index for <path>" },
+      { ago: 0, area: "app", code: "uncaught:range_error" },
     ]);
   });
 });

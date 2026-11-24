@@ -22,13 +22,8 @@ function recordsItself(channel: string, method: string): boolean {
 }
 
 const MESSAGE_CHANNELS: ReadonlySet<string> = new Set([
-  "fs",
-  "system",
-  "wsl",
-  "tab",
   "window",
   "updates",
-  "settings",
   "appState",
   "dialog",
   "folderBookmark",

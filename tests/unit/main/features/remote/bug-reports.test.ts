@@ -3,6 +3,7 @@ import {
   BugReportSchema,
   bugReportBytes,
   MAX_BUG_REPORT_CONTEXT_BYTES,
+  MAX_BUG_REPORT_ERROR_AGE,
 } from "../../../../../packages/remote-protocol/src";
 import { RemoteAccount, type SavedAccount } from "../../../../../src/main/features/remote/account";
 import { BugReports } from "../../../../../src/main/features/remote/bug-reports";
@@ -59,6 +60,7 @@ function setUp(answers: Answer[], options: { proxy?: string } = {}) {
     errors,
     facts: () => FACTS,
     newId: () => `00000000-0000-4000-8000-00000000000${++ids}`,
+    now: () => now,
   });
   return {
     account,
@@ -68,6 +70,12 @@ function setUp(answers: Answer[], options: { proxy?: string } = {}) {
     advance(ms: number) {
       now += ms;
     },
+    preview(draft: BugReportDraft = DRAFT): BugReportDraft {
+      return {
+        ...draft,
+        shown: { at: now, errors: reports.context(draft.locale, true).errors ?? [] },
+      };
+    },
   };
 }
 
@@ -76,11 +84,11 @@ const refusal = (status: number, error: string, headers: Record<string, string> 
 
 describe("sending a bug report", () => {
   test("posts a body the schema takes to /bug-reports?v=1, signed in", async () => {
-    const { account, reports, errors, sent, advance } = setUp([]);
+    const { account, reports, errors, sent, advance, preview } = setUp([]);
     await account.restore();
     errors.record("relay", "socket-closed");
     advance(42_000);
-    expect(await reports.send(DRAFT)).toEqual({ status: "sent", id: "r1" });
+    expect(await reports.send(preview())).toEqual({ status: "sent", id: "r1" });
     const [request] = sent;
     expect(request?.url.pathname).toBe("/bug-reports");
     expect(request?.url.search).toBe("?v=1");
@@ -92,21 +100,60 @@ describe("sending a bug report", () => {
   });
 
   test("leaves the errors out when the user turns them off", async () => {
-    const { account, reports, errors, sent } = setUp([]);
+    const { account, reports, errors, sent, preview } = setUp([]);
     await account.restore();
     errors.record("api", "offline");
     await reports.send({ ...DRAFT, includeErrors: false });
+    await reports.send({ ...preview(), includeErrors: false, description: "Another long text" });
     expect(BugReportSchema.parse(sent[0]?.body).context.errors).toBeUndefined();
+    expect(BugReportSchema.parse(sent[1]?.body).context.errors).toBeUndefined();
+  });
+
+  test("sends the errors the preview showed, aged to now, and none that came after", async () => {
+    const { account, reports, errors, sent, advance, preview } = setUp([]);
+    await account.restore();
+    errors.record("api", "offline", undefined, "the NexusCode server did not answer");
+    advance(10_000);
+    const shown = preview();
+    advance(5_000);
+    errors.record("files", "read_file:not_found", undefined, "report-2026.docx was not found");
+    advance(5_000);
+    await reports.send(shown);
+    expect(BugReportSchema.parse(sent[0]?.body).context.errors).toEqual([
+      { ago: 20, area: "api", code: "offline", message: "the NexusCode server did not answer" },
+    ]);
+    expect(JSON.stringify(sent[0]?.body)).not.toContain("report-2026");
+  });
+
+  test("drops a shown error that grew past 30 days, and sends none when nothing was shown", async () => {
+    const { account, reports, sent, advance } = setUp([]);
+    await account.restore();
+    advance(10_000);
+    await reports.send({
+      ...DRAFT,
+      shown: {
+        at: 1_000_000,
+        errors: [
+          { ago: MAX_BUG_REPORT_ERROR_AGE - 5, area: "api", code: "old" },
+          { ago: 3, area: "api", code: "new" },
+        ],
+      },
+    });
+    await reports.send({ ...DRAFT, description: "Another long text" });
+    expect(BugReportSchema.parse(sent[0]?.body).context.errors).toEqual([
+      { ago: 13, area: "api", code: "new" },
+    ]);
+    expect(BugReportSchema.parse(sent[1]?.body).context.errors).toEqual([]);
   });
 
   test("sends each error's message redacted, with how often it came", async () => {
-    const { account, reports, errors, sent } = setUp([]);
+    const { account, reports, errors, sent, preview } = setUp([]);
     await account.restore();
     const message =
       "EACCES: permission denied, open '/Users/kim/notes/plan.md' for kim@example.com";
     errors.record("files", "write_file:permission_denied", undefined, message);
     errors.record("files", "write_file:permission_denied", undefined, message);
-    await reports.send(DRAFT);
+    await reports.send(preview());
     const body = BugReportSchema.parse(sent[0]?.body);
     expect(body.context.errors).toEqual([
       {
@@ -130,13 +177,13 @@ describe("sending a bug report", () => {
   });
 
   test("fits the context the server takes, keeping the newest messages", async () => {
-    const { account, reports, errors, sent, advance } = setUp([]);
+    const { account, reports, errors, sent, advance, preview } = setUp([]);
     await account.restore();
     for (let n = 0; n < 20; n++) {
       errors.record("app", `e${n}`, undefined, `${"가".repeat(290)} ${n}`);
       advance(1000);
     }
-    await reports.send(DRAFT);
+    await reports.send(preview());
     const body = BugReportSchema.parse(sent[0]?.body);
     expect(bugReportBytes(body.context)).toBeLessThanOrEqual(MAX_BUG_REPORT_CONTEXT_BYTES);
     expect(body.context.errors).toHaveLength(20);

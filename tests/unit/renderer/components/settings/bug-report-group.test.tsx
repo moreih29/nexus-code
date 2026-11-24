@@ -12,7 +12,7 @@ import type { RemoteAccountState } from "../../../../../src/shared/remote/accoun
 const { BugReportFields, BugReportSection } = await import(
   "../../../../../src/renderer/components/settings/panels/bug-report-group"
 );
-const { bugReportFailureMessage, sendBugReport } = await import(
+const { bugReportFailureMessage, draftAsShown, sendBugReport } = await import(
   "../../../../../src/renderer/services/remote/bug-report"
 );
 
@@ -102,7 +102,7 @@ describe("the bug report in About", () => {
   test("signed in, a form with errors on and the email reply off by default", () => {
     const html = renderToStaticMarkup(<BugReportSection account={signedIn} />);
     expect(html).toContain("<textarea");
-    expect(html).toContain("No conversations, files or paths are sent");
+    expect(html).toContain("No conversations, file contents or log files are sent");
     expect(html).toContain("Include recent errors");
     expect(html).toContain(
       "Error messages with paths and keys hidden · Cleared when the app quits",
@@ -225,6 +225,44 @@ describe("the bug report in About", () => {
       html.match(/<li[^>]*>([\s\S]*?)<\/li>/)?.[1]?.replace(/<[^>]+>/g, "");
     expect(line(fields({ open: true, context }))).toBe(`api offline · ${en}`);
     expect(line(await renderIn("ko", form({ open: true, context })))).toBe(`api offline · ${ko}`);
+  });
+});
+
+describe("what the form sends", () => {
+  const draft = {
+    description: "Long enough text",
+    contactOk: false,
+    includeErrors: true,
+    locale: "en",
+  } as const;
+  const shown = {
+    at: 5_000,
+    context: {
+      app: { version: "1.4.0" },
+      os: { version: "macOS-26.1" },
+      device: { kind: "desktop" as const },
+      protocol: { version: 2, package: "0.36.1" },
+      locale: "en" as const,
+      errors: [{ ago: 3, area: "api" as const, code: "offline", message: "shown" }],
+    },
+  };
+
+  test("is the error list the preview showed, with when it was shown", () => {
+    expect(draftAsShown(draft, shown)).toEqual({
+      ...draft,
+      shown: { at: 5_000, errors: [{ ago: 3, area: "api", code: "offline", message: "shown" }] },
+    });
+  });
+
+  test("carries no errors when they are off or nothing was shown yet", () => {
+    expect(draftAsShown({ ...draft, includeErrors: false }, shown)).toEqual({
+      ...draft,
+      includeErrors: false,
+    });
+    expect(draftAsShown(draft, null)).toEqual(draft);
+    expect(
+      draftAsShown(draft, { ...shown, context: { ...shown.context, errors: undefined } }),
+    ).toEqual(draft);
   });
 });
 

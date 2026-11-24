@@ -3314,8 +3314,9 @@ One recent error: codes, and since 0.36.0 its redacted message:
   character (`\n` and `\t` included), line or paragraph separator,
   direction mark or lone surrogate (`BUG_REPORT_ERROR_MESSAGE_PATTERN`). A
   client leaves it out where the message could carry what the user wrote
-  or read (a conversation, a note, a transcript, a file's contents) and
-  sends the code alone.
+  or read (a conversation, a note, a transcript, a file's contents) or a
+  name (a file's, a device's, a workspace's or a host's) and sends the
+  code alone.
 - `count`, optional (0.36.0): how many times the same error (area, code,
   status and message) came, from 1 to `MAX_BUG_REPORT_ERROR_COUNT` (9999);
   `ago` is then the time since the last. Absent means once.
