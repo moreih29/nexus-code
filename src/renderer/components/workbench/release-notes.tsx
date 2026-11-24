@@ -36,6 +36,7 @@ function ReleaseNotesDialog() {
   const error = useReleaseNotesStore((s) => s.error);
   const status = useUpdatesStore((s) => s.status);
   const progress = useUpdatesStore((s) => s.progress);
+  const checking = useUpdatesStore((s) => s.checking);
   const current = __APP_VERSION__;
   const shown = shownNote(notes ?? [], wanted, current);
 
@@ -99,7 +100,12 @@ function ReleaseNotesDialog() {
           <ReleaseBody key={shown.version} note={shown} locale={i18n.language} />
           {offered && (
             <div className="shrink-0 border-t border-border px-6 py-3 text-app-ui-sm">
-              <UpdateSection status={status} progress={progress} releaseNotes={false} />
+              <UpdateSection
+                status={status}
+                progress={progress}
+                checking={checking}
+                releaseNotes={false}
+              />
             </div>
           )}
         </div>

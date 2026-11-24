@@ -1,3 +1,4 @@
+import { gt, valid } from "semver";
 import type { Logger } from "../../../shared/log/types";
 
 export type UpdateChannel = "stable" | "beta";
@@ -49,6 +50,8 @@ export function createUpdateInstaller(options: CreateUpdateInstallerOptions): Up
   const { backend, onStatus, onProgress, releaseUrl, logger } = options;
   let state: State = { kind: "idle" };
   let preparingRestart = false;
+  let rechecking = false;
+  let handedOff = false;
 
   function fail(version: string | null, error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
@@ -56,7 +59,49 @@ export function createUpdateInstaller(options: CreateUpdateInstallerOptions): Up
       `updates: in-place update to ${version ?? "the latest version"} failed: ${message}`,
     );
     state = { kind: "idle" };
+    handedOff = false;
     onStatus({ kind: "installFailed", releaseUrl: releaseUrl(version) });
+  }
+
+  function stateKind(): State["kind"] {
+    return state.kind;
+  }
+
+  async function download(version: string): Promise<void> {
+    state = { kind: "downloading", version };
+    handedOff = false;
+    onStatus({ kind: "downloading", version });
+    await backend.download();
+    if (state.kind === "downloading" && state.version === version) {
+      state = { kind: "verifying", version };
+      onStatus({ kind: "verifying", version });
+    }
+  }
+
+  async function replaceStaged(
+    channel: UpdateChannel,
+    staged: Extract<State, { kind: "ready" }>,
+  ): Promise<void> {
+    if (rechecking) return;
+    rechecking = true;
+    let version: string | null = null;
+    try {
+      version = await backend.check(channel);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.warn(`updates: could not look past the staged ${staged.version}: ${message}`);
+    } finally {
+      rechecking = false;
+    }
+    if (state !== staged || handedOff) return;
+    if (version === null || !valid(version) || !valid(staged.version)) return;
+    if (!gt(version, staged.version)) return;
+    logger.info(`updates: ${version} replaces the staged ${staged.version}`);
+    try {
+      await download(version);
+    } catch (error) {
+      if (stateKind() === "downloading") fail(version, error);
+    }
   }
 
   function ready(version: string): InstallStatus {
@@ -72,6 +117,7 @@ export function createUpdateInstaller(options: CreateUpdateInstallerOptions): Up
     onStatus(ready(state.version));
   });
   backend.onError((error) => {
+    if (state.kind === "ready" && rechecking && !handedOff) return;
     if (state.kind === "downloading" || state.kind === "verifying" || state.kind === "ready") {
       fail(state.version, error);
     }
@@ -88,6 +134,7 @@ export function createUpdateInstaller(options: CreateUpdateInstallerOptions): Up
       }
       if (state.kind === "ready") {
         onStatus(ready(state.version));
+        await replaceStaged(channel, state);
         return;
       }
       if (state.kind === "starting") return;
@@ -97,15 +144,10 @@ export function createUpdateInstaller(options: CreateUpdateInstallerOptions): Up
       try {
         version = await backend.check(channel);
         if (version === null) throw new Error("the update feed offers no newer version");
-        state = { kind: "downloading", version };
-        onStatus({ kind: "downloading", version });
-        await backend.download();
-        if (state.kind === "downloading") {
-          state = { kind: "verifying", version };
-          onStatus({ kind: "verifying", version });
-        }
+        await download(version);
       } catch (error) {
-        if (state.kind === "starting" || state.kind === "downloading") fail(version, error);
+        const kind = stateKind();
+        if (kind === "starting" || kind === "downloading") fail(version, error);
       }
     },
 
@@ -115,7 +157,10 @@ export function createUpdateInstaller(options: CreateUpdateInstallerOptions): Up
       preparingRestart = true;
       try {
         if (backend.prepareRestart) await backend.prepareRestart();
-        if (state === readyUpdate) await backend.quitAndInstall();
+        if (state === readyUpdate) {
+          handedOff = true;
+          await backend.quitAndInstall();
+        }
       } catch (error) {
         if (state === readyUpdate) fail(readyUpdate.version, error);
       } finally {

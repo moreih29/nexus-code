@@ -6,7 +6,7 @@ import { type SitePage, siteUrl } from "../../../../shared/site";
 import type { UpdateProgress, UpdateStatus } from "../../../../shared/updates/status";
 import { formatBytes } from "../../../../shared/util/format-bytes";
 import { ipcCallResult } from "../../../ipc/client";
-import { installUpdate } from "../../../services/updates/operations";
+import { checkForUpdates, installUpdate } from "../../../services/updates/operations";
 import { updateCheckFailedMessage } from "../../../services/updates/update-check-failure";
 import { showReleaseNotes } from "../../../state/operations/release-notes";
 import { useUpdatesStore } from "../../../state/stores/updates";
@@ -24,6 +24,7 @@ export function AboutPanel() {
   const setAutoCheckEnabled = useUpdatesStore((s) => s.setAutoCheckEnabled);
   const status = useUpdatesStore((s) => s.status);
   const progress = useUpdatesStore((s) => s.progress);
+  const checking = useUpdatesStore((s) => s.checking);
   const storeManaged = window.host?.windowsStore === true;
 
   const handleAutoCheckChange = useCallback(
@@ -54,7 +55,12 @@ export function AboutPanel() {
       </SettingsGroup>
 
       <SettingsGroup title={t("about.updates.title")}>
-        <VersionRow status={status} progress={progress} storeManaged={storeManaged} />
+        <VersionRow
+          status={status}
+          progress={progress}
+          checking={checking}
+          storeManaged={storeManaged}
+        />
         {!storeManaged && (
           <SettingsSwitch
             label={t("about.autoCheck.label")}
@@ -81,10 +87,12 @@ export function AboutPanel() {
 export function VersionRow({
   status,
   progress,
+  checking = false,
   storeManaged,
 }: {
   status: UpdateStatus | null;
   progress: UpdateProgress | null;
+  checking?: boolean;
   storeManaged: boolean;
 }) {
   const { t } = useTranslation("settings");
@@ -114,7 +122,7 @@ export function VersionRow({
         }
       >
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-          <UpdateActions status={status} releaseNotes={false} />
+          <UpdateActions status={status} checking={checking} releaseNotes={false} />
         </div>
       </SettingsRow>
       {(status?.kind === "downloading" || status?.kind === "verifying") && (
@@ -181,11 +189,6 @@ function LogActions() {
   );
 }
 
-function checkNow(): void {
-  useUpdatesStore.getState().applyStatus({ kind: "checking", trigger: "manual" });
-  void ipcCallResult("updates", "check", { trigger: "manual" });
-}
-
 function openReleasePage(url: string): void {
   void ipcCallResult("updates", "openReleasePage", { url });
 }
@@ -193,11 +196,13 @@ function openReleasePage(url: string): void {
 export function UpdateSection({
   status,
   progress,
+  checking = false,
   releaseNotes = true,
   children,
 }: {
   status: UpdateStatus | null;
   progress: UpdateProgress | null;
+  checking?: boolean;
   releaseNotes?: boolean;
   children?: ReactNode;
 }) {
@@ -205,7 +210,7 @@ export function UpdateSection({
     <div className="flex flex-col items-start gap-3">
       <UpdateProgressLines status={status} progress={progress} />
       <div className="flex flex-wrap gap-2">
-        <UpdateActions status={status} releaseNotes={releaseNotes} />
+        <UpdateActions status={status} checking={checking} releaseNotes={releaseNotes} />
         {children}
       </div>
     </div>
@@ -231,12 +236,16 @@ function UpdateProgressLines({
 
 function UpdateActions({
   status,
+  checking: checkRunning,
   releaseNotes,
 }: {
   status: UpdateStatus | null;
+  checking: boolean;
   releaseNotes: boolean;
 }) {
   const { t } = useTranslation(["settings", "common"]);
+  const checking = checkRunning || status?.kind === "checking";
+  const downloading = status?.kind === "downloading" || status?.kind === "verifying";
   return (
     <>
       {status?.kind === "newer" && status.canInstall && (
@@ -264,20 +273,15 @@ function UpdateActions({
           {t("common:updates.openReleasePage")}
         </Button>
       )}
-      {(status === null ||
-        status.kind === "checking" ||
-        status.kind === "current" ||
-        status.kind === "error" ||
-        status.kind === "installFailed") && (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={checkNow}
-          disabled={status?.kind === "checking"}
-        >
-          {status?.kind === "checking" ? t("about.checking") : t("about.checkNow")}
-        </Button>
-      )}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={checkForUpdates}
+        disabled={checking || downloading}
+        data-testid="update-check"
+      >
+        {checking ? t("about.checking") : t("about.checkNow")}
+      </Button>
     </>
   );
 }
