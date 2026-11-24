@@ -497,6 +497,39 @@ function afterTerminalAnswer(
   if (under) deps.broker.set(workspaceId, tabId, under.status, under.message);
 }
 
+function afterTerminalDismiss(
+  ask: AnsweredAsk,
+  deps: HookHandlerDeps,
+  dialogs: PermissionDialogs,
+): void {
+  const { workspaceId, tabId, agent, call } = ask;
+  const key = `${workspaceId}:${tabId}`;
+  deps.activity?.noteAnswered(
+    workspaceId,
+    tabId,
+    agent === MAIN_AGENT ? undefined : agent,
+    ask.tool,
+    ask.target,
+    true,
+  );
+  if (agent !== MAIN_AGENT) {
+    if (!dialogs.closeCall(key, agent, call)) return;
+    const under = dialogs.takeUnder(key);
+    if (under) deps.broker.set(workspaceId, tabId, under.status, under.message);
+    return;
+  }
+  dialogs.closeAgent(key, MAIN_AGENT);
+  if (dialogs.isOpen(key)) {
+    dialogs.setUnder(key, { status: "idle" });
+    return;
+  }
+  dialogs.clear(key);
+  const status = deps.broker.get(workspaceId, tabId)?.status;
+  if (status === "running" || status === "permissionPending") {
+    deps.broker.set(workspaceId, tabId, "idle");
+  }
+}
+
 function afterChatAnswer(
   workspaceId: string,
   tabId: string,
@@ -569,7 +602,7 @@ export function registerHookHandler(
     afterTerminalAnswer(ask, deps, dialogs);
   });
   const offDismissed = deps.asks?.onDismissedInTerminal((ask) => {
-    afterAnswer(ask, ask.agent === MAIN_AGENT ? "denyStop" : "deny", deps, dialogs);
+    afterTerminalDismiss(ask, deps, dialogs);
   });
   const offChat = deps.chatAnswers?.onAnswered((workspaceId, tabId, stopped) => {
     afterChatAnswer(workspaceId, tabId, stopped, deps, dialogs);
