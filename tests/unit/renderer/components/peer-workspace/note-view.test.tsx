@@ -150,10 +150,7 @@ test("a note's checklist shows as on this computer but nothing ticks it", async 
     );
     expect(boxes.map((box) => box.checked)).toEqual([true, false]);
     expect(
-      Array.from(
-        host.querySelectorAll('[data-testid="peer-note-body"] li'),
-        (li) => li.lastChild?.textContent,
-      ),
+      texts(host, '[data-testid="peer-note-body"] li > .note-read-task > .note-read-task-text'),
     ).toEqual(["Share the schedule", "Draft the test plan"]);
     for (const box of boxes) {
       expect(box.getAttribute("aria-disabled")).toBe("true");
@@ -163,6 +160,26 @@ test("a note's checklist shows as on this computer but nothing ticks it", async 
       expect(box.checked).toBe(before);
     }
   });
+});
+
+test("a task's text and its nested list sit in one column beside the checkbox", async () => {
+  await shown(
+    { ...withTasks, markdown: "- [ ] Write **the** plan\n  - [x] Ask for numbers\n- plain item\n" },
+    (host) => {
+      const items = Array.from(host.querySelectorAll('[data-testid="peer-note-body"] li'));
+      const outer = items.find((li) => li.textContent?.startsWith("Write")) as HTMLElement;
+      const [check, task] = Array.from(outer.children);
+      expect(check?.className).toBe("note-read-check");
+      expect(task?.className).toBe("note-read-task");
+      expect(task?.children[0]?.textContent).toBe("Write the plan");
+      expect(task?.children[1]?.tagName).toBe("UL");
+      expect(task?.children[1]?.querySelector(".note-read-task-text")?.textContent).toBe(
+        "Ask for numbers",
+      );
+      const plain = items.find((li) => li.textContent === "plain item") as HTMLElement;
+      expect(plain.querySelector(".note-read-task") ?? null).toBeNull();
+    },
+  );
 });
 
 test("a recording's heading row keeps the height of the local one, which holds its menu button", async () => {

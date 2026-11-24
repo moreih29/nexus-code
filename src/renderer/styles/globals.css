@@ -982,8 +982,26 @@ button.note-task-chip:hover {
   cursor: default;
   accent-color: var(--state-selected-indicator);
 }
-.note-doc .note-read li.task-list-item:has(> .note-read-check > input:checked),
-.note-doc .note-read li.task-list-item > p:first-child:has(> .note-read-check > input:checked) {
+.note-doc .note-read li.task-list-item:has(> .note-read-check),
+.note-doc .note-read li.task-list-item > p:has(> .note-read-check) {
+  display: flex;
+  align-items: flex-start;
+}
+.note-doc .note-read .note-read-task,
+.note-doc .note-read li.task-list-item > p > .note-read-task-text {
+  flex: 1;
+  min-width: 0;
+}
+.note-doc
+  .note-read
+  li.task-list-item:has(> .note-read-check > input:checked)
+  > .note-read-task
+  > .note-read-task-text,
+.note-doc
+  .note-read
+  li.task-list-item
+  > p:has(> .note-read-check > input:checked)
+  > .note-read-task-text {
   color: var(--editor-text-muted);
   text-decoration: line-through;
 }

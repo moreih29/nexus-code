@@ -45,14 +45,27 @@ function NoteReadCheck({ type, checked }: { type?: string; checked?: boolean }) 
   );
 }
 
-function withoutSpaceAfterCheck(children: ReactNode): ReactNode {
+interface CheckedLine {
+  check: ReactNode;
+  text: ReactNode[];
+  lists: ReactNode[];
+}
+
+function checkedLine(children: ReactNode): CheckedLine | null {
   const items = Children.toArray(children);
-  return items.map((item, index) => {
-    const before = items[index - 1];
-    return typeof item === "string" && isValidElement(before) && before.type === NoteReadCheck
-      ? item.trimStart()
-      : item;
-  });
+  const at = items.findIndex((item) => isValidElement(item));
+  const check = items[at];
+  if (!isValidElement(check) || check.type !== NoteReadCheck) return null;
+  const after = items.slice(at + 1);
+  const split = after.findIndex(
+    (item) => isValidElement(item) && (item.type === "ul" || item.type === "ol"),
+  );
+  const text = split < 0 ? after : after.slice(0, split);
+  const first = text[0];
+  if (typeof first === "string") text[0] = first.trimStart();
+  const last = text.at(-1);
+  if (typeof last === "string") text[text.length - 1] = last.trimEnd();
+  return { check, text, lists: split < 0 ? [] : after.slice(split) };
 }
 
 function NoteReadItem({
@@ -60,7 +73,17 @@ function NoteReadItem({
   children,
   ...rest
 }: ComponentProps<"li"> & { node?: unknown }) {
-  return <li {...rest}>{withoutSpaceAfterCheck(children)}</li>;
+  const line = checkedLine(children);
+  if (!line) return <li {...rest}>{children}</li>;
+  return (
+    <li {...rest}>
+      {line.check}
+      <div className="note-read-task">
+        <span className="note-read-task-text">{line.text}</span>
+        {line.lists}
+      </div>
+    </li>
+  );
 }
 
 function NoteReadParagraph({
@@ -68,7 +91,17 @@ function NoteReadParagraph({
   children,
   ...rest
 }: ComponentProps<"p"> & { node?: unknown }) {
-  return <p {...rest}>{withoutSpaceAfterCheck(children)}</p>;
+  const line = checkedLine(children);
+  if (!line) return <p {...rest}>{children}</p>;
+  return (
+    <p {...rest}>
+      {line.check}
+      <span className="note-read-task-text">
+        {line.text}
+        {line.lists}
+      </span>
+    </p>
+  );
 }
 
 const NOTE_READ_COMPONENTS = { input: NoteReadCheck, li: NoteReadItem, p: NoteReadParagraph };
