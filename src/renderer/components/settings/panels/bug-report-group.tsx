@@ -37,10 +37,7 @@ export function BugReportSection({ account }: { account: RemoteAccountState | nu
   }
   if (account.status !== "signed-in") {
     return (
-      <SettingsGroup
-        title={t("about.bugReport.title")}
-        description={t("about.bugReport.signedOut")}
-      >
+      <SettingsGroup title={t("about.bugReport.title")}>
         <SupportLink />
       </SettingsGroup>
     );
