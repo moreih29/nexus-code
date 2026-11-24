@@ -117,14 +117,14 @@ const ROOT_PATH = new RegExp(
 );
 const SYSCALL_PATH =
   /(\b(?:open|stat|lstat|fstat|scandir|opendir|readdir|mkdir|mkdtemp|rmdir|rm|unlink|rename|copyfile|cp|access|chmod|chown|readlink|realpath|symlink|link|utime|watch|spawn|uv_cwd)|->) '[^'\r\n]*'/g;
-const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
+const EMAIL = /(^|[^A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
 const PRIVATE_KEY =
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g;
 const AUTH_SCHEME = /\b(bearer|basic)(\s+)([A-Za-z0-9._~+/-]+=*)/gi;
 const AUTH_HEADER =
-  /\b(authorization|proxy-authorization|x-account-auth|cookie|set-cookie|x-api-key|api-key)(["']?[ \t]*[:=][ \t]*)("[^"]*"|'[^']*'|[^\s,;]+)/gi;
+  /\b(authorization|proxy-authorization|x-account-auth|cookie|set-cookie|x-api-key|api-key)(["']?[ \t]*[:=][ \t]*)("[^"]*"|'[^']*'|[^\s,;…]+)/gi;
 const SECRET_FIELD =
-  /\b([A-Za-z0-9_-]*(?:token|secret|password|passwd|api[_-]?key|apikey|signature|ticket|credential)s?)(["']?[ \t]*[:=][ \t]*)("[^"]*"|'[^']*'|[^\s&,;'"]+)/gi;
+  /\b([A-Za-z0-9_-]*(?:token|secret|password|passwd|api[_-]?key|apikey|signature|ticket|credential)s?)(["']?[ \t]*[:=][ \t]*)("[^"]*"|'[^']*'|[^\s&,;'"…]+)/gi;
 const KEY_PREFIXES =
   /\b(?:(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}|sk_(?:live|test)_[A-Za-z0-9]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{20,}|xox[abposr]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|npm_[A-Za-z0-9]{30,})/g;
 const JWT = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g;
@@ -160,7 +160,13 @@ function isAddress6(text: string): boolean {
   return (text.includes("::") && groups >= 2) || colons >= 5;
 }
 
-export function redactBugReportText(text: string): string {
+const MAX_REDACT_PASSES = 8;
+const MAX_REDACTED_INPUT = 8192;
+const CUT_LOOKBACK = 64;
+const CUT_STEP = 16;
+const MESSAGE_CHAR = new RegExp(BUG_REPORT_ERROR_MESSAGE_PATTERN.source.replace(")+$", ")$"));
+
+function redactOnce(text: string): string {
   return text
     .replace(PRIVATE_KEY, SECRET)
     .replace(FILE_URL, PATH)
@@ -170,7 +176,7 @@ export function redactBugReportText(text: string): string {
     .replace(DRIVE_PATH, pathOf)
     .replace(ROOT_PATH, pathOf)
     .replace(SYSCALL_PATH, `$1 '${PATH}'`)
-    .replace(EMAIL, "<email>")
+    .replace(EMAIL, "$1<email>")
     .replace(AUTH_SCHEME, (all, scheme: string, space: string, value: string) =>
       isCredential(scheme, value) ? `${scheme}${space}${SECRET}` : all,
     )
@@ -188,24 +194,58 @@ export function redactBugReportText(text: string): string {
     );
 }
 
-const MAX_REDACTED_INPUT = 8192;
-const MESSAGE_CHAR = new RegExp(BUG_REPORT_ERROR_MESSAGE_PATTERN.source.replace(")+$", ")$"));
+function untilStable(text: string, step: (text: string) => string): string {
+  let current = text;
+  for (let pass = 0; pass < MAX_REDACT_PASSES; pass++) {
+    const next = step(current);
+    if (next === current) return current;
+    current = next;
+  }
+  return SECRET;
+}
 
-export function cleanBugReportErrorMessage(text: string): string | undefined {
-  const redacted = redactBugReportText(text.slice(0, MAX_REDACTED_INPUT));
-  const line = Array.from(redacted, (char) =>
-    /\s/.test(char) || !MESSAGE_CHAR.test(char) ? " " : char,
-  )
+export function redactBugReportText(text: string): string {
+  return untilStable(text, redactOnce);
+}
+
+function oneLine(text: string): string {
+  return Array.from(text, (char) => (/\s/.test(char) || !MESSAGE_CHAR.test(char) ? " " : char))
     .join("")
     .replace(/ {2,}/g, " ")
     .trim();
+}
+
+function settle(text: string): string {
+  return untilStable(oneLine(text), (current) => oneLine(redactBugReportText(current)));
+}
+
+function cutTo(text: string, max: number): string {
+  const chars = Array.from(text);
+  let end = max - 2;
+  for (let index = end; index > 0 && index >= max - 2 - CUT_LOOKBACK; index--) {
+    if (chars[index] === " ") {
+      end = index;
+      break;
+    }
+  }
+  return `${chars.slice(0, end).join("").trimEnd()} …`;
+}
+
+function codePoints(text: string): number {
+  return Array.from(text).length;
+}
+
+export function cleanBugReportErrorMessage(text: string): string | undefined {
+  let line = settle(text.slice(0, MAX_REDACTED_INPUT));
+  for (
+    let limit = MAX_BUG_REPORT_ERROR_MESSAGE;
+    codePoints(line) > MAX_BUG_REPORT_ERROR_MESSAGE && limit > CUT_STEP;
+    limit -= CUT_STEP
+  ) {
+    line = settle(cutTo(line, limit));
+  }
   if (line === "") return undefined;
-  const chars = Array.from(line);
-  if (chars.length <= MAX_BUG_REPORT_ERROR_MESSAGE) return line;
-  return `${chars
-    .slice(0, MAX_BUG_REPORT_ERROR_MESSAGE - 1)
-    .join("")
-    .trimEnd()}…`;
+  return codePoints(line) > MAX_BUG_REPORT_ERROR_MESSAGE ? SECRET : line;
 }
 
 export function bugReportBytes(value: unknown): number {

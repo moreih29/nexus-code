@@ -72,6 +72,8 @@ Schema 0.35.0 adds the bug report API (`bug-report.ts`): `POST /bug-reports?v=1`
 
 Schema 0.36.0 lets a recent error in a bug report carry its message. `BugReportRecentErrorSchema` adds optional `message`, one line of 1 to 300 code points (`MAX_BUG_REPORT_ERROR_MESSAGE`, `BUG_REPORT_ERROR_MESSAGE_PATTERN`) that a client puts through `cleanBugReportErrorMessage` (which redacts with `redactBugReportText`) when it records the error and again when it sends it, and optional `count`, how many times the same error came, from 1 to 9999 (`MAX_BUG_REPORT_ERROR_COUNT`). `BUG_REPORT_ERROR_AREAS` adds `app`, `agent`, `notes`, `files` and `git`. `MAX_BUG_REPORT_CONTEXT_BYTES` goes from 4096 to 8192, and `MAX_BUG_REPORT_BODY_BYTES` (24 KiB) names the largest body: a client fits its context with `fitBugReportContext` before sending. The server redacts each message with `redactBugReportText` again before it keeps it. `BUG_REPORT_VERSION` stays 1: a 0.35.0 report is still a valid 0.36.0 report, and a server must take 0.36.0 before a client sends a message, a count or a new area, since a 0.35.0 server refuses them as unknown. `PROTOCOL_VERSION`, `RELAY_VERSION` and `MAX_FRAME_BYTES` stay as they were.
 
+Schema 0.36.1 makes `redactBugReportText` and `cleanBugReportErrorMessage` idempotent: what either gives comes out the same when put through it again, and a cleaned message comes out the same from `redactBugReportText`, so a client cleaning twice and the server redacting again keep what the first pass kept. Before, a path glued to the `<ip>` or `<email>` a later rule put in, a path after a control character turned into a space, and a cut that left a hex run or a `password:` before the `…` were only taken out on the second pass. Each function now repeats its rules until the text stops changing, at most 8 times, and gives `<secret>` if it has not settled by then; a message over 300 code points is cut at a word and ends in ` …`. The schema does not change: `BUG_REPORT_VERSION`, `PROTOCOL_VERSION`, `RELAY_VERSION` and `MAX_FRAME_BYTES` stay as they were.
+
 A consent prompt in the sessions' list (`RemoteConsent`) is a change waiting on the user of the serving device. An agent of another device of the account may have asked for it, or a nexus command changing another workspace there, or that device's agent manager. The user answers it there, or from the device that lists it when `answerable` (`consent.answer`). An agent's request (`from`, `AgentSender`) to a control method takes the `agents` capability instead of the method's own. The serving device may ask its user first or turn the request down. `at` and `expiresAt` use the serving device's clock. `expiresInMs` is `expiresAt` minus the time the list was sent, so a reader needs no shared clock. A serving device before 0.29.0 turns a prompt down at `expiresAt` and drops it from the list. `AGENT_CONSENT_MS` (90 seconds) is how long a host asks a requester before 0.29.0 before turning the request down. Such a requester waits that long, plus a little more.
 
 In schema 0.16.0, `chat.instructions` can also return `session`, the tab's editable session text, and `layers`, its ordered persistent layers, including empty layers. The workspace layer comes from the parent for a worktree task. Hosts through desktop 0.36.1 only return the combined `instructions` text. Treat a response without `session` as read-only. With `chat.control`, a person can replace the session layer using `chat.instructions.set`. Send an empty string to clear it. The 5,000-character limit applies to both people and agents. An edit with `from` follows the receiving device's agent approval policy.
@@ -3351,14 +3353,23 @@ each message again before it keeps the report. It replaces:
 It keeps the rest, error names, codes, HTTP paths and relative paths
 outside a system call's quotes among them.
 
+Since 0.36.1 it runs these rules again until the text stops changing, so
+what one rule puts in can open another's match (a path right after an
+`<ip>`), at most 8 times, and gives `<secret>` if the text has not settled
+by then. What it gives comes out the same when put through it again.
+
 **`cleanBugReportErrorMessage(text)`**
 
 A message ready for `BugReportRecentErrorSchema.message`, or `undefined`
-when nothing is left: `redactBugReportText` on the first 8192 UTF-16 units,
-then every white space and character the pattern refuses turned into a
-space, runs of spaces made one, the ends trimmed, and a text over 300 code
-points cut to 299 and `…`. It redacts before it cuts, so a secret is never
-left half.
+when nothing is left. On the first 8192 UTF-16 units, every white space
+and character the pattern refuses turned into a space, runs of spaces made
+one and the ends trimmed, then `redactBugReportText`, both again until the
+text stops changing. A text still over 300 code points keeps what comes
+before its last space among the 235th to 299th code points (or its first
+298 when there is none) and ends in ` …`; the cut text is redacted again,
+and cut shorter if that made it longer than 300. It redacts before it cuts, so a
+secret is never left half. Since 0.36.1 what it gives comes out the same
+from it and from `redactBugReportText`.
 
 **`BugReportCreatedSchema`**
 
