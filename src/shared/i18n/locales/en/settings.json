@@ -451,7 +451,7 @@
     "openStore": "Open Microsoft Store",
     "logs": {
       "title": "Logs",
-      "description": "Logs to attach to a problem report",
+      "description": "Logs to attach to a support request or GitHub issue",
       "open": "Open log folder",
       "copyPath": "Copy log path",
       "copied": "Copied"
@@ -459,6 +459,7 @@
     "bugReport": {
       "title": "Report a bug",
       "signedOut": "Sign in to report from the app · Until then, use the support page",
+      "reportOnSupport": "Report on the support page",
       "notSent": "No conversations, files or paths are sent",
       "description": "Description",
       "placeholder": "What were you doing, and what went wrong?",
@@ -470,11 +471,20 @@
       "preview": "What's sent",
       "facts": {
         "app": "App version",
-        "os": "OS version",
+        "os": "Kernel version",
         "device": "Device",
         "protocol": "Protocol",
         "locale": "Language",
         "errors": "Recent errors"
+      },
+      "deviceKind": {
+        "phone": "Phone",
+        "tablet": "Tablet",
+        "desktop": "Desktop"
+      },
+      "localeName": {
+        "ko": "Korean",
+        "en": "English"
       },
       "errorsOff": "Not included",
       "noErrors": "None",

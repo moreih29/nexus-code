@@ -82,6 +82,8 @@ describe("the bug report in About", () => {
     const ko = await renderIn("ko", <BugReportSection account={signedOut} />);
     expect(ko).toContain('href="https://nexuscode.gradiendo.com/support/"');
     expect(ko).toContain(">버그 신고<");
+    expect(html).toContain("Report on the support page");
+    expect(ko).toContain("지원 페이지에서 신고");
   });
 
   test("before the sign-in state is known, shows the title and neither the link nor the form", () => {
@@ -123,20 +125,31 @@ describe("the bug report in About", () => {
     for (const value of [
       "App version",
       "1.4.0",
-      "OS version",
+      "Kernel version",
       "25.1.0",
-      "desktop · arm64",
-      "2 · 0.35.0",
+      'Desktop · <code class="font-mono">arm64</code>',
+      '<code class="font-mono">2</code> · <code class="font-mono">0.35.0</code>',
       "Language",
-      ">en<",
+      ">English<",
     ]) {
       expect(preview).toContain(value);
     }
-    const lines = Array.from(preview.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g), (m) => m[1]);
-    expect(lines).toEqual([
-      "api http_500 500 · 42 seconds ago",
-      "relay socket-closed · 7 seconds ago",
-    ]);
+    expect(preview).not.toContain("OS version");
+    const lines = Array.from(preview.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g), (m) =>
+      m[1]?.replace(/<[^>]+>/g, ""),
+    );
+    expect(lines).toEqual(["api http_500 · 42 seconds ago", "relay socket-closed · 7 seconds ago"]);
+    expect(preview).toContain('<code class="font-mono">api http_500</code> · 42 seconds ago');
+  });
+
+  test("an error line keeps a status that its code does not already show", () => {
+    const context: BugReportContext = {
+      ...CONTEXT,
+      errors: [{ ago: 5, area: "rpc", code: "timeout", status: 504 }],
+    };
+    expect(fields({ open: true, context })).toContain(
+      '<code class="font-mono">rpc timeout 504</code> · 5 seconds ago',
+    );
   });
 
   test("with errors off, the preview says they are not included", () => {
@@ -151,7 +164,9 @@ describe("the bug report in About", () => {
   test("the Korean preview counts seconds in Korean", async () => {
     const html = await renderIn("ko", form({ open: true, context: CONTEXT }));
     expect(html).toContain("함께 보내는 정보");
-    expect(html).toContain("api http_500 500 · 42초 전");
+    expect(html).toContain('<code class="font-mono">api http_500</code> · 42초 전');
+    expect(html).toContain("데스크톱");
+    expect(html).toContain("커널 버전");
   });
 
   test.each([
@@ -166,7 +181,8 @@ describe("the bug report in About", () => {
     [2_592_000, "720 hours ago", "720시간 전"],
   ])("an error %i s ago reads %s", async (ago, en, ko) => {
     const context = { ...CONTEXT, errors: [{ ago, area: "api", code: "offline" }] } as const;
-    const line = (html: string) => html.match(/<li[^>]*>([\s\S]*?)<\/li>/)?.[1];
+    const line = (html: string) =>
+      html.match(/<li[^>]*>([\s\S]*?)<\/li>/)?.[1]?.replace(/<[^>]+>/g, "");
     expect(line(fields({ open: true, context }))).toBe(`api offline · ${en}`);
     expect(line(await renderIn("ko", form({ open: true, context })))).toBe(`api offline · ${ko}`);
   });

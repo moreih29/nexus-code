@@ -1,5 +1,5 @@
 import { ExternalLink } from "lucide-react";
-import { useEffect, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import {
@@ -64,7 +64,7 @@ function SupportLink() {
           data-testid="bug-report-support"
         >
           <ExternalLink className="size-3.5" aria-hidden="true" />
-          {t("about.links.support")}
+          {t("about.bugReport.reportOnSupport")}
         </a>
       </Button>
     </div>
@@ -233,18 +233,30 @@ export function BugReportPreview({
   includeErrors: boolean;
 }) {
   const { t } = useTranslation("settings");
-  const rows: [string, string][] = [
-    [t("about.bugReport.facts.app"), context.app.version],
-    [t("about.bugReport.facts.os"), context.os.version],
+  const rows: [string, ReactNode][] = [
+    [t("about.bugReport.facts.app"), <Code key="app">{context.app.version}</Code>],
+    [t("about.bugReport.facts.os"), <Code key="os">{context.os.version}</Code>],
     [
       t("about.bugReport.facts.device"),
-      [context.device.kind, context.device.arch].filter(Boolean).join(" · "),
+      <>
+        {t(`about.bugReport.deviceKind.${context.device.kind}`)}
+        {context.device.arch !== undefined && (
+          <>
+            {" · "}
+            <Code>{context.device.arch}</Code>
+          </>
+        )}
+      </>,
     ],
     [
       t("about.bugReport.facts.protocol"),
-      `${context.protocol.version} · ${context.protocol.package}`,
+      <>
+        <Code>{String(context.protocol.version)}</Code>
+        {" · "}
+        <Code>{context.protocol.package}</Code>
+      </>,
     ],
-    [t("about.bugReport.facts.locale"), context.locale],
+    [t("about.bugReport.facts.locale"), t(`about.bugReport.localeName.${context.locale}`)],
   ];
   const errors = context.errors ?? [];
   return (
@@ -255,20 +267,20 @@ export function BugReportPreview({
       {rows.map(([label, value]) => (
         <div key={label} className="contents">
           <dt className="text-muted-foreground">{label}</dt>
-          <dd className="min-w-0 break-all font-mono">{value}</dd>
+          <dd className="min-w-0 break-all">{value}</dd>
         </div>
       ))}
       <dt className="text-muted-foreground">{t("about.bugReport.facts.errors")}</dt>
-      <dd className="min-w-0 font-mono" data-testid="bug-report-errors">
+      <dd className="min-w-0" data-testid="bug-report-errors">
         {!includeErrors ? (
-          <span className="font-sans text-muted-foreground">{t("about.bugReport.errorsOff")}</span>
+          <span className="text-muted-foreground">{t("about.bugReport.errorsOff")}</span>
         ) : errors.length === 0 ? (
-          <span className="font-sans text-muted-foreground">{t("about.bugReport.noErrors")}</span>
+          <span className="text-muted-foreground">{t("about.bugReport.noErrors")}</span>
         ) : (
           <ul className="flex flex-col">
             {errorLines(errors).map(({ key, text, ago }) => (
               <li key={key} className="break-all">
-                {text} · <ErrorAgo ago={ago} />
+                <Code>{text}</Code> · <ErrorAgo ago={ago} />
               </li>
             ))}
           </ul>
@@ -278,12 +290,17 @@ export function BugReportPreview({
   );
 }
 
+function Code({ children }: { children: string }) {
+  return <code className="font-mono">{children}</code>;
+}
+
 function errorLines(
   errors: readonly BugReportRecentError[],
 ): { key: string; text: string; ago: number }[] {
   const seen = new Map<string, number>();
   return errors.map(({ ago, area, code, status }) => {
-    const text = [area, code, status].filter((part) => part !== undefined).join(" ");
+    const shownStatus = status === undefined || code === `http_${status}` ? undefined : status;
+    const text = [area, code, shownStatus].filter((part) => part !== undefined).join(" ");
     const base = `${ago} ${text}`;
     const count = (seen.get(base) ?? 0) + 1;
     seen.set(base, count);
