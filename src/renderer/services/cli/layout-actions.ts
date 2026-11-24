@@ -147,7 +147,7 @@ export const layoutHandlers: { [K in LayoutOp & CliUiOp]: CliUiHandler<K> } = {
     for (const tabId of leaf.tabIds) {
       const type = tabRecord(workspaceId, tabId).type;
       if (type !== "claude" && type !== "codex") continue;
-      if ((await closeTabWithConfirm(workspaceId, tabId)) !== "closed") {
+      if ((await closeTabWithConfirm(workspaceId, tabId, { askIfRunning: false })) !== "closed") {
         throw new UiRequestError(`${tabRecord(workspaceId, tabId).title} could not be closed`);
       }
     }

@@ -181,7 +181,7 @@ export async function runCodexCommand(
       return;
     }
     case "exit":
-      await closeTabWithConfirm(ctx.workspaceId, ctx.tabId);
+      await closeTabWithConfirm(ctx.workspaceId, ctx.tabId, { askIfRunning: false });
       return;
   }
 }

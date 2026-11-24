@@ -321,7 +321,7 @@ export async function runAppCommand(
       try {
         const sent = await controller.sendToBackground(command.args);
         showToast({ kind: "info", message: t("chat.commands.background_sent", { id: sent }) });
-        await closeTabWithConfirm(ctx.workspaceId, ctx.tabId);
+        await closeTabWithConfirm(ctx.workspaceId, ctx.tabId, { askIfRunning: false });
       } catch (err) {
         controller.updateCard(id, { loading: false, error: (err as Error).message });
       }
@@ -384,7 +384,7 @@ export async function runAppCommand(
       return;
     }
     case "exit":
-      await closeTabWithConfirm(ctx.workspaceId, ctx.tabId);
+      await closeTabWithConfirm(ctx.workspaceId, ctx.tabId, { askIfRunning: false });
       return;
   }
 }

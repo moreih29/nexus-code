@@ -152,8 +152,12 @@ const { cacheUriFor } = await import("../../../../../src/renderer/services/edito
 const { attachDirtyTracker, detachDirtyTracker } = await import(
   "../../../../../src/renderer/services/editor/model/dirty-tracker"
 );
-const { closeGroupWithConfirm } = await import(
+const { closeGroupWithConfirm, closeTabsWithConfirm, closeTabWithConfirm } = await import(
   "../../../../../src/renderer/services/editor/save/close-tab"
+);
+const { chatIsWorking } = await import("../../../../../src/renderer/services/chat/close-confirm");
+const { chatKey, emptyTabState, useChatStore } = await import(
+  "../../../../../src/renderer/services/chat/store"
 );
 const { startTerminalExitListener } = await import(
   "../../../../../src/renderer/state/terminal-exit"
@@ -689,6 +693,159 @@ describe("services/terminal open and close", () => {
       } finally {
         detachDirtyTracker(cacheUri);
       }
+    });
+  });
+
+  describe("closing a conversation in progress", () => {
+    beforeEach(() => {
+      confirmRequests.length = 0;
+      confirmReply = true;
+      useChatStore.setState({ tabs: {} });
+    });
+
+    afterEach(() => {
+      mockForegroundProcessName = "lazygit";
+      foregroundByTab.clear();
+      useChatStore.setState({ tabs: {} });
+    });
+
+    function chatTab(type: "claude" | "codex", groupId?: string): string {
+      const tab = useTabsStore.getState().createTab(WS, { type, props: { cwd: "/workspace" } });
+      if (groupId) useLayoutStore.getState().attachTab(WS, groupId, tab.id);
+      return tab.id;
+    }
+
+    function setWorking(tabId: string): void {
+      useChatStore.getState().update(chatKey(WS, tabId), (prev) => ({
+        ...prev,
+        phase: "ready",
+        model: { ...prev.model, running: true },
+      }));
+    }
+
+    function titleOf(tabId: string): string {
+      return useTabsStore.getState().byWorkspace[WS]?.[tabId]?.title ?? "";
+    }
+
+    it("treats a turn, a stream, a pending request, a background task and a send as work", () => {
+      const ready = { ...emptyTabState(), phase: "ready" as const };
+      const model = ready.model;
+      expect(chatIsWorking(undefined)).toBe(false);
+      expect(chatIsWorking(ready)).toBe(false);
+      expect(chatIsWorking({ ...ready, model: { ...model, running: true } })).toBe(true);
+      expect(chatIsWorking({ ...ready, model: { ...model, streaming: {} as never } })).toBe(true);
+      expect(chatIsWorking({ ...ready, model: { ...model, permissions: [{} as never] } })).toBe(
+        true,
+      );
+      expect(
+        chatIsWorking({
+          ...ready,
+          model: { ...model, tasks: { t: { status: "running" } as never } },
+        }),
+      ).toBe(true);
+      expect(
+        chatIsWorking({
+          ...ready,
+          model: { ...model, tasks: { t: { status: "completed" } as never } },
+        }),
+      ).toBe(false);
+      expect(chatIsWorking({ ...ready, queue: [{ status: "sending" } as never] })).toBe(true);
+      expect(chatIsWorking({ ...ready, phase: "ended", model: { ...model, running: true } })).toBe(
+        false,
+      );
+    });
+
+    it("asks before closing a working conversation and keeps it on cancel", async () => {
+      const tabId = chatTab("claude");
+      setWorking(tabId);
+      confirmReply = false;
+
+      expect(await closeTabWithConfirm(WS, tabId)).toBe("cancelled");
+      expect(confirmRequests).toEqual([
+        `Closing the tab stops the work in progress in “${titleOf(tabId)}”.`,
+      ]);
+      expect(chatCloseCalls()).toEqual([]);
+      expect(useTabsStore.getState().byWorkspace[WS]?.[tabId]).toBeDefined();
+
+      confirmReply = true;
+      expect(await closeTabWithConfirm(WS, tabId)).toBe("closed");
+      expect(chatCloseCalls()).toHaveLength(1);
+      expect(useTabsStore.getState().byWorkspace[WS]?.[tabId]).toBeUndefined();
+    });
+
+    it("closes an idle conversation without asking", async () => {
+      const tabId = chatTab("codex");
+
+      expect(await closeTabWithConfirm(WS, tabId)).toBe("closed");
+      expect(confirmRequests).toEqual([]);
+      expect(chatCloseCalls()).toHaveLength(1);
+    });
+
+    it("closes a working conversation without asking when its caller already decided", async () => {
+      const tabId = chatTab("claude");
+      setWorking(tabId);
+
+      expect(await closeTabWithConfirm(WS, tabId, { askIfRunning: false })).toBe("closed");
+      expect(confirmRequests).toEqual([]);
+      expect(useTabsStore.getState().byWorkspace[WS]?.[tabId]).toBeUndefined();
+    });
+
+    it("asks once for a group's running program and working conversations, keeping all on cancel", async () => {
+      const left = openTerminal({ workspaceId: WS, cwd: "/workspace/left" });
+      const groupId = useLayoutStore.getState().splitGroup(WS, left.groupId, "horizontal", "after");
+      const terminal = openTerminal({ workspaceId: WS, cwd: "/workspace/run" }, { groupId });
+      const claude = chatTab("claude", groupId);
+      const codex = chatTab("codex", groupId);
+      const idle = chatTab("claude", groupId);
+      foregroundByTab.set(terminal.tabId, "sleep");
+      setWorking(claude);
+      setWorking(codex);
+      confirmReply = false;
+      const layout = useLayoutStore.getState().byWorkspace[WS];
+
+      expect(await closeGroupWithConfirm(WS, groupId)).toBe("cancelled");
+      expect(confirmRequests).toEqual([
+        "Closing the tabs terminates “sleep” and stops the work in progress in 2 conversations.",
+      ]);
+      expect(killCalls()).toEqual([]);
+      expect(chatCloseCalls()).toEqual([]);
+      expect(useLayoutStore.getState().byWorkspace[WS]).toBe(layout);
+      const tabs = useTabsStore.getState().byWorkspace[WS];
+      for (const tabId of [terminal.tabId, claude, codex, idle])
+        expect(tabs?.[tabId]).toBeDefined();
+
+      confirmReply = true;
+      expect(await closeGroupWithConfirm(WS, groupId)).toBe("closed");
+      expect(confirmRequests).toHaveLength(2);
+      expect(killCalls()).toHaveLength(1);
+      expect(chatCloseCalls()).toHaveLength(3);
+    });
+
+    it("asks once when closing several tabs and closes none on cancel", async () => {
+      const terminal = openTerminal({ workspaceId: WS, cwd: "/workspace/run" });
+      const first = chatTab("claude", terminal.groupId);
+      const second = chatTab("codex", terminal.groupId);
+      foregroundByTab.set(terminal.tabId, "sleep");
+      setWorking(first);
+      setWorking(second);
+      confirmReply = false;
+
+      expect(await closeTabsWithConfirm(WS, [terminal.tabId, first, second])).toBe("cancelled");
+      expect(confirmRequests).toHaveLength(1);
+      expect(killCalls()).toEqual([]);
+      expect(chatCloseCalls()).toEqual([]);
+
+      confirmReply = true;
+      foregroundByTab.set(terminal.tabId, "-zsh");
+      expect(await closeTabsWithConfirm(WS, [terminal.tabId, first, second])).toBe("closed");
+      expect(confirmRequests).toEqual([
+        "Closing the tabs terminates “sleep” and stops the work in progress in 2 conversations.",
+        "Closing the tabs stops the work in progress in 2 conversations.",
+      ]);
+      expect(killCalls()).toHaveLength(1);
+      expect(chatCloseCalls()).toHaveLength(2);
+      const tabs = useTabsStore.getState().byWorkspace[WS];
+      for (const tabId of [terminal.tabId, first, second]) expect(tabs?.[tabId]).toBeUndefined();
     });
   });
 
