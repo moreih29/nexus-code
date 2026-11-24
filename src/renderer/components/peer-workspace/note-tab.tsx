@@ -1,6 +1,15 @@
 import { ScrollText } from "lucide-react";
 import { Tabs } from "radix-ui";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Children,
+  type ComponentProps,
+  isValidElement,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { noteTime } from "../../services/notes/note-time";
@@ -21,10 +30,53 @@ export function withoutHeading(markdown: string): string {
   return markdown.replace(/^# [^\n]*\n*/, "");
 }
 
+function NoteReadCheck({ type, checked }: { type?: string; checked?: boolean }) {
+  if (type !== "checkbox") return null;
+  return (
+    <span className="note-read-check">
+      <input
+        type="checkbox"
+        checked={!!checked}
+        readOnly
+        aria-disabled="true"
+        onClick={(event) => event.preventDefault()}
+      />
+    </span>
+  );
+}
+
+function withoutSpaceAfterCheck(children: ReactNode): ReactNode {
+  const items = Children.toArray(children);
+  return items.map((item, index) => {
+    const before = items[index - 1];
+    return typeof item === "string" && isValidElement(before) && before.type === NoteReadCheck
+      ? item.trimStart()
+      : item;
+  });
+}
+
+function NoteReadItem({
+  node: _node,
+  children,
+  ...rest
+}: ComponentProps<"li"> & { node?: unknown }) {
+  return <li {...rest}>{withoutSpaceAfterCheck(children)}</li>;
+}
+
+function NoteReadParagraph({
+  node: _node,
+  children,
+  ...rest
+}: ComponentProps<"p"> & { node?: unknown }) {
+  return <p {...rest}>{withoutSpaceAfterCheck(children)}</p>;
+}
+
+const NOTE_READ_COMPONENTS = { input: NoteReadCheck, li: NoteReadItem, p: NoteReadParagraph };
+
 export function PeerNoteMarkdown({ source }: { source: string }) {
   return (
     <div className="note-read" data-testid="peer-note-body">
-      <MarkdownBody source={source} links="web-only" />
+      <MarkdownBody source={source} links="web-only" components={NOTE_READ_COMPONENTS} />
     </div>
   );
 }

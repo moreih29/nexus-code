@@ -40,6 +40,11 @@ const structured: PeerNote = {
   transcriptRecordings: [recording],
 };
 
+const withTasks: PeerNote = {
+  ...structured,
+  markdown: "# Scope talk\n\n- [x] Share the schedule\n- [ ] Draft the test plan\n",
+};
+
 const markdownOnly: PeerNote = { ...structured, transcriptRecordings: undefined };
 
 async function shown(note: PeerNote, check: (host: HTMLElement) => Promise<void> | void) {
@@ -134,4 +139,35 @@ test("a note without recordings has no transcript panel and no button for one", 
       );
     },
   );
+});
+
+test("a note's checklist shows as on this computer but nothing ticks it", async () => {
+  await shown(withTasks, async (host) => {
+    const boxes = Array.from(
+      host.querySelectorAll<HTMLInputElement>(
+        '[data-testid="peer-note-body"] input[type="checkbox"]',
+      ),
+    );
+    expect(boxes.map((box) => box.checked)).toEqual([true, false]);
+    expect(
+      Array.from(
+        host.querySelectorAll('[data-testid="peer-note-body"] li'),
+        (li) => li.lastChild?.textContent,
+      ),
+    ).toEqual(["Share the schedule", "Draft the test plan"]);
+    for (const box of boxes) {
+      expect(box.getAttribute("aria-disabled")).toBe("true");
+      expect(box.parentElement?.className).toBe("note-read-check");
+      const before = box.checked;
+      await act(async () => box.click());
+      expect(box.checked).toBe(before);
+    }
+  });
+});
+
+test("a recording's heading row keeps the height of the local one, which holds its menu button", async () => {
+  await shown(structured, (host) => {
+    const row = host.querySelector('[data-testid="transcript-recording"] > div');
+    expect(row?.className.split(" ")).toContain("min-h-8");
+  });
 });

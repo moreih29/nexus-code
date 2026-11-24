@@ -161,7 +161,8 @@ test("a note's Markdown follows web links only and loads nothing from this compu
   expect(markup).not.toContain('href="nexus://x"');
   expect(markup).toContain("[sketch]");
   expect(markup).not.toContain("<img");
-  expect(markup).toMatch(/<input[^>]*disabled/);
+  expect(markup).toMatch(/<span class="note-read-check"><input[^>]*aria-disabled="true"/);
+  expect(markup).not.toMatch(/<input[^>]*\sdisabled=""/);
 });
 
 test("the heading notes.read puts first is dropped: the tab's title row says it", () => {

@@ -971,9 +971,21 @@ button.note-task-chip:hover {
   list-style: none;
   padding-left: 0.1em;
 }
-.note-doc .note-read li.task-list-item > input {
+.note-doc .note-read .note-read-check {
+  display: inline-block;
+  vertical-align: top;
+  margin-top: 0.22em;
   margin-inline-end: 0.5em;
+  user-select: none;
+}
+.note-doc .note-read .note-read-check > input {
+  cursor: default;
   accent-color: var(--state-selected-indicator);
+}
+.note-doc .note-read li.task-list-item:has(> .note-read-check > input:checked),
+.note-doc .note-read li.task-list-item > p:first-child:has(> .note-read-check > input:checked) {
+  color: var(--editor-text-muted);
+  text-decoration: line-through;
 }
 .note-doc .note-read .md-code-wrap {
   position: relative;

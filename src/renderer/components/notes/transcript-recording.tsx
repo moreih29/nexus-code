@@ -78,7 +78,7 @@ function RecordingLine({
     minute: "2-digit",
   }).format(new Date(recording.startedAt));
   return (
-    <div className="flex items-center gap-1.5 py-1 text-app-micro text-muted-foreground">
+    <div className="flex min-h-8 items-center gap-1.5 py-1 text-app-micro text-muted-foreground">
       <span className="truncate">
         {startedAt} · {clockOf(Math.max(lengthMs ?? 0, recordingMs(recording)))}
       </span>
