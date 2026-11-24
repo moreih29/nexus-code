@@ -23,6 +23,9 @@ const REQUEST_GRACE_MS = 20_000;
 const REQUEST_TTL = 600;
 const CONSENT_TTL_BEFORE_0_30 = 120;
 const SEND_TIMEOUT_MS = 20_000;
+const BUSY_RETRIES = 3;
+const BUSY_DELAY_SECONDS = 5;
+const MAX_BUSY_DELAY_SECONDS = 60;
 
 type Kind = "consent" | "request";
 type AccountDevice = { id: string; platform: string };
@@ -32,6 +35,8 @@ interface PushEvent {
   readyAt: number;
   expiresAt: number;
   attempts: number;
+  busyRetries: number;
+  retryAt?: number;
   done: boolean;
   shortTtl?: boolean;
   sending?: AbortController;
@@ -43,6 +48,7 @@ function createEvent(readyAt: number, expiresAt: number): PushEvent {
     readyAt,
     expiresAt,
     attempts: 0,
+    busyRetries: 0,
     done: false,
   };
 }
@@ -183,6 +189,8 @@ export class PhonePush {
       const last = event.expiresAt - PUSH_TTL_SECONDS.consent.min * 1_000;
       if (event.done || event.sending || now > last) continue;
       if (now < event.readyAt && !away) next = Math.min(next, event.readyAt);
+      else if (event.retryAt !== undefined && now < event.retryAt)
+        next = Math.min(next, event.retryAt);
       else if (away || this.deps.policy() === "always") this.send("consent", event);
       else next = Math.min(next, now + RECHECK_MS, last + 1);
     }
@@ -308,11 +316,12 @@ export class PhonePush {
           };
           this.requests.set(key, event);
         }
-        if (event.done || event.sending) continue;
-        if (away) this.send("request", event);
-        else if (!always) continue;
-        else if (startedAt < event.readyAt) next = Math.min(next, Math.max(0, event.readyAt - now));
-        else this.send("request", event);
+        if (event.done || event.sending || (!away && !always)) continue;
+        if (!away && startedAt < event.readyAt) {
+          next = Math.min(next, Math.max(0, event.readyAt - now));
+        } else if (event.retryAt !== undefined && now < event.retryAt) {
+          next = Math.min(next, event.retryAt - now);
+        } else this.send("request", event);
       }
     } catch {
     } finally {
@@ -324,7 +333,9 @@ export class PhonePush {
   private send(kind: Kind, event: PushEvent): void {
     const remaining = event.expiresAt - this.now();
     const ttl = Math.min(
-      kind === "request" && event.attempts === 0 ? REQUEST_TTL : Math.floor(remaining / 1_000),
+      kind === "request" && event.attempts === 0 && event.busyRetries === 0
+        ? REQUEST_TTL
+        : Math.floor(remaining / 1_000),
       event.shortTtl ? CONSENT_TTL_BEFORE_0_30 : PUSH_TTL_SECONDS[kind].max,
     );
     if (remaining < PUSH_TTL_SECONDS[kind].min * 1_000) {
@@ -349,7 +360,9 @@ export class PhonePush {
         else log.info(`${kind} sent=${result.sent} skipped=${result.skipped}`);
       } catch (error) {
         if (controller.signal.aborted) return;
-        if (
+        if (error instanceof ServerError && error.status === 429) {
+          this.retryBusy(kind, event, error.retryAfter);
+        } else if (
           kind === "consent" &&
           !event.shortTtl &&
           ttl > CONSENT_TTL_BEFORE_0_30 &&
@@ -370,5 +383,22 @@ export class PhonePush {
         }
       }
     })();
+  }
+
+  private retryBusy(kind: Kind, event: PushEvent, retryAfter: number | undefined): void {
+    const delay = Math.min(retryAfter ?? BUSY_DELAY_SECONDS, MAX_BUSY_DELAY_SECONDS) * 1_000;
+    const retryAt = this.now() + delay;
+    if (
+      event.busyRetries >= BUSY_RETRIES ||
+      retryAt > event.expiresAt - PUSH_TTL_SECONDS[kind].min * 1_000
+    ) {
+      event.done = true;
+      log.warn(`${kind} failed=1`);
+      return;
+    }
+    event.attempts--;
+    event.busyRetries++;
+    event.retryAt = retryAt;
+    log.info(`${kind} busy retry=${event.busyRetries}`);
   }
 }
