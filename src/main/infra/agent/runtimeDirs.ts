@@ -9,6 +9,10 @@ export const HOME_ENV = "NEXUS_CODE_HOME";
 export function root(): string {
   const named = process.env[HOME_ENV];
   if (named) return path.resolve(named);
+  return defaultRoot();
+}
+
+export function defaultRoot(): string {
   const home = os.homedir();
   if (!home) {
     throw new Error("agentpaths: cannot determine home directory (os.homedir() returned empty)");
