@@ -1898,7 +1898,7 @@ describe("isLoginShell", () => {
   });
 
   it("Windows shells, named as the agent names them there", () => {
-    for (const sh of ["powershell", "pwsh", "cmd", "CMD", "nu"]) {
+    for (const sh of ["powershell", "pwsh", "cmd", "CMD", "nu", "wsl", "WSL"]) {
       expect(isLoginShell(sh)).toBe(true);
     }
   });
