@@ -132,12 +132,14 @@ import { broadcast, setupRouter } from "./infra/ipc-router";
 import { createQuitStateFlush, finishMainShutdown } from "./infra/main-shutdown";
 import { isMac, isWindows, loginShell } from "./infra/platform";
 import { startDesktopNotifications } from "./infra/platform/desktop-notifications";
+import { keepLogsApart } from "./infra/platform/logs-dir";
 import { syncUserShellPath } from "./infra/platform/shell-path";
 import { beginRun, startLine } from "./infra/run-log";
 import { GlobalStorage } from "./infra/storage/global-storage";
 import { StateService } from "./infra/storage/state-service";
 import { WorkspaceStorage } from "./infra/storage/workspace-storage";
 
+keepLogsApart(app);
 initMainLogger();
 
 const logger = createLogger("main");

@@ -35,6 +35,12 @@ interface Held extends AnsweredAsk {
 
 export const DENIED_MESSAGE = "The user denied this tool call.";
 
+export const ESCAPE_DISMISS_MS = 10_000;
+
+const ESCAPE = "\x1b";
+
+const FOCUS_REPORTS = new Set(["\x1b[I", "\x1b[O"]);
+
 type Payload = Record<string, unknown>;
 
 export class PermissionAsks {
@@ -42,6 +48,8 @@ export class PermissionAsks {
   private readonly answering = new Set<Held>();
   private readonly listeners = new Set<AnsweredListener>();
   private readonly terminalListeners = new Set<TerminalAnswerListener>();
+  private readonly dismissListeners = new Set<TerminalAnswerListener>();
+  private readonly escapedAt = new Map<string, number>();
 
   constructor(
     private readonly respond: HookResponder,
@@ -128,6 +136,16 @@ export class PermissionAsks {
     });
   }
 
+  noteTerminalInput(workspaceId: string, tabId: string, data: string): void {
+    if (FOCUS_REPORTS.has(data)) return;
+    const key = `${workspaceId}:${tabId}`;
+    this.escapedAt.delete(key);
+    if (answersDialog(data)) this.answeredInTerminal(workspaceId, tabId);
+    else if (data === ESCAPE && this.list(workspaceId, tabId).length > 0) {
+      this.escapedAt.set(key, this.now());
+    }
+  }
+
   answeredInTerminal(workspaceId: string, tabId: string): void {
     const [oldest] = this.list(workspaceId, tabId);
     const held = oldest && this.held.get(oldest.id);
@@ -137,14 +155,23 @@ export class PermissionAsks {
   }
 
   gone(hookId: string): void {
+    const held = this.held.get(hookId);
+    if (!held) return;
     this.held.delete(hookId);
+    const escapedAt = this.escapedAt.get(`${held.workspaceId}:${held.tabId}`);
+    if (escapedAt === undefined || this.now() - escapedAt > ESCAPE_DISMISS_MS) return;
+    for (const listener of this.dismissListeners) listener(held);
   }
 
   clear(workspaceId: string, tabId: string): void {
+    this.escapedAt.delete(`${workspaceId}:${tabId}`);
     this.release((held) => held.workspaceId === workspaceId && held.tabId === tabId);
   }
 
   clearWorkspace(workspaceId: string): void {
+    for (const key of this.escapedAt.keys()) {
+      if (key.startsWith(`${workspaceId}:`)) this.escapedAt.delete(key);
+    }
     this.release((held) => held.workspaceId === workspaceId);
   }
 
@@ -156,6 +183,11 @@ export class PermissionAsks {
   onAnsweredInTerminal(listener: TerminalAnswerListener): () => void {
     this.terminalListeners.add(listener);
     return () => this.terminalListeners.delete(listener);
+  }
+
+  onDismissedInTerminal(listener: TerminalAnswerListener): () => void {
+    this.dismissListeners.add(listener);
+    return () => this.dismissListeners.delete(listener);
   }
 
   private release(releases: (held: Held) => boolean): void {
