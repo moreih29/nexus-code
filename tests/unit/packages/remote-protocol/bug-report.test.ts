@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  BUG_REPORT_ERROR_AREAS,
   BUG_REPORT_ERRORS,
   BUG_REPORT_STATUSES,
   BUG_REPORT_VERSION,
@@ -9,14 +10,22 @@ import {
   BugReportErrorSchema,
   BugReportRecentErrorSchema,
   BugReportSchema,
+  bugReportBytes,
+  cleanBugReportErrorMessage,
+  fitBugReportContext,
+  MAX_BUG_REPORT_BODY_BYTES,
   MAX_BUG_REPORT_CONTEXT_BYTES,
   MAX_BUG_REPORT_DESCRIPTION,
   MAX_BUG_REPORT_ERROR_AGE,
+  MAX_BUG_REPORT_ERROR_COUNT,
+  MAX_BUG_REPORT_ERROR_MESSAGE,
   MAX_BUG_REPORT_ERRORS,
   MAX_FRAME_BYTES,
   MIN_BUG_REPORT_DESCRIPTION,
   PROTOCOL_VERSION,
   RELAY_VERSION,
+  redactBugReportText,
+  SCHEMA_VERSION,
 } from "../../../../packages/remote-protocol/src";
 
 const mobile: BugReport = {
@@ -32,6 +41,13 @@ const mobile: BugReport = {
     errors: [
       { ago: 42, area: "api", code: "http_500", status: 500 },
       { ago: 0, area: "relay", code: "offline" },
+      {
+        ago: 3,
+        area: "files",
+        code: "write_file:fs-error",
+        message: "EACCES: permission denied, open '<path>'",
+        count: 2,
+      },
     ],
   },
 };
@@ -56,11 +72,10 @@ const withContext = (change: (context: Context) => unknown) =>
 
 const accepts = (value: unknown) => BugReportSchema.safeParse(value).success;
 
-const bytesOf = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
-
 describe("a bug report", () => {
   test("version 1 leaves the relay protocol as it was", () => {
     expect(BUG_REPORT_VERSION).toBe(1);
+    expect(SCHEMA_VERSION).toBe("0.36.0");
     expect(PROTOCOL_VERSION).toBe(2);
     expect(RELAY_VERSION).toBe(2);
     expect(MAX_FRAME_BYTES).toBe(1024 * 1024);
@@ -175,7 +190,7 @@ describe("a bug report refuses unknown keys", () => {
     for (const change of changes) expect(accepts(withContext(change))).toBe(false);
     expect(BugReportContextSchema.safeParse({ ...mobile.context, ...extra }).success).toBe(false);
     expect(
-      BugReportRecentErrorSchema.safeParse({ ago: 1, area: "api", code: "x", message: "/Users/a" })
+      BugReportRecentErrorSchema.safeParse({ ago: 1, area: "api", code: "x", stack: "at a" })
         .success,
     ).toBe(false);
   });
@@ -287,11 +302,63 @@ describe("a bug report's recent errors", () => {
     }
   });
 
-  test("area is one of the six", () => {
-    for (const area of ["api", "relay", "voice", "push", "rpc", "render"]) {
-      expect(accepts(one({ area }))).toBe(true);
+  test("area is one of the eleven", () => {
+    expect(BUG_REPORT_ERROR_AREAS).toEqual([
+      "api",
+      "relay",
+      "voice",
+      "push",
+      "rpc",
+      "render",
+      "app",
+      "agent",
+      "notes",
+      "files",
+      "git",
+    ]);
+    for (const area of BUG_REPORT_ERROR_AREAS) expect(accepts(one({ area }))).toBe(true);
+    for (const area of ["network", "API", "terminal", ""]) {
+      expect(accepts(one({ area }))).toBe(false);
     }
-    for (const area of ["network", "API", ""]) expect(accepts(one({ area }))).toBe(false);
+  });
+
+  test("message is optional: one line of 1 to 300 code points", () => {
+    expect(MAX_BUG_REPORT_ERROR_MESSAGE).toBe(300);
+    expect(accepts(one({ message: "x" }))).toBe(true);
+    expect(accepts(one({ message: "가".repeat(300) }))).toBe(true);
+    expect(accepts(one({ message: "😀".repeat(300) }))).toBe(true);
+    expect(accepts(one({ message: "a".repeat(301) }))).toBe(false);
+    expect(accepts(one({ message: "" }))).toBe(false);
+    expect(accepts(one({ message: 1 }))).toBe(false);
+  });
+
+  test("message refuses control, line and direction characters and lone surrogates", () => {
+    for (const char of [
+      "\n",
+      "\t",
+      "\r",
+      "\u0000",
+      "\u007f",
+      "\u0085",
+      "\u2028",
+      "\u2029",
+      "\u202e",
+      "\u2066",
+      "\ufeff",
+      "\ud83d",
+      "\ude00",
+    ]) {
+      expect(accepts(one({ message: `a${char}b` }))).toBe(false);
+    }
+    expect(accepts(one({ message: "a b 😀 \u200d 가" }))).toBe(true);
+  });
+
+  test("count is an optional integer from 1 to 9999", () => {
+    expect(MAX_BUG_REPORT_ERROR_COUNT).toBe(9999);
+    for (const count of [1, 2, 9999]) expect(accepts(one({ count }))).toBe(true);
+    for (const count of [0, -1, 10_000, 1.5, "2", null]) {
+      expect(accepts(one({ count }))).toBe(false);
+    }
   });
 
   test("code: 1 to 40 of lower-case letters, digits and _ . : -", () => {
@@ -313,26 +380,227 @@ describe("a bug report's recent errors", () => {
     }
   });
 
-  test("the largest valid context stays under the server's 4 KB limit", () => {
-    expect(MAX_BUG_REPORT_CONTEXT_BYTES).toBe(4096);
+  const largestFacts = {
+    app: { version: "9".repeat(32), build: "9".repeat(32) },
+    os: { version: "9".repeat(64) },
+    device: { kind: "desktop", model: "a".repeat(40), arch: "a".repeat(16) },
+    protocol: { version: 1000, package: `9999.9999.9999-${"a".repeat(20)}` },
+    locale: "en",
+  } satisfies Omit<Context, "errors">;
+  const largestError = (message?: string) => ({
+    ago: 2_592_000,
+    area: "agent" as const,
+    code: "a".repeat(40),
+    status: 599,
+    count: 9999,
+    ...(message === undefined ? {} : { message }),
+  });
+
+  test("without messages, the largest context fits the 8 KB limit", () => {
+    expect(MAX_BUG_REPORT_CONTEXT_BYTES).toBe(8192);
     const largest: Context = {
-      app: { version: "9".repeat(32), build: "9".repeat(32) },
-      os: { version: "9".repeat(64) },
-      device: { kind: "desktop", model: "a".repeat(40), arch: "a".repeat(16) },
-      protocol: { version: 1000, package: `9999.9999.9999-${"a".repeat(20)}` },
-      locale: "en",
-      errors: Array.from({ length: 20 }, () => ({
-        ago: 2_592_000,
-        area: "render" as const,
-        code: "a".repeat(40),
-        status: 599,
+      ...largestFacts,
+      errors: Array.from({ length: 20 }, () => largestError()),
+    };
+    expect(BugReportContextSchema.safeParse(largest).success).toBe(true);
+    expect(bugReportBytes(largest)).toBeLessThanOrEqual(MAX_BUG_REPORT_CONTEXT_BYTES);
+    expect(fitBugReportContext(largest)).toBe(largest);
+  });
+
+  test("fitting keeps a context that fits as it is", () => {
+    expect(fitBugReportContext(mobile.context)).toBe(mobile.context);
+    const empty = { ...mobile.context, errors: undefined };
+    expect(fitBugReportContext(empty)).toBe(empty);
+  });
+
+  test("fitting drops the oldest errors' messages first, then the oldest errors", () => {
+    const largest: Context = {
+      ...largestFacts,
+      errors: Array.from({ length: 20 }, (_, i) => ({
+        ...largestError(`"${"😀".repeat(299)}`),
+        code: `e${i}`,
       })),
     };
     expect(BugReportContextSchema.safeParse(largest).success).toBe(true);
-    expect(bytesOf(largest)).toBeLessThanOrEqual(MAX_BUG_REPORT_CONTEXT_BYTES);
-    const body = { ...mobile, description: "😀".repeat(3000), context: largest };
+    expect(bugReportBytes(largest)).toBeGreaterThan(MAX_BUG_REPORT_CONTEXT_BYTES);
+    const fitted = fitBugReportContext(largest);
+    expect(BugReportContextSchema.safeParse(fitted).success).toBe(true);
+    expect(bugReportBytes(fitted)).toBeLessThanOrEqual(MAX_BUG_REPORT_CONTEXT_BYTES);
+    const errors = fitted.errors ?? [];
+    expect(errors.map(({ code }) => code)).toEqual(largest.errors?.map(({ code }) => code));
+    const kept = errors.findIndex((error) => error.message === undefined);
+    expect(kept).toBeGreaterThan(0);
+    expect(errors.slice(0, kept).every((error) => error.message !== undefined)).toBe(true);
+    expect(errors.slice(kept).every((error) => error.message === undefined)).toBe(true);
+    expect(largest.errors?.[19].message).toBeDefined();
+    const tight = fitBugReportContext(largest, 1024);
+    expect(bugReportBytes(tight)).toBeLessThanOrEqual(1024);
+    expect(tight.errors?.length).toBeLessThan(20);
+    expect(tight.errors?.[0].code).toBe("e0");
+  });
+
+  test("a fitted body with the longest description stays under 24 KB", () => {
+    expect(MAX_BUG_REPORT_BODY_BYTES).toBe(24 * 1024);
+    const context = fitBugReportContext({
+      ...largestFacts,
+      errors: Array.from({ length: 20 }, () => largestError("😀".repeat(300))),
+    });
+    const body = { ...mobile, description: "😀".repeat(3000), context };
     expect(accepts(body)).toBe(true);
-    expect(bytesOf(body)).toBeLessThanOrEqual(16 * 1024);
+    expect(bugReportBytes(body)).toBeLessThanOrEqual(MAX_BUG_REPORT_BODY_BYTES);
+  });
+});
+
+describe("redacting a bug report's text", () => {
+  const redacts = (text: string, expected: string) =>
+    expect(redactBugReportText(text)).toBe(expected);
+
+  test("POSIX paths, whole, under any root", () => {
+    for (const root of ["Users", "home", "tmp", "private", "var", "Volumes", "opt", "mnt"]) {
+      redacts(`failed at /${root}/kim/project/a.ts now`, "failed at <path> now");
+    }
+    redacts("at run (/Users/kim/app/src/x.ts:10:5)", "at run (<path>)");
+    redacts("in /home/kim/John Smith/Documents/a.ts here", "in <path> here");
+    for (const path of ["~/notes/plan.md", "~kim/x", "./src/a.ts", "../b/c"]) {
+      redacts(`read ${path}, then stopped`, "read <path> then stopped");
+    }
+    redacts("file=/Users/kim/a.txt", "file=<path>");
+  });
+
+  test("quoted paths with spaces and relative paths in system call errors", () => {
+    redacts(
+      "ENOENT: no such file or directory, open '/Users/kim/My Notes/a b.md'",
+      "ENOENT: no such file or directory, open '<path>'",
+    );
+    redacts(
+      "ENOENT: no such file or directory, open 'notes/plan.md'",
+      "ENOENT: no such file or directory, open '<path>'",
+    );
+    redacts(
+      "EXDEV: cross-device link not permitted, rename 'a/b' -> 'c/d'",
+      "EXDEV: cross-device link not permitted, rename '<path>' -> '<path>'",
+    );
+    redacts('Cannot find module "/Users/kim/x.js"', 'Cannot find module "<path>"');
+  });
+
+  test("Windows paths: drive, long, UNC, slashes and JSON-escaped", () => {
+    redacts("C:\\Users\\kim\\AppData\\x.txt not found", "<path> not found");
+    redacts("c:/Users/kim/x.txt not found", "<path> not found");
+    redacts("\\\\?\\C:\\Users\\kim\\x.txt", "<path>");
+    redacts("\\\\.\\pipe\\nexus-kim", "<path>");
+    redacts("open \\\\server\\share\\dir\\f.txt", "open <path>");
+    redacts("open //server/share/dir/f.txt", "open <path>");
+    redacts('{"path":"C:\\\\Users\\\\kim\\\\x.txt"}', '{"path":"<path>"}');
+    redacts('{"path":"\\\\\\\\server\\\\share\\\\x"}', '{"path":"<path>"}');
+    redacts("C:\\Program Files (x86)\\Kim Tools\\bar.exe crashed", "<path> crashed");
+  });
+
+  test("file URLs", () => {
+    redacts("load file:///Users/kim/a.html failed", "load <path> failed");
+    redacts("load file:/C:/Users/kim/a.html failed", "load <path> failed");
+    redacts("load FILE://server/share/a.html", "load <path>");
+  });
+
+  test("emails", () => {
+    redacts("signed in as kim.lee+test@example.com today", "signed in as <email> today");
+    redacts("git@github.example.com: denied", "<email>: denied");
+  });
+
+  test("tokens and keys", () => {
+    redacts("Authorization: Bearer abc123", "Authorization: <secret> <secret>");
+    redacts("sent bearer abcdefghijklmnopq", "sent bearer <secret>");
+    redacts("Basic dXNlcjpwYXNz failed", "Basic <secret> failed");
+    redacts("key sk-ant-api03-AbCdEf1234567890xyz leaked", "key <secret> leaked");
+    redacts("key sk-proj-abcdefghijklmnop1234 leaked", "key <secret> leaked");
+    redacts(`pat ghp_${"a1".repeat(18)} here`, "pat <secret> here");
+    redacts(`aws AKIA${"A1B2C3D4E5F6G7H8"} here`, "aws <secret> here");
+    redacts(
+      "jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+      "jwt <secret>",
+    );
+    redacts("id 3f786850e387550fdab836ed7e6dc881de23001b done", "id <secret> done");
+    redacts("id 0x3f786850e387550fdab836ed7e6dc881de23001b done", "id <secret> done");
+    redacts("blob QWxhZGRpbjpvcGVuIHNlc2FtZQ12345abcdeXYZ== done", "blob <secret> done");
+    redacts(
+      'password=hunter2 api_key: "xyz" refresh_token=abc',
+      "password=<secret> api_key: <secret> refresh_token=<secret>",
+    );
+    redacts("x-account-auth: abc.def", "x-account-auth: <secret>");
+    redacts(
+      "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY----- done",
+      "<secret> done",
+    );
+  });
+
+  test("URLs keep their scheme, host and path, not their user, query or fragment", () => {
+    redacts(
+      "GET https://kim:pw@api.example.com/v1/items?token=abc&x=1#top failed",
+      "GET https://api.example.com/v1/items failed",
+    );
+    redacts("wss://relay.example.com/relay?v=2&ticket=t1", "wss://relay.example.com/relay");
+  });
+
+  test("IP addresses, but not loopback", () => {
+    redacts("connect ECONNREFUSED 10.0.0.12:22", "connect ECONNREFUSED <ip>:22");
+    redacts("connect ECONNREFUSED 127.0.0.1:3000", "connect ECONNREFUSED 127.0.0.1:3000");
+    redacts("listen 0.0.0.0", "listen 0.0.0.0");
+    redacts("via fe80::1c2b:3d4e:5f60:7a8b now", "via <ip> now");
+    redacts("via 2001:db8:0:0:0:0:2:1 now", "via <ip> now");
+    redacts("via ::1 at 12:30:45", "via ::1 at 12:30:45");
+  });
+
+  test("keeps what carries no person", () => {
+    for (const text of [
+      "spawn claude ENOENT",
+      "Cannot read properties of undefined (reading 'text')",
+      "POST /bug-reports?v=1 failed with 500",
+      "max_tokens: 4096",
+      "basic authentication failed",
+      'Bearer realm="api"',
+      "src/renderer/components/settings/panels",
+      "6f1c2d3e-4b5a-4c6d-8e7f-0a1b2c3d4e5f",
+      "http_500 timeout",
+    ]) {
+      expect(redactBugReportText(text)).toBe(text);
+    }
+  });
+});
+
+describe("cleaning an error message", () => {
+  test("redacts, keeps one line and fits the schema", () => {
+    expect(cleanBugReportErrorMessage("open '/Users/kim/a.md'\n  at x\tb\u202ec")).toBe(
+      "open '<path>' at x b c",
+    );
+    expect(cleanBugReportErrorMessage("  \n\t ")).toBeUndefined();
+    expect(cleanBugReportErrorMessage("")).toBeUndefined();
+  });
+
+  test("cuts a long message to 300 code points with an ellipsis", () => {
+    const long = cleanBugReportErrorMessage("😀".repeat(400)) ?? "";
+    expect(Array.from(long)).toHaveLength(300);
+    expect(long.endsWith("…")).toBe(true);
+    expect(cleanBugReportErrorMessage("x".repeat(300))).toBe("x".repeat(300));
+  });
+
+  test("redacts before it cuts, so no secret is left half", () => {
+    const text = `${"a ".repeat(140)}sk-ant-api03-${"x1".repeat(40)}`;
+    const cleaned = cleanBugReportErrorMessage(text) ?? "";
+    expect(cleaned).toContain("<secret>");
+    expect(cleaned).not.toContain("x1x1");
+  });
+
+  test("what it gives is a valid message", () => {
+    for (const text of [
+      "a\u0000b\u0085c\u2028d",
+      "😀".repeat(500),
+      "\ud83d lone",
+      "C:\\Users\\kim\\a.txt\r\nnext",
+    ]) {
+      const message = cleanBugReportErrorMessage(text);
+      expect(
+        BugReportRecentErrorSchema.safeParse({ ago: 0, area: "app", code: "x", message }).success,
+      ).toBe(true);
+    }
   });
 });
 
