@@ -1,11 +1,14 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import * as fsp from "node:fs/promises";
+import { homedir } from "node:os";
 import {
   BugReportRecentErrorSchema,
+  cleanBugReportErrorMessage,
   MAX_BUG_REPORT_ERROR_AGE,
+  redactBugReportText,
 } from "../../../../packages/remote-protocol/src";
-import { RecentErrors } from "../../../../src/main/infra/recent-errors";
+import { homeRedactor, RecentErrors } from "../../../../src/main/infra/recent-errors";
 
 function clock(start = 1_000_000) {
   let now = start;
@@ -130,6 +133,77 @@ describe("recent errors", () => {
       expect(new RecentErrors(clock().now).list()).toEqual([]);
     } finally {
       for (const write of writes) write.mockRestore();
+    }
+  });
+});
+
+describe("this computer's home folder in a recorded message", () => {
+  const QA_HOME = "C:\\tmp\\QA\\John Smith";
+  const recorded = (home: string, message: string) => {
+    const errors = new RecentErrors(clock().now, 20, homeRedactor(home));
+    errors.record("app", "x", undefined, message);
+    return errors.list()[0]?.message;
+  };
+
+  test("goes whole, where the shared rules would leave a word of a name outside \\Users\\", () => {
+    expect(recorded(QA_HOME, "cannot access C:\\tmp\\QA\\John Smith")).toBe("cannot access <path>");
+    expect(recorded(QA_HOME, "C:\\tmp\\QA\\John Smith was not found")).toBe("<path> was not found");
+    expect(recorded(QA_HOME, "C:\\tmp\\QA\\John Smith.")).toBe("<path>.");
+    expect(recorded("D:\\home\\A B C D\\", "open D:\\home\\A B C D now")).toBe("open <path> now");
+    expect(recorded("/srv/people/kim lee", "stat /srv/people/kim lee")).toBe("stat <path>");
+    expect(recorded("C:\\tmp\\a+b (x)", "C:\\tmp\\a+b (x) failed")).toBe("<path> failed");
+  });
+
+  test("in either slash, JSON's doubled backslashes, a long path and any case", () => {
+    expect(recorded(QA_HOME, "c:/TMP/qa/john smith: denied")).toBe("<path>: denied");
+    expect(recorded(QA_HOME, '{"p":"C:\\\\tmp\\\\QA\\\\John Smith"}')).toBe('{"p":"<path>"}');
+    expect(recorded(QA_HOME, "open \\\\?\\C:\\tmp\\QA\\John Smith")).toBe("open <path>");
+  });
+
+  test("and the path it starts go whole, however many spaces the name has", () => {
+    expect(recorded(QA_HOME, "C:\\tmp\\QA\\John Smith\\Documents\\final report.txt")).toBe(
+      "<path>",
+    );
+    expect(recorded(QA_HOME, '{"p":"C:\\\\tmp\\\\QA\\\\John Smith\\\\a b c\\\\x y z"}')).toBe(
+      '{"p":"<path>"}',
+    );
+    expect(recorded("D:\\home\\A B C D", "D:\\home\\A B C D\\x\\y.txt")).toBe("<path>");
+    expect(recorded("/srv/people/kim lee", "x /srv/people/kim lee/a/b")).toBe("x <path>");
+    expect(recorded(QA_HOME, "load file:///C:/tmp/QA/John Smith/a.html")).toBe("load <path>");
+  });
+
+  test("is left to the shared rules when the name goes on: another folder", () => {
+    const forget = homeRedactor("/Users/kim");
+    expect(forget("/Users/kimberly/x")).toBe("/Users/kimberly/x");
+    expect(forget("/Users/kim_2")).toBe("/Users/kim_2");
+    expect(forget("/Users/kim.bak/x")).toBe("/Users/kim.bak/x");
+    expect(recorded("/Users/kim", "open /Users/kimberly/x now")).toBe("open <path> now");
+  });
+
+  test("changes nothing for a root, a share or an empty home", () => {
+    for (const home of ["", "/", "C:\\", "C:", "\\\\srv\\share\\kim", "relative\\kim"]) {
+      expect(homeRedactor(home)("cannot access C:\\a b /x y \\\\srv\\share\\kim")).toBe(
+        "cannot access C:\\a b /x y \\\\srv\\share\\kim",
+      );
+    }
+  });
+
+  test("by default is the home of the computer the app runs on", () => {
+    const errors = new RecentErrors(clock().now);
+    errors.record("app", "x", undefined, `open ${homedir()} failed`);
+    expect(errors.list()[0]?.message).toBe("open <path> failed");
+  });
+
+  test("a recorded message comes out the same from the shared rules", () => {
+    for (const message of [
+      "cannot access C:\\tmp\\QA\\John Smith",
+      "C:\\tmp\\QA\\John Smith\\Documents\\final report.txt",
+      "c:/TMP/qa/john smith: denied",
+    ]) {
+      const shown = recorded(QA_HOME, message);
+      expect(shown).toBeDefined();
+      expect(cleanBugReportErrorMessage(shown ?? "")).toBe(shown);
+      expect(redactBugReportText(shown ?? "")).toBe(shown);
     }
   });
 });
