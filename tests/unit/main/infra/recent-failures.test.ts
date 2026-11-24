@@ -31,7 +31,7 @@ describe("a failed IPC call", () => {
       errors.record,
     );
     noteIpcResult(
-      "workspace",
+      "window",
       "open",
       ipcErr("unavailable", "host down", { category: "failed" }),
       errors.record,
@@ -79,6 +79,25 @@ describe("a failed IPC call", () => {
     expect(JSON.stringify(errors.list())).not.toContain("payroll");
     expect(errors.list().map(({ area }) => area)).toContain("agent");
     expect(errors.list().map(({ area }) => area)).toContain("notes");
+  });
+
+  test("SSH, connection profile and workspace errors keep only the code: they name hosts and users", () => {
+    const errors = fresh();
+    const message = "ssh: connect to host myserver.local port 22: Permission denied for kih@myhost";
+    for (const channel of ["ssh", "connectionProfile", "workspace"]) {
+      noteIpcResult(
+        channel,
+        "connect",
+        ipcErr("failed", message, { category: "failed" }),
+        errors.record,
+      );
+      noteIpcThrow(channel, "connect", new Error(message), errors.record);
+    }
+    expect(errors.list()).toEqual([
+      { ago: 0, area: "app", code: "connect:error", count: 3 },
+      { ago: 0, area: "app", code: "connect:failed", count: 3 },
+    ]);
+    expect(JSON.stringify(errors.list())).not.toMatch(/myserver|myhost|kih/);
   });
 
   test("records nothing for cancelled or invalid input, for the remote channel, or for itself", () => {

@@ -24,8 +24,6 @@ function recordsItself(channel: string, method: string): boolean {
 const MESSAGE_CHANNELS: ReadonlySet<string> = new Set([
   "fs",
   "system",
-  "workspace",
-  "ssh",
   "wsl",
   "tab",
   "window",
@@ -34,7 +32,6 @@ const MESSAGE_CHANNELS: ReadonlySet<string> = new Set([
   "appState",
   "dialog",
   "folderBookmark",
-  "connectionProfile",
 ]);
 
 function areaOf(channel: string): BugReportErrorArea {

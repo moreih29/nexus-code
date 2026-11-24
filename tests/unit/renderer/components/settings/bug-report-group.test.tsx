@@ -185,7 +185,7 @@ describe("the bug report in About", () => {
     );
     const ko = await renderIn("ko", form({ open: true, context }));
     expect(ko).toContain("4회");
-    expect(ko).toContain("경로와 키를 가린 오류 메시지 포함 · 앱을 끄면 지워짐");
+    expect(ko).toContain("경로와 키를 가린 오류 메시지 · 앱을 끄면 지워짐");
     const off = fields({ open: true, includeErrors: false, context });
     expect(off).toContain("Not included");
     expect(off).not.toContain("EACCES");

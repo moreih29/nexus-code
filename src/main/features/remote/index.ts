@@ -957,7 +957,7 @@ export async function registerRemoteChannel(options: {
         return ask(async () => {
           const transcription = await noteVoice.transcription(id);
           if (transcription.status === "error") {
-            recentErrors.record("notes", "transcription:error", undefined, transcription.message);
+            recentErrors.record("voice", "transcription:error", undefined, transcription.message);
           }
           return transcription;
         });
