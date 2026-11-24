@@ -1,5 +1,6 @@
 import { getEntryMetadata } from "@/services/editor/model/cache";
 import { isMonacoReady, requireMonaco } from "@/services/editor/runtime/monaco-singleton";
+import { closeTabWithConfirm } from "@/services/editor/save/close-tab";
 import { moveTabToZone } from "@/state/operations/dnd";
 import { reveal } from "@/state/operations/files";
 import { closeGroup } from "@/state/operations/groups";
@@ -143,6 +144,13 @@ export const layoutHandlers: { [K in LayoutOp & CliUiOp]: CliUiHandler<K> } = {
       }
     }
     const closed = leaf.tabIds.length;
+    for (const tabId of leaf.tabIds) {
+      const type = tabRecord(workspaceId, tabId).type;
+      if (type !== "claude" && type !== "codex") continue;
+      if ((await closeTabWithConfirm(workspaceId, tabId)) !== "closed") {
+        throw new UiRequestError(`${tabRecord(workspaceId, tabId).title} could not be closed`);
+      }
+    }
     closeGroup(workspaceId, groupId);
     return { closed };
   },

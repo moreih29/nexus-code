@@ -57,7 +57,7 @@ export async function closeTabWithConfirm(
   return "closed";
 }
 
-const EDITOR_TYPES = new Set(["editor", "untitled", "editor.diff"]);
+const CLOSED_ONE_BY_ONE = new Set(["editor", "untitled", "editor.diff", "claude", "codex"]);
 
 export async function closeGroupWithConfirm(
   workspaceId: string,
@@ -79,7 +79,7 @@ export async function closeGroupWithConfirm(
 
   for (const tabId of tabIds) {
     const type = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId]?.type;
-    if (type === undefined || !EDITOR_TYPES.has(type)) continue;
+    if (type === undefined || !CLOSED_ONE_BY_ONE.has(type)) continue;
     const outcome = await closeTabWithConfirm(workspaceId, tabId);
     if (outcome !== "closed") return outcome;
   }

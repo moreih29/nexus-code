@@ -185,6 +185,10 @@ function killCalls(): IpcCallRecord[] {
   return ipcCalls.filter((call) => call.channel === "pty" && call.method === "kill");
 }
 
+function chatCloseCalls(): IpcCallRecord[] {
+  return ipcCalls.filter((call) => call.channel === "chat" && call.method === "close");
+}
+
 async function flushTerminalInit(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
@@ -617,6 +621,31 @@ describe("services/terminal open and close", () => {
       expect(await closeGroupWithConfirm(WS, groupId)).toBe("closed");
       expect(confirmRequests).toEqual(["Closing the terminal also terminates “PING”."]);
       expect(killCalls()).toHaveLength(2);
+    });
+
+    it("stops the conversation programs of the group it closes", async () => {
+      const { groupId, leftTabId } = terminalInSecondGroup();
+      const claude = useTabsStore
+        .getState()
+        .createTab(WS, { type: "claude", props: { cwd: "/workspace" } });
+      useLayoutStore.getState().attachTab(WS, groupId, claude.id);
+      const codex = useTabsStore
+        .getState()
+        .createTab(WS, { type: "codex", props: { cwd: "/workspace" } });
+      useLayoutStore.getState().attachTab(WS, groupId, codex.id);
+      foregroundByTab.set(leftTabId, "-zsh");
+      mockForegroundProcessName = "-zsh";
+
+      expect(await closeGroupWithConfirm(WS, groupId)).toBe("closed");
+      await Promise.resolve();
+      expect(chatCloseCalls().map((call) => call.args)).toEqual([
+        { workspaceId: WS, tabId: claude.id },
+        { workspaceId: WS, tabId: codex.id },
+      ]);
+      const tabs = useTabsStore.getState().byWorkspace[WS];
+      expect(tabs?.[claude.id]).toBeUndefined();
+      expect(tabs?.[codex.id]).toBeUndefined();
+      expect(tabs?.[leftTabId]).toBeDefined();
     });
 
     it("keeps the running terminal when the editor save prompt is cancelled", async () => {
