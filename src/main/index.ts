@@ -963,6 +963,7 @@ app.on("window-all-closed", () => {
 let quitReady = false;
 const flushStateBeforeQuit = createQuitStateFlush({
   flush: () => stateService.flushNow(),
+  keep: () => stateService.keepForNextLaunch(),
   quit: () => app.quit(),
   warn: (message) => logger.warn(message),
   error: (message) => logger.error(message),
