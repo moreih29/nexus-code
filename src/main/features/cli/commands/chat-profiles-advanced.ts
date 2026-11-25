@@ -432,6 +432,10 @@ function rank(field: BehaviorField, value: BehaviorValue | null): number {
   return ranks[String(effective)] ?? 0;
 }
 
+function onPlatform(id: string, windows: boolean): boolean {
+  return !(windows && id === "sandbox");
+}
+
 function locked(
   agent: ChatAgent,
   id: string,
@@ -445,7 +449,7 @@ function locked(
   if (custom && agent === "codex" && (id === "webSearch" || id === "verbosity")) {
     return "a custom connection does not use it";
   }
-  if (windows && id === "sandbox") return "it is not available on Windows";
+  if (!onPlatform(id, windows)) return "it is not available on Windows";
   return undefined;
 }
 
@@ -470,9 +474,8 @@ async function behaviorLines(
     const id = eq > 0 ? pair.slice(0, eq).trim() : "";
     const field = fields.find((f) => f.id === id);
     if (!field) {
-      throw new CliUsageError(
-        `--behavior takes ID=VALUE with ID one of ${fields.map((f) => f.id).join(", ")}`,
-      );
+      const ids = fields.map((f) => f.id).filter((fieldId) => onPlatform(fieldId, windows));
+      throw new CliUsageError(`--behavior takes ID=VALUE with ID one of ${ids.join(", ")}`);
     }
     const reason = locked(agent, id, connection, windows);
     if (reason) throw new CliUsageError(`--behavior ${id}: ${reason}`);

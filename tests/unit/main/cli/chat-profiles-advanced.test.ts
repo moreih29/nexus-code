@@ -221,7 +221,14 @@ test("edit refuses the sandbox behavior on Windows as Settings hides it", async 
   const result = await cli(["chat", "profiles", "edit", "Work", "--behavior", "sandbox=off"]);
   expect(result.exitCode).not.toBe(0);
   expect(result.stderr).toContain("--behavior sandbox: it is not available on Windows");
+  const unknown = await cli(["chat", "profiles", "edit", "Work", "--behavior", "nope=1"]);
+  expect(unknown.stderr).toContain("--behavior takes ID=VALUE with ID one of model");
+  expect(unknown.stderr).toContain("attribution");
+  expect(unknown.stderr).not.toContain("sandbox");
   expect(app.asked).toEqual([]);
+  const elsewhere = profileFixture(dirOf());
+  const listed = await elsewhere.cli(["chat", "profiles", "edit", "Work", "--behavior", "nope=1"]);
+  expect(listed.stderr).toContain("attribution, sandbox");
 });
 
 test("edit changes timeouts, shared files and behavior, marking wider permissions", async () => {

@@ -254,7 +254,7 @@ Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책�
 - 환경 변수, 헤더, 쿼리 값은 파일이나 stdin으로만 받습니다: `--env-file`은 `KEY=VALUE` 줄, `--header-file`은 `Name: value` 줄, `--query-file`(Codex)은 `name=value` 줄입니다. 있는 값에 더하거나 바꾸고, `--unset-env`·`--unset-header`·`--unset-query NAME`으로 지웁니다. `NEXUS_`로 시작하는 변수는 거절합니다. 값은 출력·JSON·로그·승인 창 어디에도 나오지 않고 이름만 표시됩니다. stdin(`-`)은 한 플래그만 씁니다.
 - 사용자 지정 연결의 고급 설정: Claude는 `--timeout MS`, `--max-output-tokens N`, `--experimental-headers on|off`, Codex는 `--retries N`(0–100), `--stream-idle-timeout MS`. 시간과 토큰은 1부터 2147483647까지이고 `auto`는 비웁니다.
 - `--share NAME`, `--unshare NAME`은 기본 폴더와 공유하는 파일을 고릅니다(설정 화면의 목록과 같음, 기본 프로필 제외). 공유를 끄면 설정 화면처럼 링크를 지웁니다.
-- `--behavior ID=VALUE`는 프로필의 `settings.json`·`config.toml` 동작 설정을 바꿉니다. ID는 설정 화면의 항목(`permissionMode`, `sandbox`, `approvalPolicy`, `sandboxMode` 등, 목록은 오류 메시지에 나옴)이고, 스위치는 `on|off`, 선택은 설정 화면에 있는 값만, `default`는 비웁니다. 권한 묻기를 줄이거나 샌드박스를 끄는 등 넓어지는 변경은 승인 창에 "권한 넓어짐"으로 표시합니다. 파일이 기본 프로필과 공유 중이면 그것도 표시합니다. 승인을 기다리는 동안 파일이 바뀌면 아무것도 저장하지 않습니다.
+- `--behavior ID=VALUE`는 프로필의 `settings.json`·`config.toml` 동작 설정을 바꿉니다. ID는 설정 화면의 항목(`permissionMode`, `sandbox`, `approvalPolicy`, `sandboxMode` 등, 목록은 오류 메시지에 나옴. `sandbox`는 설정 화면처럼 Windows에서 받지 않음)이고, 스위치는 `on|off`, 선택은 설정 화면에 있는 값만, `default`는 비웁니다. 권한 묻기를 줄이거나 샌드박스를 끄는 등 넓어지는 변경은 승인 창에 "권한 넓어짐"으로 표시합니다. 파일이 기본 프로필과 공유 중이면 그것도 표시합니다. 승인을 기다리는 동안 파일이 바뀌면 아무것도 저장하지 않습니다.
 - 승인 창에는 바뀌는 항목이 전후 값으로 표시되며(키는 "바꿈"·"지움"만), 승인은 매번 필요합니다. 승인을 기다리는 동안 프로필이 바뀌면 저장하지 않습니다. 결과는 바뀐 프로필과 `changed` 목록입니다.
 - 로그인·로그아웃은 설정 화면에서 합니다. 폴더는 만들 때만 정합니다(`profiles add --dir`). 프로필 지시는 `settings instructions set profile`로 바꿉니다.
 
