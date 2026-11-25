@@ -6,10 +6,22 @@ import { consentProfileLayer } from "../../../../shared/cli/consent-copy";
 import {
   describeShape,
   formatSettingValue,
+  LSP_PATH_SHAPE,
+  lspPathSetting,
+  parseSettingValue,
   SETTINGS_PAGES,
+  settingAskingToTurnOn,
   settingsPageNamed,
+  turnsOn,
 } from "../../../../shared/cli/settings";
-import type { CliChange, CliSettingInfo } from "../../../../shared/cli/ui";
+import type {
+  CliChange,
+  CliKeyBinding,
+  CliKeyChange,
+  CliSettingInfo,
+  CliUiOps,
+} from "../../../../shared/cli/ui";
+import type { LspPathLanguage } from "../../../../shared/lsp/settings";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { CliUsageError, exactArgs } from "../args";
 import { type CliContext, type CliDevice, CliError, resolveWorkspace } from "../context";
@@ -81,6 +93,39 @@ function changed(setting: CliSettingInfo) {
   return output(`${setting.key} is ${value === "" ? '""' : value}.`, setting);
 }
 
+async function setLspPath(ctx: CliContext, key: string, language: LspPathLanguage, value: string) {
+  const parsed = parseSettingValue(LSP_PATH_SHAPE, value);
+  if ("error" in parsed) throw new CliUsageError(`${key}: ${parsed.error}`);
+  const path = value.trim();
+  const [setting] = await listSettings(ctx, key);
+  if (!setting) throw new CliError(`no setting "${key}"; nexus settings list shows them`);
+  const current = String(setting.value);
+  if (path === current) return changed(setting);
+  if (path !== "") {
+    await ctx.services.askUser(
+      {
+        fromWorkspaceId: ctx.caller.workspaceId,
+        fromTabId: ctx.caller.tabId,
+        toWorkspaceId: ctx.caller.workspaceId,
+        change: {
+          kind: "lspPath",
+          detail: language,
+          settingsEdit: { language, lines: [{ field: "path", from: current, to: path }] },
+          eachTime: true,
+        },
+      },
+      ctx.signal,
+    );
+    ctx.signal?.throwIfAborted();
+  }
+  const { setting: after } = await ctx.services.ui("settings.set", {
+    key,
+    value: path,
+    ...(path !== "" ? { approved: true, expected: current } : {}),
+  });
+  return changed(after);
+}
+
 const settingsSet: CliCommand = {
   path: ["settings", "set"],
   summary: "Change a setting, as the Settings dialog does",
@@ -88,11 +133,33 @@ const settingsSet: CliCommand = {
   details:
     "The value is read as the setting takes it (nexus settings list): on or off, a number in\n" +
     "its range, one of its choices, or text; a list (voice.terms) whole, comma-separated. It\n" +
-    "takes effect at once and is kept. Whether nexus may change other workspaces, and whether\n" +
-    "it works at all, are the user's to set.",
+    "takes effect at once and is kept. Turning on notes.summary, notes.voiceSuggest or\n" +
+    "notes.voiceExpire, or giving lsp.go.path or lsp.rust.path a path, asks the user each\n" +
+    'time ("" goes back to the PATH without asking). Whether nexus may change other\n' +
+    "workspaces, and whether it works at all, are the user's to set.",
   async run(ctx, { positionals }) {
     const [key, value] = exactArgs(positionals, "key", "value") as [string, string];
-    const { setting } = await ctx.services.ui("settings.set", { key, value });
+    const lspPath = lspPathSetting(key);
+    if (lspPath !== undefined) return setLspPath(ctx, key, lspPath, value);
+    const asking = settingAskingToTurnOn(key);
+    const approved = asking !== undefined && turnsOn(value);
+    if (approved) {
+      await ctx.services.askUser(
+        {
+          fromWorkspaceId: ctx.caller.workspaceId,
+          fromTabId: ctx.caller.tabId,
+          toWorkspaceId: ctx.caller.workspaceId,
+          change: { kind: "settingTurnOn", detail: asking, eachTime: true },
+        },
+        ctx.signal,
+      );
+      ctx.signal?.throwIfAborted();
+    }
+    const { setting } = await ctx.services.ui("settings.set", {
+      key,
+      value,
+      ...(approved ? { approved } : {}),
+    });
     return changed(setting);
   },
 };
@@ -115,7 +182,7 @@ const settingsOpen: CliCommand = {
   details:
     `Pages: ${SETTINGS_PAGES.join(", ")}. A setting's key (nexus settings list) opens\n` +
     "the page that has it. With neither, the dialog opens where it was left. For what only\n" +
-    "the user sets: language servers, keybindings, browser permissions.",
+    "the user sets, such as granting a browser permission.",
   async run(ctx, { positionals }) {
     if (positionals.length > 1) {
       throw new CliUsageError(`unexpected argument "${positionals[1]}"`);
@@ -348,25 +415,77 @@ const settingsInstructionsSet: CliCommand = {
   },
 };
 
+function keysTable(bindings: readonly CliKeyBinding[]): string {
+  return table(
+    ["AREA", "COMMAND", "KEYS", "WHEN"],
+    bindings.map((binding) => [
+      binding.area,
+      binding.command,
+      [binding.primary, binding.chord?.join(" ")].filter(Boolean).join(" / ") || "(unbound)",
+      binding.when ?? "",
+    ]),
+  );
+}
+
 const settingsKeysList: CliCommand = {
   path: ["settings", "keys", "list"],
   summary: "List effective app and editor keybindings",
   async run(ctx, { positionals }) {
     exactArgs(positionals);
     const { bindings } = await ctx.services.ui("settings.keys", {});
-    return output(
-      table(
-        ["AREA", "COMMAND", "KEYS", "WHEN"],
-        bindings.map((binding) => [
-          binding.area,
-          binding.command,
-          [binding.primary, binding.chord?.join(" ")].filter(Boolean).join(" / ") || "(unbound)",
-          binding.when ?? "",
-        ]),
-      ),
-      { bindings },
-      { records: bindings },
-    );
+    return output(keysTable(bindings), { bindings }, { records: bindings });
+  },
+};
+
+async function changeKeys(ctx: CliContext, change: CliKeyChange) {
+  const result = await ctx.services.ui("settings.keys.set", { change });
+  const warnings = result.warnings.map((warning) => `warning: ${warning}`);
+  return output([keysTable(result.bindings), ...warnings].filter(Boolean).join("\n"), result);
+}
+
+const settingsKeysSet: CliCommand = {
+  path: ["settings", "keys", "set"],
+  summary: "Give a command a keyboard shortcut, as Settings › Keyboard Shortcuts does",
+  args: "<command> <keys>",
+  details:
+    "Keys are written as nexus settings keys list shows them, such as CmdOrCtrl+Shift+P (on\n" +
+    "Windows and Linux, as the Settings page shows them, such as Ctrl+Shift+P; Cmd means Ctrl\n" +
+    "there, and the Windows or Super key isn't taken). A\n" +
+    "command bound to a chord takes its two keys, such as CmdOrCtrl+K CmdOrCtrl+S. A shortcut\n" +
+    "another command already uses where both apply, or the system keeps, is refused with the\n" +
+    "reason; one only shared in another focus or used by the editor or terminal is set, with a warning.",
+  async run(ctx, { positionals }) {
+    const [command, ...rest] = positionals;
+    if (command === undefined) throw new CliUsageError("give a command and its keys");
+    const keys = rest.flatMap((word) => word.split(/\s+/)).filter(Boolean);
+    if (keys.length === 0) throw new CliUsageError("give the keys");
+    return changeKeys(ctx, { op: "set", command, keys });
+  },
+};
+
+const settingsKeysUnbind: CliCommand = {
+  path: ["settings", "keys", "unbind"],
+  summary: "Take a command's keyboard shortcut away",
+  args: "<command>",
+  async run(ctx, { positionals }) {
+    const [command] = exactArgs(positionals, "command") as [string];
+    return changeKeys(ctx, { op: "unbind", command });
+  },
+};
+
+const settingsKeysReset: CliCommand = {
+  path: ["settings", "keys", "reset"],
+  summary: "Give a command, or with --all every command, its default shortcut back",
+  args: "[command]",
+  flags: { all: { type: "boolean", description: "Reset every shortcut" } },
+  async run(ctx, { positionals, flags }) {
+    if (flags.all === true) {
+      exactArgs(positionals);
+      return changeKeys(ctx, { op: "reset" });
+    }
+    if (positionals.length === 0) throw new CliUsageError("give a command or --all");
+    const [command] = exactArgs(positionals, "command") as [string];
+    return changeKeys(ctx, { op: "reset", command });
   },
 };
 
@@ -390,25 +509,53 @@ const settingsLspStatus: CliCommand = {
   },
 };
 
+type UpdateState = CliUiOps["settings.updateStatus"]["result"];
+
+function updateLine(result: UpdateState): string {
+  const version =
+    result.status &&
+    ("version" in result.status
+      ? result.status.version
+      : "latest" in result.status
+        ? result.status.latest
+        : undefined);
+  return result.status
+    ? [result.status.kind, version].filter(Boolean).join(" ")
+    : "No update check yet.";
+}
+
 const settingsUpdateStatus: CliCommand = {
   path: ["settings", "updates", "status"],
   summary: "Show the last app update check and download progress",
   async run(ctx, { positionals }) {
     exactArgs(positionals);
     const result = await ctx.services.ui("settings.updateStatus", {});
-    const version =
-      result.status &&
-      ("version" in result.status
-        ? result.status.version
-        : "latest" in result.status
-          ? result.status.latest
-          : undefined);
-    return output(
-      result.status
-        ? [result.status.kind, version].filter(Boolean).join(" ")
-        : "No update check yet.",
-      result,
-    );
+    return output(updateLine(result), result);
+  },
+};
+
+const UPDATE_CHECK_TIMEOUT_MS = 75_000;
+
+const settingsUpdateCheck: CliCommand = {
+  path: ["settings", "updates", "check"],
+  summary: "Look for an app update now and print what was found",
+  details:
+    "As Settings › About's button does. It only looks: downloading, installing and\n" +
+    "restarting stay the user's, from the notice the app shows.",
+  async run(ctx, { positionals }) {
+    exactArgs(positionals);
+    const result = await ctx.services.ui("settings.updateCheck", {}, UPDATE_CHECK_TIMEOUT_MS);
+    return output(updateLine(result), result);
+  },
+};
+
+const settingsLogsPath: CliCommand = {
+  path: ["settings", "logs", "path"],
+  summary: "Print the folder the app writes its logs to",
+  async run(ctx, { positionals }) {
+    exactArgs(positionals);
+    const result = await ctx.services.ui("settings.logsPath", {});
+    return output(result.path, result);
   },
 };
 
@@ -421,6 +568,11 @@ export const settingsCommands: CliCommand[] = [
   settingsInstructions,
   settingsInstructionsSet,
   settingsKeysList,
+  settingsKeysSet,
+  settingsKeysUnbind,
+  settingsKeysReset,
   settingsLspStatus,
   settingsUpdateStatus,
+  settingsUpdateCheck,
+  settingsLogsPath,
 ];

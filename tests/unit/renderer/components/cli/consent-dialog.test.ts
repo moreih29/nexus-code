@@ -211,6 +211,154 @@ test("profile additions use settings connection labels in the dialog language", 
   );
 });
 
+test("profile edits list each change in the dialog language and name the profile", () => {
+  const change = {
+    kind: "profileEdit",
+    detail: "Gateway",
+    profileEdit: {
+      agent: "claude",
+      lines: [
+        { field: "connection", from: "account", to: "custom" },
+        { field: "models", value: "glm-5.3 → glm-5.4" },
+        { field: "defaultModel", value: "glm-5.3 → glm-5.4" },
+        { field: "context", value: "auto → 400000" },
+        { field: "key", change: "replaced" },
+      ],
+    },
+  } as const;
+  expect(consentDetailsOf(i18next.getFixedT("en", "settings"), change).body).toBe(
+    "Agent Claude\nConnection Claude account → Custom API address\nModels glm-5.3 → glm-5.4\n" +
+      "Default model glm-5.3 → glm-5.4\nContext window auto → 400000\nAPI key replaced",
+  );
+  const ko = i18next.getFixedT("ko", "settings");
+  expect(consentDetailsOf(ko, change).body).toBe(
+    "에이전트 Claude\n연결 Claude 계정 → 사용자 지정 API 주소\n모델 glm-5.3 → glm-5.4\n" +
+      "기본 모델 glm-5.3 → glm-5.4\n컨텍스트 창 auto → 400000\nAPI 키 바꿈",
+  );
+  const action = ko("agentCli.consent.action.profileEdit", { detail: "Gateway" });
+  expect(describeConsent(ko, prompt(), action, consentNamesTarget("profileEdit"))).toBe(
+    'app의 터미널 "zsh": 에이전트 프로필 "Gateway" 변경을 하려고 합니다.',
+  );
+  expect(ko(consentTitleOf("profileEdit", false))).toBe(
+    "에이전트가 이 컴퓨터의 프로필을 바꾸도록 허용할까요?",
+  );
+});
+
+test("profile removals name the agent and say the folder stays", () => {
+  const change = {
+    kind: "profileRemove",
+    detail: "Gateway",
+    profileRemove: { agent: "codex", folder: "~/.codex-gateway" },
+  } as const;
+  const ko = i18next.getFixedT("ko", "settings");
+  expect(consentDetailsOf(ko, change).body).toBe(
+    "에이전트 Codex\n폴더(~/.codex-gateway)와 그 안의 로그인·기록은 남습니다.",
+  );
+  expect(ko(consentTitleOf("profileRemove", false))).toBe(
+    "에이전트가 이 컴퓨터의 프로필을 삭제하도록 허용할까요?",
+  );
+  expect(consentNamesTarget("profileRemove")).toBe(true);
+});
+
+test("shell changes show the program and its arguments", () => {
+  const ko = i18next.getFixedT("ko", "settings");
+  const en = i18next.getFixedT("en", "settings");
+  const add = {
+    kind: "shellAdd",
+    detail: "Nushell",
+    settingsEdit: {
+      lines: [
+        { field: "program", to: "nu (/opt/homebrew/bin/nu)" },
+        { field: "args", to: "" },
+      ],
+    },
+  } as const;
+  expect(consentDetailsOf(ko, add).body).toBe("프로그램 nu (/opt/homebrew/bin/nu)\n인자 없음");
+  expect(consentDetailsOf(en, add).body).toBe("Program nu (/opt/homebrew/bin/nu)\nArguments None");
+  const action = ko("agentCli.consent.action.shellAdd", { detail: "Nushell" });
+  expect(describeConsent(ko, prompt(), action, consentNamesTarget("shellAdd"))).toBe(
+    'app의 터미널 "zsh": 터미널 셸 "Nushell" 추가를 하려고 합니다.',
+  );
+  expect(ko(consentTitleOf("shellAdd", false))).toBe(
+    "에이전트가 터미널 셸을 추가하도록 허용할까요?",
+  );
+  const remove = {
+    kind: "shellRemove",
+    detail: "Bash",
+    settingsEdit: {
+      lines: [
+        { field: "program", to: "/bin/bash" },
+        { field: "args", to: "-l" },
+        { field: "defaultShell", from: "Bash" },
+      ],
+    },
+  } as const;
+  expect(consentDetailsOf(ko, remove).body).toBe(
+    "프로그램 /bin/bash\n인자 -l\n기본 셸 Bash → 시스템 기본",
+  );
+  expect(ko(consentTitleOf("shellEdit", false))).toBe(
+    "에이전트가 터미널 셸을 바꾸도록 허용할까요?",
+  );
+  expect(ko(consentTitleOf("shellRemove", false))).toBe(
+    "에이전트가 터미널 셸을 삭제하도록 허용할까요?",
+  );
+});
+
+test("a language server path change names the server and both paths", () => {
+  const ko = i18next.getFixedT("ko", "settings");
+  const path = {
+    kind: "lspPath",
+    detail: "go",
+    settingsEdit: { language: "go", lines: [{ field: "path", from: "/a/gopls", to: "/w/gopls" }] },
+  } as const;
+  const lsp = consentDetailsOf(ko, path);
+  expect(lsp).toEqual({ detail: "Go (gopls) 서버 경로", body: "경로 /a/gopls → /w/gopls" });
+  expect(
+    describeConsent(
+      ko,
+      prompt(),
+      ko("agentCli.consent.action.lspPath", { detail: lsp.detail }),
+      consentNamesTarget("lspPath"),
+    ),
+  ).toBe('app의 터미널 "zsh": Go (gopls) 서버 경로 변경을 하려고 합니다.');
+  expect(ko(consentTitleOf("lspPath", false))).toBe(
+    "에이전트가 언어 서버 경로를 바꾸도록 허용할까요?",
+  );
+});
+
+test("a note storage removal names the location and what goes to the Trash", () => {
+  const ko = i18next.getFixedT("ko", "settings");
+  const en = i18next.getFixedT("en", "settings");
+  const notes = {
+    kind: "noteStorageRemove",
+    detail: "site",
+    settingsEdit: {
+      lines: [
+        { field: "location", to: "/w/site" },
+        { field: "notes", count: 3, size: "3.0 KB" },
+        { field: "workspaces", count: 1 },
+      ],
+    },
+  } as const;
+  expect(consentDetailsOf(ko, notes).body).toBe(
+    "위치 /w/site\n노트 3개(3.0 KB) 휴지통으로 이동\n워크스페이스 1개에서 사용 중",
+  );
+  expect(consentDetailsOf(en, notes).body).toBe(
+    "Location /w/site\n3 notes (3.0 KB) moved to the Trash\nUsed by 1 workspace",
+  );
+  expect(
+    describeConsent(
+      ko,
+      prompt(),
+      ko("agentCli.consent.action.noteStorageRemove", { detail: "site" }),
+      consentNamesTarget("noteStorageRemove"),
+    ),
+  ).toBe('app의 터미널 "zsh": "site"의 노트 모두 지우기를 하려고 합니다.');
+  expect(ko(consentTitleOf("noteStorageRemove", false))).toBe(
+    "에이전트가 저장 위치의 노트를 모두 지우도록 허용할까요?",
+  );
+});
+
 test("sandbox approval shows localized copy and accepts an until-restart answer", async () => {
   const request = {
     ...prompt("sandbox"),
@@ -244,4 +392,148 @@ test("sandbox approval for a one-time change can only be allowed once", async ()
   expect(settleCliConsent("sandbox-once", "session", "iPhone")).toBe(false);
   expect(settleCliConsent("sandbox-once", "once", "iPhone")).toBe(true);
   expect(await asked).toBe("once");
+});
+
+test("turning a setting on names the setting and what it sends, in the dialog language", () => {
+  const change = { kind: "settingTurnOn", detail: "notes.summary", eachTime: true } as const;
+  const ko = i18next.getFixedT("ko", "settings");
+  const { detail, body } = consentDetailsOf(ko, change);
+  expect(
+    describeConsent(
+      ko,
+      prompt(),
+      ko("agentCli.consent.action.settingTurnOn", { detail }),
+      consentNamesTarget(change.kind),
+    ),
+  ).toBe('app의 터미널 "zsh": "녹음 자동 요약" 켜기를 하려고 합니다.');
+  expect(body).toBe("요약 시 녹취록을 요약 프로필의 모델로 전송 · NexusCode 서버 미경유");
+  expect(consentTitleOf(change.kind, false)).toBe("agentCli.consent.setting_on_title");
+  expect(
+    consentDetailsOf(i18next.getFixedT("en", "settings"), {
+      ...change,
+      detail: "notes.voiceSuggest",
+    }).detail,
+  ).toBe("Suggest names from voices");
+});
+
+test("a setting's body reads as a sentence, not as a command", async () => {
+  const asked = askCliConsent({
+    ...prompt("setting-body"),
+    change: { kind: "settingTurnOn", detail: "notes.summary", eachTime: true },
+  });
+  try {
+    const html = renderToStaticMarkup(createElement(CliConsentDialogRoot));
+    expect(html).not.toContain("<pre");
+    expect(html).toContain("Not through NexusCode servers</p>");
+  } finally {
+    settleCliConsent("setting-body", "deny");
+    await asked;
+  }
+});
+
+test("profile edits name environment, header and query changes without values and mark wider behavior", () => {
+  const change = {
+    kind: "profileEdit",
+    detail: "Gateway",
+    profileEdit: {
+      agent: "claude",
+      lines: [
+        { field: "shared", value: "CLAUDE.md, settings.json → CLAUDE.md" },
+        { field: "env", name: "HTTPS_PROXY", change: "added" },
+        { field: "env", name: "TOKEN", change: "changed" },
+        { field: "header", name: "X-Org", change: "removed" },
+        { field: "advanced", setting: "timeout", value: "auto → 600000" },
+        { field: "behavior", id: "permissionMode", from: null, to: "acceptEdits", wider: true },
+        { field: "behavior", id: "sandbox", from: true, to: null, wider: true },
+        { field: "behavior", id: "thinking", from: null, to: false },
+        { field: "behaviorShared", file: "settings.json" },
+      ],
+    },
+  } as const;
+  const ko = i18next.getFixedT("ko", "settings");
+  expect(consentDetailsOf(ko, change).body).toBe(
+    [
+      "에이전트 Claude",
+      "기본 폴더와 공유 CLAUDE.md, settings.json → CLAUDE.md",
+      "환경 변수 HTTPS_PROXY 추가",
+      "환경 변수 TOKEN 값 바뀜",
+      "추가 헤더 X-Org 지움",
+      "응답 제한 시간 (ms) auto → 600000",
+      "권한 모드 기본값 → acceptEdits · 권한 넓어짐",
+      "Bash 샌드박스 켜짐 → 기본값 · 권한 넓어짐",
+      "생각 과정 기본값 → 꺼짐",
+      "settings.json 기본 프로필과 공유 · 기본 프로필에도 적용",
+    ].join("\n"),
+  );
+  const en = i18next.getFixedT("en", "settings");
+  expect(consentDetailsOf(en, change).body).toContain(
+    "Environment variable TOKEN value changed\nExtra header X-Org removed",
+  );
+  expect(consentDetailsOf(en, change).body).toContain("· wider permissions");
+});
+
+test("default profile changes name the agent and both profiles", () => {
+  const change = {
+    kind: "profileDefault",
+    detail: "Codex",
+    profileDefault: { agent: "codex", from: "default", to: "Work" },
+  } as const;
+  const ko = i18next.getFixedT("ko", "settings");
+  expect(consentDetailsOf(ko, change).body).toBe("에이전트 Codex\n기본 프로필 default → Work");
+  expect(ko(consentTitleOf("profileDefault", false))).toBe(
+    "에이전트가 이 컴퓨터의 기본 프로필을 바꾸도록 허용할까요?",
+  );
+  const action = ko("agentCli.consent.action.profileDefault", { detail: "Codex" });
+  expect(describeConsent(ko, prompt(), action, consentNamesTarget("profileDefault"))).toBe(
+    'app의 터미널 "zsh": Codex 기본 프로필 변경을 하려고 합니다.',
+  );
+});
+
+test("profile rules show the target, each agent's choice and where the rule applies", () => {
+  const ko = i18next.getFixedT("ko", "settings");
+  const set = {
+    kind: "profileRule",
+    detail: "~/work",
+    profileRule: {
+      target: { kind: "folder", name: "~/work" },
+      lines: [{ agent: "claude", from: null, to: "Work" }],
+      applies: 2,
+    },
+  } as const;
+  expect(consentDetailsOf(ko, set).body).toBe(
+    "폴더 ~/work · 하위 폴더 포함\nClaude 기본값 사용 → Work\n지금 적용되는 워크스페이스 2개",
+  );
+  const added = {
+    kind: "profileRule",
+    detail: "api",
+    profileRule: {
+      target: { kind: "workspace", name: "api" },
+      lines: [{ agent: "codex", to: "Work" }],
+      applies: 1,
+    },
+  } as const;
+  expect(consentDetailsOf(ko, added).body).toBe(
+    "워크스페이스 api\nCodex Work\n지금 적용되는 워크스페이스 1개",
+  );
+  const removed = {
+    kind: "profileRule",
+    detail: "build-box",
+    profileRule: {
+      target: { kind: "ssh", name: "build-box" },
+      lines: [{ agent: "claude", from: "Work" }],
+      removed: true,
+      applies: 0,
+    },
+  } as const;
+  expect(consentDetailsOf(ko, removed).body).toBe(
+    "SSH 호스트 build-box\nClaude Work\n규칙 삭제\n지금 적용되는 워크스페이스 0개",
+  );
+  expect(ko(consentTitleOf("profileRule", false))).toBe(
+    "에이전트가 이 컴퓨터의 프로필 규칙을 바꾸도록 허용할까요?",
+  );
+  expect(consentNamesTarget("profileRule")).toBe(true);
+  const en = i18next.getFixedT("en", "settings");
+  expect(consentDetailsOf(en, removed).body).toBe(
+    "SSH host build-box\nClaude Work\nRule removed\nApplies now to 0 workspaces",
+  );
 });

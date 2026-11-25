@@ -24,17 +24,29 @@ export type LogsDirApp = Pick<
   "isPackaged" | "name" | "getPath" | "setAppLogsPath"
 >;
 
+export const APP_DATA_UNAVAILABLE =
+  "The app data folder is unavailable, so this run keeps its logs with its own user data";
+
 export function keepLogsApart(
   app: LogsDirApp,
   nexusHome: string = root(),
   defaultNexusHome: string = defaultRoot(),
-): void {
+): string | null {
+  const userData = app.getPath("userData");
+  let appData: string;
+  try {
+    appData = app.getPath("appData");
+  } catch {
+    app.setAppLogsPath(path.join(userData, "logs"));
+    return APP_DATA_UNAVAILABLE;
+  }
   const dir = ownLogsDir({
     packaged: app.isPackaged,
-    userData: app.getPath("userData"),
-    defaultUserData: path.join(app.getPath("appData"), app.name),
+    userData,
+    defaultUserData: path.join(appData, app.name),
     nexusHome,
     defaultNexusHome,
   });
   if (dir !== null) app.setAppLogsPath(dir);
+  return null;
 }

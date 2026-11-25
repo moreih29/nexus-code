@@ -1187,6 +1187,7 @@ describe("ChatHost", () => {
       auth: "bearer",
       defaultModel: "custom-model",
       models: [{ id: "custom-model", label: "Custom" }],
+      advanced: { headers: { "X-Secret": "claude-header-value" } },
     };
     const profile: AgentProfile = {
       id: "claude-default",
@@ -1216,8 +1217,11 @@ describe("ChatHost", () => {
         ANTHROPIC_AUTH_TOKEN: "sealed-key",
         NEXUS_CLAUDE_MODEL_PICKER:
           '{"replaceBuiltInOptions":true,"options":[{"model":"custom-model","label":"Custom"}]}',
+        ANTHROPIC_CUSTOM_HEADERS: "X-Secret: claude-header-value",
       },
     });
+    expect(JSON.stringify(launch?.args)).not.toContain("claude-header-value");
+    expect(JSON.stringify(launch?.args)).not.toContain("sealed-key");
   });
 
   test("puts Codex's catalog on the workspace agent before launching Codex", async () => {
@@ -1232,6 +1236,7 @@ describe("ChatHost", () => {
         baseUrl: "http://127.0.0.1:8080/v1",
         defaultModel: "custom-model",
         models: [{ id: "custom-model" }],
+        advanced: { headers: { "X-Secret": "codex-header-value" } },
       },
     };
     const { host, channel } = setup(
@@ -1258,10 +1263,16 @@ describe("ChatHost", () => {
           args: expect.arrayContaining([
             'model_catalog_json="/home/u/.nexus-code/run/codex-catalogs/catalog.json"',
           ]),
-          env: { NEXUS_PROFILE_CODEX_API_KEY: "sealed-key" },
+          env: {
+            NEXUS_PROFILE_CODEX_API_KEY: "sealed-key",
+            NEXUS_PROFILE_CODEX_HEADER_0: "codex-header-value",
+          },
         },
       },
     ]);
+    const args = JSON.stringify(calls[1]?.params.args);
+    expect(args).not.toContain("codex-header-value");
+    expect(args).not.toContain("sealed-key");
     expect(await host.terminalProfileEnv(WS, profile.id)).toEqual({});
   });
 

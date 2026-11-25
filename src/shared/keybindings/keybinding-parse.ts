@@ -93,6 +93,7 @@ function tokenToCodes(tok: string): readonly string[] {
     case ",":
       return ["Comma"];
     case "Period":
+    case ".":
       return ["Period"];
     case "Semicolon":
       return ["Semicolon"];
@@ -184,27 +185,61 @@ const CODE_TO_TOKEN: Readonly<Record<string, string>> = {
   Backquote: "`",
 };
 
-export function eventToAccelerator(e: KeyboardEvent, isMac: boolean): string | null {
-  const token = codeToToken(e.code);
+function keyStateToAccelerator(s: KeyChordState, isMac: boolean): string | null {
+  const token = codeToToken(s.code);
   if (token === null) return null;
 
   const mods: string[] = [];
   if (isMac) {
-    if (e.metaKey && e.ctrlKey) {
+    if (s.meta && s.ctrl) {
       mods.push("Cmd", "Ctrl");
-    } else if (e.metaKey) {
+    } else if (s.meta) {
       mods.push("CmdOrCtrl");
-    } else if (e.ctrlKey) {
+    } else if (s.ctrl) {
       mods.push("Ctrl");
     }
   } else {
-    if (e.metaKey) return null;
-    if (e.ctrlKey) mods.push("CmdOrCtrl");
+    if (s.meta) return null;
+    if (s.ctrl) mods.push("CmdOrCtrl");
   }
-  if (e.shiftKey) mods.push("Shift");
-  if (e.altKey) mods.push("Alt");
+  if (s.shift) mods.push("Shift");
+  if (s.alt) mods.push("Alt");
 
   return [...mods, token].join("+");
+}
+
+export function eventToAccelerator(e: KeyboardEvent, isMac: boolean): string | null {
+  return keyStateToAccelerator(
+    { code: e.code, meta: e.metaKey, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey },
+    isMac,
+  );
+}
+
+export function recordedAccelerator(accel: AcceleratorString, isMac: boolean): string | null {
+  let p: ParsedKeystroke;
+  try {
+    p = parseAccelerator(accel);
+  } catch {
+    return null;
+  }
+  const code = p.codes[0];
+  if (code === undefined) return null;
+  return keyStateToAccelerator(
+    {
+      code,
+      meta: isMac ? p.cmd : p.cmd && p.ctrl,
+      ctrl: isMac ? p.ctrl : p.cmd || p.ctrl,
+      shift: p.shift,
+      alt: p.alt,
+    },
+    isMac,
+  );
+}
+
+const SUPER_KEY_TOKENS = new Set(["win", "windows", "super"]);
+
+export function namesSuperKey(accel: AcceleratorString): boolean {
+  return accel.split("+").some((t) => SUPER_KEY_TOKENS.has(t.trim().toLowerCase()));
 }
 
 function codeToToken(code: string): string | null {

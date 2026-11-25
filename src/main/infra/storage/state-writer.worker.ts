@@ -1,6 +1,7 @@
 import { parentPort, workerData } from "node:worker_threads";
 import type { AppState } from "../../../shared/types/app-state";
-import { FINISHED, PREPARING, RENAMING, writeStateFile } from "./state-file";
+import { type Errno, errnoOf } from "../errno-text";
+import { FINISHED, PREPARING, RENAMING, stateFailureText, writeStateFile } from "./state-file";
 
 export type Layouts = NonNullable<AppState["layoutByWorkspace"]>;
 
@@ -14,7 +15,10 @@ export type StateWriteMessage =
       gate: Int32Array;
     };
 
-export type StateWriteResult = { ready: true } | { written: boolean } | { error: string };
+export type StateWriteResult =
+  | { ready: true }
+  | { written: boolean }
+  | { error: string; errno?: Errno };
 
 const port = parentPort;
 if (!port) throw new Error("App state writer requires a worker port");
@@ -36,12 +40,12 @@ port.on("message", (message: StateWriteMessage) => {
     if (hasLayouts) state.layoutByWorkspace = layouts;
     const written =
       Atomics.load(gate, 0) === PREPARING &&
-      writeStateFile(filePath, `${filePath}.vsctmp`, state, () => {
-        return Atomics.compareExchange(gate, 0, PREPARING, RENAMING) === PREPARING;
+      writeStateFile(filePath, `${filePath}.vsctmp`, state, {
+        canRename: () => Atomics.compareExchange(gate, 0, PREPARING, RENAMING) === PREPARING,
       });
     result = { written };
   } catch (error) {
-    result = { error: String(error) };
+    result = { error: stateFailureText(error), errno: errnoOf(error) };
   } finally {
     layouts = {};
     Atomics.store(gate, 0, FINISHED);

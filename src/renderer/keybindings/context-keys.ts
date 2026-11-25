@@ -1,4 +1,4 @@
-import { isLinux, isMac } from "../utils/platform";
+import { isLinux, isMac, isWindows } from "../utils/platform";
 
 type ContextProbe = () => boolean;
 
@@ -34,6 +34,8 @@ export function evaluateContextKey(name: string, event: KeyboardEvent): boolean 
       return isMac();
     case "isLinux":
       return isLinux();
+    case "isWindows":
+      return isWindows();
     default: {
       const probe = dynamicProbes.get(name);
       if (probe !== undefined) {

@@ -234,6 +234,36 @@ describe("ipc round-trip — routing errors", () => {
     ]);
   });
 
+  it("logs a failed save by its fs code and call, without the paths", async () => {
+    const folder = path.join(os.tmpdir(), "qa-user-profile", "NexusCode");
+    register("integration-save", {
+      call: {
+        save: () =>
+          Promise.reject(
+            Object.assign(
+              new Error(
+                `EPERM: operation not permitted, rename '${folder}${path.sep}state.json.vsctmp.sync' -> '${folder}${path.sep}state.json'`,
+              ),
+              { code: "EPERM", syscall: "rename" },
+            ),
+          ),
+      },
+      listen: {},
+    });
+    const start = mainErrorMock.mock.calls.length;
+    const result = await getHandler()({}, "integration-save", "save", {});
+    expect(result).toMatchObject({
+      ok: false,
+      kind: "bug",
+      message: "An unexpected error occurred",
+    });
+    const [line = ""] = mainErrorMock.mock.calls.slice(start).map(([message]) => message);
+    expect(line).toStartWith("ipc:call — integration-save.save: Error: EPERM (rename)");
+    expect(line).not.toContain(folder);
+    expect(line).not.toContain("qa-user-profile");
+    expect(line).not.toContain("state.json");
+  });
+
   it("maps workspace activation and connection failures through the call envelope", async () => {
     const { registerWorkspaceChannel } = await import("../../../src/main/features/workspace/ipc");
     const id = "123e4567-e89b-12d3-a456-426614174000";

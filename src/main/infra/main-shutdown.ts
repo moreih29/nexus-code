@@ -1,4 +1,5 @@
 import { defaultTimerScheduler, type TimerScheduler } from "../../shared/util/timer-scheduler";
+import { errnoText } from "./errno-text";
 
 export const MAIN_QUIT_GRACE_MS = 3_000;
 const LSP_QUIT_GRACE_MS = 2_250;
@@ -7,6 +8,7 @@ const STATE_FLUSH_RETRY_MS = 1_000;
 
 interface QuitStateFlush {
   flush(): void;
+  keep(): void;
   quit(): void;
   warn(message: string): void;
   error(message: string): void;
@@ -28,16 +30,29 @@ export function createQuitStateFlush(
     } catch (error) {
       if (++attempts < STATE_FLUSH_ATTEMPTS) {
         event.preventDefault();
-        work.warn(`Could not save app state before quit; retrying: ${String(error)}`);
+        work.warn(`Could not save app state before quit; retrying: ${saveFailure(error)}`);
         retry = timers.setTimeout(work.quit, STATE_FLUSH_RETRY_MS);
         return false;
       }
       work.error(
-        `Could not save app state before quit after ${attempts} attempts: ${String(error)}`,
+        `Could not save app state before quit after ${attempts} attempts: ${saveFailure(error)}; ${keepCopy(work)}`,
       );
     }
     return true;
   };
+}
+
+function keepCopy(work: QuitStateFlush): string {
+  try {
+    work.keep();
+    return "kept a copy for the next launch";
+  } catch (error) {
+    return `the copy for the next launch failed too: ${saveFailure(error)}`;
+  }
+}
+
+function saveFailure(error: unknown): string {
+  return errnoText(error) ?? String(error);
 }
 
 interface ShutdownWork {

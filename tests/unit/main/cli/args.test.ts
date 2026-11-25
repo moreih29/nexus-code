@@ -26,6 +26,7 @@ test.each([
 
 test.each([
   [["--nope"], "unknown flag --nope"],
+  [["--device", "Mac mini"], "--device is not taken here: this command acts on this computer only"],
   [["--constructor", "spare"], "unknown flag --constructor"],
   [["--toString=spare"], "unknown flag --toString"],
   [["--enter=yes"], "--enter takes no value"],

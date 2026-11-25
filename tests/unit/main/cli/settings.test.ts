@@ -358,3 +358,119 @@ test("setting a task workspace's instructions asks to edit the parent and names 
     args: { scope: { kind: "workspace", id: APP }, text: "" },
   });
 });
+
+test("updates check looks for an update and prints what it found; logs path prints the folder", async () => {
+  const app = fakeApp();
+  app.uiAnswers.set("settings.updateCheck", {
+    status: { kind: "newer", latest: "9.9.9", trigger: "manual" },
+    progress: null,
+  });
+  app.uiAnswers.set("settings.logsPath", { path: "/Users/me/Library/Logs/NexusCode" });
+  expect((await nexus(app, ["settings", "updates", "check"])).stdout).toBe("newer 9.9.9\n");
+  expect((await nexus(app, ["settings", "logs", "path"])).stdout).toBe(
+    "/Users/me/Library/Logs/NexusCode\n",
+  );
+  expect(app.uiCalls.map(({ op }) => op)).toEqual(["settings.updateCheck", "settings.logsPath"]);
+});
+
+test("settings keys set, unbind and reset send the change and print the shortcut and warnings", async () => {
+  const app = fakeApp();
+  app.uiAnswers.set("settings.keys.set", {
+    bindings: [
+      {
+        command: "tab.closeAll",
+        area: "app",
+        primary: null,
+        chord: ["CmdOrCtrl+K", "CmdOrCtrl+J"],
+      },
+    ],
+    warnings: ["Also bound to “Close” (different focus scope)"],
+  });
+  const set = await nexus(app, [
+    "settings",
+    "keys",
+    "set",
+    "tab.closeAll",
+    "CmdOrCtrl+K",
+    "CmdOrCtrl+J",
+  ]);
+  expect(set.stdout).toContain("CmdOrCtrl+K CmdOrCtrl+J");
+  expect(set.stdout).toContain("warning: Also bound to “Close” (different focus scope)");
+  await nexus(app, ["settings", "keys", "set", "tab.closeOthers", "CmdOrCtrl+Alt+Y"]);
+  await nexus(app, ["settings", "keys", "unbind", "tab.closeOthers"]);
+  await nexus(app, ["settings", "keys", "reset", "--all"]);
+  expect((await nexus(app, ["settings", "keys", "reset"])).exitCode).toBe(2);
+  expect(app.uiCalls.map(({ args }) => args)).toEqual([
+    { change: { op: "set", command: "tab.closeAll", keys: ["CmdOrCtrl+K", "CmdOrCtrl+J"] } },
+    { change: { op: "set", command: "tab.closeOthers", keys: ["CmdOrCtrl+Alt+Y"] } },
+    { change: { op: "unbind", command: "tab.closeOthers" } },
+    { change: { op: "reset" } },
+  ]);
+});
+
+test("settings set asks the user each time before turning on what sends or matches voices", async () => {
+  const app = fakeApp();
+  app.uiAnswers.set("settings.set", (args: CliUiOps["settings.set"]["args"]) => ({
+    setting: {
+      key: args.key,
+      summary: "",
+      type: "boolean",
+      value: args.value === "on" || args.value === "yes",
+      changed: true,
+    },
+  }));
+  const denied = await nexus(app, ["settings", "set", "notes.summary", "on"]);
+  expect(denied.exitCode).toBe(1);
+  expect(denied.stderr).toBe("nexus: the user did not allow it\n");
+  expect(app.uiCalls).toEqual([]);
+  expect(app.asked.at(-1)?.change).toEqual({
+    kind: "settingTurnOn",
+    detail: "notes.summary",
+    eachTime: true,
+  });
+  app.answers.push("once");
+  expect((await nexus(app, ["settings", "set", "Notes.VoiceExpire", "yes"])).stdout).toBe(
+    "Notes.VoiceExpire is on.\n",
+  );
+  expect(app.asked.at(-1)?.change.detail).toBe("notes.voiceExpire");
+  expect(app.uiCalls.at(-1)?.args).toEqual({
+    key: "Notes.VoiceExpire",
+    value: "yes",
+    approved: true,
+  });
+  const asked = app.asked.length;
+  await nexus(app, ["settings", "set", "notes.voiceSuggest", "off"]);
+  await nexus(app, ["settings", "set", "notes.summaryModel", "on"]);
+  expect(app.asked.length).toBe(asked);
+  expect(app.uiCalls.slice(-2).map(({ args }) => args)).toEqual([
+    { key: "notes.voiceSuggest", value: "off" },
+    { key: "notes.summaryModel", value: "on" },
+  ]);
+});
+
+test("browser permissions revoke takes a global permission or a site's, never both", async () => {
+  const app = fakeApp();
+  app.uiAnswers.set("browser.permissions.revoke", { revoked: ["media"] });
+  expect((await nexus(app, ["browser", "permissions", "revoke", "media", "--global"])).stdout).toBe(
+    "Turned off media for every site.\n",
+  );
+  const site = await nexus(app, [
+    "browser",
+    "permissions",
+    "revoke",
+    "media",
+    "--site",
+    "https://a.test",
+  ]);
+  expect(site.stdout).toBe("Forgot that https://a.test was allowed media.\n");
+  expect(app.uiCalls.map(({ args }) => args)).toEqual([
+    { scope: "global", permission: "media" },
+    { scope: "site", workspaceId: APP, origin: "https://a.test", permission: "media" },
+  ]);
+  expect((await nexus(app, ["browser", "permissions", "revoke", "media"])).exitCode).toBe(2);
+  expect(
+    (await nexus(app, ["browser", "permissions", "revoke", "media", "--global", "--site", "x"]))
+      .exitCode,
+  ).toBe(2);
+  expect(app.asked).toEqual([]);
+});

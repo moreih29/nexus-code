@@ -99,6 +99,29 @@ test("a failed layout write still resumes one window close through its native gu
   expect(warn).toHaveBeenCalledTimes(1);
 });
 
+test.each([
+  [new Error("Object has been destroyed"), "Error: Object has been destroyed"],
+  [
+    new TypeError("An object could not be cloned."),
+    "Error: TypeError: An object could not be cloned.",
+  ],
+])("a window that cannot be asked to save is logged with one error name", async (thrown, text) => {
+  const warn = mock((_message: string) => {});
+  const persistence = new ClosePersistence(warn, fakeTimer());
+  const win = {
+    ...fakeWindow(4),
+    webContents: {
+      id: 4,
+      send() {
+        throw thrown;
+      },
+    },
+  };
+
+  await persistence.prepareUpdaterClose([win]);
+  expect(warn.mock.calls).toEqual([[`Save did not complete for window 4: ${text}`]]);
+});
+
 test("update preparation requests a bounded flush from each window before native closure", async () => {
   const timer = fakeTimer();
   const persistence = new ClosePersistence(() => {}, timer);

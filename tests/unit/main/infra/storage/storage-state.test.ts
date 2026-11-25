@@ -4,12 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { Worker } from "node:worker_threads";
+import { renameWhenUnlocked } from "../../../../../src/main/infra/storage/state-file";
 import { type AppState, AppStateSchema } from "../../../../../src/main/infra/storage/state-service";
 import { StateWriter } from "../../../../../src/main/infra/storage/state-writer";
 import { GitPanelStateUpdateSchema } from "../../../../../src/shared/git/types";
 import { ipcContract } from "../../../../../src/shared/ipc/contract";
 import { VoiceNamePreferencesSchema } from "../../../../../src/shared/notes/voice-names";
-import { openTestState } from "../../../../helpers/test-state";
+import { closeTestStates, openTestState } from "../../../../helpers/test-state";
 import { mainWarnMock } from "../../../../log-test-spies";
 
 function makeTmpDir(): string {
@@ -51,7 +52,8 @@ describe("StateService", () => {
     tmpDir = makeTmpDir();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await closeTestStates();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -176,9 +178,14 @@ describe("StateService", () => {
       service.setState({ sidebarWidth: 270 });
       await waitFor("another fallback write", () => readState(filePath).sidebarWidth === 270);
       expect(write).toHaveBeenCalledTimes(1);
-      expect(
-        mainWarnMock.mock.calls.filter(([message]) => message.includes("using synchronous writes")),
-      ).toHaveLength(1);
+      const fallbacks = mainWarnMock.mock.calls
+        .map(([message]) => message)
+        .filter((message) => message.includes("using synchronous writes"));
+      expect(fallbacks).toHaveLength(1);
+      expect(fallbacks[0]).toStartWith(
+        "App state worker unavailable; using synchronous writes: Error: ",
+      );
+      expect(fallbacks[0]).not.toContain("Error: Error:");
     } finally {
       write.mockRestore();
     }
@@ -245,10 +252,68 @@ fs.renameSync = (...args) => {
     await waitFor("the retry log", () =>
       mainWarnMock.mock.calls.some(([message]) => message.includes(`${code}: destination locked`)),
     );
+    expect(mainWarnMock.mock.calls.map(([message]) => message)).toContain(
+      `Could not save app state; retrying: Error: ${code}: destination locked`,
+    );
     expect(readState(filePath).sidebarWidth).toBe(250);
     expect(fs.existsSync(`${filePath}.vsctmp`)).toBe(false);
     service.setState({ sidebarWidth: 270 });
     await waitFor("the retried replacement", () => readState(filePath).sidebarWidth === 270);
+  });
+
+  it("logs a failed replacement and its failed cleanup with one error prefix", async () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const workerPath = workerWithHook(
+      tmpDir,
+      `
+const rename = fs.renameSync;
+const unlink = fs.unlinkSync;
+fs.renameSync = () => {
+  fs.renameSync = rename;
+  throw new Error("EBUSY: destination locked");
+};
+fs.unlinkSync = () => {
+  fs.unlinkSync = unlink;
+  throw new Error("EBUSY: temporary file locked");
+};`,
+    );
+    const service = openTestState(filePath, workerPath);
+    service.setState({ sidebarWidth: 250 });
+    service.flushNow();
+    mainWarnMock.mockClear();
+    service.setState({ sidebarWidth: 260 });
+    await waitFor("the retry log", () =>
+      mainWarnMock.mock.calls.some(([message]) => message.includes("temporary file cleanup")),
+    );
+    expect(mainWarnMock.mock.calls.map(([message]) => message)).toContain(
+      "Could not save app state; retrying: Error: AggregateError: EBUSY: destination locked; temporary file cleanup: EBUSY: temporary file locked",
+    );
+    await waitFor("the retried replacement", () => readState(filePath).sidebarWidth === 260);
+  });
+
+  it("keeps the name of a worker error that is not a plain Error", async () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const workerPath = workerWithHook(
+      tmpDir,
+      `
+const rename = fs.renameSync;
+fs.renameSync = () => {
+  fs.renameSync = rename;
+  throw new TypeError("rename is not available");
+};`,
+    );
+    const service = openTestState(filePath, workerPath);
+    service.setState({ sidebarWidth: 250 });
+    service.flushNow();
+    mainWarnMock.mockClear();
+    service.setState({ sidebarWidth: 260 });
+    await waitFor("the retry log", () =>
+      mainWarnMock.mock.calls.some(([message]) => message.includes("rename is not available")),
+    );
+    expect(mainWarnMock.mock.calls.map(([message]) => message)).toContain(
+      "Could not save app state; retrying: Error: TypeError: rename is not available",
+    );
+    await waitFor("the retried replacement", () => readState(filePath).sidebarWidth === 260);
   });
 
   it("flushNow waits for an earlier rename already in progress", async () => {
@@ -332,7 +397,15 @@ fs.renameSync = (...args) => {
       service.setState({ sidebarWidth: 270 });
       await waitFor("the next background write", () => readState(filePath).sidebarWidth === 270);
       expect(Object.keys(readState(filePath).layoutByWorkspace ?? {})).toEqual([second]);
-      expect(send.mock.calls.filter(([message]) => message.id === second)).toHaveLength(1);
+      const transfers = send.mock.calls.reduce<string[][]>((all, [message]) => {
+        if (message.kind === "reset") all.push([]);
+        else if (message.kind === "layout") all.at(-1)?.push(message.id);
+        return all;
+      }, []);
+      const [cancelled, ...later] = transfers;
+      expect(cancelled).toEqual([first]);
+      expect(later.length).toBeGreaterThan(0);
+      expect(later).toEqual(later.map(() => [second]));
     } finally {
       send.mockRestore();
     }
@@ -592,5 +665,94 @@ await Bun.sleep(10_000);`,
 
     expect(state.updateChannel).toBe("stable");
     expect(fs.readFileSync(`${filePath}.invalid`, "utf8")).toBe("{ truncated");
+  });
+});
+
+describe("renameWhenUnlocked", () => {
+  let tmpDir: string;
+  let from: string;
+  let to: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    from = path.join(tmpDir, "state.json.vsctmp.sync");
+    to = path.join(tmpDir, "state.json");
+    fs.writeFileSync(from, "new");
+    fs.writeFileSync(to, "old");
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function lockedRenames(code: string, times: number) {
+    const rename = fs.renameSync;
+    let failures = 0;
+    return spyOn(fs, "renameSync").mockImplementation((...args) => {
+      if (failures++ < times) {
+        throw Object.assign(new Error(`${code}: destination locked`), { code });
+      }
+      rename(...args);
+    });
+  }
+
+  it.each(["EPERM", "EACCES", "EBUSY"])("retries a %s replacement on Windows", (code) => {
+    const rename = lockedRenames(code, 2);
+    try {
+      renameWhenUnlocked(from, to, "win32");
+      expect(rename).toHaveBeenCalledTimes(3);
+    } finally {
+      rename.mockRestore();
+    }
+    expect(fs.readFileSync(to, "utf8")).toBe("new");
+  });
+
+  it("gives up on Windows after five retries and about 250 ms", () => {
+    const rename = lockedRenames("EPERM", Number.POSITIVE_INFINITY);
+    const started = performance.now();
+    try {
+      expect(() => renameWhenUnlocked(from, to, "win32")).toThrow("EPERM: destination locked");
+      expect(rename).toHaveBeenCalledTimes(6);
+    } finally {
+      rename.mockRestore();
+    }
+    expect(performance.now() - started).toBeGreaterThanOrEqual(245);
+    expect(fs.readFileSync(to, "utf8")).toBe("old");
+  });
+
+  it("does not retry other errors on Windows", () => {
+    const rename = lockedRenames("ENOENT", 1);
+    try {
+      expect(() => renameWhenUnlocked(from, to, "win32")).toThrow("ENOENT");
+      expect(rename).toHaveBeenCalledTimes(1);
+    } finally {
+      rename.mockRestore();
+    }
+  });
+
+  it.each(["darwin", "linux"] as const)("does not retry on %s", (platform) => {
+    const rename = lockedRenames("EPERM", 1);
+    try {
+      expect(() => renameWhenUnlocked(from, to, platform)).toThrow("EPERM");
+      expect(rename).toHaveBeenCalledTimes(1);
+    } finally {
+      rename.mockRestore();
+    }
+    expect(fs.readFileSync(to, "utf8")).toBe("old");
+  });
+
+  it.skipIf(process.platform !== "win32")("lets flushNow outlast a brief lock", () => {
+    const appDir = path.join(tmpDir, "app");
+    const filePath = path.join(appDir, "state.json");
+    const service = openTestState(filePath);
+    service.setState({ sidebarWidth: 270 });
+    const rename = lockedRenames("EPERM", 3);
+    try {
+      service.flushNow();
+    } finally {
+      rename.mockRestore();
+    }
+    expect(readState(filePath).sidebarWidth).toBe(270);
+    expect(fs.readdirSync(appDir)).toEqual(["state.json"]);
   });
 });

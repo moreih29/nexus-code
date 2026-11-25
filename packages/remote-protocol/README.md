@@ -80,6 +80,8 @@ Schema 0.37.0 lets another device list a workspace's notes as their own computer
 
 Schema 0.37.1 makes `redactBugReportText` take out the words of an unquoted path's last file name after a space. Before, `C:\Users\QA\My Documents\final report.txt` came out as `<path> report.txt` and `D:\tmp\보고서 최종.docx` as `<path> 최종.docx`. After an unquoted path, the next one to four words, apart by spaces or tabs, now go with it when the last of them ends in an extension: a dot and 1 to 8 ASCII letters and digits with at least one letter, at the end of the word or before a closing `.` or `)`. The words stop where a home folder's name stops since 0.36.2 (a line break, a quote, one of `: ; , = + * ? [ ] < > |`, or a slash or backslash, so another path or a URL), and at a word that ends in `.`; none are taken after a path that ends in one of those characters, `.` or `)`. So `C:\a\b.txt and c.txt` becomes `<path>`, while `C:\a\b.txt, and c.txt` keeps `and c.txt`, `C:\a\b failed on node 20.11.1` keeps its version, and a file name with five or more words after the path's last space keeps them, as before. The schema does not change: `BUG_REPORT_VERSION`, `PROTOCOL_VERSION`, `RELAY_VERSION` and `MAX_FRAME_BYTES` stay as they were.
 
+Schema 0.38.0 lets another device see the connection of each agent profile, so a user's agent can check a profile there or make the same one on its own computer. `profiles.list` takes optional `connection: true` and `profile` (an id, or a name case aside). With `connection`, each profile of the answer adds `color` and `connection` (`ProfileConnectionViewSchema`): `method` (`account`, `api-key` or `custom`) and, for `custom`, `preset`, `baseUrl`, `auth`, `models` (each with `id` and optional `label`, `contextWindow` and `reasoning`), `defaultModel`, `lightModel`, the connection's `contextWindow`, and `advanced` (`timeoutMs`, `maxOutputTokens`, `disableExperimentalBetas`, `retries`, `streamIdleTimeoutMs`, and the names alone of its `headers` and `query`, at most 64 each), and `hasKey`, whether an API key is saved for the profile's address, left out while the host's keychain is locked. An API key never goes to another device, in any form: not its value, length or any part of it. Neither do header or query values, environment variables or the profile's folder. A `baseUrl` with a user, password, query values or a fragment goes without the user, password and fragment and with each query name's value replaced by `***`, and `baseUrlRedacted: true` says so; an address the host cannot parse is left out with `baseUrlRedacted: true`. A reader treats a redacted address as unknown: it shows it as hidden and never makes a profile from it, and it redacts again what an older or faulty host sent. With `profile`, the host answers only the profiles it names. A host that takes `connection` lists the new capability `profiles.connection`; a reader sends `connection` and `profile` only to such a host. A host before 0.38.0 drops both as unknown keys and answers as before, and a reader before 0.38.0 drops the new fields. A `color`, `connection` or `hasKey` a reader cannot read is left out alone, not the profile. `profiles.list` keeps its `sessions` capability and its agent policy, and `PROTOCOL_VERSION`, `RELAY_VERSION` and `MAX_FRAME_BYTES` stay as they were.
+
 A consent prompt in the sessions' list (`RemoteConsent`) is a change waiting on the user of the serving device. An agent of another device of the account may have asked for it, or a nexus command changing another workspace there, or that device's agent manager. The user answers it there, or from the device that lists it when `answerable` (`consent.answer`). An agent's request (`from`, `AgentSender`) to a control method takes the `agents` capability instead of the method's own. The serving device may ask its user first or turn the request down. `at` and `expiresAt` use the serving device's clock. `expiresInMs` is `expiresAt` minus the time the list was sent, so a reader needs no shared clock. A serving device before 0.29.0 turns a prompt down at `expiresAt` and drops it from the list. `AGENT_CONSENT_MS` (90 seconds) is how long a host asks a requester before 0.29.0 before turning the request down. Such a requester waits that long, plus a little more.
 
 In schema 0.16.0, `chat.instructions` can also return `session`, the tab's editable session text, and `layers`, its ordered persistent layers, including empty layers. The workspace layer comes from the parent for a worktree task. Hosts through desktop 0.36.1 only return the combined `instructions` text. Treat a response without `session` as read-only. With `chat.control`, a person can replace the session layer using `chat.instructions.set`. Send an empty string to clear it. The 5,000-character limit applies to both people and agents. An edit with `from` follows the receiving device's agent approval policy.
@@ -388,6 +390,12 @@ is. Since 0.27.0.
 
 profiles.usage.people: profiles.usage is taken from people too, not
 only from agents. Served wherever profiles.usage is. Since 0.30.0.
+
+**`CAPABILITIES`**
+
+profiles.connection: profiles.list takes `connection` and `profile` and
+answers each profile's connection settings and whether a key is saved,
+never a key. Since 0.38.0.
 
 **`HelloSchema`**
 
@@ -1339,6 +1347,20 @@ The agent profiles a chat can run with (accounts, config folders).
 **`RPC_METHODS."profiles.list".result.profiles.isDefault`**
 
 The one a workspace runs with unless told otherwise.
+
+**`RPC_METHODS."profiles.list".result.profiles.connection`**
+
+Since 0.38.0, with `connection: true` to a host that lists
+`profiles.connection`: the profile's connection settings
+(`ProfileConnectionViewSchema`), with header and query names only. No
+key, header or query value, environment variable or folder. `baseUrl`
+comes without a user, password, query values or fragment;
+`baseUrlRedacted: true` marks one that had them or did not parse.
+
+**`RPC_METHODS."profiles.list".result.profiles.hasKey`**
+
+Since 0.38.0: whether an API key is saved for the profile's address.
+Left out for an account profile and while the host's keychain is locked.
 
 **`RPC_METHODS."profiles.usage"`**
 

@@ -7,7 +7,7 @@ export interface ReservedKey {
   accelerator: AcceleratorString;
   source: ReservedKeySource;
   noteKey: string;
-  platform?: "mac" | "non-mac";
+  platform?: "mac" | "non-mac" | "windows";
 }
 
 export const RESERVED_KEYS: readonly ReservedKey[] = [
@@ -15,6 +15,30 @@ export const RESERVED_KEYS: readonly ReservedKey[] = [
   { accelerator: "Cmd+H", source: "system", noteKey: "hideApplication", platform: "mac" },
   { accelerator: "Cmd+Alt+H", source: "system", noteKey: "hideOthers", platform: "mac" },
   { accelerator: "Cmd+M", source: "system", noteKey: "minimizeWindow", platform: "mac" },
+
+  { accelerator: "Alt+F4", source: "system", noteKey: "closeWindow", platform: "windows" },
+  {
+    accelerator: "Ctrl+Alt+Delete",
+    source: "system",
+    noteKey: "securityScreen",
+    platform: "windows",
+  },
+  {
+    accelerator: "Ctrl+Shift+Escape",
+    source: "system",
+    noteKey: "taskManager",
+    platform: "windows",
+  },
+  { accelerator: "Alt+Tab", source: "system", noteKey: "switchWindows", platform: "windows" },
+  {
+    accelerator: "Shift+Alt+Tab",
+    source: "system",
+    noteKey: "switchWindowsBack",
+    platform: "windows",
+  },
+  { accelerator: "Alt+Escape", source: "system", noteKey: "cycleWindows", platform: "windows" },
+  { accelerator: "Ctrl+Escape", source: "system", noteKey: "startMenu", platform: "windows" },
+  { accelerator: "Alt+Space", source: "system", noteKey: "windowMenu", platform: "windows" },
 
   { accelerator: "CmdOrCtrl+C", source: "electron", noteKey: "copy" },
   { accelerator: "CmdOrCtrl+X", source: "electron", noteKey: "cut" },
@@ -66,12 +90,17 @@ export const RESERVED_KEYS: readonly ReservedKey[] = [
   { accelerator: "Shift+Enter", source: "terminal", noteKey: "multiline" },
 ];
 
-export function findReservedKey(accel: AcceleratorString, isMac: boolean): ReservedKey | undefined {
+export function findReservedKey(
+  accel: AcceleratorString,
+  isMac: boolean,
+  isWindows = false,
+): ReservedKey | undefined {
   const norm = normalizeKeystroke(accel, isMac);
   if (norm === null) return undefined;
   return RESERVED_KEYS.find((r) => {
     if (r.platform === "mac" && !isMac) return false;
     if (r.platform === "non-mac" && isMac) return false;
+    if (r.platform === "windows" && (isMac || !isWindows)) return false;
     return normalizeKeystroke(r.accelerator, isMac) === norm;
   });
 }

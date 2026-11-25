@@ -101,21 +101,37 @@ func TestRunSendsStdinForADash(t *testing.T) {
 }
 
 func TestRunSendsStdinForKeyFile(t *testing.T) {
-	for _, flags := range [][]string{{"--key-file", "-"}, {"--key-file=-"}} {
-		t.Run(strings.Join(flags, " "), func(t *testing.T) {
-			answer, _ := json.Marshal(wireResponse{OK: true, Result: &result{}})
-			socket, asked := fakeApp(t, string(answer))
-			setTerminalEnv(t, socket)
-			args := append([]string{"chat", "profiles", "add"}, flags...)
-			var stdout, stderr bytes.Buffer
-			if code := run(args, strings.NewReader("test-key\n"), &stdout, &stderr); code != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
-				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-			}
-			req := <-asked
-			if req.Payload.Stdin == nil || *req.Payload.Stdin != "test-key\n" {
-				t.Fatal("request did not receive the key through stdin")
-			}
-		})
+	for _, command := range [][]string{{"chat", "profiles", "add"}, {"chat", "profiles", "edit", "Gateway"}} {
+		for _, flags := range [][]string{{"--key-file", "-"}, {"--key-file=-"}, {"--env-file=-"}, {"--header-file=-"}, {"--query-file=-"}} {
+			t.Run(strings.Join(append(append([]string{}, command...), flags...), " "), func(t *testing.T) {
+				answer, _ := json.Marshal(wireResponse{OK: true, Result: &result{}})
+				socket, asked := fakeApp(t, string(answer))
+				setTerminalEnv(t, socket)
+				args := append(append([]string{}, command...), flags...)
+				var stdout, stderr bytes.Buffer
+				if code := run(args, strings.NewReader("test-key\n"), &stdout, &stderr); code != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
+					t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+				}
+				req := <-asked
+				if req.Payload.Stdin == nil || *req.Payload.Stdin != "test-key\n" {
+					t.Fatal("request did not receive the key through stdin")
+				}
+			})
+		}
+	}
+}
+
+func TestRunReadsNoStdinForAKeyFileFlagElsewhere(t *testing.T) {
+	answer, _ := json.Marshal(wireResponse{OK: true, Result: &result{}})
+	socket, asked := fakeApp(t, string(answer))
+	setTerminalEnv(t, socket)
+	var stdout, stderr bytes.Buffer
+	args := []string{"chat", "profiles", "remove", "Gateway", "--key-file=-", "--env-file=-"}
+	if code := run(args, strings.NewReader("test-key\n"), &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if req := <-asked; req.Payload.Stdin != nil {
+		t.Fatal("a command without a key file read stdin")
 	}
 }
 

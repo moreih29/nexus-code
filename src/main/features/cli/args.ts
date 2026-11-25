@@ -51,6 +51,11 @@ export function parseArgs(argv: readonly string[], specs: Record<string, FlagSpe
     const eq = arg.indexOf("=");
     const name = short ?? (eq === -1 ? arg.slice(2) : arg.slice(2, eq));
     const spec = Object.hasOwn(all, name) ? all[name] : undefined;
+    if (!spec && name === "device") {
+      throw new CliUsageError(
+        "--device is not taken here: this command acts on this computer only",
+      );
+    }
     if (!spec) throw new CliUsageError(`unknown flag --${name}`);
     let raw: string | undefined = eq === -1 ? undefined : arg.slice(eq + 1);
     if (spec.type === "boolean") {

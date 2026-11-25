@@ -100,12 +100,17 @@ export class BrowserPermissionPromptManager {
 
     if (remember) {
       this.setRemembered(entry.workspaceId, entry.origin, entry.permission, decision);
+      this.rememberedChanged(entry.workspaceId);
     }
 
     const allow = decision === "allow";
     for (const waiter of entry.waiters) {
       waiter.callback(allow);
     }
+  }
+
+  rememberedChanged(workspaceId: string): void {
+    this.broadcast("browserPermission", "rememberedChanged", { workspaceId });
   }
 
   cancel(promptId: string): void {

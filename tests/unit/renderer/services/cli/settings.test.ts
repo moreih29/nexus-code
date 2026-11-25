@@ -5,6 +5,7 @@ import { runCli } from "../../../../../src/main/features/cli/registry";
 import { AgentGate } from "../../../../../src/main/features/remote/agent-gate";
 import { serveWith } from "../../../../../src/main/features/remote/serve";
 import type { CliUiOps } from "../../../../../src/shared/cli/ui";
+import { lspSettingsFromState } from "../../../../../src/shared/lsp/settings";
 import { WorkspaceMetaSchema } from "../../../../../src/shared/types/workspace";
 import { contextFor, fakeApp } from "../../../main/cli/fake-services";
 
@@ -40,6 +41,7 @@ afterAll(() => {
 });
 
 const { settingsHandlers } = await import("../../../../../src/renderer/services/cli/settings");
+const { setPlatformForTests } = await import("../../../../../src/renderer/utils/platform");
 const { useAgentInstructionsStore } = await import(
   "../../../../../src/renderer/state/stores/agent-instructions"
 );
@@ -57,6 +59,18 @@ const { usePreviewDefaultsStore } = await import(
 );
 const { useTerminalStore } = await import("../../../../../src/renderer/state/stores/terminal");
 const { useWorkspacesStore } = await import("../../../../../src/renderer/state/stores/workspaces");
+const { useNoteSummarySettings } = await import(
+  "../../../../../src/renderer/state/stores/note-summary"
+);
+const { useVoiceMemory } = await import("../../../../../src/renderer/services/notes/voice-memory");
+const { useKeybindingsStore } = await import(
+  "../../../../../src/renderer/state/stores/keybindings"
+);
+const { useUpdatesStore } = await import("../../../../../src/renderer/state/stores/updates");
+const { useVoiceStore } = await import("../../../../../src/renderer/state/stores/voice");
+const { useLspSettingsStore } = await import(
+  "../../../../../src/renderer/state/stores/lsp-settings"
+);
 
 const set = (key: string, value: string | null) => settingsHandlers["settings.set"]({ key, value });
 const get = async (key: string) => (await settingsHandlers["settings.list"]({ key })).settings[0];
@@ -363,6 +377,454 @@ describe("settings of the editor's views, the terminal's shell and voice terms",
       });
     } finally {
       delete answers["remote.voiceTerms"];
+    }
+  });
+});
+
+describe("language server settings", () => {
+  it("turns language servers, one language and TypeScript's memory saving on and off", async () => {
+    useLspSettingsStore.getState().hydrate(lspSettingsFromState({}));
+    expect(await get("lsp.enabled")).toMatchObject({ value: false, changed: false });
+    expect((await set("lsp.enabled", "on")).setting).toMatchObject({ value: true, changed: true });
+    expect(await get("lsp.go")).toMatchObject({ value: false, changed: false });
+    expect(await get("lsp.python")).toMatchObject({ value: true, changed: false });
+    expect((await set("lsp.python", "off")).setting).toMatchObject({
+      value: false,
+      changed: true,
+    });
+    expect((await set("lsp.typescript.lowMemory", "off")).setting).toMatchObject({
+      value: false,
+      changed: true,
+    });
+    expect((await set("lsp.maxActiveWorkspaces", "4")).setting).toMatchObject({ value: 4 });
+    expect(useLspSettingsStore.getState().settings).toMatchObject({
+      enabled: true,
+      maxActiveWorkspaces: 4,
+      languages: { python: { enabled: false }, typescript: { lowMemory: false } },
+    });
+    await expect(set("lsp.maxActiveWorkspaces", "17")).rejects.toThrow(
+      "lsp.maxActiveWorkspaces: 17 is not within 1..16",
+    );
+    await set("lsp.python", null);
+    expect(await get("lsp.python")).toMatchObject({ value: true, changed: false });
+    writes.pop();
+    await expect(set("lsp.python", "maybe")).rejects.toThrow(
+      'lsp.python: "maybe" is not on or off',
+    );
+    expect(writes).toEqual([
+      { enabled: true },
+      { languageId: "python", settings: { enabled: false } },
+      { languageId: "typescript", settings: { lowMemory: false } },
+      { count: 4 },
+    ]);
+  });
+});
+
+describe("language server paths", () => {
+  function host() {
+    const app = fakeApp();
+    app.uiAnswers.set("settings.list", (args: CliUiOps["settings.list"]["args"]) =>
+      settingsHandlers["settings.list"](args),
+    );
+    app.uiAnswers.set("settings.set", (args: CliUiOps["settings.set"]["args"]) =>
+      settingsHandlers["settings.set"](args),
+    );
+    return app;
+  }
+  const nexus = (app: ReturnType<typeof fakeApp>, argv: string[]) =>
+    runCli(CLI_COMMANDS, contextFor(app, argv));
+
+  it("asks each time to point a server at a program, shows the change, and saves once allowed", async () => {
+    useLspSettingsStore.getState().hydrate(lspSettingsFromState({}));
+    const app = host();
+    expect((await nexus(app, ["settings", "get", "lsp.go.path"])).exitCode).toBe(0);
+    expect(await get("lsp.go.path")).toMatchObject({ value: "", changed: false, type: "text" });
+    const denied = await nexus(app, ["settings", "set", "lsp.go.path", " /w/bin/gopls "]);
+    expect(denied.stderr).toBe("nexus: the user did not allow it\n");
+    expect(app.asked.at(-1)?.change).toEqual({
+      kind: "lspPath",
+      detail: "go",
+      settingsEdit: { language: "go", lines: [{ field: "path", from: "", to: "/w/bin/gopls" }] },
+      eachTime: true,
+    });
+    expect(writes).toEqual([]);
+
+    app.answers.push("once");
+    const allowed = await nexus(app, ["settings", "set", "lsp.go.path", "/w/bin/gopls"]);
+    expect(allowed.stdout).toBe("lsp.go.path is /w/bin/gopls.\n");
+    expect(await get("lsp.go.path")).toMatchObject({ value: "/w/bin/gopls", changed: true });
+    expect(writes).toEqual([{ languageId: "go", settings: { path: "/w/bin/gopls" } }]);
+
+    const asked = app.asked.length;
+    expect((await nexus(app, ["settings", "set", "lsp.go.path", "/w/bin/gopls"])).stdout).toBe(
+      "lsp.go.path is /w/bin/gopls.\n",
+    );
+    expect((await nexus(app, ["settings", "reset", "lsp.go.path"])).stdout).toBe(
+      'lsp.go.path is "".\n',
+    );
+    app.answers.push("once");
+    await nexus(app, ["settings", "set", "lsp.rust.path", "/w/bin/rust-analyzer"]);
+    expect((await nexus(app, ["settings", "set", "lsp.rust.path", ""])).exitCode).toBe(0);
+    expect(app.asked.length).toBe(asked + 1);
+    expect(writes.slice(1)).toEqual([
+      { languageId: "go", settings: { path: "" } },
+      { languageId: "rust", settings: { path: "/w/bin/rust-analyzer" } },
+      { languageId: "rust", settings: { path: "" } },
+    ]);
+  });
+
+  it("refuses a language without a path, a bad path and --device before asking", async () => {
+    useLspSettingsStore.getState().hydrate(lspSettingsFromState({}));
+    const app = host();
+    const tries = [
+      [["lsp.python.path", "/w/bin/pyright"], 'no setting "lsp.python.path"'],
+      [["lsp.go.path", "/w/bin/go\npls"], "lsp.go.path: a path is one line"],
+      [["lsp.go.path", "x".repeat(4097)], "lsp.go.path: it is longer than 4096 characters"],
+      [["lsp.go.path", "/w/bin/gopls", "--device", "Mac mini"], "--device is not taken here"],
+    ] as const;
+    for (const [argv, message] of tries) {
+      const result = await nexus(app, ["settings", "set", ...argv]);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain(message);
+    }
+    expect(app.asked).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+
+  it("saves nothing without approval, or when the path changed while the user was asked", async () => {
+    useLspSettingsStore
+      .getState()
+      .hydrate(lspSettingsFromState({ lspLanguages: { go: { path: "/a/gopls" } } }));
+    await expect(set("lsp.go.path", "/w/bin/gopls")).rejects.toThrow(
+      "lsp.go.path: a server path names a program to run and needs the user's approval",
+    );
+    await expect(
+      settingsHandlers["settings.set"]({
+        key: "lsp.go.path",
+        value: "/w/bin/gopls",
+        approved: true,
+        expected: "/b/gopls",
+      }),
+    ).rejects.toThrow("lsp.go.path changed while waiting for the user's approval");
+    const app = host();
+    const ask = app.services.askUser;
+    app.services = {
+      ...app.services,
+      askUser: async (request, signal) => {
+        useLspSettingsStore
+          .getState()
+          .hydrate(lspSettingsFromState({ lspLanguages: { go: { path: "/b/gopls" } } }));
+        return ask(request, signal);
+      },
+    };
+    app.answers.push("once");
+    const result = await nexus(app, ["settings", "set", "lsp.go.path", "/w/bin/gopls"]);
+    expect(result.stderr).toContain("lsp.go.path changed while waiting for the user's approval");
+    expect(await get("lsp.go.path")).toMatchObject({ value: "/b/gopls" });
+    expect(writes).toEqual([]);
+  });
+});
+
+describe("voice language and what other devices may do here", () => {
+  it("sets the voice language and refuses one it does not take", async () => {
+    useVoiceStore.getState().hydrate({});
+    expect(await get("voice.language")).toMatchObject({ value: "app", changed: false });
+    expect((await set("voice.language", "multi")).setting).toMatchObject({
+      value: "multi",
+      changed: true,
+    });
+    expect(useVoiceStore.getState().language).toBe("multi");
+    await expect(set("voice.language", "ko")).rejects.toThrow(
+      'voice.language: "ko" is not one of app, multi',
+    );
+    await set("voice.language", null);
+    expect(writes).toEqual([{ voiceLanguage: "multi" }, { voiceLanguage: "app" }]);
+  });
+
+  it("reads the remote policies but leaves changing them to the user", async () => {
+    answers["remote.allowControl"] = () => ({ ok: true, value: true });
+    answers["remote.allowTerminal"] = () => ({ ok: true, value: false });
+    answers["remote.agentsPolicy"] = () => ({ ok: true, value: "deny" });
+    answers["remote.phonePushPolicy"] = () => ({ ok: false, kind: "unknown", message: "no" });
+    try {
+      expect(await get("remote.control")).toMatchObject({
+        value: true,
+        changed: true,
+        readOnly: true,
+      });
+      expect(await get("remote.terminal")).toMatchObject({ value: false, changed: false });
+      expect(await get("remote.agents")).toMatchObject({
+        value: "deny",
+        choices: ["ask", "allow", "deny"],
+      });
+      expect(await get("remote.phonePush")).toMatchObject({ unavailable: "no" });
+      for (const key of ["remote.control", "remote.terminal", "remote.agents", "remote.phonePush"])
+        await expect(set(key, "on")).rejects.toThrow(`${key} is the user's to change, in Settings`);
+      expect(writes).toEqual([]);
+    } finally {
+      for (const method of ["allowControl", "allowTerminal", "agentsPolicy", "phonePushPolicy"])
+        delete answers[`remote.${method}`];
+    }
+  });
+});
+
+describe("update check and logs folder", () => {
+  it("waits for the check to end and gives back what it found", async () => {
+    answers["updates.check"] = () => {
+      setTimeout(() =>
+        useUpdatesStore.getState().applyStatus({ kind: "current", trigger: "manual" }),
+      );
+      return { ok: true, value: undefined };
+    };
+    answers["system.logsPath"] = () => ({ ok: true, value: { path: "/logs" } });
+    try {
+      expect(await settingsHandlers["settings.updateCheck"]({})).toMatchObject({
+        status: { kind: "current" },
+      });
+      expect(await settingsHandlers["settings.logsPath"]({})).toEqual({ path: "/logs" });
+    } finally {
+      delete answers["updates.check"];
+      delete answers["system.logsPath"];
+    }
+  });
+});
+
+describe("keyboard shortcuts", () => {
+  const keys = (change: CliUiOps["settings.keys.set"]["args"]["change"]) =>
+    settingsHandlers["settings.keys.set"]({ change });
+
+  it("sets, unbinds and resets a shortcut, as the Settings page does", async () => {
+    useKeybindingsStore.getState().hydrate([]);
+    const set = await keys({
+      op: "set",
+      command: "tab.closeOthers",
+      keys: ["CmdOrCtrl+Alt+Shift+Y"],
+    });
+    expect(set.bindings).toEqual([
+      { command: "tab.closeOthers", area: "app", primary: "CmdOrCtrl+Alt+Shift+Y" },
+    ]);
+    expect(useKeybindingsStore.getState().overrides).toEqual([
+      { command: "tab.closeOthers", primary: "CmdOrCtrl+Alt+Shift+Y", chord: undefined },
+    ]);
+    await keys({ op: "unbind", command: "tab.closeOthers" });
+    expect(useKeybindingsStore.getState().overrides).toEqual([
+      { command: "tab.closeOthers", primary: null, chord: undefined },
+    ]);
+    await keys({ op: "reset", command: "tab.closeOthers" });
+    expect(useKeybindingsStore.getState().overrides).toEqual([]);
+    expect(writes.at(-1)).toEqual({ keybindingOverrides: [] });
+  });
+
+  it("refuses a shortcut another command uses where both apply, with the reason", async () => {
+    useKeybindingsStore.getState().hydrate([]);
+    await expect(
+      keys({ op: "set", command: "tab.closeOthers", keys: ["CmdOrCtrl+S"] }),
+    ).rejects.toThrow(
+      "CmdOrCtrl+S for tab.closeOthers: Conflicts with “Save File”. Settings › Keyboard Shortcuts can still save it with a warning",
+    );
+    expect(useKeybindingsStore.getState().overrides).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+
+  it("refuses a chord's single key, a key it cannot read and a command without shortcuts", async () => {
+    await expect(
+      keys({ op: "set", command: "tab.closeAll", keys: ["CmdOrCtrl+K"] }),
+    ).rejects.toThrow('tab.closeAll takes a two-key chord, such as "CmdOrCtrl+K CmdOrCtrl+S"');
+    await expect(
+      keys({ op: "set", command: "tab.closeOthers", keys: ["Hyper+Q"] }),
+    ).rejects.toThrow('"Hyper+Q" is not a key such as CmdOrCtrl+Shift+P');
+    await expect(keys({ op: "unbind", command: "tab.nope" })).rejects.toThrow(
+      'no command "tab.nope" takes a shortcut; nexus settings keys list shows them',
+    );
+    expect(writes).toEqual([]);
+  });
+
+  it("on Windows takes and shows keys as the Settings page records and shows them", async () => {
+    setPlatformForTests("win32");
+    try {
+      useKeybindingsStore.getState().hydrate([]);
+      const set = await keys({ op: "set", command: "tab.closeOthers", keys: ["Meta+Shift+Alt+Y"] });
+      expect(set.bindings).toEqual([
+        { command: "tab.closeOthers", area: "app", primary: "Ctrl+Shift+Alt+Y" },
+      ]);
+      expect(useKeybindingsStore.getState().overrides).toEqual([
+        { command: "tab.closeOthers", primary: "CmdOrCtrl+Shift+Alt+Y", chord: undefined },
+      ]);
+      await keys({ op: "set", command: "tab.closeOthers", keys: ["Ctrl+Shift+Alt+Y"] });
+      expect(useKeybindingsStore.getState().overrides).toEqual([
+        { command: "tab.closeOthers", primary: "CmdOrCtrl+Shift+Alt+Y", chord: undefined },
+      ]);
+      const listed = (await settingsHandlers["settings.keys"]({})).bindings;
+      expect(listed.find(({ command }) => command === "settings.open")?.primary).toBe("Ctrl+,");
+      expect(
+        listed.flatMap(({ primary, chord }) => [primary, ...(chord ?? [])]).join(" "),
+      ).not.toContain("CmdOrCtrl");
+    } finally {
+      setPlatformForTests(null);
+    }
+  });
+
+  it("on Windows refuses the Windows key, Cmd+Ctrl and the keys Windows keeps, saying why", async () => {
+    setPlatformForTests("win32");
+    try {
+      useKeybindingsStore.getState().hydrate([]);
+      const refusals = [
+        ["Win+Y", `"Win+Y": shortcuts can't use the Windows key`],
+        ["Super+Y", `"Super+Y": shortcuts can't use the Windows key`],
+        ["Cmd+Ctrl+Y", `"Cmd+Ctrl+Y": Cmd is Ctrl here, so Cmd+Ctrl would take the Windows key`],
+        [
+          "Alt+F4",
+          "Alt+F4 for tab.closeOthers: Reserved by the OS: Close window. Settings › Keyboard Shortcuts can still save it with a warning",
+        ],
+        [
+          "Ctrl+Alt+Delete",
+          "Ctrl+Alt+Delete for tab.closeOthers: Reserved by the OS: Security options",
+        ],
+        [
+          "CmdOrCtrl+S",
+          "Ctrl+S for tab.closeOthers: Conflicts with “Save File”. Settings › Keyboard Shortcuts can still save it with a warning",
+        ],
+      ] as const;
+      for (const [key, message] of refusals) {
+        await expect(keys({ op: "set", command: "tab.closeOthers", keys: [key] })).rejects.toThrow(
+          message,
+        );
+      }
+      expect(useKeybindingsStore.getState().overrides).toEqual([]);
+      expect(writes).toEqual([]);
+    } finally {
+      setPlatformForTests(null);
+    }
+  });
+
+  it("on Linux names the Super key and leaves Windows' system keys free", async () => {
+    setPlatformForTests("linux");
+    try {
+      useKeybindingsStore.getState().hydrate([]);
+      await expect(
+        keys({ op: "set", command: "tab.closeOthers", keys: ["Super+Y"] }),
+      ).rejects.toThrow(`"Super+Y": shortcuts can't use the Super key`);
+      const set = await keys({ op: "set", command: "tab.closeOthers", keys: ["Alt+F4"] });
+      expect(set.bindings).toEqual([
+        { command: "tab.closeOthers", area: "app", primary: "Alt+F4" },
+      ]);
+    } finally {
+      setPlatformForTests(null);
+    }
+  });
+
+  it("on macOS keeps keys as written and refuses its own system keys only", async () => {
+    useKeybindingsStore.getState().hydrate([]);
+    await keys({ op: "set", command: "tab.closeOthers", keys: ["Meta+Shift+Alt+Y"] });
+    expect(useKeybindingsStore.getState().overrides).toEqual([
+      { command: "tab.closeOthers", primary: "Meta+Shift+Alt+Y", chord: undefined },
+    ]);
+    const set = await keys({ op: "set", command: "tab.closeOthers", keys: ["Cmd+Ctrl+Y"] });
+    expect(set.bindings).toEqual([
+      { command: "tab.closeOthers", area: "app", primary: "Cmd+Ctrl+Y" },
+    ]);
+    await keys({ op: "set", command: "tab.closeOthers", keys: ["Alt+F4"] });
+    await expect(keys({ op: "set", command: "tab.closeOthers", keys: ["Cmd+Q"] })).rejects.toThrow(
+      "Cmd+Q for tab.closeOthers: Reserved by the OS: Quit application. Settings › Keyboard Shortcuts can still save it with a warning",
+    );
+    await expect(keys({ op: "set", command: "tab.closeOthers", keys: ["Win+Y"] })).rejects.toThrow(
+      '"Win+Y" is not a key such as CmdOrCtrl+Shift+P',
+    );
+  });
+});
+
+describe("recording summaries and remembered voices", () => {
+  const approved = (key: string, value: string) =>
+    settingsHandlers["settings.set"]({ key, value, approved: true });
+
+  it("turns summaries on only with the user's approval, and off without it", async () => {
+    useNoteSummarySettings.setState({ enabled: false, agent: "claude" }, true);
+    await expect(set("notes.summary", "on")).rejects.toThrow(
+      "notes.summary: turning it on needs the user's approval, which nexus settings set asks for",
+    );
+    expect(writes).toEqual([]);
+    expect((await approved("notes.summary", "on")).setting).toMatchObject({ value: true });
+    expect((await set("notes.summary", "off")).setting).toMatchObject({ value: false });
+    expect(writes).toEqual([
+      { noteSummary: { enabled: true, agent: "claude" } },
+      { noteSummary: { enabled: false, agent: "claude" } },
+    ]);
+  });
+
+  it("chooses the summary profile by id or name and a model that profile has", async () => {
+    const profiles = useAgentProfilesStore.getState().config;
+    try {
+      useAgentProfilesStore.getState().hydrate({
+        profiles: [{ id: "claude-work", name: "Work", agent: "claude", color: "cyan", dir: "/w" }],
+        rules: [],
+        defaults: {},
+      });
+      useNoteSummarySettings.setState({ enabled: false, agent: "claude", model: "opus" }, true);
+      expect((await set("notes.summaryProfile", "work")).setting).toMatchObject({
+        value: "claude-work",
+        changed: true,
+      });
+      expect(useNoteSummarySettings.getState()).toEqual({
+        enabled: false,
+        agent: "claude",
+        profileId: "claude-work",
+      });
+      await expect(set("notes.summaryProfile", "Home")).rejects.toThrow(
+        'notes.summaryProfile: no Claude profile "Home"; nexus chat profiles --agent claude lists them',
+      );
+      expect((await set("notes.summaryModel", "Opus")).setting).toMatchObject({ value: "opus" });
+      await expect(set("notes.summaryModel", "gpt-5")).rejects.toThrow(
+        'notes.summaryModel: "gpt-5" is not a model of that profile: default, sonnet, opus',
+      );
+      expect((await set("notes.summaryModel", "default")).setting).toMatchObject({
+        value: "default",
+        changed: false,
+      });
+      useNoteSummarySettings.setState({ enabled: true, agent: "claude" }, true);
+      await expect(set("notes.summaryProfile", "claude-work")).rejects.toThrow(
+        "notes.summaryProfile: turn notes.summary off before choosing another profile",
+      );
+    } finally {
+      useAgentProfilesStore.getState().hydrate(profiles);
+      useNoteSummarySettings.setState({ enabled: false, agent: "claude" }, true);
+    }
+  });
+
+  it("turns name suggestions and forgetting on only with approval, and off without it", async () => {
+    const status = {
+      consent: "allowed",
+      suggest: true,
+      expire: true,
+      available: true,
+      revision: 1,
+      count: 2,
+    };
+    useVoiceMemory.setState({ status: null });
+    answers["voiceMemory.status"] = () => ({ ok: true, value: status });
+    answers["voiceMemory.configure"] = (args) => {
+      Object.assign(status, args, { revision: status.revision + 1 });
+      return { ok: true, value: { ...status } };
+    };
+    try {
+      expect(await get("notes.voiceSuggest")).toMatchObject({ value: true, changed: false });
+      expect((await set("notes.voiceSuggest", "off")).setting).toMatchObject({
+        value: false,
+        changed: true,
+      });
+      expect((await set("notes.voiceExpire", "off")).setting).toMatchObject({ value: false });
+      for (const key of ["notes.voiceSuggest", "notes.voiceExpire"])
+        await expect(set(key, "on")).rejects.toThrow(
+          `${key}: turning it on needs the user's approval`,
+        );
+      expect(status).toMatchObject({ suggest: false, expire: false });
+      expect((await approved("notes.voiceSuggest", "on")).setting).toMatchObject({ value: true });
+      await expect(set("notes.voiceSuggest", null)).rejects.toThrow(
+        "notes.voiceSuggest has no default to go back to",
+      );
+    } finally {
+      delete answers["voiceMemory.status"];
+      delete answers["voiceMemory.configure"];
+      useVoiceMemory.setState({ status: null });
     }
   });
 });

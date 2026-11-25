@@ -340,6 +340,7 @@ export function registerBrowserChannel(
         const { workspaceId, origin, permission } = validateArgs(bp.revoke.args, args);
         if (workspaceStorage.isOpen(workspaceId)) {
           workspaceStorage.deleteOriginPermission(workspaceId, origin, permission);
+          promptManager.rememberedChanged(workspaceId);
         }
         return ipcOk(undefined);
       },

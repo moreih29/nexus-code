@@ -80,7 +80,7 @@ export function buildMenuTemplate(opts: BuildMenuOptions): MenuItemSpec[] {
     menu.push(windowMenu(t));
   }
 
-  return enrichWithKeybindings(menu, isMac, opts.bindings ?? KEYBINDINGS);
+  return enrichWithKeybindings(menu, isMac, platform === "linux", opts.bindings ?? KEYBINDINGS);
 }
 
 function cmd(label: string, command: CommandId): MenuItemSpec {
@@ -253,15 +253,16 @@ function windowMenu(t?: TFunction): MenuItemSpec {
 function enrichWithKeybindings(
   specs: MenuItemSpec[],
   isMac: boolean,
+  isLinux: boolean,
   bindings: readonly KeybindingDecl[],
 ): MenuItemSpec[] {
   return specs.map((spec): MenuItemSpec => {
     if (spec.type === "submenu") {
-      return { ...spec, submenu: enrichWithKeybindings(spec.submenu, isMac, bindings) };
+      return { ...spec, submenu: enrichWithKeybindings(spec.submenu, isMac, isLinux, bindings) };
     }
     if (spec.type !== "command") return spec;
 
-    const primary = findDisplayPrimary(bindings, spec.command, isMac);
+    const primary = findDisplayPrimary(bindings, spec.command, isMac, isLinux);
     if (primary?.primary !== undefined) {
       return { ...spec, accelerator: primary.primary };
     }

@@ -725,9 +725,29 @@ export function fakeApp(now = Date.now()): FakeApp {
   const services: CliServices = {
     appVersion: "1.2.3",
     profileConnections: {
-      config: () => ({ profiles: [], rules: [], defaults: {} }),
+      config: () => ({
+        profiles: [],
+        rules: [
+          {
+            id: "rule-api",
+            target: { kind: "workspace", workspaceId: API },
+            claude: "claude-default",
+          },
+        ],
+        defaults: {},
+      }),
+      keyPresent: async () => undefined,
       checkNew: () => {
         throw new Error("unexpected profile validation");
+      },
+      checkEdit: () => {
+        throw new Error("unexpected profile validation");
+      },
+      remove: () => {
+        throw new Error("unexpected profile removal");
+      },
+      saveRouting: () => {
+        throw new Error("unexpected profile rule save");
       },
       save: async () => {
         throw new Error("unexpected profile save");

@@ -1,3 +1,4 @@
+import { LSP_PATH_LANGUAGES, LSP_SERVER_PATH_MAX, type LspPathLanguage } from "../lsp/settings";
 import type { CliSettingType, CliSettingValue } from "./ui";
 
 export interface CliSettingShape {
@@ -76,6 +77,36 @@ export function parseSettingValue(
   }
 }
 
+export const SETTINGS_ASKING_TO_TURN_ON = {
+  "notes.summary": "noteSummary",
+  "notes.voiceSuggest": "voiceSuggest",
+  "notes.voiceExpire": "voiceExpire",
+} as const;
+export type SettingAskingToTurnOn = keyof typeof SETTINGS_ASKING_TO_TURN_ON;
+
+export function settingAskingToTurnOn(key: string): SettingAskingToTurnOn | undefined {
+  const wanted = key.toLowerCase();
+  return (Object.keys(SETTINGS_ASKING_TO_TURN_ON) as SettingAskingToTurnOn[]).find(
+    (asking) => asking.toLowerCase() === wanted,
+  );
+}
+
+export function turnsOn(input: string): boolean {
+  const parsed = parseSettingValue({ type: "boolean" }, input);
+  return "value" in parsed && parsed.value === true;
+}
+
+export const LSP_PATH_SHAPE = {
+  type: "text",
+  maxLength: LSP_SERVER_PATH_MAX,
+  pattern: { test: /^[^\p{Cc}]*$/u, says: "a path is one line, without control characters" },
+} as const satisfies CliSettingShape;
+
+export function lspPathSetting(key: string): LspPathLanguage | undefined {
+  const wanted = key.toLowerCase();
+  return LSP_PATH_LANGUAGES.find((language) => `lsp.${language}.path` === wanted);
+}
+
 export const SETTINGS_PAGES = [
   "appearance",
   "editor",
@@ -106,6 +137,9 @@ const KEY_PAGES: readonly (readonly [string, SettingsPage])[] = [
   ["updates.", "about"],
   ["agentcli.", "agent"],
   ["voice.", "remote"],
+  ["lsp.", "language-servers"],
+  ["remote.", "remote"],
+  ["notes.", "notes"],
 ];
 
 const PAGE_NAMES: Readonly<Record<string, SettingsPage>> = {

@@ -19,5 +19,9 @@
     "detail": "{{count}} page stops in {{minutes}} min. Terminals and agents are still running.",
     "reload": "Load Again",
     "quit": "Quit"
+  },
+  "userDataUnavailable": {
+    "title": "NexusCode can't start",
+    "message": "NexusCode can't find the app data folder in your user profile, where it keeps its settings. Check that the folder exists and can be opened, then start NexusCode again."
   }
 }

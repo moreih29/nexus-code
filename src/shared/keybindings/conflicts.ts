@@ -24,6 +24,7 @@ export interface ConflictQuery {
   when?: string;
   bindings: readonly ConflictBinding[];
   isMac: boolean;
+  isWindows?: boolean;
 }
 
 export function detectConflicts(q: ConflictQuery): KeybindingConflict[] {
@@ -71,7 +72,7 @@ export function detectConflicts(q: ConflictQuery): KeybindingConflict[] {
 
   for (const accel of [q.primary, q.chord?.[0]]) {
     if (accel === undefined) continue;
-    const reserved = findReservedKey(accel, isMac);
+    const reserved = findReservedKey(accel, isMac, q.isWindows === true);
     if (reserved !== undefined) {
       conflicts.push({ kind: reserved.source === "system" ? "system" : "shadow", reserved });
     }
@@ -120,7 +121,7 @@ function topLevelLiterals(when: string): { pos: Set<string>; neg: Set<string> } 
 function firesOnPlatform(when: string | undefined, isMac: boolean): boolean {
   if (when === undefined) return true;
   const { pos, neg } = topLevelLiterals(when);
-  return isMac ? !neg.has("isMac") : !pos.has("isMac");
+  return isMac ? !neg.has("isMac") && !pos.has("isWindows") : !pos.has("isMac");
 }
 
 function scopesProvablyDisjoint(a: string | undefined, b: string | undefined): boolean {

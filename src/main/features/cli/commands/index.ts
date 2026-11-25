@@ -17,12 +17,14 @@ import { panelCommands } from "./panel";
 import { portCommands } from "./port";
 import { settingsCommands } from "./settings";
 import { terminalCommands } from "./terminal";
+import { terminalShellCommands } from "./terminal-shells";
 import { viewCommands } from "./view";
 import { workspaceCommands } from "./workspace";
 
 export const CLI_COMMANDS: readonly CliCommand[] = [
   ...workspaceCommands,
   ...terminalCommands,
+  ...terminalShellCommands,
   ...chatCommands,
   ...chatControlCommands,
   ...eventCommands,

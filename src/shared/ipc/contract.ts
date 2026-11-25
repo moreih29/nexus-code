@@ -1956,6 +1956,7 @@ const coreIpcContract = {
         }),
       ),
       dismissed: listen(z.object({ promptId: z.string() })),
+      rememberedChanged: listen(z.object({ workspaceId: z.string() })),
     },
   },
 

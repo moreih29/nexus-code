@@ -77,7 +77,20 @@ export function askCliConsent(prompt: CliConsentPrompt): Promise<CliConsentAnswe
 }
 
 export function consentNamesTarget(kind: string): boolean {
-  return kind === "instructionsEdit" || kind === "profileAdd";
+  return (
+    kind === "instructionsEdit" ||
+    kind === "profileAdd" ||
+    kind === "settingTurnOn" ||
+    kind === "profileEdit" ||
+    kind === "profileRemove" ||
+    kind === "shellAdd" ||
+    kind === "shellEdit" ||
+    kind === "shellRemove" ||
+    kind === "lspPath" ||
+    kind === "noteStorageRemove" ||
+    kind === "profileDefault" ||
+    kind === "profileRule"
+  );
 }
 
 export function describeConsent(
@@ -136,6 +149,10 @@ export function consentTitleOf(kind: string, remote: boolean) {
     return "agentCli.consent.profile_title" as const;
   }
   if (kind === "profileAdd") return "agentCli.consent.profile_add_title" as const;
+  if (kind === "profileEdit") return "agentCli.consent.profile_edit_title" as const;
+  if (kind === "profileRemove") return "agentCli.consent.profile_remove_title" as const;
+  if (kind === "profileDefault") return "agentCli.consent.profile_default_title" as const;
+  if (kind === "profileRule") return "agentCli.consent.profile_rule_title" as const;
   if (kind === "instructionsEdit") return "agentCli.consent.instructions_title" as const;
   if (kind === "chatRewind" || kind === "chatRewindFiles") {
     return "agentCli.consent.rewind_title" as const;
@@ -143,6 +160,12 @@ export function consentTitleOf(kind: string, remote: boolean) {
   if (kind === "chatRemoteControlOn") return "agentCli.consent.remote_control_title" as const;
   if (kind === "sandboxExecution") return "agentCli.consent.sandbox_title" as const;
   if (kind === "noteRecord") return "agentCli.consent.record_title" as const;
+  if (kind === "settingTurnOn") return "agentCli.consent.setting_on_title" as const;
+  if (kind === "shellAdd") return "agentCli.consent.shell_add_title" as const;
+  if (kind === "shellEdit") return "agentCli.consent.shell_edit_title" as const;
+  if (kind === "shellRemove") return "agentCli.consent.shell_remove_title" as const;
+  if (kind === "lspPath") return "agentCli.consent.lsp_path_title" as const;
+  if (kind === "noteStorageRemove") return "agentCli.consent.note_storage_remove_title" as const;
   return remote ? ("agentCli.consent.remote_title" as const) : ("agentCli.consent.title" as const);
 }
 
@@ -176,7 +199,12 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         description={description}
         descriptionClassName={CONSENT_DESCRIPTION_CLASS}
       />
-      {copy?.body && (
+      {copy?.body && change?.kind === "settingTurnOn" && (
+        <p className="mt-3 rounded-(--radius-control) bg-muted px-2 py-1.5 text-app-ui-sm text-foreground">
+          {copy.body}
+        </p>
+      )}
+      {copy?.body && change?.kind !== "settingTurnOn" && (
         <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-(--radius-control) bg-muted px-2 py-1.5 font-mono text-app-ui-sm text-foreground">
           {copy.body}
         </pre>
