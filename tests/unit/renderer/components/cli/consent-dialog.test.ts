@@ -245,3 +245,40 @@ test("sandbox approval for a one-time change can only be allowed once", async ()
   expect(settleCliConsent("sandbox-once", "once", "iPhone")).toBe(true);
   expect(await asked).toBe("once");
 });
+
+test("turning a setting on names the setting and what it sends, in the dialog language", () => {
+  const change = { kind: "settingTurnOn", detail: "notes.summary", eachTime: true } as const;
+  const ko = i18next.getFixedT("ko", "settings");
+  const { detail, body } = consentDetailsOf(ko, change);
+  expect(
+    describeConsent(
+      ko,
+      prompt(),
+      ko("agentCli.consent.action.settingTurnOn", { detail }),
+      consentNamesTarget(change.kind),
+    ),
+  ).toBe('app의 터미널 "zsh": "녹음 자동 요약" 켜기를 하려고 합니다.');
+  expect(body).toBe("요약 시 녹취록을 요약 프로필의 모델로 전송 · NexusCode 서버 미경유");
+  expect(consentTitleOf(change.kind, false)).toBe("agentCli.consent.setting_on_title");
+  expect(
+    consentDetailsOf(i18next.getFixedT("en", "settings"), {
+      ...change,
+      detail: "notes.voiceSuggest",
+    }).detail,
+  ).toBe("Suggest names from voices");
+});
+
+test("a setting's body reads as a sentence, not as a command", async () => {
+  const asked = askCliConsent({
+    ...prompt("setting-body"),
+    change: { kind: "settingTurnOn", detail: "notes.summary", eachTime: true },
+  });
+  try {
+    const html = renderToStaticMarkup(createElement(CliConsentDialogRoot));
+    expect(html).not.toContain("<pre");
+    expect(html).toContain("Not through NexusCode servers</p>");
+  } finally {
+    settleCliConsent("setting-body", "deny");
+    await asked;
+  }
+});

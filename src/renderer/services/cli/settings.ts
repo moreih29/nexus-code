@@ -1,6 +1,9 @@
 import i18next from "i18next";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
 import { keybindingConflictMessage } from "@/keybindings/conflict-message";
+import { borrowedClaudeModels, useClaudeModelCatalog } from "@/services/chat/claude/model-catalog";
+import { summaryCatalogKey, summaryModels, summaryProfile } from "@/services/notes/summary-models";
+import { loadVoiceMemory, voiceMemoryApi } from "@/services/notes/voice-memory";
 import { checkForUpdates } from "@/services/updates/operations";
 import { useAgentCliStore } from "@/state/stores/agent-cli";
 import { saveInstructionEdits, useAgentInstructionsStore } from "@/state/stores/agent-instructions";
@@ -19,6 +22,7 @@ import { useKeybindingsStore } from "@/state/stores/keybindings";
 import { useLanguageStore } from "@/state/stores/language";
 import { useLspSettingsStore } from "@/state/stores/lsp-settings";
 import { useLspStatusStore } from "@/state/stores/lsp-status";
+import { useNoteSummarySettings } from "@/state/stores/note-summary";
 import { useNotificationsStore } from "@/state/stores/notifications";
 import { usePreviewDefaultsStore } from "@/state/stores/preview-defaults";
 import { useTerminalStore } from "@/state/stores/terminal";
@@ -40,7 +44,11 @@ import {
   LIMIT_RESUME_DEFAULTS,
   LIMIT_RESUME_MESSAGE_LINE,
 } from "../../../shared/chat/limit-resume-settings";
-import { type CliSettingShape, parseSettingValue } from "../../../shared/cli/settings";
+import {
+  type CliSettingShape,
+  parseSettingValue,
+  settingAskingToTurnOn,
+} from "../../../shared/cli/settings";
 import type {
   CliKeyBinding,
   CliKeyChange,
@@ -69,6 +77,7 @@ import {
   type LspLanguageSettings,
   type LspSettings,
 } from "../../../shared/lsp/settings";
+import type { RecordingSummarySettings } from "../../../shared/notes/summary";
 import { type ShellChoice, sameShellChoice } from "../../../shared/pty/shell";
 import { MAX_VOICE_TERM_CHARS, MAX_VOICE_TERMS } from "../../../shared/remote/voice";
 import {
@@ -229,6 +238,85 @@ function remoteReading(
       const result = await ipcCallResult("remote", method, undefined);
       if (!result.ok) return { value: defaultValue, changed: false, unavailable: result.message };
       return { value: result.value, changed: result.value !== defaultValue };
+    },
+  };
+}
+
+async function saveSummary(next: RecordingSummarySettings): Promise<void> {
+  unwrapIpcResult(await ipcCallResult("appState", "set", { noteSummary: next }));
+  useNoteSummarySettings.setState(next, true);
+}
+
+function currentSummaryProfile() {
+  return summaryProfile(useAgentProfilesStore.getState().config, useNoteSummarySettings.getState());
+}
+
+function currentSummaryModels() {
+  const { profileId, profile } = currentSummaryProfile();
+  const discovered = borrowedClaudeModels(
+    useClaudeModelCatalog.getState(),
+    summaryCatalogKey(profileId, profile),
+    "",
+  );
+  return { profile, ...summaryModels(profile, discovered) };
+}
+
+const DEFAULT_SUMMARY_MODEL = "default";
+
+function summaryProfileNamed(input: string): { value: CliSettingValue } | { error: string } {
+  const { profiles } = currentSummaryProfile();
+  const exact = profiles.find(({ id }) => id === input);
+  if (exact) return { value: exact.id };
+  const wanted = input.trim().toLowerCase();
+  const found = profiles.filter(
+    ({ id, name }) => id.toLowerCase() === wanted || name.trim().toLowerCase() === wanted,
+  );
+  if (found.length > 1) return { error: `more than one Claude profile is "${input}"; give its id` };
+  const [profile] = found;
+  if (!profile)
+    return { error: `no Claude profile "${input}"; nexus chat profiles --agent claude lists them` };
+  return { value: profile.id };
+}
+
+function summaryModelNamed(input: string): { value: CliSettingValue } | { error: string } {
+  const { profile, choices } = currentSummaryModels();
+  const text = input.trim();
+  if (text.toLowerCase() === DEFAULT_SUMMARY_MODEL) return { value: DEFAULT_SUMMARY_MODEL };
+  if (!profile) return { error: "its profile is gone; choose another with notes.summaryProfile" };
+  const found =
+    choices.find(({ value }) => value === text) ??
+    choices.find(({ value }) => value.toLowerCase() === text.toLowerCase());
+  if (found) return { value: found.value };
+  return {
+    error: `"${input}" is not a model of that profile: ${[DEFAULT_SUMMARY_MODEL, ...choices.map((c) => c.value)].join(", ")}`,
+  };
+}
+
+function voiceMemorySetting(key: string, summary: string, field: "suggest" | "expire"): CliSetting {
+  return {
+    key,
+    summary,
+    type: "boolean",
+    get: async () => {
+      const status = await loadVoiceMemory();
+      if (!status)
+        return { value: true, changed: false, unavailable: "voice memory did not answer" };
+      if (!status.available)
+        return {
+          value: status[field],
+          changed: false,
+          unavailable: "remembering voices is not available on this computer",
+        };
+      return { value: status[field], changed: !status[field] };
+    },
+    set: async (value) => {
+      try {
+        await voiceMemoryApi.configure({ [field]: value as boolean });
+      } catch {
+        throw new UiRequestError(
+          `${key}: remembered voices could not be changed; their keychain may be locked`,
+        );
+      }
     },
   };
 }
@@ -749,6 +837,89 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
     ["away", "always", "off"],
   ),
   {
+    key: "notes.summary",
+    summary: "Whether finished recordings are summarized by Claude; turning it on asks the user",
+    type: "boolean",
+    get: () => {
+      const { enabled } = useNoteSummarySettings.getState();
+      return { value: enabled, changed: enabled };
+    },
+    set: (value) =>
+      saveSummary({ ...useNoteSummarySettings.getState(), enabled: value as boolean }),
+    reset: () => saveSummary({ ...useNoteSummarySettings.getState(), enabled: false }),
+  },
+  {
+    key: "notes.summaryProfile",
+    summary:
+      "The Claude profile that summarizes recordings: an id or name nexus chat profiles lists",
+    type: "choice",
+    get: () => {
+      const { profiles, profileId, defaultId } = currentSummaryProfile();
+      return {
+        value: profileId,
+        changed: profileId !== defaultId,
+        choices: profiles.map(({ id }) => id),
+      };
+    },
+    parse: async (input) => summaryProfileNamed(input),
+    set: (value) => {
+      const { defaultId, profileId } = currentSummaryProfile();
+      if (useNoteSummarySettings.getState().enabled && value !== profileId) {
+        throw new UiRequestError(
+          "notes.summaryProfile: turn notes.summary off before choosing another profile; turning it back on asks the user",
+        );
+      }
+      return saveSummary({
+        ...useNoteSummarySettings.getState(),
+        profileId: value === defaultId ? undefined : String(value),
+        model: undefined,
+      });
+    },
+    reset: () => {
+      const { defaultId, profileId } = currentSummaryProfile();
+      if (useNoteSummarySettings.getState().enabled && profileId !== defaultId) {
+        throw new UiRequestError(
+          "notes.summaryProfile: turn notes.summary off before choosing another profile; turning it back on asks the user",
+        );
+      }
+      return saveSummary({
+        ...useNoteSummarySettings.getState(),
+        profileId: undefined,
+        model: undefined,
+      });
+    },
+  },
+  {
+    key: "notes.summaryModel",
+    summary: 'The model that summarizes recordings: one its profile has, or "default"',
+    type: "choice",
+    get: () => {
+      const { model } = useNoteSummarySettings.getState();
+      return {
+        value: model ?? DEFAULT_SUMMARY_MODEL,
+        changed: model !== undefined,
+        choices: [DEFAULT_SUMMARY_MODEL, ...currentSummaryModels().choices.map((c) => c.value)],
+      };
+    },
+    parse: async (input) => summaryModelNamed(input),
+    set: (value) =>
+      saveSummary({
+        ...useNoteSummarySettings.getState(),
+        model: value === DEFAULT_SUMMARY_MODEL ? undefined : String(value),
+      }),
+    reset: () => saveSummary({ ...useNoteSummarySettings.getState(), model: undefined }),
+  },
+  voiceMemorySetting(
+    "notes.voiceSuggest",
+    "Whether remembered voices suggest names in recordings; turning it on asks the user",
+    "suggest",
+  ),
+  voiceMemorySetting(
+    "notes.voiceExpire",
+    "Whether a voice not heard in a recording for a year is forgotten; turning it on asks the user",
+    "expire",
+  ),
+  {
     key: "agentCli.crossWorkspace",
     summary: "Whether nexus may change other workspaces than its terminal's: ask, allow or deny",
     type: "choice",
@@ -975,7 +1146,7 @@ export const settingsHandlers: {
       (key === undefined ? CLI_SETTINGS : CLI_SETTINGS.filter(named(key))).map(settingInfo),
     ),
   }),
-  "settings.set": async ({ key, value }) => {
+  "settings.set": async ({ key, value, approved }) => {
     const setting = CLI_SETTINGS.find(named(key));
     if (!setting) {
       throw new UiRequestError(`no setting "${key}"; nexus settings list shows them`);
@@ -989,6 +1160,11 @@ export const settingsHandlers: {
     } else {
       const parsed = setting.parse ? await setting.parse(value) : parseSettingValue(setting, value);
       if ("error" in parsed) throw new UiRequestError(`${setting.key}: ${parsed.error}`);
+      if (parsed.value === true && settingAskingToTurnOn(setting.key) && approved !== true) {
+        throw new UiRequestError(
+          `${setting.key}: turning it on needs the user's approval, which nexus settings set asks for`,
+        );
+      }
       await setting.set(parsed.value);
     }
     return { setting: await settingInfo(setting) };

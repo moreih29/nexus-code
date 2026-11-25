@@ -7,7 +7,9 @@ import {
   describeShape,
   formatSettingValue,
   SETTINGS_PAGES,
+  settingAskingToTurnOn,
   settingsPageNamed,
+  turnsOn,
 } from "../../../../shared/cli/settings";
 import type {
   CliChange,
@@ -94,11 +96,30 @@ const settingsSet: CliCommand = {
   details:
     "The value is read as the setting takes it (nexus settings list): on or off, a number in\n" +
     "its range, one of its choices, or text; a list (voice.terms) whole, comma-separated. It\n" +
-    "takes effect at once and is kept. Whether nexus may change other workspaces, and whether\n" +
-    "it works at all, are the user's to set.",
+    "takes effect at once and is kept. Turning on notes.summary, notes.voiceSuggest or\n" +
+    "notes.voiceExpire asks the user each time. Whether nexus may change other workspaces,\n" +
+    "and whether it works at all, are the user's to set.",
   async run(ctx, { positionals }) {
     const [key, value] = exactArgs(positionals, "key", "value") as [string, string];
-    const { setting } = await ctx.services.ui("settings.set", { key, value });
+    const asking = settingAskingToTurnOn(key);
+    const approved = asking !== undefined && turnsOn(value);
+    if (approved) {
+      await ctx.services.askUser(
+        {
+          fromWorkspaceId: ctx.caller.workspaceId,
+          fromTabId: ctx.caller.tabId,
+          toWorkspaceId: ctx.caller.workspaceId,
+          change: { kind: "settingTurnOn", detail: asking, eachTime: true },
+        },
+        ctx.signal,
+      );
+      ctx.signal?.throwIfAborted();
+    }
+    const { setting } = await ctx.services.ui("settings.set", {
+      key,
+      value,
+      ...(approved ? { approved } : {}),
+    });
     return changed(setting);
   },
 };

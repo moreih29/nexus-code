@@ -76,6 +76,25 @@ export function parseSettingValue(
   }
 }
 
+export const SETTINGS_ASKING_TO_TURN_ON = {
+  "notes.summary": "noteSummary",
+  "notes.voiceSuggest": "voiceSuggest",
+  "notes.voiceExpire": "voiceExpire",
+} as const;
+export type SettingAskingToTurnOn = keyof typeof SETTINGS_ASKING_TO_TURN_ON;
+
+export function settingAskingToTurnOn(key: string): SettingAskingToTurnOn | undefined {
+  const wanted = key.toLowerCase();
+  return (Object.keys(SETTINGS_ASKING_TO_TURN_ON) as SettingAskingToTurnOn[]).find(
+    (asking) => asking.toLowerCase() === wanted,
+  );
+}
+
+export function turnsOn(input: string): boolean {
+  const parsed = parseSettingValue({ type: "boolean" }, input);
+  return "value" in parsed && parsed.value === true;
+}
+
 export const SETTINGS_PAGES = [
   "appearance",
   "editor",
@@ -108,6 +127,7 @@ const KEY_PAGES: readonly (readonly [string, SettingsPage])[] = [
   ["voice.", "remote"],
   ["lsp.", "language-servers"],
   ["remote.", "remote"],
+  ["notes.", "notes"],
 ];
 
 const PAGE_NAMES: Readonly<Record<string, SettingsPage>> = {

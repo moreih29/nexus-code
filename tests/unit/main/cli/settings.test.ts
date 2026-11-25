@@ -407,3 +407,43 @@ test("settings keys set, unbind and reset send the change and print the shortcut
     { change: { op: "reset" } },
   ]);
 });
+
+test("settings set asks the user each time before turning on what sends or matches voices", async () => {
+  const app = fakeApp();
+  app.uiAnswers.set("settings.set", (args: CliUiOps["settings.set"]["args"]) => ({
+    setting: {
+      key: args.key,
+      summary: "",
+      type: "boolean",
+      value: args.value === "on" || args.value === "yes",
+      changed: true,
+    },
+  }));
+  const denied = await nexus(app, ["settings", "set", "notes.summary", "on"]);
+  expect(denied.exitCode).toBe(1);
+  expect(denied.stderr).toBe("nexus: the user did not allow it\n");
+  expect(app.uiCalls).toEqual([]);
+  expect(app.asked.at(-1)?.change).toEqual({
+    kind: "settingTurnOn",
+    detail: "notes.summary",
+    eachTime: true,
+  });
+  app.answers.push("once");
+  expect((await nexus(app, ["settings", "set", "Notes.VoiceExpire", "yes"])).stdout).toBe(
+    "Notes.VoiceExpire is on.\n",
+  );
+  expect(app.asked.at(-1)?.change.detail).toBe("notes.voiceExpire");
+  expect(app.uiCalls.at(-1)?.args).toEqual({
+    key: "Notes.VoiceExpire",
+    value: "yes",
+    approved: true,
+  });
+  const asked = app.asked.length;
+  await nexus(app, ["settings", "set", "notes.voiceSuggest", "off"]);
+  await nexus(app, ["settings", "set", "notes.summaryModel", "on"]);
+  expect(app.asked.length).toBe(asked);
+  expect(app.uiCalls.slice(-2).map(({ args }) => args)).toEqual([
+    { key: "notes.voiceSuggest", value: "off" },
+    { key: "notes.summaryModel", value: "on" },
+  ]);
+});

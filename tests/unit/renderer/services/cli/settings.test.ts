@@ -58,6 +58,10 @@ const { usePreviewDefaultsStore } = await import(
 );
 const { useTerminalStore } = await import("../../../../../src/renderer/state/stores/terminal");
 const { useWorkspacesStore } = await import("../../../../../src/renderer/state/stores/workspaces");
+const { useNoteSummarySettings } = await import(
+  "../../../../../src/renderer/state/stores/note-summary"
+);
+const { useVoiceMemory } = await import("../../../../../src/renderer/services/notes/voice-memory");
 const { useKeybindingsStore } = await import(
   "../../../../../src/renderer/state/stores/keybindings"
 );
@@ -525,5 +529,101 @@ describe("keyboard shortcuts", () => {
       'no command "tab.nope" takes a shortcut; nexus settings keys list shows them',
     );
     expect(writes).toEqual([]);
+  });
+});
+
+describe("recording summaries and remembered voices", () => {
+  const approved = (key: string, value: string) =>
+    settingsHandlers["settings.set"]({ key, value, approved: true });
+
+  it("turns summaries on only with the user's approval, and off without it", async () => {
+    useNoteSummarySettings.setState({ enabled: false, agent: "claude" }, true);
+    await expect(set("notes.summary", "on")).rejects.toThrow(
+      "notes.summary: turning it on needs the user's approval, which nexus settings set asks for",
+    );
+    expect(writes).toEqual([]);
+    expect((await approved("notes.summary", "on")).setting).toMatchObject({ value: true });
+    expect((await set("notes.summary", "off")).setting).toMatchObject({ value: false });
+    expect(writes).toEqual([
+      { noteSummary: { enabled: true, agent: "claude" } },
+      { noteSummary: { enabled: false, agent: "claude" } },
+    ]);
+  });
+
+  it("chooses the summary profile by id or name and a model that profile has", async () => {
+    const profiles = useAgentProfilesStore.getState().config;
+    try {
+      useAgentProfilesStore.getState().hydrate({
+        profiles: [{ id: "claude-work", name: "Work", agent: "claude", color: "cyan", dir: "/w" }],
+        rules: [],
+        defaults: {},
+      });
+      useNoteSummarySettings.setState({ enabled: false, agent: "claude", model: "opus" }, true);
+      expect((await set("notes.summaryProfile", "work")).setting).toMatchObject({
+        value: "claude-work",
+        changed: true,
+      });
+      expect(useNoteSummarySettings.getState()).toEqual({
+        enabled: false,
+        agent: "claude",
+        profileId: "claude-work",
+      });
+      await expect(set("notes.summaryProfile", "Home")).rejects.toThrow(
+        'notes.summaryProfile: no Claude profile "Home"; nexus chat profiles --agent claude lists them',
+      );
+      expect((await set("notes.summaryModel", "Opus")).setting).toMatchObject({ value: "opus" });
+      await expect(set("notes.summaryModel", "gpt-5")).rejects.toThrow(
+        'notes.summaryModel: "gpt-5" is not a model of that profile: default, sonnet, opus',
+      );
+      expect((await set("notes.summaryModel", "default")).setting).toMatchObject({
+        value: "default",
+        changed: false,
+      });
+      useNoteSummarySettings.setState({ enabled: true, agent: "claude" }, true);
+      await expect(set("notes.summaryProfile", "claude-work")).rejects.toThrow(
+        "notes.summaryProfile: turn notes.summary off before choosing another profile",
+      );
+    } finally {
+      useAgentProfilesStore.getState().hydrate(profiles);
+      useNoteSummarySettings.setState({ enabled: false, agent: "claude" }, true);
+    }
+  });
+
+  it("turns name suggestions and forgetting on only with approval, and off without it", async () => {
+    const status = {
+      consent: "allowed",
+      suggest: true,
+      expire: true,
+      available: true,
+      revision: 1,
+      count: 2,
+    };
+    useVoiceMemory.setState({ status: null });
+    answers["voiceMemory.status"] = () => ({ ok: true, value: status });
+    answers["voiceMemory.configure"] = (args) => {
+      Object.assign(status, args, { revision: status.revision + 1 });
+      return { ok: true, value: { ...status } };
+    };
+    try {
+      expect(await get("notes.voiceSuggest")).toMatchObject({ value: true, changed: false });
+      expect((await set("notes.voiceSuggest", "off")).setting).toMatchObject({
+        value: false,
+        changed: true,
+      });
+      expect((await set("notes.voiceExpire", "off")).setting).toMatchObject({ value: false });
+      for (const key of ["notes.voiceSuggest", "notes.voiceExpire"])
+        await expect(set(key, "on")).rejects.toThrow(
+          `${key}: turning it on needs the user's approval`,
+        );
+      expect(status).toMatchObject({ suggest: false, expire: false });
+      expect((await approved("notes.voiceSuggest", "on")).setting).toMatchObject({ value: true });
+      await expect(set("notes.voiceSuggest", null)).rejects.toThrow(
+        "notes.voiceSuggest has no default to go back to",
+      );
+    } finally {
+      delete answers["voiceMemory.status"];
+      delete answers["voiceMemory.configure"];
+      useVoiceMemory.setState({ status: null });
+    }
   });
 });

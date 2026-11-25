@@ -274,7 +274,8 @@ export type CliChangeKind =
   | "workspaceMove"
   | "permissionAllow"
   | "permissionDeny"
-  | "sandboxExecution";
+  | "sandboxExecution"
+  | "settingTurnOn";
 
 export interface CliChange extends Pick<RemoteConsent["change"], "instructionEdit" | "profileAdd"> {
   readonly kind: CliChangeKind;
@@ -1055,7 +1056,7 @@ export interface CliUiOps {
     result: { settings: CliSettingInfo[] };
   };
   "settings.set": {
-    args: { key: string; value: string | null };
+    args: { key: string; value: string | null; approved?: true };
     result: { setting: CliSettingInfo };
   };
   "settings.open": {
