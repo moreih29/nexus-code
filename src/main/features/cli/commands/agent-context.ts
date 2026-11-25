@@ -184,6 +184,8 @@ function agentContextNote(heading: string, inRoom: boolean): string {
     "or notes.voiceExpire asks the user. settings keys set/unbind/reset edit shortcuts, settings updates",
     "check looks for an update, settings logs path prints the logs folder, and browser permissions",
     "revoke takes a browser permission away.",
+    "terminal shells add/edit/remove, settings set lsp.go.path or lsp.rust.path PATH, and note",
+    "storage remove LOCATION ask the user each time, on this computer only.",
     "When the user means an element on a page, nexus browser pick has them click it and",
     "prints its ref and selector.",
     "A claude -p or codex exec run you start, best in the background, is followed as a",

@@ -624,6 +624,7 @@ nexus terminal shells remove Nushell
 - `editor.openIn.<형식>` 은 미리보기가 있는 파일을 처음 열 때의 보기로, `source`(원본) · `preview` 입니다. 형식은 `markdown` · `html` · `svg` · `table`(CSV · TSV) · `json` · `yaml` · `notebook` 입니다. 한 번만 다르게 열려면 `nexus open --source` · `--preview`.
 - `terminal.shell` 은 로컬 워크스페이스의 새 터미널이 여는 셸입니다. `nexus terminal shells` 의 이름이나 id, 또는 `system`(시스템 기본)입니다.
 - `terminal shells add NAME --program PATH [--arg ARG ...]` 는 설정 › 터미널 › 셸 관리와 같습니다. 프로그램은 이 컴퓨터에서 찾을 수 있어야 하고, 이름은 다른 셸이나 `system` 과 겹칠 수 없습니다. `--` 로 시작하는 인자는 `--arg=--login` 처럼 씁니다. `edit` 은 `--name` · `--program` · `--arg`(목록 전체) · `--clear-args` 를 받고, `remove` 는 기본 셸을 지우면 시스템 기본으로 돌립니다. 이 컴퓨터에서 찾은 셸은 바꾸지 않습니다. 셋 다 매번 사용자에게 묻고, 확인 창에 프로그램과 인자가 보입니다.
+- 셸 추가 · 바꾸기 · 지우기, 서버 경로, 노트 저장 위치 삭제는 이 컴퓨터에서만 됩니다. `--device` 를 주면 거절합니다.
 - `voice.terms` 는 계정의 모든 컴퓨터가 함께 쓰는 음성 인식 단어입니다. 쉼표로 나눈 목록 전체로 바꾸고, 빈 값이나 `reset` 은 비웁니다. 원격에 로그인해 있어야 합니다.
 - `settings instructions show` 는 새 채팅에 적용될 지시의 출처와 합친 텍스트를 보여줍니다. 기본 에이전트는 Claude이고 워크스페이스 규칙이 프로필을 정합니다. `--profile`을 주면 그 프로필을 쓰며, `--agent`를 생략하면 프로필의 에이전트를 사용합니다. `--device`로 조회할 때 `--workspace`를 생략하면 상대 기기 사이드바의 첫 워크스페이스를 사용합니다. 원격 JSON에는 `device: {id, name}`이 추가됩니다.
 - 조회와 `settings instructions set profile`의 `--profile`은 `chat profiles`에 표시되는 ID 또는 이름을 받습니다. 이름이 겹치면 ID를 쓰세요. 프로필 레이어를 바꾸려면 `--file FILE` 또는 `--file -`로 새 텍스트를 주고, 비우려면 `--clear`를 씁니다. 원격 조회와 프로필 편집에는 에이전트 요청을 받는 원격 스키마 0.16.0 이상 기기가 필요합니다. 편집에는 대상 기기의 채팅 제어도 필요합니다.
