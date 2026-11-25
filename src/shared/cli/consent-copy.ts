@@ -1,5 +1,6 @@
 import type { TFunction } from "i18next";
 import type { RemoteConsent } from "../../../packages/remote-protocol/src/rpc";
+import type { LspPathLanguage } from "../lsp/settings";
 import type { ChatAgent } from "../sessions/task-agent";
 import { SETTINGS_ASKING_TO_TURN_ON, settingAskingToTurnOn } from "./settings";
 
@@ -89,13 +90,14 @@ export interface ProfileRemoveCopy {
 
 export type SettingsEditLine =
   | {
-      readonly field: "name" | "program" | "args";
+      readonly field: "name" | "program" | "args" | "path";
       readonly from?: string;
       readonly to: string;
     }
   | { readonly field: "defaultShell"; readonly from: string };
 
 export interface SettingsEditCopy {
+  readonly language?: LspPathLanguage;
   readonly lines: readonly SettingsEditLine[];
 }
 
@@ -103,10 +105,12 @@ const SETTINGS_EDIT_KEYS = {
   name: "agentCli.consent.edit_name",
   program: "agentCli.consent.edit_program",
   args: "agentCli.consent.edit_args",
+  path: "agentCli.consent.edit_path",
 } as const;
 
-function settingsEditValue(t: TFunction<"settings">, value: string): string {
-  return value === "" ? t("agentCli.consent.edit_none") : value;
+function settingsEditValue(t: TFunction<"settings">, field: string, value: string): string {
+  if (value !== "") return value;
+  return t(field === "path" ? "agentCli.consent.edit_path_default" : "agentCli.consent.edit_none");
 }
 
 function settingsEditLine(t: TFunction<"settings">, line: SettingsEditLine): string {
@@ -116,8 +120,9 @@ function settingsEditLine(t: TFunction<"settings">, line: SettingsEditLine): str
         value: `${line.from} → ${t("terminal.shell.systemPlain")}`,
       });
     default: {
-      const to = settingsEditValue(t, line.to);
-      const from = line.from === undefined ? undefined : settingsEditValue(t, line.from);
+      const to = settingsEditValue(t, line.field, line.to);
+      const from =
+        line.from === undefined ? undefined : settingsEditValue(t, line.field, line.from);
       return t(SETTINGS_EDIT_KEYS[line.field], {
         value: from === undefined ? to : `${from} → ${to}`,
       });
@@ -143,9 +148,12 @@ export function consentDetailsOf(t: TFunction<"settings">, change: ConsentChange
     }
   }
   if (change.settingsEdit) {
+    const { language, lines } = change.settingsEdit;
     return {
-      detail: change.detail ?? "",
-      body: change.settingsEdit.lines.map((line) => settingsEditLine(t, line)).join("\n"),
+      detail: language
+        ? t("languageServers.serverPath", { language: t(`languageServers.language.${language}`) })
+        : (change.detail ?? ""),
+      body: lines.map((line) => settingsEditLine(t, line)).join("\n"),
     };
   }
   if (change.profileRemove) {

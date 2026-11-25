@@ -85,7 +85,8 @@ export function consentNamesTarget(kind: string): boolean {
     kind === "profileRemove" ||
     kind === "shellAdd" ||
     kind === "shellEdit" ||
-    kind === "shellRemove"
+    kind === "shellRemove" ||
+    kind === "lspPath"
   );
 }
 
@@ -158,6 +159,7 @@ export function consentTitleOf(kind: string, remote: boolean) {
   if (kind === "shellAdd") return "agentCli.consent.shell_add_title" as const;
   if (kind === "shellEdit") return "agentCli.consent.shell_edit_title" as const;
   if (kind === "shellRemove") return "agentCli.consent.shell_remove_title" as const;
+  if (kind === "lspPath") return "agentCli.consent.lsp_path_title" as const;
   return remote ? ("agentCli.consent.remote_title" as const) : ("agentCli.consent.title" as const);
 }
 

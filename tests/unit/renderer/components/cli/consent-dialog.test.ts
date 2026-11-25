@@ -304,6 +304,28 @@ test("shell changes show the program and its arguments", () => {
   );
 });
 
+test("a language server path change names the server and both paths", () => {
+  const ko = i18next.getFixedT("ko", "settings");
+  const path = {
+    kind: "lspPath",
+    detail: "go",
+    settingsEdit: { language: "go", lines: [{ field: "path", from: "/a/gopls", to: "/w/gopls" }] },
+  } as const;
+  const lsp = consentDetailsOf(ko, path);
+  expect(lsp).toEqual({ detail: "Go (gopls) 서버 경로", body: "경로 /a/gopls → /w/gopls" });
+  expect(
+    describeConsent(
+      ko,
+      prompt(),
+      ko("agentCli.consent.action.lspPath", { detail: lsp.detail }),
+      consentNamesTarget("lspPath"),
+    ),
+  ).toBe('app의 터미널 "zsh": Go (gopls) 서버 경로 변경을 하려고 합니다.');
+  expect(ko(consentTitleOf("lspPath", false))).toBe(
+    "에이전트가 언어 서버 경로를 바꾸도록 허용할까요?",
+  );
+});
+
 test("sandbox approval shows localized copy and accepts an until-restart answer", async () => {
   const request = {
     ...prompt("sandbox"),

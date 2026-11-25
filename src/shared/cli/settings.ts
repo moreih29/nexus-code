@@ -1,3 +1,4 @@
+import { LSP_PATH_LANGUAGES, LSP_SERVER_PATH_MAX, type LspPathLanguage } from "../lsp/settings";
 import type { CliSettingType, CliSettingValue } from "./ui";
 
 export interface CliSettingShape {
@@ -93,6 +94,17 @@ export function settingAskingToTurnOn(key: string): SettingAskingToTurnOn | unde
 export function turnsOn(input: string): boolean {
   const parsed = parseSettingValue({ type: "boolean" }, input);
   return "value" in parsed && parsed.value === true;
+}
+
+export const LSP_PATH_SHAPE = {
+  type: "text",
+  maxLength: LSP_SERVER_PATH_MAX,
+  pattern: { test: /^[^\p{Cc}]*$/u, says: "a path is one line, without control characters" },
+} as const satisfies CliSettingShape;
+
+export function lspPathSetting(key: string): LspPathLanguage | undefined {
+  const wanted = key.toLowerCase();
+  return LSP_PATH_LANGUAGES.find((language) => `lsp.${language}.path` === wanted);
 }
 
 export const SETTINGS_PAGES = [

@@ -419,6 +419,111 @@ describe("language server settings", () => {
   });
 });
 
+describe("language server paths", () => {
+  function host() {
+    const app = fakeApp();
+    app.uiAnswers.set("settings.list", (args: CliUiOps["settings.list"]["args"]) =>
+      settingsHandlers["settings.list"](args),
+    );
+    app.uiAnswers.set("settings.set", (args: CliUiOps["settings.set"]["args"]) =>
+      settingsHandlers["settings.set"](args),
+    );
+    return app;
+  }
+  const nexus = (app: ReturnType<typeof fakeApp>, argv: string[]) =>
+    runCli(CLI_COMMANDS, contextFor(app, argv));
+
+  it("asks each time to point a server at a program, shows the change, and saves once allowed", async () => {
+    useLspSettingsStore.getState().hydrate(lspSettingsFromState({}));
+    const app = host();
+    expect((await nexus(app, ["settings", "get", "lsp.go.path"])).exitCode).toBe(0);
+    expect(await get("lsp.go.path")).toMatchObject({ value: "", changed: false, type: "text" });
+    const denied = await nexus(app, ["settings", "set", "lsp.go.path", " /w/bin/gopls "]);
+    expect(denied.stderr).toBe("nexus: the user did not allow it\n");
+    expect(app.asked.at(-1)?.change).toEqual({
+      kind: "lspPath",
+      detail: "go",
+      settingsEdit: { language: "go", lines: [{ field: "path", from: "", to: "/w/bin/gopls" }] },
+      eachTime: true,
+    });
+    expect(writes).toEqual([]);
+
+    app.answers.push("once");
+    const allowed = await nexus(app, ["settings", "set", "lsp.go.path", "/w/bin/gopls"]);
+    expect(allowed.stdout).toBe("lsp.go.path is /w/bin/gopls.\n");
+    expect(await get("lsp.go.path")).toMatchObject({ value: "/w/bin/gopls", changed: true });
+    expect(writes).toEqual([{ languageId: "go", settings: { path: "/w/bin/gopls" } }]);
+
+    const asked = app.asked.length;
+    expect((await nexus(app, ["settings", "set", "lsp.go.path", "/w/bin/gopls"])).stdout).toBe(
+      "lsp.go.path is /w/bin/gopls.\n",
+    );
+    expect((await nexus(app, ["settings", "reset", "lsp.go.path"])).stdout).toBe(
+      'lsp.go.path is "".\n',
+    );
+    app.answers.push("once");
+    await nexus(app, ["settings", "set", "lsp.rust.path", "/w/bin/rust-analyzer"]);
+    expect((await nexus(app, ["settings", "set", "lsp.rust.path", ""])).exitCode).toBe(0);
+    expect(app.asked.length).toBe(asked + 1);
+    expect(writes.slice(1)).toEqual([
+      { languageId: "go", settings: { path: "" } },
+      { languageId: "rust", settings: { path: "/w/bin/rust-analyzer" } },
+      { languageId: "rust", settings: { path: "" } },
+    ]);
+  });
+
+  it("refuses a language without a path, a bad path and --device before asking", async () => {
+    useLspSettingsStore.getState().hydrate(lspSettingsFromState({}));
+    const app = host();
+    const tries = [
+      [["lsp.python.path", "/w/bin/pyright"], 'no setting "lsp.python.path"'],
+      [["lsp.go.path", "/w/bin/go\npls"], "lsp.go.path: a path is one line"],
+      [["lsp.go.path", "x".repeat(4097)], "lsp.go.path: it is longer than 4096 characters"],
+      [["lsp.go.path", "/w/bin/gopls", "--device", "Mac mini"], "--device is not taken here"],
+    ] as const;
+    for (const [argv, message] of tries) {
+      const result = await nexus(app, ["settings", "set", ...argv]);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain(message);
+    }
+    expect(app.asked).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+
+  it("saves nothing without approval, or when the path changed while the user was asked", async () => {
+    useLspSettingsStore
+      .getState()
+      .hydrate(lspSettingsFromState({ lspLanguages: { go: { path: "/a/gopls" } } }));
+    await expect(set("lsp.go.path", "/w/bin/gopls")).rejects.toThrow(
+      "lsp.go.path: a server path names a program to run and needs the user's approval",
+    );
+    await expect(
+      settingsHandlers["settings.set"]({
+        key: "lsp.go.path",
+        value: "/w/bin/gopls",
+        approved: true,
+        expected: "/b/gopls",
+      }),
+    ).rejects.toThrow("lsp.go.path changed while waiting for the user's approval");
+    const app = host();
+    const ask = app.services.askUser;
+    app.services = {
+      ...app.services,
+      askUser: async (request, signal) => {
+        useLspSettingsStore
+          .getState()
+          .hydrate(lspSettingsFromState({ lspLanguages: { go: { path: "/b/gopls" } } }));
+        return ask(request, signal);
+      },
+    };
+    app.answers.push("once");
+    const result = await nexus(app, ["settings", "set", "lsp.go.path", "/w/bin/gopls"]);
+    expect(result.stderr).toContain("lsp.go.path changed while waiting for the user's approval");
+    expect(await get("lsp.go.path")).toMatchObject({ value: "/b/gopls" });
+    expect(writes).toEqual([]);
+  });
+});
+
 describe("voice language and what other devices may do here", () => {
   it("sets the voice language and refuses one it does not take", async () => {
     useVoiceStore.getState().hydrate({});

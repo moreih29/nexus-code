@@ -3,10 +3,12 @@ import { IntegerSchema } from "../../../packages/remote-protocol/src/validation"
 import { LSP_MAX_ACTIVE_WORKSPACES } from "../util/timing-constants";
 import { BUILTIN_LSP_PRESETS, type LspServerSpec } from "./config";
 
+export const LSP_SERVER_PATH_MAX = 4096;
+
 export const LspLanguageSettingsSchema = z.object({
   enabled: z.boolean().optional(),
   lowMemory: z.boolean().optional(),
-  path: z.string().max(4096).optional(),
+  path: z.string().max(LSP_SERVER_PATH_MAX).optional(),
 });
 export type LspLanguageSettings = z.infer<typeof LspLanguageSettingsSchema>;
 
@@ -51,6 +53,15 @@ export function isLspLanguageChosen(
 export function isLspLanguageOn(settings: LspSettings, languageId: string): boolean {
   return settings.enabled && isLspLanguageChosen(languageId, settings.languages[languageId]);
 }
+
+export type LspPathLanguage = Extract<
+  (typeof BUILTIN_LSP_PRESETS)[number],
+  { readonly system: true }
+>["languageId"];
+
+export const LSP_PATH_LANGUAGES: readonly LspPathLanguage[] = BUILTIN_LSP_PRESETS.flatMap(
+  (preset) => ("system" in preset && preset.system ? [preset.languageId] : []),
+);
 
 export function lspServerPath(settings: LspSettings, languageId: string): string | undefined {
   return settings.languages[languageId]?.path?.trim() || undefined;

@@ -308,7 +308,8 @@ export type CliChangeKind =
   | "browserPermissionRevoke"
   | "shellAdd"
   | "shellEdit"
-  | "shellRemove";
+  | "shellRemove"
+  | "lspPath";
 
 export interface CliChange extends Pick<RemoteConsent["change"], "instructionEdit" | "profileAdd"> {
   readonly profileEdit?: ProfileEditCopy;
@@ -1102,7 +1103,7 @@ export interface CliUiOps {
     result: { settings: CliSettingInfo[] };
   };
   "settings.set": {
-    args: { key: string; value: string | null; approved?: true };
+    args: { key: string; value: string | null; approved?: true; expected?: CliSettingValue };
     result: { setting: CliSettingInfo };
   };
   "settings.open": {

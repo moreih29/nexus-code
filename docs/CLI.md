@@ -584,6 +584,7 @@ nexus settings set editor.openIn.markdown source   # Markdown 을 원본으로 �
 nexus settings set terminal.shell fish      # 새 터미널의 셸 (system 이면 시스템 기본)
 nexus settings set voice.terms "NexusCode, Claude, 넥서스"   # 음성 인식 단어 (목록 전체)
 nexus settings set lsp.enabled on           # 언어 서버 켜기 (lsp.<언어> · lsp.typescript.lowMemory · lsp.maxActiveWorkspaces)
+nexus settings set lsp.go.path /w/bin/gopls # 직접 설치한 서버 경로 (매번 승인. "" 나 reset 은 PATH 에서 찾기)
 nexus settings set voice.language multi     # 음성 입력 언어 (app 이면 앱 언어)
 nexus settings get remote.agents            # 다른 컴퓨터의 에이전트 정책 (읽기만)
 nexus settings set notes.summaryProfile Work   # 녹음 요약 프로필 (notes.summaryModel 은 그 프로필의 모델이나 default)
@@ -604,8 +605,8 @@ nexus terminal shells remove Nushell
 ```
 
 - 설정 창에서 바꾸는 것과 같습니다. 바로 반영되고 저장됩니다.
-- 테마 · 언어 · 아이콘 · 창 투명도 · 비활성 패널 흐림, 에디터 · 터미널 · 채팅 글꼴, 한도 해제 뒤 자동 이어하기, 파일을 여는 보기, 터미널 기본 셸, 커서 모양, 작업 에이전트, 에이전트 탭 기본 보기, 데스크톱 알림, 업데이트 자동 확인, 에이전트 안내, 음성 인식 단어, 언어 서버를 바꿀 수 있습니다.
-- `lsp.enabled` 는 언어 서버 전체, `lsp.<언어>` 는 언어 하나(`typescript` · `python` · `yaml` · `shell` · `dockerfile` · `go` · `rust`), `lsp.typescript.lowMemory` 는 TypeScript 메모리 절약, `lsp.maxActiveWorkspaces` 는 동시에 켤 워크스페이스 수(1~16)입니다. 직접 설치한 서버의 경로는 설정 창에서만 바꿉니다.
+- 테마 · 언어 · 아이콘 · 창 투명도 · 비활성 패널 흐림, 에디터 · 터미널 · 채팅 글꼴, 한도 해제 뒤 자동 이어하기, 파일을 여는 보기, 터미널 기본 셸, 커서 모양, 작업 에이전트, 에이전트 탭 기본 보기, 데스크톱 알림, 업데이트 자동 확인, 에이전트 안내, 음성 인식 단어, 언어 서버와 그 경로를 바꿀 수 있습니다.
+- `lsp.enabled` 는 언어 서버 전체, `lsp.<언어>` 는 언어 하나(`typescript` · `python` · `yaml` · `shell` · `dockerfile` · `go` · `rust`), `lsp.typescript.lowMemory` 는 TypeScript 메모리 절약, `lsp.maxActiveWorkspaces` 는 동시에 켤 워크스페이스 수(1~16)입니다. `lsp.go.path` · `lsp.rust.path` 는 직접 설치한 서버의 경로입니다. 경로를 줄 때는 매번 사용자에게 묻고, `""` 나 `settings reset` 은 묻지 않고 PATH 에서 찾게 되돌립니다.
 - `settings keys set` 은 설정 창의 키보드 단축키와 같습니다. 키는 `settings keys list` 에 나오는 모양(`CmdOrCtrl+Shift+P`)이고, 화음으로 묶인 명령은 두 키를 줍니다. 다른 명령이 같은 범위에서 쓰는 키나 운영체제가 쓰는 키는 이유와 함께 거절하고, 다른 포커스에서만 겹치거나 에디터 · 터미널이 쓰는 키는 경고를 붙여 바꿉니다.
 - `notes.summary` 는 녹음 자동 요약, `notes.summaryProfile` 은 요약할 Claude 프로필(`chat profiles` 의 ID 나 이름), `notes.summaryModel` 은 그 프로필에 있는 모델이나 `default` 입니다. 요약이 켜져 있으면 프로필은 바꾸지 않습니다. 끄고 바꾼 뒤 다시 켜세요.
 - `notes.voiceSuggest` 는 기억한 목소리로 이름 제안, `notes.voiceExpire` 는 1년 동안 못 들은 목소리 지우기입니다. 기억한 목소리를 쓸 수 없는 컴퓨터에서는 읽지 못합니다.
@@ -626,7 +627,7 @@ nexus terminal shells remove Nushell
 - 작업 워크스페이스를 지정하면 로컬·원격 `show`와 `set workspace` 모두 부모의 워크스페이스 레이어를 사용합니다. 편집에는 부모 워크스페이스의 변경 정책이 적용됩니다.
 - 일반 설정 변경은 바로 적용됩니다. 공통·Claude·Codex·프로필 지시 레이어를 수정할 때는 매번 사용자에게 묻습니다. 워크스페이스 지시에는 그 워크스페이스의 변경 정책이 적용됩니다. "다른 워크스페이스 변경"과 "nexus 명령 허용"은 설정 창에서 사용자가 관리합니다.
 - 창 투명도는 명령으로는 0.2 아래로 내릴 수 없습니다(창이 안 보이면 되돌릴 수 없어서).
-- `settings open` 의 페이지는 `appearance` · `editor` · `language-servers` · `terminal` · `notifications` · `notes` · `agent` · `claude` · `codex` · `instructions` · `profile-rules` · `browser-permissions` · `keybindings` · `remote` · `about` 입니다. `terminal.cursorStyle` 처럼 설정 키를 주면 그 설정이 있는 페이지가 열립니다. 언어 서버 경로나 브라우저 권한 허용처럼 사용자만 바꾸는 설정을 보여줄 때 씁니다.
+- `settings open` 의 페이지는 `appearance` · `editor` · `language-servers` · `terminal` · `notifications` · `notes` · `agent` · `claude` · `codex` · `instructions` · `profile-rules` · `browser-permissions` · `keybindings` · `remote` · `about` 입니다. `terminal.cursorStyle` 처럼 설정 키를 주면 그 설정이 있는 페이지가 열립니다. 브라우저 권한 허용처럼 사용자만 바꾸는 설정을 보여줄 때 씁니다.
 
 ## 에이전트에게 알려주기
 

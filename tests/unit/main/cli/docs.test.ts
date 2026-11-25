@@ -62,6 +62,7 @@ test.each([
   "terminal shells add Nushell --program nu --arg -l",
   "terminal shells edit Nushell --name Nu --clear-args",
   "terminal shells remove Nushell",
+  "settings set lsp.go.path /w/bin/gopls",
 ])("docs example uses registered syntax for %s", (example) => {
   expect(doc).toContain(example);
   const argv = example.match(/"[^"]*"|\S+/g)?.map((word) => word.replace(/^"|"$/g, "")) ?? [];

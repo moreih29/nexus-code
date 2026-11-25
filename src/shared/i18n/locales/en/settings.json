@@ -356,7 +356,8 @@
         "profileRemove": "remove the agent profile \"{{detail}}\"",
         "shellAdd": "add the terminal shell \"{{detail}}\"",
         "shellEdit": "change the terminal shell \"{{detail}}\"",
-        "shellRemove": "remove the terminal shell \"{{detail}}\""
+        "shellRemove": "remove the terminal shell \"{{detail}}\"",
+        "lspPath": "change the {{detail}}"
       },
       "headline": {
         "open": "Open {{detail}}",
@@ -419,7 +420,8 @@
         "profileRemove": "Remove the agent profile \"{{detail}}\"",
         "shellAdd": "Add the terminal shell \"{{detail}}\"",
         "shellEdit": "Change the terminal shell \"{{detail}}\"",
-        "shellRemove": "Remove the terminal shell \"{{detail}}\""
+        "shellRemove": "Remove the terminal shell \"{{detail}}\"",
+        "lspPath": "Change the {{detail}}"
       },
       "permission_title": "Answer another session's permission request?",
       "mode_title": "Let an agent loosen a session's permission mode?",
@@ -476,11 +478,14 @@
       "shell_add_title": "Let an agent add a terminal shell?",
       "shell_edit_title": "Let an agent change a terminal shell?",
       "shell_remove_title": "Let an agent remove a terminal shell?",
+      "lsp_path_title": "Let an agent change a language server's path?",
       "edit_name": "Name {{value}}",
       "edit_program": "Program {{value}}",
       "edit_args": "Arguments {{value}}",
       "edit_none": "None",
-      "edit_default_shell": "Default shell {{value}}"
+      "edit_default_shell": "Default shell {{value}}",
+      "edit_path": "Path {{value}}",
+      "edit_path_default": "Found on the PATH"
     },
     "heading": "nexus CLI"
   },
