@@ -5,6 +5,7 @@ import { runCli } from "../../../../../src/main/features/cli/registry";
 import { AgentGate } from "../../../../../src/main/features/remote/agent-gate";
 import { serveWith } from "../../../../../src/main/features/remote/serve";
 import type { CliUiOps } from "../../../../../src/shared/cli/ui";
+import { lspSettingsFromState } from "../../../../../src/shared/lsp/settings";
 import { WorkspaceMetaSchema } from "../../../../../src/shared/types/workspace";
 import { contextFor, fakeApp } from "../../../main/cli/fake-services";
 
@@ -57,6 +58,18 @@ const { usePreviewDefaultsStore } = await import(
 );
 const { useTerminalStore } = await import("../../../../../src/renderer/state/stores/terminal");
 const { useWorkspacesStore } = await import("../../../../../src/renderer/state/stores/workspaces");
+const { useNoteSummarySettings } = await import(
+  "../../../../../src/renderer/state/stores/note-summary"
+);
+const { useVoiceMemory } = await import("../../../../../src/renderer/services/notes/voice-memory");
+const { useKeybindingsStore } = await import(
+  "../../../../../src/renderer/state/stores/keybindings"
+);
+const { useUpdatesStore } = await import("../../../../../src/renderer/state/stores/updates");
+const { useVoiceStore } = await import("../../../../../src/renderer/state/stores/voice");
+const { useLspSettingsStore } = await import(
+  "../../../../../src/renderer/state/stores/lsp-settings"
+);
 
 const set = (key: string, value: string | null) => settingsHandlers["settings.set"]({ key, value });
 const get = async (key: string) => (await settingsHandlers["settings.list"]({ key })).settings[0];
@@ -363,6 +376,254 @@ describe("settings of the editor's views, the terminal's shell and voice terms",
       });
     } finally {
       delete answers["remote.voiceTerms"];
+    }
+  });
+});
+
+describe("language server settings", () => {
+  it("turns language servers, one language and TypeScript's memory saving on and off", async () => {
+    useLspSettingsStore.getState().hydrate(lspSettingsFromState({}));
+    expect(await get("lsp.enabled")).toMatchObject({ value: false, changed: false });
+    expect((await set("lsp.enabled", "on")).setting).toMatchObject({ value: true, changed: true });
+    expect(await get("lsp.go")).toMatchObject({ value: false, changed: false });
+    expect(await get("lsp.python")).toMatchObject({ value: true, changed: false });
+    expect((await set("lsp.python", "off")).setting).toMatchObject({
+      value: false,
+      changed: true,
+    });
+    expect((await set("lsp.typescript.lowMemory", "off")).setting).toMatchObject({
+      value: false,
+      changed: true,
+    });
+    expect((await set("lsp.maxActiveWorkspaces", "4")).setting).toMatchObject({ value: 4 });
+    expect(useLspSettingsStore.getState().settings).toMatchObject({
+      enabled: true,
+      maxActiveWorkspaces: 4,
+      languages: { python: { enabled: false }, typescript: { lowMemory: false } },
+    });
+    await expect(set("lsp.maxActiveWorkspaces", "17")).rejects.toThrow(
+      "lsp.maxActiveWorkspaces: 17 is not within 1..16",
+    );
+    await set("lsp.python", null);
+    expect(await get("lsp.python")).toMatchObject({ value: true, changed: false });
+    writes.pop();
+    await expect(set("lsp.python", "maybe")).rejects.toThrow(
+      'lsp.python: "maybe" is not on or off',
+    );
+    expect(writes).toEqual([
+      { enabled: true },
+      { languageId: "python", settings: { enabled: false } },
+      { languageId: "typescript", settings: { lowMemory: false } },
+      { count: 4 },
+    ]);
+  });
+});
+
+describe("voice language and what other devices may do here", () => {
+  it("sets the voice language and refuses one it does not take", async () => {
+    useVoiceStore.getState().hydrate({});
+    expect(await get("voice.language")).toMatchObject({ value: "app", changed: false });
+    expect((await set("voice.language", "multi")).setting).toMatchObject({
+      value: "multi",
+      changed: true,
+    });
+    expect(useVoiceStore.getState().language).toBe("multi");
+    await expect(set("voice.language", "ko")).rejects.toThrow(
+      'voice.language: "ko" is not one of app, multi',
+    );
+    await set("voice.language", null);
+    expect(writes).toEqual([{ voiceLanguage: "multi" }, { voiceLanguage: "app" }]);
+  });
+
+  it("reads the remote policies but leaves changing them to the user", async () => {
+    answers["remote.allowControl"] = () => ({ ok: true, value: true });
+    answers["remote.allowTerminal"] = () => ({ ok: true, value: false });
+    answers["remote.agentsPolicy"] = () => ({ ok: true, value: "deny" });
+    answers["remote.phonePushPolicy"] = () => ({ ok: false, kind: "unknown", message: "no" });
+    try {
+      expect(await get("remote.control")).toMatchObject({
+        value: true,
+        changed: true,
+        readOnly: true,
+      });
+      expect(await get("remote.terminal")).toMatchObject({ value: false, changed: false });
+      expect(await get("remote.agents")).toMatchObject({
+        value: "deny",
+        choices: ["ask", "allow", "deny"],
+      });
+      expect(await get("remote.phonePush")).toMatchObject({ unavailable: "no" });
+      for (const key of ["remote.control", "remote.terminal", "remote.agents", "remote.phonePush"])
+        await expect(set(key, "on")).rejects.toThrow(`${key} is the user's to change, in Settings`);
+      expect(writes).toEqual([]);
+    } finally {
+      for (const method of ["allowControl", "allowTerminal", "agentsPolicy", "phonePushPolicy"])
+        delete answers[`remote.${method}`];
+    }
+  });
+});
+
+describe("update check and logs folder", () => {
+  it("waits for the check to end and gives back what it found", async () => {
+    answers["updates.check"] = () => {
+      setTimeout(() =>
+        useUpdatesStore.getState().applyStatus({ kind: "current", trigger: "manual" }),
+      );
+      return { ok: true, value: undefined };
+    };
+    answers["system.logsPath"] = () => ({ ok: true, value: { path: "/logs" } });
+    try {
+      expect(await settingsHandlers["settings.updateCheck"]({})).toMatchObject({
+        status: { kind: "current" },
+      });
+      expect(await settingsHandlers["settings.logsPath"]({})).toEqual({ path: "/logs" });
+    } finally {
+      delete answers["updates.check"];
+      delete answers["system.logsPath"];
+    }
+  });
+});
+
+describe("keyboard shortcuts", () => {
+  const keys = (change: CliUiOps["settings.keys.set"]["args"]["change"]) =>
+    settingsHandlers["settings.keys.set"]({ change });
+
+  it("sets, unbinds and resets a shortcut, as the Settings page does", async () => {
+    useKeybindingsStore.getState().hydrate([]);
+    const set = await keys({
+      op: "set",
+      command: "tab.closeOthers",
+      keys: ["CmdOrCtrl+Alt+Shift+Y"],
+    });
+    expect(set.bindings).toEqual([
+      { command: "tab.closeOthers", area: "app", primary: "CmdOrCtrl+Alt+Shift+Y" },
+    ]);
+    expect(useKeybindingsStore.getState().overrides).toEqual([
+      { command: "tab.closeOthers", primary: "CmdOrCtrl+Alt+Shift+Y", chord: undefined },
+    ]);
+    await keys({ op: "unbind", command: "tab.closeOthers" });
+    expect(useKeybindingsStore.getState().overrides).toEqual([
+      { command: "tab.closeOthers", primary: null, chord: undefined },
+    ]);
+    await keys({ op: "reset", command: "tab.closeOthers" });
+    expect(useKeybindingsStore.getState().overrides).toEqual([]);
+    expect(writes.at(-1)).toEqual({ keybindingOverrides: [] });
+  });
+
+  it("refuses a shortcut another command uses where both apply, with the reason", async () => {
+    useKeybindingsStore.getState().hydrate([]);
+    await expect(
+      keys({ op: "set", command: "tab.closeOthers", keys: ["CmdOrCtrl+S"] }),
+    ).rejects.toThrow("CmdOrCtrl+S for tab.closeOthers: Conflicts with “Save File”");
+    expect(useKeybindingsStore.getState().overrides).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+
+  it("refuses a chord's single key, a key it cannot read and a command without shortcuts", async () => {
+    await expect(
+      keys({ op: "set", command: "tab.closeAll", keys: ["CmdOrCtrl+K"] }),
+    ).rejects.toThrow('tab.closeAll takes a two-key chord, such as "CmdOrCtrl+K CmdOrCtrl+S"');
+    await expect(
+      keys({ op: "set", command: "tab.closeOthers", keys: ["Hyper+Q"] }),
+    ).rejects.toThrow('"Hyper+Q" is not a key such as CmdOrCtrl+Shift+P');
+    await expect(keys({ op: "unbind", command: "tab.nope" })).rejects.toThrow(
+      'no command "tab.nope" takes a shortcut; nexus settings keys list shows them',
+    );
+    expect(writes).toEqual([]);
+  });
+});
+
+describe("recording summaries and remembered voices", () => {
+  const approved = (key: string, value: string) =>
+    settingsHandlers["settings.set"]({ key, value, approved: true });
+
+  it("turns summaries on only with the user's approval, and off without it", async () => {
+    useNoteSummarySettings.setState({ enabled: false, agent: "claude" }, true);
+    await expect(set("notes.summary", "on")).rejects.toThrow(
+      "notes.summary: turning it on needs the user's approval, which nexus settings set asks for",
+    );
+    expect(writes).toEqual([]);
+    expect((await approved("notes.summary", "on")).setting).toMatchObject({ value: true });
+    expect((await set("notes.summary", "off")).setting).toMatchObject({ value: false });
+    expect(writes).toEqual([
+      { noteSummary: { enabled: true, agent: "claude" } },
+      { noteSummary: { enabled: false, agent: "claude" } },
+    ]);
+  });
+
+  it("chooses the summary profile by id or name and a model that profile has", async () => {
+    const profiles = useAgentProfilesStore.getState().config;
+    try {
+      useAgentProfilesStore.getState().hydrate({
+        profiles: [{ id: "claude-work", name: "Work", agent: "claude", color: "cyan", dir: "/w" }],
+        rules: [],
+        defaults: {},
+      });
+      useNoteSummarySettings.setState({ enabled: false, agent: "claude", model: "opus" }, true);
+      expect((await set("notes.summaryProfile", "work")).setting).toMatchObject({
+        value: "claude-work",
+        changed: true,
+      });
+      expect(useNoteSummarySettings.getState()).toEqual({
+        enabled: false,
+        agent: "claude",
+        profileId: "claude-work",
+      });
+      await expect(set("notes.summaryProfile", "Home")).rejects.toThrow(
+        'notes.summaryProfile: no Claude profile "Home"; nexus chat profiles --agent claude lists them',
+      );
+      expect((await set("notes.summaryModel", "Opus")).setting).toMatchObject({ value: "opus" });
+      await expect(set("notes.summaryModel", "gpt-5")).rejects.toThrow(
+        'notes.summaryModel: "gpt-5" is not a model of that profile: default, sonnet, opus',
+      );
+      expect((await set("notes.summaryModel", "default")).setting).toMatchObject({
+        value: "default",
+        changed: false,
+      });
+      useNoteSummarySettings.setState({ enabled: true, agent: "claude" }, true);
+      await expect(set("notes.summaryProfile", "claude-work")).rejects.toThrow(
+        "notes.summaryProfile: turn notes.summary off before choosing another profile",
+      );
+    } finally {
+      useAgentProfilesStore.getState().hydrate(profiles);
+      useNoteSummarySettings.setState({ enabled: false, agent: "claude" }, true);
+    }
+  });
+
+  it("turns name suggestions and forgetting on only with approval, and off without it", async () => {
+    const status = {
+      consent: "allowed",
+      suggest: true,
+      expire: true,
+      available: true,
+      revision: 1,
+      count: 2,
+    };
+    useVoiceMemory.setState({ status: null });
+    answers["voiceMemory.status"] = () => ({ ok: true, value: status });
+    answers["voiceMemory.configure"] = (args) => {
+      Object.assign(status, args, { revision: status.revision + 1 });
+      return { ok: true, value: { ...status } };
+    };
+    try {
+      expect(await get("notes.voiceSuggest")).toMatchObject({ value: true, changed: false });
+      expect((await set("notes.voiceSuggest", "off")).setting).toMatchObject({
+        value: false,
+        changed: true,
+      });
+      expect((await set("notes.voiceExpire", "off")).setting).toMatchObject({ value: false });
+      for (const key of ["notes.voiceSuggest", "notes.voiceExpire"])
+        await expect(set(key, "on")).rejects.toThrow(
+          `${key}: turning it on needs the user's approval`,
+        );
+      expect(status).toMatchObject({ suggest: false, expire: false });
+      expect((await approved("notes.voiceSuggest", "on")).setting).toMatchObject({ value: true });
+      await expect(set("notes.voiceSuggest", null)).rejects.toThrow(
+        "notes.voiceSuggest has no default to go back to",
+      );
+    } finally {
+      delete answers["voiceMemory.status"];
+      delete answers["voiceMemory.configure"];
+      useVoiceMemory.setState({ status: null });
     }
   });
 });

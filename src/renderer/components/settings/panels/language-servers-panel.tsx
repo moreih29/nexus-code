@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { type BuiltinLspPresetLanguageId, resolveLspPreset } from "../../../../shared/lsp/config";
 import {
+  isLspLanguageChosen,
   isLspLowMemory,
   LSP_MAX_ACTIVE_WORKSPACES_LIMIT,
   type LspLanguageSettings,
@@ -107,7 +108,7 @@ function LanguageRow({
   const id = useId();
   const lowMemoryId = useId();
   const preset = resolveLspPreset(languageId);
-  const on = preset?.system ? settings.enabled === true : settings.enabled !== false;
+  const on = isLspLanguageChosen(languageId, settings);
 
   function change(next: LspLanguageSettings): void {
     void ipcCallResult("lsp", "setLanguageSettings", { languageId, settings: next });

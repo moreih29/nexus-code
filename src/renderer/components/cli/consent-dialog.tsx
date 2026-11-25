@@ -77,7 +77,7 @@ export function askCliConsent(prompt: CliConsentPrompt): Promise<CliConsentAnswe
 }
 
 export function consentNamesTarget(kind: string): boolean {
-  return kind === "instructionsEdit" || kind === "profileAdd";
+  return kind === "instructionsEdit" || kind === "profileAdd" || kind === "settingTurnOn";
 }
 
 export function describeConsent(
@@ -143,6 +143,7 @@ export function consentTitleOf(kind: string, remote: boolean) {
   if (kind === "chatRemoteControlOn") return "agentCli.consent.remote_control_title" as const;
   if (kind === "sandboxExecution") return "agentCli.consent.sandbox_title" as const;
   if (kind === "noteRecord") return "agentCli.consent.record_title" as const;
+  if (kind === "settingTurnOn") return "agentCli.consent.setting_on_title" as const;
   return remote ? ("agentCli.consent.remote_title" as const) : ("agentCli.consent.title" as const);
 }
 
@@ -176,7 +177,12 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         description={description}
         descriptionClassName={CONSENT_DESCRIPTION_CLASS}
       />
-      {copy?.body && (
+      {copy?.body && change?.kind === "settingTurnOn" && (
+        <p className="mt-3 rounded-(--radius-control) bg-muted px-2 py-1.5 text-app-ui-sm text-foreground">
+          {copy.body}
+        </p>
+      )}
+      {copy?.body && change?.kind !== "settingTurnOn" && (
         <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-(--radius-control) bg-muted px-2 py-1.5 font-mono text-app-ui-sm text-foreground">
           {copy.body}
         </pre>

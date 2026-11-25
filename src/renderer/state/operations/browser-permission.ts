@@ -3,6 +3,7 @@ import {
   showPermissionPrompt,
 } from "../../components/ui/permission-prompt-dialog";
 import { ipcListen } from "../../ipc/client";
+import { useBrowserPermissionsStore } from "../stores/browser-permissions";
 
 type Unsubscribe = () => void;
 
@@ -20,6 +21,9 @@ export function initBrowserPermissionSubscriptions(): void {
     }),
     ipcListen("browserPermission", "dismissed", ({ promptId }) => {
       dismissPermissionPrompt(promptId);
+    }),
+    ipcListen("browserPermission", "rememberedChanged", () => {
+      useBrowserPermissionsStore.getState().rememberedChanged();
     }),
   );
 }

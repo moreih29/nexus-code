@@ -1,6 +1,7 @@
 import type { TFunction } from "i18next";
 import type { RemoteConsent } from "../../../packages/remote-protocol/src/rpc";
 import type { ChatAgent } from "../sessions/task-agent";
+import { SETTINGS_ASKING_TO_TURN_ON, settingAskingToTurnOn } from "./settings";
 
 export const CONSENT_AGENT_NAMES: Record<ChatAgent, string> = { claude: "Claude", codex: "Codex" };
 
@@ -23,6 +24,16 @@ export function consentProfileLayer(
 }
 
 export function consentDetailsOf(t: TFunction<"settings">, change: RemoteConsent["change"]) {
+  if (change.kind === "settingTurnOn") {
+    const asking = settingAskingToTurnOn(change.detail ?? "");
+    if (asking) {
+      const slug = SETTINGS_ASKING_TO_TURN_ON[asking];
+      return {
+        detail: t(`agentCli.consent.setting_on.${slug}`),
+        body: t(`agentCli.consent.setting_on_body.${slug}`),
+      };
+    }
+  }
   if (change.profileAdd) {
     const { agent, folder, connection, endpoint } = change.profileAdd;
     const method = t(`profiles.connection.methods.${connection}.${agent}.label`);

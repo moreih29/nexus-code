@@ -140,6 +140,14 @@ export function BrowserPermissionsPanel() {
     void loadEntries();
   }, [loadEntries]);
 
+  useEffect(
+    () =>
+      useBrowserPermissionsStore.subscribe((now, before) => {
+        if (now.rememberedRevision !== before.rememberedRevision) void loadEntries();
+      }),
+    [loadEntries],
+  );
+
   const handleRevoke = useCallback(
     async (entry: RememberedEntry) => {
       const confirmed = await showConfirmDialog({
