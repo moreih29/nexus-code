@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -44,11 +45,16 @@ func newConsoleService(t *testing.T) (*Service, *consoleRecorder) {
 
 func spawnConsole(t *testing.T, svc *Service, tabID string, args ...string) {
 	t.Helper()
+	spawnProgram(t, svc, tabID, os.Getenv("COMSPEC"), t.TempDir(), args...)
+}
+
+func spawnProgram(t *testing.T, svc *Service, tabID, program, cwd string, args ...string) {
+	t.Helper()
 	raw, err := json.Marshal(SpawnParams{
 		WorkspaceID: "ws",
 		TabID:       tabID,
-		Cwd:         t.TempDir(),
-		Shell:       os.Getenv("COMSPEC"),
+		Cwd:         cwd,
+		Shell:       program,
 		Args:        args,
 		Cols:        80,
 		Rows:        24,
@@ -94,6 +100,33 @@ func TestConsoleRunsCommandAndReportsExitCode(t *testing.T) {
 	}
 	if rec.exit.Code == nil || *rec.exit.Code != 7 {
 		t.Errorf("exit = %+v, want code 7", rec.exit)
+	}
+}
+
+func TestConsolePassesArgumentsToGitBashProgramsAsGiven(t *testing.T) {
+	printf := filepath.Join(os.Getenv("ProgramFiles"), "Git", "usr", "bin", "printf.exe")
+	if _, err := os.Stat(printf); err != nil {
+		t.Skip("Git for Windows is not installed")
+	}
+	cwd := t.TempDir()
+	for _, name := range []string{"m1.txt", "m2.txt"} {
+		if err := os.WriteFile(filepath.Join(cwd, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	args := []string{`a"b`, "x y", "", `C:\dir with space\`, "it's", "*.txt", "{a,b}", `a\"b`, `tail\`}
+	svc, rec := newConsoleService(t)
+	spawnProgram(t, svc, "msys", printf, cwd, append([]string{"<%s>"}, args...)...)
+
+	rec.waitFor(t, "exit", func(_ string, exit *ExitPayload) bool { return exit != nil })
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	var want strings.Builder
+	for _, arg := range args {
+		want.WriteString("<" + arg + ">")
+	}
+	if !strings.Contains(rec.output.String(), want.String()) {
+		t.Errorf("output %q lacks %q", rec.output.String(), want.String())
 	}
 }
 
