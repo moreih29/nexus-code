@@ -7,8 +7,8 @@ import {
   type WindowBounds,
   WindowBoundsSchema,
 } from "../../../shared/types/app-state";
+import { errnoText } from "../errno-text";
 import { migrateAppState } from "./app-state-migrations";
-import { errnoText } from "./errno-text";
 import { CANCELLED, PREPARING, RENAMING, renameWhenUnlocked, writeStateFile } from "./state-file";
 import { StateWorkerError, StateWriter } from "./state-writer";
 

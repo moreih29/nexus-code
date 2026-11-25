@@ -1,6 +1,6 @@
 import { parentPort, workerData } from "node:worker_threads";
 import type { AppState } from "../../../shared/types/app-state";
-import { type Errno, errnoOf } from "./errno-text";
+import { type Errno, errnoOf } from "../errno-text";
 import { FINISHED, PREPARING, RENAMING, stateFailureText, writeStateFile } from "./state-file";
 
 export type Layouts = NonNullable<AppState["layoutByWorkspace"]>;

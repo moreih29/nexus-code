@@ -14,3 +14,12 @@ export function errnoText(error: unknown): string | undefined {
   const errno = errnoOf(error);
   return errno && `${errno.code} (${errno.syscall})`;
 }
+
+export function errorCodeText(error: unknown): string {
+  const errno = errnoText(error);
+  if (errno) return errno;
+  if (typeof error !== "object" || error === null) return typeof error;
+  const { code } = error as { code?: unknown };
+  if (typeof code === "string") return code;
+  return error instanceof Error ? error.name : "unknown";
+}

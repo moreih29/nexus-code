@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { AppState } from "../../../shared/types/app-state";
 import { nestedErrorText } from "../../../shared/util/nested-error-text";
-import { errnoText } from "./errno-text";
+import { errnoText } from "../errno-text";
 
 export const PREPARING = 0;
 export const RENAMING = 1;

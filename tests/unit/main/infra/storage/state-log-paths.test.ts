@@ -3,8 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
+import { errnoText, errorCodeText } from "../../../../../src/main/infra/errno-text";
 import { createQuitStateFlush } from "../../../../../src/main/infra/main-shutdown";
-import { errnoText } from "../../../../../src/main/infra/storage/errno-text";
 import { writeStateFile } from "../../../../../src/main/infra/storage/state-file";
 import { AppStateSchema } from "../../../../../src/main/infra/storage/state-service";
 import { closeTestStates, openTestState } from "../../../../helpers/test-state";
@@ -19,6 +19,16 @@ function failureOf(run: () => void): NodeJS.ErrnoException {
     return error as NodeJS.ErrnoException;
   }
   throw new Error("Expected the file operation to fail");
+}
+
+function failingWorker(dir: string, failure: string): string {
+  const workerPath = path.join(dir, "failing-worker.ts");
+  fs.writeFileSync(
+    workerPath,
+    `import { workerData as statePath } from "node:worker_threads";
+${failure}`,
+  );
+  return workerPath;
 }
 
 describe("app state save failures in the log", () => {
@@ -132,5 +142,37 @@ describe("app state save failures in the log", () => {
     const message = (failure as AggregateError).message;
     expectNoPath(message);
     expect(message).toMatch(/^ENOENT \(rename\); temporary file cleanup: E[A-Z]+ \(unlink\)$/);
+  });
+
+  it("names a failed worker by its code, or by the error name without one", () => {
+    expect(
+      errorCodeText(
+        Object.assign(new Error("Cannot find module 'x'"), { code: "MODULE_NOT_FOUND" }),
+      ),
+    ).toBe("MODULE_NOT_FOUND");
+    expect(errorCodeText(new TypeError("bad state at /Users/me/state.json"))).toBe("TypeError");
+    expect(errorCodeText("text")).toBe("string");
+  });
+
+  it.each([
+    [
+      "MODULE_NOT_FOUND",
+      `throw Object.assign(new Error("Cannot find module '" + statePath + "'"), { code: "MODULE_NOT_FOUND" });`,
+    ],
+    ["TypeError", `throw new TypeError("bad state at " + statePath);`],
+  ])("names a worker that fails to start by %s, without the paths", async (named, failure) => {
+    const service = openTestState(filePath, failingWorker(tmpDir, failure));
+    service.setState({ sidebarWidth: 250 });
+    const unavailable = "App state worker unavailable; using synchronous writes: ";
+    const deadline = performance.now() + 8_000;
+    let line: string | undefined;
+    while (!line && performance.now() < deadline) {
+      await setTimeout(10);
+      line = mainWarnMock.mock.calls
+        .map(([message]) => message)
+        .find((m) => m.startsWith(unavailable));
+    }
+    expect(line).toBe(`${unavailable}Error: ${named}`);
+    expectNoPath(line ?? "");
   });
 });

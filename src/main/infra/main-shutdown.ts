@@ -1,5 +1,5 @@
 import { defaultTimerScheduler, type TimerScheduler } from "../../shared/util/timer-scheduler";
-import { errnoText } from "./storage/errno-text";
+import { errnoText } from "./errno-text";
 
 export const MAIN_QUIT_GRACE_MS = 3_000;
 const LSP_QUIT_GRACE_MS = 2_250;

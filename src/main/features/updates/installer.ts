@@ -1,5 +1,6 @@
 import { gt, valid } from "semver";
 import type { Logger } from "../../../shared/log/types";
+import { errnoText } from "../../infra/errno-text";
 
 export type UpdateChannel = "stable" | "beta";
 
@@ -54,7 +55,7 @@ export function createUpdateInstaller(options: CreateUpdateInstallerOptions): Up
   let handedOff = false;
 
   function fail(version: string | null, error: unknown): void {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errnoText(error) ?? (error instanceof Error ? error.message : String(error));
     logger.warn(
       `updates: in-place update to ${version ?? "the latest version"} failed: ${message}`,
     );
