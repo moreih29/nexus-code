@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { AppState } from "../../../shared/types/app-state";
+import { nestedErrorText } from "../../../shared/util/nested-error-text";
 
 export const PREPARING = 0;
 export const RENAMING = 1;
@@ -33,7 +34,7 @@ export function writeStateFile(
     } catch (cleanupError) {
       throw new AggregateError(
         [error, cleanupError],
-        `${error}; temporary file cleanup: ${cleanupError}`,
+        `${nestedErrorText(error)}; temporary file cleanup: ${nestedErrorText(cleanupError)}`,
       );
     }
     throw error;

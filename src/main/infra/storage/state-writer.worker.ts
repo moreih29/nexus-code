@@ -1,5 +1,6 @@
 import { parentPort, workerData } from "node:worker_threads";
 import type { AppState } from "../../../shared/types/app-state";
+import { nestedErrorText } from "../../../shared/util/nested-error-text";
 import { FINISHED, PREPARING, RENAMING, writeStateFile } from "./state-file";
 
 export type Layouts = NonNullable<AppState["layoutByWorkspace"]>;
@@ -41,7 +42,7 @@ port.on("message", (message: StateWriteMessage) => {
       });
     result = { written };
   } catch (error) {
-    result = { error: String(error) };
+    result = { error: nestedErrorText(error) };
   } finally {
     layouts = {};
     Atomics.store(gate, 0, FINISHED);

@@ -1,4 +1,5 @@
 import { PendingRequestMap } from "../../../shared/ipc/pending-request-map";
+import { nestedErrorText } from "../../../shared/util/nested-error-text";
 import type { TimerScheduler } from "../../../shared/util/timer-scheduler";
 import { MAIN_QUIT_GRACE_MS } from "../../infra/main-shutdown";
 
@@ -100,7 +101,7 @@ export class ClosePersistence {
     try {
       win.webContents.send("ipc:event", "window", "prepareClose", { attempt });
     } catch (error) {
-      this.answers.reject(key, new Error(String(error)));
+      this.answers.reject(key, new Error(nestedErrorText(error)));
     }
 
     const flush = answer

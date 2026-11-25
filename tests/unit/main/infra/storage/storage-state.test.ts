@@ -176,9 +176,14 @@ describe("StateService", () => {
       service.setState({ sidebarWidth: 270 });
       await waitFor("another fallback write", () => readState(filePath).sidebarWidth === 270);
       expect(write).toHaveBeenCalledTimes(1);
-      expect(
-        mainWarnMock.mock.calls.filter(([message]) => message.includes("using synchronous writes")),
-      ).toHaveLength(1);
+      const fallbacks = mainWarnMock.mock.calls
+        .map(([message]) => message)
+        .filter((message) => message.includes("using synchronous writes"));
+      expect(fallbacks).toHaveLength(1);
+      expect(fallbacks[0]).toStartWith(
+        "App state worker unavailable; using synchronous writes: Error: ",
+      );
+      expect(fallbacks[0]).not.toContain("Error: Error:");
     } finally {
       write.mockRestore();
     }
@@ -245,10 +250,68 @@ fs.renameSync = (...args) => {
     await waitFor("the retry log", () =>
       mainWarnMock.mock.calls.some(([message]) => message.includes(`${code}: destination locked`)),
     );
+    expect(mainWarnMock.mock.calls.map(([message]) => message)).toContain(
+      `Could not save app state; retrying: Error: ${code}: destination locked`,
+    );
     expect(readState(filePath).sidebarWidth).toBe(250);
     expect(fs.existsSync(`${filePath}.vsctmp`)).toBe(false);
     service.setState({ sidebarWidth: 270 });
     await waitFor("the retried replacement", () => readState(filePath).sidebarWidth === 270);
+  });
+
+  it("logs a failed replacement and its failed cleanup with one error prefix", async () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const workerPath = workerWithHook(
+      tmpDir,
+      `
+const rename = fs.renameSync;
+const unlink = fs.unlinkSync;
+fs.renameSync = () => {
+  fs.renameSync = rename;
+  throw new Error("EBUSY: destination locked");
+};
+fs.unlinkSync = () => {
+  fs.unlinkSync = unlink;
+  throw new Error("EBUSY: temporary file locked");
+};`,
+    );
+    const service = openTestState(filePath, workerPath);
+    service.setState({ sidebarWidth: 250 });
+    service.flushNow();
+    mainWarnMock.mockClear();
+    service.setState({ sidebarWidth: 260 });
+    await waitFor("the retry log", () =>
+      mainWarnMock.mock.calls.some(([message]) => message.includes("temporary file cleanup")),
+    );
+    expect(mainWarnMock.mock.calls.map(([message]) => message)).toContain(
+      "Could not save app state; retrying: Error: AggregateError: EBUSY: destination locked; temporary file cleanup: EBUSY: temporary file locked",
+    );
+    await waitFor("the retried replacement", () => readState(filePath).sidebarWidth === 260);
+  });
+
+  it("keeps the name of a worker error that is not a plain Error", async () => {
+    const filePath = path.join(tmpDir, "state.json");
+    const workerPath = workerWithHook(
+      tmpDir,
+      `
+const rename = fs.renameSync;
+fs.renameSync = () => {
+  fs.renameSync = rename;
+  throw new TypeError("rename is not available");
+};`,
+    );
+    const service = openTestState(filePath, workerPath);
+    service.setState({ sidebarWidth: 250 });
+    service.flushNow();
+    mainWarnMock.mockClear();
+    service.setState({ sidebarWidth: 260 });
+    await waitFor("the retry log", () =>
+      mainWarnMock.mock.calls.some(([message]) => message.includes("rename is not available")),
+    );
+    expect(mainWarnMock.mock.calls.map(([message]) => message)).toContain(
+      "Could not save app state; retrying: Error: TypeError: rename is not available",
+    );
+    await waitFor("the retried replacement", () => readState(filePath).sidebarWidth === 260);
   });
 
   it("flushNow waits for an earlier rename already in progress", async () => {

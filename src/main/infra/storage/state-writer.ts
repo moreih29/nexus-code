@@ -1,6 +1,7 @@
 import { setImmediate } from "node:timers/promises";
 import { Worker } from "node:worker_threads";
 import type { AppState } from "../../../shared/types/app-state";
+import { nestedErrorText } from "../../../shared/util/nested-error-text";
 import { CANCELLED, PREPARING } from "./state-file";
 import type { Layouts, StateWriteMessage, StateWriteResult } from "./state-writer.worker";
 
@@ -33,8 +34,8 @@ export class StateWriter {
     worker.ref();
     return new Promise<boolean>((resolve, reject) => {
       let failure: StateWorkerError | undefined;
-      const onError = (error: Error) => {
-        failure ??= new StateWorkerError(String(error), !current.ready);
+      const onError = (error: unknown) => {
+        failure ??= new StateWorkerError(nestedErrorText(error), !current.ready);
       };
       const onExit = (code: number) => {
         failure ??= new StateWorkerError(`App state writer exited (${code})`, !current.ready);
@@ -94,7 +95,10 @@ export class StateWriter {
     try {
       worker = new Worker(this.workerPath, { workerData: this.filePath });
     } catch (error) {
-      throw new StateWorkerError(`Could not start app state worker: ${String(error)}`, true);
+      throw new StateWorkerError(
+        `Could not start app state worker: ${nestedErrorText(error)}`,
+        true,
+      );
     }
     worker.on("error", () => {});
     worker.once("exit", () => {
