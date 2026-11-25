@@ -187,7 +187,7 @@ Intel Mac에서는 소스에서 직접 빌드할 수 있습니다. [자체 빌�
 | 동작 | macOS | Windows / Linux |
 |---|---|---|
 | 워크스페이스 추가 | `⌘⇧N` | `Ctrl+Shift+N` |
-| 이전 / 다음 워크스페이스 | `⌘⌃↑` / `⌘⌃↓` | `Win+Ctrl+↑` / `Win+Ctrl+↓` (Linux는 `Super`) |
+| 이전 / 다음 워크스페이스 | `⌘⌃↑` / `⌘⌃↓` | Windows `Ctrl+Shift+PageUp` / `Ctrl+Shift+PageDown`, Linux `Super+Ctrl+↑` / `Super+Ctrl+↓` |
 | 새 터미널 | `⌘T` | `Ctrl+Shift+T` |
 | 워크스페이스 / 에이전트 뷰 전환 | `⌘⇧A` | `Ctrl+Shift+A` |
 

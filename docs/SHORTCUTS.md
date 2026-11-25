@@ -83,7 +83,7 @@ VSCode 호환 매핑. `CmdOrCtrl` 은 OS 에 맞게 자동 매핑되며 (macOS =
 
 ## Windows · Linux
 
-표의 ⌘ 를 Ctrl 로 읽으면 됩니다. 다만 ⌘⌃ 는 Win+Ctrl(Linux 는 Super+Ctrl)이어서, 이전 / 다음 워크스페이스는 Win+Ctrl+↑ · Win+Ctrl+↓ 입니다. 같은 모양의 이전 / 다음 탭(Win+Ctrl+← · →)은 Windows 가 가상 데스크톱 전환에 쓰므로, 아래 표의 Ctrl+PageUp · Ctrl+PageDown 을 씁니다.
+표의 ⌘ 를 Ctrl 로 읽으면 됩니다. 다만 ⌘⌃ 는 Linux 에서 Super+Ctrl 이어서, 이전 / 다음 워크스페이스는 Super+Ctrl+↑ · Super+Ctrl+↓ 입니다. Windows 는 Win+Ctrl+화살표를 가상 데스크톱 전환에 쓰므로, 이전 / 다음 탭은 Ctrl+PageUp · Ctrl+PageDown, 이전 / 다음 워크스페이스는 Ctrl+Shift+PageUp · Ctrl+Shift+PageDown 입니다(아래 표).
 
 터미널에 포커스가 있으면 셸과 겹치는 단축키(Ctrl+N · E · O · S · R · W · T · B · \ 와 Ctrl+K 코드)는 앱이 받지 않고 셸로 보냅니다. 아래 키는 터미널에서도 동작하므로, 앱의 메뉴와 설정에도 이 키로 표시됩니다.
 
@@ -93,3 +93,4 @@ VSCode 호환 매핑. `CmdOrCtrl` 은 OS 에 맞게 자동 매핑되며 (macOS =
 | 탭 닫기 | Ctrl+F4 <sub>(터미널 밖에서는 Ctrl+W 도)</sub> |
 | 파일 트리 새로고침 | Ctrl+Shift+R <sub>(터미널 밖에서는 Ctrl+R 도)</sub> |
 | 이전 / 다음 탭 | Ctrl+PageUp · Ctrl+PageDown |
+| 이전 / 다음 워크스페이스 | Ctrl+Shift+PageUp · Ctrl+Shift+PageDown <sub>(Windows)</sub> |

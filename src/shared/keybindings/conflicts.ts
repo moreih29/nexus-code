@@ -121,7 +121,7 @@ function topLevelLiterals(when: string): { pos: Set<string>; neg: Set<string> } 
 function firesOnPlatform(when: string | undefined, isMac: boolean): boolean {
   if (when === undefined) return true;
   const { pos, neg } = topLevelLiterals(when);
-  return isMac ? !neg.has("isMac") : !pos.has("isMac");
+  return isMac ? !neg.has("isMac") && !pos.has("isWindows") : !pos.has("isMac");
 }
 
 function scopesProvablyDisjoint(a: string | undefined, b: string | undefined): boolean {

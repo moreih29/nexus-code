@@ -59,8 +59,8 @@ describe("findDisplayPrimary", () => {
     );
   });
 
-  it("keeps a Cmd+Ctrl binding when the command has no other primary", () => {
-    expect(findDisplayPrimary(KEYBINDINGS, COMMANDS.workspaceFocusPrev, false)?.primary).toBe(
+  it("keeps a Cmd+Ctrl binding on Linux when the command has no other primary", () => {
+    expect(findDisplayPrimary(KEYBINDINGS, COMMANDS.workspaceFocusPrev, false, true)?.primary).toBe(
       "Cmd+Ctrl+Up",
     );
   });

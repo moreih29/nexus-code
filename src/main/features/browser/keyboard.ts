@@ -12,7 +12,7 @@ import {
   type KeybindingOverride,
 } from "../../../shared/keybindings/overrides";
 import { createLogger } from "../../../shared/log/main";
-import { isLinux, isMac } from "../../infra/platform";
+import { isLinux, isMac, isWindows } from "../../infra/platform";
 
 const logger = createLogger("browser-keyboard");
 
@@ -53,6 +53,7 @@ const PAGE_CONTEXT: Readonly<Record<string, boolean>> = {
   browserTabActive: true,
   isMac: isMac(),
   isLinux: isLinux(),
+  isWindows: isWindows(),
 };
 
 interface CompiledBinding {
