@@ -77,9 +77,12 @@ nexus note voice suggestions accept meeting voice-1 Alex --recording REC
 nexus note voice suggestions reject meeting voice-1 Alex --recording REC
 nexus note rename meeting "Weekly planning"
 nexus note storage --json
+nexus note storage remove old-site          # 그 위치의 노트를 모두 휴지통으로 (매번 승인)
 nexus note voice list --json
 nexus note voice delete Alex
 ```
+
+`note storage remove LOCATION`은 설정 › 노트의 삭제와 같습니다. 위치는 `note storage`의 이름이나 경로, `--json`의 key로 고릅니다. 그 위치의 노트 · 녹음 · 파일이 모두 휴지통으로 가고, 그 위치를 쓰는 워크스페이스가 있어도 막지 않습니다. 매번 사용자에게 묻고, 확인 창에 위치 · 노트 수 · 크기 · 쓰는 워크스페이스 수가 보입니다.
 
 `note transcript --json`에서 확인한 화자 키와 줄 id를 화자 편집에 사용합니다. 녹음이 여러 개라면 `--recording`으로 고릅니다. 목소리 이름 제안은 사용자 동의와 제안 설정이 켜져 있을 때 볼 수 있습니다. `note voice delete NAME` 또는 `--all`로 기억을 지울 때는 매번 사용자에게 묻습니다. 화자 키와 이름이 출력됩니다.
 
@@ -144,6 +147,13 @@ nexus chat profiles --profile Gateway                    # 연결 정보 (키는
 nexus chat profiles edit Gateway --rename-model glm-5.3=glm-5.4 --key-file -
 nexus chat profiles remove Gateway --agent claude
 nexus chat profiles add --from Gateway --from-device ihWin --key-file -   # 다른 기기의 연결 복사 (키는 이 기기에서)
+nexus chat profiles edit Gateway --env-file - --header-file headers.txt --timeout 600000   # 값은 파일·stdin으로만, 출력·승인 창에는 이름만
+nexus chat profiles edit Work --behavior permissionMode=plan --unshare skills
+nexus chat profiles default Work --agent claude           # 규칙에 해당하지 않는 워크스페이스의 프로필
+nexus chat profiles rules --json
+nexus chat profiles rules set --folder ~/work --profile Work
+nexus chat profiles rules set --workspace WS --agent codex --inherit
+nexus chat profiles rules remove --folder ~/work
 nexus chat usage --json
 nexus chat usage --agent claude --profile "개인" --refresh
 nexus chat usage --device "Mac mini" --agent codex --json
@@ -209,7 +219,7 @@ Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책�
 
 `chat profiles`는 이름, id, 에이전트와 워크스페이스 기본 선택을 표시합니다. 이 기기에서는 홈 기준 폴더 경로도 표시합니다.
 
-- 각 프로필의 연결 정보도 표시합니다: 방식, API 주소, 인증 헤더, 모델 목록, 기본·가벼운 모델, 문맥 크기, 추론 강도, 색. `--json`에는 `connection`과 `hasKey`가 들어갑니다. API 키는 값·길이·일부 어떤 형태로도 표시하지 않고, `hasKey`로 저장 여부만 알립니다. 키체인이 잠겨 있으면 `hasKey`를 생략합니다. 고급 설정의 헤더와 쿼리는 이름만 표시하고, 환경 변수는 표시하지 않습니다. API 주소에 사용자 이름·비밀번호, 쿼리 값, `#` 뒤 부분이 있으면 사용자 정보와 `#` 뒤는 빼고 쿼리는 이름만 남겨(`?key=***`) 표시하고, `--json`에 `baseUrlRedacted: true`를 넣습니다. `--profile NAME`으로 하나만 볼 수 있습니다.
+- 각 프로필의 연결 정보도 표시합니다: 방식, API 주소, 인증 헤더, 모델 목록, 기본·가벼운 모델, 문맥 크기, 추론 강도, 색. `--json`에는 `connection`과 `hasKey`가 들어갑니다. API 키는 값·길이·일부 어떤 형태로도 표시하지 않고, `hasKey`로 저장 여부만 알립니다. 키체인이 잠겨 있으면 `hasKey`를 생략합니다. 고급 설정의 헤더와 쿼리, 환경 변수는 이름만 표시하고(`env`), 공유 파일(`shared`)도 표시합니다. `--profile`을 주면 동작 설정(`behavior`)도 표시합니다. API 주소에 사용자 이름·비밀번호, 쿼리 값, `#` 뒤 부분이 있으면 사용자 정보와 `#` 뒤는 빼고 쿼리는 이름만 남겨(`?key=***`) 표시하고, `--json`에 `baseUrlRedacted: true`를 넣습니다. `--profile NAME`으로 하나만 볼 수 있습니다.
 - 프로필은 기기 단위입니다. `chat profiles --device NAME`은 `--workspace` 없이 그 기기의 프로필을 나열하고, `--workspace`를 주면 그 워크스페이스의 기본 선택도 표시합니다.
 - 다른 기기의 연결 정보는 원격 스키마 0.38.0 이상(`profiles.connection`)인 기기에서만 받습니다. 이전 기기는 지금처럼 이름과 id만 표시합니다. 키는 기기 사이로 보내지 않습니다.
 
@@ -241,10 +251,23 @@ Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책�
 - 기본 모델을 지우거나 없는 모델을 고르거나 모델을 모두 지우면 거절합니다. 문맥 크기는 1부터 2147483647까지의 정수만 받습니다.
 - `--method account|api-key|custom`은 연결 방식을 바꾸며 `profiles add`의 플래그를 받습니다.
 - 키는 `--key-file FILE` 또는 `--key-file -`로 바꾸고 `--remove-key`로 지웁니다. 키는 저장할 때의 API 주소와 인증 방식에 묶이므로, 둘 중 하나를 바꾸면 키를 다시 줘야 합니다. 이때 결과에 `note`로 알립니다.
+- 환경 변수, 헤더, 쿼리 값은 파일이나 stdin으로만 받습니다: `--env-file`은 `KEY=VALUE` 줄, `--header-file`은 `Name: value` 줄, `--query-file`(Codex)은 `name=value` 줄입니다. 있는 값에 더하거나 바꾸고, `--unset-env`·`--unset-header`·`--unset-query NAME`으로 지웁니다. `NEXUS_`로 시작하는 변수는 거절합니다. 값은 출력·JSON·로그·승인 창 어디에도 나오지 않고 이름만 표시됩니다. stdin(`-`)은 한 플래그만 씁니다.
+- 사용자 지정 연결의 고급 설정: Claude는 `--timeout MS`, `--max-output-tokens N`, `--experimental-headers on|off`, Codex는 `--retries N`(0–100), `--stream-idle-timeout MS`. 시간과 토큰은 1부터 2147483647까지이고 `auto`는 비웁니다.
+- `--share NAME`, `--unshare NAME`은 기본 폴더와 공유하는 파일을 고릅니다(설정 화면의 목록과 같음, 기본 프로필 제외). 공유를 끄면 설정 화면처럼 링크를 지웁니다.
+- `--behavior ID=VALUE`는 프로필의 `settings.json`·`config.toml` 동작 설정을 바꿉니다. ID는 설정 화면의 항목(`permissionMode`, `sandbox`, `approvalPolicy`, `sandboxMode` 등, 목록은 오류 메시지에 나옴)이고, 스위치는 `on|off`, 선택은 설정 화면에 있는 값만, `default`는 비웁니다. 권한 묻기를 줄이거나 샌드박스를 끄는 등 넓어지는 변경은 승인 창에 "권한 넓어짐"으로 표시합니다. 파일이 기본 프로필과 공유 중이면 그것도 표시합니다. 승인을 기다리는 동안 파일이 바뀌면 아무것도 저장하지 않습니다.
 - 승인 창에는 바뀌는 항목이 전후 값으로 표시되며(키는 "바꿈"·"지움"만), 승인은 매번 필요합니다. 승인을 기다리는 동안 프로필이 바뀌면 저장하지 않습니다. 결과는 바뀐 프로필과 `changed` 목록입니다.
-- 로그인·로그아웃, 폴더, 공유 파일, 동작 설정, 환경 변수, 고급 설정(헤더·쿼리·시간 제한·재시도)은 설정 화면에서 바꿉니다. 프로필 지시는 `settings instructions set profile`로 바꿉니다.
+- 로그인·로그아웃은 설정 화면에서 합니다. 폴더는 만들 때만 정합니다(`profiles add --dir`). 프로필 지시는 `settings instructions set profile`로 바꿉니다.
 
 `chat profiles remove PROFILE`은 이 기기의 프로필을 지웁니다. 설정 화면의 삭제와 같게 폴더와 그 안의 로그인·기록은 남고, 그 프로필을 고른 워크스페이스 규칙과 기본값은 비워지며, 저장된 API 키는 지워집니다. 열린 탭은 닫지 않습니다. 기본 프로필은 지울 수 없습니다. 승인 창에는 에이전트와 남는 폴더가 표시되며 승인은 매번 필요합니다.
+
+`chat profiles default`는 에이전트별 기본 프로필(규칙에 해당하지 않는 워크스페이스가 쓰는 프로필)을 표시하고, `chat profiles default PROFILE`은 그 프로필의 에이전트 기본값으로 바꿉니다. 설정 › 에이전트 › 규칙의 기본값과 같습니다.
+
+`chat profiles rules`는 프로필 규칙을 표시합니다. 우선순위는 설정 화면과 같게 워크스페이스 > 더 깊은 폴더 > SSH 호스트 > 기본값이고, `inherit`은 그 에이전트를 다음 규칙이나 기본값에 맡긴다는 뜻입니다. `APPLIES`는 규칙에 맞는 워크스페이스 수이고, 마지막 줄(`--json`의 `workspace`)은 지금 워크스페이스가 쓰는 프로필입니다.
+
+- `chat profiles rules set`은 대상 하나(`--folder PATH`: 있는 폴더와 하위 폴더, `--ssh HOST`: `~/.ssh/config`나 SSH 워크스페이스의 호스트, `--workspace WS`: 작업 워크스페이스 제외)와 `--profile NAME` 또는 `--agent A --inherit`를 받습니다. 같은 대상의 규칙이 있으면 그 규칙을 바꿉니다. 에이전트가 다른 프로필, 없는 프로필, 바뀌는 것이 없는 요청은 거절합니다.
+- `chat profiles rules remove`는 규칙 id(앞부분)나 대상 플래그로 규칙을 지웁니다.
+- 기본값과 규칙을 바꾸는 명령은 매번 승인을 받습니다. 다른 워크스페이스를 가리키는 규칙은 다른 워크스페이스 변경 설정도 따릅니다(끔이면 거절). 승인을 기다리는 동안 규칙이나 기본값이 바뀌면 저장하지 않습니다. 새 탭부터 적용됩니다.
+- 프로필을 바꾸는 명령(`add`, `edit`, `remove`, `default`, `rules set`, `rules remove`)은 이 기기에서만 됩니다. `--device`를 주면 거절합니다. 다른 기기의 `chat profiles --device`에는 연결 정보만 나오고 공유 파일, 환경 변수 이름, 동작 설정은 나오지 않습니다.
 
 `chat fork`와 `chat rewind`는 양쪽 에이전트를 지원합니다. 파일 복원(`--files`)은 Claude에서만 지원합니다.
 
@@ -584,6 +607,7 @@ nexus settings set editor.openIn.markdown source   # Markdown 을 원본으로 �
 nexus settings set terminal.shell fish      # 새 터미널의 셸 (system 이면 시스템 기본)
 nexus settings set voice.terms "NexusCode, Claude, 넥서스"   # 음성 인식 단어 (목록 전체)
 nexus settings set lsp.enabled on           # 언어 서버 켜기 (lsp.<언어> · lsp.typescript.lowMemory · lsp.maxActiveWorkspaces)
+nexus settings set lsp.go.path /w/bin/gopls # 직접 설치한 서버 경로 (매번 승인. "" 나 reset 은 PATH 에서 찾기)
 nexus settings set voice.language multi     # 음성 입력 언어 (app 이면 앱 언어)
 nexus settings get remote.agents            # 다른 컴퓨터의 에이전트 정책 (읽기만)
 nexus settings set notes.summaryProfile Work   # 녹음 요약 프로필 (notes.summaryModel 은 그 프로필의 모델이나 default)
@@ -598,11 +622,14 @@ nexus settings instructions set profile --profile Work --file -
 nexus settings instructions set profile --profile codex-default --device "Mac mini" --clear
 nexus settings instructions set workspace --workspace WS --clear
 nexus settings open agent                   # 설정 창을 그 페이지로 열어 사용자에게 보여주기
+nexus terminal shells add Nushell --program nu --arg -l   # 셸 추가 (매번 승인)
+nexus terminal shells edit Nushell --name Nu --clear-args
+nexus terminal shells remove Nushell
 ```
 
 - 설정 창에서 바꾸는 것과 같습니다. 바로 반영되고 저장됩니다.
-- 테마 · 언어 · 아이콘 · 창 투명도 · 비활성 패널 흐림, 에디터 · 터미널 · 채팅 글꼴, 한도 해제 뒤 자동 이어하기, 파일을 여는 보기, 터미널 기본 셸, 커서 모양, 작업 에이전트, 에이전트 탭 기본 보기, 데스크톱 알림, 업데이트 자동 확인, 에이전트 안내, 음성 인식 단어, 언어 서버를 바꿀 수 있습니다.
-- `lsp.enabled` 는 언어 서버 전체, `lsp.<언어>` 는 언어 하나(`typescript` · `python` · `yaml` · `shell` · `dockerfile` · `go` · `rust`), `lsp.typescript.lowMemory` 는 TypeScript 메모리 절약, `lsp.maxActiveWorkspaces` 는 동시에 켤 워크스페이스 수(1~16)입니다. 직접 설치한 서버의 경로는 설정 창에서만 바꿉니다.
+- 테마 · 언어 · 아이콘 · 창 투명도 · 비활성 패널 흐림, 에디터 · 터미널 · 채팅 글꼴, 한도 해제 뒤 자동 이어하기, 파일을 여는 보기, 터미널 기본 셸, 커서 모양, 작업 에이전트, 에이전트 탭 기본 보기, 데스크톱 알림, 업데이트 자동 확인, 에이전트 안내, 음성 인식 단어, 언어 서버와 그 경로를 바꿀 수 있습니다.
+- `lsp.enabled` 는 언어 서버 전체, `lsp.<언어>` 는 언어 하나(`typescript` · `python` · `yaml` · `shell` · `dockerfile` · `go` · `rust`), `lsp.typescript.lowMemory` 는 TypeScript 메모리 절약, `lsp.maxActiveWorkspaces` 는 동시에 켤 워크스페이스 수(1~16)입니다. `lsp.go.path` · `lsp.rust.path` 는 직접 설치한 서버의 경로입니다. 경로를 줄 때는 매번 사용자에게 묻고, `""` 나 `settings reset` 은 묻지 않고 PATH 에서 찾게 되돌립니다.
 - `settings keys set` 은 설정 창의 키보드 단축키와 같습니다. 키는 `settings keys list` 에 나오는 모양(`CmdOrCtrl+Shift+P`)이고, 화음으로 묶인 명령은 두 키를 줍니다. 다른 명령이 같은 범위에서 쓰는 키나 운영체제가 쓰는 키는 이유와 함께 거절하고, 다른 포커스에서만 겹치거나 에디터 · 터미널이 쓰는 키는 경고를 붙여 바꿉니다.
 - `notes.summary` 는 녹음 자동 요약, `notes.summaryProfile` 은 요약할 Claude 프로필(`chat profiles` 의 ID 나 이름), `notes.summaryModel` 은 그 프로필에 있는 모델이나 `default` 입니다. 요약이 켜져 있으면 프로필은 바꾸지 않습니다. 끄고 바꾼 뒤 다시 켜세요.
 - `notes.voiceSuggest` 는 기억한 목소리로 이름 제안, `notes.voiceExpire` 는 1년 동안 못 들은 목소리 지우기입니다. 기억한 목소리를 쓸 수 없는 컴퓨터에서는 읽지 못합니다.
@@ -616,13 +643,15 @@ nexus settings open agent                   # 설정 창을 그 페이지로 열
 - 켜고 끄는 값은 `on` / `off`, 숫자는 범위 안, 고르는 값은 목록 중 하나입니다.
 - `editor.openIn.<형식>` 은 미리보기가 있는 파일을 처음 열 때의 보기로, `source`(원본) · `preview` 입니다. 형식은 `markdown` · `html` · `svg` · `table`(CSV · TSV) · `json` · `yaml` · `notebook` 입니다. 한 번만 다르게 열려면 `nexus open --source` · `--preview`.
 - `terminal.shell` 은 로컬 워크스페이스의 새 터미널이 여는 셸입니다. `nexus terminal shells` 의 이름이나 id, 또는 `system`(시스템 기본)입니다.
+- `terminal shells add NAME --program PATH [--arg ARG ...]` 는 설정 › 터미널 › 셸 관리와 같습니다. 프로그램은 이 컴퓨터에서 찾을 수 있어야 하고, 이름은 다른 셸이나 `system` 과 겹칠 수 없습니다. `--` 로 시작하는 인자는 `--arg=--login` 처럼 씁니다. `edit` 은 `--name` · `--program` · `--arg`(목록 전체) · `--clear-args` 를 받고, `remove` 는 기본 셸을 지우면 시스템 기본으로 돌립니다. 이 컴퓨터에서 찾은 셸은 바꾸지 않습니다. 셋 다 매번 사용자에게 묻고, 확인 창에 프로그램과 인자가 보입니다.
+- 셸 추가 · 바꾸기 · 지우기, 서버 경로, 노트 저장 위치 삭제는 이 컴퓨터에서만 됩니다. `--device` 를 주면 거절합니다.
 - `voice.terms` 는 계정의 모든 컴퓨터가 함께 쓰는 음성 인식 단어입니다. 쉼표로 나눈 목록 전체로 바꾸고, 빈 값이나 `reset` 은 비웁니다. 원격에 로그인해 있어야 합니다.
 - `settings instructions show` 는 새 채팅에 적용될 지시의 출처와 합친 텍스트를 보여줍니다. 기본 에이전트는 Claude이고 워크스페이스 규칙이 프로필을 정합니다. `--profile`을 주면 그 프로필을 쓰며, `--agent`를 생략하면 프로필의 에이전트를 사용합니다. `--device`로 조회할 때 `--workspace`를 생략하면 상대 기기 사이드바의 첫 워크스페이스를 사용합니다. 원격 JSON에는 `device: {id, name}`이 추가됩니다.
 - 조회와 `settings instructions set profile`의 `--profile`은 `chat profiles`에 표시되는 ID 또는 이름을 받습니다. 이름이 겹치면 ID를 쓰세요. 프로필 레이어를 바꾸려면 `--file FILE` 또는 `--file -`로 새 텍스트를 주고, 비우려면 `--clear`를 씁니다. 원격 조회와 프로필 편집에는 에이전트 요청을 받는 원격 스키마 0.16.0 이상 기기가 필요합니다. 편집에는 대상 기기의 채팅 제어도 필요합니다.
 - 작업 워크스페이스를 지정하면 로컬·원격 `show`와 `set workspace` 모두 부모의 워크스페이스 레이어를 사용합니다. 편집에는 부모 워크스페이스의 변경 정책이 적용됩니다.
 - 일반 설정 변경은 바로 적용됩니다. 공통·Claude·Codex·프로필 지시 레이어를 수정할 때는 매번 사용자에게 묻습니다. 워크스페이스 지시에는 그 워크스페이스의 변경 정책이 적용됩니다. "다른 워크스페이스 변경"과 "nexus 명령 허용"은 설정 창에서 사용자가 관리합니다.
 - 창 투명도는 명령으로는 0.2 아래로 내릴 수 없습니다(창이 안 보이면 되돌릴 수 없어서).
-- `settings open` 의 페이지는 `appearance` · `editor` · `language-servers` · `terminal` · `notifications` · `notes` · `agent` · `claude` · `codex` · `instructions` · `profile-rules` · `browser-permissions` · `keybindings` · `remote` · `about` 입니다. `terminal.cursorStyle` 처럼 설정 키를 주면 그 설정이 있는 페이지가 열립니다. 언어 서버 경로나 브라우저 권한 허용처럼 사용자만 바꾸는 설정을 보여줄 때 씁니다.
+- `settings open` 의 페이지는 `appearance` · `editor` · `language-servers` · `terminal` · `notifications` · `notes` · `agent` · `claude` · `codex` · `instructions` · `profile-rules` · `browser-permissions` · `keybindings` · `remote` · `about` 입니다. `terminal.cursorStyle` 처럼 설정 키를 주면 그 설정이 있는 페이지가 열립니다. 브라우저 권한 허용처럼 사용자만 바꾸는 설정을 보여줄 때 씁니다.
 
 ## 에이전트에게 알려주기
 

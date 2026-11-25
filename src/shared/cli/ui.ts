@@ -14,9 +14,16 @@ import type { InstructionScope } from "../chat/instructions";
 import type { RelaySender, TerminalOpener } from "../chat/relay";
 import type { ParticipantCount } from "../notes/transcript";
 import type { NoteStorageEntry } from "../notes/types";
+import type { CustomShell } from "../pty/shell";
 import type { ChatAgent } from "../sessions/task-agent";
 import type { UpdateProgress, UpdateStatus } from "../updates/status";
-import type { ProfileEditCopy, ProfileRemoveCopy } from "./consent-copy";
+import type {
+  ProfileDefaultCopy,
+  ProfileEditCopy,
+  ProfileRemoveCopy,
+  ProfileRuleCopy,
+  SettingsEditCopy,
+} from "./consent-copy";
 import type { SettingsPage } from "./settings";
 
 export const PROFILE_USAGE_REFRESH_TIMEOUT_MS = 120_000;
@@ -47,6 +54,33 @@ export interface CliShellInfo {
   path: string;
   isDefault: boolean;
 }
+
+export type CliShellChange =
+  | {
+      readonly op: "add";
+      readonly name: string;
+      readonly program: string;
+      readonly args: readonly string[];
+    }
+  | {
+      readonly op: "edit";
+      readonly shell: string;
+      readonly name?: string;
+      readonly program?: string;
+      readonly args?: readonly string[];
+    }
+  | { readonly op: "remove"; readonly shell: string };
+
+export interface CliShellPlan {
+  readonly shell: CustomShell;
+  readonly before?: CustomShell;
+  readonly found?: string;
+  readonly wasDefault: boolean;
+  readonly snapshot: string;
+  readonly saved: boolean;
+}
+
+export type CliNoteStorageEntry = NoteStorageEntry & { workspaceIds?: string[] };
 
 export interface CliTabInfo {
   readonly id: string;
@@ -243,6 +277,8 @@ export type CliChangeKind =
   | "profileAdd"
   | "profileEdit"
   | "profileRemove"
+  | "profileDefault"
+  | "profileRule"
   | "chatRewind"
   | "chatRewindFiles"
   | "chatFork"
@@ -279,11 +315,19 @@ export type CliChangeKind =
   | "permissionDeny"
   | "sandboxExecution"
   | "settingTurnOn"
-  | "browserPermissionRevoke";
+  | "browserPermissionRevoke"
+  | "shellAdd"
+  | "shellEdit"
+  | "shellRemove"
+  | "lspPath"
+  | "noteStorageRemove";
 
 export interface CliChange extends Pick<RemoteConsent["change"], "instructionEdit" | "profileAdd"> {
   readonly profileEdit?: ProfileEditCopy;
   readonly profileRemove?: ProfileRemoveCopy;
+  readonly settingsEdit?: SettingsEditCopy;
+  readonly profileDefault?: ProfileDefaultCopy;
+  readonly profileRule?: ProfileRuleCopy;
   readonly kind: CliChangeKind;
   readonly detail?: string;
   readonly body?: string;
@@ -471,6 +515,10 @@ export interface CliUiOps {
   "terminal.shells": {
     args: Record<string, never>;
     result: { shells: CliShellInfo[] };
+  };
+  "terminal.shells.change": {
+    args: { change: CliShellChange; approved?: true; before?: string };
+    result: CliShellPlan;
   };
   "terminal.input": {
     args: { workspaceId: string; tabId: string; text: string; mode: CliInputMode; enter: boolean };
@@ -1022,7 +1070,11 @@ export interface CliUiOps {
   };
   "note.storage": {
     args: Record<string, never>;
-    result: { entries: (NoteStorageEntry & { workspaceIds?: string[] })[] };
+    result: { entries: CliNoteStorageEntry[] };
+  };
+  "note.storage.remove": {
+    args: { location: string; approved?: true; before?: string };
+    result: { entry: CliNoteStorageEntry; snapshot: string; removed: boolean };
   };
   "note.speakers": {
     args: { workspaceId: string; noteId: string; recording?: string; change: CliSpeakerChange };
@@ -1068,7 +1120,7 @@ export interface CliUiOps {
     result: { settings: CliSettingInfo[] };
   };
   "settings.set": {
-    args: { key: string; value: string | null; approved?: true };
+    args: { key: string; value: string | null; approved?: true; expected?: CliSettingValue };
     result: { setting: CliSettingInfo };
   };
   "settings.open": {

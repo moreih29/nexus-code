@@ -17,10 +17,20 @@ import { mainDebugMock, mainErrorMock, mainInfoMock, mainWarnMock } from "../../
 import { APP, contextFor, fakeApp, SHELL_TAB } from "./fake-services";
 
 let dir: string;
+const defaultDirs = { claude: process.env.CLAUDE_CONFIG_DIR, codex: process.env.CODEX_HOME };
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "cli-profile-test-"));
+  process.env.CLAUDE_CONFIG_DIR = join(dir, "default-claude");
+  process.env.CODEX_HOME = join(dir, "default-codex");
 });
 afterEach(async () => {
+  for (const [key, value] of [
+    ["CLAUDE_CONFIG_DIR", defaultDirs.claude],
+    ["CODEX_HOME", defaultDirs.codex],
+  ] as const) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -503,6 +513,7 @@ test("chat profiles shows each profile's connection and only whether a key is sa
         lightModel: "glm",
       },
       hasKey: true,
+      shared: SHARED_BY_DEFAULT.claude,
     },
   ]);
   const text = await cli(["chat", "profiles", "--profile", "gateway"]);

@@ -27,6 +27,12 @@ import { openerOf, senderOf } from "../sender";
 import { chatAgentFlag, resolveChat, SEND_TIMEOUT_MS } from "./chat";
 import { chatProfiles, chatProfilesAdd, chatUsage } from "./chat-profiles";
 import { chatProfilesEdit, chatProfilesRemove } from "./chat-profiles-edit";
+import {
+  chatProfilesDefault,
+  chatProfilesRules,
+  chatProfilesRulesRemove,
+  chatProfilesRulesSet,
+} from "./chat-profiles-rules";
 import { peerCliChat } from "./chat-remote";
 import { AGENT_NAMES } from "./chat-text";
 import { WORKSPACE_FLAG } from "./flags";
@@ -962,6 +968,10 @@ export const chatControlCommands: CliCommand[] = [
   chatProfilesAdd,
   chatProfilesEdit,
   chatProfilesRemove,
+  chatProfilesDefault,
+  chatProfilesRules,
+  chatProfilesRulesSet,
+  chatProfilesRulesRemove,
   chatUsage,
   chatFiles,
   chatResume,

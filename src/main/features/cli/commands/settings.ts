@@ -6,6 +6,9 @@ import { consentProfileLayer } from "../../../../shared/cli/consent-copy";
 import {
   describeShape,
   formatSettingValue,
+  LSP_PATH_SHAPE,
+  lspPathSetting,
+  parseSettingValue,
   SETTINGS_PAGES,
   settingAskingToTurnOn,
   settingsPageNamed,
@@ -18,6 +21,7 @@ import type {
   CliSettingInfo,
   CliUiOps,
 } from "../../../../shared/cli/ui";
+import type { LspPathLanguage } from "../../../../shared/lsp/settings";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { CliUsageError, exactArgs } from "../args";
 import { type CliContext, type CliDevice, CliError, resolveWorkspace } from "../context";
@@ -89,6 +93,39 @@ function changed(setting: CliSettingInfo) {
   return output(`${setting.key} is ${value === "" ? '""' : value}.`, setting);
 }
 
+async function setLspPath(ctx: CliContext, key: string, language: LspPathLanguage, value: string) {
+  const parsed = parseSettingValue(LSP_PATH_SHAPE, value);
+  if ("error" in parsed) throw new CliUsageError(`${key}: ${parsed.error}`);
+  const path = value.trim();
+  const [setting] = await listSettings(ctx, key);
+  if (!setting) throw new CliError(`no setting "${key}"; nexus settings list shows them`);
+  const current = String(setting.value);
+  if (path === current) return changed(setting);
+  if (path !== "") {
+    await ctx.services.askUser(
+      {
+        fromWorkspaceId: ctx.caller.workspaceId,
+        fromTabId: ctx.caller.tabId,
+        toWorkspaceId: ctx.caller.workspaceId,
+        change: {
+          kind: "lspPath",
+          detail: language,
+          settingsEdit: { language, lines: [{ field: "path", from: current, to: path }] },
+          eachTime: true,
+        },
+      },
+      ctx.signal,
+    );
+    ctx.signal?.throwIfAborted();
+  }
+  const { setting: after } = await ctx.services.ui("settings.set", {
+    key,
+    value: path,
+    ...(path !== "" ? { approved: true, expected: current } : {}),
+  });
+  return changed(after);
+}
+
 const settingsSet: CliCommand = {
   path: ["settings", "set"],
   summary: "Change a setting, as the Settings dialog does",
@@ -97,10 +134,13 @@ const settingsSet: CliCommand = {
     "The value is read as the setting takes it (nexus settings list): on or off, a number in\n" +
     "its range, one of its choices, or text; a list (voice.terms) whole, comma-separated. It\n" +
     "takes effect at once and is kept. Turning on notes.summary, notes.voiceSuggest or\n" +
-    "notes.voiceExpire asks the user each time. Whether nexus may change other workspaces,\n" +
-    "and whether it works at all, are the user's to set.",
+    "notes.voiceExpire, or giving lsp.go.path or lsp.rust.path a path, asks the user each\n" +
+    'time ("" goes back to the PATH without asking). Whether nexus may change other\n' +
+    "workspaces, and whether it works at all, are the user's to set.",
   async run(ctx, { positionals }) {
     const [key, value] = exactArgs(positionals, "key", "value") as [string, string];
+    const lspPath = lspPathSetting(key);
+    if (lspPath !== undefined) return setLspPath(ctx, key, lspPath, value);
     const asking = settingAskingToTurnOn(key);
     const approved = asking !== undefined && turnsOn(value);
     if (approved) {
@@ -142,7 +182,7 @@ const settingsOpen: CliCommand = {
   details:
     `Pages: ${SETTINGS_PAGES.join(", ")}. A setting's key (nexus settings list) opens\n` +
     "the page that has it. With neither, the dialog opens where it was left. For what only\n" +
-    "the user sets, such as a language server's path or granting a browser permission.",
+    "the user sets, such as granting a browser permission.",
   async run(ctx, { positionals }) {
     if (positionals.length > 1) {
       throw new CliUsageError(`unexpected argument "${positionals[1]}"`);

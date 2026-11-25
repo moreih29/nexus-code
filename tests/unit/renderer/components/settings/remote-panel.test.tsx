@@ -369,9 +369,9 @@ describe("the remote panel's voice input", () => {
     expect(html).toContain("Recognition terms");
     expect(html).toContain('placeholder="Add a term"');
     expect(html).toContain('aria-label="Add"');
-    expect(html).toContain("Used for dictation on all your devices.");
+    expect(html).toContain("Used for dictation on all your devices<");
     expect(html).toContain("Send computer and workspace names");
-    expect(html).toContain("Sent to the speech recognition service along with your dictation.");
+    expect(html).toContain("Sent with dictation to the speech recognition service");
     expect(html).toContain('aria-checked="false"');
     expect(html).toContain("Loading…");
   });

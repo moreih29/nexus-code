@@ -26,6 +26,12 @@ test.each([
   "chat profiles edit Gateway --rename-model glm-5.3=glm-5.4 --key-file -",
   "chat profiles remove Gateway --agent claude",
   "chat profiles add --from Gateway --from-device ihWin --key-file -",
+  "chat profiles edit Gateway --env-file - --header-file headers.txt --timeout 600000",
+  "chat profiles edit Work --behavior permissionMode=plan --unshare skills",
+  "chat profiles default Work --agent claude",
+  "chat profiles rules set --folder ~/work --profile Work",
+  "chat profiles rules set --workspace WS --agent codex --inherit",
+  "chat profiles rules remove --folder ~/work",
   "chat profiles add --agent codex --name Gateway --base-url http://127.0.0.1:4000/v1 --model glm-5.4 --context-window glm-5.4=400000 --key-file -",
   "chat profiles add --agent claude --name Gateway --base-url http://127.0.0.1:4000 --model glm-5.4 --context-window 400000 --label glm-5.4=GLM",
   "chat profiles add --agent claude --name Gateway --base-url https://llm.example.com --model glm --model kimi --reasoning glm=max --reasoning kimi=auto --default-model glm --light-model kimi --key-file - --instructions-file rules.md --json",
@@ -59,6 +65,11 @@ test.each([
   "tab encoding index.ts --json",
   "events --device all --json",
   "browser permissions --workspace site --device Mini --json",
+  "terminal shells add Nushell --program nu --arg -l",
+  "terminal shells edit Nushell --name Nu --clear-args",
+  "terminal shells remove Nushell",
+  "settings set lsp.go.path /w/bin/gopls",
+  "note storage remove old-site",
 ])("docs example uses registered syntax for %s", (example) => {
   expect(doc).toContain(example);
   const argv = example.match(/"[^"]*"|\S+/g)?.map((word) => word.replace(/^"|"$/g, "")) ?? [];

@@ -136,6 +136,23 @@ describe("the consent prompts another device is told", () => {
     expect(listed?.eachTime).toBe(true);
   });
 
+  test("a language server path goes out as its words, in the host's language", async () => {
+    await initMainI18n("en");
+    const change: CliChange = {
+      kind: "lspPath",
+      detail: "go",
+      eachTime: true,
+      settingsEdit: { language: "go", lines: [{ field: "path", from: "", to: "/w/gopls" }] },
+    };
+    const { services } = setup([pendingOf("c1", { change })]);
+    const [listed] = await remoteConsents(services, both);
+    expect(listed?.change).toEqual({
+      kind: "lspPath",
+      detail: "Go (gopls) server path",
+      body: "Path Found on the PATH → /w/gopls",
+    });
+  });
+
   test("a prompt run out says none left, not less than none", async () => {
     const { services } = setup([pendingOf("c1")]);
     expect((await remoteConsents(services, both, 90_000))[0]?.expiresInMs).toBe(0);

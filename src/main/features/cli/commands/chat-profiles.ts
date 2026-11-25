@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { BehaviorValue } from "../../../../shared/agent-profiles/behavior";
 import {
   API_KEY_CONNECTION_URL,
   CONNECTION_AUTH,
@@ -29,6 +30,7 @@ import {
 } from "../../../../shared/agent-profiles/profiles";
 import { type CliUiOps, PROFILE_USAGE_REFRESH_TIMEOUT_MS } from "../../../../shared/cli/ui";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
+import { readBehavior } from "../../agent-profiles/behavior";
 import { ProfileValidationError } from "../../agent-profiles/connection-save";
 import {
   type ProfileConnectionFields,
@@ -197,12 +199,75 @@ export const AGENT_FLAG = {
   description: "claude (default) or codex",
 } as const;
 
-export interface ProfileRow extends ProfileConnectionFields {
+export interface ProfileRow extends ProfileConnectionFields, ProfileExtras {
   id: string;
   name: string;
   agent: ChatAgent;
   workspaceDefault: boolean;
   path?: string;
+}
+
+export interface BehaviorView {
+  file: string;
+  sharedWithDefault: boolean;
+  values: Record<string, BehaviorValue>;
+  unsupported?: string[];
+  broken?: string;
+}
+
+export interface ProfileExtras {
+  shared?: string[];
+  env?: string[];
+  behavior?: BehaviorView;
+}
+
+export async function profileExtras(
+  profile: AgentProfile,
+  withBehavior: boolean,
+): Promise<ProfileExtras> {
+  const env = Object.keys(profile.env ?? {});
+  const behavior = withBehavior
+    ? await readBehavior(profile).then(
+        (file): BehaviorView => ({
+          file: file.name,
+          sharedWithDefault: file.shared,
+          values: file.values,
+          ...(file.unsupported.length ? { unsupported: file.unsupported } : {}),
+          ...(file.broken ? { broken: file.broken } : {}),
+        }),
+        () => undefined,
+      )
+    : undefined;
+  return {
+    ...(isDefaultProfileId(profile.id)
+      ? {}
+      : { shared: profile.shared ?? [...SHARED_BY_DEFAULT[profile.agent]] }),
+    ...(env.length ? { env } : {}),
+    ...(behavior ? { behavior } : {}),
+  };
+}
+
+function behaviorText(behavior: BehaviorView): string {
+  const parts = [oneLine(behavior.file, 32)];
+  if (behavior.broken) parts.push(`unreadable: ${oneLine(behavior.broken, 120)}`);
+  for (const [id, value] of Object.entries(behavior.values)) {
+    const shown = typeof value === "boolean" ? (value ? "on" : "off") : String(value);
+    parts.push(`${oneLine(id, 32)} ${oneLine(shown, 80)}`);
+  }
+  if (behavior.sharedWithDefault) parts.push("shared with the default profile");
+  return `  Behavior ${parts.join(" · ")}`;
+}
+
+export function extrasText(rows: readonly ProfileRow[]): string {
+  return rows
+    .flatMap((row) => {
+      const head = [`${oneLine(row.name, 80)} (${oneLine(row.id, 64)})`];
+      if (row.shared) head.push(`shared ${row.shared.length ? row.shared.join(", ") : "none"}`);
+      if (row.env?.length) head.push(`env ${row.env.map((n) => oneLine(n, 128)).join(", ")}`);
+      if (head.length === 1 && !row.behavior) return [];
+      return [[head.join(" · "), ...(row.behavior ? [behaviorText(row.behavior)] : [])].join("\n")];
+    })
+    .join("\n\n");
 }
 
 export function pickProfile<T extends { id: string; name: string }>(
@@ -313,8 +378,11 @@ export const chatProfiles: CliCommand = {
     "Includes the profile selected by the workspace's rules for each agent. Names and ids can be used with chat new --profile.\n" +
     "Each profile shows its connection: method, address, auth header, models, the default and light\n" +
     "models, context windows and reasoning. API keys are never shown; hasKey says whether one is saved.\n" +
-    "Profiles belong to a computer: with --device, --workspace is needed only for its workspace default.\n" +
-    "Change this computer's with chat profiles add (--from to copy one), edit and remove.",
+    "On this computer it also shows shared files and environment variable names, never their values;\n" +
+    "--profile adds the behavior settings. Profiles belong to a computer: with --device, --workspace is\n" +
+    "needed only for its workspace default, and only the connection is shown.\n" +
+    "Change this computer's with chat profiles add (--from to copy one), edit and remove; chat\n" +
+    "profiles default and rules choose which profile new tabs use.",
   flags: {
     agent: AGENT_FLAG,
     profile: { type: "string", value: "NAME", description: "Show one profile by name or id" },
@@ -363,10 +431,10 @@ export const chatProfiles: CliCommand = {
     const chosen = selector
       ? [pickProfile(listed, selector, device ? ` on "${device.name}"` : "")]
       : listed;
-    const rows = device
-      ? chosen
-      : await withProfileConnections(ctx.services.profileConnections, chosen);
-    const details = connectionText(rows);
+    const rows = device ? chosen : await withLocalExtras(ctx, chosen, selector !== undefined);
+    const details = [connectionText(rows), device ? "" : extrasText(rows)]
+      .filter(Boolean)
+      .join("\n\n");
     return output(
       details ? `${profileTable(rows)}\n\n${details}` : profileTable(rows),
       {
@@ -378,6 +446,22 @@ export const chatProfiles: CliCommand = {
     );
   },
 };
+
+async function withLocalExtras(
+  ctx: CliContext,
+  rows: readonly ProfileRow[],
+  withBehavior: boolean,
+): Promise<ProfileRow[]> {
+  const connections = ctx.services.profileConnections;
+  const config = connections.config();
+  const listed = await withProfileConnections(connections, rows);
+  return Promise.all(
+    listed.map(async (row) => {
+      const profile = profilesOf(config, row.agent).find(({ id }) => id === row.id);
+      return profile ? { ...row, ...(await profileExtras(profile, withBehavior)) } : row;
+    }),
+  );
+}
 
 const MAX_TOKENS = 2_147_483_647;
 

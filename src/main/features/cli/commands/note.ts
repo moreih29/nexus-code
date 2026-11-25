@@ -14,7 +14,14 @@ import {
   transcriptLinesForCli,
   transcriptMarkdown,
 } from "../../../../shared/notes/transcript";
-import type { NoteAsset, NoteContent, NoteSummary } from "../../../../shared/notes/types";
+import {
+  type NoteAsset,
+  type NoteContent,
+  type NoteSummary,
+  noteStorageBytes,
+  noteStorageWhere,
+} from "../../../../shared/notes/types";
+import { formatBytes } from "../../../../shared/util/format-bytes";
 import { noteMarkdown } from "../../notes/store";
 import { type AskNotes, readWholeNote, readWholeTranscript } from "../../remote/peer-notes";
 import { CliUsageError, exactArgs, type ParsedArgs } from "../args";
@@ -320,15 +327,65 @@ const noteStorage: CliCommand = {
     const { entries } = await ctx.services.ui("note.storage", {});
     return output(
       table(
-        ["LOCATION", "NOTES", "BYTES"],
+        ["LOCATION", "NOTES", "BYTES", "PATH"],
         entries.map((entry) => [
           entry.location.label,
           String(entry.notes),
-          String(Object.values(entry.bytes).reduce((total, size) => total + size, 0)),
+          String(noteStorageBytes(entry)),
+          noteStorageWhere(entry),
         ]),
       ) || "No notes stored.",
       { entries },
       { records: entries },
+    );
+  },
+};
+
+const noteStorageRemove: CliCommand = {
+  path: ["note", "storage", "remove"],
+  summary: "Delete every note of a storage location, as Settings › Notes does, with approval",
+  args: "<location>",
+  details:
+    "Give its name, path or key, as nexus note storage --json shows them. As in Settings, the\n" +
+    "location's notes, recordings and files move to the Trash, even when a workspace still uses\n" +
+    "it; that workspace starts with no notes. The user approves each time, seeing the location,\n" +
+    "how many notes go and how many workspaces use it.",
+  async run(ctx, { positionals }) {
+    const [location] = exactArgs(positionals, "location") as [string];
+    const plan = await ctx.services.ui("note.storage.remove", { location });
+    const { entry } = plan;
+    const bytes = noteStorageBytes(entry);
+    const size = formatBytes(bytes, "notes");
+    const used = entry.workspaceIds?.length ?? 0;
+    await ctx.services.askUser(
+      {
+        fromWorkspaceId: ctx.caller.workspaceId,
+        fromTabId: ctx.caller.tabId,
+        toWorkspaceId: ctx.caller.workspaceId,
+        change: {
+          kind: "noteStorageRemove",
+          detail: entry.location.label,
+          settingsEdit: {
+            lines: [
+              { field: "location", to: noteStorageWhere(entry) },
+              { field: "notes", count: entry.notes, size },
+              ...(used > 0 ? [{ field: "workspaces", count: used } as const] : []),
+            ],
+          },
+          eachTime: true,
+        },
+      },
+      ctx.signal,
+    );
+    ctx.signal?.throwIfAborted();
+    await ctx.services.ui("note.storage.remove", {
+      location: entry.location.key,
+      approved: true,
+      before: plan.snapshot,
+    });
+    return output(
+      `Moved ${entry.notes} note${entry.notes === 1 ? "" : "s"} (${size}) of "${oneLine(entry.location.label, 80)}" to the Trash.`,
+      { location: entry.location, notes: entry.notes, bytes, removed: true },
     );
   },
 };
@@ -903,6 +960,7 @@ export const noteCommands: CliCommand[] = [
   noteNew,
   noteRename,
   noteStorage,
+  noteStorageRemove,
   noteShow,
   noteWrite,
   noteReport,

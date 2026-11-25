@@ -65,6 +65,14 @@ export interface NoteStorageEntry {
   updatedAt: number;
 }
 
+export function noteStorageWhere({ location }: Pick<NoteStorageEntry, "location">): string {
+  return `${location.host ? `${location.host}:` : ""}${location.path}`;
+}
+
+export function noteStorageBytes({ bytes }: Pick<NoteStorageEntry, "bytes">): number {
+  return bytes.text + bytes.sketches + bytes.files + bytes.images + bytes.recordings;
+}
+
 export const NOTE_DIRS = {
   sketches: "sketches",
   files: "materials",

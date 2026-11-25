@@ -46,6 +46,8 @@ import {
 } from "../../../shared/chat/limit-resume-settings";
 import {
   type CliSettingShape,
+  LSP_PATH_SHAPE,
+  lspPathSetting,
   parseSettingValue,
   settingAskingToTurnOn,
 } from "../../../shared/cli/settings";
@@ -74,6 +76,7 @@ import {
   isLspLanguageChosen,
   isLspLowMemory,
   LSP_MAX_ACTIVE_WORKSPACES_LIMIT,
+  LSP_PATH_LANGUAGES,
   type LspLanguageSettings,
   type LspSettings,
 } from "../../../shared/lsp/settings";
@@ -728,6 +731,20 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
     set: (value) => setLspLanguage("typescript", { lowMemory: value as boolean }),
     reset: () => setLspLanguage("typescript", { lowMemory: true }),
   },
+  ...LSP_PATH_LANGUAGES.map(
+    (languageId): CliSetting => ({
+      key: `lsp.${languageId}.path`,
+      summary: `The ${languageId} language server you installed: its path, or "" to look on the PATH; setting a path asks the user`,
+      ...LSP_PATH_SHAPE,
+      get: () => {
+        const settings = useLspSettingsStore.getState().settings.languages[languageId];
+        const value = settings?.path?.trim() ?? "";
+        return { value, changed: value !== "" };
+      },
+      set: (value) => setLspLanguage(languageId, { path: String(value).trim() }),
+      reset: () => setLspLanguage(languageId, { path: "" }),
+    }),
+  ),
   {
     key: "updates.status",
     summary: "The status of the latest update check or download",
@@ -1146,7 +1163,7 @@ export const settingsHandlers: {
       (key === undefined ? CLI_SETTINGS : CLI_SETTINGS.filter(named(key))).map(settingInfo),
     ),
   }),
-  "settings.set": async ({ key, value, approved }) => {
+  "settings.set": async ({ key, value, approved, expected }) => {
     const setting = CLI_SETTINGS.find(named(key));
     if (!setting) {
       throw new UiRequestError(`no setting "${key}"; nexus settings list shows them`);
@@ -1163,6 +1180,16 @@ export const settingsHandlers: {
       if (parsed.value === true && settingAskingToTurnOn(setting.key) && approved !== true) {
         throw new UiRequestError(
           `${setting.key}: turning it on needs the user's approval, which nexus settings set asks for`,
+        );
+      }
+      if (lspPathSetting(setting.key) && String(parsed.value).trim() !== "" && approved !== true) {
+        throw new UiRequestError(
+          `${setting.key}: a server path names a program to run and needs the user's approval, which nexus settings set asks for`,
+        );
+      }
+      if (expected !== undefined && (await setting.get()).value !== expected) {
+        throw new UiRequestError(
+          `${setting.key} changed while waiting for the user's approval; run the command again`,
         );
       }
       await setting.set(parsed.value);

@@ -82,7 +82,14 @@ export function consentNamesTarget(kind: string): boolean {
     kind === "profileAdd" ||
     kind === "settingTurnOn" ||
     kind === "profileEdit" ||
-    kind === "profileRemove"
+    kind === "profileRemove" ||
+    kind === "shellAdd" ||
+    kind === "shellEdit" ||
+    kind === "shellRemove" ||
+    kind === "lspPath" ||
+    kind === "noteStorageRemove" ||
+    kind === "profileDefault" ||
+    kind === "profileRule"
   );
 }
 
@@ -144,6 +151,8 @@ export function consentTitleOf(kind: string, remote: boolean) {
   if (kind === "profileAdd") return "agentCli.consent.profile_add_title" as const;
   if (kind === "profileEdit") return "agentCli.consent.profile_edit_title" as const;
   if (kind === "profileRemove") return "agentCli.consent.profile_remove_title" as const;
+  if (kind === "profileDefault") return "agentCli.consent.profile_default_title" as const;
+  if (kind === "profileRule") return "agentCli.consent.profile_rule_title" as const;
   if (kind === "instructionsEdit") return "agentCli.consent.instructions_title" as const;
   if (kind === "chatRewind" || kind === "chatRewindFiles") {
     return "agentCli.consent.rewind_title" as const;
@@ -152,6 +161,11 @@ export function consentTitleOf(kind: string, remote: boolean) {
   if (kind === "sandboxExecution") return "agentCli.consent.sandbox_title" as const;
   if (kind === "noteRecord") return "agentCli.consent.record_title" as const;
   if (kind === "settingTurnOn") return "agentCli.consent.setting_on_title" as const;
+  if (kind === "shellAdd") return "agentCli.consent.shell_add_title" as const;
+  if (kind === "shellEdit") return "agentCli.consent.shell_edit_title" as const;
+  if (kind === "shellRemove") return "agentCli.consent.shell_remove_title" as const;
+  if (kind === "lspPath") return "agentCli.consent.lsp_path_title" as const;
+  if (kind === "noteStorageRemove") return "agentCli.consent.note_storage_remove_title" as const;
   return remote ? ("agentCli.consent.remote_title" as const) : ("agentCli.consent.title" as const);
 }
 
