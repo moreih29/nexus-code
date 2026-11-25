@@ -9,7 +9,7 @@ import { StateWriter } from "../../../../../src/main/infra/storage/state-writer"
 import { GitPanelStateUpdateSchema } from "../../../../../src/shared/git/types";
 import { ipcContract } from "../../../../../src/shared/ipc/contract";
 import { VoiceNamePreferencesSchema } from "../../../../../src/shared/notes/voice-names";
-import { openTestState } from "../../../../helpers/test-state";
+import { closeTestStates, openTestState } from "../../../../helpers/test-state";
 import { mainWarnMock } from "../../../../log-test-spies";
 
 function makeTmpDir(): string {
@@ -51,7 +51,8 @@ describe("StateService", () => {
     tmpDir = makeTmpDir();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await closeTestStates();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -332,7 +333,15 @@ fs.renameSync = (...args) => {
       service.setState({ sidebarWidth: 270 });
       await waitFor("the next background write", () => readState(filePath).sidebarWidth === 270);
       expect(Object.keys(readState(filePath).layoutByWorkspace ?? {})).toEqual([second]);
-      expect(send.mock.calls.filter(([message]) => message.id === second)).toHaveLength(1);
+      const transfers = send.mock.calls.reduce<string[][]>((all, [message]) => {
+        if (message.kind === "reset") all.push([]);
+        else if (message.kind === "layout") all.at(-1)?.push(message.id);
+        return all;
+      }, []);
+      const [cancelled, ...later] = transfers;
+      expect(cancelled).toEqual([first]);
+      expect(later.length).toBeGreaterThan(0);
+      expect(later).toEqual(later.map(() => [second]));
     } finally {
       send.mockRestore();
     }
