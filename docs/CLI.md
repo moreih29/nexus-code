@@ -147,6 +147,8 @@ nexus chat profiles --profile Gateway                    # 연결 정보 (키는
 nexus chat profiles edit Gateway --rename-model glm-5.3=glm-5.4 --key-file -
 nexus chat profiles remove Gateway --agent claude
 nexus chat profiles add --from Gateway --from-device ihWin --key-file -   # 다른 기기의 연결 복사 (키는 이 기기에서)
+nexus chat profiles edit Gateway --env-file - --header-file headers.txt --timeout 600000   # 값은 파일·stdin으로만, 출력·승인 창에는 이름만
+nexus chat profiles edit Work --behavior permissionMode=plan --unshare skills
 nexus chat profiles default Work --agent claude           # 규칙에 해당하지 않는 워크스페이스의 프로필
 nexus chat profiles rules --json
 nexus chat profiles rules set --folder ~/work --profile Work
@@ -217,7 +219,7 @@ Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책�
 
 `chat profiles`는 이름, id, 에이전트와 워크스페이스 기본 선택을 표시합니다. 이 기기에서는 홈 기준 폴더 경로도 표시합니다.
 
-- 각 프로필의 연결 정보도 표시합니다: 방식, API 주소, 인증 헤더, 모델 목록, 기본·가벼운 모델, 문맥 크기, 추론 강도, 색. `--json`에는 `connection`과 `hasKey`가 들어갑니다. API 키는 값·길이·일부 어떤 형태로도 표시하지 않고, `hasKey`로 저장 여부만 알립니다. 키체인이 잠겨 있으면 `hasKey`를 생략합니다. 고급 설정의 헤더와 쿼리는 이름만 표시하고, 환경 변수는 표시하지 않습니다. API 주소에 사용자 이름·비밀번호, 쿼리 값, `#` 뒤 부분이 있으면 사용자 정보와 `#` 뒤는 빼고 쿼리는 이름만 남겨(`?key=***`) 표시하고, `--json`에 `baseUrlRedacted: true`를 넣습니다. `--profile NAME`으로 하나만 볼 수 있습니다.
+- 각 프로필의 연결 정보도 표시합니다: 방식, API 주소, 인증 헤더, 모델 목록, 기본·가벼운 모델, 문맥 크기, 추론 강도, 색. `--json`에는 `connection`과 `hasKey`가 들어갑니다. API 키는 값·길이·일부 어떤 형태로도 표시하지 않고, `hasKey`로 저장 여부만 알립니다. 키체인이 잠겨 있으면 `hasKey`를 생략합니다. 고급 설정의 헤더와 쿼리, 환경 변수는 이름만 표시하고(`env`), 공유 파일(`shared`)도 표시합니다. `--profile`을 주면 동작 설정(`behavior`)도 표시합니다. API 주소에 사용자 이름·비밀번호, 쿼리 값, `#` 뒤 부분이 있으면 사용자 정보와 `#` 뒤는 빼고 쿼리는 이름만 남겨(`?key=***`) 표시하고, `--json`에 `baseUrlRedacted: true`를 넣습니다. `--profile NAME`으로 하나만 볼 수 있습니다.
 - 프로필은 기기 단위입니다. `chat profiles --device NAME`은 `--workspace` 없이 그 기기의 프로필을 나열하고, `--workspace`를 주면 그 워크스페이스의 기본 선택도 표시합니다.
 - 다른 기기의 연결 정보는 원격 스키마 0.38.0 이상(`profiles.connection`)인 기기에서만 받습니다. 이전 기기는 지금처럼 이름과 id만 표시합니다. 키는 기기 사이로 보내지 않습니다.
 
@@ -249,8 +251,12 @@ Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책�
 - 기본 모델을 지우거나 없는 모델을 고르거나 모델을 모두 지우면 거절합니다. 문맥 크기는 1부터 2147483647까지의 정수만 받습니다.
 - `--method account|api-key|custom`은 연결 방식을 바꾸며 `profiles add`의 플래그를 받습니다.
 - 키는 `--key-file FILE` 또는 `--key-file -`로 바꾸고 `--remove-key`로 지웁니다. 키는 저장할 때의 API 주소와 인증 방식에 묶이므로, 둘 중 하나를 바꾸면 키를 다시 줘야 합니다. 이때 결과에 `note`로 알립니다.
+- 환경 변수, 헤더, 쿼리 값은 파일이나 stdin으로만 받습니다: `--env-file`은 `KEY=VALUE` 줄, `--header-file`은 `Name: value` 줄, `--query-file`(Codex)은 `name=value` 줄입니다. 있는 값에 더하거나 바꾸고, `--unset-env`·`--unset-header`·`--unset-query NAME`으로 지웁니다. `NEXUS_`로 시작하는 변수는 거절합니다. 값은 출력·JSON·로그·승인 창 어디에도 나오지 않고 이름만 표시됩니다. stdin(`-`)은 한 플래그만 씁니다.
+- 사용자 지정 연결의 고급 설정: Claude는 `--timeout MS`, `--max-output-tokens N`, `--experimental-headers on|off`, Codex는 `--retries N`(0–100), `--stream-idle-timeout MS`. 시간과 토큰은 1부터 2147483647까지이고 `auto`는 비웁니다.
+- `--share NAME`, `--unshare NAME`은 기본 폴더와 공유하는 파일을 고릅니다(설정 화면의 목록과 같음, 기본 프로필 제외). 공유를 끄면 설정 화면처럼 링크를 지웁니다.
+- `--behavior ID=VALUE`는 프로필의 `settings.json`·`config.toml` 동작 설정을 바꿉니다. ID는 설정 화면의 항목(`permissionMode`, `sandbox`, `approvalPolicy`, `sandboxMode` 등, 목록은 오류 메시지에 나옴)이고, 스위치는 `on|off`, 선택은 설정 화면에 있는 값만, `default`는 비웁니다. 권한 묻기를 줄이거나 샌드박스를 끄는 등 넓어지는 변경은 승인 창에 "권한 넓어짐"으로 표시합니다. 파일이 기본 프로필과 공유 중이면 그것도 표시합니다. 승인을 기다리는 동안 파일이 바뀌면 아무것도 저장하지 않습니다.
 - 승인 창에는 바뀌는 항목이 전후 값으로 표시되며(키는 "바꿈"·"지움"만), 승인은 매번 필요합니다. 승인을 기다리는 동안 프로필이 바뀌면 저장하지 않습니다. 결과는 바뀐 프로필과 `changed` 목록입니다.
-- 로그인·로그아웃, 폴더, 공유 파일, 동작 설정, 환경 변수, 고급 설정(헤더·쿼리·시간 제한·재시도)은 설정 화면에서 바꿉니다. 프로필 지시는 `settings instructions set profile`로 바꿉니다.
+- 로그인·로그아웃은 설정 화면에서 합니다. 폴더는 만들 때만 정합니다(`profiles add --dir`). 프로필 지시는 `settings instructions set profile`로 바꿉니다.
 
 `chat profiles remove PROFILE`은 이 기기의 프로필을 지웁니다. 설정 화면의 삭제와 같게 폴더와 그 안의 로그인·기록은 남고, 그 프로필을 고른 워크스페이스 규칙과 기본값은 비워지며, 저장된 API 키는 지워집니다. 열린 탭은 닫지 않습니다. 기본 프로필은 지울 수 없습니다. 승인 창에는 에이전트와 남는 폴더가 표시되며 승인은 매번 필요합니다.
 
@@ -261,7 +267,7 @@ Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책�
 - `chat profiles rules set`은 대상 하나(`--folder PATH`: 있는 폴더와 하위 폴더, `--ssh HOST`: `~/.ssh/config`나 SSH 워크스페이스의 호스트, `--workspace WS`: 작업 워크스페이스 제외)와 `--profile NAME` 또는 `--agent A --inherit`를 받습니다. 같은 대상의 규칙이 있으면 그 규칙을 바꿉니다. 에이전트가 다른 프로필, 없는 프로필, 바뀌는 것이 없는 요청은 거절합니다.
 - `chat profiles rules remove`는 규칙 id(앞부분)나 대상 플래그로 규칙을 지웁니다.
 - 기본값과 규칙을 바꾸는 명령은 매번 승인을 받습니다. 다른 워크스페이스를 가리키는 규칙은 다른 워크스페이스 변경 설정도 따릅니다(끔이면 거절). 승인을 기다리는 동안 규칙이나 기본값이 바뀌면 저장하지 않습니다. 새 탭부터 적용됩니다.
-- 프로필을 바꾸는 명령(`add`, `edit`, `remove`, `default`, `rules set`, `rules remove`)은 이 기기에서만 됩니다. `--device`를 주면 거절합니다.
+- 프로필을 바꾸는 명령(`add`, `edit`, `remove`, `default`, `rules set`, `rules remove`)은 이 기기에서만 됩니다. `--device`를 주면 거절합니다. 다른 기기의 `chat profiles --device`에는 연결 정보만 나오고 공유 파일, 환경 변수 이름, 동작 설정은 나오지 않습니다.
 
 `chat fork`와 `chat rewind`는 양쪽 에이전트를 지원합니다. 파일 복원(`--files`)은 Claude에서만 지원합니다.
 

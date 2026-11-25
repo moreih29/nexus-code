@@ -26,6 +26,8 @@ test.each([
   "chat profiles edit Gateway --rename-model glm-5.3=glm-5.4 --key-file -",
   "chat profiles remove Gateway --agent claude",
   "chat profiles add --from Gateway --from-device ihWin --key-file -",
+  "chat profiles edit Gateway --env-file - --header-file headers.txt --timeout 600000",
+  "chat profiles edit Work --behavior permissionMode=plan --unshare skills",
   "chat profiles default Work --agent claude",
   "chat profiles rules set --folder ~/work --profile Work",
   "chat profiles rules set --workspace WS --agent codex --inherit",

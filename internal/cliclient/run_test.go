@@ -102,7 +102,7 @@ func TestRunSendsStdinForADash(t *testing.T) {
 
 func TestRunSendsStdinForKeyFile(t *testing.T) {
 	for _, command := range [][]string{{"chat", "profiles", "add"}, {"chat", "profiles", "edit", "Gateway"}} {
-		for _, flags := range [][]string{{"--key-file", "-"}, {"--key-file=-"}} {
+		for _, flags := range [][]string{{"--key-file", "-"}, {"--key-file=-"}, {"--env-file=-"}, {"--header-file=-"}, {"--query-file=-"}} {
 			t.Run(strings.Join(append(append([]string{}, command...), flags...), " "), func(t *testing.T) {
 				answer, _ := json.Marshal(wireResponse{OK: true, Result: &result{}})
 				socket, asked := fakeApp(t, string(answer))
@@ -126,7 +126,7 @@ func TestRunReadsNoStdinForAKeyFileFlagElsewhere(t *testing.T) {
 	socket, asked := fakeApp(t, string(answer))
 	setTerminalEnv(t, socket)
 	var stdout, stderr bytes.Buffer
-	args := []string{"chat", "profiles", "remove", "Gateway", "--key-file=-"}
+	args := []string{"chat", "profiles", "remove", "Gateway", "--key-file=-", "--env-file=-"}
 	if code := run(args, strings.NewReader("test-key\n"), &stdout, &stderr); code != 0 {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}

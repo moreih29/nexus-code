@@ -15,8 +15,10 @@ import {
 } from "../../../../shared/agent-profiles/profiles";
 import type { ProfileEditLine } from "../../../../shared/cli/consent-copy";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
+import { writeBehavior } from "../../agent-profiles/behavior";
 import { ProfileValidationError } from "../../agent-profiles/connection-save";
 import { profileConnectionView } from "../../agent-profiles/connection-view";
+import { prepareLocalProfile } from "../../agent-profiles/local";
 import { CliUsageError, type FlagValues } from "../args";
 import { CliError } from "../context";
 import { oneLine } from "../format";
@@ -28,10 +30,12 @@ import {
   applyModelFlags,
   CONNECTION_FLAGS,
   connectionText,
+  extrasText,
   listFlag,
   localProfile,
   type ProfileRow,
   profileConnection,
+  profileExtras,
   profileName,
   profileTable,
   readKey,
@@ -39,6 +43,7 @@ import {
   THIS_COMPUTER_FLAG,
   validateNew,
 } from "./chat-profiles";
+import { ADVANCED_FLAGS, advancedEdit, checkStdin } from "./chat-profiles-advanced";
 
 const MODEL_ID = /^[^\s\p{Cc}]+$/u;
 
@@ -279,7 +284,16 @@ export const chatProfilesEdit = {
     "--context-window and --label take auto (or empty text) to clear; --light-model auto uses the\n" +
     "default model. --method switches the connection and takes the add flags. Give a new key with\n" +
     "--key-file FILE or - for stdin, or --remove-key. A key stays with the address and auth header\n" +
-    "it was saved for, so changing either needs the key again.",
+    "it was saved for, so changing either needs the key again.\n" +
+    "Environment variables, extra headers and query parameters come only from files (or - for\n" +
+    "stdin): --env-file takes KEY=VALUE lines, --header-file Name: value lines, --query-file\n" +
+    "name=value lines. They add to or replace what is set; --unset-env, --unset-header and\n" +
+    "--unset-query NAME remove one. Values are never printed; the approval names them only.\n" +
+    "--share and --unshare NAME choose the files linked from the default folder, as in Settings.\n" +
+    "--behavior ID=VALUE sets the profile's settings.json or config.toml, as Settings › Behavior\n" +
+    "does: on/off for switches, the choices Settings offers, default to clear. The approval marks\n" +
+    "a change that loosens permissions or the sandbox. New tabs use it. The folder is set when the\n" +
+    "profile is made (chat profiles add --dir).",
   flags: {
     agent: AGENT_FLAG,
     name: { type: "string", value: "NAME", description: "New profile name" },
@@ -325,13 +339,15 @@ export const chatProfilesEdit = {
       description: "Claude's light model from the list, or auto",
     },
     "remove-key": { type: "boolean", description: "Delete the saved API key" },
+    ...ADVANCED_FLAGS,
     device: THIS_COMPUTER_FLAG,
   },
-  async run(ctx, { flags, positionals }) {
+  async run(ctx, { flags, positionals }, { windows = process.platform === "win32" } = {}) {
     refuseDevice(flags, "chat profiles edit");
     const [selector, ...extra] = positionals;
     if (selector === undefined || extra.length) throw new CliUsageError("Give one <profile>");
     if (!onAppMachine(ctx)) throw new CliError("Run this command in a local workspace");
+    checkStdin(flags);
     const agentFilter =
       flags.agent === undefined ? undefined : chatAgentFlag(flags.agent, "claude");
     const profile = localProfile(ctx, selector, agentFilter);
@@ -408,11 +424,14 @@ export const chatProfilesEdit = {
     }
     if (keyFile !== undefined) lines.push({ field: "key", change: "replaced" });
     if (removeKey) lines.push({ field: "key", change: "removed" });
+    const base: AgentProfile = { ...profile, name, color };
+    if (connection) base.connection = connection;
+    else delete base.connection;
+    const advanced = await advancedEdit(ctx, profile, base, flags, { windows });
+    lines.push(...advanced.lines);
     if (!lines.length)
       throw new CliUsageError("Nothing to change. See nexus chat profiles edit --help");
-    const edited: AgentProfile = { ...profile, name, color };
-    if (connection) edited.connection = connection;
-    else delete edited.connection;
+    const edited = advanced.profile;
     const next = validateNew(() => ctx.services.profileConnections.checkEdit(edited));
     const key =
       keyFile === undefined ? (removeKey ? null : undefined) : await readKey(ctx, keyFile);
@@ -437,12 +456,34 @@ export const chatProfilesEdit = {
     if (JSON.stringify(now) !== before) {
       throw new CliError("The profile changed while waiting for approval; run the command again");
     }
+    if (advanced.behavior) {
+      const written = await writeBehavior(
+        profile,
+        advanced.behavior.version,
+        advanced.behavior.changes,
+      ).catch((error: Error) => ({ status: "broken" as const, message: error.message }));
+      if (written.status === "conflict") {
+        throw new CliError(
+          "The profile's behavior file changed while waiting for approval; nothing was saved",
+        );
+      }
+      if (written.status !== "saved") {
+        throw new CliError("Could not save the behavior settings; nothing else was saved");
+      }
+    }
     try {
       await connections.save({ profile: next, ...(key !== undefined ? { key } : {}) });
     } catch (error) {
       if (error instanceof ProfileValidationError) throw new CliUsageError(error.message);
       throw new CliError("Could not save the agent profile");
     }
+    const failed =
+      lines.some(({ field }) => field === "shared") && !isDefaultProfileId(next.id)
+        ? await prepareLocalProfile(next).then(
+            (done) => done.failed,
+            () => [...(next.shared ?? [])],
+          )
+        : [];
     const hasKey = await connections.keyPresent(next).catch(() => undefined);
     const row: ProfileRow = {
       id: next.id,
@@ -452,17 +493,25 @@ export const chatProfilesEdit = {
       color: next.color,
       connection: profileConnectionView(next),
       ...(hasKey !== undefined ? { hasKey } : {}),
+      ...(await profileExtras(next, advanced.behavior !== undefined)),
     };
     const moved =
       key === undefined &&
       before !== JSON.stringify(next) &&
       lines.some(({ field }) => field === "address" || field === "auth") &&
       hasKey === false;
-    const note = moved
-      ? "The saved API key stays with the old address and auth header; give it again with --key-file."
-      : undefined;
-    const changed = [...new Set(lines.map(({ field }) => field))];
-    const details = connectionText([row]);
+    const note = [
+      ...(moved
+        ? [
+            "The saved API key stays with the old address and auth header; give it again with --key-file.",
+          ]
+        : []),
+      ...(failed.length ? [`Could not link ${failed.join(", ")} from the default folder.`] : []),
+    ].join(" ");
+    const changed = [
+      ...new Set(lines.map(({ field }) => field).filter((field) => field !== "behaviorShared")),
+    ];
+    const details = [connectionText([row]), extrasText([row])].filter(Boolean).join("\n\n");
     return output([profileTable([row]), details, note].filter(Boolean).join("\n\n"), {
       ...row,
       changed,

@@ -431,6 +431,47 @@ test("a setting's body reads as a sentence, not as a command", async () => {
   }
 });
 
+test("profile edits name environment, header and query changes without values and mark wider behavior", () => {
+  const change = {
+    kind: "profileEdit",
+    detail: "Gateway",
+    profileEdit: {
+      agent: "claude",
+      lines: [
+        { field: "shared", value: "CLAUDE.md, settings.json → CLAUDE.md" },
+        { field: "env", name: "HTTPS_PROXY", change: "added" },
+        { field: "env", name: "TOKEN", change: "changed" },
+        { field: "header", name: "X-Org", change: "removed" },
+        { field: "advanced", setting: "timeout", value: "auto → 600000" },
+        { field: "behavior", id: "permissionMode", from: null, to: "acceptEdits", wider: true },
+        { field: "behavior", id: "sandbox", from: true, to: null, wider: true },
+        { field: "behavior", id: "thinking", from: null, to: false },
+        { field: "behaviorShared", file: "settings.json" },
+      ],
+    },
+  } as const;
+  const ko = i18next.getFixedT("ko", "settings");
+  expect(consentDetailsOf(ko, change).body).toBe(
+    [
+      "에이전트 Claude",
+      "기본 폴더와 공유 CLAUDE.md, settings.json → CLAUDE.md",
+      "환경 변수 HTTPS_PROXY 추가",
+      "환경 변수 TOKEN 값 바뀜",
+      "추가 헤더 X-Org 지움",
+      "응답 제한 시간 (ms) auto → 600000",
+      "권한 모드 기본값 → acceptEdits · 권한 넓어짐",
+      "Bash 샌드박스 켜짐 → 기본값 · 권한 넓어짐",
+      "생각 과정 기본값 → 꺼짐",
+      "settings.json 기본 프로필과 공유 · 기본 프로필에도 적용",
+    ].join("\n"),
+  );
+  const en = i18next.getFixedT("en", "settings");
+  expect(consentDetailsOf(en, change).body).toContain(
+    "Environment variable TOKEN value changed\nExtra header X-Org removed",
+  );
+  expect(consentDetailsOf(en, change).body).toContain("· wider permissions");
+});
+
 test("default profile changes name the agent and both profiles", () => {
   const change = {
     kind: "profileDefault",

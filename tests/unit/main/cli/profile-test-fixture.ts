@@ -6,6 +6,7 @@ import i18next from "i18next";
 import { ConnectionKeys } from "../../../../src/main/features/agent-profiles/connection-keys";
 import { createProfileConnections } from "../../../../src/main/features/agent-profiles/connection-save";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
+import { chatProfilesEdit } from "../../../../src/main/features/cli/commands/chat-profiles-edit";
 import {
   chatProfilesRules,
   chatProfilesRulesRemove,
@@ -92,7 +93,7 @@ function profiles(dir: string): AgentProfile[] {
   ];
 }
 
-export function profileFixture(dir: string) {
+export function profileFixture(dir: string, { windows = false }: { windows?: boolean } = {}) {
   const app = fakeApp();
   const state = openTestState(join(dir, "app-state.json"));
   const seeded: AgentProfiles = { profiles: profiles(dir), rules: [], defaults: {} };
@@ -113,6 +114,10 @@ export function profileFixture(dir: string) {
       { ...command, run: (ctx, args) => command.run(ctx, args, options) } as CliCommand,
     ]),
   );
+  wrapped.set(chatProfilesEdit, {
+    ...chatProfilesEdit,
+    run: (ctx, args) => chatProfilesEdit.run(ctx, args, { windows }),
+  });
   const commands = CLI_COMMANDS.map((command) => wrapped.get(command) ?? command);
   const cli = (argv: string[], stdin?: string) =>
     runCli(

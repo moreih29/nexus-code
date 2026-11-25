@@ -1,5 +1,6 @@
 import type { TFunction } from "i18next";
 import type { RemoteConsent } from "../../../packages/remote-protocol/src/rpc";
+import type { BehaviorValue } from "../agent-profiles/behavior";
 import type { LspPathLanguage } from "../lsp/settings";
 import type { ChatAgent } from "../sessions/task-agent";
 import { SETTINGS_ASKING_TO_TURN_ON, settingAskingToTurnOn } from "./settings";
@@ -41,7 +42,25 @@ export type ProfileEditLine =
       value: string;
     }
   | { field: "connection"; from: ConnectionMethod; to: ConnectionMethod }
-  | { field: "key"; change: "replaced" | "removed" };
+  | { field: "key"; change: "replaced" | "removed" }
+  | { field: "shared"; value: string }
+  | { field: "env" | "header" | "query"; name: string; change: "added" | "changed" | "removed" }
+  | { field: "advanced"; setting: AdvancedSetting; value: string }
+  | {
+      field: "behavior";
+      id: string;
+      from: BehaviorValue | null;
+      to: BehaviorValue | null;
+      wider?: boolean;
+    }
+  | { field: "behaviorShared"; file: string };
+
+export type AdvancedSetting =
+  | "timeout"
+  | "outputTokens"
+  | "disableBetas"
+  | "retries"
+  | "streamTimeout";
 
 export interface ProfileEditCopy {
   readonly agent: ChatAgent;
@@ -78,6 +97,35 @@ function profileEditLine(t: TFunction<"settings">, agent: ChatAgent, line: Profi
           ? "agentCli.consent.profile_edit_key_replaced"
           : "agentCli.consent.profile_edit_key_removed",
       );
+    case "shared":
+      return t("agentCli.consent.profile_edit_shared", { value: line.value });
+    case "env":
+    case "header":
+    case "query":
+      return t(`agentCli.consent.profile_edit_${line.field}`, {
+        name: line.name,
+        change: t(`agentCli.consent.profile_edit_value_${line.change}`),
+      });
+    case "advanced":
+      return t("agentCli.consent.profile_edit_setting", {
+        setting: t(`profiles.connection.${line.setting}`),
+        value: line.value,
+      });
+    case "behavior": {
+      const shown = (value: BehaviorValue | null) =>
+        value === null
+          ? t("profiles.behavior.default")
+          : typeof value === "boolean"
+            ? t(value ? "agentCli.consent.profile_edit_on" : "agentCli.consent.profile_edit_off")
+            : String(value);
+      const text = t("agentCli.consent.profile_edit_setting", {
+        setting: t(`profiles.behavior.fields.${line.id}.label`, { defaultValue: line.id }),
+        value: `${shown(line.from)} → ${shown(line.to)}`,
+      });
+      return line.wider ? `${text} · ${t("agentCli.consent.profile_edit_wider")}` : text;
+    }
+    case "behaviorShared":
+      return t("agentCli.consent.profile_edit_behavior_shared", { file: line.file });
     default:
       return t(PROFILE_EDIT_KEYS[line.field], { value: line.value });
   }

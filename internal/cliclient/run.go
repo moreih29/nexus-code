@@ -35,6 +35,12 @@ const agentContextCommand = "agent-context"
 
 var keyFileCommands = []string{"add", "edit"}
 
+var stdinFileFlags = []string{"--key-file=-", "--env-file=-", "--header-file=-", "--query-file=-"}
+
+func fileFromStdin(arg string) bool {
+	return slices.Contains(stdinFileFlags, arg)
+}
+
 type request struct {
 	Argv     []string `json:"argv"`
 	Cwd      string   `json:"cwd"`
@@ -95,7 +101,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		req.MsysRoot = &root
 	}
 	keyStdin := len(args) >= 3 && slices.Equal(args[:2], []string{"chat", "profiles"}) &&
-		slices.Contains(keyFileCommands, args[2]) && slices.Contains(args[3:], "--key-file=-")
+		slices.Contains(keyFileCommands, args[2]) && slices.ContainsFunc(args[3:], fileFromStdin)
 	if slices.Contains(args, "-") || keyStdin {
 		data, err := io.ReadAll(io.LimitReader(stdin, maxStdinBytes+1))
 		if err != nil {
