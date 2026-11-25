@@ -390,6 +390,32 @@ describe("profile connections", () => {
     expect((await keys.status(profile.id, target)).present).toBe(false);
   });
 
+  test("tells whether a key is saved for the endpoint, and nothing while the keychain is locked", async () => {
+    const target = connectionKeyTarget("claude", connection);
+    const open = new ConnectionKeys(keptInMemory(), true);
+    expect(await open.present(profile.id, target)).toBe(false);
+    await open.saveProfile(profile, "present-1234", () => {});
+    expect(await open.present(profile.id, target)).toBe(true);
+    expect(
+      await open.present(
+        profile.id,
+        connectionKeyTarget("claude", { ...connection, auth: "bearer" }),
+      ),
+    ).toBe(false);
+    const keychain = (has: boolean) => ({
+      isOpen: () => false,
+      has: () => has,
+      unlock: async () => false,
+      request: async () => false,
+    });
+    expect(
+      await new ConnectionKeys(keptInMemory(), true, keychain(true)).present(profile.id, target),
+    ).toBeUndefined();
+    expect(
+      await new ConnectionKeys(keptInMemory(), true, keychain(false)).present(profile.id, target),
+    ).toBe(false);
+  });
+
   test("classifies HTTP failures without returning provider response bodies", () => {
     expect(classifyConnectionError(403, "private", "test", false)).toEqual({
       ok: false,

@@ -646,6 +646,144 @@ test("chat profiles exposes selectable names and the workspace default, with por
   expect(app.asked).toEqual([]);
 });
 
+test("chat profiles --device lists a computer's profiles without a workspace", async () => {
+  const app = fakeApp();
+  const device = { id: "55555555-5555-4555-8555-555555555555", name: "ihWin" };
+  app.peers.devices = [
+    {
+      ...device,
+      platform: "win32",
+      online: true,
+      self: false,
+      schema: "0.37.1",
+      serves: ["agents", "agents.cli"],
+    },
+  ];
+  app.peers.answer = async () => ({
+    profiles: [{ id: "codex-default", name: "", agent: "codex", isDefault: true }],
+  });
+  const result = await nexus(app, ["chat", "profiles", "--device", "ihWin", "--json"]);
+  expect(result.stderr).toBe("");
+  expect(JSON.parse(result.stdout)).toEqual({
+    device,
+    profiles: [{ id: "codex-default", name: "", agent: "codex", workspaceDefault: false }],
+  });
+  expect(app.peers.requests.map(({ method, params }) => ({ method, params }))).toEqual([
+    {
+      method: "profiles.list",
+      params: { from: { kind: "terminal", workspaceId: APP, tabId: SHELL_TAB } },
+    },
+  ]);
+});
+
+test("chat profiles --device asks a newer computer for connections and prints no key", async () => {
+  const app = fakeApp();
+  const device = { id: "55555555-5555-4555-8555-555555555555", name: "ihWin" };
+  app.peers.devices = [
+    {
+      ...device,
+      platform: "win32",
+      online: true,
+      self: false,
+      schema: "0.38.0",
+      serves: ["agents", "agents.cli", "profiles.connection"],
+    },
+  ];
+  const connection = {
+    method: "custom",
+    baseUrl: "http://127.0.0.1:9",
+    auth: "x-api-key",
+    models: [{ id: "glm-5.4", contextWindow: 400000 }],
+    defaultModel: "glm-5.4",
+  };
+  app.peers.answer = async () => ({
+    profiles: [
+      {
+        id: "claude-gw",
+        name: "Gateway",
+        agent: "claude",
+        isDefault: false,
+        color: "rose",
+        connection,
+        hasKey: false,
+      },
+    ],
+  });
+  const json = await nexus(app, [
+    "chat",
+    "profiles",
+    "--device",
+    "ihWin",
+    "--profile",
+    "Gateway",
+    "--json",
+  ]);
+  expect(JSON.parse(json.stdout).profiles).toEqual([
+    {
+      id: "claude-gw",
+      name: "Gateway",
+      agent: "claude",
+      workspaceDefault: false,
+      color: "rose",
+      connection,
+      hasKey: false,
+    },
+  ]);
+  expect(app.peers.requests[0]?.params).toEqual({
+    connection: true,
+    profile: "Gateway",
+    from: { kind: "terminal", workspaceId: APP, tabId: SHELL_TAB },
+  });
+  const text = await nexus(app, ["chat", "profiles", "--device", "ihWin"]);
+  expect(text.stdout).toContain(
+    "Gateway (claude-gw) · custom · http://127.0.0.1:9 · x-api-key · no key",
+  );
+  expect(text.stdout).toContain("  Model glm-5.4 · default · context 400000");
+});
+
+test("chat profiles --device hides secrets in an address another computer sent unredacted", async () => {
+  const app = fakeApp();
+  app.peers.devices = [
+    {
+      id: "55555555-5555-4555-8555-555555555555",
+      name: "ihWin",
+      platform: "win32",
+      online: true,
+      self: false,
+      schema: "0.38.0",
+      serves: ["agents", "agents.cli", "profiles.connection"],
+    },
+  ];
+  app.peers.answer = async () => ({
+    profiles: [
+      {
+        id: "claude-gw",
+        name: "Gateway",
+        agent: "claude",
+        isDefault: false,
+        connection: {
+          method: "custom",
+          baseUrl: "http://qa:pa55word@127.0.0.1:9/v1?key=PEERSECRET#zz9q",
+          models: [{ id: "glm-5.4" }],
+          defaultModel: "glm-5.4",
+        },
+      },
+    ],
+  });
+  const json = await nexus(app, ["chat", "profiles", "--device", "ihWin", "--json"]);
+  expect(JSON.parse(json.stdout).profiles[0].connection).toMatchObject({
+    baseUrl: "http://127.0.0.1:9/v1?key=***",
+    baseUrlRedacted: true,
+  });
+  const text = await nexus(app, ["chat", "profiles", "--device", "ihWin"]);
+  expect(text.stdout).toContain("http://127.0.0.1:9/v1?key=*** (secrets hidden)");
+  for (const shown of [json, text]) {
+    for (const hidden of ["pa55word", "qa:", "PEERSECRET", "zz9q"]) {
+      expect(JSON.stringify(shown)).not.toContain(hidden);
+    }
+  }
+});
+
 describe("chat usage", () => {
   const now = Date.parse("2026-11-22T12:00:00Z");
   const fetchedAt = now - 5_000;

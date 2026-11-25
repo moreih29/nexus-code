@@ -2874,6 +2874,86 @@ describe("serving a chat's controls", () => {
     expect(asked).toEqual([["chat.profiles", { agent: "codex" }]]);
   });
 
+  test("lists a profile's connection only when asked, with hasKey and never the key", async () => {
+    const secret = "sk-qa-REMOTESECRET-77";
+    const gateway = {
+      id: "claude-gw",
+      agent: "claude" as const,
+      name: "Gateway",
+      color: "rose",
+      dir: "/private/claude-gw",
+      env: { PRIVATE_TOKEN: secret },
+      connection: {
+        method: "custom" as const,
+        baseUrl: `http://qa:pa55word@127.0.0.1:9?key=${secret}#frag-zz9q`,
+        auth: "x-api-key" as const,
+        models: [
+          { id: "glm-5.4", contextWindow: 400000 },
+          { id: "k3.1-pro", reasoning: "high" as const },
+        ],
+        defaultModel: "glm-5.4",
+        contextWindow: 400000,
+        advanced: { timeoutMs: 600000, headers: { "X-Org": secret } },
+      },
+    };
+    const base = services();
+    const keyAsked: string[] = [];
+    const s = {
+      ...base,
+      ui: async () => ({
+        profiles: [
+          { id: "claude-default", name: "default", agent: "claude", isDefault: true },
+          { id: "claude-gw", name: "Gateway", agent: "claude", isDefault: false, path: "/private" },
+        ],
+      }),
+      profileConnections: {
+        config: () => ({ profiles: [gateway], rules: [], defaults: {} }),
+        keyPresent: async (profile: { id: string }) => {
+          keyAsked.push(profile.id);
+          return profile.id === "claude-gw";
+        },
+      },
+    } as unknown as CliServices;
+    const serve = serveWith(() => s);
+    const plain = await serve({ from: "d", method: "profiles.list", params: {} });
+    expect(JSON.stringify(plain)).not.toContain("connection");
+    expect(keyAsked).toEqual([]);
+    const shown = await serve({
+      from: "d",
+      method: "profiles.list",
+      params: { connection: true, profile: "gateway" },
+    });
+    expect(shown).toEqual({
+      profiles: [
+        {
+          id: "claude-gw",
+          name: "Gateway",
+          agent: "claude",
+          isDefault: false,
+          color: "rose",
+          connection: {
+            method: "custom",
+            baseUrl: "http://127.0.0.1:9/?key=***",
+            baseUrlRedacted: true,
+            auth: "x-api-key",
+            models: [
+              { id: "glm-5.4", contextWindow: 400000 },
+              { id: "k3.1-pro", reasoning: "high" },
+            ],
+            defaultModel: "glm-5.4",
+            contextWindow: 400000,
+            advanced: { timeoutMs: 600000, headers: ["X-Org"] },
+          },
+          hasKey: true,
+        },
+      ],
+    });
+    for (const hidden of ["REMOTESECRET", "/private", "pa55word", "qa:", "zz9q"]) {
+      expect(JSON.stringify(shown)).not.toContain(hidden);
+    }
+    expect(servesWith(false)).toContain("profiles.connection");
+  });
+
   test("opens a chat with the model and effort asked, saying when they could not be set", async () => {
     const asked: [string, unknown][] = [];
     const base = services();

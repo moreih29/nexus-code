@@ -7,6 +7,7 @@ import {
   remoteConsents,
   UNTIMED_EXPIRES_AFTER_MS,
 } from "../../../../../src/main/features/remote/consents";
+import { initMainI18n } from "../../../../../src/main/i18n";
 import type { CliChange, CliUiOps } from "../../../../../src/shared/cli/ui";
 
 type AskArgs = CliUiOps["consent.ask"]["args"];
@@ -109,6 +110,30 @@ describe("the consent prompts another device is told", () => {
       answerable: true,
     });
     expect(listed[2]?.from).not.toHaveProperty("workspaceName");
+  });
+
+  test("a profile edit goes out as its words, in the host's language, not its fields", async () => {
+    await initMainI18n("en");
+    const change: CliChange = {
+      kind: "profileEdit",
+      detail: "Gateway",
+      eachTime: true,
+      profileEdit: {
+        agent: "claude",
+        lines: [
+          { field: "defaultModel", value: "glm-5.3 → glm-5.4" },
+          { field: "key", change: "replaced" },
+        ],
+      },
+    };
+    const { services } = setup([pendingOf("c1", { change })]);
+    const [listed] = await remoteConsents(services, both);
+    expect(listed?.change).toEqual({
+      kind: "profileEdit",
+      detail: "Gateway",
+      body: "Agent Claude\nDefault model glm-5.3 → glm-5.4\nAPI key replaced",
+    });
+    expect(listed?.eachTime).toBe(true);
   });
 
   test("a prompt run out says none left, not less than none", async () => {

@@ -708,6 +708,43 @@ const TaskStartSchema = z.union([
   z.object({ command: z.string().max(10000) }),
 ]);
 
+const ProfileTokensSchema = PositiveIntegerSchema.check(z.lte(2_147_483_647));
+const ProfilePairNamesSchema = z.array(z.string().max(128)).max(64);
+
+export const ProfileConnectionViewSchema = z.object({
+  method: z.string().min(1).max(32),
+  preset: z.string().max(32).optional(),
+  baseUrl: z.string().max(2048).optional(),
+  baseUrlRedacted: z.boolean().optional(),
+  auth: z.string().max(32).optional(),
+  models: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(256),
+        label: z.string().max(128).optional(),
+        contextWindow: ProfileTokensSchema.optional(),
+        reasoning: z.string().max(16).optional(),
+      }),
+    )
+    .max(128)
+    .optional(),
+  defaultModel: z.string().max(256).optional(),
+  lightModel: z.string().max(256).optional(),
+  contextWindow: ProfileTokensSchema.optional(),
+  advanced: z
+    .object({
+      timeoutMs: ProfileTokensSchema.optional(),
+      maxOutputTokens: ProfileTokensSchema.optional(),
+      disableExperimentalBetas: z.boolean().optional(),
+      retries: NonnegativeIntegerSchema.check(z.lte(100)).optional(),
+      streamIdleTimeoutMs: ProfileTokensSchema.optional(),
+      headers: ProfilePairNamesSchema.optional(),
+      query: ProfilePairNamesSchema.optional(),
+    })
+    .optional(),
+});
+export type ProfileConnectionView = z.infer<typeof ProfileConnectionViewSchema>;
+
 export const MAX_MARK_SEEN = 500;
 
 export const RPC_METHODS = {
@@ -759,6 +796,8 @@ export const RPC_METHODS = {
     params: z.object({
       agent: z.enum(["claude", "codex"]).optional(),
       workspaceId: z.string().optional(),
+      connection: z.boolean().optional(),
+      profile: z.string().min(1).max(64).optional(),
       ...ReadBy,
     }),
     result: z.object({
@@ -770,6 +809,9 @@ export const RPC_METHODS = {
           isDefault: z.boolean(),
           workspaceDefault: z.boolean().optional(),
           path: z.string().optional(),
+          color: z.string().max(16).optional().catch(undefined),
+          connection: ProfileConnectionViewSchema.optional().catch(undefined),
+          hasKey: z.boolean().optional().catch(undefined),
         }),
       ),
     }),

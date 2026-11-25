@@ -33,6 +33,8 @@ const wsaeacces = 10013
 
 const agentContextCommand = "agent-context"
 
+var keyFileCommands = []string{"add", "edit"}
+
 type request struct {
 	Argv     []string `json:"argv"`
 	Cwd      string   `json:"cwd"`
@@ -92,8 +94,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if root, ok := os.LookupEnv(envMsysRoot); ok {
 		req.MsysRoot = &root
 	}
-	keyStdin := len(args) >= 3 && slices.Equal(args[:3], []string{"chat", "profiles", "add"}) &&
-		slices.Contains(args[3:], "--key-file=-")
+	keyStdin := len(args) >= 3 && slices.Equal(args[:2], []string{"chat", "profiles"}) &&
+		slices.Contains(keyFileCommands, args[2]) && slices.Contains(args[3:], "--key-file=-")
 	if slices.Contains(args, "-") || keyStdin {
 		data, err := io.ReadAll(io.LimitReader(stdin, maxStdinBytes+1))
 		if err != nil {

@@ -134,6 +134,7 @@ const BULK_FRAMES = new Set([
 ]);
 const LARGE_READ_REPLY_BYTES = 64 * 1024;
 const LARGE_READ_REPLIES = new Set([
+  "profiles.list",
   "profiles.usage",
   "chat.panel",
   "chat.tool",

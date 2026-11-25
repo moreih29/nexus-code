@@ -23,7 +23,76 @@ export function consentProfileLayer(
   return { kind: "profile", id, agent, name, ...(showId ? { showId } : {}) };
 }
 
-export function consentDetailsOf(t: TFunction<"settings">, change: RemoteConsent["change"]) {
+export type ProfileEditLine =
+  | {
+      field:
+        | "name"
+        | "color"
+        | "address"
+        | "preset"
+        | "auth"
+        | "models"
+        | "defaultModel"
+        | "lightModel"
+        | "context"
+        | "reasoning"
+        | "label";
+      value: string;
+    }
+  | { field: "connection"; from: ConnectionMethod; to: ConnectionMethod }
+  | { field: "key"; change: "replaced" | "removed" };
+
+export interface ProfileEditCopy {
+  readonly agent: ChatAgent;
+  readonly lines: readonly ProfileEditLine[];
+}
+
+type ConnectionMethod = "account" | "api-key" | "custom";
+
+const PROFILE_EDIT_KEYS = {
+  name: "agentCli.consent.profile_edit_name",
+  color: "agentCli.consent.profile_edit_color",
+  address: "agentCli.consent.profile_edit_address",
+  preset: "agentCli.consent.profile_edit_preset",
+  auth: "agentCli.consent.profile_edit_auth",
+  models: "agentCli.consent.profile_edit_models",
+  defaultModel: "agentCli.consent.profile_edit_default_model",
+  lightModel: "agentCli.consent.profile_edit_light_model",
+  context: "agentCli.consent.profile_edit_context",
+  reasoning: "agentCli.consent.profile_edit_reasoning",
+  label: "agentCli.consent.profile_edit_label",
+} as const;
+
+function profileEditLine(t: TFunction<"settings">, agent: ChatAgent, line: ProfileEditLine) {
+  switch (line.field) {
+    case "connection": {
+      const method = (m: ConnectionMethod) => t(`profiles.connection.methods.${m}.${agent}.label`);
+      return t("agentCli.consent.profile_add_connection", {
+        connection: `${method(line.from)} → ${method(line.to)}`,
+      });
+    }
+    case "key":
+      return t(
+        line.change === "replaced"
+          ? "agentCli.consent.profile_edit_key_replaced"
+          : "agentCli.consent.profile_edit_key_removed",
+      );
+    default:
+      return t(PROFILE_EDIT_KEYS[line.field], { value: line.value });
+  }
+}
+
+export interface ProfileRemoveCopy {
+  readonly agent: ChatAgent;
+  readonly folder: string;
+}
+
+export type ConsentChange = RemoteConsent["change"] & {
+  readonly profileEdit?: ProfileEditCopy;
+  readonly profileRemove?: ProfileRemoveCopy;
+};
+
+export function consentDetailsOf(t: TFunction<"settings">, change: ConsentChange) {
   if (change.kind === "settingTurnOn") {
     const asking = settingAskingToTurnOn(change.detail ?? "");
     if (asking) {
@@ -33,6 +102,26 @@ export function consentDetailsOf(t: TFunction<"settings">, change: RemoteConsent
         body: t(`agentCli.consent.setting_on_body.${slug}`),
       };
     }
+  }
+  if (change.profileRemove) {
+    const { agent, folder } = change.profileRemove;
+    return {
+      detail: change.detail ?? "",
+      body: [
+        t("agentCli.consent.profile_add_agent", { agent: CONSENT_AGENT_NAMES[agent] }),
+        t("profiles.removeConfirm.description", { dir: folder }),
+      ].join("\n"),
+    };
+  }
+  if (change.profileEdit) {
+    const { agent, lines } = change.profileEdit;
+    return {
+      detail: change.detail ?? "",
+      body: [
+        t("agentCli.consent.profile_add_agent", { agent: CONSENT_AGENT_NAMES[agent] }),
+        ...lines.map((line) => profileEditLine(t, agent, line)),
+      ].join("\n"),
+    };
   }
   if (change.profileAdd) {
     const { agent, folder, connection, endpoint } = change.profileAdd;

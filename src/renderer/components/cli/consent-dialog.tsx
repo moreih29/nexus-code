@@ -77,7 +77,13 @@ export function askCliConsent(prompt: CliConsentPrompt): Promise<CliConsentAnswe
 }
 
 export function consentNamesTarget(kind: string): boolean {
-  return kind === "instructionsEdit" || kind === "profileAdd" || kind === "settingTurnOn";
+  return (
+    kind === "instructionsEdit" ||
+    kind === "profileAdd" ||
+    kind === "settingTurnOn" ||
+    kind === "profileEdit" ||
+    kind === "profileRemove"
+  );
 }
 
 export function describeConsent(
@@ -136,6 +142,8 @@ export function consentTitleOf(kind: string, remote: boolean) {
     return "agentCli.consent.profile_title" as const;
   }
   if (kind === "profileAdd") return "agentCli.consent.profile_add_title" as const;
+  if (kind === "profileEdit") return "agentCli.consent.profile_edit_title" as const;
+  if (kind === "profileRemove") return "agentCli.consent.profile_remove_title" as const;
   if (kind === "instructionsEdit") return "agentCli.consent.instructions_title" as const;
   if (kind === "chatRewind" || kind === "chatRewindFiles") {
     return "agentCli.consent.rewind_title" as const;

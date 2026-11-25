@@ -25,7 +25,8 @@ import {
 import { mayExecute } from "../sandbox";
 import { openerOf, senderOf } from "../sender";
 import { chatAgentFlag, resolveChat, SEND_TIMEOUT_MS } from "./chat";
-import { chatProfilesAdd, chatUsage, profileTable } from "./chat-profiles";
+import { chatProfiles, chatProfilesAdd, chatUsage } from "./chat-profiles";
+import { chatProfilesEdit, chatProfilesRemove } from "./chat-profiles-edit";
 import { peerCliChat } from "./chat-remote";
 import { AGENT_NAMES } from "./chat-text";
 import { WORKSPACE_FLAG } from "./flags";
@@ -921,43 +922,6 @@ const chatResume: CliCommand = {
   },
 };
 
-const chatProfiles: CliCommand = {
-  path: ["chat", "profiles"],
-  summary: "List the profiles a Claude or Codex tab can use",
-  details:
-    "Includes the profile selected by the workspace's rules for each agent. Names and ids can be used with chat new --profile.",
-  flags: { agent: AGENT_FLAG, workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
-  async run(ctx, { positionals, flags }) {
-    exactArgs(positionals);
-    const agent = flags.agent === undefined ? undefined : chatAgentFlag(flags.agent, "claude");
-    const device = await resolveDevice(ctx, deviceFlag(flags));
-    if (device) requirePeerCli(ctx, device);
-    const workspace = device
-      ? await peerWorkspace(ctx, device, flags.workspace)
-      : resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const params = { workspaceId: workspace.id, ...(agent ? { agent } : {}) };
-    const { profiles } = device
-      ? await askPeerCli(ctx, device, "profiles.list", params)
-      : await ctx.services.ui("chat.profiles", params);
-    const rows = profiles.map(({ id, name, agent, workspaceDefault, path }) => ({
-      id,
-      name,
-      agent,
-      workspaceDefault: workspaceDefault === true,
-      ...(!device && path !== undefined && !/^(?:[\\/]|[A-Za-z]:)/.test(path) ? { path } : {}),
-    }));
-    return output(
-      profileTable(rows),
-      {
-        workspaceId: workspace.id,
-        profiles: rows,
-        ...(device ? { device: deviceRef(device) } : {}),
-      },
-      { records: rows },
-    );
-  },
-};
-
 const chatFiles: CliCommand = {
   path: ["chat", "files"],
   summary: "List file suggestions for the chat composer's @ picker",
@@ -996,6 +960,8 @@ export const chatControlCommands: CliCommand[] = [
   chatHistory,
   chatProfiles,
   chatProfilesAdd,
+  chatProfilesEdit,
+  chatProfilesRemove,
   chatUsage,
   chatFiles,
   chatResume,

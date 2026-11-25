@@ -53,6 +53,15 @@ export class ConnectionKeys {
     };
   }
 
+  async present(id: string, target: string): Promise<boolean | undefined> {
+    if (!this.keychain.isOpen()) return this.keychain.has("profileKeys") ? undefined : false;
+    await this.pending;
+    return this.read(id, target).then(
+      (key) => key !== undefined,
+      () => undefined,
+    );
+  }
+
   private async read(id: string, target: string | undefined): Promise<string | undefined> {
     const saved = (await this.storage.load())?.[id];
     return saved?.target === target ? saved?.key : undefined;

@@ -351,7 +351,9 @@
         "noteRecordStop": "pause or stop the recording of the note \"{{detail}}\"",
         "sandboxExecution": "run a command outside its sandbox",
         "settingTurnOn": "turn on \"{{detail}}\"",
-        "browserPermissionRevoke": "forget the browser permission {{detail}}"
+        "browserPermissionRevoke": "forget the browser permission {{detail}}",
+        "profileEdit": "change the agent profile \"{{detail}}\"",
+        "profileRemove": "remove the agent profile \"{{detail}}\""
       },
       "headline": {
         "open": "Open {{detail}}",
@@ -409,7 +411,9 @@
         "noteRecordStop": "Pause or stop the recording of the note \"{{detail}}\"",
         "sandboxExecution": "Run a command outside its sandbox",
         "settingTurnOn": "Turn on \"{{detail}}\"",
-        "browserPermissionRevoke": "Forget the browser permission {{detail}}"
+        "browserPermissionRevoke": "Forget the browser permission {{detail}}",
+        "profileEdit": "Change the agent profile \"{{detail}}\"",
+        "profileRemove": "Remove the agent profile \"{{detail}}\""
       },
       "permission_title": "Answer another session's permission request?",
       "mode_title": "Let an agent loosen a session's permission mode?",
@@ -418,6 +422,21 @@
       "profile_add_agent": "Agent {{agent}}",
       "profile_add_folder": "Folder {{folder}}",
       "profile_add_connection": "Connection {{connection}}",
+      "profile_edit_title": "Let an agent change a profile on this computer?",
+      "profile_edit_name": "Name {{value}}",
+      "profile_edit_color": "Color {{value}}",
+      "profile_edit_address": "API address {{value}}",
+      "profile_edit_preset": "Preset {{value}}",
+      "profile_edit_auth": "Key authentication {{value}}",
+      "profile_edit_models": "Models {{value}}",
+      "profile_edit_default_model": "Default model {{value}}",
+      "profile_edit_light_model": "Background model {{value}}",
+      "profile_edit_context": "Context window {{value}}",
+      "profile_edit_reasoning": "Max effort {{value}}",
+      "profile_edit_label": "Display name {{value}}",
+      "profile_edit_key_replaced": "API key replaced",
+      "profile_edit_key_removed": "API key removed",
+      "profile_remove_title": "Let an agent remove a profile on this computer?",
       "instructions_title": "Allow an agent to change instructions?",
       "instructions_profile": "{{agent}} profile \"{{name}}\"",
       "instructions_clear": "Clear instructions",
