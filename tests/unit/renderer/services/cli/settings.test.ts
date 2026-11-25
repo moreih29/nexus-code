@@ -58,6 +58,7 @@ const { usePreviewDefaultsStore } = await import(
 );
 const { useTerminalStore } = await import("../../../../../src/renderer/state/stores/terminal");
 const { useWorkspacesStore } = await import("../../../../../src/renderer/state/stores/workspaces");
+const { useVoiceStore } = await import("../../../../../src/renderer/state/stores/voice");
 const { useLspSettingsStore } = await import(
   "../../../../../src/renderer/state/stores/lsp-settings"
 );
@@ -407,5 +408,48 @@ describe("language server settings", () => {
       { languageId: "typescript", settings: { lowMemory: false } },
       { count: 4 },
     ]);
+  });
+});
+
+describe("voice language and what other devices may do here", () => {
+  it("sets the voice language and refuses one it does not take", async () => {
+    useVoiceStore.getState().hydrate({});
+    expect(await get("voice.language")).toMatchObject({ value: "app", changed: false });
+    expect((await set("voice.language", "multi")).setting).toMatchObject({
+      value: "multi",
+      changed: true,
+    });
+    expect(useVoiceStore.getState().language).toBe("multi");
+    await expect(set("voice.language", "ko")).rejects.toThrow(
+      'voice.language: "ko" is not one of app, multi',
+    );
+    await set("voice.language", null);
+    expect(writes).toEqual([{ voiceLanguage: "multi" }, { voiceLanguage: "app" }]);
+  });
+
+  it("reads the remote policies but leaves changing them to the user", async () => {
+    answers["remote.allowControl"] = () => ({ ok: true, value: true });
+    answers["remote.allowTerminal"] = () => ({ ok: true, value: false });
+    answers["remote.agentsPolicy"] = () => ({ ok: true, value: "deny" });
+    answers["remote.phonePushPolicy"] = () => ({ ok: false, kind: "unknown", message: "no" });
+    try {
+      expect(await get("remote.control")).toMatchObject({
+        value: true,
+        changed: true,
+        readOnly: true,
+      });
+      expect(await get("remote.terminal")).toMatchObject({ value: false, changed: false });
+      expect(await get("remote.agents")).toMatchObject({
+        value: "deny",
+        choices: ["ask", "allow", "deny"],
+      });
+      expect(await get("remote.phonePush")).toMatchObject({ unavailable: "no" });
+      for (const key of ["remote.control", "remote.terminal", "remote.agents", "remote.phonePush"])
+        await expect(set(key, "on")).rejects.toThrow(`${key} is the user's to change, in Settings`);
+      expect(writes).toEqual([]);
+    } finally {
+      for (const method of ["allowControl", "allowTerminal", "agentsPolicy", "phonePushPolicy"])
+        delete answers[`remote.${method}`];
+    }
   });
 });

@@ -21,6 +21,7 @@ import { usePreviewDefaultsStore } from "@/state/stores/preview-defaults";
 import { useTerminalStore } from "@/state/stores/terminal";
 import { useThemeStore } from "@/state/stores/theme";
 import { useUpdatesStore } from "@/state/stores/updates";
+import { useVoiceStore, type VoiceLanguagePreference } from "@/state/stores/voice";
 import { useWindowOpacityStore } from "@/state/stores/window-opacity";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
 import { AGENT_LIST_VIEWS, DEFAULT_AGENT_LIST_VIEW } from "../../../shared/agent-list/view";
@@ -185,6 +186,31 @@ async function setLspLanguage(
       [languageId]: { ...settings.languages[languageId], ...patch },
     },
   }));
+}
+
+function setVoiceLanguage(language: VoiceLanguagePreference): void {
+  useVoiceStore.getState().setLanguage(language);
+  save({ voiceLanguage: language });
+}
+
+function remoteReading(
+  key: string,
+  summary: string,
+  method: "allowControl" | "allowTerminal" | "agentsPolicy" | "phonePushPolicy",
+  defaultValue: CliSettingValue,
+  choices?: readonly string[],
+): CliSetting {
+  return {
+    key,
+    summary,
+    type: choices ? "choice" : "boolean",
+    ...(choices ? { choices } : {}),
+    get: async () => {
+      const result = await ipcCallResult("remote", method, undefined);
+      if (!result.ok) return { value: defaultValue, changed: false, unavailable: result.message };
+      return { value: result.value, changed: result.value !== defaultValue };
+    },
+  };
 }
 
 export const CLI_SETTINGS: readonly CliSetting[] = [
@@ -664,6 +690,44 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
     set: (value) => saveVoiceTerms(splitTerms(String(value))),
     reset: () => saveVoiceTerms([]),
   },
+  {
+    key: "voice.language",
+    summary: "What voice input listens for: the app's language, or many languages",
+    type: "choice",
+    choices: ["app", "multi"],
+    get: () => {
+      const value = useVoiceStore.getState().language;
+      return { value, changed: value !== "app" };
+    },
+    set: (value) => setVoiceLanguage(value as VoiceLanguagePreference),
+    reset: () => setVoiceLanguage("app"),
+  },
+  remoteReading(
+    "remote.control",
+    "Whether your other computers and phone may control this one's chats",
+    "allowControl",
+    false,
+  ),
+  remoteReading(
+    "remote.terminal",
+    "Whether your other computers and phone may type into this one's terminals",
+    "allowTerminal",
+    false,
+  ),
+  remoteReading(
+    "remote.agents",
+    "Whether agents on your other computers may act here: ask, allow or deny",
+    "agentsPolicy",
+    "ask",
+    ["ask", "allow", "deny"],
+  ),
+  remoteReading(
+    "remote.phonePush",
+    "When your phone is notified: away, always or off",
+    "phonePushPolicy",
+    "away",
+    ["away", "always", "off"],
+  ),
   {
     key: "agentCli.crossWorkspace",
     summary: "Whether nexus may change other workspaces than its terminal's: ask, allow or deny",

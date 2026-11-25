@@ -107,6 +107,7 @@ const KEY_PAGES: readonly (readonly [string, SettingsPage])[] = [
   ["agentcli.", "agent"],
   ["voice.", "remote"],
   ["lsp.", "language-servers"],
+  ["remote.", "remote"],
 ];
 
 const PAGE_NAMES: Readonly<Record<string, SettingsPage>> = {
