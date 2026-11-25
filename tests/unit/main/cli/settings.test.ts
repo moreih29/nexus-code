@@ -358,3 +358,17 @@ test("setting a task workspace's instructions asks to edit the parent and names 
     args: { scope: { kind: "workspace", id: APP }, text: "" },
   });
 });
+
+test("updates check looks for an update and prints what it found; logs path prints the folder", async () => {
+  const app = fakeApp();
+  app.uiAnswers.set("settings.updateCheck", {
+    status: { kind: "newer", latest: "9.9.9", trigger: "manual" },
+    progress: null,
+  });
+  app.uiAnswers.set("settings.logsPath", { path: "/Users/me/Library/Logs/NexusCode" });
+  expect((await nexus(app, ["settings", "updates", "check"])).stdout).toBe("newer 9.9.9\n");
+  expect((await nexus(app, ["settings", "logs", "path"])).stdout).toBe(
+    "/Users/me/Library/Logs/NexusCode\n",
+  );
+  expect(app.uiCalls.map(({ op }) => op)).toEqual(["settings.updateCheck", "settings.logsPath"]);
+});

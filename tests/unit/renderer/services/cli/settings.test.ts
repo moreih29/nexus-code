@@ -58,6 +58,7 @@ const { usePreviewDefaultsStore } = await import(
 );
 const { useTerminalStore } = await import("../../../../../src/renderer/state/stores/terminal");
 const { useWorkspacesStore } = await import("../../../../../src/renderer/state/stores/workspaces");
+const { useUpdatesStore } = await import("../../../../../src/renderer/state/stores/updates");
 const { useVoiceStore } = await import("../../../../../src/renderer/state/stores/voice");
 const { useLspSettingsStore } = await import(
   "../../../../../src/renderer/state/stores/lsp-settings"
@@ -450,6 +451,27 @@ describe("voice language and what other devices may do here", () => {
     } finally {
       for (const method of ["allowControl", "allowTerminal", "agentsPolicy", "phonePushPolicy"])
         delete answers[`remote.${method}`];
+    }
+  });
+});
+
+describe("update check and logs folder", () => {
+  it("waits for the check to end and gives back what it found", async () => {
+    answers["updates.check"] = () => {
+      setTimeout(() =>
+        useUpdatesStore.getState().applyStatus({ kind: "current", trigger: "manual" }),
+      );
+      return { ok: true, value: undefined };
+    };
+    answers["system.logsPath"] = () => ({ ok: true, value: { path: "/logs" } });
+    try {
+      expect(await settingsHandlers["settings.updateCheck"]({})).toMatchObject({
+        status: { kind: "current" },
+      });
+      expect(await settingsHandlers["settings.logsPath"]({})).toEqual({ path: "/logs" });
+    } finally {
+      delete answers["updates.check"];
+      delete answers["system.logsPath"];
     }
   });
 });

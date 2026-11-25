@@ -1,4 +1,5 @@
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
+import { checkForUpdates } from "@/services/updates/operations";
 import { useAgentCliStore } from "@/state/stores/agent-cli";
 import { saveInstructionEdits, useAgentInstructionsStore } from "@/state/stores/agent-instructions";
 import { useAgentListViewStore } from "@/state/stores/agent-list-view";
@@ -749,6 +750,27 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
   },
 ];
 
+const UPDATE_CHECK_MS = 60_000;
+
+function checked(timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    let stop = () => {};
+    const timer = setTimeout(() => {
+      stop();
+      resolve();
+    }, timeoutMs);
+    const done = () => {
+      clearTimeout(timer);
+      stop();
+      resolve();
+    };
+    stop = useUpdatesStore.subscribe(({ checking }) => {
+      if (!checking) done();
+    });
+    if (!useUpdatesStore.getState().checking) done();
+  });
+}
+
 export async function settingInfo(setting: CliSetting): Promise<CliSettingInfo> {
   const { value, changed, choices = setting.choices, unavailable } = await setting.get();
   return {
@@ -774,6 +796,8 @@ export const settingsHandlers: {
   "settings.keys": CliUiHandler<"settings.keys">;
   "settings.lspStatus": CliUiHandler<"settings.lspStatus">;
   "settings.updateStatus": CliUiHandler<"settings.updateStatus">;
+  "settings.updateCheck": CliUiHandler<"settings.updateCheck">;
+  "settings.logsPath": CliUiHandler<"settings.logsPath">;
   "settings.list": CliUiHandler<"settings.list">;
   "settings.set": CliUiHandler<"settings.set">;
 } = {
@@ -817,6 +841,14 @@ export const settingsHandlers: {
   },
   "settings.updateStatus": async () =>
     unwrapIpcResult(await ipcCallResult("updates", "getStatus", undefined)),
+  "settings.updateCheck": async () => {
+    checkForUpdates();
+    await checked(UPDATE_CHECK_MS);
+    const { status, progress } = useUpdatesStore.getState();
+    return { status, progress };
+  },
+  "settings.logsPath": async () =>
+    unwrapIpcResult(await ipcCallResult("system", "logsPath", undefined)),
   "settings.keys": async () => {
     const { effectiveBindings, editorOverrides } = useKeybindingsStore.getState();
     return {

@@ -132,6 +132,8 @@ export const actionHandlers: {
     | "settings.keys"
     | "settings.lspStatus"
     | "settings.updateStatus"
+    | "settings.updateCheck"
+    | "settings.logsPath"
     | "settings.list"
     | "settings.set"
     | "settings.open"

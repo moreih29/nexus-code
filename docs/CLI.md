@@ -540,6 +540,8 @@ nexus settings get lsp.enabled
 nexus settings get updates.status
 nexus settings lsp status --json
 nexus settings updates status --json
+nexus settings updates check                # 지금 업데이트 확인 (받기 · 설치는 사용자가)
+nexus settings logs path                    # 앱 로그 폴더
 nexus settings keys list --json
 nexus settings set terminal.cursorStyle bar
 nexus settings set editor.fontFamily ""     # 빈 값이면 시스템 글꼴

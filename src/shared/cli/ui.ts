@@ -988,6 +988,14 @@ export interface CliUiOps {
     args: Record<string, never>;
     result: { status: UpdateStatus | null; progress: UpdateProgress | null };
   };
+  "settings.updateCheck": {
+    args: Record<string, never>;
+    result: { status: UpdateStatus | null; progress: UpdateProgress | null };
+  };
+  "settings.logsPath": {
+    args: Record<string, never>;
+    result: { path: string };
+  };
   "note.rename": {
     args: { workspaceId: string; noteId: string; title: string };
     result: { title: string };

@@ -9,7 +9,7 @@ import {
   SETTINGS_PAGES,
   settingsPageNamed,
 } from "../../../../shared/cli/settings";
-import type { CliChange, CliSettingInfo } from "../../../../shared/cli/ui";
+import type { CliChange, CliSettingInfo, CliUiOps } from "../../../../shared/cli/ui";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { CliUsageError, exactArgs } from "../args";
 import { type CliContext, type CliDevice, CliError, resolveWorkspace } from "../context";
@@ -390,25 +390,53 @@ const settingsLspStatus: CliCommand = {
   },
 };
 
+type UpdateState = CliUiOps["settings.updateStatus"]["result"];
+
+function updateLine(result: UpdateState): string {
+  const version =
+    result.status &&
+    ("version" in result.status
+      ? result.status.version
+      : "latest" in result.status
+        ? result.status.latest
+        : undefined);
+  return result.status
+    ? [result.status.kind, version].filter(Boolean).join(" ")
+    : "No update check yet.";
+}
+
 const settingsUpdateStatus: CliCommand = {
   path: ["settings", "updates", "status"],
   summary: "Show the last app update check and download progress",
   async run(ctx, { positionals }) {
     exactArgs(positionals);
     const result = await ctx.services.ui("settings.updateStatus", {});
-    const version =
-      result.status &&
-      ("version" in result.status
-        ? result.status.version
-        : "latest" in result.status
-          ? result.status.latest
-          : undefined);
-    return output(
-      result.status
-        ? [result.status.kind, version].filter(Boolean).join(" ")
-        : "No update check yet.",
-      result,
-    );
+    return output(updateLine(result), result);
+  },
+};
+
+const UPDATE_CHECK_TIMEOUT_MS = 75_000;
+
+const settingsUpdateCheck: CliCommand = {
+  path: ["settings", "updates", "check"],
+  summary: "Look for an app update now and print what was found",
+  details:
+    "As Settings › About's button does. It only looks: downloading, installing and\n" +
+    "restarting stay the user's, from the notice the app shows.",
+  async run(ctx, { positionals }) {
+    exactArgs(positionals);
+    const result = await ctx.services.ui("settings.updateCheck", {}, UPDATE_CHECK_TIMEOUT_MS);
+    return output(updateLine(result), result);
+  },
+};
+
+const settingsLogsPath: CliCommand = {
+  path: ["settings", "logs", "path"],
+  summary: "Print the folder the app writes its logs to",
+  async run(ctx, { positionals }) {
+    exactArgs(positionals);
+    const result = await ctx.services.ui("settings.logsPath", {});
+    return output(result.path, result);
   },
 };
 
@@ -423,4 +451,6 @@ export const settingsCommands: CliCommand[] = [
   settingsKeysList,
   settingsLspStatus,
   settingsUpdateStatus,
+  settingsUpdateCheck,
+  settingsLogsPath,
 ];
