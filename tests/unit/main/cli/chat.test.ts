@@ -637,6 +637,99 @@ describe("delegating a chat answer", () => {
   });
 });
 
+describe("a chat answer the user approves for another workspace", () => {
+  const request = { id: "req-1", tool: "Bash", input: "make test" };
+  const callers: [ChatAgent, string, "allow" | "deny", string][] = [
+    ["claude", "auto", "allow", "permissionAllow"],
+    ["claude", "auto", "deny", "permissionDeny"],
+    ["codex", "auto", "allow", "sandboxExecution"],
+    ["claude", "bypassPermissions", "allow", "sandboxExecution"],
+  ];
+
+  function inApi(policy: "allow" | "ask" | "deny", agent: ChatAgent, mode: string) {
+    const app = withChat({ state: "asking", message: "asks to run Bash", request });
+    const verified = mode !== "bypassPermissions";
+    const caller = addCaller(app, agent, mode, verified);
+    const tab = app.tabs[APP]?.find((t) => t.id === CHAT_TAB);
+    if (tab) {
+      app.tabs[APP] = app.tabs[APP]?.filter((t) => t !== tab) ?? [];
+      app.tabs[API]?.push(tab);
+    }
+    app.settings.crossWorkspace = policy;
+    return { app, caller };
+  }
+
+  test.each(
+    callers,
+  )("%s %s %s is refused without a prompt when changing other workspaces is off", async (agent, mode, decision) => {
+    const { app, caller } = inApi("deny", agent, mode);
+    app.answers.push("once");
+    const result = await nexus(
+      app,
+      ["chat", "answer", "eeee", decision, "--workspace", "api"],
+      caller,
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("changing other workspaces is turned off");
+    expect(app.asked).toEqual([]);
+    expect(app.chatAnswered).toEqual([]);
+  });
+
+  test.each(
+    callers,
+  )("%s %s %s asks the user once when it asks or allows", async (agent, mode, decision, kind) => {
+    for (const policy of ["ask", "allow"] as const) {
+      const { app, caller } = inApi(policy, agent, mode);
+      app.answers.push("once");
+      const result = await nexus(
+        app,
+        ["chat", "answer", "eeee", decision, "--workspace", "api"],
+        caller,
+      );
+      expect(result.exitCode).toBe(0);
+      expect(app.asked).toHaveLength(1);
+      expect(app.asked[0]).toMatchObject({
+        toWorkspaceId: API,
+        otherWorkspaces: true,
+        change: { kind, eachTime: true },
+      });
+      expect(app.chatAnswered).toEqual([
+        { workspaceId: API, tabId: CHAT_TAB, decision, expect: request.id },
+      ]);
+    }
+  });
+
+  test("a terminal's Claude Code in another workspace follows the same setting", async () => {
+    const { app, caller } = inApi("deny", "claude", "auto");
+    app.tabs[API]?.push({
+      id: CLAUDE_TAB,
+      type: "terminal",
+      title: "✳ Claude Code",
+      groupId: "g1",
+      shown: false,
+    });
+    app.terminalAsks.set(CLAUDE_TAB, [{ id: "hook", tool: "Bash", target: "make test", since: 5 }]);
+    const refused = await nexus(
+      app,
+      ["chat", "answer", "✳ Claude Code", "allow", "--workspace", "api"],
+      caller,
+    );
+    expect(refused.stderr).toContain("changing other workspaces is turned off");
+    expect(app.asked).toEqual([]);
+    app.settings.crossWorkspace = "ask";
+    app.answers.push("once");
+    const allowed = await nexus(
+      app,
+      ["chat", "answer", "✳ Claude Code", "allow", "--workspace", "api"],
+      caller,
+    );
+    expect(allowed.exitCode).toBe(0);
+    expect(app.asked).toHaveLength(1);
+    expect(app.asked[0]).toMatchObject({ otherWorkspaces: true, change: { eachTime: true } });
+    expect(app.terminalAnswered).toEqual([{ tabId: CLAUDE_TAB, askId: "hook", answer: "allow" }]);
+  });
+});
+
 describe("who sends a message", () => {
   test("a tab's agent, Claude Code in a terminal and the manager are named; the user at a shell is not", async () => {
     const app = withChat();
