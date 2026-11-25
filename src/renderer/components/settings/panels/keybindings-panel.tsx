@@ -2,38 +2,38 @@ import { ChevronRight, Pencil, RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import { ALL_COMMAND_IDS, COMMANDS, type CommandId } from "../../../../shared/keybindings/commands";
+import type { CommandId } from "../../../../shared/keybindings/commands";
 import {
   type ConflictBinding,
-  detectConflicts,
   detectTableConflicts,
   type KeybindingConflict,
 } from "../../../../shared/keybindings/conflicts";
-import { EDITOR_COMMANDS } from "../../../../shared/keybindings/editor-commands";
 import {
-  findDisplayPrimary,
-  KEYBINDINGS,
-  type KeybindingDecl,
-} from "../../../../shared/keybindings/index";
+  appBindingShape,
+  BINDABLE_COMMANDS,
+  type BindingKind,
+  editorConflictBindings,
+  editorEffectivePrimary,
+  isSevereConflict,
+  proposedBindingConflicts,
+} from "../../../../shared/keybindings/edit";
+import { EDITOR_COMMANDS } from "../../../../shared/keybindings/editor-commands";
+import { findDisplayPrimary, type KeybindingDecl } from "../../../../shared/keybindings/index";
 import {
   acceleratorToLabel,
   chordToLabel,
   eventToAccelerator,
   isModifierCode,
 } from "../../../../shared/keybindings/keybinding-parse";
-import { inheritedWhen, type KeybindingOverride } from "../../../../shared/keybindings/overrides";
+import {
+  keybindingCommandLabel,
+  keybindingConflictMessage,
+} from "../../../keybindings/conflict-message";
 import { labelOptions } from "../../../keybindings/shortcut-labels";
 import { useKeybindingsStore } from "../../../state/stores/keybindings";
 import { isLinux, isMac } from "../../../utils/platform";
 import { Checkbox } from "../../ui/checkbox";
 import { SearchInput } from "../../ui/search-input";
-
-type BindableCommandId = Exclude<CommandId, typeof COMMANDS.updatesCheck>;
-const BINDABLE_COMMANDS = ALL_COMMAND_IDS.filter(
-  (id): id is BindableCommandId => id !== COMMANDS.updatesCheck,
-);
-
-type BindingKind = "primary" | "chord";
 
 interface Row {
   command: string;
@@ -45,35 +45,12 @@ interface Row {
   conflicts: KeybindingConflict[];
 }
 
-function defaultDeclFor(command: CommandId): KeybindingDecl | undefined {
-  return KEYBINDINGS.find((b) => b.command === command);
-}
-
 function bindingLabelFor(bindings: readonly KeybindingDecl[], command: CommandId): string | null {
   const primary = findDisplayPrimary(bindings, command, isMac(), isLinux());
   if (primary?.primary !== undefined) return acceleratorToLabel(primary.primary, labelOptions());
   const chord = bindings.find((b) => b.command === command && b.chord !== undefined);
   if (chord?.chord !== undefined) return chordToLabel(chord.chord, labelOptions());
   return null;
-}
-
-function editorEffectivePrimary(
-  overrides: readonly KeybindingOverride[],
-  id: string,
-  fallback: string | undefined,
-): string | null {
-  const ov = overrides.find((o) => o.command === id);
-  if (ov === undefined || ov.primary === undefined) return fallback ?? null;
-  return ov.primary;
-}
-
-function editorConflictBindings(overrides: readonly KeybindingOverride[]): ConflictBinding[] {
-  const out: ConflictBinding[] = [];
-  for (const c of EDITOR_COMMANDS) {
-    const primary = editorEffectivePrimary(overrides, c.id, c.defaultPrimary);
-    if (primary !== null) out.push({ command: c.id, primary });
-  }
-  return out;
 }
 
 export function KeybindingsPanel() {
@@ -97,14 +74,7 @@ export function KeybindingsPanel() {
   const [recordingFor, setRecordingFor] = useState<string | null>(null);
   const [confirmResetAll, setConfirmResetAll] = useState(false);
 
-  const appCommandLabel = (id: string): string => t(`keybindings.command.${id}`);
-  const editorSlugById = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const c of EDITOR_COMMANDS) m.set(c.id, c.slug);
-    return m;
-  }, []);
-  const editorCommandLabel = (id: string): string =>
-    t(`keybindings.editorCommand.${editorSlugById.get(id) ?? id}`);
+  const commandLabel = (id: string): string => keybindingCommandLabel(t, id);
 
   const appConflicts = useMemo(
     () => detectTableConflicts(effectiveBindings, isMac()),
@@ -140,13 +110,13 @@ export function KeybindingsPanel() {
 
   const appRows = useMemo<Row[]>(() => {
     return BINDABLE_COMMANDS.map((command): Row => {
-      const def = defaultDeclFor(command);
+      const { kind, when } = appBindingShape(command);
       return {
         command,
         label: t(`keybindings.command.${command}`),
         bindingLabel: bindingLabelFor(effectiveBindings, command),
-        kind: def?.chord !== undefined ? "chord" : "primary",
-        when: inheritedWhen(def?.when),
+        kind,
+        when,
         overridden: overrides.some((o) => o.command === command),
         conflicts: appConflicts.get(command) ?? [],
       };
@@ -244,7 +214,7 @@ export function KeybindingsPanel() {
         conflictCount={appConflicts.size}
         filterActive={filterActive}
         conflictBindings={effectiveBindings}
-        commandLabel={appCommandLabel}
+        commandLabel={commandLabel}
         recordingFor={recordingFor}
         setRecordingFor={setRecordingFor}
         onCommit={(command, kind, value) =>
@@ -267,7 +237,7 @@ export function KeybindingsPanel() {
         conflictCount={editorConflicts.size}
         filterActive={filterActive}
         conflictBindings={editorConflictBase}
-        commandLabel={editorCommandLabel}
+        commandLabel={commandLabel}
         recordingFor={recordingFor}
         setRecordingFor={setRecordingFor}
         onCommit={(command, _kind, value) =>
@@ -379,7 +349,6 @@ function CommandSection({
                 when={row.when}
                 bindings={conflictBindings}
                 hasBinding={row.bindingLabel !== null}
-                commandLabel={commandLabel}
                 onCommit={(value) => {
                   onCommit(row.command, row.kind, value);
                   setRecordingFor(null);
@@ -454,7 +423,6 @@ interface KeybindingRecorderProps {
   when: string | undefined;
   bindings: readonly ConflictBinding[];
   hasBinding: boolean;
-  commandLabel: (id: string) => string;
   onCommit: (value: readonly string[]) => void;
   onUnbind: () => void;
   onCancel: () => void;
@@ -466,7 +434,6 @@ function KeybindingRecorder({
   when,
   bindings,
   hasBinding,
-  commandLabel,
   onCommit,
   onUnbind,
   onCancel,
@@ -486,12 +453,11 @@ function KeybindingRecorder({
 
   const conflicts = useMemo(() => {
     if (!complete) return [];
-    return detectConflicts({
+    return proposedBindingConflicts({
       command,
-      ...(kind === "chord"
-        ? { chord: [captured[0] as string, captured[1] as string] as const }
-        : { primary: captured[0] as string }),
-      ...(when !== undefined ? { when } : {}),
+      kind,
+      when,
+      keys: captured,
       bindings,
       isMac: isMac(),
     });
@@ -596,21 +562,8 @@ function KeybindingRecorder({
 
       {conflicts.map((c, i) => {
         const key = `${c.kind}-${c.command ?? c.reserved?.accelerator ?? i}`;
-        const note = c.reserved ? t(`keybindings.reservedNote.${c.reserved.noteKey}`) : "";
-        let message: string;
-        if (c.kind === "blocking" || c.kind === "overlap") {
-          message = t(`keybindings.conflict.${c.kind}`, {
-            command: c.command !== undefined ? commandLabel(c.command) : "?",
-          });
-        } else if (c.kind === "system") {
-          message = t("keybindings.conflict.system", { note: note });
-        } else {
-          message = t("keybindings.conflict.shadow", {
-            owner: c.reserved !== undefined ? t(`keybindings.owner.${c.reserved.source}`) : "?",
-            note: note,
-          });
-        }
-        const severe = c.kind === "blocking" || c.kind === "system";
+        const message = keybindingConflictMessage(t, c);
+        const severe = isSevereConflict(c);
         return (
           <span
             key={key}

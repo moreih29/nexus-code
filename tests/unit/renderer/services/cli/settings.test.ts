@@ -58,6 +58,9 @@ const { usePreviewDefaultsStore } = await import(
 );
 const { useTerminalStore } = await import("../../../../../src/renderer/state/stores/terminal");
 const { useWorkspacesStore } = await import("../../../../../src/renderer/state/stores/workspaces");
+const { useKeybindingsStore } = await import(
+  "../../../../../src/renderer/state/stores/keybindings"
+);
 const { useUpdatesStore } = await import("../../../../../src/renderer/state/stores/updates");
 const { useVoiceStore } = await import("../../../../../src/renderer/state/stores/voice");
 const { useLspSettingsStore } = await import(
@@ -473,5 +476,54 @@ describe("update check and logs folder", () => {
       delete answers["updates.check"];
       delete answers["system.logsPath"];
     }
+  });
+});
+
+describe("keyboard shortcuts", () => {
+  const keys = (change: CliUiOps["settings.keys.set"]["args"]["change"]) =>
+    settingsHandlers["settings.keys.set"]({ change });
+
+  it("sets, unbinds and resets a shortcut, as the Settings page does", async () => {
+    useKeybindingsStore.getState().hydrate([]);
+    const set = await keys({
+      op: "set",
+      command: "tab.closeOthers",
+      keys: ["CmdOrCtrl+Alt+Shift+Y"],
+    });
+    expect(set.bindings).toEqual([
+      { command: "tab.closeOthers", area: "app", primary: "CmdOrCtrl+Alt+Shift+Y" },
+    ]);
+    expect(useKeybindingsStore.getState().overrides).toEqual([
+      { command: "tab.closeOthers", primary: "CmdOrCtrl+Alt+Shift+Y", chord: undefined },
+    ]);
+    await keys({ op: "unbind", command: "tab.closeOthers" });
+    expect(useKeybindingsStore.getState().overrides).toEqual([
+      { command: "tab.closeOthers", primary: null, chord: undefined },
+    ]);
+    await keys({ op: "reset", command: "tab.closeOthers" });
+    expect(useKeybindingsStore.getState().overrides).toEqual([]);
+    expect(writes.at(-1)).toEqual({ keybindingOverrides: [] });
+  });
+
+  it("refuses a shortcut another command uses where both apply, with the reason", async () => {
+    useKeybindingsStore.getState().hydrate([]);
+    await expect(
+      keys({ op: "set", command: "tab.closeOthers", keys: ["CmdOrCtrl+S"] }),
+    ).rejects.toThrow("CmdOrCtrl+S for tab.closeOthers: Conflicts with “Save File”");
+    expect(useKeybindingsStore.getState().overrides).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+
+  it("refuses a chord's single key, a key it cannot read and a command without shortcuts", async () => {
+    await expect(
+      keys({ op: "set", command: "tab.closeAll", keys: ["CmdOrCtrl+K"] }),
+    ).rejects.toThrow('tab.closeAll takes a two-key chord, such as "CmdOrCtrl+K CmdOrCtrl+S"');
+    await expect(
+      keys({ op: "set", command: "tab.closeOthers", keys: ["Hyper+Q"] }),
+    ).rejects.toThrow('"Hyper+Q" is not a key such as CmdOrCtrl+Shift+P');
+    await expect(keys({ op: "unbind", command: "tab.nope" })).rejects.toThrow(
+      'no command "tab.nope" takes a shortcut; nexus settings keys list shows them',
+    );
+    expect(writes).toEqual([]);
   });
 });

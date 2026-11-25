@@ -9,7 +9,13 @@ import {
   SETTINGS_PAGES,
   settingsPageNamed,
 } from "../../../../shared/cli/settings";
-import type { CliChange, CliSettingInfo, CliUiOps } from "../../../../shared/cli/ui";
+import type {
+  CliChange,
+  CliKeyBinding,
+  CliKeyChange,
+  CliSettingInfo,
+  CliUiOps,
+} from "../../../../shared/cli/ui";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { CliUsageError, exactArgs } from "../args";
 import { type CliContext, type CliDevice, CliError, resolveWorkspace } from "../context";
@@ -348,25 +354,75 @@ const settingsInstructionsSet: CliCommand = {
   },
 };
 
+function keysTable(bindings: readonly CliKeyBinding[]): string {
+  return table(
+    ["AREA", "COMMAND", "KEYS", "WHEN"],
+    bindings.map((binding) => [
+      binding.area,
+      binding.command,
+      [binding.primary, binding.chord?.join(" ")].filter(Boolean).join(" / ") || "(unbound)",
+      binding.when ?? "",
+    ]),
+  );
+}
+
 const settingsKeysList: CliCommand = {
   path: ["settings", "keys", "list"],
   summary: "List effective app and editor keybindings",
   async run(ctx, { positionals }) {
     exactArgs(positionals);
     const { bindings } = await ctx.services.ui("settings.keys", {});
-    return output(
-      table(
-        ["AREA", "COMMAND", "KEYS", "WHEN"],
-        bindings.map((binding) => [
-          binding.area,
-          binding.command,
-          [binding.primary, binding.chord?.join(" ")].filter(Boolean).join(" / ") || "(unbound)",
-          binding.when ?? "",
-        ]),
-      ),
-      { bindings },
-      { records: bindings },
-    );
+    return output(keysTable(bindings), { bindings }, { records: bindings });
+  },
+};
+
+async function changeKeys(ctx: CliContext, change: CliKeyChange) {
+  const result = await ctx.services.ui("settings.keys.set", { change });
+  const warnings = result.warnings.map((warning) => `warning: ${warning}`);
+  return output([keysTable(result.bindings), ...warnings].filter(Boolean).join("\n"), result);
+}
+
+const settingsKeysSet: CliCommand = {
+  path: ["settings", "keys", "set"],
+  summary: "Give a command a keyboard shortcut, as Settings › Keyboard Shortcuts does",
+  args: "<command> <keys>",
+  details:
+    "Keys are written as nexus settings keys list shows them, such as CmdOrCtrl+Shift+P; a\n" +
+    "command bound to a chord takes its two keys, such as CmdOrCtrl+K CmdOrCtrl+S. A shortcut\n" +
+    "another command already uses where both apply, or the system keeps, is refused with the\n" +
+    "reason; one only shared in another focus or used by the editor or terminal is set, with a warning.",
+  async run(ctx, { positionals }) {
+    const [command, ...rest] = positionals;
+    if (command === undefined) throw new CliUsageError("give a command and its keys");
+    const keys = rest.flatMap((word) => word.split(/\s+/)).filter(Boolean);
+    if (keys.length === 0) throw new CliUsageError("give the keys");
+    return changeKeys(ctx, { op: "set", command, keys });
+  },
+};
+
+const settingsKeysUnbind: CliCommand = {
+  path: ["settings", "keys", "unbind"],
+  summary: "Take a command's keyboard shortcut away",
+  args: "<command>",
+  async run(ctx, { positionals }) {
+    const [command] = exactArgs(positionals, "command") as [string];
+    return changeKeys(ctx, { op: "unbind", command });
+  },
+};
+
+const settingsKeysReset: CliCommand = {
+  path: ["settings", "keys", "reset"],
+  summary: "Give a command, or with --all every command, its default shortcut back",
+  args: "[command]",
+  flags: { all: { type: "boolean", description: "Reset every shortcut" } },
+  async run(ctx, { positionals, flags }) {
+    if (flags.all === true) {
+      exactArgs(positionals);
+      return changeKeys(ctx, { op: "reset" });
+    }
+    if (positionals.length === 0) throw new CliUsageError("give a command or --all");
+    const [command] = exactArgs(positionals, "command") as [string];
+    return changeKeys(ctx, { op: "reset", command });
   },
 };
 
@@ -449,6 +505,9 @@ export const settingsCommands: CliCommand[] = [
   settingsInstructions,
   settingsInstructionsSet,
   settingsKeysList,
+  settingsKeysSet,
+  settingsKeysUnbind,
+  settingsKeysReset,
   settingsLspStatus,
   settingsUpdateStatus,
   settingsUpdateCheck,

@@ -207,6 +207,19 @@ export type CliVoiceSuggestionAction =
   | { op: "list" }
   | { op: "accept" | "reject"; speaker: string; name: string };
 
+export interface CliKeyBinding {
+  readonly command: string;
+  readonly area: "app" | "editor";
+  readonly primary: string | null;
+  readonly chord?: readonly [string, string];
+  readonly when?: string;
+}
+
+export type CliKeyChange =
+  | { readonly op: "set"; readonly command: string; readonly keys: readonly string[] }
+  | { readonly op: "unbind"; readonly command: string }
+  | { readonly op: "reset"; readonly command?: string };
+
 export type CliChangeKind =
   | "open"
   | "diff"
@@ -1027,15 +1040,11 @@ export interface CliUiOps {
   };
   "settings.keys": {
     args: Record<string, never>;
-    result: {
-      bindings: {
-        command: string;
-        area: "app" | "editor";
-        primary: string | null;
-        chord?: readonly [string, string];
-        when?: string;
-      }[];
-    };
+    result: { bindings: CliKeyBinding[] };
+  };
+  "settings.keys.set": {
+    args: { change: CliKeyChange };
+    result: { bindings: CliKeyBinding[]; warnings: string[] };
   };
   "settings.instructions.set": {
     args: { scope: InstructionScope; text: string };

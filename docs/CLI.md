@@ -543,6 +543,9 @@ nexus settings updates status --json
 nexus settings updates check                # 지금 업데이트 확인 (받기 · 설치는 사용자가)
 nexus settings logs path                    # 앱 로그 폴더
 nexus settings keys list --json
+nexus settings keys set tab.closeOthers CmdOrCtrl+Alt+Shift+T   # 단축키 바꾸기 (화음은 두 키)
+nexus settings keys unbind tab.closeOthers  # 단축키 없애기
+nexus settings keys reset tab.closeOthers   # 기본 단축키로 (--all 이면 전부)
 nexus settings set terminal.cursorStyle bar
 nexus settings set editor.fontFamily ""     # 빈 값이면 시스템 글꼴
 nexus settings set editor.openIn.markdown source   # Markdown 을 원본으로 열기
@@ -565,6 +568,7 @@ nexus settings open agent                   # 설정 창을 그 페이지로 열
 - 설정 창에서 바꾸는 것과 같습니다. 바로 반영되고 저장됩니다.
 - 테마 · 언어 · 아이콘 · 창 투명도 · 비활성 패널 흐림, 에디터 · 터미널 · 채팅 글꼴, 한도 해제 뒤 자동 이어하기, 파일을 여는 보기, 터미널 기본 셸, 커서 모양, 작업 에이전트, 에이전트 탭 기본 보기, 데스크톱 알림, 업데이트 자동 확인, 에이전트 안내, 음성 인식 단어, 언어 서버를 바꿀 수 있습니다.
 - `lsp.enabled` 는 언어 서버 전체, `lsp.<언어>` 는 언어 하나(`typescript` · `python` · `yaml` · `shell` · `dockerfile` · `go` · `rust`), `lsp.typescript.lowMemory` 는 TypeScript 메모리 절약, `lsp.maxActiveWorkspaces` 는 동시에 켤 워크스페이스 수(1~16)입니다. 직접 설치한 서버의 경로는 설정 창에서만 바꿉니다.
+- `settings keys set` 은 설정 창의 키보드 단축키와 같습니다. 키는 `settings keys list` 에 나오는 모양(`CmdOrCtrl+Shift+P`)이고, 화음으로 묶인 명령은 두 키를 줍니다. 다른 명령이 같은 범위에서 쓰는 키나 운영체제가 쓰는 키는 이유와 함께 거절하고, 다른 포커스에서만 겹치거나 에디터 · 터미널이 쓰는 키는 경고를 붙여 바꿉니다.
 - `voice.language` 는 음성 입력이 듣는 언어로, `app`(앱 언어) · `multi`(여러 언어) 입니다.
 - `remote.control` · `remote.terminal` · `remote.agents` · `remote.phonePush` 는 다른 컴퓨터와 휴대폰이 이 컴퓨터에서 할 수 있는 것과 휴대폰 알림입니다. 읽기만 되고, 바꾸는 것은 설정 창에서 사용자가 합니다.
 - `chat.limitResume` 은 구독 프로필 탭이 사용량 한도로 멈췄을 때 한도가 풀리면 앱이 이어하기 메시지를 보낼지입니다(기본 `on`).

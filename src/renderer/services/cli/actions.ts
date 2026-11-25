@@ -130,6 +130,7 @@ export const actionHandlers: {
     | "settings.instructions"
     | "settings.instructions.set"
     | "settings.keys"
+    | "settings.keys.set"
     | "settings.lspStatus"
     | "settings.updateStatus"
     | "settings.updateCheck"

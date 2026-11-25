@@ -372,3 +372,38 @@ test("updates check looks for an update and prints what it found; logs path prin
   );
   expect(app.uiCalls.map(({ op }) => op)).toEqual(["settings.updateCheck", "settings.logsPath"]);
 });
+
+test("settings keys set, unbind and reset send the change and print the shortcut and warnings", async () => {
+  const app = fakeApp();
+  app.uiAnswers.set("settings.keys.set", {
+    bindings: [
+      {
+        command: "tab.closeAll",
+        area: "app",
+        primary: null,
+        chord: ["CmdOrCtrl+K", "CmdOrCtrl+J"],
+      },
+    ],
+    warnings: ["Also bound to “Close” (different focus scope)"],
+  });
+  const set = await nexus(app, [
+    "settings",
+    "keys",
+    "set",
+    "tab.closeAll",
+    "CmdOrCtrl+K",
+    "CmdOrCtrl+J",
+  ]);
+  expect(set.stdout).toContain("CmdOrCtrl+K CmdOrCtrl+J");
+  expect(set.stdout).toContain("warning: Also bound to “Close” (different focus scope)");
+  await nexus(app, ["settings", "keys", "set", "tab.closeOthers", "CmdOrCtrl+Alt+Y"]);
+  await nexus(app, ["settings", "keys", "unbind", "tab.closeOthers"]);
+  await nexus(app, ["settings", "keys", "reset", "--all"]);
+  expect((await nexus(app, ["settings", "keys", "reset"])).exitCode).toBe(2);
+  expect(app.uiCalls.map(({ args }) => args)).toEqual([
+    { change: { op: "set", command: "tab.closeAll", keys: ["CmdOrCtrl+K", "CmdOrCtrl+J"] } },
+    { change: { op: "set", command: "tab.closeOthers", keys: ["CmdOrCtrl+Alt+Y"] } },
+    { change: { op: "unbind", command: "tab.closeOthers" } },
+    { change: { op: "reset" } },
+  ]);
+});

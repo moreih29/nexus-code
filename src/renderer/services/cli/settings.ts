@@ -1,4 +1,6 @@
+import i18next from "i18next";
 import { ipcCallResult, unwrapIpcResult } from "@/ipc/client";
+import { keybindingConflictMessage } from "@/keybindings/conflict-message";
 import { checkForUpdates } from "@/services/updates/operations";
 import { useAgentCliStore } from "@/state/stores/agent-cli";
 import { saveInstructionEdits, useAgentInstructionsStore } from "@/state/stores/agent-instructions";
@@ -25,6 +27,7 @@ import { useUpdatesStore } from "@/state/stores/updates";
 import { useVoiceStore, type VoiceLanguagePreference } from "@/state/stores/voice";
 import { useWindowOpacityStore } from "@/state/stores/window-opacity";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
+import { isMac } from "@/utils/platform";
 import { AGENT_LIST_VIEWS, DEFAULT_AGENT_LIST_VIEW } from "../../../shared/agent-list/view";
 import { profilesOf } from "../../../shared/agent-profiles/profiles";
 import {
@@ -38,10 +41,26 @@ import {
   LIMIT_RESUME_MESSAGE_LINE,
 } from "../../../shared/chat/limit-resume-settings";
 import { type CliSettingShape, parseSettingValue } from "../../../shared/cli/settings";
-import type { CliSettingInfo, CliSettingValue } from "../../../shared/cli/ui";
+import type {
+  CliKeyBinding,
+  CliKeyChange,
+  CliSettingInfo,
+  CliSettingValue,
+} from "../../../shared/cli/ui";
 import { DEFAULT_THEME } from "../../../shared/design-tokens";
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "../../../shared/i18n";
+import {
+  appBindingShape,
+  BINDABLE_COMMANDS,
+  type BindableCommandId,
+  type BindingShape,
+  editorConflictBindings,
+  editorEffectivePrimary,
+  isSevereConflict,
+  proposedBindingConflicts,
+} from "../../../shared/keybindings/edit";
 import { EDITOR_COMMANDS } from "../../../shared/keybindings/editor-commands";
+import { AcceleratorStringSchema } from "../../../shared/keybindings/overrides";
 import { BUILTIN_LSP_PRESETS, type BuiltinLspPresetLanguageId } from "../../../shared/lsp/config";
 import {
   isLspLanguageChosen,
@@ -771,6 +790,99 @@ function checked(timeoutMs: number): Promise<void> {
   });
 }
 
+function keyBindings(): CliKeyBinding[] {
+  const { effectiveBindings, editorOverrides } = useKeybindingsStore.getState();
+  return [
+    ...effectiveBindings.map(({ command, primary, chord, when }) => ({
+      command,
+      area: "app" as const,
+      primary: primary ?? null,
+      ...(chord ? { chord } : {}),
+      ...(when !== undefined ? { when } : {}),
+    })),
+    ...EDITOR_COMMANDS.map(({ id, defaultPrimary }) => ({
+      command: id,
+      area: "editor" as const,
+      primary: editorEffectivePrimary(editorOverrides, id, defaultPrimary),
+    })),
+  ];
+}
+
+type KeyTarget =
+  | { area: "app"; command: BindableCommandId; shape: BindingShape }
+  | { area: "editor"; command: string; shape: BindingShape };
+
+function keyTarget(command: string): KeyTarget {
+  const app = BINDABLE_COMMANDS.find((id) => id === command);
+  if (app) return { area: "app", command: app, shape: appBindingShape(app) };
+  if (EDITOR_COMMANDS.some(({ id }) => id === command))
+    return { area: "editor", command, shape: { kind: "primary", when: undefined } };
+  throw new UiRequestError(
+    `no command "${command}" takes a shortcut; nexus settings keys list shows them`,
+  );
+}
+
+function checkedKeys(target: KeyTarget, keys: readonly string[]): string[] {
+  const chord = target.shape.kind === "chord";
+  if (keys.length !== (chord ? 2 : 1)) {
+    throw new UiRequestError(
+      chord
+        ? `${target.command} takes a two-key chord, such as "CmdOrCtrl+K CmdOrCtrl+S"`
+        : `${target.command} takes one key, such as "CmdOrCtrl+Shift+P"`,
+    );
+  }
+  for (const key of keys) {
+    if (!AcceleratorStringSchema.safeParse(key).success)
+      throw new UiRequestError(`"${key}" is not a key such as CmdOrCtrl+Shift+P`);
+  }
+  return [...keys];
+}
+
+function changeKeys(change: CliKeyChange): string[] {
+  const store = useKeybindingsStore.getState();
+  if (change.op === "reset" && change.command === undefined) {
+    store.resetAll();
+    store.resetAllEditor();
+    return [];
+  }
+  const target = keyTarget(change.command as string);
+  const { command } = target;
+  if (change.op === "reset") {
+    if (target.area === "app") store.resetCommand(command);
+    else store.resetEditorCommand(command);
+    return [];
+  }
+  if (change.op === "unbind") {
+    if (target.area === "editor") store.setEditorOverride({ command, primary: null });
+    else if (target.shape.kind === "chord") store.setOverride({ command, chord: null });
+    else store.setOverride({ command, primary: null });
+    return [];
+  }
+  const keys = checkedKeys(target, change.keys);
+  const conflicts = proposedBindingConflicts({
+    command,
+    ...target.shape,
+    keys,
+    bindings:
+      target.area === "app"
+        ? store.effectiveBindings
+        : editorConflictBindings(store.editorOverrides),
+    isMac: isMac(),
+  });
+  const t = i18next.getFixedT("en", "settings");
+  const blocking = conflicts.filter(isSevereConflict);
+  if (blocking.length > 0) {
+    throw new UiRequestError(
+      `${keys.join(" ")} for ${command}: ${blocking.map((c) => keybindingConflictMessage(t, c)).join("; ")}`,
+    );
+  }
+  if (target.area === "editor") store.setEditorOverride({ command, primary: keys[0] as string });
+  else if (target.shape.kind === "chord")
+    store.setOverride({ command, chord: [keys[0] as string, keys[1] as string] });
+  else store.setOverride({ command, primary: keys[0] as string });
+  return conflicts.map((c) => keybindingConflictMessage(t, c));
+}
+
 export async function settingInfo(setting: CliSetting): Promise<CliSettingInfo> {
   const { value, changed, choices = setting.choices, unavailable } = await setting.get();
   return {
@@ -794,6 +906,7 @@ export const settingsHandlers: {
   "settings.instructions": CliUiHandler<"settings.instructions">;
   "settings.instructions.set": CliUiHandler<"settings.instructions.set">;
   "settings.keys": CliUiHandler<"settings.keys">;
+  "settings.keys.set": CliUiHandler<"settings.keys.set">;
   "settings.lspStatus": CliUiHandler<"settings.lspStatus">;
   "settings.updateStatus": CliUiHandler<"settings.updateStatus">;
   "settings.updateCheck": CliUiHandler<"settings.updateCheck">;
@@ -849,27 +962,13 @@ export const settingsHandlers: {
   },
   "settings.logsPath": async () =>
     unwrapIpcResult(await ipcCallResult("system", "logsPath", undefined)),
-  "settings.keys": async () => {
-    const { effectiveBindings, editorOverrides } = useKeybindingsStore.getState();
-    return {
-      bindings: [
-        ...effectiveBindings.map(({ command, primary, chord, when }) => ({
-          command,
-          area: "app" as const,
-          primary: primary ?? null,
-          chord,
-          when,
-        })),
-        ...EDITOR_COMMANDS.map(({ id, defaultPrimary }) => {
-          const override = editorOverrides.find((item) => item.command === id)?.primary;
-          return {
-            command: id,
-            area: "editor" as const,
-            primary: override === undefined ? (defaultPrimary ?? null) : override,
-          };
-        }),
-      ],
-    };
+  "settings.keys": async () => ({ bindings: keyBindings() }),
+  "settings.keys.set": async ({ change }) => {
+    const warnings = changeKeys(change);
+    const bindings = keyBindings().filter(
+      ({ command }) => change.command === undefined || command === change.command,
+    );
+    return { bindings, warnings };
   },
   "settings.list": async ({ key }) => ({
     settings: await Promise.all(
