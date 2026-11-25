@@ -37,8 +37,8 @@ port.on("message", (message: StateWriteMessage) => {
     if (hasLayouts) state.layoutByWorkspace = layouts;
     const written =
       Atomics.load(gate, 0) === PREPARING &&
-      writeStateFile(filePath, `${filePath}.vsctmp`, state, () => {
-        return Atomics.compareExchange(gate, 0, PREPARING, RENAMING) === PREPARING;
+      writeStateFile(filePath, `${filePath}.vsctmp`, state, {
+        canRename: () => Atomics.compareExchange(gate, 0, PREPARING, RENAMING) === PREPARING,
       });
     result = { written };
   } catch (error) {
