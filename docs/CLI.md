@@ -593,7 +593,7 @@ nexus settings open agent                   # 설정 창을 그 페이지로 열
 - 작업 워크스페이스를 지정하면 로컬·원격 `show`와 `set workspace` 모두 부모의 워크스페이스 레이어를 사용합니다. 편집에는 부모 워크스페이스의 변경 정책이 적용됩니다.
 - 일반 설정 변경은 바로 적용됩니다. 공통·Claude·Codex·프로필 지시 레이어를 수정할 때는 매번 사용자에게 묻습니다. 워크스페이스 지시에는 그 워크스페이스의 변경 정책이 적용됩니다. "다른 워크스페이스 변경"과 "nexus 명령 허용"은 설정 창에서 사용자가 관리합니다.
 - 창 투명도는 명령으로는 0.2 아래로 내릴 수 없습니다(창이 안 보이면 되돌릴 수 없어서).
-- `settings open` 의 페이지는 `appearance` · `editor` · `language-servers` · `terminal` · `notifications` · `notes` · `agent` · `claude` · `codex` · `instructions` · `profile-rules` · `browser-permissions` · `keybindings` · `remote` · `about` 입니다. `terminal.cursorStyle` 처럼 설정 키를 주면 그 설정이 있는 페이지가 열립니다. 언어 서버 · 단축키 · 브라우저 권한처럼 사용자만 바꾸는 설정을 보여줄 때 씁니다.
+- `settings open` 의 페이지는 `appearance` · `editor` · `language-servers` · `terminal` · `notifications` · `notes` · `agent` · `claude` · `codex` · `instructions` · `profile-rules` · `browser-permissions` · `keybindings` · `remote` · `about` 입니다. `terminal.cursorStyle` 처럼 설정 키를 주면 그 설정이 있는 페이지가 열립니다. 언어 서버 경로나 브라우저 권한 허용처럼 사용자만 바꾸는 설정을 보여줄 때 씁니다.
 
 ## 에이전트에게 알려주기
 

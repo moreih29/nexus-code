@@ -112,7 +112,8 @@ export function chatAgentContext(
 
 const remoteInstructions = [
   "Find other devices with nexus device list and session list --device all. Use --device NAME on",
-  "chat, terminal, note, worktree, layout and view commands. The receiver sets the policy.",
+  "most chat and terminal commands, layout, view, worktree new/remove, tab close/move/rename,",
+  "and note list/read/transcript/speaker/voice; nexus help shows which. The receiver sets the policy.",
   "Use --device NAME with chat instructions TAB --show, --set-file FILE, or --clear,",
   "and with settings instructions show/set.",
   "Use file list/pull/push --device NAME --workspace WS and events --device all --json for device cursors.",
@@ -176,6 +177,10 @@ function agentContextNote(heading: string, inRoom: boolean): string {
     "note record takes --participants. settings instructions show/set reads or updates persistent layers.",
     "Use settings instructions show --profile PROFILE for a profile's layers and",
     "settings instructions set profile --profile PROFILE to edit its layer. chat profiles lists ids and names.",
+    "settings set changes what nexus settings list shows; turning on notes.summary, notes.voiceSuggest",
+    "or notes.voiceExpire asks the user. settings keys set/unbind/reset edit shortcuts, settings updates",
+    "check looks for an update, settings logs path prints the logs folder, and browser permissions",
+    "revoke takes a browser permission away.",
     "When the user means an element on a page, nexus browser pick has them click it and",
     "prints its ref and selector.",
     "A claude -p or codex exec run you start, best in the background, is followed as a",
