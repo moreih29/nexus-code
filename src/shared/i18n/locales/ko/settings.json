@@ -1155,6 +1155,7 @@
       "headers": "추가 헤더",
       "headersInvalid": "한 줄에 하나씩 Header-Name: value 형식으로 적으세요",
       "query": "쿼리 파라미터",
+      "queryHint": "프로세스 명령줄로 전달 · 비밀 값은 헤더에",
       "queryInvalid": "한 줄에 하나씩 name=value 형식으로 적으세요",
       "timeout": "응답 제한 시간 (ms)",
       "outputTokens": "최대 출력 토큰",

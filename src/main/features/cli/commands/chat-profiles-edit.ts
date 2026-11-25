@@ -294,6 +294,8 @@ export const chatProfilesEdit = {
     "stdin): --env-file takes KEY=VALUE lines, --header-file Name: value lines, --query-file\n" +
     "name=value lines. They add to or replace what is set; --unset-env, --unset-header and\n" +
     "--unset-query NAME remove one. Values are never printed; the approval names them only.\n" +
+    "Codex gets query values on its process command line, which other users can list; keep\n" +
+    "secrets in headers, which go through its environment.\n" +
     "--share and --unshare NAME choose the files linked from the default folder, as in Settings;\n" +
     "--unshare settings.json or config.toml keeps a profile-only copy, as Settings does.\n" +
     "--behavior ID=VALUE sets the profile's settings.json or config.toml, as Settings › Behavior\n" +

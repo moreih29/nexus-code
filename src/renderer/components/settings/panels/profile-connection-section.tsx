@@ -545,7 +545,11 @@ export function ProfileConnectionAdvanced({
             {!claude && (
               <Label
                 label={t("profiles.connection.query")}
-                hint={draft.query === null ? t("profiles.connection.queryInvalid") : undefined}
+                hint={t(
+                  draft.query === null
+                    ? "profiles.connection.queryInvalid"
+                    : "profiles.connection.queryHint",
+                )}
               >
                 <textarea
                   rows={2}

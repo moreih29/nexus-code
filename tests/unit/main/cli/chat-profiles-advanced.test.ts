@@ -566,4 +566,5 @@ test("edit help names the file-only values, behavior and timeouts", async () => 
     expect(edit.stdout).toContain(flag);
   }
   expect(edit.stdout).toContain("Values are never printed");
+  expect(edit.stdout).toContain("Codex gets query values on its process command line");
 });

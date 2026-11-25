@@ -1156,6 +1156,7 @@
       "headers": "Extra headers",
       "headersInvalid": "Enter one valid Header-Name: value per line.",
       "query": "Query parameters",
+      "queryHint": "Passed on the process command line · keep secrets in headers",
       "queryInvalid": "Enter one name=value pair per line.",
       "timeout": "Request timeout (ms)",
       "outputTokens": "Max output tokens",
