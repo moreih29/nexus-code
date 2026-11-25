@@ -147,6 +147,11 @@ nexus chat profiles --profile Gateway                    # 연결 정보 (키는
 nexus chat profiles edit Gateway --rename-model glm-5.3=glm-5.4 --key-file -
 nexus chat profiles remove Gateway --agent claude
 nexus chat profiles add --from Gateway --from-device ihWin --key-file -   # 다른 기기의 연결 복사 (키는 이 기기에서)
+nexus chat profiles default Work --agent claude           # 규칙에 해당하지 않는 워크스페이스의 프로필
+nexus chat profiles rules --json
+nexus chat profiles rules set --folder ~/work --profile Work
+nexus chat profiles rules set --workspace WS --agent codex --inherit
+nexus chat profiles rules remove --folder ~/work
 nexus chat usage --json
 nexus chat usage --agent claude --profile "개인" --refresh
 nexus chat usage --device "Mac mini" --agent codex --json
@@ -248,6 +253,15 @@ Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책�
 - 로그인·로그아웃, 폴더, 공유 파일, 동작 설정, 환경 변수, 고급 설정(헤더·쿼리·시간 제한·재시도)은 설정 화면에서 바꿉니다. 프로필 지시는 `settings instructions set profile`로 바꿉니다.
 
 `chat profiles remove PROFILE`은 이 기기의 프로필을 지웁니다. 설정 화면의 삭제와 같게 폴더와 그 안의 로그인·기록은 남고, 그 프로필을 고른 워크스페이스 규칙과 기본값은 비워지며, 저장된 API 키는 지워집니다. 열린 탭은 닫지 않습니다. 기본 프로필은 지울 수 없습니다. 승인 창에는 에이전트와 남는 폴더가 표시되며 승인은 매번 필요합니다.
+
+`chat profiles default`는 에이전트별 기본 프로필(규칙에 해당하지 않는 워크스페이스가 쓰는 프로필)을 표시하고, `chat profiles default PROFILE`은 그 프로필의 에이전트 기본값으로 바꿉니다. 설정 › 에이전트 › 규칙의 기본값과 같습니다.
+
+`chat profiles rules`는 프로필 규칙을 표시합니다. 우선순위는 설정 화면과 같게 워크스페이스 > 더 깊은 폴더 > SSH 호스트 > 기본값이고, `inherit`은 그 에이전트를 다음 규칙이나 기본값에 맡긴다는 뜻입니다. `APPLIES`는 규칙에 맞는 워크스페이스 수이고, 마지막 줄(`--json`의 `workspace`)은 지금 워크스페이스가 쓰는 프로필입니다.
+
+- `chat profiles rules set`은 대상 하나(`--folder PATH`: 있는 폴더와 하위 폴더, `--ssh HOST`: `~/.ssh/config`나 SSH 워크스페이스의 호스트, `--workspace WS`: 작업 워크스페이스 제외)와 `--profile NAME` 또는 `--agent A --inherit`를 받습니다. 같은 대상의 규칙이 있으면 그 규칙을 바꿉니다. 에이전트가 다른 프로필, 없는 프로필, 바뀌는 것이 없는 요청은 거절합니다.
+- `chat profiles rules remove`는 규칙 id(앞부분)나 대상 플래그로 규칙을 지웁니다.
+- 기본값과 규칙을 바꾸는 명령은 매번 승인을 받습니다. 다른 워크스페이스를 가리키는 규칙은 다른 워크스페이스 변경 설정도 따릅니다(끔이면 거절). 승인을 기다리는 동안 규칙이나 기본값이 바뀌면 저장하지 않습니다. 새 탭부터 적용됩니다.
+- 프로필을 바꾸는 명령(`add`, `edit`, `remove`, `default`, `rules set`, `rules remove`)은 이 기기에서만 됩니다. `--device`를 주면 거절합니다.
 
 `chat fork`와 `chat rewind`는 양쪽 에이전트를 지원합니다. 파일 복원(`--files`)은 Claude에서만 지원합니다.
 

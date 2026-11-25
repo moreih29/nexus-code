@@ -430,3 +430,69 @@ test("a setting's body reads as a sentence, not as a command", async () => {
     await asked;
   }
 });
+
+test("default profile changes name the agent and both profiles", () => {
+  const change = {
+    kind: "profileDefault",
+    detail: "Codex",
+    profileDefault: { agent: "codex", from: "default", to: "Work" },
+  } as const;
+  const ko = i18next.getFixedT("ko", "settings");
+  expect(consentDetailsOf(ko, change).body).toBe("에이전트 Codex\n기본 프로필 default → Work");
+  expect(ko(consentTitleOf("profileDefault", false))).toBe(
+    "에이전트가 이 컴퓨터의 기본 프로필을 바꾸도록 허용할까요?",
+  );
+  const action = ko("agentCli.consent.action.profileDefault", { detail: "Codex" });
+  expect(describeConsent(ko, prompt(), action, consentNamesTarget("profileDefault"))).toBe(
+    'app의 터미널 "zsh": Codex 기본 프로필 변경을 하려고 합니다.',
+  );
+});
+
+test("profile rules show the target, each agent's choice and where the rule applies", () => {
+  const ko = i18next.getFixedT("ko", "settings");
+  const set = {
+    kind: "profileRule",
+    detail: "~/work",
+    profileRule: {
+      target: { kind: "folder", name: "~/work" },
+      lines: [{ agent: "claude", from: null, to: "Work" }],
+      applies: 2,
+    },
+  } as const;
+  expect(consentDetailsOf(ko, set).body).toBe(
+    "폴더 ~/work · 하위 폴더 포함\nClaude 기본값 사용 → Work\n지금 적용되는 워크스페이스 2개",
+  );
+  const added = {
+    kind: "profileRule",
+    detail: "api",
+    profileRule: {
+      target: { kind: "workspace", name: "api" },
+      lines: [{ agent: "codex", to: "Work" }],
+      applies: 1,
+    },
+  } as const;
+  expect(consentDetailsOf(ko, added).body).toBe(
+    "워크스페이스 api\nCodex Work\n지금 적용되는 워크스페이스 1개",
+  );
+  const removed = {
+    kind: "profileRule",
+    detail: "build-box",
+    profileRule: {
+      target: { kind: "ssh", name: "build-box" },
+      lines: [{ agent: "claude", from: "Work" }],
+      removed: true,
+      applies: 0,
+    },
+  } as const;
+  expect(consentDetailsOf(ko, removed).body).toBe(
+    "SSH 호스트 build-box\nClaude Work\n규칙 삭제\n지금 적용되는 워크스페이스 0개",
+  );
+  expect(ko(consentTitleOf("profileRule", false))).toBe(
+    "에이전트가 이 컴퓨터의 프로필 규칙을 바꾸도록 허용할까요?",
+  );
+  expect(consentNamesTarget("profileRule")).toBe(true);
+  const en = i18next.getFixedT("en", "settings");
+  expect(consentDetailsOf(en, removed).body).toBe(
+    "SSH host build-box\nClaude Work\nRule removed\nApplies now to 0 workspaces",
+  );
+});

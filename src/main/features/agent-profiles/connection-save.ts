@@ -6,6 +6,7 @@ import {
 } from "../../../shared/agent-profiles/connection";
 import {
   type AgentProfile,
+  type AgentProfiles,
   defaultProfileId,
   EMPTY_AGENT_PROFILES,
   isDefaultProfileId,
@@ -145,6 +146,12 @@ export function createProfileConnections(
         throw new ProfileValidationError("This profile is no longer saved");
       }
       state.commitState({ agentProfiles: withoutProfile(current, id) });
+      onChanged();
+    },
+    saveRouting(routing: Pick<AgentProfiles, "rules" | "defaults">): void {
+      state.commitState({
+        agentProfiles: { ...config(), rules: routing.rules, defaults: routing.defaults },
+      });
       onChanged();
     },
     checkEdit(profile: AgentProfile): AgentProfile {

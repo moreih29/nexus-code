@@ -137,11 +137,51 @@ function settingsEditLine(t: TFunction<"settings">, line: SettingsEditLine): str
   }
 }
 
+export interface ProfileDefaultCopy {
+  readonly agent: ChatAgent;
+  readonly from: string;
+  readonly to: string;
+}
+
+export interface ProfileRuleCopy {
+  readonly target: { readonly kind: "folder" | "ssh" | "workspace"; readonly name: string };
+  readonly lines: readonly {
+    readonly agent: ChatAgent;
+    readonly from?: string | null;
+    readonly to?: string | null;
+  }[];
+  readonly removed?: boolean;
+  readonly applies: number;
+}
+
 export type ConsentChange = RemoteConsent["change"] & {
   readonly profileEdit?: ProfileEditCopy;
   readonly profileRemove?: ProfileRemoveCopy;
   readonly settingsEdit?: SettingsEditCopy;
+  readonly profileDefault?: ProfileDefaultCopy;
+  readonly profileRule?: ProfileRuleCopy;
 };
+
+function profileRuleBody(t: TFunction<"settings">, rule: ProfileRuleCopy): string {
+  const choice = (id: string | null | undefined) =>
+    id === null || id === undefined ? t("profileRules.inherit") : id;
+  const lines = rule.lines.map(({ agent, from, to }) =>
+    t("agentCli.consent.profile_rule_agent", {
+      agent: CONSENT_AGENT_NAMES[agent],
+      value: rule.removed
+        ? choice(from)
+        : from === undefined
+          ? choice(to)
+          : `${choice(from)} → ${choice(to)}`,
+    }),
+  );
+  return [
+    t(`agentCli.consent.profile_rule_${rule.target.kind}`, { name: rule.target.name }),
+    ...lines,
+    ...(rule.removed ? [t("agentCli.consent.profile_rule_removed")] : []),
+    t("agentCli.consent.profile_rule_applies", { count: rule.applies }),
+  ].join("\n");
+}
 
 export function consentDetailsOf(t: TFunction<"settings">, change: ConsentChange) {
   if (change.kind === "settingTurnOn") {
@@ -162,6 +202,19 @@ export function consentDetailsOf(t: TFunction<"settings">, change: ConsentChange
         : (change.detail ?? ""),
       body: lines.map((line) => settingsEditLine(t, line)).join("\n"),
     };
+  }
+  if (change.profileDefault) {
+    const { agent, from, to } = change.profileDefault;
+    return {
+      detail: change.detail ?? "",
+      body: [
+        t("agentCli.consent.profile_add_agent", { agent: CONSENT_AGENT_NAMES[agent] }),
+        t("agentCli.consent.profile_default_value", { value: `${from} → ${to}` }),
+      ].join("\n"),
+    };
+  }
+  if (change.profileRule) {
+    return { detail: change.detail ?? "", body: profileRuleBody(t, change.profileRule) };
   }
   if (change.profileRemove) {
     const { agent, folder } = change.profileRemove;
