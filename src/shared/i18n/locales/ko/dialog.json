@@ -19,5 +19,9 @@
     "detail": "최근 {{minutes}}분간 페이지 중단 {{count}}회. 터미널과 에이전트는 실행 중입니다.",
     "reload": "다시 불러오기",
     "quit": "종료"
+  },
+  "userDataUnavailable": {
+    "title": "NexusCode를 시작할 수 없습니다",
+    "message": "설정을 저장하는 앱 데이터 폴더를 찾지 못했습니다. 사용자 프로필에 이 폴더가 있고 열 수 있는지 확인한 뒤 NexusCode를 다시 시작하세요."
   }
 }

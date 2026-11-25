@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { app, autoUpdater, type BrowserWindow, powerMonitor, session } from "electron";
+import { app, autoUpdater, type BrowserWindow, dialog, powerMonitor, session } from "electron";
 import { EMPTY_AGENT_PROFILES, resolveProfile } from "../shared/agent-profiles/profiles";
 import { EMPTY_INSTRUCTIONS, withInstruction } from "../shared/chat/instructions";
 import { DEFAULT_THEME } from "../shared/design-tokens";
@@ -134,10 +134,19 @@ import { isMac, isWindows, loginShell } from "./infra/platform";
 import { startDesktopNotifications } from "./infra/platform/desktop-notifications";
 import { keepLogsApart } from "./infra/platform/logs-dir";
 import { syncUserShellPath } from "./infra/platform/shell-path";
+import { hasUserData, userDataUnavailableText } from "./infra/platform/user-data-check";
 import { beginRun, startLine } from "./infra/run-log";
 import { GlobalStorage } from "./infra/storage/global-storage";
 import { StateService } from "./infra/storage/state-service";
 import { WorkspaceStorage } from "./infra/storage/workspace-storage";
+
+if (!hasUserData(app)) {
+  const { title, message } = userDataUnavailableText(
+    Intl.DateTimeFormat().resolvedOptions().locale,
+  );
+  dialog.showErrorBox(title, message);
+  process.exit(1);
+}
 
 const logsDirWarning = keepLogsApart(app);
 initMainLogger();
