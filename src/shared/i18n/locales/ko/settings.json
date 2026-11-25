@@ -499,6 +499,8 @@
       "edit_workspaces_one": "워크스페이스 {{count}}개에서 사용 중",
       "edit_workspaces_other": "워크스페이스 {{count}}개에서 사용 중",
       "profile_edit_shared": "기본 폴더와 공유 {{value}}",
+      "profile_edit_shared_copy": "{{file}} 프로필 전용 사본으로 바꿈 · 지금 값 유지",
+      "profile_edit_shared_unlinked": "{{files}} 링크 지움 · 이 프로필에서 빠짐",
       "profile_edit_env": "환경 변수 {{name}} {{change}}",
       "profile_edit_header": "추가 헤더 {{name}} {{change}}",
       "profile_edit_query": "쿼리 파라미터 {{name}} {{change}}",
@@ -509,6 +511,7 @@
       "profile_edit_on": "켜짐",
       "profile_edit_off": "꺼짐",
       "profile_edit_wider": "권한 넓어짐",
+      "profile_edit_experimental_headers": "실험 기능 헤더",
       "profile_edit_behavior_shared": "{{file}} 기본 프로필과 공유 · 기본 프로필에도 적용",
       "profile_default_title": "에이전트가 이 컴퓨터의 기본 프로필을 바꾸도록 허용할까요?",
       "profile_default_value": "기본 프로필 {{value}}",
@@ -519,7 +522,9 @@
       "profile_rule_agent": "{{agent}} {{value}}",
       "profile_rule_removed": "규칙 삭제",
       "profile_rule_applies_one": "지금 적용되는 워크스페이스 {{count}}개",
-      "profile_rule_applies_other": "지금 적용되는 워크스페이스 {{count}}개"
+      "profile_rule_applies_other": "지금 적용되는 워크스페이스 {{count}}개",
+      "profile_rule_others_one": "다른 워크스페이스 {{count}}개 포함",
+      "profile_rule_others_other": "다른 워크스페이스 {{count}}개 포함"
     },
     "heading": "nexus CLI"
   },
@@ -1150,6 +1155,7 @@
       "headers": "추가 헤더",
       "headersInvalid": "한 줄에 하나씩 Header-Name: value 형식으로 적으세요",
       "query": "쿼리 파라미터",
+      "queryHint": "프로세스 명령줄로 전달 · 비밀 값은 헤더에",
       "queryInvalid": "한 줄에 하나씩 name=value 형식으로 적으세요",
       "timeout": "응답 제한 시간 (ms)",
       "outputTokens": "최대 출력 토큰",

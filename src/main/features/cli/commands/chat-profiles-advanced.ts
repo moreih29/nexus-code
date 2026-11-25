@@ -21,6 +21,7 @@ import {
 import type { AdvancedSetting, ProfileEditLine } from "../../../../shared/cli/consent-copy";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { readBehavior } from "../../agent-profiles/behavior";
+import { inspectLocalFolder, localProfileDir } from "../../agent-profiles/local";
 import { CliUsageError, type FlagSpec, type FlagValues } from "../args";
 import { type CliContext, CliError } from "../context";
 import { callerPath } from "../paths";
@@ -314,12 +315,14 @@ async function editedAdvanced(
       throw new CliUsageError("--experimental-headers takes on or off");
     }
     const disable = headersFlag === "off";
-    if (disable !== (current.disableExperimentalBetas ?? false)) {
+    const disabled = current.disableExperimentalBetas ?? false;
+    if (disable !== disabled) {
       next.disableExperimentalBetas = disable;
       out.push({
         field: "advanced",
-        setting: "disableBetas",
-        value: disable ? "off → on" : "on → off",
+        setting: "experimentalHeaders",
+        from: !disabled,
+        to: !disable,
       });
     }
   }
@@ -352,10 +355,10 @@ async function editedAdvanced(
   return { connection: edited, lines: [...out, ...headers.lines, ...query.lines] };
 }
 
-function sharedLines(
+async function sharedLines(
   profile: AgentProfile,
   flags: FlagValues,
-): { shared?: string[]; lines: ProfileEditLine[] } {
+): Promise<{ shared?: string[]; copy?: boolean; lines: ProfileEditLine[] }> {
   const share = listFlag(flags.share).map((name) => name.trim());
   const unshare = listFlag(flags.unshare).map((name) => name.trim());
   if (!share.length && !unshare.length) return { lines: [] };
@@ -377,7 +380,18 @@ function sharedLines(
   const before = allowed.filter((name) => current.includes(name));
   if (shared.join("\n") === before.join("\n")) return { lines: [] };
   const list = (names: readonly string[]) => (names.length ? names.join(", ") : "-");
-  return { shared, lines: [{ field: "shared", value: `${list(before)} → ${list(shared)}` }] };
+  const lines: ProfileEditLine[] = [
+    { field: "shared", value: `${list(before)} → ${list(shared)}` },
+  ];
+  const stopped = before.filter((name) => !shared.includes(name));
+  const linked: readonly string[] = stopped.length
+    ? (await inspectLocalFolder(agent, localProfileDir(profile))).linked
+    : [];
+  const copy = stopped.includes(BEHAVIOR_FILE[agent]) && linked.includes(BEHAVIOR_FILE[agent]);
+  if (copy) lines.push({ field: "sharedCopy", file: BEHAVIOR_FILE[agent] });
+  const unlinked = stopped.filter((name) => name !== BEHAVIOR_FILE[agent] && linked.includes(name));
+  if (unlinked.length) lines.push({ field: "sharedUnlinked", files: unlinked.join(", ") });
+  return { shared, ...(copy ? { copy } : {}), lines };
 }
 
 function behaviorValue(
@@ -430,6 +444,10 @@ function rank(field: BehaviorField, value: BehaviorValue | null): number {
   return ranks[String(effective)] ?? 0;
 }
 
+function onPlatform(id: string, windows: boolean): boolean {
+  return !(windows && id === "sandbox");
+}
+
 function locked(
   agent: ChatAgent,
   id: string,
@@ -443,7 +461,7 @@ function locked(
   if (custom && agent === "codex" && (id === "webSearch" || id === "verbosity")) {
     return "a custom connection does not use it";
   }
-  if (windows && id === "sandbox") return "it is not available on Windows";
+  if (!onPlatform(id, windows)) return "it is not available on Windows";
   return undefined;
 }
 
@@ -468,9 +486,8 @@ async function behaviorLines(
     const id = eq > 0 ? pair.slice(0, eq).trim() : "";
     const field = fields.find((f) => f.id === id);
     if (!field) {
-      throw new CliUsageError(
-        `--behavior takes ID=VALUE with ID one of ${fields.map((f) => f.id).join(", ")}`,
-      );
+      const ids = fields.map((f) => f.id).filter((fieldId) => onPlatform(fieldId, windows));
+      throw new CliUsageError(`--behavior takes ID=VALUE with ID one of ${ids.join(", ")}`);
     }
     const reason = locked(agent, id, connection, windows);
     if (reason) throw new CliUsageError(`--behavior ${id}: ${reason}`);
@@ -510,6 +527,7 @@ export interface AdvancedEdit {
   profile: AgentProfile;
   lines: ProfileEditLine[];
   behavior?: BehaviorEdit;
+  copyBehaviorFile?: boolean;
 }
 
 export async function advancedEdit(
@@ -532,7 +550,7 @@ export async function advancedEdit(
   }
   const next: AgentProfile = { ...edited };
   const out: ProfileEditLine[] = [];
-  const shared = sharedLines(profile, flags);
+  const shared = await sharedLines(profile, flags);
   if (shared.shared) next.shared = shared.shared;
   out.push(...shared.lines);
   const envFile = flags["env-file"];
@@ -568,5 +586,10 @@ export async function advancedEdit(
   }
   const behavior = await behaviorLines(profile, next.connection, flags, windows, read);
   out.push(...behavior.lines);
-  return { profile: next, lines: out, ...(behavior.edit ? { behavior: behavior.edit } : {}) };
+  return {
+    profile: next,
+    lines: out,
+    ...(behavior.edit ? { behavior: behavior.edit } : {}),
+    ...(shared.copy ? { copyBehaviorFile: true } : {}),
+  };
 }

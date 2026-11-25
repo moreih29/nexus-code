@@ -110,7 +110,11 @@ export async function mayExecute(
   }
   const sameWorkspace = workspace.id === ctx.caller.workspaceId;
   if (options.alwaysAsk || (guarded && (sameWorkspace || options.skipWorkspacePolicy))) {
-    await ctx.services.askUser(approval, ctx.signal);
+    const other = options.alwaysAsk && !sameWorkspace && !options.skipWorkspacePolicy;
+    await ctx.services.askUser(
+      other ? { ...approval, otherWorkspaces: true } : approval,
+      ctx.signal,
+    );
   } else if (!sameWorkspace && !options.skipWorkspacePolicy) {
     await ctx.services.allowChange(approval, ctx.signal);
   }

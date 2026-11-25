@@ -1093,22 +1093,27 @@ async function unrestrictedCaller(ctx: CliContext): Promise<CallerMode | undefin
   if (caller?.mode && caller.mode === CHAT_MODES[caller.agent].dangerous) return caller;
 }
 
-async function mayAnswer(
-  ctx: CliContext,
-  workspace: WorkspaceMeta,
-  change: ChangeRequest["change"],
-): Promise<CallerMode | undefined> {
-  let caller = await unrestrictedCaller(ctx);
-  if (caller && workspace.id !== ctx.caller.workspaceId) {
-    await mayChange(ctx, workspace, change);
-    caller = await unrestrictedCaller(ctx);
-  }
+async function delegatedCaller(ctx: CliContext): Promise<CallerMode | undefined> {
+  const caller = await unrestrictedCaller(ctx);
   if (
     caller &&
     (await callerSandboxLevel(ctx)) ===
       sandboxLevel(caller.agent, CHAT_MODES[caller.agent].dangerous)
   ) {
     return caller;
+  }
+}
+
+async function mayAnswer(
+  ctx: CliContext,
+  workspace: WorkspaceMeta,
+  change: ChangeRequest["change"],
+): Promise<CallerMode | undefined> {
+  const other = workspace.id !== ctx.caller.workspaceId;
+  if (await delegatedCaller(ctx)) {
+    if (other) await mayChange(ctx, workspace, change);
+    const caller = await delegatedCaller(ctx);
+    if (caller) return caller;
   }
   if (change.kind === "permissionAllow") {
     await mayExecute(ctx, workspace, change, { alwaysAsk: true });
@@ -1119,6 +1124,7 @@ async function mayAnswer(
         fromTabId: ctx.caller.tabId,
         toWorkspaceId: workspace.id,
         change: { ...change, eachTime: true },
+        ...(other ? { otherWorkspaces: true } : {}),
       },
       ctx.signal,
     );
@@ -1202,7 +1208,8 @@ const chatAnswer: CliCommand = {
     "the agent why with a deny, --stop stops its turn too. A terminal's Claude Code is answered\n" +
     "as the app's card answers it. A question or a plan the agent puts to the user is theirs\n" +
     "to answer in the app. A verified local chat tab in an unrestricted mode can approve\n" +
-    "or deny a tool as requested, once. Other local callers need the user's approval.\n" +
+    "or deny a tool as requested, once. Other local callers need the user's approval. A tab in\n" +
+    "another workspace also follows the setting for changing other workspaces (off refuses).\n" +
     "On another device, the receiving device's Remote agent policy applies.",
   flags: {
     message: { type: "string", value: "TEXT", description: "With deny: what to tell the agent" },

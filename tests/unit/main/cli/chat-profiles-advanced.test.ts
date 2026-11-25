@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { bodyOf, logged, profileDirs, profileFixture, SECRET } from "./profile-test-fixture";
 
@@ -221,7 +221,86 @@ test("edit refuses the sandbox behavior on Windows as Settings hides it", async 
   const result = await cli(["chat", "profiles", "edit", "Work", "--behavior", "sandbox=off"]);
   expect(result.exitCode).not.toBe(0);
   expect(result.stderr).toContain("--behavior sandbox: it is not available on Windows");
+  const unknown = await cli(["chat", "profiles", "edit", "Work", "--behavior", "nope=1"]);
+  expect(unknown.stderr).toContain("--behavior takes ID=VALUE with ID one of model");
+  expect(unknown.stderr).toContain("attribution");
+  expect(unknown.stderr).not.toContain("sandbox");
   expect(app.asked).toEqual([]);
+  const elsewhere = profileFixture(dirOf());
+  const listed = await elsewhere.cli(["chat", "profiles", "edit", "Work", "--behavior", "nope=1"]);
+  expect(listed.stderr).toContain("attribution, sandbox");
+});
+
+test("unsharing the behavior file keeps its values in a profile-only copy, as Settings does", async () => {
+  const { app, cli, profile } = fixture();
+  const settings = `${JSON.stringify({ permissions: { defaultMode: "plan" } }, null, 2)}\n`;
+  await writeFile(join(dirOf(), "default-claude", "settings.json"), settings);
+  await writeFile(join(dirOf(), "default-claude", "CLAUDE.md"), "# shared\n");
+  await mkdir(join(dirOf(), "work"), { recursive: true });
+  for (const name of ["settings.json", "CLAUDE.md"]) {
+    await symlink(join(dirOf(), "default-claude", name), join(dirOf(), "work", name));
+  }
+  app.answers.push("deny");
+  const denied = await cli([
+    "chat",
+    "profiles",
+    "edit",
+    "Work",
+    "--unshare",
+    "settings.json",
+    "--unshare",
+    "CLAUDE.md",
+  ]);
+  expect(denied.exitCode).toBe(1);
+  expect((await lstat(join(dirOf(), "work", "settings.json"))).isSymbolicLink()).toBe(true);
+  expect(app.asked[0]?.change.profileEdit?.lines).toEqual([
+    {
+      field: "shared",
+      value: "CLAUDE.md, settings.json, skills, agents, commands → skills, agents, commands",
+    },
+    { field: "sharedCopy", file: "settings.json" },
+    { field: "sharedUnlinked", files: "CLAUDE.md" },
+  ]);
+  expect(bodyOf(app.asked[0]?.change)).toBe(
+    [
+      "에이전트 Claude",
+      "기본 폴더와 공유 CLAUDE.md, settings.json, skills, agents, commands → skills, agents, commands",
+      "settings.json 프로필 전용 사본으로 바꿈 · 지금 값 유지",
+      "CLAUDE.md 링크 지움 · 이 프로필에서 빠짐",
+    ].join("\n"),
+  );
+  expect(bodyOf(app.asked[0]?.change, "en")).toContain(
+    "settings.json becomes a profile-only copy · current values kept",
+  );
+
+  app.answers.push("once");
+  const done = await cli([
+    "chat",
+    "profiles",
+    "edit",
+    "Work",
+    "--unshare",
+    "settings.json",
+    "--unshare",
+    "CLAUDE.md",
+    "--json",
+  ]);
+  expect(done.stderr).toBe("");
+  expect(done.exitCode).toBe(0);
+  expect(JSON.parse(done.stdout).changed).toEqual(["shared"]);
+  const own = join(dirOf(), "work", "settings.json");
+  expect((await lstat(own)).isSymbolicLink()).toBe(false);
+  expect(await readFile(own, "utf8")).toBe(settings);
+  expect(await readFile(join(dirOf(), "default-claude", "settings.json"), "utf8")).toBe(settings);
+  expect(await lstat(join(dirOf(), "work", "CLAUDE.md")).catch(() => null)).toBeNull();
+  expect(profile("claude-work0001").shared).toEqual(["skills", "agents", "commands"]);
+
+  app.answers.push("once");
+  const shareAgain = await cli(["chat", "profiles", "edit", "Work", "--unshare", "skills"]);
+  expect(shareAgain.exitCode).toBe(0);
+  expect(app.asked[2]?.change.profileEdit?.lines).toEqual([
+    { field: "shared", value: "skills, agents, commands → agents, commands" },
+  ]);
 });
 
 test("edit changes timeouts, shared files and behavior, marking wider permissions", async () => {
@@ -330,7 +409,7 @@ test("edit changes timeouts, shared files and behavior, marking wider permission
       "에이전트 Claude",
       "응답 제한 시간 (ms) auto → 600000",
       "최대 출력 토큰 auto → 32000",
-      "실험 기능 헤더 끄기 off → on",
+      "실험 기능 헤더 켜짐 → 꺼짐",
     ].join("\n"),
   );
   app.answers.push("once");
@@ -349,6 +428,22 @@ test("edit changes timeouts, shared files and behavior, marking wider permission
   expect(
     after.connection?.method === "custom" && after.connection.advanced?.timeoutMs,
   ).toBeUndefined();
+  app.answers.push("once");
+  const headersOn = await cli([
+    "chat",
+    "profiles",
+    "edit",
+    "Gateway",
+    "--agent",
+    "claude",
+    "--experimental-headers",
+    "on",
+    "--json",
+  ]);
+  expect(headersOn.exitCode).toBe(0);
+  expect(JSON.parse(headersOn.stdout).changed).toEqual(["advanced"]);
+  expect(bodyOf(app.asked[4]?.change)).toBe("에이전트 Claude\n실험 기능 헤더 꺼짐 → 켜짐");
+  expect(bodyOf(app.asked[4]?.change, "en")).toBe("Agent Claude\nExperimental headers off → on");
 });
 
 test("a behavior file changed while the approval waits saves nothing", async () => {
@@ -471,4 +566,5 @@ test("edit help names the file-only values, behavior and timeouts", async () => 
     expect(edit.stdout).toContain(flag);
   }
   expect(edit.stdout).toContain("Values are never printed");
+  expect(edit.stdout).toContain("Codex gets query values on its process command line");
 });

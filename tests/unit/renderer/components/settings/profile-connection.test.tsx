@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ProfileConnectionSection } from "../../../../../src/renderer/components/settings/panels/profile-connection-section";
+import {
+  ProfileConnectionAdvanced,
+  ProfileConnectionSection,
+} from "../../../../../src/renderer/components/settings/panels/profile-connection-section";
 import {
   type ProfileConnectionDraft,
   useProfileConnection,
@@ -80,6 +83,23 @@ describe("custom profile reasoning controls", () => {
     );
     expect(codex).toContain("Upper limit of the chat effort menu<");
     expect(codex).not.toContain("Auto keeps");
+  });
+
+  test("says Codex query values go on the command line, and only for Codex", () => {
+    const codex = renderToStaticMarkup(
+      <ProfileConnectionAdvanced agent="codex" draft={draftOf("codex")}>
+        {null}
+      </ProfileConnectionAdvanced>,
+    );
+    expect(codex).toContain("Query parameters");
+    expect(codex).toContain("Passed on the process command line · keep secrets in headers");
+    const claude = renderToStaticMarkup(
+      <ProfileConnectionAdvanced agent="claude" draft={draftOf("claude")}>
+        {null}
+      </ProfileConnectionAdvanced>,
+    );
+    expect(claude).not.toContain("Query parameters<");
+    expect(claude).not.toContain("command line");
   });
 
   test("rejects an unrepresentable Claude reasoning ID in the dialog, not at launch", () => {

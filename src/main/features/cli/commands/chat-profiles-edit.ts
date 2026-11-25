@@ -1,3 +1,4 @@
+import { BEHAVIOR_FILE } from "../../../../shared/agent-profiles/behavior";
 import {
   CONNECTION_AUTH,
   type ConnectionModel,
@@ -15,7 +16,7 @@ import {
 } from "../../../../shared/agent-profiles/profiles";
 import type { ProfileEditLine } from "../../../../shared/cli/consent-copy";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
-import { writeBehavior } from "../../agent-profiles/behavior";
+import { unshareBehaviorFile, writeBehavior } from "../../agent-profiles/behavior";
 import { ProfileValidationError } from "../../agent-profiles/connection-save";
 import { profileConnectionView } from "../../agent-profiles/connection-view";
 import { prepareLocalProfile } from "../../agent-profiles/local";
@@ -271,6 +272,12 @@ function connectionLines(
   return lines;
 }
 
+const NOTE_FIELDS = new Set<ProfileEditLine["field"]>([
+  "behaviorShared",
+  "sharedCopy",
+  "sharedUnlinked",
+]);
+
 export const chatProfilesEdit = {
   path: ["chat", "profiles", "edit"],
   summary: "Change an agent profile on this computer with the user's approval",
@@ -287,7 +294,10 @@ export const chatProfilesEdit = {
     "stdin): --env-file takes KEY=VALUE lines, --header-file Name: value lines, --query-file\n" +
     "name=value lines. They add to or replace what is set; --unset-env, --unset-header and\n" +
     "--unset-query NAME remove one. Values are never printed; the approval names them only.\n" +
-    "--share and --unshare NAME choose the files linked from the default folder, as in Settings.\n" +
+    "Codex gets query values on its process command line, which other users can list; keep\n" +
+    "secrets in headers, which go through its environment.\n" +
+    "--share and --unshare NAME choose the files linked from the default folder, as in Settings;\n" +
+    "--unshare settings.json or config.toml keeps a profile-only copy, as Settings does.\n" +
     "--behavior ID=VALUE sets the profile's settings.json or config.toml, as Settings › Behavior\n" +
     "does: on/off for switches, the choices Settings offers, default to clear. The approval marks\n" +
     "a change that loosens permissions or the sandbox. New tabs use it. The folder is set when the\n" +
@@ -452,6 +462,13 @@ export const chatProfilesEdit = {
     if (JSON.stringify(now) !== before) {
       throw new CliError("The profile changed while waiting for approval; run the command again");
     }
+    if (advanced.copyBehaviorFile) {
+      await unshareBehaviorFile(profile).catch(() => {
+        throw new CliError(
+          `Could not make a profile-only copy of ${BEHAVIOR_FILE[agent]}; nothing was saved`,
+        );
+      });
+    }
     if (advanced.behavior) {
       const written = await writeBehavior(
         profile,
@@ -505,7 +522,7 @@ export const chatProfilesEdit = {
       ...(failed.length ? [`Could not link ${failed.join(", ")} from the default folder.`] : []),
     ].join(" ");
     const changed = [
-      ...new Set(lines.map(({ field }) => field).filter((field) => field !== "behaviorShared")),
+      ...new Set(lines.map(({ field }) => field).filter((field) => !NOTE_FIELDS.has(field))),
     ];
     const details = [connectionText([row]), extrasText([row])].filter(Boolean).join("\n\n");
     return output([profileTable([row]), details, note].filter(Boolean).join("\n\n"), {
