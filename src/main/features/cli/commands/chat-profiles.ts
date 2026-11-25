@@ -313,7 +313,8 @@ export const chatProfiles: CliCommand = {
     "Includes the profile selected by the workspace's rules for each agent. Names and ids can be used with chat new --profile.\n" +
     "Each profile shows its connection: method, address, auth header, models, the default and light\n" +
     "models, context windows and reasoning. API keys are never shown; hasKey says whether one is saved.\n" +
-    "Profiles belong to a computer: with --device, --workspace is needed only for its workspace default.",
+    "Profiles belong to a computer: with --device, --workspace is needed only for its workspace default.\n" +
+    "Change this computer's with chat profiles add (--from to copy one), edit and remove.",
   flags: {
     agent: AGENT_FLAG,
     profile: { type: "string", value: "NAME", description: "Show one profile by name or id" },

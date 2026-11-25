@@ -1250,3 +1250,20 @@ test("profiles add --from-device refuses a hidden address and takes one from --b
   ]);
   expect(account.stderr).toContain("--base-url with --from needs a custom connection to copy");
 });
+
+test("nexus help and each command's help name the profile commands and their key rules", async () => {
+  const { cli } = fixture();
+  const help = await cli(["help"]);
+  for (const path of ["chat profiles add", "chat profiles edit", "chat profiles remove"]) {
+    expect(help.stdout).toContain(path);
+  }
+  const edit = await cli(["chat", "profiles", "edit", "--help"]);
+  expect(edit.stdout).toContain("--rename-model OLD=NEW");
+  expect(edit.stdout).toContain("--key-file FILE");
+  expect(edit.stdout).toContain("--remove-key");
+  const add = await cli(["chat", "profiles", "add", "--help"]);
+  expect(add.stdout).toContain("--from-device NAME");
+  expect(add.stdout).toContain("Keys never move between");
+  const list = await cli(["chat", "profiles", "--help"]);
+  expect(list.stdout).toContain("API keys are never shown");
+});
