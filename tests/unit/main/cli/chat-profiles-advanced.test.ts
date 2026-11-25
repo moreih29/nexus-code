@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { bodyOf, logged, profileDirs, profileFixture, SECRET } from "./profile-test-fixture";
 
@@ -229,6 +229,78 @@ test("edit refuses the sandbox behavior on Windows as Settings hides it", async 
   const elsewhere = profileFixture(dirOf());
   const listed = await elsewhere.cli(["chat", "profiles", "edit", "Work", "--behavior", "nope=1"]);
   expect(listed.stderr).toContain("attribution, sandbox");
+});
+
+test("unsharing the behavior file keeps its values in a profile-only copy, as Settings does", async () => {
+  const { app, cli, profile } = fixture();
+  const settings = `${JSON.stringify({ permissions: { defaultMode: "plan" } }, null, 2)}\n`;
+  await writeFile(join(dirOf(), "default-claude", "settings.json"), settings);
+  await writeFile(join(dirOf(), "default-claude", "CLAUDE.md"), "# shared\n");
+  await mkdir(join(dirOf(), "work"), { recursive: true });
+  for (const name of ["settings.json", "CLAUDE.md"]) {
+    await symlink(join(dirOf(), "default-claude", name), join(dirOf(), "work", name));
+  }
+  app.answers.push("deny");
+  const denied = await cli([
+    "chat",
+    "profiles",
+    "edit",
+    "Work",
+    "--unshare",
+    "settings.json",
+    "--unshare",
+    "CLAUDE.md",
+  ]);
+  expect(denied.exitCode).toBe(1);
+  expect((await lstat(join(dirOf(), "work", "settings.json"))).isSymbolicLink()).toBe(true);
+  expect(app.asked[0]?.change.profileEdit?.lines).toEqual([
+    {
+      field: "shared",
+      value: "CLAUDE.md, settings.json, skills, agents, commands → skills, agents, commands",
+    },
+    { field: "sharedCopy", file: "settings.json" },
+    { field: "sharedUnlinked", files: "CLAUDE.md" },
+  ]);
+  expect(bodyOf(app.asked[0]?.change)).toBe(
+    [
+      "에이전트 Claude",
+      "기본 폴더와 공유 CLAUDE.md, settings.json, skills, agents, commands → skills, agents, commands",
+      "settings.json 프로필 전용 사본으로 바꿈 · 지금 값 유지",
+      "CLAUDE.md 링크 지움 · 이 프로필에서 빠짐",
+    ].join("\n"),
+  );
+  expect(bodyOf(app.asked[0]?.change, "en")).toContain(
+    "settings.json becomes a profile-only copy · current values kept",
+  );
+
+  app.answers.push("once");
+  const done = await cli([
+    "chat",
+    "profiles",
+    "edit",
+    "Work",
+    "--unshare",
+    "settings.json",
+    "--unshare",
+    "CLAUDE.md",
+    "--json",
+  ]);
+  expect(done.stderr).toBe("");
+  expect(done.exitCode).toBe(0);
+  expect(JSON.parse(done.stdout).changed).toEqual(["shared"]);
+  const own = join(dirOf(), "work", "settings.json");
+  expect((await lstat(own)).isSymbolicLink()).toBe(false);
+  expect(await readFile(own, "utf8")).toBe(settings);
+  expect(await readFile(join(dirOf(), "default-claude", "settings.json"), "utf8")).toBe(settings);
+  expect(await lstat(join(dirOf(), "work", "CLAUDE.md")).catch(() => null)).toBeNull();
+  expect(profile("claude-work0001").shared).toEqual(["skills", "agents", "commands"]);
+
+  app.answers.push("once");
+  const shareAgain = await cli(["chat", "profiles", "edit", "Work", "--unshare", "skills"]);
+  expect(shareAgain.exitCode).toBe(0);
+  expect(app.asked[2]?.change.profileEdit?.lines).toEqual([
+    { field: "shared", value: "skills, agents, commands → agents, commands" },
+  ]);
 });
 
 test("edit changes timeouts, shared files and behavior, marking wider permissions", async () => {

@@ -499,6 +499,8 @@
       "edit_workspaces_one": "워크스페이스 {{count}}개에서 사용 중",
       "edit_workspaces_other": "워크스페이스 {{count}}개에서 사용 중",
       "profile_edit_shared": "기본 폴더와 공유 {{value}}",
+      "profile_edit_shared_copy": "{{file}} 프로필 전용 사본으로 바꿈 · 지금 값 유지",
+      "profile_edit_shared_unlinked": "{{files}} 링크 지움 · 이 프로필에서 빠짐",
       "profile_edit_env": "환경 변수 {{name}} {{change}}",
       "profile_edit_header": "추가 헤더 {{name}} {{change}}",
       "profile_edit_query": "쿼리 파라미터 {{name}} {{change}}",

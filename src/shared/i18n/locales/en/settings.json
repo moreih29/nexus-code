@@ -499,6 +499,8 @@
       "edit_workspaces_one": "Used by {{count}} workspace",
       "edit_workspaces_other": "Used by {{count}} workspaces",
       "profile_edit_shared": "Shared with the default folder {{value}}",
+      "profile_edit_shared_copy": "{{file}} becomes a profile-only copy · current values kept",
+      "profile_edit_shared_unlinked": "{{files}} links removed · no longer in this profile",
       "profile_edit_env": "Environment variable {{name}} {{change}}",
       "profile_edit_header": "Extra header {{name}} {{change}}",
       "profile_edit_query": "Query parameter {{name}} {{change}}",

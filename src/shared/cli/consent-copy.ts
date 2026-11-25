@@ -44,6 +44,8 @@ export type ProfileEditLine =
   | { field: "connection"; from: ConnectionMethod; to: ConnectionMethod }
   | { field: "key"; change: "replaced" | "removed" }
   | { field: "shared"; value: string }
+  | { field: "sharedCopy"; file: string }
+  | { field: "sharedUnlinked"; files: string }
   | { field: "env" | "header" | "query"; name: string; change: "added" | "changed" | "removed" }
   | { field: "advanced"; setting: AdvancedSetting; value: string }
   | { field: "advanced"; setting: "experimentalHeaders"; from: boolean; to: boolean }
@@ -99,6 +101,10 @@ function profileEditLine(t: TFunction<"settings">, agent: ChatAgent, line: Profi
       );
     case "shared":
       return t("agentCli.consent.profile_edit_shared", { value: line.value });
+    case "sharedCopy":
+      return t("agentCli.consent.profile_edit_shared_copy", { file: line.file });
+    case "sharedUnlinked":
+      return t("agentCli.consent.profile_edit_shared_unlinked", { files: line.files });
     case "env":
     case "header":
     case "query":
