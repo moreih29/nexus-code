@@ -139,6 +139,7 @@ export const actionHandlers: {
     | "settings.list"
     | "settings.set"
     | "settings.open"
+    | "terminal.shells.change"
     | LayoutOp
     | `chat.${string}`
     | `note.${string}`

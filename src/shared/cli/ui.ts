@@ -14,9 +14,10 @@ import type { InstructionScope } from "../chat/instructions";
 import type { RelaySender, TerminalOpener } from "../chat/relay";
 import type { ParticipantCount } from "../notes/transcript";
 import type { NoteStorageEntry } from "../notes/types";
+import type { CustomShell } from "../pty/shell";
 import type { ChatAgent } from "../sessions/task-agent";
 import type { UpdateProgress, UpdateStatus } from "../updates/status";
-import type { ProfileEditCopy, ProfileRemoveCopy } from "./consent-copy";
+import type { ProfileEditCopy, ProfileRemoveCopy, SettingsEditCopy } from "./consent-copy";
 import type { SettingsPage } from "./settings";
 
 export const PROFILE_USAGE_REFRESH_TIMEOUT_MS = 120_000;
@@ -46,6 +47,31 @@ export interface CliShellInfo {
   id: string;
   path: string;
   isDefault: boolean;
+}
+
+export type CliShellChange =
+  | {
+      readonly op: "add";
+      readonly name: string;
+      readonly program: string;
+      readonly args: readonly string[];
+    }
+  | {
+      readonly op: "edit";
+      readonly shell: string;
+      readonly name?: string;
+      readonly program?: string;
+      readonly args?: readonly string[];
+    }
+  | { readonly op: "remove"; readonly shell: string };
+
+export interface CliShellPlan {
+  readonly shell: CustomShell;
+  readonly before?: CustomShell;
+  readonly found?: string;
+  readonly wasDefault: boolean;
+  readonly snapshot: string;
+  readonly saved: boolean;
 }
 
 export interface CliTabInfo {
@@ -279,11 +305,15 @@ export type CliChangeKind =
   | "permissionDeny"
   | "sandboxExecution"
   | "settingTurnOn"
-  | "browserPermissionRevoke";
+  | "browserPermissionRevoke"
+  | "shellAdd"
+  | "shellEdit"
+  | "shellRemove";
 
 export interface CliChange extends Pick<RemoteConsent["change"], "instructionEdit" | "profileAdd"> {
   readonly profileEdit?: ProfileEditCopy;
   readonly profileRemove?: ProfileRemoveCopy;
+  readonly settingsEdit?: SettingsEditCopy;
   readonly kind: CliChangeKind;
   readonly detail?: string;
   readonly body?: string;
@@ -471,6 +501,10 @@ export interface CliUiOps {
   "terminal.shells": {
     args: Record<string, never>;
     result: { shells: CliShellInfo[] };
+  };
+  "terminal.shells.change": {
+    args: { change: CliShellChange; approved?: true; before?: string };
+    result: CliShellPlan;
   };
   "terminal.input": {
     args: { workspaceId: string; tabId: string; text: string; mode: CliInputMode; enter: boolean };

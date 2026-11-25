@@ -260,6 +260,50 @@ test("profile removals name the agent and say the folder stays", () => {
   expect(consentNamesTarget("profileRemove")).toBe(true);
 });
 
+test("shell changes show the program and its arguments", () => {
+  const ko = i18next.getFixedT("ko", "settings");
+  const en = i18next.getFixedT("en", "settings");
+  const add = {
+    kind: "shellAdd",
+    detail: "Nushell",
+    settingsEdit: {
+      lines: [
+        { field: "program", to: "nu (/opt/homebrew/bin/nu)" },
+        { field: "args", to: "" },
+      ],
+    },
+  } as const;
+  expect(consentDetailsOf(ko, add).body).toBe("프로그램 nu (/opt/homebrew/bin/nu)\n인자 없음");
+  expect(consentDetailsOf(en, add).body).toBe("Program nu (/opt/homebrew/bin/nu)\nArguments None");
+  const action = ko("agentCli.consent.action.shellAdd", { detail: "Nushell" });
+  expect(describeConsent(ko, prompt(), action, consentNamesTarget("shellAdd"))).toBe(
+    'app의 터미널 "zsh": 터미널 셸 "Nushell" 추가를 하려고 합니다.',
+  );
+  expect(ko(consentTitleOf("shellAdd", false))).toBe(
+    "에이전트가 터미널 셸을 추가하도록 허용할까요?",
+  );
+  const remove = {
+    kind: "shellRemove",
+    detail: "Bash",
+    settingsEdit: {
+      lines: [
+        { field: "program", to: "/bin/bash" },
+        { field: "args", to: "-l" },
+        { field: "defaultShell", from: "Bash" },
+      ],
+    },
+  } as const;
+  expect(consentDetailsOf(ko, remove).body).toBe(
+    "프로그램 /bin/bash\n인자 -l\n기본 셸 Bash → 시스템 기본",
+  );
+  expect(ko(consentTitleOf("shellEdit", false))).toBe(
+    "에이전트가 터미널 셸을 바꾸도록 허용할까요?",
+  );
+  expect(ko(consentTitleOf("shellRemove", false))).toBe(
+    "에이전트가 터미널 셸을 삭제하도록 허용할까요?",
+  );
+});
+
 test("sandbox approval shows localized copy and accepts an until-restart answer", async () => {
   const request = {
     ...prompt("sandbox"),

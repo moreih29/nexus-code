@@ -29,6 +29,7 @@ import { noteHandlers } from "./note-actions";
 import { readSessionsRevision, startSessionsRevision } from "./sessions-revision";
 import { sessionsSnapshot } from "./sessions-snapshot";
 import { settingsHandlers } from "./settings";
+import { shellHandlers } from "./shell-actions";
 import { viewHandlers } from "./view-actions";
 
 function tabInfo(workspaceId: string, tab: Tab, groupId: string, shown: boolean): CliTabInfo {
@@ -173,6 +174,7 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   ...layoutHandlers,
   ...noteHandlers,
   ...settingsHandlers,
+  ...shellHandlers,
   ...viewHandlers,
 };
 

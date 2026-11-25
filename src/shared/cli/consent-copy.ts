@@ -87,9 +87,48 @@ export interface ProfileRemoveCopy {
   readonly folder: string;
 }
 
+export type SettingsEditLine =
+  | {
+      readonly field: "name" | "program" | "args";
+      readonly from?: string;
+      readonly to: string;
+    }
+  | { readonly field: "defaultShell"; readonly from: string };
+
+export interface SettingsEditCopy {
+  readonly lines: readonly SettingsEditLine[];
+}
+
+const SETTINGS_EDIT_KEYS = {
+  name: "agentCli.consent.edit_name",
+  program: "agentCli.consent.edit_program",
+  args: "agentCli.consent.edit_args",
+} as const;
+
+function settingsEditValue(t: TFunction<"settings">, value: string): string {
+  return value === "" ? t("agentCli.consent.edit_none") : value;
+}
+
+function settingsEditLine(t: TFunction<"settings">, line: SettingsEditLine): string {
+  switch (line.field) {
+    case "defaultShell":
+      return t("agentCli.consent.edit_default_shell", {
+        value: `${line.from} → ${t("terminal.shell.systemPlain")}`,
+      });
+    default: {
+      const to = settingsEditValue(t, line.to);
+      const from = line.from === undefined ? undefined : settingsEditValue(t, line.from);
+      return t(SETTINGS_EDIT_KEYS[line.field], {
+        value: from === undefined ? to : `${from} → ${to}`,
+      });
+    }
+  }
+}
+
 export type ConsentChange = RemoteConsent["change"] & {
   readonly profileEdit?: ProfileEditCopy;
   readonly profileRemove?: ProfileRemoveCopy;
+  readonly settingsEdit?: SettingsEditCopy;
 };
 
 export function consentDetailsOf(t: TFunction<"settings">, change: ConsentChange) {
@@ -102,6 +141,12 @@ export function consentDetailsOf(t: TFunction<"settings">, change: ConsentChange
         body: t(`agentCli.consent.setting_on_body.${slug}`),
       };
     }
+  }
+  if (change.settingsEdit) {
+    return {
+      detail: change.detail ?? "",
+      body: change.settingsEdit.lines.map((line) => settingsEditLine(t, line)).join("\n"),
+    };
   }
   if (change.profileRemove) {
     const { agent, folder } = change.profileRemove;

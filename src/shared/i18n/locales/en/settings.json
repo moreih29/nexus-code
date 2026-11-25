@@ -353,7 +353,10 @@
         "settingTurnOn": "turn on \"{{detail}}\"",
         "browserPermissionRevoke": "forget the browser permission {{detail}}",
         "profileEdit": "change the agent profile \"{{detail}}\"",
-        "profileRemove": "remove the agent profile \"{{detail}}\""
+        "profileRemove": "remove the agent profile \"{{detail}}\"",
+        "shellAdd": "add the terminal shell \"{{detail}}\"",
+        "shellEdit": "change the terminal shell \"{{detail}}\"",
+        "shellRemove": "remove the terminal shell \"{{detail}}\""
       },
       "headline": {
         "open": "Open {{detail}}",
@@ -413,7 +416,10 @@
         "settingTurnOn": "Turn on \"{{detail}}\"",
         "browserPermissionRevoke": "Forget the browser permission {{detail}}",
         "profileEdit": "Change the agent profile \"{{detail}}\"",
-        "profileRemove": "Remove the agent profile \"{{detail}}\""
+        "profileRemove": "Remove the agent profile \"{{detail}}\"",
+        "shellAdd": "Add the terminal shell \"{{detail}}\"",
+        "shellEdit": "Change the terminal shell \"{{detail}}\"",
+        "shellRemove": "Remove the terminal shell \"{{detail}}\""
       },
       "permission_title": "Answer another session's permission request?",
       "mode_title": "Let an agent loosen a session's permission mode?",
@@ -466,7 +472,15 @@
         "noteSummary": "Transcript sent to the summary profile's model · Not through NexusCode servers",
         "voiceSuggest": "“Name?” suggested for familiar voices in recordings",
         "voiceExpire": "Voiceprints deleted after a year unheard in recordings"
-      }
+      },
+      "shell_add_title": "Let an agent add a terminal shell?",
+      "shell_edit_title": "Let an agent change a terminal shell?",
+      "shell_remove_title": "Let an agent remove a terminal shell?",
+      "edit_name": "Name {{value}}",
+      "edit_program": "Program {{value}}",
+      "edit_args": "Arguments {{value}}",
+      "edit_none": "None",
+      "edit_default_shell": "Default shell {{value}}"
     },
     "heading": "nexus CLI"
   },

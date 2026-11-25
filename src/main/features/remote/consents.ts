@@ -60,9 +60,10 @@ export async function remoteConsents(
       const name =
         request.fromName ??
         (remote ? undefined : await titleOf(request.fromWorkspaceId, request.fromTabId));
-      const { kind, instructionEdit, profileAdd, profileEdit, profileRemove } = request.change;
+      const { kind, instructionEdit, profileAdd, profileEdit, profileRemove, settingsEdit } =
+        request.change;
       const { detail, body } =
-        t && (instructionEdit || profileAdd || profileEdit || profileRemove)
+        t && (instructionEdit || profileAdd || profileEdit || profileRemove || settingsEdit)
           ? consentDetailsOf(t, request.change)
           : request.change;
       const expiresAt = p.expiresAt ?? p.at + UNTIMED_EXPIRES_AFTER_MS;

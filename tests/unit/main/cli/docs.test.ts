@@ -59,6 +59,9 @@ test.each([
   "tab encoding index.ts --json",
   "events --device all --json",
   "browser permissions --workspace site --device Mini --json",
+  "terminal shells add Nushell --program nu --arg -l",
+  "terminal shells edit Nushell --name Nu --clear-args",
+  "terminal shells remove Nushell",
 ])("docs example uses registered syntax for %s", (example) => {
   expect(doc).toContain(example);
   const argv = example.match(/"[^"]*"|\S+/g)?.map((word) => word.replace(/^"|"$/g, "")) ?? [];
