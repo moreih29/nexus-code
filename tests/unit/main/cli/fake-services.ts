@@ -730,6 +730,9 @@ export function fakeApp(now = Date.now()): FakeApp {
       checkNew: () => {
         throw new Error("unexpected profile validation");
       },
+      checkEdit: () => {
+        throw new Error("unexpected profile validation");
+      },
       save: async () => {
         throw new Error("unexpected profile save");
       },

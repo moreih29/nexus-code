@@ -141,6 +141,7 @@ nexus chat set 3fa2 --model sonnet --effort high --mode plan
 nexus chat new --agent codex --effort low --mode readOnly --prompt "구조 설명해줘"
 nexus chat profiles --agent codex --workspace WS --json
 nexus chat profiles --profile Gateway                    # 연결 정보 (키는 저장 여부만)
+nexus chat profiles edit Gateway --rename-model glm-5.3=glm-5.4 --key-file -
 nexus chat usage --json
 nexus chat usage --agent claude --profile "개인" --refresh
 nexus chat usage --device "Mac mini" --agent codex --json
@@ -224,6 +225,16 @@ Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책�
 - `--reasoning MODEL=LEVEL`은 모델별 추론 강도를 정하며 여러 번 줄 수 있습니다. LEVEL은 `none`, `high`, `xhigh`, `max`이고 Claude는 `auto`도 받습니다. MODEL은 `--model`로 준 ID 중 하나여야 합니다. 생략한 모델은 설정 화면과 같게 Claude는 자동, Codex는 없음으로 저장됩니다. Claude 모델 ID에 `;`, `,`, `=` 또는 끝의 `*`가 있으면 `auto`만 지정할 수 있습니다.
 - 문맥 크기는 에이전트가 읽는 방식대로 받습니다. Claude는 모든 모델에 하나를 쓰므로 `--context-window TOKENS`(Claude Code의 `CLAUDE_CODE_MAX_CONTEXT_TOKENS`), Codex는 모델마다 `--context-window MODEL=TOKENS`를 여러 번 줍니다(생략하면 131072). TOKENS는 1부터 2147483647까지의 정수이고 `auto`는 비웁니다. `--label MODEL=TEXT`는 모델의 표시 이름입니다.
 - 키가 필요한 경우 `--key-file FILE` 또는 `--key-file -`로 전달합니다. 승인 창에는 이름, 에이전트, 폴더, 연결 주소가 표시되며 사용자 승인은 매번 필요합니다. 성공하면 만든 프로필을 목록과 같은 열로 출력합니다. `--json`은 프로필 하나를 출력합니다.
+
+`chat profiles edit PROFILE`은 이 기기의 프로필을 고칩니다. 이름이나 id로 고르고, Claude와 Codex 프로필 이름이 같으면 `--agent`를 줍니다. 설정 화면의 프로필 편집과 같은 항목을 바꿉니다.
+
+- `--name`, `--color`. 기본 프로필은 `--name ""`로 이름을 비울 수 있습니다.
+- 사용자 지정 연결은 주지 않은 값을 그대로 둡니다. `--base-url`, `--auth`, `--preset ID|none`(프리셋의 주소와 인증으로 바꿈), `--add-model ID`, `--remove-model ID`, `--rename-model OLD=NEW`(문맥 크기·추론·표시 이름 유지, 기본·가벼운 모델도 따라감), `--model ID`(목록 전체 바꾸기), `--default-model`, `--light-model ID|auto`, `--context-window`, `--reasoning`, `--label`. `auto`(표시 이름은 빈 텍스트)는 값을 비웁니다.
+- 기본 모델을 지우거나 없는 모델을 고르거나 모델을 모두 지우면 거절합니다. 문맥 크기는 1부터 2147483647까지의 정수만 받습니다.
+- `--method account|api-key|custom`은 연결 방식을 바꾸며 `profiles add`의 플래그를 받습니다.
+- 키는 `--key-file FILE` 또는 `--key-file -`로 바꾸고 `--remove-key`로 지웁니다. 키는 저장할 때의 API 주소와 인증 방식에 묶이므로, 둘 중 하나를 바꾸면 키를 다시 줘야 합니다. 이때 결과에 `note`로 알립니다.
+- 승인 창에는 바뀌는 항목이 전후 값으로 표시되며(키는 "바꿈"·"지움"만), 승인은 매번 필요합니다. 승인을 기다리는 동안 프로필이 바뀌면 저장하지 않습니다. 결과는 바뀐 프로필과 `changed` 목록입니다.
+- 로그인·로그아웃, 폴더, 공유 파일, 동작 설정, 환경 변수, 고급 설정(헤더·쿼리·시간 제한·재시도)은 설정 화면에서 바꿉니다. 프로필 지시는 `settings instructions set profile`로 바꿉니다.
 
 `chat fork`와 `chat rewind`는 양쪽 에이전트를 지원합니다. 파일 복원(`--files`)은 Claude에서만 지원합니다.
 

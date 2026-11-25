@@ -351,7 +351,8 @@
         "chatRemoteControlToggle": "탭 \"{{detail}}\"의 원격 제어 전환을",
         "sandboxExecution": "샌드박스 밖에서 명령 실행을",
         "settingTurnOn": "\"{{detail}}\" 켜기를",
-        "browserPermissionRevoke": "브라우저 권한 {{detail}} 지우기를"
+        "browserPermissionRevoke": "브라우저 권한 {{detail}} 지우기를",
+        "profileEdit": "에이전트 프로필 \"{{detail}}\" 변경을"
       },
       "headline": {
         "open": "{{detail}} 열기",
@@ -409,7 +410,8 @@
         "chatRemoteControlToggle": "탭 \"{{detail}}\"의 원격 제어 전환",
         "sandboxExecution": "샌드박스 밖에서 명령 실행",
         "settingTurnOn": "\"{{detail}}\" 켜기",
-        "browserPermissionRevoke": "브라우저 권한 {{detail}} 지우기"
+        "browserPermissionRevoke": "브라우저 권한 {{detail}} 지우기",
+        "profileEdit": "에이전트 프로필 \"{{detail}}\" 변경"
       },
       "permission_title": "다른 대화의 권한 요청에 답할까요?",
       "mode_title": "에이전트가 대화의 권한 모드를 느슨하게 바꾸도록 허용할까요?",
@@ -418,6 +420,20 @@
       "profile_add_agent": "에이전트 {{agent}}",
       "profile_add_folder": "폴더 {{folder}}",
       "profile_add_connection": "연결 {{connection}}",
+      "profile_edit_title": "에이전트가 이 컴퓨터의 프로필을 바꾸도록 허용할까요?",
+      "profile_edit_name": "이름 {{value}}",
+      "profile_edit_color": "색 {{value}}",
+      "profile_edit_address": "API 주소 {{value}}",
+      "profile_edit_preset": "프리셋 {{value}}",
+      "profile_edit_auth": "키 전송 방식 {{value}}",
+      "profile_edit_models": "모델 {{value}}",
+      "profile_edit_default_model": "기본 모델 {{value}}",
+      "profile_edit_light_model": "백그라운드 모델 {{value}}",
+      "profile_edit_context": "컨텍스트 창 {{value}}",
+      "profile_edit_reasoning": "최대 강도 {{value}}",
+      "profile_edit_label": "표시 이름 {{value}}",
+      "profile_edit_key_replaced": "API 키 바꿈",
+      "profile_edit_key_removed": "API 키 지움",
       "instructions_title": "에이전트가 지시를 바꾸도록 허용할까요?",
       "instructions_profile": "{{agent}} 프로필 \"{{name}}\"",
       "instructions_clear": "지시 비우기",

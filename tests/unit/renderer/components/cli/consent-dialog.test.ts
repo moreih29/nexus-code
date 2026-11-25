@@ -211,6 +211,39 @@ test("profile additions use settings connection labels in the dialog language", 
   );
 });
 
+test("profile edits list each change in the dialog language and name the profile", () => {
+  const change = {
+    kind: "profileEdit",
+    detail: "Gateway",
+    profileEdit: {
+      agent: "claude",
+      lines: [
+        { field: "connection", from: "account", to: "custom" },
+        { field: "models", value: "glm-5.3 → glm-5.4" },
+        { field: "defaultModel", value: "glm-5.3 → glm-5.4" },
+        { field: "context", value: "auto → 400000" },
+        { field: "key", change: "replaced" },
+      ],
+    },
+  } as const;
+  expect(consentDetailsOf(i18next.getFixedT("en", "settings"), change).body).toBe(
+    "Agent Claude\nConnection Claude account → Custom API address\nModels glm-5.3 → glm-5.4\n" +
+      "Default model glm-5.3 → glm-5.4\nContext window auto → 400000\nAPI key replaced",
+  );
+  const ko = i18next.getFixedT("ko", "settings");
+  expect(consentDetailsOf(ko, change).body).toBe(
+    "에이전트 Claude\n연결 Claude 계정 → 사용자 지정 API 주소\n모델 glm-5.3 → glm-5.4\n" +
+      "기본 모델 glm-5.3 → glm-5.4\n컨텍스트 창 auto → 400000\nAPI 키 바꿈",
+  );
+  const action = ko("agentCli.consent.action.profileEdit", { detail: "Gateway" });
+  expect(describeConsent(ko, prompt(), action, consentNamesTarget("profileEdit"))).toBe(
+    'app의 터미널 "zsh": 에이전트 프로필 "Gateway" 변경을 하려고 합니다.',
+  );
+  expect(ko(consentTitleOf("profileEdit", false))).toBe(
+    "에이전트가 이 컴퓨터의 프로필을 바꾸도록 허용할까요?",
+  );
+});
+
 test("sandbox approval shows localized copy and accepts an until-restart answer", async () => {
   const request = {
     ...prompt("sandbox"),

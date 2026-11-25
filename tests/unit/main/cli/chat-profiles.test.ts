@@ -669,3 +669,287 @@ test.each([
   expect(app.asked).toEqual([]);
   expect(state.getState().agentProfiles).toBeUndefined();
 });
+
+const claudeGateway = [
+  "--agent",
+  "claude",
+  "--name",
+  "Gateway",
+  "--dir",
+  "gateway",
+  "--base-url",
+  "http://127.0.0.1:9",
+  "--auth",
+  "x-api-key",
+  "--model",
+  "k3.1-pro",
+  "--model",
+  "glm-5.3",
+  "--reasoning",
+  "glm-5.3=high",
+  "--default-model",
+  "glm-5.3",
+  "--light-model",
+  "k3.1-pro",
+  "--context-window",
+  "400000",
+  "--key-file",
+  "-",
+];
+
+async function withGateway() {
+  const setup = fixture();
+  setup.app.answers.push("once");
+  const added = await setup.run(claudeGateway, `${SECRET}\n`);
+  expect(added.exitCode).toBe(0);
+  const id = setup.state.getState().agentProfiles?.profiles[0]?.id as string;
+  const edit = (args: string[], stdin?: string) =>
+    setup.cli(["chat", "profiles", "edit", ...args], stdin);
+  return { ...setup, id, edit };
+}
+
+test("profiles edit renames a model with its settings, moves the default and replaces the key", async () => {
+  const { app, state, keys, statePath, changes, id, edit } = await withGateway();
+  app.answers.push("once");
+  const fresh = "sk-qa-NEWSECRET-k7";
+  const result = await edit(
+    ["Gateway", "--rename-model", "glm-5.3=glm-5.4", "--key-file", "-", "--json"],
+    `${fresh}\n`,
+  );
+  expect(result.stderr).toBe("");
+  const saved = state.getState().agentProfiles?.profiles[0];
+  expect(saved?.connection).toEqual({
+    method: "custom",
+    baseUrl: "http://127.0.0.1:9",
+    auth: "x-api-key",
+    models: [{ id: "k3.1-pro" }, { id: "glm-5.4", reasoning: "high" }],
+    defaultModel: "glm-5.4",
+    lightModel: "k3.1-pro",
+    contextWindow: 400000,
+  });
+  expect(await keys.get(id, connectionKeyTarget("claude", saved?.connection))).toBe(fresh);
+  expect(app.asked[1]?.change).toEqual({
+    kind: "profileEdit",
+    detail: "Gateway",
+    eachTime: true,
+    profileEdit: {
+      agent: "claude",
+      lines: [
+        { field: "models", value: "k3.1-pro, glm-5.3 → k3.1-pro, glm-5.4" },
+        { field: "defaultModel", value: "glm-5.3 → glm-5.4" },
+        { field: "key", change: "replaced" },
+      ],
+    },
+  });
+  expect(JSON.parse(result.stdout)).toMatchObject({
+    id,
+    name: "Gateway",
+    hasKey: true,
+    changed: ["models", "defaultModel", "key"],
+    connection: { defaultModel: "glm-5.4", contextWindow: 400000 },
+  });
+  expect(changes.at(-1)).toBe(id);
+  const shown = JSON.stringify({ result, asked: app.asked });
+  for (const secret of ["SECRETVALUE", "zz9q", "NEWSECRET", 'k7"']) {
+    expect(shown).not.toContain(secret);
+  }
+  expect(await readFile(statePath, "utf8")).not.toContain("NEWSECRET");
+  expect(logged()).not.toContain("NEWSECRET");
+});
+
+test("profiles edit adds, removes and tunes models and clears what auto names", async () => {
+  const { app, state, edit } = await withGateway();
+  app.answers.push("once");
+  const result = await edit([
+    "gateway",
+    "--add-model",
+    "glm-5.4",
+    "--remove-model",
+    "k3.1-pro",
+    "--default-model",
+    "glm-5.4",
+    "--light-model",
+    "auto",
+    "--reasoning",
+    "glm-5.3=auto",
+    "--label",
+    "glm-5.4=GLM 5.4",
+    "--context-window",
+    "auto",
+  ]);
+  expect(result.stderr).toBe("");
+  expect(state.getState().agentProfiles?.profiles[0]?.connection).toEqual({
+    method: "custom",
+    baseUrl: "http://127.0.0.1:9",
+    auth: "x-api-key",
+    models: [{ id: "glm-5.3" }, { id: "glm-5.4", label: "GLM 5.4" }],
+    defaultModel: "glm-5.4",
+  });
+  expect(app.asked[1]?.change.profileEdit?.lines).toEqual([
+    { field: "models", value: "k3.1-pro, glm-5.3 → glm-5.3, glm-5.4" },
+    { field: "defaultModel", value: "glm-5.3 → glm-5.4" },
+    { field: "lightModel", value: "k3.1-pro → auto" },
+    { field: "context", value: "400000 → auto" },
+    { field: "reasoning", value: "glm-5.3 high → auto" },
+    { field: "label", value: 'glm-5.4 "" → "GLM 5.4"' },
+  ]);
+});
+
+test("profiles edit keeps a key with its old address and says to give it again", async () => {
+  const { app, keys, state, id, edit } = await withGateway();
+  app.answers.push("once");
+  const result = await edit(["Gateway", "--base-url", "http://127.0.0.1:10", "--json"]);
+  expect(result.stderr).toBe("");
+  const row = JSON.parse(result.stdout);
+  expect(row.hasKey).toBe(false);
+  expect(row.note).toContain("give it again with --key-file");
+  const saved = state.getState().agentProfiles?.profiles[0];
+  expect(await keys.get(id, connectionKeyTarget("claude", saved?.connection))).toBeUndefined();
+  expect(app.asked[1]?.change.profileEdit?.lines).toEqual([
+    { field: "address", value: "http://127.0.0.1:9 → http://127.0.0.1:10" },
+  ]);
+});
+
+test.each([
+  [["--default-model", "nope"], "--default-model must be one of the profile's models"],
+  [["--light-model", "nope"], "--light-model must be one of the profile's models"],
+  [["--remove-model", "k3.1-pro", "--remove-model", "glm-5.3"], "at least one model"],
+  [["--remove-model", "glm-5.3"], 'The default model "glm-5.3" is no longer listed'],
+  [["--remove-model", "nope"], "is not a model of the profile"],
+  [["--add-model", "glm-5.3"], "is already a model of the profile"],
+  [["--rename-model", "nope=x"], "OLD one of the profile's models"],
+  [["--rename-model", "glm-5.3=k3.1-pro"], "is already a model of the profile"],
+  [["--model", "a", "--add-model", "b"], "Give --model to replace the list"],
+  [["--context-window", "0"], "from 1 to 2147483647, or auto"],
+  [["--context-window", "-400000"], "from 1 to 2147483647, or auto"],
+  [["--context-window", "glm-5.3=400000"], "Claude uses one context window"],
+  [["--reasoning", "nope=high"], "--reasoning MODEL must match a model of the profile"],
+  [["--auth", "basic"], "--auth must be bearer or x-api-key"],
+  [["--preset", "nope"], "--preset for claude must be one of"],
+  [["--name", ""], "Give a --name of 1 to 40 characters"],
+  [["--color", "pink"], "--color must be one of"],
+  [["--key-file", "-", "--remove-key"], "not both"],
+  [["--method", "account", "--key-file", "-"], "--key-file requires an API connection"],
+  [["--method", "api-key"], "--method api-key requires --key-file"],
+  [["--method", "account", "--add-model", "x"], "give the models with --model"],
+  [[], "Nothing to change"],
+  [["--color", "violet"], "Nothing to change"],
+])("profiles edit rejects %j before approval", async (flags, message) => {
+  const { app, state, keys, id, edit } = await withGateway();
+  const before = JSON.stringify(state.getState().agentProfiles);
+  const result = await edit(["Gateway", ...flags], "sk-qa-unused-1\n");
+  expect(result.exitCode).toBe(2);
+  expect(result.stderr).toContain(message);
+  expect(app.asked).toHaveLength(1);
+  expect(JSON.stringify(state.getState().agentProfiles)).toBe(before);
+  const saved = state.getState().agentProfiles?.profiles[0];
+  expect(await keys.get(id, connectionKeyTarget("claude", saved?.connection))).toBe(SECRET);
+});
+
+test("profiles edit refuses a name another profile of the agent uses, and edits the default profile", async () => {
+  const { app, state, edit } = await withGateway();
+  const taken = await edit(["Gateway", "--name", "DEFAULT"]);
+  expect(taken.exitCode).toBe(2);
+  expect(taken.stderr).toContain("A profile already uses this name for this agent");
+  app.answers.push("once");
+  const renamed = await edit([
+    "default",
+    "--agent",
+    "claude",
+    "--name",
+    "Main",
+    "--color",
+    "green",
+  ]);
+  expect(renamed.stderr).toBe("");
+  expect(app.asked.at(-1)?.change).toMatchObject({
+    kind: "profileEdit",
+    detail: "default",
+    profileEdit: {
+      lines: [
+        { field: "name", value: "default → Main" },
+        { field: "color", value: "blue → green" },
+      ],
+    },
+  });
+  expect(
+    state.getState().agentProfiles?.profiles.find(({ id }) => id === "claude-default"),
+  ).toMatchObject({
+    name: "Main",
+    color: "green",
+  });
+  const account = await edit(["Main", "--base-url", "http://127.0.0.1:9"]);
+  expect(account.stderr).toContain("require a custom connection");
+});
+
+test("profiles edit saves nothing when the user denies it or the profile changes meanwhile", async () => {
+  const { app, state, keys, id, edit } = await withGateway();
+  const before = JSON.stringify(state.getState().agentProfiles);
+  app.answers.push("deny");
+  const denied = await edit(["Gateway", "--remove-key"]);
+  expect(denied.exitCode).toBe(1);
+  expect(denied.stderr).toContain("the user did not allow it");
+  expect(JSON.stringify(state.getState().agentProfiles)).toBe(before);
+  const target = connectionKeyTarget(
+    "claude",
+    state.getState().agentProfiles?.profiles[0]?.connection,
+  );
+  expect(await keys.get(id, target)).toBe(SECRET);
+  const ask = app.services.askUser;
+  app.services = {
+    ...app.services,
+    askUser: async (request, signal) => {
+      const config = state.getState().agentProfiles;
+      if (config) {
+        state.commitState({
+          agentProfiles: {
+            ...config,
+            profiles: config.profiles.map((p) => ({ ...p, color: "amber" })),
+          },
+        });
+      }
+      await ask(request, signal);
+    },
+  };
+  app.answers.push("once");
+  const raced = await edit(["Gateway", "--name", "Renamed"]);
+  expect(raced.stderr).toContain("The profile changed while waiting for approval");
+  expect(state.getState().agentProfiles?.profiles[0]?.name).toBe("Gateway");
+  expect(await keys.get(id, target)).toBe(SECRET);
+});
+
+test("profiles edit switches a Codex profile's per-model context windows", async () => {
+  const { app, state, run, cli } = fixture();
+  app.answers.push("once", "once");
+  await run([
+    "--agent",
+    "codex",
+    "--name",
+    "Codex",
+    "--dir",
+    "codex",
+    "--base-url",
+    "http://127.0.0.1:9/v1",
+    "--model",
+    "glm-5.4",
+    "--context-window",
+    "glm-5.4=131072",
+  ]);
+  const result = await cli([
+    "chat",
+    "profiles",
+    "edit",
+    "Codex",
+    "--context-window",
+    "glm-5.4=400000",
+  ]);
+  expect(result.stderr).toBe("");
+  expect(state.getState().agentProfiles?.profiles[0]?.connection).toMatchObject({
+    models: [{ id: "glm-5.4", contextWindow: 400000 }],
+  });
+  expect(app.asked[1]?.change.profileEdit?.lines).toEqual([
+    { field: "context", value: "glm-5.4 131072 → 400000" },
+  ]);
+  const shared = await cli(["chat", "profiles", "edit", "Codex", "--context-window", "400000"]);
+  expect(shared.stderr).toContain("Codex sets a context window for each model");
+});

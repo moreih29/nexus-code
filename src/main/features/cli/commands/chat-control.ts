@@ -26,6 +26,7 @@ import { mayExecute } from "../sandbox";
 import { openerOf, senderOf } from "../sender";
 import { chatAgentFlag, resolveChat, SEND_TIMEOUT_MS } from "./chat";
 import { chatProfiles, chatProfilesAdd, chatUsage } from "./chat-profiles";
+import { chatProfilesEdit } from "./chat-profiles-edit";
 import { peerCliChat } from "./chat-remote";
 import { AGENT_NAMES } from "./chat-text";
 import { WORKSPACE_FLAG } from "./flags";
@@ -959,6 +960,7 @@ export const chatControlCommands: CliCommand[] = [
   chatHistory,
   chatProfiles,
   chatProfilesAdd,
+  chatProfilesEdit,
   chatUsage,
   chatFiles,
   chatResume,

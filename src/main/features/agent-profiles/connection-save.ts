@@ -101,16 +101,11 @@ export function createProfileConnections(
     if (conflict === "taken")
       throw new ProfileValidationError("A profile already uses this folder");
   };
-  const checkAdd = (next: AgentProfile) => {
-    const current = config();
-    if (current.profiles.length >= MAX_AGENT_PROFILES) {
-      throw new ProfileValidationError(`At most ${MAX_AGENT_PROFILES} profiles can be saved`);
-    }
-    if (findProfile(state, next.id))
-      throw new ProfileValidationError("This profile ID already exists");
-    const name = next.name.trim().toLowerCase();
+  const checkName = (next: AgentProfile) => {
+    const name = next.name.trim().toLowerCase() || (isDefaultProfileId(next.id) ? "default" : "");
     if (
-      profilesOf(current, next.agent).some((p) => {
+      profilesOf(config(), next.agent).some((p) => {
+        if (p.id === next.id) return false;
         const otherName =
           p.name.trim().toLowerCase() || (isDefaultProfileId(p.id) ? "default" : p.id);
         return otherName === name || p.id.toLowerCase() === name;
@@ -118,6 +113,15 @@ export function createProfileConnections(
     ) {
       throw new ProfileValidationError("A profile already uses this name for this agent");
     }
+  };
+  const checkAdd = (next: AgentProfile) => {
+    const current = config();
+    if (current.profiles.length >= MAX_AGENT_PROFILES) {
+      throw new ProfileValidationError(`At most ${MAX_AGENT_PROFILES} profiles can be saved`);
+    }
+    if (findProfile(state, next.id))
+      throw new ProfileValidationError("This profile ID already exists");
+    checkName(next);
     checkFolder(next, null);
   };
   return {
@@ -129,6 +133,15 @@ export function createProfileConnections(
     checkNew(profile: AgentProfile): AgentProfile {
       const next = normalizedProfile(profile);
       checkAdd(next);
+      return next;
+    },
+    checkEdit(profile: AgentProfile): AgentProfile {
+      const next = normalizedProfile(profile);
+      const existing = findProfile(state, next.id);
+      if (existing?.agent !== next.agent || existing.dir !== next.dir) {
+        throw new ProfileValidationError("This profile is no longer saved");
+      }
+      checkName(next);
       return next;
     },
     async save(

@@ -36,7 +36,7 @@ import {
   withProfileConnections,
 } from "../../agent-profiles/connection-view";
 import { expandHome, inspectLocalFolder, localDefaultDir } from "../../agent-profiles/local";
-import { CliUsageError, exactArgs, type FlagValues } from "../args";
+import { CliUsageError, exactArgs, type FlagSpec, type FlagValues } from "../args";
 import { type CliContext, CliError, resolveWorkspace } from "../context";
 import { ago, oneLine, table } from "../format";
 import { callerPath, onAppMachine } from "../paths";
@@ -188,7 +188,7 @@ export function profileTable(
   );
 }
 
-const AGENT_FLAG = {
+export const AGENT_FLAG = {
   type: "string",
   value: "AGENT",
   description: "claude (default) or codex",
@@ -362,7 +362,7 @@ export const chatProfiles: CliCommand = {
 
 const MAX_TOKENS = 2_147_483_647;
 
-function listFlag(value: FlagValues[string]): string[] {
+export function listFlag(value: FlagValues[string]): string[] {
   return Array.isArray(value) ? value : [];
 }
 
@@ -377,7 +377,7 @@ function tokens(flag: string, value: string): number | undefined {
   return count;
 }
 
-function modelPairs<T>(
+export function modelPairs<T>(
   flag: string,
   what: string,
   values: readonly string[],
@@ -398,7 +398,7 @@ function modelPairs<T>(
   return pairs;
 }
 
-function labelPairs(
+export function labelPairs(
   values: readonly string[],
   ids: readonly string[],
   known: string,
@@ -433,7 +433,7 @@ function withModelField<K extends "label" | "contextWindow" | "reasoning">(
   return next;
 }
 
-function applyModelFlags(
+export function applyModelFlags(
   agent: ChatAgent,
   models: readonly ConnectionModel[],
   flags: FlagValues,
@@ -493,7 +493,7 @@ function applyModelFlags(
   };
 }
 
-function profileConnection(agent: ChatAgent, flags: FlagValues): ProfileConnection {
+export function profileConnection(agent: ChatAgent, flags: FlagValues): ProfileConnection {
   const presetFlag = flags.preset;
   const address = flags["base-url"];
   const method =
@@ -577,7 +577,7 @@ function profileDir(ctx: CliContext, input: string, home: string, windows: boole
   return `~/${relative.split(path.sep).join("/")}`;
 }
 
-async function readKey(ctx: CliContext, file: string): Promise<string> {
+export async function readKey(ctx: CliContext, file: string): Promise<string> {
   let text: string;
   try {
     text =
@@ -592,6 +592,60 @@ async function readKey(ctx: CliContext, file: string): Promise<string> {
     throw new CliUsageError("Invalid API key in --key-file input");
   return key.data;
 }
+
+export const CONNECTION_FLAGS = {
+  method: {
+    type: "string",
+    value: "METHOD",
+    description: `${CONNECTION_METHODS.join(", ")} (account by default)`,
+  },
+  preset: {
+    type: "string",
+    value: "ID",
+    description: `${CONNECTION_PRESETS.join(", ")} (Codex: LiteLLM and local presets)`,
+  },
+  "base-url": { type: "string", value: "URL", description: "Custom API address" },
+  auth: {
+    type: "string",
+    value: "AUTH",
+    description: `${CONNECTION_AUTH.join(" or ")} for custom APIs (Codex uses bearer)`,
+  },
+  model: {
+    type: "string",
+    value: "ID",
+    description: "Custom model ID (repeatable)",
+    repeat: true,
+  },
+  reasoning: {
+    type: "string",
+    value: "MODEL=LEVEL",
+    description: "Model reasoning: none, high, xhigh, max; Claude also auto (repeatable)",
+    repeat: true,
+  },
+  "context-window": {
+    type: "string",
+    value: "TOKENS",
+    description: "Claude: TOKENS for every model; Codex: MODEL=TOKENS (repeatable)",
+    repeat: true,
+  },
+  label: {
+    type: "string",
+    value: "MODEL=TEXT",
+    description: "A model's display name (repeatable)",
+    repeat: true,
+  },
+  "default-model": { type: "string", value: "ID", description: "Default model from the list" },
+  "light-model": {
+    type: "string",
+    value: "ID",
+    description: "Claude's light model from the list",
+  },
+  "key-file": {
+    type: "string",
+    value: "FILE",
+    description: "Read the API key from FILE or - for stdin",
+  },
+} satisfies Record<string, FlagSpec>;
 
 export const chatProfilesAdd = {
   path: ["chat", "profiles", "add"],
@@ -613,57 +667,7 @@ export const chatProfilesAdd = {
       value: "PATH",
       description: "Config folder (suggested from the name by default)",
     },
-    method: {
-      type: "string",
-      value: "METHOD",
-      description: `${CONNECTION_METHODS.join(", ")} (account by default)`,
-    },
-    preset: {
-      type: "string",
-      value: "ID",
-      description: `${CONNECTION_PRESETS.join(", ")} (Codex: LiteLLM and local presets)`,
-    },
-    "base-url": { type: "string", value: "URL", description: "Custom API address" },
-    auth: {
-      type: "string",
-      value: "AUTH",
-      description: `${CONNECTION_AUTH.join(" or ")} for custom APIs (Codex uses bearer)`,
-    },
-    model: {
-      type: "string",
-      value: "ID",
-      description: "Custom model ID (repeatable)",
-      repeat: true,
-    },
-    reasoning: {
-      type: "string",
-      value: "MODEL=LEVEL",
-      description: "Model reasoning: none, high, xhigh, max; Claude also auto (repeatable)",
-      repeat: true,
-    },
-    "context-window": {
-      type: "string",
-      value: "TOKENS",
-      description: "Claude: TOKENS for every model; Codex: MODEL=TOKENS (repeatable)",
-      repeat: true,
-    },
-    label: {
-      type: "string",
-      value: "MODEL=TEXT",
-      description: "A model's display name (repeatable)",
-      repeat: true,
-    },
-    "default-model": { type: "string", value: "ID", description: "Default model from the list" },
-    "light-model": {
-      type: "string",
-      value: "ID",
-      description: "Claude's light model from the list",
-    },
-    "key-file": {
-      type: "string",
-      value: "FILE",
-      description: "Read the API key from FILE or - for stdin",
-    },
+    ...CONNECTION_FLAGS,
     "instructions-file": {
       type: "string",
       value: "FILE",
@@ -766,7 +770,7 @@ export const chatProfilesAdd = {
   },
 } satisfies CliCommand;
 
-function validateNew<T>(check: () => T): T {
+export function validateNew<T>(check: () => T): T {
   try {
     return check();
   } catch (error) {
