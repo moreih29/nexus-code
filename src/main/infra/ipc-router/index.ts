@@ -26,6 +26,7 @@ import {
   validationErrorOptions,
 } from "../../../shared/validation/error-message";
 import { GitError } from "../../features/git/domain/error";
+import { errnoText } from "../errno-text";
 import { agentCallError } from "./agent-errors";
 import { fsCallError } from "./fs-errors";
 import { noteIpcResult, noteIpcThrow } from "./recent-failures";
@@ -200,8 +201,7 @@ export function setupRouter(): void {
           return expected;
         }
         noteIpcThrow(channelName, method, error);
-        const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
-        return reportCallBug(procedure, correlationId, detail);
+        return reportCallBug(procedure, correlationId, callBugDetail(error));
       } finally {
         callContext.release?.();
       }
@@ -246,6 +246,13 @@ export function setupRouter(): void {
       return ipcOk({ streamId });
     },
   );
+}
+
+function callBugDetail(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const detail = error.stack ?? error.message;
+  const errno = errnoText(error);
+  return errno ? detail.replace(error.message, errno) : detail;
 }
 
 function reportCallBug(procedure: string, correlationId: string, detail: string): IpcErrResult {

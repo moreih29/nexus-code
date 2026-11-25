@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import path from "node:path";
 import {
   createUpdateInstaller,
   type DownloadProgress,
@@ -19,6 +20,7 @@ function setup(
   } = {},
 ) {
   const statuses: InstallStatus[] = [];
+  const warnings: string[] = [];
   const progress: { version: string; progress: DownloadProgress }[] = [];
   let staged: () => void = () => {};
   let advanced: (progress: DownloadProgress) => void = () => {};
@@ -62,12 +64,13 @@ function setup(
     onStatus: (status) => statuses.push(status),
     onProgress: (version, report) => progress.push({ version, progress: report }),
     releaseUrl: (version) => (version === null ? "releases" : `releases/v${version}`),
-    logger: { info: () => {}, warn: () => {} },
+    logger: { info: () => {}, warn: (message: string) => void warnings.push(message) },
   });
   const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
   return {
     installer,
     statuses,
+    warnings,
     progress,
     calls,
     settle,
@@ -130,6 +133,28 @@ describe("createUpdateInstaller", () => {
     await install;
     await t.installer.restart();
     expect(t.statuses.at(-1)).toEqual({ kind: "installFailed", releaseUrl: "releases/v1.2.0" });
+  });
+
+  it("names a state flush failure before the install by its code, without the paths", async () => {
+    const folder = path.join("C:", "Users", "qa-user", "AppData", "Roaming", "NexusCode");
+    const t = setup("1.2.0", {
+      quitAndInstall: () => {
+        throw Object.assign(
+          new Error(
+            `EPERM: operation not permitted, rename '${folder}state.json.vsctmp.sync' -> '${folder}state.json'`,
+          ),
+          { code: "EPERM", syscall: "rename" },
+        );
+      },
+    });
+    const install = t.installer.install("stable");
+    await t.settle();
+    t.finishDownload();
+    t.stage();
+    await install;
+    await t.installer.restart();
+    expect(t.statuses.at(-1)).toEqual({ kind: "installFailed", releaseUrl: "releases/v1.2.0" });
+    expect(t.warnings).toEqual(["updates: in-place update to 1.2.0 failed: EPERM (rename)"]);
   });
 
   it("reports the download's progress, then the check Squirrel.Mac runs on it", async () => {

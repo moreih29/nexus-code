@@ -7,6 +7,7 @@ import {
   type WindowBounds,
   WindowBoundsSchema,
 } from "../../../shared/types/app-state";
+import { errnoText } from "../errno-text";
 import { migrateAppState } from "./app-state-migrations";
 import { CANCELLED, PREPARING, RENAMING, renameWhenUnlocked, writeStateFile } from "./state-file";
 import { StateWorkerError, StateWriter } from "./state-writer";
@@ -256,13 +257,15 @@ export class StateService {
         this.workerFailures++;
         if (error.startup || this.workerFailures >= MAX_WORKER_FAILURES) {
           this.useSyncWriter = true;
-          log.warn(`App state worker unavailable; using synchronous writes: ${String(error)}`);
+          log.warn(
+            `App state worker unavailable; using synchronous writes: ${errnoText(error) ?? String(error)}`,
+          );
           return;
         }
       } else {
         this.workerFailures = 0;
       }
-      log.warn(`Could not save app state; retrying: ${String(error)}`);
+      log.warn(`Could not save app state; retrying: ${errnoText(error) ?? String(error)}`);
       delay = this.retryDelay;
       this.retryDelay = Math.min(this.retryDelay * 2, MAX_RETRY_DELAY_MS);
     } finally {
