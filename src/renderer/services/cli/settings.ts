@@ -40,6 +40,14 @@ import type { CliSettingInfo, CliSettingValue } from "../../../shared/cli/ui";
 import { DEFAULT_THEME } from "../../../shared/design-tokens";
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "../../../shared/i18n";
 import { EDITOR_COMMANDS } from "../../../shared/keybindings/editor-commands";
+import { BUILTIN_LSP_PRESETS, type BuiltinLspPresetLanguageId } from "../../../shared/lsp/config";
+import {
+  isLspLanguageChosen,
+  isLspLowMemory,
+  LSP_MAX_ACTIVE_WORKSPACES_LIMIT,
+  type LspLanguageSettings,
+  type LspSettings,
+} from "../../../shared/lsp/settings";
 import { type ShellChoice, sameShellChoice } from "../../../shared/pty/shell";
 import { MAX_VOICE_TERM_CHARS, MAX_VOICE_TERMS } from "../../../shared/remote/voice";
 import {
@@ -151,6 +159,32 @@ async function voiceTerms(): Promise<{ terms: string[] } | { unavailable: string
 async function saveVoiceTerms(terms: string[]): Promise<void> {
   const result = await ipcCallResult("remote", "setVoiceTerms", { terms });
   if (!result.ok) throw new UiRequestError(`voice.terms: ${voiceTermsFailure(result.kind)}`);
+}
+
+function changeLspSettings(change: (settings: LspSettings) => LspSettings): void {
+  const store = useLspSettingsStore.getState();
+  store.hydrate(change(store.settings));
+}
+
+async function setLspMaxActiveWorkspaces(count: number): Promise<void> {
+  unwrapIpcResult(await ipcCallResult("lsp", "setMaxActiveWorkspaces", { count }));
+  changeLspSettings((settings) => ({ ...settings, maxActiveWorkspaces: count }));
+}
+
+async function setLspLanguage(
+  languageId: BuiltinLspPresetLanguageId,
+  patch: LspLanguageSettings,
+): Promise<void> {
+  unwrapIpcResult(
+    await ipcCallResult("lsp", "setLanguageSettings", { languageId, settings: patch }),
+  );
+  changeLspSettings((settings) => ({
+    ...settings,
+    languages: {
+      ...settings.languages,
+      [languageId]: { ...settings.languages[languageId], ...patch },
+    },
+  }));
 }
 
 export const CLI_SETTINGS: readonly CliSetting[] = [
@@ -505,11 +539,22 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
       const { enabled } = useLspSettingsStore.getState().settings;
       return { value: enabled, changed: enabled };
     },
+    set: async (value) => {
+      const enabled = value as boolean;
+      unwrapIpcResult(await ipcCallResult("lsp", "setEnabled", { enabled }));
+      changeLspSettings((settings) => ({ ...settings, enabled }));
+    },
+    reset: async () => {
+      unwrapIpcResult(await ipcCallResult("lsp", "setEnabled", { enabled: false }));
+      changeLspSettings((settings) => ({ ...settings, enabled: false }));
+    },
   },
   {
     key: "lsp.maxActiveWorkspaces",
     summary: "Maximum number of workspaces with active language servers",
     type: "integer",
+    min: 1,
+    max: LSP_MAX_ACTIVE_WORKSPACES_LIMIT,
     get: () => {
       const { maxActiveWorkspaces } = useLspSettingsStore.getState().settings;
       return {
@@ -517,6 +562,37 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
         changed: maxActiveWorkspaces !== LSP_MAX_ACTIVE_WORKSPACES,
       };
     },
+    set: (value) => setLspMaxActiveWorkspaces(value as number),
+    reset: () => setLspMaxActiveWorkspaces(LSP_MAX_ACTIVE_WORKSPACES),
+  },
+  ...BUILTIN_LSP_PRESETS.map((preset): CliSetting => {
+    const { languageId } = preset;
+    const system = "system" in preset && preset.system === true;
+    return {
+      key: `lsp.${languageId}`,
+      summary: system
+        ? `Whether the ${languageId} language server you installed runs`
+        : `Whether the bundled ${languageId} language server runs`,
+      type: "boolean",
+      get: () => {
+        const settings = useLspSettingsStore.getState().settings.languages[languageId];
+        const value = isLspLanguageChosen(languageId, settings);
+        return { value, changed: value === system };
+      },
+      set: (value) => setLspLanguage(languageId, { enabled: value as boolean }),
+      reset: () => setLspLanguage(languageId, { enabled: !system }),
+    };
+  }),
+  {
+    key: "lsp.typescript.lowMemory",
+    summary: "Whether the TypeScript language server saves memory, skipping its syntax server",
+    type: "boolean",
+    get: () => {
+      const settings = useLspSettingsStore.getState().settings.languages.typescript;
+      return { value: isLspLowMemory(settings), changed: settings?.lowMemory === false };
+    },
+    set: (value) => setLspLanguage("typescript", { lowMemory: value as boolean }),
+    reset: () => setLspLanguage("typescript", { lowMemory: true }),
   },
   {
     key: "updates.status",

@@ -546,6 +546,7 @@ nexus settings set editor.fontFamily ""     # 빈 값이면 시스템 글꼴
 nexus settings set editor.openIn.markdown source   # Markdown 을 원본으로 열기
 nexus settings set terminal.shell fish      # 새 터미널의 셸 (system 이면 시스템 기본)
 nexus settings set voice.terms "NexusCode, Claude, 넥서스"   # 음성 인식 단어 (목록 전체)
+nexus settings set lsp.enabled on           # 언어 서버 켜기 (lsp.<언어> · lsp.typescript.lowMemory · lsp.maxActiveWorkspaces)
 nexus settings reset editor.fontSize        # 기본값으로
 nexus settings instructions show --workspace WS --agent codex --json
 nexus settings instructions show --device "Mac mini" --workspace WS --agent codex --json
@@ -558,7 +559,8 @@ nexus settings open agent                   # 설정 창을 그 페이지로 열
 ```
 
 - 설정 창에서 바꾸는 것과 같습니다. 바로 반영되고 저장됩니다.
-- 테마 · 언어 · 아이콘 · 창 투명도 · 비활성 패널 흐림, 에디터 · 터미널 · 채팅 글꼴, 한도 해제 뒤 자동 이어하기, 파일을 여는 보기, 터미널 기본 셸, 커서 모양, 작업 에이전트, 에이전트 탭 기본 보기, 데스크톱 알림, 업데이트 자동 확인, 에이전트 안내, 음성 인식 단어를 바꿀 수 있습니다.
+- 테마 · 언어 · 아이콘 · 창 투명도 · 비활성 패널 흐림, 에디터 · 터미널 · 채팅 글꼴, 한도 해제 뒤 자동 이어하기, 파일을 여는 보기, 터미널 기본 셸, 커서 모양, 작업 에이전트, 에이전트 탭 기본 보기, 데스크톱 알림, 업데이트 자동 확인, 에이전트 안내, 음성 인식 단어, 언어 서버를 바꿀 수 있습니다.
+- `lsp.enabled` 는 언어 서버 전체, `lsp.<언어>` 는 언어 하나(`typescript` · `python` · `yaml` · `shell` · `dockerfile` · `go` · `rust`), `lsp.typescript.lowMemory` 는 TypeScript 메모리 절약, `lsp.maxActiveWorkspaces` 는 동시에 켤 워크스페이스 수(1~16)입니다. 직접 설치한 서버의 경로는 설정 창에서만 바꿉니다.
 - `chat.limitResume` 은 구독 프로필 탭이 사용량 한도로 멈췄을 때 한도가 풀리면 앱이 이어하기 메시지를 보낼지입니다(기본 `on`).
 - `chat.limitResumeDelayMinutes` 는 해제 후 대기(0~60분, 기본 1분) · `chat.limitResumeMaxTries` 는 최대 확인 횟수(1~10회, 기본 3회) · `chat.limitResumeDeadlineHours` 는 멈춘 뒤 자동으로 이어할 수 있는 기한(1~168시간, 기본 12시간)입니다.
 - `chat.limitResumeMessage` 는 한 줄 메시지입니다. `""` 로 두면 앱 언어의 기본 문구를 보냅니다.

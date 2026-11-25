@@ -36,13 +36,20 @@ export function lspSettingsFromState(state: LspSettingsState): LspSettings {
   };
 }
 
-export function isLspLanguageOn(settings: LspSettings, languageId: string): boolean {
+export function isLspLanguageChosen(
+  languageId: string,
+  languageSettings: LspLanguageSettings | undefined,
+): boolean {
   const preset: LspServerSpec | undefined = BUILTIN_LSP_PRESETS.find(
     (p) => p.languageId === languageId,
   );
-  if (!settings.enabled || !preset) return false;
-  const enabled = settings.languages[languageId]?.enabled;
+  if (!preset) return false;
+  const enabled = languageSettings?.enabled;
   return preset.system ? enabled === true : enabled !== false;
+}
+
+export function isLspLanguageOn(settings: LspSettings, languageId: string): boolean {
+  return settings.enabled && isLspLanguageChosen(languageId, settings.languages[languageId]);
 }
 
 export function lspServerPath(settings: LspSettings, languageId: string): string | undefined {

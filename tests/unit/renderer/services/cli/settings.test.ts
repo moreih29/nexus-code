@@ -5,6 +5,7 @@ import { runCli } from "../../../../../src/main/features/cli/registry";
 import { AgentGate } from "../../../../../src/main/features/remote/agent-gate";
 import { serveWith } from "../../../../../src/main/features/remote/serve";
 import type { CliUiOps } from "../../../../../src/shared/cli/ui";
+import { lspSettingsFromState } from "../../../../../src/shared/lsp/settings";
 import { WorkspaceMetaSchema } from "../../../../../src/shared/types/workspace";
 import { contextFor, fakeApp } from "../../../main/cli/fake-services";
 
@@ -57,6 +58,9 @@ const { usePreviewDefaultsStore } = await import(
 );
 const { useTerminalStore } = await import("../../../../../src/renderer/state/stores/terminal");
 const { useWorkspacesStore } = await import("../../../../../src/renderer/state/stores/workspaces");
+const { useLspSettingsStore } = await import(
+  "../../../../../src/renderer/state/stores/lsp-settings"
+);
 
 const set = (key: string, value: string | null) => settingsHandlers["settings.set"]({ key, value });
 const get = async (key: string) => (await settingsHandlers["settings.list"]({ key })).settings[0];
@@ -364,5 +368,44 @@ describe("settings of the editor's views, the terminal's shell and voice terms",
     } finally {
       delete answers["remote.voiceTerms"];
     }
+  });
+});
+
+describe("language server settings", () => {
+  it("turns language servers, one language and TypeScript's memory saving on and off", async () => {
+    useLspSettingsStore.getState().hydrate(lspSettingsFromState({}));
+    expect(await get("lsp.enabled")).toMatchObject({ value: false, changed: false });
+    expect((await set("lsp.enabled", "on")).setting).toMatchObject({ value: true, changed: true });
+    expect(await get("lsp.go")).toMatchObject({ value: false, changed: false });
+    expect(await get("lsp.python")).toMatchObject({ value: true, changed: false });
+    expect((await set("lsp.python", "off")).setting).toMatchObject({
+      value: false,
+      changed: true,
+    });
+    expect((await set("lsp.typescript.lowMemory", "off")).setting).toMatchObject({
+      value: false,
+      changed: true,
+    });
+    expect((await set("lsp.maxActiveWorkspaces", "4")).setting).toMatchObject({ value: 4 });
+    expect(useLspSettingsStore.getState().settings).toMatchObject({
+      enabled: true,
+      maxActiveWorkspaces: 4,
+      languages: { python: { enabled: false }, typescript: { lowMemory: false } },
+    });
+    await expect(set("lsp.maxActiveWorkspaces", "17")).rejects.toThrow(
+      "lsp.maxActiveWorkspaces: 17 is not within 1..16",
+    );
+    await set("lsp.python", null);
+    expect(await get("lsp.python")).toMatchObject({ value: true, changed: false });
+    writes.pop();
+    await expect(set("lsp.python", "maybe")).rejects.toThrow(
+      'lsp.python: "maybe" is not on or off',
+    );
+    expect(writes).toEqual([
+      { enabled: true },
+      { languageId: "python", settings: { enabled: false } },
+      { languageId: "typescript", settings: { lowMemory: false } },
+      { count: 4 },
+    ]);
   });
 });
