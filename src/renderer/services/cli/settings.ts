@@ -31,7 +31,7 @@ import { useUpdatesStore } from "@/state/stores/updates";
 import { useVoiceStore, type VoiceLanguagePreference } from "@/state/stores/voice";
 import { useWindowOpacityStore } from "@/state/stores/window-opacity";
 import { useWorkspacesStore } from "@/state/stores/workspaces";
-import { isMac } from "@/utils/platform";
+import { hostPlatform, isMac, isWindows } from "@/utils/platform";
 import { AGENT_LIST_VIEWS, DEFAULT_AGENT_LIST_VIEW } from "../../../shared/agent-list/view";
 import { profilesOf } from "../../../shared/agent-profiles/profiles";
 import {
@@ -70,6 +70,11 @@ import {
   proposedBindingConflicts,
 } from "../../../shared/keybindings/edit";
 import { EDITOR_COMMANDS } from "../../../shared/keybindings/editor-commands";
+import {
+  acceleratorToLabel,
+  namesSuperKey,
+  recordedAccelerator,
+} from "../../../shared/keybindings/keybinding-parse";
 import { AcceleratorStringSchema } from "../../../shared/keybindings/overrides";
 import { BUILTIN_LSP_PRESETS, type BuiltinLspPresetLanguageId } from "../../../shared/lsp/config";
 import {
@@ -984,15 +989,18 @@ function keyBindings(): CliKeyBinding[] {
     ...effectiveBindings.map(({ command, primary, chord, when }) => ({
       command,
       area: "app" as const,
-      primary: primary ?? null,
-      ...(chord ? { chord } : {}),
+      primary: primary ? shownKey(primary) : null,
+      ...(chord ? { chord: [shownKey(chord[0]), shownKey(chord[1])] as const } : {}),
       ...(when !== undefined ? { when } : {}),
     })),
-    ...EDITOR_COMMANDS.map(({ id, defaultPrimary }) => ({
-      command: id,
-      area: "editor" as const,
-      primary: editorEffectivePrimary(editorOverrides, id, defaultPrimary),
-    })),
+    ...EDITOR_COMMANDS.map(({ id, defaultPrimary }) => {
+      const primary = editorEffectivePrimary(editorOverrides, id, defaultPrimary);
+      return {
+        command: id,
+        area: "editor" as const,
+        primary: primary === null ? null : shownKey(primary),
+      };
+    }),
   ];
 }
 
@@ -1019,11 +1027,29 @@ function checkedKeys(target: KeyTarget, keys: readonly string[]): string[] {
         : `${target.command} takes one key, such as "CmdOrCtrl+Shift+P"`,
     );
   }
-  for (const key of keys) {
+  const mac = isMac();
+  const superKey = isWindows() ? "Windows key" : "Super key";
+  return keys.map((key) => {
+    if (!mac && namesSuperKey(key)) {
+      throw new UiRequestError(
+        `"${key}": shortcuts can't use the ${superKey}, as Settings › Keyboard Shortcuts can't record it`,
+      );
+    }
     if (!AcceleratorStringSchema.safeParse(key).success)
       throw new UiRequestError(`"${key}" is not a key such as CmdOrCtrl+Shift+P`);
-  }
-  return [...keys];
+    if (mac) return key;
+    const recorded = recordedAccelerator(key, false);
+    if (recorded === null) {
+      throw new UiRequestError(
+        `"${key}": Cmd is Ctrl here, so Cmd+Ctrl would take the ${superKey}, which Settings › Keyboard Shortcuts can't record`,
+      );
+    }
+    return recorded;
+  });
+}
+
+function shownKey(accel: string): string {
+  return isMac() ? accel : acceleratorToLabel(accel, { isMac: false, platform: hostPlatform() });
 }
 
 function changeKeys(change: CliKeyChange): string[] {
@@ -1056,12 +1082,13 @@ function changeKeys(change: CliKeyChange): string[] {
         ? store.effectiveBindings
         : editorConflictBindings(store.editorOverrides),
     isMac: isMac(),
+    isWindows: isWindows(),
   });
   const t = i18next.getFixedT("en", "settings");
   const blocking = conflicts.filter(isSevereConflict);
   if (blocking.length > 0) {
     throw new UiRequestError(
-      `${keys.join(" ")} for ${command}: ${blocking.map((c) => keybindingConflictMessage(t, c)).join("; ")}`,
+      `${keys.map(shownKey).join(" ")} for ${command}: ${blocking.map((c) => keybindingConflictMessage(t, c)).join("; ")}`,
     );
   }
   if (target.area === "editor") store.setEditorOverride({ command, primary: keys[0] as string });

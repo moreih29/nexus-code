@@ -51,6 +51,7 @@ export interface ProposedBinding extends BindingShape {
   readonly keys: readonly AcceleratorString[];
   readonly bindings: readonly ConflictBinding[];
   readonly isMac: boolean;
+  readonly isWindows?: boolean;
 }
 
 export function proposedBindingConflicts({
@@ -60,6 +61,7 @@ export function proposedBindingConflicts({
   keys,
   bindings,
   isMac,
+  isWindows = false,
 }: ProposedBinding): KeybindingConflict[] {
   return detectConflicts({
     command,
@@ -69,6 +71,7 @@ export function proposedBindingConflicts({
     ...(when !== undefined ? { when } : {}),
     bindings,
     isMac,
+    isWindows,
   });
 }
 

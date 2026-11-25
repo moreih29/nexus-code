@@ -448,7 +448,9 @@ const settingsKeysSet: CliCommand = {
   summary: "Give a command a keyboard shortcut, as Settings › Keyboard Shortcuts does",
   args: "<command> <keys>",
   details:
-    "Keys are written as nexus settings keys list shows them, such as CmdOrCtrl+Shift+P; a\n" +
+    "Keys are written as nexus settings keys list shows them, such as CmdOrCtrl+Shift+P (on\n" +
+    "Windows and Linux, as the Settings page shows them, such as Ctrl+Shift+P; Cmd means Ctrl\n" +
+    "there, and the Windows or Super key isn't taken). A\n" +
     "command bound to a chord takes its two keys, such as CmdOrCtrl+K CmdOrCtrl+S. A shortcut\n" +
     "another command already uses where both apply, or the system keeps, is refused with the\n" +
     "reason; one only shared in another focus or used by the editor or terminal is set, with a warning.",

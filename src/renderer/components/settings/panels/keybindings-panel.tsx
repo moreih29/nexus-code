@@ -31,7 +31,7 @@ import {
 } from "../../../keybindings/conflict-message";
 import { labelOptions } from "../../../keybindings/shortcut-labels";
 import { useKeybindingsStore } from "../../../state/stores/keybindings";
-import { isLinux, isMac } from "../../../utils/platform";
+import { isLinux, isMac, isWindows } from "../../../utils/platform";
 import { Checkbox } from "../../ui/checkbox";
 import { SearchInput } from "../../ui/search-input";
 
@@ -460,6 +460,7 @@ function KeybindingRecorder({
       keys: captured,
       bindings,
       isMac: isMac(),
+      isWindows: isWindows(),
     });
   }, [complete, captured, command, kind, when, bindings]);
 
