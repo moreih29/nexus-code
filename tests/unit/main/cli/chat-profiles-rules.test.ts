@@ -43,7 +43,9 @@ test("profiles default refuses an unknown profile, the current default, a denial
   expect(ambiguous.stderr).toContain("more than one profile");
   const device = await cli(["chat", "profiles", "default", "Work", "--device", "Mini"]);
   expect(device.exitCode).toBe(2);
-  expect(device.stderr).toContain("this computer's profiles only; leave out --device");
+  expect(device.stderr).toContain(
+    "--device is not taken here: this command acts on this computer only",
+  );
   expect(app.asked).toEqual([]);
   app.answers.push("deny");
   const denied = await cli(["chat", "profiles", "default", "Work"]);
@@ -167,7 +169,7 @@ test("rules set refuses bad targets and profiles before asking", async () => {
     [["--workspace", "app", "--profile", "Work", "--inherit"], "Give --profile NAME or --inherit"],
     [["--workspace", "app", "--folder", ".", "--profile", "Work"], "Give one of --folder"],
     [["--workspace", "app", "--agent", "claude", "--inherit"], "No rule for this target"],
-    [["--workspace", "app", "--profile", "Work", "--device", "Mini"], "leave out --device"],
+    [["--workspace", "app", "--profile", "Work", "--device", "Mini"], "--device is not taken here"],
   ];
   for (const [args, message] of cases) {
     const result = await run(args);

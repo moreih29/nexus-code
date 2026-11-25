@@ -39,8 +39,6 @@ import {
   profileName,
   profileTable,
   readKey,
-  refuseDevice,
-  THIS_COMPUTER_FLAG,
   validateNew,
 } from "./chat-profiles";
 import { ADVANCED_FLAGS, advancedEdit, checkStdin } from "./chat-profiles-advanced";
@@ -340,10 +338,8 @@ export const chatProfilesEdit = {
     },
     "remove-key": { type: "boolean", description: "Delete the saved API key" },
     ...ADVANCED_FLAGS,
-    device: THIS_COMPUTER_FLAG,
   },
   async run(ctx, { flags, positionals }, { windows = process.platform === "win32" } = {}) {
-    refuseDevice(flags, "chat profiles edit");
     const [selector, ...extra] = positionals;
     if (selector === undefined || extra.length) throw new CliUsageError("Give one <profile>");
     if (!onAppMachine(ctx)) throw new CliError("Run this command in a local workspace");
@@ -529,9 +525,8 @@ export const chatProfilesRemove = {
     "Settings, its folder with the sign-ins and history in it stays, workspace rules and defaults\n" +
     "that chose it fall back, and its saved API key is deleted. Open tabs are not closed.\n" +
     "The default profile cannot be removed.",
-  flags: { agent: AGENT_FLAG, device: THIS_COMPUTER_FLAG },
+  flags: { agent: AGENT_FLAG },
   async run(ctx, { flags, positionals }) {
-    refuseDevice(flags, "chat profiles remove");
     const [selector, ...extra] = positionals;
     if (selector === undefined || extra.length) throw new CliUsageError("Give one <profile>");
     if (!onAppMachine(ctx)) throw new CliError("Run this command in a local workspace");

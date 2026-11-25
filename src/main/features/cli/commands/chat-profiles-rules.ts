@@ -31,7 +31,7 @@ import { oneLine, table } from "../format";
 import { callerPath, onAppMachine } from "../paths";
 import { type CliCommand, output } from "../registry";
 import { chatAgentFlag } from "./chat";
-import { localProfile, profileName, refuseDevice, THIS_COMPUTER_FLAG } from "./chat-profiles";
+import { localProfile, profileName } from "./chat-profiles";
 
 const AGENT_FLAG = {
   type: "string",
@@ -169,9 +169,8 @@ export const chatProfilesDefault = {
     "Without a profile, prints the profile each agent uses where no rule matches. With one (its\n" +
     "name or id; --agent when a Claude and a Codex profile share it), makes it that agent's default\n" +
     "with the user's approval each time, as Settings › Agents › Rules › Defaults does. New tabs use it.",
-  flags: { agent: AGENT_FLAG, device: THIS_COMPUTER_FLAG },
+  flags: { agent: AGENT_FLAG },
   async run(ctx, { flags, positionals }) {
-    refuseDevice(flags, "chat profiles default");
     const [selector, ...extra] = positionals;
     if (extra.length) throw new CliUsageError("Give at most one <profile>");
     const agentFilter =
@@ -393,10 +392,8 @@ export const chatProfilesRules = {
     "inherit means the rule leaves that agent to the next rule or the default. APPLIES counts the\n" +
     "workspaces the rule matches. The last line shows what this workspace uses.\n" +
     "Change them on this computer with chat profiles rules set and rules remove.",
-  flags: { device: THIS_COMPUTER_FLAG },
-  async run(ctx, { flags, positionals }, options: RulesOptions = {}) {
+  async run(ctx, { positionals }, options: RulesOptions = {}) {
     exactArgs(positionals);
-    refuseDevice(flags, "chat profiles rules");
     const matching = matchingOf(options);
     const config = ctx.services.profileConnections.config();
     const all = ctx.services.listWorkspaces();
@@ -433,11 +430,9 @@ export const chatProfilesRulesSet = {
     agent: AGENT_FLAG,
     profile: { type: "string", value: "NAME", description: "The profile by name or id" },
     inherit: { type: "boolean", description: "Leave the agent to the next rule or the default" },
-    device: THIS_COMPUTER_FLAG,
   },
   async run(ctx, { flags, positionals }, options: RulesOptions = {}) {
     exactArgs(positionals);
-    refuseDevice(flags, "chat profiles rules set");
     if (!onAppMachine(ctx)) throw new CliError("Run this command in a local workspace");
     const given = targetFlag(flags);
     if (!given) throw new CliUsageError("Give --folder PATH, --ssh HOST or --workspace WS");
@@ -534,10 +529,8 @@ export const chatProfilesRulesRemove = {
     folder: TARGET_FLAGS.folder,
     ssh: { type: "string", value: "HOST", description: "An SSH host" },
     workspace: TARGET_FLAGS.workspace,
-    device: THIS_COMPUTER_FLAG,
   },
   async run(ctx, { flags, positionals }, options: RulesOptions = {}) {
-    refuseDevice(flags, "chat profiles rules remove");
     if (!onAppMachine(ctx)) throw new CliError("Run this command in a local workspace");
     const [selector, ...extra] = positionals;
     if (extra.length) throw new CliUsageError("Give one <rule>");

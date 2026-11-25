@@ -193,20 +193,6 @@ export function profileTable(
   );
 }
 
-export const THIS_COMPUTER_FLAG = {
-  type: "string",
-  value: "NAME",
-  description: "Not taken: profiles change on this computer only",
-} as const satisfies FlagSpec;
-
-export function refuseDevice(flags: FlagValues, command: string): void {
-  if (flags.device === undefined) return;
-  throw new CliUsageError(
-    `${command} works on this computer's profiles only; leave out --device. ` +
-      "Change another computer's profiles in its Settings › Agents.",
-  );
-}
-
 export const AGENT_FLAG = {
   type: "string",
   value: "AGENT",
@@ -942,10 +928,8 @@ export const chatProfilesAdd = {
       value: "NAME",
       description: "Take --from from another computer of the room",
     },
-    device: THIS_COMPUTER_FLAG,
   },
   async run(ctx, { flags, positionals }, { windows = process.platform === "win32" } = {}) {
-    refuseDevice(flags, "chat profiles add");
     if (positionals.length) throw new CliUsageError("Use flags to specify the profile");
     if (!onAppMachine(ctx)) throw new CliError("Run this command in a local workspace");
     if (flags["from-device"] !== undefined && flags.from === undefined) {

@@ -205,7 +205,7 @@ test("edit refuses advanced values Settings would not take, before asking", asyn
     [["Work", "--behavior", "sandbox=maybe"], "takes on, off or default"],
     [["Build", "--behavior", "autoCompactLimit=-1"], "whole number or default"],
     [["Work", "--unshare", "settings.json", "--behavior", "thinking=off"], "in two commands"],
-    [["Work", "--device", "Mini", "--timeout", "1"], "leave out --device"],
+    [["Work", "--device", "Mini", "--timeout", "1"], "--device is not taken here"],
   ];
   for (const [args, message] of cases) {
     const result = await cli(["chat", "profiles", "edit", ...args]);
