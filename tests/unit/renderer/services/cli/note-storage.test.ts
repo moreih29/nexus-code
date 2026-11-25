@@ -142,6 +142,40 @@ describe("note storage remove", () => {
     expect(removed).toEqual([{ key: "ssh:box:/srv/site" }]);
   });
 
+  it("finds a Windows location given in the forms Windows shells and Explorer write", async () => {
+    const WIN: CliNoteStorageEntry = {
+      location: {
+        key: "local:C:/tmp/QA 노트",
+        kind: "local",
+        path: "C:/tmp/QA 노트",
+        label: "QA 노트",
+      },
+      notes: 1,
+      bytes,
+      updatedAt: 4,
+      workspaceIds: [],
+    };
+    const WIN_ON_BOX: CliNoteStorageEntry = {
+      location: { ...WIN.location, key: "ssh:pc:C:/tmp/QA 노트", kind: "ssh", host: "pc" },
+      notes: 1,
+      bytes,
+      updatedAt: 5,
+      workspaceIds: [],
+    };
+    entries = [WIN, WIN_ON_BOX, OLD];
+    for (const location of [
+      "C:\\tmp\\QA 노트",
+      "c:/tmp/qa 노트",
+      "C:/tmp/QA 노트/",
+      "C:\\tmp\\\\QA 노트\\",
+      '"C:\\tmp\\QA 노트"',
+    ]) {
+      expect(await remove({ location })).toMatchObject({ entry: WIN, removed: false });
+    }
+    await expect(remove({ location: "C:\\tmp\\other" })).rejects.toThrow("no notes are kept");
+    await expect(remove({ location: "/W/OLD" })).rejects.toThrow("no notes are kept");
+  });
+
   it("only looks without approval, in the renderer", async () => {
     const plan = await remove({ location: "old" });
     expect(plan).toMatchObject({ entry: OLD, removed: false });

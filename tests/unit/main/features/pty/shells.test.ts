@@ -207,4 +207,37 @@ describe("resolveShellChoice", () => {
     expect(findShellProgram(host, "tools\\nu.exe")).toBeNull();
     expect(findShellProgram(host, "  ")).toBeNull();
   });
+
+  test("a Windows path with slashes, mixed separators or a lowercase drive runs with backslashes", () => {
+    expect(findShellProgram(host, "C:/Program Files/Git/bin/bash.exe")).toBe(GIT_BASH);
+    expect(findShellProgram(host, "C:\\Program Files/Git\\bin//bash.exe")).toBe(GIT_BASH);
+    expect(findShellProgram(host, "c:/program files/git/bin/bash.exe")).toBe(
+      "c:\\program files\\git\\bin\\bash.exe",
+    );
+    expect(findShellProgram(host, "C:/Program Files/Git/bin/../bin/bash.exe")).toBe(GIT_BASH);
+  });
+
+  test("a Windows path in double quotes, as Explorer copies it, is found", () => {
+    expect(findShellProgram(host, `"${GIT_BASH}"`)).toBe(GIT_BASH);
+    expect(findShellProgram(host, ` "C:/tools/nu.exe" `)).toBe("C:\\tools\\nu.exe");
+    expect(findShellProgram(host, `""`)).toBeNull();
+  });
+
+  test("an added shell saved with a slash path opens with the backslash path, its saved value unchanged", () => {
+    const added = [{ id: "s", name: "Slash", path: "C:/Program Files/Git/bin/bash.exe", args: [] }];
+    expect(resolveShellChoice(host, { kind: "custom", id: "s" }, added)).toEqual({
+      shell: { id: "s", name: "Slash", path: GIT_BASH, args: [] },
+    });
+    expect(added[0]?.path).toBe("C:/Program Files/Git/bin/bash.exe");
+  });
+
+  test("macOS and Linux paths are used as given", () => {
+    for (const platform of ["darwin", "linux"] as const) {
+      const unix = fakeHost(platform, ["/usr/local/bin/fish", '/opt/"q"/zsh']);
+      expect(findShellProgram(unix, "/usr/local/bin/fish")).toBe("/usr/local/bin/fish");
+      expect(findShellProgram(unix, "/usr/local/./bin/fish")).toBeNull();
+      expect(findShellProgram(unix, '"/usr/local/bin/fish"')).toBeNull();
+      expect(findShellProgram(unix, '/opt/"q"/zsh')).toBe('/opt/"q"/zsh');
+    }
+  });
 });

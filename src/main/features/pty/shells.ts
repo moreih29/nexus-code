@@ -219,11 +219,19 @@ export function systemDefaultShell(host: ShellHost): ShellInfo {
   return unixShell(firstFile(host, ["/bin/bash", "/bin/zsh", "/bin/sh"]) ?? "/bin/sh");
 }
 
+function unquotedWindowsPath(program: string): string {
+  const trimmed = program.trim();
+  return /^"[^"]+"$/.test(trimmed) ? trimmed.slice(1, -1).trim() : trimmed;
+}
+
 export function findShellProgram(host: ShellHost, program: string): string | null {
   const p = pathApi(host);
-  const trimmed = program.trim();
+  const trimmed = host.platform === "win32" ? unquotedWindowsPath(program) : program.trim();
   if (trimmed === "") return null;
-  if (p.isAbsolute(trimmed)) return host.isFile(trimmed) ? trimmed : null;
+  if (p.isAbsolute(trimmed)) {
+    const path = host.platform === "win32" ? p.normalize(trimmed) : trimmed;
+    return host.isFile(path) ? path : null;
+  }
   if (trimmed.includes("/") || trimmed.includes("\\")) return null;
   return findOnPath(host, trimmed);
 }

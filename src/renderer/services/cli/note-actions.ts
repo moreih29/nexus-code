@@ -37,6 +37,17 @@ function showNote(workspaceId: string, noteId: string, title?: string): void {
   openOrRevealNoteTab(workspaceId, noteId, title);
 }
 
+function windowsDrivePathKey(path: string): string | undefined {
+  const text = path.trim();
+  const unquoted = /^"[^"]+"$/.test(text) ? text.slice(1, -1).trim() : text;
+  if (!/^[A-Za-z]:[\\/]/.test(unquoted)) return undefined;
+  return unquoted
+    .replaceAll("\\", "/")
+    .replace(/\/{2,}/g, "/")
+    .replace(/\/+$/, "")
+    .toLowerCase();
+}
+
 function storageEntryNamed(
   entries: readonly CliNoteStorageEntry[],
   selector: string,
@@ -46,6 +57,15 @@ function storageEntryNamed(
     entries.find((entry) => entry.location.key === text) ??
     entries.find((entry) => noteStorageWhere(entry) === text || entry.location.path === text);
   if (exact) return exact;
+  const drivePath = windowsDrivePathKey(text);
+  const samePath = drivePath
+    ? entries.filter(
+        (entry) =>
+          entry.location.host === undefined &&
+          windowsDrivePathKey(entry.location.path) === drivePath,
+      )
+    : [];
+  if (samePath.length === 1 && samePath[0]) return samePath[0];
   const named = entries.filter(
     (entry) => entry.location.label.trim().toLowerCase() === text.toLowerCase(),
   );
