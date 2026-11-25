@@ -41,6 +41,7 @@ afterAll(() => {
 });
 
 const { settingsHandlers } = await import("../../../../../src/renderer/services/cli/settings");
+const { setPlatformForTests } = await import("../../../../../src/renderer/utils/platform");
 const { useAgentInstructionsStore } = await import(
   "../../../../../src/renderer/state/stores/agent-instructions"
 );
@@ -618,7 +619,9 @@ describe("keyboard shortcuts", () => {
     useKeybindingsStore.getState().hydrate([]);
     await expect(
       keys({ op: "set", command: "tab.closeOthers", keys: ["CmdOrCtrl+S"] }),
-    ).rejects.toThrow("CmdOrCtrl+S for tab.closeOthers: Conflicts with “Save File”");
+    ).rejects.toThrow(
+      "CmdOrCtrl+S for tab.closeOthers: Conflicts with “Save File”. Settings › Keyboard Shortcuts can still save it with a warning",
+    );
     expect(useKeybindingsStore.getState().overrides).toEqual([]);
     expect(writes).toEqual([]);
   });
@@ -634,6 +637,99 @@ describe("keyboard shortcuts", () => {
       'no command "tab.nope" takes a shortcut; nexus settings keys list shows them',
     );
     expect(writes).toEqual([]);
+  });
+
+  it("on Windows takes and shows keys as the Settings page records and shows them", async () => {
+    setPlatformForTests("win32");
+    try {
+      useKeybindingsStore.getState().hydrate([]);
+      const set = await keys({ op: "set", command: "tab.closeOthers", keys: ["Meta+Shift+Alt+Y"] });
+      expect(set.bindings).toEqual([
+        { command: "tab.closeOthers", area: "app", primary: "Ctrl+Shift+Alt+Y" },
+      ]);
+      expect(useKeybindingsStore.getState().overrides).toEqual([
+        { command: "tab.closeOthers", primary: "CmdOrCtrl+Shift+Alt+Y", chord: undefined },
+      ]);
+      await keys({ op: "set", command: "tab.closeOthers", keys: ["Ctrl+Shift+Alt+Y"] });
+      expect(useKeybindingsStore.getState().overrides).toEqual([
+        { command: "tab.closeOthers", primary: "CmdOrCtrl+Shift+Alt+Y", chord: undefined },
+      ]);
+      const listed = (await settingsHandlers["settings.keys"]({})).bindings;
+      expect(listed.find(({ command }) => command === "settings.open")?.primary).toBe("Ctrl+,");
+      expect(
+        listed.flatMap(({ primary, chord }) => [primary, ...(chord ?? [])]).join(" "),
+      ).not.toContain("CmdOrCtrl");
+    } finally {
+      setPlatformForTests(null);
+    }
+  });
+
+  it("on Windows refuses the Windows key, Cmd+Ctrl and the keys Windows keeps, saying why", async () => {
+    setPlatformForTests("win32");
+    try {
+      useKeybindingsStore.getState().hydrate([]);
+      const refusals = [
+        ["Win+Y", `"Win+Y": shortcuts can't use the Windows key`],
+        ["Super+Y", `"Super+Y": shortcuts can't use the Windows key`],
+        ["Cmd+Ctrl+Y", `"Cmd+Ctrl+Y": Cmd is Ctrl here, so Cmd+Ctrl would take the Windows key`],
+        [
+          "Alt+F4",
+          "Alt+F4 for tab.closeOthers: Reserved by the OS: Close window. Settings › Keyboard Shortcuts can still save it with a warning",
+        ],
+        [
+          "Ctrl+Alt+Delete",
+          "Ctrl+Alt+Delete for tab.closeOthers: Reserved by the OS: Security options",
+        ],
+        [
+          "CmdOrCtrl+S",
+          "Ctrl+S for tab.closeOthers: Conflicts with “Save File”. Settings › Keyboard Shortcuts can still save it with a warning",
+        ],
+      ] as const;
+      for (const [key, message] of refusals) {
+        await expect(keys({ op: "set", command: "tab.closeOthers", keys: [key] })).rejects.toThrow(
+          message,
+        );
+      }
+      expect(useKeybindingsStore.getState().overrides).toEqual([]);
+      expect(writes).toEqual([]);
+    } finally {
+      setPlatformForTests(null);
+    }
+  });
+
+  it("on Linux names the Super key and leaves Windows' system keys free", async () => {
+    setPlatformForTests("linux");
+    try {
+      useKeybindingsStore.getState().hydrate([]);
+      await expect(
+        keys({ op: "set", command: "tab.closeOthers", keys: ["Super+Y"] }),
+      ).rejects.toThrow(`"Super+Y": shortcuts can't use the Super key`);
+      const set = await keys({ op: "set", command: "tab.closeOthers", keys: ["Alt+F4"] });
+      expect(set.bindings).toEqual([
+        { command: "tab.closeOthers", area: "app", primary: "Alt+F4" },
+      ]);
+    } finally {
+      setPlatformForTests(null);
+    }
+  });
+
+  it("on macOS keeps keys as written and refuses its own system keys only", async () => {
+    useKeybindingsStore.getState().hydrate([]);
+    await keys({ op: "set", command: "tab.closeOthers", keys: ["Meta+Shift+Alt+Y"] });
+    expect(useKeybindingsStore.getState().overrides).toEqual([
+      { command: "tab.closeOthers", primary: "Meta+Shift+Alt+Y", chord: undefined },
+    ]);
+    const set = await keys({ op: "set", command: "tab.closeOthers", keys: ["Cmd+Ctrl+Y"] });
+    expect(set.bindings).toEqual([
+      { command: "tab.closeOthers", area: "app", primary: "Cmd+Ctrl+Y" },
+    ]);
+    await keys({ op: "set", command: "tab.closeOthers", keys: ["Alt+F4"] });
+    await expect(keys({ op: "set", command: "tab.closeOthers", keys: ["Cmd+Q"] })).rejects.toThrow(
+      "Cmd+Q for tab.closeOthers: Reserved by the OS: Quit application. Settings › Keyboard Shortcuts can still save it with a warning",
+    );
+    await expect(keys({ op: "set", command: "tab.closeOthers", keys: ["Win+Y"] })).rejects.toThrow(
+      '"Win+Y" is not a key such as CmdOrCtrl+Shift+P',
+    );
   });
 });
 

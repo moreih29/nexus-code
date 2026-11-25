@@ -657,13 +657,22 @@
       "blocking": "Conflicts with “{{command}}”",
       "overlap": "Also bound to “{{command}}” (different focus scope)",
       "shadow": "Shadows {{owner}}: {{note}}",
-      "system": "Reserved by the OS: {{note}}"
+      "system": "Reserved by the OS: {{note}}",
+      "screenSaves": "Settings › Keyboard Shortcuts can still save it with a warning"
     },
     "reservedNote": {
       "quitApplication": "Quit application",
       "hideApplication": "Hide application",
       "hideOthers": "Hide other applications",
       "minimizeWindow": "Minimize window",
+      "closeWindow": "Close window",
+      "securityScreen": "Security options (lock, sign out, Task Manager)",
+      "taskManager": "Task Manager",
+      "switchWindows": "Switch windows",
+      "switchWindowsBack": "Switch windows backward",
+      "cycleWindows": "Cycle through windows",
+      "startMenu": "Open the Start menu",
+      "windowMenu": "Window menu",
       "copy": "Copy",
       "cut": "Cut",
       "paste": "Paste",

@@ -24,6 +24,7 @@ export interface ConflictQuery {
   when?: string;
   bindings: readonly ConflictBinding[];
   isMac: boolean;
+  isWindows?: boolean;
 }
 
 export function detectConflicts(q: ConflictQuery): KeybindingConflict[] {
@@ -71,7 +72,7 @@ export function detectConflicts(q: ConflictQuery): KeybindingConflict[] {
 
   for (const accel of [q.primary, q.chord?.[0]]) {
     if (accel === undefined) continue;
-    const reserved = findReservedKey(accel, isMac);
+    const reserved = findReservedKey(accel, isMac, q.isWindows === true);
     if (reserved !== undefined) {
       conflicts.push({ kind: reserved.source === "system" ? "system" : "shadow", reserved });
     }
