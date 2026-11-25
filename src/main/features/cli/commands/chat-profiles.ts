@@ -360,35 +360,137 @@ export const chatProfiles: CliCommand = {
   },
 };
 
-function connectionModels(agent: ChatAgent, flags: FlagValues): ConnectionModel[] {
-  const ids = Array.isArray(flags.model) ? flags.model : [];
-  const values = Array.isArray(flags.reasoning) ? flags.reasoning : [];
-  const levels: readonly string[] =
-    agent === "claude" ? [...CONNECTION_REASONING, "auto"] : CONNECTION_REASONING;
-  const selected = new Map<string, ConnectionModel["reasoning"]>();
+const MAX_TOKENS = 2_147_483_647;
+
+function listFlag(value: FlagValues[string]): string[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function tokens(flag: string, value: string): number | undefined {
+  if (value === "auto") return undefined;
+  const count = /^[1-9][0-9]*$/.test(value) ? Number(value) : Number.NaN;
+  if (!(count <= MAX_TOKENS)) {
+    throw new CliUsageError(
+      `--${flag} TOKENS must be a whole number from 1 to ${MAX_TOKENS}, or auto`,
+    );
+  }
+  return count;
+}
+
+function modelPairs<T>(
+  flag: string,
+  what: string,
+  values: readonly string[],
+  ids: readonly string[],
+  known: string,
+  parse: (value: string, id: string) => T,
+): Map<string, T> {
+  const pairs = new Map<string, T>();
   for (const value of values) {
     const at = value.lastIndexOf("=");
-    if (at < 1) throw new CliUsageError("--reasoning takes MODEL=LEVEL");
+    if (at < 1) throw new CliUsageError(`--${flag} takes MODEL=${what}`);
     const id = value.slice(0, at).trim();
-    const level = value.slice(at + 1);
-    if (!ids.some((model) => model.trim() === id)) {
-      throw new CliUsageError("--reasoning MODEL must match a --model ID");
-    }
-    if (!levels.includes(level)) {
-      throw new CliUsageError(`--reasoning LEVEL for ${agent} must be ${levels.join(", ")}`);
-    }
-    if (agent === "claude" && level !== "auto" && !claudeReasoningModelIdSupported(id)) {
-      throw new CliUsageError(
-        "Claude reasoning needs a model ID without ; , = or a trailing * (auto is allowed)",
-      );
-    }
-    if (selected.has(id)) throw new CliUsageError("--reasoning model IDs must be unique");
-    selected.set(id, level === "auto" ? undefined : (level as ConnectionModel["reasoning"]));
+    if (!ids.includes(id)) throw new CliUsageError(`--${flag} MODEL must match ${known}`);
+    const parsed = parse(value.slice(at + 1), id);
+    if (pairs.has(id)) throw new CliUsageError(`--${flag} model IDs must be unique`);
+    pairs.set(id, parsed);
   }
-  return ids.map((id) => {
-    const reasoning = selected.get(id.trim());
-    return reasoning ? { id, reasoning } : { id };
-  });
+  return pairs;
+}
+
+function labelPairs(
+  values: readonly string[],
+  ids: readonly string[],
+  known: string,
+): Map<string, string | undefined> {
+  const pairs = new Map<string, string | undefined>();
+  for (const value of values) {
+    const id = ids
+      .filter((model) => value.startsWith(`${model}=`))
+      .sort((a, b) => b.length - a.length)[0];
+    if (id === undefined) {
+      if (!value.includes("=")) throw new CliUsageError("--label takes MODEL=TEXT");
+      throw new CliUsageError(`--label MODEL must match ${known}`);
+    }
+    const label = value.slice(id.length + 1).trim();
+    if (label.length > 128 || /\p{Cc}/u.test(label)) {
+      throw new CliUsageError("--label TEXT is at most 128 characters without control characters");
+    }
+    if (pairs.has(id)) throw new CliUsageError("--label model IDs must be unique");
+    pairs.set(id, label || undefined);
+  }
+  return pairs;
+}
+
+function withModelField<K extends "label" | "contextWindow" | "reasoning">(
+  model: ConnectionModel,
+  key: K,
+  value: ConnectionModel[K] | undefined,
+): ConnectionModel {
+  const next = { ...model };
+  if (value === undefined) delete next[key];
+  else next[key] = value;
+  return next;
+}
+
+function applyModelFlags(
+  agent: ChatAgent,
+  models: readonly ConnectionModel[],
+  flags: FlagValues,
+  known: string,
+): { models: ConnectionModel[]; contextWindow: number | null | undefined } {
+  const ids = models.map(({ id }) => id.trim());
+  const levels: readonly string[] =
+    agent === "claude" ? [...CONNECTION_REASONING, "auto"] : CONNECTION_REASONING;
+  const reasoning = modelPairs(
+    "reasoning",
+    "LEVEL",
+    listFlag(flags.reasoning),
+    ids,
+    known,
+    (level, id) => {
+      if (!levels.includes(level)) {
+        throw new CliUsageError(`--reasoning LEVEL for ${agent} must be ${levels.join(", ")}`);
+      }
+      if (agent === "claude" && level !== "auto" && !claudeReasoningModelIdSupported(id)) {
+        throw new CliUsageError(
+          "Claude reasoning needs a model ID without ; , = or a trailing * (auto is allowed)",
+        );
+      }
+      return level === "auto" ? undefined : (level as ConnectionModel["reasoning"]);
+    },
+  );
+  const contexts = listFlag(flags["context-window"]);
+  const shared = contexts.filter((value) => !value.includes("="));
+  const perModel = contexts.filter((value) => value.includes("="));
+  if (agent === "claude" && perModel.length) {
+    throw new CliUsageError(
+      "Claude uses one context window for every model: give --context-window TOKENS",
+    );
+  }
+  if (agent === "codex" && shared.length) {
+    throw new CliUsageError(
+      "Codex sets a context window for each model: give --context-window MODEL=TOKENS",
+    );
+  }
+  if (shared.length > 1) throw new CliUsageError("Give --context-window TOKENS once");
+  const windows = modelPairs("context-window", "TOKENS", perModel, ids, known, (value) =>
+    tokens("context-window", value),
+  );
+  const labels = labelPairs(listFlag(flags.label), ids, known);
+  const [sharedWindow] = shared;
+  return {
+    models: models.map((model) => {
+      const id = model.id.trim();
+      let next = model;
+      if (labels.has(id)) next = withModelField(next, "label", labels.get(id));
+      if (windows.has(id)) next = withModelField(next, "contextWindow", windows.get(id));
+      if (reasoning.has(id)) next = withModelField(next, "reasoning", reasoning.get(id));
+      return next;
+    }),
+    contextWindow:
+      sharedWindow === undefined ? undefined : (tokens("context-window", sharedWindow) ?? null),
+  };
 }
 
 function profileConnection(agent: ChatAgent, flags: FlagValues): ProfileConnection {
@@ -407,6 +509,8 @@ function profileConnection(agent: ChatAgent, flags: FlagValues): ProfileConnecti
         flags.auth,
         flags.model,
         flags.reasoning,
+        flags["context-window"],
+        flags.label,
         flags["default-model"],
         flags["light-model"],
       ].some((value) => value !== undefined)
@@ -428,7 +532,12 @@ function profileConnection(agent: ChatAgent, flags: FlagValues): ProfileConnecti
   if (agent === "codex" && (flags.auth === "x-api-key" || flags["light-model"] !== undefined)) {
     throw new CliUsageError("--auth x-api-key and --light-model are for Claude profiles");
   }
-  const models = connectionModels(agent, flags);
+  const { models, contextWindow } = applyModelFlags(
+    agent,
+    listFlag(flags.model).map((id) => ({ id })),
+    flags,
+    "a --model ID",
+  );
   const parsed = ProfileConnectionSchema.safeParse({
     method,
     preset,
@@ -437,6 +546,7 @@ function profileConnection(agent: ChatAgent, flags: FlagValues): ProfileConnecti
     models,
     defaultModel: flags["default-model"] ?? models[0]?.id,
     lightModel: flags["light-model"],
+    ...(contextWindow ? { contextWindow } : {}),
   });
   if (!parsed.success) {
     throw new CliUsageError(
@@ -491,7 +601,9 @@ export const chatProfilesAdd = {
     "address selects a custom connection, which needs at least one --model. The first\n" +
     "model is the default unless you choose another. A base URL can override a preset's address.\n" +
     "Repeat --reasoning MODEL=LEVEL for none, high, xhigh, or max; Claude also accepts auto.\n" +
-    "Models without the flag stay automatic on Claude and have no reasoning on Codex.",
+    "Models without the flag stay automatic on Claude and have no reasoning on Codex.\n" +
+    "Context windows: Claude takes one --context-window TOKENS for every model; Codex takes\n" +
+    "repeatable --context-window MODEL=TOKENS (131072 when left out). --label MODEL=TEXT names a model.",
   flags: {
     agent: { type: "string", value: "AGENT", description: "claude or codex (required)" },
     name: { type: "string", value: "NAME", description: "Profile name (required)" },
@@ -527,6 +639,18 @@ export const chatProfilesAdd = {
       type: "string",
       value: "MODEL=LEVEL",
       description: "Model reasoning: none, high, xhigh, max; Claude also auto (repeatable)",
+      repeat: true,
+    },
+    "context-window": {
+      type: "string",
+      value: "TOKENS",
+      description: "Claude: TOKENS for every model; Codex: MODEL=TOKENS (repeatable)",
+      repeat: true,
+    },
+    label: {
+      type: "string",
+      value: "MODEL=TEXT",
+      description: "A model's display name (repeatable)",
       repeat: true,
     },
     "default-model": { type: "string", value: "ID", description: "Default model from the list" },

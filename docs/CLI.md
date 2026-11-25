@@ -145,6 +145,8 @@ nexus chat usage --json
 nexus chat usage --agent claude --profile "개인" --refresh
 nexus chat usage --device "Mac mini" --agent codex --json
 nexus chat profiles add --agent codex --name Personal
+nexus chat profiles add --agent codex --name Gateway --base-url http://127.0.0.1:4000/v1 --model glm-5.4 --context-window glm-5.4=400000 --key-file -
+nexus chat profiles add --agent claude --name Gateway --base-url http://127.0.0.1:4000 --model glm-5.4 --context-window 400000 --label glm-5.4=GLM
 nexus chat profiles add --agent claude --name Gateway --base-url https://llm.example.com --model glm --model kimi --reasoning glm=max --reasoning kimi=auto --default-model glm --light-model kimi --key-file - --instructions-file rules.md --json
 nexus chat new --profile 개인 --prompt "README 요약해줘"   # 그 에이전트 프로필(계정)로 연다
 nexus chat send 3fa2 --after "끝나면 PR 올려줘"           # 턴이 끝날 때까지 보류 (id 출력)
@@ -220,6 +222,7 @@ Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책�
 - 계정 로그인은 기본 연결입니다. 추가한 뒤 설정 › 에이전트에서 로그인합니다. 제공자 기본 API에 연결하려면 `--method api-key --key-file FILE`을 씁니다.
 - 외부 API는 `--preset ID`나 `--base-url URL`로 선택합니다. 둘을 함께 주면 프리셋의 기본 주소를 바꿉니다. `--model ID`는 여러 번 줄 수 있고, 첫 모델이 기본입니다. `--default-model ID`와 Claude의 `--light-model ID`는 목록에 있는 모델을 고릅니다. `--auth bearer|x-api-key`는 Claude에서 인증 헤더를 고릅니다. Codex는 bearer만 사용합니다. 프리셋 목록은 `nexus chat profiles add --help`로 확인합니다.
 - `--reasoning MODEL=LEVEL`은 모델별 추론 강도를 정하며 여러 번 줄 수 있습니다. LEVEL은 `none`, `high`, `xhigh`, `max`이고 Claude는 `auto`도 받습니다. MODEL은 `--model`로 준 ID 중 하나여야 합니다. 생략한 모델은 설정 화면과 같게 Claude는 자동, Codex는 없음으로 저장됩니다. Claude 모델 ID에 `;`, `,`, `=` 또는 끝의 `*`가 있으면 `auto`만 지정할 수 있습니다.
+- 문맥 크기는 에이전트가 읽는 방식대로 받습니다. Claude는 모든 모델에 하나를 쓰므로 `--context-window TOKENS`(Claude Code의 `CLAUDE_CODE_MAX_CONTEXT_TOKENS`), Codex는 모델마다 `--context-window MODEL=TOKENS`를 여러 번 줍니다(생략하면 131072). TOKENS는 1부터 2147483647까지의 정수이고 `auto`는 비웁니다. `--label MODEL=TEXT`는 모델의 표시 이름입니다.
 - 키가 필요한 경우 `--key-file FILE` 또는 `--key-file -`로 전달합니다. 승인 창에는 이름, 에이전트, 폴더, 연결 주소가 표시되며 사용자 승인은 매번 필요합니다. 성공하면 만든 프로필을 목록과 같은 열로 출력합니다. `--json`은 프로필 하나를 출력합니다.
 
 `chat fork`와 `chat rewind`는 양쪽 에이전트를 지원합니다. 파일 복원(`--files`)은 Claude에서만 지원합니다.

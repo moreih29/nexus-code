@@ -576,3 +576,96 @@ test("redactedBaseUrl keeps a plain address as given", () => {
     redacted: true,
   });
 });
+
+test("profiles add saves context windows the way each agent reads them, and labels", async () => {
+  const { app, state, run } = fixture();
+  app.answers.push("once", "once");
+  const claude = await run([
+    ...account,
+    "--base-url",
+    "http://127.0.0.1:9",
+    "--model",
+    "k3.1-pro",
+    "--model",
+    "glm-5.4",
+    "--context-window",
+    "400000",
+    "--label",
+    "glm-5.4=GLM = 5.4",
+  ]);
+  expect(claude.stderr).toBe("");
+  expect(state.getState().agentProfiles?.profiles[0]?.connection).toMatchObject({
+    models: [{ id: "k3.1-pro" }, { id: "glm-5.4", label: "GLM = 5.4" }],
+    contextWindow: 400000,
+  });
+  const codex = await run([
+    "--agent",
+    "codex",
+    "--name",
+    "Codex gateway",
+    "--dir",
+    "codex-gateway",
+    "--base-url",
+    "http://127.0.0.1:9/v1",
+    "--model",
+    "k3.1-pro",
+    "--model",
+    "glm-5.4",
+    "--context-window",
+    "k3.1-pro=400000",
+    "--context-window",
+    "glm-5.4=400000",
+  ]);
+  expect(codex.stderr).toBe("");
+  const saved = state.getState().agentProfiles?.profiles[1]?.connection;
+  expect(saved).toMatchObject({
+    models: [
+      { id: "k3.1-pro", contextWindow: 400000 },
+      { id: "glm-5.4", contextWindow: 400000 },
+    ],
+  });
+  expect(saved && "contextWindow" in saved).toBe(false);
+});
+
+test.each([
+  [["--context-window", "0"], "from 1 to 2147483647, or auto"],
+  [["--context-window", "-5"], "from 1 to 2147483647, or auto"],
+  [["--context-window", "2147483648"], "from 1 to 2147483647, or auto"],
+  [["--context-window", "1e6"], "from 1 to 2147483647, or auto"],
+  [["--context-window", "400000", "--context-window", "500000"], "once"],
+  [["--context-window", "glm=400000"], "Claude uses one context window for every model"],
+  [["--label", "other=Other"], "--label MODEL must match a --model ID"],
+  [["--label", "glm"], "--label takes MODEL=TEXT"],
+  [["--label", `glm=${"x".repeat(129)}`], "at most 128 characters"],
+])("rejects invalid Claude context and label flags %j before approval", async (flags, message) => {
+  const { app, state, run } = fixture();
+  const result = await run([...account, "--preset", "kimi", "--model", "glm", ...flags]);
+  expect(result.exitCode).toBe(2);
+  expect(result.stderr).toContain(message);
+  expect(app.asked).toEqual([]);
+  expect(state.getState().agentProfiles).toBeUndefined();
+});
+
+test.each([
+  [["--context-window", "400000"], "Codex sets a context window for each model"],
+  [["--context-window", "other=400000"], "--context-window MODEL must match a --model ID"],
+  [["--context-window", "glm=0"], "from 1 to 2147483647, or auto"],
+  [["--context-window", "glm=1", "--context-window", "glm=2"], "model IDs must be unique"],
+])("rejects invalid Codex context flags %j before approval", async (flags, message) => {
+  const { app, state, run } = fixture();
+  const result = await run([
+    "--agent",
+    "codex",
+    "--name",
+    "Gateway",
+    "--base-url",
+    "https://gateway.example/v1",
+    "--model",
+    "glm",
+    ...flags,
+  ]);
+  expect(result.exitCode).toBe(2);
+  expect(result.stderr).toContain(message);
+  expect(app.asked).toEqual([]);
+  expect(state.getState().agentProfiles).toBeUndefined();
+});
