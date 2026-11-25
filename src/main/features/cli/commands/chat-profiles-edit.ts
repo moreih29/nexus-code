@@ -10,7 +10,6 @@ import {
 import {
   type AgentProfile,
   isDefaultProfileId,
-  PROFILE_AGENTS,
   PROFILE_COLORS,
   profilesOf,
 } from "../../../../shared/agent-profiles/profiles";
@@ -19,7 +18,7 @@ import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { ProfileValidationError } from "../../agent-profiles/connection-save";
 import { profileConnectionView } from "../../agent-profiles/connection-view";
 import { CliUsageError, type FlagValues } from "../args";
-import { type CliContext, CliError } from "../context";
+import { CliError } from "../context";
 import { oneLine } from "../format";
 import { onAppMachine } from "../paths";
 import { type CliCommand, output } from "../registry";
@@ -30,30 +29,16 @@ import {
   CONNECTION_FLAGS,
   connectionText,
   listFlag,
+  localProfile,
   type ProfileRow,
-  pickProfile,
   profileConnection,
+  profileName,
   profileTable,
   readKey,
   validateNew,
 } from "./chat-profiles";
 
 const MODEL_ID = /^[^\s\p{Cc}]+$/u;
-
-export function profileName(profile: Pick<AgentProfile, "id" | "name">): string {
-  return profile.name.trim() || (isDefaultProfileId(profile.id) ? "default" : profile.id);
-}
-
-export function localProfile(
-  ctx: CliContext,
-  selector: string,
-  agent: ChatAgent | undefined,
-): AgentProfile {
-  const config = ctx.services.profileConnections.config();
-  const all = (agent ? [agent] : PROFILE_AGENTS).flatMap((a) => profilesOf(config, a));
-  const named = all.map((profile) => ({ id: profile.id, name: profileName(profile), profile }));
-  return pickProfile(named, selector, " on this computer").profile;
-}
 
 function arrow(from: string, to: string): string {
   return `${from} → ${to}`;

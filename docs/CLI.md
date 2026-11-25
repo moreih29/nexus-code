@@ -143,6 +143,7 @@ nexus chat profiles --agent codex --workspace WS --json
 nexus chat profiles --profile Gateway                    # 연결 정보 (키는 저장 여부만)
 nexus chat profiles edit Gateway --rename-model glm-5.3=glm-5.4 --key-file -
 nexus chat profiles remove Gateway --agent claude
+nexus chat profiles add --from Gateway --from-device ihWin --key-file -   # 다른 기기의 연결 복사 (키는 이 기기에서)
 nexus chat usage --json
 nexus chat usage --agent claude --profile "개인" --refresh
 nexus chat usage --device "Mac mini" --agent codex --json
@@ -226,6 +227,12 @@ Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책�
 - `--reasoning MODEL=LEVEL`은 모델별 추론 강도를 정하며 여러 번 줄 수 있습니다. LEVEL은 `none`, `high`, `xhigh`, `max`이고 Claude는 `auto`도 받습니다. MODEL은 `--model`로 준 ID 중 하나여야 합니다. 생략한 모델은 설정 화면과 같게 Claude는 자동, Codex는 없음으로 저장됩니다. Claude 모델 ID에 `;`, `,`, `=` 또는 끝의 `*`가 있으면 `auto`만 지정할 수 있습니다.
 - 문맥 크기는 에이전트가 읽는 방식대로 받습니다. Claude는 모든 모델에 하나를 쓰므로 `--context-window TOKENS`(Claude Code의 `CLAUDE_CODE_MAX_CONTEXT_TOKENS`), Codex는 모델마다 `--context-window MODEL=TOKENS`를 여러 번 줍니다(생략하면 131072). TOKENS는 1부터 2147483647까지의 정수이고 `auto`는 비웁니다. `--label MODEL=TEXT`는 모델의 표시 이름입니다.
 - 키가 필요한 경우 `--key-file FILE` 또는 `--key-file -`로 전달합니다. 승인 창에는 이름, 에이전트, 폴더, 연결 주소가 표시되며 사용자 승인은 매번 필요합니다. 성공하면 만든 프로필을 목록과 같은 열로 출력합니다. `--json`은 프로필 하나를 출력합니다.
+
+`chat profiles add --from PROFILE`은 프로필의 연결을 복사해 이 기기에 새 프로필을 만듭니다. `--from-device NAME`을 주면 다른 기기의 프로필에서 복사합니다(원격 스키마 0.38.0 이상, `profiles.connection`). 이름과 색은 `--name`, `--color`를 주지 않으면 그대로 쓰고, 폴더는 이름에서 제안합니다. `--base-url`은 복사한 주소를 바꿉니다. 다른 기기가 주소의 사용자 정보나 쿼리 값을 가려 보냈으면(`baseUrlRedacted`) 가린 주소로 만들지 않고 거절하니 `--base-url`로 주소를 직접 줍니다. 다른 연결 플래그와는 함께 쓸 수 없으니 복사한 뒤 `chat profiles edit`로 고칩니다.
+
+- 키는 기기 사이로 보내지 않고 복사하지도 않습니다. 원래 프로필에 키가 있으면 결과의 `notes`가 알려 주며, 이 기기의 키는 `--key-file`로 줍니다. API 키 프로필은 `--key-file`이 필요합니다.
+- 다른 기기의 고급 설정 중 헤더와 쿼리는 이름만 오므로 값은 복사하지 않고 `notes`로 알립니다. 환경 변수, 동작 설정, 프로필 지시도 복사하지 않습니다.
+- 승인 창은 `profiles add`와 같습니다. 결과 JSON에는 `from: {id, name, device?}`가 들어갑니다.
 
 `chat profiles edit PROFILE`은 이 기기의 프로필을 고칩니다. 이름이나 id로 고르고, Claude와 Codex 프로필 이름이 같으면 `--agent`를 줍니다. 설정 화면의 프로필 편집과 같은 항목을 바꿉니다.
 

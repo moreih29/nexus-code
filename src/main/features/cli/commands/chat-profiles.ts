@@ -17,7 +17,10 @@ import {
   ProfileConnectionSchema,
 } from "../../../../shared/agent-profiles/connection";
 import {
+  type AgentProfile,
   AgentProfileSchema,
+  isDefaultProfileId,
+  PROFILE_AGENTS,
   PROFILE_COLORS,
   portableProfileDir,
   profilesOf,
@@ -216,6 +219,21 @@ export function pickProfile<T extends { id: string; name: string }>(
   const [match] = matches;
   if (!match) throw new CliError(`no profile "${selector}"${where}. See nexus chat profiles.`);
   return match;
+}
+
+export function profileName(profile: Pick<AgentProfile, "id" | "name">): string {
+  return profile.name.trim() || (isDefaultProfileId(profile.id) ? "default" : profile.id);
+}
+
+export function localProfile(
+  ctx: CliContext,
+  selector: string,
+  agent: ChatAgent | undefined,
+): AgentProfile {
+  const config = ctx.services.profileConnections.config();
+  const all = (agent ? [agent] : PROFILE_AGENTS).flatMap((a) => profilesOf(config, a));
+  const named = all.map((profile) => ({ id: profile.id, name: profileName(profile), profile }));
+  return pickProfile(named, selector, " on this computer").profile;
 }
 
 function profileSelector(flags: FlagValues): string | undefined {
@@ -593,6 +611,144 @@ export async function readKey(ctx: CliContext, file: string): Promise<string> {
   return key.data;
 }
 
+interface CopySource {
+  agent: ChatAgent;
+  name: string;
+  color?: string;
+  connection: ProfileConnection;
+  hasKey?: boolean;
+  left: string[];
+  from: { id: string; name: string; device?: { id: string; name: string } };
+}
+
+const COPIED_FLAGS = [
+  "method",
+  "preset",
+  "auth",
+  "model",
+  "reasoning",
+  "context-window",
+  "label",
+  "default-model",
+  "light-model",
+] as const;
+
+function connectionFromView(
+  agent: ChatAgent,
+  view: ProfileConnectionView,
+): ProfileConnection | undefined {
+  if (view.method === "account" || view.method === "api-key") return { method: view.method };
+  if (view.method !== "custom") return undefined;
+  const preset = connectionPresetsFor(agent).find((id) => id === view.preset);
+  const advanced = view.advanced && {
+    ...(view.advanced.timeoutMs !== undefined ? { timeoutMs: view.advanced.timeoutMs } : {}),
+    ...(view.advanced.maxOutputTokens !== undefined
+      ? { maxOutputTokens: view.advanced.maxOutputTokens }
+      : {}),
+    ...(view.advanced.disableExperimentalBetas !== undefined
+      ? { disableExperimentalBetas: view.advanced.disableExperimentalBetas }
+      : {}),
+    ...(view.advanced.retries !== undefined ? { retries: view.advanced.retries } : {}),
+    ...(view.advanced.streamIdleTimeoutMs !== undefined
+      ? { streamIdleTimeoutMs: view.advanced.streamIdleTimeoutMs }
+      : {}),
+  };
+  const parsed = ProfileConnectionSchema.safeParse({
+    method: "custom",
+    ...(preset ? { preset } : {}),
+    baseUrl: view.baseUrl,
+    auth: agent === "claude" && view.auth === "x-api-key" ? "x-api-key" : "bearer",
+    models: view.models,
+    defaultModel: view.defaultModel,
+    ...(view.lightModel ? { lightModel: view.lightModel } : {}),
+    ...(view.contextWindow ? { contextWindow: view.contextWindow } : {}),
+    ...(advanced && Object.keys(advanced).length ? { advanced } : {}),
+  });
+  return parsed.success ? parsed.data : undefined;
+}
+
+const ADDRESS_NEEDS_CUSTOM = "--base-url with --from needs a custom connection to copy";
+
+async function copySource(ctx: CliContext, flags: FlagValues): Promise<CopySource> {
+  const selector = typeof flags.from === "string" ? flags.from.trim() : "";
+  if (!selector || selector.length > 64) {
+    throw new CliUsageError("--from takes a profile name or id of up to 64 characters");
+  }
+  const given = COPIED_FLAGS.find((flag) => flags[flag] !== undefined);
+  if (given) {
+    throw new CliUsageError(
+      `--from copies the connection, so leave out --${given}; change the copy with chat profiles edit`,
+    );
+  }
+  const address = typeof flags["base-url"] === "string" ? flags["base-url"].trim() : undefined;
+  if (address === "") throw new CliUsageError("Give --base-url an address");
+  const agent = flags.agent === undefined ? undefined : chatAgentFlag(flags.agent, "claude");
+  const device = await resolveDevice(
+    ctx,
+    typeof flags["from-device"] === "string" ? flags["from-device"] : undefined,
+  );
+  if (!device) {
+    const profile = localProfile(ctx, selector, agent);
+    const hasKey = await ctx.services.profileConnections.keyPresent(profile).catch(() => undefined);
+    let connection: ProfileConnection = profile.connection ?? { method: "account" };
+    if (address !== undefined) {
+      if (connection.method !== "custom") throw new CliUsageError(ADDRESS_NEEDS_CUSTOM);
+      connection = { ...connection, baseUrl: address };
+    }
+    return {
+      agent: profile.agent,
+      name: profileName(profile),
+      color: profile.color,
+      connection,
+      ...(hasKey !== undefined ? { hasKey } : {}),
+      left: [],
+      from: { id: profile.id, name: profileName(profile) },
+    };
+  }
+  requirePeerCli(ctx, device);
+  if (!device.serves.includes("profiles.connection")) {
+    throw new CliError(`Update NexusCode on "${device.name}" to copy its profiles`, 3, {
+      error: "older",
+      device: deviceRef(device),
+    });
+  }
+  const { profiles } = await askPeerCli(ctx, device, "profiles.list", {
+    connection: true,
+    profile: selector,
+    ...(agent ? { agent } : {}),
+  });
+  const row = pickProfile(profiles, selector, ` on "${device.name}"`);
+  const view = row.connection && redactedConnectionView(row.connection);
+  if (view?.baseUrlRedacted && address === undefined) {
+    throw new CliUsageError(
+      `"${oneLine(row.name, 80)}" on "${device.name}" has an address with a user, password or query values that are not shared; give the address with --base-url`,
+    );
+  }
+  if (view && address !== undefined && view.method !== "custom") {
+    throw new CliUsageError(ADDRESS_NEEDS_CUSTOM);
+  }
+  const connection =
+    view &&
+    connectionFromView(row.agent, address === undefined ? view : { ...view, baseUrl: address });
+  if (!connection) {
+    throw new CliError(
+      `Could not read the connection of "${oneLine(row.name, 80)}" on "${device.name}"; update NexusCode here`,
+    );
+  }
+  return {
+    agent: row.agent,
+    name: row.name,
+    ...(row.color !== undefined ? { color: row.color } : {}),
+    connection,
+    ...(row.hasKey !== undefined ? { hasKey: row.hasKey } : {}),
+    left: [
+      ...(row.connection?.advanced?.headers ?? []),
+      ...(row.connection?.advanced?.query ?? []),
+    ],
+    from: { id: row.id, name: row.name, device: deviceRef(device) },
+  };
+}
+
 export const CONNECTION_FLAGS = {
   method: {
     type: "string",
@@ -657,7 +813,11 @@ export const chatProfilesAdd = {
     "Repeat --reasoning MODEL=LEVEL for none, high, xhigh, or max; Claude also accepts auto.\n" +
     "Models without the flag stay automatic on Claude and have no reasoning on Codex.\n" +
     "Context windows: Claude takes one --context-window TOKENS for every model; Codex takes\n" +
-    "repeatable --context-window MODEL=TOKENS (131072 when left out). --label MODEL=TEXT names a model.",
+    "repeatable --context-window MODEL=TOKENS (131072 when left out). --label MODEL=TEXT names a model.\n" +
+    "--from PROFILE copies a profile's connection, here or with --from-device NAME on another\n" +
+    "computer, keeping its name and color unless you give others. Keys never move between\n" +
+    "computers: give this computer's with --key-file. --base-url replaces the copied address, and is\n" +
+    "needed when the other computer hid part of it. Change the copy later with chat profiles edit.",
   flags: {
     agent: { type: "string", value: "AGENT", description: "claude or codex (required)" },
     name: { type: "string", value: "NAME", description: "Profile name (required)" },
@@ -673,14 +833,31 @@ export const chatProfilesAdd = {
       value: "FILE",
       description: "Read the profile instructions from a UTF-8 file",
     },
+    from: {
+      type: "string",
+      value: "PROFILE",
+      description: "Copy the connection of a profile by name or id",
+    },
+    "from-device": {
+      type: "string",
+      value: "NAME",
+      description: "Take --from from another computer of the room",
+    },
   },
   async run(ctx, { flags, positionals }, { windows = process.platform === "win32" } = {}) {
     if (positionals.length) throw new CliUsageError("Use flags to specify the profile");
     if (!onAppMachine(ctx)) throw new CliError("Run this command in a local workspace");
-    const agent = flags.agent;
+    if (flags["from-device"] !== undefined && flags.from === undefined) {
+      throw new CliUsageError("--from-device needs --from PROFILE");
+    }
+    const source = flags.from === undefined ? undefined : await copySource(ctx, flags);
+    const agent = source?.agent ?? flags.agent;
     if (agent !== "claude" && agent !== "codex")
       throw new CliUsageError("Give --agent claude or codex");
-    const name = typeof flags.name === "string" ? flags.name.trim() : "";
+    if (source && flags.agent !== undefined && flags.agent !== source.agent) {
+      throw new CliUsageError(`--from names a ${source.agent} profile`);
+    }
+    const name = typeof flags.name === "string" ? flags.name.trim() : (source?.name ?? "");
     if (!name || name.length > 40 || /\p{Cc}/u.test(name)) {
       throw new CliUsageError(
         "Give a profile --name of 1 to 40 characters without control characters",
@@ -701,20 +878,26 @@ export const chatProfilesAdd = {
     if (flags.color !== undefined && !PROFILE_COLORS.some((color) => color === flags.color)) {
       throw new CliUsageError(`--color must be one of ${PROFILE_COLORS.join(", ")}`);
     }
-    const connection = profileConnection(agent, flags);
+    const connection = source?.connection ?? profileConnection(agent, flags);
     const keyFile = typeof flags["key-file"] === "string" ? flags["key-file"] : undefined;
     if (connection.method === "account" && keyFile !== undefined) {
       throw new CliUsageError("--key-file requires an API connection");
     }
     if (connection.method === "api-key" && keyFile === undefined) {
-      throw new CliUsageError("--method api-key requires --key-file");
+      throw new CliUsageError(
+        source
+          ? "--from names an API key profile: give its key with --key-file"
+          : "--method api-key requires --key-file",
+      );
     }
+    const sourceColor = PROFILE_COLORS.find((color) => color === source?.color);
     const parsed = AgentProfileSchema.safeParse({
       id: `${agent}-${randomUUID().slice(0, 8)}`,
       agent,
       name,
       color:
         flags.color ??
+        sourceColor ??
         PROFILE_COLORS.find((color) => !others.some((p) => p.color === color)) ??
         PROFILE_COLORS[0],
       dir,
@@ -765,8 +948,29 @@ export const chatProfilesAdd = {
     }
     const row = { id: profile.id, name, agent: profile.agent, workspaceDefault: false, path: dir };
     const signIn = connection.method === "account" ? "Sign in from Settings › Agents." : undefined;
-    const shown = profileTable([row]);
-    return output(signIn ? `${shown}\n${signIn}` : shown, signIn ? { ...row, signIn } : row);
+    const where = source?.from.device ? ` on "${source.from.device.name}"` : "";
+    const notes = [
+      ...(signIn ? [signIn] : []),
+      ...(source?.hasKey && key === undefined
+        ? [
+            `The profile${where} has an API key. Keys stay on each computer: give this one with ` +
+              `nexus chat profiles edit ${profile.id} --key-file -`,
+          ]
+        : []),
+      ...(source?.left.length
+        ? [
+            `Header and query values stay${where || " with the other profile"}: ` +
+              `add ${source.left.join(", ")} in Settings › Agents.`,
+          ]
+        : []),
+    ];
+    const shown = [profileTable([row]), ...notes].join("\n");
+    return output(shown, {
+      ...row,
+      ...(signIn ? { signIn } : {}),
+      ...(source ? { from: source.from } : {}),
+      ...(source && notes.length > (signIn ? 1 : 0) ? { notes } : {}),
+    });
   },
 } satisfies CliCommand;
 

@@ -998,3 +998,255 @@ test("profiles remove refuses the default profile and saves nothing on denial", 
   expect(app.asked).toHaveLength(2);
   expect(JSON.stringify(state.getState().agentProfiles)).toBe(before);
 });
+
+test("profiles add --from copies a local profile's connection but never its key", async () => {
+  const { app, state, keys, run, id } = await withGateway();
+  app.answers.push("once");
+  const result = await run([
+    "--from",
+    "Gateway",
+    "--name",
+    "Gateway copy",
+    "--dir",
+    "copy",
+    "--json",
+  ]);
+  expect(result.stderr).toBe("");
+  const [original, copy] = state.getState().agentProfiles?.profiles ?? [];
+  expect(copy?.connection).toEqual(original?.connection);
+  expect(copy).toMatchObject({ agent: "claude", name: "Gateway copy", color: original?.color });
+  expect(
+    await keys.get(copy?.id as string, connectionKeyTarget("claude", copy?.connection)),
+  ).toBeUndefined();
+  const json = JSON.parse(result.stdout);
+  expect(json.from).toEqual({ id, name: "Gateway" });
+  expect(json.notes).toEqual([
+    `The profile has an API key. Keys stay on each computer: give this one with nexus chat profiles edit ${copy?.id} --key-file -`,
+  ]);
+  expect(app.asked[1]?.change).toMatchObject({
+    kind: "profileAdd",
+    detail: "Gateway copy",
+    profileAdd: { agent: "claude", connection: "custom", endpoint: "http://127.0.0.1:9" },
+  });
+  expect(JSON.stringify(result)).not.toContain("SECRETVALUE");
+  const same = await run(["--from", "Gateway", "--dir", "again"]);
+  expect(same.stderr).toContain("A profile already uses this name for this agent");
+});
+
+const ihWin = { id: "55555555-5555-4555-8555-555555555555", name: "ihWin" };
+const peerGateway = {
+  id: "claude-remote",
+  name: "Gateway",
+  agent: "claude",
+  isDefault: false,
+  color: "cyan",
+  hasKey: true,
+  connection: {
+    method: "custom",
+    baseUrl: "http://127.0.0.1:9",
+    auth: "x-api-key",
+    models: [
+      { id: "k3.1-pro", reasoning: "high" },
+      { id: "glm-5.4", label: "GLM" },
+    ],
+    defaultModel: "glm-5.4",
+    lightModel: "k3.1-pro",
+    contextWindow: 400000,
+    advanced: { timeoutMs: 600000, headers: ["X-Org"] },
+  },
+};
+
+function withPeer(
+  app: ReturnType<typeof fixture>["app"],
+  serves: string[],
+  row: unknown = peerGateway,
+) {
+  app.peers.devices = [
+    { ...ihWin, platform: "win32", online: true, self: false, schema: "0.38.0", serves },
+  ];
+  app.peers.answer = async () => ({ profiles: [row] });
+}
+
+test("profiles add --from takes a new address for a local copy from --base-url", async () => {
+  const { app, state, run } = await withGateway();
+  app.answers.push("once");
+  const result = await run(
+    [
+      "--from",
+      "Gateway",
+      "--name",
+      "Gateway two",
+      "--dir",
+      "two",
+      "--base-url",
+      "http://127.0.0.1:10",
+      "--key-file",
+      "-",
+    ],
+    "sk-qa-key\n",
+  );
+  expect(result.stderr).toBe("");
+  const copy = state.getState().agentProfiles?.profiles.find(({ name }) => name === "Gateway two");
+  expect(copy?.connection).toMatchObject({ method: "custom", baseUrl: "http://127.0.0.1:10" });
+});
+
+test("profiles add --from-device copies another computer's connection with this computer's key", async () => {
+  const { app, state, keys, run } = fixture();
+  withPeer(app, ["agents", "agents.cli", "profiles.connection"]);
+  app.answers.push("once");
+  const local = "sk-qa-LOCALKEY-55";
+  const result = await run(
+    [
+      "--from",
+      "Gateway",
+      "--from-device",
+      "ihWin",
+      "--dir",
+      "gateway",
+      "--key-file",
+      "-",
+      "--json",
+    ],
+    `${local}\n`,
+  );
+  expect(result.stderr).toBe("");
+  const saved = state.getState().agentProfiles?.profiles[0];
+  expect(saved).toMatchObject({ agent: "claude", name: "Gateway", color: "cyan" });
+  expect(saved?.connection).toEqual({
+    method: "custom",
+    baseUrl: "http://127.0.0.1:9",
+    auth: "x-api-key",
+    models: [
+      { id: "k3.1-pro", reasoning: "high" },
+      { id: "glm-5.4", label: "GLM" },
+    ],
+    defaultModel: "glm-5.4",
+    lightModel: "k3.1-pro",
+    contextWindow: 400000,
+    advanced: { timeoutMs: 600000 },
+  });
+  expect(
+    await keys.get(saved?.id as string, connectionKeyTarget("claude", saved?.connection)),
+  ).toBe(local);
+  expect(app.peers.requests).toEqual([
+    {
+      deviceId: ihWin.id,
+      method: "profiles.list",
+      params: {
+        connection: true,
+        profile: "Gateway",
+        from: { kind: "terminal", workspaceId: APP, tabId: SHELL_TAB },
+      },
+      timeoutMs: undefined,
+    },
+  ]);
+  const json = JSON.parse(result.stdout);
+  expect(json.from).toEqual({ id: "claude-remote", name: "Gateway", device: ihWin });
+  expect(json.notes).toEqual([
+    'Header and query values stay on "ihWin": add X-Org in Settings › Agents.',
+  ]);
+  expect(JSON.stringify({ result, requests: app.peers.requests })).not.toContain("LOCALKEY");
+});
+
+test("profiles add --from-device refuses an older computer, extra connection flags and unreadable settings", async () => {
+  const { app, state, run } = fixture();
+  withPeer(app, ["agents", "agents.cli"]);
+  const older = await run(["--from", "Gateway", "--from-device", "ihWin"]);
+  expect(older.exitCode).toBe(3);
+  expect(older.stderr).toContain('Update NexusCode on "ihWin" to copy its profiles');
+  expect(app.peers.requests).toEqual([]);
+  withPeer(app, ["agents", "agents.cli", "profiles.connection"]);
+  const flags = await run(["--from", "Gateway", "--from-device", "ihWin", "--model", "x"]);
+  expect(flags.stderr).toContain("--from copies the connection, so leave out --model");
+  const lone = await run(["--from-device", "ihWin", "--agent", "claude", "--name", "X"]);
+  expect(lone.stderr).toContain("--from-device needs --from PROFILE");
+  withPeer(app, ["agents", "agents.cli", "profiles.connection"], {
+    ...peerGateway,
+    connection: { ...peerGateway.connection, defaultModel: "missing" },
+  });
+  const unreadable = await run(["--from", "Gateway", "--from-device", "ihWin"]);
+  expect(unreadable.stderr).toContain("must be among the listed models");
+  withPeer(app, ["agents", "agents.cli", "profiles.connection"], {
+    ...peerGateway,
+    connection: { method: "api-key" },
+  });
+  const apiKey = await run(["--from", "Gateway", "--from-device", "ihWin"]);
+  expect(apiKey.stderr).toContain("--from names an API key profile: give its key with --key-file");
+  withPeer(app, ["agents", "agents.cli", "profiles.connection"], {
+    ...peerGateway,
+    connection: { ...peerGateway.connection, models: [{ id: "glm-5.4", reasoning: "future" }] },
+  });
+  const future = await run(["--from", "Gateway", "--from-device", "ihWin"]);
+  expect(future.stderr).toContain('Could not read the connection of "Gateway" on "ihWin"');
+  expect(app.asked).toEqual([]);
+  expect(state.getState().agentProfiles).toBeUndefined();
+});
+
+test("profiles add --from-device refuses a hidden address and takes one from --base-url", async () => {
+  const { app, state, run } = fixture();
+  const hidden =
+    'on "ihWin" has an address with a user, password or query values that are not shared; give the address with --base-url';
+  withPeer(app, ["agents", "agents.cli", "profiles.connection"], {
+    ...peerGateway,
+    connection: {
+      ...peerGateway.connection,
+      baseUrl: "http://127.0.0.1:9/?key=***",
+      baseUrlRedacted: true,
+    },
+  });
+  const redacted = await run(["--from", "Gateway", "--from-device", "ihWin"]);
+  expect(redacted.exitCode).toBe(2);
+  expect(redacted.stderr).toContain(`"Gateway" ${hidden}`);
+  withPeer(app, ["agents", "agents.cli", "profiles.connection"], {
+    ...peerGateway,
+    connection: { ...peerGateway.connection, baseUrl: "http://qa:pa55word@127.0.0.1:9" },
+  });
+  const faulty = await run(["--from", "Gateway", "--from-device", "ihWin"]);
+  expect(faulty.stderr).toContain(hidden);
+  expect(faulty.stderr).not.toContain("pa55word");
+  withPeer(app, ["agents", "agents.cli", "profiles.connection"], {
+    ...peerGateway,
+    connection: { ...peerGateway.connection, baseUrl: undefined, baseUrlRedacted: true },
+  });
+  expect((await run(["--from", "Gateway", "--from-device", "ihWin"])).stderr).toContain(hidden);
+  const empty = await run(["--from", "Gateway", "--from-device", "ihWin", "--base-url", " "]);
+  expect(empty.stderr).toContain("Give --base-url an address");
+  expect(app.asked).toEqual([]);
+  expect(state.getState().agentProfiles).toBeUndefined();
+  app.answers.push("once");
+  const given = await run(
+    [
+      "--from",
+      "Gateway",
+      "--from-device",
+      "ihWin",
+      "--base-url",
+      "http://127.0.0.1:10/v1",
+      "--dir",
+      "gateway",
+      "--key-file",
+      "-",
+    ],
+    "sk-qa-key\n",
+  );
+  expect(given.stderr).toBe("");
+  expect(state.getState().agentProfiles?.profiles[0]?.connection).toMatchObject({
+    method: "custom",
+    baseUrl: "http://127.0.0.1:10",
+    defaultModel: "glm-5.4",
+  });
+  withPeer(app, ["agents", "agents.cli", "profiles.connection"], {
+    ...peerGateway,
+    name: "Main",
+    connection: { method: "account" },
+  });
+  const account = await run([
+    "--from",
+    "Main",
+    "--from-device",
+    "ihWin",
+    "--base-url",
+    "http://127.0.0.1:9",
+  ]);
+  expect(account.stderr).toContain("--base-url with --from needs a custom connection to copy");
+});
