@@ -1,6 +1,6 @@
 import type { SettingsEditLine } from "../../../../shared/cli/consent-copy";
 import type { CliChangeKind, CliShellChange, CliShellPlan } from "../../../../shared/cli/ui";
-import { joinShellArgs } from "../../../../shared/pty/shell";
+import { joinShellArgs, windowsCommandLineArgs } from "../../../../shared/pty/shell";
 import { CliUsageError, exactArgs, type FlagValues } from "../args";
 import type { CliContext } from "../context";
 import { oneLine } from "../format";
@@ -29,8 +29,12 @@ function programText(path: string, found: string | undefined): string {
   return found !== undefined && found !== path ? `${path} (${found})` : path;
 }
 
+function argsText(args: readonly string[]): string {
+  return process.platform === "win32" ? windowsCommandLineArgs(args) : joinShellArgs(args);
+}
+
 function commandLine(shell: CliShellPlan["shell"]): string {
-  return shell.args.length > 0 ? `${shell.path} ${joinShellArgs(shell.args)}` : shell.path;
+  return shell.args.length > 0 ? `${shell.path} ${argsText(shell.args)}` : shell.path;
 }
 
 async function changeShell(
@@ -93,7 +97,7 @@ const shellsAdd: CliCommand = {
     };
     const plan = await changeShell(ctx, change, "shellAdd", ({ shell, found }) => [
       { field: "program", to: programText(shell.path, found) },
-      { field: "args", to: joinShellArgs(shell.args) },
+      { field: "args", to: argsText(shell.args) },
     ]);
     return output(
       `Added the shell "${oneLine(plan.shell.name, 80)}": ${commandLine(plan.shell)}.`,
@@ -144,8 +148,8 @@ const shellsEdit: CliCommand = {
           ? { field: "program", from: before.path, to: path }
           : { field: "program", to: path },
       );
-      const from = joinShellArgs(before.args);
-      const to = joinShellArgs(after.args);
+      const from = argsText(before.args);
+      const to = argsText(after.args);
       lines.push(from !== to ? { field: "args", from, to } : { field: "args", to });
       return lines;
     });
@@ -167,7 +171,7 @@ const shellsRemove: CliCommand = {
     const [shell] = exactArgs(positionals, "shell") as [string];
     const plan = await changeShell(ctx, { op: "remove", shell }, "shellRemove", (p) => [
       { field: "program", to: p.shell.path },
-      { field: "args", to: joinShellArgs(p.shell.args) },
+      { field: "args", to: argsText(p.shell.args) },
       ...(p.wasDefault ? [{ field: "defaultShell", from: p.shell.name } as const] : []),
     ]);
     const fallback = plan.wasDefault ? " New terminals run the system's default shell." : "";

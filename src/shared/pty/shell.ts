@@ -57,6 +57,16 @@ export function joinShellArgs(args: readonly string[]): string {
     .join(" ");
 }
 
+function windowsCommandLineArg(arg: string): string {
+  if (arg === "") return '""';
+  if (!/[ \t"'*?[{]/.test(arg)) return arg;
+  return `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, "$1$1")}"`;
+}
+
+export function windowsCommandLineArgs(args: readonly string[]): string {
+  return args.map(windowsCommandLineArg).join(" ");
+}
+
 export function posixShellString(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }

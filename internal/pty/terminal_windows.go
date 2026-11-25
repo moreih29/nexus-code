@@ -106,7 +106,7 @@ func startInConsole(path string, spec spawnSpec, hpc windows.Handle) (*os.Proces
 	if err != nil {
 		return nil, err
 	}
-	cmdLine, err := windows.UTF16PtrFromString(windows.ComposeCommandLine(append([]string{path}, spec.args...)))
+	cmdLine, err := windows.UTF16PtrFromString(windowsCommandLine(path, spec.args))
 	if err != nil {
 		return nil, err
 	}
