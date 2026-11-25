@@ -657,7 +657,8 @@
       "blocking": "Conflicts with “{{command}}”",
       "overlap": "Also bound to “{{command}}” (different focus scope)",
       "shadow": "Shadows {{owner}}: {{note}}",
-      "system": "Reserved by the OS: {{note}}"
+      "system": "Reserved by the OS: {{note}}",
+      "screenSaves": "Settings › Keyboard Shortcuts can still save it with a warning"
     },
     "reservedNote": {
       "quitApplication": "Quit application",

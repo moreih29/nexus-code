@@ -1088,7 +1088,7 @@ function changeKeys(change: CliKeyChange): string[] {
   const blocking = conflicts.filter(isSevereConflict);
   if (blocking.length > 0) {
     throw new UiRequestError(
-      `${keys.map(shownKey).join(" ")} for ${command}: ${blocking.map((c) => keybindingConflictMessage(t, c)).join("; ")}`,
+      `${keys.map(shownKey).join(" ")} for ${command}: ${blocking.map((c) => keybindingConflictMessage(t, c)).join("; ")}. ${t("keybindings.conflict.screenSaves")}`,
     );
   }
   if (target.area === "editor") store.setEditorOverride({ command, primary: keys[0] as string });

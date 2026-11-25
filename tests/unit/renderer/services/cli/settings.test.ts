@@ -619,7 +619,9 @@ describe("keyboard shortcuts", () => {
     useKeybindingsStore.getState().hydrate([]);
     await expect(
       keys({ op: "set", command: "tab.closeOthers", keys: ["CmdOrCtrl+S"] }),
-    ).rejects.toThrow("CmdOrCtrl+S for tab.closeOthers: Conflicts with “Save File”");
+    ).rejects.toThrow(
+      "CmdOrCtrl+S for tab.closeOthers: Conflicts with “Save File”. Settings › Keyboard Shortcuts can still save it with a warning",
+    );
     expect(useKeybindingsStore.getState().overrides).toEqual([]);
     expect(writes).toEqual([]);
   });
@@ -670,12 +672,18 @@ describe("keyboard shortcuts", () => {
         ["Win+Y", `"Win+Y": shortcuts can't use the Windows key`],
         ["Super+Y", `"Super+Y": shortcuts can't use the Windows key`],
         ["Cmd+Ctrl+Y", `"Cmd+Ctrl+Y": Cmd is Ctrl here, so Cmd+Ctrl would take the Windows key`],
-        ["Alt+F4", "Alt+F4 for tab.closeOthers: Reserved by the OS: Close window"],
+        [
+          "Alt+F4",
+          "Alt+F4 for tab.closeOthers: Reserved by the OS: Close window. Settings › Keyboard Shortcuts can still save it with a warning",
+        ],
         [
           "Ctrl+Alt+Delete",
           "Ctrl+Alt+Delete for tab.closeOthers: Reserved by the OS: Security options",
         ],
-        ["CmdOrCtrl+S", "Ctrl+S for tab.closeOthers: Conflicts with “Save File”"],
+        [
+          "CmdOrCtrl+S",
+          "Ctrl+S for tab.closeOthers: Conflicts with “Save File”. Settings › Keyboard Shortcuts can still save it with a warning",
+        ],
       ] as const;
       for (const [key, message] of refusals) {
         await expect(keys({ op: "set", command: "tab.closeOthers", keys: [key] })).rejects.toThrow(
@@ -717,7 +725,7 @@ describe("keyboard shortcuts", () => {
     ]);
     await keys({ op: "set", command: "tab.closeOthers", keys: ["Alt+F4"] });
     await expect(keys({ op: "set", command: "tab.closeOthers", keys: ["Cmd+Q"] })).rejects.toThrow(
-      "Cmd+Q for tab.closeOthers: Reserved by the OS: Quit application",
+      "Cmd+Q for tab.closeOthers: Reserved by the OS: Quit application. Settings › Keyboard Shortcuts can still save it with a warning",
     );
     await expect(keys({ op: "set", command: "tab.closeOthers", keys: ["Win+Y"] })).rejects.toThrow(
       '"Win+Y" is not a key such as CmdOrCtrl+Shift+P',
