@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import path from "node:path";
 import {
+  APP_DATA_UNAVAILABLE,
   keepLogsApart,
   type LogsDirApp,
   ownLogsDir,
@@ -69,7 +70,23 @@ describe("keepLogsApart", () => {
 
   test("leaves the installed app's logs folder alone", () => {
     const { app, set } = fakeApp(true, DEFAULT_USER_DATA);
-    keepLogsApart(app, DEFAULT_HOME, DEFAULT_HOME);
+    expect(keepLogsApart(app, DEFAULT_HOME, DEFAULT_HOME)).toBeNull();
     expect(set).toEqual([]);
+  });
+
+  test("keeps starting with the logs beside its user data when the app data folder is unavailable", () => {
+    const { app, set } = fakeApp(true, DEV_USER_DATA);
+    const getPath = app.getPath;
+    app.getPath = (name) => {
+      if (name === "appData") throw new Error("Failed to get appData path");
+      return getPath(name);
+    };
+    let warning: string | null = null;
+    expect(() => {
+      warning = keepLogsApart(app, DEFAULT_HOME, DEFAULT_HOME);
+    }).not.toThrow();
+    expect(set).toEqual([path.join(DEV_USER_DATA, "logs")]);
+    expect(warning).toBe(APP_DATA_UNAVAILABLE);
+    expect(APP_DATA_UNAVAILABLE).not.toContain(DEV_USER_DATA);
   });
 });
