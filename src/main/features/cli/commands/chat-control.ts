@@ -925,7 +925,8 @@ const chatProfiles: CliCommand = {
   path: ["chat", "profiles"],
   summary: "List the profiles a Claude or Codex tab can use",
   details:
-    "Includes the profile selected by the workspace's rules for each agent. Names and ids can be used with chat new --profile.",
+    "Includes the profile selected by the workspace's rules for each agent. Names and ids can be used with chat new --profile.\n" +
+    "Profiles belong to a computer: with --device, --workspace is needed only for its workspace default.",
   flags: { agent: AGENT_FLAG, workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
@@ -933,9 +934,14 @@ const chatProfiles: CliCommand = {
     const device = await resolveDevice(ctx, deviceFlag(flags));
     if (device) requirePeerCli(ctx, device);
     const workspace = device
-      ? await peerWorkspace(ctx, device, flags.workspace)
+      ? flags.workspace === undefined
+        ? undefined
+        : await peerWorkspace(ctx, device, flags.workspace)
       : resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const params = { workspaceId: workspace.id, ...(agent ? { agent } : {}) };
+    const params = {
+      ...(workspace ? { workspaceId: workspace.id } : {}),
+      ...(agent ? { agent } : {}),
+    };
     const { profiles } = device
       ? await askPeerCli(ctx, device, "profiles.list", params)
       : await ctx.services.ui("chat.profiles", params);
@@ -949,7 +955,7 @@ const chatProfiles: CliCommand = {
     return output(
       profileTable(rows),
       {
-        workspaceId: workspace.id,
+        ...(workspace ? { workspaceId: workspace.id } : {}),
         profiles: rows,
         ...(device ? { device: deviceRef(device) } : {}),
       },

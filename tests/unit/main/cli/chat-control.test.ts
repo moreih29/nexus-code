@@ -646,6 +646,36 @@ test("chat profiles exposes selectable names and the workspace default, with por
   expect(app.asked).toEqual([]);
 });
 
+test("chat profiles --device lists a computer's profiles without a workspace", async () => {
+  const app = fakeApp();
+  const device = { id: "55555555-5555-4555-8555-555555555555", name: "ihWin" };
+  app.peers.devices = [
+    {
+      ...device,
+      platform: "win32",
+      online: true,
+      self: false,
+      schema: "0.37.1",
+      serves: ["agents", "agents.cli"],
+    },
+  ];
+  app.peers.answer = async () => ({
+    profiles: [{ id: "codex-default", name: "", agent: "codex", isDefault: true }],
+  });
+  const result = await nexus(app, ["chat", "profiles", "--device", "ihWin", "--json"]);
+  expect(result.stderr).toBe("");
+  expect(JSON.parse(result.stdout)).toEqual({
+    device,
+    profiles: [{ id: "codex-default", name: "", agent: "codex", workspaceDefault: false }],
+  });
+  expect(app.peers.requests.map(({ method, params }) => ({ method, params }))).toEqual([
+    {
+      method: "profiles.list",
+      params: { from: { kind: "terminal", workspaceId: APP, tabId: SHELL_TAB } },
+    },
+  ]);
+});
+
 describe("chat usage", () => {
   const now = Date.parse("2026-11-22T12:00:00Z");
   const fetchedAt = now - 5_000;

@@ -203,6 +203,8 @@ Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책�
 
 `chat profiles`는 이름, id, 에이전트와 워크스페이스 기본 선택을 표시합니다. 이 기기에서는 홈 기준 폴더 경로도 표시합니다.
 
+- 프로필은 기기 단위입니다. `chat profiles --device NAME`은 `--workspace` 없이 그 기기의 프로필을 나열하고, `--workspace`를 주면 그 워크스페이스의 기본 선택도 표시합니다.
+
 `chat usage`는 기기의 각 Claude · Codex 프로필에 대해 앱이 마지막으로 받은 구독 사용량을 표시합니다. `--agent`로 에이전트를, `--profile`로 이름이나 ID를 고릅니다. 이름이 겹치면 에이전트나 ID로 지정합니다. 기본값은 앱이 실행 중인 기기의 프로필입니다. SSH나 WSL에서 구동하는 에이전트의 사용량은 `--workspace`로 해당 실행 호스트를 고릅니다.
 
 - 각 한도에 사용 비율, 수신 시각, 제공된 경우 초기화 시각을 표시합니다. 텍스트 출력은 `Observed 12s ago` · `Resets in 4h 55m`처럼 상대 시각을 씁니다. 수신 후 2분이 지났거나 초기화 시각이 지나면 `Stale`입니다. 프로필의 한도 중 하나라도 오래되면 프로필도 `stale`로 표시합니다. `--json`의 `fetchedAt`과 `resetsAt`은 Unix 밀리초입니다.
