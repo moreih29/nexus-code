@@ -90,11 +90,13 @@ export interface ProfileRemoveCopy {
 
 export type SettingsEditLine =
   | {
-      readonly field: "name" | "program" | "args" | "path";
+      readonly field: "name" | "program" | "args" | "path" | "location";
       readonly from?: string;
       readonly to: string;
     }
-  | { readonly field: "defaultShell"; readonly from: string };
+  | { readonly field: "defaultShell"; readonly from: string }
+  | { readonly field: "notes"; readonly count: number; readonly size: string }
+  | { readonly field: "workspaces"; readonly count: number };
 
 export interface SettingsEditCopy {
   readonly language?: LspPathLanguage;
@@ -106,6 +108,7 @@ const SETTINGS_EDIT_KEYS = {
   program: "agentCli.consent.edit_program",
   args: "agentCli.consent.edit_args",
   path: "agentCli.consent.edit_path",
+  location: "agentCli.consent.edit_location",
 } as const;
 
 function settingsEditValue(t: TFunction<"settings">, field: string, value: string): string {
@@ -119,6 +122,10 @@ function settingsEditLine(t: TFunction<"settings">, line: SettingsEditLine): str
       return t("agentCli.consent.edit_default_shell", {
         value: `${line.from} → ${t("terminal.shell.systemPlain")}`,
       });
+    case "notes":
+      return t("agentCli.consent.edit_notes_trash", { count: line.count, size: line.size });
+    case "workspaces":
+      return t("agentCli.consent.edit_workspaces", { count: line.count });
     default: {
       const to = settingsEditValue(t, line.field, line.to);
       const from =

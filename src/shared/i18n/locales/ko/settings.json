@@ -357,7 +357,8 @@
         "shellAdd": "터미널 셸 \"{{detail}}\" 추가를",
         "shellEdit": "터미널 셸 \"{{detail}}\" 변경을",
         "shellRemove": "터미널 셸 \"{{detail}}\" 삭제를",
-        "lspPath": "{{detail}} 변경을"
+        "lspPath": "{{detail}} 변경을",
+        "noteStorageRemove": "\"{{detail}}\"의 노트 모두 지우기를"
       },
       "headline": {
         "open": "{{detail}} 열기",
@@ -421,7 +422,8 @@
         "shellAdd": "터미널 셸 \"{{detail}}\" 추가",
         "shellEdit": "터미널 셸 \"{{detail}}\" 변경",
         "shellRemove": "터미널 셸 \"{{detail}}\" 삭제",
-        "lspPath": "{{detail}} 변경"
+        "lspPath": "{{detail}} 변경",
+        "noteStorageRemove": "\"{{detail}}\"의 노트 모두 지우기"
       },
       "permission_title": "다른 대화의 권한 요청에 답할까요?",
       "mode_title": "에이전트가 대화의 권한 모드를 느슨하게 바꾸도록 허용할까요?",
@@ -479,13 +481,19 @@
       "shell_edit_title": "에이전트가 터미널 셸을 바꾸도록 허용할까요?",
       "shell_remove_title": "에이전트가 터미널 셸을 삭제하도록 허용할까요?",
       "lsp_path_title": "에이전트가 언어 서버 경로를 바꾸도록 허용할까요?",
+      "note_storage_remove_title": "에이전트가 저장 위치의 노트를 모두 지우도록 허용할까요?",
       "edit_name": "이름 {{value}}",
       "edit_program": "프로그램 {{value}}",
       "edit_args": "인자 {{value}}",
       "edit_none": "없음",
       "edit_default_shell": "기본 셸 {{value}}",
       "edit_path": "경로 {{value}}",
-      "edit_path_default": "PATH에서 찾음"
+      "edit_path_default": "PATH에서 찾음",
+      "edit_location": "위치 {{value}}",
+      "edit_notes_trash_one": "노트 {{count}}개({{size}}) 휴지통으로 이동",
+      "edit_notes_trash_other": "노트 {{count}}개({{size}}) 휴지통으로 이동",
+      "edit_workspaces_one": "워크스페이스 {{count}}개에서 사용 중",
+      "edit_workspaces_other": "워크스페이스 {{count}}개에서 사용 중"
     },
     "heading": "nexus CLI"
   },

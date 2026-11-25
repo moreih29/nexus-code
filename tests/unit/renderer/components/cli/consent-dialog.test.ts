@@ -326,6 +326,39 @@ test("a language server path change names the server and both paths", () => {
   );
 });
 
+test("a note storage removal names the location and what goes to the Trash", () => {
+  const ko = i18next.getFixedT("ko", "settings");
+  const en = i18next.getFixedT("en", "settings");
+  const notes = {
+    kind: "noteStorageRemove",
+    detail: "site",
+    settingsEdit: {
+      lines: [
+        { field: "location", to: "/w/site" },
+        { field: "notes", count: 3, size: "3.0 KB" },
+        { field: "workspaces", count: 1 },
+      ],
+    },
+  } as const;
+  expect(consentDetailsOf(ko, notes).body).toBe(
+    "위치 /w/site\n노트 3개(3.0 KB) 휴지통으로 이동\n워크스페이스 1개에서 사용 중",
+  );
+  expect(consentDetailsOf(en, notes).body).toBe(
+    "Location /w/site\n3 notes (3.0 KB) moved to the Trash\nUsed by 1 workspace",
+  );
+  expect(
+    describeConsent(
+      ko,
+      prompt(),
+      ko("agentCli.consent.action.noteStorageRemove", { detail: "site" }),
+      consentNamesTarget("noteStorageRemove"),
+    ),
+  ).toBe('app의 터미널 "zsh": "site"의 노트 모두 지우기를 하려고 합니다.');
+  expect(ko(consentTitleOf("noteStorageRemove", false))).toBe(
+    "에이전트가 저장 위치의 노트를 모두 지우도록 허용할까요?",
+  );
+});
+
 test("sandbox approval shows localized copy and accepts an until-restart answer", async () => {
   const request = {
     ...prompt("sandbox"),

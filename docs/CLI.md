@@ -77,9 +77,12 @@ nexus note voice suggestions accept meeting voice-1 Alex --recording REC
 nexus note voice suggestions reject meeting voice-1 Alex --recording REC
 nexus note rename meeting "Weekly planning"
 nexus note storage --json
+nexus note storage remove old-site          # 그 위치의 노트를 모두 휴지통으로 (매번 승인)
 nexus note voice list --json
 nexus note voice delete Alex
 ```
+
+`note storage remove LOCATION`은 설정 › 노트의 삭제와 같습니다. 위치는 `note storage`의 이름이나 경로, `--json`의 key로 고릅니다. 그 위치의 노트 · 녹음 · 파일이 모두 휴지통으로 가고, 그 위치를 쓰는 워크스페이스가 있어도 막지 않습니다. 매번 사용자에게 묻고, 확인 창에 위치 · 노트 수 · 크기 · 쓰는 워크스페이스 수가 보입니다.
 
 `note transcript --json`에서 확인한 화자 키와 줄 id를 화자 편집에 사용합니다. 녹음이 여러 개라면 `--recording`으로 고릅니다. 목소리 이름 제안은 사용자 동의와 제안 설정이 켜져 있을 때 볼 수 있습니다. `note voice delete NAME` 또는 `--all`로 기억을 지울 때는 매번 사용자에게 묻습니다. 화자 키와 이름이 출력됩니다.
 

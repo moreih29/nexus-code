@@ -74,6 +74,8 @@ export interface CliShellPlan {
   readonly saved: boolean;
 }
 
+export type CliNoteStorageEntry = NoteStorageEntry & { workspaceIds?: string[] };
+
 export interface CliTabInfo {
   readonly id: string;
   readonly type: string;
@@ -309,7 +311,8 @@ export type CliChangeKind =
   | "shellAdd"
   | "shellEdit"
   | "shellRemove"
-  | "lspPath";
+  | "lspPath"
+  | "noteStorageRemove";
 
 export interface CliChange extends Pick<RemoteConsent["change"], "instructionEdit" | "profileAdd"> {
   readonly profileEdit?: ProfileEditCopy;
@@ -1057,7 +1060,11 @@ export interface CliUiOps {
   };
   "note.storage": {
     args: Record<string, never>;
-    result: { entries: (NoteStorageEntry & { workspaceIds?: string[] })[] };
+    result: { entries: CliNoteStorageEntry[] };
+  };
+  "note.storage.remove": {
+    args: { location: string; approved?: true; before?: string };
+    result: { entry: CliNoteStorageEntry; snapshot: string; removed: boolean };
   };
   "note.speakers": {
     args: { workspaceId: string; noteId: string; recording?: string; change: CliSpeakerChange };

@@ -357,7 +357,8 @@
         "shellAdd": "add the terminal shell \"{{detail}}\"",
         "shellEdit": "change the terminal shell \"{{detail}}\"",
         "shellRemove": "remove the terminal shell \"{{detail}}\"",
-        "lspPath": "change the {{detail}}"
+        "lspPath": "change the {{detail}}",
+        "noteStorageRemove": "delete every note of \"{{detail}}\""
       },
       "headline": {
         "open": "Open {{detail}}",
@@ -421,7 +422,8 @@
         "shellAdd": "Add the terminal shell \"{{detail}}\"",
         "shellEdit": "Change the terminal shell \"{{detail}}\"",
         "shellRemove": "Remove the terminal shell \"{{detail}}\"",
-        "lspPath": "Change the {{detail}}"
+        "lspPath": "Change the {{detail}}",
+        "noteStorageRemove": "Delete every note of \"{{detail}}\""
       },
       "permission_title": "Answer another session's permission request?",
       "mode_title": "Let an agent loosen a session's permission mode?",
@@ -479,13 +481,19 @@
       "shell_edit_title": "Let an agent change a terminal shell?",
       "shell_remove_title": "Let an agent remove a terminal shell?",
       "lsp_path_title": "Let an agent change a language server's path?",
+      "note_storage_remove_title": "Let an agent delete every note of a storage location?",
       "edit_name": "Name {{value}}",
       "edit_program": "Program {{value}}",
       "edit_args": "Arguments {{value}}",
       "edit_none": "None",
       "edit_default_shell": "Default shell {{value}}",
       "edit_path": "Path {{value}}",
-      "edit_path_default": "Found on the PATH"
+      "edit_path_default": "Found on the PATH",
+      "edit_location": "Location {{value}}",
+      "edit_notes_trash_one": "{{count}} note ({{size}}) moved to the Trash",
+      "edit_notes_trash_other": "{{count}} notes ({{size}}) moved to the Trash",
+      "edit_workspaces_one": "Used by {{count}} workspace",
+      "edit_workspaces_other": "Used by {{count}} workspaces"
     },
     "heading": "nexus CLI"
   },
