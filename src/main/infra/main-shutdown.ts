@@ -7,6 +7,7 @@ const STATE_FLUSH_RETRY_MS = 1_000;
 
 interface QuitStateFlush {
   flush(): void;
+  keep(): void;
   quit(): void;
   warn(message: string): void;
   error(message: string): void;
@@ -33,11 +34,20 @@ export function createQuitStateFlush(
         return false;
       }
       work.error(
-        `Could not save app state before quit after ${attempts} attempts: ${String(error)}`,
+        `Could not save app state before quit after ${attempts} attempts: ${String(error)}; ${keepCopy(work)}`,
       );
     }
     return true;
   };
+}
+
+function keepCopy(work: QuitStateFlush): string {
+  try {
+    work.keep();
+    return "kept a copy for the next launch";
+  } catch (error) {
+    return `the copy for the next launch failed too: ${String(error)}`;
+  }
 }
 
 interface ShutdownWork {

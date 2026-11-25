@@ -49,28 +49,87 @@ export class StateService {
   private retryDelay = RETRY_DELAY_MS;
   private workerFailures = 0;
   private useSyncWriter = false;
+  private readonly pendingPath: string;
+  private pendingRevision?: number;
 
   constructor(
     private readonly filePath: string,
     workerPath: string,
   ) {
+    this.pendingPath = `${filePath}.pending`;
     this.state = this.load();
     this.writer = new StateWriter(filePath, workerPath);
+    if (this.pendingRevision !== undefined) {
+      this.revision++;
+      this.scheduleWrite(RETRY_DELAY_MS);
+    }
   }
 
   private load(): AppState {
     const empty = AppStateSchema.parse({});
+    const kept = this.restorePending();
     let raw: unknown;
     try {
-      raw = migrateAppState(JSON.parse(fs.readFileSync(this.filePath, "utf8")));
+      raw = migrateAppState(kept ?? JSON.parse(fs.readFileSync(this.filePath, "utf8")));
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") this.backUpInvalidFile();
+      if (!kept && errorCode(error) !== "ENOENT") this.backUpInvalidFile();
       return empty;
     }
     const parsed = AppStateSchema.safeParse(raw);
     if (parsed.success) return parsed.data;
-    this.backUpInvalidFile();
+    if (!kept) this.backUpInvalidFile();
     return salvageAppState(raw, empty);
+  }
+
+  private restorePending(): Record<string, unknown> | undefined {
+    let text: string;
+    try {
+      if (this.savedSincePending()) return this.discardPending("the saved state is newer");
+      text = fs.readFileSync(this.pendingPath, "utf8");
+    } catch (error) {
+      const code = errorCode(error);
+      if (code !== "ENOENT") {
+        log.warn(`Ignored the app state kept at the last quit: it could not be read (${code})`);
+      }
+      return undefined;
+    }
+    let kept: unknown;
+    try {
+      kept = JSON.parse(text);
+    } catch {
+      return this.discardPending("it is not valid JSON");
+    }
+    if (!isPlainRecord(kept)) return this.discardPending("it is not a JSON object");
+    try {
+      renameWhenUnlocked(this.pendingPath, this.filePath);
+    } catch (error) {
+      log.warn(
+        `Using the app state kept at the last quit until the next save: it could not replace the saved state (${errorCode(error)})`,
+      );
+      this.pendingRevision = 0;
+      return kept;
+    }
+    log.info("Restored the app state kept at the last quit");
+    return undefined;
+  }
+
+  private savedSincePending(): boolean {
+    const keptAt = fs.statSync(this.pendingPath).mtimeMs;
+    try {
+      return fs.statSync(this.filePath).mtimeMs > keptAt;
+    } catch {
+      return false;
+    }
+  }
+
+  private discardPending(reason: string): undefined {
+    log.warn(`Discarded the app state kept at the last quit: ${reason}`);
+    try {
+      fs.unlinkSync(this.pendingPath);
+    } catch (error) {
+      log.warn(`Could not remove the discarded app state copy (${errorCode(error)})`);
+    }
+    return undefined;
   }
 
   private backUpInvalidFile(): void {
@@ -97,7 +156,7 @@ export class StateService {
     const next = this.update(partial);
     this.writeNow(next);
     this.state = next;
-    this.writtenRevision = ++this.revision;
+    this.markWritten(++this.revision);
   }
 
   private update(partial: Partial<AppState>, mergeLayouts?: MergeLayouts): AppState {
@@ -124,11 +183,29 @@ export class StateService {
     if (this.revision === this.writtenRevision) return;
     try {
       this.writeNow(this.state);
-      this.writtenRevision = this.revision;
+      this.markWritten(this.revision);
     } catch (error) {
       this.scheduleWrite(RETRY_DELAY_MS);
       throw error;
     }
+  }
+
+  keepForNextLaunch(): void {
+    writeStateFile(this.pendingPath, `${this.pendingPath}.vsctmp`, this.state, {
+      rename: renameWhenUnlocked,
+    });
+    this.pendingRevision = this.revision;
+  }
+
+  private markWritten(revision: number): void {
+    this.writtenRevision = Math.max(this.writtenRevision, revision);
+    if (this.pendingRevision === undefined || revision < this.pendingRevision) return;
+    try {
+      fs.unlinkSync(this.pendingPath);
+    } catch (error) {
+      if (errorCode(error) !== "ENOENT") return;
+    }
+    this.pendingRevision = undefined;
   }
 
   private writeNow(state: AppState): void {
@@ -165,13 +242,13 @@ export class StateService {
     try {
       if (this.useSyncWriter) {
         this.writeNow(this.state);
-        this.writtenRevision = revision;
+        this.markWritten(revision);
       } else {
         const gate = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
         this.writing = gate;
         const written = await this.writer.write(this.state, gate);
         this.workerFailures = 0;
-        if (written) this.writtenRevision = Math.max(this.writtenRevision, revision);
+        if (written) this.markWritten(revision);
       }
       this.retryDelay = RETRY_DELAY_MS;
     } catch (error) {
@@ -193,6 +270,11 @@ export class StateService {
       this.scheduleWrite(delay);
     }
   }
+}
+
+function errorCode(error: unknown): string {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return typeof code === "string" ? code : "unknown";
 }
 
 function salvageAppState(raw: unknown, empty: AppState): AppState {
