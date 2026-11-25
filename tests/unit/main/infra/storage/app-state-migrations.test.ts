@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { migrateAppState } from "../../../../../src/main/infra/storage/app-state-migrations";
-import { openTestState } from "../../../../helpers/test-state";
+import { closeTestStates, openTestState } from "../../../../helpers/test-state";
 
 const WS = "123e4567-e89b-12d3-a456-426614174000";
 const LEAF = "123e4567-e89b-12d3-a456-426614174001";
@@ -67,7 +67,8 @@ describe("StateService with an earlier version's state", () => {
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-state-migration-"));
   });
-  afterEach(() => {
+  afterEach(async () => {
+    await closeTestStates();
     fs.rmSync(dir, { recursive: true, force: true });
   });
 

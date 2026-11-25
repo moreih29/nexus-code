@@ -7,7 +7,7 @@ import { GlobalStorage } from "../../../src/main/infra/storage/global-storage";
 import { WorkspaceStorage } from "../../../src/main/infra/storage/workspace-storage";
 import type { WorkspaceMeta } from "../../../src/shared/types/workspace";
 import { closeTestDatabases, openTestDatabase } from "../../helpers/test-database";
-import { openTestState } from "../../helpers/test-state";
+import { closeTestStates, openTestState } from "../../helpers/test-state";
 
 function makeTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "nexus-restart-test-"));
@@ -74,8 +74,9 @@ describe("storage-restart — stateService + globalStorage combined restart scen
     tmpDir = makeTmpDir();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     closeTestDatabases();
+    await closeTestStates();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 

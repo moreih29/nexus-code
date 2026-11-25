@@ -9,7 +9,7 @@ import { StateWriter } from "../../../../../src/main/infra/storage/state-writer"
 import { GitPanelStateUpdateSchema } from "../../../../../src/shared/git/types";
 import { ipcContract } from "../../../../../src/shared/ipc/contract";
 import { VoiceNamePreferencesSchema } from "../../../../../src/shared/notes/voice-names";
-import { openTestState } from "../../../../helpers/test-state";
+import { closeTestStates, openTestState } from "../../../../helpers/test-state";
 import { mainWarnMock } from "../../../../log-test-spies";
 
 function makeTmpDir(): string {
@@ -51,7 +51,8 @@ describe("StateService", () => {
     tmpDir = makeTmpDir();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await closeTestStates();
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
