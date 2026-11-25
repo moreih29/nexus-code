@@ -314,12 +314,14 @@ async function editedAdvanced(
       throw new CliUsageError("--experimental-headers takes on or off");
     }
     const disable = headersFlag === "off";
-    if (disable !== (current.disableExperimentalBetas ?? false)) {
+    const disabled = current.disableExperimentalBetas ?? false;
+    if (disable !== disabled) {
       next.disableExperimentalBetas = disable;
       out.push({
         field: "advanced",
-        setting: "disableBetas",
-        value: disable ? "off → on" : "on → off",
+        setting: "experimentalHeaders",
+        from: !disabled,
+        to: !disable,
       });
     }
   }

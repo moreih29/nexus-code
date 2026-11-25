@@ -509,6 +509,7 @@
       "profile_edit_on": "on",
       "profile_edit_off": "off",
       "profile_edit_wider": "wider permissions",
+      "profile_edit_experimental_headers": "Experimental headers",
       "profile_edit_behavior_shared": "{{file}} shared with the default profile · changes it there too",
       "profile_default_title": "Let an agent change a default profile on this computer?",
       "profile_default_value": "Default profile {{value}}",

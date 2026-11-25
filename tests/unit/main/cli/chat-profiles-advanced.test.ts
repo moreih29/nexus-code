@@ -330,7 +330,7 @@ test("edit changes timeouts, shared files and behavior, marking wider permission
       "에이전트 Claude",
       "응답 제한 시간 (ms) auto → 600000",
       "최대 출력 토큰 auto → 32000",
-      "실험 기능 헤더 끄기 off → on",
+      "실험 기능 헤더 켜짐 → 꺼짐",
     ].join("\n"),
   );
   app.answers.push("once");
@@ -349,6 +349,22 @@ test("edit changes timeouts, shared files and behavior, marking wider permission
   expect(
     after.connection?.method === "custom" && after.connection.advanced?.timeoutMs,
   ).toBeUndefined();
+  app.answers.push("once");
+  const headersOn = await cli([
+    "chat",
+    "profiles",
+    "edit",
+    "Gateway",
+    "--agent",
+    "claude",
+    "--experimental-headers",
+    "on",
+    "--json",
+  ]);
+  expect(headersOn.exitCode).toBe(0);
+  expect(JSON.parse(headersOn.stdout).changed).toEqual(["advanced"]);
+  expect(bodyOf(app.asked[4]?.change)).toBe("에이전트 Claude\n실험 기능 헤더 꺼짐 → 켜짐");
+  expect(bodyOf(app.asked[4]?.change, "en")).toBe("Agent Claude\nExperimental headers off → on");
 });
 
 test("a behavior file changed while the approval waits saves nothing", async () => {

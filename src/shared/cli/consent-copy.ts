@@ -46,6 +46,7 @@ export type ProfileEditLine =
   | { field: "shared"; value: string }
   | { field: "env" | "header" | "query"; name: string; change: "added" | "changed" | "removed" }
   | { field: "advanced"; setting: AdvancedSetting; value: string }
+  | { field: "advanced"; setting: "experimentalHeaders"; from: boolean; to: boolean }
   | {
       field: "behavior";
       id: string;
@@ -55,12 +56,7 @@ export type ProfileEditLine =
     }
   | { field: "behaviorShared"; file: string };
 
-export type AdvancedSetting =
-  | "timeout"
-  | "outputTokens"
-  | "disableBetas"
-  | "retries"
-  | "streamTimeout";
+export type AdvancedSetting = "timeout" | "outputTokens" | "retries" | "streamTimeout";
 
 export interface ProfileEditCopy {
   readonly agent: ChatAgent;
@@ -82,6 +78,10 @@ const PROFILE_EDIT_KEYS = {
   reasoning: "agentCli.consent.profile_edit_reasoning",
   label: "agentCli.consent.profile_edit_label",
 } as const;
+
+function onOff(t: TFunction<"settings">, value: boolean): string {
+  return t(value ? "agentCli.consent.profile_edit_on" : "agentCli.consent.profile_edit_off");
+}
 
 function profileEditLine(t: TFunction<"settings">, agent: ChatAgent, line: ProfileEditLine) {
   switch (line.field) {
@@ -107,6 +107,12 @@ function profileEditLine(t: TFunction<"settings">, agent: ChatAgent, line: Profi
         change: t(`agentCli.consent.profile_edit_value_${line.change}`),
       });
     case "advanced":
+      if (line.setting === "experimentalHeaders") {
+        return t("agentCli.consent.profile_edit_setting", {
+          setting: t("agentCli.consent.profile_edit_experimental_headers"),
+          value: `${onOff(t, line.from)} → ${onOff(t, line.to)}`,
+        });
+      }
       return t("agentCli.consent.profile_edit_setting", {
         setting: t(`profiles.connection.${line.setting}`),
         value: line.value,
@@ -116,7 +122,7 @@ function profileEditLine(t: TFunction<"settings">, agent: ChatAgent, line: Profi
         value === null
           ? t("profiles.behavior.default")
           : typeof value === "boolean"
-            ? t(value ? "agentCli.consent.profile_edit_on" : "agentCli.consent.profile_edit_off")
+            ? onOff(t, value)
             : String(value);
       const text = t("agentCli.consent.profile_edit_setting", {
         setting: t(`profiles.behavior.fields.${line.id}.label`, { defaultValue: line.id }),
