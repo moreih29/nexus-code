@@ -255,7 +255,9 @@ describe("profile connections", () => {
     expect(args).toContain('web_search="disabled"');
     expect(args).toContain('wire_api = "responses"');
     expect(args).toContain('query_params = { "audience" = "local" }');
-    expect(args).toContain('http_headers = { "X-Route" = "test" }');
+    expect(args).toContain('env_http_headers = { "X-Route" = "NEXUS_PROFILE_CODEX_HEADER_0" }');
+    expect(args).not.toContain(" http_headers");
+    expect(args).not.toContain('"test"');
     expect(args).toContain("request_max_retries = 0");
     expect(args).toContain("stream_max_retries = 0");
     expect(args).toContain("stream_idle_timeout_ms = 3000");
@@ -265,8 +267,11 @@ describe("profile connections", () => {
     expect(codexConnectionArgs({ method: "api-key" }, "test").join(" ")).toContain(
       "https://api.openai.com/v1",
     );
-    expect(codexConnectionEnv(connection, "local-test-key")).toMatchObject({
+    expect(codexConnectionEnv(connection, "local-test-key")).toEqual({
       NEXUS_PROFILE_CODEX_API_KEY: "local-test-key",
+      CODEX_API_KEY: "",
+      OPENAI_API_KEY: "",
+      NEXUS_PROFILE_CODEX_HEADER_0: "test",
     });
     const { models } = codexConnectionCatalog(connection);
     expect(models[0]).toMatchObject({
@@ -297,6 +302,41 @@ describe("profile connections", () => {
       "xhigh",
       "max",
     ]);
+  });
+
+  test("passes Codex header values through the environment, never the command line", () => {
+    const secret = 'Bearer s3cr3t "quoted" = { }';
+    const headers = { Authorization: secret, "X-Tenant": "tenant-42", "X-Empty": "" };
+    const custom: CustomConnection = { ...connection, advanced: { headers } };
+    const args = codexConnectionArgs(custom, "local-test-key", "/tmp/models.json");
+    const joined = args.join("\n");
+    for (const value of [secret, "tenant-42", "s3cr3t", "local-test-key"]) {
+      expect(joined).not.toContain(value);
+    }
+    expect(joined).toContain(
+      'env_http_headers = { "Authorization" = "NEXUS_PROFILE_CODEX_HEADER_0", "X-Tenant" = "NEXUS_PROFILE_CODEX_HEADER_1" }',
+    );
+    expect(joined).toContain('http_headers = { "X-Empty" = "" }');
+    const env = codexConnectionEnv(custom, "local-test-key");
+    expect(env.NEXUS_PROFILE_CODEX_HEADER_0).toBe(secret);
+    expect(env.NEXUS_PROFILE_CODEX_HEADER_1).toBe("tenant-42");
+    expect(
+      Object.keys(env).filter((name) => name.startsWith("NEXUS_PROFILE_CODEX_HEADER_")),
+    ).toEqual(["NEXUS_PROFILE_CODEX_HEADER_0", "NEXUS_PROFILE_CODEX_HEADER_1"]);
+    const plain: CustomConnection = { ...connection, advanced: { retries: 1 } };
+    expect(codexConnectionArgs(plain, undefined, "/tmp/models.json").join("\n")).not.toContain(
+      "headers",
+    );
+    expect(Object.keys(codexConnectionEnv(plain, undefined))).toEqual([
+      "NEXUS_PROFILE_CODEX_API_KEY",
+      "CODEX_API_KEY",
+      "OPENAI_API_KEY",
+    ]);
+    expect(codexConnectionEnv({ method: "api-key" }, "test")).toEqual({
+      NEXUS_PROFILE_CODEX_API_KEY: "test",
+      CODEX_API_KEY: "",
+      OPENAI_API_KEY: "",
+    });
   });
 
   test("keeps keys bound to their endpoint, reports only a suffix, and clears removed profiles", async () => {

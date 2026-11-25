@@ -12,6 +12,7 @@ import codexInstructions from "./codex-instructions";
 
 const CODEX_PROVIDER = "nexus_profile";
 const CODEX_PROVIDER_KEY = "NEXUS_PROFILE_CODEX_API_KEY";
+const CODEX_HEADER_ENV = "NEXUS_PROFILE_CODEX_HEADER_";
 
 function launchConnection(profile: AgentProfile | null): unknown {
   const connection = profile?.connection;
@@ -126,12 +127,33 @@ export function claudeModelPicker(connection: AgentProfile["connection"]) {
   };
 }
 
+function codexHeaders(headers: Readonly<Record<string, string>> | undefined) {
+  const plain: Record<string, string> = {};
+  const fromEnv: Record<string, string> = {};
+  const env: Record<string, string> = {};
+  Object.entries(headers ?? {}).forEach(([name, value], index) => {
+    if (value.trim() === "") {
+      plain[name] = value;
+      return;
+    }
+    const variable = `${CODEX_HEADER_ENV}${index}`;
+    fromEnv[name] = variable;
+    env[variable] = value;
+  });
+  return { plain, fromEnv, env };
+}
+
 export function codexConnectionEnv(
   connection: AgentProfile["connection"],
   key: string | undefined,
 ): Record<string, string> {
   if (!connection || connection.method === "account") return {};
-  return { [CODEX_PROVIDER_KEY]: key ?? "", CODEX_API_KEY: "", OPENAI_API_KEY: "" };
+  return {
+    [CODEX_PROVIDER_KEY]: key ?? "",
+    CODEX_API_KEY: "",
+    OPENAI_API_KEY: "",
+    ...(connection.method === "custom" ? codexHeaders(connection.advanced?.headers).env : {}),
+  };
 }
 
 function tomlString(value: string): string {
@@ -167,7 +189,9 @@ export function codexConnectionArgs(
     requires_openai_auth: "false",
   };
   if (key) values.env_key = tomlString(CODEX_PROVIDER_KEY);
-  if (advanced?.headers) values.http_headers = tomlTable(advanced.headers);
+  const headers = codexHeaders(advanced?.headers);
+  if (Object.keys(headers.plain).length) values.http_headers = tomlTable(headers.plain);
+  if (Object.keys(headers.fromEnv).length) values.env_http_headers = tomlTable(headers.fromEnv);
   if (advanced?.query) values.query_params = tomlTable(advanced.query);
   if (advanced?.retries !== undefined) {
     values.request_max_retries = String(advanced.retries);
