@@ -10,6 +10,7 @@ export interface ChangeRequest {
   readonly fromTabId: string;
   readonly toWorkspaceId: string;
   readonly change: CliChange;
+  readonly otherWorkspaces?: boolean;
   readonly sandbox?: {
     readonly verified: boolean;
     readonly workspaceChange: CliChange;
@@ -34,6 +35,10 @@ function refusal(sandbox: boolean, unasked = false): CliError {
   );
 }
 
+function crossWorkspaceOff(): CliError {
+  return new CliError("changing other workspaces is turned off in NexusCode's settings (Agents)");
+}
+
 export class CrossWorkspaceConsent {
   private readonly allowed = new Set<string>();
   private readonly sandboxAllowed = new Map<string, string>();
@@ -43,11 +48,7 @@ export class CrossWorkspaceConsent {
   async check(request: ChangeRequest, signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
     const policy = this.deps.policy();
-    if (policy === "deny") {
-      throw new CliError(
-        "changing other workspaces is turned off in NexusCode's settings (Agents)",
-      );
-    }
+    if (policy === "deny") throw crossWorkspaceOff();
     if (request.change.kind === "sandboxExecution") {
       await this.askSandbox(request, policy === "ask", signal);
     } else if (policy === "ask") {
@@ -57,6 +58,7 @@ export class CrossWorkspaceConsent {
 
   async ask(request: ChangeRequest, signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();
+    if (request.otherWorkspaces && this.deps.policy() === "deny") throw crossWorkspaceOff();
     if (request.change.kind === "sandboxExecution") {
       return this.askSandbox(request, false, signal);
     }

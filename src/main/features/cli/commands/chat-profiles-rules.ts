@@ -26,7 +26,7 @@ import { shortId } from "../../../../shared/util/short-id";
 import { expandHome } from "../../agent-profiles/local";
 import { parseSshConfig } from "../../ssh/config";
 import { CliUsageError, exactArgs, type FlagSpec, type FlagValues } from "../args";
-import { type CliContext, CliError, mayChange, resolveWorkspace } from "../context";
+import { type CliContext, CliError, resolveWorkspace } from "../context";
 import { oneLine, table } from "../format";
 import { callerPath, onAppMachine } from "../paths";
 import { type CliCommand, output } from "../registry";
@@ -58,8 +58,23 @@ function subjectOf(workspace: WorkspaceMeta, all: readonly WorkspaceMeta[]): Pro
   };
 }
 
+function matchedBy(rule: ProfileRule, all: readonly WorkspaceMeta[], matching: MatchOptions) {
+  return all.filter((w) => !w.task && ruleMatches(rule, subjectOf(w, all), matching));
+}
+
 function appliesTo(rule: ProfileRule, all: readonly WorkspaceMeta[], matching: MatchOptions) {
-  return all.filter((w) => !w.task && ruleMatches(rule, subjectOf(w, all), matching)).length;
+  return matchedBy(rule, all, matching).length;
+}
+
+function othersOf(
+  ctx: CliContext,
+  rule: ProfileRule,
+  all: readonly WorkspaceMeta[],
+  matching: MatchOptions,
+): string[] {
+  return matchedBy(rule, all, matching)
+    .map(({ id }) => id)
+    .filter((id) => id !== ctx.caller.workspaceId);
 }
 
 function tilde(dir: string, matching: MatchOptions): string {
@@ -138,13 +153,14 @@ function defaultsOf(config: AgentProfiles) {
   });
 }
 
-function ask(ctx: CliContext, toWorkspaceId: string, change: CliChange) {
+function ask(ctx: CliContext, toWorkspaceId: string, change: CliChange, otherWorkspaces = false) {
   return ctx.services.askUser(
     {
       fromWorkspaceId: ctx.caller.workspaceId,
       fromTabId: ctx.caller.tabId,
       toWorkspaceId,
       change: { ...change, eachTime: true },
+      ...(otherWorkspaces ? { otherWorkspaces } : {}),
     },
     ctx.signal,
   );
@@ -321,9 +337,10 @@ async function targetOf(
 function ruleChange(
   config: AgentProfiles,
   rule: ProfileRule,
-  copy: Omit<ProfileRuleCopy, "target" | "applies">,
+  copy: Omit<ProfileRuleCopy, "target" | "applies" | "others">,
   all: readonly WorkspaceMeta[],
   matching: MatchOptions,
+  others: number,
 ): CliChange {
   const name = targetName(rule.target, all, matching);
   return {
@@ -332,6 +349,7 @@ function ruleChange(
     profileRule: {
       target: { kind: rule.target.kind, name },
       applies: appliesTo(rule, all, matching),
+      ...(others ? { others } : {}),
       ...copy,
       lines: copy.lines.map((line) => ({
         agent: line.agent,
@@ -346,8 +364,25 @@ function ruleChange(
   };
 }
 
-async function guardWorkspace(ctx: CliContext, target: Target, change: CliChange) {
-  if (target.workspace) await mayChange(ctx, target.workspace, change);
+async function approveRule(
+  ctx: CliContext,
+  config: AgentProfiles,
+  target: Target,
+  rule: ProfileRule,
+  change: CliChange,
+  others: readonly string[],
+  matching: MatchOptions,
+): Promise<AgentProfiles> {
+  const before = routingOf(config);
+  await ask(ctx, target.workspace?.id ?? ctx.caller.workspaceId, change, others.length > 0);
+  const now = unchanged(ctx, before);
+  const after = othersOf(ctx, rule, ctx.services.listWorkspaces(), matching);
+  if (after.join("\n") !== others.join("\n")) {
+    throw new CliError(
+      "The workspaces the rule applies to changed while waiting for approval; run the command again",
+    );
+  }
+  return now;
 }
 
 interface AgentChoice {
@@ -423,8 +458,9 @@ export const chatProfilesRulesSet = {
     "~/.ssh/config or an SSH workspace) or --workspace WS (not a worktree task: tasks follow their\n" +
     "parent). Then --profile NAME, or --inherit with --agent to let that agent fall back to the next\n" +
     "rule or the default. --agent is needed when the profile name is used by both agents. A target\n" +
-    "with a rule already changes that rule. The user approves each time; a rule for another\n" +
-    "workspace also follows the setting for changing other workspaces. New tabs use it.",
+    "with a rule already changes that rule. The user approves each time; a rule that applies to\n" +
+    "another workspace also follows the setting for changing other workspaces, whatever the\n" +
+    "target. New tabs use it.",
   flags: {
     ...TARGET_FLAGS,
     agent: AGENT_FLAG,
@@ -468,17 +504,16 @@ export const chatProfilesRulesSet = {
     if (existing && from === to) throw new CliUsageError("Nothing to change");
     const next = withRuleProfile(config, target.target, agent, to, randomUUID, matching, true);
     const rule = ruleOfTarget(next, target.target, matching) as ProfileRule;
+    const others = othersOf(ctx, rule, all, matching);
     const change = ruleChange(
       next,
       rule,
       { lines: [{ agent, ...(existing ? { from } : {}), to }] },
       all,
       matching,
+      others.length,
     );
-    const before = routingOf(config);
-    await guardWorkspace(ctx, target, change);
-    await ask(ctx, target.workspace?.id ?? ctx.caller.workspaceId, change);
-    const now = unchanged(ctx, before);
+    const now = await approveRule(ctx, config, target, rule, change, others, matching);
     if (profile && !hasProfile(now, agent, profile.id)) {
       throw new CliError("The profile was removed while waiting for approval");
     }
@@ -523,8 +558,8 @@ export const chatProfilesRulesRemove = {
   details:
     "Give the rule's id (or its start) from chat profiles rules, or its target with --folder,\n" +
     "--ssh or --workspace. Workspaces it matched fall back to the next rule or the default. The\n" +
-    "user approves each time; a rule for another workspace also follows the setting for changing\n" +
-    "other workspaces.",
+    "user approves each time; a rule that applies to another workspace also follows the setting\n" +
+    "for changing other workspaces.",
   flags: {
     folder: TARGET_FLAGS.folder,
     ssh: { type: "string", value: "HOST", description: "An SSH host" },
@@ -569,11 +604,16 @@ export const chatProfilesRulesRemove = {
     const lines = PROFILE_AGENTS.flatMap((agent) =>
       found[agent] === undefined ? [] : [{ agent, from: found[agent] }],
     );
-    const change = ruleChange(config, found, { lines, removed: true }, all, matching);
-    const before = routingOf(config);
-    await guardWorkspace(ctx, target, change);
-    await ask(ctx, target.workspace?.id ?? ctx.caller.workspaceId, change);
-    const now = unchanged(ctx, before);
+    const others = othersOf(ctx, found, all, matching);
+    const change = ruleChange(
+      config,
+      found,
+      { lines, removed: true },
+      all,
+      matching,
+      others.length,
+    );
+    const now = await approveRule(ctx, config, target, found, change, others, matching);
     connections.saveRouting({
       rules: now.rules.filter(({ id }) => id !== found.id),
       defaults: now.defaults,

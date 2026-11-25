@@ -519,7 +519,9 @@
       "profile_rule_agent": "{{agent}} {{value}}",
       "profile_rule_removed": "Rule removed",
       "profile_rule_applies_one": "Applies now to {{count}} workspace",
-      "profile_rule_applies_other": "Applies now to {{count}} workspaces"
+      "profile_rule_applies_other": "Applies now to {{count}} workspaces",
+      "profile_rule_others_one": "Includes {{count}} other workspace",
+      "profile_rule_others_other": "Includes {{count}} other workspaces"
     },
     "heading": "nexus CLI"
   },

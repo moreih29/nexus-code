@@ -227,7 +227,7 @@ test("a rule for another workspace follows the setting for changing other worksp
   });
 
   const ask = fixture();
-  ask.app.answers.push("once", "once");
+  ask.app.answers.push("once");
   const asked = await ask.cli([
     "chat",
     "profiles",
@@ -239,7 +239,16 @@ test("a rule for another workspace follows the setting for changing other worksp
     "Work",
   ]);
   expect(asked.exitCode).toBe(0);
-  expect(ask.app.asked.map(({ change }) => change.eachTime === true)).toEqual([false, true]);
+  expect(ask.app.asked).toHaveLength(1);
+  expect(ask.app.asked[0]).toMatchObject({
+    toWorkspaceId: API,
+    otherWorkspaces: true,
+    change: { kind: "profileRule", eachTime: true, profileRule: { applies: 1, others: 1 } },
+  });
+  expect(bodyOf(ask.app.asked[0]?.change)).toBe(
+    "워크스페이스 api\nClaude Work\n지금 적용되는 워크스페이스 1개\n다른 워크스페이스 1개 포함",
+  );
+  expect(bodyOf(ask.app.asked[0]?.change, "en")).toContain("Includes 1 other workspace");
   expect(ask.config().rules[0]).toMatchObject({
     target: { kind: "workspace", workspaceId: API },
     claude: "claude-work0001",
@@ -261,11 +270,135 @@ test("a rule for another workspace follows the setting for changing other worksp
   ]);
   expect(mine.exitCode).toBe(0);
   expect(own.app.asked).toHaveLength(1);
+  expect(own.app.asked[0]?.otherWorkspaces).toBeUndefined();
+  expect(bodyOf(own.app.asked[0]?.change)).not.toContain("다른 워크스페이스");
   expect(JSON.parse(mine.stdout).workspace.claude).toMatchObject({
     id: "claude-work0001",
     source: "workspace",
   });
   expect(JSON.parse(mine.stdout).applies).toBe(1);
+});
+
+async function placeWorkspaces(app: ReturnType<typeof fixture>["app"]) {
+  const root = join(dirOf(), "projects");
+  for (const [index, name] of ["app", "api"].entries()) {
+    const rootPath = join(root, name);
+    await mkdir(rootPath, { recursive: true });
+    const workspace = app.workspaces[index] as (typeof app.workspaces)[number];
+    workspace.location = { kind: "local", rootPath };
+    workspace.rootPath = rootPath;
+  }
+}
+
+test("folder and SSH rules that reach another workspace follow the cross-workspace setting", async () => {
+  const set = ["chat", "profiles", "rules", "set", "--profile", "Work"];
+  const denied = fixture();
+  await placeWorkspaces(denied.app);
+  denied.app.settings.crossWorkspace = "deny";
+  const folder = await denied.cli([...set, "--folder", "projects"]);
+  expect(folder.exitCode).toBe(1);
+  expect(folder.stderr).toContain("changing other workspaces is turned off");
+  expect(denied.app.asked).toEqual([]);
+  expect(denied.config().rules).toEqual([]);
+  denied.app.answers.push("once");
+  const ownFolder = await denied.cli([...set, "--folder", join("projects", "app")]);
+  expect(ownFolder.exitCode).toBe(0);
+  expect(denied.app.asked).toHaveLength(1);
+  expect(denied.app.asked[0]?.otherWorkspaces).toBeUndefined();
+  const ruleId = denied.config().rules[0]?.id as string;
+  denied.state.commitState({
+    agentProfiles: {
+      ...denied.config(),
+      rules: [
+        ...denied.config().rules,
+        {
+          id: "rule-wide-0001",
+          target: { kind: "folder", path: join(dirOf(), "projects") },
+          codex: "codex-build001",
+        },
+      ],
+    },
+  });
+  const removeWide = await denied.cli(["chat", "profiles", "rules", "remove", "rule-wide"]);
+  expect(removeWide.exitCode).toBe(1);
+  expect(removeWide.stderr).toContain("changing other workspaces is turned off");
+  expect(denied.config().rules.map(({ id }) => id)).toEqual([ruleId, "rule-wide-0001"]);
+  expect(denied.app.asked).toHaveLength(1);
+
+  const sshHost = fixture();
+  (sshHost.app.workspaces[1] as (typeof sshHost.app.workspaces)[number]).location = {
+    kind: "ssh",
+    host: "build-box",
+    remotePath: "/srv/api",
+  };
+  sshHost.app.settings.crossWorkspace = "deny";
+  const ssh = await sshHost.cli([...set, "--ssh", "build-box"]);
+  expect(ssh.exitCode).toBe(1);
+  expect(ssh.stderr).toContain("changing other workspaces is turned off");
+  expect(sshHost.app.asked).toEqual([]);
+
+  const asking = fixture();
+  await placeWorkspaces(asking.app);
+  asking.app.answers.push("once");
+  const asked = await asking.cli([...set, "--folder", "projects"]);
+  expect(asked.exitCode).toBe(0);
+  expect(asking.app.asked).toHaveLength(1);
+  expect(asking.app.asked[0]).toMatchObject({
+    toWorkspaceId: APP,
+    otherWorkspaces: true,
+    change: { kind: "profileRule", eachTime: true, profileRule: { applies: 2, others: 1 } },
+  });
+  expect(bodyOf(asking.app.asked[0]?.change)).toBe(
+    `폴더 ${PROJECTS} · 하위 폴더 포함\nClaude Work\n지금 적용되는 워크스페이스 2개\n다른 워크스페이스 1개 포함`,
+  );
+  asking.app.answers.push("deny");
+  const refused = await asking.cli(["chat", "profiles", "rules", "remove", "--folder", "projects"]);
+  expect(refused.exitCode).toBe(1);
+  expect(refused.stderr).toContain("the user did not allow it");
+  expect(asking.app.asked).toHaveLength(2);
+  expect(asking.config().rules).toHaveLength(1);
+
+  const allowing = fixture();
+  await placeWorkspaces(allowing.app);
+  allowing.app.settings.crossWorkspace = "allow";
+  allowing.app.answers.push("once");
+  const allowed = await allowing.cli([...set, "--folder", "projects"]);
+  expect(allowed.exitCode).toBe(0);
+  expect(allowing.app.asked).toHaveLength(1);
+  expect(allowing.app.asked[0]).toMatchObject({
+    otherWorkspaces: true,
+    change: { eachTime: true },
+  });
+});
+
+test("a workspace that a rule starts to reach while the approval waits refuses the change", async () => {
+  const { app, cli, config } = fixture();
+  await placeWorkspaces(app);
+  const api = app.workspaces[1] as (typeof app.workspaces)[number];
+  api.location = { kind: "local", rootPath: "/elsewhere/api" };
+  const ask = app.services.askUser;
+  app.services = {
+    ...app.services,
+    askUser: async (request, signal) => {
+      api.location = { kind: "local", rootPath: join(dirOf(), "projects", "api") };
+      await ask(request, signal);
+    },
+  };
+  app.answers.push("once");
+  const result = await cli([
+    "chat",
+    "profiles",
+    "rules",
+    "set",
+    "--folder",
+    "projects",
+    "--profile",
+    "Work",
+  ]);
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("The workspaces the rule applies to changed while waiting");
+  expect(app.asked[0]?.otherWorkspaces).toBeUndefined();
+  expect(config().rules).toEqual([]);
 });
 
 test("rules remove takes a rule id or target, asks each time and keeps it on denial", async () => {

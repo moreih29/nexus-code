@@ -519,7 +519,9 @@
       "profile_rule_agent": "{{agent}} {{value}}",
       "profile_rule_removed": "규칙 삭제",
       "profile_rule_applies_one": "지금 적용되는 워크스페이스 {{count}}개",
-      "profile_rule_applies_other": "지금 적용되는 워크스페이스 {{count}}개"
+      "profile_rule_applies_other": "지금 적용되는 워크스페이스 {{count}}개",
+      "profile_rule_others_one": "다른 워크스페이스 {{count}}개 포함",
+      "profile_rule_others_other": "다른 워크스페이스 {{count}}개 포함"
     },
     "heading": "nexus CLI"
   },

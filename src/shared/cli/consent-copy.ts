@@ -200,6 +200,7 @@ export interface ProfileRuleCopy {
   }[];
   readonly removed?: boolean;
   readonly applies: number;
+  readonly others?: number;
 }
 
 export type ConsentChange = RemoteConsent["change"] & {
@@ -228,6 +229,7 @@ function profileRuleBody(t: TFunction<"settings">, rule: ProfileRuleCopy): strin
     ...lines,
     ...(rule.removed ? [t("agentCli.consent.profile_rule_removed")] : []),
     t("agentCli.consent.profile_rule_applies", { count: rule.applies }),
+    ...(rule.others ? [t("agentCli.consent.profile_rule_others", { count: rule.others })] : []),
   ].join("\n");
 }
 
