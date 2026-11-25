@@ -1,6 +1,7 @@
 import os from "node:os";
 import {
   type ConnectionKeyChange,
+  connectionKeyTarget,
   normalizeConnectionUrl,
 } from "../../../shared/agent-profiles/connection";
 import {
@@ -121,6 +122,10 @@ export function createProfileConnections(
   };
   return {
     config,
+    async keyPresent(profile: AgentProfile): Promise<boolean | undefined> {
+      const target = connectionKeyTarget(profile.agent, profile.connection);
+      return target ? keys.present(profile.id, target) : undefined;
+    },
     checkNew(profile: AgentProfile): AgentProfile {
       const next = normalizedProfile(profile);
       checkAdd(next);

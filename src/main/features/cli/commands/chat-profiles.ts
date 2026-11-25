@@ -27,6 +27,11 @@ import {
 import { type CliUiOps, PROFILE_USAGE_REFRESH_TIMEOUT_MS } from "../../../../shared/cli/ui";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { ProfileValidationError } from "../../agent-profiles/connection-save";
+import {
+  type ProfileConnectionView,
+  type ProfileModelView,
+  profileConnectionView,
+} from "../../agent-profiles/connection-view";
 import { expandHome, inspectLocalFolder, localDefaultDir } from "../../agent-profiles/local";
 import { CliUsageError, exactArgs, type FlagValues } from "../args";
 import { type CliContext, CliError, resolveWorkspace } from "../context";
@@ -35,6 +40,7 @@ import { callerPath, onAppMachine } from "../paths";
 import { type CliCommand, output } from "../registry";
 import {
   askDevice,
+  askPeerCli,
   DEVICE_FLAG,
   deviceFlag,
   deviceRef,
@@ -178,6 +184,179 @@ export function profileTable(
     ]),
   );
 }
+
+const AGENT_FLAG = {
+  type: "string",
+  value: "AGENT",
+  description: "claude (default) or codex",
+} as const;
+
+export interface ProfileRow {
+  id: string;
+  name: string;
+  agent: ChatAgent;
+  workspaceDefault: boolean;
+  path?: string;
+  color?: string;
+  connection?: ProfileConnectionView;
+  hasKey?: boolean;
+}
+
+export function pickProfile<T extends { id: string; name: string; agent: ChatAgent }>(
+  profiles: readonly T[],
+  selector: string,
+  where = "",
+): T {
+  const exact = profiles.find((profile) => profile.id === selector);
+  if (exact) return exact;
+  const wanted = selector.trim().toLowerCase();
+  const matches = profiles.filter(
+    ({ id, name }) => id.toLowerCase() === wanted || name.trim().toLowerCase() === wanted,
+  );
+  if (matches.length > 1) {
+    throw new CliError(
+      `more than one profile matches "${selector}"${where}. Give --agent or its id from nexus chat profiles.`,
+    );
+  }
+  const [match] = matches;
+  if (!match) throw new CliError(`no profile "${selector}"${where}. See nexus chat profiles.`);
+  return match;
+}
+
+function profileSelector(flags: FlagValues): string | undefined {
+  if (flags.profile === undefined) return undefined;
+  const selector = typeof flags.profile === "string" ? flags.profile.trim() : "";
+  if (!selector || selector.length > 64) {
+    throw new CliUsageError("--profile takes a profile name or id of up to 64 characters");
+  }
+  return selector;
+}
+
+function modelText(model: ProfileModelView, connection: ProfileConnectionView): string {
+  const parts = [oneLine(model.id, 256)];
+  if (model.label) parts.push(JSON.stringify(oneLine(model.label, 128)));
+  if (model.id === connection.defaultModel) parts.push("default");
+  if (model.id === connection.lightModel) parts.push("light");
+  if (model.contextWindow !== undefined) parts.push(`context ${model.contextWindow}`);
+  if (model.reasoning) parts.push(`reasoning ${oneLine(model.reasoning, 16)}`);
+  return `  Model ${parts.join(" · ")}`;
+}
+
+function advancedText(advanced: NonNullable<ProfileConnectionView["advanced"]>): string {
+  const parts: string[] = [];
+  if (advanced.timeoutMs !== undefined) parts.push(`timeout ${advanced.timeoutMs} ms`);
+  if (advanced.maxOutputTokens !== undefined) parts.push(`max output ${advanced.maxOutputTokens}`);
+  if (advanced.disableExperimentalBetas !== undefined)
+    parts.push(`experimental betas ${advanced.disableExperimentalBetas ? "off" : "on"}`);
+  if (advanced.retries !== undefined) parts.push(`retries ${advanced.retries}`);
+  if (advanced.streamIdleTimeoutMs !== undefined)
+    parts.push(`stream idle ${advanced.streamIdleTimeoutMs} ms`);
+  if (advanced.headers?.length)
+    parts.push(`headers ${advanced.headers.map((n) => oneLine(n, 128)).join(", ")}`);
+  if (advanced.query?.length)
+    parts.push(`query ${advanced.query.map((n) => oneLine(n, 128)).join(", ")}`);
+  return `  Advanced ${parts.join(" · ")}`;
+}
+
+export function connectionText(rows: readonly ProfileRow[]): string {
+  return rows
+    .flatMap((row) => {
+      const { connection } = row;
+      if (!connection || connection.method === "account") return [];
+      const head = [`${oneLine(row.name, 80)} (${oneLine(row.id, 64)})`, connection.method];
+      if (connection.baseUrl) {
+        const hidden = connection.baseUrlRedacted ? " (secrets hidden)" : "";
+        head.push(`${oneLine(connection.baseUrl, 2048)}${hidden}`);
+      } else if (connection.baseUrlRedacted) head.push("address hidden");
+      if (connection.auth) head.push(oneLine(connection.auth, 32));
+      if (connection.preset) head.push(`preset ${oneLine(connection.preset, 32)}`);
+      if (row.hasKey !== undefined) head.push(row.hasKey ? "key saved" : "no key");
+      const lines = [head.join(" · ")];
+      for (const model of connection.models ?? []) lines.push(modelText(model, connection));
+      if (connection.contextWindow !== undefined)
+        lines.push(`  Context window ${connection.contextWindow} for every model`);
+      if (connection.advanced) lines.push(advancedText(connection.advanced));
+      return [lines.join("\n")];
+    })
+    .join("\n\n");
+}
+
+async function withConnections(
+  ctx: CliContext,
+  rows: readonly ProfileRow[],
+): Promise<ProfileRow[]> {
+  const connections = ctx.services.profileConnections;
+  const config = connections.config();
+  return Promise.all(
+    rows.map(async (row) => {
+      const profile = profilesOf(config, row.agent).find(({ id }) => id === row.id);
+      if (!profile) return row;
+      const hasKey = await connections.keyPresent(profile).catch(() => undefined);
+      return {
+        ...row,
+        color: profile.color,
+        connection: profileConnectionView(profile),
+        ...(hasKey !== undefined ? { hasKey } : {}),
+      };
+    }),
+  );
+}
+
+export const chatProfiles: CliCommand = {
+  path: ["chat", "profiles"],
+  summary: "List the profiles a Claude or Codex tab can use, with their connections",
+  details:
+    "Includes the profile selected by the workspace's rules for each agent. Names and ids can be used with chat new --profile.\n" +
+    "Each profile shows its connection: method, address, auth header, models, the default and light\n" +
+    "models, context windows and reasoning. API keys are never shown; hasKey says whether one is saved.\n" +
+    "Profiles belong to a computer: with --device, --workspace is needed only for its workspace default.",
+  flags: {
+    agent: AGENT_FLAG,
+    profile: { type: "string", value: "NAME", description: "Show one profile by name or id" },
+    workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    exactArgs(positionals);
+    const agent = flags.agent === undefined ? undefined : chatAgentFlag(flags.agent, "claude");
+    const selector = profileSelector(flags);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) requirePeerCli(ctx, device);
+    const workspace = device
+      ? flags.workspace === undefined
+        ? undefined
+        : await peerWorkspace(ctx, device, flags.workspace)
+      : resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const params = {
+      ...(workspace ? { workspaceId: workspace.id } : {}),
+      ...(agent ? { agent } : {}),
+    };
+    const { profiles } = device
+      ? await askPeerCli(ctx, device, "profiles.list", params)
+      : await ctx.services.ui("chat.profiles", params);
+    const listed: ProfileRow[] = profiles.map(({ id, name, agent, workspaceDefault, path }) => ({
+      id,
+      name,
+      agent,
+      workspaceDefault: workspaceDefault === true,
+      ...(!device && path !== undefined && !/^(?:[\\/]|[A-Za-z]:)/.test(path) ? { path } : {}),
+    }));
+    const chosen = selector
+      ? [pickProfile(listed, selector, device ? ` on "${device.name}"` : "")]
+      : listed;
+    const rows = device ? chosen : await withConnections(ctx, chosen);
+    const details = connectionText(rows);
+    return output(
+      details ? `${profileTable(rows)}\n\n${details}` : profileTable(rows),
+      {
+        ...(workspace ? { workspaceId: workspace.id } : {}),
+        profiles: rows,
+        ...(device ? { device: deviceRef(device) } : {}),
+      },
+      { records: rows },
+    );
+  },
+};
 
 function connectionModels(agent: ChatAgent, flags: FlagValues): ConnectionModel[] {
   const ids = Array.isArray(flags.model) ? flags.model : [];

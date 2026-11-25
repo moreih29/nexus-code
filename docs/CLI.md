@@ -140,6 +140,7 @@ nexus chat set 3fa2                                      # 지금 모델 · 추�
 nexus chat set 3fa2 --model sonnet --effort high --mode plan
 nexus chat new --agent codex --effort low --mode readOnly --prompt "구조 설명해줘"
 nexus chat profiles --agent codex --workspace WS --json
+nexus chat profiles --profile Gateway                    # 연결 정보 (키는 저장 여부만)
 nexus chat usage --json
 nexus chat usage --agent claude --profile "개인" --refresh
 nexus chat usage --device "Mac mini" --agent codex --json
@@ -203,6 +204,7 @@ Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책�
 
 `chat profiles`는 이름, id, 에이전트와 워크스페이스 기본 선택을 표시합니다. 이 기기에서는 홈 기준 폴더 경로도 표시합니다.
 
+- 각 프로필의 연결 정보도 표시합니다: 방식, API 주소, 인증 헤더, 모델 목록, 기본·가벼운 모델, 문맥 크기, 추론 강도, 색. `--json`에는 `connection`과 `hasKey`가 들어갑니다. API 키는 값·길이·일부 어떤 형태로도 표시하지 않고, `hasKey`로 저장 여부만 알립니다. 키체인이 잠겨 있으면 `hasKey`를 생략합니다. 고급 설정의 헤더와 쿼리는 이름만 표시하고, 환경 변수는 표시하지 않습니다. API 주소에 사용자 이름·비밀번호, 쿼리 값, `#` 뒤 부분이 있으면 사용자 정보와 `#` 뒤는 빼고 쿼리는 이름만 남겨(`?key=***`) 표시하고, `--json`에 `baseUrlRedacted: true`를 넣습니다. `--profile NAME`으로 하나만 볼 수 있습니다.
 - 프로필은 기기 단위입니다. `chat profiles --device NAME`은 `--workspace` 없이 그 기기의 프로필을 나열하고, `--workspace`를 주면 그 워크스페이스의 기본 선택도 표시합니다.
 
 `chat usage`는 기기의 각 Claude · Codex 프로필에 대해 앱이 마지막으로 받은 구독 사용량을 표시합니다. `--agent`로 에이전트를, `--profile`로 이름이나 ID를 고릅니다. 이름이 겹치면 에이전트나 ID로 지정합니다. 기본값은 앱이 실행 중인 기기의 프로필입니다. SSH나 WSL에서 구동하는 에이전트의 사용량은 `--workspace`로 해당 실행 호스트를 고릅니다.

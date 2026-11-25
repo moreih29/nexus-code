@@ -25,7 +25,7 @@ import {
 import { mayExecute } from "../sandbox";
 import { openerOf, senderOf } from "../sender";
 import { chatAgentFlag, resolveChat, SEND_TIMEOUT_MS } from "./chat";
-import { chatProfilesAdd, chatUsage, profileTable } from "./chat-profiles";
+import { chatProfiles, chatProfilesAdd, chatUsage } from "./chat-profiles";
 import { peerCliChat } from "./chat-remote";
 import { AGENT_NAMES } from "./chat-text";
 import { WORKSPACE_FLAG } from "./flags";
@@ -918,49 +918,6 @@ const chatResume: CliCommand = {
       agent,
       sessionId: session.sessionId,
     });
-  },
-};
-
-const chatProfiles: CliCommand = {
-  path: ["chat", "profiles"],
-  summary: "List the profiles a Claude or Codex tab can use",
-  details:
-    "Includes the profile selected by the workspace's rules for each agent. Names and ids can be used with chat new --profile.\n" +
-    "Profiles belong to a computer: with --device, --workspace is needed only for its workspace default.",
-  flags: { agent: AGENT_FLAG, workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
-  async run(ctx, { positionals, flags }) {
-    exactArgs(positionals);
-    const agent = flags.agent === undefined ? undefined : chatAgentFlag(flags.agent, "claude");
-    const device = await resolveDevice(ctx, deviceFlag(flags));
-    if (device) requirePeerCli(ctx, device);
-    const workspace = device
-      ? flags.workspace === undefined
-        ? undefined
-        : await peerWorkspace(ctx, device, flags.workspace)
-      : resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const params = {
-      ...(workspace ? { workspaceId: workspace.id } : {}),
-      ...(agent ? { agent } : {}),
-    };
-    const { profiles } = device
-      ? await askPeerCli(ctx, device, "profiles.list", params)
-      : await ctx.services.ui("chat.profiles", params);
-    const rows = profiles.map(({ id, name, agent, workspaceDefault, path }) => ({
-      id,
-      name,
-      agent,
-      workspaceDefault: workspaceDefault === true,
-      ...(!device && path !== undefined && !/^(?:[\\/]|[A-Za-z]:)/.test(path) ? { path } : {}),
-    }));
-    return output(
-      profileTable(rows),
-      {
-        ...(workspace ? { workspaceId: workspace.id } : {}),
-        profiles: rows,
-        ...(device ? { device: deviceRef(device) } : {}),
-      },
-      { records: rows },
-    );
   },
 };
 

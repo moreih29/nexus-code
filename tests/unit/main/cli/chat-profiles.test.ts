@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { ConnectionKeys } from "../../../../src/main/features/agent-profiles/connection-keys";
 import { createProfileConnections } from "../../../../src/main/features/agent-profiles/connection-save";
+import { redactedBaseUrl } from "../../../../src/main/features/agent-profiles/connection-view";
 import { expandHome } from "../../../../src/main/features/agent-profiles/local";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { chatProfilesAdd } from "../../../../src/main/features/cli/commands/chat-profiles";
@@ -39,17 +40,26 @@ function fixture({ windows }: { windows?: boolean } = {}) {
     windows === undefined
       ? CLI_COMMANDS
       : [{ ...chatProfilesAdd, run: (ctx, args) => chatProfilesAdd.run(ctx, args, { windows }) }];
-  const run = (args: string[], stdin?: string) =>
+  const cli = (argv: string[], stdin?: string) =>
     runCli(
       commands,
-      contextFor(
-        app,
-        ["chat", "profiles", "add", ...args],
-        { workspaceId: APP, tabId: SHELL_TAB },
-        { cwd: dir, stdin },
-      ),
+      contextFor(app, argv, { workspaceId: APP, tabId: SHELL_TAB }, { cwd: dir, stdin }),
     );
-  return { app, state, statePath, storage, keys, changes, run };
+  const run = (args: string[], stdin?: string) => cli(["chat", "profiles", "add", ...args], stdin);
+  const listed = () => {
+    const config = state.getState().agentProfiles;
+    app.uiAnswers.set("chat.profiles", {
+      profiles: (config?.profiles ?? []).map(({ id, name, agent, dir: path }) => ({
+        id,
+        name,
+        agent,
+        isDefault: false,
+        workspaceDefault: false,
+        path,
+      })),
+    });
+  };
+  return { app, state, statePath, storage, keys, changes, run, cli, listed };
 }
 
 const accountProfile = ["--agent", "claude", "--name", "Personal"];
@@ -458,4 +468,111 @@ test("rechecks collisions when two approvals race, keeping only the saved profil
   const profiles = state.getState().agentProfiles?.profiles ?? [];
   expect(profiles).toHaveLength(1);
   expect(Object.keys(storage.value ?? {})).toEqual(profiles.map(({ id }) => id));
+});
+
+const SECRET = "sk-qa-SECRETVALUE-zz9q";
+
+function logged(): string {
+  return JSON.stringify(
+    [mainDebugMock, mainErrorMock, mainInfoMock, mainWarnMock].map((mock) => mock.mock.calls),
+  );
+}
+
+test("chat profiles shows each profile's connection and only whether a key is saved", async () => {
+  const { app, cli, run, listed, state } = fixture();
+  app.answers.push("once");
+  expect((await run(gateway, `${SECRET}\n`)).exitCode).toBe(0);
+  listed();
+  const id = state.getState().agentProfiles?.profiles[0]?.id;
+  const json = await cli(["chat", "profiles", "--json"]);
+  expect(json.exitCode).toBe(0);
+  expect(JSON.parse(json.stdout).profiles).toEqual([
+    {
+      id,
+      name: "Gateway",
+      agent: "claude",
+      workspaceDefault: false,
+      color: "violet",
+      connection: {
+        method: "custom",
+        preset: "litellm",
+        baseUrl: "https://gateway.example/llm",
+        auth: "x-api-key",
+        models: [{ id: "glm" }, { id: "kimi" }],
+        defaultModel: "kimi",
+        lightModel: "glm",
+      },
+      hasKey: true,
+    },
+  ]);
+  const text = await cli(["chat", "profiles", "--profile", "gateway"]);
+  expect(text.stdout).toContain(
+    `Gateway (${id}) · custom · https://gateway.example/llm · x-api-key · preset litellm · key saved`,
+  );
+  expect(text.stdout).toContain("  Model glm · light\n  Model kimi · default");
+  const missing = await cli(["chat", "profiles", "--profile", "nope"]);
+  expect(missing.stderr).toContain('no profile "nope"');
+  for (const shown of [json, text, missing]) {
+    expect(JSON.stringify(shown)).not.toContain("SECRETVALUE");
+    expect(JSON.stringify(shown)).not.toContain("zz9q");
+  }
+  expect(logged()).not.toContain("SECRETVALUE");
+});
+
+const SECRET_URL = "https://qa:pa55word@gateway.example/llm?key=SECRETVALUE&team=a&team=b#tok-zz9q";
+
+function withBaseUrl(state: ReturnType<typeof openTestState>, baseUrl: string) {
+  const config = state.getState().agentProfiles;
+  if (!config) throw new Error("no profiles");
+  state.commitState({
+    agentProfiles: {
+      ...config,
+      profiles: config.profiles.map((profile) =>
+        profile.connection?.method === "custom"
+          ? { ...profile, connection: { ...profile.connection, baseUrl } }
+          : profile,
+      ),
+    },
+  });
+}
+
+test("chat profiles hides the user, password, query values and fragment of a base URL", async () => {
+  const { app, cli, run, listed, state } = fixture();
+  app.answers.push("once");
+  expect((await run(gateway, "sk-qa-key\n")).exitCode).toBe(0);
+  withBaseUrl(state, SECRET_URL);
+  listed();
+  const json = await cli(["chat", "profiles", "--json"]);
+  expect(JSON.parse(json.stdout).profiles[0].connection).toMatchObject({
+    baseUrl: "https://gateway.example/llm?key=***&team=***",
+    baseUrlRedacted: true,
+  });
+  const text = await cli(["chat", "profiles", "--profile", "Gateway"]);
+  expect(text.stdout).toContain("https://gateway.example/llm?key=***&team=*** (secrets hidden)");
+  for (const shown of [json, text]) {
+    for (const part of ["pa55word", "qa:", "SECRETVALUE", "team=a", "zz9q"]) {
+      expect(JSON.stringify(shown)).not.toContain(part);
+    }
+  }
+  withBaseUrl(state, "gateway without scheme");
+  const unreadable = await cli(["chat", "profiles", "--json"]);
+  const connection = JSON.parse(unreadable.stdout).profiles[0].connection;
+  expect(connection.baseUrl).toBeUndefined();
+  expect(connection.baseUrlRedacted).toBe(true);
+  expect((await cli(["chat", "profiles"])).stdout).toContain("custom · address hidden");
+});
+
+test("redactedBaseUrl keeps a plain address as given", () => {
+  expect(redactedBaseUrl("https://gateway.example/llm")).toEqual({
+    baseUrl: "https://gateway.example/llm",
+    redacted: false,
+  });
+  expect(redactedBaseUrl("http://127.0.0.1:9/v1?")).toEqual({
+    baseUrl: "http://127.0.0.1:9/v1?",
+    redacted: false,
+  });
+  expect(redactedBaseUrl("https://user@host.example")).toEqual({
+    baseUrl: "https://host.example/",
+    redacted: true,
+  });
 });

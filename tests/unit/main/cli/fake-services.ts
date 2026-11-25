@@ -726,6 +726,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     appVersion: "1.2.3",
     profileConnections: {
       config: () => ({ profiles: [], rules: [], defaults: {} }),
+      keyPresent: async () => undefined,
       checkNew: () => {
         throw new Error("unexpected profile validation");
       },
