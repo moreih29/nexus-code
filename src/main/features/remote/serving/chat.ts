@@ -10,6 +10,7 @@ import type { CliChatChoices } from "../../../../shared/cli/ui";
 import { CHAT_MODES, chatModeNamed } from "../../../../shared/sessions/chat-modes";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { tryGetMainT } from "../../../i18n";
+import { profilesNamed, withProfileConnections } from "../../agent-profiles/connection-view";
 import { applyRemoteControl, remoteControlCommand } from "../../chat/remote-control";
 import type { CliServices } from "../../cli/context";
 import { openerOf } from "../../cli/sender";
@@ -509,7 +510,7 @@ export async function newChat(
 
 export async function listProfiles(
   services: CliServices,
-  { agent, workspaceId }: RpcParams<"profiles.list">,
+  { agent, workspaceId, connection, profile }: RpcParams<"profiles.list">,
 ): Promise<RpcResult<"profiles.list">> {
   if (workspaceId !== undefined && !workspaceOf(services, workspaceId)) {
     throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
@@ -517,15 +518,16 @@ export async function listProfiles(
   const { profiles } = await services
     .ui("chat.profiles", { ...(agent ? { agent } : {}), ...(workspaceId ? { workspaceId } : {}) })
     .catch(unavailable);
-  return {
-    profiles: profiles.map(({ id, name, agent, isDefault, workspaceDefault }) => ({
-      id,
-      name,
-      agent,
-      isDefault,
-      workspaceDefault,
-    })),
-  };
+  const rows = profiles.map(({ id, name, agent, isDefault, workspaceDefault }) => ({
+    id,
+    name,
+    agent,
+    isDefault,
+    workspaceDefault,
+  }));
+  if (!connection) return { profiles: rows };
+  const chosen = profile === undefined ? rows : profilesNamed(rows, profile);
+  return { profiles: await withProfileConnections(services.profileConnections, chosen) };
 }
 
 export async function renameChat(

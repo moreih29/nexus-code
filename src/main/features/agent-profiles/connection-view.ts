@@ -1,32 +1,10 @@
-import type { AgentProfile } from "../../../shared/agent-profiles/profiles";
+import type { ProfileConnectionView } from "../../../../packages/remote-protocol/src";
+import { type AgentProfile, profilesOf } from "../../../shared/agent-profiles/profiles";
+import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import type { ProfileConnections } from "./connection-save";
 
-export interface ProfileModelView {
-  id: string;
-  label?: string;
-  contextWindow?: number;
-  reasoning?: string;
-}
-
-export interface ProfileConnectionView {
-  method: string;
-  preset?: string;
-  baseUrl?: string;
-  baseUrlRedacted?: boolean;
-  auth?: string;
-  models?: ProfileModelView[];
-  defaultModel?: string;
-  lightModel?: string;
-  contextWindow?: number;
-  advanced?: {
-    timeoutMs?: number;
-    maxOutputTokens?: number;
-    disableExperimentalBetas?: boolean;
-    retries?: number;
-    streamIdleTimeoutMs?: number;
-    headers?: string[];
-    query?: string[];
-  };
-}
+export type { ProfileConnectionView };
+export type ProfileModelView = NonNullable<ProfileConnectionView["models"]>[number];
 
 export const MAX_VIEW_PAIRS = 64;
 
@@ -96,5 +74,43 @@ export function profileConnectionView(
       contextWindow: connection.contextWindow,
       advanced: advanced && Object.keys(advanced).length ? advanced : undefined,
     }),
+  );
+}
+
+export interface ProfileConnectionFields {
+  color?: string;
+  connection?: ProfileConnectionView;
+  hasKey?: boolean;
+}
+
+export function withProfileConnections<T extends { id: string; agent: ChatAgent }>(
+  connections: Pick<ProfileConnections, "config" | "keyPresent">,
+  rows: readonly T[],
+): Promise<(T & ProfileConnectionFields)[]> {
+  const config = connections.config();
+  return Promise.all(
+    rows.map(async (row) => {
+      const profile = profilesOf(config, row.agent).find(({ id }) => id === row.id);
+      if (!profile) return row;
+      const hasKey = await connections.keyPresent(profile).catch(() => undefined);
+      return {
+        ...row,
+        color: profile.color,
+        connection: profileConnectionView(profile),
+        ...(hasKey !== undefined ? { hasKey } : {}),
+      };
+    }),
+  );
+}
+
+export function profilesNamed<T extends { id: string; name: string }>(
+  rows: readonly T[],
+  selector: string,
+): T[] {
+  const exact = rows.filter(({ id }) => id === selector);
+  if (exact.length) return exact;
+  const wanted = selector.trim().toLowerCase();
+  return rows.filter(
+    ({ id, name }) => id.toLowerCase() === wanted || name.trim().toLowerCase() === wanted,
   );
 }

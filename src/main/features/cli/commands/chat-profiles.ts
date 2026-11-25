@@ -28,9 +28,12 @@ import { type CliUiOps, PROFILE_USAGE_REFRESH_TIMEOUT_MS } from "../../../../sha
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { ProfileValidationError } from "../../agent-profiles/connection-save";
 import {
+  type ProfileConnectionFields,
   type ProfileConnectionView,
   type ProfileModelView,
-  profileConnectionView,
+  profilesNamed,
+  redactedConnectionView,
+  withProfileConnections,
 } from "../../agent-profiles/connection-view";
 import { expandHome, inspectLocalFolder, localDefaultDir } from "../../agent-profiles/local";
 import { CliUsageError, exactArgs, type FlagValues } from "../args";
@@ -191,28 +194,20 @@ const AGENT_FLAG = {
   description: "claude (default) or codex",
 } as const;
 
-export interface ProfileRow {
+export interface ProfileRow extends ProfileConnectionFields {
   id: string;
   name: string;
   agent: ChatAgent;
   workspaceDefault: boolean;
   path?: string;
-  color?: string;
-  connection?: ProfileConnectionView;
-  hasKey?: boolean;
 }
 
-export function pickProfile<T extends { id: string; name: string; agent: ChatAgent }>(
+export function pickProfile<T extends { id: string; name: string }>(
   profiles: readonly T[],
   selector: string,
   where = "",
 ): T {
-  const exact = profiles.find((profile) => profile.id === selector);
-  if (exact) return exact;
-  const wanted = selector.trim().toLowerCase();
-  const matches = profiles.filter(
-    ({ id, name }) => id.toLowerCase() === wanted || name.trim().toLowerCase() === wanted,
-  );
+  const matches = profilesNamed(profiles, selector);
   if (matches.length > 1) {
     throw new CliError(
       `more than one profile matches "${selector}"${where}. Give --agent or its id from nexus chat profiles.`,
@@ -281,25 +276,16 @@ export function connectionText(rows: readonly ProfileRow[]): string {
     .join("\n\n");
 }
 
-async function withConnections(
-  ctx: CliContext,
-  rows: readonly ProfileRow[],
-): Promise<ProfileRow[]> {
-  const connections = ctx.services.profileConnections;
-  const config = connections.config();
-  return Promise.all(
-    rows.map(async (row) => {
-      const profile = profilesOf(config, row.agent).find(({ id }) => id === row.id);
-      if (!profile) return row;
-      const hasKey = await connections.keyPresent(profile).catch(() => undefined);
-      return {
-        ...row,
-        color: profile.color,
-        connection: profileConnectionView(profile),
-        ...(hasKey !== undefined ? { hasKey } : {}),
-      };
-    }),
-  );
+export function peerConnectionFields({
+  color,
+  connection,
+  hasKey,
+}: ProfileConnectionFields): ProfileConnectionFields {
+  return {
+    ...(color !== undefined ? { color } : {}),
+    ...(connection !== undefined ? { connection: redactedConnectionView(connection) } : {}),
+    ...(hasKey !== undefined ? { hasKey } : {}),
+  };
 }
 
 export const chatProfiles: CliCommand = {
@@ -331,20 +317,36 @@ export const chatProfiles: CliCommand = {
       ...(workspace ? { workspaceId: workspace.id } : {}),
       ...(agent ? { agent } : {}),
     };
-    const { profiles } = device
-      ? await askPeerCli(ctx, device, "profiles.list", params)
-      : await ctx.services.ui("chat.profiles", params);
-    const listed: ProfileRow[] = profiles.map(({ id, name, agent, workspaceDefault, path }) => ({
-      id,
-      name,
-      agent,
-      workspaceDefault: workspaceDefault === true,
-      ...(!device && path !== undefined && !/^(?:[\\/]|[A-Za-z]:)/.test(path) ? { path } : {}),
-    }));
+    let listed: ProfileRow[];
+    if (device) {
+      const connection = device.serves.includes("profiles.connection");
+      const { profiles } = await askPeerCli(ctx, device, "profiles.list", {
+        ...params,
+        ...(connection ? { connection, ...(selector ? { profile: selector } : {}) } : {}),
+      });
+      listed = profiles.map((profile) => ({
+        id: profile.id,
+        name: profile.name,
+        agent: profile.agent,
+        workspaceDefault: profile.workspaceDefault === true,
+        ...peerConnectionFields(profile),
+      }));
+    } else {
+      const { profiles } = await ctx.services.ui("chat.profiles", params);
+      listed = profiles.map(({ id, name, agent, workspaceDefault, path }) => ({
+        id,
+        name,
+        agent,
+        workspaceDefault: workspaceDefault === true,
+        ...(path !== undefined && !/^(?:[\\/]|[A-Za-z]:)/.test(path) ? { path } : {}),
+      }));
+    }
     const chosen = selector
       ? [pickProfile(listed, selector, device ? ` on "${device.name}"` : "")]
       : listed;
-    const rows = device ? chosen : await withConnections(ctx, chosen);
+    const rows = device
+      ? chosen
+      : await withProfileConnections(ctx.services.profileConnections, chosen);
     const details = connectionText(rows);
     return output(
       details ? `${profileTable(rows)}\n\n${details}` : profileTable(rows),

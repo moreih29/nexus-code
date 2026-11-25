@@ -276,6 +276,49 @@ describe("the methods", () => {
     expect(SCHEMA_VERSION).toBe(pkg.version);
   });
 
+  test("profiles.list carries an optional connection that older readers drop and a bad one loses alone", () => {
+    const { params, result } = RPC_METHODS["profiles.list"];
+    expect(CAPABILITIES).toContain("profiles.connection");
+    expect(params.parse({ connection: true, profile: "Gateway" })).toEqual({
+      connection: true,
+      profile: "Gateway",
+    });
+    expect(params.safeParse({ profile: "" }).success).toBe(false);
+    const old = { id: "p", name: "Work", agent: "claude", isDefault: false };
+    expect(result.parse({ profiles: [old] })).toEqual({ profiles: [old] });
+    const connection = {
+      method: "custom",
+      baseUrl: "http://127.0.0.1:9",
+      auth: "x-api-key",
+      models: [{ id: "glm-5.4", contextWindow: 400000, reasoning: "future-level" }],
+      defaultModel: "glm-5.4",
+      advanced: { headers: ["X-Org"], retries: 3 },
+    };
+    const row = { ...old, color: "rose", connection, hasKey: true };
+    expect(result.parse({ profiles: [row] })).toEqual({ profiles: [row] });
+    const hidden = {
+      ...row,
+      connection: { ...connection, baseUrl: "http://127.0.0.1:9/?key=***", baseUrlRedacted: true },
+    };
+    expect(result.parse({ profiles: [hidden] })).toEqual({ profiles: [hidden] });
+    expect(
+      result.parse({
+        profiles: [{ ...row, connection: { ...connection, models: [{ id: "" }] }, hasKey: "yes" }],
+      }),
+    ).toEqual({ profiles: [{ ...old, color: "rose" }] });
+    const before = z.object({
+      profiles: z.array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          agent: z.enum(["claude", "codex"]),
+          isDefault: z.boolean(),
+        }),
+      ),
+    });
+    expect(before.parse({ profiles: [row] })).toEqual({ profiles: [old] });
+  });
+
   test("git.status preserves an optional bounded repository root across readers", () => {
     const { capability, result } = RPC_METHODS["git.status"];
     const old = { branch: "main", ahead: 0, behind: 0, files: [{ path: "app/main.ts" }] };
