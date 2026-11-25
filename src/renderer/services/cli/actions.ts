@@ -389,7 +389,6 @@ export const actionHandlers: {
         permission: remembered.permission,
       }),
     );
-    useBrowserPermissionsStore.getState().rememberedChanged();
     return { revoked: [permission] };
   },
   "browser.devtools": async ({ workspaceId, tabId }) => {

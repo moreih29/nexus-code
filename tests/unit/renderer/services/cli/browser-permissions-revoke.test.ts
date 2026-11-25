@@ -49,19 +49,17 @@ it("turns a global permission off, and leaves one that is off alone", async () =
   );
 });
 
-it("forgets a site's remembered allow and tells an open Settings page to reload", async () => {
+it("forgets a site's remembered allow, and only an allow", async () => {
   remembered = [
     { workspaceId: "ws", origin: "https://a.test", permission: "media", decision: "allow" },
     { workspaceId: "ws", origin: "https://b.test", permission: "media", decision: "block" },
   ];
-  const before = useBrowserPermissionsStore.getState().rememberedRevision;
   const site = { scope: "site", workspaceId: "ws", permission: "media" } as const;
   expect(await revoke({ ...site, origin: "https://a.test" })).toEqual({ revoked: ["media"] });
   expect(calls.at(-1)).toEqual({
     method: "browserPermission.revoke",
     args: { workspaceId: "ws", origin: "https://a.test", permission: "media" },
   });
-  expect(useBrowserPermissionsStore.getState().rememberedRevision).toBe(before + 1);
   await expect(revoke({ ...site, origin: "https://b.test" })).rejects.toThrow(
     "https://b.test is blocked from media; forgetting that would let it ask again",
   );

@@ -226,6 +226,11 @@ describe("respond", () => {
 
     manager.respond("prompt-1", "allow", true);
 
+    expect(broadcastCalls.at(-1)).toEqual({
+      channelName: "browserPermission",
+      event: "rememberedChanged",
+      args: { workspaceId: "ws-2" },
+    });
     expect(setRememberedCalls).toHaveLength(1);
     expect(setRememberedCalls[0]).toEqual({
       workspaceId: "ws-2",
@@ -252,6 +257,7 @@ describe("respond", () => {
     manager.respond("prompt-1", "allow", false);
 
     expect(setRememberedCalls).toHaveLength(0);
+    expect(broadcastCalls.map(({ event }) => event)).not.toContain("rememberedChanged");
   });
 });
 
