@@ -81,7 +81,8 @@ export function consentNamesTarget(kind: string): boolean {
     kind === "instructionsEdit" ||
     kind === "profileAdd" ||
     kind === "settingTurnOn" ||
-    kind === "profileEdit"
+    kind === "profileEdit" ||
+    kind === "profileRemove"
   );
 }
 
@@ -142,6 +143,7 @@ export function consentTitleOf(kind: string, remote: boolean) {
   }
   if (kind === "profileAdd") return "agentCli.consent.profile_add_title" as const;
   if (kind === "profileEdit") return "agentCli.consent.profile_edit_title" as const;
+  if (kind === "profileRemove") return "agentCli.consent.profile_remove_title" as const;
   if (kind === "instructionsEdit") return "agentCli.consent.instructions_title" as const;
   if (kind === "chatRewind" || kind === "chatRewindFiles") {
     return "agentCli.consent.rewind_title" as const;

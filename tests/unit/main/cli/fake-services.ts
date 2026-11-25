@@ -733,6 +733,9 @@ export function fakeApp(now = Date.now()): FakeApp {
       checkEdit: () => {
         throw new Error("unexpected profile validation");
       },
+      remove: () => {
+        throw new Error("unexpected profile removal");
+      },
       save: async () => {
         throw new Error("unexpected profile save");
       },

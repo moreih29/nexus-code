@@ -16,7 +16,7 @@ import type { ParticipantCount } from "../notes/transcript";
 import type { NoteStorageEntry } from "../notes/types";
 import type { ChatAgent } from "../sessions/task-agent";
 import type { UpdateProgress, UpdateStatus } from "../updates/status";
-import type { ProfileEditCopy } from "./consent-copy";
+import type { ProfileEditCopy, ProfileRemoveCopy } from "./consent-copy";
 import type { SettingsPage } from "./settings";
 
 export const PROFILE_USAGE_REFRESH_TIMEOUT_MS = 120_000;
@@ -242,6 +242,7 @@ export type CliChangeKind =
   | "chatProfileNew"
   | "profileAdd"
   | "profileEdit"
+  | "profileRemove"
   | "chatRewind"
   | "chatRewindFiles"
   | "chatFork"
@@ -282,6 +283,7 @@ export type CliChangeKind =
 
 export interface CliChange extends Pick<RemoteConsent["change"], "instructionEdit" | "profileAdd"> {
   readonly profileEdit?: ProfileEditCopy;
+  readonly profileRemove?: ProfileRemoveCopy;
   readonly kind: CliChangeKind;
   readonly detail?: string;
   readonly body?: string;

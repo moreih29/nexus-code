@@ -13,6 +13,7 @@ import {
   PROFILE_AGENTS,
   profileDirConflict,
   profilesOf,
+  withoutProfile,
   withProfile,
 } from "../../../shared/agent-profiles/profiles";
 import { EMPTY_INSTRUCTIONS, withInstruction } from "../../../shared/chat/instructions";
@@ -134,6 +135,17 @@ export function createProfileConnections(
       const next = normalizedProfile(profile);
       checkAdd(next);
       return next;
+    },
+    remove(id: string): void {
+      if (isDefaultProfileId(id)) {
+        throw new ProfileValidationError("The default profile cannot be removed");
+      }
+      const current = config();
+      if (!current.profiles.some((profile) => profile.id === id)) {
+        throw new ProfileValidationError("This profile is no longer saved");
+      }
+      state.commitState({ agentProfiles: withoutProfile(current, id) });
+      onChanged();
     },
     checkEdit(profile: AgentProfile): AgentProfile {
       const next = normalizedProfile(profile);

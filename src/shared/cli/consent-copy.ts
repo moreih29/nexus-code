@@ -82,8 +82,14 @@ function profileEditLine(t: TFunction<"settings">, agent: ChatAgent, line: Profi
   }
 }
 
+export interface ProfileRemoveCopy {
+  readonly agent: ChatAgent;
+  readonly folder: string;
+}
+
 export type ConsentChange = RemoteConsent["change"] & {
   readonly profileEdit?: ProfileEditCopy;
+  readonly profileRemove?: ProfileRemoveCopy;
 };
 
 export function consentDetailsOf(t: TFunction<"settings">, change: ConsentChange) {
@@ -96,6 +102,16 @@ export function consentDetailsOf(t: TFunction<"settings">, change: ConsentChange
         body: t(`agentCli.consent.setting_on_body.${slug}`),
       };
     }
+  }
+  if (change.profileRemove) {
+    const { agent, folder } = change.profileRemove;
+    return {
+      detail: change.detail ?? "",
+      body: [
+        t("agentCli.consent.profile_add_agent", { agent: CONSENT_AGENT_NAMES[agent] }),
+        t("profiles.removeConfirm.description", { dir: folder }),
+      ].join("\n"),
+    };
   }
   if (change.profileEdit) {
     const { agent, lines } = change.profileEdit;

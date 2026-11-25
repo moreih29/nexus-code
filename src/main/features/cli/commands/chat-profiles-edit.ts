@@ -20,6 +20,7 @@ import { ProfileValidationError } from "../../agent-profiles/connection-save";
 import { profileConnectionView } from "../../agent-profiles/connection-view";
 import { CliUsageError, type FlagValues } from "../args";
 import { type CliContext, CliError } from "../context";
+import { oneLine } from "../format";
 import { onAppMachine } from "../paths";
 import { type CliCommand, output } from "../registry";
 import { chatAgentFlag } from "./chat";
@@ -478,5 +479,60 @@ export const chatProfilesEdit = {
       changed,
       ...(note ? { note } : {}),
     });
+  },
+} satisfies CliCommand;
+
+export const chatProfilesRemove = {
+  path: ["chat", "profiles", "remove"],
+  summary: "Remove an agent profile on this computer with the user's approval",
+  args: "<profile>",
+  details:
+    "Give the profile's name or id (--agent when a Claude and a Codex profile share it). As in\n" +
+    "Settings, its folder with the sign-ins and history in it stays, workspace rules and defaults\n" +
+    "that chose it fall back, and its saved API key is deleted. Open tabs are not closed.\n" +
+    "The default profile cannot be removed.",
+  flags: { agent: AGENT_FLAG },
+  async run(ctx, { flags, positionals }) {
+    const [selector, ...extra] = positionals;
+    if (selector === undefined || extra.length) throw new CliUsageError("Give one <profile>");
+    if (!onAppMachine(ctx)) throw new CliError("Run this command in a local workspace");
+    const agentFilter =
+      flags.agent === undefined ? undefined : chatAgentFlag(flags.agent, "claude");
+    const profile = localProfile(ctx, selector, agentFilter);
+    if (isDefaultProfileId(profile.id)) {
+      throw new CliUsageError("The default profile cannot be removed");
+    }
+    const name = profileName(profile);
+    const before = JSON.stringify(profile);
+    await ctx.services.askUser(
+      {
+        fromWorkspaceId: ctx.caller.workspaceId,
+        fromTabId: ctx.caller.tabId,
+        toWorkspaceId: ctx.caller.workspaceId,
+        change: {
+          kind: "profileRemove",
+          detail: name,
+          profileRemove: { agent: profile.agent, folder: profile.dir },
+          eachTime: true,
+        },
+      },
+      ctx.signal,
+    );
+    ctx.signal?.throwIfAborted();
+    const connections = ctx.services.profileConnections;
+    const now = profilesOf(connections.config(), profile.agent).find(({ id }) => id === profile.id);
+    if (JSON.stringify(now) !== before) {
+      throw new CliError("The profile changed while waiting for approval; run the command again");
+    }
+    try {
+      connections.remove(profile.id);
+    } catch (error) {
+      if (error instanceof ProfileValidationError) throw new CliUsageError(error.message);
+      throw new CliError("Could not remove the agent profile");
+    }
+    return output(
+      `Removed the ${profile.agent} profile "${oneLine(name, 80)}" (${profile.id}). Its folder ${profile.dir} stays.`,
+      { id: profile.id, name, agent: profile.agent, path: profile.dir, removed: true },
+    );
   },
 } satisfies CliCommand;

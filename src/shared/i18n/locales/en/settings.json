@@ -352,7 +352,8 @@
         "sandboxExecution": "run a command outside its sandbox",
         "settingTurnOn": "turn on \"{{detail}}\"",
         "browserPermissionRevoke": "forget the browser permission {{detail}}",
-        "profileEdit": "change the agent profile \"{{detail}}\""
+        "profileEdit": "change the agent profile \"{{detail}}\"",
+        "profileRemove": "remove the agent profile \"{{detail}}\""
       },
       "headline": {
         "open": "Open {{detail}}",
@@ -411,7 +412,8 @@
         "sandboxExecution": "Run a command outside its sandbox",
         "settingTurnOn": "Turn on \"{{detail}}\"",
         "browserPermissionRevoke": "Forget the browser permission {{detail}}",
-        "profileEdit": "Change the agent profile \"{{detail}}\""
+        "profileEdit": "Change the agent profile \"{{detail}}\"",
+        "profileRemove": "Remove the agent profile \"{{detail}}\""
       },
       "permission_title": "Answer another session's permission request?",
       "mode_title": "Let an agent loosen a session's permission mode?",
@@ -434,6 +436,7 @@
       "profile_edit_label": "Display name {{value}}",
       "profile_edit_key_replaced": "API key replaced",
       "profile_edit_key_removed": "API key removed",
+      "profile_remove_title": "Let an agent remove a profile on this computer?",
       "instructions_title": "Allow an agent to change instructions?",
       "instructions_profile": "{{agent}} profile \"{{name}}\"",
       "instructions_clear": "Clear instructions",

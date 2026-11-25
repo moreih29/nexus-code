@@ -142,6 +142,7 @@ nexus chat new --agent codex --effort low --mode readOnly --prompt "구조 설�
 nexus chat profiles --agent codex --workspace WS --json
 nexus chat profiles --profile Gateway                    # 연결 정보 (키는 저장 여부만)
 nexus chat profiles edit Gateway --rename-model glm-5.3=glm-5.4 --key-file -
+nexus chat profiles remove Gateway --agent claude
 nexus chat usage --json
 nexus chat usage --agent claude --profile "개인" --refresh
 nexus chat usage --device "Mac mini" --agent codex --json
@@ -235,6 +236,8 @@ Claude 탭의 Remote Control 켜기·끄기는 워크스페이스 변경 정책�
 - 키는 `--key-file FILE` 또는 `--key-file -`로 바꾸고 `--remove-key`로 지웁니다. 키는 저장할 때의 API 주소와 인증 방식에 묶이므로, 둘 중 하나를 바꾸면 키를 다시 줘야 합니다. 이때 결과에 `note`로 알립니다.
 - 승인 창에는 바뀌는 항목이 전후 값으로 표시되며(키는 "바꿈"·"지움"만), 승인은 매번 필요합니다. 승인을 기다리는 동안 프로필이 바뀌면 저장하지 않습니다. 결과는 바뀐 프로필과 `changed` 목록입니다.
 - 로그인·로그아웃, 폴더, 공유 파일, 동작 설정, 환경 변수, 고급 설정(헤더·쿼리·시간 제한·재시도)은 설정 화면에서 바꿉니다. 프로필 지시는 `settings instructions set profile`로 바꿉니다.
+
+`chat profiles remove PROFILE`은 이 기기의 프로필을 지웁니다. 설정 화면의 삭제와 같게 폴더와 그 안의 로그인·기록은 남고, 그 프로필을 고른 워크스페이스 규칙과 기본값은 비워지며, 저장된 API 키는 지워집니다. 열린 탭은 닫지 않습니다. 기본 프로필은 지울 수 없습니다. 승인 창에는 에이전트와 남는 폴더가 표시되며 승인은 매번 필요합니다.
 
 `chat fork`와 `chat rewind`는 양쪽 에이전트를 지원합니다. 파일 복원(`--files`)은 Claude에서만 지원합니다.
 

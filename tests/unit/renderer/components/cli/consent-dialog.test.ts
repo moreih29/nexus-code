@@ -244,6 +244,22 @@ test("profile edits list each change in the dialog language and name the profile
   );
 });
 
+test("profile removals name the agent and say the folder stays", () => {
+  const change = {
+    kind: "profileRemove",
+    detail: "Gateway",
+    profileRemove: { agent: "codex", folder: "~/.codex-gateway" },
+  } as const;
+  const ko = i18next.getFixedT("ko", "settings");
+  expect(consentDetailsOf(ko, change).body).toBe(
+    "에이전트 Codex\n폴더(~/.codex-gateway)와 그 안의 로그인·기록은 남습니다.",
+  );
+  expect(ko(consentTitleOf("profileRemove", false))).toBe(
+    "에이전트가 이 컴퓨터의 프로필을 삭제하도록 허용할까요?",
+  );
+  expect(consentNamesTarget("profileRemove")).toBe(true);
+});
+
 test("sandbox approval shows localized copy and accepts an until-restart answer", async () => {
   const request = {
     ...prompt("sandbox"),

@@ -953,3 +953,48 @@ test("profiles edit switches a Codex profile's per-model context windows", async
   const shared = await cli(["chat", "profiles", "edit", "Codex", "--context-window", "400000"]);
   expect(shared.stderr).toContain("Codex sets a context window for each model");
 });
+
+test("profiles remove deletes a profile after approval and leaves its folder", async () => {
+  const { app, state, changes, id, cli } = await withGateway();
+  const config = state.getState().agentProfiles;
+  if (!config) throw new Error("no profiles");
+  state.commitState({
+    agentProfiles: { ...config, defaults: { claude: id } },
+  });
+  const dir = config.profiles[0]?.dir;
+  app.answers.push("once");
+  const result = await cli(["chat", "profiles", "remove", "gateway", "--json"]);
+  expect(result.stderr).toBe("");
+  expect(JSON.parse(result.stdout)).toEqual({
+    id,
+    name: "Gateway",
+    agent: "claude",
+    path: dir,
+    removed: true,
+  });
+  expect(app.asked[1]?.change).toEqual({
+    kind: "profileRemove",
+    detail: "Gateway",
+    eachTime: true,
+    profileRemove: { agent: "claude", folder: dir },
+  });
+  expect(state.getState().agentProfiles).toEqual({ profiles: [], rules: [], defaults: {} });
+  expect(changes.at(-1)).toBeUndefined();
+  expect(JSON.stringify(result)).not.toContain("SECRETVALUE");
+});
+
+test("profiles remove refuses the default profile and saves nothing on denial", async () => {
+  const { app, state, cli } = await withGateway();
+  const before = JSON.stringify(state.getState().agentProfiles);
+  const fallback = await cli(["chat", "profiles", "remove", "default", "--agent", "claude"]);
+  expect(fallback.exitCode).toBe(2);
+  expect(fallback.stderr).toContain("The default profile cannot be removed");
+  const missing = await cli(["chat", "profiles", "remove", "nope"]);
+  expect(missing.stderr).toContain('no profile "nope" on this computer');
+  app.answers.push("deny");
+  const denied = await cli(["chat", "profiles", "remove", "Gateway"]);
+  expect(denied.exitCode).toBe(1);
+  expect(denied.stderr).toContain("the user did not allow it");
+  expect(app.asked).toHaveLength(2);
+  expect(JSON.stringify(state.getState().agentProfiles)).toBe(before);
+});
