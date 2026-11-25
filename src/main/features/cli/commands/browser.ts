@@ -239,6 +239,64 @@ const browserPermissions: CliCommand = {
   },
 };
 
+const browserPermissionsRevoke: CliCommand = {
+  path: ["browser", "permissions", "revoke"],
+  summary: "Turn a global browser permission off, or forget a site's remembered allow",
+  args: "<permission>",
+  details:
+    "With --global, turns off a permission every site has (its name in Settings › Browser\n" +
+    "Permissions or nexus browser permissions). With --site ORIGIN, forgets that the site was\n" +
+    "allowed it in the workspace, so it asks again. Only takes permissions away: granting\n" +
+    "them, and forgetting a block, stay the user's.",
+  flags: {
+    global: { type: "boolean", description: "Turn the permission off for every site" },
+    site: {
+      type: "string",
+      value: "ORIGIN",
+      description: "The site, as nexus browser permissions shows it",
+    },
+    workspace: WORKSPACE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [permission] = exactArgs(positionals, "permission") as [string];
+    const site = typeof flags.site === "string" ? flags.site.trim() : undefined;
+    if ((flags.global === true) === (site !== undefined))
+      throw new CliUsageError("give --global or --site ORIGIN");
+    if (site === undefined) {
+      if (flags.workspace !== undefined)
+        throw new CliUsageError("--workspace goes with --site; global permissions are the app's");
+      const { revoked } = await ctx.services.ui("browser.permissions.revoke", {
+        scope: "global",
+        permission,
+      });
+      return output(
+        revoked.length
+          ? `Turned off ${revoked.join(", ")} for every site.`
+          : `${permission} was already off.`,
+        { scope: "global", permission, revoked },
+      );
+    }
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    await mayChange(ctx, workspace, {
+      kind: "browserPermissionRevoke",
+      detail: `${permission} · ${site}`,
+    });
+    const { revoked } = await ctx.services.ui("browser.permissions.revoke", {
+      scope: "site",
+      workspaceId: workspace.id,
+      origin: site,
+      permission,
+    });
+    return output(`Forgot that ${site} was allowed ${permission}.`, {
+      scope: "site",
+      workspaceId: workspace.id,
+      origin: site,
+      permission,
+      revoked,
+    });
+  },
+};
+
 const browserDevtools: CliCommand = {
   path: ["browser", "devtools"],
   summary: "Toggle a browser tab's developer tools",
@@ -289,6 +347,7 @@ const browserDevtools: CliCommand = {
 export const browserCommands: CliCommand[] = [
   browserList,
   browserPermissions,
+  browserPermissionsRevoke,
   browserDevtools,
   browserOpen,
   browserGoto,

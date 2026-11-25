@@ -350,7 +350,8 @@
         "noteRecordStop": "노트 \"{{detail}}\" 녹음 멈추기를",
         "chatRemoteControlToggle": "탭 \"{{detail}}\"의 원격 제어 전환을",
         "sandboxExecution": "샌드박스 밖에서 명령 실행을",
-        "settingTurnOn": "\"{{detail}}\" 켜기를"
+        "settingTurnOn": "\"{{detail}}\" 켜기를",
+        "browserPermissionRevoke": "브라우저 권한 {{detail}} 지우기를"
       },
       "headline": {
         "open": "{{detail}} 열기",
@@ -407,7 +408,8 @@
         "noteRecordStop": "노트 \"{{detail}}\" 녹음 멈추기",
         "chatRemoteControlToggle": "탭 \"{{detail}}\"의 원격 제어 전환",
         "sandboxExecution": "샌드박스 밖에서 명령 실행",
-        "settingTurnOn": "\"{{detail}}\" 켜기"
+        "settingTurnOn": "\"{{detail}}\" 켜기",
+        "browserPermissionRevoke": "브라우저 권한 {{detail}} 지우기"
       },
       "permission_title": "다른 대화의 권한 요청에 답할까요?",
       "mode_title": "에이전트가 대화의 권한 모드를 느슨하게 바꾸도록 허용할까요?",

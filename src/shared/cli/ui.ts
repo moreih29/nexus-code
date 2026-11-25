@@ -275,7 +275,8 @@ export type CliChangeKind =
   | "permissionAllow"
   | "permissionDeny"
   | "sandboxExecution"
-  | "settingTurnOn";
+  | "settingTurnOn"
+  | "browserPermissionRevoke";
 
 export interface CliChange extends Pick<RemoteConsent["change"], "instructionEdit" | "profileAdd"> {
   readonly kind: CliChangeKind;
@@ -1042,6 +1043,12 @@ export interface CliUiOps {
   "settings.keys": {
     args: Record<string, never>;
     result: { bindings: CliKeyBinding[] };
+  };
+  "browser.permissions.revoke": {
+    args:
+      | { scope: "global"; permission: string }
+      | { scope: "site"; workspaceId: string; origin: string; permission: string };
+    result: { revoked: string[] };
   };
   "settings.keys.set": {
     args: { change: CliKeyChange };

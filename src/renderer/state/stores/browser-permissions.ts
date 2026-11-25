@@ -7,6 +7,10 @@ const log = createLogger("browser-permissions");
 interface BrowserPermissionsState {
   grants: Record<string, boolean>;
 
+  rememberedRevision: number;
+
+  rememberedChanged(): void;
+
   hydrate(grants: Record<string, boolean> | undefined): void;
 
   setGrant(permissionKeys: string[], enabled: boolean): void;
@@ -14,6 +18,12 @@ interface BrowserPermissionsState {
 
 export const useBrowserPermissionsStore = create<BrowserPermissionsState>((set, get) => ({
   grants: {},
+
+  rememberedRevision: 0,
+
+  rememberedChanged() {
+    set({ rememberedRevision: get().rememberedRevision + 1 });
+  },
 
   hydrate(grants) {
     set({ grants: grants ?? {} });

@@ -350,7 +350,8 @@
         "noteRecord": "record into the note \"{{detail}}\" with the microphone",
         "noteRecordStop": "pause or stop the recording of the note \"{{detail}}\"",
         "sandboxExecution": "run a command outside its sandbox",
-        "settingTurnOn": "turn on \"{{detail}}\""
+        "settingTurnOn": "turn on \"{{detail}}\"",
+        "browserPermissionRevoke": "forget the browser permission {{detail}}"
       },
       "headline": {
         "open": "Open {{detail}}",
@@ -407,7 +408,8 @@
         "noteRecord": "Record into the note \"{{detail}}\" with the microphone",
         "noteRecordStop": "Pause or stop the recording of the note \"{{detail}}\"",
         "sandboxExecution": "Run a command outside its sandbox",
-        "settingTurnOn": "Turn on \"{{detail}}\""
+        "settingTurnOn": "Turn on \"{{detail}}\"",
+        "browserPermissionRevoke": "Forget the browser permission {{detail}}"
       },
       "permission_title": "Answer another session's permission request?",
       "mode_title": "Let an agent loosen a session's permission mode?",

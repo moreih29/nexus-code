@@ -18,6 +18,7 @@ import { hasProfile, PROFILE_AGENTS } from "../../../shared/agent-profiles/profi
 import type { CliUiOp } from "../../../shared/cli/ui";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
 import { sameShellChoice } from "../../../shared/pty/shell";
+import { PERMISSION_TOGGLES } from "../../../shared/security/browser-permissions";
 import { shortId } from "../../../shared/util/short-id";
 import { activateWorkspace } from "../../state/operations/workspace-selection";
 import { holdsInAgentView, showBesideCaller } from "../agent-view/show";
@@ -354,6 +355,43 @@ export const actionHandlers: {
       await ipcCallResult("browserPermission", "listRemembered", { workspaceId }),
     ).map(({ origin, permission, decision }) => ({ origin, permission, decision })),
   }),
+  "browser.permissions.revoke": async (target) => {
+    if (target.scope === "global") {
+      const toggle = PERMISSION_TOGGLES.find(
+        ({ key, permissions }) =>
+          key === target.permission || permissions.some((p) => p === target.permission),
+      );
+      if (!toggle)
+        throw new UiRequestError(
+          `no browser permission "${target.permission}"; the global ones are ${PERMISSION_TOGGLES.map(({ key }) => key).join(", ")}`,
+        );
+      const store = useBrowserPermissionsStore.getState();
+      const revoked = toggle.permissions.filter((p) => store.grants[p] === true);
+      if (revoked.length > 0) store.setGrant(toggle.permissions, false);
+      return { revoked };
+    }
+    const { workspaceId, origin, permission } = target;
+    const remembered = unwrapIpcResult(
+      await ipcCallResult("browserPermission", "listRemembered", { workspaceId }),
+    ).find((entry) => entry.origin === origin && entry.permission === permission);
+    if (!remembered)
+      throw new UiRequestError(
+        `no remembered ${permission} decision for ${origin}; nexus browser permissions lists them`,
+      );
+    if (remembered.decision !== "allow")
+      throw new UiRequestError(
+        `${origin} is blocked from ${permission}; forgetting that would let it ask again, so it is the user's, in Settings`,
+      );
+    unwrapIpcResult(
+      await ipcCallResult("browserPermission", "revoke", {
+        workspaceId,
+        origin,
+        permission: remembered.permission,
+      }),
+    );
+    useBrowserPermissionsStore.getState().rememberedChanged();
+    return { revoked: [permission] };
+  },
   "browser.devtools": async ({ workspaceId, tabId }) => {
     if (tabRecord(workspaceId, tabId).type !== "browser")
       throw new UiRequestError("choose a browser tab");

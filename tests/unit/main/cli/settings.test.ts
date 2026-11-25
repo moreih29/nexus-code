@@ -447,3 +447,30 @@ test("settings set asks the user each time before turning on what sends or match
     { key: "notes.summaryModel", value: "on" },
   ]);
 });
+
+test("browser permissions revoke takes a global permission or a site's, never both", async () => {
+  const app = fakeApp();
+  app.uiAnswers.set("browser.permissions.revoke", { revoked: ["media"] });
+  expect((await nexus(app, ["browser", "permissions", "revoke", "media", "--global"])).stdout).toBe(
+    "Turned off media for every site.\n",
+  );
+  const site = await nexus(app, [
+    "browser",
+    "permissions",
+    "revoke",
+    "media",
+    "--site",
+    "https://a.test",
+  ]);
+  expect(site.stdout).toBe("Forgot that https://a.test was allowed media.\n");
+  expect(app.uiCalls.map(({ args }) => args)).toEqual([
+    { scope: "global", permission: "media" },
+    { scope: "site", workspaceId: APP, origin: "https://a.test", permission: "media" },
+  ]);
+  expect((await nexus(app, ["browser", "permissions", "revoke", "media"])).exitCode).toBe(2);
+  expect(
+    (await nexus(app, ["browser", "permissions", "revoke", "media", "--global", "--site", "x"]))
+      .exitCode,
+  ).toBe(2);
+  expect(app.asked).toEqual([]);
+});
