@@ -139,10 +139,11 @@ import { GlobalStorage } from "./infra/storage/global-storage";
 import { StateService } from "./infra/storage/state-service";
 import { WorkspaceStorage } from "./infra/storage/workspace-storage";
 
-keepLogsApart(app);
+const logsDirWarning = keepLogsApart(app);
 initMainLogger();
 
 const logger = createLogger("main");
+if (logsDirWarning) logger.warn(logsDirWarning);
 const gitWatcherFailures = limitLog(logger);
 
 if (!app.requestSingleInstanceLock()) {
