@@ -2,7 +2,7 @@ import { setImmediate } from "node:timers/promises";
 import { Worker } from "node:worker_threads";
 import type { AppState } from "../../../shared/types/app-state";
 import { nestedErrorText } from "../../../shared/util/nested-error-text";
-import { CANCELLED, PREPARING } from "./state-file";
+import { CANCELLED, PREPARING, stateFailureText } from "./state-file";
 import type { Layouts, StateWriteMessage, StateWriteResult } from "./state-writer.worker";
 
 const WORKER_WRITE_TIMEOUT_MS = 5_000;
@@ -35,7 +35,7 @@ export class StateWriter {
     return new Promise<boolean>((resolve, reject) => {
       let failure: StateWorkerError | undefined;
       const onError = (error: unknown) => {
-        failure ??= new StateWorkerError(nestedErrorText(error), !current.ready);
+        failure ??= new StateWorkerError(stateFailureText(error), !current.ready);
       };
       const onExit = (code: number) => {
         failure ??= new StateWorkerError(`App state writer exited (${code})`, !current.ready);
@@ -49,7 +49,7 @@ export class StateWriter {
         }
         if (failure) return;
         cleanUp();
-        if ("error" in result) reject(new Error(result.error));
+        if ("error" in result) reject(Object.assign(new Error(result.error), result.errno));
         else resolve(result.written);
       };
       const cleanUp = () => {

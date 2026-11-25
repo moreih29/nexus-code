@@ -1,7 +1,7 @@
 import { parentPort, workerData } from "node:worker_threads";
 import type { AppState } from "../../../shared/types/app-state";
-import { nestedErrorText } from "../../../shared/util/nested-error-text";
-import { FINISHED, PREPARING, RENAMING, writeStateFile } from "./state-file";
+import { type Errno, errnoOf } from "./errno-text";
+import { FINISHED, PREPARING, RENAMING, stateFailureText, writeStateFile } from "./state-file";
 
 export type Layouts = NonNullable<AppState["layoutByWorkspace"]>;
 
@@ -15,7 +15,10 @@ export type StateWriteMessage =
       gate: Int32Array;
     };
 
-export type StateWriteResult = { ready: true } | { written: boolean } | { error: string };
+export type StateWriteResult =
+  | { ready: true }
+  | { written: boolean }
+  | { error: string; errno?: Errno };
 
 const port = parentPort;
 if (!port) throw new Error("App state writer requires a worker port");
@@ -42,7 +45,7 @@ port.on("message", (message: StateWriteMessage) => {
       });
     result = { written };
   } catch (error) {
-    result = { error: nestedErrorText(error) };
+    result = { error: stateFailureText(error), errno: errnoOf(error) };
   } finally {
     layouts = {};
     Atomics.store(gate, 0, FINISHED);

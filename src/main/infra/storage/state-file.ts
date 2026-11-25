@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { AppState } from "../../../shared/types/app-state";
 import { nestedErrorText } from "../../../shared/util/nested-error-text";
+import { errnoText } from "./errno-text";
 
 export const PREPARING = 0;
 export const RENAMING = 1;
@@ -42,7 +43,7 @@ export function writeStateFile(
     } catch (cleanupError) {
       throw new AggregateError(
         [error, cleanupError],
-        `${nestedErrorText(error)}; temporary file cleanup: ${nestedErrorText(cleanupError)}`,
+        `${stateFailureText(error)}; temporary file cleanup: ${stateFailureText(cleanupError)}`,
       );
     }
     throw error;
@@ -63,6 +64,10 @@ export function renameWhenUnlocked(from: string, to: string, platform = process.
     Atomics.wait(pause, 0, 0, delay);
   }
   fs.renameSync(from, to);
+}
+
+export function stateFailureText(error: unknown): string {
+  return errnoText(error) ?? nestedErrorText(error);
 }
 
 function removeTemp(tmpPath: string): void {
