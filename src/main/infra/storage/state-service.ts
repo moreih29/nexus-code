@@ -8,7 +8,7 @@ import {
   WindowBoundsSchema,
 } from "../../../shared/types/app-state";
 import { migrateAppState } from "./app-state-migrations";
-import { CANCELLED, PREPARING, RENAMING, writeStateFile } from "./state-file";
+import { CANCELLED, PREPARING, RENAMING, renameWhenUnlocked, writeStateFile } from "./state-file";
 import { StateWorkerError, StateWriter } from "./state-writer";
 
 const log = createLogger("storage");
@@ -142,7 +142,9 @@ export class StateService {
         throw new Error("Timed out waiting for the earlier app state rename");
       }
     }
-    writeStateFile(this.filePath, `${this.filePath}.vsctmp.sync`, state);
+    writeStateFile(this.filePath, `${this.filePath}.vsctmp.sync`, state, {
+      rename: renameWhenUnlocked,
+    });
     clearTimeout(this.timer);
     this.timer = undefined;
     this.retryDelay = RETRY_DELAY_MS;

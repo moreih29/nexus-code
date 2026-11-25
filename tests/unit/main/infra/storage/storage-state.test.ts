@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { Worker } from "node:worker_threads";
+import { renameWhenUnlocked } from "../../../../../src/main/infra/storage/state-file";
 import { type AppState, AppStateSchema } from "../../../../../src/main/infra/storage/state-service";
 import { StateWriter } from "../../../../../src/main/infra/storage/state-writer";
 import { GitPanelStateUpdateSchema } from "../../../../../src/shared/git/types";
@@ -664,5 +665,94 @@ await Bun.sleep(10_000);`,
 
     expect(state.updateChannel).toBe("stable");
     expect(fs.readFileSync(`${filePath}.invalid`, "utf8")).toBe("{ truncated");
+  });
+});
+
+describe("renameWhenUnlocked", () => {
+  let tmpDir: string;
+  let from: string;
+  let to: string;
+
+  beforeEach(() => {
+    tmpDir = makeTmpDir();
+    from = path.join(tmpDir, "state.json.vsctmp.sync");
+    to = path.join(tmpDir, "state.json");
+    fs.writeFileSync(from, "new");
+    fs.writeFileSync(to, "old");
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function lockedRenames(code: string, times: number) {
+    const rename = fs.renameSync;
+    let failures = 0;
+    return spyOn(fs, "renameSync").mockImplementation((...args) => {
+      if (failures++ < times) {
+        throw Object.assign(new Error(`${code}: destination locked`), { code });
+      }
+      rename(...args);
+    });
+  }
+
+  it.each(["EPERM", "EACCES", "EBUSY"])("retries a %s replacement on Windows", (code) => {
+    const rename = lockedRenames(code, 2);
+    try {
+      renameWhenUnlocked(from, to, "win32");
+      expect(rename).toHaveBeenCalledTimes(3);
+    } finally {
+      rename.mockRestore();
+    }
+    expect(fs.readFileSync(to, "utf8")).toBe("new");
+  });
+
+  it("gives up on Windows after five retries and about 250 ms", () => {
+    const rename = lockedRenames("EPERM", Number.POSITIVE_INFINITY);
+    const started = performance.now();
+    try {
+      expect(() => renameWhenUnlocked(from, to, "win32")).toThrow("EPERM: destination locked");
+      expect(rename).toHaveBeenCalledTimes(6);
+    } finally {
+      rename.mockRestore();
+    }
+    expect(performance.now() - started).toBeGreaterThanOrEqual(245);
+    expect(fs.readFileSync(to, "utf8")).toBe("old");
+  });
+
+  it("does not retry other errors on Windows", () => {
+    const rename = lockedRenames("ENOENT", 1);
+    try {
+      expect(() => renameWhenUnlocked(from, to, "win32")).toThrow("ENOENT");
+      expect(rename).toHaveBeenCalledTimes(1);
+    } finally {
+      rename.mockRestore();
+    }
+  });
+
+  it.each(["darwin", "linux"] as const)("does not retry on %s", (platform) => {
+    const rename = lockedRenames("EPERM", 1);
+    try {
+      expect(() => renameWhenUnlocked(from, to, platform)).toThrow("EPERM");
+      expect(rename).toHaveBeenCalledTimes(1);
+    } finally {
+      rename.mockRestore();
+    }
+    expect(fs.readFileSync(to, "utf8")).toBe("old");
+  });
+
+  it.skipIf(process.platform !== "win32")("lets flushNow outlast a brief lock", () => {
+    const appDir = path.join(tmpDir, "app");
+    const filePath = path.join(appDir, "state.json");
+    const service = openTestState(filePath);
+    service.setState({ sidebarWidth: 270 });
+    const rename = lockedRenames("EPERM", 3);
+    try {
+      service.flushNow();
+    } finally {
+      rename.mockRestore();
+    }
+    expect(readState(filePath).sidebarWidth).toBe(270);
+    expect(fs.readdirSync(appDir)).toEqual(["state.json"]);
   });
 });
