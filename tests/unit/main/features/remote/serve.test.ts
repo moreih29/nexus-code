@@ -2433,6 +2433,45 @@ describe("serving a chat's slash commands", () => {
     expect(asked).toEqual([["chat.fileSuggestions", { ...tab, query: "f" }]]);
   });
 
+  test("an @ on a network, device or automount path is not passed to the tab's agent", async () => {
+    const asked: string[] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string; query?: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        asked.push(args.query ?? "");
+        return { paths: ["a.ts"] };
+      },
+    } as unknown as CliServices;
+    const serve = serveWith(() => s);
+    const suggest = (query: string) =>
+      serve({ from: "d", method: "chat.fileSuggestions", params: { ...tab, query } }) as Promise<{
+        paths: string[];
+      }>;
+    for (const query of [
+      String.raw`\\attacker\s\ `.trim(),
+      String.raw`@\\attacker\s`,
+      "@//attacker/s/",
+      String.raw`"@\\127.0.0.1\qa-none-462"`,
+      String.raw`@\\?\UNC\h\s`,
+      String.raw`@\??\UNC\h\s`,
+      "@/??/UNC/h/s",
+      String.raw`@\\.\C:\a`,
+      String.raw`@/x/../\h\s`,
+      "@/net/attacker/",
+      "/Network/Servers/h",
+      "@/x/../net/h",
+    ]) {
+      expect(await suggest(query)).toEqual({ paths: [] });
+    }
+    expect(asked).toEqual([]);
+    for (const query of ["@src/a", "@/Users/me/net", String.raw`@C:\Users\me`, ""]) {
+      expect(await suggest(query)).toEqual({ paths: ["a.ts"] });
+    }
+    expect(asked).toEqual(["@src/a", "@/Users/me/net", String.raw`@C:\Users\me`, ""]);
+  });
+
   test("/add-dir adds a folder by its real path, from the workspace's, and not one that opens the disk", async () => {
     const { serve, asked } = commandServices();
     const root = await realpath(await mkdtemp(join(tmpdir(), "add-dir-")));
