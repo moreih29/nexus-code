@@ -9,7 +9,8 @@ import { serveWith } from "../../../../../src/main/features/remote/serve";
 import { sourcesChanged } from "../../../../../src/main/features/remote/serving/file-links";
 import { fakeApp } from "../../cli/fake-services";
 
-const WINDOWS = process.platform === "win32";
+const NETWORK_LINK =
+  process.platform === "win32" ? String.raw`\\qa-host\share\a.png` : "/net/qa-host/a.png";
 
 const tmp = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "nexus-grants-")));
 const root = path.join(tmp, "w");
@@ -126,7 +127,7 @@ function serving({
 
 const answer = { kind: "answer", itemKey: "a1" };
 
-describe.if(!WINDOWS)("files.resolve on the host", () => {
+describe("files.resolve on the host", () => {
   test("tells each link's file, whether it reads without a grant, and blocks network paths unread", async () => {
     const { ask } = serving({
       candidates: (links) =>
@@ -144,7 +145,7 @@ describe.if(!WINDOWS)("files.resolve on the host", () => {
         { href: path.join(outside, "standing.txt"), source: answer },
         { href: path.join(outside, "a.txt"), source: answer },
         { href: path.join(root, "in.txt"), source: answer },
-        { href: "/net/qa-host/a.png", source: answer },
+        { href: NETWORK_LINK, source: answer },
         { href: path.join(outside, "missing.txt"), source: answer },
         { href: "gone", source: answer },
         { href: "two", source: answer },
@@ -180,7 +181,7 @@ describe.if(!WINDOWS)("files.resolve on the host", () => {
   });
 });
 
-describe.if(!WINDOWS)("files.grant and a read with its token", () => {
+describe("files.grant and a read with its token", () => {
   const grantFor = (
     ask: ReturnType<typeof serving>["ask"],
     href: string,
@@ -318,10 +319,10 @@ describe.if(!WINDOWS)("files.grant and a read with its token", () => {
   });
 });
 
-describe.if(!WINDOWS)("a workspace whose folder is reached through a link", () => {
+describe("a workspace whose folder is reached through a link", () => {
   test("reads a file named by the folder's real path directly", async () => {
     const linkedRoot = path.join(tmp, "linked-w");
-    fs.symlinkSync(root, linkedRoot);
+    fs.symlinkSync(root, linkedRoot, "junction");
     try {
       const { ask } = serving({ rootPath: linkedRoot });
       expect(await ask("files.read", { path: path.join(root, "in.txt") })).toMatchObject({
