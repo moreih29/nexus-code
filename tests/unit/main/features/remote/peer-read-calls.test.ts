@@ -174,6 +174,11 @@ test("the peer File and Git IPCs map only to read RPCs", () => {
     /^peer(Files|Git|System|Notes)/.test(name),
   );
   expect(methods.toSorted()).toEqual(
-    [...Object.keys(PEER_READ_METHODS), "peerFilesReadBytes"].sort(),
+    [
+      ...Object.keys(PEER_READ_METHODS),
+      "peerFilesReadBytes",
+      "peerFilesResolve",
+      "peerFilesGrant",
+    ].sort(),
   );
 });

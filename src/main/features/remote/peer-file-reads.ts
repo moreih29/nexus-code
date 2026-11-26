@@ -7,6 +7,7 @@ import {
 import { createAbortError, isAbortError, throwIfAborted } from "../../../shared/abort";
 import type { PeerWorkspace } from "../../../shared/fs/peer-url";
 import { type RoomState, speaks } from "../../../shared/remote/room";
+import { FILE_GRANTS, grantFailure, type PeerFileGrants } from "./peer-file-grants";
 import { RpcFailure } from "./room";
 
 type Params = RpcParams<"files.read">;
@@ -78,7 +79,13 @@ export class PeerFileReads {
   private readonly flights = new Map<string, Flight>();
   private readonly peers = new Map<
     string,
-    { controller: AbortController; rejoins: number; versioned: boolean; files: boolean | undefined }
+    {
+      controller: AbortController;
+      rejoins: number;
+      versioned: boolean;
+      files: boolean | undefined;
+      grants: boolean;
+    }
   >();
   private total = 0;
   private wholeReads = 0;
@@ -95,6 +102,7 @@ export class PeerFileReads {
       entries: CACHE_ENTRIES,
       fileBytes: MAX_FILE_BYTES,
     },
+    private readonly grants?: PeerFileGrants,
   ) {}
 
   updateRoom(state: RoomState): void {
@@ -107,7 +115,8 @@ export class PeerFileReads {
         !peer ||
         scope.rejoins !== (peer.rejoins ?? 0) ||
         scope.versioned !== supportsFileVersions(peer.schema) ||
-        scope.files !== peer.serves?.includes("files")
+        scope.files !== peer.serves?.includes("files") ||
+        scope.grants !== (peer.serves?.includes(FILE_GRANTS) === true)
       ) {
         this.invalidateDevice(id);
       }
@@ -119,11 +128,14 @@ export class PeerFileReads {
         rejoins: peer.rejoins ?? 0,
         versioned: supportsFileVersions(peer.schema),
         files: peer.serves?.includes("files"),
+        grants: peer.serves?.includes(FILE_GRANTS) === true,
       });
     }
+    this.grants?.updateRoom(state);
   }
 
   invalidateDevice(id: string): void {
+    this.grants?.invalidateDevice(id);
     const scope = this.peers.get(id);
     if (!scope) return;
     this.peers.delete(id);
@@ -151,8 +163,9 @@ export class PeerFileReads {
     path: string,
     shape: Shape,
     signal?: AbortSignal,
+    probe = false,
   ): Promise<Content> {
-    return this.piece(this.scope(peer, path), shape, signal);
+    return this.piece(this.scope(peer, path), shape, signal, undefined, probe);
   }
 
   async openBytes(
@@ -267,10 +280,48 @@ export class PeerFileReads {
     required?: string,
     authorized = false,
   ): Promise<Content> {
+    const grants = scope.grants ? this.grants : undefined;
+    if (!grants) return this.pieceWith(scope, shape, signal, required, authorized);
+    if (grants.stale(scope.peer, scope.path)) {
+      await grants.renew(scope.peer, scope.path, signal).catch(() => false);
+    }
+    try {
+      return await this.pieceWith(
+        scope,
+        shape,
+        signal,
+        required,
+        authorized,
+        grants.token(scope.peer, scope.path),
+      );
+    } catch (error) {
+      const failure = grantFailure(error);
+      if (failure === "invalid") grants.forget(scope.peer, scope.path);
+      if (failure !== "expired" && failure !== "required") throw error;
+      if (!(await grants.renew(scope.peer, scope.path, signal))) throw error;
+      return this.pieceWith(
+        scope,
+        shape,
+        signal,
+        required,
+        authorized,
+        grants.token(scope.peer, scope.path),
+      );
+    }
+  }
+
+  private async pieceWith(
+    scope: ReturnType<PeerFileReads["scope"]>,
+    shape: Shape,
+    signal: AbortSignal | undefined,
+    required: string | undefined,
+    authorized: boolean,
+    grant?: string,
+  ): Promise<Content> {
     throwIfAborted(signal);
     throwIfAborted(scope.signal);
     const { as, offset, length, maxBytes } = shape;
-    const key = JSON.stringify([scope.file, as, offset, length, maxBytes]);
+    const key = JSON.stringify([scope.file, as, offset, length, maxBytes, grant !== undefined]);
     const versioned = scope.versioned && (!authorized || required !== undefined);
     const cached = versioned ? this.lookup(scope.file, key, shape, required) : undefined;
     if (required && !scope.versioned) throw changed();
@@ -287,6 +338,7 @@ export class PeerFileReads {
         workspaceId: scope.peer.workspaceId,
         path: scope.path,
         ...shape,
+        ...(grant !== undefined ? { grant } : {}),
         ...(versioned
           ? condition
             ? { ifVersion: condition }
