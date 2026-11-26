@@ -78,7 +78,7 @@ function sameActions(first: ToastAction[], second: ToastAction[]): boolean {
   );
 }
 
-export function showToast(input: ToastInput): number {
+export function showToast(input: ToastInput, options?: { reflowOnDuplicate?: boolean }): number {
   for (const watcher of watchers) watcher(input);
   const actions = input.actions ?? [];
 
@@ -96,6 +96,7 @@ export function showToast(input: ToastInput): number {
   );
   if (duplicate) {
     duplicate.expiresAt = expiresAt;
+    if (options?.reflowOnDuplicate) bus.notify();
     return duplicate.id;
   }
 
