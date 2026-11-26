@@ -110,8 +110,8 @@ export function localChatLinks(env: LocalLinksEnv): LocalChatLinks {
         env.look({ files: [target], index: 0, draft: options.draft });
         return;
       }
-      if (options) {
-        const { gallery } = options;
+      const gallery = options?.gallery;
+      if (gallery) {
         grant(target);
         env.look({ files: gallery, index: gallery.indexOf(target) });
         return;

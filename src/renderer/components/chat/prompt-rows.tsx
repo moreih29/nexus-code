@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { FileLinkSourceContext } from "../../services/chat/chat-files";
 import type { ToolCall } from "../../services/chat/model";
 import { cn } from "../../utils/cn";
 import { ToggleChevron } from "../ui/toggle-chevron";
@@ -217,7 +218,9 @@ export function PlanOutcome({
       )}
       {open && plan && (
         <div className="app-scrollbar mt-1 mb-2 ml-5 max-h-96 overflow-y-auto rounded-(--radius-control) border border-border px-3 py-2">
-          <ChatMarkdown text={plan} workspaceId={workspaceId} cwd={cwd} rootPath={rootPath} />
+          <FileLinkSourceContext.Provider value={{ kind: "tool", toolUseId: tool.id }}>
+            <ChatMarkdown text={plan} workspaceId={workspaceId} cwd={cwd} rootPath={rootPath} />
+          </FileLinkSourceContext.Provider>
         </div>
       )}
     </div>

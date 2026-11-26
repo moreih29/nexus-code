@@ -10,6 +10,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
+import type { LinkedFile } from "../../services/chat/chat-files";
 import { type LinkPlaceIndex, linkPlaceIndex, linkPlaces } from "../../services/chat/link-places";
 import {
   type FileLink,
@@ -27,7 +28,9 @@ import {
   type MenuItemSpec,
 } from "../ui/context-menu";
 
-export type OpenFileOptions = { gallery: string[] } | { draft: File };
+export type OpenFileOptions =
+  | { gallery?: string[]; link?: LinkedFile; links?: Readonly<Record<string, LinkedFile>> }
+  | { draft: File };
 
 export interface ChatLinks {
   openFile: (target: string, options?: OpenFileOptions) => void;
@@ -80,6 +83,7 @@ interface LinkMenuFor {
   readonly target: string;
   readonly href: string;
   readonly kind: "file" | "url";
+  readonly link?: LinkedFile;
 }
 
 let openLinkMenu: ((link: LinkMenuFor, at: { x: number; y: number }) => void) | null = null;
@@ -88,11 +92,13 @@ export function LinkMenu({
   target,
   href = target,
   kind,
+  link: linked,
   children,
 }: {
   target: string;
   href?: string;
   kind: "file" | "url";
+  link?: LinkedFile;
   children: React.ReactElement;
 }) {
   const links = useChatLinks();
@@ -104,7 +110,10 @@ export function LinkMenu({
       own?.(event);
       if (event.defaultPrevented || !openLinkMenu) return;
       event.preventDefault();
-      openLinkMenu({ links, target, href, kind }, { x: event.clientX, y: event.clientY });
+      openLinkMenu(
+        { links, target, href, kind, ...(linked ? { link: linked } : {}) },
+        { x: event.clientX, y: event.clientY },
+      );
     },
   });
 }
@@ -158,7 +167,7 @@ export function LinkMenuRoot() {
 }
 
 function linkMenuItems(
-  { links, target, href, kind }: LinkMenuFor,
+  { links, target, href, kind, link }: LinkMenuFor,
   t: TFunction,
   look: (open: () => void) => void,
 ): MenuItemSpec[] {
@@ -168,7 +177,7 @@ function linkMenuItems(
         {
           kind: "item",
           label: t("chat.links.look"),
-          onSelect: () => look(() => links.openFile(href)),
+          onSelect: () => look(() => links.openFile(href, link ? { link } : undefined)),
         },
         ...(openFileTab
           ? [

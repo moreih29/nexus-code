@@ -1,7 +1,7 @@
 import { Image as ImageIcon } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useChatFiles, useFilePicture } from "../../services/chat/chat-files";
+import { type LinkedFile, useChatFiles, useFilePicture } from "../../services/chat/chat-files";
 import { imageSrc } from "../../services/chat/image-look";
 import { baseName } from "../../services/chat/links";
 import { cn } from "../../utils/cn";
@@ -13,11 +13,13 @@ export function FileImage({
   workspaceId,
   alt,
   fallback,
+  link,
 }: {
   path: string;
   workspaceId: string;
   alt: string;
   fallback: React.ReactNode;
+  link?: LinkedFile;
 }) {
   const { t } = useTranslation();
   const links = useChatLinks();
@@ -37,7 +39,7 @@ export function FileImage({
     }
   }
   const src = picture.image ? imageSrc(picture.image) : file.kind === "inside" ? file.url : null;
-  if (!src && file.kind === "outside" && links) return <ImageChip path={path} />;
+  if (!src && file.kind === "outside" && links) return <ImageChip path={path} link={link} />;
   if (!src || failedFor === src) return <>{fallback}</>;
   const img = (
     <img
@@ -49,10 +51,10 @@ export function FileImage({
   );
   if (!links) return img;
   return (
-    <LinkMenu target={path} kind="file">
+    <LinkMenu target={path} kind="file" link={link}>
       <button
         type="button"
-        onClick={() => links.openFile(path)}
+        onClick={() => links.openFile(path, link ? { link } : undefined)}
         title={path}
         aria-label={t("chat.links.look")}
         className="inline-flex max-w-full cursor-zoom-in rounded-(--radius-control) align-top focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -64,7 +66,7 @@ export function FileImage({
   );
 }
 
-export function ImageChip({ path }: { path: string }) {
+export function ImageChip({ path, link }: { path: string; link?: LinkedFile }) {
   const { t } = useTranslation();
   const links = useChatLinks();
   const body = (
@@ -83,10 +85,10 @@ export function ImageChip({ path }: { path: string }) {
     );
   }
   return (
-    <LinkMenu target={path} kind="file">
+    <LinkMenu target={path} kind="file" link={link}>
       <button
         type="button"
-        onClick={() => links.openFile(path)}
+        onClick={() => links.openFile(path, link ? { link } : undefined)}
         title={path}
         aria-label={`${t("chat.links.look")}: ${baseName(path)}`}
         className={cn(

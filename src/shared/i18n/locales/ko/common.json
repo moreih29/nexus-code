@@ -1373,7 +1373,10 @@
       "open_system": "시스템 브라우저에서 열기",
       "open_app_browser": "앱 브라우저에서 열기",
       "copy_link": "링크 복사",
-      "network_path": "네트워크 경로는 열 수 없습니다."
+      "network_path": "네트워크 경로는 열 수 없습니다.",
+      "gone": "이 파일은 대화에서 사라졌습니다.",
+      "denied": "이 파일은 읽을 수 없습니다.",
+      "open_failed": "파일을 열지 못했습니다. 잠시 뒤 다시 시도하세요."
     },
     "run": {
       "kind": "claude -p 실행",

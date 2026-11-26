@@ -10,6 +10,8 @@ import {
 import { useTranslation } from "react-i18next";
 import type { Components } from "react-markdown";
 import { createLogger } from "../../../../shared/log/renderer";
+import { useChatFiles } from "../../../services/chat/chat-files";
+import { grantsOf } from "../../../services/chat/linked-files";
 import { openOrRevealEditor } from "../../../services/editor";
 import {
   classifyLinkHref,
@@ -92,10 +94,23 @@ export function MarkdownPreview({
   }, []);
 
   const chatLinks = useChatLinks();
+  const viaHost = grantsOf(useChatFiles()) && peerOf(workspaceId) !== null;
   const onLinkClick = useCallback(
     (href: string, event: React.MouseEvent<HTMLAnchorElement>) => {
       event.preventDefault();
       const classified = classifyLinkHref(href, linkCtx);
+      if (
+        viaHost &&
+        chatLinks &&
+        classified.kind === "blocked" &&
+        !href.startsWith("#") &&
+        !/^[a-z][a-z0-9+.-]+:/i.test(href)
+      ) {
+        chatLinks.openFile(href, {
+          link: { href, source: { kind: "file", parent: currentFileAbsPath } },
+        });
+        return;
+      }
       switch (classified.kind) {
         case "anchor":
           scrollToAnchor(classified.id);
@@ -112,7 +127,7 @@ export function MarkdownPreview({
           return;
       }
     },
-    [linkCtx, scrollToAnchor, workspaceId, chatLinks],
+    [linkCtx, scrollToAnchor, workspaceId, chatLinks, viaHost, currentFileAbsPath],
   );
 
   const onCopyAnchor = useCallback((id: string) => {

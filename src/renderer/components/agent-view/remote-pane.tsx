@@ -690,8 +690,8 @@ function RemoteChatView({
     [deviceId, workspaceId, tabId, mediaAccess, visible],
   );
   const files = useMemo(
-    () => peerChatFiles({ deviceId, workspaceId }, mediaAccess, visible),
-    [deviceId, workspaceId, mediaAccess, visible],
+    () => peerChatFiles({ deviceId, workspaceId, tabId }, mediaAccess, visible),
+    [deviceId, workspaceId, tabId, mediaAccess, visible],
   );
   const peerWorkspace = peerWorkspaceId(deviceId, workspaceId);
   useEffect(() => setPeerRoot(peerWorkspace, target.path), [peerWorkspace, target.path]);

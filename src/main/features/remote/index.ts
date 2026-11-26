@@ -42,6 +42,7 @@ import type { RemoteRepository } from "./git";
 import { installIdAt } from "./install-id";
 import type { RemoteNotes } from "./notes";
 import { Pairing } from "./pairing";
+import { grantFailure, PeerFileGrants } from "./peer-file-grants";
 import { PeerFileReads } from "./peer-file-reads";
 import { dropPeerHolds } from "./peer-holds";
 import { PEER_READ_METHODS, peerReadCalls } from "./peer-read-calls";
@@ -111,6 +112,12 @@ async function askPeer<T>(question: () => Promise<T>, chatSend = false): Promise
       if (chatSend && data?.outcome === "unknown") return ipcErr("send-unconfirmed", error.message);
       if (chatSend && error.code === RpcErrorCode.InvalidParams) {
         return ipcErr("invalid-args", error.message);
+      }
+      const grant = grantFailure(error);
+      if (grant) {
+        return ipcErr(grant === "expired" ? "unavailable" : "permission-denied", error.message, {
+          code: `grant-${grant}`,
+        });
       }
       const kind =
         error.code === RpcErrorCode.NotFound
@@ -203,8 +210,17 @@ export async function registerRemoteChannel(options: {
     if (!room) throw new RpcFailure(RpcErrorCode.Unavailable, "not in the room");
     return room;
   };
-  const peerFiles = new PeerFileReads((deviceId, params, signal) =>
-    inRoom().request(deviceId, PEER_READ_METHODS.peerFilesRead, params, undefined, signal),
+  const peerGrants = new PeerFileGrants({
+    grant: (deviceId, params, signal) =>
+      inRoom().request(deviceId, "files.grant", params, undefined, signal),
+    resolve: (deviceId, params, signal) =>
+      inRoom().request(deviceId, "files.resolve", params, undefined, signal),
+  });
+  const peerFiles = new PeerFileReads(
+    (deviceId, params, signal) =>
+      inRoom().request(deviceId, PEER_READ_METHODS.peerFilesRead, params, undefined, signal),
+    undefined,
+    peerGrants,
   );
   const watches = new ChatWatches({
     services: options.services,
@@ -794,7 +810,7 @@ export async function registerRemoteChannel(options: {
       },
       ...peerReadCalls(inRoom, askPeer),
       peerFilesRead: (args: unknown, ctx?: CallContext) => {
-        const { deviceId, workspaceId, path, as, offset, length, maxBytes } = validateArgs(
+        const { deviceId, workspaceId, path, as, offset, length, maxBytes, probe } = validateArgs(
           c.peerFilesRead.args,
           args,
         );
@@ -803,6 +819,28 @@ export async function registerRemoteChannel(options: {
             { deviceId, workspaceId },
             path,
             { as, offset, length, maxBytes },
+            ctx?.signal,
+            probe === true,
+          ),
+        );
+      },
+      peerFilesResolve: (args: unknown, ctx?: CallContext) => {
+        const { deviceId, workspaceId, tabId, links } = validateArgs(c.peerFilesResolve.args, args);
+        return askPeer(async () => ({
+          found: await peerGrants.resolve({ deviceId, workspaceId }, tabId, links, ctx?.signal),
+        }));
+      },
+      peerFilesGrant: (args: unknown, ctx?: CallContext) => {
+        const { deviceId, workspaceId, tabId, href, source, purpose } = validateArgs(
+          c.peerFilesGrant.args,
+          args,
+        );
+        return askPeer(() =>
+          peerGrants.grant(
+            { deviceId, workspaceId },
+            tabId,
+            { href, source },
+            purpose,
             ctx?.signal,
           ),
         );

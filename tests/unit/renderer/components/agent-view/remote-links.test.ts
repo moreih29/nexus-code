@@ -428,8 +428,8 @@ describe("another computer's chat, read from there", () => {
       workspaceId: "w1",
       path: "/a/t1/1/kept.png",
       as: "bytes",
-      length: 0,
-      versioned: true,
+      length: 1,
+      probe: true,
     });
     calls.length = 0;
     await files.gone?.(asked);
@@ -829,5 +829,87 @@ describe("what another computer's chat tells of its plan and senders", () => {
       ),
     ).toEqual({ kind: "tab", workspaceId: "w", tabId: "t", device: { id: "lap", name: "Laptop" } });
     expect(senderOf({ kind: "manager" })).toEqual({ kind: "manager" });
+  });
+});
+
+describe("a host that serves file grants", () => {
+  const serving = (serves: string[]): RoomState => {
+    const room = online();
+    return { ...room, peers: room.peers.map((peer) => ({ ...peer, serves })) };
+  };
+  const grantsRoom = () => serving(["chat.read", "files", "files.grants"]);
+  const answerSource = { kind: "answer", itemKey: "a-1" } as const;
+
+  test("resolves links with the host, 64 to a call, in order, and keeps them for a while", async () => {
+    events.get("roomChanged")?.(grantsRoom());
+    answer = (method, args) =>
+      method === "peerFilesResolve"
+        ? {
+            found: (args.links as { href: string }[]).map(({ href }) =>
+              href.endsWith("-1") ? null : { path: `/outside/${href}`, readable: false },
+            ),
+          }
+        : {};
+    const files = peerChatFiles(target, peerChatAccess("d1"));
+    const links = Array.from({ length: 70 }, (_, i) => ({
+      href: `qa-${i}.txt`,
+      source: answerSource,
+    }));
+    const found = await files.resolve?.(links);
+    expect(calls.map((c) => c.method)).toEqual(["peerFilesResolve", "peerFilesResolve"]);
+    expect(calls.map((c) => (c.args.links as unknown[]).length)).toEqual([64, 6]);
+    expect(calls[0]?.args).toMatchObject({ deviceId: "d1", workspaceId: "w1", tabId: "t1" });
+    expect(found?.[0]).toEqual({ path: "/outside/qa-0.txt", readable: false });
+    expect(found?.[69]).toEqual({ path: "/outside/qa-69.txt", readable: false });
+    calls.length = 0;
+    expect(await files.resolve?.([links[2]!])).toEqual([
+      { path: "/outside/qa-2.txt", readable: false },
+    ]);
+    expect(calls).toEqual([]);
+  });
+
+  test("resolving reads nothing and asks for no grant", async () => {
+    events.get("roomChanged")?.(grantsRoom());
+    answer = () => ({ found: [{ blocked: true }] });
+    const files = peerChatFiles(target, peerChatAccess("d1"));
+    expect(await files.resolve?.([{ href: "//host/share/x.png", source: answerSource }])).toEqual([
+      { blocked: true },
+    ]);
+    expect(calls.map((c) => c.method)).toEqual(["peerFilesResolve"]);
+  });
+
+  test("opening asks the host for a grant with the link and where it came from", async () => {
+    events.get("roomChanged")?.(grantsRoom());
+    answer = () => ({ path: "/outside/qa-a.txt" });
+    const files = peerChatFiles(target, peerChatAccess("d1"));
+    expect(await files.open?.({ href: "../qa-a.txt", source: answerSource })).toBe(
+      "/outside/qa-a.txt",
+    );
+    expect(calls).toEqual([
+      {
+        method: "peerFilesGrant",
+        args: { ...target, href: "../qa-a.txt", source: answerSource, purpose: "open" },
+      },
+    ]);
+  });
+
+  test("a link gone from the chat fails with its kind", async () => {
+    events.get("roomChanged")?.(grantsRoom());
+    answer = () => ({ [IPC_RESULT_BRAND]: true, ok: false, kind: "not-found", message: "gone" });
+    const files = peerChatFiles(target, peerChatAccess("d1"));
+    await expect(files.open?.({ href: "x", source: answerSource })).rejects.toMatchObject({
+      kind: "not-found",
+    });
+  });
+
+  test("an older host, or a pane with no tab, keeps the old way", () => {
+    events.get("roomChanged")?.(serving(["chat.read", "files"]));
+    const old = peerChatFiles(target, peerChatAccess("d1"));
+    expect(old.resolve).toBeUndefined();
+    expect(old.open).toBeUndefined();
+    events.get("roomChanged")?.(grantsRoom());
+    const noTab = peerChatFiles({ deviceId: "d1", workspaceId: "w1" }, peerChatAccess("d1"));
+    expect(noTab.resolve).toBeUndefined();
+    expect(peerChatFiles(target, peerChatAccess("d1")).resolve).toBeDefined();
   });
 });

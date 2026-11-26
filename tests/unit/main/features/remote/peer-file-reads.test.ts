@@ -4,6 +4,7 @@ import {
   RpcErrorCode,
   type RpcParams,
 } from "../../../../../packages/remote-protocol/src";
+import { PeerFileGrants } from "../../../../../src/main/features/remote/peer-file-grants";
 import { PeerFileReads } from "../../../../../src/main/features/remote/peer-file-reads";
 import { RpcFailure } from "../../../../../src/main/features/remote/room";
 import type { RoomState } from "../../../../../src/shared/remote/room";
@@ -219,4 +220,159 @@ test("a mutable image IPC read preserves its shape and really authorizes each re
   expect(await cache.read(PEER, image.path, {})).toEqual(image);
   expect(await cache.read(PEER, image.path, {})).toEqual(image);
   expect(params.map((r) => r.ifVersion)).toEqual([undefined, image.version]);
+});
+
+describe("reads of files the user opened through a grant", () => {
+  const TOKEN = "t".repeat(43);
+  const NEXT = "n".repeat(43);
+  const answer = { kind: "answer", itemKey: "a-1" } as const;
+  const grantsRoom = (): RoomState => ({
+    status: "online",
+    peers: [
+      {
+        id: PEER.deviceId,
+        name: "peer",
+        platform: "linux",
+        online: true,
+        schema: "0.40.0",
+        rejoins: 0,
+        serves: ["chat.read", "files", "files.grants"],
+      },
+    ],
+  });
+
+  function granted(
+    fail: (args: RpcParams<"files.read">, attempt: number) => RpcFailure | null = () => null,
+  ) {
+    const reads: RpcParams<"files.read">[] = [];
+    const grantCalls: RpcParams<"files.grant">[] = [];
+    let token = TOKEN;
+    const grants = new PeerFileGrants({
+      grant: async (_device, params) => {
+        grantCalls.push(params);
+        return { path: "/o/qa.txt", grant: token };
+      },
+      resolve: async () => ({ found: [] }),
+    });
+    const cache = new PeerFileReads(
+      async (_device, args) => {
+        reads.push(args);
+        const failure = fail(args, reads.length);
+        if (failure) throw failure;
+        return {
+          kind: "text",
+          path: args.path,
+          text: "hello",
+          size: 5,
+          ...(args.versioned || args.ifVersion ? { version: "v1" } : {}),
+        };
+      },
+      undefined,
+      grants,
+    );
+    cache.updateRoom(grantsRoom());
+    return {
+      cache,
+      grants,
+      reads,
+      grantCalls,
+      renewWith: (next: string) => {
+        token = next;
+      },
+    };
+  }
+
+  test("only a path with a grant carries its token", async () => {
+    const { cache, grants, reads } = granted();
+    await grants.grant(PEER, "t1", { href: "/o/qa.txt", source: answer }, "open");
+    await cache.read(PEER, "/o/qa.txt", { as: "text" });
+    await cache.read(PEER, "/w/inside.txt", { as: "text" });
+    expect(reads.map((r) => [r.path, r.grant])).toEqual([
+      ["/o/qa.txt", TOKEN],
+      ["/w/inside.txt", undefined],
+    ]);
+  });
+
+  test("an expired grant is asked for again once, then the read is tried again", async () => {
+    const { cache, grants, reads, grantCalls, renewWith } = granted((args) =>
+      args.grant === TOKEN ? new RpcFailure(RpcErrorCode.GrantExpired, "grant expired") : null,
+    );
+    await grants.grant(PEER, "t1", { href: "/o/qa.txt", source: answer }, "open");
+    renewWith(NEXT);
+    const read = await cache.read(PEER, "/o/qa.txt", { as: "text" });
+    expect(read.kind).toBe("text");
+    expect(reads.map((r) => r.grant)).toEqual([TOKEN, NEXT]);
+    expect(grantCalls).toHaveLength(2);
+    expect(grantCalls[1]).toEqual(grantCalls[0]);
+  });
+
+  test("a grant that keeps expiring is asked for only once per read", async () => {
+    const { cache, grants, reads, grantCalls } = granted(
+      () => new RpcFailure(RpcErrorCode.GrantExpired, "grant expired"),
+    );
+    await grants.grant(PEER, "t1", { href: "/o/qa.txt", source: answer }, "open");
+    await expect(cache.read(PEER, "/o/qa.txt", { as: "text" })).rejects.toMatchObject({
+      code: RpcErrorCode.GrantExpired,
+    });
+    expect(reads).toHaveLength(2);
+    expect(grantCalls).toHaveLength(2);
+  });
+
+  test("a file that now needs a grant is asked for again only after a click", async () => {
+    const required = () =>
+      new RpcFailure(RpcErrorCode.Forbidden, "a grant is required", { grant: "required" });
+    const { cache, grants, reads, grantCalls } = granted((args) =>
+      args.grant ? null : required(),
+    );
+    await expect(cache.read(PEER, "/o/qa.txt", { as: "text" })).rejects.toMatchObject({
+      data: { grant: "required" },
+    });
+    expect(grantCalls).toEqual([]);
+    await grants.grant(PEER, "t1", { href: "/o/qa.txt", source: answer }, "open");
+    expect((await cache.read(PEER, "/o/qa.txt", { as: "text" })).kind).toBe("text");
+    expect(reads.map((r) => r.grant)).toEqual([undefined, TOKEN]);
+  });
+
+  test("an invalid grant is dropped and not asked for again", async () => {
+    const { cache, grants, grantCalls } = granted(
+      () => new RpcFailure(RpcErrorCode.Forbidden, "grant invalid", { grant: "invalid" }),
+    );
+    await grants.grant(PEER, "t1", { href: "/o/qa.txt", source: answer }, "open");
+    await expect(cache.read(PEER, "/o/qa.txt", { as: "text" })).rejects.toMatchObject({
+      data: { grant: "invalid" },
+    });
+    expect(grantCalls).toHaveLength(1);
+    expect(grants.holds(PEER, "/o/qa.txt")).toBe(false);
+  });
+
+  test("a read with a grant does not share a request or a cached answer with one without", async () => {
+    const { cache, grants, reads } = granted();
+    await cache.read(PEER, "/o/qa.txt", { as: "text" });
+    await grants.grant(PEER, "t1", { href: "/o/qa.txt", source: answer }, "open");
+    await cache.read(PEER, "/o/qa.txt", { as: "text" });
+    expect(reads.map((r) => [r.grant, r.versioned, r.ifVersion])).toEqual([
+      [undefined, true, undefined],
+      [TOKEN, true, undefined],
+    ]);
+  });
+
+  test("after a rejoin the device can be asked for grants again, with none kept", async () => {
+    const { cache, grants, reads } = granted();
+    await grants.grant(PEER, "t1", { href: "/o/qa.txt", source: answer }, "open");
+    const rejoined = grantsRoom();
+    cache.updateRoom({
+      ...rejoined,
+      peers: rejoined.peers.map((peer) => ({ ...peer, rejoins: 1 })),
+    });
+    expect(grants.holds(PEER, "/o/qa.txt")).toBe(false);
+    await grants.grant(PEER, "t1", { href: "/o/qa.txt", source: answer }, "open");
+    await cache.read(PEER, "/o/qa.txt", { as: "text" });
+    expect(reads.map((r) => r.grant)).toEqual([TOKEN]);
+  });
+
+  test("a presence probe reads one byte with no version", async () => {
+    const { cache, reads } = granted();
+    await cache.read(PEER, "/w/a.txt", { as: "text", length: 1 }, undefined, true);
+    expect(reads[0]).toEqual({ workspaceId: "ws", path: "/w/a.txt", as: "text", length: 1 });
+  });
 });

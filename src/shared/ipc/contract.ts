@@ -2359,8 +2359,30 @@ const remoteContracts = {
         RPC_METHODS["system.stats"].result,
       ),
       peerFilesRead: call(
-        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.read"].params),
+        z
+          .object({ deviceId: z.string().min(1).max(64), probe: z.literal(true).optional() })
+          .merge(RPC_METHODS["files.read"].params),
         RPC_METHODS["files.read"].result,
+      ),
+      peerFilesResolve: call(
+        z.object({
+          deviceId: z.string().min(1).max(64),
+          workspaceId: RPC_METHODS["files.resolve"].params.shape.workspaceId,
+          tabId: RPC_METHODS["files.resolve"].params.shape.tabId,
+          links: RPC_METHODS["files.resolve"].params.shape.links,
+        }),
+        RPC_METHODS["files.resolve"].result,
+      ),
+      peerFilesGrant: call(
+        z.object({
+          deviceId: z.string().min(1).max(64),
+          workspaceId: RPC_METHODS["files.grant"].params.shape.workspaceId,
+          tabId: RPC_METHODS["files.grant"].params.shape.tabId,
+          href: RPC_METHODS["files.grant"].params.shape.href,
+          source: RPC_METHODS["files.grant"].params.shape.source,
+          purpose: RPC_METHODS["files.grant"].params.shape.purpose,
+        }),
+        z.object({ path: z.string() }),
       ),
       peerFilesReadBytes: call(
         z.object({

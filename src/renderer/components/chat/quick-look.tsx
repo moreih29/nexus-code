@@ -14,9 +14,10 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { isUnder } from "../../../shared/fs/relative-path";
 import { ipcCallResult } from "../../ipc/client";
-import { useChatFiles } from "../../services/chat/chat-files";
+import { type ChatFiles, type LinkedFile, useChatFiles } from "../../services/chat/chat-files";
 import { copyImage, workspaceImageSrc } from "../../services/chat/copy-image";
 import { imageLookSize, imageSrc, type Size } from "../../services/chat/image-look";
+import { grantMessage } from "../../services/chat/linked-files";
 import { baseName, type LineAt } from "../../services/chat/links";
 import type { ImageBlock } from "../../services/chat/model";
 import { isImageFile } from "../../services/editor/preview/previewable";
@@ -45,6 +46,48 @@ export interface QuickLookList {
   at?: { path: string; line: number; column?: number };
   images?: Readonly<Record<string, ImageBlock>>;
   paths?: Readonly<Record<string, string>>;
+  links?: Readonly<Record<string, LinkedFile>>;
+  granted?: readonly string[];
+}
+
+type PageGrant = { state: "ready" } | { state: "waiting" } | { state: "failed"; message: string };
+
+const READY: PageGrant = { state: "ready" };
+
+function usePageGrant(list: QuickLookList, path: string, files: ChatFiles | null): PageGrant {
+  const link = list.links?.[path];
+  const open = files?.open;
+  const [done, setDone] = useState<{
+    list: QuickLookList;
+    pages: ReadonlyMap<string, string | null>;
+  }>(() => ({ list, pages: new Map((list.granted ?? []).map((page) => [page, null])) }));
+  const pages =
+    done.list === list
+      ? done.pages
+      : new Map<string, string | null>((list.granted ?? []).map((page) => [page, null]));
+  if (done.list !== list) setDone({ list, pages });
+  const asked = pages.has(path);
+  useEffect(() => {
+    if (!link || !open || asked) return;
+    let live = true;
+    const settle = (message: string | null) => {
+      if (!live) return;
+      setDone((was) =>
+        was.list === list ? { list, pages: new Map(was.pages).set(path, message) } : was,
+      );
+    };
+    void open(link).then(
+      () => settle(null),
+      (error: unknown) => settle(grantMessage(error)),
+    );
+    return () => {
+      live = false;
+    };
+  }, [link, open, asked, list, path]);
+  if (!link || !open) return READY;
+  if (!asked) return { state: "waiting" };
+  const message = pages.get(path);
+  return message ? { state: "failed", message } : READY;
 }
 
 const FROM_LOOK =
@@ -99,6 +142,7 @@ export function QuickLook({
   const root = peerRoot ?? localRoot;
   const peer = peerOf(workspaceId) !== null;
   const chatFiles = useChatFiles();
+  const page = usePageGrant(list, path, chatFiles);
   const fileView = useFileLookView(path, { at: line, before });
   const { changed, showDiff } = fileView;
 
@@ -318,6 +362,13 @@ export function QuickLook({
               onImageSize={sized(path)}
             />
           </PreviewDraft>
+        ) : page.state !== "ready" ? (
+          <EmptyState
+            key={path}
+            title={page.state === "failed" ? page.message : t("editor.loading")}
+            tone="status"
+            className="h-full"
+          />
         ) : (
           <FileLookBody
             workspaceId={workspaceId}

@@ -1,9 +1,15 @@
 import { useCallback, useSyncExternalStore } from "react";
+import { MAX_FILE_RESOLVE_LINKS } from "../../../../packages/remote-protocol/src/rpc";
 import type { RemoteAccountState } from "../../../shared/remote/account";
 import type { RoomState } from "../../../shared/remote/room";
 import { createKeyedListenerBus, createListenerBus } from "../../../shared/util/listener-bus";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
-import type { ChatFiles } from "../chat/chat-files";
+import {
+  type ChatFiles,
+  type LinkedFile,
+  type LinkFound,
+  LinkGrantError,
+} from "../chat/chat-files";
 import {
   type ChatMediaAccess,
   type ImageBlock,
@@ -18,6 +24,7 @@ interface ReadAccess {
   cacheId: number;
   scopeId: number;
   signal: AbortSignal;
+  grants: boolean;
 }
 
 interface PeerAccess {
@@ -198,6 +205,63 @@ const presence = peerReads<boolean>({
   size: () => 64,
 });
 
+const resolved = peerReads<LinkFound>(
+  {
+    entries: 1024,
+    bytes: 512 * 1024,
+    freshMs: 30_000,
+    size: (found) => 64 + 2 * (found && "path" in found ? found.path.length : 0),
+  },
+  MAX_ACTIVE * 4,
+);
+
+const FILE_GRANTS = "files.grants";
+
+interface Asked {
+  link: LinkedFile;
+  resolve(found: LinkFound): void;
+  reject(reason: unknown): void;
+}
+
+function linkBatches(
+  where: { deviceId: string; workspaceId: string; tabId: string },
+  signal: AbortSignal,
+) {
+  let queue: Asked[] = [];
+  const flush = () => {
+    const asked = queue;
+    queue = [];
+    for (let at = 0; at < asked.length; at += MAX_FILE_RESOLVE_LINKS) {
+      const part = asked.slice(at, at + MAX_FILE_RESOLVE_LINKS);
+      void ipcCallResult(
+        "remote",
+        "peerFilesResolve",
+        { ...where, links: part.map(({ link }) => link) },
+        { signal },
+      ).then(
+        (result) => {
+          if (!result.ok) {
+            const failure = new Error(result.message);
+            for (const one of part) one.reject(failure);
+            return;
+          }
+          part.forEach((one, i) => {
+            one.resolve(result.value.found[i] ?? null);
+          });
+        },
+        (error: unknown) => {
+          for (const one of part) one.reject(error);
+        },
+      );
+    }
+  };
+  return (link: LinkedFile) =>
+    new Promise<LinkFound>((resolve, reject) => {
+      if (queue.length === 0) queueMicrotask(flush);
+      queue.push({ link, resolve, reject });
+    });
+}
+
 function mediaAccess(
   access: PeerAccess | null,
   target: readonly (string | null)[],
@@ -269,13 +333,15 @@ function splitPath(path: string): { dir: string; name: string } | null {
 }
 
 export function peerChatFiles(
-  { deviceId, workspaceId }: { deviceId: string; workspaceId: string },
+  { deviceId, workspaceId, tabId }: { deviceId: string; workspaceId: string; tabId?: string },
   access: PeerAccess | null,
   visible = true,
 ): ChatFiles {
   const where = { deviceId, workspaceId };
   const current = visible ? (access?.read ?? null) : null;
   const key = (path: string) => JSON.stringify([deviceId, workspaceId, path]);
+  const grants =
+    current?.grants === true && tabId !== undefined ? grantsFor({ ...where, tabId }, current) : {};
   const namesIn = (path: string) =>
     folderNames.read(current, key(path), async (signal) => {
       const result = await ipcCallResult("remote", "peerFilesList", { ...where, path }, { signal });
@@ -290,7 +356,7 @@ export function peerChatFiles(
       const result = await ipcCallResult(
         "remote",
         "peerFilesRead",
-        { ...where, path, as: "bytes", length: 0, versioned: true },
+        { ...where, path, as: "bytes", length: 1, probe: true },
         { signal },
       );
       if (result.ok) return result.value.kind === "bytes";
@@ -364,6 +430,34 @@ export function peerChatFiles(
     subscribePicture(path, listener) {
       return pictures.subscribe(current, key(path), listener);
     },
+    ...grants,
+  };
+}
+
+function grantsFor(
+  where: { deviceId: string; workspaceId: string; tabId: string },
+  current: ReadAccess,
+): Pick<ChatFiles, "resolve" | "open"> {
+  const ask = linkBatches(where, current.signal);
+  const key = (link: LinkedFile) =>
+    JSON.stringify([where.deviceId, where.workspaceId, where.tabId, link.href, link.source]);
+  return {
+    resolve(links) {
+      return Promise.all(links.map((link) => resolved.read(current, key(link), () => ask(link))));
+    },
+    async open(link, purpose = "open") {
+      const result = await ipcCallResult(
+        "remote",
+        "peerFilesGrant",
+        { ...where, ...link, purpose },
+        { signal: current.signal },
+      );
+      if (!result.ok) {
+        const code = (result as { code?: unknown }).code;
+        throw new LinkGrantError(result.message, typeof code === "string" ? code : result.kind);
+      }
+      return result.value.path;
+    },
   };
 }
 
@@ -380,7 +474,12 @@ let room: RoomState | null = null;
 let nextAccess = 0;
 let stopWatching: (() => void) | undefined;
 
-function reset(peer: WatchedPeer, connection: string | null, reads: string | null = null) {
+function reset(
+  peer: WatchedPeer,
+  connection: string | null,
+  reads: string | null = null,
+  grants = false,
+) {
   const previous = peer.access;
   const previousRead = previous?.read;
   const foreground = previousRead && connection === peer.connection;
@@ -391,6 +490,8 @@ function reset(peer: WatchedPeer, connection: string | null, reads: string | nul
     folderNames.clear(previousRead.cacheId);
     presence.revoke(previousRead);
     presence.clear(previousRead.cacheId);
+    resolved.revoke(previousRead);
+    resolved.clear(previousRead.cacheId);
     pictures.revoke(previousRead);
   }
   const controller = connection === null ? undefined : new AbortController();
@@ -402,7 +503,13 @@ function reset(peer: WatchedPeer, connection: string | null, reads: string | nul
   peer.connection = connection;
   peer.reads = reads;
   const read = controller
-    ? { id, cacheId: foreground ? previousRead.cacheId : id, scopeId, signal: controller.signal }
+    ? {
+        id,
+        cacheId: foreground ? previousRead.cacheId : id,
+        scopeId,
+        signal: controller.signal,
+        grants,
+      }
     : null;
   peer.access = reads === null ? null : { scopeId, read };
   peer.listeners.notify(undefined);
@@ -419,7 +526,7 @@ function updatePeer(id: string, watcher: WatchedPeer, refresh = false) {
     connection !== watcher.connection ||
     (refresh && connection !== null)
   ) {
-    reset(watcher, connection, reads);
+    reset(watcher, connection, reads, serves?.includes(FILE_GRANTS) === true);
   }
 }
 
