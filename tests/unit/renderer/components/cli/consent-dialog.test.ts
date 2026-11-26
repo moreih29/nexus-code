@@ -13,7 +13,10 @@ import {
 } from "../../../../../src/renderer/components/cli/consent-dialog";
 import type { DialogProps } from "../../../../../src/renderer/components/ui/dialog";
 import { type ToastInput, watchToasts } from "../../../../../src/renderer/components/ui/toast";
-import { consentDetailsOf } from "../../../../../src/shared/cli/consent-copy";
+import {
+  consentDetailsOf,
+  consentNamesNetworkPath,
+} from "../../../../../src/shared/cli/consent-copy";
 
 mock.module("../../../../../src/renderer/components/ui/dialog", () => ({
   Dialog: ({ open, children }: DialogProps) =>
@@ -536,4 +539,56 @@ test("profile rules show the target, each agent's choice and where the rule appl
   expect(consentDetailsOf(en, removed).body).toBe(
     "SSH host build-box\nClaude Work\nRule removed\nApplies now to 0 workspaces",
   );
+});
+
+const NETWORK_READS = [
+  ["fileRead", String.raw`\\nas\share\a.png`],
+  ["fileReadTree", "//nas/share/dir"],
+  ["fileRead", "/net/host/share/a.png"],
+  ["fileReadTree", "/Network/Servers/host"],
+] as const;
+
+describe("a read another device asks for, outside the workspace", () => {
+  const read = (kind: "fileRead" | "fileReadTree" | "fileWrite", detail: string) => ({
+    ...prompt(`network-${kind}-${detail}`),
+    fromDevice: "iPhone",
+    change: { kind, detail, terminal: true },
+  });
+
+  test("says when it names a network path", async () => {
+    for (const [kind, detail] of NETWORK_READS) {
+      const request = read(kind, detail);
+      const asked = askCliConsent(request);
+      try {
+        expect(consentNamesNetworkPath(request.change)).toBe(true);
+        expect(renderToStaticMarkup(createElement(CliConsentDialogRoot))).toContain("Network path");
+      } finally {
+        settleCliConsent(request.id ?? "", "deny");
+        await asked;
+      }
+    }
+    expect(i18next.getFixedT("ko", "settings")("agentCli.consent.networkPath")).toBe(
+      "네트워크 경로",
+    );
+  });
+
+  test("says nothing of it for a path on this computer, or for a write", async () => {
+    for (const [kind, detail] of [
+      ["fileRead", String.raw`C:\Users\me\a.png`],
+      ["fileReadTree", "/Users/me/net/a"],
+      ["fileWrite", String.raw`\\nas\share\a.png`],
+    ] as const) {
+      const request = read(kind, detail);
+      const asked = askCliConsent(request);
+      try {
+        expect(consentNamesNetworkPath(request.change)).toBe(false);
+        expect(renderToStaticMarkup(createElement(CliConsentDialogRoot))).not.toContain(
+          "Network path",
+        );
+      } finally {
+        settleCliConsent(request.id ?? "", "deny");
+        await asked;
+      }
+    }
+  });
 });

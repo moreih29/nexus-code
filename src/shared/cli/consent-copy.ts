@@ -1,11 +1,18 @@
 import type { TFunction } from "i18next";
 import type { RemoteConsent } from "../../../packages/remote-protocol/src/rpc";
 import type { BehaviorValue } from "../agent-profiles/behavior";
+import { isAutoMountPath, isNetworkOrDevicePath } from "../fs/outside-url";
 import type { LspPathLanguage } from "../lsp/settings";
 import type { ChatAgent } from "../sessions/task-agent";
 import { SETTINGS_ASKING_TO_TURN_ON, settingAskingToTurnOn } from "./settings";
 
 export const CONSENT_AGENT_NAMES: Record<ChatAgent, string> = { claude: "Claude", codex: "Codex" };
+
+export function consentNamesNetworkPath(change: Pick<RemoteConsent["change"], "kind" | "detail">) {
+  const { kind, detail } = change;
+  if (kind !== "fileRead" && kind !== "fileReadTree") return false;
+  return detail !== undefined && (isNetworkOrDevicePath(detail) || isAutoMountPath(detail));
+}
 
 export function consentAllowScopes(
   kind: string,

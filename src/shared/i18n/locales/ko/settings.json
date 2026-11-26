@@ -308,6 +308,7 @@
       "allow": "허용",
       "once": "이번만 허용",
       "timeout": "{{seconds}}초 안에 답하지 않으면 거절됩니다.",
+      "networkPath": "네트워크 경로",
       "action": {
         "open": "{{detail}} 열기를",
         "diff": "{{detail}}의 변경 사항 열기를",

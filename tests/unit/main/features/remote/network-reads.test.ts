@@ -13,8 +13,12 @@ import {
 } from "../../../../../src/main/features/remote/files";
 import { type FolderSystem, listFolders } from "../../../../../src/main/features/remote/folders";
 import { serveWith } from "../../../../../src/main/features/remote/serve";
-import { isNetworkOrDevicePath } from "../../../../../src/shared/fs/outside-url";
+import { consentNamesNetworkPath } from "../../../../../src/shared/cli/consent-copy";
+import type { CliChange } from "../../../../../src/shared/cli/ui";
+import { isDevicePath, isNetworkOrDevicePath } from "../../../../../src/shared/fs/outside-url";
 import { fakeApp } from "../../cli/fake-services";
+
+const WINDOWS = process.platform === "win32";
 
 const PATH_KINDS: { path: string; kind: string; cleaned?: string }[] = JSON.parse(
   fs.readFileSync(
@@ -44,6 +48,10 @@ const REFUSED = [
     ).map(({ path }) => path),
   ]),
 ].filter((p) => p !== "");
+const DEVICES = REFUSED.filter((p) => isDevicePath(p) || isDevicePath(path.posix.normalize(p)));
+const NETWORK_ANYWHERE = WINDOWS
+  ? [String.raw`\\127.0.0.1\qa-none-462\a.txt`, "//h/s/a.txt", String.raw`\\qa-nohost-462\s\a`]
+  : ["/net/h/s/a.txt", "/Network/s/a.txt", "/x/../net/h/a.txt"];
 
 const tmp = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "nexus-net-reads-")));
 const root = path.join(tmp, "w");
@@ -70,6 +78,11 @@ function content(bytes: Buffer) {
   };
 }
 
+function preview(text: string) {
+  const bytes = Buffer.from(text);
+  return { kind: "content" as const, base64: bytes.toString("base64"), sizeBytes: bytes.length };
+}
+
 function provider(kind: FsProvider["kind"] = "local") {
   const read = async (absolute: string) => content(await fs.promises.readFile(absolute));
   const calls = {
@@ -84,11 +97,7 @@ function provider(kind: FsProvider["kind"] = "local") {
       const bytes = await fs.promises.readFile(
         target.absolutePath ?? path.join(root, target.relPath ?? ""),
       );
-      return {
-        kind: "content" as const,
-        base64: bytes.toString("base64"),
-        sizeBytes: bytes.length,
-      };
+      return preview(bytes.toString());
     }),
     readdirNoLinks: mock(async () => []),
     readRange: mock(async (rel: string) => read(path.join(root, rel))),
@@ -101,6 +110,7 @@ function provider(kind: FsProvider["kind"] = "local") {
 
 const spies: ReturnType<typeof spyOn>[] = [];
 let fsCalls: () => number;
+let realpaths: () => string[];
 beforeEach(() => {
   const p = fs.promises;
   spies.push(
@@ -115,10 +125,16 @@ beforeEach(() => {
     spyOn(p, "access"),
   );
   fsCalls = () => spies.reduce((n, spy) => n + spy.mock.calls.length, 0);
+  realpaths = () =>
+    [spies[1], spies[3]].flatMap((spy) => spy?.mock.calls.map((call) => String(call[0])) ?? []);
 });
 afterEach(() => {
   for (const spy of spies.splice(0)) spy.mockRestore();
 });
+
+function resolveAs(resolve: (p: string) => string) {
+  spies[3]?.mockImplementation((async (p: string) => resolve(p)) as never);
+}
 
 function agentCalls(calls: ReturnType<typeof provider>["calls"]): number {
   return Object.values(calls).reduce((n, call) => n + call.mock.calls.length, 0);
@@ -136,12 +152,11 @@ function remoteFiles(
   };
 }
 
-describe("a network, device or automount path asked by another device", () => {
+describe("a network, device or automount path a chat names, or asked anywhere unapproved", () => {
   for (const kind of ["local", "ssh"] as const) {
     test(`is refused by files.read and files.list before any file call (${kind})`, async () => {
       const { fs: agent, calls } = provider(kind);
       const asNamed = remoteFiles(agent, { named: REFUSED });
-      const asFolder = remoteFiles(agent, { folders: REFUSED });
       for (const workspaceRoot of ROOTS) {
         for (const asked of refusedUnder(workspaceRoot)) {
           const params = { workspaceId: "w", path: asked };
@@ -149,9 +164,7 @@ describe("a network, device or automount path asked by another device", () => {
             () => readFile(asNamed, workspaceRoot, params),
             () =>
               readFile(asNamed, workspaceRoot, { ...params, as: "bytes", offset: 0, length: 4 }),
-            () => readFile(asFolder, workspaceRoot, params),
             () => readFile(asNamed, workspaceRoot, { ...params, anywhere: true }),
-            () => listFiles(asFolder, workspaceRoot, params),
             () => listFiles(asNamed, workspaceRoot, { ...params, anywhere: true }),
           ]) {
             await expect(request()).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
@@ -191,6 +204,28 @@ describe("a network, device or automount path asked by another device", () => {
     expect(agentCalls(calls)).toBeGreaterThanOrEqual(4);
   });
 
+  test("a named file on an SSH host is not resolved on this computer", async () => {
+    const { fs: agent, calls } = provider("ssh");
+    await readFile(remoteFiles(agent, { named: [outside] }), root, {
+      workspaceId: "w",
+      path: outside,
+    });
+    expect(realpaths()).toEqual([]);
+    expect(calls.readPreview.mock.calls[0]?.[0]).not.toHaveProperty("expectedRealPath");
+  });
+
+  test("an older agent's named read is resolved before and after it", async () => {
+    const { fs: agent, calls } = provider();
+    const older = { ...agent, readPreview: undefined } as unknown as FsProvider;
+    const got = await readFile(remoteFiles(older, { named: [outside] }), root, {
+      workspaceId: "w",
+      path: outside,
+    });
+    expect(got).toMatchObject({ kind: "text", text: "outside" });
+    expect(calls.readAbsoluteRange).toHaveBeenCalledTimes(1);
+    expect(realpaths().filter((p) => p === outside)).toHaveLength(2);
+  });
+
   test("a path inside the workspace's folder reads as before, a share's workspace too", async () => {
     const { fs: agent, calls } = provider();
     const files = remoteFiles(agent, {});
@@ -201,7 +236,7 @@ describe("a network, device or automount path asked by another device", () => {
       });
     }
     const share = String.raw`\\nas\share\w`;
-    calls.readPreview.mockImplementation(async () => content(Buffer.from("on the share")) as never);
+    calls.readPreview.mockImplementation(async () => preview("on the share"));
     for (const asked of [
       "src/a.ts",
       String.raw`\\nas\share\w\src\a.ts`,
@@ -216,45 +251,272 @@ describe("a network, device or automount path asked by another device", () => {
   });
 });
 
-describe("files.read and files.list served to another device", () => {
-  function serving(named: string[]) {
-    const app = fakeApp();
-    const workspace = app.workspaces[0];
-    if (!workspace) throw new Error("workspace fixture is missing");
-    Object.assign(workspace, { rootPath: root, location: { kind: "local", rootPath: root } });
-    app.uiAnswers.set("workspace.folders", { folders: [] });
-    app.uiAnswers.set("chat.outsideFiles", { files: named });
-    const { fs: agent, calls } = provider();
-    const serve = serveWith(() => app.services, {
-      agents: new AgentGate({ policy: () => "allow" }),
-      controls: () => ({ chat: true, terminal: true }),
-      files: { fs: async () => agent, shrink: () => null },
-    });
-    return { app, serve, calls, workspaceId: workspace.id };
-  }
-  const from = { kind: "tab" as const, workspaceId: "pw", tabId: "pt" };
+describe("a share folder the host gave a chat", () => {
+  const FOLDERS = [
+    String.raw`\\nas\share\w`,
+    "//NAS/Share/Data/",
+    String.raw`\\?\UNC\nas\share\dev`,
+    String.raw`\\nas\share\Ä`,
+  ];
+  const WINDOWS_ROOTS = [String.raw`C:\qa\w`, String.raw`\\nas\share\root`];
+  const INSIDE: [string, string][] = [
+    [String.raw`\\nas\share\w\a.txt`, String.raw`\\nas\share\w\a.txt`],
+    ["//nas/share/w/sub/a.txt", String.raw`\\nas\share\w\sub\a.txt`],
+    [String.raw`\\NAS\SHARE\W\a.txt`, String.raw`\\NAS\SHARE\W\a.txt`],
+    [String.raw`\\nas\share\w\x\..\a.txt`, String.raw`\\nas\share\w\a.txt`],
+    [String.raw`\\nas\share\data\a.txt`, String.raw`\\nas\share\data\a.txt`],
+  ];
+  const OUTSIDE = [
+    String.raw`\\nas\share\other\a.txt`,
+    String.raw`\\nas\share\w2\a.txt`,
+    String.raw`\\nas\share\w\..\w2\a.txt`,
+    String.raw`\\nas\share\w\..\..\other\a.txt`,
+    String.raw`\\nas2\share\w\a.txt`,
+    String.raw`\\nas\share2\w\a.txt`,
+    String.raw`\\nas\share\ä\a.txt`,
+    String.raw`\\nas\share`,
+    String.raw`\\?\UNC\nas\share\w\a.txt`,
+    String.raw`\\.\UNC\nas\share\w\a.txt`,
+    String.raw`\??\UNC\nas\share\w\a.txt`,
+    "/??/UNC/nas/share/w/a.txt",
+    String.raw`\\?\UNC\nas\share\dev\a.txt`,
+  ];
 
-  test("refuses what a chat names or what is asked anywhere, before any file call", async () => {
-    const { app, serve, calls, workspaceId } = serving(REFUSED);
-    for (const asked of refusedUnder(root)) {
-      for (const method of ["files.read", "files.list"] as const) {
-        for (const params of [
-          { workspaceId, path: asked },
-          { workspaceId, path: asked, from, anywhere: true as const },
-        ]) {
-          await expect(serve({ from: "phone", method, params })).rejects.toMatchObject({
+  test("gives files inside it, compared after cleaning, ASCII case folded", async () => {
+    resolveAs((p) => p.toLowerCase());
+    const { fs: agent, calls } = provider();
+    calls.readPreview.mockImplementation(async () => preview("on the share"));
+    const files = remoteFiles(agent, { folders: FOLDERS });
+    for (const workspaceRoot of WINDOWS_ROOTS) {
+      for (const [asked, absolute] of INSIDE) {
+        expect(
+          await readFile(files, workspaceRoot, { workspaceId: "w", path: asked }),
+        ).toMatchObject({ kind: "text", text: "on the share", path: absolute });
+        expect(calls.readPreview.mock.calls.at(-1)?.[0]).toMatchObject({
+          absolutePath: absolute,
+          expectedRealPath: absolute.toLowerCase(),
+        });
+      }
+      await listFiles(files, workspaceRoot, { workspaceId: "w", path: String.raw`\\nas\share\w` });
+    }
+    expect(calls.readdirNoLinks).toHaveBeenCalledTimes(WINDOWS_ROOTS.length);
+    expect(realpaths().some((p) => /dev|Ä/.test(p))).toBe(false);
+  });
+
+  for (const kind of ["local", "ssh"] as const) {
+    test(`refuses a path beside it or written as a device, before any file call (${kind})`, async () => {
+      const { fs: agent, calls } = provider(kind);
+      const files = remoteFiles(agent, { folders: FOLDERS });
+      for (const workspaceRoot of WINDOWS_ROOTS) {
+        for (const asked of OUTSIDE) {
+          const params = { workspaceId: "w", path: asked };
+          await expect(readFile(files, workspaceRoot, params)).rejects.toMatchObject({
+            code: RpcErrorCode.Forbidden,
+          });
+          await expect(listFiles(files, workspaceRoot, params)).rejects.toMatchObject({
             code: RpcErrorCode.Forbidden,
           });
         }
       }
+      expect(fsCalls()).toBe(0);
+      expect(agentCalls(calls)).toBe(0);
+    });
+  }
+
+  test("an automount folder gives only what is inside it, in a POSIX workspace", async () => {
+    resolveAs((p) => p);
+    const { fs: agent, calls } = provider();
+    calls.readPreview.mockImplementation(async () => preview("mounted"));
+    const files = remoteFiles(agent, { folders: ["/net/h/x", "//NAS/Share/Data"] });
+    for (const asked of ["/net/h/x/a.txt", "/x/../net/h/x/a.txt"]) {
+      expect(await readFile(files, "/qa/w", { workspaceId: "w", path: asked })).toMatchObject({
+        kind: "text",
+        text: "mounted",
+        path: "/net/h/x/a.txt",
+      });
     }
+    spies[3]?.mockClear();
+    const before = agentCalls(calls);
+    for (const asked of [
+      "/net/h/x2/a.txt",
+      "/net/h/a.txt",
+      "/Network/s/a.txt",
+      "//NAS/Share/Data/a.txt",
+      "/??/UNC/h/x",
+    ]) {
+      await expect(
+        readFile(files, "/qa/w", { workspaceId: "w", path: asked }),
+      ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    }
+    expect(spies[3]?.mock.calls).toHaveLength(0);
+    expect(agentCalls(calls)).toBe(before);
+  });
+
+  test("a file in a folder on this computer resolves no network or automount folder", async () => {
+    const { fs: agent } = provider();
+    const network = [String.raw`\\h\s\x`, "//h2/s/x", "/net/h/x", String.raw`\\?\UNC\h\s`];
+    const files = remoteFiles(agent, { folders: [outsideDir, ...network] });
+    expect(await readFile(files, root, { workspaceId: "w", path: outside })).toMatchObject({
+      text: "outside",
+    });
+    await listFiles(files, root, { workspaceId: "w", path: outsideDir });
+    expect(realpaths()).toContain(outsideDir);
+    expect(realpaths().filter((p) => network.includes(p))).toEqual([]);
+  });
+});
+
+describe("files.read and files.list served to another device", () => {
+  function serving({
+    named = [],
+    folders = [],
+    answer = "once",
+  }: {
+    named?: string[];
+    folders?: string[];
+    answer?: "once" | "deny";
+  }) {
+    const app = fakeApp();
+    const workspace = app.workspaces[0];
+    if (!workspace) throw new Error("workspace fixture is missing");
+    Object.assign(workspace, { rootPath: root, location: { kind: "local", rootPath: root } });
+    app.uiAnswers.set("workspace.folders", { folders });
+    app.uiAnswers.set("chat.outsideFiles", { files: named });
+    const { fs: agent, calls } = provider();
+    const asks: { change: CliChange; fsCalls: number; agentCalls: number }[] = [];
+    app.uiAnswers.set("consent.ask", (args: unknown) => {
+      asks.push({
+        change: (args as { change: CliChange }).change,
+        fsCalls: fsCalls(),
+        agentCalls: agentCalls(calls),
+      });
+      return { answer };
+    });
+    const serve = serveWith(() => app.services, {
+      agents: new AgentGate({ policy: () => "ask" }),
+      controls: () => ({ chat: true, terminal: true }),
+      files: { fs: async () => agent, shrink: () => null },
+    });
+    return { serve, calls, asks, workspaceId: workspace.id };
+  }
+  const from = { kind: "tab" as const, workspaceId: "pw", tabId: "pt" };
+  const methods = ["files.read", "files.list"] as const;
+
+  test("refuses what a chat names, and a device path asked anywhere, before asking", async () => {
+    const { serve, calls, asks, workspaceId } = serving({ named: REFUSED });
+    for (const asked of refusedUnder(root)) {
+      for (const method of methods) {
+        await expect(
+          serve({ from: "phone", method, params: { workspaceId, path: asked } }),
+        ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+      }
+    }
+    for (const asked of DEVICES) {
+      for (const method of methods) {
+        await expect(
+          serve({
+            from: "phone",
+            method,
+            params: { workspaceId, path: asked, from, anywhere: true },
+          }),
+        ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+      }
+    }
+    expect(asks).toEqual([]);
     expect(fsCalls()).toBe(0);
     expect(agentCalls(calls)).toBe(0);
-    expect(app.uiCalls.some(({ op }) => op === "consent.ask")).toBe(false);
+  });
+
+  test("asks before it touches a network path anywhere, and touches nothing when told no", async () => {
+    const { serve, calls, asks, workspaceId } = serving({ answer: "deny" });
+    for (const asked of NETWORK_ANYWHERE) {
+      for (const method of methods) {
+        await expect(
+          serve({
+            from: "phone",
+            method,
+            params: { workspaceId, path: asked, from, anywhere: true },
+          }),
+        ).rejects.toMatchObject({
+          code: RpcErrorCode.Forbidden,
+          message: "the user there did not allow it",
+        });
+      }
+    }
+    expect(asks).toHaveLength(NETWORK_ANYWHERE.length * methods.length);
+    for (const { change, fsCalls: before, agentCalls: agents } of asks) {
+      expect([change.kind, before, agents]).toEqual([
+        expect.stringMatching(/^fileRead(Tree)?$/),
+        0,
+        0,
+      ]);
+      expect(consentNamesNetworkPath(change)).toBe(true);
+    }
+    expect(asks.map(({ change }) => change.kind)).toContain("fileReadTree");
+    expect(fsCalls()).toBe(0);
+    expect(agentCalls(calls)).toBe(0);
+  });
+
+  test("reads and lists a network path anywhere once the user allows it", async () => {
+    resolveAs((p) => p);
+    spies[2]?.mockImplementation((async () => ({ isDirectory: () => true })) as never);
+    for (const asked of NETWORK_ANYWHERE) {
+      const { serve, calls, asks, workspaceId } = serving({});
+      calls.readPreview.mockImplementation(async () => preview("on the network"));
+      const absolute = WINDOWS ? path.win32.normalize(asked) : path.posix.normalize(asked);
+      const start = fsCalls();
+      await expect(
+        serve({
+          from: "phone",
+          method: "files.read",
+          params: { workspaceId, path: asked, from, anywhere: true },
+        }),
+      ).resolves.toMatchObject({ kind: "text", text: "on the network" });
+      expect(calls.readPreview.mock.calls[0]?.[0]).toMatchObject({
+        absolutePath: absolute,
+        expectedRealPath: absolute,
+      });
+      const afterRead = fsCalls();
+      await expect(
+        serve({
+          from: "phone",
+          method: "files.list",
+          params: { workspaceId, path: asked, from, anywhere: true },
+        }),
+      ).resolves.toMatchObject({ path: absolute, entries: [] });
+      expect(asks.map(({ fsCalls: before }) => before)).toEqual([start, afterRead]);
+      expect(afterRead).toBeGreaterThan(start);
+      expect(asks[0]).toMatchObject({ change: { kind: "fileRead", detail: absolute } });
+      expect(realpaths()).toContain(absolute);
+    }
+  });
+
+  test("refuses an allowed network path that resolves off the network", async () => {
+    resolveAs(() => outside);
+    const { serve, calls, workspaceId } = serving({});
+    await expect(
+      serve({
+        from: "phone",
+        method: "files.read",
+        params: { workspaceId, path: NETWORK_ANYWHERE[0] ?? "", from, anywhere: true },
+      }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    expect(agentCalls(calls)).toBe(0);
+  });
+
+  test("a path on this computer is still resolved before it asks, through the same spies", async () => {
+    const { serve, asks, workspaceId } = serving({});
+    await serve({
+      from: "phone",
+      method: "files.list",
+      params: { workspaceId, path: outsideDir, from, anywhere: true },
+    });
+    expect(asks[0]?.fsCalls).toBeGreaterThan(0);
+    expect(spies[2]?.mock.calls.length).toBeGreaterThan(0);
+    expect(consentNamesNetworkPath(asks[0]?.change ?? { kind: "fileRead" })).toBe(false);
   });
 
   test("still reads a file a chat names on this computer", async () => {
-    const { serve, calls, workspaceId } = serving([outside]);
+    const { serve, calls, workspaceId } = serving({ named: [outside] });
     await expect(
       serve({ from: "phone", method: "files.read", params: { workspaceId, path: outside } }),
     ).resolves.toMatchObject({ kind: "text", text: "outside" });
@@ -265,29 +527,33 @@ describe("files.read and files.list served to another device", () => {
 describe("folders.list asked by another device", () => {
   const system = (platform: NodeJS.Platform): FolderSystem => ({ platform, home: () => tmp });
 
-  test.if(process.platform === "win32")(
-    "refuses a share or device path, also one that cleans into one",
-    async () => {
-      for (const asked of REFUSED.filter((p) => isNetworkOrDevicePath(p))) {
-        await expect(listFolders({ path: asked }, system("win32"))).rejects.toMatchObject({
-          code: RpcErrorCode.InvalidParams,
-        });
-      }
-      expect(fsCalls()).toBe(0);
-      expect((await listFolders({ path: tmp }, system("win32"))).entries).toEqual([
-        { name: "outside" },
-        { name: "w" },
-      ]);
-      expect(spies[0]?.mock.calls.length).toBeGreaterThan(0);
-    },
-  );
+  test.if(WINDOWS)("refuses a share or device path, also one that cleans into one", async () => {
+    for (const asked of REFUSED.filter((p) => isNetworkOrDevicePath(p))) {
+      await expect(listFolders({ path: asked }, system("win32"))).rejects.toMatchObject({
+        code: RpcErrorCode.InvalidParams,
+      });
+    }
+    expect(fsCalls()).toBe(0);
+    await expect(
+      listFolders({ path: String.raw`/x/../\h\s\a.png` }, system("win32")),
+    ).rejects.toMatchObject({
+      code: RpcErrorCode.NotFound,
+      message: String.raw`no folder C:\h\s\a.png`,
+    });
+    expect((await listFolders({ path: tmp }, system("win32"))).entries).toEqual([
+      { name: "outside" },
+      { name: "w" },
+    ]);
+    expect(spies[0]?.mock.calls.length).toBeGreaterThan(0);
+  });
 
-  test.if(process.platform !== "win32")("refuses an automount path", async () => {
+  test.if(!WINDOWS)("refuses an automount path", async () => {
     for (const asked of [...AUTOMOUNT, "/System/Volumes/Data/net/h"]) {
       await expect(listFolders({ path: asked }, system("darwin"))).rejects.toMatchObject({
         code: RpcErrorCode.InvalidParams,
       });
     }
+    expect(fsCalls()).toBe(0);
     expect((await listFolders({ path: tmp }, system("darwin"))).entries).toEqual([
       { name: "outside" },
       { name: "w" },
