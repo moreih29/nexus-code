@@ -29,6 +29,7 @@ export const RELAY_PONG = '{"t":"pong"}';
 
 export const HEARTBEAT_EVERY_MS = 25_000;
 export const PONG_WAIT_MS = 10_000;
+export const WAKE_PONG_WAIT_MS = 2_500;
 const MAX_MISSED_PONGS = 2;
 export const SEND_BUFFER_STALL_MS = 8_000;
 export const SOCKET_OPEN_TIMEOUT_MS = 15_000;
@@ -153,6 +154,15 @@ export class RelayConnection {
     void this.connect("route-change");
   }
 
+  wake(): void {
+    const connection = this.writable();
+    if (!connection) return;
+    this.clearPongTimer();
+    this.ping(connection, WAKE_PONG_WAIT_MS, () => {
+      this.ping(connection, WAKE_PONG_WAIT_MS, () => this.recover("pong-timeout"));
+    });
+  }
+
   recover(reason: RelayRecoveryReason): void {
     const { connection, owner } = this;
     if (!connection || !owner || this.status !== "online") return;
@@ -175,6 +185,10 @@ export class RelayConnection {
   }
 
   onlineRoute(): { readonly origin: string; readonly openedAt: number } | null {
+    return this.writable();
+  }
+
+  private writable(): ActiveSocket | null {
     const connection = this.connection;
     return this.status === "online" && connection?.socket.readyState === 1 ? connection : null;
   }
@@ -398,11 +412,8 @@ export class RelayConnection {
       wait: PONG_WAIT_MS,
     };
     this.beat = setInterval(() => {
-      if (this.connection !== connection || this.cancelPong) return;
-      if (!this.sendText(connection, RELAY_PING) || this.connection !== connection) return;
-      this.cancelPong = responsiveTimeout(wait, (elapsed) => {
-        this.cancelPong = null;
-        if (this.connection !== connection) return;
+      if (this.cancelPong) return;
+      this.ping(connection, wait, (elapsed) => {
         const misses = ++this.missedPongs;
         const reconnect = misses >= MAX_MISSED_PONGS;
         this.warnOccasionally(
@@ -412,6 +423,15 @@ export class RelayConnection {
         if (reconnect) this.recover("pong-timeout");
       });
     }, every);
+  }
+
+  private ping(connection: ActiveSocket, wait: number, missed: (elapsed: number) => void): void {
+    if (this.connection !== connection || !this.sendText(connection, RELAY_PING)) return;
+    if (this.connection !== connection) return;
+    this.cancelPong = responsiveTimeout(wait, (elapsed) => {
+      this.cancelPong = null;
+      if (this.connection === connection) missed(elapsed);
+    });
   }
 
   private stopHeartbeat(): void {

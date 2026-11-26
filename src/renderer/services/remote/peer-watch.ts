@@ -110,15 +110,16 @@ export interface PeerWatchOptions<W extends PeerWatched, E extends PeerUpdateEve
 
 export function usePeerWatch<W extends PeerWatched, E extends PeerUpdateEvent>(
   options: PeerWatchOptions<W, E>,
-): boolean {
+): { online: boolean; ready: boolean } {
   const { deviceId, target, shown } = options;
   const { online, rejoins } = usePeerOnline(deviceId);
   const [round, setRound] = useState(0);
+  const [opened, setOpened] = useState<string | null>(null);
+  const scope = JSON.stringify([deviceId, target, round, rejoins]);
   const watch = useRef<W | null>(null);
   const latest = useRef(options);
   latest.current = options;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `target`, `round` and `rejoins` start the watch again
   useEffect(() => {
     if (!shown || !online) return;
     const { updates, start } = latest.current;
@@ -128,7 +129,9 @@ export function usePeerWatch<W extends PeerWatched, E extends PeerUpdateEvent>(
       current: () => watch.current,
       live: () => live,
       opened: (next) => {
+        if (!live) return;
         watch.current = next;
+        setOpened(scope);
       },
       again: () => {
         if (live) setRound((r) => r + 1);
@@ -164,9 +167,10 @@ export function usePeerWatch<W extends PeerWatched, E extends PeerUpdateEvent>(
       clearTimeout(retry);
       clearInterval(alive);
       watch.current = null;
+      setOpened(null);
       run.stop();
     };
-  }, [deviceId, target, shown, online, round, rejoins]);
+  }, [deviceId, shown, online, scope]);
 
-  return online;
+  return { online, ready: online && shown && opened === scope };
 }

@@ -26,6 +26,7 @@ import { configCommandOf } from "../../services/chat/claude/config";
 import type { PermissionAnswer } from "../../services/chat/claude/controller";
 import { CODEX_COMMANDS, codexStatusMarkdown } from "../../services/chat/codex/commands";
 import { emptyCodexModel } from "../../services/chat/codex/model";
+import type { PeerSendState } from "../../services/chat/composer-submit";
 import type { GoalView } from "../../services/chat/goal";
 import { lookAreaOf } from "../../services/chat/look-area";
 import type {
@@ -71,6 +72,7 @@ import {
   TERMINAL_PROFILE_SCHEMA,
   usePeerConnection,
   usePeerReadsChats,
+  usePeerSendState,
   usePeerSessions,
   usePeerSpeaks,
   usePeerTypes,
@@ -244,7 +246,7 @@ export function RemoteSessionPane({
   visible: boolean;
   host?: RemoteSessionHost | null;
 }) {
-  const { reach, until, controls } = usePeerConnection(target.deviceId, host === null);
+  const { reach, controls } = usePeerConnection(target.deviceId, host === null);
   return (
     <RemoteSessionHostContext.Provider value={host}>
       <div
@@ -258,13 +260,7 @@ export function RemoteSessionPane({
         {target.kind === "terminal" ? (
           <RemoteTerminal target={target} visible={visible} reach={reach} controls={controls} />
         ) : (
-          <RemoteChat
-            target={target}
-            visible={visible}
-            reach={reach}
-            waitUntil={until}
-            controls={controls}
-          />
+          <RemoteChat target={target} visible={visible} reach={reach} controls={controls} />
         )}
       </div>
     </RemoteSessionHostContext.Provider>
@@ -424,20 +420,19 @@ function RemoteChat({
   target,
   visible,
   reach,
-  waitUntil,
   controls,
 }: {
   target: RemoteTarget;
   visible: boolean;
   reach: PeerReach;
-  waitUntil?: number;
   controls: boolean;
 }) {
   const { deviceId, workspaceId, tabId } = target;
-  const { read, loadEarlier, loadingEarlier } = usePeerChat(
+  const { read, sendReady, loadEarlier, loadingEarlier } = usePeerChat(
     { deviceId, workspaceId, tabId },
     visible,
   );
+  const peerSend = usePeerSendState(sendReady && controls);
   useSessionGone(visible && read.status === "gone");
   const page = read.status === "ready" ? read.value : null;
   const older = useMemo<OlderMessages | undefined>(
@@ -466,7 +461,7 @@ function RemoteChat({
         {...(older ? { older } : {})}
         visible={visible}
         reach={reach}
-        waitUntil={waitUntil}
+        peerSend={peerSend}
         controls={controls}
         selfId={selfId}
       />
@@ -503,7 +498,7 @@ function RemoteChatView({
   older,
   visible,
   reach,
-  waitUntil,
+  peerSend,
   controls,
   selfId,
 }: {
@@ -513,7 +508,7 @@ function RemoteChatView({
   older?: OlderMessages;
   visible: boolean;
   reach: PeerReach;
-  waitUntil?: number;
+  peerSend: PeerSendState;
   controls: boolean;
   selfId?: string;
 }) {
@@ -939,7 +934,7 @@ function RemoteChatView({
                   model={model}
                   page={page}
                   visible={visible}
-                  waitUntil={waitUntil}
+                  peerSend={peerSend}
                   toMain={shown !== undefined}
                   onShowMain={() => showAgent(null)}
                   goalBar={goalBar}
@@ -988,7 +983,7 @@ function RemoteControls({
   model,
   page,
   visible,
-  waitUntil,
+  peerSend,
   toMain,
   onShowMain,
   goalBar,
@@ -1002,7 +997,7 @@ function RemoteControls({
   model: ChatModel;
   page: WatchedChat;
   visible: boolean;
-  waitUntil?: number;
+  peerSend: PeerSendState;
   toMain: boolean;
   onShowMain: () => void;
   goalBar?: React.ReactNode;
@@ -1202,7 +1197,7 @@ function RemoteControls({
         key={composer.controller.key}
         controller={composer.controller}
         composition={composition}
-        peerWaitUntil={waitUntil}
+        peerSend={peerSend}
         takesDraft={false}
         state={composer.state}
         local={false}

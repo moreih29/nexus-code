@@ -7,6 +7,7 @@ import { createListenerBus } from "../../../shared/util/listener-bus";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { useRemoteViewStore } from "../../state/stores/remote-view";
+import type { PeerSendState } from "../chat/composer-submit";
 import { compareVersions } from "../chat/versions";
 
 export function useRemoteRoom(): RoomState | null {
@@ -36,12 +37,11 @@ function peerReach(room: RoomState | null, deviceId: string): PeerReach {
 export function usePeerConnection(
   deviceId: string,
   assumeControl: boolean,
-): { reach: PeerReach; until?: number; controls: boolean } {
+): { reach: PeerReach; controls: boolean } {
   const room = useRemoteRoom();
   const shown = useRoomPresentation(room, deviceId);
   return {
     reach: peerReach(shown.room, deviceId),
-    until: shown.until,
     controls: controlsOf(room, deviceId, assumeControl),
   };
 }
@@ -105,6 +105,20 @@ export function servingPeers(room: RoomState | null): RoomPeer[] {
 }
 
 export const DROP_SHOWN_AFTER_MS = 3000;
+
+export function usePeerSendState(ready: boolean): PeerSendState {
+  const [state, setState] = useState<PeerSendState>({ ready });
+  const until = state.until;
+  if (ready !== state.ready) {
+    setState(ready ? { ready } : { ready, until: Date.now() + DROP_SHOWN_AFTER_MS });
+  }
+  useEffect(() => {
+    if (until === undefined) return;
+    const timer = setTimeout(() => setState({ ready: false }), Math.max(0, until - Date.now()));
+    return () => clearTimeout(timer);
+  }, [until]);
+  return state;
+}
 
 const SELF = "";
 

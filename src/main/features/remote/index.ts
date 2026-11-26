@@ -175,6 +175,7 @@ export async function registerRemoteChannel(options: {
   account: RemoteAccount;
   keys: AccountKeys;
   themeChanged(): void;
+  wake(): void;
   consentsChanged(): void;
   forgetWorkspace(workspaceId: string): void;
   cli: CliRemote;
@@ -983,6 +984,7 @@ export async function registerRemoteChannel(options: {
     account,
     keys: accountKeys,
     themeChanged: () => room?.announce(),
+    wake: () => relay?.wake(),
     consentsChanged: () => push.consentsChanged(),
     forgetWorkspace: (workspaceId) => taskGit?.forget(workspaceId),
     peerFiles: async (peer, absPath, offset, length, signal) => {

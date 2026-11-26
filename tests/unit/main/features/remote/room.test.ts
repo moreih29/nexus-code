@@ -27,6 +27,7 @@ import { dropPeerHolds } from "../../../../../src/main/features/remote/peer-hold
 import type { RelayConnectionDeps } from "../../../../../src/main/features/remote/relay-connection";
 import {
   MAX_MESSAGE_BYTES,
+  PEER_GONE_GRACE_MS,
   RemoteRoom,
   type RemoteRoomDeps,
   RpcFailure,
@@ -135,13 +136,14 @@ class MockRelay {
     return this.kept.filter((k) => k.frame.from === from && k.to === to).map((k) => k.frame);
   }
 
-  private presence() {
+  presence() {
     for (const [id, handlers] of this.online) {
-      handlers.onFrame({
+      const frame: ServerFrame = {
         t: "presence",
         self: id,
         devices: this.devices.map((d) => ({ ...d, online: this.online.has(d.id) })),
-      });
+      };
+      handlers.onFrame(this.tamper ? this.tamper(frame) : frame);
     }
   }
 }
@@ -181,6 +183,51 @@ function device(relay: MockRelay, id: string, key: RoomKey, extra: Partial<Remot
 }
 
 describe("the room", () => {
+  const chat = { workspaceId: "w1", tabId: "t1" };
+  test.each([
+    ["sessions.list", {}, undefined, 30_000],
+    ["sessions.watch", {}, undefined, 30_000],
+    ["chat.configure", chat, undefined, 70_000],
+    ["chat.command", { ...chat, name: "status" }, undefined, 70_000],
+    ["chat.profile", { ...chat, profile: "test" }, undefined, 70_000],
+    ["chat.new", { workspaceId: "w1", agent: "codex" }, undefined, 70_000],
+    ["chat.config", chat, undefined, 70_000],
+    ["chat.mcp", { ...chat, server: "test", action: "enable" }, undefined, 70_000],
+    ["chat.remoteControl", { ...chat, enabled: true }, undefined, 70_000],
+    ["profiles.usage", { refresh: true }, undefined, 130_000],
+    ["profiles.usage", { refresh: false }, undefined, 30_000],
+    ["profiles.usage", { refresh: true }, 3_000, 3_000],
+  ] as const)("%s with params %p and override %p waits %i ms", async (method, params, override, wait) => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const a = device(relay, "a", key);
+    const b = device(relay, "b", key, { requestTimeoutMs: undefined });
+    a.room.start();
+    b.room.start();
+    await flushRelay();
+    relay.drop = () => "silent";
+    jest.useFakeTimers();
+    try {
+      const failed = jest.fn();
+      const answer = b.room.request("a", method, params, override).catch(failed);
+      await flushRelay();
+      jest.advanceTimersByTime(wait - 1);
+      await flushRelay();
+      expect(failed).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1);
+      await answer;
+      expect(failed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: `${method}: no answer in time`,
+        }),
+      );
+    } finally {
+      a.room.stop();
+      b.room.stop();
+      jest.useRealTimers();
+    }
+  });
+
   test("devices say hello, see each other, and answer each other's requests", async () => {
     const relay = new MockRelay();
     const key = await roomKey();
@@ -654,19 +701,65 @@ describe("a request that waits on the serving device's user", () => {
     expect(String(serving[0]?.signal?.reason?.message)).toContain("left the room");
   });
 
-  test("the serving device left the room: the requester stops waiting", async () => {
+  test("departure ends both timed and untimed requests after the grace period", async () => {
     const { a, b } = await pair();
-    const asked = b.room.request("a", "sessions.list", {}, Number.POSITIVE_INFINITY);
-    await settle();
-    a.room.stop();
-    await expect(asked).rejects.toMatchObject({
-      code: RpcErrorCode.Unavailable,
-      message: "that device is not in the room",
-    });
+    jest.useFakeTimers();
+    try {
+      const failed = jest.fn();
+      const requests = [10_000, Number.POSITIVE_INFINITY].map((timeout) =>
+        b.room.request("a", "sessions.list", {}, timeout).catch(failed),
+      );
+      await settle();
+      a.room.stop();
+      jest.advanceTimersByTime(PEER_GONE_GRACE_MS - 1);
+      await settle();
+      expect(failed).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1);
+      await Promise.all(requests);
+      expect(failed).toHaveBeenCalledTimes(2);
+      expect(failed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: RpcErrorCode.Unavailable,
+          message: "that device is not in the room",
+        }),
+      );
+    } finally {
+      a.room.stop();
+      b.room.stop();
+      jest.useRealTimers();
+    }
+  });
+
+  test("a peer returning during the grace period never receives an outstanding request again", async () => {
+    const { a, b, serving } = await pair();
+    try {
+      const reading = b.room.request("a", "sessions.list", {}, 10_000).catch((error) => error);
+      await settle();
+      expect(serving).toHaveLength(1);
+      a.room.stop();
+      a.room.start();
+      await settle();
+      expect(await reading).toMatchObject({ code: RpcErrorCode.Unavailable });
+      expect(serving).toHaveLength(1);
+      const newRead = b.room.request("a", "sessions.list", {}, 10_000);
+      await settle();
+      expect(serving).toHaveLength(2);
+      serving[1]?.release();
+      expect((await newRead).workspaces).toEqual([]);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+    }
   });
 });
 
 describe("what the relay keeps and sends again", () => {
+  function omitPeer(frame: ServerFrame): ServerFrame {
+    return frame.t === "presence" && frame.self === "b"
+      ? { ...frame, devices: frame.devices.filter((device) => device.id !== "a") }
+      : frame;
+  }
+
   async function pair() {
     const relay = new MockRelay();
     const key = await roomKey();
@@ -684,6 +777,55 @@ describe("what the relay keeps and sends again", () => {
     for (const frame of relay.between("b", "a")) relay.deliver("a", frame);
     await flushRelay();
     expect(a.served).toHaveLength(1);
+  });
+
+  test("a valid epoch allows requests to a peer missing from presence", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const a = device(relay, "a", key);
+    const notified = jest.fn();
+    const b = device(relay, "b", key, { onNotification: notified });
+    relay.tamper = omitPeer;
+    relay.drop = (from, frame) => (from === "a" && frame.to === "b" ? "silent" : undefined);
+    try {
+      a.room.start();
+      b.room.start();
+      await flushRelay();
+      relay.drop = null;
+      const update = { watchId: "w", workspaces: [], sessions: [] };
+      expect(await a.room.notify("b", "sessions.update", update)).toBe(true);
+      await flushRelay();
+      expect(notified).toHaveBeenCalledWith("a", "sessions.update", update);
+      expect(b.room.state()).toEqual({ status: "online", peers: [] });
+      expect((await b.room.request("a", "sessions.list", {})).workspaces).toHaveLength(1);
+      expect(a.served).toEqual([{ from: "b", method: "sessions.list" }]);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+    }
+  });
+
+  test("a departed peer's epoch stays unusable after the grace period", async () => {
+    const { relay, a, b } = await pair();
+    jest.useFakeTimers();
+    try {
+      await b.room.request("a", "sessions.list", {});
+      const sent = relay.between("b", "a").length;
+      relay.tamper = omitPeer;
+      relay.presence();
+      expect(b.room.state()).toEqual({ status: "online", peers: [] });
+      jest.advanceTimersByTime(PEER_GONE_GRACE_MS);
+      await expect(b.room.request("a", "sessions.list", {})).rejects.toMatchObject({
+        code: RpcErrorCode.Unavailable,
+        message: "that device is not in the room",
+      });
+      await flushRelay();
+      expect(relay.between("b", "a")).toHaveLength(sent);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+      jest.useRealTimers();
+    }
   });
 
   test("a stale request repairs the peer epoch and repeated stale requests share one hello", async () => {
@@ -1135,16 +1277,17 @@ describe("what the relay keeps and sends again", () => {
     }
   });
 
-  test("a read rejected by the relay while a peer is between sockets resumes on its hello", async () => {
+  test("a read queued at departure stays off the peer's next connection", async () => {
     const { a, b } = await pair();
-    const reading = b.room.request("a", "sessions.list", {}, 1_000);
+    const reading = b.room.request("a", "sessions.list", {}, 10_000).catch((error) => error);
     a.room.stop();
     await flushRelay();
     try {
       expect(a.served).toHaveLength(0);
       a.room.start();
-      expect((await reading).workspaces).toHaveLength(1);
-      expect(a.served).toHaveLength(1);
+      expect(await reading).toMatchObject({ code: RpcErrorCode.Unavailable });
+      await flushRelay();
+      expect(a.served).toHaveLength(0);
     } finally {
       a.room.stop();
       b.room.stop();
