@@ -684,7 +684,7 @@ describe("chat panel", () => {
     expect(links.files.filter((file) => file.startsWith("//"))).toEqual([]);
   });
 
-  test("grants what the user looked at and what tools did, never what an answer only names", () => {
+  test("grants what the user looked at, what tools did and the images an answer names, no other file it names", () => {
     const model = applyLines(emptyModel(), [
       assistant("m1", [
         { type: "tool_use", id: "r1", name: "Read", input: { file_path: "/tmp/shot.png" } },
@@ -700,7 +700,7 @@ describe("chat panel", () => {
       assistant("m2", [
         {
           type: "text",
-          text: "See [report](/var/out/report.htm), `docs/b.md` and [key](/home/u/.ssh/id_rsa).",
+          text: "See [report](/var/out/report.htm), `docs/b.md`, [key](/home/u/.ssh/id_rsa), ![shot](/tmp/s/shot.png), [svg](/tmp/s/plot.svg), [jpg](/tmp/s/a.JPG) and [share](\\\\host\\share\\x.png).",
         },
       ]),
     ]);
@@ -715,6 +715,9 @@ describe("chat panel", () => {
         "/p/src/a.ts",
         "/tmp/site/index.html",
         "/home/u/n.ipynb",
+        "/tmp/s/shot.png",
+        "/tmp/s/plot.svg",
+        "/tmp/s/a.JPG",
       ],
     });
     expect(outsideLinksOf(model.items, model.tools, "/home/u/p", "")).toEqual({ files: [] });
@@ -842,7 +845,7 @@ describe("chat panel", () => {
 });
 
 describe("links written from where the agent's shell went", () => {
-  test("a card for each place a relative link may name, and a grant for none until looked at", () => {
+  test("a card for each place a relative link may name, and a grant for each image place", () => {
     seq = 0;
     const model = applyLines(emptyModel(), [
       {
@@ -866,7 +869,9 @@ describe("links written from where the agent's shell went", () => {
     expect(extras.elsewhere).toEqual({
       "/p/outputs/a.png": ["/tmp/x/outputs/a.png", "/p/tracks/P/outputs/a.png"],
     });
-    expect(outsideLinksOf(model.items, model.tools, "/p", "/p").files).toEqual([]);
+    expect(outsideLinksOf(model.items, model.tools, "/p", "/p").files).toEqual([
+      "/tmp/x/outputs/a.png",
+    ]);
     expect(outsideLinkedFiles(model.items, model.tools, "/p", "/p")).toEqual([
       "/tmp/x/outputs/a.png",
     ]);

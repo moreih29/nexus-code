@@ -1,5 +1,6 @@
 import { RELAY_MARK } from "../../../shared/chat/relay";
 import type { AgentRun } from "../../../shared/claude/activity";
+import { isNetworkLink } from "../../../shared/fs/outside-url";
 import { isUnder, isWindowsPath, slashWindowsPath } from "../../../shared/fs/relative-path";
 import { attachmentTarget, isFolder, splitAttachments } from "./composer-input";
 import { imageFileOf, type ShownImage } from "./image-look";
@@ -801,6 +802,15 @@ export function outsideLinksOf(
   for (const file of attachedFilesIn(items, cwd)) {
     if (outside(file) && (attached?.(file) ?? true)) named.add(file);
   }
+  for (const file of outsideLinkedFiles(
+    items,
+    tools,
+    cwd,
+    root,
+    (target) => !isNetworkLink(target),
+  )) {
+    if (fileKind(file) === "image") named.add(file);
+  }
   return { files: [...named].slice(-MAX_OUTSIDE_FILES) };
 }
 
@@ -809,12 +819,13 @@ export function outsideLinkedFiles(
   tools: Record<string, ToolCall>,
   cwd: string,
   root: string,
+  keep: (target: string) => boolean = () => true,
 ): string[] {
   if (!root) return [];
   const named = new Set<string>();
   const places = linkPlaceIndex(tools, cwd);
   for (const result of resultsOf(items, {}, cwd, touchedFiles(tools, cwd))) {
-    if (result.kind !== "file") continue;
+    if (result.kind !== "file" || !keep(result.target)) continue;
     for (const place of linkPlaces(result.target, places)) {
       if (!isUnder(place.path, root)) named.add(place.path);
     }
