@@ -1,6 +1,7 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { useRemoteLinks } from "../../../../../src/renderer/components/agent-view/remote-links";
+import { FileCard } from "../../../../../src/renderer/components/chat/answer-extras";
 import * as fileLook from "../../../../../src/renderer/components/chat/file-look";
 import {
   QuickLook,
@@ -190,4 +191,16 @@ test("quick look asks for a grant before it reads a page the user stepped to", (
   } finally {
     body.mockRestore();
   }
+});
+
+test("a card whose check failed says it could not load", () => {
+  const card = renderToStaticMarkup(
+    <FileCard path="/outside/qa.txt" workspaceId="peer:d1:w1" cwd="/repo" bare unread />,
+  );
+  expect(card).toContain("Couldn&#x27;t load");
+  expect(
+    renderToStaticMarkup(
+      <FileCard path="/outside/qa.txt" workspaceId="peer:d1:w1" cwd="/repo" bare />,
+    ),
+  ).not.toContain("Couldn");
 });

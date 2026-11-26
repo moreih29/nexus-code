@@ -788,9 +788,10 @@ export function ResultsSection({
     [tools],
   );
   const found = useFoundFiles(workspaceId, rootPath, lookedUp, toolsDone);
-  const { filePaths, bare } = useMemo(() => {
+  const { filePaths, bare, unread } = useMemo(() => {
     const paths = new Map<string, string>();
     const bare = new Set<string>();
+    const unread = new Set<string>();
     for (const [target, places] of filePlaces) {
       const path = places.find((place) => found.has(place));
       if (path) paths.set(target, path);
@@ -804,9 +805,10 @@ export function ResultsSection({
       } else {
         paths.set(target, target);
         bare.add(target);
+        if (state === "failed") unread.add(target);
       }
     }
-    return { filePaths: paths, bare };
+    return { filePaths: paths, bare, unread };
   }, [filePlaces, found, viaHost, resolved]);
   const results = useMemo(
     () =>
@@ -853,6 +855,7 @@ export function ResultsSection({
               path={filePaths.get(result.target) ?? null}
               link={viaHost.get(result.target)}
               bare={bare.has(result.target)}
+              unread={unread.has(result.target)}
               cwd={cwd}
               workspaceId={workspaceId}
               onOpen={() => open(result.target, result.kind)}
@@ -981,6 +984,7 @@ function ResultRow({
   path,
   link,
   bare = false,
+  unread = false,
   cwd,
   workspaceId,
   onOpen,
@@ -989,6 +993,7 @@ function ResultRow({
   path: string | null;
   link?: LinkedFile;
   bare?: boolean;
+  unread?: boolean;
   cwd: string;
   workspaceId: string;
   onOpen: () => void;
@@ -1019,6 +1024,11 @@ function ResultRow({
             />
           )}
           <span className="min-w-0 flex-1 truncate">{label}</span>
+          {unread && (
+            <span className="shrink-0 text-app-micro text-muted-foreground">
+              {t("chat.links.load_failed")}
+            </span>
+          )}
           {result.created && (
             <span className="shrink-0 text-app-micro text-muted-foreground">
               {t("chat.panel.results.created")}

@@ -47,10 +47,11 @@ export function AnswerExtrasView({
     [extras, viaHost],
   );
   const found = useFoundFiles(workspaceId, rootPath, lookedUp);
-  const { files, links, bare } = useMemo(() => {
+  const { files, links, bare, unread } = useMemo(() => {
     const shown = new Set<string>();
     const links: Record<string, LinkedFile> = {};
     const bare = new Set<string>();
+    const unread = new Set<string>();
     for (const path of extras.files) {
       const link = viaHost.get(path);
       if (link) {
@@ -61,12 +62,13 @@ export function AnswerExtrasView({
         shown.add(at);
         links[at] = link;
         if (state === "failed" || !("path" in state) || !state.readable) bare.add(at);
+        if (state === "failed") unread.add(at);
         continue;
       }
       const at = found.has(path) ? path : extras.elsewhere?.[path]?.find((p) => found.has(p));
       if (at) shown.add(at);
     }
-    return { files: [...shown], links, bare };
+    return { files: [...shown], links, bare, unread };
   }, [extras, found, viaHost, resolved]);
   const images = useMemo(() => extras.images.map(({ image }) => image), [extras]);
   if (extras.images.length === 0 && files.length === 0) return null;
@@ -99,6 +101,7 @@ export function AnswerExtrasView({
               link={links[path]}
               links={links}
               bare={bare.has(path)}
+              unread={unread.has(path)}
             />
           ))}
         </div>
@@ -116,6 +119,7 @@ export function FileCard({
   link,
   links: galleryLinks,
   bare = false,
+  unread = false,
 }: {
   path: string;
   workspaceId: string;
@@ -125,6 +129,7 @@ export function FileCard({
   link?: LinkedFile;
   links?: Readonly<Record<string, LinkedFile>>;
   bare?: boolean;
+  unread?: boolean;
 }) {
   const { t } = useTranslation();
   const links = useChatLinks();
@@ -184,10 +189,16 @@ export function FileCard({
               +{more}
             </span>
           )}
-          {folder && (
+          {unread ? (
             <span className="min-w-0 shrink-[4] truncate text-app-micro text-muted-foreground">
-              {folder}
+              {t("chat.links.load_failed")}
             </span>
+          ) : (
+            folder && (
+              <span className="min-w-0 shrink-[4] truncate text-app-micro text-muted-foreground">
+                {folder}
+              </span>
+            )
           )}
         </span>
       </button>
