@@ -4,7 +4,9 @@ import {
   filesFound,
   filesGone,
   lookupPath,
+  pathToLookUp,
 } from "../../../../../src/renderer/services/chat/file-presence";
+import { resolveFilePath } from "../../../../../src/renderer/services/chat/links";
 
 describe("lookupPath", () => {
   it("is the path under the workspace root", () => {
@@ -172,5 +174,57 @@ describe("filesGone", () => {
     ];
     const gone = await filesGone(presence, "w", "/p", paths);
     expect([...gone]).toEqual(["/h/attach/w/old/1/removed.png", "/p/gone.png"]);
+  });
+});
+
+describe("pathToLookUp", () => {
+  const ROOTS = ["C:/w", "//nas/share/w", "/p"];
+  const UNREACHABLE = [
+    String.raw`\??\UNC\127.0.0.1\qa-none-46\a.txt`,
+    "/??/UNC/127.0.0.1/qa-none-46/a.txt",
+    String.raw`\??\C:\tmp\a.txt`,
+    String.raw`\?\UNC\s\sh\a.txt`,
+    String.raw`\.\C:\a.txt`,
+    String.raw`\s\sh\a.txt`,
+    "//s/sh/a.txt",
+    String.raw`/\s\sh\a.txt`,
+  ];
+
+  it("looks up no share or device path under any root", () => {
+    for (const root of ROOTS) {
+      for (const path of UNREACHABLE) {
+        expect([root, path, pathToLookUp(path, root)]).toEqual([root, path, null]);
+      }
+    }
+  });
+
+  it("looks up no share an answer link names in percent-encoding", () => {
+    for (const link of [
+      "/%3F%3F/UNC/127.0.0.1/qa-none-46/a.txt",
+      "file:///%3F%3F/UNC/127.0.0.1/qa-none-46/a.txt",
+      "%5C%3F%3F%5CUNC%5C127.0.0.1%5Cqa-none-46%5Ca.txt",
+    ]) {
+      const path = resolveFilePath(link, "C:/w");
+      expect([link, path === null || pathToLookUp(path, "C:/w") === null]).toEqual([link, true]);
+    }
+  });
+
+  it("looks up only drive paths outside a Windows root, and rooted paths outside a POSIX one", () => {
+    expect(pathToLookUp("D:/out/a.txt", "C:/w")).toBe("D:/out/a.txt");
+    expect(pathToLookUp("/out/a.txt", "C:/w")).toBeNull();
+    expect(pathToLookUp("/out/a.txt", "//nas/share/w")).toBeNull();
+    expect(pathToLookUp("/out/a.txt", "/p")).toBe("/out/a.txt");
+    expect(pathToLookUp("C:/w/src/a.ts", "C:/w")).toBe("src/a.ts");
+  });
+
+  it("never asks about a share or device path", async () => {
+    const asked: string[] = [];
+    const presence = createFilePresence(async (_workspaceId, relPath) => {
+      asked.push(relPath);
+      return true;
+    });
+    for (const path of UNREACHABLE) expect(await presence.isThere("ws", "C:/w", path)).toBe(false);
+    expect(await presence.isThere("ws", "C:/w", "D:/out/a.txt")).toBe(true);
+    expect(asked).toEqual(["D:/out/a.txt"]);
   });
 });

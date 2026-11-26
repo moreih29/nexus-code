@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { ipcCallResult } from "@/ipc/client";
-import { isAbsoluteOutsidePath, isNetworkOrDevicePath } from "../../../shared/fs/outside-url";
+import {
+  isAbsoluteOutsidePath,
+  isDrivePath,
+  isNetworkOrDevicePath,
+} from "../../../shared/fs/outside-url";
 import { isUnder } from "../../../shared/fs/relative-path";
 import { useChatFiles } from "./chat-files";
 
@@ -26,11 +30,13 @@ export function lookupPath(path: string, root: string): string | null {
   return path.length > base.length ? path.slice(base.length + 1) : null;
 }
 
-function pathToLookUp(path: string, root: string): string | null {
+export function pathToLookUp(path: string, root: string): string | null {
+  if (isNetworkOrDevicePath(path)) return null;
   const relPath = lookupPath(path, root);
   if (relPath !== null) return relPath;
   if (!root || !isAbsoluteOutsidePath(path) || isUnder(path, root)) return null;
-  return isNetworkOrDevicePath(path) ? null : path;
+  if ((isDrivePath(root) || isNetworkOrDevicePath(root)) && !isDrivePath(path)) return null;
+  return path;
 }
 
 export function createFilePresence(

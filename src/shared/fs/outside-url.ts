@@ -15,12 +15,24 @@ export function isDrivePath(path: string): boolean {
   return DRIVE_PATH.test(path);
 }
 
+export type WindowsPathKind = "drive" | "unc" | "device" | "rooted" | "relative";
+
+const DEVICE_PATH = /^[\\/](?:[\\/][?.]|\?\?)(?:[\\/]|$)/;
+
+export function windowsPathKind(path: string): WindowsPathKind {
+  if (DEVICE_PATH.test(path)) return "device";
+  if (/^[\\/]{2}/.test(path)) return "unc";
+  if (DRIVE_PATH.test(path)) return "drive";
+  return /^[\\/]/.test(path) ? "rooted" : "relative";
+}
+
 export function isNetworkOrDevicePath(path: string): boolean {
-  return /^[\\/]{2}/.test(path);
+  const kind = windowsPathKind(path);
+  return kind === "unc" || kind === "device";
 }
 
 export function isDevicePath(path: string): boolean {
-  return /^[\\/]{2}[?.][\\/]/.test(path);
+  return windowsPathKind(path) === "device";
 }
 
 function decodedLink(target: string): string {
@@ -37,5 +49,7 @@ export function isNetworkLink(target: string): boolean {
   const rest = link.slice("file:".length).replace(/\\/g, "/");
   if (/^\/{3}\//.test(rest)) return true;
   const host = /^\/\/([^/]*)/.exec(rest)?.[1];
-  return host !== undefined && host !== "" && host.toLowerCase() !== "localhost";
+  if (host === undefined) return false;
+  if (host !== "" && host.toLowerCase() !== "localhost") return true;
+  return isDevicePath(rest.slice(2 + host.length));
 }
