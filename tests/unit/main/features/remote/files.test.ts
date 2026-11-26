@@ -5,6 +5,7 @@ import path from "node:path";
 import { MAX_LIST_ENTRIES } from "../../../../../packages/remote-protocol/src";
 import type { FsProvider } from "../../../../../src/main/features/fs/bridge/provider";
 import {
+  DEFAULT_READ_BYTES,
   folderIn,
   listFiles,
   placeOf,
@@ -610,6 +611,74 @@ describe("a folder a chat was given, on this computer", () => {
       expect(got.entries).toEqual([]);
     },
   );
+});
+
+describe("a file a chat names, on this computer", () => {
+  let top = "";
+  let link = "";
+  let named = "";
+  let first = "";
+  let second = "";
+
+  beforeAll(async () => {
+    top = await nodeFs.realpath(await nodeFs.mkdtemp(path.join(os.tmpdir(), "remote-named-")));
+    first = path.join(top, "first");
+    second = path.join(top, "second");
+    link = path.join(top, "link");
+    named = path.join(link, "out.txt");
+    await nodeFs.mkdir(path.join(top, "work"));
+    await nodeFs.mkdir(first);
+    await nodeFs.mkdir(second);
+    await nodeFs.writeFile(path.join(first, "out.txt"), "first file");
+    await nodeFs.writeFile(path.join(second, "out.txt"), "other file");
+  });
+  afterAll(async () => {
+    await nodeFs.rm(top, { recursive: true, force: true });
+  });
+
+  async function pointLinkAt(target: string) {
+    await nodeFs.unlink(link).catch(() => nodeFs.rmdir(link).catch(() => {}));
+    await nodeFs.symlink(target, link, "junction");
+  }
+
+  function namedFiles(onRead?: () => Promise<void>) {
+    const source = files({}, null, { kind: "local", named: [named] });
+    const asked: unknown[] = [];
+    source.fs = async () =>
+      ({
+        kind: "local",
+        readPreview: async (target: { absolutePath: string }) => {
+          asked.push(target);
+          const bytes = await nodeFs.readFile(target.absolutePath);
+          await onRead?.();
+          return { kind: "content", base64: bytes.toString("base64"), sizeBytes: bytes.length };
+        },
+      }) as unknown as FsProvider;
+    return { source, asked };
+  }
+
+  test("is read pinned to the file its path leads to when asked", async () => {
+    await pointLinkAt(first);
+    const { source, asked } = namedFiles();
+    const got = await readFile(source, path.join(top, "work"), { workspaceId: ws, path: named });
+    expect(got).toMatchObject({ kind: "text", text: "first file" });
+    expect(asked).toEqual([
+      {
+        absolutePath: named,
+        expectedRealPath: path.join(first, "out.txt"),
+        offset: 0,
+        length: DEFAULT_READ_BYTES,
+      },
+    ]);
+  });
+
+  test("is not given when its path leads to another file by the end of the read", async () => {
+    await pointLinkAt(first);
+    const { source } = namedFiles(() => pointLinkAt(second));
+    await expect(
+      readFile(source, path.join(top, "work"), { workspaceId: ws, path: named }),
+    ).rejects.toMatchObject({ code: 1003, message: "the file changed while it was being read" });
+  });
 });
 
 describe("a file git does not track yet, read for its diff", () => {

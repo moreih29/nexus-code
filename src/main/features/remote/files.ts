@@ -149,7 +149,10 @@ export function absoluteReadPath(asked: string): string {
 }
 
 export async function outsideFileSource(asked: string): Promise<string> {
-  const absolute = absoluteFilePath(asked);
+  return realOf(absoluteFilePath(asked), asked);
+}
+
+function realOf(absolute: string, asked: string): Promise<string> {
   return nodeFs.realpath(absolute).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT" || error.code === "ENOTDIR") {
       throw new RpcFailure(RpcErrorCode.NotFound, `${asked} does not exist`);
@@ -417,7 +420,10 @@ export async function readFile(
     source = anywhere
       ? { absolutePath: absolute, ...(approvedPath ? { expectedRealPath: approvedPath } : {}) }
       : "output" in place
-        ? { absolutePath: absolute }
+        ? {
+            absolutePath: absolute,
+            ...(fs.kind === "local" ? { expectedRealPath: await realOf(absolute, asked) } : {}),
+          }
         : {
             absolutePath: absolute,
             expectedRealPath: await realWithin(fs, style, folders, absolute),
@@ -435,12 +441,12 @@ export async function readFile(
     if (current.kind !== "folder" || "output" in current !== "output" in place) {
       throw forbidden(`${asked} no longer has the same file grant`);
     }
-    if (
-      "expectedRealPath" in source &&
-      (await realWithin(fs, style, currentFolders, absolute)) !== source.expectedRealPath
-    ) {
-      throw fileChanged(requireVersion !== undefined);
-    }
+    if (!("expectedRealPath" in source)) return;
+    const real =
+      "output" in place
+        ? await realOf(absolute, asked)
+        : await realWithin(fs, style, currentFolders, absolute);
+    if (real !== source.expectedRealPath) throw fileChanged(requireVersion !== undefined);
   };
   const preview = await fs
     .readPreview?.({
