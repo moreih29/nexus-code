@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/nexus-code/nexus-code/internal/claudefiles"
@@ -12,6 +13,16 @@ import (
 )
 
 const fileSizesMax = 500
+
+var statTranscript = os.Stat
+
+func onLocalVolume(path string) bool {
+	if runtime.GOOS != "windows" {
+		return true
+	}
+	volume := filepath.VolumeName(path)
+	return len(volume) == 2 && volume[1] == ':'
+}
 
 func (s *Service) DeleteSession(_ context.Context, raw json.RawMessage) (any, error) {
 	var p DeleteSessionParams
@@ -65,10 +76,10 @@ func (s *Service) FileSizes(_ context.Context, raw json.RawMessage) (any, error)
 	}
 	sizes := map[string]int64{}
 	for _, path := range p.Paths {
-		if !filepath.IsAbs(path) || !strings.HasSuffix(path, ".jsonl") {
+		if !filepath.IsAbs(path) || !strings.HasSuffix(path, ".jsonl") || !onLocalVolume(path) {
 			continue
 		}
-		info, err := os.Stat(path)
+		info, err := statTranscript(path)
 		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
