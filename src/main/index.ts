@@ -473,6 +473,10 @@ const systemStatsSources: SystemStatsSources = {
 registerSystemChannel({
   openNewWindow: () => openAppWindow(),
   stats: systemStatsHandler(systemStatsSources),
+  localWorkspaceRoots: () =>
+    workspaceManager
+      .list()
+      .flatMap(({ location }) => (location.kind === "local" ? [location.rootPath] : [])),
 });
 registerWindowChannel(closePersistence);
 registerClipboardChannel();
