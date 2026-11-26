@@ -9,7 +9,6 @@ test.each([
   ["chat.stdin-write-failed", "restored", []],
   ["chat.stdin-write-failed", "retained", []],
   ["chat.send-failed", "retained", []],
-  ["agent.reconnect-unavailable", "unconfirmed", []],
   [ATTACH_FOLDER_LINK, "restored", [attachmentMessage]],
   [ATTACH_FOLDER_LINK, "retained", [attachmentMessage]],
   ["cancelled", "retained", []],

@@ -2,11 +2,7 @@ import { appErrorBug, appErrorCancelled, appErrorFailed } from "../../../shared/
 import { chatSendErrorKind } from "../../services/chat/transport/queue";
 import { surfaceError } from "../../services/error-surface/surface-error";
 
-export function surfaceChatSendError(
-  error: unknown,
-  draft?: "restored" | "retained" | "unconfirmed",
-): void {
-  if (draft === "unconfirmed") return;
+export function surfaceChatSendError(error: unknown, draft?: "restored" | "retained"): void {
   const code = chatSendErrorKind(error);
   const message = error instanceof Error ? error.message : String(error);
   const appError =
