@@ -240,15 +240,22 @@ describe("the preview channel", () => {
           String.raw`\\?\UNC\server\share`,
           String.raw`\\?\C:\project`,
           String.raw`\\.\C:\project`,
+          String.raw`\??\UNC\server\share\project`,
+          "/??/UNC/server/share/project",
+          String.raw`\??\C:\project`,
         ]) {
           expect(await open("ws", dir)).toBeNull();
         }
         expect(await open("network-ws", "//server/other/project")).toBeNull();
         expect(await open("network-ws", String.raw`\\?\UNC\server\share\project`)).toBeNull();
+        expect(await open("network-ws", String.raw`\??\UNC\server\share\project`)).toBeNull();
         const held = await open("network-ws", "//SERVER/share/project/");
         expect(held).not.toBeNull();
         expect(scopes.get(held?.scope ?? "")?.dir).toBe(root);
         expect(realpath).not.toHaveBeenCalled();
+
+        expect(await open("ws", "C:/qa-none-46/project")).not.toBeNull();
+        expect(realpath.mock.calls).toEqual([["C:/qa-none-46/project"]]);
       } finally {
         realpath.mockRestore();
       }
