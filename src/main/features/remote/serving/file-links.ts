@@ -116,7 +116,7 @@ async function lookAt(ctx: LinkContext, candidate: string, mode: Mode): Promise<
   return { kind: "outside", path: p };
 }
 
-type Found = { kind: "file" } | { kind: "dir" } | null;
+type Found = { kind: "file" } | { kind: "dir" } | { kind: "refused"; error: RpcFailure } | null;
 
 async function found(ctx: LinkContext, look: Look): Promise<Found> {
   const kindOf = (s: { isFile(): boolean; isDirectory(): boolean }): Found =>
@@ -136,7 +136,15 @@ async function found(ctx: LinkContext, look: Look): Promise<Found> {
       const read = await ctx.fs.readAbsoluteRange(look.path, 0, 0);
       return read.kind === "missing" ? null : { kind: "file" };
     }
-  } catch {
+  } catch (error) {
+    if (
+      look.kind === "inside" &&
+      ctx.fs.kind === "local" &&
+      error instanceof RpcFailure &&
+      error.code === RpcErrorCode.Forbidden
+    ) {
+      return { kind: "refused", error };
+    }
     return null;
   }
   return null;
@@ -320,7 +328,12 @@ export async function serveFileResolve(
         resolved[i] = { blocked: true };
         return;
       }
-      if ((await found(ctx, look))?.kind !== "file") continue;
+      const kind = await found(ctx, look);
+      if (kind?.kind === "refused") {
+        resolved[i] = { path: look.path, readable: false };
+        return;
+      }
+      if (kind?.kind !== "file") continue;
       resolved[i] = {
         path: look.path,
         readable: look.kind !== "outside" || inStanding(ctx, look.path),
@@ -365,6 +378,7 @@ export async function serveFileGrant(
     }
     const kind = await found(ctx, look);
     if (kind === null) continue;
+    if (kind.kind === "refused") throw kind.error;
     if (kind.kind === "dir") {
       throw new RpcFailure(RpcErrorCode.InvalidParams, `${look.path} is a folder, not a file`);
     }

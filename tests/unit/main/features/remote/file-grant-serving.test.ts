@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -337,5 +337,48 @@ describe("a workspace whose folder is reached through a link", () => {
     } finally {
       fs.rmSync(linkedRoot);
     }
+  });
+});
+
+describe("a link inside the workspace that leads out of it", () => {
+  const rootPath = path.join(tmp, "with-link");
+  const href = "link-out/b.txt";
+  const target = path.join(rootPath, href);
+  const parent = path.join(rootPath, "doc.md");
+
+  beforeAll(() => {
+    fs.mkdirSync(rootPath);
+    fs.symlinkSync(outside, path.join(rootPath, "link-out"), "junction");
+    fs.writeFileSync(parent, `Read [b](${href}) next.`);
+  });
+
+  test("shows an unreadable link from a chat or file without issuing a grant", async () => {
+    const { ask, grants, workspaceId } = serving({
+      rootPath,
+      candidates: (links) => links.map((link) => [path.join(rootPath, link.href)]),
+    });
+    const missing = "link-out/missing.txt";
+    const links = [
+      { href, source: answer },
+      { href, source: { kind: "file", parent } },
+      { href: missing, source: answer },
+    ];
+    expect(await ask("files.resolve", { tabId: "c1", links })).toEqual({
+      found: [
+        { path: target, readable: false },
+        { path: target, readable: false },
+        { path: path.join(rootPath, missing), readable: false },
+      ],
+    });
+    for (const link of links) {
+      await expect(
+        ask("files.grant", { tabId: "c1", ...link, purpose: "open" }),
+      ).rejects.toMatchObject({
+        code: RpcErrorCode.Forbidden,
+        data: undefined,
+        message: "link-out is a link: what it points to is not read",
+      });
+    }
+    expect(grants.sourcesOf(workspaceId, "c1")).toEqual([]);
   });
 });
