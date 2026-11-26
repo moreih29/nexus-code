@@ -889,7 +889,7 @@ describe.if(!WINDOWS)("a link on the way to a file another device reads", () => 
       await expect(outsideFileSource(linkedFile)).rejects.toMatchObject({
         code: RpcErrorCode.Forbidden,
       });
-      expect(realpaths()).toEqual([]);
+      expect(realpaths().filter((p) => p !== root)).toEqual([]);
       expect(agentCalls(calls)).toBe(0);
     } finally {
       readlink.mockRestore();

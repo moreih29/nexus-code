@@ -7,6 +7,7 @@ import {
   type ClientFrame,
   type Delivered,
   EPOCH_BYTES,
+  FILE_GRANTS_SCHEMA,
   type Hello,
   isRpcMethod,
   MAX_FRAME_BYTES,
@@ -205,6 +206,8 @@ const RETRYABLE_READS: ReadonlySet<RpcMethod> = new Set([
   "terminal.shells",
   "files.list",
   "files.read",
+  "files.resolve",
+  "files.grant",
   "files.find",
   "files.search",
   "git.status",
@@ -267,6 +270,8 @@ export interface RemoteRoomDeps {
     isCurrent?: () => boolean;
     signal?: AbortSignal;
     waits?: boolean;
+    epoch?: string;
+    grants?: boolean;
   }): Promise<unknown>;
   onChange(state: RoomState): void;
   onDisconnect?(peer?: string): void;
@@ -583,7 +588,7 @@ export class RemoteRoom {
     const controller = new AbortController();
     this.serving.set(key, { from, controller });
     try {
-      return await this.answer(from, message, current, controller.signal);
+      return await this.answer(from, epoch, message, current, controller.signal);
     } finally {
       if (this.serving.get(key)?.controller === controller) this.serving.delete(key);
     }
@@ -1117,7 +1122,7 @@ export class RemoteRoom {
         this.epoch === localEpoch &&
         this.heard.get(from)?.epoch === epoch &&
         this.peers.get(from)?.online === true;
-      if (message.method === "files.read") {
+      if (message.method === "files.read" || message.method === "files.resolve") {
         const budget = readsWholeImage(message.params) ? this.imageReadBudget : this.fileReadBudget;
         if (!current()) return;
         if (!(await budget.acquire(current))) {
@@ -1304,6 +1309,7 @@ export class RemoteRoom {
 
   private async answer(
     from: string,
+    epoch: string,
     { id, method, params }: RpcRequest,
     isCurrent?: () => boolean,
     signal?: AbortSignal,
@@ -1386,6 +1392,8 @@ export class RemoteRoom {
           ...(isCurrent ? { isCurrent } : {}),
           ...(signal ? { signal } : {}),
           ...(speaks(this.peers.get(from)?.schema, UNTIMED_CONSENT_SCHEMA) ? { waits: true } : {}),
+          epoch,
+          ...(speaks(this.peers.get(from)?.schema, FILE_GRANTS_SCHEMA) ? { grants: true } : {}),
         }),
       };
     } catch (error) {

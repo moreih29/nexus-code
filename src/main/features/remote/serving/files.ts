@@ -11,10 +11,13 @@ import { isAgentBackedProvider } from "../../fs/bridge/provider";
 import { AgentFileWrites } from "../agent-file-writes";
 import { type AgentGate, lifetimeOf } from "../agent-gate";
 import type { ConsentControls } from "../consents";
+import { grantExpired, grantInvalid } from "../file-grants";
 import { type FileWrites, fileWriteDestination, makeRemoteDirectory } from "../file-writes";
 import {
   absoluteFilePath,
   absoluteReadPath,
+  hostFilePath,
+  isAbsoluteFor,
   listFiles,
   namesNetworkPath,
   networkRootOf,
@@ -26,6 +29,7 @@ import {
 import { RpcFailure } from "../room";
 import { findFiles, searchFiles } from "../search";
 import { unavailable, workspaceOf } from "./common";
+import { outsideSetsOf } from "./file-links";
 import type { RemoteServeOptions, RemoteServeRequest } from "./types";
 
 function checkFileControl(
@@ -158,6 +162,42 @@ export async function serveFileRead(
   if (!workspace) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
   const rootPath = workspace.rootPath;
   const location = structuredClone(workspace.location);
+  const grant = method === "files.read" ? (read as RpcParams<"files.read">).grant : undefined;
+  if (grant !== undefined) {
+    if (anywhere) {
+      throw new RpcFailure(RpcErrorCode.InvalidParams, "a grant is not taken with anywhere");
+    }
+    if (by) throw new RpcFailure(RpcErrorCode.Forbidden, "file grants are not taken from agents");
+    if (!watches.fileGrants) throw grantExpired();
+    if (read.path.includes("\0") || !isAbsoluteFor(rootPath, read.path)) {
+      throw grantInvalid("a grant is for an absolute path");
+    }
+    const held = watches.fileGrants.check(grant, {
+      device: from,
+      epoch: request.epoch ?? "",
+      workspaceId,
+      rootPath,
+      location,
+      path: hostFilePath(rootPath, read.path),
+    });
+    const result = await readFile(
+      { ...watches.files, folders: (id) => workspaceFolders(s, id) },
+      rootPath,
+      request.params as RpcParams<"files.read">,
+      undefined,
+      { path: held.path, realPath: held.realPath },
+    );
+    const current = workspaceOf(s, workspaceId);
+    if (
+      !current ||
+      current.rootPath !== rootPath ||
+      !isDeepStrictEqual(current.location, location)
+    ) {
+      throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+    }
+    watches.fileGrants.touch(grant);
+    return result;
+  }
   const checkWorkspace = () => {
     const current = workspaceOf(s, workspaceId);
     if (
@@ -251,10 +291,11 @@ export async function serveFileRead(
     ...watches.files,
     folders: (id) => workspaceFolders(s, id),
     named: (id) =>
-      s
-        .ui("chat.outsideFiles", { workspaceId: id })
-        .then((r) => r.files)
-        .catch(() => []),
+      outsideSetsOf(s, id).then((sets) => {
+        if (by) return sets.agent;
+        const legacy = (watches.legacyOutsideFiles?.() ?? true) && request.grants !== true;
+        return legacy ? [...sets.standing, ...sets.files] : sets.standing;
+      }),
   };
   if (request.method === "files.list") {
     const result = await listFiles(files, rootPath, read, approvedPath);

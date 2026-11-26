@@ -36,6 +36,7 @@ import { BugReportDrafts, StoredBugReportDraftSchema } from "./bug-report-drafts
 import { BugReports } from "./bug-reports";
 import { ChatWatches } from "./chat-watches";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
+import { FileGrants } from "./file-grants";
 import { FileWrites } from "./file-writes";
 import { untrackedReader } from "./files";
 import type { RemoteRepository } from "./git";
@@ -54,6 +55,7 @@ import { returnToProxy } from "./route";
 import { SealedFile } from "./sealed-file";
 import { servesWith, serveWith } from "./serve";
 import { remoteServer, remoteWays } from "./server";
+import { sourcesChanged } from "./serving/file-links";
 import { snapshotSessions } from "./serving/sessions";
 import { SessionWatches } from "./session-watches";
 import { TaskGit } from "./task-git";
@@ -169,6 +171,7 @@ export async function registerRemoteChannel(options: {
   services: () => CliServices | null;
   allowControl: { get(): boolean; set(allowed: boolean): void };
   allowTerminal: { get(): boolean; set(allowed: boolean): void };
+  legacyOutsideFiles?: () => boolean;
   agents: { get(): RemoteAgentsPolicy; set(policy: RemoteAgentsPolicy): void };
   phonePush: {
     get(): PhonePushPolicy;
@@ -227,6 +230,7 @@ export async function registerRemoteChannel(options: {
     notify: (to, update) => room?.notify(to, "chat.update", update) ?? Promise.resolve(false),
   });
   const agentGate = new AgentGate({ policy: () => options.agents.get() });
+  const fileGrants = new FileGrants();
   const { gitStatus } = options;
   const taskGit = gitStatus ? new TaskGit(gitStatus) : null;
   const git = taskGit?.facts;
@@ -253,6 +257,7 @@ export async function registerRemoteChannel(options: {
   const setRoomState = (state: RoomState) => {
     peerFiles.updateRoom(state);
     if (state.status !== "online") {
+      fileGrants.dropDevice();
       push.presenceLost();
       void watches.dropAll();
       sessionWatches.dropAll();
@@ -405,14 +410,17 @@ export async function registerRemoteChannel(options: {
       room: { kid: want.key.kid, key: roomKeyOf(want.key.key) },
       app: { name: "NexusCode", version: app.getVersion() },
       ...(options.theme ? { theme: options.theme } : {}),
-      serves: () =>
-        servesWith(
+      serves: () => {
+        const serves = servesWith(
           options.allowControl.get(),
           options.allowTerminal.get(),
           options.agents.get() !== "deny",
           push.enabled(),
           options.fs !== undefined,
-        ),
+        );
+        if (!serves.includes("files.grants") && fileGrants.size > 0) fileGrants.dropDevice();
+        return serves;
+      },
       connect: (handlers) => {
         relay = new RelayConnection({
           ...handlers,
@@ -448,16 +456,20 @@ export async function registerRemoteChannel(options: {
         ...(options.notes ? { notes: options.notes } : {}),
         agents: agentGate,
         fileWrites,
+        fileGrants,
+        ...(options.legacyOutsideFiles ? { legacyOutsideFiles: options.legacyOutsideFiles } : {}),
         deviceName: (id) => room?.state().peers.find((p) => p.id === id)?.name,
         controls,
       }),
       onChange: setRoomState,
       onPresence: (peers) => push.presence(peers),
-      onDisconnect: (peer) =>
+      onDisconnect: (peer) => {
+        fileGrants.dropDevice(peer);
         dropPeerHolds(
           { chats: watches, sessions: sessionWatches, terminals: terminalWatches, fileWrites },
           peer,
-        ),
+        );
+      },
       onNotification: (from, method, params) => {
         if (method === "chat.update") {
           broadcast("remote", "peerChatUpdate", {
@@ -684,6 +696,12 @@ export async function registerRemoteChannel(options: {
       },
       chatWatchEnded: async (args: unknown) => {
         watches.ended(validateArgs(c.chatWatchEnded.args, args).watchId);
+        return ipcOk(undefined);
+      },
+      chatSourcesChanged: async (args: unknown) => {
+        const { workspaceId, tabId } = validateArgs(c.chatSourcesChanged.args, args);
+        const services = options.services();
+        if (services) await sourcesChanged(services, fileGrants, workspaceId, tabId);
         return ipcOk(undefined);
       },
       terminalChanged: async (args: unknown) => {
