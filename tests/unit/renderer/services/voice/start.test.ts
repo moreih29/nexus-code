@@ -38,9 +38,13 @@ let voice: boolean;
 let startSignedOut: boolean;
 let startRateLimited: boolean;
 let revokeBeforeReply: boolean;
-let voiceEvent: ((payload: VoiceEvent) => void) | undefined;
+const voiceListeners = new Set<(payload: VoiceEvent) => void>();
 let open: ReturnType<typeof spyOn<typeof capture, "openMicrophone">>;
 let start: ReturnType<typeof spyOn<typeof capture, "startCapture">>;
+
+function emitVoiceEvent(event: VoiceEvent["event"]): void {
+  for (const listen of voiceListeners) listen({ id: "session", event });
+}
 
 beforeEach(() => {
   previousWindow = globals.window;
@@ -63,16 +67,16 @@ beforeEach(() => {
         if (method === "voiceStart") {
           if (startSignedOut) return { status: "failed", reason: "signed-out" };
           if (startRateLimited) return { status: "failed", reason: "rate-limited" };
-          if (revokeBeforeReply)
-            voiceEvent?.({ id: "session", event: { t: "closed", code: VOICE_CLOSE_SIGNED_OUT } });
+          if (revokeBeforeReply) emitVoiceEvent({ t: "closed", code: VOICE_CLOSE_SIGNED_OUT });
           return { status: "ready", id: "session", sampleRate: 8000, maxSeconds: 600 };
         }
         if (method === "readTranscript") return EMPTY_TRANSCRIPT;
         if (method === "voicePrint") return null;
       },
       listen(channel: string, name: string, listener: (payload: VoiceEvent) => void) {
-        if (channel === "remote" && name === "voiceEvent") voiceEvent ??= listener;
-        return () => {};
+        if (channel !== "remote" || name !== "voiceEvent") return () => {};
+        voiceListeners.add(listener);
+        return () => voiceListeners.delete(listener);
       },
     },
   };
@@ -174,8 +178,8 @@ test.each([false, true])("4001 ends dictation with early close=%p", async (early
   await toggleDictation(owner, "en");
   if (!early) {
     expect(useDictationStore.getState().phase).toBe("listening");
-    voiceEvent?.({ id: "session", event: { t: "final", text: "kept text" } });
-    voiceEvent?.({ id: "session", event: { t: "closed", code: VOICE_CLOSE_SIGNED_OUT } });
+    emitVoiceEvent({ t: "final", text: "kept text" });
+    emitVoiceEvent({ t: "closed", code: VOICE_CLOSE_SIGNED_OUT });
     expect(useDictationStore.getState().ended?.finals).toBe("kept text");
   }
   expect(useDictationStore.getState().phase).toBe("idle");
