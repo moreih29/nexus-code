@@ -49,6 +49,14 @@ const card = (c: RemoteConsent) =>
   );
 
 describe("another computer's consent in the sidebar and chat", () => {
+  test("a network path is named on the card as the host's prompt names it", () => {
+    const read = { kind: "fileRead", detail: "//qa-host/share/x.txt" } as const;
+    const network = card(consent({ change: { ...read, pathKind: "network" } }));
+    expect(network).toContain("remote-consent-network-path");
+    expect(network).toContain(">Network path</p>");
+    expect(card(consent({ change: read }))).not.toContain("remote-consent-network-path");
+  });
+
   test("matches the asking workspace and tab on the serving computer", () => {
     const from = { workspaceId: "w1", tabId: "t1" };
     const prompt = consent({ from, workspaceId: "other-workspace" });

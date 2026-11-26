@@ -359,6 +359,11 @@ export function RemoteConsentCard({
             {body}
           </button>
         )}
+        {consent.change.pathKind === "network" && (
+          <p className="text-app-micro text-foreground" data-testid="remote-consent-network-path">
+            {t("agentCli.consent.networkPath")}
+          </p>
+        )}
         {consent.kind === "cross-workspace" && scope && session === "chat-session" && (
           <p className="text-app-micro text-muted-foreground">
             {t("agentCli.consent.workspaceScope", { workspace: scope.workspaceName })}
