@@ -1,4 +1,14 @@
-import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 import fs from "node:fs";
 import * as fsPromises from "node:fs/promises";
 import os from "node:os";
@@ -854,16 +864,18 @@ describe("folders.list asked by another device", () => {
 });
 
 describe.if(!WINDOWS)("a link on the way to a file another device reads", () => {
-  const linkDir = fs.realpathSync.native(
-    fs.mkdtempSync(path.join(os.tmpdir(), "nexus-net-links-")),
-  );
+  let linkDir = "";
+  let linkedFile = "";
+  let linkedFolder = "";
+  beforeAll(() => {
+    linkDir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), "nexus-net-links-")));
+    linkedFile = path.join(linkDir, "file.txt");
+    linkedFolder = path.join(linkDir, "share");
+    fs.mkdirSync(path.join(linkDir, "plain"), { recursive: true });
+    fs.symlinkSync(outside, linkedFile);
+    fs.symlinkSync(outsideDir, linkedFolder);
+  });
   afterAll(() => fs.rmSync(linkDir, { recursive: true, force: true }));
-  const linkedFile = path.join(linkDir, "file.txt");
-  const linkedFolder = path.join(linkDir, "share");
-  const plainFolder = path.join(linkDir, "plain");
-  fs.mkdirSync(plainFolder, { recursive: true });
-  fs.symlinkSync(outside, linkedFile);
-  fs.symlinkSync(outsideDir, linkedFolder);
 
   function linksToAutomount() {
     return spyOn(fs.promises, "readlink").mockImplementation((async (p: string) =>
