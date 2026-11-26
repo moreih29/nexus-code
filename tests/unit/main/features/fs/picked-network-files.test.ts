@@ -2,6 +2,7 @@ import { describe, expect, it, mock } from "bun:test";
 import type { IpcMain, IpcMainEvent } from "electron";
 import {
   editorTabFiles,
+  fileOnRootShare,
   keepPickedNetworkFilesOpenIn,
   MAX_PENDING_PICKS,
   pickedNetworkFile,
@@ -23,6 +24,33 @@ function freshStart(saved: readonly string[] = [], open: readonly string[] = [])
   restorePickedNetworkFiles(saved, open, (files) => saves.push(files));
   return saves;
 }
+
+describe("names that fold only in ASCII", () => {
+  const KELVIN = "K";
+
+  it.if(WINDOWS)("give no same-share exception to a server or share with other letters", () => {
+    expect(fileOnRootShare("//NAS/Share/x.txt", "//nas/share/w")).toBe(
+      String.raw`\\NAS\Share\x.txt`,
+    );
+    expect(fileOnRootShare(`//${KELVIN}nas/share/x.txt`, "//knas/share/w")).toBeUndefined();
+    expect(fileOnRootShare(`//knas/share/x.txt`, `//${KELVIN}nas/share/w`)).toBeUndefined();
+    expect(fileOnRootShare(`//nas/${KELVIN}s/x.txt`, `//nas/${KELVIN}s/w`)).toBeUndefined();
+    expect(fileOnRootShare("//nas/share/한글.txt", "//nas/share/w")).toBe(
+      "\\\\nas\\share\\한글.txt",
+    );
+  });
+
+  it.if(WINDOWS)("match a picked file only under ASCII case changes", () => {
+    freshStart();
+    rememberPickedNetworkFile(String.raw`\\knas\share\K.txt`);
+    rememberPickedNetworkFile("\\\\nas\\share\\Ä.txt");
+    expect(pickedNetworkFile("//KNAS/share/k.txt")).toBe(String.raw`\\knas\share\K.txt`);
+    expect(pickedNetworkFile(`//${KELVIN}nas/share/K.txt`)).toBeUndefined();
+    expect(pickedNetworkFile(`//knas/share/${KELVIN}.txt`)).toBeUndefined();
+    expect(pickedNetworkFile("//NAS/share/Ä.txt")).toBe("\\\\nas\\share\\Ä.txt");
+    expect(pickedNetworkFile("//nas/share/ä.txt")).toBeUndefined();
+  });
+});
 
 describe("picked network files", () => {
   it.if(WINDOWS)("keeps a picked file while a tab shows it, and forgets it when closed", () => {

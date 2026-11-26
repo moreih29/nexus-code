@@ -27,9 +27,13 @@ export function isWindowsNetworkPath(path: string): boolean {
   return process.platform === "win32" && isNetworkOrDevicePath(path);
 }
 
+function asciiLower(text: string): string {
+  return text.replace(/[A-Z]+/g, (upper) => upper.toLowerCase());
+}
+
 function pickKey(file: string): string | null {
   if (!isWindowsNetworkPath(file) || isDevicePath(file) || file.includes("\0")) return null;
-  return path.win32.normalize(file).toLowerCase();
+  return asciiLower(path.win32.normalize(file));
 }
 
 function trimOldest(picks: Map<string, string>, max: number): void {
@@ -102,7 +106,8 @@ export function restorePickedNetworkFiles(
 function shareOf(p: string): string | null {
   if (windowsPathKind(p) !== "unc") return null;
   const share = /^\\\\([^\\]+)\\([^\\]+)(?:\\|$)/.exec(path.win32.normalize(p));
-  return share ? `\\\\${share[1]}\\${share[2]}`.toLowerCase() : null;
+  if (!share || !/^[\x20-\x7e]+$/.test(share[1] + share[2])) return null;
+  return asciiLower(`\\\\${share[1]}\\${share[2]}`);
 }
 
 export function fileOnRootShare(file: string, root: string | null): string | undefined {
