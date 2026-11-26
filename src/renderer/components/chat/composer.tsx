@@ -11,6 +11,7 @@ import {
   Square,
   X,
 } from "lucide-react";
+import type { Dispatch, SetStateAction } from "react";
 import {
   memo,
   type ReactNode,
@@ -40,6 +41,7 @@ import {
   matchCommands,
   type TypedToken,
 } from "../../services/chat/composer-input";
+import { canRestoreFailedDraft, composerSendDecision } from "../../services/chat/composer-submit";
 import { watchFileDrop } from "../../services/chat/file-drop";
 import { fileKind } from "../../services/chat/links";
 import {
@@ -87,6 +89,7 @@ export interface ComposerController {
   readonly modes?: ModeSet;
   send(text: string, images?: ImageBlock[]): Promise<void>;
   sendNow?(text: string, images?: ImageBlock[]): Promise<void>;
+  submitLocal?(text: string, images: ImageBlock[], now: boolean): Promise<void>;
   readHeldNow?(): Promise<void>;
   enqueue(text: string, images?: ImageBlock[]): void;
   removeQueued(id: string): QueuedMessage | undefined;
@@ -131,13 +134,13 @@ interface ComposerProps {
   appCommands?: boolean;
   commands?: readonly CommandInfo[];
   takesDraft?: boolean;
-  composition?: {
-    text: string;
-    images: ImageBlock[];
-    files?: ComposerAttachment[];
-    setFiles?: React.Dispatch<React.SetStateAction<ComposerAttachment[]>>;
+  peerWaitUntil?: number;
+  composition?: ComposerContents & {
+    setFiles: React.Dispatch<React.SetStateAction<ComposerAttachment[]>>;
     setText: React.Dispatch<React.SetStateAction<string>>;
     setImages: React.Dispatch<React.SetStateAction<ImageBlock[]>>;
+    current(): ComposerContents;
+    clearSubmitted(draft: ComposerContents): void;
   };
 }
 
@@ -147,6 +150,43 @@ export interface ComposerAttachment {
   id: number;
   file: File;
   path?: string;
+}
+
+export interface ComposerContents {
+  text: string;
+  images: ImageBlock[];
+  files: ComposerAttachment[];
+}
+
+interface LocalDraft extends ComposerContents {
+  notes: NoteChoice[];
+}
+
+const EMPTY_DRAFT: LocalDraft = { text: "", images: [], files: [], notes: [] };
+
+function useLocalDraft() {
+  const [draft, setDraft] = useState(EMPTY_DRAFT);
+  const current = useRef(draft);
+  const update = useCallback((next: LocalDraft) => {
+    current.current = next;
+    setDraft(next);
+  }, []);
+  const setters = useMemo(() => {
+    const setter =
+      <K extends keyof LocalDraft>(field: K): Dispatch<SetStateAction<LocalDraft[K]>> =>
+      (action) => {
+        const before = current.current;
+        const value = typeof action === "function" ? action(before[field]) : action;
+        if (value !== before[field]) update({ ...before, [field]: value });
+      };
+    return {
+      setText: setter("text"),
+      setImages: setter("images"),
+      setFiles: setter("files"),
+      setNotes: setter("notes"),
+    };
+  }, [update]);
+  return { ...draft, ...setters, current, update };
 }
 
 const MAX_IMAGE_BYTES = 3_750_000;
@@ -170,26 +210,34 @@ export const Composer = memo(function Composer({
   appCommands = true,
   commands: ownCommands,
   takesDraft = true,
+  peerWaitUntil,
   composition,
 }: ComposerProps) {
   const { t } = useTranslation();
   const agent = useAgentContext();
   const program = useContext(ChatAgentContext);
-  const [localText, setLocalText] = useState("");
-  const [localImages, setLocalImages] = useState<ImageBlock[]>([]);
-  const { text, images, setText, setImages } = composition ?? {
-    text: localText,
-    images: localImages,
-    setText: setLocalText,
-    setImages: setLocalImages,
-  };
-  const [localFiles, setLocalFiles] = useState<ComposerAttachment[]>([]);
-  const files = composition?.files ?? localFiles;
-  const setFiles = composition?.setFiles ?? setLocalFiles;
+  const localDraft = useLocalDraft();
+  const { text, images, setText, setImages } = composition ?? localDraft;
+  const files = composition?.files ?? localDraft.files;
+  const setFiles = composition?.setFiles ?? localDraft.setFiles;
   const chatNotes = useChatNotes();
-  const [noteChips, setNoteChips] = useState<NoteChoice[]>([]);
-  const notes = chatNotes ? noteChips : [];
+  const setNoteChips = localDraft.setNotes;
+  const notes = chatNotes ? localDraft.notes : EMPTY_DRAFT.notes;
+  const [failedDrafts, setFailedDrafts] = useState<{ draft: LocalDraft; id: string }[]>([]);
   const [sending, setSending] = useState(false);
+  const submitting = useRef(false);
+  const latestPeerWait = useRef(peerWaitUntil);
+  const waitForPeer = useRef<((shown: boolean) => void) | null>(null);
+  useLayoutEffect(() => {
+    latestPeerWait.current = peerWaitUntil;
+    if (peerWaitUntil === undefined) waitForPeer.current?.(true);
+  }, [peerWaitUntil]);
+  useLayoutEffect(
+    () => () => {
+      waitForPeer.current?.(false);
+    },
+    [],
+  );
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -216,7 +264,10 @@ export const Composer = memo(function Composer({
     [model.items, relayed],
   );
   const canWithdraw = !!controller.withdraw && controller.supports("cancel_async_message");
-  const canTakeBack = state.queue.length > 0 || (canWithdraw && waiting.length > 0);
+  const lastTakeBack = state.queue.findLast(
+    (item) => item.status !== "sending" && item.status !== "unconfirmed",
+  );
+  const canTakeBack = lastTakeBack !== undefined || (canWithdraw && waiting.length > 0);
   const withdrawing = useRef(new Set<string>());
 
   const footerRef = useRef<HTMLDivElement>(null);
@@ -372,14 +423,15 @@ export const Composer = memo(function Composer({
     if (area) return observeTextHeight(area, rootRef.current?.parentElement);
   }, []);
 
-  const clear = () => {
-    setText("");
-    setImages([]);
-    setFiles([]);
-    setNoteChips([]);
+  const clear = (draft: ComposerContents) => {
+    if (composition) composition.clearSubmitted(draft);
+    else localDraft.update(EMPTY_DRAFT);
   };
 
-  const withAttachments = async (body: string): Promise<{ message: string; uploads: string[] }> => {
+  const withAttachments = async (
+    body: string,
+    files: ComposerAttachment[],
+  ): Promise<{ message: string; uploads: string[] }> => {
     if (files.length === 0) return { message: body, uploads: [] };
     const upload = controller.upload?.bind(controller);
     if (upload) {
@@ -396,15 +448,41 @@ export const Composer = memo(function Composer({
     return { message: body.trim() ? `${body}\n\n${mentions}` : mentions, uploads: [] };
   };
 
-  const submit = async (how: "send" | "queue" | "now", body = text) => {
+  const submit = async (how: "send" | "queue" | "now", dictated?: string) => {
     if (dictation.active) {
       if (canSend) dictation.finish((heard) => void submitRef.current(how, heard));
       return;
     }
+    const pressed = composition?.current() ?? localDraft.current.current;
+    const { images, files } = pressed;
+    const body = dictated ?? pressed.text;
+    const notes = chatNotes ? localDraft.current.current.notes : EMPTY_DRAFT.notes;
     const hasBody = body.trim() !== "" || images.length > 0 || files.length > 0 || notes.length > 0;
-    if (blocked || sending || !hasBody) return;
+    if (blocked || submitting.current || !hasBody) return;
+    const until = latestPeerWait.current;
+    if (composition && until !== undefined) {
+      if (Date.now() >= until) return;
+      submitting.current = true;
+      setSending(true);
+      const shown = await new Promise<boolean>((resolve) => {
+        waitForPeer.current = resolve;
+      });
+      waitForPeer.current = null;
+      submitting.current = false;
+      setSending(false);
+      if (
+        composerSendDecision(
+          shown && latestPeerWait.current === undefined && Date.now() < until,
+          shown && Date.now() < until,
+          composition.current() === pressed,
+        ) === "send"
+      ) {
+        void submitRef.current(how, dictated);
+      }
+      return;
+    }
     if (images.length === 0 && files.length === 0 && notes.length === 0 && onCommand?.(body)) {
-      clear();
+      clear(pressed);
       return;
     }
     const max = controller.maxAttachments;
@@ -414,37 +492,40 @@ export const Composer = memo(function Composer({
     }
     const as = how === "queue" && running ? "queue" : how === "now" && running ? "now" : "send";
     if (controller.submitPeer) {
-      if (controller.submitPeer(as, body, images, files)) clear();
+      if (controller.submitPeer(as, body, images, files)) clear(pressed);
       return;
     }
+    const submitted = { text: body, images, files, notes };
+    submitting.current = true;
     setSending(true);
+    clear(pressed);
     try {
       const target = chatNotes && notes.length ? chatNoteTarget(chatNotes.chat) : undefined;
       const linked = await sendWithNoteMentions(body, notes, target, async (textWithNotes) => {
-        const { message, uploads } = await withAttachments(textWithNotes);
-        clear();
-        try {
-          if (uploads.length > 0 && controller.sendUploaded) {
-            await controller.sendUploaded(as, message, images, uploads);
-          } else if (as === "queue") {
-            controller.enqueue(message, images);
-          } else if (as === "now" && controller.sendNow) {
-            await controller.sendNow(message, images);
-          } else {
-            await controller.send(message, images);
-          }
-        } catch (error) {
-          if (body) setText((prev) => (prev ? `${body}\n${prev}` : body));
-          if (images.length) setImages((prev) => [...images, ...prev]);
-          if (files.length) setFiles((prev) => [...files, ...prev]);
-          if (notes.length) setNoteChips((prev) => [...notes, ...prev]);
-          throw error;
+        const { message, uploads } = await withAttachments(textWithNotes, files);
+        if (uploads.length > 0 && controller.sendUploaded) {
+          await controller.sendUploaded(as, message, images, uploads);
+        } else if (as === "queue") {
+          controller.enqueue(message, images);
+        } else if (controller.submitLocal) {
+          await controller.submitLocal(message, images, as === "now");
+        } else if (as === "now" && controller.sendNow) {
+          await controller.sendNow(message, images);
+        } else {
+          await controller.send(message, images);
         }
       });
       if (!linked) showToast({ kind: "error", message: t("notes:conversations.saveError") });
     } catch (error) {
+      if (canRestoreFailedDraft(localDraft.current.current, "failed")) {
+        localDraft.update(submitted);
+      } else {
+        const id = crypto.randomUUID();
+        setFailedDrafts((previous) => [...previous, { draft: submitted, id }]);
+      }
       surfaceChatSendError(error);
     } finally {
+      submitting.current = false;
       setSending(false);
     }
   };
@@ -623,9 +704,8 @@ export const Composer = memo(function Composer({
   };
 
   const takeBackLast = () => {
-    const last = state.queue.findLast((item) => item.status !== "sending");
-    if (last) {
-      void takeBackQueued(last.id, true);
+    if (lastTakeBack) {
+      void takeBackQueued(lastTakeBack.id, true);
       return;
     }
     const sent = waiting.filter((item) => !withdrawing.current.has(item.sentUuid ?? ""));
@@ -634,6 +714,21 @@ export const Composer = memo(function Composer({
   };
 
   const pullBack = (id: string) => void takeBackQueued(id, false);
+  const removeFailedDraft = (id: string) =>
+    setFailedDrafts((previous) => previous.filter((entry) => entry.id !== id));
+  const restoreFailedDraft = (draft: LocalDraft, id: string) => {
+    const current = localDraft.current.current;
+    localDraft.update({
+      text: [current.text, draft.text].filter(Boolean).join("\n"),
+      images: [...current.images, ...draft.images],
+      files: [...current.files, ...draft.files],
+      notes: [
+        ...new Map([...current.notes, ...draft.notes].map((note) => [note.noteId, note])).values(),
+      ],
+    });
+    removeFailedDraft(id);
+    areaRef.current?.focus();
+  };
 
   return (
     <div
@@ -645,8 +740,25 @@ export const Composer = memo(function Composer({
       {dropping && dropArea && createPortal(<DropCue />, dropArea)}
       <div className="mx-auto flex w-[calc(100%-2rem)] max-w-[860px] flex-col gap-2 @max-[120px]/composer:w-[calc(100%-0.5rem)]">
         {above}
-        {(waiting.length > 0 || state.queue.length > 0) && (
+        {(waiting.length > 0 || state.queue.length > 0 || failedDrafts.length > 0) && (
           <ul className="flex flex-col gap-1" aria-label={t("chat.queue.aria")}>
+            {failedDrafts.map(({ draft, id }) => (
+              <QueueRow
+                key={id}
+                label={t("chat.queue.failed")}
+                item={{
+                  ...draft,
+                  text:
+                    draft.text ||
+                    [
+                      ...draft.files.map(({ file }) => file.name),
+                      ...draft.notes.map(({ title }) => title),
+                    ].join(", "),
+                }}
+                onEdit={() => restoreFailedDraft(draft, id)}
+                onRemove={() => removeFailedDraft(id)}
+              />
+            ))}
             {waiting.map((item) => (
               <QueueRow
                 key={item.key}
@@ -791,7 +903,7 @@ export const Composer = memo(function Composer({
               onBlur={() => setFocused(false)}
               onKeyDown={onKeyDown}
               onPaste={onPaste}
-              readOnly={sending || dictation.active}
+              readOnly={dictation.active}
               rows={2}
               placeholder={listening ? t("voice.listeningPlaceholder") : hint}
               aria-label={t("chat.composer.aria", agent)}

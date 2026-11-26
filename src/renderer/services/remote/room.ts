@@ -25,15 +25,26 @@ export function useRemoteRoom(): RoomState | null {
 
 export type PeerReach = "online" | "offline" | "disconnected";
 
-export function usePeerReach(deviceId: string): PeerReach {
-  const room = useShownRoom(useRemoteRoom());
+function peerReach(room: RoomState | null, deviceId: string): PeerReach {
   if (!room) return "online";
   if (room.status !== "online") return "disconnected";
   return room.peers.some((p) => p.id === deviceId && p.online) ? "online" : "offline";
 }
 
-export function usePeerControls(deviceId: string, assumeControl = true): boolean {
+export function usePeerConnection(
+  deviceId: string,
+  assumeControl: boolean,
+): { reach: PeerReach; until?: number; controls: boolean } {
   const room = useRemoteRoom();
+  const shown = useRoomPresentation(room, deviceId);
+  return {
+    reach: peerReach(shown.room, deviceId),
+    until: shown.until,
+    controls: controlsOf(room, deviceId, assumeControl),
+  };
+}
+
+function controlsOf(room: RoomState | null, deviceId: string, assumeControl: boolean): boolean {
   const serves = room?.peers.find((p) => p.id === deviceId)?.serves;
   return serves?.includes("chat.control") ?? assumeControl;
 }
@@ -119,6 +130,7 @@ export function shownRoom(
   room: RoomState | null,
   drops: ReadonlyMap<string, number>,
   now: number,
+  deviceId?: string,
 ): { room: RoomState | null; until?: number } {
   if (!room) return { room };
   let until: number | undefined;
@@ -131,11 +143,19 @@ export function shownRoom(
   const back = room.status === "connecting" || room.status === "waiting";
   const status = room.status === "online" || (back && fresh(SELF)) ? "online" : room.status;
   if (status !== "online") return { room };
-  const peers = room.peers.map((p) => (p.online || !fresh(p.id) ? p : { ...p, online: true }));
+  const peers = room.peers.map((p) =>
+    p.online || (deviceId !== undefined && deviceId !== p.id) || !fresh(p.id)
+      ? p
+      : { ...p, online: true },
+  );
   return { room: { status, peers }, ...(until !== undefined ? { until } : {}) };
 }
 
 export function useShownRoom(room: RoomState | null): RoomState | null {
+  return useRoomPresentation(room).room;
+}
+
+function useRoomPresentation(room: RoomState | null, deviceId?: string) {
   const prev = useRef<RoomState | null>(null);
   const drops = useRef(new Map<string, number>());
   const [, setTick] = useState(0);
@@ -144,14 +164,14 @@ export function useShownRoom(room: RoomState | null): RoomState | null {
     noteDrops(prev.current, room, drops.current, now);
     prev.current = room;
   }
-  const shown = shownRoom(room, drops.current, now);
+  const shown = shownRoom(room, drops.current, now, deviceId);
   const until = shown.until;
   useEffect(() => {
     if (until === undefined) return;
     const timer = setTimeout(() => setTick((n) => n + 1), Math.max(0, until - Date.now()) + 20);
     return () => clearTimeout(timer);
   }, [until]);
-  return shown.room;
+  return shown;
 }
 
 const DESKTOPS = new Set(["darwin", "win32", "linux"]);

@@ -374,6 +374,31 @@ describe("delivering a Codex queue entry", () => {
     expect(delivered()).toEqual([]);
   });
 
+  test("an unconfirmed composer steer can be recovered and is never dispatched again", async () => {
+    const c = tab();
+    await running(c);
+    loseSteer = true;
+    await c.submitLocal("could already be accepted", [], true);
+    expect(c.state.queue).toMatchObject([
+      { text: "could already be accepted", status: "unconfirmed" },
+    ]);
+    loseSteer = false;
+    end(c);
+    await Bun.sleep(0);
+    expect(delivered()).toEqual([]);
+    expect(c.removeQueued(c.state.queue[0].id)?.text).toBe("could already be accepted");
+  });
+
+  test("a refused composer turn returns the failure for draft recovery", async () => {
+    const c = tab(undefined, undefined, (message) =>
+      message.method === "turn/start"
+        ? { error: { code: -32602, message: "turn refused" } }
+        : undefined,
+    );
+    await expect(c.submitLocal("draft", [], false)).rejects.toThrow("turn refused");
+    expect(c.state.queue).toEqual([]);
+  });
+
   test("a refused local steer keeps its submission ID when explicitly deferred", async () => {
     const c = tab(undefined, undefined, (message) =>
       message.method === "turn/steer"

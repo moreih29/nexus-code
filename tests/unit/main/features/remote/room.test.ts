@@ -540,6 +540,13 @@ describe("the room", () => {
     const asked = b.room.request("a", "sessions.list", {});
     await expect(asked).rejects.toBeInstanceOf(RpcFailure);
     await expect(asked).rejects.toMatchObject({ code: RpcErrorCode.Unavailable });
+    await expect(
+      b.room.request("a", "chat.send", { workspaceId: "w", tabId: "t", text: "draft" }),
+    ).rejects.toMatchObject({ data: { outcome: "rejected" } });
+    b.room.stop();
+    await expect(
+      b.room.request("a", "chat.send", { workspaceId: "w", tabId: "t", text: "draft" }),
+    ).rejects.toMatchObject({ data: { outcome: "rejected" } });
   });
 
   test("a message the relay changed on its way does not open", async () => {

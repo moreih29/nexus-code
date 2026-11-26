@@ -1,12 +1,25 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import { ipcErr } from "../../../../../src/shared/ipc/result";
 
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
 
 const realIpc = await import("../../../../../src/renderer/ipc/client");
+let userWrite: Record<string, unknown> | undefined;
+let writeError: "agent.reconnect-unavailable" | "chat.stdin-write-failed" | undefined;
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ...realIpc,
   ipcListen: () => () => {},
-  ipcCallResult: () => Promise.resolve({ ok: true, value: undefined }),
+  ipcCallResult: (
+    _channel: string,
+    method: string,
+    args?: { message?: Record<string, unknown> },
+  ) => {
+    if (method === "send" && args?.message?.type === "user") {
+      userWrite = args.message;
+      if (writeError) return Promise.resolve(ipcErr(writeError, "write did not confirm"));
+    }
+    return Promise.resolve({ ok: true, value: undefined });
+  },
 }));
 
 const { ChatController } = await import(
@@ -33,6 +46,8 @@ let seq = 0;
 const live: { dispose: () => void }[] = [];
 afterEach(() => {
   for (const c of live.splice(0)) c.dispose();
+  writeError = undefined;
+  userWrite = undefined;
 });
 
 function running(key: string): void {
@@ -44,6 +59,34 @@ function running(key: string): void {
 }
 
 describe("a Claude tab's held messages", () => {
+  test("settles an unconfirmed composer send when its stdin write appears in the log", async () => {
+    const c = new ChatController({ workspaceId: "ws-queue", tabId: "claude-composer", cwd: "/p" });
+    live.push(c);
+    running(c.key);
+    writeError = "agent.reconnect-unavailable";
+    await c.submitLocal("could already be queued", [IMAGE], false);
+    expect(c.state.queue).toMatchObject([
+      {
+        id: userWrite?.uuid,
+        text: "could already be queued",
+        images: [IMAGE],
+        status: "unconfirmed",
+      },
+    ]);
+    c.receive({ seq: ++seq, dir: "in", message: userWrite ?? {} });
+    c.flushNow();
+    expect(c.state.queue).toEqual([]);
+    expect(c.state.model.items).toContainEqual(
+      expect.objectContaining({ kind: "user", text: "could already be queued", queued: true }),
+    );
+
+    writeError = "chat.stdin-write-failed";
+    await expect(c.submitLocal("definite failure", [], false)).rejects.toMatchObject({
+      kind: "chat.stdin-write-failed",
+    });
+    expect(c.state.queue).toEqual([]);
+  });
+
   test("each held has its id, keeps who sent it, and its text changes with its images kept", () => {
     const c = new ChatController(
       { workspaceId: "ws-queue", tabId: `t${++seq}`, cwd: "/p", sessionId: "s" },
