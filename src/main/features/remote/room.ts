@@ -32,6 +32,7 @@ import {
   type ServerFrame,
   UNTIMED_CONSENT_SCHEMA,
 } from "../../../../packages/remote-protocol/src";
+import { PEER_USAGE_REFRESH_TIMEOUT_MS } from "../../../shared/cli/ui";
 import { createLogger } from "../../../shared/log/main";
 import {
   type RoomPeer,
@@ -56,7 +57,19 @@ import { openMessage, type RoomKey, sealMessage } from "./seal";
 
 const log = createLogger("remote-room");
 
-export const REQUEST_TIMEOUT_MS = 15_000;
+export const REQUEST_TIMEOUT_MS = 30_000;
+const SLOW_SERVING_MS = 15_000;
+const REPLY_RATE_LIMIT_WINDOW_MS = 15_000;
+const HELD_CHAT_REQUEST_MS = 70_000;
+const HELD_CHAT_REQUESTS: ReadonlySet<RpcMethod> = new Set([
+  "chat.configure",
+  "chat.command",
+  "chat.profile",
+  "chat.new",
+  "chat.config",
+  "chat.mcp",
+  "chat.remoteControl",
+]);
 const HELLO_RETRY_INTERVAL_MS = 5_000;
 const HELLO_WAIT_MS = 3_000;
 const WARNING_INTERVAL_MS = 30_000;
@@ -81,6 +94,13 @@ const MAX_PAST_EPOCHS = 4096;
 
 function newEpoch(): string {
   return randomBytes(EPOCH_BYTES).toString("base64url");
+}
+
+function requestWait<M extends RpcMethod>(method: M, params: RpcParams<M>): number {
+  if (method === "profiles.usage" && (params as RpcParams<"profiles.usage">).refresh) {
+    return PEER_USAGE_REFRESH_TIMEOUT_MS;
+  }
+  return HELD_CHAT_REQUESTS.has(method) ? HELD_CHAT_REQUEST_MS : REQUEST_TIMEOUT_MS;
 }
 
 export const MAX_MESSAGE_BYTES = Math.floor(((MAX_FRAME_BYTES - 1024) * 3) / 4) - 64;
@@ -444,7 +464,7 @@ export class RemoteRoom {
     }
 
     const started = performance.now();
-    const wait = timeoutMs ?? this.deps.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
+    const wait = timeoutMs ?? this.deps.requestTimeoutMs ?? requestWait(method, params);
     const answer = new Promise<unknown>((resolve, reject) => {
       const abort = () => {
         this.callOff(p);
@@ -908,7 +928,7 @@ export class RemoteRoom {
     }
     const reply = this.sentReplies.get(seq);
     this.sentReplies.delete(seq);
-    if (limited && reply && performance.now() - reply.sentAt < REQUEST_TIMEOUT_MS) {
+    if (limited && reply && performance.now() - reply.sentAt < REPLY_RATE_LIMIT_WINDOW_MS) {
       this.rejectReply(reply.from, reply.epoch, reply, RATE_LIMITED);
     }
   }
@@ -1282,7 +1302,7 @@ export class RemoteRoom {
         "slow-serving",
         `Still serving remote request method=${method} peer=${shortId(from)} elapsedMs=${elapsed}`,
       );
-    }, REQUEST_TIMEOUT_MS);
+    }, SLOW_SERVING_MS);
     slow.unref?.();
     try {
       return {

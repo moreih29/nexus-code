@@ -181,6 +181,51 @@ function device(relay: MockRelay, id: string, key: RoomKey, extra: Partial<Remot
 }
 
 describe("the room", () => {
+  const chat = { workspaceId: "w1", tabId: "t1" };
+  test.each([
+    ["sessions.list", {}, undefined, 30_000],
+    ["sessions.watch", {}, undefined, 30_000],
+    ["chat.configure", chat, undefined, 70_000],
+    ["chat.command", { ...chat, name: "status" }, undefined, 70_000],
+    ["chat.profile", { ...chat, profile: "test" }, undefined, 70_000],
+    ["chat.new", { workspaceId: "w1", agent: "codex" }, undefined, 70_000],
+    ["chat.config", chat, undefined, 70_000],
+    ["chat.mcp", { ...chat, server: "test", action: "enable" }, undefined, 70_000],
+    ["chat.remoteControl", { ...chat, enabled: true }, undefined, 70_000],
+    ["profiles.usage", { refresh: true }, undefined, 130_000],
+    ["profiles.usage", { refresh: false }, undefined, 30_000],
+    ["profiles.usage", { refresh: true }, 3_000, 3_000],
+  ] as const)("%s with params %p and override %p waits %i ms", async (method, params, override, wait) => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const a = device(relay, "a", key);
+    const b = device(relay, "b", key, { requestTimeoutMs: undefined });
+    a.room.start();
+    b.room.start();
+    await flushRelay();
+    relay.drop = () => "silent";
+    jest.useFakeTimers();
+    try {
+      const failed = jest.fn();
+      const answer = b.room.request("a", method, params, override).catch(failed);
+      await flushRelay();
+      jest.advanceTimersByTime(wait - 1);
+      await flushRelay();
+      expect(failed).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(1);
+      await answer;
+      expect(failed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: `${method}: no answer in time`,
+        }),
+      );
+    } finally {
+      a.room.stop();
+      b.room.stop();
+      jest.useRealTimers();
+    }
+  });
+
   test("devices say hello, see each other, and answer each other's requests", async () => {
     const relay = new MockRelay();
     const key = await roomKey();

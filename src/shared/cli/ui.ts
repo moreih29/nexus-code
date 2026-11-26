@@ -27,6 +27,7 @@ import type {
 import type { SettingsPage } from "./settings";
 
 export const PROFILE_USAGE_REFRESH_TIMEOUT_MS = 120_000;
+export const PEER_USAGE_REFRESH_TIMEOUT_MS = PROFILE_USAGE_REFRESH_TIMEOUT_MS + 10_000;
 
 export interface CliPastSession {
   sessionId: string;

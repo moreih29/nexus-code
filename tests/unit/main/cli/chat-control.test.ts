@@ -889,7 +889,7 @@ describe("chat usage", () => {
         deviceId: device.id,
         method: "profiles.usage",
         params: { ...filters, from: { kind: "terminal", workspaceId: APP, tabId: SHELL_TAB } },
-        timeoutMs: 125_000,
+        timeoutMs: 130_000,
       },
     ]);
 
