@@ -446,7 +446,11 @@ describe("a network path under the allow policy", () => {
   const upload = (g: AgentGate, services: CliServices, path: string) =>
     g.checkFile(
       services,
-      { device, method: "files.write.begin", params: { path, size: 3, from, workspaceId: "w1" } },
+      {
+        device,
+        method: "files.write.begin",
+        params: { path, size: 3, from, workspaceId: "w1", anywhere: true },
+      },
       { path, tree: false, workspaceRoot: "/workspace" },
     );
 
@@ -519,6 +523,36 @@ describe("a network path under the allow policy", () => {
     expect(asked).toHaveLength(2);
     await expect(read(g, services, "/net/h2/a.txt")).rejects.toThrow("did not allow");
     await expect(read(g, services, String.raw`\\h\s2\a.txt`)).rejects.toThrow("did not allow");
+  });
+
+  test.each([
+    [String.raw`\\nas\share\w`, String.raw`\\nas\share\w\src\a.ts`],
+    ["/net/h/w", "/net/h/w/src/a.ts"],
+    ["/Network/Data/w", "/Network/Data/w/src/a.ts"],
+  ])("a write inside a workspace on %s goes on without asking, as before", async (workspaceRoot, path) => {
+    const { g, services, asked } = gate("allow");
+    for (const method of ["files.write.begin", "files.mkdir"] as const) {
+      for (const transferId of [undefined, "10000000-0000-4000-8000-000000000000"]) {
+        await g.checkFile(
+          services,
+          {
+            device,
+            method,
+            params: {
+              path,
+              size: 3,
+              from,
+              workspaceId: "w1",
+              ...(transferId ? { transferId } : {}),
+            },
+          },
+          { path, tree: method === "files.mkdir" && transferId !== undefined, workspaceRoot },
+        );
+      }
+    }
+    expect(asked).toHaveLength(0);
+    await expect(upload(g, services, path)).rejects.toThrow("did not allow");
+    expect(asked).toHaveLength(1);
   });
 
   test("a path on this computer still goes on without asking", async () => {
