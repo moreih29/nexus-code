@@ -1373,7 +1373,10 @@
       "open_system": "Open in the system browser",
       "open_app_browser": "Open in the app's browser",
       "copy_link": "Copy link",
-      "network_path": "Network paths can't be opened."
+      "network_path": "Network paths can't be opened.",
+      "gone": "That file is no longer in the chat.",
+      "denied": "Reading that file isn't allowed.",
+      "open_failed": "Couldn't open that file. Try again later."
     },
     "run": {
       "kind": "claude -p run",

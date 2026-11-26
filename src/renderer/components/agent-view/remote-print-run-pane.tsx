@@ -2,6 +2,7 @@ import { useContext, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { ipcCallResult } from "../../ipc/client";
+import { FileLinkRunContext } from "../../services/chat/chat-files";
 import type { ImageLook } from "../../services/chat/image-look";
 import type { ImageLoader } from "../../services/chat/model";
 import {
@@ -86,21 +87,23 @@ export function RemotePrintRunPane({
     });
   return (
     <ImageLoaderContext.Provider value={loadImage}>
-      <ChatLinksContext.Provider value={runLinks}>
-        <ToolOutputContext.Provider value={readTool}>
-          <PrintRunPane
-            workspaceId={peerWorkspaceId(deviceId, workspaceId)}
-            tabId={tabId}
-            cwd={cwd}
-            rootPath={target.path}
-            run={run}
-            visible={visible}
-            stopRun={controls ? stopRun : null}
-            openInTab={controls ? openInTab : null}
-            conversation={conversation}
-          />
-        </ToolOutputContext.Provider>
-      </ChatLinksContext.Provider>
+      <FileLinkRunContext.Provider value={runId}>
+        <ChatLinksContext.Provider value={runLinks}>
+          <ToolOutputContext.Provider value={readTool}>
+            <PrintRunPane
+              workspaceId={peerWorkspaceId(deviceId, workspaceId)}
+              tabId={tabId}
+              cwd={cwd}
+              rootPath={target.path}
+              run={run}
+              visible={visible}
+              stopRun={controls ? stopRun : null}
+              openInTab={controls ? openInTab : null}
+              conversation={conversation}
+            />
+          </ToolOutputContext.Provider>
+        </ChatLinksContext.Provider>
+      </FileLinkRunContext.Provider>
     </ImageLoaderContext.Provider>
   );
 }

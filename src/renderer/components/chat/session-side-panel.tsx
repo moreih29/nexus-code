@@ -21,9 +21,11 @@ import { formatBytes } from "../../../shared/util/format-bytes";
 import { shortId } from "../../../shared/util/short-id";
 import { useNow } from "../../hooks/use-now";
 import { artifactsOf } from "../../services/chat/artifact";
+import { type LinkedFile, useChatFiles, useLinkRun } from "../../services/chat/chat-files";
 import { useFoundFiles } from "../../services/chat/file-presence";
 import { type JobOutput, readJobOutput } from "../../services/chat/job-output";
 import { linkPlaceIndex, linkPlaces } from "../../services/chat/link-places";
+import { grantsOf, linkKey, pathInRoot, useLinksFound } from "../../services/chat/linked-files";
 import { fileKind } from "../../services/chat/links";
 import type { ChatItem, ChatModel, ToolCall } from "../../services/chat/model";
 import { modelLineOfTab } from "../../services/chat/model-line";
@@ -37,6 +39,7 @@ import {
   exitCodeOf,
   jobCommand,
   type ResultEntry,
+  resultSource,
   resultsOf,
 } from "../../services/chat/panel";
 import { type ActivityRow, activityOf, type JobLike } from "../../services/chat/running";
@@ -753,16 +756,31 @@ export function ResultsSection({
 }) {
   const { t } = useTranslation();
   const named = useMemo(() => resultsOf(items, tools, cwd), [items, tools, cwd]);
+  const grants = grantsOf(useChatFiles());
+  const inRun = useLinkRun();
+  const viaHost = useMemo(() => {
+    const out = new Map<string, LinkedFile>();
+    if (!grants) return out;
+    for (const result of named) {
+      const source = result.kind === "file" ? resultSource(result) : undefined;
+      if (source && pathInRoot(result.target, cwd, rootPath) === null) {
+        out.set(result.target, inRun({ href: result.target, source }));
+      }
+    }
+    return out;
+  }, [grants, named, cwd, rootPath, inRun]);
+  const asked = useMemo(() => (grants ? [...viaHost.values()] : null), [grants, viaHost]);
+  const resolved = useLinksFound(asked);
   const filePlaces = useMemo(() => {
     const index = linkPlaceIndex(tools, cwd);
     const places = new Map<string, string[]>();
     for (const result of named) {
-      if (result.kind !== "file") continue;
+      if (result.kind !== "file" || viaHost.has(result.target)) continue;
       const paths = linkPlaces(result.target, index).map((place) => place.path);
       if (paths.length > 0) places.set(result.target, paths);
     }
     return places;
-  }, [named, tools, cwd]);
+  }, [named, tools, cwd, viaHost]);
   const lookedUp = useMemo(() => [...new Set([...filePlaces.values()].flat())], [filePlaces]);
   const toolsDone = useMemo(
     () =>
@@ -770,14 +788,26 @@ export function ResultsSection({
     [tools],
   );
   const found = useFoundFiles(workspaceId, rootPath, lookedUp, toolsDone);
-  const filePaths = useMemo(() => {
+  const { filePaths, bare } = useMemo(() => {
     const paths = new Map<string, string>();
+    const bare = new Set<string>();
     for (const [target, places] of filePlaces) {
       const path = places.find((place) => found.has(place));
       if (path) paths.set(target, path);
     }
-    return paths;
-  }, [filePlaces, found]);
+    for (const [target, link] of viaHost) {
+      const state = resolved?.get(linkKey(link));
+      if (state === undefined || state === null) continue;
+      if (state !== "failed" && "path" in state) {
+        paths.set(target, state.path);
+        if (!state.readable) bare.add(target);
+      } else {
+        paths.set(target, target);
+        bare.add(target);
+      }
+    }
+    return { filePaths: paths, bare };
+  }, [filePlaces, found, viaHost, resolved]);
   const results = useMemo(
     () =>
       distinctResults(
@@ -795,8 +825,11 @@ export function ResultsSection({
       .reverse();
   }, [artifacts, results]);
   const links = useChatLinks();
-  const open = (target: string, kind: ResultEntry["kind"]) =>
-    kind === "file" ? links?.openFile(target) : links?.openUrl(target);
+  const open = (target: string, kind: ResultEntry["kind"]) => {
+    const link = viaHost.get(target);
+    if (kind === "file") links?.openFile(target, link ? { link } : undefined);
+    else links?.openUrl(target);
+  };
   return (
     <Section
       title={t("chat.panel.results.title")}
@@ -818,6 +851,8 @@ export function ResultsSection({
               key={result.target}
               result={result}
               path={filePaths.get(result.target) ?? null}
+              link={viaHost.get(result.target)}
+              bare={bare.has(result.target)}
               cwd={cwd}
               workspaceId={workspaceId}
               onOpen={() => open(result.target, result.kind)}
@@ -944,12 +979,16 @@ export function JobButton({
 function ResultRow({
   result,
   path,
+  link,
+  bare = false,
   cwd,
   workspaceId,
   onOpen,
 }: {
   result: ResultEntry;
   path: string | null;
+  link?: LinkedFile;
+  bare?: boolean;
   cwd: string;
   workspaceId: string;
   onOpen: () => void;
@@ -957,10 +996,10 @@ function ResultRow({
   const { t } = useTranslation();
   const label = path ? shownPath(path, cwd) : result.target;
   const [hover, setHover] = useState<DOMRect | null>(null);
-  const image = path !== null && fileKind(path) === "image";
+  const image = path !== null && !bare && fileKind(path) === "image";
   return (
     <>
-      <LinkMenu target={path ?? result.target} href={result.target} kind={result.kind}>
+      <LinkMenu target={path ?? result.target} href={result.target} kind={result.kind} link={link}>
         <button
           type="button"
           onClick={onOpen}

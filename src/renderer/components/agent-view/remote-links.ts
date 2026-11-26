@@ -5,7 +5,7 @@ import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { showHeldRemoteFile } from "../../services/agent-view/file-tabs";
 import { remoteSessionKey } from "../../services/agent-view/layout";
 import { attachShaped, servedAttachment } from "../../services/chat/attach-folders";
-import type { ChatFiles } from "../../services/chat/chat-files";
+import type { ChatFiles, LinkedFile } from "../../services/chat/chat-files";
 import {
   imageLook,
   latestReadFile,
@@ -13,10 +13,12 @@ import {
   type ShownImage,
 } from "../../services/chat/image-look";
 import { findLinkPlace, linkPlaceIndex, linkPlaces } from "../../services/chat/link-places";
+import { grantMessage, pathInRoot } from "../../services/chat/linked-files";
 import {
   type FileLink,
   fileKind,
   isLocalAddress,
+  resolveFileLink,
   resolveFilePath,
 } from "../../services/chat/links";
 import type { ChatModel } from "../../services/chat/model";
@@ -105,16 +107,53 @@ export function useRemoteLinks(
         ...(line ? { at: { path, line, ...(column ? { column } : {}) } } : {}),
       });
     };
+    const granted = (
+      written: string,
+      link: LinkedFile,
+      gallery: string[] | undefined,
+      galleryLinks: Readonly<Record<string, LinkedFile>> | undefined,
+    ) => {
+      const open = files.open;
+      if (!open || pathInRoot(link.href, cwd, workspaceRoot) !== null) return false;
+      const mine = ++opened;
+      void open(link).then(
+        (path) => {
+          if (opened !== mine) return;
+          if (!gallery) {
+            const at = resolveFileLink(link.href, cwd);
+            showFile({ ...(at ? { ...at } : {}), path });
+            return;
+          }
+          const files = gallery.map((file) => (file === written ? path : file));
+          const links: Record<string, LinkedFile> = {};
+          for (const [file, one] of Object.entries(galleryLinks ?? {})) {
+            links[file === written ? path : file] = one;
+          }
+          setLook({ files, index: files.indexOf(path), links, granted: [path] });
+        },
+        (error: unknown) => {
+          if (opened !== mine) return;
+          showToast({ kind: "error", message: grantMessage(error) });
+        },
+      );
+      return true;
+    };
     const openFile = (written: string, options?: OpenFileOptions) => {
       if (options && "draft" in options) {
         opened++;
         setLook({ files: [written], index: 0, draft: options.draft });
         return;
       }
-      if (options) {
-        const { gallery } = options;
+      const link = options?.link;
+      const gallery = options?.gallery;
+      if (link && granted(written, link, gallery, options?.links)) return;
+      if (gallery) {
         opened++;
-        setLook({ files: gallery, index: gallery.indexOf(written) });
+        setLook({
+          files: gallery,
+          index: gallery.indexOf(written),
+          ...(options?.links && files.open ? { links: options.links } : {}),
+        });
         return;
       }
       const places = linkPlaces(written, linkPlaceIndex(latest.current.model.tools, cwd));

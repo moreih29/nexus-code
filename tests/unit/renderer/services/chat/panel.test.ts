@@ -14,6 +14,7 @@ import {
   agentsOf,
   agentTranscript,
   answerExtras,
+  answerLinks,
   attachedFilesIn,
   attachedImagesOf,
   changedFilesOf,
@@ -30,6 +31,7 @@ import {
   outsideLinkedFiles,
   outsideLinksOf,
   pastAgentsOf,
+  resultSource,
   resultsOf,
   sentFilesOf,
   todosOf,
@@ -410,6 +412,40 @@ describe("chat panel", () => {
       { kind: "url", target: "https://example.com/docs", created: false },
       { kind: "file", target: "src/app.ts", created: false },
     ]);
+  });
+
+  test("each result and answer card keeps the link as written and where it came from", () => {
+    seq = 0;
+    const model = applyLines(emptyModel(), [
+      assistant("m1", [
+        {
+          type: "tool_use",
+          id: "w",
+          name: "Write",
+          input: { file_path: "/p/report.md", content: "x" },
+        },
+      ]),
+      result("w", "ok", { type: "create", filePath: "/p/report.md" }),
+      assistant("m2", [
+        { type: "tool_use", id: "r", name: "Read", input: { file_path: "/p/src/app.ts" } },
+        { type: "text", text: "See [notes](../qa/notes.md) and `src/app.ts`." },
+      ]),
+    ]);
+    const answerKey = model.items.find(
+      (item) => item.kind === "assistant" && item.messageId === "m2",
+    )?.key;
+    const results = resultsOf(model.items, model.tools, "/p");
+    expect(results.map((result) => [result.target, resultSource(result)])).toEqual([
+      ["/p/report.md", { kind: "tool", toolUseId: "w" }],
+      ["../qa/notes.md", { kind: "answer", itemKey: answerKey }],
+      ["src/app.ts", { kind: "answer", itemKey: answerKey }],
+    ]);
+    const [extras] = answerExtras(model.items, model.tools, "/p", "/p", true).values();
+    expect(answerLinks(extras!)).toEqual({
+      "/p/report.md": { href: "/p/report.md", source: { kind: "tool", toolUseId: "w" } },
+      "/qa/notes.md": { href: "../qa/notes.md", source: { kind: "answer", itemKey: answerKey } },
+      "/p/src/app.ts": { href: "src/app.ts", source: { kind: "answer", itemKey: answerKey } },
+    });
   });
 
   test("a path only backticks name is a file the session's tools took; a lone /word is a command", () => {

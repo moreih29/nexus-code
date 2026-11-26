@@ -1,10 +1,16 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useChatFiles, useFilePicture } from "../../services/chat/chat-files";
+import {
+  type LinkedFile,
+  useChatFiles,
+  useFilePicture,
+  useLinkRun,
+} from "../../services/chat/chat-files";
 import { useFoundFiles } from "../../services/chat/file-presence";
 import { imageSrc } from "../../services/chat/image-look";
+import { grantsOf, linkKey, pathInRoot, useLinksFound } from "../../services/chat/linked-files";
 import { baseName, fileKind } from "../../services/chat/links";
-import { type AnswerExtras, MAX_ANSWER_FILES } from "../../services/chat/panel";
+import { type AnswerExtras, answerLinks, MAX_ANSWER_FILES } from "../../services/chat/panel";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
 import { ChatImage } from "./chat-image";
 import { LinkMenu, useChatLinks } from "./chat-links";
@@ -21,19 +27,47 @@ export function AnswerExtrasView({
   cwd: string;
   rootPath: string;
 }) {
+  const grants = grantsOf(useChatFiles());
+  const inRun = useLinkRun();
+  const viaHost = useMemo(() => {
+    const out = new Map<string, LinkedFile>();
+    if (!grants) return out;
+    for (const [path, link] of Object.entries(answerLinks(extras))) {
+      if (pathInRoot(link.href, cwd, rootPath) === null) out.set(path, inRun(link));
+    }
+    return out;
+  }, [grants, extras, cwd, rootPath, inRun]);
+  const asked = useMemo(() => (grants ? [...viaHost.values()] : null), [grants, viaHost]);
+  const resolved = useLinksFound(asked);
   const lookedUp = useMemo(
-    () => [...extras.files, ...Object.values(extras.elsewhere ?? {}).flat()],
-    [extras],
+    () =>
+      [...extras.files, ...Object.values(extras.elsewhere ?? {}).flat()].filter(
+        (path) => !viaHost.has(path),
+      ),
+    [extras, viaHost],
   );
   const found = useFoundFiles(workspaceId, rootPath, lookedUp);
-  const files = useMemo(() => {
+  const { files, links, bare } = useMemo(() => {
     const shown = new Set<string>();
+    const links: Record<string, LinkedFile> = {};
+    const bare = new Set<string>();
     for (const path of extras.files) {
+      const link = viaHost.get(path);
+      if (link) {
+        const state = resolved?.get(linkKey(link));
+        if (state === undefined || state === null) continue;
+        const at = state !== "failed" && "path" in state ? state.path : path;
+        if (shown.has(at)) continue;
+        shown.add(at);
+        links[at] = link;
+        if (state === "failed" || !("path" in state) || !state.readable) bare.add(at);
+        continue;
+      }
       const at = found.has(path) ? path : extras.elsewhere?.[path]?.find((p) => found.has(p));
       if (at) shown.add(at);
     }
-    return [...shown];
-  }, [extras, found]);
+    return { files: [...shown], links, bare };
+  }, [extras, found, viaHost, resolved]);
   const images = useMemo(() => extras.images.map(({ image }) => image), [extras]);
   if (extras.images.length === 0 && files.length === 0) return null;
   return (
@@ -62,6 +96,9 @@ export function AnswerExtrasView({
               cwd={cwd}
               gallery={files}
               more={index === MAX_ANSWER_FILES - 1 ? files.length - MAX_ANSWER_FILES : 0}
+              link={links[path]}
+              links={links}
+              bare={bare.has(path)}
             />
           ))}
         </div>
@@ -76,19 +113,25 @@ export function FileCard({
   cwd,
   gallery,
   more = 0,
+  link,
+  links: galleryLinks,
+  bare = false,
 }: {
   path: string;
   workspaceId: string;
   cwd: string;
   gallery?: string[];
   more?: number;
+  link?: LinkedFile;
+  links?: Readonly<Record<string, LinkedFile>>;
+  bare?: boolean;
 }) {
   const { t } = useTranslation();
   const links = useChatLinks();
   const file = useWorkspaceFile(workspaceId, path);
   const isImage = fileKind(path) === "image";
   const files = useChatFiles();
-  const picture = useFilePicture(isImage ? files : null, path);
+  const picture = useFilePicture(isImage && !bare ? files : null, path);
   const src = !isImage
     ? null
     : picture.image
@@ -98,10 +141,21 @@ export function FileCard({
         : null;
   const folder = folderOf(path, cwd);
   return (
-    <LinkMenu target={path} kind="file">
+    <LinkMenu target={path} kind="file" link={link}>
       <button
         type="button"
-        onClick={() => links?.openFile(path, gallery ? { gallery } : undefined)}
+        onClick={() =>
+          links?.openFile(
+            path,
+            gallery || link
+              ? {
+                  ...(gallery ? { gallery } : {}),
+                  ...(link ? { link } : {}),
+                  ...(galleryLinks ? { links: galleryLinks } : {}),
+                }
+              : undefined,
+          )
+        }
         title={path}
         aria-label={
           more > 0 ? t("chat.more_files", { name: baseName(path), count: more }) : undefined
