@@ -3,7 +3,11 @@ import {
   type RemoteConsent,
   RpcErrorCode,
 } from "../../../../packages/remote-protocol/src";
-import { consentAllowScopes, consentDetailsOf } from "../../../shared/cli/consent-copy";
+import {
+  consentAllowScopes,
+  consentDetailsOf,
+  consentNamesNetworkPath,
+} from "../../../shared/cli/consent-copy";
 import { isTerminalChange } from "../../../shared/cli/ui";
 import { shortId } from "../../../shared/util/short-id";
 import { getMainI18n, tryGetMainT } from "../../i18n";
@@ -105,6 +109,7 @@ export async function remoteConsents(
           ...(body !== undefined ? { body: clipBody(body) } : {}),
           ...(instructionEdit ? { instructionEdit } : {}),
           ...(profileAdd ? { profileAdd } : {}),
+          ...(consentNamesNetworkPath(request.change) ? { pathKind: "network" as const } : {}),
         },
         eachTime: request.change.eachTime === true,
         answerable: refusalFor(p, controls) === null,
