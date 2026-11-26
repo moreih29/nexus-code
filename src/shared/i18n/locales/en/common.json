@@ -1928,7 +1928,7 @@
         "stale": "Last known usage",
         "checkedAt": "Last known usage · {{time}}",
         "refreshFailed": "Could not refresh profile usage.",
-        "updateNeeded": "Update the app on this computer to see profile usage."
+        "updateNeeded": "Update the app on {{device}} to see profile usage."
       },
       "needsSignIn": "Sign in to see your other computers here",
       "connecting": "Connecting…",

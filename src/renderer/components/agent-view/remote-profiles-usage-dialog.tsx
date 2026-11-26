@@ -33,6 +33,7 @@ export function RemoteProfilesUsageDialog({
   const now = useNow(true, 60_000);
   const enabled = online && served;
   const { id } = peer;
+  const deviceName = remoteDisplayName(peer.name);
   const rejoins = peerRejoins(peer);
   const refreshing = enabled && refreshingRejoin === rejoins;
 
@@ -61,7 +62,7 @@ export function RemoteProfilesUsageDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogHeader
         title={t("agentView.remote.usage.title")}
-        description={remoteDisplayName(peer.name)}
+        description={deviceName}
         actions={
           <Button
             type="button"
@@ -79,7 +80,7 @@ export function RemoteProfilesUsageDialog({
       <div className="mt-4 max-h-[60vh] space-y-2 overflow-y-auto" aria-busy={refreshing}>
         {!online && <p role="status">{t("agentView.remote.offlineTag")}</p>}
         {online && !served ? (
-          <p role="status">{t("agentView.remote.usage.updateNeeded")}</p>
+          <p role="status">{t("agentView.remote.usage.updateNeeded", { device: deviceName })}</p>
         ) : profiles ? (
           profiles.length ? (
             profiles.map((profile) => (
