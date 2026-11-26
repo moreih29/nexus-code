@@ -1,7 +1,13 @@
 import { open } from "node:fs/promises";
 import { win32 } from "node:path";
+import type { IpcMain } from "electron";
 import { MAX_READABLE_FILE_SIZE } from "../../../shared/fs/defaults";
-import { isWindowsLongPath, type PickedAttachment } from "../../../shared/fs/picked-attachment";
+import {
+  isWindowsLongPath,
+  type PickedAttachment,
+  READ_PICKED_ATTACHMENT,
+} from "../../../shared/fs/picked-attachment";
+import { appWindowOf } from "../window/app-windows";
 
 export async function readPickedAttachment(path: string): Promise<PickedAttachment> {
   const file = await open(path, "r");
@@ -24,9 +30,12 @@ export async function readPickedAttachment(path: string): Promise<PickedAttachme
   }
 }
 
-export function readWindowsPickedAttachment(path: unknown): Promise<PickedAttachment> | null {
+export function readWindowsPickedAttachment(
+  path: unknown,
+  platform: NodeJS.Platform = process.platform,
+): Promise<PickedAttachment> | null {
   if (
-    process.platform !== "win32" ||
+    platform !== "win32" ||
     typeof path !== "string" ||
     !isWindowsLongPath(path) ||
     !win32.isAbsolute(path)
@@ -34,4 +43,25 @@ export function readWindowsPickedAttachment(path: unknown): Promise<PickedAttach
     return null;
   }
   return readPickedAttachment(path);
+}
+
+export function registerPickedAttachmentHandler(
+  ipc: Pick<IpcMain, "handle">,
+  isAppWindow = (sender: { readonly id: number }) => appWindowOf(sender) !== null,
+  read = readWindowsPickedAttachment,
+): void {
+  ipc.handle(READ_PICKED_ATTACHMENT, async (event, path: unknown) => {
+    try {
+      if (
+        !isAppWindow(event.sender) ||
+        !event.senderFrame ||
+        event.senderFrame !== event.sender.mainFrame
+      ) {
+        return null;
+      }
+      return await read(path);
+    } catch {
+      return null;
+    }
+  });
 }

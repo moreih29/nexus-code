@@ -12,7 +12,6 @@ import {
 import { EMPTY_AGENT_PROFILES, resolveProfile } from "../shared/agent-profiles/profiles";
 import { EMPTY_INSTRUCTIONS, withInstruction } from "../shared/chat/instructions";
 import { DEFAULT_THEME } from "../shared/design-tokens";
-import { READ_PICKED_ATTACHMENT } from "../shared/fs/picked-attachment";
 import { limitLog } from "../shared/log/limit";
 import { createLogger, initMainLogger } from "../shared/log/main";
 import {
@@ -66,7 +65,7 @@ import { registerEntryPointsChannels } from "./features/entry-points/ipc";
 import { AgentFsWatcher } from "./features/fs/bridge/agent-watch";
 import { reportWatchFailure } from "./features/fs/bridge/watch-failure-log";
 import { registerFsChannel } from "./features/fs/ipc";
-import { readWindowsPickedAttachment } from "./features/fs/picked-attachment";
+import { registerPickedAttachmentHandler } from "./features/fs/picked-attachment";
 import { AgentGitWatcher } from "./features/git/bridge/agent-watch";
 import { GitAutofetchScheduler } from "./features/git/domain/autofetch";
 import {
@@ -117,7 +116,6 @@ import {
 import { installAppCsp } from "./features/window/app-csp";
 import { installAppSessionPermissions } from "./features/window/app-session-permissions";
 import {
-  appWindowOf,
   getActiveAppWindow,
   getAppWindows,
   getFocusedAppWindow,
@@ -182,12 +180,7 @@ installErrorSafetyNet();
 logChildProcessDeaths(app);
 
 setupRouter();
-ipcMain.handle(READ_PICKED_ATTACHMENT, (event, path: unknown) => {
-  if (!appWindowOf(event.sender) || event.senderFrame !== event.sender.mainFrame) {
-    return null;
-  }
-  return readWindowsPickedAttachment(path);
-});
+registerPickedAttachmentHandler(ipcMain);
 
 registerAppSchemes();
 
