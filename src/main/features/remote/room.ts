@@ -458,7 +458,7 @@ export class RemoteRoom {
         method === "chat.send" ? { outcome: "rejected" } : undefined,
       );
     }
-    if (here && online !== true) {
+    if (here && (online === false || (!peer && online === undefined))) {
       throw new RpcFailure(
         RpcErrorCode.Unavailable,
         "that device is not in the room",

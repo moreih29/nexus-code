@@ -136,13 +136,14 @@ class MockRelay {
     return this.kept.filter((k) => k.frame.from === from && k.to === to).map((k) => k.frame);
   }
 
-  private presence() {
+  presence() {
     for (const [id, handlers] of this.online) {
-      handlers.onFrame({
+      const frame: ServerFrame = {
         t: "presence",
         self: id,
         devices: this.devices.map((d) => ({ ...d, online: this.online.has(d.id) })),
-      });
+      };
+      handlers.onFrame(this.tamper ? this.tamper(frame) : frame);
     }
   }
 }
@@ -753,6 +754,12 @@ describe("a request that waits on the serving device's user", () => {
 });
 
 describe("what the relay keeps and sends again", () => {
+  function omitPeer(frame: ServerFrame): ServerFrame {
+    return frame.t === "presence" && frame.self === "b"
+      ? { ...frame, devices: frame.devices.filter((device) => device.id !== "a") }
+      : frame;
+  }
+
   async function pair() {
     const relay = new MockRelay();
     const key = await roomKey();
@@ -770,6 +777,55 @@ describe("what the relay keeps and sends again", () => {
     for (const frame of relay.between("b", "a")) relay.deliver("a", frame);
     await flushRelay();
     expect(a.served).toHaveLength(1);
+  });
+
+  test("a valid epoch allows requests to a peer missing from presence", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const a = device(relay, "a", key);
+    const notified = jest.fn();
+    const b = device(relay, "b", key, { onNotification: notified });
+    relay.tamper = omitPeer;
+    relay.drop = (from, frame) => (from === "a" && frame.to === "b" ? "silent" : undefined);
+    try {
+      a.room.start();
+      b.room.start();
+      await flushRelay();
+      relay.drop = null;
+      const update = { watchId: "w", workspaces: [], sessions: [] };
+      expect(await a.room.notify("b", "sessions.update", update)).toBe(true);
+      await flushRelay();
+      expect(notified).toHaveBeenCalledWith("a", "sessions.update", update);
+      expect(b.room.state()).toEqual({ status: "online", peers: [] });
+      expect((await b.room.request("a", "sessions.list", {})).workspaces).toHaveLength(1);
+      expect(a.served).toEqual([{ from: "b", method: "sessions.list" }]);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+    }
+  });
+
+  test("a departed peer's epoch stays unusable after the grace period", async () => {
+    const { relay, a, b } = await pair();
+    jest.useFakeTimers();
+    try {
+      await b.room.request("a", "sessions.list", {});
+      const sent = relay.between("b", "a").length;
+      relay.tamper = omitPeer;
+      relay.presence();
+      expect(b.room.state()).toEqual({ status: "online", peers: [] });
+      jest.advanceTimersByTime(PEER_GONE_GRACE_MS);
+      await expect(b.room.request("a", "sessions.list", {})).rejects.toMatchObject({
+        code: RpcErrorCode.Unavailable,
+        message: "that device is not in the room",
+      });
+      await flushRelay();
+      expect(relay.between("b", "a")).toHaveLength(sent);
+    } finally {
+      a.room.stop();
+      b.room.stop();
+      jest.useRealTimers();
+    }
   });
 
   test("a stale request repairs the peer epoch and repeated stale requests share one hello", async () => {
