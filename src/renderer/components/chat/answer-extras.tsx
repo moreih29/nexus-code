@@ -103,7 +103,7 @@ export function FileCard({
     <LinkMenu target={path} kind="file">
       <button
         type="button"
-        onClick={() => links?.openFile(path, gallery)}
+        onClick={() => links?.openFile(path, gallery ? { gallery } : undefined)}
         title={path}
         aria-label={
           more > 0 ? t("chat.more_files", { name: baseName(path), count: more }) : undefined

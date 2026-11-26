@@ -44,6 +44,10 @@ function userLanguages(): string[] {
   return languages.filter(Boolean);
 }
 
+export function encodingForBytes(bytes: Uint8Array): TextEncoding {
+  return guessEncoding(bytes, ["utf8", ...encodingsToTry(userLanguages())]);
+}
+
 export function decodeFileContent(result: FileContent, override?: TextEncoding): FileLoadResult {
   const { bytes: base64, encoding, ...rest } = result;
   if (encoding !== "bytes" && override === undefined) return { ...rest, encoding };
@@ -51,7 +55,7 @@ export function decodeFileContent(result: FileContent, override?: TextEncoding):
     encoding === "bytes"
       ? bytesFromBase64(base64 ?? "")
       : new TextEncoder().encode(encoding === "utf8-bom" ? `\ufeff${rest.content}` : rest.content);
-  const chosen = override ?? guessEncoding(bytes, encodingsToTry(userLanguages()));
+  const chosen = override ?? encodingForBytes(bytes);
   return { ...rest, content: decodeBytes(bytes, chosen), encoding: chosen };
 }
 

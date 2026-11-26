@@ -337,12 +337,14 @@ export function peerChatFiles(
     async gone(paths) {
       if (!current || current.signal.aborted) return new Set<string>();
       const missing = new Set<string>();
-      await Promise.all(
-        paths.map(async (path) => {
-          const there = await fileThere(path).catch(() => true);
-          if (!there) missing.add(path);
-        }),
-      );
+      for (let i = 0; i < paths.length && !current.signal.aborted; i += MAX_ACTIVE) {
+        await Promise.all(
+          paths.slice(i, i + MAX_ACTIVE).map(async (path) => {
+            const there = await fileThere(path).catch(() => true);
+            if (!there) missing.add(path);
+          }),
+        );
+      }
       return current.signal.aborted ? new Set() : missing;
     },
     picture(path) {

@@ -9,7 +9,10 @@ import { RemoteSessionPane } from "../../../../../src/renderer/components/agent-
 import { newPeerChat } from "../../../../../src/renderer/components/agent-view/remote-session-actions";
 import type { RemoteSessionHost } from "../../../../../src/renderer/components/agent-view/remote-session-host";
 import * as rows from "../../../../../src/renderer/components/agent-view/remote-sessions";
-import { QuickLook } from "../../../../../src/renderer/components/chat/quick-look";
+import {
+  QuickLook,
+  type QuickLookList,
+} from "../../../../../src/renderer/components/chat/quick-look";
 import { PeerWorkspacePanel } from "../../../../../src/renderer/components/peer-workspace/panel";
 import {
   openPeerWorkspaceFileBeside,
@@ -278,6 +281,38 @@ test("remote chat quick look opens at the linked line in a workspace file tab", 
     usePeerWorkspaceStore.setState(previous, true);
     useAgentViewStore.getState().setMode(previousMode);
   }
+});
+
+test("remote chat opens drafts, sent attachments, and answer galleries in the same quick look", async () => {
+  const shows: (QuickLookList | null)[] = [];
+  const files = { there: async (paths) => new Set(paths) } as ChatFiles;
+  let links: ReturnType<typeof useRemoteLinks> | undefined;
+  function CaptureLinks() {
+    links = useRemoteLinks(
+      listedRemoteTarget(peer, target.workspace, { ...shell, kind: "codex" }),
+      { model: { items: [], tools: {}, agentItems: {} } },
+      files,
+      (look) => shows.push(look),
+      () => true,
+    );
+    return null;
+  }
+  renderToStaticMarkup(<CaptureLinks />);
+  const saved = "/qa/.nexus-code/attach/repo/shell/1/qa.pdf";
+  const draft = new File(["# draft"], "qa.md");
+  const gallery = ["/repo/qa-8.png", "/repo/qa-9.png", "/repo/qa-10.md"];
+  expect(links?.opensAttached?.(saved)).toBe(true);
+  expect(links?.opensAttached?.("/qa/other/qa.pdf")).toBe(false);
+  links?.openFile(draft.name, { draft });
+  links?.openFile(gallery[0], { gallery });
+  links?.openFile(saved);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(shows).toEqual([
+    { files: ["qa.md"], index: 0, draft },
+    { files: gallery, index: 0 },
+    { files: [saved], index: 0 },
+  ]);
 });
 
 test("terminal input in both views follows terminal.control even while a typing queue is retained", () => {

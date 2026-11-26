@@ -3,6 +3,7 @@ import { peerOf } from "../../../services/remote/peer-workspace";
 import { useOutsideGranted } from "../../../state/stores/outside-grants";
 import { useWorkspace } from "../../../state/stores/workspaces";
 import { relativeTo } from "../../../utils/path";
+import { usePreviewDraft } from "./preview-draft";
 
 export type WorkspaceFile =
   | { readonly kind: "no-workspace" }
@@ -16,6 +17,8 @@ export type WorkspaceFile =
 export function useWorkspaceFile(workspaceId: string, filePath: string): WorkspaceFile {
   const location = useWorkspace(workspaceId, (w) => w?.location);
   const granted = useOutsideGranted(workspaceId, filePath);
+  const draft = usePreviewDraft();
+  if (draft) return { kind: "inside", relPath: filePath, url: draft.url };
   if (peerOf(workspaceId)) {
     return { kind: "inside", relPath: filePath, url: buildOutsideUrl(workspaceId, filePath) };
   }

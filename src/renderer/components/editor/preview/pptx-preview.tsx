@@ -6,6 +6,7 @@ import { withLineBreaks } from "../../../services/editor/preview/pptx-breaks";
 import { readWorkspaceBinary } from "../../../services/editor/preview/read-binary";
 import { cn } from "../../../utils/cn";
 import { EmptyState } from "../../ui/empty-state";
+import { usePreviewDraft } from "./preview-draft";
 import { drawPresentation, SLIDE_STYLE } from "./slide-dom";
 import { useFileVersion } from "./use-file-version";
 import { useWorkspaceFile } from "./use-workspace-file";
@@ -34,6 +35,7 @@ export function PptxPreview({ workspaceId, filePath }: PptxPreviewProps) {
 function PptxDocument({ workspaceId, relPath }: { workspaceId: string; relPath: string }) {
   const { t } = useTranslation();
   const version = useFileVersion(workspaceId, relPath);
+  const draft = usePreviewDraft()?.file;
   const hostRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<Status>({ kind: "loading" });
@@ -67,9 +69,11 @@ function PptxDocument({ workspaceId, relPath }: { workspaceId: string; relPath: 
     let cancelled = false;
     const abort = new AbortController();
     void (async () => {
-      const read = await readWorkspaceBinary(workspaceId, relPath, abort.signal).catch(() => ({
-        kind: "failed" as const,
-      }));
+      const read = await readWorkspaceBinary(workspaceId, relPath, abort.signal, draft).catch(
+        () => ({
+          kind: "failed" as const,
+        }),
+      );
       if (cancelled) return;
       if (read.kind !== "ok") {
         setStatus({ kind: read.kind });
@@ -110,7 +114,7 @@ function PptxDocument({ workspaceId, relPath }: { workspaceId: string; relPath: 
       cancelled = true;
       abort.abort();
     };
-  }, [workspaceId, relPath, version]);
+  }, [workspaceId, relPath, version, draft]);
 
   return (
     <div className="relative flex-1 min-h-0 bg-[var(--surface-backdrop-bg)]">

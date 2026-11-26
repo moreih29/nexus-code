@@ -14,7 +14,7 @@ import { type FileLink, fileKind, isLocalAddress, type LineAt } from "./links";
 import type { ChatItem, ToolCall } from "./model";
 import { followFileLink, openBrowserBeside, openFileBeside } from "./open-beside";
 import {
-  attachedImagesIn,
+  attachedFilesIn,
   imagesOf,
   jobOutputFiles,
   type OutsideLinks,
@@ -89,8 +89,13 @@ export function localChatLinks(env: LocalLinksEnv): LocalChatLinks {
   };
   return {
     opensAttached: env.opensAttached,
-    openFile(target, gallery) {
-      if (gallery) {
+    openFile(target, options) {
+      if (options && "draft" in options) {
+        env.look({ files: [target], index: 0, draft: options.draft });
+        return;
+      }
+      if (options) {
+        const { gallery } = options;
         env.look({ files: gallery, index: gallery.indexOf(target) });
         return;
       }
@@ -164,7 +169,7 @@ export function useLocalChatLinks(input: LocalChatLinksInput): {
     () => () => grantOutside(workspaceId, tabId, { files: [], dirs: [] }),
     [workspaceId, tabId],
   );
-  const attached = useMemo(() => attachedImagesIn(source.items, cwd), [source.items, cwd]);
+  const attached = useMemo(() => attachedFilesIn(source.items, cwd), [source.items, cwd]);
   const goneAttached = useGoneFiles(workspaceId, rootPath, attached);
   const latest = useRef(input);
   latest.current = input;

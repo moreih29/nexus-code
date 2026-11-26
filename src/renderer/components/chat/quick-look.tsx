@@ -27,6 +27,7 @@ import { cn } from "../../utils/cn";
 import { relativeTo } from "../../utils/path";
 import { revealInOSLabel } from "../../utils/reveal-label";
 import { ZoomableImage } from "../editor/preview/image-preview";
+import { PreviewDraft } from "../editor/preview/preview-draft";
 import { EmptyState } from "../ui/empty-state";
 import { IconButton } from "../ui/icon-button";
 import { showToast } from "../ui/toast";
@@ -39,6 +40,7 @@ import { FileLookBody, FileLookControls, type FileLookOptions, useFileLookView }
 export interface QuickLookList {
   files: string[];
   index: number;
+  draft?: File;
   changes?: Readonly<Record<string, string | null>>;
   at?: { path: string; line: number; column?: number };
   images?: Readonly<Record<string, ImageBlock>>;
@@ -78,7 +80,7 @@ export function QuickLook({
   revertBlocked,
 }: QuickLookProps) {
   const { t } = useTranslation();
-  const { files, index } = list;
+  const { files, index, draft } = list;
   const path = files[index] ?? "";
   const count = files.length;
   const stepping = count > 1;
@@ -103,6 +105,7 @@ export function QuickLook({
   const shownAsImage = image !== undefined || (isImageFile(path) && !showDiff);
   const canCopyImage =
     shownAsImage &&
+    !draft &&
     (image ? shownImage.image !== null : peer ? chatFiles?.epoch !== null : isUnder(path, root));
   const [sizes, setSizes] = useState<Readonly<Record<string, Size>>>({});
   const [lastSize, setLastSize] = useState<Size | null>(null);
@@ -245,7 +248,7 @@ export function QuickLook({
             <Copy className="size-3.5" />
           </IconButton>
         )}
-        {local && (!image || imageFile) && (
+        {local && !draft && (!image || imageFile) && (
           <IconButton
             label={revealInOSLabel()}
             onClick={() =>
@@ -255,7 +258,8 @@ export function QuickLook({
             <FolderOpen className="size-3.5" />
           </IconButton>
         )}
-        {(imageFile ?? (image ? "" : path)) &&
+        {!draft &&
+          (imageFile ?? (image ? "" : path)) &&
           (view === "agents" || openBesideInWorkspace) &&
           onOpenBeside && (
             <IconButton
@@ -272,7 +276,7 @@ export function QuickLook({
               <Columns2 className="size-3.5" />
             </IconButton>
           )}
-        {(!image || imageFile) && onOpenTab && (
+        {!draft && (!image || imageFile) && onOpenTab && (
           <IconButton
             label={t("chat.look.open_tab")}
             onClick={() => onOpenTab(imageFile ?? path, imageFile ? undefined : line)}
@@ -304,6 +308,16 @@ export function QuickLook({
               className="h-full"
             />
           )
+        ) : draft ? (
+          <PreviewDraft file={draft}>
+            <FileLookBody
+              workspaceId={workspaceId}
+              path={path}
+              root=""
+              view={fileView}
+              onImageSize={sized(path)}
+            />
+          </PreviewDraft>
         ) : (
           <FileLookBody
             workspaceId={workspaceId}

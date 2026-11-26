@@ -126,6 +126,12 @@ export function isFolder(path: string): boolean {
 const MENTIONS_RE = /^(?:@(?:"[^"\n]+"|[^\s"]+)\s*)+$/;
 const MENTION_RE = /@(?:"([^"\n]+)"|([^\s"]+))/g;
 
+export function attachmentTarget(path: string): string {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(path)) return path;
+  const start = /^[a-z]:[/\\]/i.test(path) ? 2 : 0;
+  return path.slice(0, start) + path.slice(start).replace(/[%#?:]|^\s+|\s+$/g, encodeURIComponent);
+}
+
 export function splitAttachments(text: string): { text: string; files: string[] } {
   const cut = text.lastIndexOf("\n\n");
   const last = cut >= 0 ? text.slice(cut + 2) : text;

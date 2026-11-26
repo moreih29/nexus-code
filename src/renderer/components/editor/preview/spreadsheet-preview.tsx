@@ -12,6 +12,7 @@ import {
 import { cn } from "../../../utils/cn";
 import { EmptyState } from "../../ui/empty-state";
 import { DataGrid, type GridField } from "./data-grid";
+import { usePreviewDraft } from "./preview-draft";
 import { useFileVersion } from "./use-file-version";
 import { useWorkspaceFile } from "./use-workspace-file";
 
@@ -33,6 +34,7 @@ export function SpreadsheetPreview({ workspaceId, filePath }: SpreadsheetPreview
 
 function SpreadsheetDocument({ workspaceId, relPath }: { workspaceId: string; relPath: string }) {
   const version = useFileVersion(workspaceId, relPath);
+  const draft = usePreviewDraft()?.file;
   const [status, setStatus] = useState<Status>({ kind: "loading" });
   const [shown, setShown] = useState<string | null>(null);
 
@@ -41,9 +43,11 @@ function SpreadsheetDocument({ workspaceId, relPath }: { workspaceId: string; re
     let cancelled = false;
     const abort = new AbortController();
     void (async () => {
-      const read = await readWorkspaceBinary(workspaceId, relPath, abort.signal).catch(() => ({
-        kind: "failed" as const,
-      }));
+      const read = await readWorkspaceBinary(workspaceId, relPath, abort.signal, draft).catch(
+        () => ({
+          kind: "failed" as const,
+        }),
+      );
       if (cancelled) return;
       if (read.kind !== "ok") {
         setStatus({ kind: read.kind });
@@ -61,7 +65,7 @@ function SpreadsheetDocument({ workspaceId, relPath }: { workspaceId: string; re
       cancelled = true;
       abort.abort();
     };
-  }, [workspaceId, relPath, version]);
+  }, [workspaceId, relPath, version, draft]);
 
   if (status.kind !== "ready") return <SpreadsheetStatus status={status} />;
   const { sheets } = status.workbook;

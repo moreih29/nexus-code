@@ -78,7 +78,7 @@ function attachedChips(files: string[], links: ChatLinks) {
   );
   for (const file of files) expect(html).toContain(`title="${file}"`);
   const buttons = [
-    ...html.matchAll(/data-testid="chat-attached-image"[^>]*>.*?<span[^>]*>([^<]+)</g),
+    ...html.matchAll(/data-testid="chat-attached-file"[^>]*>.*?<span[^>]*>([^<]+)</g),
   ];
   return buttons.map((match) => match[1]).sort();
 }
@@ -90,16 +90,16 @@ const links: ChatLinks = {
   openUrl: () => {},
 };
 const ATTACHED = [
-  "/Users/me/.nexus-code/attach/w1/c1/2/sent.png",
-  "/p/shots/inside.png",
+  "/Users/me/.nexus-code/attach/w1/c1/2/sent.pdf",
+  "/p/shots/inside.md",
   "/Users/me/Desktop/dropped.png",
 ];
 
-test("in a chat here, every attached image's chip opens quick look", () => {
-  expect(attachedChips(ATTACHED, links)).toEqual(["dropped.png", "inside.png", "sent.png"]);
+test("in a chat here, every attached file's chip opens quick look", () => {
+  expect(attachedChips(ATTACHED, links)).toEqual(["dropped.png", "inside.md", "sent.pdf"]);
 });
 
-test("in another computer's chat, only the chips of images that computer serves open it", () => {
+test("in another computer's chat, only the chips of files that computer serves open it", () => {
   const opensAttached = (written: string) => {
     const file = resolveFilePath(written, "/p");
     return file !== null && servedAttachment("w1", "/p", file);
@@ -108,21 +108,21 @@ test("in another computer's chat, only the chips of images that computer serves 
   const elsewhere = "/Users/me/.nexus-code/attach/w2/c1/1/elsewhere.png";
   expect(attachedChips([...ATTACHED, before, elsewhere], { ...links, opensAttached })).toEqual([
     "before.png",
-    "inside.png",
-    "sent.png",
+    "inside.md",
+    "sent.pdf",
   ]);
 });
 
-test("in a chat here, the chip of an attached image no longer kept only names it", () => {
-  const gone = new Set(["/Users/me/.nexus-code/attach/w1/c1/2/sent.png"]);
+test("in a chat here, the chip of an attached file no longer kept only names it", () => {
+  const gone = new Set(["/Users/me/.nexus-code/attach/w1/c1/2/sent.pdf"]);
   const opensAttached = attachedOpens(gone, "/p");
   expect(attachedChips(ATTACHED, { ...links, opensAttached })).toEqual([
     "dropped.png",
-    "inside.png",
+    "inside.md",
   ]);
   expect(
     attachedChips(ATTACHED, { ...links, opensAttached: attachedOpens(new Set(), "/p") }),
-  ).toEqual(["dropped.png", "inside.png", "sent.png"]);
+  ).toEqual(["dropped.png", "inside.md", "sent.pdf"]);
 });
 
 function transcript(itemsDone: boolean) {
