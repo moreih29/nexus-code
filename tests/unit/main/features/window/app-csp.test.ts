@@ -3,10 +3,13 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Session } from "electron";
 import {
+  installAppRequestGuard,
+  type RequestFrame,
+} from "../../../../../src/main/features/custom-protocols/app-schemes";
+import {
   appContentSecurityPolicy,
   appPageUrlPatterns,
   cancelsAppFileRequest,
-  installAppCsp,
   isAppPageUrl,
 } from "../../../../../src/main/features/window/app-csp";
 
@@ -116,42 +119,90 @@ describe("cancelsAppFileRequest", () => {
   });
 });
 
-type HeadersListener = (
-  details: { url: string; resourceType: string; responseHeaders?: Record<string, string[]> },
-  callback: (response: { responseHeaders?: Record<string, string[]> }) => void,
+interface RequestDetails {
+  id: number;
+  url: string;
+  resourceType: string;
+  frame?: RequestFrame | null;
+}
+
+type Listener<Details, Response> = (
+  details: Details,
+  callback: (response: Response) => void,
 ) => void;
 
+function dispatch<Details, Response>(listener: Listener<Details, Response>, details: Details) {
+  const responses: Response[] = [];
+  listener(details, (response) => responses.push(response));
+  expect(responses).toHaveLength(1);
+  return responses[0];
+}
+
 function install(reportOnly = false) {
-  let listener: HeadersListener | undefined;
+  type ResponseHeaders = Record<string, string[]>;
+  type RequestHeaders = Record<string, string>;
+  let onRequest: Listener<RequestDetails, { cancel: boolean }> | undefined;
+  let onSend:
+    | Listener<
+        RequestDetails & { requestHeaders: RequestHeaders },
+        { requestHeaders?: RequestHeaders }
+      >
+    | undefined;
+  let onResponse:
+    | Listener<
+        RequestDetails & { responseHeaders?: ResponseHeaders },
+        { responseHeaders?: ResponseHeaders }
+      >
+    | undefined;
+  let onCompleted: ((details: { id: number }) => void) | undefined;
+  let onError: ((details: { id: number }) => void) | undefined;
   let filter: { urls: string[] } | undefined;
   const session = {
     webRequest: {
-      onHeadersReceived: (f: { urls: string[] }, l: HeadersListener) => {
-        filter = f;
-        listener = l;
+      onBeforeRequest: (_filter: unknown, listener: typeof onRequest) => {
+        onRequest = listener;
+      },
+      onBeforeSendHeaders: (_filter: unknown, listener: typeof onSend) => {
+        onSend = listener;
+      },
+      onHeadersReceived: (responseFilter: { urls: string[] }, listener: typeof onResponse) => {
+        filter = responseFilter;
+        onResponse = listener;
+      },
+      onCompleted: (listener: typeof onCompleted) => {
+        onCompleted = listener;
+      },
+      onErrorOccurred: (listener: typeof onError) => {
+        onError = listener;
       },
     },
   } as unknown as Session;
-  installAppCsp(session, { indexPath: INDEX }, reportOnly);
-  if (!listener) throw new Error("listener not installed");
-  const run = listener;
-  const respond = (url: string, resourceType: string, responseHeaders = {}) => {
-    let response: { responseHeaders?: Record<string, string[]> } | undefined;
-    run({ url, resourceType, responseHeaders }, (r) => {
-      response = r;
-    });
-    return response;
+  installAppRequestGuard(session, { indexPath: INDEX }, reportOnly);
+  if (!onRequest || !onSend || !onResponse || !onCompleted || !onError) {
+    throw new Error("request guard not installed");
+  }
+  return {
+    filter,
+    onRequest,
+    onSend,
+    onResponse,
+    onCompleted,
+    onError,
   };
-  return { respond, filter };
 }
 
-describe("installAppCsp", () => {
+describe("app response policy", () => {
   test("sends the policy with the app's page, in place of one the response had", () => {
-    const { respond, filter } = install();
-    expect(filter).toEqual({ urls: ["file:///*"] });
-    const headers = respond(INDEX_URL, "mainFrame", {
-      "content-security-policy": ["default-src *"],
-      "Content-Type": ["text/html"],
+    const { onResponse, filter } = install();
+    expect(filter).toEqual({ urls: ["file:///*", "https://*/*"] });
+    const headers = dispatch(onResponse, {
+      id: 1,
+      url: INDEX_URL,
+      resourceType: "mainFrame",
+      responseHeaders: {
+        "content-security-policy": ["default-src *"],
+        "Content-Type": ["text/html"],
+      },
     })?.responseHeaders;
     expect(headers?.["Content-Security-Policy"]).toEqual([appContentSecurityPolicy()]);
     expect(headers?.["content-security-policy"]).toBeUndefined();
@@ -159,16 +210,71 @@ describe("installAppCsp", () => {
   });
 
   test("leaves every other response as it is", () => {
-    const { respond } = install();
-    expect(respond(INDEX_URL, "script")).toEqual({});
+    const { onResponse } = install();
+    expect(dispatch(onResponse, { id: 1, url: INDEX_URL, resourceType: "script" })).toEqual({});
     const other = pathToFileURL(path.resolve("/Users/u/page.html")).href;
-    expect(respond(other, "mainFrame")).toEqual({});
+    expect(dispatch(onResponse, { id: 2, url: other, resourceType: "mainFrame" })).toEqual({});
   });
 
   test("only reports in Report-Only", () => {
-    const { respond } = install(true);
-    const headers = respond(INDEX_URL, "mainFrame")?.responseHeaders;
+    const { onResponse } = install(true);
+    const headers = dispatch(onResponse, {
+      id: 1,
+      url: INDEX_URL,
+      resourceType: "mainFrame",
+    })?.responseHeaders;
     expect(headers?.["Content-Security-Policy-Report-Only"]).toEqual([appContentSecurityPolicy()]);
     expect(headers?.["Content-Security-Policy"]).toBeUndefined();
+  });
+});
+
+describe("preview cookies", () => {
+  const top = { parent: null };
+  const image = { id: 1, url: "https://cdn.test/image.png", resourceType: "image" };
+  const responseHeaders = {
+    "Set-Cookie": ["one=1", "two=2"],
+    "sEt-CoOkIe": ["three=3"],
+    Location: ["https://cdn.test/redirected.png"],
+    "Cache-Control": ["public, max-age=3600"],
+  };
+
+  test("removes cookies on both legs of a redirect even if the preview frame disappears", () => {
+    const { onRequest, onSend, onResponse } = install();
+    expect(dispatch(onRequest, { ...image, frame: { parent: top } })).toEqual({ cancel: false });
+    const requestHeaders = { cOoKiE: "one=1", Accept: "image/*" };
+    expect(dispatch(onSend, { ...image, frame: null, requestHeaders })).toEqual({
+      requestHeaders: { Accept: "image/*" },
+    });
+    expect(dispatch(onResponse, { ...image, frame: null, responseHeaders })).toEqual({
+      responseHeaders: {
+        Location: responseHeaders.Location,
+        "Cache-Control": ["public, max-age=3600"],
+      },
+    });
+    const redirect = { ...image, url: responseHeaders.Location[0]!, frame: null };
+    expect(dispatch(onRequest, redirect)).toEqual({ cancel: false });
+    expect(
+      dispatch(onResponse, { ...redirect, responseHeaders: { "set-cookie": ["four=4"] } }),
+    ).toEqual({ responseHeaders: {} });
+  });
+
+  test("preserves headers on app and frame-less requests", () => {
+    const { onRequest, onSend, onResponse } = install();
+    for (const frame of [top, null]) {
+      const request = { ...image, frame };
+      expect(dispatch(onRequest, request)).toEqual({ cancel: false });
+      expect(dispatch(onSend, { ...request, requestHeaders: { Cookie: "one=1" } })).toEqual({});
+      expect(dispatch(onResponse, { ...request, responseHeaders })).toEqual({});
+    }
+  });
+
+  test("releases tracked requests on completion and failure", () => {
+    const { onRequest, onResponse, onCompleted, onError } = install();
+    for (const finish of [onCompleted, onError]) {
+      dispatch(onRequest, { ...image, frame: { parent: top } });
+      expect(dispatch(onResponse, image)).toEqual({});
+      finish(image);
+      expect(dispatch(onResponse, { ...image, responseHeaders })).toEqual({});
+    }
   });
 });

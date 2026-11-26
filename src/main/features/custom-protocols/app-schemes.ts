@@ -1,10 +1,18 @@
+import path from "node:path";
 import type { Session } from "electron";
 import * as electron from "electron";
 import { createLogger } from "../../../shared/log/main";
 import { PREVIEW_SCHEME } from "../../../shared/preview/document-url";
 import { scopeIdOf } from "../../../shared/preview/scope-url";
 import { isScriptReadableRequest } from "../../infra/security/script-readable-request";
-import { cancelsAppFileRequest } from "../window/app-csp";
+import {
+  type AppPage,
+  appContentSecurityPolicy,
+  appPageUrlPatterns,
+  cancelsAppFileRequest,
+  cspHeaderName,
+  isAppPageUrl,
+} from "../window/app-csp";
 import { allowsEmbeddedNavigation } from "../window/frame-navigation";
 import { cancelsPreviewRequest, NEXUS_PREVIEW_SCHEME } from "./nexus-preview";
 import { NEXUS_WORKSPACE_SCHEME } from "./nexus-workspace";
@@ -74,20 +82,27 @@ export const APP_REQUEST_URLS = [
   "wss://*/*",
 ];
 
-export function installAppRequestGuard(session: Session, rendererDir: string): void {
+export function installAppRequestGuard(session: Session, page: AppPage, reportOnly = false): void {
+  const rendererDir = path.dirname(page.indexPath);
+  const policy = appContentSecurityPolicy(page.devServerUrl);
+  const policyHeader = cspHeaderName(reportOnly);
+  if (reportOnly) logger.warn(`The app window's policy only reports: ${policy}`);
+
+  const embeddedRequests = new Set<number>();
   session.webRequest.onBeforeRequest({ urls: APP_REQUEST_URLS }, (details, callback) => {
-    const embedded = isEmbeddedFrame(details.frame);
+    const embedded = embeddedRequests.has(details.id) || isEmbeddedFrame(details.frame);
     const cancel =
       cancelsAppRequest(details.resourceType, details.url, rendererDir) ||
       cancelsFrameLoad(details.resourceType, details.url) ||
       (embedded && cancelsEmbeddedRequest(details.resourceType, details.url));
     if (cancel) logger.warn(`Blocked ${details.resourceType}: ${details.url}`);
+    if (!cancel && embedded && details.url.startsWith("https:")) embeddedRequests.add(details.id);
     callback({ cancel });
   });
   session.webRequest.onBeforeSendHeaders(
     { urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*"] },
     (details, callback) => {
-      if (!isEmbeddedFrame(details.frame)) {
+      if (!embeddedRequests.has(details.id) && !isEmbeddedFrame(details.frame)) {
         callback({});
         return;
       }
@@ -98,4 +113,36 @@ export function installAppRequestGuard(session: Session, rendererDir: string): v
       callback({ requestHeaders });
     },
   );
+  session.webRequest.onHeadersReceived(
+    { urls: [...appPageUrlPatterns(page), "https://*/*"] },
+    (details, callback) => {
+      if (details.resourceType === "mainFrame" && isAppPageUrl(details.url, page)) {
+        const responseHeaders = { ...details.responseHeaders };
+        for (const name of Object.keys(responseHeaders)) {
+          if (name.toLowerCase().startsWith("content-security-policy"))
+            delete responseHeaders[name];
+        }
+        responseHeaders[policyHeader] = [policy];
+        callback({ responseHeaders });
+        return;
+      }
+      if (!embeddedRequests.has(details.id) || !details.url.startsWith("https:")) {
+        callback({});
+        return;
+      }
+      const responseHeaders = { ...details.responseHeaders };
+      const cookieHeaders = Object.keys(responseHeaders).filter(
+        (name) => name.toLowerCase() === "set-cookie",
+      );
+      if (cookieHeaders.length === 0) {
+        callback({});
+        return;
+      }
+      for (const name of cookieHeaders) delete responseHeaders[name];
+      callback({ responseHeaders });
+    },
+  );
+  const forgetEmbeddedRequest = ({ id }: { id: number }) => embeddedRequests.delete(id);
+  session.webRequest.onCompleted(forgetEmbeddedRequest);
+  session.webRequest.onErrorOccurred(forgetEmbeddedRequest);
 }
