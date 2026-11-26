@@ -33,7 +33,7 @@ function decodedLink(target: string): string {
 
 export function isNetworkLink(target: string): boolean {
   const link = decodedLink(target.trim()).trim();
-  if (!/^file:/i.test(link)) return /^[\\/]{2}/.test(link) || link.startsWith("/\\");
+  if (!/^file:/i.test(link)) return isNetworkOrDevicePath(link);
   const rest = link.slice("file:".length).replace(/\\/g, "/");
   if (/^\/{3}\//.test(rest)) return true;
   const host = /^\/\/([^/]*)/.exec(rest)?.[1];

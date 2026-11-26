@@ -130,7 +130,8 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 });
 
 function keepFileUrls(url: string): string {
-  return /^[A-Za-z]:([\\/]|%5C)/i.test(url) ||
+  return isNetworkLink(url) ||
+    /^[A-Za-z]:([\\/]|%5C)/i.test(url) ||
     /^file:\/\//i.test(url) ||
     /^[\w.-]+\.\w+:\d+(:\d+)?$/.test(url)
     ? url
