@@ -425,6 +425,147 @@ test("a session approval for a file control is the existing device and workspace
   expect(asked).toHaveLength(2);
 });
 
+describe("a network path under the allow policy", () => {
+  const NETWORK = [String.raw`\\h\s\a.txt`, "//h/s/a.txt", "/net/h/a.txt", "/Network/s/a.txt"];
+  const transferId = "10000000-0000-4000-8000-000000000000";
+  const read = (
+    g: AgentGate,
+    services: CliServices,
+    path: string,
+    method: "files.read" | "files.list" = "files.read",
+  ) =>
+    g.checkFile(
+      services,
+      {
+        device,
+        method,
+        params: { path, from, workspaceId: "w1", anywhere: true, transferId },
+      },
+      { path, tree: method === "files.list", workspaceRoot: "/workspace" },
+    );
+  const upload = (g: AgentGate, services: CliServices, path: string) =>
+    g.checkFile(
+      services,
+      {
+        device,
+        method: "files.write.begin",
+        params: { path, size: 3, from, workspaceId: "w1", anywhere: true },
+      },
+      { path, tree: false, workspaceRoot: "/workspace" },
+    );
+
+  test.each(
+    NETWORK,
+  )("asks for %s; told no, it is refused; allowed once, the same read goes on", async (asked) => {
+    const { g, services, asked: prompts } = gate("allow", ["deny", "once"]);
+    await expect(read(g, services, asked)).rejects.toThrow("did not allow");
+    await read(g, services, asked);
+    await read(g, services, asked);
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0]).toMatchObject({ change: { kind: "fileRead", detail: asked } });
+    await expect(read(g, services, asked, "files.list")).rejects.toThrow("did not allow");
+    await expect(upload(g, services, asked)).rejects.toThrow("did not allow");
+    expect(prompts).toHaveLength(4);
+  });
+
+  test("an asked path that names a share is asked about even when it resolved elsewhere", async () => {
+    const { g, services, asked } = gate("allow");
+    await expect(
+      g.checkFile(
+        services,
+        {
+          device,
+          method: "files.read",
+          params: { path: "//h/s/a.txt", from, workspaceId: "w1", anywhere: true, transferId },
+        },
+        { path: "/outside/a.txt", tree: false, workspaceRoot: "/workspace" },
+      ),
+    ).rejects.toThrow("did not allow");
+    expect(asked).toHaveLength(1);
+  });
+
+  test("allowed until restart, later network requests between those workspaces go on", async () => {
+    const { g, services, asked } = gate("allow", ["session"]);
+    await read(g, services, NETWORK[0] ?? "");
+    for (const path of NETWORK) {
+      await read(g, services, path, "files.list");
+      await upload(g, services, path);
+    }
+    expect(asked).toHaveLength(1);
+  });
+
+  test.each([
+    "allow",
+    "ask",
+  ] as const)("a tree allowed once on this computer does not cover a network path under %s", async (policy) => {
+    const { g, services, asked } = gate(
+      policy,
+      policy === "ask" ? ["once", "deny", "deny"] : ["deny", "deny"],
+    );
+    await read(g, services, "/", "files.list");
+    await read(g, services, "/outside/a.txt");
+    expect(asked).toHaveLength(policy === "ask" ? 1 : 0);
+    await expect(read(g, services, "/net/h/a.txt")).rejects.toThrow("did not allow");
+    await expect(read(g, services, "/Network/s/a.txt", "files.list")).rejects.toThrow(
+      "did not allow",
+    );
+    expect(asked.at(-1)).toMatchObject({ change: { kind: "fileReadTree" } });
+  });
+
+  test("a network tree allowed once covers what is inside it, and nothing beside it", async () => {
+    const { g, services, asked } = gate("allow", ["once", "once", "deny", "deny"]);
+    await read(g, services, "/net/h", "files.list");
+    await read(g, services, "/net/h/x/a.txt");
+    await read(g, services, "/net/h/x", "files.list");
+    expect(asked).toHaveLength(1);
+    await read(g, services, String.raw`\\h\s`, "files.list");
+    await read(g, services, String.raw`\\h\s\x\a.txt`);
+    expect(asked).toHaveLength(2);
+    await expect(read(g, services, "/net/h2/a.txt")).rejects.toThrow("did not allow");
+    await expect(read(g, services, String.raw`\\h\s2\a.txt`)).rejects.toThrow("did not allow");
+  });
+
+  test.each([
+    [String.raw`\\nas\share\w`, String.raw`\\nas\share\w\src\a.ts`],
+    ["/net/h/w", "/net/h/w/src/a.ts"],
+    ["/Network/Data/w", "/Network/Data/w/src/a.ts"],
+  ])("a write inside a workspace on %s goes on without asking, as before", async (workspaceRoot, path) => {
+    const { g, services, asked } = gate("allow");
+    for (const method of ["files.write.begin", "files.mkdir"] as const) {
+      for (const transferId of [undefined, "10000000-0000-4000-8000-000000000000"]) {
+        await g.checkFile(
+          services,
+          {
+            device,
+            method,
+            params: {
+              path,
+              size: 3,
+              from,
+              workspaceId: "w1",
+              ...(transferId ? { transferId } : {}),
+            },
+          },
+          { path, tree: method === "files.mkdir" && transferId !== undefined, workspaceRoot },
+        );
+      }
+    }
+    expect(asked).toHaveLength(0);
+    await expect(upload(g, services, path)).rejects.toThrow("did not allow");
+    expect(asked).toHaveLength(1);
+  });
+
+  test("a path on this computer still goes on without asking", async () => {
+    const { g, services, asked } = gate("allow");
+    for (const path of ["/outside/a.txt", String.raw`C:\outside\a.txt`, "/netx/a.txt"]) {
+      await read(g, services, path);
+      await read(g, services, path, "files.list");
+      await upload(g, services, path);
+    }
+    expect(asked).toHaveLength(0);
+  });
+});
+
 test.each([
   "allow",
   "ask",

@@ -308,6 +308,7 @@
       "allow": "Allow",
       "once": "Allow once",
       "timeout": "It is turned down if not answered in {{seconds}} seconds.",
+      "networkPath": "Network path",
       "action": {
         "open": "open {{detail}}",
         "diff": "open the changes of {{detail}}",
