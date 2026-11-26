@@ -183,9 +183,9 @@ describe("pathToLookUp", () => {
     String.raw`\??\UNC\127.0.0.1\qa-none-46\a.txt`,
     "/??/UNC/127.0.0.1/qa-none-46/a.txt",
     String.raw`\??\C:\tmp\a.txt`,
-    String.raw`\?\UNC\s\sh\a.txt`,
-    String.raw`\.\C:\a.txt`,
-    String.raw`\s\sh\a.txt`,
+    String.raw`\\?\UNC\s\sh\a.txt`,
+    String.raw`\\.\C:\a.txt`,
+    String.raw`\\s\sh\a.txt`,
     "//s/sh/a.txt",
     String.raw`/\s\sh\a.txt`,
   ];
