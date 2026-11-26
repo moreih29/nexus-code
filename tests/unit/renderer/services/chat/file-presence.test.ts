@@ -209,6 +209,15 @@ describe("pathToLookUp", () => {
     }
   });
 
+  it("looks up a path inside a share root in that workspace, but no device form of it", () => {
+    expect(pathToLookUp("//nas/share/w/src/a.ts", "//nas/share/w")).toBe("src/a.ts");
+    expect(pathToLookUp("//nas/share/w/src/a.ts", String.raw`\\nas\share\w`)).toBe("src/a.ts");
+    expect(pathToLookUp("//nas/share/other/a.ts", "//nas/share/w")).toBeNull();
+    expect(pathToLookUp(String.raw`\\?\UNC\nas\share\w\a.ts`, "//nas/share/w")).toBeNull();
+    expect(pathToLookUp(String.raw`\\?\C:\w\a.ts`, String.raw`\\?\C:\w`)).toBeNull();
+    expect(pathToLookUp("/??/UNC/nas/share/w/a.ts", "/??/UNC/nas/share/w")).toBeNull();
+  });
+
   it("looks up only drive paths outside a Windows root, and rooted paths outside a POSIX one", () => {
     expect(pathToLookUp("D:/out/a.txt", "C:/w")).toBe("D:/out/a.txt");
     expect(pathToLookUp("/out/a.txt", "C:/w")).toBeNull();

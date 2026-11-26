@@ -3,6 +3,7 @@ import { ipcCallResult } from "@/ipc/client";
 import {
   isAbsoluteOutsidePath,
   isAutoMountPath,
+  isDevicePath,
   isDrivePath,
   isNetworkOrDevicePath,
 } from "../../../shared/fs/outside-url";
@@ -32,9 +33,10 @@ export function lookupPath(path: string, root: string): string | null {
 }
 
 export function pathToLookUp(path: string, root: string): string | null {
-  if (isNetworkOrDevicePath(path)) return null;
+  if (isDevicePath(path)) return null;
   const relPath = lookupPath(path, root);
   if (relPath !== null) return relPath;
+  if (isNetworkOrDevicePath(path)) return null;
   if (!root || !isAbsoluteOutsidePath(path) || isUnder(path, root)) return null;
   if ((isDrivePath(root) || isNetworkOrDevicePath(root)) && !isDrivePath(path)) return null;
   return isAutoMountPath(path) ? null : path;
