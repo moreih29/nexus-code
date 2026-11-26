@@ -181,6 +181,7 @@ export function useRemoteLinks(
             mode,
             compare,
             compareFrom: before !== undefined ? tabId : undefined,
+            tabId,
           });
           requestTabFocus(key);
           return true;

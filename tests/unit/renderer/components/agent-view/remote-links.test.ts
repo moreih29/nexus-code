@@ -902,6 +902,22 @@ describe("a host that serves file grants", () => {
     });
   });
 
+  test("a picture that needs a grant fails with that kind, and asks for none", async () => {
+    events.get("roomChanged")?.(grantsRoom());
+    answer = () => ({
+      [IPC_RESULT_BRAND]: true,
+      ok: false,
+      kind: "permission-denied",
+      code: "grant-required",
+      message: "a grant is required",
+    });
+    const files = peerChatFiles(target, peerChatAccess("d1"));
+    await expect(files.picture("/outside/qa.png")).rejects.toMatchObject({
+      kind: "grant-required",
+    });
+    expect(calls.map((c) => c.method)).toEqual(["peerFilesRead"]);
+  });
+
   test("an older host, or a pane with no tab, keeps the old way", () => {
     events.get("roomChanged")?.(serving(["chat.read", "files"]));
     const old = peerChatFiles(target, peerChatAccess("d1"));

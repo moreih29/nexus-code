@@ -1376,7 +1376,8 @@
       "network_path": "Network paths can't be opened.",
       "gone": "That file is no longer in the chat.",
       "denied": "Reading that file isn't allowed.",
-      "open_failed": "Couldn't open that file. Try again later."
+      "open_failed": "Couldn't open that file. Try again later.",
+      "load_failed": "Couldn't load"
     },
     "run": {
       "kind": "claude -p run",
