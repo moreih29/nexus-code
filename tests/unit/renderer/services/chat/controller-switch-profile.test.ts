@@ -6,8 +6,6 @@ import {
 import { ipcErr } from "../../../../../src/shared/ipc/result";
 import { ClaudeTabPropsSchema, CodexTabPropsSchema } from "../../../../../src/shared/types/layout";
 
-(globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
-
 const calls: { method: string; args: Record<string, unknown> }[] = [];
 let onStop: (() => void) | undefined;
 let onStart: (() => void) | undefined;

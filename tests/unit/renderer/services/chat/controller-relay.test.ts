@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { RelayedMessage } from "../../../../../src/shared/chat/relay";
 
-(globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
-
 const steps: string[] = [];
 const written: Record<string, unknown>[] = [];
 let answer: ((message: Record<string, unknown>) => void) | undefined;
