@@ -14,6 +14,7 @@ import type { ConsentControls } from "../consents";
 import { type FileWrites, fileWriteDestination, makeRemoteDirectory } from "../file-writes";
 import {
   absoluteFilePath,
+  absoluteReadPath,
   listFiles,
   outsideFileSource,
   type RemoteFiles,
@@ -166,7 +167,7 @@ export async function serveFileRead(
   let approvedPath: string | undefined;
   if (anywhere) {
     authorizeAnywhere();
-    const absolute = absoluteFilePath(read.path);
+    const absolute = writeTarget ? absoluteFilePath(read.path) : absoluteReadPath(read.path);
     const source = await outsideFileSource(absolute)
       .then(async (path) => ({
         path,

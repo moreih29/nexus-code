@@ -8,7 +8,11 @@ import {
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
 import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
-import { isDevicePath } from "../../../shared/fs/outside-url";
+import {
+  isAutoMountPath,
+  isDevicePath,
+  isNetworkOrDevicePath,
+} from "../../../shared/fs/outside-url";
 import type { FsPreviewPath } from "../../../shared/fs/protocol";
 import type { DirEntry } from "../../../shared/fs/types";
 import { decodable } from "../../../shared/remote/image-size";
@@ -131,6 +135,19 @@ export function absoluteFilePath(asked: string): string {
   return cleanPath;
 }
 
+function refuseNetworkRead(asked: string, ...cleaned: string[]): void {
+  const forms = [asked, ...cleaned].flatMap((p) => [p, path.posix.normalize(p)]);
+  if (forms.some((p) => isNetworkOrDevicePath(p) || isAutoMountPath(p))) {
+    throw forbidden(`${asked} is a network or device path: it is not read from another device`);
+  }
+}
+
+export function absoluteReadPath(asked: string): string {
+  const absolute = absoluteFilePath(asked);
+  refuseNetworkRead(asked, absolute);
+  return absolute;
+}
+
 export async function outsideFileSource(asked: string): Promise<string> {
   const absolute = absoluteFilePath(asked);
   return nodeFs.realpath(absolute).catch((error: NodeJS.ErrnoException) => {
@@ -148,19 +165,23 @@ async function placeToRead(
   folders: readonly string[],
   asked: string,
 ): Promise<Place | { kind: "folder"; absolute: string; output: true }> {
+  let place: Place;
   try {
-    return placeOf(root, folders, asked);
+    place = placeOf(root, folders, asked);
   } catch (error) {
     if (!(error instanceof RpcFailure) || error.code !== RpcErrorCode.Forbidden) throw error;
     if (!files.named || asked.includes("\0")) throw error;
     const style = styleOf(root);
     const wanted = clean(style, asked);
+    refuseNetworkRead(asked, wanted);
     const same = (a: string) =>
       style.windows ? a.toLowerCase() === wanted.toLowerCase() : a === wanted;
     const named = await files.named(workspaceId);
     if (!named.some((o) => same(clean(style, o)))) throw error;
     return { kind: "folder", absolute: wanted, output: true };
   }
+  if (place.kind === "folder") refuseNetworkRead(asked, place.absolute);
+  return place;
 }
 
 function notFound(error: unknown, asked: string): never {
@@ -275,8 +296,9 @@ export async function listFiles(
 ): Promise<RpcResult<"files.list">> {
   const folders = anywhere ? [] : await files.folders(workspaceId);
   const place: Place = anywhere
-    ? { kind: "folder", absolute: absoluteFilePath(asked) }
+    ? { kind: "folder", absolute: absoluteReadPath(asked) }
     : placeOf(root, folders, asked);
+  if (place.kind === "folder") refuseNetworkRead(asked, place.absolute);
   const style = styleOf(root);
   const fs = await files.fs(workspaceId);
   if (!fs.readdirNoLinks)
@@ -375,7 +397,7 @@ export async function readFile(
   }
   const folders = anywhere ? [] : await files.folders(workspaceId);
   const place = anywhere
-    ? { kind: "folder" as const, absolute: absoluteFilePath(asked) }
+    ? { kind: "folder" as const, absolute: absoluteReadPath(asked) }
     : await placeToRead(files, workspaceId, root, folders, asked);
   const style = styleOf(root);
   const fs = await files.fs(workspaceId);
