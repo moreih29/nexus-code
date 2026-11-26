@@ -100,36 +100,37 @@ describe("createFilePresence", () => {
     expect(await presence.isThere("ws", "/p", "/p/a.ts")).toBe(false);
   });
 
-  it("looks a file outside the workspace up by its path once a tab granted it", async () => {
+  it("looks a file outside the workspace up by its path, granted or not", async () => {
     const asked: string[] = [];
-    const granted = new Set(["/tmp/shot.png", "/dev/shm"]);
-    const presence = createFilePresence(
-      async (_workspaceId, path) => {
-        asked.push(path);
-        return path === "/tmp/shot.png";
-      },
-      Date.now,
-      (_workspaceId, path) => granted.has(path),
-    );
+    const presence = createFilePresence(async (_workspaceId, path) => {
+      asked.push(path);
+      return path === "/tmp/shot.png";
+    });
     expect(await presence.isThere("ws", "/p", "/tmp/shot.png")).toBe(true);
-    expect(await presence.isThere("ws", "/p", "/dev/shm")).toBe(false);
     expect(await presence.isThere("ws", "/p", "/etc/hosts")).toBe(false);
     expect(await presence.isThere("ws", "C:\\w", "D:/out/log.txt")).toBe(false);
-    expect(asked).toEqual(["/tmp/shot.png", "/dev/shm"]);
+    expect(asked).toEqual(["/tmp/shot.png", "/etc/hosts", "D:/out/log.txt"]);
+  });
+
+  it("never looks up a network share or device path an answer names", async () => {
+    const asked: string[] = [];
+    const presence = createFilePresence(async (_workspaceId, path) => {
+      asked.push(path);
+      return true;
+    });
+    for (const path of ["//evil.test/share/a.png", "\\\\evil.test\\share\\a.png", "\\\\?\\C:\\a"]) {
+      expect(await presence.isThere("ws", "C:\\w", path)).toBe(false);
+    }
+    expect(asked).toEqual([]);
   });
 
   it("looks a Windows file outside the workspace up by its path from the drive", async () => {
     const output = String.raw`C:\Temp\claude\tasks\b1.output`;
-    const granted = new Set(["D:/out/shot.png", output]);
     const asked: string[] = [];
-    const presence = createFilePresence(
-      async (_workspaceId, path) => {
-        asked.push(path);
-        return true;
-      },
-      Date.now,
-      (_workspaceId, path) => granted.has(path),
-    );
+    const presence = createFilePresence(async (_workspaceId, path) => {
+      asked.push(path);
+      return true;
+    });
     expect(await presence.isThere("ws", "C:\\w", "D:/out/shot.png")).toBe(true);
     expect(await presence.isThere("ws", "C:\\w", output)).toBe(true);
     expect(asked).toEqual(["D:/out/shot.png", output]);
@@ -156,23 +157,20 @@ describe("filesFound", () => {
 });
 
 describe("filesGone", () => {
-  it("is what was looked up and not found, not what cannot be looked up yet", async () => {
-    const granted = new Set(["/h/attach/w/c/1/kept.png", "/h/attach/w/old/1/removed.png"]);
-    const grantedCheck = (_workspaceId: string, path: string) => granted.has(path);
+  it("is what was looked up and not found", async () => {
     const presence = createFilePresence(
       async (_workspaceId, relPath) =>
         relPath === "/h/attach/w/c/1/kept.png" || relPath === "in.png",
       () => 0,
-      grantedCheck,
     );
     const paths = [
       "/h/attach/w/c/1/kept.png",
       "/h/attach/w/old/1/removed.png",
       "/p/in.png",
       "/p/gone.png",
-      "/h/attach/w/c/2/new.png",
+      "//share/x/a.png",
     ];
-    const gone = await filesGone(presence, "w", "/p", paths, grantedCheck);
+    const gone = await filesGone(presence, "w", "/p", paths);
     expect([...gone]).toEqual(["/h/attach/w/old/1/removed.png", "/p/gone.png"]);
   });
 });

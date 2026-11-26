@@ -20,12 +20,14 @@ import {
   changedShareFiles,
   contextOf,
   distinctResults,
+  hostedOutsideFiles,
   imagesOf,
   jobCommand,
   jobOutputFile,
   jobOutputFiles,
   jobsOf,
   joinAgents,
+  outsideLinkedFiles,
   outsideLinksOf,
   pastAgentsOf,
   resultsOf,
@@ -680,39 +682,94 @@ describe("chat panel", () => {
     const links = outsideLinksOf(model.items, model.tools, "C:\\p", "C:\\p");
     expect(links.files).toContain("/localhost/C$/tmp/x/unc.txt");
     expect(links.files.filter((file) => file.startsWith("//"))).toEqual([]);
-    expect(links.dirs.filter((dir) => dir.startsWith("//"))).toEqual([]);
   });
 
-  test("what a session links outside the workspace, with its HTML files' folders", () => {
+  test("grants what the user looked at, what tools did and the images an answer names, no other file it names", () => {
     const model = applyLines(emptyModel(), [
       assistant("m1", [
         { type: "tool_use", id: "r1", name: "Read", input: { file_path: "/tmp/shot.png" } },
         { type: "tool_use", id: "r2", name: "Read", input: { file_path: "/p/src/a.ts" } },
         { type: "tool_use", id: "w", name: "Write", input: { file_path: "/tmp/site/index.html" } },
         { type: "tool_use", id: "n", name: "NotebookEdit", input: { notebook_path: "../n.ipynb" } },
+        { type: "tool_use", id: "run", name: "Read", input: { file_path: "/tmp/running.txt" } },
       ]),
+      result("r1", "ok", {}),
+      result("r2", "ok", {}),
+      result("w", "ok", { type: "create" }),
+      result("n", "ok", {}),
       assistant("m2", [
         {
           type: "text",
-          text: "See [report](/var/out/report.htm), `docs/b.md` and [home](/home/u/index.html).",
+          text: "See [report](/var/out/report.htm), `docs/b.md`, [key](/home/u/.ssh/id_rsa), ![shot](/tmp/s/shot.png), [svg](/tmp/s/plot.svg), [jpg](/tmp/s/a.JPG) and [share](\\\\host\\share\\x.png).",
         },
       ]),
     ]);
-    const links = outsideLinksOf(model.items, model.tools, "/home/u/p", "/home/u/p", ["/x/y.pdf"]);
-    expect(links.files).toEqual([
+    const links = outsideLinksOf(model.items, model.tools, "/home/u/p", "/home/u/p", [
       "/x/y.pdf",
-      "/tmp/shot.png",
-      "/p/src/a.ts",
-      "/tmp/site/index.html",
-      "/home/u/n.ipynb",
-      "/var/out/report.htm",
-      "/home/u/index.html",
+      "/home/u/p/inside.txt",
     ]);
-    expect(links.dirs).toEqual(["/tmp/site", "/var/out"]);
-    expect(outsideLinksOf(model.items, model.tools, "/home/u/p", "")).toEqual({
-      files: [],
-      dirs: [],
+    expect(links).toEqual({
+      files: [
+        "/x/y.pdf",
+        "/tmp/shot.png",
+        "/p/src/a.ts",
+        "/tmp/site/index.html",
+        "/home/u/n.ipynb",
+        "/tmp/s/shot.png",
+        "/tmp/s/plot.svg",
+        "/tmp/s/a.JPG",
+      ],
     });
+    expect(outsideLinksOf(model.items, model.tools, "/home/u/p", "")).toEqual({ files: [] });
+  });
+
+  test("a tool call that failed, was denied or was stopped grants nothing", () => {
+    const model = applyLines(emptyModel(), [
+      assistant("m1", [
+        { type: "tool_use", id: "fail", name: "Read", input: { file_path: "/home/u/.ssh/id_rsa" } },
+        { type: "tool_use", id: "sent", name: "SendUserFile", input: { files: ["/etc/shadow"] } },
+      ]),
+      out({
+        type: "user",
+        parent_tool_use_id: null,
+        message: {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "fail", content: "blocked", is_error: true },
+            { type: "tool_result", tool_use_id: "sent", content: "denied", is_error: true },
+          ],
+        },
+      }),
+    ]);
+    expect(model.tools.fail.status).toBe("error");
+    const denied = { ...model.tools.fail, id: "d", status: "denied" as const };
+    const stopped = { ...model.tools.fail, id: "s", status: "stopped" as const };
+    const tools = { ...model.tools, d: denied, s: stopped };
+    expect(outsideLinksOf(model.items, tools, "/p", "/p").files).toEqual([]);
+  });
+
+  test("the files a host serves its other devices are as before: links and every tool call too", () => {
+    const model = applyLines(emptyModel(), [
+      assistant("m1", [
+        { type: "tool_use", id: "fail", name: "Read", input: { file_path: "/tmp/failed.png" } },
+        { type: "text", text: "See [report](/var/out/report.htm)." },
+      ]),
+      out({
+        type: "user",
+        parent_tool_use_id: null,
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "fail", content: "no", is_error: true }],
+        },
+      }),
+    ]);
+    expect(hostedOutsideFiles(model.items, model.tools, "/p", "/p")).toEqual([
+      "/tmp/failed.png",
+      "/var/out/report.htm",
+    ]);
+    expect(outsideLinkedFiles(model.items, model.tools, "/p", "/p")).toEqual([
+      "/var/out/report.htm",
+    ]);
   });
 
   test("context and usage read their answers", () => {
@@ -788,7 +845,7 @@ describe("chat panel", () => {
 });
 
 describe("links written from where the agent's shell went", () => {
-  test("a card and a grant for each place a relative link may name", () => {
+  test("a card for each place a relative link may name, and a grant for each image place", () => {
     seq = 0;
     const model = applyLines(emptyModel(), [
       {
@@ -813,6 +870,9 @@ describe("links written from where the agent's shell went", () => {
       "/p/outputs/a.png": ["/tmp/x/outputs/a.png", "/p/tracks/P/outputs/a.png"],
     });
     expect(outsideLinksOf(model.items, model.tools, "/p", "/p").files).toEqual([
+      "/tmp/x/outputs/a.png",
+    ]);
+    expect(outsideLinkedFiles(model.items, model.tools, "/p", "/p")).toEqual([
       "/tmp/x/outputs/a.png",
     ]);
   });
@@ -1171,7 +1231,6 @@ describe("images the user attached to a message", () => {
     ];
     expect(outsideLinksOf(items, {}, "/ws", "/ws")).toEqual({
       files: ["/tmp/a/big.png", "/tmp/a/notes.txt", "/tmp/a/report.html"],
-      dirs: [],
     });
   });
 

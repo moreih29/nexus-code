@@ -86,11 +86,3 @@ export function isOutsideGranted(
 export function useOutsideGranted(workspaceId: string, absPath: string): boolean {
   return useOutsideGrantsStore((s) => isOutsideGranted(s.byWorkspace, workspaceId, absPath));
 }
-
-export function useOutsideDirGranted(workspaceId: string, absDir: string): boolean {
-  return useOutsideGrantsStore((s) =>
-    Object.values(s.byWorkspace[workspaceId] ?? {}).some((grant) =>
-      grant.dirs.some((dir) => absDir === dir || absDir.startsWith(`${dir}/`)),
-    ),
-  );
-}

@@ -1629,6 +1629,10 @@ const coreIpcContract = {
       removeAll: call(workspaceScoped({ relPath: FsMutationRelPathSchema }), z.void()),
       trash: call(workspaceScoped({ relPath: FsMutationRelPathSchema }), z.void()),
       readExternal: call(workspaceScoped({ absolutePath: z.string() }), FileReadResultSchema),
+      outsideExists: call(
+        workspaceScoped({ absolutePath: z.string().min(1).max(4096) }),
+        z.boolean(),
+      ),
       grantOutside: call(
         workspaceScoped({
           owner: z.string().min(1).max(200),
@@ -1698,8 +1702,12 @@ const coreIpcContract = {
   preview: {
     call: {
       putHtml: call(
-        z.object({ token: z.string().optional(), html: z.string() }),
+        z.object({ token: z.string().optional(), html: z.string(), scope: z.string().optional() }),
         z.object({ token: z.string(), url: z.string() }),
+      ),
+      openScope: call(
+        z.object({ workspaceId: z.string().min(1), dir: z.string().min(1).max(4096) }),
+        z.object({ scope: z.string(), base: z.string() }).nullable(),
       ),
       releaseHtml: call(z.object({ token: z.string() }), z.void()),
     },

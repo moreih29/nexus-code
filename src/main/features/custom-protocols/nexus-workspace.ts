@@ -6,12 +6,14 @@ import * as electron from "electron";
 import { MAX_BYTES_CHUNK } from "../../../../packages/remote-protocol/src";
 import { READ_RANGE_MAX_BYTES } from "../../../shared/fs/defaults";
 import { outsideWorkspaceOf } from "../../../shared/fs/outside-url";
-import { PEER_HOST, type PeerWorkspace, peerFileOf } from "../../../shared/fs/peer-url";
+import { PEER_HOST, type PeerWorkspace, peerFileOf, peerOf } from "../../../shared/fs/peer-url";
 import type { FileReadBinaryResult } from "../../../shared/fs/types";
 import { createLogger } from "../../../shared/log/main";
+import { scopedSegments, scopeIdOf } from "../../../shared/preview/scope-url";
 import { isOutsideGranted, resolveOutsideGrant } from "../fs/outside-grants";
 import { isGuardedPeerViewFile } from "../fs/read-guard";
 import type { WorkspaceManager } from "../workspace/manager";
+import { type PreviewScope, type PreviewScopes, realpathNative } from "./preview-scopes";
 
 const logger = createLogger("nexus-workspace");
 
@@ -59,13 +61,71 @@ function mimeFromPath(filePath: string): string {
   return MIME_MAP[ext] ?? "application/octet-stream";
 }
 
-function responseHeaders(filePath: string): Record<string, string> {
+function responseHeaders(filePath: string, readable = false): Record<string, string> {
   return {
     "Content-Type": mimeFromPath(filePath),
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
     "Accept-Ranges": "bytes",
+    ...(readable ? { "Access-Control-Allow-Origin": "*" } : {}),
   };
+}
+
+function readableBy(response: Response): Response {
+  if (response.ok) response.headers.set("Access-Control-Allow-Origin", "*");
+  return response;
+}
+
+function joinScoped(dir: string, segments: readonly string[]): string {
+  return dir === "/" || /^[A-Za-z]:\/?$/.test(dir)
+    ? `${dir.replace(/\/?$/, "/")}${segments.join("/")}`
+    : `${dir}/${segments.join("/")}`;
+}
+
+function comparablePath(p: string): string {
+  return process.platform === "win32" ? p.replace(/\\/g, "/").toLowerCase() : p;
+}
+
+export async function realScopedPath(dir: string, target: string): Promise<string | null> {
+  try {
+    const [realDir, real] = await Promise.all([realpathNative(dir), realpathNative(target)]);
+    const base = comparablePath(realDir).replace(/\/+$/, "");
+    const inside = comparablePath(real);
+    return inside.startsWith(`${base}/`) ? real : null;
+  } catch {
+    return null;
+  }
+}
+
+async function serveScoped(
+  workspaceManager: WorkspaceManager,
+  peers: (() => PeerFileReader | null) | undefined,
+  scope: PreviewScope,
+  segments: readonly string[],
+  req: Request,
+): Promise<Response> {
+  const target = joinScoped(scope.dir, segments);
+  const peer = peerOf(scope.workspaceId);
+  if (peer) {
+    const reader = peers?.() ?? null;
+    if (!reader) return new Response(null, { status: 404 });
+    return readableBy(await servePeerFile(reader, peer, target, req));
+  }
+  const meta = workspaceManager.list().find((m) => m.id === scope.workspaceId);
+  if (!meta) return new Response(null, { status: 404 });
+  if (meta.location.kind !== "local") {
+    const root = meta.location.remotePath.replace(/\/+$/, "");
+    const rel = target.startsWith(`${root}/`) ? target.slice(root.length + 1) : target;
+    return readableBy(
+      await serveViaAgent(workspaceManager, scope.workspaceId, rel, req.headers.get("range")),
+    );
+  }
+  const real = await realScopedPath(scope.dir, target);
+  if (!real) {
+    logger.warn(`Scoped path left its folder: ${req.url}`);
+    return new Response(null, { status: 404 });
+  }
+  return serveLocalFile(real, req.headers.get("range"), true);
 }
 
 export interface ByteRange {
@@ -140,6 +200,7 @@ export const PEER_PIECE_BYTES = MAX_BYTES_CHUNK;
 export function buildNexusWorkspaceHandler(
   workspaceManager: WorkspaceManager,
   peers?: () => PeerFileReader | null,
+  scopes?: PreviewScopes,
 ): (req: Request) => Promise<Response> {
   return async (req: Request): Promise<Response> => {
     let parsed: URL;
@@ -148,6 +209,14 @@ export function buildNexusWorkspaceHandler(
     } catch {
       logger.warn(`Invalid URL rejected: ${req.url}`);
       return new Response(null, { status: 404 });
+    }
+
+    const scopeId = scopeIdOf(parsed.host);
+    if (scopeId !== null) {
+      const scope = scopes?.get(scopeId);
+      const scoped = scopedSegments(parsed.pathname);
+      if (!scope || !scoped || scoped.length === 0) return new Response(null, { status: 404 });
+      return serveScoped(workspaceManager, peers, scope, scoped, req);
     }
 
     const outsideOf = outsideWorkspaceOf(parsed.host);
@@ -239,7 +308,11 @@ export function buildNexusWorkspaceHandler(
   };
 }
 
-async function serveLocalFile(realPath: string, rangeHeader: string | null): Promise<Response> {
+async function serveLocalFile(
+  realPath: string,
+  rangeHeader: string | null,
+  readable = false,
+): Promise<Response> {
   if (rangeHeader !== null) {
     try {
       const { size } = await fs.promises.stat(realPath);
@@ -248,7 +321,9 @@ async function serveLocalFile(realPath: string, rangeHeader: string | null): Pro
       if (range !== null) {
         const stream = fs.createReadStream(realPath, { start: range.start, end: range.end });
         const body = Readable.toWeb(stream) as ReadableStream<Uint8Array>;
-        return partialResponse(body, range, size, realPath);
+        return readable
+          ? readableBy(partialResponse(body, range, size, realPath))
+          : partialResponse(body, range, size, realPath);
       }
     } catch (err) {
       logger.warn(`Failed to read file: ${realPath} — ${(err as Error).message}`);
@@ -263,7 +338,7 @@ async function serveLocalFile(realPath: string, rangeHeader: string | null): Pro
       return new Response(null, { status: 404 });
     }
     const body = Readable.toWeb(fs.createReadStream(realPath)) as ReadableStream<Uint8Array>;
-    return new Response(body, { status: 200, headers: responseHeaders(realPath) });
+    return new Response(body, { status: 200, headers: responseHeaders(realPath, readable) });
   } catch (err) {
     logger.warn(`Failed to read file: ${realPath} — ${(err as Error).message}`);
     return new Response(null, { status: 404 });
@@ -493,7 +568,7 @@ export const NEXUS_WORKSPACE_SCHEME: CustomScheme = {
   privileges: {
     standard: true,
     secure: true,
-    supportFetchAPI: false,
+    supportFetchAPI: true,
     corsEnabled: true,
     bypassCSP: false,
     stream: true,
@@ -503,6 +578,10 @@ export const NEXUS_WORKSPACE_SCHEME: CustomScheme = {
 export function installNexusWorkspaceProtocol(
   workspaceManager: WorkspaceManager,
   peers?: () => PeerFileReader | null,
+  scopes?: PreviewScopes,
 ): void {
-  electron.protocol.handle("nexus-workspace", buildNexusWorkspaceHandler(workspaceManager, peers));
+  electron.protocol.handle(
+    "nexus-workspace",
+    buildNexusWorkspaceHandler(workspaceManager, peers, scopes),
+  );
 }

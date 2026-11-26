@@ -37,6 +37,7 @@ export function FileImage({
     }
   }
   const src = picture.image ? imageSrc(picture.image) : file.kind === "inside" ? file.url : null;
+  if (!src && file.kind === "outside" && links) return <ImageChip path={path} />;
   if (!src || failedFor === src) return <>{fallback}</>;
   const img = (
     <img

@@ -15,7 +15,7 @@ const BASE_DIRECTIVES: Readonly<Record<string, readonly string[]>> = {
   "media-src": ["'self'", "data:", "blob:", "nexus-workspace:"],
   "connect-src": ["'self'", "data:", "blob:"],
   "worker-src": ["'self'", "blob:"],
-  "frame-src": [`${PREVIEW_SCHEME}:`, "nexus-workspace:"],
+  "frame-src": [`${PREVIEW_SCHEME}:`],
   "object-src": ["'none'"],
   "base-uri": ["'none'"],
   "form-action": ["'none'"],

@@ -1,4 +1,5 @@
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState } from "react";
+import { isAbsoluteOutsidePath } from "../../../shared/fs/outside-url";
 import { isUnder } from "../../../shared/fs/relative-path";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import type { LocalChatLinks } from "../../components/chat/chat-links";
@@ -43,12 +44,20 @@ export interface LocalLinksEnv {
   looked(path: string): void;
 }
 
+export function shownFile(look: QuickLookList | null): string | undefined {
+  const path = look && !look.draft ? look.files[look.index] : undefined;
+  return path !== undefined && !look?.images?.[path] ? path : undefined;
+}
+
+export function needsGrant(path: string, rootPath: string, outside: OutsideLinks): boolean {
+  return isAbsoluteOutsidePath(path) && !isUnder(path, rootPath) && !outside.files.includes(path);
+}
+
 export function localChatLinks(env: LocalLinksEnv): LocalChatLinks {
   const { workspaceId, tabId, cwd } = env;
   const grant = (path: string) => {
     const { rootPath, outside } = env.now();
-    if (isUnder(path, rootPath) || outside.files.includes(path)) return;
-    env.looked(path);
+    if (needsGrant(path, rootPath, outside)) env.looked(path);
   };
   const follow = (target: string, then: (link: FileLink) => void) => {
     const { source, rootPath } = env.now();
@@ -84,6 +93,7 @@ export function localChatLinks(env: LocalLinksEnv): LocalChatLinks {
   const openFileTab = (target: string, at?: LineAt) => {
     follow(target, ({ path, ...line }) => {
       const inside = isUnder(path, env.now().rootPath);
+      grant(path);
       openFileBeside(workspaceId, tabId, path, { split: env.now().split, inside, at: at ?? line });
     });
   };
@@ -96,6 +106,7 @@ export function localChatLinks(env: LocalLinksEnv): LocalChatLinks {
       }
       if (options) {
         const { gallery } = options;
+        grant(target);
         env.look({ files: gallery, index: gallery.indexOf(target) });
         return;
       }
@@ -163,7 +174,7 @@ export function useLocalChatLinks(input: LocalChatLinksInput): {
     [source.items, source.tools, tasks, cwd, rootPath, looked],
   );
   useEffect(() => {
-    grantOutside(workspaceId, tabId, outside);
+    grantOutside(workspaceId, tabId, { files: outside.files, dirs: [] });
   }, [workspaceId, tabId, outside]);
   useEffect(
     () => () => grantOutside(workspaceId, tabId, { files: [], dirs: [] }),
@@ -175,6 +186,12 @@ export function useLocalChatLinks(input: LocalChatLinksInput): {
   latest.current = input;
   const outsideNow = useRef(outside);
   outsideNow.current = outside;
+  const shown = shownFile(look);
+  useEffect(() => {
+    if (shown && needsGrant(shown, latest.current.rootPath, outsideNow.current)) {
+      setLooked((paths) => (paths.includes(shown) ? paths : [...paths, shown]));
+    }
+  }, [shown]);
   const links = useMemo(
     () =>
       localChatLinks({

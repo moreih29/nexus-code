@@ -1,6 +1,7 @@
 import { describe, expect, it, mock } from "bun:test";
 import type { FsProvider } from "../../../../src/main/features/fs/bridge/provider";
 import {
+  outsideExistsHandler,
   readExternalHandler,
   readRangeHandler,
 } from "../../../../src/main/features/fs/ipc/read-handlers";
@@ -141,6 +142,59 @@ describe("fs read handlers — provider delegation", () => {
       readExternalHandler(manager as never)({ absolutePath: "/external/lib.ts" }),
     ).rejects.toThrow();
     expect(getFs).not.toHaveBeenCalled();
+    expect(readAbsolute).not.toHaveBeenCalled();
+  });
+
+  it("outsideExistsHandler tells a file is there without a grant, reading none of it", async () => {
+    const readAbsoluteRange = mock(
+      async (): Promise<FileReadBinaryResult> => ({
+        kind: "ok",
+        base64: "",
+        sizeBytes: 3,
+        mtime: "m",
+      }),
+    );
+    const { provider } = makeProvider({ readAbsoluteRange });
+    const { manager } = makeManager(provider);
+    const exists = outsideExistsHandler(manager as never);
+    expect(await exists({ workspaceId: WORKSPACE_ID, absolutePath: "/tmp/shot.png" })).toBe(true);
+    expect(readAbsoluteRange.mock.calls).toEqual([["/tmp/shot.png", 0, 0]]);
+  });
+
+  it("outsideExistsHandler never reaches for a share, a device or a relative path", async () => {
+    const readAbsoluteRange = mock(
+      async (): Promise<FileReadBinaryResult> => ({
+        kind: "ok",
+        base64: "",
+        sizeBytes: 3,
+        mtime: "m",
+      }),
+    );
+    const { provider } = makeProvider({ readAbsoluteRange });
+    const { manager } = makeManager(provider);
+    const exists = outsideExistsHandler(manager as never);
+    for (const absolutePath of [
+      "//evil.test/share/a.png",
+      "\\\\evil.test\\share\\a.png",
+      "\\\\?\\C:\\a.png",
+      "\\\\.\\pipe\\x",
+      "relative/a.png",
+    ]) {
+      expect(await exists({ workspaceId: WORKSPACE_ID, absolutePath })).toBe(false);
+    }
+    expect(readAbsoluteRange).not.toHaveBeenCalled();
+  });
+
+  it("readExternalHandler reads no device path", async () => {
+    const { provider, readAbsolute } = makeProvider();
+    const { manager } = makeManager(provider);
+    const read = readExternalHandler(manager as never);
+    for (const absolutePath of ["\\\\?\\C:\\a.txt", "//./pipe/x"]) {
+      expect(await read({ workspaceId: WORKSPACE_ID, absolutePath })).toEqual({
+        kind: "missing",
+        reason: "not-found",
+      });
+    }
     expect(readAbsolute).not.toHaveBeenCalled();
   });
 });
