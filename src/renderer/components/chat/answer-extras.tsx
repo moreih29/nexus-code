@@ -60,11 +60,8 @@ export function AnswerExtrasView({
               path={path}
               workspaceId={workspaceId}
               cwd={cwd}
-              gallery={
-                index === MAX_ANSWER_FILES - 1 && files.length > MAX_ANSWER_FILES
-                  ? files
-                  : undefined
-              }
+              gallery={files}
+              more={index === MAX_ANSWER_FILES - 1 ? files.length - MAX_ANSWER_FILES : 0}
             />
           ))}
         </div>
@@ -78,11 +75,13 @@ export function FileCard({
   workspaceId,
   cwd,
   gallery,
+  more = 0,
 }: {
   path: string;
   workspaceId: string;
   cwd: string;
   gallery?: string[];
+  more?: number;
 }) {
   const { t } = useTranslation();
   const links = useChatLinks();
@@ -98,7 +97,6 @@ export function FileCard({
         ? file.url
         : null;
   const folder = folderOf(path, cwd);
-  const more = gallery ? gallery.length - MAX_ANSWER_FILES : 0;
   return (
     <LinkMenu target={path} kind="file">
       <button
