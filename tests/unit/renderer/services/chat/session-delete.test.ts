@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const ipcCalls: Array<{ channel: string; method: string; args: unknown }> = [];
+let workspaceId: string;
 let answer: (method: string, args: unknown) => unknown = () => undefined;
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
@@ -20,6 +21,7 @@ import { deleteClaudeSession } from "../../../../../src/renderer/services/chat/c
 import { withTranscriptSizes } from "../../../../../src/renderer/services/chat/sessions";
 
 beforeEach(() => {
+  workspaceId = crypto.randomUUID();
   ipcCalls.length = 0;
   answer = () => undefined;
 });
@@ -37,7 +39,7 @@ describe("deleting a Claude session", () => {
   test("asks the agent of the workspace, in the profile that keeps it", async () => {
     answer = (method) =>
       method === "transcript" ? { found: false, lines: [] } : { deleted: true };
-    await deleteClaudeSession("ws-1", "/home/me/app", {
+    await deleteClaudeSession(workspaceId, "/home/me/app", {
       sessionId: "11111111-1111-4111-8111-111111111111",
       profileId: "work",
     });
@@ -46,7 +48,7 @@ describe("deleting a Claude session", () => {
         channel: "chat",
         method: "transcript",
         args: {
-          workspaceId: "ws-1",
+          workspaceId,
           sessionId: "11111111-1111-4111-8111-111111111111",
           profileId: "work",
         },
@@ -55,7 +57,7 @@ describe("deleting a Claude session", () => {
         channel: "chat",
         method: "deleteSession",
         args: {
-          workspaceId: "ws-1",
+          workspaceId,
           cwd: "/home/me/app",
           sessionId: "11111111-1111-4111-8111-111111111111",
           profileId: "work",
@@ -71,14 +73,14 @@ describe("deleting a Claude session", () => {
         return {
           found: true,
           lines: [
-            user("u1", `look\n\n@${root}/ws-1/t1/1/a.txt @/home/me/elsewhere.txt`),
-            user("u2", `and\n\n@${root}/ws-1/t2/4/b.png`),
+            user("u1", `look\n\n@${root}/${workspaceId}/t1/1/a.txt @/home/me/elsewhere.txt`),
+            user("u2", `and\n\n@${root}/${workspaceId}/t2/4/b.png`),
           ],
         };
       if (method === "attachRoot") return { root };
       return { deleted: true };
     };
-    await deleteClaudeSession("ws-1", "/home/me/app", { sessionId: "s", profileId: "p" });
+    await deleteClaudeSession(workspaceId, "/home/me/app", { sessionId: "s", profileId: "p" });
     await settled();
     expect(ipcCalls.map((call) => call.method)).toEqual([
       "transcript",
@@ -86,7 +88,7 @@ describe("deleting a Claude session", () => {
       "attachRoot",
       "removeAttachments",
     ]);
-    expect(ipcCalls.at(-1)?.args).toEqual({ workspaceId: "ws-1", slots: ["t1/1", "t2/4"] });
+    expect(ipcCalls.at(-1)?.args).toEqual({ workspaceId, slots: ["t1/1", "t2/4"] });
   });
 
   test("it is deleted without waiting while the agent looks for other conversations naming its files", async () => {
@@ -96,12 +98,12 @@ describe("deleting a Claude session", () => {
     });
     answer = (method) => {
       if (method === "transcript")
-        return { found: true, lines: [user("u1", `look\n\n@${ROOT}/ws-1/t1/1/a.txt`)] };
+        return { found: true, lines: [user("u1", `look\n\n@${ROOT}/${workspaceId}/t1/1/a.txt`)] };
       if (method === "attachRoot") return { root: ROOT };
       if (method === "removeAttachments") return looking;
       return { deleted: true };
     };
-    await deleteClaudeSession("ws-1", "/home/me/app", { sessionId: "s", profileId: "p" });
+    await deleteClaudeSession(workspaceId, "/home/me/app", { sessionId: "s", profileId: "p" });
     await settled();
     expect(ipcCalls.at(-1)?.method).toBe("removeAttachments");
     release();
@@ -110,13 +112,13 @@ describe("deleting a Claude session", () => {
   test("files left by a removal that fails are only logged", async () => {
     answer = (method) => {
       if (method === "transcript")
-        return { found: true, lines: [user("u1", `look\n\n@${ROOT}/ws-1/t1/1/a.txt`)] };
+        return { found: true, lines: [user("u1", `look\n\n@${ROOT}/${workspaceId}/t1/1/a.txt`)] };
       if (method === "attachRoot") return { root: ROOT };
       if (method === "removeAttachments")
         return Promise.reject(new Error("a history was not read"));
       return { deleted: true };
     };
-    await deleteClaudeSession("ws-1", "/home/me/app", { sessionId: "s", profileId: "p" });
+    await deleteClaudeSession(workspaceId, "/home/me/app", { sessionId: "s", profileId: "p" });
     await settled();
     expect(ipcCalls.at(-1)?.method).toBe("removeAttachments");
   });
@@ -126,14 +128,17 @@ describe("deleting a Claude session", () => {
       if (method === "transcript") throw new Error("offline");
       return { deleted: true };
     };
-    await deleteClaudeSession("ws-1", "/home/me/app", { sessionId: "s", profileId: "p" });
+    await deleteClaudeSession(workspaceId, "/home/me/app", { sessionId: "s", profileId: "p" });
     expect(ipcCalls.map((call) => call.method)).toEqual(["transcript", "deleteSession"]);
   });
 
   test("one already gone is as good as deleted", async () => {
     answer = () => ({ deleted: false });
     await expect(
-      deleteClaudeSession("ws-1", "/home/me/app", { sessionId: "gone-session", profileId: "p" }),
+      deleteClaudeSession(workspaceId, "/home/me/app", {
+        sessionId: "gone-session",
+        profileId: "p",
+      }),
     ).resolves.toBeUndefined();
   });
 });
@@ -141,7 +146,7 @@ describe("deleting a Claude session", () => {
 describe("transcript sizes", () => {
   test("filled in by path, for the sessions that have one and no size yet", async () => {
     answer = () => ({ "/c/a.jsonl": 2048 });
-    const sized = await withTranscriptSizes("ws-1", [
+    const sized = await withTranscriptSizes(workspaceId, [
       { sessionId: "a", path: "/c/a.jsonl" },
       { sessionId: "b", path: "/c/b.jsonl" },
       { sessionId: "c", size: 5 },
@@ -150,7 +155,7 @@ describe("transcript sizes", () => {
       {
         channel: "chat",
         method: "fileSizes",
-        args: { workspaceId: "ws-1", paths: ["/c/a.jsonl", "/c/b.jsonl"] },
+        args: { workspaceId, paths: ["/c/a.jsonl", "/c/b.jsonl"] },
       },
     ]);
     expect(sized).toEqual([
@@ -162,7 +167,7 @@ describe("transcript sizes", () => {
 
   test("nothing asked when no session has a path", async () => {
     const sessions = [{ sessionId: "a", size: 1 }];
-    expect(await withTranscriptSizes("ws-1", sessions)).toEqual(sessions);
+    expect(await withTranscriptSizes(workspaceId, sessions)).toEqual(sessions);
     expect(ipcCalls).toEqual([]);
   });
 });
