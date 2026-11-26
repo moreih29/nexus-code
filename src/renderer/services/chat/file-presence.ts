@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ipcCallResult } from "@/ipc/client";
 import {
   isAbsoluteOutsidePath,
+  isAutoMountPath,
   isDrivePath,
   isNetworkOrDevicePath,
 } from "../../../shared/fs/outside-url";
@@ -36,7 +37,7 @@ export function pathToLookUp(path: string, root: string): string | null {
   if (relPath !== null) return relPath;
   if (!root || !isAbsoluteOutsidePath(path) || isUnder(path, root)) return null;
   if ((isDrivePath(root) || isNetworkOrDevicePath(root)) && !isDrivePath(path)) return null;
-  return path;
+  return isAutoMountPath(path) ? null : path;
 }
 
 export function createFilePresence(

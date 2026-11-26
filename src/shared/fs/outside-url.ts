@@ -35,6 +35,21 @@ export function isDevicePath(path: string): boolean {
   return windowsPathKind(path) === "device";
 }
 
+const AUTOMOUNT_TOPS = new Set(["net", "network"]);
+const FIRMLINK_ROOT = ["system", "volumes", "data"];
+
+export function isAutoMountPath(path: string): boolean {
+  if (!path.startsWith("/")) return false;
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part.toLowerCase());
+  }
+  const firmlinked = FIRMLINK_ROOT.every((part, i) => parts[i] === part);
+  return AUTOMOUNT_TOPS.has(parts[firmlinked ? FIRMLINK_ROOT.length : 0] ?? "");
+}
+
 function decodedLink(target: string): string {
   try {
     return decodeURIComponent(target);

@@ -228,3 +228,34 @@ describe("pathToLookUp", () => {
     expect(asked).toEqual(["D:/out/a.txt"]);
   });
 });
+
+describe("automount paths", () => {
+  it("are never looked up on their own", async () => {
+    const asked: string[] = [];
+    const presence = createFilePresence(async (_workspaceId, relPath) => {
+      asked.push(relPath);
+      return true;
+    });
+    for (const path of [
+      "/net/host/share/a.txt",
+      "/Network/Servers/host/a.txt",
+      "/tmp/../net/host/a.txt",
+    ]) {
+      expect(pathToLookUp(path, "/p")).toBeNull();
+      expect(await presence.isThere("ws", "/p", path)).toBe(false);
+    }
+    expect(await presence.isThere("ws", "/p", "/tmp/a.txt")).toBe(true);
+    expect(asked).toEqual(["/tmp/a.txt"]);
+  });
+
+  it("inside a workspace root under one, are looked up in the workspace", () => {
+    expect(pathToLookUp("/net/host/w/src/a.ts", "/net/host/w")).toBe("src/a.ts");
+  });
+
+  it("are not counted as gone", async () => {
+    const presence = createFilePresence(async () => false);
+    expect(await filesGone(presence, "ws", "/p", ["/net/host/a.txt", "/tmp/a.txt"])).toEqual(
+      new Set(["/tmp/a.txt"]),
+    );
+  });
+});

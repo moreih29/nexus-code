@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  isAutoMountPath,
   isDevicePath,
   isNetworkLink,
   isNetworkOrDevicePath,
@@ -95,5 +96,34 @@ describe("isNetworkOrDevicePath and isDevicePath", () => {
   ])("classifies %s", (path, network, device) => {
     expect(isNetworkOrDevicePath(path)).toBe(network);
     expect(isDevicePath(path)).toBe(device);
+  });
+});
+
+describe("isAutoMountPath", () => {
+  test.each([
+    "/net/host/share/a.txt",
+    "/net",
+    "/NET/host/a.txt",
+    "/Network/Servers/host/a.txt",
+    "/network/servers/a.txt",
+    "//net/host/a.txt",
+    "/./net/host/a.txt",
+    "/tmp/../net/host/a.txt",
+    "/System/Volumes/Data/net/host/a.txt",
+    "/System/Volumes/Data/Network/Servers/a.txt",
+  ])("%s is an automount path", (path) => {
+    expect(isAutoMountPath(path)).toBe(true);
+  });
+
+  test.each([
+    "/tmp/net/a.txt",
+    "/network-notes/a.txt",
+    "/netbox/a.txt",
+    "/Users/me/Network/a.txt",
+    "net/host/a.txt",
+    "C:/net/a.txt",
+    "/System/Volumes/net/a.txt",
+  ])("%s is not", (path) => {
+    expect(isAutoMountPath(path)).toBe(false);
   });
 });

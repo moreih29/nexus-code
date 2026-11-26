@@ -1,5 +1,6 @@
 import {
   isAbsoluteOutsidePath,
+  isAutoMountPath,
   isDevicePath,
   isDrivePath,
   isNetworkOrDevicePath,
@@ -146,6 +147,7 @@ export function outsideExistsHandler(
     if (
       !isAbsoluteOutsidePath(absolutePath) ||
       isNetworkOrDevicePath(absolutePath) ||
+      isAutoMountPath(absolutePath) ||
       absolutePath.includes("\0")
     ) {
       return false;

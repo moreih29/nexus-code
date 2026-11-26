@@ -399,4 +399,25 @@ describe("fs read handlers — provider delegation", () => {
     expect(await readExternalHandler(manager as never)(asked)).toMatchObject({ kind: "ok" });
     expect(readAbsolute.mock.calls).toEqual([["/etc/hosts"]]);
   });
+
+  it("checks no automount path on its own, but reads one when asked", async () => {
+    const { provider, readAbsolute, readAbsoluteRange } = makeRangeProvider({ kind: "ssh" });
+    const { manager, getFs } = makeManager(provider, { kind: "ssh", remotePath: "/home/u/w" });
+    const exists = outsideExistsHandler(manager as never);
+    for (const absolutePath of [
+      "/net/host/share/a.txt",
+      "/Network/Servers/host/a.txt",
+      "/tmp/../net/host/a.txt",
+    ]) {
+      expect(await exists({ workspaceId: WORKSPACE_ID, absolutePath })).toBe(false);
+    }
+    expect(getFs).not.toHaveBeenCalled();
+    expect(readAbsoluteRange).not.toHaveBeenCalled();
+
+    const read = readExternalHandler(manager as never);
+    expect(
+      await read({ workspaceId: WORKSPACE_ID, absolutePath: "/net/host/share/a.txt" }),
+    ).toMatchObject({ kind: "ok" });
+    expect(readAbsolute.mock.calls).toEqual([["/net/host/share/a.txt"]]);
+  });
 });
