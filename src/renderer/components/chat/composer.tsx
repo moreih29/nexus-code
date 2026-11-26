@@ -517,13 +517,14 @@ export const Composer = memo(function Composer({
       });
       if (!linked) showToast({ kind: "error", message: t("notes:conversations.saveError") });
     } catch (error) {
-      if (canRestoreFailedDraft(localDraft.current.current, "failed")) {
+      const restore = canRestoreFailedDraft(localDraft.current.current, "failed");
+      if (restore) {
         localDraft.update(submitted);
       } else {
         const id = crypto.randomUUID();
         setFailedDrafts((previous) => [...previous, { draft: submitted, id }]);
       }
-      surfaceChatSendError(error);
+      surfaceChatSendError(error, restore ? "restored" : "retained");
     } finally {
       submitting.current = false;
       setSending(false);
