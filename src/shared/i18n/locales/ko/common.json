@@ -885,7 +885,7 @@
       "peer_sending_queued": "대기열에 추가 중…",
       "peer_accepted": "호스트에서 수락함",
       "peer_accepted_queued": "호스트 대기열에 추가됨",
-      "peer_failed": "전송하지 못했습니다",
+      "peer_failed": "전송 실패",
       "peer_unconfirmed": "전송 여부 미확인",
       "peer_recover": "초안 복원",
       "peer_limit": "메시지를 더 보내려면 최근 초안을 복원하세요",

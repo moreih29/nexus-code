@@ -885,7 +885,7 @@
       "peer_sending_queued": "Sending to queue…",
       "peer_accepted": "Accepted by host",
       "peer_accepted_queued": "Queued by host",
-      "peer_failed": "Could not send",
+      "peer_failed": "Delivery failed",
       "peer_unconfirmed": "Delivery unconfirmed",
       "peer_recover": "Restore draft",
       "peer_limit": "Restore a recent draft before sending more messages",

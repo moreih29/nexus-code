@@ -12,6 +12,15 @@ function keyPaths(value: unknown, prefix = ""): string[] {
 }
 
 describe("resources", () => {
+  test.each([
+    "en",
+    "ko",
+  ] as const)("remote and local send failures use the same text in %s", (locale) => {
+    const { chat } = resources[locale].common;
+    expect(chat.message.peer_failed).toBe(chat.queue.failed);
+    expect(chat.message.peer_unconfirmed).toBe(chat.queue.unconfirmed);
+  });
+
   test("en and ko define the same key paths in every namespace", () => {
     for (const ns of I18N_NAMESPACES) {
       const en = keyPaths(resources.en[ns]);
