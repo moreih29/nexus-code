@@ -1,6 +1,6 @@
 import { RELAY_MARK } from "../../../shared/chat/relay";
 import type { AgentRun } from "../../../shared/claude/activity";
-import { isNetworkLink } from "../../../shared/fs/outside-url";
+import { isAutoMountPath, isNetworkLink } from "../../../shared/fs/outside-url";
 import { isUnder, isWindowsPath, slashWindowsPath } from "../../../shared/fs/relative-path";
 import { attachmentTarget, isFolder, splitAttachments } from "./composer-input";
 import { imageFileOf, type ShownImage } from "./image-look";
@@ -775,6 +775,7 @@ export function answerExtras(
 
 export interface OutsideLinks {
   files: string[];
+  opened: string[];
 }
 
 export const MAX_OUTSIDE_FILES = 2000;
@@ -786,8 +787,9 @@ export function outsideLinksOf(
   root: string,
   looked: readonly string[] = [],
   attached?: (file: string) => boolean,
+  opened: readonly string[] = [],
 ): OutsideLinks {
-  if (!root) return { files: [] };
+  if (!root) return { files: [], opened: [] };
   const outside = (file: string) => !isUnder(file, root);
   const named = new Set<string>(looked.filter(outside));
   for (const tool of Object.values(tools)) {
@@ -811,7 +813,10 @@ export function outsideLinksOf(
   )) {
     if (fileKind(file) === "image") named.add(file);
   }
-  return { files: [...named].slice(-MAX_OUTSIDE_FILES) };
+  return {
+    files: [...named].filter((file) => !isAutoMountPath(file)).slice(-MAX_OUTSIDE_FILES),
+    opened: [...new Set(opened.filter(outside))].slice(-MAX_OUTSIDE_FILES),
+  };
 }
 
 export function outsideLinkedFiles(

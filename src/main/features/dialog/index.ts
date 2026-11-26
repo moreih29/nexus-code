@@ -4,6 +4,7 @@ import { toNativeDrivePath } from "../../../shared/fs/drive-path";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { getMainT } from "../../i18n";
 import { register, validateArgs } from "../../infra/ipc-router";
+import { rememberPickedNetworkFile } from "../fs/outside-grants";
 
 const c = ipcContract.dialog.call;
 
@@ -38,6 +39,7 @@ export function registerDialogChannel(): void {
           properties: ["openFile"],
         });
         rememberFolderOf(result.filePaths[0]);
+        if (!result.canceled) for (const file of result.filePaths) rememberPickedNetworkFile(file);
         return { canceled: result.canceled, filePaths: result.filePaths };
       },
       showOpenDirectory: async (args: unknown) => {

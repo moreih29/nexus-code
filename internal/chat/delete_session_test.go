@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -143,5 +144,42 @@ func TestFileSizesTellsTranscriptsSizes(t *testing.T) {
 	sizes := result.(FileSizesResult).Sizes
 	if len(sizes) != 1 || sizes[transcript] != 10 {
 		t.Fatalf("sizes = %v, want only %s: 10", sizes, transcript)
+	}
+}
+
+func TestFileSizesStatsNoShareOrDeviceTranscriptOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("share and device volumes are Windows paths")
+	}
+	dir := t.TempDir()
+	transcript := filepath.Join(dir, "rollout-1.jsonl")
+	if err := os.WriteFile(transcript, []byte("0123456789"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var statted []string
+	statTranscript = func(path string) (os.FileInfo, error) {
+		statted = append(statted, path)
+		return os.Stat(path)
+	}
+	t.Cleanup(func() { statTranscript = os.Stat })
+	params, _ := json.Marshal(FileSizesParams{Paths: []string{
+		`\\127.0.0.1\qa-none-46\a.jsonl`,
+		`//127.0.0.1/qa-none-46/a.jsonl`,
+		`\\?\UNC\127.0.0.1\qa-none-46\a.jsonl`,
+		`\??\UNC\127.0.0.1\qa-none-46\a.jsonl`,
+		`/??/UNC/127.0.0.1/qa-none-46/a.jsonl`,
+		`\\.\C:\a.jsonl`,
+		`\\?\` + transcript,
+		transcript,
+	}})
+	result, err := New().FileSizes(context.Background(), params)
+	if err != nil {
+		t.Fatalf("FileSizes: %v", err)
+	}
+	if sizes := result.(FileSizesResult).Sizes; len(sizes) != 1 || sizes[transcript] != 10 {
+		t.Fatalf("sizes = %v, want only %s: 10", sizes, transcript)
+	}
+	if len(statted) != 1 || statted[0] != transcript {
+		t.Fatalf("statted %v, want only %s", statted, transcript)
 	}
 }

@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -81,6 +81,62 @@ describe("outside grants", () => {
     expect(await resolveOutsideGrant("ws", path.join(site, "absent.css"))).toBeNull();
     expect(await resolveOutsideGrant("ws", secret)).toBeNull();
   });
+
+  test("a path no grant names never reaches the disk", async () => {
+    const realpath = spyOn(fs.promises, "realpath");
+    try {
+      setOutsideGrant("ws", "tab", [path.join(site, "index.html")], [site]);
+      expect(await resolveOutsideGrant("ws", secret)).toBeNull();
+      expect(await resolveOutsideGrant("ws-2", path.join(site, "style.css"))).toBeNull();
+      expect(await resolveOutsideGrant("ws", path.join(tmp, "sitemap.xml"))).toBeNull();
+      expect(realpath).not.toHaveBeenCalled();
+
+      expect(await resolveOutsideGrant("ws", path.join(site, "index.html"))).toBe(
+        path.join(site, "index.html"),
+      );
+      expect(realpath.mock.calls).toEqual([[path.join(site, "index.html").replace(/\\/g, "/")]]);
+    } finally {
+      realpath.mockRestore();
+    }
+  });
+
+  test("an automount path is granted only as a file the user opened", () => {
+    const automount = [
+      "/net/host.example/share/a.png",
+      "/Network/Servers/host.example/a.png",
+      "/System/Volumes/Data/net/host/a.png",
+      "/tmp/../net/host/a.png",
+    ];
+    setOutsideGrant("ws", "answer", automount, ["/net/host.example", "/System/Volumes"]);
+    for (const asked of automount)
+      expect([asked, isOutsideGranted("ws", asked)]).toEqual([asked, false]);
+    expect(isOutsideGranted("ws", "/net/host.example/share/b.png")).toBe(false);
+
+    setOutsideGrant("ws", "clicked", [], [], { opened: ["/net/host.example/share/a.png"] });
+    expect(isOutsideGranted("ws", "/net/host.example/share/a.png")).toBe(true);
+    expect(isOutsideGranted("ws", "/net/host.example/share/b.png")).toBe(false);
+    setOutsideGrant("ws", "clicked", [], [], { opened: [] });
+    expect(isOutsideGranted("ws", "/net/host.example/share/a.png")).toBe(false);
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "an automount path an answer named is never resolved on disk",
+    async () => {
+      const realpath = spyOn(fs.promises, "realpath").mockResolvedValue("/net/host/a.png");
+      try {
+        setOutsideGrant("ws", "answer", ["/net/host/a.png"], ["/System/Volumes"]);
+        expect(await resolveOutsideGrant("ws", "/net/host/a.png")).toBeNull();
+        expect(await resolveOutsideGrant("ws", "/System/Volumes/Data/net/host/a.png")).toBeNull();
+        expect(realpath).not.toHaveBeenCalled();
+
+        setOutsideGrant("ws", "clicked", [], [], { opened: ["/net/host/a.png"] });
+        expect(await resolveOutsideGrant("ws", "/net/host/a.png")).toBe("/net/host/a.png");
+        expect(realpath.mock.calls).toEqual([["/net/host/a.png"]]);
+      } finally {
+        realpath.mockRestore();
+      }
+    },
+  );
 
   test.if(process.platform === "win32")(
     "a Windows file is read however its path is written",

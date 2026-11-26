@@ -29,6 +29,7 @@ export interface AppStateChannelOptions {
   onTerminalShellsChanged?: () => void;
   onAgentProfilesChanged?: () => void;
   onThemeChanged?: (theme: NonNullable<AppState["themePreference"]>) => void;
+  onLayoutsChanged?: (state: Readonly<AppState>) => void;
 }
 
 export function registerAppStateChannel(
@@ -99,6 +100,8 @@ export function registerAppStateChannel(
         } catch (error) {
           return ipcErr("state-write-failed", String(error), { category: "failed" });
         }
+
+        if (patch.layoutByWorkspace) opts.onLayoutsChanged?.(stateService.getState());
 
         if (patch.language !== undefined && opts.onLanguageChanged !== undefined) {
           opts.onLanguageChanged(patch.language);

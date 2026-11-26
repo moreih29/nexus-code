@@ -576,8 +576,10 @@ describe("voice language and what other devices may do here", () => {
 
 describe("update check and logs folder", () => {
   it("waits for the check to end and gives back what it found", async () => {
+    const previousUpdates = useUpdatesStore.getState();
+    let statusTimer: ReturnType<typeof setTimeout> | undefined;
     answers["updates.check"] = () => {
-      setTimeout(() =>
+      statusTimer = setTimeout(() =>
         useUpdatesStore.getState().applyStatus({ kind: "current", trigger: "manual" }),
       );
       return { ok: true, value: undefined };
@@ -589,6 +591,8 @@ describe("update check and logs folder", () => {
       });
       expect(await settingsHandlers["settings.logsPath"]({})).toEqual({ path: "/logs" });
     } finally {
+      clearTimeout(statusTimer);
+      useUpdatesStore.setState(previousUpdates);
       delete answers["updates.check"];
       delete answers["system.logsPath"];
     }

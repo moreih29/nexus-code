@@ -1,7 +1,5 @@
 import { afterEach, expect, mock, test } from "bun:test";
 
-(globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
-
 type Message = Record<string, unknown>;
 const WS = "ws-codex-delete-thread";
 const ROOT = "/home/me/.nexus-code/attach";

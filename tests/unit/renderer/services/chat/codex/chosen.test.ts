@@ -3,8 +3,6 @@ import { CODEX_CONFIG_PROFILE_KEY } from "../../../../../../src/renderer/service
 import { useAgentProfilesStore } from "../../../../../../src/renderer/state/stores/agent-profiles";
 import { ipcErr } from "../../../../../../src/shared/ipc/result";
 
-(globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
-
 type Message = Record<string, unknown> & { params?: Record<string, unknown> };
 let codex: ((message: Message) => void) | undefined;
 let startFails = false;

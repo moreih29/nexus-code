@@ -66,7 +66,15 @@ import { registerEntryPointsChannels } from "./features/entry-points/ipc";
 import { AgentFsWatcher } from "./features/fs/bridge/agent-watch";
 import { reportWatchFailure } from "./features/fs/bridge/watch-failure-log";
 import { registerFsChannel } from "./features/fs/ipc";
-import { registerPickedAttachmentHandler } from "./features/fs/picked-attachment";
+import {
+  editorTabFiles,
+  keepPickedNetworkFilesOpenIn,
+  restorePickedNetworkFiles,
+} from "./features/fs/outside-grants";
+import {
+  registerPickedAttachmentHandler,
+  registerPickedFileHandler,
+} from "./features/fs/picked-attachment";
 import { AgentGitWatcher } from "./features/git/bridge/agent-watch";
 import { GitAutofetchScheduler } from "./features/git/domain/autofetch";
 import {
@@ -182,11 +190,11 @@ logChildProcessDeaths(app);
 
 setupRouter();
 registerPickedAttachmentHandler(ipcMain);
+registerPickedFileHandler(ipcMain);
 
 registerAppSchemes();
 
 const previewDocuments = new PreviewDocuments();
-const previewScopes = new PreviewScopes(os.homedir());
 
 if (!app.isPackaged) {
   process.env[NEXUS_AGENT_MODE_ENV] ??= "source";
@@ -207,6 +215,11 @@ const workspaceStorage = new WorkspaceStorage(path.join(userData, "workspaces"))
 const stateService = new StateService(
   path.join(userData, "state.json"),
   path.join(__dirname, "state-writer.js"),
+);
+restorePickedNetworkFiles(
+  stateService.getState().pickedNetworkFiles ?? [],
+  editorTabFiles(stateService.getState().layoutByWorkspace),
+  (pickedNetworkFiles) => stateService.setState({ pickedNetworkFiles }),
 );
 let currentRun: ReturnType<typeof beginRun> | null = null;
 let stopLoopMonitor: (() => void) | null = null;
@@ -370,6 +383,8 @@ registerWorkspaceChannel(workspaceManager, {
 registerDialogChannel();
 registerAppStateChannel(stateService, {
   listWorkspaces: () => workspaceManager.list(),
+  onLayoutsChanged: (state) =>
+    keepPickedNetworkFilesOpenIn(editorTabFiles(state.layoutByWorkspace)),
   onLanguageChanged(language) {
     void getMainI18n()
       .changeLanguage(language)
@@ -458,9 +473,17 @@ const systemStatsSources: SystemStatsSources = {
 registerSystemChannel({
   openNewWindow: () => openAppWindow(),
   stats: systemStatsHandler(systemStatsSources),
+  localWorkspaceRoots: () =>
+    workspaceManager
+      .list()
+      .flatMap(({ location }) => (location.kind === "local" ? [location.rootPath] : [])),
 });
 registerWindowChannel(closePersistence);
 registerClipboardChannel();
+const previewScopes = new PreviewScopes(os.homedir(), undefined, (workspaceId) => {
+  const location = workspaceManager.list().find(({ id }) => id === workspaceId)?.location;
+  return location?.kind === "local" ? location.rootPath : undefined;
+});
 registerPreviewChannel(previewDocuments, previewScopes, os.homedir());
 
 updatesHandle = installUpdatesDomain({

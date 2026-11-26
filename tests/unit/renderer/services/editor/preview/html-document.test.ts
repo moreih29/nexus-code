@@ -99,6 +99,19 @@ describe("previewScopeCandidates", () => {
     ]);
   });
 
+  test("a page in a share workspace's subfolder asks for the share root first", () => {
+    expect(previewScopeCandidates("//nas/share/w/docs/site/index.html", "//nas/share/w")).toEqual([
+      { dir: "//nas/share/w", sub: "docs/site" },
+      { dir: "//nas/share/w/docs/site", sub: "" },
+    ]);
+    expect(
+      previewScopeCandidates(String.raw`\\nas\share\w\docs\a.html`, String.raw`\\nas\share\w\\`),
+    ).toEqual([
+      { dir: String.raw`\\nas\share\w`, sub: "docs" },
+      { dir: String.raw`\\nas\share\w\docs`, sub: "" },
+    ]);
+  });
+
   test("a page outside the workspace reads only from its own folder", () => {
     expect(previewScopeCandidates("/tmp/r/index.html", "/w")).toEqual([{ dir: "/tmp/r", sub: "" }]);
     expect(previewScopeCandidates("/wx/index.html", "/w")).toEqual([{ dir: "/wx", sub: "" }]);

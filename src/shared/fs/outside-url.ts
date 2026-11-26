@@ -15,12 +15,39 @@ export function isDrivePath(path: string): boolean {
   return DRIVE_PATH.test(path);
 }
 
+export type WindowsPathKind = "drive" | "unc" | "device" | "rooted" | "relative";
+
+const DEVICE_PATH = /^[\\/](?:[\\/][?.]|\?\?)(?:[\\/]|$)/;
+
+export function windowsPathKind(path: string): WindowsPathKind {
+  if (DEVICE_PATH.test(path)) return "device";
+  if (/^[\\/]{2}/.test(path)) return "unc";
+  if (DRIVE_PATH.test(path)) return "drive";
+  return /^[\\/]/.test(path) ? "rooted" : "relative";
+}
+
 export function isNetworkOrDevicePath(path: string): boolean {
-  return /^[\\/]{2}/.test(path);
+  const kind = windowsPathKind(path);
+  return kind === "unc" || kind === "device";
 }
 
 export function isDevicePath(path: string): boolean {
-  return /^[\\/]{2}[?.][\\/]/.test(path);
+  return windowsPathKind(path) === "device";
+}
+
+const AUTOMOUNT_TOPS = new Set(["net", "network"]);
+const FIRMLINK_ROOT = ["system", "volumes", "data"];
+
+export function isAutoMountPath(path: string): boolean {
+  if (!path.startsWith("/")) return false;
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part.toLowerCase());
+  }
+  const firmlinked = FIRMLINK_ROOT.every((part, i) => parts[i] === part);
+  return AUTOMOUNT_TOPS.has(parts[firmlinked ? FIRMLINK_ROOT.length : 0] ?? "");
 }
 
 function decodedLink(target: string): string {
@@ -33,9 +60,11 @@ function decodedLink(target: string): string {
 
 export function isNetworkLink(target: string): boolean {
   const link = decodedLink(target.trim()).trim();
-  if (!/^file:/i.test(link)) return /^[\\/]{2}/.test(link) || link.startsWith("/\\");
+  if (!/^file:/i.test(link)) return isNetworkOrDevicePath(link);
   const rest = link.slice("file:".length).replace(/\\/g, "/");
   if (/^\/{3}\//.test(rest)) return true;
   const host = /^\/\/([^/]*)/.exec(rest)?.[1];
-  return host !== undefined && host !== "" && host.toLowerCase() !== "localhost";
+  if (host === undefined) return false;
+  if (host !== "" && host.toLowerCase() !== "localhost") return true;
+  return isNetworkOrDevicePath(rest.slice(2 + host.length));
 }

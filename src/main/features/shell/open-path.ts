@@ -3,6 +3,7 @@ import path from "node:path";
 import { toNativeDrivePath } from "../../../shared/fs/drive-path";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { validateArgs } from "../../infra/ipc-router";
+import { fileOnRootShare, isWindowsNetworkPath, pickedNetworkFile } from "../fs/outside-grants";
 
 const openPathExternalArgsSchema = ipcContract.system.call.openPathExternal.args;
 const revealInOSArgsSchema = ipcContract.system.call.revealInOS.args;
@@ -39,6 +40,19 @@ function systemPathError(
   return { ok: false, error: { code, message, absPath } };
 }
 
+export type LocalWorkspaceRoots = () => readonly string[];
+
+function reachablePath(absPath: string, localRoots: LocalWorkspaceRoots): string | null {
+  if (!isWindowsNetworkPath(absPath)) return absPath;
+  const picked = pickedNetworkFile(absPath);
+  if (picked !== undefined) return picked;
+  for (const root of localRoots()) {
+    const onShare = fileOnRootShare(absPath, root);
+    if (onShare !== undefined) return onShare;
+  }
+  return null;
+}
+
 async function validateSystemPath(absPath: string): Promise<SystemPathResult | null> {
   if (!path.isAbsolute(absPath)) {
     return systemPathError("not-absolute", absPath, "Expected an absolute path.");
@@ -65,9 +79,12 @@ async function validateSystemPath(absPath: string): Promise<SystemPathResult | n
 
 export function openPathExternalHandler(
   shellImpl: SystemShell = getElectronSystemShell(),
+  localRoots: LocalWorkspaceRoots = () => [],
 ): (args: unknown) => Promise<SystemPathResult> {
   return async (args: unknown): Promise<SystemPathResult> => {
-    const absPath = toNativeDrivePath(validateArgs(openPathExternalArgsSchema, args).absPath);
+    const asked = toNativeDrivePath(validateArgs(openPathExternalArgsSchema, args).absPath);
+    const absPath = reachablePath(asked, localRoots);
+    if (absPath === null) return systemPathError("not-found", asked, "Path does not exist.");
     const validationError = await validateSystemPath(absPath);
     if (validationError) return validationError;
 
@@ -81,9 +98,12 @@ export function openPathExternalHandler(
 
 export function revealInOSHandler(
   shellImpl: Pick<SystemShell, "showItemInFolder"> = getElectronSystemShell(),
+  localRoots: LocalWorkspaceRoots = () => [],
 ): (args: unknown) => Promise<SystemPathResult> {
   return async (args: unknown): Promise<SystemPathResult> => {
-    const absPath = toNativeDrivePath(validateArgs(revealInOSArgsSchema, args).absPath);
+    const asked = toNativeDrivePath(validateArgs(revealInOSArgsSchema, args).absPath);
+    const absPath = reachablePath(asked, localRoots);
+    if (absPath === null) return systemPathError("not-found", asked, "Path does not exist.");
     const validationError = await validateSystemPath(absPath);
     if (validationError) return validationError;
 

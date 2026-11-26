@@ -1,4 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+  mock,
+} from "bun:test";
 import type { TerminalControllerDeps } from "../../../../../src/renderer/services/terminal/controller";
 import type {
   PtyClientOptions,
@@ -12,7 +22,8 @@ type ListenerRecord = { channel: string; event: string; callback: (args: unknown
 const ipcCalls: IpcCallRecord[] = [];
 const listeners: ListenerRecord[] = [];
 
-(globalThis as Record<string, unknown>).window = {
+const terminalWindow = {
+  host: undefined as { platform: string } | undefined,
   ipc: {
     call: () => Promise.resolve(null),
     listen: () => {},
@@ -32,7 +43,7 @@ const listeners: ListenerRecord[] = [];
   }),
 };
 
-(globalThis as Record<string, unknown>).document = {
+const terminalDocument = {
   documentElement: {
     getAttribute: (_name: string): string | null => null,
     addEventListener: (_type: string, _listener: EventListenerOrEventListenerObject): void => {},
@@ -41,8 +52,29 @@ const listeners: ListenerRecord[] = [];
   },
   fonts: { load: () => Promise.resolve([]) },
   hasFocus: (): boolean => false,
-  activeElement: null,
+  activeElement: null as HTMLTextAreaElement | null,
 };
+
+const globals = globalThis as Record<string, unknown>;
+let previousWindow: unknown;
+let previousDocument: PropertyDescriptor | undefined;
+
+beforeAll(() => {
+  previousWindow = globals.window;
+  previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  globals.window = terminalWindow;
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    writable: true,
+    value: terminalDocument,
+  });
+});
+
+afterAll(() => {
+  globals.window = previousWindow;
+  if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);
+  else delete globals.document;
+});
 
 let mockForegroundProcessName = "lazygit";
 const foregroundByTab = new Map<string, string>();
@@ -1908,7 +1940,7 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
         .filter((c) => c.channel === "clipboard" && c.method === "writeText")
         .map((c) => c.args);
     const b64 = (text: string) => Buffer.from(text, "utf8").toString("base64");
-    const doc = document as unknown as { hasFocus: () => boolean; activeElement: unknown };
+    const doc = terminalDocument;
 
     it("goes on the clipboard only while the user types in that terminal", async () => {
       const { harness, controller } = await setupHandler();
@@ -1974,9 +2006,9 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
   });
 
   describe("Ctrl+V", () => {
-    const host = globalThis.window as unknown as { host?: { platform: string } };
+    const host = terminalWindow;
     afterEach(() => {
-      delete host.host;
+      host.host = undefined;
     });
     const ctrlV = (extra: { shiftKey?: boolean; altKey?: boolean } = {}) =>
       fakeKeyEvent({ key: "v", ctrlKey: true, keyCode: 86, ...extra });

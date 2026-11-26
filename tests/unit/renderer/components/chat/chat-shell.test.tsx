@@ -180,7 +180,7 @@ describe("a changed file opened from a local chat", () => {
       now: () => ({
         source: { items: [], tools: {}, agentItems: {} },
         rootPath: root,
-        outside: { files: outside },
+        outside: { files: outside, opened: [] },
         split: true,
       }),
       changesOf: (path) => ({ [path]: "before" }),
@@ -218,6 +218,107 @@ describe("a changed file opened from a local chat", () => {
   });
 });
 
+describe("an image clicked among images the agent read", () => {
+  const a = { mediaType: "image/png", data: "YQ==" };
+  const b = { mediaType: "image/png", data: "Yg==" };
+  const read = (id: string, file: string, image: typeof a) => ({
+    id,
+    name: "Read",
+    status: "done",
+    input: { file_path: file },
+    result: { images: [image] },
+  });
+  const source = {
+    items: [
+      {
+        kind: "assistant",
+        blocks: [
+          { type: "tool", toolUseId: "r1" },
+          { type: "tool", toolUseId: "r2" },
+        ],
+      },
+    ],
+    tools: { r1: read("r1", "/net/h/s/a.png", a), r2: read("r2", "/net/h/s/b.png", b) },
+    agentItems: {},
+  } as never;
+
+  test("opens the gallery and grants only the image on screen, never its neighbours", async () => {
+    const looked: string[] = [];
+    const shown: (QuickLookList | null)[] = [];
+    const made = localChatLinks({
+      workspaceId: crypto.randomUUID(),
+      tabId: "t",
+      cwd: "/repo",
+      now: () => ({
+        source,
+        rootPath: "/repo",
+        outside: { files: [], opened: [] },
+        split: true,
+      }),
+      changesOf: () => undefined,
+      opensAttached: () => false,
+      look: (list) => shown.push(list),
+      looked: (path) => looked.push(path),
+    });
+    made.openImages([a], 0);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const list = shown.at(-1) ?? null;
+    expect(list?.files).toEqual(["image:1", "image:2"]);
+    expect(looked).toEqual([]);
+    expect(shownFile(list)).toBe("/net/h/s/a.png");
+    expect(list && shownFile({ ...list, index: 1 })).toBe("/net/h/s/b.png");
+  });
+});
+
+describe("what fills the files a chat opened", () => {
+  const links = sourceOf("services/chat/local-chat-links.ts");
+
+  test("only a click handler or the quick look on screen asks for one", () => {
+    const grants = links
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => /\bgrant\(/.test(line) && !line.startsWith("const grant"));
+    expect(grants).toEqual([
+      "if (target.file) grant(target.file);",
+      "grant(path);",
+      "grant(target);",
+      "grant(path);",
+      "grant(path);",
+    ]);
+    expect(links.match(/env\.looked\(/g)).toHaveLength(1);
+    expect(links.match(/setLooked\(/g)).toHaveLength(2);
+    expect(links).toContain("if (shown && needsGrant(shown, latest.current.rootPath");
+  });
+
+  test("only the chat's links send them, from what was looked at", () => {
+    expect(links).toContain("opened: outside.opened");
+    expect(links.match(/grantOutside\(/g)).toHaveLength(2);
+    expect(links).toMatch(/jobOutputFiles\(\{ tasks \}, source\.tools\),\s+undefined,\s+looked,/);
+  });
+
+  test("rendering answers alone opens nothing", () => {
+    const looked: string[] = [];
+    const shown: (QuickLookList | null)[] = [];
+    localChatLinks({
+      workspaceId: crypto.randomUUID(),
+      tabId: "t",
+      cwd: "/repo",
+      now: () => ({
+        source: { items: [], tools: {}, agentItems: {} },
+        rootPath: "/repo",
+        outside: { files: [], opened: [] },
+        split: true,
+      }),
+      changesOf: () => undefined,
+      opensAttached: () => false,
+      look: (list) => shown.push(list),
+      looked: (path) => looked.push(path),
+    });
+    expect(looked).toEqual([]);
+    expect(shown).toEqual([]);
+  });
+});
+
 describe("what a quick look shows is what the user looked at", () => {
   test("the file on screen, not an image held in the answer or a dropped draft", () => {
     expect(shownFile({ files: ["/tmp/a.png", "/tmp/b.png"], index: 1 })).toBe("/tmp/b.png");
@@ -225,14 +326,24 @@ describe("what a quick look shows is what the user looked at", () => {
     expect(
       shownFile({ files: ["image:1"], index: 0, images: { "image:1": {} as never } }),
     ).toBeUndefined();
+    expect(
+      shownFile({
+        files: ["image:1", "image:2"],
+        index: 1,
+        images: { "image:1": {} as never, "image:2": {} as never },
+        paths: { "image:1": "/net/h/s/a.png", "image:2": "/net/h/s/b.png" },
+      }),
+    ).toBe("/net/h/s/b.png");
     expect(shownFile({ files: ["/tmp/a.png"], index: 0, draft: {} as File })).toBeUndefined();
   });
 
   test("asks a grant only for an absolute path outside the workspace not granted yet", () => {
-    const outside = { files: ["/tmp/granted.png"] };
+    const outside = { files: ["/tmp/granted.png"], opened: ["/net/h/opened.png"] };
     expect(needsGrant("/tmp/new.png", "/repo", outside)).toBe(true);
     expect(needsGrant("D:/out/new.png", "C:/repo", outside)).toBe(true);
     expect(needsGrant("/tmp/granted.png", "/repo", outside)).toBe(false);
+    expect(needsGrant("/net/h/opened.png", "/repo", outside)).toBe(false);
+    expect(needsGrant("/net/h/new.png", "/repo", outside)).toBe(true);
     expect(needsGrant("/repo/src/a.ts", "/repo", outside)).toBe(false);
     expect(needsGrant("image:1", "/repo", outside)).toBe(false);
     expect(needsGrant("notes.md", "/repo", outside)).toBe(false);
