@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import {
   isAutoMountPath,
   isDevicePath,
@@ -9,7 +9,7 @@ import {
   windowsPathKind,
 } from "../../../../src/shared/fs/outside-url";
 
-const PATH_KINDS: { path: string; kind: string }[] = JSON.parse(
+const PATH_KINDS: { path: string; kind: string; cleaned?: string }[] = JSON.parse(
   readFileSync(join(import.meta.dir, "../../../fixtures/windows-path-kinds.json"), "utf8"),
 );
 
@@ -24,6 +24,14 @@ describe("windowsPathKind", () => {
     expect(windowsPathKind(path)).toBe(kind);
     expect(isNetworkOrDevicePath(path)).toBe(kind === "unc" || kind === "device");
     expect(isDevicePath(path)).toBe(kind === "device");
+  });
+
+  test("the table holds rooted paths that a POSIX clean turns into a share or a device", () => {
+    const cleaned = PATH_KINDS.filter((row) => row.cleaned !== undefined);
+    expect(cleaned.length).toBeGreaterThan(0);
+    for (const { path, cleaned: kind } of cleaned) {
+      expect([path, windowsPathKind(posix.normalize(path))]).toEqual([path, kind]);
+    }
   });
 });
 

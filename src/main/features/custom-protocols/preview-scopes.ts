@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { win32 } from "node:path";
 import { promisify } from "node:util";
 import { isDevicePath } from "../../../shared/fs/outside-url";
-import { cleanAbsolutePath, isWindowsNetworkPath } from "../fs/outside-grants";
+import { isWindowsNetworkPath, outsideReadPath } from "../fs/outside-grants";
 
 export interface PreviewScope {
   readonly workspaceId: string;
@@ -45,10 +45,15 @@ export class PreviewScopes {
       undefined,
   ) {}
 
+  dirOf(workspaceId: string, dir: string): string | null {
+    if (isWindowsNetworkPath(dir)) return this.networkWorkspaceRoot(workspaceId, dir);
+    const windowsLocal =
+      process.platform === "win32" && this.localWorkspaceRoot(workspaceId) !== undefined;
+    return outsideReadPath(dir, windowsLocal);
+  }
+
   open(owner: number, workspaceId: string, dir: string): string | null {
-    const clean = isWindowsNetworkPath(dir)
-      ? this.networkWorkspaceRoot(workspaceId, dir)
-      : cleanAbsolutePath(dir);
+    const clean = this.dirOf(workspaceId, dir);
     if (!clean || isBroadDir(clean, this.home)) return null;
     const key = `${owner}\0${workspaceId}\0${clean}`;
     const held = this.byKey.get(key);

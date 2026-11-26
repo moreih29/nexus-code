@@ -2,7 +2,6 @@ import {
   isAbsoluteOutsidePath,
   isAutoMountPath,
   isDevicePath,
-  isDrivePath,
   isNetworkOrDevicePath,
 } from "../../../../shared/fs/outside-url";
 import type {
@@ -20,6 +19,7 @@ import {
   fileOnRootShare,
   isOutsideGranted,
   isWindowsNetworkPath,
+  outsideReadPath,
   pickedNetworkFile,
   resolveOutsideGrant,
   setOutsideGrant,
@@ -132,10 +132,10 @@ export function readRangeHandler(
   };
 }
 
-export function grantOutsideHandler(): (args: unknown) => Promise<void> {
+export function grantOutsideHandler(manager: WorkspaceManager): (args: unknown) => Promise<void> {
   return async (args: unknown): Promise<void> => {
     const { workspaceId, owner, files, dirs } = validateArgs(c.grantOutside.args, args);
-    setOutsideGrant(workspaceId, owner, files, dirs);
+    setOutsideGrant(workspaceId, owner, files, dirs, isWindowsLocal(manager, workspaceId));
   };
 }
 
@@ -144,17 +144,11 @@ export function outsideExistsHandler(
 ): (args: unknown) => Promise<boolean> {
   return async (args: unknown): Promise<boolean> => {
     const { workspaceId, absolutePath } = validateArgs(c.outsideExists.args, args);
-    if (
-      !isAbsoluteOutsidePath(absolutePath) ||
-      isNetworkOrDevicePath(absolutePath) ||
-      isAutoMountPath(absolutePath) ||
-      absolutePath.includes("\0")
-    ) {
-      return false;
-    }
-    if (isWindowsLocal(manager, workspaceId) && !isDrivePath(absolutePath)) return false;
+    if (isNetworkOrDevicePath(absolutePath)) return false;
+    const path = outsideReadPath(absolutePath, isWindowsLocal(manager, workspaceId));
+    if (path === null || isAutoMountPath(path)) return false;
     const fs = await manager.getFs(workspaceId);
-    const read = await fs.readAbsoluteRange(absolutePath, 0, 0).catch(() => null);
+    const read = await fs.readAbsoluteRange(path, 0, 0).catch(() => null);
     return read !== null && read.kind !== "missing";
   };
 }
@@ -167,18 +161,11 @@ export function readExternalHandler(
     if (isDevicePath(absolutePath) || absolutePath.includes("\0")) {
       return { kind: "missing", reason: "not-found" };
     }
-    if (
-      !isWindowsNetworkPath(absolutePath) &&
-      isWindowsLocal(manager, workspaceId) &&
-      !isDrivePath(absolutePath)
-    ) {
-      return { kind: "missing", reason: "not-found" };
-    }
     const path = isWindowsNetworkPath(absolutePath)
       ? (pickedNetworkFile(absolutePath) ??
         fileOnRootShare(absolutePath, localRootOf(manager, workspaceId)))
-      : absolutePath;
-    if (path === undefined) return { kind: "missing", reason: "not-found" };
+      : outsideReadPath(absolutePath, isWindowsLocal(manager, workspaceId));
+    if (!path) return { kind: "missing", reason: "not-found" };
     const fs = await manager.getFs(workspaceId);
     return fs.readAbsolute(path);
   };

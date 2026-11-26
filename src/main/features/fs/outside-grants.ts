@@ -117,16 +117,21 @@ export function cleanAbsolutePath(p: string): string | null {
   if (!drive && !p.startsWith("/")) return null;
   const clean = path.posix.normalize(drive ? p.replace(/\\/g, "/") : p).replace(/\/+$/, "");
   if (drive) return /^[A-Za-z]:\//.test(clean) ? clean : null;
-  return clean || null;
+  return clean && !isWindowsNetworkPath(clean) ? clean : null;
+}
+
+export function outsideReadPath(p: string, windowsLocal: boolean): string | null {
+  const clean = cleanAbsolutePath(p);
+  return clean !== null && windowsLocal && !isDrivePath(clean) ? null : clean;
 }
 
 function comparable(p: string): string {
   return isDrivePath(p) ? p.replace(/\\/g, "/").toLowerCase() : p;
 }
 
-function cleanAll(paths: readonly string[]): string[] {
+function cleanAll(paths: readonly string[], windowsLocal: boolean): string[] {
   return paths
-    .map(cleanAbsolutePath)
+    .map((p) => outsideReadPath(p, windowsLocal))
     .filter((p): p is string => p !== null)
     .map(comparable);
 }
@@ -136,9 +141,13 @@ export function setOutsideGrant(
   owner: string,
   files: readonly string[],
   dirs: readonly string[],
+  windowsLocal = false,
 ): void {
   const byOwner = grants.get(workspaceId) ?? new Map<string, Grant>();
-  const grant: Grant = { files: new Set(cleanAll(files)), dirs: cleanAll(dirs) };
+  const grant: Grant = {
+    files: new Set(cleanAll(files, windowsLocal)),
+    dirs: cleanAll(dirs, windowsLocal),
+  };
   if (grant.files.size === 0 && grant.dirs.length === 0) byOwner.delete(owner);
   else byOwner.set(owner, grant);
   if (byOwner.size === 0) grants.delete(workspaceId);
@@ -164,7 +173,7 @@ export async function resolveOutsideGrant(
   workspaceId: string,
   absPath: string,
 ): Promise<string | null> {
-  const target = cleanAbsolutePath(absPath);
+  const target = outsideReadPath(absPath, process.platform === "win32");
   if (!target) return null;
   const key = comparable(target);
   let real: string;

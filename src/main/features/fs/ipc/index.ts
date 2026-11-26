@@ -46,7 +46,7 @@ export function registerFsChannel(
       readBinary: readBinaryHandler(manager),
       readRange: readRangeHandler(manager),
       readExternal: readExternalHandler(manager),
-      grantOutside: grantOutsideHandler(),
+      grantOutside: grantOutsideHandler(manager),
       outsideExists: outsideExistsHandler(manager),
       writeFile: writeFileHandler(manager),
       createFile: createFileHandler(manager),

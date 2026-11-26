@@ -41,5 +41,13 @@
   { "path": "??\\UNC\\s\\sh", "kind": "relative" },
   { "path": "%5C%5Cs%5Csh%5Ca", "kind": "relative" },
   { "path": " \\\\s\\sh\\a", "kind": "relative" },
-  { "path": "", "kind": "relative" }
+  { "path": "", "kind": "relative" },
+  { "path": "\\\\", "kind": "unc" },
+  { "path": "//", "kind": "unc" },
+  { "path": "\\\\.", "kind": "device" },
+  { "path": "//?", "kind": "device" },
+  { "path": "/./\\s\\sh\\a", "kind": "rooted", "cleaned": "unc" },
+  { "path": "/x/../\\s\\sh\\a", "kind": "rooted", "cleaned": "unc" },
+  { "path": "/../\\s\\sh", "kind": "rooted", "cleaned": "unc" },
+  { "path": "/x/../\\?\\C:\\a", "kind": "rooted", "cleaned": "device" }
 ]

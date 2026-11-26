@@ -239,7 +239,7 @@ describe("fs read handlers — provider delegation", () => {
       ];
 
       try {
-        await grantOutsideHandler()({
+        await grantOutsideHandler(manager as never)({
           workspaceId: WORKSPACE_ID,
           owner: "tab",
           files: paths,
@@ -330,7 +330,7 @@ describe("fs read handlers — provider delegation", () => {
         kind: "ok",
       });
     }
-    expect(readAbsolute.mock.calls).toEqual([[String.raw`D:\out\a.txt`], ["D:/out/a.txt"]]);
+    expect(readAbsolute.mock.calls).toEqual([["D:/out/a.txt"], ["D:/out/a.txt"]]);
   });
 
   it.if(WINDOWS)(

@@ -173,8 +173,12 @@ export function previewHandlers(
       const { workspaceId, dir } = validateArgs(ipcContract.preview.call.openScope.args, args);
       watchOwner(ctx);
       if (!scopes) return null;
-      if (!isWindowsNetworkPath(dir) && (await isBroadRealDir(workspaceId, dir, home))) return null;
-      const id = scopes.open(ownerOf(ctx), workspaceId, dir);
+      const clean = scopes.dirOf(workspaceId, dir);
+      if (clean === null) return null;
+      if (!isWindowsNetworkPath(clean) && (await isBroadRealDir(workspaceId, clean, home))) {
+        return null;
+      }
+      const id = scopes.open(ownerOf(ctx), workspaceId, clean);
       return id ? { scope: id, base: previewScopeUrl(id) } : null;
     },
     releaseHtml: (args: unknown, ctx?: CallContext) => {
