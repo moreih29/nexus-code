@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { slashWindowsPath } from "../../../src/shared/fs/relative-path";
 import {
   fileUriToWorkspaceUri,
   parseUntitledCacheUri,
@@ -109,5 +110,15 @@ describe("untitled URI helpers", () => {
   test("parseWorkspaceUri returns null for untitled:// URIs", () => {
     const untitledUri = untitledCacheUriFor(ID, 1);
     expect(parseWorkspaceUri(untitledUri)).toBeNull();
+  });
+});
+
+describe("a share file the Windows file dialog returns", () => {
+  test("needs slashes before it can name an editor model", () => {
+    const picked = String.raw`\\127.0.0.1\qa-none-46\picked.txt`;
+    expect(() => workspaceUriFor(ID, picked)).toThrow();
+    const opened = slashWindowsPath(picked);
+    expect(opened).toBe("//127.0.0.1/qa-none-46/picked.txt");
+    expect(parseWorkspaceUri(workspaceUriFor(ID, opened))?.absolutePath).toBe(opened);
   });
 });

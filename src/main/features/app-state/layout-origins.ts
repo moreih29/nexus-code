@@ -1,4 +1,6 @@
 import { toSlashPath } from "../../../shared/fs/drive-path";
+import { windowsPathKind } from "../../../shared/fs/outside-url";
+import { slashWindowsPath } from "../../../shared/fs/relative-path";
 import { isWithinWorkspace } from "../../../shared/fs/workspace-path";
 import type { AppState } from "../../../shared/types/app-state";
 import type { SerializedTab } from "../../../shared/types/layout";
@@ -8,6 +10,12 @@ function pathStyle(path: string): "posix" | "drive" | null {
   if (path.split("/").some((part) => part === "." || part === "..")) return null;
   if (/^[A-Z]:\//.test(path)) return "drive";
   return path.startsWith("/") && !path.startsWith("//") ? "posix" : null;
+}
+
+function slashedShareTab(tab: SerializedTab): SerializedTab {
+  if (tab.type !== "editor" || windowsPathKind(tab.props.filePath) !== "unc") return tab;
+  const filePath = slashWindowsPath(tab.props.filePath);
+  return filePath === tab.props.filePath ? tab : { ...tab, props: { ...tab.props, filePath } };
 }
 
 function restoreTabOrigin(tab: SerializedTab, workspace: WorkspaceMeta): SerializedTab | null {
@@ -38,7 +46,9 @@ export function restoreLayoutOrigins(
       Object.entries(state.layoutByWorkspace).flatMap(([id, snapshot]) => {
         const workspace = byId.get(id);
         if (!workspace) return [];
-        const tabs = snapshot.tabs.flatMap((tab) => restoreTabOrigin(tab, workspace) ?? []);
+        const tabs = snapshot.tabs.flatMap(
+          (tab) => restoreTabOrigin(slashedShareTab(tab), workspace) ?? [],
+        );
         return [[id, { ...snapshot, tabs }]];
       }),
     ),

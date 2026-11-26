@@ -60,13 +60,14 @@ export const ChatMarkdown = memo(function ChatMarkdown({
     () => ({
       a({ href, children, ...rest }) {
         const safe = typeof href === "string" ? href : "";
-        const kind = linkKind(safe, cwd);
         const link = (icon?: React.ReactNode) => (
           <a {...rest} href={safe} title={safe} onClick={(e) => onLink(safe, e)}>
             {icon}
             {children}
           </a>
         );
+        if (isNetworkLink(safe)) return link();
+        const kind = linkKind(safe, cwd);
         if (kind === "file") {
           const places = placesOf(safe, cwd).map((place) => place.path);
           const path = places[0] ?? safe;
@@ -130,7 +131,8 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 });
 
 function keepFileUrls(url: string): string {
-  return /^[A-Za-z]:([\\/]|%5C)/i.test(url) ||
+  return isNetworkLink(url) ||
+    /^[A-Za-z]:([\\/]|%5C)/i.test(url) ||
     /^file:\/\//i.test(url) ||
     /^[\w.-]+\.\w+:\d+(:\d+)?$/.test(url)
     ? url
@@ -154,7 +156,7 @@ function FileLink({
 }) {
   const found = useFoundFiles(workspaceId, rootPath, places);
   const path = places.find((place) => found.has(place));
-  if (!path) return isNetworkLink(href) ? link : <span title={href}>{children}</span>;
+  if (!path) return <span title={href}>{children}</span>;
   return (
     <LinkMenu target={path} href={href} kind="file">
       {link}

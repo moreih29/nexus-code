@@ -7,6 +7,7 @@ import { createLogger } from "../../../shared/log/main";
 import { PREVIEW_SCHEME, previewDocumentUrl } from "../../../shared/preview/document-url";
 import { previewScopeSource, previewScopeUrl } from "../../../shared/preview/scope-url";
 import { type CallContext, register, validateArgs } from "../../infra/ipc-router";
+import { isWindowsNetworkPath } from "../fs/outside-grants";
 import { isBroadDir, type PreviewScopes, realpathNative } from "./preview-scopes";
 
 const logger = createLogger("nexus-preview");
@@ -171,8 +172,13 @@ export function previewHandlers(
     openScope: async (args: unknown, ctx?: CallContext) => {
       const { workspaceId, dir } = validateArgs(ipcContract.preview.call.openScope.args, args);
       watchOwner(ctx);
-      if (!scopes || (await isBroadRealDir(workspaceId, dir, home))) return null;
-      const id = scopes.open(ownerOf(ctx), workspaceId, dir);
+      if (!scopes) return null;
+      const clean = scopes.dirOf(workspaceId, dir);
+      if (clean === null) return null;
+      if (!isWindowsNetworkPath(clean) && (await isBroadRealDir(workspaceId, clean, home))) {
+        return null;
+      }
+      const id = scopes.open(ownerOf(ctx), workspaceId, clean);
       return id ? { scope: id, base: previewScopeUrl(id) } : null;
     },
     releaseHtml: (args: unknown, ctx?: CallContext) => {

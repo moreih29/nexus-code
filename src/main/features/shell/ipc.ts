@@ -5,19 +5,28 @@ import { appErrors, type RecordError } from "../../infra/recent-errors";
 import { openNewWindowHandler } from "../window/ipc";
 import { fontNames } from "./font-names";
 import { logsPathHandler, openLogsFolderHandler } from "./logs";
-import { openPathExternalHandler, revealInOSHandler } from "./open-path";
+import {
+  getElectronSystemShell,
+  type LocalWorkspaceRoots,
+  openPathExternalHandler,
+  revealInOSHandler,
+} from "./open-path";
 
 export interface RegisterSystemChannelOptions {
   readonly openNewWindow?: () => unknown;
   readonly stats?: (args: unknown) => Promise<SystemStats | null>;
   readonly recordError?: RecordError;
+  readonly localWorkspaceRoots?: LocalWorkspaceRoots;
 }
 
 export function registerSystemChannel(options: RegisterSystemChannelOptions = {}): void {
   register("system", {
     call: {
-      openPathExternal: openPathExternalHandler(),
-      revealInOS: revealInOSHandler(),
+      openPathExternal: openPathExternalHandler(
+        getElectronSystemShell(),
+        options.localWorkspaceRoots,
+      ),
+      revealInOS: revealInOSHandler(getElectronSystemShell(), options.localWorkspaceRoots),
       logsPath: logsPathHandler(),
       openLogsFolder: openLogsFolderHandler(),
       openNewWindow: openNewWindowHandler(options.openNewWindow ?? (() => {})),

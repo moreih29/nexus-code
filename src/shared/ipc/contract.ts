@@ -1328,6 +1328,7 @@ const coreIpcContract = {
             rememberedVoices: true,
             keychainSignature: true,
             cliPreallowedWorkspaces: true,
+            pickedNetworkFiles: true,
           }),
         ).extend({
           instructionEdits: z.array(InstructionEditSchema).optional(),
@@ -1638,6 +1639,7 @@ const coreIpcContract = {
           owner: z.string().min(1).max(200),
           files: z.array(z.string().min(1).max(4096)).max(2000),
           dirs: z.array(z.string().min(1).max(4096)).max(200),
+          opened: z.array(z.string().min(1).max(4096)).max(2000).optional(),
         }),
         z.void(),
       ),

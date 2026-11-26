@@ -8,6 +8,7 @@ import {
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
 import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
+import { isDevicePath } from "../../../shared/fs/outside-url";
 import type { FsPreviewPath } from "../../../shared/fs/protocol";
 import type { DirEntry } from "../../../shared/fs/types";
 import { decodable } from "../../../shared/remote/image-size";
@@ -118,9 +119,7 @@ export function absoluteFilePath(asked: string): string {
   const windows = process.platform === "win32";
   if (
     asked.includes("\0") ||
-    (windows
-      ? !WINDOWS_ABSOLUTE.test(asked) || /^[\\/]{2}[?.][\\/]/.test(asked)
-      : !path.isAbsolute(asked))
+    (windows ? !WINDOWS_ABSOLUTE.test(asked) || isDevicePath(asked) : !path.isAbsolute(asked))
   ) {
     throw forbidden("an absolute file path on this computer is required");
   }
