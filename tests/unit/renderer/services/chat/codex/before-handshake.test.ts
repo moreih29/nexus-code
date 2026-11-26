@@ -3,8 +3,6 @@ import { defaultProfileId } from "../../../../../../src/shared/agent-profiles/pr
 import { ipcContract } from "../../../../../../src/shared/ipc/contract";
 import type { WorkspaceMeta } from "../../../../../../src/shared/types/workspace";
 
-(globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
-
 type Message = Record<string, unknown>;
 let codex: ((message: Message) => void) | undefined;
 const catalogWorkspace = "b99ee5a4-4db7-43c4-8c3f-31262141cdaa";

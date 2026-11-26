@@ -8,6 +8,7 @@ import {
   useRecorderStore,
 } from "../../../../../src/renderer/services/notes/recorder";
 import { useTranscriptsStore } from "../../../../../src/renderer/services/notes/transcripts";
+import { voiceAvailabilityNow } from "../../../../../src/renderer/services/voice/availability";
 import * as capture from "../../../../../src/renderer/services/voice/capture";
 import { startNoteRemovalListener } from "../../../../../src/renderer/state/note-removal";
 import { openOrRevealNoteTab } from "../../../../../src/renderer/state/operations/tabs";
@@ -20,7 +21,7 @@ import {
 } from "../../../../../src/shared/remote/voice";
 import type { NoteChanged } from "../../../../../src/shared/types/notes";
 
-const realWindow = globalThis.window;
+let previousWindow: typeof window;
 let originalNotes: typeof notesApi;
 const workspaceId = crypto.randomUUID();
 const noteId = "recording-note";
@@ -37,7 +38,8 @@ const ready: VoiceStartResult = {
   maxSeconds: 60,
 };
 
-beforeEach(() => {
+beforeEach(async () => {
+  previousWindow = globalThis.window;
   calls.length = 0;
   startVoice = () => ready;
   originalNotes = { ...notesApi };
@@ -61,6 +63,8 @@ beforeEach(() => {
       },
     },
   } as unknown as typeof window;
+  expect(await voiceAvailabilityNow()).toBe("ready");
+  calls.length = 0;
 });
 
 afterEach(() => {
@@ -69,7 +73,7 @@ afterEach(() => {
   noteChanged?.({ change: "removed", locationKey: "local:/notes", workspaceIds: [workspaceId] });
   removeListener();
   Object.assign(notesApi, originalNotes);
-  globalThis.window = realWindow;
+  globalThis.window = previousWindow;
 });
 
 function mockHardware() {

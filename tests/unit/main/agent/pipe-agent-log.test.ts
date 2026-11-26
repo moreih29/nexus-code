@@ -1,19 +1,14 @@
-import { expect, mock, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
+import { createNdjsonPipe } from "../../../../src/main/infra/agent/pipe";
+import { mainErrorMock, mainInfoMock, mainWarnMock } from "../../../log-test-spies";
 
-const logged: { level: string; msg: string; meta?: unknown }[] = [];
-const realLog = await import("../../../../src/shared/log/main");
-mock.module("../../../../src/shared/log/main", () => ({
-  ...realLog,
-  createLogger: () => ({
-    error: (msg: string, meta?: unknown) => logged.push({ level: "error", msg, meta }),
-    warn: (msg: string, meta?: unknown) => logged.push({ level: "warn", msg, meta }),
-    info: (msg: string, meta?: unknown) => logged.push({ level: "info", msg, meta }),
-    debug: (msg: string, meta?: unknown) => logged.push({ level: "debug", msg, meta }),
-  }),
-}));
-const { createNdjsonPipe } = await import("../../../../src/main/infra/agent/pipe");
+beforeEach(() => {
+  mainErrorMock.mockClear();
+  mainInfoMock.mockClear();
+  mainWarnMock.mockClear();
+});
 
 class FakeReadable extends EventEmitter {
   pause(): this {
@@ -37,7 +32,6 @@ function agentStderr(): FakeReadable {
 }
 
 test("an agent log record keeps its attributes, with secrets hidden", () => {
-  logged.length = 0;
   const stderr = agentStderr();
   const reason =
     "hookserver: socket path C:\\Users\\u\\home\\sockets\\h-0123456789ab.sock is 119 bytes, over the 107-byte limit";
@@ -48,15 +42,16 @@ test("an agent log record keeps its attributes, with secrets hidden", () => {
   ];
   stderr.emit("data", Buffer.from(lines.map((line) => `${JSON.stringify(line)}\n`).join("")));
 
-  expect(logged).toEqual([
-    { level: "warn", msg: `hookserver unavailable err=${JSON.stringify(reason)}`, meta: undefined },
-    { level: "info", msg: "plain", meta: { correlationId: "c1" } },
-    { level: "error", msg: 'dial url="https://[redacted]@host/x" n=3', meta: undefined },
+  expect(mainWarnMock.mock.calls).toEqual([
+    [`hookserver unavailable err=${JSON.stringify(reason)}`, undefined],
+  ]);
+  expect(mainInfoMock.mock.calls).toEqual([["plain", { correlationId: "c1" }]]);
+  expect(mainErrorMock.mock.calls).toEqual([
+    ['dial url="https://[redacted]@host/x" n=3', undefined],
   ]);
 });
 
 test("an agent log record hides values by key name, nested ones too", () => {
-  logged.length = 0;
   const stderr = agentStderr();
   const secrets = ["abc123", "pw", "s3", "k1", "k2", "nested", "Basic dXNlcjpwdw==", "c=1"];
   const line = {
@@ -75,8 +70,8 @@ test("an agent log record hides values by key name, nested ones too", () => {
   };
   stderr.emit("data", Buffer.from(`${JSON.stringify(line)}\n`));
 
-  expect(logged).toHaveLength(1);
-  const msg = logged[0]?.msg ?? "";
+  expect(mainInfoMock).toHaveBeenCalledTimes(1);
+  const msg = mainInfoMock.mock.calls[0]?.[0] ?? "";
   for (const secret of secrets) expect(msg).not.toContain(secret);
   expect(msg).toBe(
     'auth token="[redacted]" password="[redacted]" secret="[redacted]" apiKey="[redacted]" ' +
@@ -86,7 +81,6 @@ test("an agent log record hides values by key name, nested ones too", () => {
 });
 
 test("an agent log record keeps each value short", () => {
-  logged.length = 0;
   const stderr = agentStderr();
   const deep = { a: { b: { c: { d: { e: "deep" } } } } };
   const line = {
@@ -99,7 +93,7 @@ test("an agent log record keeps each value short", () => {
   };
   stderr.emit("data", Buffer.from(`${JSON.stringify(line)}\n`));
 
-  const msg = logged[0]?.msg ?? "";
+  const msg = mainWarnMock.mock.calls[0]?.[0] ?? "";
   const attrs = msg.slice("big ".length).split(/ (?=[a-z]+=)/);
   expect(attrs.map((attr) => attr.slice(0, attr.indexOf("=")))).toEqual(["err", "list", "deep"]);
   for (const attr of attrs) expect(attr.length).toBeLessThanOrEqual("list=".length + 1024);
@@ -109,7 +103,6 @@ test("an agent log record keeps each value short", () => {
 });
 
 test("a hookserver socket record keeps the paths it chose and why", () => {
-  logged.length = 0;
   const stderr = agentStderr();
   const wanted = `C:\\Users\\u\\${"h".repeat(80)}\\sockets\\h-0123456789ab.sock`;
   const fallback = "C:\\Users\\u\\.nexus-code\\s\\89abcdef\\h-0123456789ab.sock";
@@ -134,20 +127,16 @@ test("a hookserver socket record keeps the paths it chose and why", () => {
   ];
   stderr.emit("data", Buffer.from(lines.map((line) => `${JSON.stringify(line)}\n`).join("")));
 
-  expect(logged).toEqual([
-    {
-      level: "info",
-      msg:
-        "hookserver socket path over the limit; using a fallback " +
+  expect(mainInfoMock.mock.calls).toEqual([
+    [
+      "hookserver socket path over the limit; using a fallback " +
         `path=${JSON.stringify(wanted)} bytes=${wanted.length} limit=107 fallback=${JSON.stringify(fallback)}`,
-      meta: undefined,
-    },
-    {
-      level: "info",
-      msg:
-        "hookserver fallback directory refused; using a fresh one " +
+      undefined,
+    ],
+    [
+      "hookserver fallback directory refused; using a fresh one " +
         'refused="/tmp/nexus-code-501-89abcdef" reason="it is owned by uid 0, not 501" fresh="/tmp/nexus-code-501-1234567"',
-      meta: undefined,
-    },
+      undefined,
+    ],
   ]);
 });

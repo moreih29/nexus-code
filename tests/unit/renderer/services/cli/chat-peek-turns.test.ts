@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import type { ChatPeekTail } from "../../../../../src/shared/ipc/contract";
 
-(globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
-
 const calls: [string, string, Record<string, unknown>][] = [];
 let tail: (args: Record<string, unknown>) => ChatPeekTail = () => ({ offline: true });
 

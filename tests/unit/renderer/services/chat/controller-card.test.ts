@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-(globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
-
 const realIpc = await import("../../../../../src/renderer/ipc/client");
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ...realIpc,

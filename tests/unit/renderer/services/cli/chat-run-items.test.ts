@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 
-(globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
-
 const PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 

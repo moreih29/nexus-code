@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { ipcErr } from "../../../../../src/shared/ipc/result";
 
-(globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
-
 const realIpc = await import("../../../../../src/renderer/ipc/client");
 let userWrite: Record<string, unknown> | undefined;
 let writeError: "agent.reconnect-unavailable" | "chat.stdin-write-failed" | undefined;

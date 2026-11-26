@@ -6,8 +6,6 @@ import koCommon from "../../../../../src/shared/i18n/locales/ko/common.json";
 import koSettings from "../../../../../src/shared/i18n/locales/ko/settings.json";
 import type { UpdateProgress, UpdateStatus } from "../../../../../src/shared/updates/status";
 
-(globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "1.2.3";
-
 const { AboutPanel, UpdateSection, VersionRow } = await import(
   "../../../../../src/renderer/components/settings/panels/about-panel"
 );
