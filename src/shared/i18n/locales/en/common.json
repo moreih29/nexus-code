@@ -1133,8 +1133,8 @@
       "drop_title": "Drop to attach",
       "drop_hint": "Images and files go with your message",
       "aria_codex": "Message to Codex",
-      "peer_wait_changed": "Draft changed · Press Send again",
-      "peer_wait_offline": "Connection unavailable · Send again once connected"
+      "peer_wait_changed": "The draft changed, so it wasn't sent. Send it again.",
+      "peer_wait_offline": "Couldn't send while disconnected. Send again once reconnected."
     },
     "mode": {
       "aria": "Permission mode",
