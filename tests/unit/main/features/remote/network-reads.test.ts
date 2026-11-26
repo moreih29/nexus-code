@@ -524,6 +524,91 @@ describe("files.read and files.list served to another device", () => {
   });
 });
 
+describe("a write target another device names", () => {
+  const transferId = "8f14e45f-ceea-467f-a5b4-0e5a3a5f6c2d";
+  const SHARE = WINDOWS ? String.raw`\\nas\share\w` : "/net/h/x";
+  const INSIDE = WINDOWS ? String.raw`\\NAS\share\w\in` : "/net/h/x/in";
+  const BESIDE = WINDOWS
+    ? [
+        String.raw`\\nas\share\w2`,
+        String.raw`\\h\s`,
+        "//h/s/dir",
+        String.raw`\\?\UNC\nas\share\w\in`,
+      ]
+    : ["/net/h/x2", "/net/h", "/Network/s", "/??/UNC/h/s"];
+
+  function serving(folders: string[]) {
+    const app = fakeApp();
+    const workspace = app.workspaces[0];
+    if (!workspace) throw new Error("workspace fixture is missing");
+    Object.assign(workspace, { rootPath: root, location: { kind: "local", rootPath: root } });
+    app.uiAnswers.set("workspace.folders", { folders });
+    let asked = 0;
+    app.uiAnswers.set("consent.ask", () => {
+      asked++;
+      return { answer: "once" };
+    });
+    const serve = serveWith(() => app.services, {
+      agents: new AgentGate({ policy: () => "ask" }),
+      controls: () => ({ chat: true, terminal: true }),
+      files: { fs: async () => provider().fs, shrink: () => null },
+    });
+    return { serve, workspaceId: workspace.id, asks: () => asked };
+  }
+  const from = { kind: "tab" as const, workspaceId: "pw", tabId: "pt" };
+
+  test("is refused before any file call or question when it is a network path outside a folder the host gave", async () => {
+    const { serve, workspaceId, asks } = serving([SHARE]);
+    for (const target of BESIDE) {
+      await expect(
+        serve({
+          from: "phone",
+          method: "files.list",
+          params: {
+            workspaceId,
+            path: target,
+            from,
+            anywhere: true,
+            writeTarget: true,
+            transferId,
+          },
+        }),
+      ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+      await expect(
+        serve({
+          from: "phone",
+          method: "files.write.begin",
+          params: {
+            workspaceId,
+            path: `${target}/a.txt`,
+            size: 0,
+            from,
+            anywhere: true,
+            transferId,
+          },
+        }),
+      ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+    }
+    expect(asks()).toBe(0);
+    expect(fsCalls()).toBe(0);
+  });
+
+  test("inside a folder the host gave, is resolved and asked about as before", async () => {
+    resolveAs((p) => p);
+    spies[2]?.mockImplementation((async () => ({ isDirectory: () => true })) as never);
+    const { serve, workspaceId, asks } = serving([SHARE]);
+    await expect(
+      serve({
+        from: "phone",
+        method: "files.list",
+        params: { workspaceId, path: INSIDE, from, anywhere: true, writeTarget: true, transferId },
+      }),
+    ).resolves.toMatchObject({ entries: [] });
+    expect(realpaths().length).toBeGreaterThan(0);
+    expect(asks()).toBe(1);
+  });
+});
+
 describe("folders.list asked by another device", () => {
   const system = (platform: NodeJS.Platform): FolderSystem => ({ platform, home: () => tmp });
 
