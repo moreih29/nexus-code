@@ -46,7 +46,8 @@ export interface LocalLinksEnv {
 
 export function shownFile(look: QuickLookList | null): string | undefined {
   const path = look && !look.draft ? look.files[look.index] : undefined;
-  return path !== undefined && !look?.images?.[path] ? path : undefined;
+  if (path === undefined) return undefined;
+  return look?.images?.[path] ? look.paths?.[path] : path;
 }
 
 export function needsGrant(path: string, rootPath: string, outside: OutsideLinks): boolean {
@@ -80,7 +81,7 @@ export function localChatLinks(env: LocalLinksEnv): LocalChatLinks {
     }
     void lookAtImage(shown, target, (files) => filesThere(workspaceId, rootPath, files)).then(
       (look) => {
-        for (const path of Object.values(look?.paths ?? {})) grant(path);
+        if (target.file) grant(target.file);
         const list = look ?? alone?.();
         if (list) env.look(list);
       },
