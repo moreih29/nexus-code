@@ -279,8 +279,8 @@
       "ask": "Ask each time",
       "allow": "Allow",
       "deny": "Don't allow",
-      "description": "Changes by nexus agents in one workspace to another workspace or its worktrees · Read-only commands excluded",
-      "remoteDescription": "Access to this computer from agents and users on other devices",
+      "description": "Agent commands that change another workspace or its worktrees · Read-only commands excluded",
+      "remoteDescription": "Access to this computer from other devices",
       "openRemote": "Remote access settings",
       "manage": "Manage workspace permissions",
       "preallowed": "Pre-approved workspaces",
@@ -291,7 +291,7 @@
       "add": "Pre-approve",
       "revoke": "Revoke",
       "empty": "No approvals",
-      "saveFailed": "Could not update workspace permissions"
+      "saveFailed": "Couldn't save workspace permissions."
     },
     "agentContext": {
       "label": "Tell Claude Code about nexus",

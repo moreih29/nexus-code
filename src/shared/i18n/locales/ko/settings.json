@@ -279,8 +279,8 @@
       "ask": "매번 묻기",
       "allow": "허용",
       "deny": "허용 안 함",
-      "description": "한 워크스페이스의 에이전트가 nexus로 다른 워크스페이스나 그 워크트리를 변경하는 권한 · 읽기 명령 제외",
-      "remoteDescription": "다른 기기의 에이전트와 사용자가 이 컴퓨터에 접근하는 권한",
+      "description": "다른 워크스페이스·워크트리를 바꾸는 에이전트 명령 · 읽기 명령 제외",
+      "remoteDescription": "다른 기기에서 이 컴퓨터 접근",
       "openRemote": "원격 접근 설정",
       "manage": "워크스페이스 권한 관리",
       "preallowed": "사전 허용 워크스페이스",
@@ -291,7 +291,7 @@
       "add": "사전 허용",
       "revoke": "허용 취소",
       "empty": "허용 내역 없음",
-      "saveFailed": "워크스페이스 권한을 갱신하지 못함"
+      "saveFailed": "워크스페이스 권한을 저장하지 못했습니다."
     },
     "agentContext": {
       "label": "Claude Code에 nexus 알려주기",
