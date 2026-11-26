@@ -155,6 +155,7 @@ describe("chat send", () => {
     await nexus(app, ["chat", "send", "eeee", "hi", "--file", "a.txt", "--workspace", "api"]);
     expect(app.asked[0]?.change).toEqual({
       kind: "chatInput",
+      eachTime: true,
       detail: "Fix the login",
       body: "hi\n\n[a.txt]",
     });
@@ -204,6 +205,7 @@ describe("chat rewind", () => {
     );
     expect(app.asked[0]?.change).toEqual({
       kind: "chatRewindFiles",
+      eachTime: true,
       detail: '"Fix the login" (#0)',
       body: "Fix the login redirect\n\n1 file (+4 -1):\n  /w/app/src/router.ts",
     });

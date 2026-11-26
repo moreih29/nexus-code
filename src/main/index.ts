@@ -273,6 +273,13 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
     notesFeature?.forgetWorkspace(removedWorkspaceId);
     remote?.forgetWorkspace(removedWorkspaceId);
     const currentState = stateService.getState();
+    if (currentState.cliPreallowedWorkspaces.includes(removedWorkspaceId)) {
+      stateService.setState({
+        cliPreallowedWorkspaces: currentState.cliPreallowedWorkspaces.filter(
+          (id) => id !== removedWorkspaceId,
+        ),
+      });
+    }
     const { agentInstructions, chatInstructionHistory, claudeInstructionDigests } = currentState;
     if (agentInstructions?.workspaces?.[removedWorkspaceId] !== undefined) {
       const config = withInstruction(agentInstructions, {
@@ -758,11 +765,13 @@ app.whenReady().then(async () => {
         workspaces,
       );
     },
+    setPreallowedWorkspaces: (ids) => stateService.commitState({ cliPreallowedWorkspaces: ids }),
     settings: () => {
       const state = stateService.getState();
       return {
         enabled: state.cliEnabled ?? true,
         crossWorkspace: state.cliCrossWorkspace ?? "ask",
+        preallowedWorkspaces: state.cliPreallowedWorkspaces,
         agentContext: state.cliAgentContext ?? true,
       };
     },

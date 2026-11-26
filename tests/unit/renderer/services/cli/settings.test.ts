@@ -251,6 +251,12 @@ describe("settings.set", () => {
       "agentCli.crossWorkspace is the user's to change, in Settings",
     );
     expect(useAgentCliStore.getState().crossWorkspace).toBe("ask");
+    await expect(set("agentCli.preallowedWorkspaces", "all")).rejects.toThrow(
+      'no setting "agentCli.preallowedWorkspaces"',
+    );
+    await expect(set("cliPreallowedWorkspaces", "all")).rejects.toThrow(
+      'no setting "cliPreallowedWorkspaces"',
+    );
     await expect(set("editor.fontSize", "99")).rejects.toThrow(
       "editor.fontSize: 99 is not within 8..32",
     );

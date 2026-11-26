@@ -96,6 +96,7 @@ describe("chat send", () => {
     expect(result.stderr).toBe("nexus: the user did not allow it\n");
     expect(api.asked[0]?.change).toEqual({
       kind: "chatInput",
+      eachTime: true,
       detail: "Fix the login",
       body: "hi",
     });

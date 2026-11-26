@@ -117,6 +117,7 @@ export const SETTINGS_PAGES = [
   "browser-permissions",
   "keybindings",
   "agent",
+  "cross-workspace",
   "claude",
   "codex",
   "instructions",
@@ -143,6 +144,7 @@ const KEY_PAGES: readonly (readonly [string, SettingsPage])[] = [
 ];
 
 const PAGE_NAMES: Readonly<Record<string, SettingsPage>> = {
+  "agentcli.crossworkspace": "cross-workspace",
   lsp: "language-servers",
   browser: "browser-permissions",
   keys: "keybindings",

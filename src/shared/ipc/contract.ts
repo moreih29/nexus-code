@@ -1324,7 +1324,11 @@ const coreIpcContract = {
       get: call(z.void(), AppStateSchema),
       set: call(
         partialWithoutDefaults(
-          AppStateSchema.omit({ rememberedVoices: true, keychainSignature: true }),
+          AppStateSchema.omit({
+            rememberedVoices: true,
+            keychainSignature: true,
+            cliPreallowedWorkspaces: true,
+          }),
         ).extend({
           instructionEdits: z.array(InstructionEditSchema).optional(),
         }),
@@ -1963,6 +1967,22 @@ const coreIpcContract = {
   cli: {
     call: {
       uiRespond: call(CliUiRespondArgsSchema, z.void()),
+      workspaceGrants: call(
+        z.void(),
+        z.object({
+          preallowed: z.array(z.guid()),
+          sessions: z.array(
+            z.object({
+              id: z.guid(),
+              workspaceId: z.guid(),
+              fromWorkspaceId: z.guid(),
+              fromTabId: z.guid(),
+            }),
+          ),
+        }),
+      ),
+      setWorkspaceGrant: call(z.object({ workspaceId: z.guid(), allowed: z.boolean() }), z.void()),
+      revokeSessionGrant: call(z.object({ id: z.guid() }), z.void()),
       sessionsChanged: call(z.object({ revision: z.number().int().nonnegative() }), z.void()),
       activity: call(z.object({}), z.array(TabActivityEntrySchema)),
       waits: call(z.object({}), z.array(TerminalWaitSchema)),

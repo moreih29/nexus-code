@@ -81,7 +81,7 @@ function useSignIns(ask: boolean): {
   };
 }
 
-export function RemotePanel() {
+export function RemotePanel({ go }: { go: (id: string) => void }) {
   const { t } = useTranslation("settings");
   const state = useRemoteAccount();
   const key = useAccountKey();
@@ -106,6 +106,16 @@ export function RemotePanel() {
       )}
       {state.status === "signed-in" && key && <AccountKeyGroup state={key} />}
       {state.status === "signed-in" && <RemoteControlGroup />}
+      <SettingsGroup>
+        <SettingsRow
+          label={t("agentCli.crossWorkspace.label")}
+          description={t("agentCli.crossWorkspace.description")}
+        >
+          <Button size="sm" variant="outline" onClick={() => go("cross-workspace")}>
+            {t("agentCli.crossWorkspace.manage")}
+          </Button>
+        </SettingsRow>
+      </SettingsGroup>
       {state.status === "signed-in" && (
         <DevicesGroup thisDevice={state.device.id} room={room} keyState={key} />
       )}

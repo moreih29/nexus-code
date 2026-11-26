@@ -42,6 +42,18 @@ function withSettings(): FakeApp {
 
 const nexus = (app: FakeApp, argv: string[]) => runCli(CLI_COMMANDS, contextFor(app, argv));
 
+test("opens cross-workspace permissions by page name or setting key", async () => {
+  const app = fakeApp();
+  app.uiAnswers.set("settings.open", {});
+  for (const page of ["cross-workspace", "agentCli.crossWorkspace"]) {
+    expect((await nexus(app, ["settings", "open", page])).exitCode).toBe(0);
+    expect(app.uiCalls.at(-1)).toEqual({
+      op: "settings.open",
+      args: { page: "cross-workspace" },
+    });
+  }
+});
+
 test("get asks for its key alone, and fails for one that could not be read", async () => {
   const app = withSettings();
   expect((await nexus(app, ["settings", "get", "terminal.shell"])).stdout).toBe("fish\n");

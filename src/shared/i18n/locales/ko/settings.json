@@ -15,7 +15,8 @@
     "codex": "Codex",
     "profileRules": "워크스페이스별 프로필",
     "instructions": "지시",
-    "remote": "원격"
+    "remote": "원격",
+    "crossWorkspace": "워크스페이스 권한"
   },
   "dialog": {
     "close": "설정 닫기",
@@ -274,11 +275,23 @@
       "description": "에이전트가 다른 탭과 대화를 보고 다룹니다"
     },
     "crossWorkspace": {
-      "label": "다른 워크스페이스 변경",
+      "label": "다른 워크스페이스 변경 승인",
       "ask": "매번 묻기",
       "allow": "허용",
       "deny": "허용 안 함",
-      "description": "읽기는 항상 허용"
+      "description": "한 워크스페이스의 에이전트가 nexus로 다른 워크스페이스나 그 워크트리를 변경하는 권한 · 읽기 명령 제외",
+      "remoteDescription": "다른 기기의 에이전트와 사용자가 이 컴퓨터에 접근하는 권한",
+      "openRemote": "원격 접근 설정",
+      "manage": "워크스페이스 권한 관리",
+      "preallowed": "사전 허용 워크스페이스",
+      "preallowedDescription": "묻기 정책에서 승인 없이 변경 · 모든 워크트리 포함",
+      "sessions": "대화 허용",
+      "sessionsDescription": "대상 워크스페이스와 워크트리 · 표시된 대화에만 적용",
+      "choose": "워크스페이스 선택",
+      "add": "사전 허용",
+      "revoke": "허용 취소",
+      "empty": "허용 내역 없음",
+      "saveFailed": "워크스페이스 권한을 갱신하지 못함"
     },
     "agentContext": {
       "label": "Claude Code에 nexus 알려주기",
@@ -524,7 +537,13 @@
       "profile_rule_applies_one": "지금 적용되는 워크스페이스 {{count}}개",
       "profile_rule_applies_other": "지금 적용되는 워크스페이스 {{count}}개",
       "profile_rule_others_one": "다른 워크스페이스 {{count}}개 포함",
-      "profile_rule_others_other": "다른 워크스페이스 {{count}}개 포함"
+      "profile_rule_others_other": "다른 워크스페이스 {{count}}개 포함",
+      "workspaceSetting": "설정 › 에이전트 › {{page}} · {{setting}}",
+      "workspaceScope": "대화 허용 범위 · {{workspace}} 및 해당 워크트리",
+      "changeInSettings": "설정에서 바꾸기",
+      "chatSession": "이 대화 동안 허용",
+      "notificationTitle": "워크스페이스 승인 요청",
+      "notificationBody": "NexusCode에서 승인 요청에 답하세요"
     },
     "heading": "nexus CLI"
   },

@@ -12,11 +12,12 @@ import {
   CHAT_FONT_SIZE_MAX,
   CHAT_FONT_SIZE_MIN,
 } from "../../../services/chat/chat-font";
-import { type CrossWorkspacePolicy, useAgentCliStore } from "../../../state/stores/agent-cli";
+import { useAgentCliStore } from "../../../state/stores/agent-cli";
 import { useAgentListViewStore } from "../../../state/stores/agent-list-view";
 import { useChatFontStore, useChatFontStyle } from "../../../state/stores/chat-font";
 import { useNotificationsStore } from "../../../state/stores/notifications";
 import { useTerminalStore } from "../../../state/stores/terminal";
+import { Button } from "../../ui/button";
 import { NumberInput } from "../../ui/number-input";
 import { taskAgentOptions } from "../../workspace/task-agent-options";
 import { FontFamilyRow } from "../font-family-row";
@@ -29,23 +30,15 @@ import {
 } from "../section";
 import { SegmentedControl } from "../segmented-control";
 
-export function AgentPanel() {
+export function AgentPanel({ go }: { go: (id: string) => void }) {
   const { t } = useTranslation("settings");
   const taskAgent = useTerminalStore((s) => s.taskAgent);
   const setTaskAgent = useTerminalStore((s) => s.setTaskAgent);
   const agentListView = useAgentListViewStore((s) => s.defaultView);
   const setAgentListView = useAgentListViewStore((s) => s.setDefault);
   const enabled = useAgentCliStore((s) => s.enabled);
-  const crossWorkspace = useAgentCliStore((s) => s.crossWorkspace);
   const agentContext = useAgentCliStore((s) => s.agentContext);
   const setLocal = useAgentCliStore((s) => s.set);
-
-  const policyLabel = t("agentCli.crossWorkspace.label");
-  const policies: { value: CrossWorkspacePolicy; label: string }[] = [
-    { value: "ask", label: t("agentCli.crossWorkspace.ask") },
-    { value: "allow", label: t("agentCli.crossWorkspace.allow") },
-    { value: "deny", label: t("agentCli.crossWorkspace.deny") },
-  ];
 
   return (
     <SettingsPage>
@@ -96,17 +89,13 @@ export function AgentPanel() {
             void ipcCallResult("appState", "set", { cliEnabled: next });
           }}
         />
-        <SettingsRow label={policyLabel} description={t("agentCli.crossWorkspace.description")}>
-          <SegmentedControl
-            options={policies}
-            value={crossWorkspace}
-            onChange={(next) => {
-              setLocal({ crossWorkspace: next });
-              void ipcCallResult("appState", "set", { cliCrossWorkspace: next });
-            }}
-            label={policyLabel}
-            disabled={!enabled}
-          />
+        <SettingsRow
+          label={t("agentCli.crossWorkspace.label")}
+          description={t("agentCli.crossWorkspace.description")}
+        >
+          <Button size="sm" variant="outline" onClick={() => go("cross-workspace")}>
+            {t("agentCli.crossWorkspace.manage")}
+          </Button>
         </SettingsRow>
         <SettingsSwitch
           label={t("agentCli.agentContext.label")}

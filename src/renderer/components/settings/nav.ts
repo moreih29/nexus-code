@@ -210,6 +210,22 @@ export function settingsNav(
       ],
     },
     {
+      id: "cross-workspace",
+      label: t("nav.crossWorkspace"),
+      parent: "agent",
+      keywords: [
+        ...names("crossWorkspace"),
+        "workspace",
+        "permission",
+        "approval",
+        "ask",
+        "워크스페이스",
+        "권한",
+        "승인",
+        "묻기",
+      ],
+    },
+    {
       id: "claude",
       label: t("nav.claude"),
       parent: "agent",

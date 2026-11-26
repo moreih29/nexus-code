@@ -18,8 +18,15 @@ import {
 
 const SERVER_TAB = "aaaaaaaa-0000-4000-8000-000000000009";
 
-async function nexus(app: FakeApp, argv: string[]) {
-  return runCli(CLI_COMMANDS, contextFor(app, argv));
+async function nexus(app: FakeApp, argv: string[], session = false) {
+  if (!session) return runCli(CLI_COMMANDS, contextFor(app, argv));
+  app.tabs[APP] = (app.tabs[APP] ?? []).map((tab) =>
+    tab.id === CLAUDE_TAB ? { ...tab, type: "claude" } : tab,
+  );
+  return runCli(
+    CLI_COMMANDS,
+    contextFor(app, argv, { workspaceId: APP, tabId: CLAUDE_TAB, verified: true }),
+  );
 }
 
 describe("changing another workspace", () => {
@@ -35,7 +42,8 @@ describe("changing another workspace", () => {
         fromWorkspaceId: APP,
         fromTabId: SHELL_TAB,
         toWorkspaceId: API,
-        change: { kind: "terminalInput", detail: "codex", body: "go on\n" },
+        otherWorkspaces: true,
+        change: { kind: "terminalInput", detail: "codex", body: "go on\n", eachTime: true },
       },
     ]);
     expect(app.uiCalls.at(-1)).toMatchObject({ op: "terminal.input", args: { tabId: CODEX_TAB } });
@@ -45,28 +53,33 @@ describe("changing another workspace", () => {
     const app = fakeApp();
     app.answers.push("once");
     await nexus(app, ["tab", "close", "codex", "--workspace", "api"]);
-    expect(app.asked[0]?.change).toEqual({ kind: "tabClose", detail: "codex", terminal: true });
+    expect(app.asked[0]?.change).toEqual({
+      kind: "tabClose",
+      detail: "codex",
+      terminal: true,
+      eachTime: true,
+    });
   });
 
-  test("asks again after once, not after until-restart, for any change between them", async () => {
+  test("asks again after once and remembers approval for other changes in the same session", async () => {
     const app = fakeApp();
     const rename = ["tab", "rename", "codex", "x", "--workspace", "api"];
     app.answers.push("once", "session");
-    await nexus(app, rename);
-    await nexus(app, rename);
-    await nexus(app, rename);
+    await nexus(app, rename, true);
+    await nexus(app, rename, true);
+    await nexus(app, rename, true);
     expect(app.asked.map((r) => r.change.kind)).toEqual(["tabRename", "tabRename"]);
-    await nexus(app, ["tab", "close", "codex", "--workspace", "api"]);
+    await nexus(app, ["tab", "close", "codex", "--workspace", "api"], true);
     expect(app.asked).toHaveLength(2);
   });
 
-  test("until restart lets it type, run and send there unasked", async () => {
+  test("session approval lets the same chat type, run and send there unasked", async () => {
     const app = fakeApp();
     app.answers.push("session");
-    await nexus(app, argv);
-    await nexus(app, argv);
-    await nexus(app, ["terminal", "key", "codex", "ctrl-c", "--workspace", "api"]);
-    await nexus(app, ["terminal", "new", "--command", "make deploy", "--workspace", "api"]);
+    await nexus(app, argv, true);
+    await nexus(app, argv, true);
+    await nexus(app, ["terminal", "key", "codex", "ctrl-c", "--workspace", "api"], true);
+    await nexus(app, ["terminal", "new", "--command", "make deploy", "--workspace", "api"], true);
     expect(app.asked.map((r) => r.change)).toEqual([
       { kind: "terminalInput", detail: "codex", body: "go on\n" },
     ]);

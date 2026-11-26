@@ -185,10 +185,12 @@ export interface FakeApp {
   screens: Map<string, string>;
   settings: {
     crossWorkspace: CrossWorkspacePolicy;
+    preallowedWorkspaces: string[];
     agentContext: boolean;
   };
   answers: CliConsentAnswer[];
   asked: ChangeRequest[];
+  consent: CrossWorkspaceConsent;
   time: { now: number; onTick?: (now: number) => void };
   browser: FakeBrowser;
   notes: Record<string, NoteContent[]>;
@@ -375,6 +377,7 @@ export function fakeApp(now = Date.now()): FakeApp {
   const foreground: FakeApp["foreground"] = new Map();
   const settings: FakeApp["settings"] = {
     crossWorkspace: "ask",
+    preallowedWorkspaces: [],
     agentContext: true,
   };
   const answers: CliConsentAnswer[] = [];
@@ -443,6 +446,10 @@ export function fakeApp(now = Date.now()): FakeApp {
   const closeRefused: FakeApp["closeRefused"] = new Map();
   const consent = new CrossWorkspaceConsent({
     policy: () => settings.crossWorkspace,
+    preallowed: () => settings.preallowedWorkspaces,
+    workspaces: () => workspaces,
+    chatSession: (workspaceId, tabId) =>
+      ui("tab.sandboxSession", { workspaceId, tabId, chatOnly: true }),
     sandboxSession: (workspaceId, tabId) => ui("tab.sandboxSession", { workspaceId, tabId }),
     ask: async (request) => {
       asked.push(request);
@@ -551,9 +558,13 @@ export function fakeApp(now = Date.now()): FakeApp {
       return { tabs: tabs[workspaceId] ?? [] } as CliUiOps[K]["result"];
     }
     if (op === "tab.sandboxSession") {
-      const { workspaceId, tabId } = args as CliUiOps["tab.sandboxSession"]["args"];
+      const { workspaceId, tabId, chatOnly } = args as CliUiOps["tab.sandboxSession"]["args"];
       const tab = tabs[workspaceId]?.find((tab) => tab.id === tabId);
-      return (tab && !tab.dead ? tabId : null) as CliUiOps[K]["result"];
+      return (
+        tab && !tab.dead && (!chatOnly || tab.type === "claude" || tab.type === "codex")
+          ? tabId
+          : null
+      ) as CliUiOps[K]["result"];
     }
     if (op === "terminal.read") {
       const { tabId, lines } = args as CliUiOps["terminal.read"]["args"];
@@ -831,8 +842,8 @@ export function fakeApp(now = Date.now()): FakeApp {
       const text = READABLE[absolutePath];
       return text === undefined ? null : Buffer.from(text).toString("base64");
     },
-    allowChange: (request) => consent.check(request),
-    askUser: (request) => consent.ask(request),
+    allowChange: (request, signal) => consent.check(request, signal),
+    askUser: (request, signal) => consent.ask(request, signal),
     agentContextEnabled: () => settings.agentContext,
     foregroundProcess: async (_workspaceId, tabId) => foreground.get(tabId) ?? null,
     listeningPorts: async (workspaceId) => {
@@ -935,6 +946,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     settings,
     answers,
     asked,
+    consent,
     time,
     browser,
     layouts,

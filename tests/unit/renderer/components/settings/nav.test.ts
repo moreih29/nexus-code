@@ -44,6 +44,23 @@ describe("the settings dialog's pages", () => {
     expect(keywords("claude")).toContain("프로필");
   });
 
+  test("find cross-workspace approval settings by task words in both languages", () => {
+    for (const lng of SUPPORTED_LANGUAGES) {
+      for (const keyword of [
+        "workspace",
+        "permission",
+        "approval",
+        "ask",
+        "워크스페이스",
+        "권한",
+        "승인",
+        "묻기",
+      ]) {
+        expect(search(lng, keyword)).toContain("cross-workspace");
+      }
+    }
+  });
+
   test("find every page that holds a font setting by the Korean word for font", () => {
     const found = settingsNav(t)
       .filter((item) => item.keywords?.some((k) => k.includes("글꼴")))
