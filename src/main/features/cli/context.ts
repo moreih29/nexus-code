@@ -240,6 +240,7 @@ export async function mayChange(
       fromTabId: ctx.caller.tabId,
       toWorkspaceId: workspace.id,
       change,
+      ...(ctx.caller.verified === true ? { verified: true } : {}),
     },
     signal,
   );

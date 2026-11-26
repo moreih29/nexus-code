@@ -68,7 +68,7 @@ describe("driving a page", () => {
       await nexus(app, ["browser", ...argv, "--workspace", "api"]);
     }
     expect(app.asked.map((r) => r.change)).toEqual(
-      Array(4).fill({ kind: "browserControl", detail: "API docs" }),
+      Array(4).fill({ kind: "browserControl", detail: "API docs", eachTime: true }),
     );
   });
 });

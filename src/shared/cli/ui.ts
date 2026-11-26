@@ -533,7 +533,7 @@ export interface CliUiOps {
     result: Record<string, never>;
   };
   "tab.sandboxSession": {
-    args: { workspaceId: string; tabId: string };
+    args: { workspaceId: string; tabId: string; chatOnly?: true };
     result: string | null;
   };
   "browser.open": {
@@ -1153,6 +1153,7 @@ export interface CliUiOps {
       toWorkspaceId: string;
       change: CliChange;
       timeoutMs?: number;
+      crossWorkspace?: boolean;
       fromDevice?: string;
       fromDeviceId?: string;
       fromName?: string;

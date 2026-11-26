@@ -119,7 +119,7 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   "tabs.list": async ({ workspaceId, agentOrder, includeSession }) => ({
     tabs: listTabs(workspaceId, agentOrder, includeSession),
   }),
-  "tab.sandboxSession": async ({ workspaceId, tabId }) => {
+  "tab.sandboxSession": async ({ workspaceId, tabId, chatOnly }) => {
     const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
     if (tab?.type === "codex") {
       return existingCodexController(workspaceId, tabId)?.sandboxSession ?? null;
@@ -127,7 +127,7 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
     if (tab?.type === "claude") {
       return existingChatController(workspaceId, tabId)?.sandboxSession ?? null;
     }
-    if (tab?.type === "terminal" && !tab.props.dead) {
+    if (!chatOnly && tab?.type === "terminal" && !tab.props.dead) {
       return getTerminalController(tabId)?.sandboxSession ?? null;
     }
     return null;

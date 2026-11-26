@@ -90,6 +90,7 @@ export async function mayExecute(
     fromTabId: ctx.caller.tabId,
     toWorkspaceId: workspace.id,
     change: eachTime ? { ...change, eachTime: true } : change,
+    ...(ctx.caller.verified === true ? { verified: true } : {}),
   };
   let approval = request;
   if (guarded) {

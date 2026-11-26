@@ -9,6 +9,7 @@ import { CONSENT_AGENT_NAMES, consentDetailsOf } from "../../../shared/cli/conse
 import type { CliChange, CliConsentAnswer } from "../../../shared/cli/ui";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { createListenerBus } from "../../../shared/util/listener-bus";
+import { useSettingsUIStore } from "../../state/stores/settings-ui";
 
 export interface CliConsentPrompt {
   readonly id?: string;
@@ -18,6 +19,7 @@ export interface CliConsentPrompt {
   readonly fromDevice?: string;
   readonly toWorkspace: string;
   readonly sameWorkspace?: boolean;
+  readonly crossWorkspace?: string;
   readonly change: CliChange;
   readonly timeoutMs?: number;
 }
@@ -172,6 +174,9 @@ export function consentTitleOf(kind: string, remote: boolean) {
 export function CliConsentDialogRoot(): React.JSX.Element {
   const { t } = useTranslation("settings");
   const [active, setActive] = useState<Pending | null>(queue[0] ?? null);
+  const settingsOpen = useSettingsUIStore((s) => s.settingsOpen);
+  const [visitingSettings, setVisitingSettings] = useState(false);
+  if (!settingsOpen && visitingSettings) setVisitingSettings(false);
 
   useEffect(() => bus.subscribe(() => setActive(queue[0] ?? null)), []);
 
@@ -182,13 +187,14 @@ export function CliConsentDialogRoot(): React.JSX.Element {
     ? t(`agentCli.consent.action.${change.kind}`, { detail: copy?.detail ?? "" })
     : "";
   const sandbox = change?.kind === "sandboxExecution";
+  const workspaceSession = !!prompt?.crossWorkspace && !sandbox && !change?.eachTime;
   const description = prompt
     ? describeConsent(t, prompt, action, consentNamesTarget(prompt.change.kind), sandbox)
     : "";
 
   return (
     <Dialog
-      open={active !== null}
+      open={active !== null && !(visitingSettings && settingsOpen)}
       onOpenChange={(open) => {
         if (!open && active) settle(active, "deny");
       }}
@@ -214,7 +220,31 @@ export function CliConsentDialogRoot(): React.JSX.Element {
           {t("agentCli.consent.timeout", { seconds: Math.round(prompt.timeoutMs / 1000) })}
         </p>
       )}
-      <div className="mt-5 flex justify-end gap-2">
+      {prompt?.crossWorkspace && (
+        <div className="mt-2 text-app-ui-sm text-muted-foreground">
+          <p>
+            {t("agentCli.consent.workspaceSetting", {
+              page: t("nav.crossWorkspace"),
+              setting: t("agentCli.crossWorkspace.label"),
+            })}
+          </p>
+          {workspaceSession && (
+            <p>{t("agentCli.consent.workspaceScope", { workspace: prompt.crossWorkspace })}</p>
+          )}
+          <Button
+            variant="link"
+            size="sm"
+            className="px-0"
+            onClick={() => {
+              setVisitingSettings(true);
+              useSettingsUIStore.getState().openSettingsAt("cross-workspace");
+            }}
+          >
+            {t("agentCli.consent.changeInSettings")}
+          </Button>
+        </div>
+      )}
+      <div className="mt-5 flex flex-wrap justify-end gap-2">
         <Button
           variant="ghost"
           size="sm"
@@ -225,7 +255,7 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         </Button>
         {!change?.eachTime && (
           <Button variant="outline" size="sm" onClick={() => active && settle(active, "session")}>
-            {t("agentCli.consent.session")}
+            {t(workspaceSession ? "agentCli.consent.chatSession" : "agentCli.consent.session")}
           </Button>
         )}
         <Button

@@ -21,6 +21,7 @@ import type { ListeningPort } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { WorkspaceColor } from "../../../shared/types/workspace-color";
 import { shortId } from "../../../shared/util/short-id";
+import { tryGetMainT } from "../../i18n";
 import type { AgentChannel } from "../../infra/agent/channel";
 import { register, validateArgs } from "../../infra/ipc-router";
 import { getBrowserRegistry, onBrowserTabCreated } from "../browser";
@@ -37,7 +38,12 @@ import {
   chatAgentContext,
   linkedNoteGuidance,
 } from "./commands/agent-context";
-import { type ChangeRequest, CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
+import {
+  type ChangeRequest,
+  CrossWorkspaceConsent,
+  type CrossWorkspacePolicy,
+  grantWorkspaceId,
+} from "./consent";
 import { ConsentPrompts } from "./consent-prompts";
 import {
   type CliCaller,
@@ -60,6 +66,7 @@ const log = createLogger("cli");
 const slowRequests = limitLog(log);
 
 const BUTTON_PICK_MS = 10 * 60_000;
+const WORKSPACE_APPROVAL_MS = 120_000;
 
 const DISABLED: CliResult = {
   stdout: "",
@@ -116,9 +123,11 @@ export interface SetupCliFeatureOptions {
   appVersion: string;
   profileConnections: CliServices["profileConnections"];
   notificationsEnabled: () => boolean;
+  setPreallowedWorkspaces: (ids: string[]) => void;
   settings: () => {
     enabled: boolean;
     crossWorkspace: CrossWorkspacePolicy;
+    preallowedWorkspaces: readonly string[];
     agentContext: boolean;
   };
   getWindow: () => Pick<BrowserWindow, "webContents"> | null;
@@ -171,14 +180,44 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     onChange: () => options.onConsentsChanged?.(),
   });
   const askConsent = async (
-    { fromWorkspaceId, fromTabId, toWorkspaceId, change }: ChangeRequest,
+    { fromWorkspaceId, fromTabId, toWorkspaceId, change, otherWorkspaces }: ChangeRequest,
     signal?: AbortSignal,
-  ) =>
-    (await consents.ask({ fromWorkspaceId, fromTabId, toWorkspaceId, change }, undefined, signal))
-      .answer;
+  ) => {
+    const pending = consents.ask(
+      {
+        fromWorkspaceId,
+        fromTabId,
+        toWorkspaceId,
+        change,
+        ...(otherWorkspaces ? { crossWorkspace: true, timeoutMs: WORKSPACE_APPROVAL_MS } : {}),
+      },
+      undefined,
+      signal,
+    );
+    if (otherWorkspaces && !signal?.aborted) {
+      const t = tryGetMainT();
+      notifyTab(
+        {
+          isViewing: options.isAppFocused,
+          notificationsEnabled: options.notificationsEnabled,
+          workspaceName: (id) => workspaceManager.getName(id),
+          reveal: options.focusWindow,
+        },
+        toWorkspaceId,
+        fromTabId,
+        t?.("settings:agentCli.consent.notificationTitle") ?? "Workspace approval requested",
+        t?.("settings:agentCli.consent.notificationBody") ?? "Open NexusCode to answer",
+      );
+    }
+    return (await pending).answer;
+  };
   const consent = new CrossWorkspaceConsent({
     policy: () => options.settings().crossWorkspace,
+    preallowed: () => options.settings().preallowedWorkspaces,
+    workspaces: () => workspaceManager.list(),
     ask: askConsent,
+    chatSession: (workspaceId, tabId, signal) =>
+      bridge.ask("tab.sandboxSession", { workspaceId, tabId, chatOnly: true }, undefined, signal),
     sandboxSession: (workspaceId, tabId, signal) =>
       bridge.ask("tab.sandboxSession", { workspaceId, tabId }, undefined, signal),
   });
@@ -203,6 +242,31 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     call: {
       uiRespond: async (args: unknown, ctx) => {
         bridge.resolve(validateArgs(ipcContract.cli.call.uiRespond.args, args), ctx?.sender?.id);
+        return ipcOk(undefined);
+      },
+      workspaceGrants: async (_args, ctx) => {
+        const sessions = await consent.grants(ctx?.signal);
+        return ipcOk({ preallowed: [...options.settings().preallowedWorkspaces], sessions });
+      },
+      setWorkspaceGrant: async (args: unknown) => {
+        const { workspaceId, allowed } = validateArgs(
+          ipcContract.cli.call.setWorkspaceGrant.args,
+          args,
+        );
+        if (allowed && grantWorkspaceId(workspaceManager.list(), workspaceId) !== workspaceId) {
+          return ipcErr("not-found", "That workspace is no longer available", {
+            category: "failed",
+          });
+        }
+        const ids = new Set(options.settings().preallowedWorkspaces);
+        if (allowed) ids.add(workspaceId);
+        else ids.delete(workspaceId);
+        options.setPreallowedWorkspaces([...ids]);
+        return ipcOk(undefined);
+      },
+      revokeSessionGrant: async (args: unknown) => {
+        const { id } = validateArgs(ipcContract.cli.call.revokeSessionGrant.args, args);
+        consent.revoke(id);
         return ipcOk(undefined);
       },
       sessionsChanged: async (args: unknown, ctx) => {

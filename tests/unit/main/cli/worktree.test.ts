@@ -60,7 +60,7 @@ describe("worktree new", () => {
     app.answers.push("once");
     await nexus(app, ["worktree", "new", "pay"], IN_FIX);
     expect(uiArgs(app, "task.create")).toMatchObject({ parentId: APP });
-    expect(app.asked[0]?.change).toEqual({ kind: "worktreeNew", detail: "pay" });
+    expect(app.asked[0]?.change).toEqual({ kind: "worktreeNew", detail: "pay", eachTime: true });
   });
 
   test("with an empty --command, makes it with no tab, and tells how to open a terminal there", async () => {
@@ -119,6 +119,7 @@ describe("worktree claude-create", () => {
     expect(app.asked[0]?.change).toEqual({
       kind: "worktreeNew",
       detail: "agent-b1",
+      eachTime: true,
       body: "agent-b1",
     });
     expect(uiArgs(app, "task.create")).toMatchObject({ parentId: APP, name: "agent-b1" });
@@ -172,7 +173,11 @@ describe("worktree claude-remove", () => {
       const app = fakeApp();
       app.answers.push("once");
       expect((await hook(app, payload(FIX_FOLDER), madeBy)).exitCode).toBe(0);
-      expect(app.asked[0]?.change).toEqual({ kind: "worktreeRemove", body: FIX_FOLDER });
+      expect(app.asked[0]?.change).toEqual({
+        kind: "worktreeRemove",
+        body: FIX_FOLDER,
+        eachTime: true,
+      });
       expect(uiArgs(app, "task.remove")).toMatchObject({ taskId: FIX });
 
       const declined = fakeApp();
@@ -207,7 +212,8 @@ describe("worktree remove", () => {
         fromWorkspaceId: APP,
         fromTabId: SHELL_TAB,
         toWorkspaceId: FIX,
-        change: { kind: "worktreeRemove" },
+        otherWorkspaces: true,
+        change: { kind: "worktreeRemove", eachTime: true },
       },
     ]);
     expect(uiArgs(app, "task.remove")).toEqual({ taskId: FIX, force: false, deleteBranch: false });
@@ -224,7 +230,7 @@ describe("worktree remove", () => {
       "--delete-branch",
     ]);
     expect(result.stdout).toBe("Removed worktree fix-login (33333333) and branch fix-login.\n");
-    expect(app.asked[0]?.change).toEqual({ kind: "worktreeRemoveBranch" });
+    expect(app.asked[0]?.change).toEqual({ kind: "worktreeRemoveBranch", eachTime: true });
     expect(uiArgs(app, "task.remove")).toEqual({ taskId: FIX, force: true, deleteBranch: true });
   });
 
