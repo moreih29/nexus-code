@@ -324,20 +324,39 @@ export async function chatCommands(
   return services.ui("chat.commands", { workspaceId, tabId }).catch(unavailable);
 }
 
-function namesNetworkQuery(query: string): boolean {
+function leavesForNetwork(base: string, rest: string): boolean {
+  return [posix, win32].some((style) => {
+    const key = (p: string) => (style === win32 ? p.toLowerCase() : p);
+    const outer = key(style.normalize(base));
+    const joined = style.normalize(`${base}${style.sep}${rest}`);
+    if (!namesNetworkPath(joined)) return false;
+    const inner = key(joined);
+    return (
+      inner !== outer && !inner.startsWith(outer.endsWith(style.sep) ? outer : outer + style.sep)
+    );
+  });
+}
+
+function namesNetworkQuery(query: string, root: string | undefined, home: string): boolean {
   const bare = query
     .trim()
     .replace(/^["']?@?["']?/, "")
     .replace(/["']$/, "");
-  return namesNetworkPath(bare, win32.normalize(bare));
+  if (namesNetworkPath(bare, win32.normalize(bare))) return true;
+  const fromHome = /^~(?:[/\\]|$)/.test(bare);
+  if (fromHome) return leavesForNetwork(home, bare.slice(1));
+  const absolute = posix.isAbsolute(bare) || win32.isAbsolute(bare);
+  return !absolute && root !== undefined && leavesForNetwork(root, bare);
 }
 
 export async function chatFileSuggestions(
   services: CliServices,
   { workspaceId, tabId, query }: RpcParams<"chat.fileSuggestions">,
+  system: Pick<FolderSystem, "home"> = SYSTEM_FOLDERS,
 ): Promise<RpcResult<"chat.fileSuggestions">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  if (namesNetworkQuery(query)) return { paths: [] };
+  const root = workspaceOf(services, workspaceId)?.rootPath;
+  if (namesNetworkQuery(query, root, system.home())) return { paths: [] };
   const { paths } = await services
     .ui("chat.fileSuggestions", { workspaceId, tabId, query })
     .catch(unavailable);
