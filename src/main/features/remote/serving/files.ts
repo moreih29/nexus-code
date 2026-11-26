@@ -14,10 +14,14 @@ import type { ConsentControls } from "../consents";
 import { type FileWrites, fileWriteDestination, makeRemoteDirectory } from "../file-writes";
 import {
   absoluteFilePath,
+  absoluteReadPath,
   listFiles,
+  namesNetworkPath,
+  networkRootOf,
   outsideFileSource,
   type RemoteFiles,
   readFile,
+  refuseOutsideRead,
 } from "../files";
 import { RpcFailure } from "../room";
 import { findFiles, searchFiles } from "../search";
@@ -40,6 +44,24 @@ function checkFileControl(
         : "workspace file writes require chat control",
     );
   }
+}
+
+function workspaceFolders(s: CliServices, workspaceId: string): Promise<readonly string[]> {
+  return s
+    .ui("workspace.folders", { workspaceId })
+    .then((r) => r.folders)
+    .catch(() => []);
+}
+
+async function refuseOutsideWrite(
+  s: CliServices,
+  workspaceId: string,
+  asked: string,
+  absolute: string,
+): Promise<void> {
+  if (!namesNetworkPath(asked, absolute)) return;
+  const folders = await workspaceFolders(s, workspaceId);
+  refuseOutsideRead(process.platform === "win32", folders, asked, absolute, "written");
 }
 
 export async function serveFileDestination(
@@ -86,6 +108,9 @@ export async function serveFileDestination(
       );
     }
     agent = new AgentFileWrites(fs, root, write.path, directory);
+  }
+  if (write.anywhere) {
+    await refuseOutsideWrite(s, write.workspaceId, write.path, absoluteFilePath(write.path));
   }
   approvedPath = await (agent?.resolve() ?? fileWriteDestination(root, write, directory));
   authorize();
@@ -166,16 +191,20 @@ export async function serveFileRead(
   let approvedPath: string | undefined;
   if (anywhere) {
     authorizeAnywhere();
-    const absolute = absoluteFilePath(read.path);
-    const source = await outsideFileSource(absolute)
-      .then(async (path) => ({
-        path,
-        directory: method === "files.list" && (await stat(path)).isDirectory(),
-      }))
-      .catch((error: unknown) => ({ error }));
+    const absolute = writeTarget ? absoluteFilePath(read.path) : absoluteReadPath(read.path, true);
+    if (writeTarget) await refuseOutsideWrite(s, workspaceId, read.path, absolute);
+    const network = !writeTarget && namesNetworkPath(read.path, absolute);
+    const lookUp = () =>
+      outsideFileSource(absolute)
+        .then(async (path) => ({
+          path,
+          directory: method === "files.list" && (await stat(path)).isDirectory(),
+        }))
+        .catch((error: unknown) => ({ error }));
+    const looked = network ? undefined : await lookUp();
     const target =
-      "path" in source
-        ? source.path
+      looked && "path" in looked
+        ? looked.path
         : writeTarget
           ? await fileWriteDestination(rootPath, read, true)
           : absolute;
@@ -189,12 +218,24 @@ export async function serveFileRead(
       },
       {
         path: target,
-        tree: writeTarget || ("directory" in source && source.directory),
+        tree: looked
+          ? writeTarget || ("directory" in looked && looked.directory)
+          : method === "files.list",
         workspaceRoot: rootPath,
       },
     );
     authorizeAnywhere();
+    const source = looked ?? (await lookUp());
     if ("error" in source) throw source.error;
+    if (
+      network &&
+      (!namesNetworkPath(source.path) || networkRootOf(source.path) !== networkRootOf(absolute))
+    ) {
+      throw new RpcFailure(
+        RpcErrorCode.Forbidden,
+        `${read.path} leads off the network path that was allowed`,
+      );
+    }
     approvedPath = source.path;
     if (writeTarget) {
       if (!source.directory) {
@@ -208,11 +249,7 @@ export async function serveFileRead(
   }
   const files: RemoteFiles = {
     ...watches.files,
-    folders: (id) =>
-      s
-        .ui("workspace.folders", { workspaceId: id })
-        .then((r) => r.folders)
-        .catch(() => []),
+    folders: (id) => workspaceFolders(s, id),
     named: (id) =>
       s
         .ui("chat.outsideFiles", { workspaceId: id })
