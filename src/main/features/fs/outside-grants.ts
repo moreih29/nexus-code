@@ -28,7 +28,7 @@ export function isWindowsNetworkPath(path: string): boolean {
 }
 
 function asciiLower(text: string): string {
-  return text.replace(/[A-Z]+/g, (upper) => upper.toLowerCase());
+  return text.replace(/[A-Z]/g, (upper) => String.fromCharCode(upper.charCodeAt(0) + 32));
 }
 
 function pickKey(file: string): string | null {
@@ -106,7 +106,7 @@ export function restorePickedNetworkFiles(
 function shareOf(p: string): string | null {
   if (windowsPathKind(p) !== "unc") return null;
   const share = /^\\\\([^\\]+)\\([^\\]+)(?:\\|$)/.exec(path.win32.normalize(p));
-  if (!share || !/^[\x20-\x7e]+$/.test(share[1] + share[2])) return null;
+  if (!share) return null;
   return asciiLower(`\\\\${share[1]}\\${share[2]}`);
 }
 

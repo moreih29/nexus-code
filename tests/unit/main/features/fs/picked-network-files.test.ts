@@ -28,13 +28,28 @@ function freshStart(saved: readonly string[] = [], open: readonly string[] = [])
 describe("names that fold only in ASCII", () => {
   const KELVIN = "K";
 
-  it.if(WINDOWS)("give no same-share exception to a server or share with other letters", () => {
+  it.if(WINDOWS)("treat shares as one only when other letters match exactly", () => {
     expect(fileOnRootShare("//NAS/Share/x.txt", "//nas/share/w")).toBe(
       String.raw`\\NAS\Share\x.txt`,
     );
+    expect(fileOnRootShare("//NAS/문서/x.txt", "//nas/문서/w")).toBe("\\\\NAS\\문서\\x.txt");
+    expect(fileOnRootShare("//nas/문서/x.txt", "//NAS/문서/w")).toBe("\\\\nas\\문서\\x.txt");
+    expect(fileOnRootShare("//nas/문서2/x.txt", "//nas/문서/w")).toBeUndefined();
+    expect(fileOnRootShare("//nas/문서/x.txt", "//nas/문서2/w")).toBeUndefined();
     expect(fileOnRootShare(`//${KELVIN}nas/share/x.txt`, "//knas/share/w")).toBeUndefined();
     expect(fileOnRootShare(`//knas/share/x.txt`, `//${KELVIN}nas/share/w`)).toBeUndefined();
-    expect(fileOnRootShare(`//nas/${KELVIN}s/x.txt`, `//nas/${KELVIN}s/w`)).toBeUndefined();
+    expect(fileOnRootShare(`//${KELVIN}nas/share/x.txt`, `//${KELVIN}nas/share/w`)).toBe(
+      `\\\\${KELVIN}nas\\share\\x.txt`,
+    );
+    expect(fileOnRootShare(`//nas/${KELVIN}s/x.txt`, `//nas/${KELVIN}s/w`)).toBe(
+      `\\\\nas\\${KELVIN}s\\x.txt`,
+    );
+    expect(fileOnRootShare("//ｎａｓ/share/x.txt", "//nas/share/w")).toBeUndefined();
+    expect(fileOnRootShare("//nas/share/x.txt", "//ｎａｓ/share/w")).toBeUndefined();
+    expect(fileOnRootShare("//ＮＡＳ/share/x.txt", "//ｎａｓ/share/w")).toBeUndefined();
+    expect(fileOnRootShare("//ｎａｓ/share/x.txt", "//ｎａｓ/share/w")).toBe(
+      "\\\\ｎａｓ\\share\\x.txt",
+    );
     expect(fileOnRootShare("//nas/share/한글.txt", "//nas/share/w")).toBe(
       "\\\\nas\\share\\한글.txt",
     );
