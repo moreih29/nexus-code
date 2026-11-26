@@ -30,6 +30,7 @@ import {
 } from "../../../../../src/main/features/remote/notes";
 import { MAX_MESSAGE_BYTES, RpcFailure } from "../../../../../src/main/features/remote/room";
 import {
+  chatFileSuggestions,
   chatRun,
   chatRuns,
   listSessions,
@@ -2470,6 +2471,63 @@ describe("serving a chat's slash commands", () => {
       expect(await suggest(query)).toEqual({ paths: ["a.ts"] });
     }
     expect(asked).toEqual(["@src/a", "@/Users/me/net", String.raw`@C:\Users\me`, ""]);
+  });
+
+  test("an @ that reaches a network or automount path from home or the workspace is not passed on", async () => {
+    const asked: string[] = [];
+    const base = services();
+    const listed = base.listWorkspaces();
+    const suggestUnder = (rootPath: string) => {
+      const s = {
+        ...base,
+        listWorkspaces: () => listed.map((w) => (w.id === "w1" ? { ...w, rootPath } : w)),
+        ui: async (op: string, args: { workspaceId: string; query?: string }) => {
+          if (op === "tabs.list") return base.ui("tabs.list", args);
+          asked.push(args.query ?? "");
+          return { paths: ["a.ts"] };
+        },
+      } as unknown as CliServices;
+      return (query: string) =>
+        chatFileSuggestions(s, { ...tab, query }, { home: () => "/home/me" });
+    };
+    const refused: [string, string[]][] = [
+      [
+        "/qa/w",
+        [
+          "@~/../../net/h/",
+          "~/../../Network/s",
+          '"@~/../../net/h"',
+          "@../../../net/h/",
+          "../../net/h",
+          "@../../../../net/h/",
+          "@./../../net/h",
+          "@sub/../../../net/h",
+          "@../../System/Volumes/Data/net/h",
+        ],
+      ],
+      ["/net/h/w", ["@../w2/a", "@../../h2/a"]],
+      [String.raw`\\nas\share\w`, [String.raw`@..\other\a`]],
+    ];
+    for (const [rootPath, queries] of refused) {
+      const suggest = suggestUnder(rootPath);
+      for (const query of queries) {
+        expect([query, await suggest(query)]).toEqual([query, { paths: [] }]);
+      }
+    }
+    expect(asked).toEqual([]);
+    const passed: [string, string[]][] = [
+      ["/qa/w", ["@~/src", "@~", "@../sibling/a", "@sub/../a", "@~/net/h"]],
+      ["/net/h/w", ["@sub/a", "@./a"]],
+      [String.raw`C:\qa\w`, [String.raw`@..\..\x`, "@../../net/h"]],
+      [String.raw`\\nas\share\w`, [String.raw`@sub\a`, "@sub/a"]],
+    ];
+    for (const [rootPath, queries] of passed) {
+      const suggest = suggestUnder(rootPath);
+      for (const query of queries) {
+        expect([query, await suggest(query)]).toEqual([query, { paths: ["a.ts"] }]);
+      }
+    }
+    expect(asked).toEqual(passed.flatMap(([, queries]) => queries));
   });
 
   test("/add-dir adds a folder by its real path, from the workspace's, and not one that opens the disk", async () => {
