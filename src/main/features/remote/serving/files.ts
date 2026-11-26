@@ -20,6 +20,7 @@ import {
   outsideFileSource,
   type RemoteFiles,
   readFile,
+  refuseOutsideRead,
 } from "../files";
 import { RpcFailure } from "../room";
 import { findFiles, searchFiles } from "../search";
@@ -49,6 +50,17 @@ function workspaceFolders(s: CliServices, workspaceId: string): Promise<readonly
     .ui("workspace.folders", { workspaceId })
     .then((r) => r.folders)
     .catch(() => []);
+}
+
+async function refuseOutsideWrite(
+  s: CliServices,
+  workspaceId: string,
+  asked: string,
+  absolute: string,
+): Promise<void> {
+  if (!namesNetworkPath(asked, absolute)) return;
+  const folders = await workspaceFolders(s, workspaceId);
+  refuseOutsideRead(process.platform === "win32", folders, asked, absolute, "written");
 }
 
 export async function serveFileDestination(
@@ -95,6 +107,9 @@ export async function serveFileDestination(
       );
     }
     agent = new AgentFileWrites(fs, root, write.path, directory);
+  }
+  if (write.anywhere) {
+    await refuseOutsideWrite(s, write.workspaceId, write.path, absoluteFilePath(write.path));
   }
   approvedPath = await (agent?.resolve() ?? fileWriteDestination(root, write, directory));
   authorize();
@@ -176,6 +191,7 @@ export async function serveFileRead(
   if (anywhere) {
     authorizeAnywhere();
     const absolute = writeTarget ? absoluteFilePath(read.path) : absoluteReadPath(read.path, true);
+    if (writeTarget) await refuseOutsideWrite(s, workspaceId, read.path, absolute);
     const network = !writeTarget && namesNetworkPath(read.path, absolute);
     const lookUp = () =>
       outsideFileSource(absolute)
