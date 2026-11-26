@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
+import { win32 } from "node:path";
 import { promisify } from "node:util";
-import { cleanAbsolutePath } from "../fs/outside-grants";
+import { isDevicePath } from "../../../shared/fs/outside-url";
+import { cleanAbsolutePath, isWindowsNetworkPath } from "../fs/outside-grants";
 
 export interface PreviewScope {
   readonly workspaceId: string;
@@ -39,10 +41,14 @@ export class PreviewScopes {
   constructor(
     private readonly home: string,
     private readonly newId: () => string = () => randomBytes(16).toString("hex"),
+    private readonly localWorkspaceRoot: (workspaceId: string) => string | undefined = () =>
+      undefined,
   ) {}
 
   open(owner: number, workspaceId: string, dir: string): string | null {
-    const clean = cleanAbsolutePath(dir);
+    const clean = isWindowsNetworkPath(dir)
+      ? this.networkWorkspaceRoot(workspaceId, dir)
+      : cleanAbsolutePath(dir);
     if (!clean || isBroadDir(clean, this.home)) return null;
     const key = `${owner}\0${workspaceId}\0${clean}`;
     const held = this.byKey.get(key);
@@ -80,6 +86,15 @@ export class PreviewScopes {
   size(owner?: number): number {
     if (owner === undefined) return this.scopes.size;
     return [...this.scopes.values()].filter((scope) => scope.owner === owner).length;
+  }
+
+  private networkWorkspaceRoot(workspaceId: string, dir: string): string | null {
+    const root = this.localWorkspaceRoot(workspaceId);
+    if (!root || !isWindowsNetworkPath(root) || isDevicePath(root) || isDevicePath(dir))
+      return null;
+    const clean = win32.normalize(root).replace(/\\+$/, "");
+    const asked = win32.normalize(dir).replace(/\\+$/, "");
+    return clean.toLowerCase() === asked.toLowerCase() ? clean : null;
   }
 
   private drop(id: string): void {

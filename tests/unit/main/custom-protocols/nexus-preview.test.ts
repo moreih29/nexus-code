@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
@@ -19,6 +19,7 @@ import {
   previewHandlers,
   releaseWithPage,
 } from "../../../../src/main/features/custom-protocols/nexus-preview";
+import * as scopePaths from "../../../../src/main/features/custom-protocols/preview-scopes";
 import { PreviewScopes } from "../../../../src/main/features/custom-protocols/preview-scopes";
 import type { CallContext } from "../../../../src/main/infra/ipc-router";
 
@@ -216,6 +217,43 @@ describe("buildNexusPreviewHandler", () => {
 
 describe("the preview channel", () => {
   const ctx = (id: number) => ({ sender: { id } }) as unknown as CallContext;
+
+  test.if(process.platform === "win32")(
+    "resolves no renderer-supplied share or device folder",
+    async () => {
+      const realpath = spyOn(scopePaths, "realpathNative").mockRejectedValue(
+        new Error("unexpected realpath"),
+      );
+      const root = String.raw`\\server\share\project`;
+      const scopes = new PreviewScopes("", tokens(), (id) =>
+        id === "network-ws" ? root : undefined,
+      );
+      const handlers = previewHandlers(new PreviewDocuments(tokens()), () => {}, scopes);
+      const open = (workspaceId: string, dir: string) =>
+        handlers.openScope({ workspaceId, dir }, ctx(WINDOW_A));
+
+      try {
+        for (const dir of [
+          root,
+          "//server/share",
+          String.raw`/\server/share`,
+          String.raw`\\?\UNC\server\share`,
+          String.raw`\\?\C:\project`,
+          String.raw`\\.\C:\project`,
+        ]) {
+          expect(await open("ws", dir)).toBeNull();
+        }
+        expect(await open("network-ws", "//server/other/project")).toBeNull();
+        expect(await open("network-ws", String.raw`\\?\UNC\server\share\project`)).toBeNull();
+        const held = await open("network-ws", "//SERVER/share/project/");
+        expect(held).not.toBeNull();
+        expect(scopes.get(held?.scope ?? "")?.dir).toBe(root);
+        expect(realpath).not.toHaveBeenCalled();
+      } finally {
+        realpath.mockRestore();
+      }
+    },
+  );
 
   test("opens a folder for a page, but none for a home or a root, even through a link", async () => {
     const documents = new PreviewDocuments(tokens());

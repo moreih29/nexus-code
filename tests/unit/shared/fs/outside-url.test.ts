@@ -47,12 +47,22 @@ describe("isNetworkLink", () => {
 });
 
 describe("isNetworkOrDevicePath and isDevicePath", () => {
-  test("tell shares and devices from local paths", () => {
-    expect(isNetworkOrDevicePath("//server/share")).toBe(true);
-    expect(isNetworkOrDevicePath("\\\\server\\share")).toBe(true);
-    expect(isNetworkOrDevicePath("/tmp/a")).toBe(false);
-    expect(isDevicePath("\\\\?\\C:\\a")).toBe(true);
-    expect(isDevicePath("//./pipe/x")).toBe(true);
-    expect(isDevicePath("\\\\server\\share")).toBe(false);
+  test.each([
+    [String.raw`\\server\share`, true, false],
+    ["//server/share", true, false],
+    [String.raw`/\server/share`, true, false],
+    [String.raw`\//server\share`, true, false],
+    [String.raw`\\?\C:\a`, true, true],
+    [String.raw`\\?\UNC\server\share`, true, true],
+    [String.raw`\\.\C:\a`, true, true],
+    [String.raw`/\?/UNC/server/share`, true, true],
+    ["//./pipe/x", true, true],
+    [String.raw`C:\a`, false, false],
+    ["D:/a", false, false],
+    ["/tmp/a", false, false],
+    ["relative/a", false, false],
+  ])("classifies %s", (path, network, device) => {
+    expect(isNetworkOrDevicePath(path)).toBe(network);
+    expect(isDevicePath(path)).toBe(device);
   });
 });

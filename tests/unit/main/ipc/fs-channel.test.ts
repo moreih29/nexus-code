@@ -1,12 +1,16 @@
 import { describe, expect, it, mock } from "bun:test";
 import type { FsProvider } from "../../../../src/main/features/fs/bridge/provider";
 import {
+  grantOutsideHandler,
   outsideExistsHandler,
+  readBinaryHandler,
   readExternalHandler,
   readRangeHandler,
 } from "../../../../src/main/features/fs/ipc/read-handlers";
 import {
   clearOutsideGrants,
+  isOutsideGranted,
+  rememberPickedNetworkFile,
   setOutsideGrant,
 } from "../../../../src/main/features/fs/outside-grants";
 import type {
@@ -171,18 +175,80 @@ describe("fs read handlers — provider delegation", () => {
       }),
     );
     const { provider } = makeProvider({ readAbsoluteRange });
-    const { manager } = makeManager(provider);
+    const { manager, getFs } = makeManager(provider);
     const exists = outsideExistsHandler(manager as never);
     for (const absolutePath of [
       "//evil.test/share/a.png",
       "\\\\evil.test\\share\\a.png",
+      String.raw`/\server/share/a.png`,
       "\\\\?\\C:\\a.png",
       "\\\\.\\pipe\\x",
+      String.raw`\\?\UNC\server\share\a.png`,
       "relative/a.png",
     ]) {
       expect(await exists({ workspaceId: WORKSPACE_ID, absolutePath })).toBe(false);
     }
+    expect(getFs).not.toHaveBeenCalled();
     expect(readAbsoluteRange).not.toHaveBeenCalled();
+  });
+
+  it.if(process.platform === "win32")(
+    "rejects network and device paths before getting a filesystem or using an outside grant",
+    async () => {
+      const { provider, readAbsolute } = makeProvider();
+      const { manager, getFs } = makeManager(provider);
+      const binary = readBinaryHandler(manager as never);
+      const range = readRangeHandler(manager as never);
+      const external = readExternalHandler(manager as never);
+      const missing = { kind: "missing", reason: "not-found" };
+      const paths = [
+        "//server/share/a.txt",
+        String.raw`\\server\share\a.txt`,
+        String.raw`/\server\share/a.txt`,
+        String.raw`\\?\UNC\server\share\a.txt`,
+        String.raw`\\?\C:\a.txt`,
+        String.raw`\\.\C:\a.txt`,
+      ];
+
+      try {
+        await grantOutsideHandler()({
+          workspaceId: WORKSPACE_ID,
+          owner: "tab",
+          files: paths,
+          dirs: [],
+        });
+        for (const path of paths) {
+          expect(isOutsideGranted(WORKSPACE_ID, path)).toBe(false);
+          expect(await binary({ workspaceId: WORKSPACE_ID, relPath: path })).toEqual(missing);
+          expect(
+            await range({ workspaceId: WORKSPACE_ID, relPath: path, offset: 0, length: 1 }),
+          ).toEqual(missing);
+          expect(await external({ workspaceId: WORKSPACE_ID, absolutePath: path })).toEqual(
+            missing,
+          );
+        }
+        expect(isOutsideGranted(WORKSPACE_ID, "/server/share/a.txt")).toBe(false);
+        expect(getFs).not.toHaveBeenCalled();
+        expect(readAbsolute).not.toHaveBeenCalled();
+      } finally {
+        clearOutsideGrants();
+      }
+    },
+  );
+
+  it.if(process.platform === "win32")("reads the specific file picked on a share", async () => {
+    const picked = String.raw`\\server\share\chosen.txt`;
+    rememberPickedNetworkFile(picked);
+    const { provider, readAbsolute } = makeProvider();
+    const { manager } = makeManager(provider);
+    const read = readExternalHandler(manager as never);
+    expect(
+      await read({ workspaceId: WORKSPACE_ID, absolutePath: "//SERVER/share/chosen.txt" }),
+    ).toMatchObject({ kind: "ok" });
+    expect(
+      await read({ workspaceId: WORKSPACE_ID, absolutePath: "//server/share/other.txt" }),
+    ).toMatchObject({ kind: "missing" });
+    expect(readAbsolute.mock.calls).toEqual([[picked]]);
   });
 
   it("readExternalHandler reads no device path", async () => {

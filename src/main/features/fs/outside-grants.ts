@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { isDrivePath } from "../../../shared/fs/outside-url";
+import { isDevicePath, isDrivePath, isNetworkOrDevicePath } from "../../../shared/fs/outside-url";
 
 interface Grant {
   readonly files: ReadonlySet<string>;
@@ -8,9 +8,24 @@ interface Grant {
 }
 
 const grants = new Map<string, Map<string, Grant>>();
+const pickedNetworkFiles = new Map<string, string>();
+
+export function isWindowsNetworkPath(path: string): boolean {
+  return process.platform === "win32" && isNetworkOrDevicePath(path);
+}
+
+export function rememberPickedNetworkFile(file: string): void {
+  if (isWindowsNetworkPath(file) && !isDevicePath(file)) {
+    pickedNetworkFiles.set(path.win32.normalize(file).toLowerCase(), file);
+  }
+}
+
+export function pickedNetworkFile(file: string): string | undefined {
+  return pickedNetworkFiles.get(path.win32.normalize(file).toLowerCase());
+}
 
 export function cleanAbsolutePath(p: string): string | null {
-  if (p.includes("\0")) return null;
+  if (p.includes("\0") || isWindowsNetworkPath(p)) return null;
   const drive = isDrivePath(p);
   if (!drive && !p.startsWith("/")) return null;
   const clean = path.posix.normalize(drive ? p.replace(/\\/g, "/") : p).replace(/\/+$/, "");

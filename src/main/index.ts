@@ -186,7 +186,6 @@ registerPickedAttachmentHandler(ipcMain);
 registerAppSchemes();
 
 const previewDocuments = new PreviewDocuments();
-const previewScopes = new PreviewScopes(os.homedir());
 
 if (!app.isPackaged) {
   process.env[NEXUS_AGENT_MODE_ENV] ??= "source";
@@ -461,6 +460,10 @@ registerSystemChannel({
 });
 registerWindowChannel(closePersistence);
 registerClipboardChannel();
+const previewScopes = new PreviewScopes(os.homedir(), undefined, (workspaceId) => {
+  const location = workspaceManager.list().find(({ id }) => id === workspaceId)?.location;
+  return location?.kind === "local" ? location.rootPath : undefined;
+});
 registerPreviewChannel(previewDocuments, previewScopes, os.homedir());
 
 updatesHandle = installUpdatesDomain({

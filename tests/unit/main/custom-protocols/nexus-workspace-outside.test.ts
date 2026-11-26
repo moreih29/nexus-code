@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -66,6 +66,37 @@ describe("nexus-workspace:// outside files", () => {
     const resp = await local(new Request(outsideUrl(out), { headers: { Range: "bytes=0-1" } }));
     expect(resp.status).toBe(404);
   });
+
+  test.if(process.platform === "win32")(
+    "rejects decoded network and device paths before filesystem calls",
+    async () => {
+      const realpath = spyOn(fs.promises, "realpath").mockRejectedValue(
+        new Error("unexpected realpath"),
+      );
+      const stat = spyOn(fs.promises, "stat").mockRejectedValue(new Error("unexpected stat"));
+      try {
+        for (const target of [
+          "//server/share/a.txt",
+          String.raw`/\server\share\a.txt`,
+          String.raw`/\?\UNC\server\share\a.txt`,
+          "//?/C:/a.txt",
+          "//./C:/a.txt",
+        ]) {
+          const encoded = encodeURIComponent(target.slice(1));
+          const req = new Request(`nexus-workspace://ws.outside/${encoded}`, {
+            headers: { Range: "bytes=0-1" },
+          });
+          setOutsideGrant("ws", "tab", [target], []);
+          expect((await local(req)).status).toBe(404);
+        }
+        expect(realpath).not.toHaveBeenCalled();
+        expect(stat).not.toHaveBeenCalled();
+      } finally {
+        realpath.mockRestore();
+        stat.mockRestore();
+      }
+    },
+  );
 
   test("an SSH workspace reads a granted path through the agent by its absolute path", async () => {
     const asked: string[] = [];
