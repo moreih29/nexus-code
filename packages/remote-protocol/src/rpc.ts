@@ -70,6 +70,7 @@ export const RpcErrorCode = {
   NotFound: 1001,
   Forbidden: 1002,
   Unavailable: 1003,
+  GrantExpired: 1004,
 } as const;
 
 export function readableList<T extends z.ZodType>(item: T, max = Number.POSITIVE_INFINITY) {
@@ -265,6 +266,7 @@ export const RemoteConsentSchema = z.object({
         endpoint: z.string().optional(),
       })
       .optional(),
+    pathKind: z.enum(["network"]).optional().catch(undefined),
   }),
   eachTime: z.boolean(),
   answerable: z.boolean(),
@@ -389,6 +391,8 @@ export const UNTIMED_CONSENT_SCHEMA = "0.29.0";
 export const RUN_ITEMS_SCHEMA = "0.30.0";
 
 export const NOTE_PAGES_SCHEMA = "0.31.0";
+
+export const FILE_GRANTS_SCHEMA = "0.40.0";
 
 export const REQUEST_CANCEL = "request.cancel";
 export const RequestCancelSchema = z.object({ id: RpcIdSchema });
@@ -551,6 +555,54 @@ export const MAX_READ_BYTES = 512 * 1024;
 export const MAX_BYTES_CHUNK = 512 * 1024;
 
 const FileVersionSchema = z.string().min(1).max(128);
+
+export const MAX_FILE_RESOLVE_LINKS = 64;
+
+export const FILE_GRANT_IDLE_MS = 10 * 60_000;
+
+export const FILE_GRANT_MAX_MS = 60 * 60_000;
+
+export const MAX_FILE_SOURCE_PARENT_BYTES = 5 * 1024 * 1024;
+
+export const FileGrantTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{22,64}$/);
+
+const FileLinkKey = z.string().min(1).max(200);
+const FileLinkRun = { runId: z.string().max(200).optional() };
+
+export const FileLinkSourceSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("answer"), itemKey: FileLinkKey, ...FileLinkRun }),
+  z.object({ kind: z.literal("received"), itemKey: FileLinkKey, ...FileLinkRun }),
+  z.object({ kind: z.literal("taskEnd"), itemKey: FileLinkKey, ...FileLinkRun }),
+  z.object({ kind: z.literal("streaming"), messageId: FileLinkKey, ...FileLinkRun }),
+  z.object({ kind: z.literal("tool"), toolUseId: FileLinkKey, ...FileLinkRun }),
+  z.object({ kind: z.literal("user"), itemKey: FileLinkKey, ...FileLinkRun }),
+  z.object({ kind: z.literal("job"), taskId: FileLinkKey, ...FileLinkRun }),
+  z.object({ kind: z.literal("change"), ...FileLinkRun }),
+  z.object({
+    kind: z.literal("file"),
+    parent: z.string().min(1).max(4096),
+    grant: FileGrantTokenSchema.optional(),
+  }),
+]);
+export type FileLinkSource = z.infer<typeof FileLinkSourceSchema>;
+
+export const FileGrantPurposeSchema = z.enum(["open", "original", "share"]);
+export type FileGrantPurpose = z.infer<typeof FileGrantPurposeSchema>;
+
+export const FileResolvedSchema = z
+  .union([
+    z.object({ path: z.string(), readable: z.boolean() }),
+    z.object({ blocked: z.literal(true) }),
+  ])
+  .nullable()
+  .catch(null);
+export type FileResolved = z.infer<typeof FileResolvedSchema>;
+
+export const FileAccessErrorDataSchema = z.object({
+  grant: z.enum(["invalid", "required"]).optional().catch(undefined),
+  reason: z.enum(["beyond"]).optional().catch(undefined),
+});
+export type FileAccessErrorData = z.infer<typeof FileAccessErrorDataSchema>;
 
 export const MAX_FIND_RESULTS = 200;
 
@@ -1431,6 +1483,7 @@ export const RPC_METHODS = {
       ...FileScope,
       ...FileTransferRef,
       ...ReadBy,
+      grant: FileGrantTokenSchema.optional(),
       maxBytes: PositiveIntegerSchema.check(z.lte(MAX_READ_BYTES)).optional(),
       as: z.literal("bytes").optional(),
       offset: NonnegativeIntegerSchema.optional(),
@@ -1475,6 +1528,41 @@ export const RPC_METHODS = {
         version: FileVersionSchema.optional(),
       }),
     ]),
+  },
+  "files.resolve": {
+    capability: "files.grants",
+    params: z.object({
+      workspaceId: z.string(),
+      tabId: z.string(),
+      links: z
+        .array(
+          z.object({
+            href: z.string().min(1).max(4096),
+            source: FileLinkSourceSchema,
+          }),
+        )
+        .min(1)
+        .max(MAX_FILE_RESOLVE_LINKS),
+      from: AgentSenderSchema.optional(),
+    }),
+    result: z.object({ found: z.array(FileResolvedSchema) }),
+  },
+  "files.grant": {
+    capability: "files.grants",
+    params: z.object({
+      workspaceId: z.string(),
+      tabId: z.string(),
+      href: z.string().min(1).max(4096),
+      source: FileLinkSourceSchema,
+      purpose: FileGrantPurposeSchema,
+      from: AgentSenderSchema.optional(),
+    }),
+    result: z.object({
+      path: z.string(),
+      grant: FileGrantTokenSchema.optional(),
+      expiresInMs: PositiveIntegerSchema.optional(),
+      idleMs: PositiveIntegerSchema.optional(),
+    }),
   },
   "files.write.begin": {
     capability: "files.write",
