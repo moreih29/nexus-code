@@ -719,8 +719,33 @@ describe("chat panel", () => {
         "/tmp/s/plot.svg",
         "/tmp/s/a.JPG",
       ],
+      opened: [],
     });
-    expect(outsideLinksOf(model.items, model.tools, "/home/u/p", "")).toEqual({ files: [] });
+    expect(outsideLinksOf(model.items, model.tools, "/home/u/p", "")).toEqual({
+      files: [],
+      opened: [],
+    });
+  });
+
+  test("an automount image in an answer is granted only once the user opens it", () => {
+    const model = applyLines(emptyModel(), [
+      assistant("m1", [
+        {
+          type: "text",
+          text: "![a](/net/host.example/share/a.png) ![b](/Network/Servers/host.example/b.png) ![c](/System/Volumes/Data/net/h/c.png) ![d](/tmp/d.png)",
+        },
+      ]),
+    ]);
+    expect(outsideLinksOf(model.items, model.tools, "/p", "/p")).toEqual({
+      files: ["/tmp/d.png"],
+      opened: [],
+    });
+    expect(
+      outsideLinksOf(model.items, model.tools, "/p", "/p", [], undefined, [
+        "/net/host.example/share/a.png",
+        "/p/inside.png",
+      ]),
+    ).toEqual({ files: ["/tmp/d.png"], opened: ["/net/host.example/share/a.png"] });
   });
 
   test("a tool call that failed, was denied or was stopped grants nothing", () => {
@@ -1231,6 +1256,7 @@ describe("images the user attached to a message", () => {
     ];
     expect(outsideLinksOf(items, {}, "/ws", "/ws")).toEqual({
       files: ["/tmp/a/big.png", "/tmp/a/notes.txt", "/tmp/a/report.html"],
+      opened: [],
     });
   });
 

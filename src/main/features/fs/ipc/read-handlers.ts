@@ -134,8 +134,11 @@ export function readRangeHandler(
 
 export function grantOutsideHandler(manager: WorkspaceManager): (args: unknown) => Promise<void> {
   return async (args: unknown): Promise<void> => {
-    const { workspaceId, owner, files, dirs } = validateArgs(c.grantOutside.args, args);
-    setOutsideGrant(workspaceId, owner, files, dirs, isWindowsLocal(manager, workspaceId));
+    const { workspaceId, owner, files, dirs, opened } = validateArgs(c.grantOutside.args, args);
+    setOutsideGrant(workspaceId, owner, files, dirs, {
+      windowsLocal: isWindowsLocal(manager, workspaceId),
+      opened,
+    });
   };
 }
 

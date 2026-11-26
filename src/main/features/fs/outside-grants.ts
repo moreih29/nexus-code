@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  isAutoMountPath,
   isDevicePath,
   isDrivePath,
   isNetworkOrDevicePath,
@@ -11,6 +12,7 @@ import type { AppState } from "../../../shared/types/app-state";
 interface Grant {
   readonly files: ReadonlySet<string>;
   readonly dirs: readonly string[];
+  readonly opened: ReadonlySet<string>;
 }
 
 const grants = new Map<string, Map<string, Grant>>();
@@ -136,20 +138,29 @@ function cleanAll(paths: readonly string[], windowsLocal: boolean): string[] {
     .map(comparable);
 }
 
+export interface OutsideGrantOptions {
+  readonly windowsLocal?: boolean;
+  readonly opened?: readonly string[];
+}
+
 export function setOutsideGrant(
   workspaceId: string,
   owner: string,
   files: readonly string[],
   dirs: readonly string[],
-  windowsLocal = false,
+  { windowsLocal = false, opened = [] }: OutsideGrantOptions = {},
 ): void {
   const byOwner = grants.get(workspaceId) ?? new Map<string, Grant>();
+  const named = (paths: readonly string[]) =>
+    cleanAll(paths, windowsLocal).filter((p) => !isAutoMountPath(p));
   const grant: Grant = {
-    files: new Set(cleanAll(files, windowsLocal)),
-    dirs: cleanAll(dirs, windowsLocal),
+    files: new Set(named(files)),
+    dirs: named(dirs),
+    opened: new Set(cleanAll(opened, windowsLocal)),
   };
-  if (grant.files.size === 0 && grant.dirs.length === 0) byOwner.delete(owner);
-  else byOwner.set(owner, grant);
+  if (grant.files.size === 0 && grant.dirs.length === 0 && grant.opened.size === 0) {
+    byOwner.delete(owner);
+  } else byOwner.set(owner, grant);
   if (byOwner.size === 0) grants.delete(workspaceId);
   else grants.set(workspaceId, byOwner);
 }
@@ -158,15 +169,21 @@ function isUnderDir(target: string, dir: string): boolean {
   return target.startsWith(`${dir}/`);
 }
 
+function grantsNaming(workspaceId: string, key: string): { byFile: boolean; dirs: string[] } {
+  const owned = [...(grants.get(workspaceId)?.values() ?? [])];
+  const opened = owned.some((grant) => grant.opened.has(key));
+  if (isAutoMountPath(key)) return { byFile: opened, dirs: [] };
+  return {
+    byFile: opened || owned.some((grant) => grant.files.has(key)),
+    dirs: owned.flatMap((grant) => grant.dirs.filter((dir) => isUnderDir(key, dir))),
+  };
+}
+
 export function isOutsideGranted(workspaceId: string, absPath: string): boolean {
   const target = cleanAbsolutePath(absPath);
   if (!target) return false;
-  const key = comparable(target);
-  for (const grant of grants.get(workspaceId)?.values() ?? []) {
-    if (grant.files.has(key)) return true;
-    if (grant.dirs.some((dir) => isUnderDir(key, dir))) return true;
-  }
-  return false;
+  const { byFile, dirs } = grantsNaming(workspaceId, comparable(target));
+  return byFile || dirs.length > 0;
 }
 
 export async function resolveOutsideGrant(
@@ -175,10 +192,7 @@ export async function resolveOutsideGrant(
 ): Promise<string | null> {
   const target = outsideReadPath(absPath, process.platform === "win32");
   if (!target) return null;
-  const key = comparable(target);
-  const owned = [...(grants.get(workspaceId)?.values() ?? [])];
-  const byFile = owned.some((grant) => grant.files.has(key));
-  const dirs = owned.flatMap((grant) => grant.dirs.filter((dir) => isUnderDir(key, dir)));
+  const { byFile, dirs } = grantsNaming(workspaceId, comparable(target));
   if (!byFile && dirs.length === 0) return null;
   let real: string;
   try {

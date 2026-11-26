@@ -50,7 +50,12 @@ export function shownFile(look: QuickLookList | null): string | undefined {
 }
 
 export function needsGrant(path: string, rootPath: string, outside: OutsideLinks): boolean {
-  return isAbsoluteOutsidePath(path) && !isUnder(path, rootPath) && !outside.files.includes(path);
+  return (
+    isAbsoluteOutsidePath(path) &&
+    !isUnder(path, rootPath) &&
+    !outside.files.includes(path) &&
+    !outside.opened.includes(path)
+  );
 }
 
 export function localChatLinks(env: LocalLinksEnv): LocalChatLinks {
@@ -167,17 +172,22 @@ export function useLocalChatLinks(input: LocalChatLinksInput): {
   const [looked, setLooked] = useState<readonly string[]>([]);
   const outside = useMemo(
     () =>
-      outsideLinksOf([...source.items], source.tools, cwd, rootPath, [
-        ...looked,
-        ...jobOutputFiles({ tasks }, source.tools),
-      ]),
+      outsideLinksOf(
+        [...source.items],
+        source.tools,
+        cwd,
+        rootPath,
+        jobOutputFiles({ tasks }, source.tools),
+        undefined,
+        looked,
+      ),
     [source.items, source.tools, tasks, cwd, rootPath, looked],
   );
   useEffect(() => {
-    grantOutside(workspaceId, tabId, { files: outside.files, dirs: [] });
+    grantOutside(workspaceId, tabId, { files: outside.files, dirs: [], opened: outside.opened });
   }, [workspaceId, tabId, outside]);
   useEffect(
-    () => () => grantOutside(workspaceId, tabId, { files: [], dirs: [] }),
+    () => () => grantOutside(workspaceId, tabId, { files: [], dirs: [], opened: [] }),
     [workspaceId, tabId],
   );
   const attached = useMemo(() => attachedFilesIn(source.items, cwd), [source.items, cwd]);

@@ -400,6 +400,27 @@ describe("fs read handlers — provider delegation", () => {
     expect(readAbsolute.mock.calls).toEqual([["/etc/hosts"]]);
   });
 
+  it("grants an automount image only through the files the user opened", async () => {
+    const { provider } = makeRangeProvider({ kind: "ssh" });
+    const { manager } = makeManager(provider, { kind: "ssh", remotePath: "/home/u/w" });
+    const grant = grantOutsideHandler(manager as never);
+    const image = "/net/host.example/share/a.png";
+    try {
+      await grant({ workspaceId: WORKSPACE_ID, owner: "tab", files: [image], dirs: [] });
+      expect(isOutsideGranted(WORKSPACE_ID, image)).toBe(false);
+      await grant({
+        workspaceId: WORKSPACE_ID,
+        owner: "tab",
+        files: [],
+        dirs: [],
+        opened: [image],
+      });
+      expect(isOutsideGranted(WORKSPACE_ID, image)).toBe(true);
+    } finally {
+      clearOutsideGrants();
+    }
+  });
+
   it("checks no automount path on its own, but reads one when asked", async () => {
     const { provider, readAbsolute, readAbsoluteRange } = makeRangeProvider({ kind: "ssh" });
     const { manager, getFs } = makeManager(provider, { kind: "ssh", remotePath: "/home/u/w" });

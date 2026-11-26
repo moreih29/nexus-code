@@ -180,7 +180,7 @@ describe("a changed file opened from a local chat", () => {
       now: () => ({
         source: { items: [], tools: {}, agentItems: {} },
         rootPath: root,
-        outside: { files: outside },
+        outside: { files: outside, opened: [] },
         split: true,
       }),
       changesOf: (path) => ({ [path]: "before" }),
@@ -229,10 +229,12 @@ describe("what a quick look shows is what the user looked at", () => {
   });
 
   test("asks a grant only for an absolute path outside the workspace not granted yet", () => {
-    const outside = { files: ["/tmp/granted.png"] };
+    const outside = { files: ["/tmp/granted.png"], opened: ["/net/h/opened.png"] };
     expect(needsGrant("/tmp/new.png", "/repo", outside)).toBe(true);
     expect(needsGrant("D:/out/new.png", "C:/repo", outside)).toBe(true);
     expect(needsGrant("/tmp/granted.png", "/repo", outside)).toBe(false);
+    expect(needsGrant("/net/h/opened.png", "/repo", outside)).toBe(false);
+    expect(needsGrant("/net/h/new.png", "/repo", outside)).toBe(true);
     expect(needsGrant("/repo/src/a.ts", "/repo", outside)).toBe(false);
     expect(needsGrant("image:1", "/repo", outside)).toBe(false);
     expect(needsGrant("notes.md", "/repo", outside)).toBe(false);
