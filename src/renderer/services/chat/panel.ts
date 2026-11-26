@@ -1,3 +1,4 @@
+import { linkDestination, linkHrefOf } from "../../../shared/chat/link-text";
 import { RELAY_MARK } from "../../../shared/chat/relay";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { isAutoMountPath, isNetworkLink } from "../../../shared/fs/outside-url";
@@ -396,9 +397,14 @@ const CODE_RE = /`([^`\n]+)`/g;
 
 const EXTENSION_RE = /\.[A-Za-z0-9]{1,8}$/;
 
+const resultHrefs = new WeakMap<ResultEntry, string>();
+
+export function resultHref(result: ResultEntry): string {
+  return resultHrefs.get(result) ?? result.target;
+}
+
 function linkTarget(match: RegExpMatchArray): string {
-  const target = match[1];
-  return target.startsWith("<") && target.endsWith(">") ? target.slice(1, -1) : target;
+  return linkDestination(match[1]);
 }
 
 function looksLikePath(text: string): boolean {
@@ -466,10 +472,12 @@ export function resultsOf(
     target: string,
     source: FileLinkSource,
     created = false,
+    href?: string,
   ) => {
     if (byTarget.has(target)) return;
     const entry: ResultEntry = { kind, target, created };
     resultSources.set(entry, source);
+    if (href !== undefined) resultHrefs.set(entry, href);
     byTarget.set(target, entry);
     results.push(entry);
   };
@@ -493,7 +501,7 @@ export function resultsOf(
       for (const match of block.text.matchAll(LINK_RE)) {
         const target = linkTarget(match);
         if (/^https?:\/\//.test(target)) add("url", target, answer);
-        else if (looksLikePath(target)) add("file", target, answer);
+        else if (looksLikePath(target)) add("file", target, answer, false, linkHrefOf(match[1]));
       }
       for (const match of block.text.matchAll(URL_RE)) add("url", match[0], answer);
       for (const match of block.text.matchAll(CODE_RE)) {
@@ -522,6 +530,8 @@ export function distinctResults(
         out[at] = { ...kept, created: true };
         const source = resultSources.get(kept);
         if (source) resultSources.set(out[at], source);
+        const href = resultHrefs.get(kept);
+        if (href !== undefined) resultHrefs.set(out[at], href);
       }
       continue;
     }
@@ -737,6 +747,7 @@ export function answerExtras(
     if (!answer) return;
     const named: string[] = [];
     const sources = new Map<string, FileLinkSource>();
+    const hrefs = new Map<string, string>();
     const given: (GivenImage & { from?: string; call: string })[] = [];
     const shown = new Set<string>();
     const showHere = (target: string) => {
@@ -770,6 +781,7 @@ export function answerExtras(
       named.push(result.target);
       const source = resultSources.get(result);
       if (source && !sources.has(result.target)) sources.set(result.target, source);
+      if (!hrefs.has(result.target)) hrefs.set(result.target, resultHref(result));
     }
     const files: string[] = [];
     const elsewhere: Record<string, string[]> = {};
@@ -780,7 +792,7 @@ export function answerExtras(
       files.push(path);
       if (others.length > 0) elsewhere[path] = others;
       const source = sources.get(target);
-      if (source) links[path] = { href: target, source };
+      if (source) links[path] = { href: hrefs.get(target) ?? target, source };
     }
     const lastRead = new Map<string, string>();
     for (const { from, call } of given) if (from) lastRead.set(from, call);

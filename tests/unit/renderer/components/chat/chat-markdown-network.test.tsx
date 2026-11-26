@@ -13,8 +13,10 @@ describe("a network path an answer links", () => {
   });
 
   test.each([
-    [String.raw`\\\\.\\C:\\tmp\\a.txt`, "%5C%5C.%5CC:%5Ctmp%5Ca.txt"],
-    [String.raw`\\\\?\\C:\\tmp\\a.txt`, "%5C%5C?%5CC:%5Ctmp%5Ca.txt"],
+    [String.raw`\\.\C:\tmp\a.txt`, "%5C%5C.%5CC:%5Ctmp%5Ca.txt"],
+    [String.raw`\\?\C:\tmp\a.txt`, "%5C%5C?%5CC:%5Ctmp%5Ca.txt"],
+    [String.raw`\\\\.\\C:\\tmp\\a.txt`, "%5C%5C%5C%5C.%5C%5CC:%5C%5Ctmp%5C%5Ca.txt"],
+    [String.raw`\\\\?\\C:\\tmp\\a.txt`, "%5C%5C%5C%5C?%5C%5CC:%5C%5Ctmp%5C%5Ca.txt"],
     ["%5C%5Cserver%5Cshare%5Ca.txt", "%5C%5Cserver%5Cshare%5Ca.txt"],
     ["file://server/share/a.txt", "file://server/share/a.txt"],
     ["file://localhost//server/share/a.txt", "file://localhost//server/share/a.txt"],

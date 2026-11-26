@@ -122,13 +122,13 @@ Source kinds. Each carries an optional `runId`, for a `claude -p` or `codex exec
 
 The host compares links after it cleans both sides the same way:
 
-1. Undo CommonMark backslash escapes.
+1. Undo CommonMark backslash escapes, except in a Windows path: a target that, without `<...>`, starts with a drive (`C:\`, `C:/`) or with two slashes of either kind (`\\`, `//`, `\/`, `/\`). There every `\` stays as written, so `C:\Users\me\.claude\a.png` keeps `\.claude`.
 2. Take off `<...>`.
 3. Decode HTML entities.
 4. Percent-decode.
 5. Turn `\` into `/`.
 
-Then they must match exactly. Links are inline link and image targets, autolinks, reference definitions, backtick paths of files a tool call touched, and in an `.html` parent, `href` and `src` values.
+Then they must match exactly. A reader shows and sends a Windows path link as written too: `href` is the target from the text with only `<...>` and a line tail (`:12`, `#L12`) taken off, not the target its Markdown parser gave. A two-slash target stays a UNC or device path, so it is still blocked. Links are inline link and image targets, autolinks, reference definitions, backtick paths of files a tool call touched, and in an `.html` parent, `href` and `src` values.
 
 **`files.resolve`** takes `{ workspaceId, tabId, links }`, with 1 to `MAX_FILE_RESOLVE_LINKS` (64) entries of `{ href, source }`. It answers `{ found }` in the same order, one entry per link:
 

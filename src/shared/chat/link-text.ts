@@ -16,6 +16,9 @@ const AUTOLINK = /<((?:file:|[A-Za-z]:[\\/]|\/(?![A-Za-z][\w-]*>))[^>\s]+)>/g;
 const REFERENCE = /^ {0,3}\[[^\]\n]+\]:[ \t]*(<[^>\n]+>|\S+)/gm;
 const HTML_ATTRIBUTE = /\b(?:href|src)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
 const CODE = /`([^`\n]+)`/g;
+const WRITTEN_INLINE = /\]\((<[^>\n]+>|[^)\s]+)(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\)$/;
+const WRITTEN_DEFINITION = /^ {0,3}\[[^\]\n]+\]:[ \t]*(<[^>\n]+>|\S+)/;
+const WINDOWS_PATH_TARGET = /^(?:[A-Za-z]:[\\/]|[\\/]{2})/;
 
 function entity(name: string): string | undefined {
   if (name.startsWith("#")) {
@@ -44,17 +47,49 @@ function withoutLineTail(href: string): string {
     : anchored;
 }
 
+function bareTarget(written: string): string {
+  const trimmed = written.trim();
+  return trimmed.startsWith("<") && trimmed.endsWith(">") ? trimmed.slice(1, -1) : trimmed;
+}
+
+function withEntities(text: string): string {
+  return text.replace(ENTITY, (all, name: string) => entity(name) ?? all);
+}
+
+export function isWindowsPathTarget(written: string): boolean {
+  return WINDOWS_PATH_TARGET.test(bareTarget(written));
+}
+
+export function linkDestination(written: string): string {
+  if (isWindowsPathTarget(written)) return withEntities(bareTarget(written));
+  let href = written.trim().replace(ESCAPED, "$1");
+  if (href.startsWith("<") && href.endsWith(">")) href = href.slice(1, -1);
+  return withEntities(href);
+}
+
+export function writtenDestinationIn(markdown: string): string | null {
+  return (WRITTEN_INLINE.exec(markdown) ?? WRITTEN_DEFINITION.exec(markdown))?.[1] ?? null;
+}
+
+export interface MarkdownSpan {
+  start?: { offset?: number };
+  end?: { offset?: number };
+}
+
+export function writtenHrefAt(markdown: string, span: MarkdownSpan | undefined): string | null {
+  const start = span?.start?.offset;
+  const end = span?.end?.offset;
+  if (start === undefined || end === undefined) return null;
+  const written = writtenDestinationIn(markdown.slice(start, end));
+  return written === null ? null : linkHrefOf(written);
+}
+
 export function linkHrefOf(target: string): string {
-  const trimmed = target.trim();
-  const bare = trimmed.startsWith("<") && trimmed.endsWith(">") ? trimmed.slice(1, -1) : trimmed;
-  return withoutLineTail(bare);
+  return withoutLineTail(bareTarget(target));
 }
 
 export function cleanLinkHref(raw: string): string {
-  let href = raw.trim().replace(ESCAPED, "$1");
-  if (href.startsWith("<") && href.endsWith(">")) href = href.slice(1, -1);
-  href = href.replace(ENTITY, (all, name: string) => entity(name) ?? all);
-  return withoutLineTail(decoded(href).replace(/\\/g, "/"));
+  return withoutLineTail(decoded(linkDestination(raw)).replace(/\\/g, "/"));
 }
 
 export interface LinkTextOptions {

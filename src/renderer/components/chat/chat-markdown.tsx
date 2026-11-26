@@ -1,6 +1,7 @@
 import i18next from "i18next";
 import { memo, useCallback, useMemo } from "react";
 import { type Components, defaultUrlTransform } from "react-markdown";
+import { writtenHrefAt } from "../../../shared/chat/link-text";
 import { isNetworkLink } from "../../../shared/fs/outside-url";
 import {
   type FileLinkSource,
@@ -50,10 +51,10 @@ export const ChatMarkdown = memo(function ChatMarkdown({
     [hostSource, cwd, rootPath],
   );
   const onLink = useCallback(
-    (href: string, event: React.MouseEvent<HTMLAnchorElement>) => {
+    (href: string, sent: string, event: React.MouseEvent<HTMLAnchorElement>) => {
       event.preventDefault();
       if (links && hostSource && viaHost(href) && fileLike(href, cwd)) {
-        links.openFile(href, { link: { href, source: hostSource } });
+        links.openFile(href, { link: { href: sent, source: hostSource } });
         return;
       }
       if (isNetworkLink(href)) {
@@ -84,8 +85,9 @@ export const ChatMarkdown = memo(function ChatMarkdown({
     () => ({
       a({ href, children, ...rest }) {
         const safe = typeof href === "string" ? href : "";
+        const sent = writtenHrefAt(text, rest.node?.position) ?? safe;
         const link = (icon?: React.ReactNode) => (
-          <a {...rest} href={safe} title={safe} onClick={(e) => onLink(safe, e)}>
+          <a {...rest} href={safe} title={safe} onClick={(e) => onLink(safe, sent, e)}>
             {icon}
             {children}
           </a>
@@ -94,7 +96,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
           const path = placesOf(safe, cwd)[0]?.path ?? safe;
           return (
             <HostFileLink
-              href={safe}
+              href={sent}
               source={hostSource}
               path={path}
               link={link(
@@ -132,14 +134,14 @@ export const ChatMarkdown = memo(function ChatMarkdown({
           link()
         );
       },
-      img({ src, alt }) {
+      img({ src, alt, node }) {
         const label = <ImageName alt={alt} />;
         if (typeof src === "string" && hostSource && viaHost(src) && fileLike(src, cwd)) {
           const path = placesOf(src, cwd)[0]?.path ?? src;
           if (fileKind(path) !== "image") return label;
           return (
             <HostImage
-              href={src}
+              href={writtenHrefAt(text, node?.position) ?? src}
               source={hostSource}
               path={path}
               workspaceId={workspaceId}
@@ -174,7 +176,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
         );
       },
     }),
-    [onLink, placesOf, cwd, workspaceId, rootPath, shownEarlier, hostSource, viaHost],
+    [onLink, placesOf, cwd, workspaceId, rootPath, shownEarlier, hostSource, viaHost, text],
   );
 
   return (
