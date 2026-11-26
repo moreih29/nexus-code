@@ -17,6 +17,7 @@ import {
   absoluteReadPath,
   listFiles,
   namesNetworkPath,
+  networkRootOf,
   outsideFileSource,
   type RemoteFiles,
   readFile,
@@ -226,7 +227,10 @@ export async function serveFileRead(
     authorizeAnywhere();
     const source = looked ?? (await lookUp());
     if ("error" in source) throw source.error;
-    if (network && !namesNetworkPath(source.path)) {
+    if (
+      network &&
+      (!namesNetworkPath(source.path) || networkRootOf(source.path) !== networkRootOf(absolute))
+    ) {
       throw new RpcFailure(
         RpcErrorCode.Forbidden,
         `${read.path} leads off the network path that was allowed`,

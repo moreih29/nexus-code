@@ -14,6 +14,7 @@ import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import { shortId } from "../../../shared/util/short-id";
 import type { CliServices } from "../cli/context";
 import { filePathRules } from "./file-io";
+import { namesNetworkPath } from "./files";
 import { findNote } from "./notes";
 import { RpcFailure } from "./room";
 import { unavailable } from "./serving/common";
@@ -119,8 +120,10 @@ export class AgentGate {
     const reading =
       method === "files.read" || (method === "files.list" && params.writeTarget !== true);
     const transferId = params.transferId;
+    const network = namesNetworkScope(params, scope);
+    const approval = network ? "session" : "policy";
     if (!reading && typeof transferId !== "string") {
-      await this.consent(services, request, scope);
+      await this.consent(services, request, scope, approval);
       return;
     }
     const key = JSON.stringify([
@@ -140,6 +143,7 @@ export class AgentGate {
       (entry) =>
         entry.key === key &&
         covers(entry, scope.path) &&
+        (!network || namesNetworkPath(entry.path)) &&
         (entry.tree || !scope.tree) &&
         (method !== "files.write.begin" || entry.path !== scope.path),
     );
@@ -147,7 +151,7 @@ export class AgentGate {
       grant.expiresAt = now + FILE_CONSENT_IDLE_MS;
       return;
     }
-    const answer = await this.consent(services, request, scope);
+    const answer = await this.consent(services, request, scope, approval);
     if (answer === "once" && (reading || scope.tree)) {
       if (this.fileGrants.length >= MAX_FILE_GRANTS) this.fileGrants.shift();
       this.fileGrants.push({
@@ -236,6 +240,13 @@ export class AgentGate {
       if (list.every((at) => now - at >= MINUTE_MS)) this.recent.delete(k);
     }
   }
+}
+
+function namesNetworkScope(params: AgentRequest["params"], scope: FileConsent): boolean {
+  return (
+    namesNetworkPath(scope.path) ||
+    (params.anywhere === true && typeof params.path === "string" && namesNetworkPath(params.path))
+  );
 }
 
 function refuseBeyondAsked({ method, params }: AgentRequest): void {
