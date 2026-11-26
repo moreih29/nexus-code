@@ -13,6 +13,11 @@ import {
   RpcErrorCode,
   SessionsUpdateSchema,
 } from "../../../../../packages/remote-protocol/src";
+import {
+  CrossWorkspaceConsent,
+  consentArgsForChange,
+} from "../../../../../src/main/features/cli/consent";
+import { ConsentPrompts } from "../../../../../src/main/features/cli/consent-prompts";
 import type { CliServices, PendingConsent } from "../../../../../src/main/features/cli/context";
 import type { FsProvider } from "../../../../../src/main/features/fs/bridge/provider";
 import { AgentGate } from "../../../../../src/main/features/remote/agent-gate";
@@ -36,6 +41,7 @@ import {
 import { snapshotSessions } from "../../../../../src/main/features/remote/serving/sessions";
 import { SessionWatches } from "../../../../../src/main/features/remote/session-watches";
 import type { AgentRun } from "../../../../../src/shared/claude/activity";
+import type { CliConsentAnswer } from "../../../../../src/shared/cli/ui";
 import { withSessionsSnapshot } from "../../../../helpers/sessions-snapshot";
 
 function services(pending: PendingConsent[] = []): CliServices {
@@ -67,6 +73,7 @@ function services(pending: PendingConsent[] = []): CliServices {
     claudeAgents: { list: () => [], stop: async () => false },
     consents: {
       list: () => pending,
+      listResolutions: () => [],
       answer: async (id: string) => {
         const at = pending.findIndex((p) => p.id === id);
         if (at >= 0) pending.splice(at, 1);
@@ -906,6 +913,93 @@ describe("serving the sessions", () => {
       }),
     ).toEqual({});
     expect(pending).toEqual([]);
+  });
+
+  test("a cross-workspace worktree approval has its actual scopes and reports timeout on the watch", async () => {
+    const shown = Promise.withResolvers<void>();
+    const answer = Promise.withResolvers<{ answer: CliConsentAnswer }>();
+    const prompts = new ConsentPrompts({
+      ask: () => {
+        shown.resolve();
+        return answer.promise;
+      },
+      settle: async () => false,
+    });
+    const s = { ...services(), consents: prompts };
+    const controls = { chat: true, terminal: true };
+    const updates: unknown[] = [];
+    const watches = new SessionWatches({
+      snapshot: async (from) => {
+        const snapshot = await snapshotSessions(s, undefined, undefined, "sessions.watch", from);
+        return { ...snapshot, forDevice: () => snapshot.forDevice(controls) };
+      },
+      notify: async (_to, update) => {
+        updates.push(SessionsUpdateSchema.parse(update));
+        return true;
+      },
+      pollMs: 60_000,
+    });
+    const approvals = new CrossWorkspaceConsent({
+      policy: () => "ask",
+      preallowed: () => [],
+      workspaces: s.listWorkspaces,
+      ask: async (request, signal) =>
+        (await prompts.ask(consentArgsForChange(request), undefined, signal)).answer,
+      chatSession: async () => "conversation",
+      sandboxSession: async () => null,
+    });
+    const request = {
+      fromWorkspaceId: "w3",
+      fromTabId: "other-tab",
+      toWorkspaceId: "w2",
+      change: { kind: "tabClose" } as const,
+    };
+    const check = approvals.check({ ...request, verified: true });
+    const once = approvals.check(request);
+    const settled = Promise.allSettled([once, check]);
+    try {
+      await shown.promise;
+      const first = await watches.watch("phone");
+      const pending = first.consents ?? [];
+      expect(pending.map(({ allowScopes }) => allowScopes)).toEqual([
+        { once: "once" },
+        { once: "once", session: "chat-session" },
+      ]);
+      for (const consent of pending) {
+        expect(consent).toMatchObject({
+          kind: "cross-workspace",
+          workspaceId: "w2",
+          scope: { workspaceName: "app", worktreeName: "feat" },
+        });
+        expect(consent.expiresAt - consent.at).toBe(120_000);
+      }
+
+      answer.resolve({ answer: "timeout" });
+      expect(await settled).toMatchObject(
+        pending.map(() => ({
+          status: "rejected",
+          reason: { json: { error: "approval-timeout" } },
+        })),
+      );
+      await watches.poll();
+      await watches.poll();
+      const resolutions = pending.map(({ id }) => ({ id, reason: "timeout" }));
+      expect(updates).toEqual([
+        {
+          ...first,
+          consents: [],
+          consentResolutions: resolutions,
+        },
+      ]);
+      const listed = await serveWith(() => s, { controls: () => controls })({
+        from: "phone",
+        method: "sessions.list",
+        params: {},
+      });
+      expect(listed).toMatchObject({ consents: [], consentResolutions: resolutions });
+    } finally {
+      watches.dropAll();
+    }
   });
 
   test("is unavailable until the app made its services, and serves nothing else yet", async () => {

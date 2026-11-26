@@ -93,6 +93,8 @@ describe("the consent prompts another device is told", () => {
       change: { kind: "chatInterrupt", detail: "Review" },
       eachTime: false,
       answerable: true,
+      scope: { workspaceName: "api" },
+      allowScopes: { once: "once", session: "until-restart" },
     });
     expect(listed[1]).toMatchObject({
       from: { workspaceId: "w1", workspaceName: "app", tabId: "gone" },
@@ -134,6 +136,7 @@ describe("the consent prompts another device is told", () => {
       body: "Agent Claude\nDefault model glm-5.3 → glm-5.4\nAPI key replaced",
     });
     expect(listed?.eachTime).toBe(true);
+    expect(listed?.allowScopes).toEqual({ once: "once" });
   });
 
   test("a language server path goes out as its words, in the host's language", async () => {

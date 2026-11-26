@@ -5,7 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { DialogHeader } from "@/components/ui/dialog-header";
 import { showToast } from "@/components/ui/toast";
-import { CONSENT_AGENT_NAMES, consentDetailsOf } from "../../../shared/cli/consent-copy";
+import {
+  CONSENT_AGENT_NAMES,
+  consentAllowScopes,
+  consentDetailsOf,
+} from "../../../shared/cli/consent-copy";
 import type { CliChange, CliConsentAnswer } from "../../../shared/cli/ui";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { createListenerBus } from "../../../shared/util/listener-bus";
@@ -187,7 +191,12 @@ export function CliConsentDialogRoot(): React.JSX.Element {
     ? t(`agentCli.consent.action.${change.kind}`, { detail: copy?.detail ?? "" })
     : "";
   const sandbox = change?.kind === "sandboxExecution";
-  const workspaceSession = !!prompt?.crossWorkspace && !sandbox && !change?.eachTime;
+  const { session } = consentAllowScopes(
+    change?.kind ?? "",
+    change?.eachTime,
+    Boolean(prompt?.crossWorkspace),
+  );
+  const workspaceSession = session === "chat-session";
   const description = prompt
     ? describeConsent(t, prompt, action, consentNamesTarget(prompt.change.kind), sandbox)
     : "";
@@ -253,7 +262,7 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         >
           {t("agentCli.consent.deny")}
         </Button>
-        {!change?.eachTime && (
+        {session && (
           <Button variant="outline" size="sm" onClick={() => active && settle(active, "session")}>
             {t(workspaceSession ? "agentCli.consent.chatSession" : "agentCli.consent.session")}
           </Button>
@@ -264,7 +273,7 @@ export function CliConsentDialogRoot(): React.JSX.Element {
           className={CONSENT_CONFIRM_BUTTON_CLASS}
           onClick={() => active && settle(active, "once")}
         >
-          {t(change?.eachTime ? "agentCli.consent.allow" : "agentCli.consent.once")}
+          {t(session ? "agentCli.consent.once" : "agentCli.consent.allow")}
         </Button>
       </div>
     </Dialog>

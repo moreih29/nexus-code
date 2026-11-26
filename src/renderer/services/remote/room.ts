@@ -1,8 +1,10 @@
+import i18next from "i18next";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RpcResult } from "../../../../packages/remote-protocol/src/rpc";
 import type { IpcResult } from "../../../shared/ipc/result";
 import type { RoomPeer, RoomState } from "../../../shared/remote/room";
 import { createListenerBus } from "../../../shared/util/listener-bus";
+import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { useRemoteViewStore } from "../../state/stores/remote-view";
 import { compareVersions } from "../chat/versions";
@@ -281,8 +283,20 @@ export function observePeerSessions(
       listeners,
       stop: watchPeerSessionList(deviceId, (list, requested) => {
         if (!list && next.latest?.status === "ready") return;
+        const previous = next.latest?.status === "ready" ? next.latest.list : undefined;
         next.latest = list ? { status: "ready", list, requested } : { status: "unavailable" };
-        if (list) useRemoteViewStore.getState().refresh(deviceId, list);
+        if (list) {
+          const timedOut = list.consentResolutions?.some(
+            ({ id, reason }) =>
+              reason === "timeout" &&
+              previous?.consents?.some((consent) => consent.id === id) &&
+              !list.consents?.some((consent) => consent.id === id),
+          );
+          if (timedOut) {
+            showToast({ kind: "info", message: i18next.t("agentView.remote.consentTimeout") });
+          }
+          useRemoteViewStore.getState().refresh(deviceId, list);
+        }
         listeners.notify(next.latest);
       }),
     };

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { MAX_CONSENT_RESOLUTIONS } from "../../../../packages/remote-protocol/src";
 import { ConsentPrompts } from "../../../../src/main/features/cli/consent-prompts";
 import type { CliConsentAnswer, CliUiOps } from "../../../../src/shared/cli/ui";
 
@@ -50,6 +51,7 @@ describe("the consent prompts waiting on the user", () => {
     shown[0]?.answer("once");
     expect(await asked).toEqual({ answer: "once" });
     expect(prompts.list()).toEqual([]);
+    expect(prompts.listResolutions()).toEqual([{ id: prompt?.id, reason: "answered" }]);
   });
 
   test("one without a timeout waits until answered, listed with no expiry", async () => {
@@ -83,6 +85,7 @@ describe("the consent prompts waiting on the user", () => {
     expect(settled).toEqual([{ id, answer: "session", by: "iPhone" }]);
     expect(await asked).toEqual({ answer: "session" });
     expect(prompts.list()).toEqual([]);
+    expect(prompts.listResolutions()).toEqual([{ id, reason: "answered" }]);
   });
 
   test("cancelling the requester closes and delists the pending prompt", async () => {
@@ -94,6 +97,7 @@ describe("the consent prompts waiting on the user", () => {
     await expect(asked).rejects.toThrow();
     expect(settled).toEqual([{ id, answer: "deny", by: undefined }]);
     expect(prompts.list()).toEqual([]);
+    expect(prompts.listResolutions()).toEqual([{ id, reason: "cancelled" }]);
     expect(await prompts.answer(id, "once", "iPhone")).toBe(false);
   });
 
@@ -115,5 +119,24 @@ describe("the consent prompts waiting on the user", () => {
     });
     await expect(prompts.ask(request)).rejects.toThrow("no window");
     expect(prompts.list()).toEqual([]);
+  });
+
+  test("keeps only the most recent resolutions and expires them", async () => {
+    let now = 1000;
+    const ids: (string | undefined)[] = [];
+    const prompts = new ConsentPrompts({
+      now: () => now,
+      ask: async ({ id }) => {
+        ids.push(id);
+        return { answer: "timeout" };
+      },
+      settle: async () => false,
+    });
+    for (let i = 0; i <= MAX_CONSENT_RESOLUTIONS; i++) {
+      await prompts.ask(request);
+    }
+    expect(prompts.listResolutions().map(({ id }) => id)).toEqual(ids.slice(1));
+    now += 60_000;
+    expect(prompts.listResolutions()).toEqual([]);
   });
 });

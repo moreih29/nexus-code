@@ -1942,7 +1942,8 @@
       "closeTerminalTitle": "{{device}}의 터미널을 닫을까요?",
       "closeTerminalBody": "그 컴퓨터에서 닫힙니다.",
       "consentThere": "{{device}}에서 답하세요",
-      "consentGone": "이미 답했거나 취소된 요청"
+      "consentGone": "이미 답했거나 취소된 요청",
+      "consentTimeout": "승인 시간 초과"
     }
   },
   "releaseNotes": {

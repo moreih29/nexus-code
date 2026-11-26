@@ -1942,7 +1942,8 @@
       "closeTerminalTitle": "Close the terminal on {{device}}?",
       "closeTerminalBody": "It closes on that computer.",
       "consentThere": "Answer it on {{device}}",
-      "consentGone": "Already answered or withdrawn"
+      "consentGone": "Already answered or withdrawn",
+      "consentTimeout": "Approval timed out"
     }
   },
   "releaseNotes": {

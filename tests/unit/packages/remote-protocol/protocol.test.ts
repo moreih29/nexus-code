@@ -543,7 +543,26 @@ describe("the methods", () => {
     };
     const { result } = RPC_METHODS["sessions.list"];
     const listed = result.parse({ workspaces: [], sessions: [], consents: [consent] });
+    expect(listed.consents).toEqual([consent]);
+    expect(listed.consentResolutions).toBeUndefined();
     expect(listed.consents?.[0]?.change.kind).toBe("terminalInput");
+    const scoped = {
+      ...consent,
+      kind: "cross-workspace",
+      scope: { workspaceName: "app", worktreeName: "review" },
+      allowScopes: { once: "once", session: "chat-session" },
+    };
+    const wire = {
+      workspaces: [],
+      sessions: [],
+      consents: [scoped],
+      consentResolutions: [{ id: "ended", reason: "timeout" }],
+    };
+    expect(result.parse(wire)).toEqual(wire);
+    const legacy = result.omit({ consentResolutions: true }).extend({
+      consents: z.array(RemoteConsentSchema.omit({ kind: true, scope: true, allowScopes: true })),
+    });
+    expect(legacy.parse(wire)).toEqual({ workspaces: [], sessions: [], consents: [consent] });
     const instructionEdit = {
       layer: { kind: "profile", agent: "claude", name: "default", id: "claude-default" },
       clear: true,

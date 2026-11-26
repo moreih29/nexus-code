@@ -96,7 +96,7 @@ function setup(
     listWorkspaces: () => [{ id: "w", name: "Private workspace", rootPath: "/private/project" }],
     ui: read,
     ...(options.revisions ? { sessionsRevision: revisions } : {}),
-    consents: { list: () => consents },
+    consents: { list: () => consents, listResolutions: () => [] },
     activity: () => null,
     claudeStatus: () => (terminalWait ? { status: "permissionPending", since: 0 } : null),
     claudeAsks: () =>
